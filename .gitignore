@@ -1,3 +1,22 @@
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+cmake_install.cmake
+Makefile
+
+# FetchContent and external dependencies cache
+.cmake/
+.external/
+
+# Build directories (out-of-source builds)
+build/
+out/
+
+# Python bytecode
+*.pyc
+__pycache__/
+
 # Prerequisites
 *.d
 
