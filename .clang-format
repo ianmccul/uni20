@@ -1,0 +1,31 @@
+# .clang-format
+# This configuration is based on the Google style as a starting point
+
+BasedOnStyle: Google
+
+# 2-space intents.
+IndentWidth: 2
+
+# Never use tabs. They are evil.
+UseTab: Never
+
+# Break before braces in functions, classes, namespaces, etc. Alternative is 'attach'
+BreakBeforeBraces: Allman
+
+# Allow short if statements on one line, e.g.:
+#   if (condition) return;
+AllowShortIfStatementsOnASingleLine: true
+
+# Indent access modifiers in classes and structs (e.g., public, private)
+IndentAccessModifiers: true
+
+# Indent case labels within a switch statement.
+IndentCaseLabels: true
+
+# Set a reasonable column limit.
+ColumnLimit: 120
+
+# Allow short functions on a single line.
+# Use 'All' to allow even non-member functions or friend functions to be on one line if short
+AllowShortFunctionsOnASingleLine: All
+
