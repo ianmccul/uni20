@@ -8,7 +8,7 @@ add_executable(uni20_tests
 )
 
 target_link_libraries(uni20_tests
-    PRIVATE uni20
+    PRIVATE uni20 uni20_deps
             gtest_main
 )
 

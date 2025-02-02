@@ -15,7 +15,7 @@ option(UNI20_ENABLE_MPI    "Enable MPI support" OFF)
 option(UNI20_BUILD_TESTS   "Build unit tests" ON)
 option(UNI20_BUILD_BENCH   "Build benchmarks" ON)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -36,11 +36,16 @@ FetchContent_Declare(
   GIT_TAG stable
 )
 FetchContent_MakeAvailable(mdspan)
+# Use the square bracket operator for multidimensional arrays, not needed for c++23
+# add_compile_definitions(MDSPAN_USE_BRACKET_OPERATOR=1)
 
-# Optional: Enable CUDA if requested
+# Enable CUDA if requested
 if(UNI20_ENABLE_CUDA)
   message(STATUS "CUDA support enabled. Looking for nvcc...")
   enable_language(CUDA)
+  set(UNI20_BACKEND_CUDA_DEFAULT ON)
+else()
+  set(UNI20_BACKEND_CUDA_DEFAULT OFF)
 endif()
 
 # Optionally fetch GoogleTest for unit testing
@@ -63,6 +68,16 @@ if(UNI20_BUILD_BENCH)
   FetchContent_MakeAvailable(benchmark)
 endif()
 
+# Create an interface library for common, header-only dependencies.
+add_library(uni20_deps INTERFACE)
+target_link_libraries(uni20_deps INTERFACE fmt::fmt)
+
+# Backends
+option(UNI20_BACKEND_BLAS     "Enable the BLAS backend" ON)
+option(UNI20_BACKEND_CUDA     "Enable the CUDA backend" ${UNI20_BACKEND_CUDA_DEFAULT})
+option(UNI20_BACKEND_CUSOLVER "Enable the cuSOLVER backend" OFF)
+option(UNI20_BACKEND_MKL      "Enable the MKL backend" OFF)
+
 # Add subdirectories
 add_subdirectory(src)
 
@@ -78,4 +93,4 @@ if(UNI20_BUILD_BENCH)
   add_subdirectory(benchmarks)
 endif()
 
-# add_subdirectory(examples)
+add_subdirectory(examples)

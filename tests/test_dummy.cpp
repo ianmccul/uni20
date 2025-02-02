@@ -1,5 +1,5 @@
 #include "gtest/gtest.h"
-#include "dummy.hpp"
+#include "core/dummy.hpp"
 
 TEST(DummyTest, Addition) {
     EXPECT_EQ(uni20::add(2, 3), 5);

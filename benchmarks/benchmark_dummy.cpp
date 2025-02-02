@@ -1,5 +1,5 @@
 #include <benchmark/benchmark.h>
-#include "dummy.hpp"  // Make sure this header is found via the include directories
+#include "core/dummy.hpp"  // Make sure this header is found via the include directories
 
 // Benchmark for the heavy computation function.
 static void BM_ComputeHeavyOperation(benchmark::State& state) {
