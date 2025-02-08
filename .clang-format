@@ -1,7 +1,10 @@
 # .clang-format
 # This configuration is based on the Google style as a starting point
 
-BasedOnStyle: Google
+BasedOnStyle: LLVM
+
+PointerAlignment: Left
+ReferenceAlignment: Pointer
 
 # 2-space intents.
 IndentWidth: 2
@@ -17,6 +20,9 @@ BreakBeforeBraces: Allman
 AllowShortIfStatementsOnASingleLine: true
 
 # Indent access modifiers in classes and structs (e.g., public, private)
+# this has an annoyance that structures that have no access modifiers end
+# up with a double indentation.  See https://github.com/llvm/llvm-project/issues/61631
+# Hopefully this will be fixed in clang-format one day!
 IndentAccessModifiers: true
 
 # Indent case labels within a switch statement.

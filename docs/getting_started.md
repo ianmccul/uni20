@@ -25,6 +25,7 @@ uni20/                              # Project root
 ├── docs/                           # Documentation (this guide, API docs, etc.)
 ├── src/                            # C++ source code for the uni20 library
 │   ├── CMakeLists.txt              # Library build configuration
+│   ├── common/                     # Common headers and generic functions
 │   ├── core/                       # Core code
 │   └── backends/                   # Backend implementations (BLAS/LAPACK, CUDA, etc.)
 ├── bindings/                       # Language bindings
@@ -38,7 +39,10 @@ uni20/                              # Project root
 │   ├── CMakeLists.txt              # Benchmark build configuration
 │   └── benchmark_dummy.cpp         # Benchmarking dummy functionality
 └── examples/                       # Example applications
-    └── CMakeLists.txt              # Example build configuration
+│   ├── CMakeLists.txt              # Example build configuration
+│   ├── trace_example.cpp           # Examples demonstrating the TRACE macros
+    └── mdspan_example.cpp          # Example demonstrating some features of stdex::mdspan
+
 ```
 
 ## Prerequisites
@@ -46,7 +50,7 @@ uni20/                              # Project root
 Before building the project, ensure you have the following installed:
 
 - **CMake 3.18+** (or newer; see the [CMake documentation](https://cmake.org))
-- A C++20-compliant compiler (e.g., GCC 10+, Clang 10+, MSVC)
+- A C++23-compliant compiler (e.g., GCC 13+, Clang 16+, MSVC 2022)
 - Git (for cloning the repository and fetching dependencies)
 - BLAS and LAPACK libraries are essential; any library that implements the standard Fortran interface will work.
 - (Optional) Python 3.x and pybind11 dependencies for building the Python bindings

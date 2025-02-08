@@ -1,0 +1,4 @@
+#pragma once
+
+// Automatically generated trace module enable flags:
+@TRACE_MODULE_DEFINITIONS@

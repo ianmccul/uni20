@@ -19,13 +19,24 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Sub-modules, for detailed tracing/logging
+set(SUBMODULES BLAS2 BLAS3 LAPACK CUSOLVER)
+
+# Create an option for each module.
+foreach(module IN LISTS SUBMODULES)
+  # Convert the module name to upper case.
+  string(TOUPPER "${module}" MODULE_UPPER)
+  # This creates options like ENABLE_TRACE_BLAS2, ENABLE_TRACE_BLAS3, etc.
+  option(ENABLE_TRACE_${MODULE_UPPER} "Enable tracing for ${module}" OFF)
+endforeach()
+
 include(FetchContent)
 
 # fmt library for formatting
 FetchContent_Declare(
   fmt
   GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-  GIT_TAG 9.1.0
+  GIT_TAG 11.1.3
 )
 FetchContent_MakeAvailable(fmt)
 
