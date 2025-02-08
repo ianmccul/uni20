@@ -53,7 +53,7 @@ std::map<color, std::string> ColorNames = {{color::Reset, "Reset"},
 int rows()
 {
   // Primary option: environment variable "LINES"
-  if (const char *rows_str = std::getenv("LINES"))
+  if (const char* rows_str = std::getenv("LINES"))
   {
     int n = std::atoi(rows_str);
     if (n > 0) return n;
@@ -70,7 +70,7 @@ int rows()
 int columns()
 {
   // Primary option: environment variable "COLUMNS"
-  if (const char *cols_str = std::getenv("COLUMNS"))
+  if (const char* cols_str = std::getenv("COLUMNS"))
   {
     int n = std::atoi(cols_str);
     if (n > 0) return n;
@@ -86,7 +86,7 @@ int columns()
 
 std::pair<int, int> size() { return {rows(), columns()}; }
 
-bool is_cout_terminal() { return isatty(1); }
+bool is_a_terminal(std::FILE* stream) { return isatty(fileno(stream)); }
 
 //
 // Color and formatting routines
@@ -114,7 +114,7 @@ bool iequals(std::string_view a, std::string_view b)
 }
 
 // Splits a string by a given delimiter.
-std::vector<std::string> split_string(const std::string &s, char delimiter)
+std::vector<std::string> split_string(const std::string& s, char delimiter)
 {
   std::vector<std::string> tokens;
   size_t start = 0;
@@ -137,7 +137,7 @@ std::vector<std::string> split_string(const std::string &s, char delimiter)
 
 // Parses a string to a color value. The string may be numeric (e.g. "31")
 // or a name (e.g. "Red"). In case of error, returns color::Reset.
-color parse_code(const std::string &s)
+color parse_code(const std::string& s)
 {
   if (s.empty())
     return color::Reset;
@@ -157,7 +157,7 @@ color parse_code(const std::string &s)
   else
   {
     // Look for a named color (case-insensitive).
-    for (const auto &[col, name] : ColorNames)
+    for (const auto& [col, name] : ColorNames)
     {
       if (iequals(s, name)) return col;
     }
@@ -167,11 +167,11 @@ color parse_code(const std::string &s)
 
 // Parses a comma-separated list of color codes (either numeric or named)
 // and returns the concatenated ANSI escape sequence.
-std::string parse_color_codes(const std::string &s)
+std::string parse_color_codes(const std::string& s)
 {
   std::vector<std::string> codes = split_string(s, ',');
   std::string result;
-  for (const auto &code_str : codes)
+  for (const auto& code_str : codes)
   {
     result += color_code(parse_code(code_str));
   }
@@ -190,4 +190,11 @@ std::string color_text(std::string s, color c1, color c2)
   return color_code(c1) + color_code(c2) + s + color_code(static_cast<int>(color::Reset));
 }
 
-}  // namespace terminal
+std::string color_if(std::string s, bool b, color c) { return b ? color_text(std::move(s), c) : std::move(s); }
+
+std::string color_if(std::string s, bool b, color c1, color c2)
+{
+  return b ? color_text(std::move(s), c1, c2) : std::move(s);
+}
+
+} // namespace terminal

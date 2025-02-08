@@ -32,5 +32,9 @@ int main()
   trace::formatting_options.fp_precision<double> = 5;
   TRACE("Modified number of digits displayed", vec2, foo, vec3, foo);
 
+  DEBUG_TRACE("Modified number of digits displayed", vec2, foo, vec3, foo);
+
+  TRACE_MODULE(TEST, foo, bar);
+
   return 0;
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdio>
 #include <string>
 #include <utility>
 
@@ -15,8 +16,8 @@ int rows();
 // return the number of columns in the output terminal
 int columns();
 
-// returns true if std::cout is a terminal, false otherwise
-bool is_cout_terminal();
+// returns true if the given stream is a terminal, false otherwise
+bool is_a_terminal(std::FILE* stream);
 
 enum class color
 {
@@ -62,5 +63,11 @@ std::string color_text(std::string s, color c);
 
 // returns a string with s containing the given colors (including a reset suffix)
 std::string color_text(std::string s, color c1, color c2);
+
+// return the colorized string if b is true, otherwise return s unchanged
+std::string color_if(std::string s, bool b, color c);
+
+// return the colorized string if b is true, otherwise return s unchanged
+std::string color_if(std::string s, bool b, color c1, color c2);
 
 } // namespace terminal

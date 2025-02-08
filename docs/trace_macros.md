@@ -118,10 +118,14 @@ trace::formatting_options.fp_precision<double> = 10;
 
 ### Output stream
 
-By default trace messages are sent to `stderr`.  You can redirect them to any other `FILE*` object by assigning `trace::formatting_options.output_stream` to some other stream, for example `stdout`:
+By default trace messages are sent to `stderr`.  You can redirect them to any other `FILE*` object by calling `trace::formatting_options.set_output_stream(FILE* stream)` to some other stream, for example `stdout`:
 ```cpp
-trace::formatting_options.output_stream = stdout;
+trace::formatting_options.set_output_stream(stdout);
 ```
+
+### Color output
+
+The `TRACE` macro has color support. You can control this with `trace::formatting_options::set_color_output(c)`, where `c` is one of `trace::FormattingOptions::yes`, `trace::FormattingOptions::no`, or `trace::FormattingOptions::terminal`. If the color mode is set to `terminal`, then color output will be enabled if the output stream is a tty terminal, otherwise it will be disabled.
 
 ## Using `trace.hpp` in Different Projects
 

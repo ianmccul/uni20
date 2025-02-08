@@ -20,14 +20,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Sub-modules, for detailed tracing/logging
-set(SUBMODULES BLAS2 BLAS3 LAPACK CUSOLVER)
+set(SUBMODULES BLAS2 BLAS3 LAPACK CUSOLVER TEST)
 
 # Create an option for each module.
 foreach(module IN LISTS SUBMODULES)
   # Convert the module name to upper case.
   string(TOUPPER "${module}" MODULE_UPPER)
+
+   # Set the default value based on the module name.
+  if(module STREQUAL "TEST")
+    set(default_value ON)
+  else()
+    set(default_value OFF)
+  endif()
+
   # This creates options like ENABLE_TRACE_BLAS2, ENABLE_TRACE_BLAS3, etc.
-  option(ENABLE_TRACE_${MODULE_UPPER} "Enable tracing for ${module}" OFF)
+  option(ENABLE_TRACE_${MODULE_UPPER} "Enable tracing for ${module}" ${default_value})
 endforeach()
 
 include(FetchContent)

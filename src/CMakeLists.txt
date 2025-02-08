@@ -2,7 +2,7 @@
 
 # Build the definitions string for submodule tracing for the config.hpp file
 set(TRACE_MODULE_DEFINITIONS "")
-foreach(module IN LISTS TRACE_MODULES)
+foreach(module IN LISTS SUBMODULES)
   string(TOUPPER "${module}" MODULE_UPPER)
   # The variable ENABLE_TRACE_MODULE_UPPER is defined by the option.
   if(${ENABLE_TRACE_${MODULE_UPPER}})
@@ -15,12 +15,12 @@ endforeach()
 # Configure the header file.
 configure_file(
     config.hpp.in
-    ${CMAKE_CURRENT_BINARY_DIR}/config.h
+    ${CMAKE_CURRENT_BINARY_DIR}/config.hpp
     @ONLY
 )
 
 # Make sure the directory containing config.h is on the include path.
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(uni20_deps INTERFACE ${CMAKE_CURRENT_BINARY_DIR})
 
 target_include_directories(uni20_deps INTERFACE ${PROJECT_SOURCE_DIR}/src)
 
