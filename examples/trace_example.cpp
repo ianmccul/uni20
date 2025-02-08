@@ -34,7 +34,7 @@ int main()
 
   DEBUG_TRACE("Modified number of digits displayed", vec2, foo, vec3, foo);
 
-  TRACE_MODULE(TEST, foo, bar);
+  TRACE_MODULE(TESTMODULE, foo, bar);
 
   return 0;
 }

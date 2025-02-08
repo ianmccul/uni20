@@ -20,7 +20,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Sub-modules, for detailed tracing/logging
-set(SUBMODULES BLAS2 BLAS3 LAPACK CUSOLVER TEST)
+set(SUBMODULES BLAS2 BLAS3 LAPACK CUSOLVER TESTMODULE)
 
 # Create an option for each module.
 foreach(module IN LISTS SUBMODULES)
@@ -28,7 +28,8 @@ foreach(module IN LISTS SUBMODULES)
   string(TOUPPER "${module}" MODULE_UPPER)
 
    # Set the default value based on the module name.
-  if(module STREQUAL "TEST")
+   # the TEST module is for debugging the TRACE_MODULE macro, and defaults to ON
+  if(module STREQUAL "TESTMODULE")
     set(default_value ON)
   else()
     set(default_value OFF)

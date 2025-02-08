@@ -60,6 +60,8 @@ Each macro automatically inserts the source file and line number into the trace 
 
   This macro checks the compile‑time flag (e.g. `ENABLE_TRACE_BLAS3`) and, if enabled, outputs the trace message. If the flag is false, the entire expression is discarded - no code is emitted.
 
+  There is a module named `TESTMODULE` that defaults to `enabled`, which is intended for testing the `TRACE_MODULE` macro itself.
+
 - **Debug-Only Trace**
 
   ```cpp
