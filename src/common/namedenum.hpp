@@ -4,21 +4,19 @@
 // associated with each item.
 //
 // To use, define a class or struct that has 4 members:
-// Enum        - must be an enumeration type
+// Enum        - must be an enumeration type; enumeration constants must be contiguous and starting from 0.
 // Default     - a constexpr value of type Enum, that is the value of a default-constructed NamedEnumeration
-// StaticName  - must be a static constexpr of type char const* that gives a desciption of the enumeration.
-// Names       - must be a static constexpr array of strings, of exactly the same size as Enum.
-//
-// Note that although Names is static constexpr, it must be instantiated in a .cpp file.
+// StaticName  - must be a static constexpr of type const char* that gives a desciption of the enumeration.
+// Names       - must be a static constexpr std::array of strings, of exactly the same size as Enum.
 //
 
 // An example:
 // struct MyEnumTraits
 // {
 //    enum Enum { Some, Enumeration, Elements };
-//    static constexpr Enum Default = Enumeration;
-//    static constexpr const char* StaticName = "the example enumeration";
-//    static constexpr std::array<const char*, 3> Names = { "some", "enumeration", "elements" };
+//    inline static constexpr Enum Default = Enumeration;
+//    inline static constexpr const char* StaticName = "the example enumeration";
+//    inline static constexpr std::array<const char*, 3> Names = { "some", "enumeration", "elements" };
 // };
 //
 // When constructing a NamedEnumeration from a string, the name is not case sensitive.
