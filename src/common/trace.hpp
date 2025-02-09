@@ -13,16 +13,19 @@
 #include <utility>
 #include <vector>
 
-// The TRACE macro: forwards both the string version and evaluated arguments.
+// TRACE MACROS
+// These macros forward both the stringified expression list and the evaluated
+// arguments, along with file and line info, to the corresponding trace functions.
+// __VA_OPT__ is used to conditionally include the comma when no extra arguments are provided.
 
-#define TRACE(...) trace::OutputTraceCall(#__VA_ARGS__, __FILE__, __LINE__, __VA_ARGS__)
+#define TRACE(...) trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));
 
 #define TRACE_IF(cond, ...)                                                                                            \
   do                                                                                                                   \
   {                                                                                                                    \
     if (cond)                                                                                                          \
     {                                                                                                                  \
-      TRACE(__VA_ARGS__);                                                                                              \
+      trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                    \
     }                                                                                                                  \
   } while (0)
 
@@ -31,7 +34,7 @@
   {                                                                                                                    \
     if constexpr (ENABLE_TRACE_##m)                                                                                    \
     {                                                                                                                  \
-      trace::OutputTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__, __VA_ARGS__);                                 \
+      trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                          \
     }                                                                                                                  \
   } while (0)
 
@@ -42,27 +45,115 @@
     {                                                                                                                  \
       if (cond)                                                                                                        \
       {                                                                                                                \
-        trace::OutputTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__, __VA_ARGS__);                               \
+        trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
       }                                                                                                                \
     }                                                                                                                  \
   } while (0)
 
-#if defined(NDEBUG)
-#define DEBUG_TRACE(...)
-#define DEBUG_TRACE_IF(...)
-#define DEBUG_TRACE_MODULE(...)
-#define DEBUG_TRACE_MODULE_IF(...)
+// CHECK and PRECONDITION MACROS
+// These macros check a condition and, if false, print diagnostic information and abort.
+// They forward additional debug information similarly to the TRACE macros.
 
+#define CHECK(cond, ...)                                                                                               \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (cond)                                                                                                          \
+    {                                                                                                                  \
+      trace::CheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
+    }                                                                                                                  \
+  } while (0)
+
+#define CHECK_EQUAL(a, b, ...)                                                                                         \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (!((a) == (b)))                                                                                                 \
+    {                                                                                                                  \
+      trace::CheckEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,                   \
+                            b __VA_OPT__(, __VA_ARGS__));                                                              \
+    }                                                                                                                  \
+  } while (0)
+
+#define PRECONDITION(cond, ...)                                                                                        \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (cond)                                                                                                          \
+    {                                                                                                                  \
+      trace::PreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
+    }                                                                                                                  \
+  } while (0)
+
+#define PRECONDITION_EQUAL(a, b, ...)                                                                                  \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (!((a) == (b)))                                                                                                 \
+    {                                                                                                                  \
+      trace::PreconditionEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,            \
+                                   b __VA_OPT__(, __VA_ARGS__));                                                       \
+    }                                                                                                                  \
+  } while (0)
+
+// PANIC is used to unconditionally abort
+#define PANIC(...) trace::PanicCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));
+
+// ERROR MACROS
+// These macros report an error, printing debug information and then either abort
+// or throw an exception based on a global configuration flag.
+#define ERROR(...) trace::ErrorCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));
+
+#define ERROR_IF(cond, ...)                                                                                            \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (cond)                                                                                                          \
+    {                                                                                                                  \
+      trace::ErrorCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
+    }                                                                                                                  \
+  } while (0)
+
+// ---------------------------------------------------------------------------
+// DEBUG MACROS (compile to nothing if NDEBUG is defined)
+#if defined(NDEBUG)
+#define DEBUG_TRACE(...)                                                                                               \
+  do                                                                                                                   \
+  {                                                                                                                    \
+  } while (0)
+#define DEBUG_TRACE_IF(...)                                                                                            \
+  do                                                                                                                   \
+  {                                                                                                                    \
+  } while (0)
+#define DEBUG_TRACE_MODULE(...)                                                                                        \
+  do                                                                                                                   \
+  {                                                                                                                    \
+  } while (0)
+#define DEBUG_TRACE_MODULE_IF(...)                                                                                     \
+  do                                                                                                                   \
+  {                                                                                                                    \
+  } while (0)
+#define DEBUG_CHECK(...)                                                                                               \
+  do                                                                                                                   \
+  {                                                                                                                    \
+  } while (0)
+#define DEBUG_CHECK_EQUAL(...)                                                                                         \
+  do                                                                                                                   \
+  {                                                                                                                    \
+  } while (0)
+#define DEBUG_PRECONDITION(...)                                                                                        \
+  do                                                                                                                   \
+  {                                                                                                                    \
+  } while (0)
+#define DEBUG_PRECONDITION_EQUAL(...)                                                                                  \
+  do                                                                                                                   \
+  {                                                                                                                    \
+  } while (0)
 #else
 
-#define DEBUG_TRACE(...) trace::OutputDebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__, __VA_ARGS__)
+#define DEBUG_TRACE(...) trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));
 
 #define DEBUG_TRACE_IF(cond, ...)                                                                                      \
   do                                                                                                                   \
   {                                                                                                                    \
     if (cond)                                                                                                          \
     {                                                                                                                  \
-      DEBUG_TRACE(__VA_ARGS__);                                                                                        \
+      trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                               \
     }                                                                                                                  \
   } while (0)
 
@@ -71,7 +162,7 @@
   {                                                                                                                    \
     if constexpr (ENABLE_TRACE_##m)                                                                                    \
     {                                                                                                                  \
-      trace::OutputDebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__, __VA_ARGS__);                            \
+      trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                     \
     }                                                                                                                  \
   } while (0)
 
@@ -82,8 +173,46 @@
     {                                                                                                                  \
       if (cond)                                                                                                        \
       {                                                                                                                \
-        trace::OutputDebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__, __VA_ARGS__);                          \
+        trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                   \
       }                                                                                                                \
+    }                                                                                                                  \
+  } while (0)
+
+#define DEBUG_CHECK(cond, ...)                                                                                         \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (cond)                                                                                                          \
+    {                                                                                                                  \
+      trace::DebugCheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
+    }                                                                                                                  \
+  } while (0)
+
+#define DEBUG_CHECK_EQUAL(a, b, ...)                                                                                   \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (!((a) == (b)))                                                                                                 \
+    {                                                                                                                  \
+      trace::DebugCheckEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,              \
+                                 b __VA_OPT__(, __VA_ARGS__));                                                         \
+    }                                                                                                                  \
+  } while (0)
+
+#define DEBUG_PRECONDITION(cond, ...)                                                                                  \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (cond)                                                                                                          \
+    {                                                                                                                  \
+      trace::DebugPreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                 \
+    }                                                                                                                  \
+  } while (0)
+
+#define DEBUG_PRECONDITION_EQUAL(a, b, ...)                                                                            \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if (!((a) == (b)))                                                                                                 \
+    {                                                                                                                  \
+      trace::DebugPreconditionEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,       \
+                                        b __VA_OPT__(, __VA_ARGS__));                                                  \
     }                                                                                                                  \
   } while (0)
 
@@ -126,6 +255,9 @@ struct FormattingOptions
 
     static bool should_show_color() { return showColor; }
 
+    static void set_errors_abort(bool b) { errorsAbort = b; }
+    static bool errors_abort() { return errorsAbort; }
+
     static void set_terminal_style(const std::string& Item, const terminal::TerminalStyle& style)
     {
       Styles[Item] = style;
@@ -160,6 +292,7 @@ struct FormattingOptions
     inline static FILE* outputStream = stderr;
     inline static ColorOptions color = terminal::getenv_or_default("UNI20_COLOR", ColorOptions());
     inline static bool showColor = terminal::is_a_terminal(stderr);
+    inline static bool errorsAbort = true;
 
     inline static std::map<std::string, terminal::TerminalStyle> Styles = {
         {"TRACE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE", "Cyan")},
@@ -170,6 +303,13 @@ struct FormattingOptions
         {"TRACE_FILENAME", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_FILENAME", "Red")},
         {"TRACE_LINE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_LINE", "Bold")},
         {"TRACE_STRING", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_STRING", "LightBlue")},
+        {"CHECK", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_CHECK", "Red")},
+        {"DEBUG_CHECK", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_DEBUG_CHECK", "Red")},
+        {"PRECONDITION", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_PRECONDITION", "Red")},
+        {"DEBUG_PRECONDITION",
+         terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_DEBUG_PRECONDITION", "Red")},
+        {"PANIC", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_PANIC", "Red")},
+        {"ERROR", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_ERROR", "Red")},
     };
 
     static void updateShowColor();
@@ -524,6 +664,13 @@ std::string formatItemString(const std::pair<std::string, bool>& name, const std
 }
 
 // formatTrace: Recursively formats all trace items into one string.
+
+inline std::string formatParameters(std::vector<std::pair<std::string, bool>>::const_iterator b,
+                                    const FormattingOptions& opts)
+{
+  return std::string();
+}
+
 template <typename T, typename... Ts>
 std::string formatParameters(std::vector<std::pair<std::string, bool>>::const_iterator b, const FormattingOptions& opts,
                              const T& first, const Ts&... rest)
@@ -548,46 +695,211 @@ std::string formatParameterList(const char* exprList, const FormattingOptions& o
   return formatParameters(names.begin(), opts, args...);
 }
 
-template <typename... Args> void OutputTraceCall(const char* exprList, const char* file, int line, const Args&... args)
+template <typename... Args> void TraceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
   std::string preamble = trace::formatting_options.format_style("TRACE", "TRACE") + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{} : {}\n", preamble, trace_str);
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
+             trace_str);
 }
 
 template <typename... Args>
-void OutputTraceModuleCall(const char* module, const char* exprList, const char* file, int line, const Args&... args)
+void TraceModuleCall(const char* module, const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
   std::string preamble = trace::formatting_options.format_module_style("TRACE", module) + " in module " +
                          trace::formatting_options.format_module_style(module, module) + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{} : {}\n", preamble, trace_str);
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
+             trace_str);
 }
 
-template <typename... Args>
-void OutputDebugTraceCall(const char* exprList, const char* file, int line, const Args&... args)
+template <typename... Args> void DebugTraceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
   std::string preamble = trace::formatting_options.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{} : {}\n", preamble, trace_str);
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
+             trace_str);
 }
 
 template <typename... Args>
-void OutputDebugTraceModuleCall(const char* module, const char* exprList, const char* file, int line,
-                                const Args&... args)
+void DebugTraceModuleCall(const char* module, const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
   std::string preamble = trace::formatting_options.format_module_style("DEBUG_TRACE", module) + " in module " +
                          trace::formatting_options.format_module_style(module, module) + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{} : {}\n", preamble, trace_str);
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
+             trace_str);
+}
+
+template <typename... Args>
+void CheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble = trace::formatting_options.format_style("CHECK", "CHECK") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
+                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
+             trace_str.empty() ? "" : "\n : ", trace_str);
+  std::abort();
+}
+
+template <typename... Args>
+void DebugCheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble = trace::formatting_options.format_style("DEBUG_CHECK", "DEBUG_CHECK") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
+                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
+             trace_str.empty() ? "" : "\n : ", trace_str);
+  std::abort();
+}
+
+template <typename... Args>
+void CheckEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble =
+      trace::formatting_options.format_style("CHECK_EQUAL", "CHECK") + " at " +
+      trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+      trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
+                  trace::formatting_options.format_style(b, "TRACE_EXPR"));
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
+             trace_str.empty() ? "" : "\n : ", trace_str);
+  std::abort();
+}
+
+template <typename... Args>
+void DebugCheckEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
+                         const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble =
+      trace::formatting_options.format_style("DEBUG_CHECK_EQUAL", "DEBUG_CHECK") + " at " +
+      trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+      trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
+                  trace::formatting_options.format_style(b, "TRACE_EXPR"));
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
+             trace_str.empty() ? "" : "\n : ", trace_str);
+  std::abort();
+}
+
+template <typename... Args>
+void PreconditionCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble = trace::formatting_options.format_style("PRECONDITION", "PRECONDITION") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
+                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
+             trace_str.empty() ? "" : "\n : ", trace_str);
+  std::abort();
+}
+
+template <typename... Args>
+void DebugPreconditionCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble = trace::formatting_options.format_style("DEBUG_PRECONDITION", "DEBUG_PRECONDITION") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
+                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
+             trace_str.empty() ? "" : "\n : ", trace_str);
+  std::abort();
+}
+
+template <typename... Args>
+void PreconditionEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
+                           const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble =
+      trace::formatting_options.format_style("PRECONDITION_EQUAL", "PRECONDITION") + " at " +
+      trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+      trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
+                  trace::formatting_options.format_style(b, "TRACE_EXPR"));
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
+             trace_str.empty() ? "" : "\n : ", trace_str);
+  std::abort();
+}
+
+template <typename... Args>
+void DebugPreconditionEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
+                                const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble =
+      trace::formatting_options.format_style("DEBUG_PRECONDITION_EQUAL", "DEBUG_PRECONDITION") + " at " +
+      trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+      trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
+                  trace::formatting_options.format_style(b, "TRACE_EXPR"));
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
+             trace_str.empty() ? "" : "\n : ", trace_str);
+  std::abort();
+}
+
+template <typename... Args> void PanicCall(const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble = trace::formatting_options.format_style("PANIC", "PANIC") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
+  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
+             trace_str);
+  std::abort();
+}
+
+template <typename... Args> void ErrorCall(const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble = trace::formatting_options.format_style("ERROR", "ERROR") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
+  std::string Msg = fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
+  if (trace::formatting_options.errors_abort())
+  {
+    fmt::print(trace::formatting_options.get_output_stream(), "{}", Msg);
+    std::abort();
+  }
+  throw std::runtime_error(Msg);
+}
+
+template <typename... Args>
+void ErrorIf(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  std::string preamble = trace::formatting_options.format_style("ERROR", "ERROR") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
+                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  std::string Msg = fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
+  if (trace::formatting_options.errors_abort())
+  {
+    fmt::print(trace::formatting_options.get_output_stream(), "{}", Msg);
+    std::abort();
+  }
+  throw std::runtime_error(Msg);
 }
 
 } // namespace trace

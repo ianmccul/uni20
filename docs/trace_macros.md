@@ -4,27 +4,73 @@ This guide explains the purpose, usage, and customization of the various trace m
 
 ## Overview of Macros
 
-The system provides the following macros:
+The system provides the following macros for logging, diagnostics, and error handling:
 
-- **General Tracing**
-  - `TRACE(...)`
-    Outputs a trace message along with the file name and line number.
-  - `TRACE_IF(condition, ...)`
-    Outputs a trace message **only if** the specified condition is true.
+### General Tracing
 
-- **Module-Specific Tracing**
-  - `TRACE_MODULE(module, ...)`
-    Outputs a trace message for a given module. The module’s tracing flag is controlled by a compile‑time boolean (e.g. `ENABLE_TRACE_BLAS3`), generated automatically via CMake.
-  - `TRACE_MODULE_IF(module, condition, ...)`
-    Outputs a trace message for a module **only if** both the module is enabled and the condition is true.
+- **`TRACE(...)`**  
+  Outputs a trace message along with the source file name and line number.  
 
-- **Debug-Only Variants** (emit no code when `NDEBUG` is defined)
-  - `DEBUG_TRACE(...)`
-  - `DEBUG_TRACE_IF(condition, ...)`
-  - `DEBUG_TRACE_MODULE(module, ...)`
-  - `DEBUG_TRACE_MODULE_IF(module, condition, ...)`
+- **`TRACE_IF(condition, ...)`**  
+  Outputs a trace message **only if** the specified condition is true.
 
-Each macro automatically inserts the source file and line number into the trace output, so that you can quickly locate where the trace message was generated.
+These macros are intended for debugging; generally speaking they should **not** appear in a stable release.
+
+### Module-Specific Tracing
+
+- **`TRACE_MODULE(module, ...)`**  
+  Outputs a trace message for a given module. The module’s tracing flag is controlled by a configure option (e.g. `ENABLE_TRACE_BLAS3`), which is generated automatically via `cmake`.
+
+- **`TRACE_MODULE_IF(module, condition, ...)`**  
+  Outputs a trace message for a module **only if** both the module is enabled and the specified condition is true.
+
+Because the module-specific macros are only enabled if configured via `cmake`, there is no problem to use these macros freely. A typical use for a module-specific `TRACE` macro would be to trace all calls to an external API, for example.
+
+### Debug-Only Variants  
+These macros are compiled away (i.e. expand to no code) when `NDEBUG` is defined:
+
+- **`DEBUG_TRACE(...)`**
+- **`DEBUG_TRACE_IF(condition, ...)`**
+- **`DEBUG_TRACE_MODULE(module, ...)`**
+- **`DEBUG_TRACE_MODULE_IF(module, condition, ...)`**
+
+Each of these macros automatically inserts the source file name and line number into the trace output, so that you can quickly locate where the message was generated. Although the `DEBUG` variants of the macros will not have an effect on a *Release* build, they should
+still be removed as soon as possible, since spurious `DEBUG_TRACE` calls will cause unnecessary spam when debugging.
+
+### Precondition / Check Macros
+
+These macros serve as general assertion mechanisms for logic errors that indicate that the program is in an ill-defined state and it does not make sense to continue execution. They are intended for use in enforcing preconditions and checking invariants. These macros display a message and then call `std::abort()`.
+
+- **`PRECONDITION(condition, ...)`**  
+  Similar to `CHECK`, but prints "PRECONDITION" in its output to indicate that the condition is a precondition.  
+  *Intended for validating function inputs and preconditions.*
+
+- **`PRECONDITION_EQUAL(a, b, ...)`**  
+  Checks that `a` equals `b` as a precondition. If not, it prints a precondition-specific failure message and aborts.
+
+- **`CHECK(condition, ...)`**  
+  Checks a condition and, if it evaluates to false, prints a diagnostic message and aborts execution.  
+  *Intended for general assert checks.*
+
+- **`CHECK_EQUAL(a, b, ...)`**  
+  Checks that `a` equals `b`. If not, it prints a message showing the stringified expressions (including `a` and `b`) along with any additional debug information, then aborts.
+
+The `PRECONDITION` macros behave identically to their `CHECK` counterparts except for the label printed in the diagnostic output (e.g. "PRECONDITION" vs. "CHECK"). This distinction helps differentiate between general runtime assertions and conditions that must be met before a function is executed.
+
+- **`PANIC(...)`**
+  Displays a message and immediately calls `std::abort()`.
+
+### Error Macros
+
+These macros are designed for handling logic errors where something unexpected has occurred but it is not necessarily fatal (e.g. invalid user input). While such errors typically result in aborting the program, the behavior is configurable via a global flag. In a typical C++ program, the default is to abort execution; however, when integrated with Python bindings (or similar), you can adjust the behavior so that an exception is thrown instead of aborting.
+
+- **`ERROR(...)`**  
+  Unconditionally reports an error by printing diagnostic information (including file, line, and any additional context) and then either aborts the program or throws an exception based on the global error configuration.
+
+- **`ERROR_IF(condition, ...)`**  
+  Reports an error (as described above) only if the specified condition is true.
+
+By default, these macros display a message and call `std::abort()`, however they can be configured to instead throw an exception by calling `trace::formatting_options.set_errors_abort(false)`.
 
 ## How to Use the Macros
 
@@ -36,29 +82,35 @@ Each macro automatically inserts the source file and line number into the trace 
   TRACE("Starting computation", x, y);
   ```
 
-  This expands to a call to the trace function (e.g., `OutputTraceCall`) with the stringified expression list and the current file and line. The output might look like:
+  This expands to a call to the trace function (e.g., `TraceCall`) with the stringified expression list and the current file and line number. The output might look like:
 
   ```
   TRACE at /path/to/source.cpp:123 : Starting computation, x = 42, y = 17
   ```
 
-  If the parameter is a string literal (such as `"Starting computation"`), or contains a string literal (such as `"Result:" + R`) then the value of the string is displayed alone.  If the parameter is any other type of variable or expression, then the output is of the form `expression = value`.  There is no need to enclose expressions in brackets if they contain commas, so for example `TRACE(std::vector<int, std::allocator<int>>{0,1,2});` works fine. Even though the preprocessor treats this as a macro with two parameters, the trace function recognises that they are a single C++ parameter.
+  *Behavior:*  
+  - If the parameter is a string literal (e.g. `"Starting computation"`), or contains a string literal (e.g. `"Result:" + R`), then the literal value is displayed alone.  
+  - Otherwise, the output shows the expression and its evaluated value (e.g. `x = 42`).
+
+  Expressions containing commas (such as `TRACE(std::vector<int>{0,1,2});`) work fine because the trace function internally reconstructs the correct parameter list.
+
 
   If the output of a variable spans multiple lines, then it will display that variable on a separate line. The trace library has built-in support for displaying containers (and nested containers up to 2 levels; this could be extended in the future). For example
   ```cpp
 
-  std::vector<std::vector<int>> vec2{{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
-  foo = 42;
-  TRACE(vec2, foo);
+  std::vector<std::vector<int>> vec2d{{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
+  int foo = 42;
+  TRACE(vec2d, foo);
   ```
   produces output similar to
   ```bash
   TRACE at file:line :
-  vec2 = [ [ 1, 2, 3 ],
-           [ 4, 5, 6 ],
-           [ 7, 8, 9 ] ], foo = 42
+  vec2d = [ [ 1, 2, 3 ],
+            [ 4, 5, 6 ],
+            [ 7, 8, 9 ] ], foo = 42
   ```
   Note that the following parameters are not split onto separate lines (unless they also span multiple lines) in order to keep the output as compact as possible.
+
 
 - **Conditional Trace**
 
@@ -74,9 +126,9 @@ Each macro automatically inserts the source file and line number into the trace 
   TRACE_MODULE(BLAS3, "BLAS3: performing matrix multiplication with", A, B, C);
   ```
 
-  This macro checks the compile‑time flag (e.g. `ENABLE_TRACE_BLAS3`) and, if enabled, outputs the trace message. If the flag is false, the entire expression is discarded - no code is emitted.
+  This macro checks the compile‑time flag (e.g. `ENABLE_TRACE_BLAS3`) and, if enabled, outputs the trace message along with the module name. If the flag is false, no code is emitted.
 
-  There is a module named `TESTMODULE` that defaults to `enabled`, which is intended for testing the `TRACE_MODULE` macro itself.
+  *Note:* There is a module named `TESTMODULE` that defaults to enabled, intended for testing the `TRACE_MODULE` macro itself.
 
 - **Debug-Only Trace**
 
@@ -86,19 +138,73 @@ Each macro automatically inserts the source file and line number into the trace 
 
   When building a release version (with `NDEBUG` defined), these macros compile to no code.
 
-### How the File and Line Number are Included
+- **Precondition / Check Macros**
 
-Each macro automatically passes `__FILE__` and `__LINE__` to the underlying trace function. For example, the basic `TRACE` macro is defined as follows:
+  These macros are used for asserting that certain conditions (or preconditions) hold true. They print diagnostic information (including file and line) and then abort execution if the condition is false.
 
-```cpp
-#define TRACE(...) OutputTraceCall(#__VA_ARGS__, __FILE__, __LINE__, __VA_ARGS__)
+  - **`CHECK(condition, ...)`**  
+    Used for general assertions. For example:
+
+    ```cpp
+    CHECK(x != 0, "x must not be zero");
+    ```
+
+    If `x` is zero, this macro prints a message (including the stringified condition and any additional context) and aborts.
+
+  - **`CHECK_EQUAL(a, b, ...)`**  
+    Checks that `a` equals `b`. If not, it prints both the expressions and their evaluated values along with any extra debug information, then aborts.
+
+    ```cpp
+    CHECK_EQUAL(foo, 42, "foo must equal 42");
+    ```
+
+  - **`PRECONDITION(condition, ...)`**  
+    Similar to `CHECK`, but intended for precondition checks on function inputs. The printed label is "PRECONDITION" rather than "CHECK".
+
+    ```cpp
+    PRECONDITION(ptr != nullptr, "ptr cannot be null");
+    ```
+
+  - **`PRECONDITION_EQUAL(a, b, ...)`**  
+    Similar to `CHECK_EQUAL`, but labels the message as a precondition check.
+
+    ```cpp
+    PRECONDITION_EQUAL(x, y, "x and y must be equal as preconditions");
+    ```
+
+- **Error Macros**
+
+  These macros are used when an error has occurred that is recoverable (for example, invalid user input). In a typical C++ program, the default behavior is to abort execution, but this can be configured (for example, by the Python bindings) to throw an exception instead.
+
+  - **`ERROR(...)`**  
+    Unconditionally reports an error. It prints a message with diagnostic information (file, line, and any additional context) and then either aborts or throws an exception based on a global configuration flag.
+
+    ```cpp
+    ERROR("Invalid parameter value for mode");
+    ```
+
+  - **`ERROR_IF(condition, ...)`**  
+    Reports an error only if the specified condition is true.
+
+    ```cpp
+    ERROR_IF(user_input < 0, "User input must be non-negative");
+    ```
+
+Each of these macros automatically inserts the source file and line number into the output, ensuring that debugging and trace information is precise and helps quickly locate the origin of the message.
+
+### Enabling Module-Specific Tracing with CMake Options
+
+The trace library controls whether tracing is enabled for specific modules through compile‑time flags. For example, the macro `TRACE_MODULE(BLAS3, ...)` checks the flag `ENABLE_TRACE_BLAS3`. You can control this flag by passing a CMake option when configuring your build.
+
+#### Enabling Tracing for a Module
+
+To enable tracing for a module, for example `BLAS3`, you can run:
+
+```bash
+cmake -DENABLE_TRACE_BLAS3=ON path/to/your/source
 ```
 
-The trace output is then prefixed with something like:
-
-```
-TRACE at /path/to/source.cpp:123 : ...
-```
+This sets the CMake variable `ENABLE_TRACE_BLAS3` to `ON` (the default is usually OFF if not specified). CMake will then generate a configuration header (for example, `config.h`) in which `ENABLE_TRACE_BLAS3` is defined, and your source code will include that header.
 
 ## Customizing the Output Formatting
 
@@ -106,6 +212,8 @@ TRACE at /path/to/source.cpp:123 : ...
 
 The `TRACE` macro has color support. These are controlled by environment variables, and can be overridden under program control.
 It supports both the traditional 16-color palette and 24-bit truecolor (RGB) values, along with text attributes. These options can be combined using semicolons in style strings and can be controlled via environment variables. Note that not all terminals support color output, and some terminals might support 16-color palettes but not 24-bit RGB values.
+
+Below is an extended version of the environment variable documentation in Markdown that includes the new variables for CHECK, DEBUG_CHECK, PRECONDITION, DEBUG_PRECONDITION, PANIC, and ERROR:
 
 ### Environment Variables for Color Customization
 
@@ -127,6 +235,12 @@ Below is a table summarizing the basic environment variables, their purposes, an
 | **UNI20_COLOR_TRACE_MODULE**     | Default color for module-specific trace messages (used by `TRACE_MODULE`).     | `LightCyan`  
 | **UNI20_COLOR_TRACE_FILENAME**   | Color for displaying filenames in trace output.         | `Red`    |
 | **UNI20_COLOR_TRACE_LINE**       | Color for displaying line numbers in trace output.         | `Bold`        |
+| **UNI20_COLOR_CHECK**            | Color for `CHECK` messages (general assertions).                                                                                                                   | `Red`                  |
+| **UNI20_COLOR_DEBUG_CHECK**      | Color for `DEBUG_CHECK` messages (assertions only enabled in debug builds).                                                                                          | `Red`                  |
+| **UNI20_COLOR_PRECONDITION**     | Color for `PRECONDITION` messages (assertions on function preconditions).                                                                                            | `Red`                  |
+| **UNI20_COLOR_DEBUG_PRECONDITION**| Color for `DEBUG_PRECONDITION` messages (debug-only precondition checks).                                                                                            | `Red`                  |
+| **UNI20_COLOR_PANIC**            | Color for `PANIC` messages (indicating unrecoverable errors).                                                                                                      | `Red`                  |
+| **UNI20_COLOR_ERROR**            | Color for `ERROR` messages (unexpected errors that may result in an exception).                                                          | `Red`                  |
 
 In addition, you can customize the color for specific trace modules using environment variables of the form:
 

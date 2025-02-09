@@ -38,5 +38,7 @@ int main()
 
   TRACE_MODULE(TESTMODULE, foo, bar);
 
+  PANIC("Test panic; the program will abort now", foo);
+
   return 0;
 }
