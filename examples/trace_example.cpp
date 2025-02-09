@@ -11,6 +11,8 @@ int main()
   std::vector<std::vector<int>> vec2{{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
   std::vector<std::vector<double>> vec3{{1, 2, 3}, {4, 5, 6}, {7, 8, 10}};
 
+  TRACE(vec2, foo);
+
   // A simple trace of variables.
   TRACE(foo, bar, vec);
 

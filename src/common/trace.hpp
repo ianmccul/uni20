@@ -1,15 +1,17 @@
 #pragma once
 
+#include "config.hpp"
+#include "namedenum.hpp"
+#include "terminal.hpp"
+
 #include <algorithm>
 #include <cctype>
+#include <fmt/core.h>
 #include <iostream>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include "config.hpp"
-#include "terminal.hpp"
-#include <fmt/core.h>
 
 // The TRACE macro: forwards both the string version and evaluated arguments.
 
@@ -102,12 +104,20 @@ struct FormattingOptions
     inline static int terminal_width =
         terminal::columns(); // Maximum width (in characters) before switching to multi-line.
 
-    enum ColorOptions
+    struct ColorOptionTraits
     {
-      yes,
-      no,
-      terminal
+        enum Enum
+        {
+          yes,
+          no,
+          autocolor
+        };
+        static constexpr Enum Default = autocolor;
+        static constexpr const char* StaticName = "Color options (yes/no/auto)";
+        static constexpr std::array<const char*, 3> Names = {"yes", "no", "auto"};
     };
+
+    using ColorOptions = NamedEnumeration<ColorOptionTraits>;
 
     static void set_output_stream(FILE* stream);
     static FILE* get_output_stream() { return outputStream; }
@@ -116,10 +126,51 @@ struct FormattingOptions
 
     static bool should_show_color() { return showColor; }
 
+    static void set_terminal_style(const std::string& Item, const terminal::TerminalStyle& style)
+    {
+      Styles[Item] = style;
+    }
+
+    static terminal::TerminalStyle get_terminal_style(const std::string& Item)
+    {
+      if (!Styles.count(Item))
+        Styles[Item] = terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_" + Item, "");
+      return Styles[Item];
+    }
+
+    static terminal::TerminalStyle get_module_terminal_style(const std::string& Module)
+    {
+      if (!Styles.count(Module))
+        Styles[Module] =
+            terminal::getenv_or_default("UNI20_COLOR_MODULE_" + Module, get_terminal_style("TRACE_MODULE"));
+      return Styles[Module];
+    }
+
+    static std::string format_style(const std::string& Str, const std::string& Style)
+    {
+      return should_show_color() ? terminal::color_text(Str, get_terminal_style(Style)) : Str;
+    }
+
+    static std::string format_module_style(const std::string& Str, const std::string& Style)
+    {
+      return should_show_color() ? terminal::color_text(Str, get_module_terminal_style(Style)) : Str;
+    }
+
   private:
     inline static FILE* outputStream = stderr;
-    inline static ColorOptions color = terminal;
+    inline static ColorOptions color = terminal::getenv_or_default("UNI20_COLOR", ColorOptions());
     inline static bool showColor = terminal::is_a_terminal(stderr);
+
+    inline static std::map<std::string, terminal::TerminalStyle> Styles = {
+        {"TRACE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE", "Cyan")},
+        {"DEBUG_TRACE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_DEBUG_TRACE", "Green")},
+        {"TRACE_EXPR", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_EXPR", "Blue")},
+        {"TRACE_VALUE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_VALUE", "")},
+        {"TRACE_MODULE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_MODULE", "LightCyan")},
+        {"TRACE_FILENAME", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_FILENAME", "Red")},
+        {"TRACE_LINE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_LINE", "Bold")},
+        {"TRACE_STRING", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_STRING", "LightBlue")},
+    };
 
     static void updateShowColor();
 };
@@ -138,9 +189,9 @@ inline void FormattingOptions::set_color_output(ColorOptions c)
 
 inline void FormattingOptions::updateShowColor()
 {
-  if (color == yes) showColor = true;
-  if (color = no) showColor = false;
-  if (color == terminal) showColor = terminal::is_a_terminal(outputStream);
+  if (color == ColorOptions::yes) showColor = true;
+  if (color == ColorOptions::no) showColor = false;
+  if (color == ColorOptions::autocolor) showColor = terminal::is_a_terminal(outputStream);
 }
 
 template <> inline int FormattingOptions::fp_precision<float> = 6;
@@ -451,16 +502,16 @@ inline std::string formatItemString(const std::pair<std::string, bool>& name, co
                                     const FormattingOptions& opts, int available_width)
 {
   // If the name is a string literal, then just return the value separately
-  if (name.second) return value;
+  if (name.second) return opts.format_style(value, "TRACE_STRING");
 
   // If we'd spill over onto another line, then insert a line break
   if (isMultiline(value)) // || (getMaxLineWidth(value) + std::ssize(name.first) + 3 > available_width))
   {
     int indent = name.first.size() + 3;
-    return "\n" + terminal::color_if(name.first, opts.should_show_color(), terminal::color::Blue) + " = " +
-           indentMultiline(value, indent);
+    return "\n" + opts.format_style(name.first, "TRACE_EXPR") + " = " +
+           opts.format_style(indentMultiline(value, indent), "TRACE_VALUE");
   }
-  return fmt::format("{} = {}", terminal::color_if(name.first, opts.should_show_color(), terminal::color::Blue), value);
+  return fmt::format("{} = {}", opts.format_style(name.first, "TRACE_EXPR"), opts.format_style(value, "TRACE_VALUE"));
 }
 
 // Containers (can be nested)
@@ -500,12 +551,9 @@ std::string formatParameterList(const char* exprList, const FormattingOptions& o
 template <typename... Args> void OutputTraceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble =
-      terminal::color_if("TRACE", trace::formatting_options.should_show_color(), terminal::color::Cyan) + " at " +
-      terminal::color_if(file, trace::formatting_options.should_show_color(), terminal::color::Dim) +
-      terminal::color_if(fmt::format(":{}", line), trace::formatting_options.should_show_color(),
-                         terminal::color::Bold);
-
+  std::string preamble = trace::formatting_options.format_style("TRACE", "TRACE") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
   fmt::print(trace::formatting_options.get_output_stream(), "{} : {}\n", preamble, trace_str);
 }
 
@@ -513,14 +561,10 @@ template <typename... Args>
 void OutputTraceModuleCall(const char* module, const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble =
-      terminal::color_if("TRACE", trace::formatting_options.should_show_color(), terminal::color::Cyan) +
-      " in module " +
-      terminal::color_if(module, trace::formatting_options.should_show_color(), terminal::color::LightCyan,
-                         terminal::color::Bold) +
-      " at " + terminal::color_if(file, trace::formatting_options.should_show_color(), terminal::color::Dim) +
-      terminal::color_if(fmt::format(":{}", line), trace::formatting_options.should_show_color(),
-                         terminal::color::Bold);
+  std::string preamble = trace::formatting_options.format_module_style("TRACE", module) + " in module " +
+                         trace::formatting_options.format_module_style(module, module) + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
   fmt::print(trace::formatting_options.get_output_stream(), "{} : {}\n", preamble, trace_str);
 }
 
@@ -528,12 +572,9 @@ template <typename... Args>
 void OutputDebugTraceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = terminal::color_if("DEBUG_TRACE", trace::formatting_options.should_show_color(),
-                                            terminal::color::LightCyan, terminal::color::Bold) +
-                         " at " +
-                         terminal::color_if(file, trace::formatting_options.should_show_color(), terminal::color::Dim) +
-                         terminal::color_if(fmt::format(":{}", line), trace::formatting_options.should_show_color(),
-                                            terminal::color::Bold);
+  std::string preamble = trace::formatting_options.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
   fmt::print(trace::formatting_options.get_output_stream(), "{} : {}\n", preamble, trace_str);
 }
 
@@ -542,15 +583,10 @@ void OutputDebugTraceModuleCall(const char* module, const char* exprList, const 
                                 const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = terminal::color_if("DEBUG_TRACE", trace::formatting_options.should_show_color(),
-                                            terminal::color::Cyan, terminal::color::Bold) +
-                         " in module " +
-                         terminal::color_if(module, trace::formatting_options.should_show_color(),
-                                            terminal::color::LightCyan, terminal::color::Bold) +
-                         " at " +
-                         terminal::color_if(file, trace::formatting_options.should_show_color(), terminal::color::Dim) +
-                         terminal::color_if(fmt::format(":{}", line), trace::formatting_options.should_show_color(),
-                                            terminal::color::Bold);
+  std::string preamble = trace::formatting_options.format_module_style("DEBUG_TRACE", module) + " in module " +
+                         trace::formatting_options.format_module_style(module, module) + " at " +
+                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
+                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
   fmt::print(trace::formatting_options.get_output_stream(), "{} : {}\n", preamble, trace_str);
 }
 

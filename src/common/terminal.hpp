@@ -1,8 +1,14 @@
 #pragma once
 
+#include "string_util.hpp"
+#include <algorithm>
 #include <cstdio>
+#include <optional>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <variant>
 
 namespace terminal
 {
@@ -19,12 +25,97 @@ int columns();
 // returns true if the given stream is a terminal, false otherwise
 bool is_a_terminal(std::FILE* stream);
 
-enum class color
+inline std::string quote_shell(std::string_view s)
 {
-  Reset = 0,
-  Bold = 1,
-  Dim = 2,
-  Underline = 4,
+  // Characters that require quoting/escaping
+  constexpr std::string_view special_chars = " \t()[]*\\\"";
+
+  // Check if any character in s is one of the special ones
+  bool needs_quote = std::ranges::any_of(s, [&](char c) { return special_chars.find(c) != std::string_view::npos; });
+
+  if (needs_quote)
+  {
+    std::string result;
+    // Reserve extra space (worst-case: every character may need escaping)
+    result.reserve(s.size() * 2);
+    for (char c : s)
+    {
+      if (c == '\\')
+      {
+        result.append("\\\\");
+      }
+      else if (c == '"')
+      {
+        result.append("\\\"");
+      }
+      else
+      {
+        result.push_back(c);
+      }
+    }
+    return "\"" + result + "\"";
+  }
+  return std::string(s);
+}
+
+// convert argc/argv into a command line string, with shell escapes
+inline std::string cmdline(int argc, char** argv)
+{
+  std::string result;
+  if (argc > 0) result = quote_shell(argv[0]);
+  for (int i = 1; i < argc; ++i)
+    result = result + ' ' + quote_shell(argv[i]);
+  return result;
+}
+
+// expands components of the form ${XXX} as the corresponding environment string
+std::string expand_environment(std::string const& s);
+
+inline bool env_exists(std::string const& str) { return getenv(str.c_str()) != nullptr; }
+
+// getenv_or_default
+// Get an environment string, or if the environment string is not defined, return the specified default_value
+template <typename T> T getenv_or_default(const std::string& var, const T& default_value)
+{
+  if (const char* env = std::getenv(var.c_str()))
+  {
+    try
+    {
+      return from_string<T>(env);
+    }
+    catch (...)
+    {
+      // Conversion failed; fall through to return default_value.
+    }
+  }
+  return default_value;
+}
+
+template <typename T, typename U> T getenv_or_default(const std::string& var, const U& default_value)
+{
+  if (const char* env = std::getenv(var.c_str()))
+  {
+    try
+    {
+      return from_string<T>(env);
+    }
+    catch (...)
+    {
+      // Conversion failed; fall through to return default_value.
+    }
+  }
+  return T(default_value);
+}
+
+inline char const* getenv_or_default(std::string const& str, char const* Default)
+{
+  char const* Str = getenv(str.c_str());
+  return Str ? Str : Default;
+}
+
+// color output
+enum class ForegroundColor
+{
   Default = 39,
   Black = 30,
   Red = 31,
@@ -44,30 +135,146 @@ enum class color
   White = 97
 };
 
-// returns the ANSI escape sequence for the given color
-std::string color_code(color c);
+enum class BackgroundColor
+{
+  Default = 49,
+  Black = 40,
+  Red = 41,
+  Green = 42,
+  Yellow = 43,
+  Blue = 44,
+  Magenta = 45,
+  Cyan = 46,
+  LightGray = 47,
+  // Extended bright background colors:
+  DarkGray = 100, // often used as bright black
+  LightRed = 101,
+  LightGreen = 102,
+  LightYellow = 103,
+  LightBlue = 104,
+  LightMagenta = 105,
+  LightCyan = 106,
+  White = 107
+};
 
-// returns the ANSI escape sequence for the given color, expressed as an int
-std::string color_code(int c);
+struct RGBColor
+{
+    int r, g, b;
+};
 
-// returns the string description of the given color code
-std::string to_string(color c);
+using FGColor = std::variant<ForegroundColor, RGBColor>;
+using BGColor = std::variant<BackgroundColor, RGBColor>;
 
-// parses a string of color codes, and returns the ANSI escape sequence.
-// The color codes are a comma-separated list of either numeric values,
-// or string values.
-std::string parse_color_codes(std::string const& s);
+// --- Bitmask for Attributes (unchanged) ---
+enum class ColorAttribute : unsigned
+{
+  None = 0,
+  Bold = 1 << 0,     // ANSI code 1
+  Dim = 1 << 1,      // ANSI code 2
+  Underline = 1 << 2 // ANSI code 4
+};
 
-// returns a string with s containing the given color (including a reset suffix)
-std::string color_text(std::string s, color c);
+// bitwise OR operator for ColorAttribute
+constexpr ColorAttribute operator|(ColorAttribute lhs, ColorAttribute rhs)
+{
+  return static_cast<ColorAttribute>(static_cast<unsigned>(lhs) | static_cast<unsigned>(rhs));
+}
 
-// returns a string with s containing the given colors (including a reset suffix)
-std::string color_text(std::string s, color c1, color c2);
+// compound assignment operator for ColorAttribute
+constexpr ColorAttribute& operator|=(ColorAttribute& lhs, ColorAttribute rhs)
+{
+  lhs = lhs | rhs;
+  return lhs;
+}
 
-// return the colorized string if b is true, otherwise return s unchanged
-std::string color_if(std::string s, bool b, color c);
+class TerminalStyle
+{
+  public:
+    // Foreground and background can be either standard colors or RGB
+    std::optional<FGColor> fg;
+    std::optional<BGColor> bg;
+    ColorAttribute attrs = ColorAttribute::None;
 
-// return the colorized string if b is true, otherwise return s unchanged
-std::string color_if(std::string s, bool b, color c1, color c2);
+    TerminalStyle() = default;
+
+    // Constructors for standard colors or attributes
+    TerminalStyle(ForegroundColor f) : fg(f) {}
+    TerminalStyle(BackgroundColor b) : bg(b) {}
+    TerminalStyle(ColorAttribute a) : attrs(a) {}
+
+    // Constructors for RGB colors
+    TerminalStyle(const RGBColor& rgb, bool foreground = true)
+    {
+      if (foreground)
+        fg = rgb;
+      else
+        bg = rgb;
+    }
+
+    // Conversion from a string
+    TerminalStyle(const std::string& s);
+
+    // Combine two TerminalStyle objects
+    TerminalStyle operator|(const TerminalStyle& other) const
+    {
+      TerminalStyle result = *this;
+      if (other.fg.has_value()) result.fg = other.fg;
+      if (other.bg.has_value()) result.bg = other.bg;
+      result.attrs = result.attrs | other.attrs;
+      return result;
+    }
+
+    // Overloads for combining with a standard color or attribute
+    friend TerminalStyle operator|(ForegroundColor f, const TerminalStyle& ts) { return TerminalStyle(f) | ts; }
+    friend TerminalStyle operator|(BackgroundColor b, const TerminalStyle& ts) { return TerminalStyle(b) | ts; }
+    friend TerminalStyle operator|(ColorAttribute a, const TerminalStyle& ts) { return TerminalStyle(a) | ts; }
+    friend TerminalStyle operator|(const RGBColor& rgb, const TerminalStyle& ts) { return TerminalStyle(rgb) | ts; }
+
+    // Helper functions to produce ANSI escape sequences from RGB values
+    static std::string rgb_fg_code(const RGBColor& rgb)
+    {
+      return "38;2;" + std::to_string(rgb.r) + ";" + std::to_string(rgb.g) + ";" + std::to_string(rgb.b);
+    }
+    static std::string rgb_bg_code(const RGBColor& rgb)
+    {
+      return "48;2;" + std::to_string(rgb.r) + ";" + std::to_string(rgb.g) + ";" + std::to_string(rgb.b);
+    }
+
+    // Convert this TerminalStyle into an ANSI escape sequence.
+    std::string to_string() const;
+};
+
+// parseTerminalStyle expects a style string made up of one or more style components,
+// separated by commas. Each component can optionally specify a target using "fg:" for
+// foreground or "bg:" for background (default is foreground), followed by a color spec,
+// and then optional attributes separated by semicolons.
+//
+// Color specifications can be provided as:
+//   - A named color (e.g., "Red", "Blue", "lightgray", etc.)
+//   - An RGB color in function notation (e.g., "rgb(255,0,0)")
+//   - A hexadecimal color (e.g., "#FF0000" or "#F00")
+//
+// Any tokens following the color (separated by semicolons) are treated as text attributes,
+// such as "Bold", "Dim", or "Underline".
+//
+// Examples:
+//   "Red;Bold"                 -> Sets foreground to Red with Bold.
+//   "fg:rgb(255,0,0);Bold"       -> Sets foreground to rgb(255,0,0) with Bold.
+//   "bg:#00FF00;Dim"            -> Sets background to green (#00FF00) with Dim.
+//   "fg:LightGray;Underline, bg:darkgray"
+//                              -> Sets foreground to LightGray with Underline,
+//                                 and background to darkgray.
+TerminalStyle parseTerminalStyle(const std::string& styleStr);
+
+// Convenience function to colorize text.
+inline std::string color_text(std::string_view s, const TerminalStyle& ts)
+{
+  return ts.to_string() + std::string(s) + "\033[0m";
+}
+
+inline std::string color_if(std::string_view s, bool b, const TerminalStyle& ts)
+{
+  return b ? (ts.to_string() + s + "\033[0m") : std::string(s);
+}
 
 } // namespace terminal
