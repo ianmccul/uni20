@@ -14,7 +14,6 @@ endif()
 
 
 add_library(uni20_common STATIC
-    common.hpp
     terminal.cpp
 )
 target_link_libraries(uni20_common PUBLIC uni20_deps)
