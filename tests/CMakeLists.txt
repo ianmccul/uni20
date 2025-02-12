@@ -5,7 +5,7 @@ enable_testing()
 # Create a test executable.
 add_executable(uni20_tests
     test_terminal_color.cpp
-    test_dummy.cpp   # Include other test files if necessary
+    test_types.cpp
 )
 
 target_link_libraries(uni20_tests

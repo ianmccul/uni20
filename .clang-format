@@ -15,6 +15,27 @@ UseTab: Never
 # Break before braces in functions, classes, namespaces, etc. Alternative is 'attach'
 BreakBeforeBraces: Allman
 
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: true
+  AfterControlStatement: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterExternBlock: true
+  BeforeCatch: true
+  BeforeElse: true
+  BeforeLambdaBody: false
+  BeforeWhile: true
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+
+
 # Allow short if statements on one line, e.g.:
 #   if (condition) return;
 AllowShortIfStatementsOnASingleLine: true
@@ -35,3 +56,6 @@ ColumnLimit: 120
 # Use 'All' to allow even non-member functions or friend functions to be on one line if short
 AllowShortFunctionsOnASingleLine: All
 
+AllowShortBlocksOnASingleLine: Empty
+
+AllowShortLambdasOnASingleLine: true
