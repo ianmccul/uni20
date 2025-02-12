@@ -36,7 +36,6 @@ template <typename T> constexpr bool is_real = is_real_t<T>::value;
 // is_complex
 // A trait for determining whether a type is treated as complex,
 // i.e. std::complex, or some similar extension
-
 template <typename T> struct is_complex_t : std::false_type
 {};
 template <typename T> struct is_complex_t<std::complex<T>> : std::true_type
@@ -44,19 +43,28 @@ template <typename T> struct is_complex_t<std::complex<T>> : std::true_type
 
 template <typename T> constexpr bool is_complex = is_complex_t<T>::value;
 
+// is_integer
+// A trait to check for an integer type (excluding bool)
+template <typename T> struct is_integer_t : std::bool_constant<std::integral<T> && (!std::same_as<T, bool>)>
+{};
+
+template <typename T> constexpr bool is_integer = is_integer_t<T>::value;
+
 //
 // Concepts
 //
-// integral       - integral type (same as std::integral)
+// integer        - integral type (same as std::integral)
 // real           - a real floating point number (including extensions that are floating-point-like)
 // complex        - complex floating point; either std::complex<RealType> or some complex-like extension
 // scalar         - either real or complex
+// numeric        - either real or complex or integer
 // blas_real      - real types accepted by standard BLAS (i.e. single and double precision)
 // blas_complex   - complex types accepted by standard BLAS (i.e. single and double precision complex)
 // blas_scalar    - union of blas_real and blas_complex
 //
 
-using std::integral;
+template <typename T>
+concept integer = is_integer<T>;
 
 template <typename T>
 concept real = is_real<T>;
@@ -66,6 +74,9 @@ concept complex = is_complex<T>;
 
 template <typename T>
 concept scalar = real<T> || complex<T>;
+
+template <typename T>
+concept numeric = real<T> || complex<T> || integer<T>;
 
 template <typename T>
 concept blas_real = std::same_as<T, float> || std::same_as<T, double>;
@@ -116,6 +127,49 @@ struct make_complex<T>
 
 template <typename T> using make_complex_type = make_complex<T>::type;
 
+// numeric_type
+// Recursively extracts the underlying numeric type from a container.
+// For instance, for std::vector<std::vector<int>>, it returns int.
+
+template <typename T> struct numeric_type;
+
+template <typename T>
+  requires numeric<T>
+struct numeric_type<T>
+{
+    using type = T;
+};
+
+// We want to avoid string-like objects from having a numeric_type. Naively std::string
+// does, because it is a container and the value_type is char, which is an integral type.
+// But we want to consider strings as a basic (non-scalar, non-numeric) type.
+namespace detail
+{
+// A trait to detect if T is an instantiation of std::basic_string
+template <typename T> struct is_std_basic_string : std::false_type
+{};
+
+template <typename CharT, typename Traits, typename Alloc>
+struct is_std_basic_string<std::basic_string<CharT, Traits, Alloc>> : std::true_type
+{};
+
+template <typename T> constexpr bool is_std_basic_string_v = is_std_basic_string<T>::value;
+
+// Now define the concept is_string:
+template <typename T>
+concept is_string = is_std_basic_string_v<T>;
+
+} // namespace detail
+
+template <typename T>
+  requires requires { typename T::value_type; } &&
+           (!numeric<T>) && numeric<typename numeric_type<typename T::value_type>::type> && (!detail::is_string<T>)
+struct numeric_type<T> : numeric_type<typename T::value_type>
+{};
+
+template <typename T>
+concept has_numeric_type = requires { typename numeric_type<T>::type; };
+
 // scalar_type
 // Recursively extracts the underlying scalar type from a container.
 // For instance, for std::vector<std::vector<double>>, it returns double.
@@ -130,15 +184,12 @@ struct scalar_type<T>
 };
 
 template <typename T>
-  requires complex<T>
-struct scalar_type<T>
-{
-    using type = T;
-};
-
-template <typename T>
-  requires requires { typename T::value_type; } && (!complex<T>)
+  requires requires { typename T::value_type; } &&
+           (!complex<T>) && scalar<typename scalar_type<typename T::value_type>::type>
 struct scalar_type<T> : scalar_type<typename T::value_type>
 {};
+
+template <typename T>
+concept has_scalar_type = requires { typename scalar_type<T>::type; };
 
 } // namespace uni20
