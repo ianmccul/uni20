@@ -12,13 +12,6 @@ foreach(module IN LISTS SUBMODULES)
   endif()
 endforeach()
 
-# Configure the header file.
-configure_file(
-    config.hpp.in
-    ${CMAKE_CURRENT_BINARY_DIR}/config.hpp
-    @ONLY
-)
-
 # Make sure the directory containing config.h is on the include path.
 target_include_directories(uni20_deps INTERFACE ${CMAKE_CURRENT_BINARY_DIR})
 
@@ -41,3 +34,10 @@ target_link_libraries(uni20 PUBLIC uni20_deps)
 
 add_subdirectory(common)
 add_subdirectory(backend)
+
+# Configure the header file. We need to do this last, because subdirectories may set their own variables.
+configure_file(
+    config.hpp.in
+    ${CMAKE_CURRENT_BINARY_DIR}/config.hpp
+    @ONLY
+)

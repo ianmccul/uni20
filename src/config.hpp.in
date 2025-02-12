@@ -1,4 +1,15 @@
 #pragma once
 
+#include <cstdint>
+
 // Automatically generated trace module enable flags:
 @TRACE_MODULE_DEFINITIONS@
+
+#define UNI20_BACKEND_BLAS @UNI20_BACKEND_BLAS@
+#define UNI20_ILP64 @UNI20_ILP64@
+
+#define BLAS_FOUND @BLAS_FOUND@
+
+#define BLAS_VENDOR @UNI20_BLAS_VENDOR@
+
+#define @UNI20_BLAS_VENDOR_MACRO@ 1

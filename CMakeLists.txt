@@ -3,12 +3,15 @@ cmake_policy(SET CMP0135 NEW)
 project(uni20 VERSION 0.1.0 LANGUAGES CXX)
 
 # Include extra CMake modules.
-include(cmake/ClangFormat.cmake)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(ClangFormat)
+#include(cmake/DetectBlasIntSize.cmake)
 
 # Set a centralized directory for fetched content.
 set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/.cmake/third_party")
 
 # Build Options (including testing/benchmarking)
+option(UNI20_ILP64         "Enable ILP64 integer type for BLAS (64-bit integers)" OFF)
 option(UNI20_BUILD_PYTHON  "Build the Python bindings" ON)
 option(UNI20_ENABLE_CUDA   "Enable CUDA backend support" OFF)
 option(UNI20_ENABLE_MPI    "Enable MPI support" OFF)
@@ -97,6 +100,12 @@ option(UNI20_BACKEND_BLAS     "Enable the BLAS backend" ON)
 option(UNI20_BACKEND_CUDA     "Enable the CUDA backend" ${UNI20_BACKEND_CUDA_DEFAULT})
 option(UNI20_BACKEND_CUSOLVER "Enable the cuSOLVER backend" OFF)
 option(UNI20_BACKEND_MKL      "Enable the MKL backend" OFF)
+
+# Configure the config.hpp header.
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/config.hpp.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/config.hpp"
+)
 
 # Add subdirectories
 add_subdirectory(src)
