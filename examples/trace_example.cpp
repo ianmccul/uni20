@@ -20,7 +20,12 @@ int main()
   TRACE("Literal string", foo, bar);
 
   // A trace with expressions.
-  TRACE(foo + 1, bar + "_suffix", std::vector<int, std::allocator<int>>{1, 2, 3});
+  TRACE(foo + 1, bar + "_suffix",
+        "Template diamond brackets will garble the output. The solution is to put the template expression in brackets "
+        "().",
+        std::vector<int, std::allocator<int>>{1, 2, 3}, foo + 2);
+
+  TRACE(foo<32, foo> 32);
 
   // A trace that includes a template instantiation and a string literal.
   TRACE(std::vector<int>(5), "Hello, world", foo + 2);

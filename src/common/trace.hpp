@@ -27,7 +27,8 @@
     {                                                                                                                  \
       trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                    \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define TRACE_MODULE(m, ...)                                                                                           \
   do                                                                                                                   \
@@ -36,7 +37,8 @@
     {                                                                                                                  \
       trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                          \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define TRACE_MODULE_IF(m, cond, ...)                                                                                  \
   do                                                                                                                   \
@@ -48,7 +50,8 @@
         trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
       }                                                                                                                \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 // CHECK and PRECONDITION MACROS
 // These macros check a condition and, if false, print diagnostic information and abort.
@@ -61,7 +64,8 @@
     {                                                                                                                  \
       trace::CheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define CHECK_EQUAL(a, b, ...)                                                                                         \
   do                                                                                                                   \
@@ -71,7 +75,8 @@
       trace::CheckEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,                   \
                             b __VA_OPT__(, __VA_ARGS__));                                                              \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define PRECONDITION(cond, ...)                                                                                        \
   do                                                                                                                   \
@@ -80,7 +85,8 @@
     {                                                                                                                  \
       trace::PreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define PRECONDITION_EQUAL(a, b, ...)                                                                                  \
   do                                                                                                                   \
@@ -90,7 +96,8 @@
       trace::PreconditionEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,            \
                                    b __VA_OPT__(, __VA_ARGS__));                                                       \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 // PANIC is used to unconditionally abort
 #define PANIC(...) trace::PanicCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));
@@ -107,43 +114,44 @@
     {                                                                                                                  \
       trace::ErrorCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 // ---------------------------------------------------------------------------
 // DEBUG MACROS (compile to nothing if NDEBUG is defined)
 #if defined(NDEBUG)
 #define DEBUG_TRACE(...)                                                                                               \
   do                                                                                                                   \
-  {                                                                                                                    \
-  } while (0)
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_TRACE_IF(...)                                                                                            \
   do                                                                                                                   \
-  {                                                                                                                    \
-  } while (0)
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_TRACE_MODULE(...)                                                                                        \
   do                                                                                                                   \
-  {                                                                                                                    \
-  } while (0)
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_TRACE_MODULE_IF(...)                                                                                     \
   do                                                                                                                   \
-  {                                                                                                                    \
-  } while (0)
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_CHECK(...)                                                                                               \
   do                                                                                                                   \
-  {                                                                                                                    \
-  } while (0)
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_CHECK_EQUAL(...)                                                                                         \
   do                                                                                                                   \
-  {                                                                                                                    \
-  } while (0)
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_PRECONDITION(...)                                                                                        \
   do                                                                                                                   \
-  {                                                                                                                    \
-  } while (0)
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_PRECONDITION_EQUAL(...)                                                                                  \
   do                                                                                                                   \
-  {                                                                                                                    \
-  } while (0)
+  {}                                                                                                                   \
+  while (0)
 #else
 
 #define DEBUG_TRACE(...) trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));
@@ -155,7 +163,8 @@
     {                                                                                                                  \
       trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                               \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define DEBUG_TRACE_MODULE(m, ...)                                                                                     \
   do                                                                                                                   \
@@ -164,7 +173,8 @@
     {                                                                                                                  \
       trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                     \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define DEBUG_TRACE_MODULE_IF(m, cond, ...)                                                                            \
   do                                                                                                                   \
@@ -176,7 +186,8 @@
         trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                   \
       }                                                                                                                \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define DEBUG_CHECK(cond, ...)                                                                                         \
   do                                                                                                                   \
@@ -185,7 +196,8 @@
     {                                                                                                                  \
       trace::DebugCheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define DEBUG_CHECK_EQUAL(a, b, ...)                                                                                   \
   do                                                                                                                   \
@@ -195,7 +207,8 @@
       trace::DebugCheckEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,              \
                                  b __VA_OPT__(, __VA_ARGS__));                                                         \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define DEBUG_PRECONDITION(cond, ...)                                                                                  \
   do                                                                                                                   \
@@ -204,7 +217,8 @@
     {                                                                                                                  \
       trace::DebugPreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                 \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #define DEBUG_PRECONDITION_EQUAL(a, b, ...)                                                                            \
   do                                                                                                                   \
@@ -214,7 +228,8 @@
       trace::DebugPreconditionEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,       \
                                         b __VA_OPT__(, __VA_ARGS__));                                                  \
     }                                                                                                                  \
-  } while (0)
+  }                                                                                                                    \
+  while (0)
 
 #endif
 
@@ -402,14 +417,14 @@ inline std::string trim(const std::string& s)
 // parseNames: Splits the stringified parameter list into tokens.
 // Each token is paired with a boolean flag that is true if a top-level
 // string or character literal was encountered.
-inline std::vector<std::pair<std::string, bool>> parseNames(const std::string& s)
+inline std::vector<std::pair<std::string, bool>> parseNames(std::string_view s)
 {
   std::vector<std::pair<std::string, bool>> tokens;
   std::string current;
   bool tokenHasTopLevelLiteral = false;
 
   // Counters for grouping symbols.
-  int parenCount = 0, squareCount = 0, angleCount = 0, curlyCount = 0;
+  int parenCount = 0, squareCount = 0, curlyCount = 0;
 
   // Flags for being inside a literal.
   bool inDoubleQuote = false, inSingleQuote = false;
@@ -458,7 +473,7 @@ inline std::vector<std::pair<std::string, bool>> parseNames(const std::string& s
     }
 
     // At top-level, if we see a literal-start, mark the token.
-    if ((c == '"' || c == '\'') && parenCount == 0 && squareCount == 0 && angleCount == 0 && curlyCount == 0)
+    if ((c == '"' || c == '\'') && parenCount == 0 && squareCount == 0 && curlyCount == 0)
     {
       tokenHasTopLevelLiteral = true;
       if (c == '"')
@@ -470,7 +485,7 @@ inline std::vector<std::pair<std::string, bool>> parseNames(const std::string& s
     }
 
     // Split at commas if we are not inside any grouping.
-    if (c == ',' && parenCount == 0 && squareCount == 0 && angleCount == 0 && curlyCount == 0)
+    if (c == ',' && parenCount == 0 && squareCount == 0 && curlyCount == 0)
     {
       tokens.push_back({trim(current), tokenHasTopLevelLiteral});
       current.clear();
@@ -490,12 +505,6 @@ inline std::vector<std::pair<std::string, bool>> parseNames(const std::string& s
     else if (c == ']')
     {
       if (squareCount > 0) --squareCount;
-    }
-    else if (c == '<')
-      ++angleCount;
-    else if (c == '>')
-    {
-      if (angleCount > 0) --angleCount;
     }
     else if (c == '{')
       ++curlyCount;
@@ -690,8 +699,7 @@ std::string formatParameters(std::vector<std::pair<std::string, bool>>::const_it
 template <typename... Args>
 std::string formatParameterList(const char* exprList, const FormattingOptions& opts, const Args&... args)
 {
-  std::string exprs(exprList);
-  auto names = parseNames(exprs);
+  auto names = parseNames(exprList);
   return formatParameters(names.begin(), opts, args...);
 }
 
