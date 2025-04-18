@@ -52,13 +52,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(fmt)
 
-# mdspan reference implementation
+# mdspan reference implementation, put it into stdex namespace to prevent possible conflict with standard library version
+# and set up an interface library uni20_mdspan to set up the include directories
 FetchContent_Declare(
   mdspan
   GIT_REPOSITORY https://github.com/kokkos/mdspan.git
   GIT_TAG stable
 )
 FetchContent_MakeAvailable(mdspan)
+add_library(uni20_mdspan INTERFACE)
+target_include_directories(uni20_mdspan INTERFACE ${mdspan_SOURCE_DIR}/include)
+target_compile_definitions(uni20_mdspan INTERFACE MDSPAN_IMPL_STANDARD_NAMESPACE=stdex)
+
 # Use the square bracket operator for multidimensional arrays, not needed for c++23
 # add_compile_definitions(MDSPAN_USE_BRACKET_OPERATOR=1)
 
