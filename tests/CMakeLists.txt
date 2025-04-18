@@ -15,7 +15,6 @@ get_property(UNI20_COMBINED_TEST_LIBS GLOBAL PROPERTY UNI20_COMBINED_TEST_LIBS)
 if(UNI20_BUILD_COMBINED_TESTS AND UNI20_COMBINED_TEST_SRCS)
   add_executable(uni20_tests
     ${UNI20_COMBINED_TEST_SRCS}
-    ${CMAKE_CURRENT_SOURCE_DIR}/dummy.cpp
   )
   target_link_libraries(uni20_tests PRIVATE ${UNI20_COMBINED_TEST_LIBS} gtest_main)
   gtest_discover_tests(uni20_tests)
