@@ -13,6 +13,14 @@
 #include <utility>
 #include <vector>
 
+// Check for stacktrace support (C++23 and GCC 13+ or Clang+libc++)
+#if defined(__cpp_lib_stacktrace) && (__cpp_lib_stacktrace >= 202011L)
+#define UNI20_HAS_STACKTRACE 1
+#include <stacktrace>
+#else
+#define UNI20_HAS_STACKTRACE 0
+#endif
+
 // TRACE MACROS
 // These macros forward both the stringified expression list and the evaluated
 // arguments, along with file and line info, to the corresponding trace functions.
@@ -874,6 +882,17 @@ template <typename... Args> void PanicCall(const char* exprList, const char* fil
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
   fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
              trace_str);
+
+#if UNI20_HAS_STACKTRACE
+  if (trace::formatting_options.should_show_color())
+    fmt::print(terminal::color_text("Stacktrace:\n", terminal::TerminalStyle("Bold")));
+  else
+    fmt::print("Stacktrace:\n");
+  fmt::print("{}", std::stacktrace::current());
+#else
+  fmt::print(trace::formatting_options.get_output_stream(), "Stacktrace not available (compiler is too old)!\n");
+#endif
+
   std::abort();
 }
 
