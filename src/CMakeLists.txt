@@ -34,6 +34,7 @@ target_link_libraries(uni20 PUBLIC uni20_deps)
 
 add_subdirectory(common)
 add_subdirectory(backend)
+add_subdirectory(level1)
 
 # Configure the header file. We need to do this last, because subdirectories may set their own variables.
 configure_file(

@@ -5,18 +5,21 @@ project(uni20 VERSION 0.1.0 LANGUAGES CXX)
 # Include extra CMake modules.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ClangFormat)
+include(Uni20TestHelpers)
 #include(cmake/DetectBlasIntSize.cmake)
 
 # Set a centralized directory for fetched content.
 set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/.cmake/third_party")
 
 # Build Options (including testing/benchmarking)
-option(UNI20_ILP64         "Enable ILP64 integer type for BLAS (64-bit integers)" OFF)
-option(UNI20_BUILD_PYTHON  "Build the Python bindings" ON)
-option(UNI20_ENABLE_CUDA   "Enable CUDA backend support" OFF)
-option(UNI20_ENABLE_MPI    "Enable MPI support" OFF)
-option(UNI20_BUILD_TESTS   "Build unit tests" ON)
-option(UNI20_BUILD_BENCH   "Build benchmarks" ON)
+option(UNI20_ILP64                "Enable ILP64 integer type for BLAS (64-bit integers)" OFF)
+option(UNI20_BUILD_PYTHON         "Build the Python bindings" ON)
+option(UNI20_ENABLE_CUDA          "Enable CUDA backend support" OFF)
+option(UNI20_ENABLE_MPI           "Enable MPI support" OFF)
+option(UNI20_BUILD_TESTS          "Build unit tests" ON)
+option(UNI20_BUILD_COMBINED_TESTS "Build combined test executable (in addition to per-module tests)" ON)
+option(UNI20_BUILD_BENCH          "Build benchmarks" ON)
+
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -120,6 +123,7 @@ if(UNI20_BUILD_PYTHON)
 endif()
 
 if(UNI20_BUILD_TESTS)
+  enable_testing()
   add_subdirectory(tests)
 endif()
 

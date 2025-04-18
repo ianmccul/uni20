@@ -1,4 +1,4 @@
-#include "types.hpp"
+#include "common/types.hpp"
 #include <complex>
 #include <gtest/gtest.h>
 #include <string>

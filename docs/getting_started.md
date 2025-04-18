@@ -27,6 +27,7 @@ uni20/                              # Project root
 │   ├── CMakeLists.txt              # Library build configuration
 │   ├── common/                     # Common headers and generic functions
 │   ├── core/                       # Core code
+│   ├── level1/                     # Implementation of the `level 1` functions
 │   └── backends/                   # Backend implementations (BLAS/LAPACK, CUDA, etc.)
 ├── bindings/                       # Language bindings
 │   └── python/                     # Python bindings (using pybind11)
@@ -34,7 +35,8 @@ uni20/                              # Project root
 │       └── uni20_python.cpp        # Currently a simple "hello world" example module
 ├── tests/                          # Unit tests (using GoogleTest)
 │   ├── CMakeLists.txt              # Test build configuration
-│   └── test_dummy.cpp              # Dummy tests for core functionality
+│   ├── common/                     # Tests for src/common components
+│   └── level1/                     # Tests for src/level1 components
 ├── benchmarks/                     # Benchmarks (using Google Benchmark)
 │   ├── CMakeLists.txt              # Benchmark build configuration
 │   └── benchmark_dummy.cpp         # Benchmarking dummy functionality
@@ -86,34 +88,51 @@ The project leverages CMake’s built-in modules (`FindBLAS.cmake` and `FindLAPA
 
 ## Running Tests
 
-The project uses GoogleTest for unit tests.
+The `uni20` library includes a comprehensive suite of unit tests, written using [Google Test](https://github.com/google/googletest) and managed via [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html).
 
-### Option 1: Using CTest Recursively
+You can run tests using either **CTest** or by executing test binaries directly. The test system supports both **separate** (per-module) test executables and an optional **combined** test binary.
 
-From the top-level build directory, run:
+See [docs/testing.md](docs/testing.md) for detailed configuration options, test architecture, and best practices.
+
+### Build and Run Tests
+
+Tests are enabled by default. After building:
 
 ```bash
 cd build
-ctest --output-on-failure --recursive
-```
-
-This will search for tests in subdirectories (such as `build/tests`) and execute them.
-
-### Option 2: Running Directly from the Tests Directory
-
-Change to the tests subdirectory and run CTest:
-
-```bash
-cd build/tests
 ctest --output-on-failure
 ```
 
-You can also run the test executable directly:
+This will run all tests registered with CTest, including both per-module and combined executables (if enabled).
+
+To filter tests by name or suite:
 
 ```bash
-./uni20_tests --gtest_list_tests
-./uni20_tests
+ctest -R IterationPlan        # Run all tests matching the regex "IterationPlan"
+ctest -V                      # Verbose output for debugging
 ```
+
+### Run Tests Directly
+
+You may also run test executables manually. For example:
+
+```bash
+./tests/uni20_tests --gtest_filter=TraitsTest.*
+./tests/common/uni20_common_tests
+```
+
+The Google Test interface supports additional flags (e.g., `--gtest_list_tests`) for exploring and selecting tests interactively.
+
+### Disable or Reconfigure Tests
+
+To disable all tests or change test modes, pass options to CMake during configuration:
+
+```bash
+cmake -S . -B build -DUNI20_BUILD_TESTS=OFF
+cmake -S . -B build -DUNI20_BUILD_COMBINED_TESTS=OFF
+```
+
+See [docs/testing.md](docs/testing.md) for a full explanation of these options and how they affect the build.
 
 ## Running Benchmarks
 
