@@ -92,7 +92,7 @@ The `uni20` library includes a comprehensive suite of unit tests, written using 
 
 You can run tests using either **CTest** or by executing test binaries directly. The test system supports both **separate** (per-module) test executables and an optional **combined** test binary.
 
-See [docs/testing.md](docs/testing.md) for detailed configuration options, test architecture, and best practices.
+See [docs/testing.md](testing.md) for detailed configuration options, test architecture, and best practices.
 
 ### Build and Run Tests
 
@@ -132,7 +132,7 @@ cmake -S . -B build -DUNI20_BUILD_TESTS=OFF
 cmake -S . -B build -DUNI20_BUILD_COMBINED_TESTS=OFF
 ```
 
-See [docs/testing.md](docs/testing.md) for a full explanation of these options and how they affect the build.
+See [docs/testing.md](testing.md) for a full explanation of these options and how they affect the build.
 
 ## Running Benchmarks
 
