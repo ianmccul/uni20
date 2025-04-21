@@ -7,6 +7,21 @@
 namespace uni20
 {
 
+// The default size_type and index_type.  Perfer having size_type signed as well, so that
+// we can use ordinary integers as loop variables without unwanted conversions
+using size_type = std::ptrdiff_t;
+using index_type = std::ptrdiff_t;
+
+// We sometimes need to extract the element_type from a proxy reference
+template <typename R> struct remove_proxy_reference
+{
+    using type = std::remove_cv_t<std::remove_reference_t<R>>;
+};
+
+template <typename R> using remove_proxy_reference_t = typename remove_proxy_reference<R>::type;
+
+// aliases for types
+
 using float32 = float;
 using float64 = double;
 
