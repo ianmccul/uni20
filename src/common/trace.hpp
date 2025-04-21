@@ -68,7 +68,7 @@
 #define CHECK(cond, ...)                                                                                               \
   do                                                                                                                   \
   {                                                                                                                    \
-    if (cond)                                                                                                          \
+    if (!(cond))                                                                                                       \
     {                                                                                                                  \
       trace::CheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
     }                                                                                                                  \
@@ -89,7 +89,7 @@
 #define PRECONDITION(cond, ...)                                                                                        \
   do                                                                                                                   \
   {                                                                                                                    \
-    if (cond)                                                                                                          \
+    if (!(cond))                                                                                                       \
     {                                                                                                                  \
       trace::PreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
     }                                                                                                                  \
@@ -120,7 +120,7 @@
   {                                                                                                                    \
     if (cond)                                                                                                          \
     {                                                                                                                  \
-      trace::ErrorCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
+      trace::ErrorIfCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                           \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -200,7 +200,7 @@
 #define DEBUG_CHECK(cond, ...)                                                                                         \
   do                                                                                                                   \
   {                                                                                                                    \
-    if (cond)                                                                                                          \
+    if (!(cond))                                                                                                       \
     {                                                                                                                  \
       trace::DebugCheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
     }                                                                                                                  \
@@ -221,7 +221,7 @@
 #define DEBUG_PRECONDITION(cond, ...)                                                                                  \
   do                                                                                                                   \
   {                                                                                                                    \
-    if (cond)                                                                                                          \
+    if (!(cond))                                                                                                       \
     {                                                                                                                  \
       trace::DebugPreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                 \
     }                                                                                                                  \
@@ -912,7 +912,7 @@ template <typename... Args> void ErrorCall(const char* exprList, const char* fil
 }
 
 template <typename... Args>
-void ErrorIf(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+void ErrorIfCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
   std::string preamble = trace::formatting_options.format_style("ERROR", "ERROR") + " at " +
