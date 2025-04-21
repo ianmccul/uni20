@@ -51,21 +51,21 @@ using hack_string_view::operator+;
 // A simple case-insensitive comparison using std::string_view.
 inline bool iequals(std::string_view a, std::string_view b)
 {
-  return a.size() == b.size() &&
-         std::equal(a.begin(), a.end(), b.begin(),
-                    [](unsigned char ca, unsigned char cb) { return std::tolower(ca) == std::tolower(cb); });
+  return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](unsigned char ca, unsigned char cb) {
+           return std::tolower(ca) == std::tolower(cb);
+         });
 }
 
 // Trait to check if operator>> is defined for T from an std::istream.
 template <typename T, typename = void> struct has_stream_extractor : std::false_type
-{
-};
+{};
 
+/// \cond
 template <typename T>
 struct has_stream_extractor<T, std::void_t<decltype(std::declval<std::istream&>() >> std::declval<T&>())>>
     : std::true_type
-{
-};
+{};
+/// \endcond
 
 template <typename T> inline constexpr bool has_stream_extractor_v = has_stream_extractor<T>::value;
 

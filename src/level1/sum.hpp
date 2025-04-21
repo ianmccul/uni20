@@ -105,9 +105,14 @@ template <typename... Spans> using common_extents_t = typename detail::common_ex
 
 } // namespace detail
 
+/// \brief Layout policy for the element‐wise sum of N spans.
+///
+/// \tparam NumSpans  Number of component spans being summed.
 template <std::size_t NumSpans> struct SumLayout
 {
-    // nested mapping<Ext> is where we stash per‑view state
+    /// \brief Nested mapping type carrying per‐view state.
+    ///
+    /// \tparam Ext  The merged extents type (e.g. a `stdex::extents<…>`).
     template <class Ext> struct mapping
     {
         static constexpr std::size_t num_spans = NumSpans;
@@ -304,6 +309,16 @@ template <typename T> inline constexpr bool is_sum_accessor_v = is_sum_accessor<
 template <class MDS>
 concept SumMdspan = is_sum_accessor_v<typename MDS::accessor_type>;
 
+/// \brief  Element‐wise sum of one or more strided mdspans.
+///
+/// For each index tuple (i₀,…,i{Rank−1}), returns
+/// <code>first(i₀,…,i{Rank−1}) + rest₀(i₀,…,i{Rank−1}) + … + restₙ(i₀,…,i{Rank−1})</code>.
+///
+/// \tparam First  The first strided mdspan type (\c layout_stride).
+/// \tparam Rest   Zero or more additional strided mdspan types.
+/// \param  first  The first operand: a raw mdspan view.
+/// \param  rest   The remaining operands: raw mdspan views.
+/// \return        A new mdspan whose elements are the sum of all inputs.
 template <StridedMdspan First, StridedMdspan... Rest> auto sum_view(First const& first, Rest const&... rest)
 {
   static_assert((... && (First::rank() == Rest::rank())), "sum_view: rank mismatch");
@@ -367,6 +382,11 @@ template <typename SA, typename SB> using join_sum_acc_t = typename join_sum_acc
 
 } // namespace detail
 
+/// \overload
+/// \brief  Sum of a raw strided mdspan and an existing sum‑mdspan.
+///
+/// Prepends one more span \c A to the front of a \c SumMdspan \c B.  Otherwise
+/// the parameter names and return value are the same as the primary overload.
 template <StridedMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute merged extents type & object
@@ -400,6 +420,11 @@ template <StridedMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
   return stdex::mdspan<typename accessor_type::element_type, CE, NewLayout, accessor_type>{handles, map, accessor};
 }
 
+/// \overload
+/// \brief  Sum of an existing sum‑mdspan and a raw strided mdspan.
+///
+/// Appends one more span \c B to the end of a \c SumMdspan \c A.  Otherwise
+/// the parameter names and return value are the same as the primary overload.
 template <SumMdspan A, StridedMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute the merged extents type & object
@@ -433,6 +458,12 @@ template <SumMdspan A, StridedMdspan B> auto sum_view(A const& a, B const& b)
   return stdex::mdspan<typename accessor_type::element_type, CE, NewLayout, accessor_type>{handles, map, accessor};
 }
 
+/// \overload
+/// \brief  Sum of two existing sum‑mdspans.
+///
+/// Flattens both \c A and \c B into a single new sum‑mdspan (i.e.
+/// `A₀ + A₁ + … + B₀ + B₁ + …`).  Otherwise the parameter names and return
+/// value are the same as the primary overload.
 template <SumMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute the merged extents type & object
@@ -443,9 +474,9 @@ template <SumMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
   constexpr std::size_t Rank = CE::rank();
   using idx_t = typename CE::index_type;
 
-  // Build the new mapping by appending B onto A’s SumLayout
-  constexpr std::size_t Na = A::mapping_type::num_spans; // how many spans A already has
-  constexpr std::size_t Nb = B::mapping_type::num_spans; // how many spans A already has
+  // Build the new mapping by appending B onto A's SumLayout
+  constexpr std::size_t Na = A::mapping_type::num_spans;
+  constexpr std::size_t Nb = B::mapping_type::num_spans;
   using NewLayout = SumLayout<Na + Nb>;
   using Mapping = typename NewLayout::template mapping<CE>;
 

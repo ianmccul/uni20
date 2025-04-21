@@ -132,3 +132,32 @@ if(UNI20_BUILD_BENCH)
 endif()
 
 add_subdirectory(examples)
+
+# Doxygen documentation target
+find_package(Doxygen QUIET)
+
+if(DOXYGEN_FOUND)
+  # Where to look for our sources and markdown files
+  set(DOXYGEN_INPUT
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/examples"
+      "${CMAKE_SOURCE_DIR}/docs"
+  )
+  list(JOIN DOXYGEN_INPUT " " DOXYGEN_INPUT)
+
+  # Configure the Doxyfile from a template
+  set(DOXYFILE_IN   "${CMAKE_SOURCE_DIR}/docs/Doxyfile.in")
+  set(DOXYFILE_OUT  "${CMAKE_BINARY_DIR}/docs/Doxyfile")
+
+  configure_file(${DOXYFILE_IN} ${DOXYFILE_OUT} @ONLY)
+
+  # Add a "doc" target
+  add_custom_target(doc
+    COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYFILE_OUT}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/docs
+    COMMENT "Generating API and Markdown documentation with Doxygen"
+    VERBATIM
+  )
+else()
+  message(WARNING "Doxygen not found; 'doc' target will be unavailable.")
+endif()

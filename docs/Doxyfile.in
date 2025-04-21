@@ -1,0 +1,13 @@
+# docs/Doxyfile.in –– Doxygen config template
+PROJECT_NAME           = "@PROJECT_NAME@"
+OUTPUT_DIRECTORY       = "@CMAKE_BINARY_DIR@/docs"
+INPUT                  = @DOXYGEN_INPUT@
+FILE_PATTERNS          = *.hpp *.h *.cpp *.md
+RECURSIVE              = YES
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+EXTRACT_ALL            = YES
+QUIET                  = YES
+JAVADOC_AUTOBRIEF      = YES
+ALLOW_UNICODE_NAMES    = YES
+MARKDOWN_SUPPORT       = YES
