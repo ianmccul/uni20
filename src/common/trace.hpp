@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <cctype>
 #include <fmt/core.h>
-#include <iostream>
+// #include <iostream>
+#include <cstdio>
+#include <functional>
 #include <map>
 #include <string>
 #include <utility>
@@ -271,8 +273,22 @@ struct FormattingOptions
 
     using ColorOptions = NamedEnumeration<ColorOptionTraits>;
 
-    static void set_output_stream(FILE* stream);
-    static FILE* get_output_stream() { return outputStream; }
+    // The output sink is a function that takes a string and returns void
+    // Default version writes to stderr
+    using Sink = std::function<void(std::string)>;
+
+    // Change the sink function. This assumes that the output is not a terminal, auto color is disabled
+    static void set_sink(Sink s)
+    {
+      sink = s;
+      outputStream = nullptr;
+    }
+
+    // set the output stream as a FILE*
+    static void set_output_stream(FILE* outputStream);
+
+    // Write str to the sink
+    static void emit_string(std::string const& str) { sink(str); }
 
     static void set_color_output(ColorOptions c);
 
@@ -313,6 +329,7 @@ struct FormattingOptions
 
   private:
     inline static FILE* outputStream = stderr;
+    inline static Sink sink = [](std::string str) { std::fputs(str.c_str(), stderr); };
     inline static ColorOptions color = terminal::getenv_or_default("UNI20_COLOR", ColorOptions());
     inline static bool showColor = terminal::is_a_terminal(stderr);
     inline static bool errorsAbort = true;
@@ -340,7 +357,8 @@ struct FormattingOptions
 
 inline void FormattingOptions::set_output_stream(FILE* stream)
 {
-  outputStream = stream;
+  FormattingOptions::outputStream = stream;
+  FormattingOptions::sink = [stream](std::string str) { std::fputs(str.c_str(), stream); };
   FormattingOptions::updateShowColor();
 }
 
@@ -711,14 +729,21 @@ std::string formatParameterList(const char* exprList, const FormattingOptions& o
   return formatParameters(names.begin(), opts, args...);
 }
 
+template <typename... Args> void print(fmt::format_string<Args...> fmt_str, Args&&... args)
+{
+  // build the string
+  auto s = fmt::format(fmt_str, std::forward<Args>(args)...);
+  // write it to the sink
+  trace::formatting_options.emit_string(s);
+}
+
 template <typename... Args> void TraceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
   std::string preamble = trace::formatting_options.format_style("TRACE", "TRACE") + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
-             trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
 }
 
 template <typename... Args>
@@ -729,8 +754,7 @@ void TraceModuleCall(const char* module, const char* exprList, const char* file,
                          trace::formatting_options.format_module_style(module, module) + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
-             trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
 }
 
 template <typename... Args> void DebugTraceCall(const char* exprList, const char* file, int line, const Args&... args)
@@ -739,8 +763,7 @@ template <typename... Args> void DebugTraceCall(const char* exprList, const char
   std::string preamble = trace::formatting_options.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
-             trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
 }
 
 template <typename... Args>
@@ -751,8 +774,7 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
                          trace::formatting_options.format_module_style(module, module) + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
-             trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
 }
 
 template <typename... Args>
@@ -764,8 +786,7 @@ void CheckCall(const char* cond, const char* exprList, const char* file, int lin
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
                          fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
                                      trace::formatting_options.format_style("false", "TRACE_VALUE"));
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
-             trace_str.empty() ? "" : "\n : ", trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::abort();
 }
 
@@ -778,8 +799,7 @@ void DebugCheckCall(const char* cond, const char* exprList, const char* file, in
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
                          fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
                                      trace::formatting_options.format_style("false", "TRACE_VALUE"));
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
-             trace_str.empty() ? "" : "\n : ", trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::abort();
 }
 
@@ -793,8 +813,7 @@ void CheckEqualCall(const char* a, const char* b, const char* exprList, const ch
       trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
                   trace::formatting_options.format_style(b, "TRACE_EXPR"));
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
-             trace_str.empty() ? "" : "\n : ", trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::abort();
 }
 
@@ -809,8 +828,7 @@ void DebugCheckEqualCall(const char* a, const char* b, const char* exprList, con
       trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
                   trace::formatting_options.format_style(b, "TRACE_EXPR"));
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
-             trace_str.empty() ? "" : "\n : ", trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::abort();
 }
 
@@ -823,8 +841,7 @@ void PreconditionCall(const char* cond, const char* exprList, const char* file, 
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
                          fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
                                      trace::formatting_options.format_style("false", "TRACE_VALUE"));
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
-             trace_str.empty() ? "" : "\n : ", trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::abort();
 }
 
@@ -837,8 +854,7 @@ void DebugPreconditionCall(const char* cond, const char* exprList, const char* f
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
                          fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
                                      trace::formatting_options.format_style("false", "TRACE_VALUE"));
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
-             trace_str.empty() ? "" : "\n : ", trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::abort();
 }
 
@@ -853,8 +869,7 @@ void PreconditionEqualCall(const char* a, const char* b, const char* exprList, c
       trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
                   trace::formatting_options.format_style(b, "TRACE_EXPR"));
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
-             trace_str.empty() ? "" : "\n : ", trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::abort();
 }
 
@@ -869,8 +884,7 @@ void DebugPreconditionEqualCall(const char* a, const char* b, const char* exprLi
       trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
                   trace::formatting_options.format_style(b, "TRACE_EXPR"));
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble,
-             trace_str.empty() ? "" : "\n : ", trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::abort();
 }
 
@@ -880,17 +894,16 @@ template <typename... Args> void PanicCall(const char* exprList, const char* fil
   std::string preamble = trace::formatting_options.format_style("PANIC", "PANIC") + " at " +
                          trace::formatting_options.format_style(file, "TRACE_FILENAME") +
                          trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  fmt::print(trace::formatting_options.get_output_stream(), "{}{}{}\n", preamble, trace_str.empty() ? "" : " : ",
-             trace_str);
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
 
 #if UNI20_HAS_STACKTRACE
   if (trace::formatting_options.should_show_color())
-    fmt::print(terminal::color_text("Stacktrace:\n", terminal::TerminalStyle("Bold")));
+    print(terminal::color_text("Stacktrace:\n", terminal::TerminalStyle("Bold")));
   else
-    fmt::print("Stacktrace:\n");
-  fmt::print("{}", std::stacktrace::current());
+    print("Stacktrace:\n");
+  print("{}", std::stacktrace::current());
 #else
-  fmt::print(trace::formatting_options.get_output_stream(), "Stacktrace not available (compiler is too old)!\n");
+  print("Stacktrace not available (compiler is too old)!\n");
 #endif
 
   std::abort();
@@ -905,7 +918,7 @@ template <typename... Args> void ErrorCall(const char* exprList, const char* fil
   std::string Msg = fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
   if (trace::formatting_options.errors_abort())
   {
-    fmt::print(trace::formatting_options.get_output_stream(), "{}", Msg);
+    print("{}", Msg);
     std::abort();
   }
   throw std::runtime_error(Msg);
@@ -923,7 +936,7 @@ void ErrorIfCall(const char* cond, const char* exprList, const char* file, int l
   std::string Msg = fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
   if (trace::formatting_options.errors_abort())
   {
-    fmt::print(trace::formatting_options.get_output_stream(), "{}", Msg);
+    print("{}", Msg);
     std::abort();
   }
   throw std::runtime_error(Msg);

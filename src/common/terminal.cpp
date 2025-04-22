@@ -43,8 +43,7 @@ std::string TerminalStyle::to_string() const
   if (fg.has_value())
   {
     std::visit(
-        [&codes](auto&& arg)
-        {
+        [&codes](auto&& arg) {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, ForegroundColor>)
           {
@@ -63,8 +62,7 @@ std::string TerminalStyle::to_string() const
   if (bg.has_value())
   {
     std::visit(
-        [&codes](auto&& arg)
-        {
+        [&codes](auto&& arg) {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, BackgroundColor>)
           {
@@ -593,7 +591,7 @@ int columns()
 
 std::pair<int, int> size() { return {rows(), columns()}; }
 
-bool is_a_terminal(std::FILE* stream) { return isatty(fileno(stream)); }
+bool is_a_terminal(std::FILE* stream) { return stream && isatty(fileno(stream)); }
 
 std::string expand_environment(std::string const& s)
 {

@@ -1,3 +1,6 @@
+#include "level1/assign.hpp"
+#include "gtest/gtest.h"
+#include <numeric>
 
 TEST(Assign, Simple1D)
 {

@@ -16,6 +16,42 @@ struct DisableColor
 } _disableColor;
 } // namespace
 
+// TRACE
+TEST(TraceMacro, TraceVariable)
+{
+  std::ostringstream oss;
+  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  auto n = 123;
+  TRACE("foo", n);
+  EXPECT_NE(oss.str().find("foo, n = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
+  trace::formatting_options.set_output_stream(stderr);
+}
+
+TEST(TraceMacro, TraceBrackets)
+{
+  std::ostringstream oss;
+  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  auto n = 123;
+  TRACE(("foo", n));
+  EXPECT_NE(oss.str().find("(\"foo\", n) = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
+  trace::formatting_options.set_output_stream(stderr);
+}
+
+TEST(TraceMacro, TraceSquareBrackets)
+{
+  struct Dummy2D
+  {
+      std::string operator[](int i, int j) const { return "result of [i,j]"; }
+  };
+
+  std::ostringstream oss;
+  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  Dummy2D n;
+  TRACE(n[2, 3]);
+  EXPECT_NE(oss.str().find("n[2, 3] = result of [i,j]"), std::string::npos) << "Trace output was:\n" << oss.str();
+  trace::formatting_options.set_output_stream(stderr);
+}
+
 // CHECK
 TEST(CheckMacro, FailingCheckAborts)
 {
