@@ -2,6 +2,31 @@ cmake_minimum_required(VERSION 3.18)
 cmake_policy(SET CMP0135 NEW)
 project(uni20 VERSION 0.1.0 LANGUAGES CXX)
 
+# Build-type support
+# For single-config generators (Makefile, Ninja), default to Release if none given.
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release"
+      CACHE STRING
+      "Choose the type of build (Debug, DebugOpt, Release, RelWithDebInfo, MinSizeRel)"
+      FORCE)
+endif()
+
+# Define valid configs for multi-config generators (VS, Xcode).
+set(CMAKE_CONFIGURATION_TYPES
+    Debug
+    DebugOpt
+    Release
+    RelWithDebInfo
+    MinSizeRel
+    CACHE STRING "Configs" FORCE)
+
+# Tweak per-config flags
+set(CMAKE_CXX_FLAGS_DEBUG          "-O0 -g")
+set(CMAKE_CXX_FLAGS_DEBUGOPT       "-O2 -g")
+set(CMAKE_CXX_FLAGS_RELEASE        "-DNDEBUG -O2")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-DNDEBUG -O2 -g")
+set(CMAKE_CXX_FLAGS_MINSIZEREL     "-DNDEBUG -Os")
+
 # silence CMP0115 “source file extensions must be explicit”
 if(POLICY CMP0115)
   cmake_policy(SET CMP0115 NEW)
@@ -25,6 +50,7 @@ option(UNI20_BUILD_TESTS          "Build unit tests" ON)
 option(UNI20_BUILD_COMBINED_TESTS "Build combined test executable (in addition to per-module tests)" ON)
 option(UNI20_BUILD_BENCH          "Build benchmarks" ON)
 option(UNI20_ENABLE_WARNINGS      "Enable compiler warnings" ON)
+option(UNI20_BUILD_ASM            "Build stand-alone assembly dumps for snippets in asm/" ON)
 
 if(UNI20_ENABLE_WARNINGS)
   set(UNI20_WARN_FLAGS "-Wall;-Wextra;-Wattributes;-pedantic;-pedantic-errors;-fstrict-aliasing;-Wstrict-aliasing;-Wno-unused-parameter")
@@ -145,6 +171,10 @@ if(UNI20_BUILD_BENCH)
 endif()
 
 add_subdirectory(examples)
+
+if(UNI20_BUILD_ASM)
+  add_subdirectory(asm)
+endif()
 
 # Doxygen documentation target
 find_package(Doxygen QUIET)
