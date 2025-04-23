@@ -93,6 +93,42 @@ TEST(ZipTransform1D, MixedStrideNotStrided)
 }
 
 //----------------------------------------------------------------------
+// A unary zip_transform should preserve the existsing layout and just transform the accessor
+//----------------------------------------------------------------------
+
+TEST(ZipTransform1D, UnaryPreservesLayoutAndValues)
+{
+  std::vector<double> v{5, 6, 7, 8};
+  auto M = make_mdspan_1d(v);
+
+  // a simple unary op: multiply by 10
+  auto U = zip_transform([](double x) { return x * 10.0; }, M);
+
+  // shape must be unchanged
+  ASSERT_EQ(U.rank(), 1);
+  EXPECT_EQ(U.extent(0), M.extent(0));
+
+  // values should be exactly 10× the input
+  for (index_t i = 0; i < (index_t)M.extent(0); ++i)
+    EXPECT_DOUBLE_EQ(U[i], 10.0 * M[i]);
+
+  // mapping must be the same type and have the same behavior
+  using OrigMap = decltype(M.mapping());
+  using NewMap = decltype(U.mapping());
+  static_assert(std::is_same_v<OrigMap, NewMap>, "Unary zip_transform must preserve layout_type");
+
+  // exercise the mapping offsets too
+  auto m0 = M.mapping();
+  auto m1 = U.mapping();
+  for (index_t i = 0; i < (index_t)M.extent(0); ++i)
+  {
+    auto o0 = m0(i);
+    auto o1 = m1(i);
+    EXPECT_EQ(o0, o1);
+  }
+}
+
+//----------------------------------------------------------------------
 // Data_handle tuple is passed through accessor
 //----------------------------------------------------------------------
 
