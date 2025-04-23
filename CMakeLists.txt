@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.18)
 cmake_policy(SET CMP0135 NEW)
 project(uni20 VERSION 0.1.0 LANGUAGES CXX)
 
+# silence CMP0115 “source file extensions must be explicit”
+if(POLICY CMP0115)
+  cmake_policy(SET CMP0115 NEW)
+endif()
+
 # Include extra CMake modules.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ClangFormat)

@@ -1,0 +1,147 @@
+#pragma once
+
+#include "common/mdspan.hpp"
+#include "common/static_vector.hpp"
+#include "common/types.hpp"
+#include "zip_layout.hpp"
+#include <algorithm>
+#include <cstddef>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+
+namespace uni20
+{
+
+/// \brief Trait to pull an AccessorPolicy’s offset_type if present,
+///        or fall back to std::size_t otherwise.
+/// \tparam AP  The accessor policy to inspect.
+template <typename AP, typename = void> struct accessor_offset_type
+{
+    using type = std::size_t;
+};
+
+template <typename AP> struct accessor_offset_type<AP, std::void_t<typename AP::offset_type>>
+{
+    using type = typename AP::offset_type;
+};
+/// \brief Alias for accessor_offset_type<AP>::type.
+/// \tparam AP  The accessor policy to inspect.
+template <typename AP> using accessor_offset_t = typename accessor_offset_type<AP>::type;
+
+/// \brief An mdspan accessor that applies an N‑ary functor to N child spans,
+///        with maximal empty‑base optimizations.
+/// \tparam Func   A callable taking Spans::reference... and returning R.
+/// \tparam Spans  Zero or more mdspan types (must share extents & rank).
+template <class Func, class... Spans>
+struct TransformAccessor : private Func // EBO if Func is empty
+    ,
+                           private std::tuple<typename Spans::accessor_type...> // EBO for accessors
+{
+    static_assert(sizeof...(Spans) >= 1, "Need at least one span");
+
+    /// \brief The tuple of child-accessor types we inherit.
+    using accessor_tuple = std::tuple<typename Spans::accessor_type...>;
+
+    /// \brief Bundle of child data handles.
+    using data_handle_type = std::tuple<typename Spans::data_handle_type...>;
+
+    /// \brief Per‑child offset_type (falls back to std::size_t).
+    using offset_type = std::tuple<accessor_offset_t<typename Spans::accessor_type>...>;
+
+    /// \brief Return type when calling func_ on each child::reference.
+    using reference = std::invoke_result_t<Func, typename Spans::reference...>;
+
+    /// \brief “True” element type, stripping any proxy/reference wrappers.
+    using element_type = uni20::remove_proxy_reference_t<reference>;
+
+    /// \brief Alias so mdspan sees this as its offset_policy.
+    using offset_policy = TransformAccessor;
+
+    /// \brief Perfect‑forwarding CTAD constructor.
+    /// \tparam FwdFunc  Deduced type of the functor (can bind to temporaries).
+    template <class FwdFunc>
+    TransformAccessor(FwdFunc&& f, Spans const&... spans) noexcept(std::is_nothrow_constructible_v<Func, FwdFunc>)
+        : Func(std::forward<FwdFunc>(f)), accessor_tuple(spans.accessor()...)
+    {}
+
+    /// \brief Advance each child handle by its per‑span offset.
+    /// \param handles  Tuple of current child data handles.
+    /// \param rel      Tuple of per‑child offsets.
+    /// \return         New tuple of advanced handles.
+    constexpr data_handle_type offset(data_handle_type const& handles, offset_type const& rel) const noexcept
+    {
+      return offset_impl(handles, rel, std::make_index_sequence<sizeof...(Spans)>{});
+    }
+
+    /// \brief Fetch each child element then invoke the stored functor.
+    /// \param handles  Tuple of current child data handles.
+    /// \param rel      Tuple of per‑child offsets.
+    /// \return         Result of calling func_(child0, child1, ...).
+    constexpr reference access(data_handle_type const& handles, offset_type const& rel) const noexcept
+    {
+      return access_impl(handles, rel, std::make_index_sequence<sizeof...(Spans)>{});
+    }
+
+  private:
+    /// \brief Helper: call each child.offset() and bundle new handles.
+    template <std::size_t... I>
+    constexpr data_handle_type offset_impl(data_handle_type const& handles, offset_type const& rel,
+                                           std::index_sequence<I...>) const noexcept
+    {
+      return {std::get<I>(static_cast<accessor_tuple const&>(*this)).offset(std::get<I>(handles), std::get<I>(rel))...};
+    }
+
+    /// \brief Helper: call each child.access() then Func::operator()(...).
+    template <std::size_t... I>
+    constexpr reference access_impl(data_handle_type const& handles, offset_type const& rel,
+                                    std::index_sequence<I...>) const noexcept
+    {
+      return Func::operator()(
+          std::get<I>(static_cast<accessor_tuple const&>(*this)).access(std::get<I>(handles), std::get<I>(rel))...);
+    }
+};
+
+/// \brief CTAD guide: deduce TransformAccessor<Func,Spans...>
+/// \tparam Func   Functor type.
+/// \tparam Spans  Span types.
+template <typename Func, typename... Spans>
+TransformAccessor(Func&&, Spans const&...) -> TransformAccessor<std::decay_t<Func>, Spans...>;
+
+/// \brief Create an element-wise “zip + transform” view over N spans.
+/// \tparam Func   A callable taking N arguments (one per span) and returning R.
+/// \tparam Spans  One or more mdspan types (all must share the same extents).
+/// \param  f      The N-ary functor to apply (e.g. plus_n{}, a lambda, etc.).
+/// \param  spans  The input spans to zip (all must have identical extents).
+/// \return        An mdspan whose element at multi-index I is
+///                f(spans0(I), spans1(I), …).
+template <typename Func, typename... Spans> auto zip_transform(Func&& f, Spans const&... spans)
+{
+  static_assert(sizeof...(Spans) >= 1, "zip_transform needs at least one span");
+
+  // all spans must share extents type and rank
+  using first_span = std::tuple_element_t<0, std::tuple<Spans...>>;
+  static_assert(((Spans::rank() == first_span::rank()) && ...), "All spans must have same rank");
+
+  // merge the extents objects into a common extent, collapsing static ranks where possible
+  using extents_t = common_extents_t<Spans...>;
+  extents_t extents = make_common_extents(spans...);
+
+  // pick the layout
+  using layout_t = zip_layout_t<Spans...>;
+  // build the concrete mapping for these extents
+  using mapping_t = typename layout_t::template mapping<extents_t>;
+  mapping_t mapping{extents, spans.mapping()...};
+
+  // build the accessor
+  using accessor_t = TransformAccessor<std::decay_t<Func>, Spans...>;
+
+  using data_handle_t = typename accessor_t::data_handle_type;
+  data_handle_t dh{spans.data_handle()...};
+
+  // construct the mdspan
+  return stdex::mdspan<typename accessor_t::element_type, extents_t, layout_t, accessor_t>{
+      std::tuple{spans.data_handle()...}, mapping, accessor_t(std::forward<Func>(f), spans...)};
+}
+
+} // namespace uni20

@@ -20,12 +20,12 @@ TEST(StridedZipLayoutMapping1D, OffsetsAndIsStrided)
 
   // operator()(i) → { i*2, i*3 }
   auto o0 = m(0);
-  EXPECT_EQ(o0[0], 0);
-  EXPECT_EQ(o0[1], 0);
+  EXPECT_EQ(std::get<0>(o0), 0);
+  EXPECT_EQ(std::get<1>(o0), 0);
 
   auto o2 = m(2);
-  EXPECT_EQ(o2[0], 2 * 2);
-  EXPECT_EQ(o2[1], 2 * 3);
+  EXPECT_EQ(std::get<0>(o2), 2 * 2);
+  EXPECT_EQ(std::get<1>(o2), 2 * 3);
 
   // static queries
   EXPECT_TRUE(Layout::mapping<extents_t>::is_always_unique());
@@ -56,26 +56,20 @@ TEST(StridedZipLayoutMapping1D, MergePrependAppend)
   StridedZipLayout<2>::mapping<extents_t> m2(exts, std::array<std::array<index_t, 1>, 2>{{{1}, {10}}});
   // prepend stride=100
   Layout::mapping<extents_t> mp(std::array<index_t, 1>{100}, m2);
-  EXPECT_EQ(mp(2)[0], 2 * 100);
-  EXPECT_EQ(mp(2)[1], 2 * 1);
-  EXPECT_EQ(mp(2)[2], 2 * 10);
+  EXPECT_EQ(std::get<0>(mp(2)), 2 * 100);
+  EXPECT_EQ(std::get<1>(mp(2)), 2 * 1);
+  EXPECT_EQ(std::get<2>(mp(2)), 2 * 10);
 
   // append stride=1000
   Layout::mapping<extents_t> ma(m2, std::array<index_t, 1>{1000});
-  EXPECT_EQ(ma(2)[0], 2 * 1);
-  EXPECT_EQ(ma(2)[1], 2 * 10);
-  EXPECT_EQ(ma(2)[2], 2 * 1000);
+  EXPECT_EQ(std::get<0>(ma(2)), 2 * 1);
+  EXPECT_EQ(std::get<1>(ma(2)), 2 * 10);
+  EXPECT_EQ(std::get<2>(ma(2)), 2 * 1000);
 }
 
 //----------------------------------------------------------------------
 // Test GeneralZipLayout<layout_stride,layout_stride>::mapping<...> in 1D
 //----------------------------------------------------------------------
-
-template <class... Ts> constexpr auto make_array(Ts&&... t) -> std::array<std::common_type_t<Ts...>, sizeof...(Ts)>
-{
-  using U = std::common_type_t<Ts...>;
-  return {{static_cast<U>(std::forward<Ts>(t))...}};
-}
 
 TEST(GeneralZipLayoutMapping1D, DefaultStrides)
 {
@@ -86,8 +80,8 @@ TEST(GeneralZipLayoutMapping1D, DefaultStrides)
 
   extents_t exts{5};
   // child mappings default to stride=1
-  Layout::mapping<extents_t> m(exts, L1::mapping<extents_t>(exts, make_array(1)),
-                               L2::mapping<extents_t>(exts, make_array(1)));
+  Layout::mapping<extents_t> m(exts, L1::mapping<extents_t>(exts, std::array{1}),
+                               L2::mapping<extents_t>(exts, std::array{1}));
 
   // offset(i) == (i,i)
   auto o3 = m(3);

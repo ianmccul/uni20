@@ -12,244 +12,6 @@
 namespace uni20
 {
 
-namespace detail
-{
-
-// Helper function to merge extents. If the extents are different, then one of them must be dynamic,
-// otherwise they are not compatible. If one is dynamic and one is static, then return the static extent.
-
-template <std::size_t A, std::size_t B> static constexpr std::size_t merge_extent()
-{
-  if constexpr (A == B)
-    return A;
-  else if constexpr (A == stdex::dynamic_extent)
-    return B;
-  else if constexpr (B == stdex::dynamic_extent)
-    return A;
-  else
-    static_assert(A == B || A == stdex::dynamic_extent || B == stdex::dynamic_extent, "Incompatible static extents");
-  return 0;
-}
-
-// Primary template: merge_pack over a pack of N extents
-template <std::size_t... Ns> struct merge_pack;
-
-// Base case: single value
-template <std::size_t A> struct merge_pack<A>
-{
-    static constexpr std::size_t value = A;
-};
-
-// Recursive case: merge first two, then fold in the rest
-template <std::size_t A, std::size_t B, std::size_t... Rest> struct merge_pack<A, B, Rest...>
-{
-    static constexpr std::size_t value = merge_pack<merge_extent<A, B>(), Rest...>::value;
-};
-
-// Given a set of mdspans, determine the common extents using the merge_extent() function above
-template <typename FirstSpan, typename... OtherSpans> struct common_extents
-{
-    static constexpr std::size_t NumSpans = 1 + sizeof...(OtherSpans);
-
-    // 1) All spans must have the same rank R
-    static constexpr std::size_t R = FirstSpan::rank();
-    static_assert((... && (OtherSpans::rank() == R)), "common_extents: ranks must match");
-
-    using index_type = FirstSpan::index_type;
-
-  private:
-    // Fold-merge the static extents at dimension I
-    template <std::size_t I> static constexpr std::size_t merged_static_extent()
-    {
-      // build a pack of the static‑extent<I> of each Span
-      return merge_pack<FirstSpan::extents_type::static_extent(I),
-                        OtherSpans::extents_type::static_extent(I)...>::value;
-    }
-
-    // Build the extents type by expanding merged_static_extent<Is>()...
-    template <std::size_t... Is> static constexpr auto make_extents(std::index_sequence<Is...>)
-    {
-      return stdex::extents<index_type,
-                            merged_static_extent<Is>()... // one per dimension
-                            >{};
-    }
-
-  public:
-    /// The merged extents type
-    using type = decltype(make_extents(std::make_index_sequence<R>{}));
-
-  private:
-    template <std::size_t... Is>
-
-    static type make_impl(std::index_sequence<Is...>, FirstSpan const& first, OtherSpans const&... otherspans)
-    {
-      // Construct the extents object. All of the extents of each span must agree.
-      type ext{first.template extent(Is)...};
-
-      auto do_check = [&](auto const& sp) { CHECK_EQUAL(ext, sp.extents()); };
-
-      (do_check(otherspans), ...);
-
-      return ext;
-    }
-
-  public:
-    /// Runtime‑checked factory
-    static type make(FirstSpan const& firstspan, OtherSpans const&... otherspans)
-    {
-      return make_impl(std::make_index_sequence<R>{}, firstspan, otherspans...);
-    }
-};
-
-// Convenience alias to get the stdex::extents type that represents the common extents of a set of mdspans
-template <typename... Spans> using common_extents_t = typename detail::common_extents<Spans...>::type;
-
-} // namespace detail
-
-#if 0
-
-/// \brief Layout policy for the element‐wise sum of N spans.
-///
-/// \tparam NumSpans  Number of component spans being summed.
-template <std::size_t NumSpans> struct SumLayout
-{
-    /// \brief Nested mapping type carrying per‐view state.
-    ///
-    /// \tparam Ext  The merged extents type (e.g. a `stdex::extents<…>`).
-    template <class Ext> struct mapping
-    {
-        static constexpr std::size_t num_spans = NumSpans;
-        using extents_type = Ext;
-        using index_type = typename Ext::index_type;
-        using rank_type = typename Ext::rank_type;
-        static constexpr rank_type Rank = Ext::rank();
-        using offset_type = std::array<index_type, NumSpans>;
-
-        static constexpr bool is_always_unique() { return true; }
-        static constexpr bool is_always_exhaustive() { return false; }
-        static constexpr bool is_always_strided() { return false; }
-
-        // For each logical dimension d:
-        //  - extent = extents_.extent(d)
-        //  - strides[s] = span s's stride in dim d
-        using dim_t = multi_extent_stride<index_type, index_type, NumSpans>;
-        using dims_t = std::array<dim_t, Rank>;
-
-        extents_type extents_; // merged extents (static/dynamic)
-        dims_t dims_;          // per‑dim, per‑span strides
-
-        // Construct from:
-        //   * the merged extents object (common_extents<…>::make(...))
-        //   * a strides‐pack: array over spans of their stride arrays
-        constexpr mapping(extents_type ext, std::array<std::array<index_type, Rank>, NumSpans> strides_pack)
-            : extents_(ext), dims_(make_dims(std::move(strides_pack)))
-        {}
-
-        template <typename OtherExt>
-        constexpr mapping(std::array<index_type, Rank> const& new_strides,
-                          typename SumLayout<NumSpans - 1>::template mapping<OtherExt> const& other) noexcept
-            : extents_(other.extents_), dims_(make_dims(new_strides, other.dims_))
-        {}
-
-        template <typename OtherExt>
-        constexpr mapping(typename SumLayout<NumSpans - 1>::template mapping<OtherExt> const& other,
-                          std::array<index_type, Rank> const& new_strides) noexcept
-            : extents_(other.extents_), dims_(make_dims(other.dims_, new_strides))
-        {}
-
-        template <typename LeftMap, typename RightMap>
-          requires(LeftMap::num_spans + RightMap::num_spans == num_spans)
-        constexpr mapping(LeftMap const& left, RightMap const& right) noexcept
-            : extents_(left.extents_), dims_(make_dims(left.dims_, right.dims_))
-        {}
-
-        // mdspan mapping API:
-        constexpr extents_type const& extents() const noexcept { return extents_; }
-        static constexpr auto rank() noexcept { return Rank; }
-
-        // Given a multi‐index, compute each span’s linear offset:
-        template <typename... Idx> constexpr offset_type operator()(Idx... idxs) const noexcept
-        {
-          static_assert(sizeof...(Idx) == Rank, "Wrong #indices");
-          std::array<index_type, Rank> idx = {static_cast<index_type>(idxs)...};
-          offset_type out{}; // zero‐initialized
-          for (std::size_t d = 0; d < Rank; ++d)
-            for (std::size_t s = 0; s < NumSpans; ++s)
-              out[s] += dims_[d].strides[s] * idx[d];
-          return out;
-        }
-
-      private:
-        // Turn the strides_pack into our dims_ array
-        constexpr dims_t make_dims(std::array<std::array<index_type, Rank>, NumSpans> sp) const noexcept
-        {
-          dims_t result{};
-          for (std::size_t d = 0; d < Rank; ++d)
-          {
-            std::array<index_type, NumSpans> ss{};
-            for (std::size_t s = 0; s < NumSpans; ++s)
-            {
-              ss[s] = sp[s][d];
-            }
-            // extent check is done by common_extents::make(...)
-            result[d] = {extents_.template extent(d), ss};
-          }
-          return result;
-        }
-
-        constexpr dims_t make_dims(
-            std::array<index_type, Rank> const& new_strides,
-            std::array<multi_extent_stride<index_type, index_type, NumSpans - 1>, Rank> const& other) const noexcept
-        {
-          dims_t result{};
-          for (std::size_t d = 0; d < Rank; ++d)
-          {
-            std::array<index_type, NumSpans> ss{};
-            ss[0] = new_strides[d];
-            std::ranges::copy(other[d].strides, ss.data() + 1);
-            result[d] = {extents_.template extent(d), ss};
-          }
-          return result;
-        }
-
-        constexpr dims_t
-        make_dims(std::array<multi_extent_stride<index_type, index_type, NumSpans - 1>, Rank> const& other,
-                  std::array<index_type, Rank> const& new_strides) const noexcept
-        {
-          dims_t result{};
-          for (std::size_t d = 0; d < Rank; ++d)
-          {
-            std::array<index_type, NumSpans> ss{};
-            std::ranges::copy(other[d].strides, ss.data());
-            ss[NumSpans - 1] = new_strides[d];
-            result[d] = {extents_.template extent(d), ss};
-          }
-          return result;
-        }
-
-        template <size_t N>
-        constexpr dims_t make_dims(std::array<multi_extent_stride<index_type, index_type, N>, Rank> const& a,
-                                   std::array<multi_extent_stride<index_type, index_type, NumSpans - N>, Rank> const& b)
-        {
-          static_assert(N <= NumSpans, "Cannot split into more spans than NumSpans");
-          dims_t result{};
-          for (std::size_t d = 0; d < Rank; ++d)
-          {
-            std::array<index_type, NumSpans> ss{};
-            // first the N strides from `a`:
-            std::ranges::copy(a[d].strides, ss.data());
-            std::ranges::copy(b[d].strides, ss.data() + N);
-            result[d] = dim_t{extents_.template extent(d), ss};
-          }
-          return result;
-        }
-    };
-};
-
-#endif
-
-template <size_t N> using SumLayout = StridedZipLayout<N>;
-
 template <StridedMdspan... Spans> struct SumAccessor
 {
     static constexpr std::size_t NumSpans = sizeof...(Spans);
@@ -260,7 +22,7 @@ template <StridedMdspan... Spans> struct SumAccessor
     using accessor_tuple = std::tuple<typename Spans::accessor_type...>;
 
     // get the offset_type from the layout. This will be a std::array of index_type
-    using mapping_type = typename SumLayout<NumSpans>::template mapping<detail::common_extents_t<Spans...>>;
+    using mapping_type = typename StridedZipLayout<NumSpans>::template mapping<common_extents_t<Spans...>>;
     using offset_type = typename mapping_type::offset_type;
 
     // Deduce reference as sum of all underlying references:
@@ -294,7 +56,7 @@ template <StridedMdspan... Spans> struct SumAccessor
     constexpr data_handle_type offset_impl(data_handle_type const& handles, offset_type const& rel,
                                            std::index_sequence<Is...>) const noexcept
     {
-      return {std::get<Is>(accessors_).offset(std::get<Is>(handles), rel[Is])...};
+      return {std::get<Is>(accessors_).offset(std::get<Is>(handles), std::get<Is>(rel))...};
     }
 
     // Helper that grabs each accessor from the tuple by index and forward to the .access() method
@@ -302,7 +64,7 @@ template <StridedMdspan... Spans> struct SumAccessor
     constexpr reference access_impl(data_handle_type const& h, offset_type rel,
                                     std::index_sequence<Is...>) const noexcept
     {
-      return (std::get<Is>(accessors_).access(std::get<Is>(h), rel[Is]) + ...);
+      return (std::get<Is>(accessors_).access(std::get<Is>(h), std::get<Is>(rel)) + ...);
     }
 
     accessor_tuple accessors_;
@@ -336,8 +98,8 @@ template <StridedMdspan First, StridedMdspan... Rest> auto sum_view(First const&
   assert(((first.extents() == rest.extents()) && ...) && "sum_view: shape mismatch");
 
   // 1) Compute merged extents and build the mapping:
-  using CE = detail::common_extents_t<First, Rest...>;
-  CE ext = detail::common_extents<First, Rest...>::make(first, rest...);
+  using CE = common_extents_t<First, Rest...>;
+  CE ext = make_common_extents(first, rest...);
 
   constexpr std::size_t N = 1 + sizeof...(Rest);
   constexpr std::size_t R = CE::rank();
@@ -356,7 +118,7 @@ template <StridedMdspan First, StridedMdspan... Rest> auto sum_view(First const&
   }
 
   // 3) Construct the mdspan mapping
-  using Layout = SumLayout<N>;
+  using Layout = StridedZipLayout<N>;
   using Mapping = Layout::template mapping<CE>;
   auto mapping = Mapping{ext, strides_pack};
 
@@ -401,13 +163,13 @@ template <typename SA, typename SB> using join_sum_acc_t = typename join_sum_acc
 template <StridedMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute merged extents type & object
-  using CE = detail::common_extents_t<A, B>;
+  using CE = common_extents_t<A, B>;
 
   // Build the new mapping by prepending A onto B’s mapping
   // Extract how many spans B already has:
   constexpr size_t M = B::mapping_type::num_spans;
 
-  using NewLayout = SumLayout<M + 1>;
+  using NewLayout = StridedZipLayout<M + 1>;
   using Mapping = NewLayout::template mapping<CE>;
   Mapping map(a.mapping().strides(), b.mapping());
 
@@ -434,14 +196,14 @@ template <StridedMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 template <SumMdspan A, StridedMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute the merged extents type & object
-  using CE = detail::common_extents_t<A, B>;
+  using CE = common_extents_t<A, B>;
 
-  // Build the new mapping by appending B onto A’s SumLayout
+  // Build the new mapping by appending B onto A’s StridedZipLayout
   constexpr std::size_t M = A::mapping_type::num_spans; // how many spans A already has
-  using NewLayout = SumLayout<M + 1>;
+  using NewLayout = StridedZipLayout<M + 1>;
   using Mapping = typename NewLayout::template mapping<CE>;
 
-  // this ctor was added to SumLayout::mapping:
+  // this ctor was added to StridedZipLayout::mapping:
   //   mapping(old_mapping, new_strides)
   Mapping map(a.mapping(), b.mapping().strides());
 
@@ -468,15 +230,15 @@ template <SumMdspan A, StridedMdspan B> auto sum_view(A const& a, B const& b)
 template <SumMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute the merged extents type & object
-  using CE = detail::common_extents_t<A, B>;
+  using CE = common_extents_t<A, B>;
 
-  // Build the new mapping by appending B onto A's SumLayout
+  // Build the new mapping by appending B onto A's StridedZipLayout
   constexpr std::size_t Na = A::mapping_type::num_spans;
   constexpr std::size_t Nb = B::mapping_type::num_spans;
-  using NewLayout = SumLayout<Na + Nb>;
+  using NewLayout = StridedZipLayout<Na + Nb>;
   using Mapping = typename NewLayout::template mapping<CE>;
 
-  // this ctor was added to SumLayout::mapping:
+  // this ctor was added to StridedZipLayout::mapping:
   //   mapping(old_mapping, new_strides)
   Mapping map(a.mapping(), b.mapping());
 

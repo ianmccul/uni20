@@ -18,7 +18,7 @@ auto make_mapping(std::array<std::size_t, N> const& extents, std::array<index_ty
 }
 
 // A helper to build a 1D mdspan over a std::vector using layout_stride
-static auto make_mdspan_1d(std::vector<double>& v)
+inline auto make_mdspan_1d(std::vector<double>& v)
 {
   using extents_t = stdex::dextents<index_t, 1>;
   std::array<std::ptrdiff_t, 1> strides{1};
@@ -27,7 +27,7 @@ static auto make_mdspan_1d(std::vector<double>& v)
 }
 
 // A helper to build a 2D row‐major mdspan using layout_stride
-static auto make_mdspan_2d(std::vector<double>& v, std::size_t R, std::size_t C)
+inline auto make_mdspan_2d(std::vector<double>& v, std::size_t R, std::size_t C)
 {
   using extents_t = stdex::dextents<index_t, 2>;
   std::array<std::ptrdiff_t, 2> strides{static_cast<index_t>(C), 1}; // Row-major
@@ -36,7 +36,7 @@ static auto make_mdspan_2d(std::vector<double>& v, std::size_t R, std::size_t C)
 }
 
 // A helper to build a reversed‐1D mdspan (negative stride)
-static auto make_reversed_1d(std::vector<double>& v)
+inline auto make_reversed_1d(std::vector<double>& v)
 {
   using extents_t = stdex::dextents<index_t, 1>;
   std::array<std::ptrdiff_t, 1> strides{-1};

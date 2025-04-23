@@ -11,6 +11,105 @@ namespace uni20
 namespace detail
 {
 
+// Helper function to merge extents. If the extents are different, then one of them must be dynamic,
+// otherwise they are not compatible. If one is dynamic and one is static, then return the static extent.
+
+template <std::size_t A, std::size_t B> static constexpr std::size_t merge_extent()
+{
+  if constexpr (A == B)
+    return A;
+  else if constexpr (A == stdex::dynamic_extent)
+    return B;
+  else if constexpr (B == stdex::dynamic_extent)
+    return A;
+  else
+    static_assert(A == B || A == stdex::dynamic_extent || B == stdex::dynamic_extent, "Incompatible static extents");
+  return 0;
+}
+
+// Primary template: merge_pack over a pack of N extents
+template <std::size_t... Ns> struct merge_pack;
+
+// Base case: single value
+template <std::size_t A> struct merge_pack<A>
+{
+    static constexpr std::size_t value = A;
+};
+
+// Recursive case: merge first two, then fold in the rest
+template <std::size_t A, std::size_t B, std::size_t... Rest> struct merge_pack<A, B, Rest...>
+{
+    static constexpr std::size_t value = merge_pack<merge_extent<A, B>(), Rest...>::value;
+};
+
+// Given a set of mdspans, determine the common extents using the merge_extent() function above
+template <typename FirstSpan, typename... OtherSpans> struct common_extents
+{
+    static constexpr std::size_t NumSpans = 1 + sizeof...(OtherSpans);
+
+    // 1) All spans must have the same rank R
+    static constexpr std::size_t R = FirstSpan::rank();
+    static_assert((... && (OtherSpans::rank() == R)), "common_extents: ranks must match");
+
+    using index_type = FirstSpan::index_type;
+
+  private:
+    // Fold-merge the static extents at dimension I
+    template <std::size_t I> static constexpr std::size_t merged_static_extent()
+    {
+      // build a pack of the static‑extent<I> of each Span
+      return merge_pack<FirstSpan::extents_type::static_extent(I),
+                        OtherSpans::extents_type::static_extent(I)...>::value;
+    }
+
+    // Build the extents type by expanding merged_static_extent<Is>()...
+    template <std::size_t... Is> static constexpr auto make_extents(std::index_sequence<Is...>)
+    {
+      return stdex::extents<index_type,
+                            merged_static_extent<Is>()... // one per dimension
+                            >{};
+    }
+
+  public:
+    /// The merged extents type
+    using type = decltype(make_extents(std::make_index_sequence<R>{}));
+
+  private:
+    template <std::size_t... Is>
+
+    static type make_impl(std::index_sequence<Is...>, FirstSpan const& first, OtherSpans const&... otherspans)
+    {
+      // Construct the extents object. All of the extents of each span must agree.
+      type ext{first.template extent(Is)...};
+
+      auto do_check = [&](auto const& sp) { CHECK_EQUAL(ext, sp.extents()); };
+
+      (do_check(otherspans), ...);
+
+      return ext;
+    }
+
+  public:
+    /// Runtime‑checked factory
+    static type make(FirstSpan const& firstspan, OtherSpans const&... otherspans)
+    {
+      return make_impl(std::make_index_sequence<R>{}, firstspan, otherspans...);
+    }
+};
+
+} // namespace detail
+
+// Convenience alias to get the stdex::extents type that represents the common extents of a set of mdspans
+template <typename... Spans> using common_extents_t = typename detail::common_extents<Spans...>::type;
+
+template <typename... Spans> auto make_common_extents(Spans... spans)
+{
+  return detail::common_extents<Spans...>::make(spans...);
+}
+
+namespace detail
+{
+
 template <typename T, std::size_t N1, std::size_t N2, std::size_t... I, std::size_t... J>
 constexpr std::array<T, N1 + N2> concat_impl(const std::array<T, N1>& a1, const std::array<T, N2>& a2,
                                              std::index_sequence<I...>, std::index_sequence<J...>)
@@ -52,6 +151,24 @@ template <typename T, std::size_t N> constexpr std::array<T, N + 1> concat(const
   return detail::concat_impl(a, x, std::make_index_sequence<N>{});
 }
 
+namespace detail
+{
+
+// build a std::tuple of N default-constructed T’s
+template <typename T, std::size_t... I> constexpr auto make_tuple_n_impl(std::index_sequence<I...>)
+{
+  // the comma‐expression (static_cast<void>(I), T{}) ensures we produce T{} N times
+  return std::tuple{(static_cast<void>(I), T{})...};
+}
+
+} // namespace detail
+
+/// \brief Alias: tuple_n<T,N> is std::tuple<T,T,…> with N Ts.
+/// \tparam T  The type to repeat.
+/// \tparam N  How many copies.
+template <typename T, std::size_t N>
+using tuple_n = decltype(detail::make_tuple_n_impl<T>(std::make_index_sequence<N>{}));
+
 /// \brief Zip layout for \p NumSpans strided spans (all using layout_stride).
 /// \tparam NumSpans  Number of child spans to zip.
 template <std::size_t NumSpans> struct StridedZipLayout
@@ -69,7 +186,8 @@ template <std::size_t NumSpans> struct StridedZipLayout
         using index_type = typename Ext::index_type;
         using rank_type = typename Ext::rank_type;
 
-        using offset_type = std::array<index_type, NumSpans>;
+        using offset_type = tuple_n<index_type, NumSpans>;
+
         using mapping_type = mapping<Ext>;
 
         /// \brief Number of spans in this zip layout.
@@ -126,6 +244,11 @@ template <std::size_t NumSpans> struct StridedZipLayout
           return all_strides_;
         }
 
+        template <typename... Mappings>
+        constexpr mapping(extents_type const& exts, Mappings... maps) noexcept
+            : extents_(exts), all_strides_{maps.strides()...}
+        {}
+
         /// \brief Construct from shared extents and per-span raw strides.
         /// \param exts         Common extents of the view.
         /// \param strides_pack strides_pack[s][d] is the stride of span s in dim d.
@@ -170,19 +293,31 @@ template <std::size_t NumSpans> struct StridedZipLayout
         template <typename... Idx> constexpr offset_type operator()(Idx... idxs) const noexcept
         {
           static_assert(sizeof...(Idx) == Ext::rank(), "Wrong number of indices");
-          offset_type out{};
+          // pack the multi-index into an array
           std::array<index_type, Ext::rank()> ix{static_cast<index_type>(idxs)...};
-          for (std::size_t d = 0; d < Ext::rank(); ++d)
-          {
-            for (std::size_t s = 0; s < NumSpans; ++s)
-            {
-              out[s] += all_strides_[s][d] * ix[d];
-            }
-          }
-          return out;
+          // dispatch over spans
+          return offset_impl(ix, std::make_index_sequence<NumSpans>{});
         }
 
       private:
+        // For a given span S, compute its offset by folding over all dims D:
+        template <std::size_t S, std::size_t... D>
+        constexpr index_type span_offset(std::array<index_type, Ext::rank()> const& ix,
+                                         std::index_sequence<D...>) const noexcept
+        {
+          // fold: 0 + (stride[S][0]*ix[0]) + (stride[S][1]*ix[1]) + …
+          return ((all_strides_[S][D] * ix[D]) + ... + index_type(0));
+        }
+
+        // Build the tuple of all span-offsets in one go:
+        template <std::size_t... S>
+        constexpr offset_type offset_impl(std::array<index_type, Ext::rank()> const& ix,
+                                          std::index_sequence<S...>) const noexcept
+        {
+          // pack-expand: span_offset<0>(ix), span_offset<1>(ix), …
+          return offset_type{span_offset<S>(ix, std::make_index_sequence<Ext::rank()>{})...};
+        }
+
         extents_type extents_;
         std::array<std::array<index_type, Ext::rank()>, num_spans> all_strides_;
     };
