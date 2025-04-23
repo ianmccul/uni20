@@ -148,16 +148,15 @@ template <typename Func, typename... Spans> auto zip_transform(Func&& f, Spans c
 /// \param  span  The input mdspan.
 /// \return       An mdspan view whose element(i…) == f(span(i…)), with the same layout_type and extents_type as \p
 /// span.
-template <typename Func, typename Span> auto zip_transform(Func&& f, Span&& span)
+template <typename Func, typename Span> auto zip_transform(Func&& f, Span const& span)
 {
-  using Span_t = std::decay_t<Span>;
-  // build the transform‐accessor (EBO over f plus the child accessor)
-  TransformAccessor<std::decay_t<Func>, Span_t> acc{std::forward<Func>(f), std::forward<Span>(span)};
+  // build the transform‐accessor
+  TransformAccessor<std::decay_t<Func>, Span> acc{std::forward<Func>(f), span};
 
   using accessor_t = decltype(acc);
   using element_t = typename accessor_t::element_type;
-  using extents_t = typename Span_t::extents_type;
-  using layout_t = typename Span_t::layout_type;
+  using extents_t = typename Span::extents_type;
+  using layout_t = typename Span::layout_type;
 
   // construct the mdspan view with the original data_handle(), mapping, and our accessor
   return stdex::mdspan<element_t, extents_t, layout_t, accessor_t>{span.data_handle(), span.mapping(), std::move(acc)};

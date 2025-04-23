@@ -8,8 +8,46 @@
 namespace uni20
 {
 
+/// \concept SpanLike
+/// \brief A “span-like” type usable by uni20’s zip_transform machinery.
+///
+/// A type \c S models SpanLike if it provides the minimal mdspan-like API:
+///   - \c S::extents_type defines the shape type
+///   - \c S::layout_type defines the layout policy
+///   - \c S::accessor_type defines the accessor policy
+///   - a const \c mapping() member returning something convertible to
+///     \c layout_type::mapping<extents_type>
+///   - a const \c data_handle() member returning something convertible to
+///     \c accessor_type::data_handle_type
+///   - an \c accessor() member returning something convertible to \c accessor_type
+template <class S>
+concept SpanLike = requires(S s) {
+                     typename S::extents_type;
+                     typename S::layout_type;
+                     typename S::accessor_type;
+
+                     // mapping() must return something convertible to mapping_t
+                     {
+                       s.mapping()
+                       } -> std::convertible_to<typename S::layout_type::template mapping<typename S::extents_type>>;
+
+                     // data_handle() must return something convertible to data_handle_type
+                     {
+                       s.data_handle()
+                       } -> std::convertible_to<typename S::accessor_type::data_handle_type>;
+
+                     // accessor() must return something convertible to accessor_type
+                     {
+                       s.accessor()
+                       } -> std::convertible_to<typename S::accessor_type>;
+                   };
+
+/// \brief A “strided mdspan‐like” type:
+///        – models SpanLike (has extents_type, layout_type, accessor_type, mapping(), data_handle())
+///        – uses layout_stride as its layout_policy
 template <class MDS>
-concept StridedMdspan = std::same_as<typename MDS::layout_type, stdex::layout_stride>;
+concept StridedMdspan = SpanLike<MDS> && // must satisfy our mdspan‐like protocol
+                        std::same_as<typename MDS::layout_type, stdex::layout_stride>; // must use layout_stride
 
 /// \brief Trait to pull an AccessorPolicy’s offset_type if present,
 ///        or fall back to std::size_t otherwise.
