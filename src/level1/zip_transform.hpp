@@ -125,23 +125,20 @@ template <typename Func, typename... Spans> auto zip_transform(Func&& f, Spans c
 
   // merge the extents objects into a common extent, collapsing static ranks where possible
   using extents_t = common_extents_t<Spans...>;
-  extents_t extents = make_common_extents(spans...);
 
   // pick the layout
   using layout_t = zip_layout_t<Spans...>;
+
   // build the concrete mapping for these extents
   using mapping_t = typename layout_t::template mapping<extents_t>;
-  mapping_t mapping{extents, spans.mapping()...};
 
   // build the accessor
   using accessor_t = TransformAccessor<std::decay_t<Func>, Spans...>;
 
-  using data_handle_t = typename accessor_t::data_handle_type;
-  data_handle_t dh{spans.data_handle()...};
-
   // construct the mdspan
   return stdex::mdspan<typename accessor_t::element_type, extents_t, layout_t, accessor_t>{
-      std::tuple{spans.data_handle()...}, mapping, accessor_t(std::forward<Func>(f), spans...)};
+      std::tuple{spans.data_handle()...}, mapping_t{make_common_extents(spans...), spans.mapping()...},
+      accessor_t(std::forward<Func>(f), spans...)};
 }
 
 /// \brief Unary “zip‐transform”: apply \p f element‐wise to one mdspan, preserving its layout.
@@ -151,21 +148,19 @@ template <typename Func, typename... Spans> auto zip_transform(Func&& f, Spans c
 /// \param  span  The input mdspan.
 /// \return       An mdspan view whose element(i…) == f(span(i…)), with the same layout_type and extents_type as \p
 /// span.
-template <typename Func, typename Span> auto zip_transform(Func&& f, Span const& span)
+template <typename Func, typename Span> auto zip_transform(Func&& f, Span&& span)
 {
-  // grab the existing mapping (layout + strides + extents)
-  auto mapping = span.mapping();
-
+  using Span_t = std::decay_t<Span>;
   // build the transform‐accessor (EBO over f plus the child accessor)
-  TransformAccessor<std::decay_t<Func>, Span> acc{std::forward<Func>(f), span};
+  TransformAccessor<std::decay_t<Func>, Span_t> acc{std::forward<Func>(f), std::forward<Span>(span)};
 
   using accessor_t = decltype(acc);
   using element_t = typename accessor_t::element_type;
-  using extents_t = typename Span::extents_type;
-  using layout_t = typename Span::layout_type;
+  using extents_t = typename Span_t::extents_type;
+  using layout_t = typename Span_t::layout_type;
 
   // construct the mdspan view with the original data_handle(), mapping, and our accessor
-  return stdex::mdspan<element_t, extents_t, layout_t, accessor_t>{span.data_handle(), mapping, acc};
+  return stdex::mdspan<element_t, extents_t, layout_t, accessor_t>{span.data_handle(), span.mapping(), std::move(acc)};
 }
 
 } // namespace uni20
