@@ -19,11 +19,19 @@ option(UNI20_ENABLE_MPI           "Enable MPI support" OFF)
 option(UNI20_BUILD_TESTS          "Build unit tests" ON)
 option(UNI20_BUILD_COMBINED_TESTS "Build combined test executable (in addition to per-module tests)" ON)
 option(UNI20_BUILD_BENCH          "Build benchmarks" ON)
+option(UNI20_ENABLE_WARNINGS      "Enable compiler warnings" ON)
 
+if(UNI20_ENABLE_WARNINGS)
+  set(UNI20_WARN_FLAGS "-Wall;-Wextra;-Wattributes;-pedantic;-pedantic-errors;-fstrict-aliasing;-Wstrict-aliasing;-Wno-unused-parameter")
+else()
+  set(UNI20_WARN_FLAGS "")
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+add_compile_options(${UNI20_WARN_FLAGS})
 
 # Sub-modules, for detailed tracing/logging
 set(SUBMODULES BLAS2 BLAS3 LAPACK CUSOLVER TESTMODULE)

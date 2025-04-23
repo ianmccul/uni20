@@ -6,36 +6,81 @@
 
 #include <algorithm>
 #include <cctype>
-#include <fmt/core.h>
-// #include <iostream>
 #include <cstdio>
+#include <fmt/core.h>
 #include <functional>
 #include <map>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 // Check for stacktrace support (C++23 and GCC 13+ or Clang+libc++)
 #if defined(__cpp_lib_stacktrace) && (__cpp_lib_stacktrace >= 202011L)
-#define UNI20_HAS_STACKTRACE 1
+#define TRACE_HAS_STACKTRACE 1
 #include <stacktrace>
 #else
-#define UNI20_HAS_STACKTRACE 0
+#define TRACE_HAS_STACKTRACE 0
+#endif
+
+// stringize helper (two levels needed so that macro args expand first)
+#define TRACE_STRINGIZE_IMPL(x) #x
+#define TRACE_STRINGIZE(x) TRACE_STRINGIZE_IMPL(x)
+
+// COMPILER_NOTE emits an information message during compilation. msg must be a string literal.
+#if defined(_MSC_VER)
+// On MSVC, use __pragma without needing quotes around the entire pragma.
+#define COMPILER_NOTE(msg) __pragma(message(msg))
+#else
+// On GCC/Clang, use the standard _Pragma operator with a string.
+#define COMPILER_NOTE(msg) _Pragma(TRACE_STRINGIZE(message msg))
+#endif
+
+// COMPILER_WARNING_NOTE(msg):
+//   – On GCC/Clang: emits a compile‐time warning via an unnamed lambda with a deprecation attribute.
+//   – On MSVC: no effect.
+#if defined(__clang__) || defined(__GNUC__)
+#define COMPILER_WARNING_NOTE(msg)                                                                                     \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    ([]() __attribute__((deprecated(msg))){})();                                                                       \
+  }                                                                                                                    \
+  while (0)
+#else
+#define COMPILER_WARNING_NOTE(msg)                                                                                     \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
 #endif
 
 // TRACE MACROS
 // These macros forward both the stringified expression list and the evaluated
 // arguments, along with file and line info, to the corresponding trace functions.
-// __VA_OPT__ is used to conditionally include the comma when no extra arguments are provided.
-
-#define TRACE(...) trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));
+// In constexpr context there doesn't seem to be any way to make these work - the only
+// option is that in constexpr context they expand to nothing
+#define TRACE(...)                                                                                                     \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                    \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
 
 #define TRACE_IF(cond, ...)                                                                                            \
   do                                                                                                                   \
   {                                                                                                                    \
     if (cond)                                                                                                          \
     {                                                                                                                  \
-      trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                    \
+      if consteval                                                                                                     \
+      {}                                                                                                               \
+      else                                                                                                             \
+      {                                                                                                                \
+        trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                  \
+      }                                                                                                                \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -45,7 +90,12 @@
   {                                                                                                                    \
     if constexpr (ENABLE_TRACE_##m)                                                                                    \
     {                                                                                                                  \
-      trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                          \
+      if consteval                                                                                                     \
+      {}                                                                                                               \
+      else                                                                                                             \
+      {                                                                                                                \
+        trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
+      }                                                                                                                \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -57,7 +107,12 @@
     {                                                                                                                  \
       if (cond)                                                                                                        \
       {                                                                                                                \
-        trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
+        if consteval                                                                                                   \
+        {}                                                                                                             \
+        else                                                                                                           \
+        {                                                                                                              \
+          trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
+        }                                                                                                              \
       }                                                                                                                \
     }                                                                                                                  \
   }                                                                                                                    \

@@ -27,6 +27,9 @@ TEST(TraceMacro, TraceVariable)
   trace::formatting_options.set_output_stream(stderr);
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-value"
+
 TEST(TraceMacro, TraceBrackets)
 {
   std::ostringstream oss;
@@ -36,6 +39,8 @@ TEST(TraceMacro, TraceBrackets)
   EXPECT_NE(oss.str().find("(\"foo\", n) = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
   trace::formatting_options.set_output_stream(stderr);
 }
+
+#pragma GCC diagnostic pop
 
 TEST(TraceMacro, TraceSquareBrackets)
 {
@@ -52,12 +57,34 @@ TEST(TraceMacro, TraceSquareBrackets)
   trace::formatting_options.set_output_stream(stderr);
 }
 
+// in consteval context, we cannot write to the screen but instead the TRACE() macros are a no-op
+template <typename T> consteval void TraceConsteval(T const& x) { TRACE(x); }
+
+TEST(TraceMacro, TraceConsteval)
+{
+  auto n = 123;
+  TraceConsteval(n);
+  SUCCEED();
+}
+
 // CHECK
 TEST(CheckMacro, FailingCheckAborts)
 {
   EXPECT_DEATH({ CHECK(false); }, "false is false!");
 }
+
 TEST(CheckMacro, PassingCheckDoesNotAbort) { CHECK(true); }
+
+// CHECK in consteval context
+consteval bool CheckConsteval(bool b)
+{
+  CHECK(b);
+  return b;
+}
+
+TEST(CheckMacro, PassingCheckConsteval) { CHECK(CheckConsteval(true)); }
+
+// CheckConsteval(false) should produce a compile-time error.
 
 // CHECK_EQUAL
 TEST(CheckEqualMacro, FailingCheckEqualAborts)
@@ -71,7 +98,17 @@ TEST(PreconditionMacro, FailingPreconditionAborts)
 {
   EXPECT_DEATH({ PRECONDITION(false); }, "false is false!");
 }
+
 TEST(PreconditionMacro, PassingPreconditionDoesNotAbort) { PRECONDITION(true); }
+
+// It is possible to call PRECONDITION in constexpr context, where it is equivalent to static_assert
+constexpr bool test_precondition()
+{
+  PRECONDITION(true);
+  return true;
+}
+
+static_assert(test_precondition(), "PRECONDITION(true) should not fire");
 
 // PRECONDITION_EQUAL
 TEST(PreconditionEqualMacro, FailingPreconditionEqualAborts)
