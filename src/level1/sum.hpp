@@ -5,6 +5,7 @@
 #include "common/trace.hpp"
 #include "common/types.hpp"
 #include "level1/concepts.hpp"
+#include "zip_layout.hpp"
 #include <ranges>
 #include <tuple>
 
@@ -105,6 +106,8 @@ template <typename... Spans> using common_extents_t = typename detail::common_ex
 
 } // namespace detail
 
+#if 0
+
 /// \brief Layout policy for the element‐wise sum of N spans.
 ///
 /// \tparam NumSpans  Number of component spans being summed.
@@ -121,6 +124,10 @@ template <std::size_t NumSpans> struct SumLayout
         using rank_type = typename Ext::rank_type;
         static constexpr rank_type Rank = Ext::rank();
         using offset_type = std::array<index_type, NumSpans>;
+
+        static constexpr bool is_always_unique() { return true; }
+        static constexpr bool is_always_exhaustive() { return false; }
+        static constexpr bool is_always_strided() { return false; }
 
         // For each logical dimension d:
         //  - extent = extents_.extent(d)
@@ -238,6 +245,10 @@ template <std::size_t NumSpans> struct SumLayout
         }
     };
 };
+
+#endif
+
+template <size_t N> using SumLayout = StridedZipLayout<N>;
 
 template <StridedMdspan... Spans> struct SumAccessor
 {
@@ -391,11 +402,6 @@ template <StridedMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute merged extents type & object
   using CE = detail::common_extents_t<A, B>;
-  CE ext = detail::common_extents<A, B>::make(a, b);
-
-  // Gather A’s per‑dim strides into an array<index_type,Rank>
-  constexpr size_t Rank = CE::rank();
-  using idx_t = typename CE::index_type;
 
   // Build the new mapping by prepending A onto B’s mapping
   // Extract how many spans B already has:
@@ -429,11 +435,6 @@ template <SumMdspan A, StridedMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute the merged extents type & object
   using CE = detail::common_extents_t<A, B>;
-  CE ext = detail::common_extents<A, B>::make(a, b);
-
-  // Gather B’s per‑dim strides
-  constexpr std::size_t Rank = CE::rank();
-  using idx_t = typename CE::index_type;
 
   // Build the new mapping by appending B onto A’s SumLayout
   constexpr std::size_t M = A::mapping_type::num_spans; // how many spans A already has
@@ -468,11 +469,6 @@ template <SumMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute the merged extents type & object
   using CE = detail::common_extents_t<A, B>;
-  CE ext = detail::common_extents<A, B>::make(a, b);
-
-  // Gather B’s per‑dim strides
-  constexpr std::size_t Rank = CE::rank();
-  using idx_t = typename CE::index_type;
 
   // Build the new mapping by appending B onto A's SumLayout
   constexpr std::size_t Na = A::mapping_type::num_spans;

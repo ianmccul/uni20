@@ -11,14 +11,14 @@
 namespace uni20
 {
 
-/// @brief Represents a single dimension's extent and its corresponding stride.
+/// \brief Represents a single dimension's extent and its corresponding stride.
 ///
 /// Used for creating iteration plans for multidimensional memory traversal.
 /// The extent is the size along that dimension, and the stride is the number
 /// of memory units to jump to reach the next element in that dimension.
 ///
-/// @tparam Index Integer type for memory strides (usually signed).
-/// @tparam Size  Integer type for extents (usually unsigned).
+/// \param Index Integer type for memory strides (usually signed).
+/// \param Size  Integer type for extents (usually unsigned).
 template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> struct extent_stride
 {
     ExtentT extent;
@@ -46,7 +46,7 @@ template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> str
     }
 };
 
-/// @brief Represents a multi-tensor stride plan for one dimension.
+/// \brief Represents a multi-tensor stride plan for one dimension.
 ///        All tensors share the same extent, with individual strides.
 template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t, std::size_t N = 2>
 struct multi_extent_stride
@@ -74,7 +74,7 @@ struct multi_extent_stride
     }
 };
 
-/// @brief Create a coalesced iteration plan for looping over a strided layout.
+/// \brief Create a coalesced iteration plan for looping over a strided layout.
 ///
 /// This function analyzes the layout of a tensor (represented by an mdspan mapping)
 /// and produces a compact, optimized loop plan:
@@ -83,9 +83,9 @@ struct multi_extent_stride
 ///   - Dimensions are sorted by stride (largest first = outermost loop)
 ///   - Contiguous dimensions are coalesced into a single loop
 ///
-/// @tparam Mapping A layout mapping type (e.g. layout_stride::mapping<Extents>)
-/// @param mapping The layout mapping to analyze
-/// @return A pair of:
+/// \tparam Mapping A layout mapping type (e.g. layout_stride::mapping<Extents>)
+/// \param mapping The layout mapping to analyze
+/// \return A pair of:
 ///   - `static_vector<extent_stride<size_type, index_type>, Rank>`: the compact loop plan
 ///   - `index_type offset`: the base offset from the data pointer
 ///
@@ -136,16 +136,16 @@ template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& 
   return std::pair{merged, offset};
 }
 
-// @brief Represents a multi-tensor strided iteration plan for a fixed-rank layout.
+/// \brief Represents a multi-tensor strided iteration plan for a fixed-rank layout.
 ///
 /// This variant handles multiple tensors with the same extents but independent strides.
 /// It coalesces contiguous dimensions across all tensors and flips stride signs so
 /// that the first tensor (typically the output) has positive strides.
 ///
-/// @tparam Mapping A layout mapping type (e.g. layout_stride::mapping<Extents>)
-/// @tparam N       Number of tensors (e.g., 2 for A = B + C)
-/// @param mappings Array of mappings, one per tensor. All must have the same extents.
-/// @return A pair of:
+/// \tparam Mapping A layout mapping type (e.g. layout_stride::mapping<Extents>)
+/// \tparam N       Number of tensors (e.g., 2 for A = B + C)
+/// \param mappings Array of mappings, one per tensor. All must have the same extents.
+/// \return A pair of:
 ///   - `static_vector<multi_extent_stride<size, index, N>, Rank>`: coalesced loop plan
 ///   - `std::array<index_type, N>`: base offset for each tensor (based on stride sign flips)
 template <typename Mapping, std::size_t N>
@@ -253,14 +253,14 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
       auto this_stride = plan->stride;
       if (this_stride == 1)
       {
-        for (idx_t i = 0; i < this_extent; ++i)
+        for (idx_t i = 0; i < idx_t(this_extent); ++i)
         {
           acc_.access(data_, Offset + i) = op_(acc_.access(data_, Offset + i));
         }
       }
       else
       {
-        for (idx_t i = 0; i < this_extent; ++i)
+        for (idx_t i = 0; i < idx_t(this_extent); ++i)
         {
           acc_.access(data_, Offset + i * this_stride) = op_(acc_.access(data_, Offset + i * this_stride));
         }
@@ -273,7 +273,7 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
       auto this_extent = plan->extent;
       auto this_stride = plan->stride;
       ++plan;
-      for (idx_t i = 0; i < this_extent; ++i)
+      for (idx_t i = 0; i < idx_t(this_extent); ++i)
       {
         this->run(Offset + i * this_stride, plan, std::integral_constant<std::size_t, N - 1>{});
       }
@@ -286,14 +286,14 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
       ++plan;
       if (depth == 3) // if we're on the last dynamic index, then dispatch to the unrolled version
       {
-        for (idx_t i = 0; i < this_extent; ++i)
+        for (idx_t i = 0; i < idx_t(this_extent); ++i)
         {
           this->run(Offset + i * this_stride, plan, std::integral_constant<std::size_t, 2>{});
         }
       }
       else
       {
-        for (idx_t i = 0; i < this_extent; ++i) // otherwise depth must be > 4 here, recurse into run_dynamic again
+        for (idx_t i = 0; i < idx_t(this_extent); ++i)
         {
           this->run_dynamic(Offset + i * this_stride, plan, depth - 1);
         }
@@ -324,9 +324,6 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
 
 template <typename MDS, typename Op> void apply_unary_inplace(MDS a, Op&& op)
 {
-  using T = typename MDS::value_type;
-  using idx_t = typename MDS::index_type;
-
   auto const& map = a.mapping();
   auto const& acc = a.accessor();
   auto data = a.data_handle();
@@ -415,7 +412,6 @@ struct BinaryUnrollHelper
 template <typename MDSin, typename MDSout, typename Op> void apply_unary(MDSin src, Op&& op, MDSout dst)
 {
   static_assert(std::is_same_v<typename MDSin::extents_type, typename MDSout::extents_type>);
-  using idx_t = typename MDSin::index_type;
 
   auto [plan, offset] = make_multi_iteration_plan_with_offset(std::array{src.mapping(), dst.mapping()});
 
