@@ -8,6 +8,51 @@
 namespace uni20
 {
 
+/// \brief Trait to pull an AccessorPolicy’s offset_type if present,
+///        or fall back to std::size_t otherwise.
+/// \tparam AP  The accessor policy to inspect.
+/// Note: this is an extension to the standard mdspan AccessorPolicy
+/// https://en.cppreference.com/w/cpp/named_req/AccessorPolicy
+/// that has no offset_type but simply uses std::size_t
+template <typename AP, typename = void> struct span_offset_type
+{
+    using type = std::size_t;
+};
+
+template <typename AP> struct span_offset_type<AP, std::void_t<typename AP::offset_type>>
+{
+    using type = typename AP::offset_type;
+};
+
+/// \brief Convenience alias for accessor_offset_type<AP>::type.
+/// \tparam AP  The accessor policy to inspect.
+template <typename AP> using span_offset_t = typename span_offset_type<AP>::type;
+
+/// \concept AccessorPolicy
+/// \brief A model of the C++ mdspan AccessorPolicy named requirement.
+///
+/// Requirements:
+///  - \c AP::data_handle_type and \c AP::offset_policy are valid types.
+///  - \c AP::reference is the declared return type of \c access().
+///  - \c a.offset(dh, off) returns the same data_handle_type.
+///  - \c a.access(dh, off) returns exactly \c AP::reference.
+///  - Both member functions shall be constexpr and noexcept.
+///
+/// \tparam AP  The accessor policy to test.
+template <class AP>
+concept AccessorPolicy = requires {
+                           typename AP::data_handle_type;
+                           typename AP::offset_policy;
+                           typename AP::reference;
+                         } && requires(AP a, typename AP::data_handle_type dh, span_offset_t<AP> off) {
+                                {
+                                  a.offset(dh, off)
+                                  } -> std::convertible_to<typename AP::offset_policy::data_handle_type>;
+                                {
+                                  a.access(dh, off)
+                                  } -> std::same_as<typename AP::reference>;
+                              };
+
 /// \concept SpanLike
 /// \brief A “span-like” type usable by uni20’s zip_transform machinery.
 ///
@@ -40,7 +85,7 @@ concept SpanLike = requires(S s) {
                      {
                        s.accessor()
                        } -> std::convertible_to<typename S::accessor_type>;
-                   };
+                   } && AccessorPolicy<typename S::accessor_type>;
 
 /// \brief A “strided mdspan‐like” type:
 ///        – models SpanLike (has extents_type, layout_type, accessor_type, mapping(), data_handle())
@@ -48,26 +93,6 @@ concept SpanLike = requires(S s) {
 template <class MDS>
 concept StridedMdspan = SpanLike<MDS> && // must satisfy our mdspan‐like protocol
                         std::same_as<typename MDS::layout_type, stdex::layout_stride>; // must use layout_stride
-
-/// \brief Trait to pull an AccessorPolicy’s offset_type if present,
-///        or fall back to std::size_t otherwise.
-/// \tparam AP  The accessor policy to inspect.
-/// Note: this is an extension to the standard mdspan AccessorPolicy
-/// https://en.cppreference.com/w/cpp/named_req/AccessorPolicy
-/// that doesn't name offset_type but simply uses std::size_t
-template <typename AP, typename = void> struct span_offset_type
-{
-    using type = std::size_t;
-};
-
-template <typename AP> struct span_offset_type<AP, std::void_t<typename AP::offset_type>>
-{
-    using type = typename AP::offset_type;
-};
-
-/// \brief Convenience alias for accessor_offset_type<AP>::type.
-/// \tparam AP  The accessor policy to inspect.
-template <typename AP> using span_offset_t = typename span_offset_type<AP>::type;
 
 } // namespace uni20
 

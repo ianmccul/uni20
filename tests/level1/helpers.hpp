@@ -35,6 +35,13 @@ inline auto make_mdspan_2d(std::vector<double>& v, std::size_t R, std::size_t C)
   return stdex::mdspan<double, extents_t, stdex::layout_stride>(v.data(), mapping);
 }
 
+inline auto make_mdspan_2d(std::vector<double>& v, std::size_t R, std::size_t C, std::array<std::ptrdiff_t, 2> strides)
+{
+  using extents_t = stdex::dextents<index_t, 2>;
+  auto mapping = stdex::layout_stride::mapping<extents_t>(extents_t{R, C}, strides);
+  return stdex::mdspan<double, extents_t, stdex::layout_stride>(v.data(), mapping);
+}
+
 // A helper to build a reversed‐1D mdspan (negative stride)
 inline auto make_reversed_1d(std::vector<double>& v)
 {

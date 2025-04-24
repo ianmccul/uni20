@@ -53,7 +53,9 @@ option(UNI20_ENABLE_WARNINGS      "Enable compiler warnings" ON)
 option(UNI20_BUILD_ASM            "Build stand-alone assembly dumps for snippets in asm/" ON)
 
 if(UNI20_ENABLE_WARNINGS)
-  set(UNI20_WARN_FLAGS "-Wall;-Wextra;-Wattributes;-pedantic;-pedantic-errors;-fstrict-aliasing;-Wstrict-aliasing;-Wno-unused-parameter")
+  # temporarily added -Wno-array-bounds here due to spurious warnings from std::sort;
+  # see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=107986
+  set(UNI20_WARN_FLAGS "-Wall;-Wextra;-Wattributes;-pedantic;-pedantic-errors;-fstrict-aliasing;-Wstrict-aliasing;-Wno-unused-parameter;-Wno-array-bounds")
 else()
   set(UNI20_WARN_FLAGS "")
 endif()
@@ -153,6 +155,21 @@ configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/src/config.hpp.in"
   "${CMAKE_CURRENT_BINARY_DIR}/config.hpp"
 )
+
+# Enable link-time optimizations
+include(CheckIPOSupported)
+check_ipo_supported(
+  RESULT ipo_supported
+  OUTPUT ipo_error    # optional: captures the reason if it fails
+  LANGUAGES CXX
+)
+if(ipo_supported)
+  message(STATUS "Enabling full Link-Time Optimization (LTO)")
+  # Globally turn on IPO for *all* targets and all configs
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+  message(WARNING "IPO/LTO not supported: ${ipo_error}")
+endif()
 
 # Add subdirectories
 add_subdirectory(src)

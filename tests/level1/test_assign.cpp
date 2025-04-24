@@ -1,6 +1,85 @@
+#include "helpers.hpp"
 #include "level1/assign.hpp"
+#include "level1/zip_transform.hpp"
 #include "gtest/gtest.h"
 #include <numeric>
+
+using namespace uni20;
+
+TEST(MultiIterationPlanTest, SimpleMatchingLayouts)
+{
+  auto a = make_mapping(std::array<std::size_t, 2>{10, 2}, std::array<index_t, 2>{2, 1});
+  auto b = make_mapping(std::array<std::size_t, 2>{10, 2}, std::array<index_t, 2>{20, 10});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 20);     // 10×2
+  EXPECT_EQ(plan[0].strides[0], 1);  // from tensor A (innermost stride)
+  EXPECT_EQ(plan[0].strides[1], 10); // from tensor B
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 0);
+}
+
+TEST(MultiIterationPlanTest, MismatchedButCoalescable)
+{
+  auto a = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{4, 1});
+  auto b = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{40, 10});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 12); // 3 × 4
+  EXPECT_EQ(plan[0].strides[0], 1);
+  EXPECT_EQ(plan[0].strides[1], 10);
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 0);
+}
+
+TEST(MultiIterationPlanTest, WithNegativeStride)
+{
+  auto a = make_mapping(std::array<std::size_t, 1>{4}, std::array<index_t, 1>{-1});
+  auto b = make_mapping(std::array<std::size_t, 1>{4}, std::array<index_t, 1>{-10});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 4);
+  EXPECT_EQ(plan[0].strides[0], 1);  // flipped from -1
+  EXPECT_EQ(plan[0].strides[1], 10); // flipped from -10
+  EXPECT_EQ(offsets[0], -3);         // (1-4) * 1
+  EXPECT_EQ(offsets[1], -30);        // (1-4) * 10
+}
+
+TEST(MultiIterationPlanTest, MixedSignsPreventMerge)
+{
+  auto a = make_mapping(std::array<std::size_t, 2>{4, 2}, std::array<index_t, 2>{1, -4});
+  auto b = make_mapping(std::array<std::size_t, 2>{4, 2}, std::array<index_t, 2>{10, 40});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+
+  EXPECT_EQ(plan.size(), 2);
+  // Check the flipped‐stride dimension; also swapped order to make largest stride of a the outer dimension
+  EXPECT_EQ(plan[0].extent, 2); // outer dim extent
+  EXPECT_EQ(plan[0].strides[0], 4);
+  EXPECT_EQ(plan[0].strides[1], -40);
+  EXPECT_EQ(plan[1].extent, 4); // inner dim extent
+  EXPECT_EQ(plan[1].strides[0], 1);
+  EXPECT_EQ(plan[1].strides[1], 10);
+  EXPECT_EQ(offsets[0], -4);
+  EXPECT_EQ(offsets[1], 40);
+}
+
+TEST(MultiIterationPlanTest, AllStridesFlippedWhenOutputIsNegative)
+{
+  auto a = make_mapping(std::array<std::size_t, 1>{5}, std::array<index_t, 1>{-2}); // output
+  auto b = make_mapping(std::array<std::size_t, 1>{5}, std::array<index_t, 1>{3});  // input
+
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 5);
+  EXPECT_EQ(plan[0].strides[0], 2);  // flipped from -2
+  EXPECT_EQ(plan[0].strides[1], -3); // flipped from 3
+  EXPECT_EQ(offsets[0], -8);         // (5-1) * 2
+  EXPECT_EQ(offsets[1], 12);         // (5-1) * -3
+}
 
 TEST(Assign, Simple1D)
 {
@@ -56,7 +135,7 @@ TEST(Assign, TransformNegate)
   auto src = make_mdspan_1d(v);
   auto dst = make_mdspan_1d(out);
 
-  auto neg = transform_view(src, [](double x) { return -x; });
+  auto neg = zip_transform([](double x) { return -x; }, src);
   uni20::assign(neg, dst);
 
   for (int i = 0; i < 4; ++i)
@@ -71,7 +150,7 @@ TEST(Assign, TransformScaleShift)
   auto src = make_mdspan_1d(v);
   auto dst = make_mdspan_1d(out);
 
-  auto chain = transform_view(transform_view(src, [](double x) { return 2 * x; }), [](double x) { return x + 1; });
+  auto chain = zip_transform([](double x) { return x + 1; }, zip_transform([](double x) { return 2 * x; }, src));
 
   uni20::assign(chain, dst);
 
