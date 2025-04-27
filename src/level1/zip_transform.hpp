@@ -53,7 +53,7 @@ struct TransformAccessor : private Func // EBO if Func is empty
     using reference = std::invoke_result_t<Func, typename Spans::reference...>;
 
     /// \brief “True” element type, stripping any proxy/reference wrappers.
-    using element_type = uni20::remove_proxy_reference_t<reference>;
+    using element_type = uni20::remove_proxy_reference_t<reference> const;
 
     /// \brief Alias so mdspan sees this as its offset_policy.
     using offset_policy = TransformAccessor;

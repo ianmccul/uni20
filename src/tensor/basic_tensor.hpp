@@ -20,7 +20,7 @@ struct DefaultAccessorFactory
 /// \tparam StoragePolicy   Policy that provides a container for T
 /// \tparam LayoutPolicy    mdspan layout (e.g. stdex::layout_stride)
 /// \tparam AccessorPolicy  mdspan accessor (e.g. stdex::default_accessor<T>)
-template <typename ElementType, stdex::extents_t Extents, typename StoragePolicy, typename LayoutPolicy,
+template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
           typename AccessorFactory>
 class BasicTensor {
   public:
@@ -32,7 +32,9 @@ class BasicTensor {
     using layout_type = LayoutPolicy;
     using mapping_type = typename LayoutPolicy::template mapping<extents_type>;
     using accessor_type = typename AccessorFactory::template accessor_policy<element_type>;
+    using const_accessor_type = const_accessor_t<accessor_type>;
     using mdspan_type = stdex::mdspan<T, extents_type, layout_type, accessor_type>;
+    using const_mdspan_type = stdex::mdspan<T const, extents_type, layout_type, const_accessor_type>;
     using index_type = typename extents_type::index_type;
     using size_type = uni20::size_type;
     using reference = typename accessor_type::reference;
@@ -69,7 +71,7 @@ class BasicTensor {
 
     /// \brief The mdspan view (mapping + accessor).
     mdspan_type& view() noexcept { return view_; }
-    mdspan_type const& view() const noexcept { return view_; }
+    const_mdspan_type view() const noexcept { return view_; }
 
     /// \brief Rank of the tensor
     static constexpr size_type rank() noexcept { return view_.rank(); }
@@ -117,9 +119,10 @@ using Tensor =
 /// \tparam StoragePolicy  Carries the tag_t for backend dispatch.
 /// \tparam LayoutPolicy   mdspan layout.
 /// \tparam AccessorPolicy The actual accessor type (e.g. default_accessor).
-template <typename T, class Extents, class StoragePolicy, class LayoutPolicy, class AccessorPolicy> class TensorView {
+template <typename ElementType, typename Extents, class StoragePolicy, class LayoutPolicy, class AccessorPolicy>
+class TensorView {
   public:
-    using element_type = T;
+    using element_type = lementType;
     using extents_type = Extents;
     using layout_type = LayoutPolicy;
     using mapping_type = typename layout_type::template mapping<extents_type>;
@@ -131,8 +134,8 @@ template <typename T, class Extents, class StoragePolicy, class LayoutPolicy, cl
     using index_type = typename extents_type::index_type;
     using size_type = uni20::size_type;
 
-    /// \brief Wrap a raw pointer + mapping + accessor.
-    TensorView(T* data, mapping_type const& map, accessor_type acc = {}) : view_{data, map, std::move(acc)} {}
+    // construction from a Tensor
+    template <typename TensorType> TensorView(TensorType& t) : view_(t.view()) {}
 
     /// \brief Wrap any mdspan-compatible object.
     TensorView(mdspan_type span) : view_{std::move(span)} {}
@@ -151,5 +154,18 @@ template <typename T, class Extents, class StoragePolicy, class LayoutPolicy, cl
   private:
     mdspan_type view_;
 };
+
+// deduction guides
+template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
+          typename AccessorFactory>
+TensorView(BasicTensor<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>&)
+    -> TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy,
+                  typename AccessorFactory::template accessor_policy<ElementType>>;
+
+template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
+          typename AccessorFactory>
+TensorView(BasicTensor<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory> const& t)
+    -> TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy,
+                  const_accessor_t<typename AccessorFactory::template accessor_policy<ElementType>>>;
 
 } // namespace uni20
