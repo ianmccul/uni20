@@ -5,21 +5,18 @@
 
 #include <gtest/gtest.h>
 
-// Enable our test module
-#define ENABLE_TRACE_TESTMODULE 1
-
 #include "common/trace.hpp"
+
+#if ENABLE_TRACE_TESTMODULE == 0
+COMPILER_NOTE("ENABLE_TRACE_TESTMODULE is 0 — trace tests will likely fail.")
+#endif
 
 // Disable ANSI colors so death‑tests see plain text
 namespace
 {
 struct DisableColor
 {
-    DisableColor()
-    {
-      using CO = trace::FormattingOptions::ColorOptions;
-      trace::FormattingOptions::set_color_output(CO::no);
-    }
+    DisableColor() { trace::get_formatting_options().set_color_output(trace::FormattingOptions::ColorOptions::no); }
 } _disableColor;
 } // namespace
 
@@ -57,30 +54,30 @@ TEST(DebugPreconditionEqualMacro, PassingDebugPreconditionEqualDoesNotAbort) { D
 TEST(TraceModuleMacro, TRACE_MODULE_AlwaysAvailable)
 {
   std::ostringstream oss;
-  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
   auto n = 123;
   TRACE_MODULE(TESTMODULE, "foo", n);
   EXPECT_NE(oss.str().find("foo, n = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::formatting_options.set_output_stream(stderr);
+  trace::get_formatting_options().set_output_stream(stderr);
 }
 
 TEST(DebugTraceModuleMacro, DEBUG_TRACE_MODULE_EmitsWhenEnabled)
 {
   std::ostringstream oss;
-  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
   auto n = 456;
   DEBUG_TRACE_MODULE(TESTMODULE, "bar", n);
   EXPECT_NE(oss.str().find("bar, n = 456"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::formatting_options.set_output_stream(stderr);
+  trace::get_formatting_options().set_output_stream(stderr);
 }
 
 TEST(DebugTraceModuleIfMacro, DEBUG_TRACE_MODULE_IF_EmitsWhenTrue)
 {
   std::ostringstream oss;
-  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
   bool x = true;
   auto n = 123;
   DEBUG_TRACE_MODULE_IF(TESTMODULE, x, "baz", n);
   EXPECT_NE(oss.str().find("baz, n = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::formatting_options.set_output_stream(stderr);
+  trace::get_formatting_options().set_output_stream(stderr);
 }

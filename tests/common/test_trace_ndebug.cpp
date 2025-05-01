@@ -12,11 +12,7 @@ namespace
 {
 struct DisableColor
 {
-    DisableColor()
-    {
-      using CO = trace::FormattingOptions::ColorOptions;
-      trace::FormattingOptions::set_color_output(CO::no);
-    }
+    DisableColor() { trace::get_formatting_options().set_color_output(trace::FormattingOptions::ColorOptions::no); }
 } _disableColor;
 } // namespace
 

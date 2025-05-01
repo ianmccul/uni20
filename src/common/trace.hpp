@@ -350,8 +350,8 @@ struct FormattingOptions
 
     //--- Global flags ----------------------------------------------------------
 
-    /// Abort on error if true.
-    bool errorsAbort = true;
+    /// Abort on error if true. This is static, since it only makes sense globally
+    inline static bool errorsAbort = true;
 
     /// Prefix each trace with a timestamp (from UNI20_TRACE_TIMESTAMP or module override).
     bool timestamp = false;
@@ -554,10 +554,10 @@ struct FormattingOptions
     bool should_show_color() const { return showColor; }
 
     /// Enable or disable abort-on-error for this module.
-    void set_errors_abort(bool b) { errorsAbort = b; }
+    static void set_errors_abort(bool b) { errorsAbort = b; }
 
     /// Query the abort-on-error setting.
-    bool errors_abort() const { return errorsAbort; }
+    static bool errors_abort() { return errorsAbort; }
 
     /// Get or compute the terminal style for a given kind in this module.
     // terminal::TerminalStyle get_module_terminal_style(const std::string& kind, const std::string& module) const

@@ -8,11 +8,7 @@ namespace
 {
 struct DisableColor
 {
-    DisableColor()
-    {
-      using CO = trace::FormattingOptions::ColorOptions;
-      trace::FormattingOptions::set_color_output(CO::no);
-    }
+    DisableColor() { trace::get_formatting_options().set_color_output(trace::FormattingOptions::ColorOptions::no); }
 } _disableColor;
 } // namespace
 
@@ -20,11 +16,11 @@ struct DisableColor
 TEST(TraceMacro, TraceVariable)
 {
   std::ostringstream oss;
-  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
   auto n = 123;
   TRACE("foo", n);
   EXPECT_NE(oss.str().find("foo, n = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::formatting_options.set_output_stream(stderr);
+  trace::get_formatting_options().set_output_stream(stderr);
 }
 
 #pragma GCC diagnostic push
@@ -33,11 +29,11 @@ TEST(TraceMacro, TraceVariable)
 TEST(TraceMacro, TraceBrackets)
 {
   std::ostringstream oss;
-  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
   auto n = 123;
   TRACE(("foo", n));
   EXPECT_NE(oss.str().find("(\"foo\", n) = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::formatting_options.set_output_stream(stderr);
+  trace::get_formatting_options().set_output_stream(stderr);
 }
 
 #pragma GCC diagnostic pop
@@ -50,11 +46,11 @@ TEST(TraceMacro, TraceSquareBrackets)
   };
 
   std::ostringstream oss;
-  trace::formatting_options.set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
   Dummy2D n;
   TRACE(n[2, 3]);
   EXPECT_NE(oss.str().find("n[2, 3] = result of [i,j]"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::formatting_options.set_output_stream(stderr);
+  trace::get_formatting_options().set_output_stream(stderr);
 }
 
 // in consteval context, we cannot write to the screen but instead the TRACE() macros are a no-op
@@ -126,35 +122,35 @@ TEST(PanicMacro, PanicAlwaysAborts)
 // ERROR / ERROR_IF in abort mode
 TEST(ErrorMacro, ErrorAlwaysAbortsWhenConfigured)
 {
-  trace::FormattingOptions::set_errors_abort(true);
+  trace::get_formatting_options().set_errors_abort(true);
   EXPECT_DEATH({ ERROR("fatal error"); }, "fatal error");
 }
 TEST(ErrorIfMacro, ErrorIfTrueAbortsWhenConfigured)
 {
-  trace::FormattingOptions::set_errors_abort(true);
+  trace::get_formatting_options().set_errors_abort(true);
   EXPECT_DEATH({ ERROR_IF(true, "conditional error"); }, "conditional error");
 }
 TEST(ErrorIfMacro, ErrorIfFalseDoesNotAbort)
 {
-  trace::FormattingOptions::set_errors_abort(true);
+  trace::get_formatting_options().set_errors_abort(true);
   ERROR_IF(false, "should not abort");
 }
 
 // ERROR / ERROR_IF in throw mode
 TEST(ErrorMacro, ErrorThrowsWhenAbortDisabled)
 {
-  trace::FormattingOptions::set_errors_abort(false);
+  trace::get_formatting_options().set_errors_abort(false);
   EXPECT_THROW(ERROR("must throw"), std::runtime_error);
 }
 
 TEST(ErrorIfMacro, ErrorIfTrueThrowsWhenAbortDisabled)
 {
-  trace::FormattingOptions::set_errors_abort(false);
+  trace::get_formatting_options().set_errors_abort(false);
   EXPECT_THROW(ERROR_IF(true, "must throw"), std::runtime_error);
 }
 
 TEST(ErrorIfMacro, ErrorIfFalseDoesNotThrowWhenAbortDisabled)
 {
-  trace::FormattingOptions::set_errors_abort(false);
+  trace::get_formatting_options().set_errors_abort(false);
   ERROR_IF(false, "no throw");
 }

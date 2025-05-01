@@ -1,5 +1,12 @@
 
 #include "common/trace.hpp"
+#include <thread>
+
+// To customize output colors, you can set environment variables like:
+// export UNI20_COLOR_TRACE_VALUE="fg:Green;Bold"
+// export UNI20_TRACE_TIMESTAMP="yes"
+// export UNI20_TRACE_THREAD_ID="yes"
+// Then run this example again.
 
 int add(int a, int b) { return a + b; }
 
@@ -10,6 +17,7 @@ int main()
   std::vector<int> vec(5, 0);
   std::vector<std::vector<int>> vec2{{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
   std::vector<std::vector<double>> vec3{{1, 2, 3}, {4, 5, 6}, {7, 8, 10}};
+  double Pi = M_PI;
 
   TRACE(vec2, foo);
 
@@ -36,12 +44,25 @@ int main()
   TRACE("Multi-line output", vec2, foo, vec3, foo);
 
   // change the precision
-  trace::formatting_options.fp_precision<double> = 5;
-  TRACE("Modified number of digits displayed", vec2, foo, vec3, foo);
+  trace::get_formatting_options().fp_precision_float64 = 5;
+
+  // Add timestamps and thread ID. NOTE: the preferred way to set this is via environment variables,
+  // export UNI20_TRACE_TIMESTAMP=no
+  // export UNI20_TRACE_THREAD_ID=no
+  trace::get_formatting_options().timestamp = false;
+  trace::get_formatting_options().showThreadId = false;
+
+  TRACE("Modified number of digits displayed; removed timestamp, thread ID:", vec2, foo, vec3, foo);
 
   DEBUG_TRACE("Modified number of digits displayed", vec2, foo, vec3, foo);
 
-  TRACE_MODULE(TESTMODULE, foo, bar);
+  TRACE_MODULE(TESTMODULE, foo, bar, Pi);
+
+  // In a second thread
+  std::thread([] {
+    int x = 99;
+    TRACE("From another thread", x);
+  }).join();
 
   PANIC("Test panic; the program will abort now", foo);
 
