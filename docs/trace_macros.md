@@ -76,7 +76,7 @@ These macros are designed for handling logic errors where something unexpected h
 - **`ERROR_IF(condition, ...)`**  
   Reports an error (as described above) only if the specified condition is true.
 
-By default, these macros display a message and call `std::abort()`, however they can be configured to instead throw an exception by calling `trace::formatting_options.set_errors_abort(false)`.
+By default, these macros display a message and call `std::abort()`, however they can be configured to instead throw an exception by calling `trace::formatting_options().set_errors_abort(false)`.
 
 ## How to Use the Macros
 
