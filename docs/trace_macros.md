@@ -214,6 +214,43 @@ This sets the CMake variable `ENABLE_TRACE_BLAS3` to `ON` (the default is usuall
 
 ## Customizing the Output Formatting
 
+The library allows a lot of customization via **environment variables**.  These are generally of the form `UNI20_xxxx`, for example `UNI20_TRACE_COLOR` controls whether the macros should use color output. Each variable can be customized per-module, by using the form `UNI20_xxxx_MODULE_modulename`. For example, `UNI20_TRACE_COLOR_MODULE_BLAS` controls whether color output should be used in `TRACE_MODULE(BLAS,...)` calls. If no module-specific override exists, then the global override will be used. If there is no global override then it will use a sensible default value.
+
+All of the customization described in this section can be controlled by the program as well; see **Advanced Usage** below for details.
+
+### Output stream
+
+By default trace messages are sent to `stderr`. This can be redirected to a different stream or a file by setting the environment variable `UNI20_TRACEFILE=name`, where `name` is:
+
+| **`name`** | **Meaning** |
+|------------|-------------|
+| `stderr`   | standard error output (default) |
+|  `-` or `stdout` | standard output |
+| `filename` | direct output to a file, overwrite any existing file of that name |
+| `+filename` | direct output to a file, append to the end  |
+
+For example,
+```bash
+export UNI20_TRACEFILE=+trace.out
+```
+will redirect `TRACE` output to the file `trace.out`. If that file already exists, then it will appending new text to the end.  If we had specified instead `UNI20_TRACEFILE=trace.out` (without the `+`) then it would overwrite any existing `trace.out` file.
+
+
+You can control these individually by module using the environment variable `UNI20_TRACEFILE_MODULE_xxxx=...` for the module name `xxxx`, or under program control using `trace::formatting_options("ModuleName").set_output_stream(...)`. For example,
+
+```cpp
+trace::formatting_options("BLAS").set_output_stream(stdout);
+```
+
+### Adjusting Floating-Point Precision
+
+If you want to adjust the precision used for floating-point values, you can adjust the number of digits displayed by using the environment variables `UNI20_FP_PRECISION_FLOAT32=n` and `UNI20_FP_PRECISION_FLOAT64=n`. Or under program control using the `formatting_options()` variables `fp_precision_float32` and `fp_precision_float64`. For example,
+```cpp
+trace::formatting_options().fp_precision_float64 = 10;
+```
+
+The module-specific overrides also work, eg `UNI20_FP_PRECISION_FLOAT32_MODULE_xxxx` etc.
+
 ### Color output
 
 The `TRACE` macro has color support. These are controlled by environment variables, and can be overridden under program control.
@@ -346,34 +383,6 @@ Options within a single style component are separated by semicolons:
 
 If no target is specified, the default is to apply the style to the foreground.
 
-### Output stream
-
-By default trace messages are sent to `stderr`. This can be redirected to a different stream or a file by setting the environment variable `UNI20_TRACEFILE=name`, where `name` is:
-
-| **`name`** | **Meaning** |
-|------------|-------------|
-| `stderr`   | standard error output (default) |
-|  `-` or `stdout` | standard output |
-| `filename` | direct output to the given file, overwrite any existing file |
-| `+filename` | direct output to the given file, append to the end of the file |
-
-You can also redirect to any other `FILE*` stream under program control by calling `trace::formatting_options().set_output_stream(FILE* stream)`.
-
-You can control these individually by module using the environment variable `UNI20_TRACEFILE_MODULE_xxxx=...` for the module name `xxxx`, or under program control using `trace::formatting_options("ModuleName").set_output_stream(...)`. For example,
-
-```cpp
-trace::formatting_options("BLAS").set_output_stream(stdout);
-```
-
-### Adjusting Floating-Point Precision
-
-If you want to adjust the precision used for floating-point values, you can adjust the number of digits displayed by using the environment variables `UNI20_FP_PRECISION_FLOAT32=n` and `UNI20_FP_PRECISION_FLOAT64=n`. Or under program control using the `formatting_options()` variables `fp_precision_float32` and `fp_precision_float64`. For example,
-```cpp
-trace::formatting_options().fp_precision_float64 = 10;
-```
-
-The module-specific overrides also work, eg `UNI20_FP_PRECISION_FLOAT32_MODULE_xxxx` etc.
-
 ### Supporting new types
 
 The trace macros ultimately rely on a helper function called `formatValue` to convert values into strings. The default implementation uses `fmt::formatter<T>`, so if you define `fmt` style I/O for your custom types then it will work with the `TRACE` macros. But if you want to customize the output, or you want to `TRACE` objects that do not have a `fmt::formatter<T>` specialization, you can customize the `trace::formatValue` function.
@@ -458,3 +467,10 @@ The module-specific macros (e.g. `TRACE_MODULE(BLAS3, ...)`) rely on compile‑t
 
    TRACE_MODULE(MODULE1, "called with", a, b, c);
    ```
+## Advanced Usage
+
+You can access the formatting object for trace output using the function `trace::formatting_options()` for the global options, and `trace::formatting_options(module)` for a module. This gives access to all of the variables used for controlling the output.
+
+While it is recommended to avoid this interface and prefer customization via environment variables, there are some potential uses. For example, you can redirect the output of the `TRACE` macros to a `FILE*` stream by calling `trace::formatting_options().set_output_stream(FILE* stream)`, or you can pass a function that accepts a `std::string` to `trace::formatting_options().set_output_stream(std::function<void>(std::string) Sink)`. The `Sink` function can do anything you want, for example it could log the output via some external logging library.
+
+For other variables that can be set in the `FormattingOptions` class, see the `trace.hpp` source code.
