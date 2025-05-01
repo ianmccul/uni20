@@ -1,6 +1,6 @@
 # Trace Macros Developer Guide
 
-This guide explains the purpose, usage, and customization of the various trace macros provided in the system. These macros allow you to output detailed trace messages during development and debugging. They include file/line information, support conditional and module‐specific tracing, and come with both always‐on and debug-only versions.
+This guide explains the purpose, usage, and customization of the various trace macros provided in the header `src/common/trace.hpp`. These macros allow you to output detailed trace messages during development and debugging. They include file/line information, support conditional and module‐specific tracing, and come with both always‐on and debug-only versions.
 
 ## Overview of Macros
 
@@ -14,17 +14,23 @@ The system provides the following macros for logging, diagnostics, and error han
 - **`TRACE_IF(condition, ...)`**  
   Outputs a trace message **only if** the specified condition is true.
 
-These macros are intended for debugging; generally speaking they should **not** appear in a stable release.
+  These macros are intended for debugging; generally speaking they should not appear in a stable release.
+
+  By default, the `TRACE(...)` and `TRACE_IF(...)` output includes a **timestamp** (in microseconds) and the **current thread ID**. This helps disambiguate interleaved trace output in multi-threaded programs or analyze timing between events. These can be controlled by environment variables. To control the timestamp display set the environment variable `UNI20_TRACE_TIMESTAMP=x`, where `x` is `1` or `yes` to show a timestamp (the default), or `0` or `no` to disable the timestamp. Similarly, to control the thread ID display, set `UNI20_TRACE_THREAD_ID=x`.
+
+  **Color output** can also be customized via environment variables; see section **Color output** below.
 
 ### Module-Specific Tracing
 
 - **`TRACE_MODULE(module, ...)`**  
-  Outputs a trace message for a given module. The module’s tracing flag is controlled by a configure option (e.g. `ENABLE_TRACE_BLAS3`), which is generated automatically via `cmake`.
+  Outputs a trace message for a given module. The module’s tracing flag is controlled by a configure option (e.g. `ENABLE_TRACE_BLAS`), which is generated automatically via `cmake`. To enable tracing of a given module, use `cmake -DENABLE_TRACE_BLAS ....`.
 
 - **`TRACE_MODULE_IF(module, condition, ...)`**  
   Outputs a trace message for a module **only if** both the module is enabled and the specified condition is true.
 
 Because the module-specific macros are only enabled if configured via `cmake`, there is no problem to use these macros freely. A typical use for a module-specific `TRACE` macro would be to trace all calls to an external API, for example.
+
+Like general trace macros, module-specific trace output supports optional **timestamps** and **thread IDs**, controlled via environment variables. You can customize these globally or per-module.
 
 ### Debug-Only Variants  
 These macros are compiled away (i.e. expand to no code) when `NDEBUG` is defined:
@@ -85,14 +91,14 @@ By default, these macros display a message and call `std::abort()`, however they
   This expands to a call to the trace function (e.g., `TraceCall`) with the stringified expression list and the current file and line number. The output might look like:
 
   ```
-  TRACE at /path/to/source.cpp:123 : Starting computation, x = 42, y = 17
+  [2025-02-02 10:59:29.011873] [TID 3c298ab44ebd69cd] TRACE at /path/to/source.cpp:123 : Starting computation, x = 42, y = 17
   ```
 
   *Behavior:*  
   - If the parameter is a string literal (e.g. `"Starting computation"`), or contains a string literal (e.g. `"Result:" + R`), then the literal value is displayed alone.  
   - Otherwise, the output shows the expression and its evaluated value (e.g. `x = 42`).
 
-  Expressions containing commas (such as `TRACE(std::vector<int>{0,1,2});`) work fine because the trace function internally reconstructs the correct parameter list.
+  Expressions containing commas need some care. If the comma is enclosed in round or square or curly brackets, then there is no problem. So `TRACE(std::vector<int>{0,1,2});` or `TRACE(mdarray[0,1,2])` work fine. But a comma that is not enclosed in brackets will confuse the output. In particular, template angle brackets, eg `TRACE(vector<int, alloc>(5).size())` will work, but the output will be garbled. The first parameter of `TRACE_IF(cond, ...)`, `CHECK(cond, ...)` etc need special care, since they are required to be a single *preprocessor token*, meaning that it is often necessary to enclose the expression in brackets. This is harmless, and is generally always possible, eg `CHECK((a[i,j] > 2), i, j)`.
 
 
   If the output of a variable spans multiple lines, then it will display that variable on a separate line. The trace library has built-in support for displaying containers (and nested containers up to 2 levels; this could be extended in the future). For example
@@ -103,8 +109,8 @@ By default, these macros display a message and call `std::abort()`, however they
   TRACE(vec2d, foo);
   ```
   produces output similar to
-  ```bash
-  TRACE at file:line :
+  ```
+  [Timestamp] [ThreadID] TRACE at file:line :
   vec2d = [ [ 1, 2, 3 ],
             [ 4, 5, 6 ],
             [ 7, 8, 9 ] ], foo = 42
@@ -213,13 +219,7 @@ This sets the CMake variable `ENABLE_TRACE_BLAS3` to `ON` (the default is usuall
 The `TRACE` macro has color support. These are controlled by environment variables, and can be overridden under program control.
 It supports both the traditional 16-color palette and 24-bit truecolor (RGB) values, along with text attributes. These options can be combined using semicolons in style strings and can be controlled via environment variables. Note that not all terminals support color output, and some terminals might support 16-color palettes but not 24-bit RGB values.
 
-Below is an extended version of the environment variable documentation in Markdown that includes the new variables for CHECK, DEBUG_CHECK, PRECONDITION, DEBUG_PRECONDITION, PANIC, and ERROR:
-
-### Environment Variables for Color Customization
-
-The trace library supports rich color customization via a set of environment variables. These variables control the color settings used for various parts of the trace output. You can override the defaults without changing any code—simply set the appropriate environment variable in your shell.
-
-Below is a table summarizing the basic environment variables, their purposes, and their default values:
+Below is a table summarizing the basic environment variables for color output, and their default values:
 
 | Environment Variable             | Purpose                                         | Default Value          |
 | -------------------------------- | ------------------------------------------------ | ---------------------- |
@@ -231,10 +231,12 @@ Below is a table summarizing the basic environment variables, their purposes, an
 | **UNI20_COLOR_DEBUG_TRACE**      | Color for `DEBUG_TRACE` messages.                       | `Green`                |
 | **UNI20_COLOR_TRACE_EXPR**       | Color for expression names in trace output (e.g. the left-hand side of `name = value`).   | `Blue`        |
 | **UNI20_COLOR_TRACE_VALUE**      | Color for expression values in trace output (e.g. the evaluated result).            | *(Empty – no override)* |
-| **UNI20_COLOR_TRACE_STRING**      | Color for string-literal-like values in trace output                    | `LightBlue` |
-| **UNI20_COLOR_TRACE_MODULE**     | Default color for module-specific trace messages (used by `TRACE_MODULE`).     | `LightCyan`  
+| **UNI20_COLOR_TRACE_STRING**     | Color for string-literal-like values in trace output                    | `LightBlue` |
+| **UNI20_COLOR_TRACE_MODULE**     | Default color for module-specific trace messages (used by `TRACE_MODULE`).     | `Cyan;Bold`  
 | **UNI20_COLOR_TRACE_FILENAME**   | Color for displaying filenames in trace output.         | `Red`    |
 | **UNI20_COLOR_TRACE_LINE**       | Color for displaying line numbers in trace output.         | `Bold`        |
+| **UNI20_COLOR_TIMESTAMP**        | Color for the timestamp field in `TRACE` output.     | `LightBlack`           |
+| **UNI20_COLOR_THREAD_ID**        | Color for the thread ID field in `TRACE` output.     | `LightMagenta`     |
 | **UNI20_COLOR_CHECK**            | Color for `CHECK` messages (general assertions).                                                                                                                   | `Red`                  |
 | **UNI20_COLOR_DEBUG_CHECK**      | Color for `DEBUG_CHECK` messages (assertions only enabled in debug builds).                                                                                          | `Red`                  |
 | **UNI20_COLOR_PRECONDITION**     | Color for `PRECONDITION` messages (assertions on function preconditions).                                                                                            | `Red`                  |
@@ -244,8 +246,30 @@ Below is a table summarizing the basic environment variables, their purposes, an
 
 In addition, you can customize the color for specific trace modules using environment variables of the form:
 
-- **UNI20_COLOR_MODULE_XXXX**  
-  Where `XXXX` is the module name. This variable overrides the default module color (`UNI20_COLOR_TRACE`) for that particular module.
+- **UNI20_COLOR_TRACE_xxxxx_MODULE_\<MODULE>**  
+  corresponding to each **UNI20_COLOR_TRACE_xxxxx** variables above. This variable overrides the default module color (**UNI20_COLOR_TRACE_xxxxx**) for that particular module, if you want to customize the output per-module.
+
+### Environment Variables for Trace Metadata
+
+The following variables control whether `TRACE`, `TRACE_IF`, and their module-specific variants include **timestamps** and **thread IDs**. These do not affect `CHECK`, `PANIC`, or `ERROR` macros.
+
+| Environment Variable                         | Description                                                                 | Default |
+|---------------------------------------------|-----------------------------------------------------------------------------|---------|
+| **UNI20_TRACE_TIMESTAMP**                     | If `yes`, include a timestamp (in microseconds since epoch) in each trace. | `no`    |
+| **UNI20_TRACE_THREAD_ID**                     | If `yes`, include a thread ID hash in each trace line.                     | `no`    |
+
+For example:
+
+```bash
+export UNI20_TRACE_TIMESTAMP=yes
+export UNI20_TRACE_THREAD_ID_MODULE_BLAS=yes
+```
+
+Sample output with both enabled:
+
+```text
+[ 1714543150294213] [TID  7f3e2a9c] TRACE at myfile.cpp:123 : x = 42
+```
 
 ### Usage Example
 
@@ -324,18 +348,31 @@ If no target is specified, the default is to apply the style to the foreground.
 
 ### Output stream
 
-By default trace messages are sent to `stderr`.  You can redirect them to any other `FILE*` object by calling `trace::formatting_options.set_output_stream(FILE* stream)` to some other stream, for example `stdout`:
+By default trace messages are sent to `stderr`. This can be redirected to a different stream or a file by setting the environment variable `UNI20_TRACEFILE=name`, where `name` is:
+
+| **`name`** | **Meaning** |
+|------------|-------------|
+| `stderr`   | standard error output (default) |
+|  `-` or `stdout` | standard output |
+| `filename` | direct output to the given file, overwrite any existing file |
+| `+filename` | direct output to the given file, append to the end of the file |
+
+You can also redirect to any other `FILE*` stream under program control by calling `trace::formatting_options().set_output_stream(FILE* stream)`.
+
+You can control these individually by module using the environment variable `UNI20_TRACEFILE_MODULE_xxxx=...` for the module name `xxxx`, or under program control using `trace::formatting_options("ModuleName").set_output_stream(...)`. For example,
+
 ```cpp
-trace::formatting_options.set_output_stream(stdout);
+trace::formatting_options("BLAS").set_output_stream(stdout);
 ```
 
 ### Adjusting Floating-Point Precision
 
-If you want to adjust the precision used for floating-point values, you can adjust the parameters, eg
+If you want to adjust the precision used for floating-point values, you can adjust the number of digits displayed by using the environment variables `UNI20_FP_PRECISION_FLOAT32=n` and `UNI20_FP_PRECISION_FLOAT64=n`. Or under program control using the `formatting_options()` variables `fp_precision_float32` and `fp_precision_float64`. For example,
 ```cpp
-trace::formatting_options.fp_precision<double> = 10;
+trace::formatting_options().fp_precision_float64 = 10;
 ```
-It is not currently possible to set these precisions as environment variables.
+
+The module-specific overrides also work, eg `UNI20_FP_PRECISION_FLOAT32_MODULE_xxxx` etc.
 
 ### Supporting new types
 
@@ -351,6 +388,8 @@ struct MyType {
     std::string name;
 };
 
+namespace trace {
+
 // Default version for most types is already provided:
 template<typename T>
 std::string formatValue(const T& value, const FormattingOptions& opts) {
@@ -362,6 +401,8 @@ std::string formatValue(const MyType& value, const FormattingOptions& opts) {
     // Customize the output format for MyType
     return fmt::format("MyType(id: {}, name: {})", value.id, value.name);
 }
+
+} // namespace trace
 ```
 
 ## Using `trace.hpp` in Different Projects
@@ -392,15 +433,15 @@ The module-specific macros (e.g. `TRACE_MODULE(BLAS3, ...)`) rely on compile‑t
    endforeach()
 
    configure_file(
-       ${CMAKE_CURRENT_SOURCE_DIR}/config.h.in
-       ${CMAKE_CURRENT_BINARY_DIR}/config.h
+       ${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in
+       ${CMAKE_CURRENT_BINARY_DIR}/config.hpp
        @ONLY
    )
 
    include_directories(${CMAKE_CURRENT_BINARY_DIR})
    ```
 
-2. **Template Header (`config.h.in`)**
+2. **Template Header (`config.hpp.in`)**
 
    ```c
    #pragma once

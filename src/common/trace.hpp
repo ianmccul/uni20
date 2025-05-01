@@ -6,12 +6,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <fmt/core.h>
 #include <functional>
 #include <map>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -302,17 +304,31 @@
 namespace trace
 {
 
-//-------------------------------------------------------------------------
-// Global formatting options
+struct FormattingOptions;
 
-// FormattingOptions: Holds configuration for formatted output.
+/// \brief get the FormattingOptions object for a given module; use "" as the module name (or default parameter) for the
+/// global format
+inline FormattingOptions& get_formatting_options(const std::string& module = "");
+
+/// \brief Configuration and formatting options for a trace module.
 struct FormattingOptions
 {
-    template <typename T> inline static int fp_precision = 6;
+    //--- Precision settings ---------------------------------------------------
 
-    inline static int terminal_width =
-        terminal::columns(); // Maximum width (in characters) before switching to multi-line.
+    /// Floating-point precision for formatting float32 values.
+    int fp_precision_float32 = 6;
 
+    /// Floating-point precision for formatting float64 values.
+    int fp_precision_float64 = 15;
+
+    //--- Output layout ---------------------------------------------------------
+
+    /// Maximum width (in characters) before switching to multi-line.
+    int terminal_width = terminal::columns();
+
+    //--- Color configuration --------------------------------------------------
+
+    /// Enables/disables/auto color for this module (from UNI20_TRACE_COLOR or module override).
     struct ColorOptionTraits
     {
         enum Enum
@@ -327,116 +343,290 @@ struct FormattingOptions
     };
 
     using ColorOptions = NamedEnumeration<ColorOptionTraits>;
+    ColorOptions color = terminal::getenv_or_default<ColorOptions>("UNI20_TRACE_COLOR", ColorOptions());
+
+    /// Whether to actually emit color sequences.
+    bool showColor = terminal::is_a_terminal(stderr);
+
+    //--- Global flags ----------------------------------------------------------
+
+    /// Abort on error if true.
+    bool errorsAbort = true;
+
+    /// Prefix each trace with a timestamp (from UNI20_TRACE_TIMESTAMP or module override).
+    bool timestamp = false;
+
+    /// Prefix each trace with a thread‐ID (from UNI20_TRACE_THREAD_ID or module override).
+    bool showThreadId = false;
+
+    //--- Output sink -----------------------------------------------------------
+
+    /// File to which this module writes (stderr by default, or UNI20_TRACEFILE).
+    FILE* outputStream = stderr;
 
     // The output sink is a function that takes a string and returns void
     // Default version writes to stderr
     using Sink = std::function<void(std::string)>;
 
-    // Change the sink function. This assumes that the output is not a terminal, auto color is disabled
-    static void set_sink(Sink s)
+    /// Function that actually emits strings (defaults to fputs to stderr).
+    Sink sink = [](std::string s) { std::fputs(s.c_str(), stderr); };
+
+    //--- Style map -------------------------------------------------------------
+
+    /// Holds per-kind styles (keys like "TRACE", "TRACE_LINE", etc).
+    mutable std::map<std::string, terminal::TerminalStyle> Styles;
+
+    //--- Constructors ---------------------------------------------------------
+
+    /// \brief Default constructor
+    ///
+    /// Seeds all built-in style keys, reads:
+    ///   - UNI20_TRACEFILE for global sink
+    ///   - UNI20_TRACE_TIMESTAMP
+    ///   - UNI20_TRACE_THREAD_ID
+    ///   - UNI20_TRACE_COLOR
+    FormattingOptions()
     {
-      sink = s;
+      // Default style definitions
+      static constexpr std::pair<std::string_view, std::string_view> kDefaults[] = {{"TRACE", "Cyan"},
+                                                                                    {"DEBUG_TRACE", "Green"},
+                                                                                    {"TRACE_EXPR", "Blue"},
+                                                                                    {"TRACE_VALUE", ""},
+                                                                                    {"TRACE_MODULE", "Cyan;Bold"},
+                                                                                    {"TRACE_FILENAME", "Red"},
+                                                                                    {"TRACE_LINE", "Bold"},
+                                                                                    {"TRACE_STRING", "LightBlue"},
+                                                                                    {"CHECK", "Red"},
+                                                                                    {"DEBUG_CHECK", "Red"},
+                                                                                    {"PRECONDITION", "Red"},
+                                                                                    {"DEBUG_PRECONDITION", "Red"},
+                                                                                    {"PANIC", "Red"},
+                                                                                    {"ERROR", "Red"},
+                                                                                    {"TIMESTAMP", "LightGray"},
+                                                                                    {"THREAD_ID", "LightMagenta"}};
+
+      for (auto [kind, def] : kDefaults)
+      {
+        std::string env = std::string("UNI20_COLOR_") + kind;
+        Styles[std::string(kind)] = terminal::getenv_or_default<terminal::TerminalStyle>(env, def);
+      }
+
+      // Global sink override
+      if (auto* path = std::getenv("UNI20_TRACEFILE"))
+      {
+        FILE* out = nullptr;
+
+        if (std::strcmp(path, "-") == 0 || std::strcmp(path, "stdout") == 0)
+        {
+          out = stdout;
+        }
+        else if (std::strcmp(path, "stderr") == 0)
+        {
+          out = stderr;
+        }
+        else if (std::strlen(path) > 0)
+        {
+          bool append = false;
+          if (path[0] == '+')
+          {
+            ++path;
+            append = true;
+          }
+          out = std::fopen(path, append ? "a" : "w");
+        }
+
+        if (out)
+        {
+          this->set_output_stream(out);
+        }
+      }
+
+      // Precision
+      fp_precision_float32 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT32", 6);
+      fp_precision_float64 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT64", 15);
+
+      // Global flags
+      timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP", true);
+      showThreadId = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_THREAD_ID", true);
+
+      // Global color control
+      color = terminal::getenv_or_default<ColorOptions>("UNI20_TRACE_COLOR", color);
+      updateShowColor();
+    }
+
+    /// \brief Module‐specific constructor
+    ///
+    /// Delegates to the default ctor then applies only module overrides:
+    ///   - UNI20_TRACEFILE_<MODULE>
+    ///   - UNI20_TRACE_COLOR_MODULE_<MODULE>
+    ///   - UNI20_TRACE_TIMESTAMP_MODULE_<MODULE>
+    ///   - UNI20_TRACE_THREAD_ID_MODULE_<MODULE>
+    FormattingOptions(std::string_view module)
+    {
+      *this = trace::get_formatting_options(""); // inherit all global settings
+
+      std::string mod{module};
+
+      // Style "TRACE" is special: the inherited version comes from "TRACE_MODULE", as a default for all modules
+      Styles["TRACE"] = Styles["TRACE_MODULE"];
+      // Override with _MODULE_XXXX versions from the environment, if they exist
+      static constexpr std::string_view kDefaults[] = {"TRACE",        "DEBUG_TRACE",    "TRACE_EXPR",
+                                                       "TRACE_VALUE",  "TRACE_FILENAME", "TRACE_LINE",
+                                                       "TRACE_STRING", "TIMESTAMP",      "THREAD_ID"};
+
+      for (auto kind : kDefaults)
+      {
+        std::string env = fmt::format("UNI20_COLOR_{}_MODULE_{}", kind, module);
+        terminal::TerminalStyle def = Styles[std::string(kind)];
+        Styles[std::string(kind)] = terminal::getenv_or_default<terminal::TerminalStyle>(env, def);
+      }
+
+      // Module sink override via UNI20_TRACEFILE_<MODULE>
+      if (auto* path = std::getenv(("UNI20_TRACEFILE_MODULE_" + mod).c_str()))
+      {
+        FILE* out = nullptr;
+
+        if (std::strcmp(path, "-") == 0 || std::strcmp(path, "stdout") == 0)
+        {
+          out = stdout;
+        }
+        else if (std::strcmp(path, "stderr") == 0)
+        {
+          out = stderr;
+        }
+        else if (std::strlen(path) > 0)
+        {
+          bool append = false;
+          if (path[0] == '+')
+          {
+            ++path;
+            append = true;
+          }
+          out = std::fopen(path, append ? "a" : "w");
+        }
+
+        if (out)
+        {
+          this->set_output_stream(out);
+        }
+      }
+
+      // Precision overrides
+      fp_precision_float32 =
+          terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT32_MODULE_" + mod, fp_precision_float32);
+      fp_precision_float64 =
+          terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT64_MODULE_" + mod, fp_precision_float64);
+
+      // flags overrides
+      timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP_MODULE_" + mod, timestamp);
+      showThreadId = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_THREAD_ID_MODULE_" + mod, showThreadId);
+
+      // color override
+      color = terminal::getenv_or_default<ColorOptions>("UNI20_TRACE_COLOR_MODULE_" + mod, color);
+      this->updateShowColor();
+    }
+
+    //--- Public Interface ------------------------------------------------------
+
+    /// Set a custom sink function for this module.
+    void set_sink(Sink s)
+    {
+      sink = std::move(s);
       outputStream = nullptr;
     }
 
-    // set the output stream as a FILE*
-    static void set_output_stream(FILE* outputStream);
-
-    // Write str to the sink
-    static void emit_string(std::string const& str) { sink(str); }
-
-    static void set_color_output(ColorOptions c);
-
-    static bool should_show_color() { return showColor; }
-
-    static void set_errors_abort(bool b) { errorsAbort = b; }
-    static bool errors_abort() { return errorsAbort; }
-
-    static void set_terminal_style(const std::string& Item, const terminal::TerminalStyle& style)
+    /// Change the output FILE* for this module.
+    void set_output_stream(FILE* f)
     {
-      Styles[Item] = style;
+      outputStream = f;
+      sink = [f](std::string s) { std::fputs(s.c_str(), f); };
+      updateShowColor();
     }
 
-    static terminal::TerminalStyle get_terminal_style(const std::string& Item)
+    /// Enable or disable color output for this module.
+    void set_color_output(ColorOptions c)
     {
-      if (!Styles.count(Item))
-        Styles[Item] = terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_" + Item, "");
-      return Styles[Item];
+      color = c;
+      updateShowColor();
     }
 
-    static terminal::TerminalStyle get_module_terminal_style(const std::string& Module)
+    /// Query whether color should be used in this module.
+    bool should_show_color() const { return showColor; }
+
+    /// Enable or disable abort-on-error for this module.
+    void set_errors_abort(bool b) { errorsAbort = b; }
+
+    /// Query the abort-on-error setting.
+    bool errors_abort() const { return errorsAbort; }
+
+    /// Get or compute the terminal style for a given kind in this module.
+    // terminal::TerminalStyle get_module_terminal_style(const std::string& kind, const std::string& module) const
+    // {
+    //   std::string key = kind + "_MODULE_" + module;
+    //   if (!Styles.count(key))
+    //   {
+    //     std::string env_mod = "UNI20_COLOR_" + kind + "_MODULE_" + module;
+    //     std::string env_glob = "UNI20_COLOR_" + kind;
+    //     Styles[key] = terminal::getenv_or_default<terminal::TerminalStyle>(
+    //         env_mod, terminal::getenv_or_default<terminal::TerminalStyle>(env_glob, Styles[kind]));
+    //   }
+    //   return Styles[key];
+    // }
+
+    /// \brief Format text using the "global" style (no module) for the given kind.
+    std::string format_style(const std::string& str, const std::string& kind) const
     {
-      if (!Styles.count(Module))
-        Styles[Module] =
-            terminal::getenv_or_default("UNI20_COLOR_MODULE_" + Module, get_terminal_style("TRACE_MODULE"));
-      return Styles[Module];
+      // empty module name = global/default styles
+      if (Styles.find(kind) == Styles.end())
+      {
+        fmt::print(stderr, "UNEXPECTED: unknown format style: {}\n", kind);
+      }
+      return showColor ? terminal::color_text(str, Styles[kind]) : str;
     }
 
-    static std::string format_style(const std::string& Str, const std::string& Style)
-    {
-      return should_show_color() ? terminal::color_text(Str, get_terminal_style(Style)) : Str;
-    }
-
-    static std::string format_module_style(const std::string& Str, const std::string& Style)
-    {
-      return should_show_color() ? terminal::color_text(Str, get_module_terminal_style(Style)) : Str;
-    }
+    /// Format text using this module's style for the given kind.
+    // std::string format_module_style(const std::string& str, const std::string& kind, const std::string& module) const
+    // {
+    //   return showColor ? terminal::color_text(str, get_module_terminal_style(kind, module)) : str;
+    // }
 
   private:
-    inline static FILE* outputStream = stderr;
-    inline static Sink sink = [](std::string str) { std::fputs(str.c_str(), stderr); };
-    inline static ColorOptions color = terminal::getenv_or_default("UNI20_COLOR", ColorOptions());
-    inline static bool showColor = terminal::is_a_terminal(stderr);
-    inline static bool errorsAbort = true;
+    /// \brief Update showColor based on the `color` setting and current outputStream.
+    void updateShowColor()
+    {
+      using CO = ColorOptions::Enum;
+      if (color == CO::yes)
+        showColor = true;
+      else if (color == CO::no)
+        showColor = false;
+      else /* auto */
+        showColor = terminal::is_a_terminal(outputStream);
+    }
 
-    inline static std::map<std::string, terminal::TerminalStyle> Styles = {
-        {"TRACE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE", "Cyan")},
-        {"DEBUG_TRACE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_DEBUG_TRACE", "Green")},
-        {"TRACE_EXPR", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_EXPR", "Blue")},
-        {"TRACE_VALUE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_VALUE", "")},
-        {"TRACE_MODULE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_MODULE", "LightCyan")},
-        {"TRACE_FILENAME", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_FILENAME", "Red")},
-        {"TRACE_LINE", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_LINE", "Bold")},
-        {"TRACE_STRING", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_TRACE_STRING", "LightBlue")},
-        {"CHECK", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_CHECK", "Red")},
-        {"DEBUG_CHECK", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_DEBUG_CHECK", "Red")},
-        {"PRECONDITION", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_PRECONDITION", "Red")},
-        {"DEBUG_PRECONDITION",
-         terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_DEBUG_PRECONDITION", "Red")},
-        {"PANIC", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_PANIC", "Red")},
-        {"ERROR", terminal::getenv_or_default<terminal::TerminalStyle>("UNI20_COLOR_ERROR", "Red")},
-    };
-
-    static void updateShowColor();
+    friend FormattingOptions& get_formatting_options(const std::string& module);
 };
 
-inline void FormattingOptions::set_output_stream(FILE* stream)
+/// Returns the FormattingOptions for a module, or the “default” when called with no args.
+/// Empty module name ⇒ use the no-arg ctor (global defaults only).
+inline FormattingOptions& get_formatting_options(const std::string& module)
 {
-  FormattingOptions::outputStream = stream;
-  FormattingOptions::sink = [stream](std::string str) { std::fputs(str.c_str(), stream); };
-  FormattingOptions::updateShowColor();
+  static std::recursive_mutex mtx;
+  static std::unordered_map<std::string, FormattingOptions> table;
+  std::lock_guard lock(mtx);
+
+  if (module.empty())
+  {
+    // Use default-constructed instance with no recursion
+    auto [it, _] = table.try_emplace("", FormattingOptions());
+    return it->second;
+  }
+  else
+  {
+    // Copy from global instance
+    auto [it, _] = table.try_emplace(module, module);
+    return it->second;
+  }
 }
-
-inline void FormattingOptions::set_color_output(ColorOptions c)
-{
-  color = c;
-  FormattingOptions::updateShowColor();
-}
-
-inline void FormattingOptions::updateShowColor()
-{
-  if (color == ColorOptions::yes) showColor = true;
-  if (color == ColorOptions::no) showColor = false;
-  if (color == ColorOptions::autocolor) showColor = terminal::is_a_terminal(outputStream);
-}
-
-template <> inline int FormattingOptions::fp_precision<float> = 6;
-
-template <> inline int FormattingOptions::fp_precision<double> = 15;
-
-template <> inline int FormattingOptions::fp_precision<long double> = 15;
-
-inline FormattingOptions formatting_options;
 
 // Concept for a type that has a fmt::formatter specialization
 template <typename T, typename CharT = char>
@@ -451,26 +641,32 @@ concept Container = std::ranges::forward_range<T> && (!HasFormatter<T>);
 // The generic version works for most types.
 template <typename T>
 std::string formatValue(const T& value, const FormattingOptions& opts)
-  requires((!Container<T>) && HasFormatter<T> && !std::floating_point<T>)
+  requires(!Container<T> && HasFormatter<T> && !std::floating_point<T>)
 {
   return fmt::format("{}", value);
 }
 
-template <typename T>
-std::string formatValue(const T& value, const FormattingOptions& opts)
-  requires(!Container<T> && HasFormatter<T> && std::floating_point<T>)
+// --- float32 overload ---
+inline std::string formatValue(float value, const FormattingOptions& opts)
 {
-  int precision = FormattingOptions::fp_precision<T>;
-  return fmt::format("{:.{}f}", value, precision);
+  // use the user-configurable float32 precision
+  return fmt::format("{:.{}f}", value, opts.fp_precision_float32);
+}
+
+// --- float64 overload ---
+inline std::string formatValue(double value, const FormattingOptions& opts)
+{
+  // use the user-configurable float64 precision
+  return fmt::format("{:.{}f}", value, opts.fp_precision_float64);
 }
 
 template <Container ContainerType>
 auto formatValue(const ContainerType& c, const FormattingOptions& opts)
     -> std::vector<decltype(formatValue(*std::begin(c), opts))>
 {
-  using ElementFormattedType = decltype(formatValue(*std::begin(c), opts));
-  std::vector<ElementFormattedType> result;
-  for (const auto& elem : c)
+  std::vector<decltype(formatValue(*std::begin(c), opts))> result;
+  result.reserve(std::ranges::distance(c));
+  for (auto const& elem : c)
   {
     result.push_back(formatValue(elem, opts));
   }
@@ -784,217 +980,416 @@ std::string formatParameterList(const char* exprList, const FormattingOptions& o
   return formatParameters(names.begin(), opts, args...);
 }
 
+/// \brief Print formatted string via the default (empty-module) sink.
 template <typename... Args> void print(fmt::format_string<Args...> fmt_str, Args&&... args)
 {
-  // build the string
-  auto s = fmt::format(fmt_str, std::forward<Args>(args)...);
-  // write it to the sink
-  trace::formatting_options.emit_string(s);
+  auto& opts = get_formatting_options(); // empty-module defaults
+  opts.sink(fmt::format(fmt_str, std::forward<Args>(args)...));
 }
 
+//-----------------------------------------------------------------------------
+// Non-module TRACE
+//-----------------------------------------------------------------------------
 template <typename... Args> void TraceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("TRACE", "TRACE") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
+  auto& opts = get_formatting_options();
+
+  // format argument list
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  // optional timestamp
+  std::string ts;
+  if (opts.timestamp)
+  {
+    auto now = std::chrono::system_clock::now();
+    auto us_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(us_since_epoch);
+    auto micros = us_since_epoch - seconds;
+
+    std::time_t t = seconds.count();
+    std::tm tm = *std::localtime(&t);
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%F %T", &tm); // e.g. "2025-05-01 17:42:03"
+
+    ts = fmt::format("[{}.{:06}] ", buffer, micros.count());
+    ts = opts.format_style(ts, "TIMESTAMP");
+  }
+
+  // optional thread-ID
+  std::string th;
+  if (opts.showThreadId)
+  {
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    th = fmt::format("[TID {:>8x}] ", id);
+    th = opts.format_style(th, "THREAD_ID");
+  }
+
+  // build preamble
+  std::string pre = opts.format_style("TRACE", "TRACE") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  // emit
+  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
+//-----------------------------------------------------------------------------
+// Module-aware TRACE
+//-----------------------------------------------------------------------------
 template <typename... Args>
 void TraceModuleCall(const char* module, const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_module_style("TRACE", module) + " in module " +
-                         trace::formatting_options.format_module_style(module, module) + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
+  auto& opts = get_formatting_options(module);
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string ts;
+  if (opts.timestamp)
+  {
+    auto now = std::chrono::system_clock::now();
+    auto us_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(us_since_epoch);
+    auto micros = us_since_epoch - seconds;
+
+    std::time_t t = seconds.count();
+    std::tm tm = *std::localtime(&t);
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%F %T", &tm); // e.g. "2025-05-01 17:42:03"
+
+    ts = fmt::format("[{}.{:06}] ", buffer, micros.count());
+    ts = opts.format_style(ts, "TIMESTAMP");
+  }
+
+  std::string th;
+  if (opts.showThreadId)
+  {
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    th = fmt::format("[TID {:>8x}] ", id);
+    th = opts.format_style(th, "THREAD_ID");
+  }
+
+  std::string pre = opts.format_style("TRACE", "TRACE") + " in module " + opts.format_style(module, "TRACE") + " at " +
+                    opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
+//-----------------------------------------------------------------------------
+// Non-module DEBUG_TRACE
+//-----------------------------------------------------------------------------
 template <typename... Args> void DebugTraceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string ts;
+  if (opts.timestamp)
+  {
+    auto now = std::chrono::system_clock::now();
+    auto us_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(us_since_epoch);
+    auto micros = us_since_epoch - seconds;
+
+    std::time_t t = seconds.count();
+    std::tm tm = *std::localtime(&t);
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%F %T", &tm); // e.g. "2025-05-01 17:42:03"
+
+    ts = fmt::format("[{}.{:06}] ", buffer, micros.count());
+    ts = opts.format_style(ts, "TIMESTAMP");
+  }
+
+  std::string th;
+  if (opts.showThreadId)
+  {
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    th = fmt::format("[TID {:>8x}] ", id);
+    th = opts.format_style(th, "THREAD_ID");
+  }
+
+  std::string pre = opts.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " at " +
+                    opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
+//-----------------------------------------------------------------------------
+// Module-aware DEBUG_TRACE
+//-----------------------------------------------------------------------------
 template <typename... Args>
 void DebugTraceModuleCall(const char* module, const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_module_style("DEBUG_TRACE", module) + " in module " +
-                         trace::formatting_options.format_module_style(module, module) + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
+  auto& opts = get_formatting_options(module);
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string ts;
+  if (opts.timestamp)
+  {
+    auto now = std::chrono::system_clock::now();
+    auto us_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(us_since_epoch);
+    auto micros = us_since_epoch - seconds;
+
+    std::time_t t = seconds.count();
+    std::tm tm = *std::localtime(&t);
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%F %T", &tm); // e.g. "2025-05-01 17:42:03"
+
+    ts = fmt::format("[{}.{:06}] ", buffer, micros.count());
+    ts = opts.format_style(ts, "TIMESTAMP");
+  }
+
+  std::string th;
+  if (opts.showThreadId)
+  {
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    th = fmt::format("[TID {:>8x}] ", id);
+    th = opts.format_style(th, "THREAD_ID");
+  }
+
+  std::string pre = opts.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " in module " +
+                    opts.format_style(module, module) + " at " + opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
 template <typename... Args>
 void CheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("CHECK", "CHECK") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
-                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble =
+      opts.format_style("CHECK", "CHECK") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+      opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
+
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// DEBUG_CHECK
+//------------------------------------------------------------------------------
 template <typename... Args>
 void DebugCheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("DEBUG_CHECK", "DEBUG_CHECK") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
-                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble =
+      opts.format_style("DEBUG_CHECK", "DEBUG_CHECK") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+      opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
+
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// CHECK_EQUAL
+//------------------------------------------------------------------------------
 template <typename... Args>
 void CheckEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
   std::string preamble =
-      trace::formatting_options.format_style("CHECK_EQUAL", "CHECK") + " at " +
-      trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-      trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-      fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
-                  trace::formatting_options.format_style(b, "TRACE_EXPR"));
+      opts.format_style("CHECK_EQUAL", "CHECK") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+      opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
+
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// DEBUG_CHECK_EQUAL
+//------------------------------------------------------------------------------
 template <typename... Args>
 void DebugCheckEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
                          const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
   std::string preamble =
-      trace::formatting_options.format_style("DEBUG_CHECK_EQUAL", "DEBUG_CHECK") + " at " +
-      trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-      trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-      fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
-                  trace::formatting_options.format_style(b, "TRACE_EXPR"));
+      opts.format_style("DEBUG_CHECK_EQUAL", "DEBUG_CHECK") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+      opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
+
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// PRECONDITION
+//------------------------------------------------------------------------------
 template <typename... Args>
 void PreconditionCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("PRECONDITION", "PRECONDITION") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
-                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble =
+      opts.format_style("PRECONDITION", "PRECONDITION") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+      opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
+
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// DEBUG_PRECONDITION
+//------------------------------------------------------------------------------
 template <typename... Args>
 void DebugPreconditionCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("DEBUG_PRECONDITION", "DEBUG_PRECONDITION") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
-                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble =
+      opts.format_style("DEBUG_PRECONDITION", "DEBUG_PRECONDITION") + " at " +
+      opts.format_style(file, "TRACE_FILENAME") + opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
+
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// PRECONDITION_EQUAL
+//------------------------------------------------------------------------------
 template <typename... Args>
 void PreconditionEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
                            const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
   std::string preamble =
-      trace::formatting_options.format_style("PRECONDITION_EQUAL", "PRECONDITION") + " at " +
-      trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-      trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-      fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
-                  trace::formatting_options.format_style(b, "TRACE_EXPR"));
+      opts.format_style("PRECONDITION_EQUAL", "PRECONDITION") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+      opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
+
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// DEBUG_PRECONDITION_EQUAL
+//------------------------------------------------------------------------------
 template <typename... Args>
 void DebugPreconditionEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
                                 const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
   std::string preamble =
-      trace::formatting_options.format_style("DEBUG_PRECONDITION_EQUAL", "DEBUG_PRECONDITION") + " at " +
-      trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-      trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-      fmt::format("\n{} is not equal to {}!", trace::formatting_options.format_style(a, "TRACE_EXPR"),
-                  trace::formatting_options.format_style(b, "TRACE_EXPR"));
+      opts.format_style("DEBUG_PRECONDITION_EQUAL", "DEBUG_PRECONDITION") + " at " +
+      opts.format_style(file, "TRACE_FILENAME") + opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
+
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// PANIC
+//------------------------------------------------------------------------------
 template <typename... Args> void PanicCall(const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("PANIC", "PANIC") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
+  auto& opts = get_formatting_options();
 
-#if UNI20_HAS_STACKTRACE
-  if (trace::formatting_options.should_show_color())
-    print(terminal::color_text("Stacktrace:\n", terminal::TerminalStyle("Bold")));
-  else
-    print("Stacktrace:\n");
-  print("{}", std::stacktrace::current());
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble = opts.format_style("PANIC", "PANIC") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+                         opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  opts.sink(preamble + (trace_str.empty() ? "" : " : " + trace_str) + "\n");
+
+#if TRACE_HAS_STACKTRACE
+  opts.sink(fmt::format("{}\n", opts.format_style("Stacktrace:\n", "PANIC")));
+  opts.sink(fmt::format("{}\n", std::stacktrace::current()));
 #else
-  print("Stacktrace not available (compiler is too old)!\n");
+  opts.sink("Stacktrace not available (compiler too old)\n");
 #endif
 
+  std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 
+//------------------------------------------------------------------------------
+// ERROR
+//------------------------------------------------------------------------------
 template <typename... Args> void ErrorCall(const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("ERROR", "ERROR") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE");
-  std::string Msg = fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
-  if (trace::formatting_options.errors_abort())
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble = opts.format_style("ERROR", "ERROR") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+                         opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  std::string msg = preamble + (trace_str.empty() ? "" : " : " + trace_str) + "\n";
+
+  if (opts.errors_abort())
   {
-    print("{}", Msg);
+    opts.sink(msg);
+    std::fflush(nullptr); // flush all output streams
     std::abort();
   }
-  throw std::runtime_error(Msg);
+  throw std::runtime_error(msg);
 }
 
+//------------------------------------------------------------------------------
+// ERROR_IF
+//------------------------------------------------------------------------------
 template <typename... Args>
 void ErrorIfCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
-  std::string trace_str = formatParameterList(exprList, trace::formatting_options, args...);
-  std::string preamble = trace::formatting_options.format_style("ERROR", "ERROR") + " at " +
-                         trace::formatting_options.format_style(file, "TRACE_FILENAME") +
-                         trace::formatting_options.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-                         fmt::format("\n{} is {}!", trace::formatting_options.format_style(cond, "TRACE_EXPR"),
-                                     trace::formatting_options.format_style("false", "TRACE_VALUE"));
-  std::string Msg = fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : " : ", trace_str);
-  if (trace::formatting_options.errors_abort())
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble = opts.format_style("ERROR", "ERROR") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+                         opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  std::string fail_msg =
+      fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
+
+  std::string msg = preamble + (trace_str.empty() ? "" : " : " + trace_str) + fail_msg + "\n";
+
+  if (opts.errors_abort())
   {
-    print("{}", Msg);
+    opts.sink(msg);
+    std::fflush(nullptr); // flush all output streams
     std::abort();
   }
-  throw std::runtime_error(Msg);
+  throw std::runtime_error(msg);
 }
 
 } // namespace trace

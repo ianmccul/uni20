@@ -3,6 +3,7 @@
 #include "string_util.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -75,21 +76,21 @@ inline bool env_exists(std::string const& str) { return getenv(str.c_str()) != n
 
 // getenv_or_default
 // Get an environment string, or if the environment string is not defined, return the specified default_value
-template <typename T> T getenv_or_default(const std::string& var, const T& default_value)
-{
-  if (const char* env = std::getenv(var.c_str()))
-  {
-    try
-    {
-      return from_string<T>(env);
-    }
-    catch (...)
-    {
-      // Conversion failed; fall through to return default_value.
-    }
-  }
-  return default_value;
-}
+// template <typename T> T getenv_or_default(const std::string& var, const T& default_value)
+// {
+//   if (const char* env = std::getenv(var.c_str()))
+//   {
+//     try
+//     {
+//       return from_string<T>(env);
+//     }
+//     catch (...)
+//     {
+//       // Conversion failed; fall through to return default_value.
+//     }
+//   }
+//   return default_value;
+// }
 
 template <typename T, typename U> T getenv_or_default(const std::string& var, const U& default_value)
 {
@@ -187,8 +188,47 @@ constexpr ColorAttribute& operator|=(ColorAttribute& lhs, ColorAttribute rhs)
   return lhs;
 }
 
-class TerminalStyle
+/// \brief A simple yes/no toggle that parses from a string.
+///
+/// Accepts "yes", "true", "1" (case-insensitive) as true,
+/// and "no", "false", "0" as false. An empty string is treated as true.
+/// Unrecognized values also default to true.
+///
+/// Useful for parsing environment variables and optional flags.
+struct toggle
 {
+    bool value;
+
+    toggle(bool value_) : value(value_) {}
+
+    /// \brief Construct from a string (e.g. from an env var).
+    /// \param str The string to interpret.
+    /// \param default_value Used if the string is empty or not recognized.
+    toggle(std::string_view str, bool default_value = true)
+    {
+      if (str.empty())
+      {
+        value = default_value;
+      }
+      else if (iequals(str, "no") || iequals(str, "false") || iequals(str, "0"))
+      {
+        value = false;
+      }
+      else if (iequals(str, "yes") || iequals(str, "true") || iequals(str, "1"))
+      {
+        value = true;
+      }
+      else
+      {
+        value = default_value;
+      }
+    }
+
+    /// \brief Implicit conversion to bool.
+    operator bool() const { return value; }
+};
+
+class TerminalStyle {
   public:
     // Foreground and background can be either standard colors or RGB
     std::optional<FGColor> fg;
@@ -213,6 +253,8 @@ class TerminalStyle
 
     // Conversion from a string
     TerminalStyle(const std::string& s);
+
+    TerminalStyle(std::string_view sv) : TerminalStyle(std::string(sv)) {}
 
     // Combine two TerminalStyle objects
     TerminalStyle operator|(const TerminalStyle& other) const
