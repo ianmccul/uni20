@@ -154,6 +154,8 @@ concept SpanLike = requires(S s) {
                      typename S::extents_type;
                      typename S::layout_type;
                      typename S::accessor_type;
+                     typename S::reference;
+                     typename S::value_type;
                      // mapping() must return something convertible to mapping_t
                      {
                        s.mapping()
@@ -170,28 +172,30 @@ concept SpanLike = requires(S s) {
                        } -> std::convertible_to<typename S::accessor_type>;
                    } && AccessorPolicy<typename S::accessor_type>;
 
-template <class S>
-concept ConstSpanLike =
-    requires(S s) {
-      typename S::element_type;
-      typename S::extents_type;
-      typename S::layout_type;
-      typename S::accessor_type;
-      // mapping() must return something convertible to mapping_t
-      {
-        s.mapping()
-        } -> std::convertible_to<typename S::layout_type::template mapping<typename S::extents_type>>;
-
-      // data_handle() must return something convertible to data_handle_type
-      {
-        s.data_handle()
-        } -> std::convertible_to<typename S::accessor_type::data_handle_type>;
-
-      // accessor() must return something convertible to accessor_type
-      {
-        s.accessor()
-        } -> std::convertible_to<typename S::accessor_type>;
-    } && AccessorPolicy<typename S::accessor_type> && std::is_const_v<typename S::element_type>;
+// ConstSpanLike
+// Not sure that we need this, and its hard to be definitive that it is actually const
+// template <class S>
+// concept ConstSpanLike =
+//     requires(S s) {
+//       typename S::element_type;
+//       typename S::extents_type;
+//       typename S::layout_type;
+//       typename S::accessor_type;
+//       // mapping() must return something convertible to mapping_t
+//       {
+//         s.mapping()
+//         } -> std::convertible_to<typename S::layout_type::template mapping<typename S::extents_type>>;
+//
+//       // data_handle() must return something convertible to data_handle_type
+//       {
+//         s.data_handle()
+//         } -> std::convertible_to<typename S::accessor_type::data_handle_type>;
+//
+//       // accessor() must return something convertible to accessor_type
+//       {
+//         s.accessor()
+//         } -> std::convertible_to<typename S::accessor_type>;
+//     } && AccessorPolicy<typename S::accessor_type> && std::is_const_v<typename S::element_type>;
 
 template <class S>
 concept MutableSpanLike =
@@ -200,6 +204,9 @@ concept MutableSpanLike =
       typename S::extents_type;
       typename S::layout_type;
       typename S::accessor_type;
+      typename S::reference;
+      typename S::value_type;
+      typename S::index_type;
       // mapping() must return something convertible to mapping_t
       {
         s.mapping()
@@ -214,14 +221,46 @@ concept MutableSpanLike =
       {
         s.accessor()
         } -> std::convertible_to<typename S::accessor_type>;
-    } && AccessorPolicy<typename S::accessor_type> && (!std::is_const_v<typename S::element_type>);
+    } && AccessorPolicy<typename S::accessor_type> && (!std::is_const_v<typename S::element_type>) &&
+    requires(typename S::reference ref, typename S::value_type val) {
+      ref = val;
+    }; // must be able to assign a value to a reference
 
 /// \brief A “strided mdspan‐like” type:
 ///        – models SpanLike (has extents_type, layout_type, accessor_type, mapping(), data_handle())
 ///        – uses layout_stride as its layout_policy
 template <class MDS>
 concept StridedMdspan = SpanLike<MDS> && // must satisfy our mdspan‐like protocol
-                        std::same_as<typename MDS::layout_type, stdex::layout_stride>; // must use layout_stride
+                        MDS::is_always_strided();
+
+template <class MDS>
+concept MutableStridedMdspan = MutableSpanLike<MDS> && // must satisfy our mdspan‐like protocol
+                               MDS::is_always_strided();
+
+/// \brief free function to get the strides of a strided mdspan
+
+namespace detail
+{
+
+template <StridedMdspan S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
+{
+  using index_type = typename S::index_type;
+  // fold the pack I... into an array by calling s.mapping().stride(I) for each I
+  return std::array<index_type, sizeof...(I)>{s.mapping().stride(I)...};
+}
+
+} // namespace detail
+
+template <StridedMdspan S> auto strides(S const& s)
+{
+  return detail::strides_impl(s, std::make_index_sequence<S::rank>{});
+}
+
+template <typename T, typename Extents, typename AccessorPolicy>
+constexpr auto strides(stdex::mdspan<T, Extents, stdex::layout_stride, AccessorPolicy> const& s) noexcept
+{
+  return s.strides();
+}
 
 } // namespace uni20
 

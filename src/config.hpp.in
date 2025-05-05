@@ -13,3 +13,13 @@
 #define BLAS_VENDOR @UNI20_BLAS_VENDOR@
 
 #define @UNI20_BLAS_VENDOR_MACRO@ 1
+
+namespace uni20 {
+
+#if @BLA_SIZEOF_INTEGER@ == 8
+using blas_int = std::int64_t;
+#else
+using blas_int = std::int32_t;
+#endif
+
+} // namespace uni20

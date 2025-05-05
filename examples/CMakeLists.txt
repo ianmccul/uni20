@@ -12,3 +12,6 @@ target_link_libraries(trace_example PRIVATE fmt::fmt mdspan uni20_common)
 
 add_executable(blas_example blas_example.cpp)
 target_link_libraries(blas_example PRIVATE fmt::fmt uni20_backend_blas)
+
+add_executable(async_example async_example.cpp)
+target_link_libraries(async_example PRIVATE fmt::fmt uni20_common uni20_async)

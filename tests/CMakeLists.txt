@@ -6,6 +6,7 @@ include(GoogleTest)
 # Add subdirectories that contribute source files
 add_subdirectory(common)
 add_subdirectory(level1)
+add_subdirectory(kernel)
 
 # Retrieve accumulated combined test inputs
 get_property(UNI20_COMBINED_TEST_SRCS GLOBAL PROPERTY UNI20_COMBINED_TEST_SRCS)

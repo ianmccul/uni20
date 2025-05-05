@@ -19,7 +19,6 @@ if(NOT LAPACK_FOUND)
   message(FATAL_ERROR "LAPACK not found.")
 endif()
 
-
 # set variables for the BLAS configuration
 set(BLAS_FOUND "${BLAS_FOUND}" CACHE INTERNAL "BLAS was found")
 include(DetectBlasVendor)
@@ -38,5 +37,16 @@ endif()
 add_library(uni20_backend_blas STATIC
     blas_vendor.cpp
 )
-
 target_link_libraries(uni20_backend_blas PUBLIC uni20_deps uni20_interface_blas)
+
+# Handle optional MKL
+if(UNI20_BACKEND_MKL)
+  add_subdirectory(mkl)
+  target_link_libraries(uni20_backend_blas INTERFACE uni20_backend_mkl)
+endif()
+
+# Handle optional OPENBLAS
+if(UNI20_BACKEND_OPENBLAS)
+  add_subdirectory(openblas)
+  target_link_libraries(uni20_backend_blas INTERFACE uni20_backend_openblas)
+endif()

@@ -4,7 +4,7 @@
 #include "common/mdspan.hpp"
 #include "common/trace.hpp"
 #include "common/types.hpp"
-#include "level1/concepts.hpp"
+#include "mdspan/concepts.hpp"
 #include "zip_layout.hpp"
 #include <ranges>
 #include <tuple>

@@ -104,9 +104,9 @@ FetchContent_Declare(
   GIT_TAG stable
 )
 FetchContent_MakeAvailable(mdspan)
-add_library(uni20_mdspan INTERFACE)
-target_include_directories(uni20_mdspan INTERFACE ${mdspan_SOURCE_DIR}/include)
-target_compile_definitions(uni20_mdspan INTERFACE MDSPAN_IMPL_STANDARD_NAMESPACE=stdex)
+#add_library(mdspan INTERFACE)
+#target_include_directories(mdspan INTERFACE ${mdspan_SOURCE_DIR}/include)
+target_compile_definitions(mdspan INTERFACE MDSPAN_IMPL_STANDARD_NAMESPACE=stdex)
 
 # Use the square bracket operator for multidimensional arrays, not needed for c++23
 # add_compile_definitions(MDSPAN_USE_BRACKET_OPERATOR=1)
@@ -149,6 +149,22 @@ option(UNI20_BACKEND_BLAS     "Enable the BLAS backend" ON)
 option(UNI20_BACKEND_CUDA     "Enable the CUDA backend" ${UNI20_BACKEND_CUDA_DEFAULT})
 option(UNI20_BACKEND_CUSOLVER "Enable the cuSOLVER backend" OFF)
 option(UNI20_BACKEND_MKL      "Enable the MKL backend" OFF)
+
+# Dependency: MKL requires BLAS
+if(UNI20_BACKEND_MKL)
+  if(DEFINED UNI20_BACKEND_BLAS AND NOT UNI20_BACKEND_BLAS)
+    message(FATAL_ERROR "UNI20_BACKEND_MKL requires UNI20_BACKEND_BLAS to be enabled.")
+  endif()
+  set(UNI20_BACKEND_BLAS ON CACHE BOOL "Enable the BLAS backend (required by MKL)" FORCE)
+endif()
+
+# Dependency: cuSOLVER requires CUDA
+if(UNI20_BACKEND_CUSOLVER)
+  if(DEFINED UNI20_BACKEND_CUDA AND NOT UNI20_BACKEND_CUDA)
+    message(FATAL_ERROR "UNI20_BACKEND_CUSOLVER requires UNI20_BACKEND_CUDA to be enabled.")
+  endif()
+  set(UNI20_BACKEND_CUDA ON CACHE BOOL "Enable the CUDA backend (required by cuSOLVER)" FORCE)
+endif()
 
 # Configure the config.hpp header.
 configure_file(

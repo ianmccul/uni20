@@ -2,7 +2,7 @@
 
 #include "common/mdspan.hpp"
 #include "common/trace.hpp"
-#include "level1/concepts.hpp"
+#include "mdspan/concepts.hpp"
 #include <functional>
 
 namespace uni20
