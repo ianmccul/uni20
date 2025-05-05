@@ -3,6 +3,9 @@
 #include "common/types.hpp"
 #include "config.hpp"
 
+// intended as a hook to add tracing/logging
+#define UNI20_API_CALL(...)
+
 #define BLASCHAR s
 #define BLASTYPE float32
 #define BLASCOMPLEX 0
