@@ -5,15 +5,15 @@
 
 #include "cpu/contract.hpp" // always available fallback
 
-#ifdef UNI20_BACKEND_BLAS
+#if UNI20_BACKEND_BLAS
 #include "blas/contract.hpp"
 #endif
 
-#ifdef UNI20_BACKEND_MKL
+#if UNI20_BACKEND_MKL
 #include "mkl/contract.hpp"
 #endif
 
-#ifdef UNI20_BACKEND_CUDA
+#if UNI20_BACKEND_CUDA
 #include "cuda/contract.hpp"
 #endif
 

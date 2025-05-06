@@ -5,10 +5,13 @@
 // Automatically generated trace module enable flags:
 @TRACE_MODULE_DEFINITIONS@
 
-#define UNI20_BACKEND_BLAS @UNI20_BACKEND_BLAS@
-#define UNI20_ILP64 @UNI20_ILP64@
+// Backend configurations
+#cmakedefine01 UNI20_BACKEND_BLAS
+#cmakedefine01 UNI20_BACKEND_MKL
+#cmakedefine01 UNI20_BACKEND_CUDA
+#cmakedefine01 UNI20_BACKEND_CUSOLVER
 
-#define BLAS_FOUND @BLAS_FOUND@
+#cmakedefine01 UNI20_ILP64
 
 #define BLAS_VENDOR @UNI20_BLAS_VENDOR@
 

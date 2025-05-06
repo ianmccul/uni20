@@ -67,7 +67,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_options(${UNI20_WARN_FLAGS})
 
 # Sub-modules, for detailed tracing/logging
-set(SUBMODULES BLAS2 BLAS3 LAPACK CUSOLVER TESTMODULE)
+set(SUBMODULES BLAS LAPACK CUSOLVER TESTMODULE)
 
 # Create an option for each module.
 foreach(module IN LISTS SUBMODULES)

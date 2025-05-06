@@ -22,29 +22,48 @@ A brief overview of the directory layout:
 uni20/                              # Project root
 ├── CMakeLists.txt                  # Top-level CMake configuration
 ├── README.md                       # Project overview and instructions
+├── LICENSE                         # License information
 ├── docs/                           # Documentation (this guide, API docs, etc.)
+│   ├── getting_started.md
+│   ├── testing.md
+│   └── trace_macros.md
+├── cmake/                          # Custom CMake modules and helpers
+│   ├── ClangFormat.cmake
+│   ├── DetectBlasVendor.cmake
+│   └── Uni20TestHelpers.cmake
 ├── src/                            # C++ source code for the uni20 library
-│   ├── CMakeLists.txt              # Library build configuration
-│   ├── common/                     # Common headers and generic functions
-│   ├── core/                       # Core code
-│   ├── level1/                     # Implementation of the `level 1` functions
-│   └── backends/                   # Backend implementations (BLAS/LAPACK, CUDA, etc.)
-├── bindings/                       # Language bindings
-│   └── python/                     # Python bindings (using pybind11)
-│       ├── CMakeLists.txt          # CMake configuration for the Python module
-│       └── uni20_python.cpp        # Currently a simple "hello world" example module
-├── tests/                          # Unit tests (using GoogleTest)
-│   ├── CMakeLists.txt              # Test build configuration
-│   ├── common/                     # Tests for src/common components
-│   └── level1/                     # Tests for src/level1 components
-├── benchmarks/                     # Benchmarks (using Google Benchmark)
-│   ├── CMakeLists.txt              # Benchmark build configuration
-│   └── benchmark_dummy.cpp         # Benchmarking dummy functionality
-└── examples/                       # Example applications
-│   ├── CMakeLists.txt              # Example build configuration
-│   ├── trace_example.cpp           # Examples demonstrating the TRACE macros
-    └── mdspan_example.cpp          # Example demonstrating some features of stdex::mdspan
-
+│   ├── common/                     # Shared types, traits, and utilities
+│   ├── core/                       # (currently empty)
+│   ├── level1/                     # Implementation of Level 1 tensor operations (linear computation / memory use)
+│   ├── backend/                    # Backend API wrappers (BLAS, MKL, CUDA, etc.)
+│   │   ├── blas/                   # BLAS API headers, vendor detection
+│   │   ├── mkl/                    # Intel MKL-specific wrappers
+│   │   ├── cuda/                   # CUDA backend stubs (WIP)
+│   │   └── cusolver/               # cuSOLVER backend stubs (WIP)
+│   ├── kernel/                     # High-level kernel dispatch (e.g. tensor contraction)
+│   │   ├── cpu/                    # CPU-specific kernel implementations
+│   │   ├── blas/                   # BLAS-backed kernel implementations
+│   │   ├── mkl/                    # MKL-backed kernel implementations
+│   │   ├── cuda/                   # CUDA kernel stubs (WIP)
+│   │   ├── operations.hpp          # Kernel entry point for general operations
+│   │   └── contract.hpp            # Kernel entry point for `contract` function
+│   ├── async/                      # Coroutine-based async execution and scheduling
+│   ├── mdspan/                     # Extensions and traits for stdex::mdspan
+│   ├── storage/                    # Storage implementations (e.g. vector-backed)
+│   └── tensor/                     # Tensor and TensorView abstraction layer
+├── tests/                          # Unit tests using GoogleTest
+│   ├── common/                     # Tests for src/common utilities
+│   ├── level1/                     # Tests for Level 1 operations
+│   ├── kernel/                     # Kernel-level tests (e.g. contraction)
+│   └── helpers.hpp                 # Shared testing helpers and mocks
+├── benchmarks/                     # Performance benchmarks using Google Benchmark
+├── examples/                       # Demonstration programs
+│   ├── mdspan_example.cpp
+│   ├── async_example.cpp
+│   └── trace_example.cpp
+├── bindings/                       # Language bindings (e.g. Python via pybind11)
+│   └── python/
+└── asm/                            # Contains sample code for testing generated assembly output
 ```
 
 ## Prerequisites

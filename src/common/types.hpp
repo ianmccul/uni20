@@ -68,47 +68,47 @@ template <typename T> constexpr bool is_integer = is_integer_t<T>::value;
 //
 // Concepts
 //
-// integer        - integral type (same as std::integral)
-// real           - a real floating point number (including extensions that are floating-point-like)
-// complex        - complex floating point; either std::complex<RealType> or some complex-like extension
-// scalar         - either real or complex
-// numeric        - either real or complex or integer
-// blas_real      - real types accepted by standard BLAS (i.e. single and double precision)
-// blas_complex   - complex types accepted by standard BLAS (i.e. single and double precision complex)
-// blas_scalar    - union of blas_real and blas_complex
+// Integer        - integral type (same as std::integral, but could be extended by user custom types)
+// Real           - a real floating point number (including extensions that are floating-point-like)
+// Complex        - complex floating point; either std::complex<RealType> or some complex-like extension
+// RealOrComplex  - either real or complex
+// Numeric        - either real or complex or integer
+// BlasReal       - real types accepted by standard BLAS (i.e. single and double precision)
+// BlasComplex    - complex types accepted by standard BLAS (i.e. single and double precision complex)
+// BlasScalar     - union of BlasReal and BlasComplex
 //
 
 template <typename T>
-concept integer = is_integer<T>;
+concept Integer = is_integer<T>;
 
 template <typename T>
-concept real = is_real<T>;
+concept Real = is_real<T>;
 
 template <typename T>
-concept complex = is_complex<T>;
+concept Complex = is_complex<T>;
 
 template <typename T>
-concept scalar = real<T> || complex<T>;
+concept RealOrComplex = Real<T> || Complex<T>;
 
 template <typename T>
-concept numeric = real<T> || complex<T> || integer<T>;
+concept Numeric = Real<T> || Complex<T> || Integer<T>;
 
 template <typename T>
-concept blas_real = std::same_as<T, float> || std::same_as<T, double>;
+concept BlasReal = std::same_as<T, float> || std::same_as<T, double>;
 
 template <typename T>
-concept blas_complex = std::same_as<T, cfloat> || std::same_as<T, cdouble>;
+concept BlasComplex = std::same_as<T, cfloat> || std::same_as<T, cdouble>;
 
 // Define a concept for BLAS scalar types (either a BLAS real or a BLAS complex type).
 template <typename T>
-concept blas_scalar = blas_real<T> || blas_complex<T>;
+concept BlasScalar = BlasReal<T> || BlasComplex<T>;
 
 // make_real
 // metafunction to get a real type corresponding to some scalar (real or complex)
 // Customize this for extension types
 template <typename T> struct make_real;
 
-template <real T> struct make_real<T>
+template <Real T> struct make_real<T>
 {
     using type = T;
 };
@@ -134,7 +134,7 @@ struct make_complex<T>
 };
 
 template <typename T>
-  requires complex<T>
+  requires Complex<T>
 struct make_complex<T>
 {
     using type = T;
@@ -149,7 +149,7 @@ template <typename T> using make_complex_type = make_complex<T>::type;
 template <typename T> struct numeric_type;
 
 template <typename T>
-  requires numeric<T>
+  requires Numeric<T>
 struct numeric_type<T>
 {
     using type = T;
@@ -178,12 +178,14 @@ concept is_string = is_std_basic_string_v<T>;
 
 template <typename T>
   requires requires { typename T::value_type; } &&
-           (!numeric<T>) && numeric<typename numeric_type<typename T::value_type>::type> && (!detail::is_string<T>)
+           (!Numeric<T>) && Numeric<typename numeric_type<typename T::value_type>::type> && (!detail::is_string<T>)
 struct numeric_type<T> : numeric_type<typename T::value_type>
 {};
 
+template <typename T> using numeric_t = typename numeric_type<T>::type;
+
 template <typename T>
-concept has_numeric_type = requires { typename numeric_type<T>::type; };
+concept HasNumericType = requires { typename numeric_type<T>::type; };
 
 // scalar_type
 // Recursively extracts the underlying scalar type from a container.
@@ -192,7 +194,7 @@ concept has_numeric_type = requires { typename numeric_type<T>::type; };
 template <typename T> struct scalar_type;
 
 template <typename T>
-  requires scalar<T>
+  requires RealOrComplex<T>
 struct scalar_type<T>
 {
     using type = T;
@@ -200,11 +202,13 @@ struct scalar_type<T>
 
 template <typename T>
   requires requires { typename T::value_type; } &&
-           (!complex<T>) && scalar<typename scalar_type<typename T::value_type>::type>
+           (!Complex<T>) && RealOrComplex<typename scalar_type<typename T::value_type>::type>
 struct scalar_type<T> : scalar_type<typename T::value_type>
 {};
 
+template <typename T> using scalar_t = typename scalar_type<T>::type;
+
 template <typename T>
-concept has_scalar_type = requires { typename scalar_type<T>::type; };
+concept HasScalarType = requires { typename scalar_type<T>::type; };
 
 } // namespace uni20

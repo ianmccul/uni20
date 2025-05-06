@@ -20,13 +20,24 @@ Tests are written using the standard `TEST(...)` and `EXPECT_...` macros provide
 
 Tests are located in the `tests/` directory and organized by subdirectory:
 
+<!-- To update the test list below, run from the root of the repo: tree -P '*.cpp' tests/ -->
 ```
-tests/
-├── common/
-│   ├── test_types.cpp
-│   └── test_terminal_color.cpp
-├── level1/
-│   └── test_iteration_plan.cpp
+tests
+├── common
+│   ├── test_terminal_color.cpp
+│   ├── test_trace.cpp
+│   ├── test_trace_debug.cpp
+│   ├── test_trace_ndebug.cpp
+│   └── test_types.cpp
+├── kernel
+│   ├── cpu
+│   └── test_contract.cpp
+└── level1
+    ├── test_apply_unary.cpp
+    ├── test_assign.cpp
+    ├── test_sum.cpp
+    ├── test_zip_layout.cpp
+    └── test_zip_transform.cpp
 ...
 ```
 

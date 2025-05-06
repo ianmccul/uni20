@@ -1,12 +1,14 @@
 #pragma once
 
 #include "config.hpp"
+#include "demangle.hpp"
 #include "namedenum.hpp"
 #include "terminal.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <complex>
 #include <cstdio>
 #include <fmt/core.h>
 #include <functional>
@@ -639,6 +641,12 @@ concept Container = std::ranges::forward_range<T> && (!HasFormatter<T>);
 
 // formatValue: Converts a value to a string using fmt::format.
 // The generic version works for most types.
+
+/// \brief Format a non-container, non-floating-point type with fmt::formatter.
+/// \tparam T             Any type that has an fmt::formatter and is not a floating-point or container.
+/// \param value         The value to format.
+/// \param opts          Formatting options (currently unused for this overload).
+/// \returns             The string produced by `fmt::format("{}", value)`.
 template <typename T>
 std::string formatValue(const T& value, const FormattingOptions& opts)
   requires(!Container<T> && HasFormatter<T> && !std::floating_point<T>)
@@ -646,20 +654,52 @@ std::string formatValue(const T& value, const FormattingOptions& opts)
   return fmt::format("{}", value);
 }
 
-// --- float32 overload ---
+/// \brief Format a 32-bit float using user-configured precision.
+/// \param value         The float to format.
+/// \param opts          Controls the precision via `opts.fp_precision_float32`.
+/// \returns             A string like `"3.14"` (precision configurable).
 inline std::string formatValue(float value, const FormattingOptions& opts)
 {
   // use the user-configurable float32 precision
   return fmt::format("{:.{}f}", value, opts.fp_precision_float32);
 }
 
-// --- float64 overload ---
+/// \brief Format a 64-bit float using user-configured precision.
+/// \param value         The double to format.
+/// \param opts          Controls the precision via `opts.fp_precision_float64`.
+/// \returns             A string like `"2.71828"` (precision configurable).
 inline std::string formatValue(double value, const FormattingOptions& opts)
 {
   // use the user-configurable float64 precision
   return fmt::format("{:.{}f}", value, opts.fp_precision_float64);
 }
 
+/// \brief Format a complex<float> as "a+bi" using the float32 precision.
+/// \param value the complex value
+/// \param opts   formatting options (controls precision)
+/// \returns a string like "1.23+4.56i"
+inline std::string formatValue(const std::complex<float>& value, const FormattingOptions& opts)
+{
+  // {:+.{}f} prints a leading +/-, "{:.{}f}" uses dynamic precision
+  return fmt::format("{:.{}f}{:+.{}f}i", value.real(), opts.fp_precision_float32, value.imag(),
+                     opts.fp_precision_float32);
+}
+
+/// \brief Format a complex<double> as "a+bi" using the float64 precision.
+/// \param value the complex value
+/// \param opts   formatting options (controls precision)
+/// \returns a string like "1.234567+8.765432i"
+inline std::string formatValue(const std::complex<double>& value, const FormattingOptions& opts)
+{
+  return fmt::format("{:.{}f}{:+.{}f}i", value.real(), opts.fp_precision_float64, value.imag(),
+                     opts.fp_precision_float64);
+}
+
+/// \brief Format each element of a container by recursively calling `formatValue`.
+/// \tparam ContainerType  Any container with `std::begin`/`std::end`.
+/// \param c               The container whose elements to format.
+/// \param opts            Formatting options forwarded to each element call.
+/// \returns               A `std::vector<std::string>` of the formatted elements.
 template <Container ContainerType>
 auto formatValue(const ContainerType& c, const FormattingOptions& opts)
     -> std::vector<decltype(formatValue(*std::begin(c), opts))>
@@ -671,6 +711,38 @@ auto formatValue(const ContainerType& c, const FormattingOptions& opts)
     result.push_back(formatValue(elem, opts));
   }
   return result;
+}
+
+/// \brief Format a C‐string (null‐terminated) as a normal string.
+/// \param s    Pointer to a null‐terminated character array.
+/// \param opts Formatting options (unused here).
+/// \returns    The contents of the string, or "(null)" if `s==nullptr`.
+inline std::string formatValue(const char* s, const FormattingOptions& /*opts*/)
+{
+  if (!s) return std::string("(null)");
+  return fmt::format("{}", s);
+}
+
+/// \brief Format a mutable C‐string.  Delegates to the `const char*` overload.
+/// \param s    Pointer to a null‐terminated character array.
+/// \param opts Formatting options.
+/// \returns    The contents of the string, or "(null)" if `s==nullptr`.
+inline std::string formatValue(char* s, const FormattingOptions& opts)
+{
+  return formatValue(static_cast<const char*>(s), opts);
+}
+
+/// \brief Format any non‐character pointer by showing its pointee type and address.
+/// \tparam U  The pointee type.
+/// \param ptr Pointer to format.
+/// \param opts Formatting options (unused here).
+/// \requires `U` is not `char` or `const char`.
+/// \returns A string like `"MyType* @ 0x7fffdeadbeef"`.
+template <typename U>
+inline std::string formatValue(U* ptr, const FormattingOptions& /*opts*/)
+  requires(!std::is_same_v<U, char> && !std::is_same_v<U, const char>)
+{
+  return fmt::format("{}* @ {:p}", uni20::demangle::demangle(typeid(U).name()), fmt::ptr(ptr));
 }
 
 // Helper function to trim leading and trailing whitespace.

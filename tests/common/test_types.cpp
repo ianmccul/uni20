@@ -36,62 +36,61 @@ TEST(TraitsTest, IsComplex)
 // ----------------------------------------------------------------------------
 TEST(ConceptTest, IntegerConcept)
 {
-  static_assert(uni20::integer<int>);
-  static_assert(uni20::integer<unsigned int>);
-  static_assert(!uni20::integer<bool>);
-  static_assert(!uni20::integer<float>);
+  static_assert(uni20::Integer<int>);
+  static_assert(uni20::Integer<unsigned int>);
+  static_assert(!uni20::Integer<bool>);
+  static_assert(!uni20::Integer<float>);
 }
 
 TEST(ConceptTest, RealConcept)
 {
-  static_assert(uni20::real<float>);
-  static_assert(uni20::real<double>);
-  static_assert(!uni20::real<std::complex<float>>);
+  static_assert(uni20::Real<float>);
+  static_assert(uni20::Real<double>);
+  static_assert(!uni20::Real<std::complex<float>>);
 }
 
 TEST(ConceptTest, ComplexConcept)
 {
-  static_assert(uni20::complex<std::complex<float>>);
-  static_assert(uni20::complex<std::complex<double>>);
-  static_assert(!uni20::complex<float>);
+  static_assert(uni20::Complex<std::complex<float>>);
+  static_assert(uni20::Complex<std::complex<double>>);
+  static_assert(!uni20::Complex<float>);
 }
 
-TEST(ConceptTest, ScalarConcept)
+TEST(ConceptTest, RealOrComplexConcept)
 {
-  static_assert(uni20::scalar<float>);
-  static_assert(uni20::scalar<std::complex<float>>);
-  // Note: integral types are not considered scalar in our definition.
-  static_assert(!uni20::scalar<int>);
+  static_assert(uni20::RealOrComplex<float>);
+  static_assert(uni20::RealOrComplex<std::complex<float>>);
+  static_assert(!uni20::RealOrComplex<int>);
 }
 
 TEST(ConceptTest, NumericConcept)
 {
-  static_assert(uni20::numeric<int>);
-  static_assert(uni20::numeric<float>);
-  static_assert(uni20::numeric<std::complex<double>>);
-  static_assert(!uni20::numeric<bool>);
-  static_assert(!uni20::numeric<std::string>);
+  static_assert(uni20::Numeric<int>);
+  static_assert(uni20::Numeric<float>);
+  static_assert(uni20::Numeric<std::complex<double>>);
+  static_assert(!uni20::Numeric<bool>);
+  static_assert(!uni20::Numeric<std::string>);
 }
 
 TEST(ConceptTest, BlasRealConcept)
 {
-  static_assert(uni20::blas_real<float>);
-  static_assert(uni20::blas_real<double>);
-  static_assert(!uni20::blas_real<long double>);
+  static_assert(uni20::BlasReal<float>);
+  static_assert(uni20::BlasReal<double>);
+  static_assert(!uni20::BlasReal<long double>);
 }
 
 TEST(ConceptTest, BlasComplexConcept)
 {
-  static_assert(uni20::blas_complex<uni20::cfloat>);
-  static_assert(uni20::blas_complex<uni20::cdouble>);
-  static_assert(!uni20::blas_complex<std::complex<long double>>);
+  static_assert(uni20::BlasComplex<uni20::cfloat>);
+  static_assert(uni20::BlasComplex<uni20::cdouble>);
+  static_assert(!uni20::BlasComplex<std::complex<long double>>);
 }
 
 TEST(ConceptTest, BlasScalarConcept)
 {
-  static_assert(uni20::blas_scalar<float>);
-  static_assert(uni20::blas_scalar<uni20::cfloat>);
-  static_assert(!uni20::blas_scalar<int>);
+  static_assert(uni20::BlasScalar<float>);
+  static_assert(uni20::BlasScalar<uni20::cfloat>);
+  static_assert(!uni20::BlasScalar<int>);
 }
 
 // ----------------------------------------------------------------------------
@@ -149,8 +148,8 @@ TEST(ScalarTypeTest, NestedContainer)
 TEST(ScalarTypeTest, NonScalarContainer)
 {
   // int is a numeric type, but not a scalar type
-  EXPECT_FALSE(uni20::has_scalar_type<std::vector<int>>);
-  EXPECT_FALSE(uni20::has_scalar_type<std::vector<std::vector<int>>>);
+  EXPECT_FALSE(uni20::HasScalarType<std::vector<int>>);
+  EXPECT_FALSE(uni20::HasScalarType<std::vector<std::vector<int>>>);
 }
 
 //---------------------------------------------------------------------
@@ -185,9 +184,9 @@ TEST(NumericTest, NumericTypeNestedContainer)
 TEST(NumericTypeTest, NonScalarContainer)
 {
   // int is a numeric type, but not a scalar type
-  EXPECT_TRUE(uni20::has_numeric_type<std::vector<int>>);
-  EXPECT_TRUE(uni20::has_numeric_type<std::vector<std::vector<int>>>);
-  EXPECT_FALSE(uni20::has_numeric_type<std::string>);
-  EXPECT_FALSE(uni20::has_numeric_type<std::vector<std::string>>);
-  EXPECT_FALSE(uni20::has_numeric_type<std::vector<std::vector<std::string>>>);
+  EXPECT_TRUE(uni20::HasNumericType<std::vector<int>>);
+  EXPECT_TRUE(uni20::HasNumericType<std::vector<std::vector<int>>>);
+  EXPECT_FALSE(uni20::HasNumericType<std::string>);
+  EXPECT_FALSE(uni20::HasNumericType<std::vector<std::string>>);
+  EXPECT_FALSE(uni20::HasNumericType<std::vector<std::vector<std::string>>>);
 }
