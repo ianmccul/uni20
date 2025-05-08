@@ -26,21 +26,21 @@
 
 #include <array>
 #include <exception>
+#include <fmt/format.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
 // An enumeration that supports iteration, as well as
-template <typename Traits> class NamedEnumeration : public Traits
-{
+template <typename Traits> class NamedEnumeration : public Traits {
   public:
     using Enum = typename Traits::Enum;
     using Traits::StaticName;
-    static constexpr std::size_t N = Traits::Names.size();
-    static constexpr Enum DEFAULT = Traits::Default;
-    static constexpr Enum BEGIN = static_cast<Enum>(0);
-    static constexpr Enum END = static_cast<Enum>(N);
+    inline static constexpr std::size_t N = Traits::Names.size();
+    inline static constexpr Enum DEFAULT = Traits::Default;
+    inline static constexpr Enum BEGIN = static_cast<Enum>(0);
+    inline static constexpr Enum END = static_cast<Enum>(N);
 
     NamedEnumeration() : e(DEFAULT) {}
 
@@ -120,3 +120,18 @@ template <typename Traits> NamedEnumeration<Traits>::NamedEnumeration(std::strin
   std::string ErrorStr = "Unknown initializer for "s + StaticName + "; choices are " + this->ListAll() + '.';
   throw std::runtime_error(ErrorStr);
 }
+
+template <typename Traits> struct fmt::formatter<NamedEnumeration<Traits>>
+{
+    // Parse format string; you can support options if needed
+    constexpr auto parse(format_parse_context& ctx)
+    {
+      return ctx.begin(); // no format options for now
+    }
+
+    // Format the enum by printing its name
+    template <typename FormatContext> auto format(const NamedEnumeration<Traits>& e, FormatContext& ctx)
+    {
+      return format_to(ctx.out(), "{}", e.Name());
+    }
+};
