@@ -10,11 +10,3 @@
 #define UNI20_API_CALL_STRINGIZE(func) UNI20_STR(func)
 #define UNI20_API_CALL(module, func, ...)                                                                              \
   TRACE_MODULE(module, "Calling API function " UNI20_API_CALL_STRINGIZE(func) __VA_OPT__(, __VA_ARGS__))
-
-namespace uni20
-{
-
-struct cpu_tag
-{};
-
-} // namespace uni20
