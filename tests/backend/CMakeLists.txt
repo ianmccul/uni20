@@ -1,4 +1,5 @@
 # tests/backend/CMakeLists.txt
 
-# Add subdirectories that contribute source files
-add_subdirectory(blas)
+if(TARGET uni20_backend_blas)
+  add_subdirectory(blas)
+endif()
