@@ -22,6 +22,7 @@ struct Scheduler
     {
       std::vector<std::coroutine_handle<>> HCopy;
       std::swap(Handles, HCopy);
+      TRACE("Got some coroutines to resume", HCopy.size());
       for (auto h : HCopy)
       {
         TRACE("running coroutine...");

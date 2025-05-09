@@ -1,0 +1,62 @@
+#include "async/async.hpp"
+
+AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
+{
+  // Snapshot-read src, and register as next writer on dst
+
+  TRACE("starting coroutine");
+
+  // Wait for src to be ready
+  auto in = co_await readBuf;
+
+  TRACE("Got the readBuf");
+
+  // Wait until it's our turn to write
+  auto& out = co_await writeBuf;
+
+  TRACE("got the writeBuf");
+
+  // Perform the heavy copy
+  TRACE(out, in);
+  out = in;
+
+  co_return;
+}
+
+template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> b, WriteBuffer<T> out)
+{
+  TRACE("starting async_assign_sum");
+
+  auto& va = co_await a;
+  TRACE("got a");
+
+  auto& vb = co_await b;
+  TRACE("got b");
+
+  auto& vout = co_await out;
+  TRACE("got out");
+
+  vout = va + vb;
+
+  TRACE(va, vb, vout);
+
+  co_return;
+}
+
+int main()
+{
+  Scheduler sched;
+
+  Async<int> i = 10;
+  Async<int> j = 5;
+  Async<int> k;
+
+  sched.schedule(async_assign(i.GetReadBuffer(), j.GetWriteBuffer())); // j = i, but async
+  sched.schedule(async_assign(j.GetReadBuffer(), k.GetWriteBuffer())); // k = j, but async
+
+  sched.schedule(async_assign_sum(i.GetReadBuffer(), j.GetReadBuffer(), k.GetWriteBuffer())); // k = i + j;
+
+  auto jj = k.get_wait(sched);
+
+  TRACE(jj);
+}
