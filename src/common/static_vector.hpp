@@ -1,3 +1,13 @@
+/// \file static_vector.hpp
+/// \brief Defines static_vector, a fixed-capacity, stack-allocated vector with a `std::vector`-like API.
+///
+/// `static_vector<T, N>` is a lightweight container that avoids heap allocation
+/// by storing elements in a statically allocated buffer of capacity `N`.
+/// It supports in-place construction and destruction of elements up to `N`
+/// and provides the usual accessors and iterators. To get bounds checking compile with
+/// DEBUG options to get precondtion checks.
+/// A specialization for `MaxSize == 0` exists to allow seamless use in generic code.
+
 #pragma once
 
 #include "common/trace.hpp"
@@ -7,11 +17,12 @@
 #include <type_traits>
 #include <utility>
 
-// A stack-allocated, fixed-capacity vector with API similar to std::vector.
-// No heap allocation up to MaxSize elements.
+/// \brief A fixed-capacity vector with stack storage and `std::vector`-like API.
+///
+/// \tparam T Element type
+/// \tparam MaxSize Maximum number of elements (capacity, fixed at compile time)
 template <typename T, std::size_t MaxSize> class static_vector {
   public:
-    // Member types
     using value_type = T;
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
@@ -24,9 +35,11 @@ template <typename T, std::size_t MaxSize> class static_vector {
     using reverse_iterator = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-    // Constructors
+    /// \brief Default-construct an empty static_vector.
     static_vector() noexcept : size_(0) {}
 
+    /// \brief Construct with `count` default-initialized elements.
+    /// \pre `count <= MaxSize`
     explicit static_vector(size_type count) : size_(count)
     {
       DEBUG_PRECONDITION(count <= MaxSize);
@@ -36,6 +49,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       }
     }
 
+    /// \brief Construct with `count` copies of `value`.
     static_vector(size_type count, T const& value) : size_(count)
     {
       DEBUG_PRECONDITION(count <= MaxSize);
@@ -45,6 +59,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       }
     }
 
+    /// \brief Construct from an initializer list.
     static_vector(std::initializer_list<T> init) : size_(init.size())
     {
       DEBUG_PRECONDITION(init.size() <= MaxSize);
@@ -55,7 +70,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       }
     }
 
-    // Copy
+    /// \brief Copy constructor.
     static_vector(static_vector const& o) : size_(o.size_)
     {
       for (size_type i = 0; i < size_; ++i)
@@ -64,7 +79,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       }
     }
 
-    // Move
+    /// \brief Move constructor.
     static_vector(static_vector&& o) noexcept(std::is_nothrow_move_constructible<T>::value) : size_(o.size_)
     {
       for (size_type i = 0; i < size_; ++i)
@@ -75,9 +90,10 @@ template <typename T, std::size_t MaxSize> class static_vector {
       o.size_ = 0;
     }
 
+    /// \brief Destructor. Destroys all elements in-place.
     ~static_vector() { clear(); }
 
-    // Copy assignment
+    /// \brief Copy assignment.
     static_vector& operator=(static_vector const& o)
     {
       if (this != &o)
@@ -92,7 +108,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       return *this;
     }
 
-    // Move assignment
+    /// \brief Move assignment.
     static_vector& operator=(static_vector&& o) noexcept(std::is_nothrow_move_assignable<T>::value)
     {
       if (this != &o)
@@ -109,7 +125,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       return *this;
     }
 
-    // Initializer-list assignment
+    /// \brief Assign from an initializer list.
     static_vector& operator=(std::initializer_list<T> init)
     {
       clear();
@@ -123,12 +139,13 @@ template <typename T, std::size_t MaxSize> class static_vector {
       return *this;
     }
 
-    // Element access
+    /// \brief Bounds-checked element access.
     reference at(size_type pos)
     {
       if (pos >= size_) throw std::out_of_range("static_vector::at");
       return data()[pos];
     }
+
     const_reference at(size_type pos) const
     {
       if (pos >= size_) throw std::out_of_range("static_vector::at");
@@ -140,6 +157,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       DEBUG_PRECONDITION(pos < size_);
       return data()[pos];
     }
+
     const_reference operator[](size_type pos) const
     {
       DEBUG_PRECONDITION(pos < size_);
@@ -151,6 +169,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       DEBUG_PRECONDITION(size_ > 0);
       return data()[0];
     }
+
     const_reference front() const
     {
       DEBUG_PRECONDITION(size_ > 0);
@@ -162,6 +181,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       DEBUG_PRECONDITION(size_ > 0);
       return data()[size_ - 1];
     }
+
     const_reference back() const
     {
       DEBUG_PRECONDITION(size_ > 0);
@@ -171,7 +191,6 @@ template <typename T, std::size_t MaxSize> class static_vector {
     pointer data() noexcept { return reinterpret_cast<T*>(storage_.buf); }
     const_pointer data() const noexcept { return reinterpret_cast<T const*>(storage_.buf); }
 
-    // Iterators
     iterator begin() noexcept { return data(); }
     const_iterator begin() const noexcept { return data(); }
     const_iterator cbegin() const noexcept { return data(); }
@@ -188,13 +207,12 @@ template <typename T, std::size_t MaxSize> class static_vector {
     const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
     const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
 
-    // Capacity
     bool empty() const noexcept { return size_ == 0; }
     size_type size() const noexcept { return size_; }
     static constexpr size_type max_size() noexcept { return MaxSize; }
     static constexpr size_type capacity() noexcept { return MaxSize; }
 
-    // Modifiers
+    /// \brief Destroy all elements and reset size to zero.
     void clear() noexcept
     {
       for (size_type i = 0; i < size_; ++i)
@@ -204,6 +222,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       size_ = 0;
     }
 
+    /// \brief Append a new copy of `value` to the end.
     void push_back(T const& value)
     {
       DEBUG_PRECONDITION(size_ < MaxSize);
@@ -211,6 +230,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       ++size_;
     }
 
+    /// \brief Append a new moved `value` to the end.
     void push_back(T&& value)
     {
       DEBUG_PRECONDITION(size_ < MaxSize);
@@ -218,6 +238,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       ++size_;
     }
 
+    /// \brief Construct a new element in-place at the end.
     template <class... Args> void emplace_back(Args&&... args)
     {
       DEBUG_PRECONDITION(size_ < MaxSize);
@@ -225,12 +246,14 @@ template <typename T, std::size_t MaxSize> class static_vector {
       ++size_;
     }
 
+    /// \brief Remove the last element.
     void pop_back()
     {
       DEBUG_PRECONDITION(size_ > 0);
       data()[--size_].~T();
     }
 
+    /// \brief Resize the vector to `count` elements.
     void resize(size_type count)
     {
       DEBUG_PRECONDITION(count <= MaxSize);
@@ -251,6 +274,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
       size_ = count;
     }
 
+    /// \brief Swap contents with another static_vector.
     void swap(static_vector& other) noexcept(std::is_nothrow_swappable<T>::value)
     {
       size_type m = size_ < other.size_ ? size_ : other.size_;
@@ -285,7 +309,10 @@ template <typename T, std::size_t MaxSize> class static_vector {
     size_type size_;
 };
 
-/// \brief Specialization for MaxSize == 0
+/// \brief Specialization of static_vector for MaxSize == 0.
+///
+/// Provides full API for compatibility with generic code.
+/// All modifying operations trigger a PANIC or throw on access.
 template <typename T> class static_vector<T, 0> {
   public:
     using value_type = T;
