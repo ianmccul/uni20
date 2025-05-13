@@ -50,6 +50,14 @@ template <typename T> class ReadBuffer {
       return *this;
     }
 
+    /// \brief operator co_await. The auto-generated versions would actually be fine, except
+    ///        we want to forbid co_awaiting on a temporary buffer
+    auto operator co_await() & noexcept -> ReadBuffer& { return *this; }
+    auto operator co_await() const& noexcept -> ReadBuffer const& { return *this; }
+
+    // Prevent co_await on rvalue (temporary)
+    auto operator co_await() && = delete;
+
     /// \brief Ready-check: true if the writer has completed.
     /// \return True ⇒ await_suspend() will not be called.
     bool await_ready() const noexcept
@@ -135,6 +143,14 @@ template <typename T> class WriteBuffer {
       other.done_ = true;
       return *this;
     }
+
+    /// \brief operator co_await. The auto-generated versions would actually be fine, except
+    ///        we want to forbid co_awaiting on a temporary buffer
+    auto operator co_await() & noexcept -> WriteBuffer& { return *this; }
+    auto operator co_await() const& noexcept -> WriteBuffer const& { return *this; }
+
+    // Prevent co_await on rvalue (temporary)
+    auto operator co_await() && = delete;
 
     /// \brief Ready-check: true if it's this write’s turn.
     /// \return True ⇒ await_suspend() will not be called.
