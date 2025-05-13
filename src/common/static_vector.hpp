@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cassert>
+#include "common/trace.hpp"
 #include <cstddef>
 #include <iterator>
 #include <stdexcept>
@@ -29,7 +29,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
 
     explicit static_vector(size_type count) : size_(count)
     {
-      assert(count <= MaxSize);
+      DEBUG_PRECONDITION(count <= MaxSize);
       for (size_type i = 0; i < size_; ++i)
       {
         ::new (data() + i) T();
@@ -38,7 +38,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
 
     static_vector(size_type count, T const& value) : size_(count)
     {
-      assert(count <= MaxSize);
+      DEBUG_PRECONDITION(count <= MaxSize);
       for (size_type i = 0; i < size_; ++i)
       {
         ::new (data() + i) T(value);
@@ -47,7 +47,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
 
     static_vector(std::initializer_list<T> init) : size_(init.size())
     {
-      assert(init.size() <= MaxSize);
+      DEBUG_PRECONDITION(init.size() <= MaxSize);
       size_type i = 0;
       for (T const& v : init)
       {
@@ -114,7 +114,7 @@ template <typename T, std::size_t MaxSize> class static_vector {
     {
       clear();
       size_ = init.size();
-      assert(size_ <= MaxSize);
+      DEBUG_PRECONDITION(size_ <= MaxSize);
       size_type i = 0;
       for (T const& v : init)
       {
@@ -137,34 +137,34 @@ template <typename T, std::size_t MaxSize> class static_vector {
 
     reference operator[](size_type pos)
     {
-      assert(pos < size_);
+      DEBUG_PRECONDITION(pos < size_);
       return data()[pos];
     }
     const_reference operator[](size_type pos) const
     {
-      assert(pos < size_);
+      DEBUG_PRECONDITION(pos < size_);
       return data()[pos];
     }
 
     reference front()
     {
-      assert(size_ > 0);
+      DEBUG_PRECONDITION(size_ > 0);
       return data()[0];
     }
     const_reference front() const
     {
-      assert(size_ > 0);
+      DEBUG_PRECONDITION(size_ > 0);
       return data()[0];
     }
 
     reference back()
     {
-      assert(size_ > 0);
+      DEBUG_PRECONDITION(size_ > 0);
       return data()[size_ - 1];
     }
     const_reference back() const
     {
-      assert(size_ > 0);
+      DEBUG_PRECONDITION(size_ > 0);
       return data()[size_ - 1];
     }
 
@@ -206,34 +206,34 @@ template <typename T, std::size_t MaxSize> class static_vector {
 
     void push_back(T const& value)
     {
-      assert(size_ < MaxSize);
+      DEBUG_PRECONDITION(size_ < MaxSize);
       ::new (data() + size_) T(value);
       ++size_;
     }
 
     void push_back(T&& value)
     {
-      assert(size_ < MaxSize);
+      DEBUG_PRECONDITION(size_ < MaxSize);
       ::new (data() + size_) T(std::move(value));
       ++size_;
     }
 
     template <class... Args> void emplace_back(Args&&... args)
     {
-      assert(size_ < MaxSize);
+      DEBUG_PRECONDITION(size_ < MaxSize);
       ::new (data() + size_) T(std::forward<Args>(args)...);
       ++size_;
     }
 
     void pop_back()
     {
-      assert(size_ > 0);
+      DEBUG_PRECONDITION(size_ > 0);
       data()[--size_].~T();
     }
 
     void resize(size_type count)
     {
-      assert(count <= MaxSize);
+      DEBUG_PRECONDITION(count <= MaxSize);
       if (count < size_)
       {
         for (size_type i = count; i < size_; ++i)
@@ -283,4 +283,99 @@ template <typename T, std::size_t MaxSize> class static_vector {
         alignas(T) unsigned char buf[MaxSize * sizeof(T)];
     } storage_;
     size_type size_;
+};
+
+/// \brief Specialization for MaxSize == 0
+template <typename T> class static_vector<T, 0> {
+  public:
+    using value_type = T;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using reference = T&;
+    using const_reference = T const&;
+    using pointer = T*;
+    using const_pointer = T const*;
+    using iterator = T*;
+    using const_iterator = T const*;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+    static_vector() noexcept = default;
+    explicit static_vector(size_type count) { DEBUG_CHECK_EQUAL(count, 0); }
+    static_vector(size_type count, T const&) { DEBUG_CHECK_EQUAL(count, 0); }
+    static_vector(std::initializer_list<T> init) { DEBUG_CHECK_EQUAL(init.size(), 0); }
+
+    static_vector(static_vector const&) = default;
+    static_vector(static_vector&&) noexcept = default;
+    static_vector& operator=(static_vector const&) = default;
+    static_vector& operator=(static_vector&&) noexcept = default;
+    static_vector& operator=(std::initializer_list<T> init)
+    {
+      DEBUG_CHECK_EQUAL(init.size(), 0);
+      return *this;
+    }
+
+    constexpr bool empty() const noexcept { return true; }
+    constexpr size_type size() const noexcept { return 0; }
+    static constexpr size_type max_size() noexcept { return 0; }
+    static constexpr size_type capacity() noexcept { return 0; }
+
+    void clear() noexcept {}
+    void resize(size_type count) { DEBUG_CHECK_EQUAL(count, 0); }
+
+    void push_back(T const&) { PANIC("unexpected: push_back() on a static_vector of size 0"); }
+    void push_back(T&&) { PANIC("unexpected: push_back() on a static_vector of size 0"); }
+    template <typename... Args> void emplace_back(Args&&...)
+    {
+      PANIC("unexpected: emplace_back() on a static_vector of size 0");
+    }
+    void pop_back() { PANIC("unexpected: pop_back() on a static_vector of size 0"); }
+
+    reference at(size_type) { throw std::out_of_range("static_vector<..., 0>::at"); }
+    const_reference at(size_type) const { throw std::out_of_range("static_vector<..., 0>::at"); }
+
+    reference operator[](size_type) { PANIC("unexpected: operator[] on a static_vector of size 0"); }
+    const_reference operator[](size_type) const { PANIC("unexpected: operator[] on a static_vector of size 0"); }
+
+    reference front() { PANIC("unexpected: front() on a static_vector of size 0"); }
+    const_reference front() const
+    {
+      PANIC("unexpected: front() on a static_vector of size 0");
+      std::abort();
+    }
+
+    reference back()
+    {
+      PANIC("unexpected: back() on a static_vector of size 0");
+      std::abort();
+    }
+    const_reference back() const
+    {
+      PANIC("unexpected: back() on a static_vector of size 0");
+      std::abort();
+    }
+
+    pointer data() noexcept { return nullptr; }
+    const_pointer data() const noexcept { return nullptr; }
+
+    iterator begin() noexcept { return nullptr; }
+    const_iterator begin() const noexcept { return nullptr; }
+    const_iterator cbegin() const noexcept { return nullptr; }
+
+    iterator end() noexcept { return nullptr; }
+    const_iterator end() const noexcept { return nullptr; }
+    const_iterator cend() const noexcept { return nullptr; }
+
+    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(end()); }
+
+    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
+
+    void swap(static_vector&) noexcept {}
+
+  private:
+    // no storage
 };
