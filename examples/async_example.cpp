@@ -1,4 +1,8 @@
 #include "async/async.hpp"
+#include "async/awaiters.hpp"
+#include "async/debug_scheduler.hpp"
+
+using namespace uni20::async;
 
 AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
 {
@@ -7,7 +11,12 @@ AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
   TRACE("starting coroutine");
 
   // Wait for src to be ready
-  auto in = co_await readBuf;
+  auto tin = co_await try_await(readBuf);
+  int in;
+  if (tin)
+    in = *tin;
+  else
+    in = co_await readBuf;
 
   TRACE("Got the readBuf");
 
@@ -27,14 +36,8 @@ template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> 
 {
   TRACE("starting async_assign_sum");
 
-  auto& va = co_await a;
-  TRACE("got a");
-
-  auto& vb = co_await b;
-  TRACE("got b");
-
-  auto& vout = co_await out;
-  TRACE("got out");
+  auto [va, vb, vout] = co_await (all(a, b, out));
+  TRACE("got a, b, out");
 
   vout = va + vb;
 
@@ -45,16 +48,16 @@ template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> 
 
 int main()
 {
-  Scheduler sched;
+  DebugScheduler sched;
 
   Async<int> i = 10;
   Async<int> j = 5;
   Async<int> k;
 
-  sched.schedule(async_assign(i.GetReadBuffer(), j.GetWriteBuffer())); // j = i, but async
-  sched.schedule(async_assign(j.GetReadBuffer(), k.GetWriteBuffer())); // k = j, but async
+  sched.schedule(async_assign(i.read(), j.write())); // j = i, but async
+  sched.schedule(async_assign(j.read(), k.write())); // k = j, but async
 
-  sched.schedule(async_assign_sum(i.GetReadBuffer(), j.GetReadBuffer(), k.GetWriteBuffer())); // k = i + j;
+  sched.schedule(async_assign_sum(i.read(), j.read(), k.write())); // k = i + j;
 
   auto jj = k.get_wait(sched);
 
