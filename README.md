@@ -1,7 +1,3 @@
 # uni20
 
-Welcome to **uni20** tensor network library. This repository contains a high-performance tensor-network library written in C++23. The library is designed with multiple backends, GPU/MPI support, and Python bindings (via pybind11).
-
-If you want to compile the library, you may want to start with the [Getting Started](docs/getting_started.md) guide.
-
-The developer documentation in the [docs/](docs/) directory.
+This is the **uni20** tensor network library. It is currently in a very early stage of development, and is not yet useful for anything.
