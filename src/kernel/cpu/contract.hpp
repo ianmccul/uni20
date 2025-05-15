@@ -7,6 +7,14 @@
 namespace uni20::kernel
 {
 
+template <typename T,StridedMdspan AType,StridedMdspan BType, std::size_t N>
+std::pair<bool, bool> transpose_strided(AType const& A,BType const& B,std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims,std::vector<T>& outputA,std::vector<T>& outputB,cpu_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
+{
+  for(size_t i=0;i<outputA.size();i++)  outputA[i] = A.data_handle()[i];
+  for(size_t i=0;i<outputB.size();i++)  outputB[i] = B.data_handle()[i];
+  return std::pair{false, false};
+  
+}
 namespace cpu
 {
 
@@ -16,6 +24,7 @@ namespace cpu
 ///   • Mgrp: strides for A and C
 ///   • Ngrp: strides for B and C
 ///   • Kgrp: strides for A and B
+
 template <typename T, std::size_t MR, std::size_t NR, std::size_t KR> class GemmLoop {
   public:
     /// \brief  Build the loop engine.
