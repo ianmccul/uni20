@@ -31,14 +31,11 @@ void contract(T const& alpha, AType A, BType B, std::array<std::pair<std::size_t
   for(size_t i=0;i<BType::rank();i++) sizeB = sizeB * B.extent(i);
   std::vector<T> outputA(sizeA),outputB(sizeB);
   auto [flagA,flagB] = transpose_strided(A,B,constractDims,outputA,outputB, TagType{});
-  std::cout<<"transpose success!"<<std::endl;
   auto [Mgroup, Ngroup, Kgroup] = extract_strides(A, B, constractDims, C);
-  std::cout<<"extract success!"<<std::endl;
   if(flagA == false && flagB == false)  contract_strided(Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), B.data_handle(), beta, C.data_handle(), TagType{});
   if(flagA == false && flagB ==  true)  contract_strided(Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), outputB.data(), beta, C.data_handle(), TagType{});
   if(flagA ==  true && flagB == false)  contract_strided(Mgroup, Ngroup, Kgroup, alpha, outputA.data(), B.data_handle(), beta, C.data_handle(), TagType{});
   if(flagA ==  true && flagB ==  true)  contract_strided(Mgroup, Ngroup, Kgroup, alpha, outputA.data(), outputB.data(), beta, C.data_handle(), TagType{});
-  // contract_strided(Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), B.data_handle(), beta, C.data_handle(), TagType{});
 }
 
 } // namespace uni20::kernel
