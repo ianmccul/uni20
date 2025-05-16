@@ -110,4 +110,5 @@ void contract_strided(static_vector<extent_strides<2>, MR> const& Mgrp,
     else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
     else                uni20::blas::gemm('T', 'N', N, M, K, alpha, B, K, A, K, beta, C, N);
 }
+//"XXXXXXXXXXXX"
 } 
