@@ -49,3 +49,4 @@ __pycache__/
 *.exe
 *.out
 *.app
+.vscode/
