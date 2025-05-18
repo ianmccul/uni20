@@ -18,9 +18,15 @@
 namespace uni20::async
 {
 
-/// \brief Awaitable that waits for *all* provided awaiters to complete.
-/// @tparam Aw Awaitable types.
-template <typename... Aw> struct AllAwaiter
+/// \brief Awaitable that waits for *all* provided awaiters to complete. This meets the AsyncTaskFactoryAwaitable
+/// concept.
+/// \tparam Aw Awaitable types, that must meet the AsyncTaskAwaitable concept
+/// \note the child await_resume() functions must return a non-void.
+/// \todo We currently don't allow nested waiting on AsyncTaskFactoryAwaitable children. This could be supported, if it
+/// was useful.
+template <AsyncTaskAwaitable... Aw>
+  requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
+struct AllAwaiter
 {
     std::tuple<Aw...> bufs_;                  ///< Underlying awaiters
     std::array<bool, sizeof...(Aw)> ready_{}; ///< Readiness flags
@@ -29,12 +35,16 @@ template <typename... Aw> struct AllAwaiter
     /// \return true if no suspension is required.
     bool await_ready() noexcept { return await_ready_impl(std::make_index_sequence<sizeof...(Aw)>{}); }
 
+    /// \brief Return the number of awaiters, needed by the AsyncTaskFactory model.
+    /// \note It is safe to over-allocate: unused AsyncTasks will be returned in the factory destructor.
+    int num_awaiters() const noexcept { return sizeof...(Aw); }
+
     /// \brief Suspend the coroutine on awaiters not yet ready.
     /// \tparam Promise The coroutine’s promise type.
-    /// \param h Coroutine handle to suspend.
-    template <typename Promise> void await_suspend(std::coroutine_handle<Promise> h) noexcept
+    /// \param f AsyncTaskFactory that provides one AsyncTask per sub-awaitable
+    void await_suspend(AsyncTaskFactory f) noexcept
     {
-      await_suspend_impl(h, std::make_index_sequence<sizeof...(Aw)>{});
+      await_suspend_impl(std::move(f), std::make_index_sequence<sizeof...(Aw)>{});
     }
 
     /// \brief Resume all awaiters and collect their results.
@@ -51,36 +61,44 @@ template <typename... Aw> struct AllAwaiter
       return (ready_[I] && ...);
     }
 
-    template <typename Promise, std::size_t... I>
-    void await_suspend_impl(std::coroutine_handle<Promise> h, std::index_sequence<I...>) noexcept
+    template <std::size_t... I> void await_suspend_impl(AsyncTaskFactory f, std::index_sequence<I...>) noexcept
     {
-      ((ready_[I] ? void() : std::get<I>(bufs_).await_suspend(h)), ...);
+      ((ready_[I] ? void() : std::get<I>(bufs_).await_suspend(f.take_next())), ...);
     }
 };
 
-/// \brief Helper to construct an AllAwaiter.
-/// @tparam Aw Awaitable types.
-template <typename... Aw> struct AllBuilder
+namespace detail
 {
-    std::tuple<Aw...> bufs_; ///< Underlying awaiters
-
-    /// \brief Store the awaiters.
-    /// \param aw The awaitables to wait on.
-    explicit AllBuilder(Aw&&... aw) noexcept : bufs_(std::forward<Aw>(aw)...) {}
-
-    /// \brief rvalue overload for `co_await all(...)`.
-    /// \return An AllAwaiter configured with the awaiters.
-    auto operator co_await() && noexcept { return AllAwaiter<Aw...>{std::move(bufs_), {}}; }
-
-    /// \brief lvalue overload if `auto x = all(...); co_await x;`.
-    /// \return An AllAwaiter configured with the awaiters.
-    auto operator co_await() & noexcept { return AllAwaiter<Aw...>{bufs_, {}}; }
+template <typename T> struct MapToRefOrValue
+{
+    static_assert(std::is_trivially_move_constructible_v<T>,
+                  "Prvalue passed to all(...) must be trivially move constructible");
+    using type = T;
 };
+
+template <typename T> struct MapToRefOrValue<T&&>
+{
+    static_assert(std::is_trivially_move_constructible_v<T>,
+                  "Rvalue passed to all(...) must be trivially move constructible");
+    using type = T;
+};
+
+template <typename T> struct MapToRefOrValue<T&>
+{
+    using type = T&;
+};
+} // namespace detail
 
 /// \brief Build an awaitable that waits for *all* of the provided awaitables.
 /// @param aw Awaitable arguments.
 /// @return An object supporting `co_await`.
-template <typename... Aw> auto all(Aw&&... aw) noexcept { return AllBuilder<Aw...>{std::forward<Aw>(aw)...}; }
+template <AsyncTaskAwaitable... Aw>
+  requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
+auto all(Aw&&... aw) noexcept
+{
+  return AllAwaiter<typename detail::MapToRefOrValue<Aw>::type...>(
+      std::tuple<typename detail::MapToRefOrValue<Aw>::type...>(std::forward<Aw>(aw)...));
+}
 
 //------------------------------------------------------------------------------
 // Non-blocking await: try_await
@@ -120,14 +138,11 @@ template <typename U> decltype(auto) get_awaiter(U&& u) noexcept
 /// @tparam Awt Either an awaiter type or a reference to one.
 template <typename Awt> struct TryAwaiter
 {
-    Awt awaiter_; ///< either a reference or an owned awaiter
+    Awt& awaiter_;
 
-    bool await_ready() const noexcept { return awaiter_.await_ready(); }
+    bool await_ready() const noexcept { return true; }
 
-    template <typename Promise> void await_suspend(std::coroutine_handle<Promise> h) noexcept
-    {
-      awaiter_.await_suspend(h);
-    }
+    void await_suspend(AsyncTask t) noexcept { awaiter_.await_suspend(std::move(t)); }
 
     auto await_resume() noexcept
     {
@@ -156,23 +171,6 @@ template <typename Awt> struct TryAwaiter
     }
 };
 
-/// \brief Builder for `try_await`, capturing the awaiter by reference or value.
-/// @tparam Aw The exact type of your awaiter (often `ReadBuffer<T>&` or similar).
-template <typename Aw> struct TryBuilder
-{
-    Aw awaiter_; ///< holds either a reference or an owned awaiter
-
-    /// \brief Perfect-forward constructor.
-    /// \param aw The awaiter you want to wrap.
-    explicit constexpr TryBuilder(Aw aw) noexcept : awaiter_(std::forward<Aw>(aw)) {}
-
-    /// \brief co_await on an lvalue builder
-    auto operator co_await() & noexcept { return TryAwaiter<Aw>{std::forward<Aw>(awaiter_)}; }
-
-    /// \brief co_await on an rvalue builder
-    auto operator co_await() && noexcept { return TryAwaiter<Aw>{std::forward<Aw>(awaiter_)}; }
-};
-
 /// \brief Build a non-blocking awaiter that returns `optional<T>` instead of suspending.
 ///
 /// If you pass an lvalue awaiter, it’s stored by reference.
@@ -190,13 +188,13 @@ template <typename Aw> struct TryBuilder
 /// ```
 ///
 /// \param aw An awaitable (must outlive the coroutine for references).
-/// \returns A TryBuilder<Aw> that will create a TryAwaiter when co_awaited.
+/// \returns A TryAwaiter<Aw>
+template <typename Aw> constexpr auto try_await(Aw& aw) noexcept { return TryAwaiter<Aw>{aw}; }
+
 template <typename Aw> constexpr auto try_await(Aw&& aw) noexcept
 {
-  // Aw deduced as:
-  //   - ReadBuffer<T>& if aw is an lvalue ReadBuffer<T>
-  //   - ProxyType  if aw is a prvalue ProxyType
-  return TryBuilder<Aw>{std::forward<Aw>(aw)};
+  static_assert(std::is_trivially_move_constructible_v<Aw>, "try_await(x) on prvalues requires T to be safely movable");
+  return TryAwaiter<Aw>{std::move(aw)};
 }
 
 } // namespace uni20::async

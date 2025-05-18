@@ -21,11 +21,11 @@ class IScheduler {
     using promise_type = AsyncTask::promise_type;
 
   private:
-    friend class AsyncTask::promise_type;
+    friend class AsyncTask;
 
     /// \brief Schedule a coroutine to be resumed later.
     /// \param h The coroutine handle to schedule.
-    virtual void schedule(std::coroutine_handle<promise_type> h) = 0;
+    virtual void reschedule(AsyncTask&& h) = 0;
 };
 
 } // namespace uni20::async

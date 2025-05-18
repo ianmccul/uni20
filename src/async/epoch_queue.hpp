@@ -39,6 +39,7 @@ class EpochQueue {
     bool has_pending_writers() const noexcept
     {
       std::lock_guard lock(mtx_);
+      TRACE(queue_.size());
       return queue_.size() > 1 || (queue_.size() == 1 && !queue_.front().writer_done());
     }
 
@@ -62,7 +63,7 @@ class EpochQueue {
         TRACE("Scheduling writer for front epoch");
         auto wh = e->take_writer();
         lock.unlock();
-        wh.promise().notify_ready(wh);
+        AsyncTask::reschedule(std::move(wh));
       }
       else
       {
@@ -85,9 +86,9 @@ class EpochQueue {
       if (!readers.empty())
       {
         lock.unlock();
-        for (auto rh : readers)
+        for (auto&& rh : readers)
         {
-          rh.promise().notify_ready(rh);
+          AsyncTask::reschedule(std::move(rh));
         }
         return;
       }
@@ -138,7 +139,7 @@ class EpochQueue {
         {
           auto wh = e->take_writer();
           lock.unlock();
-          wh.promise().notify_ready(wh);
+          AsyncTask::reschedule(std::move(wh));
           return;
         }
 
@@ -149,9 +150,9 @@ class EpochQueue {
           if (!readers.empty())
           {
             lock.unlock();
-            for (auto rh : readers)
+            for (auto&& rh : readers)
             {
-              rh.promise().notify_ready(rh);
+              AsyncTask::reschedule(std::move(rh));
             }
             return;
           }

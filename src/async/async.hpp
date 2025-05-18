@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "buffers.hpp" // for ReadBuffer, WriteBuffer
+#include "buffers.hpp"
 #include "epoch_queue.hpp"
 
 namespace uni20::async
@@ -47,10 +47,15 @@ template <typename T> class Async {
     {
       while (queue_.has_pending_writers())
       {
+        TRACE("Has pending writers");
         sched.run();
       }
       return data_;
     }
+
+    void set(T const& x) { data_ = x; }
+
+    T value() const { return data_; }
 
   private:
     friend class ReadBuffer<T>;
@@ -60,7 +65,7 @@ template <typename T> class Async {
     /// \return Address of the contained T.
     T* data() noexcept { return &data_; }
 
-    T data_{};         ///< The stored value.
+    T data_;           ///< The stored value.
     EpochQueue queue_; ///< Underlying R/W synchronization queue.
 };
 

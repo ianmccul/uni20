@@ -1,4 +1,4 @@
-/// \file scheduler.hpp
+/// \file debug_scheduler.hpp
 /// \brief Coroutine scheduler for AsyncTask.
 /// \ingroup async_core
 
@@ -6,6 +6,7 @@
 
 #include "scheduler.hpp"
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 namespace uni20::async
@@ -22,9 +23,10 @@ class DebugScheduler final : public IScheduler {
     /// \param task An AsyncTask bound to *this* scheduler.
     void schedule(AsyncTask&& task)
     {
-      auto h = std::exchange(task.h_, nullptr);
-      h.promise().sched_ = this;
-      Handles_.push_back(h);
+      if (task.set_scheduler(this))
+      {
+        Handles_.push_back(std::move(task));
+      }
     }
 
     /// \brief Run one batch of scheduled coroutines (in LIFO order).
@@ -38,9 +40,14 @@ class DebugScheduler final : public IScheduler {
     bool done() const noexcept { return Handles_.empty(); }
 
   private:
-    void schedule(std::coroutine_handle<promise_type> h_) { Handles_.push_back(h_); }
+    // Internal resubmission
+    virtual void reschedule(AsyncTask&& task)
+    {
+      // Assume sched_ is already set
+      Handles_.push_back(std::move(task));
+    }
 
-    std::vector<std::coroutine_handle<promise_type>> Handles_;
+    std::vector<AsyncTask> Handles_;
 };
 
 //-----------------------------------------------------------------------------
@@ -49,14 +56,17 @@ class DebugScheduler final : public IScheduler {
 
 inline void DebugScheduler::run()
 {
-  std::vector<std::coroutine_handle<promise_type>> batch;
+  std::vector<AsyncTask> batch;
   std::swap(batch, Handles_);
   TRACE("Got some coroutines to resume", batch.size());
   std::reverse(batch.begin(), batch.end());
-  for (auto h : batch)
+  for (auto&& h : batch)
   {
-    TRACE("running coroutine...");
+    TRACE("resuming coroutine...");
     h.resume();
+    TRACE("here", &h, h.done());
+    if (!h.done()) Handles_.push_back(std::move(h));
+    TRACE("here", &h);
   }
 }
 

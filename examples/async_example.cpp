@@ -18,6 +18,8 @@ AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
   else
     in = co_await readBuf;
 
+  //  int in = co_await readBuf;
+
   TRACE("Got the readBuf");
 
   // Wait until it's our turn to write
@@ -36,8 +38,17 @@ template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> 
 {
   TRACE("starting async_assign_sum");
 
-  auto [va, vb, vout] = co_await (all(a, b, out));
-  TRACE("got a, b, out");
+  // auto [va, vb, vout] = co_await all(a, b, out);
+  // TRACE("got a, b, out");
+
+  // auto va = co_await a;
+  // auto vb = co_await b;
+
+  auto vout = co_await out;
+
+  auto [va, vb] = co_await all(a, b);
+
+  //  auto [vout] = co_await all(out);
 
   vout = va + vb;
 
@@ -60,6 +71,8 @@ int main()
   sched.schedule(async_assign_sum(i.read(), j.read(), k.write())); // k = i + j;
 
   auto jj = k.get_wait(sched);
+
+  // sched.run_all();
 
   TRACE(jj);
 }

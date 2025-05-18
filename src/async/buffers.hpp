@@ -68,14 +68,8 @@ template <typename T> class ReadBuffer {
     }
 
     /// \brief Suspend this coroutine and enqueue as a reader.
-    /// \tparam Promise The coroutine’s promise type.
-    /// \param h The coroutine handle to suspend.
-    template <typename Promise> void await_suspend(std::coroutine_handle<Promise> h) noexcept
-    {
-      auto hh = std::coroutine_handle<AsyncTask::promise_type>::from_address(h.address());
-      epoch_->add_reader(hh);
-      TRACE("Suspending ReadBuffer", epoch_);
-    }
+    /// \param t The coroutine task
+    void await_suspend(AsyncTask t) noexcept { epoch_->add_reader(std::move(t)); }
 
     /// \brief Resume and return a const reference to the stored value.
     /// \return Reference to the stored T inside Async<T>.
@@ -163,12 +157,10 @@ template <typename T> class WriteBuffer {
     }
 
     /// \brief Suspend this coroutine until it can write.
-    /// \tparam Promise The coroutine’s promise type.
-    /// \param h The coroutine handle to suspend.
-    template <typename Promise> void await_suspend(std::coroutine_handle<Promise> h) noexcept
+    /// \param t The coroutine task
+    void await_suspend(AsyncTask t) noexcept
     {
-      auto hh = std::coroutine_handle<AsyncTask::promise_type>::from_address(h.address());
-      epoch_->bind_writer(hh);
+      epoch_->bind_writer(std::move(t));
       parent_->queue_.on_writer_bound(epoch_);
       TRACE("Suspending WriteBuffer", epoch_);
     }

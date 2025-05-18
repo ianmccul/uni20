@@ -17,7 +17,7 @@ namespace uni20::async
 /// \ingroup async_core
 class EpochContext {
   public:
-    using Handle = std::coroutine_handle<AsyncTask::promise_type>;
+    using Handle = AsyncTask; // std::coroutine_handle<AsyncTask::promise_type>;
 
     /// \brief Construct an epoch context.
     /// \param writer_already_done If true, readers may proceed immediately.
@@ -25,7 +25,7 @@ class EpochContext {
 
     /// \brief Bind a writer coroutine to this epoch.
     /// \param h Coroutine handle for the writer.
-    void bind_writer(Handle h) noexcept { writer_handle_ = h; }
+    void bind_writer(Handle&& h) noexcept { writer_handle_ = std::move(h); }
 
     /// \brief Mark the writer as done, allowing readers to proceed.
     void mark_writer_done() noexcept { writer_done_.store(true, std::memory_order_release); }
@@ -35,10 +35,10 @@ class EpochContext {
 
     /// \brief Add a suspended reader coroutine to the queue.
     /// \param h Coroutine handle for the reader.
-    void add_reader(Handle h) noexcept
+    void add_reader(Handle&& h)
     {
       std::lock_guard lock(reader_mtx_);
-      reader_handles_.push_back(h);
+      reader_handles_.push_back(std::move(h));
     }
 
     /// \brief Mark one reader as finished.
@@ -72,15 +72,10 @@ class EpochContext {
 
     /// \brief Extract the bound writer handle.
     /// \return The writer coroutine handle.
-    Handle take_writer() noexcept
-    {
-      auto h = writer_handle_;
-      writer_handle_ = {};
-      return h;
-    }
+    Handle take_writer() noexcept { return std::move(writer_handle_); }
 
   private:
-    Handle writer_handle_{};
+    Handle writer_handle_;
     std::atomic<bool> writer_done_{false};
     std::atomic<int> created_readers_{0};
     std::mutex reader_mtx_;

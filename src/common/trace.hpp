@@ -9,6 +9,7 @@
 #include <cctype>
 #include <chrono>
 #include <complex>
+#include <coroutine>
 #include <cstdio>
 #include <fmt/core.h>
 #include <functional>
@@ -387,6 +388,7 @@ struct FormattingOptions
     ///   - UNI20_TRACE_TIMESTAMP
     ///   - UNI20_TRACE_THREAD_ID
     ///   - UNI20_TRACE_COLOR
+  private:
     FormattingOptions()
     {
       // Default style definitions
@@ -397,7 +399,7 @@ struct FormattingOptions
                                                                                     {"TRACE_MODULE", "Cyan;Bold"},
                                                                                     {"TRACE_FILENAME", "Red"},
                                                                                     {"TRACE_LINE", "Bold"},
-                                                                                    {"TRACE_STRING", "LightBlue"},
+                                                                                    {"TRACE_STRING", "Cyan"},
                                                                                     {"CHECK", "Red"},
                                                                                     {"DEBUG_CHECK", "Red"},
                                                                                     {"PRECONDITION", "Red"},
@@ -456,6 +458,7 @@ struct FormattingOptions
       updateShowColor();
     }
 
+  public:
     /// \brief Module‐specific constructor
     ///
     /// Delegates to the default ctor then applies only module overrides:
@@ -541,7 +544,10 @@ struct FormattingOptions
     void set_output_stream(FILE* f)
     {
       outputStream = f;
-      sink = [f](std::string s) { std::fputs(s.c_str(), f); };
+      sink = [f](std::string s) {
+        std::fputs(s.c_str(), f);
+        std::fflush(f);
+      };
       updateShowColor();
     }
 
@@ -616,6 +622,11 @@ inline FormattingOptions& get_formatting_options(const std::string& module)
   static std::unordered_map<std::string, FormattingOptions> table;
   std::lock_guard lock(mtx);
 
+  auto it = table.find(module);
+  if (it != table.end()) return it->second;
+
+  // else construct new
+
   if (module.empty())
   {
     // Use default-constructed instance with no recursion
@@ -648,7 +659,7 @@ concept Container = std::ranges::forward_range<T> && (!HasFormatter<T>);
 /// \param opts          Formatting options (currently unused for this overload).
 /// \returns             The string produced by `fmt::format("{}", value)`.
 template <typename T>
-std::string formatValue(const T& value, const FormattingOptions& opts)
+std::string formatValue(const T& value, FormattingOptions const& opts)
   requires(!Container<T> && HasFormatter<T> && !std::floating_point<T>)
 {
   return fmt::format("{}", value);
@@ -658,7 +669,7 @@ std::string formatValue(const T& value, const FormattingOptions& opts)
 /// \param value         The float to format.
 /// \param opts          Controls the precision via `opts.fp_precision_float32`.
 /// \returns             A string like `"3.14"` (precision configurable).
-inline std::string formatValue(float value, const FormattingOptions& opts)
+inline std::string formatValue(float value, FormattingOptions const& opts)
 {
   // use the user-configurable float32 precision
   return fmt::format("{:.{}f}", value, opts.fp_precision_float32);
@@ -678,7 +689,7 @@ inline std::string formatValue(double value, const FormattingOptions& opts)
 /// \param value the complex value
 /// \param opts   formatting options (controls precision)
 /// \returns a string like "1.23+4.56i"
-inline std::string formatValue(const std::complex<float>& value, const FormattingOptions& opts)
+inline std::string formatValue(const std::complex<float>& value, FormattingOptions const& opts)
 {
   // {:+.{}f} prints a leading +/-, "{:.{}f}" uses dynamic precision
   return fmt::format("{:.{}f}{:+.{}f}i", value.real(), opts.fp_precision_float32, value.imag(),
@@ -689,10 +700,25 @@ inline std::string formatValue(const std::complex<float>& value, const Formattin
 /// \param value the complex value
 /// \param opts   formatting options (controls precision)
 /// \returns a string like "1.234567+8.765432i"
-inline std::string formatValue(const std::complex<double>& value, const FormattingOptions& opts)
+inline std::string formatValue(const std::complex<double>& value, FormattingOptions const& opts)
 {
   return fmt::format("{:.{}f}{:+.{}f}i", value.real(), opts.fp_precision_float64, value.imag(),
                      opts.fp_precision_float64);
+}
+
+// Overload for any coroutine_handle type (primary template)
+template <typename Promise>
+inline std::string formatValue(const std::coroutine_handle<Promise>& h, FormattingOptions const& /*opts*/)
+{
+  // Print the address as a pointer (may be null)
+  return fmt::format("coroutine_handle<{}> @ {:p}", uni20::demangle::demangle(typeid(h.promise()).name()),
+                     reinterpret_cast<const void*>(h.address()));
+}
+
+// Overload for std::coroutine_handle<>
+inline std::string formatValue(const std::coroutine_handle<>& h, FormattingOptions const& /*opts*/)
+{
+  return fmt::format("coroutine_handle<> @ {:p}", reinterpret_cast<const void*>(h.address()));
 }
 
 /// \brief Format each element of a container by recursively calling `formatValue`.
@@ -701,7 +727,7 @@ inline std::string formatValue(const std::complex<double>& value, const Formatti
 /// \param opts            Formatting options forwarded to each element call.
 /// \returns               A `std::vector<std::string>` of the formatted elements.
 template <Container ContainerType>
-auto formatValue(const ContainerType& c, const FormattingOptions& opts)
+auto formatValue(const ContainerType& c, FormattingOptions const& opts)
     -> std::vector<decltype(formatValue(*std::begin(c), opts))>
 {
   std::vector<decltype(formatValue(*std::begin(c), opts))> result;
@@ -717,7 +743,17 @@ auto formatValue(const ContainerType& c, const FormattingOptions& opts)
 /// \param s    Pointer to a null‐terminated character array.
 /// \param opts Formatting options (unused here).
 /// \returns    The contents of the string, or "(null)" if `s==nullptr`.
-inline std::string formatValue(const char* s, const FormattingOptions& /*opts*/)
+inline std::string formatValue(std::string_view s, FormattingOptions const& /*opts*/)
+{
+  if (s.empty()) return std::string("(null)");
+  return fmt::format("{}", s);
+}
+
+/// \brief Format a C‐string (null‐terminated) as a normal string.
+/// \param s    Pointer to a null‐terminated character array.
+/// \param opts Formatting options (unused here).
+/// \returns    The contents of the string, or "(null)" if `s==nullptr`.
+inline std::string formatValue(const char* s, FormattingOptions const& /*opts*/)
 {
   if (!s) return std::string("(null)");
   return fmt::format("{}", s);
@@ -727,7 +763,7 @@ inline std::string formatValue(const char* s, const FormattingOptions& /*opts*/)
 /// \param s    Pointer to a null‐terminated character array.
 /// \param opts Formatting options.
 /// \returns    The contents of the string, or "(null)" if `s==nullptr`.
-inline std::string formatValue(char* s, const FormattingOptions& opts)
+inline std::string formatValue(char* s, FormattingOptions const& opts)
 {
   return formatValue(static_cast<const char*>(s), opts);
 }
@@ -739,7 +775,7 @@ inline std::string formatValue(char* s, const FormattingOptions& opts)
 /// \requires `U` is not `char` or `const char`.
 /// \returns A string like `"MyType* @ 0x7fffdeadbeef"`.
 template <typename U>
-inline std::string formatValue(U* ptr, const FormattingOptions& /*opts*/)
+inline std::string formatValue(U* ptr, FormattingOptions const& /*opts*/)
   requires(!std::is_same_v<U, char> && !std::is_same_v<U, const char>)
 {
   return fmt::format("{}* @ {:p}", uni20::demangle::demangle(typeid(U).name()), fmt::ptr(ptr));
@@ -761,6 +797,21 @@ inline std::string trim(const std::string& s)
   while (end > start && std::isspace(static_cast<unsigned char>(s[end])))
     --end;
   return s.substr(start, end - start + 1);
+}
+
+namespace detail
+{
+struct TraceNameValue
+{
+    std::string name;
+    std::string value;
+};
+} // namespace detail
+
+/// \brief special case for detail::TraceNameValue to return the pre-formatted name,value pair
+inline detail::TraceNameValue formatValue(detail::TraceNameValue const& nv, FormattingOptions const& opts)
+{
+  return nv;
 }
 
 // parseNames: Splits the stringified parameter list into tokens.
@@ -1010,6 +1061,20 @@ inline std::string formatItemString(const std::pair<std::string, bool>& name, co
            opts.format_style(indentMultiline(value, indent), "TRACE_VALUE");
   }
   return fmt::format("{} = {}", opts.format_style(name.first, "TRACE_EXPR"), opts.format_style(value, "TRACE_VALUE"));
+}
+
+inline std::string formatItemString(const std::pair<std::string, bool>& name, detail::TraceNameValue const& value,
+                                    const FormattingOptions& opts, int available_width)
+{
+  // If we'd spill over onto another line, then insert a line break
+  if (isMultiline(value.value)) // || (getMaxLineWidth(value) + std::ssize(name.first) + 3 > available_width))
+  {
+    int indent = name.first.size() + 3;
+    return "\n" + opts.format_style(value.name, "TRACE_EXPR") + " = " +
+           opts.format_style(indentMultiline(value.value, indent), "TRACE_VALUE");
+  }
+  return fmt::format("{} = {}", opts.format_style(value.name, "TRACE_EXPR"),
+                     opts.format_style(value.value, "TRACE_VALUE"));
 }
 
 // Containers (can be nested)
@@ -1464,4 +1529,104 @@ void ErrorIfCall(const char* cond, const char* exprList, const char* file, int l
   throw std::runtime_error(msg);
 }
 
+//
+// TracingBaseClass
+//
+
+/// \brief Compile-time string wrapper for use as a non-type template parameter.
+///
+/// Usage: Use as `CTStr{"ClassName"}` to pass a string literal as a template parameter.
+/// @tparam N The length of the string literal, including the null terminator.
+template <size_t N> struct BaseName
+{
+    char value[N]; ///< The wrapped string literal.
+    /// \brief Construct from a string literal.
+    /// \param str The string literal (e.g., "AsyncTask").
+    constexpr BaseName(const char (&str)[N])
+    {
+      for (size_t i = 0; i < N; ++i)
+        value[i] = str[i];
+    }
+    /// \brief Convert to std::string_view (excluding null terminator).
+    constexpr operator std::string_view() const { return {value, N - 1}; }
+};
+
+/// \brief CRTP tracing base class that emits messages with demangled type name.
+/// \ingroup trace
+///
+/// @tparam Tag Compile-time string, e.g., CTStr{"AsyncTask"}.
+///
+/// Inherit from this class to automatically trace construction, destruction,
+/// and assignment of derived objects. All trace messages are tagged with the class name.
+template <typename Derived> struct TracingBaseClass
+{
+    /// \brief Get this pointer as Derived* (for CRTP usage).
+    Derived const* This() const noexcept { return static_cast<Derived const*>(this); }
+    Derived* This() noexcept { return static_cast<Derived*>(this); }
+
+    /// \brief Get demangled class name of the CRTP derived class.
+    std::string DerivedName() const { return uni20::demangle::demangle(typeid(Derived).name()); }
+
+    template <typename T> detail::TraceNameValue OtherPointer(T* x) const
+    {
+      return detail::TraceNameValue("other", fmt::format("{:p}", fmt::ptr(x)));
+    }
+    detail::TraceNameValue ThisPointer() const
+    {
+      return detail::TraceNameValue("this", fmt::format("{:p}", fmt::ptr(this)));
+    }
+
+    /// \brief Default constructor. Emits a trace message.
+    TracingBaseClass() { TRACE(DerivedName() + " default constructor", ThisPointer()); }
+
+    template <typename... Args> TracingBaseClass(Args&&... args)
+    {
+      TRACE(DerivedName() + " forwarding constructor", ThisPointer(), args...);
+    }
+
+    /// \brief Copy constructor. Emits a trace message.
+    TracingBaseClass(const TracingBaseClass& other)
+    {
+      TRACE(DerivedName() + " copy constructor", ThisPointer(), OtherPointer(&other));
+    }
+
+    /// \brief Move constructor. Emits a trace message.
+    TracingBaseClass(TracingBaseClass&& other) noexcept
+    {
+      TRACE(DerivedName() + " move constructor", ThisPointer(), OtherPointer(&other));
+    }
+
+    /// \brief Move constructor. Emits a trace message.
+    TracingBaseClass(Derived&& other) noexcept
+    {
+      TRACE(DerivedName() + " move constructor", ThisPointer(), OtherPointer(&other));
+    }
+
+    /// \brief Copy assignment. Emits a trace message.
+    TracingBaseClass& operator=(const TracingBaseClass& other)
+    {
+      if (this != &other)
+      {
+        TRACE(DerivedName() + " copy assignment", ThisPointer(), OtherPointer(&other));
+      }
+      return *this;
+    }
+
+    /// \brief Move assignment. Emits a trace message.
+    TracingBaseClass& operator=(TracingBaseClass&& other) noexcept
+    {
+      if (this != &other)
+      {
+        TRACE(DerivedName() + " move assignment", ThisPointer(), OtherPointer(&other));
+      }
+      return *this;
+    }
+
+    /// \brief Destructor. Emits a trace message.
+    ~TracingBaseClass() { TRACE(DerivedName() + " destructor", ThisPointer()); }
+};
+
+#define TRACE_BASE_CLASS(Name) trace::TracingBaseClass<trace::BaseName(TRACE_STRINGIZE(Name)), Name>
+
+// #define TRACE_BASE_CLASS(Identifier) trace::TracingBaseClass<trace::BaseName{#Identifier}, Identifier>
 } // namespace trace
