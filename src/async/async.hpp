@@ -27,7 +27,8 @@ template <typename T> class Async {
     ///       returned by co_await, to ensure the snapshot remains valid.
     /// \return A ReadBuffer<T> that suspends until all prior writes complete and then
     ///         yields a copy of the stored value.
-    ReadBuffer<T> read() noexcept { return ReadBuffer<T>(this, queue_.new_reader()); }
+    // ReadBuffer<T> read() noexcept { return ReadBuffer<T>(this, queue_.new_reader()); }
+    ReadBuffer<T> read() noexcept { return ReadBuffer<T>(queue_.create_read_context(this)); }
 
     /// \brief Acquire an in‐place write gate awaitable.
     /// \note The returned WriteBuffer<T> must outlive any references bound to its
@@ -35,7 +36,7 @@ template <typename T> class Async {
     ///       occur before the WriteBuffer is destroyed.
     /// \return A WriteBuffer<T> that suspends until it’s safe to write (after all
     ///         prior reads and writes), then yields a mutable reference to the value.
-    WriteBuffer<T> write() noexcept { return WriteBuffer<T>(this, queue_.new_writer()); }
+    WriteBuffer<T> write() noexcept { return WriteBuffer<T>(queue_.create_write_context(this)); }
 
     /// \brief Blocking access: drive \p sched until all prior writes finish.
     /// \note In coroutine context it is much better to co_await on a read() or
@@ -59,7 +60,9 @@ template <typename T> class Async {
 
   private:
     friend class ReadBuffer<T>;
+    friend class EpochContextReader<T>;
     friend class WriteBuffer<T>;
+    friend class EpochContextWriter<T>;
 
     /// \brief Pointer to the stored data.
     /// \return Address of the contained T.

@@ -44,9 +44,10 @@ template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> 
   // auto va = co_await a;
   // auto vb = co_await b;
 
+  auto [va, vb] = co_await all(a, b);
   auto vout = co_await out;
 
-  auto [va, vb] = co_await all(a, b);
+  // auto [va, vb] = co_await all(a, b);
 
   //  auto [vout] = co_await all(out);
 

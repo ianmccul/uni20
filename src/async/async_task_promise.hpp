@@ -209,6 +209,8 @@ class AsyncTaskFactory {
     {
       int prior_count = handle_.promise().add_awaiter(count);
       DEBUG_CHECK_EQUAL(prior_count, 0, "expected handle to be previously unowned!");
+      // if we requested zero references, then we can destroy the handle immediately
+      if (count_ == 0) handle_.destroy();
     }
 
     HandleType handle_;

@@ -16,187 +16,108 @@ namespace uni20::async
 
 template <typename T> class Async;
 
-/// \brief RAII awaitable for snapshot‐reads of an Async<T>.
-/// @tparam T The stored value type.
+/// \brief Awaitable read-gate for an Async<T> value.
+///
+/// Represents one reader of an Async<T> value within a single epoch.
+/// Constructed from an EpochContextReader<T>, which manages all coordination
+/// with the EpochQueue. This buffer is a move-only coroutine awaiter that
+/// suspends and resumes once.
+///
+/// \note Not copyable. Must not be co_awaited on a temporary.
 template <typename T> class ReadBuffer {
   public:
-    /// \brief Construct a read gate awaitable.
-    /// @param parent Pointer to the Async<T> container.
-    /// @param epoch  Pointer to the EpochContext for this read.
-    ReadBuffer(Async<T>* parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch) {}
+    /// \brief Construct a read buffer tied to a reader context.
+    /// \param reader The RAII epoch reader handle for this operation.
+    explicit ReadBuffer(EpochContextReader<T> reader) : reader_(std::move(reader)) {}
 
     ReadBuffer(ReadBuffer const&) = delete;
     ReadBuffer& operator=(ReadBuffer const&) = delete;
 
-    /// \brief Move-construct, transferring ownership.
-    /// Suppresses the destructor action in @p other.
-    ReadBuffer(ReadBuffer&& other) noexcept : parent_(other.parent_), epoch_(other.epoch_), done_(other.done_)
-    {
-      other.done_ = true;
-    }
+    ReadBuffer(ReadBuffer&&) noexcept = default;
+    ReadBuffer& operator=(ReadBuffer&&) noexcept = default;
 
-    /// \brief Move-assign, releasing any held gate first.
-    ReadBuffer& operator=(ReadBuffer&& other) noexcept
-    {
-      if (!done_)
-      {
-        epoch_->mark_reader_done();
-        parent_->queue_.on_reader_done(epoch_);
-      }
-      parent_ = other.parent_;
-      epoch_ = other.epoch_;
-      done_ = other.done_;
-      other.done_ = true;
-      return *this;
-    }
+    /// \brief Check if the value is already ready to be read.
+    /// \return True if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept { return reader_.ready(); }
 
-    /// \brief operator co_await. The auto-generated versions would actually be fine, except
-    ///        we want to forbid co_awaiting on a temporary buffer
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask t) noexcept { reader_.suspend(std::move(t)); }
+
+    /// \brief Resume execution and return the stored value.
+    /// \return Reference to the stored T inside Async<T>.
+    T const& await_resume() const noexcept { return reader_.data(); }
+
+    /// \brief Manually release the epoch reader before awaitable destruction.
+    ///
+    /// This allows the coroutine to relinquish its reader role earlier than
+    /// its full lifetime.
+    ///
+    /// \post The ReadBuffer becomes inert and idempotent; calling `release()`
+    ///       more than once has no effect.
+    void release() noexcept { reader_.release(); }
+
+    /// \brief Enable co_await on lvalue ReadBuffer only.
+    ///
+    /// Prevents unsafe use on temporaries by deleting rvalue overload.
     auto operator co_await() & noexcept -> ReadBuffer& { return *this; }
     auto operator co_await() const& noexcept -> ReadBuffer const& { return *this; }
 
-    // Prevent co_await on rvalue (temporary)
+    /// \brief Deleted rvalue co_await to avoid use-after-move or lifetime errors.
     auto operator co_await() && = delete;
 
-    /// \brief Ready-check: true if the writer has completed.
-    /// \return True ⇒ await_suspend() will not be called.
-    bool await_ready() const noexcept
-    {
-      DEBUG_CHECK(!done_, "ReadBuffer used after release()!");
-      DEBUG_TRACE("ReadBuffer await_ready()", epoch_->readers_ready(), epoch_);
-      return epoch_->readers_ready();
-    }
-
-    /// \brief Suspend this coroutine and enqueue as a reader.
-    /// \param t The coroutine task
-    void await_suspend(AsyncTask t) noexcept { epoch_->add_reader(std::move(t)); }
-
-    /// \brief Resume and return a const reference to the stored value.
-    /// \return Reference to the stored T inside Async<T>.
-    T const& await_resume() const noexcept
-    {
-      TRACE("Resuming ReadBuffer", epoch_);
-      return *parent_->data();
-    }
-
-    /// \brief Manually release the read gate without suspension.
-    void release() noexcept
-    {
-      epoch_->mark_reader_done();
-      parent_->queue_.on_reader_done(epoch_);
-      done_ = true;
-    }
-
-    /// \brief Destructor: auto-release if not already done.
-    ~ReadBuffer()
-    {
-      TRACE("Destroying ReadBuffer", done_);
-      if (!done_)
-      {
-        TRACE(epoch_);
-        epoch_->mark_reader_done();
-        parent_->queue_.on_reader_done(epoch_);
-      }
-    }
-
   private:
-    Async<T>* parent_;    ///< The Async<T> being read.
-    EpochContext* epoch_; ///< EpochContext managing ordering.
-    bool done_ = false;   ///< True if released or moved-from.
+    EpochContextReader<T> reader_; ///< RAII object managing epoch state.
 };
 
-/// \brief RAII awaitable for in‐place writes to an Async<T>.
-/// @tparam T The stored value type.
+/// \brief Awaitable write-gate for an Async<T> value.
+///
+/// Represents a single writer coroutine that attempts to gain exclusive
+/// write access to an Async<T> value. Constructed from an EpochContextWriter<T>,
+/// which manages ownership and coordination. This is a move-only awaiter that
+/// binds once and either suspends or proceeds directly based on epoch ordering.
+///
+/// \note Not copyable. Must not be co_awaited on a temporary.
 template <typename T> class WriteBuffer {
   public:
-    /// \brief Construct a write gate awaitable.
-    /// @param parent Pointer to the Async<T> container.
-    /// @param epoch  Pointer to the EpochContext for this write.
-    WriteBuffer(Async<T>* parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch) {}
+    /// \brief Construct a write buffer from an RAII writer handle.
+    explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
 
     WriteBuffer(WriteBuffer const&) = delete;
     WriteBuffer& operator=(WriteBuffer const&) = delete;
 
-    /// \brief Move-construct, transferring ownership.
-    WriteBuffer(WriteBuffer&& other) noexcept : parent_(other.parent_), epoch_(other.epoch_), done_(other.done_)
-    {
-      other.done_ = true;
-    }
+    WriteBuffer(WriteBuffer&&) noexcept = default;
+    WriteBuffer& operator=(WriteBuffer&&) noexcept = default;
 
-    /// \brief Move-assign, releasing any held gate first.
-    WriteBuffer& operator=(WriteBuffer&& other) noexcept
-    {
-      if (!done_)
-      {
-        epoch_->mark_writer_done();
-        parent_->queue_.on_writer_done(epoch_);
-      }
-      parent_ = other.parent_;
-      epoch_ = other.epoch_;
-      done_ = other.done_;
-      other.done_ = true;
-      return *this;
-    }
+    /// \brief Check if this writer may proceed immediately.
+    /// \return True if the epoch is at the front of the queue.
+    bool await_ready() const noexcept { return writer_.ready(); }
 
-    /// \brief operator co_await. The auto-generated versions would actually be fine, except
-    ///        we want to forbid co_awaiting on a temporary buffer
+    /// \brief Suspend the coroutine and bind as epoch writer.
+    /// \param t Coroutine task to enqueue or bind.
+    void await_suspend(AsyncTask t) noexcept { writer_.suspend(std::move(t)); }
+
+    /// \brief Resume and return a reference to the writable value.
+    /// \return Mutable reference to the stored T.
+    T& await_resume() const noexcept { return writer_.data(); }
+
+    /// \brief Manually release the write gate, allowing queue advancement.
+    ///
+    /// This may be called before destruction if the write is complete.
+    /// It is safe and idempotent to call more than once.
+    void release() noexcept { writer_.release(); }
+
+    /// \brief Enable co_await on lvalue WriteBuffer only.
+    ///
+    /// Prevents unsafe use on temporaries by deleting rvalue overload.
     auto operator co_await() & noexcept -> WriteBuffer& { return *this; }
     auto operator co_await() const& noexcept -> WriteBuffer const& { return *this; }
 
-    // Prevent co_await on rvalue (temporary)
+    /// \brief Deleted rvalue co_await to avoid use-after-move or lifetime errors.
     auto operator co_await() && = delete;
 
-    /// \brief Ready-check: true if it's this write’s turn.
-    /// \return True ⇒ await_suspend() will not be called.
-    bool await_ready() const noexcept
-    {
-      DEBUG_CHECK(!done_, "WriteBuffer used after release()!");
-      DEBUG_CHECK(!epoch_->writer_has_task(), "Unexpected: double bind!");
-      TRACE("WriteBuffer await_ready()", parent_->queue_.is_front(epoch_), epoch_);
-      return parent_->queue_.is_front(epoch_);
-    }
-
-    /// \brief Suspend this coroutine until it can write.
-    /// \param t The coroutine task
-    void await_suspend(AsyncTask t) noexcept
-    {
-      epoch_->bind_writer(std::move(t));
-      parent_->queue_.on_writer_bound(epoch_);
-      TRACE("Suspending WriteBuffer", epoch_);
-    }
-
-    /// \brief Resume and return a reference to the stored value.
-    /// \return Reference to the stored T inside Async<T>.
-    T& await_resume() const noexcept
-    {
-      TRACE("Resuming WriteBuffer", epoch_);
-      return *parent_->data();
-    }
-
-    /// \brief Manually release the write gate without suspension.
-    void release() noexcept
-    {
-      epoch_->mark_writer_done();
-      parent_->queue_.on_writer_done(epoch_);
-      done_ = true;
-    }
-
-    /// \brief Destructor: auto-release if not already done.
-    ~WriteBuffer()
-    {
-      TRACE("Destroying WriteBuffer", done_);
-      if (!done_)
-      {
-        TRACE(epoch_);
-        epoch_->mark_writer_done();
-        parent_->queue_.on_writer_done(epoch_);
-      }
-    }
-
   private:
-    Async<T>* parent_;    ///< The Async<T> being written.
-    EpochContext* epoch_; ///< EpochContext managing ordering.
-    bool done_ = false;   ///< True if released or moved-from.
+    EpochContextWriter<T> writer_; ///< RAII handle for write coordination.
 };
 
 } // namespace uni20::async
