@@ -12,98 +12,6 @@
 #include <vector>
 #include "kernel/blas/blas.hpp"
 
-template <typename INPUTTYPE>
-void test_contraction(INPUTTYPE a){
-        std::random_device rd;                
-        std::mt19937 gen(rd());               
-        std::uniform_int_distribution<> idis(16, 16);  
-        std::uniform_real_distribution<> fdis(0,1);
-        std::unordered_map<std::string, size_t> hash_table;
-        hash_table["I"] = idis(gen);
-        hash_table["K"] = idis(gen);
-        hash_table["L"] = idis(gen);
-        hash_table["J"] = idis(gen);
-        hash_table["M"] = idis(gen);
-        constexpr size_t rankA = 2,rankB = 4,rankC = 2;
-        std::vector<std::string> arrangeA = {"K","L"};
-        std::vector<std::string> arrangeB = {"L","K","I","J"};
-        std::vector<std::string> arrangeC = {"I","J"};
-        size_t dimA = 1,dimB = 1,dimC = 1;
-        for(size_t i=0; i<rankA;i++)  dimA = dimA * hash_table[arrangeA[i]];
-        for(size_t i=0; i<rankB;i++)  dimB = dimB * hash_table[arrangeB[i]];
-        for(size_t i=0; i<rankC;i++)  dimC = dimC * hash_table[arrangeC[i]];
-        std::vector<INPUTTYPE> va(dimA), vb(dimB), v_blas(dimC, 7.0);
-        for (size_t i = 0; i < va.size(); ++i)  va[i] = fdis(gen);
-        for (size_t i = 0; i < vb.size(); ++i)  vb[i] = fdis(gen);
-        INPUTTYPE alpha = 0.7,beta  = 0.3;
-        std::shuffle(arrangeA.begin(), arrangeA.end(), gen);
-        std::shuffle(arrangeB.begin(), arrangeB.end(), gen);
-        std::vector<size_t> extentA,extentB,extentC,strideA,strideB,strideC;
-        for(size_t i=0;i<arrangeA.size();i++) extentA.push_back(hash_table[arrangeA[i]]);
-        for(size_t i=0;i<arrangeB.size();i++) extentB.push_back(hash_table[arrangeB[i]]);
-        for(size_t i=0;i<arrangeC.size();i++) extentB.push_back(hash_table[arrangeC[i]]);
-        std::array<size_t,rankA> extentA_array;
-        std::array<size_t,rankB> extentB_array;
-        std::array<size_t,rankC> extentC_array;
-        
-        std::array<std::pair<size_t, size_t>, (rankA+rankB-rankC)/2> Kdims;
-        size_t p = 0;
-        for(size_t i=0;i<rankA;i++)
-            for(size_t j=0;j<rankB;j++)
-            if(arrangeA[i] == arrangeB[j]){
-                Kdims[p].first = i;
-                Kdims[p].second = j;
-                p = p + 1;
-            }
-        std::vector<size_t> tmp; 
-        for(size_t i=0;i<rankA;i++)
-            for(size_t j=0;j<rankC;j++)
-            if(arrangeA[i] == arrangeC[j])
-                tmp.push_back(extentA[i]);
-        for(size_t i=0;i<rankB;i++)
-            for(size_t j=0;j<rankC;j++)
-            if(arrangeB[i] == arrangeC[j])
-                tmp.push_back(extentB[i]);
-        
-            
-        for(size_t i=0;i<rankA;i++) extentA_array[i] = extentA[i];
-        for(size_t i=0;i<rankB;i++) extentB_array[i] = extentB[i];
-        for(size_t i=0;i<rankC;i++) extentC_array[i] = tmp[i];
-        
-        size_t stride_tmp = dimA;
-        for(size_t i=0;i<arrangeA.size();i++){
-            stride_tmp = stride_tmp/extentA[i];
-            strideA.push_back(stride_tmp);
-        }
-        stride_tmp = dimB;
-        for(size_t i=0;i<arrangeB.size();i++){
-            stride_tmp = stride_tmp/extentB[i];
-            strideB.push_back(stride_tmp);
-        }
-        stride_tmp = dimC;
-        for(size_t i=0;i<arrangeC.size();i++){
-            stride_tmp = stride_tmp/tmp[i];
-            strideC.push_back(stride_tmp);
-        }
-        std::array<ptrdiff_t,rankA> strideA_array;
-        std::array<ptrdiff_t,rankB> strideB_array;
-        std::array<ptrdiff_t,rankC> strideC_array;
-        for(size_t i=0;i<arrangeA.size();i++) strideA_array[i] = static_cast<ptrdiff_t>(strideA[i]);
-        for(size_t i=0;i<arrangeB.size();i++) strideB_array[i] = static_cast<ptrdiff_t>(strideB[i]);
-        for(size_t i=0;i<arrangeC.size();i++) strideC_array[i] = static_cast<ptrdiff_t>(strideC[i]);
-        auto mapA = make_mapping<rankA>(extentA_array,strideA_array);
-        auto mapB = make_mapping<rankB>(extentB_array,strideB_array);
-        auto mapC = make_mapping<rankC>(extentC_array,strideC_array);
-        
-        using stdexA = stdex::dextents<ptrdiff_t, rankA>;
-        using stdexB = stdex::dextents<ptrdiff_t, rankB>;
-        using stdexC = stdex::dextents<ptrdiff_t, rankC>;
-        stdex::mdspan<INPUTTYPE, stdexA, stdex::layout_stride> A(va.data(), mapA);
-        stdex::mdspan<INPUTTYPE, stdexB, stdex::layout_stride> B(vb.data(), mapB);
-        stdex::mdspan<INPUTTYPE, stdexC, stdex::layout_stride> C_blas(v_blas.data(), mapC);
-        
-        uni20::kernel::contract(alpha, A, B, Kdims, beta, C_blas, uni20::blas_tag{});
-}
 // Benchmark for the heavy computation function.
 static void BM_ComputeHeavyOperation(benchmark::State& state) {
     for (auto _ : state) {
@@ -113,26 +21,5 @@ static void BM_ComputeHeavyOperation(benchmark::State& state) {
     }
 }
 BENCHMARK(BM_ComputeHeavyOperation);
-
-static void F_CONTRACTION_BLAS(benchmark::State& state) {
-    for (auto _ : state) test_contraction( float(1));
-}
-BENCHMARK(F_CONTRACTION_BLAS);
-
-static void D_CONTRACTION_BLAS(benchmark::State& state) {
-    for (auto _ : state) test_contraction(double(1));
-}
-BENCHMARK(D_CONTRACTION_BLAS);
-
-static void C_CONTRACTION_BLAS(benchmark::State& state) {
-    for (auto _ : state) test_contraction(uni20::complex64(1));
-}
-BENCHMARK(C_CONTRACTION_BLAS);
-
-static void Z_CONTRACTION_BLAS(benchmark::State& state) {
-    for (auto _ : state) test_contraction(uni20::complex128(1));
-}
-BENCHMARK(Z_CONTRACTION_BLAS);
-
 
 BENCHMARK_MAIN();

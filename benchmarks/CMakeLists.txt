@@ -1,21 +1,28 @@
 # benchmarks/CMakeLists.txt
 
 # Create a benchmark executable.
-add_executable(uni20_benchmarks
-    benchmark_dummy.cpp
+
+add_executable(uni20_benchmark_contract
+  benchmark_contract.cpp
 )
 
-target_link_libraries(uni20_benchmarks
-    PRIVATE uni20
-            uni20_common
-            uni20_kernel
-            benchmark::benchmark
+add_executable(uni20_benchmark_dummy
+  benchmark_dummy.cpp
 )
-target_include_directories(uni20_benchmarks
-  PRIVATE
-    ${PROJECT_SOURCE_DIR}/src  # 可以找到 contract.hpp 等
+target_link_libraries(uni20_benchmark_contract
+  PRIVATE uni20 uni20_common uni20_kernel benchmark::benchmark
 )
-add_custom_target(run_benchmarks
-    COMMAND uni20_benchmarks
-    DEPENDS uni20_benchmarks
+
+target_link_libraries(uni20_benchmark_dummy
+  PRIVATE uni20 uni20_common uni20_kernel benchmark::benchmark
+)
+
+add_custom_target(run_contract_bench
+  COMMAND uni20_benchmark_contract
+  DEPENDS uni20_benchmark_contract
+)
+
+add_custom_target(run_dummy_bench
+  COMMAND uni20_benchmark_dummy
+  DEPENDS uni20_benchmark_dummy
 )
