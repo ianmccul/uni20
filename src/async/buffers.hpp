@@ -30,7 +30,7 @@ template <typename T> class ReadBuffer {
     /// \param reader The RAII epoch reader handle for this operation.
     explicit ReadBuffer(EpochContextReader<T> reader) : reader_(std::move(reader)) {}
 
-    ReadBuffer(ReadBuffer const&) = delete;
+    ReadBuffer(ReadBuffer const&) = default;
     ReadBuffer& operator=(ReadBuffer const&) = delete;
 
     ReadBuffer(ReadBuffer&&) noexcept = default;
@@ -42,7 +42,7 @@ template <typename T> class ReadBuffer {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask t) noexcept { reader_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t)); }
 
     /// \brief Resume execution and return the stored value.
     /// \return Reference to the stored T inside Async<T>.
@@ -95,7 +95,7 @@ template <typename T> class WriteBuffer {
 
     /// \brief Suspend the coroutine and bind as epoch writer.
     /// \param t Coroutine task to enqueue or bind.
-    void await_suspend(AsyncTask t) noexcept { writer_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept { writer_.suspend(std::move(t)); }
 
     /// \brief Resume and return a reference to the writable value.
     /// \return Mutable reference to the stored T.

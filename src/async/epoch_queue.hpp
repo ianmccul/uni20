@@ -102,7 +102,7 @@ class EpochQueue {
     /// \param e Epoch whose writer has completed.
     void on_writer_done(EpochContext* e) noexcept
     {
-      // e->mark_writer_done();
+      TRACE("Writer has finished", e, &queue_.front());
       std::unique_lock lock(mtx_);
       if (e != &queue_.front())
       {
@@ -120,6 +120,7 @@ class EpochQueue {
         return;
       }
       // No readers: pop this epoch and advance
+      TRACE("advancing an epoch!");
       queue_.pop_front();
       lock.unlock();
       advance();
@@ -136,6 +137,7 @@ class EpochQueue {
     ///       if a ReadBuffer is destroyed or released before `await_suspend()` occurs.
     void on_all_readers_released(EpochContext* e) noexcept
     {
+      TRACE("readers finished - we might be able to advance the epoch");
       DEBUG_CHECK(e->reader_is_empty());
       std::unique_lock lock(mtx_);
       // Only pop if this is the front epoch and fully done
@@ -162,11 +164,15 @@ class EpochQueue {
     /// \brief Advance the queue by scheduling next writer/readers as appropriate.
     void advance() noexcept
     {
+      TRACE("advance!");
       while (true)
       {
         std::unique_lock lock(mtx_);
         if (queue_.empty()) return;
         auto* e = &queue_.front();
+
+        TRACE(e->writer_has_task());
+        e->show();
 
         // Phase 1: schedule writer if not yet fired
         if (e->writer_has_task())

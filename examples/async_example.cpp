@@ -9,6 +9,7 @@ AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
   // Snapshot-read src, and register as next writer on dst
 
   TRACE("starting coroutine");
+  TRACE("async_assign", &readBuf, &writeBuf);
 
   // Wait for src to be ready
   auto tin = co_await try_await(readBuf);
@@ -34,6 +35,13 @@ AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
   co_return;
 }
 
+AsyncTask async_assign_indirect(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
+{
+  TRACE("starting async_assign_indirect");
+  co_await async_assign(std::move(readBuf), std::move(writeBuf));
+  TRACE("finished async_assign_indirect");
+}
+
 template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> b, WriteBuffer<T> out)
 {
   TRACE("starting async_assign_sum");
@@ -45,7 +53,7 @@ template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> 
   // auto vb = co_await b;
 
   auto [va, vb] = co_await all(a, b);
-  auto vout = co_await out;
+  auto& vout = co_await out;
 
   // auto [va, vb] = co_await all(a, b);
 
@@ -64,16 +72,18 @@ int main()
 
   Async<int> i = 10;
   Async<int> j = 5;
-  Async<int> k;
+  Async<int> k = 2;
 
-  sched.schedule(async_assign(i.read(), j.write())); // j = i, but async
+  // sched.schedule(async_assign(i.read(), j.write())); // j = i, but async
   sched.schedule(async_assign(j.read(), k.write())); // k = j, but async
+
+  sched.schedule(async_assign_indirect(k.read(), i.write())); // i = k, but async
 
   sched.schedule(async_assign_sum(i.read(), j.read(), k.write())); // k = i + j;
 
-  auto jj = k.get_wait(sched);
+  auto kk = k.get_wait(sched);
 
-  // sched.run_all();
+  //  sched.run_all();
 
-  TRACE(jj);
+  TRACE(kk);
 }

@@ -24,7 +24,7 @@ struct AsyncTask : public trace::TracingBaseClass<AsyncTask>
     /// \brief Destroy the coroutine if still present.
     ~AsyncTask();
 
-    bool done() const noexcept { return !h_ || h_.done(); }
+    // bool done() const noexcept { return !h_ || h_.done(); }
 
     /// \brief Check if this task refers to a coroutine.
     /// \return true if the handle is non-null.
@@ -68,23 +68,23 @@ struct AsyncTask : public trace::TracingBaseClass<AsyncTask>
     }
 
     /// \brief Move-assign.
-    AsyncTask& operator=(AsyncTask&& other) noexcept
-    {
-      trace::TracingBaseClass<AsyncTask>::operator=(std::move(other));
-      TRACE("AsyncTask move assignment", this, h_, &other, other.h_);
-      if (this != &other)
-      {
-        if (h_)
-        {
-          h_.destroy();
-        }
-        h_ = other.h_;
-        other.h_ = nullptr;
-      }
-      return *this;
-    }
+    AsyncTask& operator=(AsyncTask&& other) noexcept;
 
-  private:
+    //
+    // Awaiter interface
+    // If we co_await on an AsyncTask, then it has the semantics of transferring execution
+    // to that task, and then resuming the current coroutine afterwards.
+    // if coroutine Outer contains co_await Inner, then we end up with
+    // Inner.await_suspend(Outer)
+    //
+
+    bool await_ready() const noexcept { return !h_ || h_.done(); }
+
+    std::coroutine_handle<AsyncTask::promise_type> await_suspend(std::coroutine_handle<AsyncTask::promise_type> Outer);
+
+    void await_resume() const noexcept;
+
+    //  private:
     std::coroutine_handle<promise_type> h_; ///< Underlying coroutine handle.
 
     /// \brief Construct from a coroutine handle.

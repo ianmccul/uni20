@@ -23,6 +23,7 @@ class DebugScheduler final : public IScheduler {
     /// \param task An AsyncTask bound to *this* scheduler.
     void schedule(AsyncTask&& task)
     {
+      TRACE("Scheduling a task", &task, task.h_);
       if (task.set_scheduler(this))
       {
         Handles_.push_back(std::move(task));
@@ -43,6 +44,7 @@ class DebugScheduler final : public IScheduler {
     // Internal resubmission
     virtual void reschedule(AsyncTask&& task)
     {
+      TRACE("Rescheduling a task", &task, task.h_);
       // Assume sched_ is already set
       Handles_.push_back(std::move(task));
     }
@@ -56,17 +58,16 @@ class DebugScheduler final : public IScheduler {
 
 inline void DebugScheduler::run()
 {
-  std::vector<AsyncTask> batch;
-  std::swap(batch, Handles_);
-  TRACE("Got some coroutines to resume", batch.size());
-  std::reverse(batch.begin(), batch.end());
-  for (auto&& h : batch)
+  TRACE("Got some coroutines to resume", Handles_.size());
+  std::vector<AsyncTask> H;
+  std::swap(H, Handles_);
+  std::reverse(H.begin(), H.end());
+  for (auto&& h : H)
   {
     TRACE("resuming coroutine...");
     h.resume();
-    TRACE("here", &h, h.done());
-    if (!h.done()) Handles_.push_back(std::move(h));
-    TRACE("here", &h);
+    CHECK(!h);
+    TRACE("here", &h, Handles_.size());
   }
 }
 

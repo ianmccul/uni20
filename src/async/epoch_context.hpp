@@ -35,12 +35,13 @@ template <typename T> class EpochContextReader;
 //   -------------------------------------------
 //   false    false     false  | Unused (default-constructed epoch)
 //   false    false     true   | Bootstrap epoch: writer gate pre-released
-//   false    true      false  | ❌ Invalid: task set without claim
-//   false    true      true   | ❌ Invalid: task set + done without claim
+//   false    true      false  | Invalid: task set without claim
+//   false    true      true   | Invalid: task set + done without claim
 //   true     false     false  | Acquired but not yet suspended
 //   true     false     true   | Acquired, fast-path resume (no task bound)
 //   true     true      false  | Task bound, write in progress
 //   true     true      true   | Write complete, normal end state
+// FIXME: claimed no longer exists, replaced by a ref count
 
 /// \brief One generation’s context: one writer + N readers.
 /// \ingroup async_core
@@ -57,13 +58,21 @@ class EpochContext {
     ///
     /// \note Each call increases the reference count for readers. Must be
     ///       matched with a corresponding call to reader_release().
-    void reader_acquire() noexcept { created_readers_.fetch_add(1, std::memory_order_relaxed); }
+    void reader_acquire() noexcept
+    {
+      DEBUG_TRACE("reader_acquire()", this);
+      created_readers_.fetch_add(1, std::memory_order_relaxed);
+    }
 
     /// \brief Signal that one reader has completed.
     ///
     /// \note Decreases the reader reference count. When all readers are released,
     ///       the epoch may be advanced by the queue.
-    bool reader_release() noexcept { return created_readers_.fetch_sub(1, std::memory_order_acq_rel) == 1; }
+    bool reader_release() noexcept
+    {
+      DEBUG_TRACE("reader_release()", this, created_readers_.load(std::memory_order_acquire), reader_handles_.size());
+      return created_readers_.fetch_sub(1, std::memory_order_acq_rel) == 1;
+    }
 
   public:
     /// \brief Enqueue a reader coroutine to be resumed when the epoch is active.
@@ -101,17 +110,21 @@ class EpochContext {
     /// \pre Caller must hold exclusive access to the epoch queue.
     bool reader_is_empty() const noexcept { return created_readers_.load(std::memory_order_acquire) == 0; }
 
+    void show()
+    {
+      DEBUG_TRACE(this, created_readers_.load(std::memory_order_acquire), reader_handles_.size(),
+                  writer_done_.load(std::memory_order_acquire), writer_task_set_.load(std::memory_order_acquire));
+    }
+
     // Writer interface
 
     // internal private used only by EpochContextWriter<T>
 
     /// \brief Acquire the writer role for this epoch.
-    /// \pre Must be called exactly once.
-    /// \post Sets writer_claimed_ = true.
     void writer_acquire() noexcept
     {
-      DEBUG_CHECK(!writer_claimed_);
-      writer_claimed_ = true;
+      DEBUG_TRACE("writer_acquire", this);
+      created_writers_.fetch_add(1, std::memory_order_relaxed);
     }
 
     /// \brief Bind a coroutine to act as the writer.
@@ -119,7 +132,7 @@ class EpochContext {
     /// \pre Must follow writer_acquire(), and only be called once.
     void writer_bind(AsyncTask&& task) noexcept
     {
-      DEBUG_PRECONDITION(writer_claimed_);
+      DEBUG_TRACE("Binding writer", this);
       DEBUG_CHECK(!writer_done_.load(std::memory_order_relaxed));
       DEBUG_CHECK(!writer_task_set_.load(std::memory_order_relaxed));
       writer_task_ = std::move(task);
@@ -128,11 +141,14 @@ class EpochContext {
 
     /// \brief Mark the writer as complete, releasing the epoch to readers.
     /// \pre Must follow writer_acquire(), and only be called once.
-    void writer_release() noexcept
+    bool writer_release() noexcept
     {
-      DEBUG_PRECONDITION(writer_claimed_);
       DEBUG_CHECK(!writer_done_.load(std::memory_order_relaxed));
-      writer_done_.store(true, std::memory_order_release);
+      bool done = created_writers_.fetch_sub(1, std::memory_order_acq_rel) == 1;
+
+      /// Mark the writer as done, allowing readers to proceed.
+      if (done) writer_done_.store(true, std::memory_order_release);
+      return done;
     }
 
     // External Writer interface
@@ -155,32 +171,6 @@ class EpochContext {
       return std::move(writer_task_);
     }
 
-    /// \brief Mark the writer as done, allowing readers to proceed.
-    void mark_writer_done() noexcept
-    {
-      DEBUG_PRECONDITION(!this->writer_is_done());
-      writer_done_.store(true, std::memory_order_release);
-    }
-
-    // old
-#if 0
-    /// \brief Bind a writer coroutine to this epoch.
-    /// \param h Coroutine handle for the writer.
-    void bind_writer(AsyncTask&& h) noexcept { writer_handle_ = std::move(h); }
-
-    /// \brief Check if a writer is bound.
-    /// \return true if a writer coroutine is present.
-    bool writer_has_task() const noexcept { return static_cast<bool>(writer_handle_); }
-
-    /// \brief Check if the writer has completed.
-    /// \return true if writer_done_ is true.
-    bool writer_done() const noexcept { return writer_done_.load(std::memory_order_acquire); }
-
-    /// \brief Extract the bound writer handle.
-    /// \return The writer coroutine handle.
-    AsyncTask take_writer() noexcept { return std::move(writer_handle_); }
-#endif
-
   private:
     std::atomic<int> created_readers_{0};
     std::mutex reader_mtx_;
@@ -189,7 +179,7 @@ class EpochContext {
     AsyncTask writer_task_;                    ///< Coroutine task (if bound).
     std::atomic<bool> writer_task_set_{false}; ///< Set if task has been bound.
     std::atomic<bool> writer_done_{false};     ///< Set when writer releases gate.
-    bool writer_claimed_ = false;              ///< Debug-only: writer acquired.
+    std::atomic<int> created_writers_{0};      ///< number of active writers (normally max 1)
 };
 
 /// \brief RAII-scoped representation of a reader's participation in an EpochContext.
@@ -200,14 +190,24 @@ class EpochContext {
 ///
 /// \note This type is move-only. Reader ownership must be transferred or dropped exactly once.
 /// \pre The epoch and parent must remain valid for the lifetime of the reader.
-template <typename T> class EpochContextReader {
+template <typename T> class EpochContextReader : public trace::TracingBaseClass<EpochContextReader<T>> {
   public:
     /// \brief Default-constructed inactive reader (no effect).
     EpochContextReader() = default;
 
-    // Not copyable
-    EpochContextReader(EpochContextReader const&) = delete;
-    EpochContextReader& operator=(EpochContextReader const&) = delete;
+    EpochContextReader(EpochContextReader const& other) : parent_(other.parent_), epoch_(other.epoch_)
+    {
+      if (epoch_) epoch_->reader_acquire();
+    }
+
+    EpochContextReader& operator=(EpochContextReader const& other)
+    {
+      if (other.epoch_) other.epoch_->reader_acquire();
+      this->release();
+      parent_ = other.parent_;
+      epoch_ = other.epoch_;
+      return *this;
+    }
 
     /// \brief Construct a new reader handle for a given parent and epoch.
     /// \param parent Pointer to the Async<T> owning the queue and data.
@@ -244,6 +244,7 @@ template <typename T> class EpochContextReader {
     /// \param t The coroutine task to register.
     void suspend(AsyncTask&& t)
     {
+      TRACE("suspend", &t, epoch_);
       DEBUG_PRECONDITION(epoch_);
       parent_->queue_.enqueue_reader(epoch_, std::move(t));
     }
@@ -278,7 +279,7 @@ template <typename T> class EpochContextReader {
     {
       if (epoch_)
       {
-        TRACE("EpochContextReader done");
+        TRACE("EpochContextReader release");
         if (epoch_->reader_release()) parent_->queue_.on_all_readers_released(epoch_);
         epoch_ = nullptr;
       }
@@ -297,15 +298,12 @@ template <typename T> class EpochContextReader {
 /// release() or automatically on destruction.
 ///
 /// \ingroup async_core
-template <typename T> class EpochContextWriter {
+template <typename T> class EpochContextWriter : public trace::TracingBaseClass<EpochContextWriter<T>> {
   public:
     /// \brief Construct an active writer.
     EpochContextWriter(Async<T>* parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch)
     {
-      if (epoch_)
-      {
-        epoch_->writer_acquire();
-      }
+      if (epoch_) epoch_->writer_acquire();
     }
 
     EpochContextWriter(EpochContextWriter const&) = delete;
@@ -342,6 +340,7 @@ template <typename T> class EpochContextWriter {
     /// \param t The coroutine to bind and schedule.
     void suspend(AsyncTask&& t)
     {
+      TRACE("suspend", &t, epoch_);
       DEBUG_PRECONDITION(epoch_);
       epoch_->writer_bind(std::move(t));
       parent_->queue_.on_writer_bound(epoch_);
@@ -365,8 +364,7 @@ template <typename T> class EpochContextWriter {
       if (epoch_)
       {
         TRACE("EpochContextWriter: release");
-        epoch_->mark_writer_done();
-        parent_->queue_.on_writer_done(epoch_);
+        if (epoch_->writer_release()) parent_->queue_.on_writer_done(epoch_);
         epoch_ = nullptr;
       }
     }

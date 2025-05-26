@@ -11,6 +11,7 @@
 #include <complex>
 #include <coroutine>
 #include <cstdio>
+#include <fmt/chrono.h>
 #include <fmt/core.h>
 #include <functional>
 #include <map>
@@ -372,7 +373,10 @@ struct FormattingOptions
     using Sink = std::function<void(std::string)>;
 
     /// Function that actually emits strings (defaults to fputs to stderr).
-    Sink sink = [](std::string s) { std::fputs(s.c_str(), stderr); };
+    Sink sink = [](std::string s) {
+      std::fputs(s.c_str(), stderr);
+      std::fflush(stderr);
+    };
 
     //--- Style map -------------------------------------------------------------
 
@@ -1124,6 +1128,13 @@ template <typename... Args> void print(fmt::format_string<Args...> fmt_str, Args
   opts.sink(fmt::format(fmt_str, std::forward<Args>(args)...));
 }
 
+inline std::string format_timestamp()
+{
+  auto now = std::chrono::system_clock::now();
+  auto us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()) % std::chrono::seconds(1);
+  return fmt::format("{:%F %T}.{:06}", now, us.count());
+}
+
 //-----------------------------------------------------------------------------
 // Non-module TRACE
 //-----------------------------------------------------------------------------
@@ -1136,21 +1147,7 @@ template <typename... Args> void TraceCall(const char* exprList, const char* fil
 
   // optional timestamp
   std::string ts;
-  if (opts.timestamp)
-  {
-    auto now = std::chrono::system_clock::now();
-    auto us_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
-    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(us_since_epoch);
-    auto micros = us_since_epoch - seconds;
-
-    std::time_t t = seconds.count();
-    std::tm tm = *std::localtime(&t);
-    char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%F %T", &tm); // e.g. "2025-05-01 17:42:03"
-
-    ts = fmt::format("[{}.{:06}] ", buffer, micros.count());
-    ts = opts.format_style(ts, "TIMESTAMP");
-  }
+  if (opts.timestamp) ts = format_timestamp();
 
   // optional thread-ID
   std::string th;
@@ -1180,21 +1177,7 @@ void TraceModuleCall(const char* module, const char* exprList, const char* file,
   std::string trace_str = formatParameterList(exprList, opts, args...);
 
   std::string ts;
-  if (opts.timestamp)
-  {
-    auto now = std::chrono::system_clock::now();
-    auto us_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
-    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(us_since_epoch);
-    auto micros = us_since_epoch - seconds;
-
-    std::time_t t = seconds.count();
-    std::tm tm = *std::localtime(&t);
-    char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%F %T", &tm); // e.g. "2025-05-01 17:42:03"
-
-    ts = fmt::format("[{}.{:06}] ", buffer, micros.count());
-    ts = opts.format_style(ts, "TIMESTAMP");
-  }
+  if (opts.timestamp) ts = format_timestamp();
 
   std::string th;
   if (opts.showThreadId)
@@ -1221,21 +1204,7 @@ template <typename... Args> void DebugTraceCall(const char* exprList, const char
   std::string trace_str = formatParameterList(exprList, opts, args...);
 
   std::string ts;
-  if (opts.timestamp)
-  {
-    auto now = std::chrono::system_clock::now();
-    auto us_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
-    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(us_since_epoch);
-    auto micros = us_since_epoch - seconds;
-
-    std::time_t t = seconds.count();
-    std::tm tm = *std::localtime(&t);
-    char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%F %T", &tm); // e.g. "2025-05-01 17:42:03"
-
-    ts = fmt::format("[{}.{:06}] ", buffer, micros.count());
-    ts = opts.format_style(ts, "TIMESTAMP");
-  }
+  if (opts.timestamp) ts = format_timestamp();
 
   std::string th;
   if (opts.showThreadId)
@@ -1263,21 +1232,7 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
   std::string trace_str = formatParameterList(exprList, opts, args...);
 
   std::string ts;
-  if (opts.timestamp)
-  {
-    auto now = std::chrono::system_clock::now();
-    auto us_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
-    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(us_since_epoch);
-    auto micros = us_since_epoch - seconds;
-
-    std::time_t t = seconds.count();
-    std::tm tm = *std::localtime(&t);
-    char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%F %T", &tm); // e.g. "2025-05-01 17:42:03"
-
-    ts = fmt::format("[{}.{:06}] ", buffer, micros.count());
-    ts = opts.format_style(ts, "TIMESTAMP");
-  }
+  if (opts.timestamp) ts = format_timestamp();
 
   std::string th;
   if (opts.showThreadId)
