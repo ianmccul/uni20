@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "async_task.hpp"
 #include "scheduler.hpp"
 #include <atomic>
 #include <coroutine>
@@ -67,8 +68,10 @@ template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter;
 
 /// \brief Promise type for AsyncTask.
 /// \ingroup async_core
-struct AsyncTask::promise_type
+struct BasicAsyncTaskPromise
 {
+    using promise_type = BasicAsyncTaskPromise;
+
     /// \brief Scheduler to notify when the coroutine is ready to resume.
     IScheduler* sched_ = nullptr;
 
@@ -107,8 +110,16 @@ struct AsyncTask::promise_type
     template <AsyncTaskFactoryAwaitable A> auto await_transform(A&& a);
 
     // Pass-through for AsyncTask itself
-    AsyncTask& await_transform(AsyncTask& t) noexcept { return t; }
-    AsyncTask&& await_transform(AsyncTask&& t) noexcept { return std::move(t); }
+    template <IsAsyncTaskPromise Promise> BasicAsyncTask<Promise>& await_transform(BasicAsyncTask<Promise>& t) noexcept
+    {
+      return t;
+    }
+
+    template <IsAsyncTaskPromise Promise>
+    BasicAsyncTask<Promise>&& await_transform(BasicAsyncTask<Promise>&& t) noexcept
+    {
+      return std::move(t);
+    }
 
     template <typename T> auto await_transform(T&&)
     {
@@ -143,7 +154,7 @@ struct AsyncTask::promise_type
     }
 
     /// \brief Default-construct the promise.
-    constexpr promise_type() noexcept = default;
+    constexpr BasicAsyncTaskPromise() noexcept = default;
 
     /// \brief Constructs the coroutine's return object for the caller.
     ///
@@ -251,7 +262,7 @@ class AsyncTaskFactory {
     }
 
   private:
-    friend class AsyncTask::promise_type;
+    friend AsyncTask::promise_type;
 
     using HandleType = std::coroutine_handle<AsyncTask::promise_type>;
 
@@ -270,6 +281,11 @@ class AsyncTaskFactory {
     HandleType handle_;
     size_t count_;
 };
+
+inline AsyncTaskFactory BasicAsyncTaskPromise::take_shared_ownership(int count)
+{
+  return AsyncTaskFactory(std::coroutine_handle<promise_type>::from_promise(*this), count);
+}
 
 template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter
 {
@@ -333,10 +349,10 @@ template <AsyncTaskFactoryAwaitable A> inline auto AsyncTask::promise_type::awai
   return AsyncTaskFactoryAwaiter<A>(a);
 }
 
-inline void AsyncTask::reschedule(AsyncTask task)
+template <typename T> void BasicAsyncTask<T>::reschedule(BasicAsyncTask<T> task)
 {
   TRACE("rescheduling AsyncTask", &task);
-  task = AsyncTask::make_sole_owner(std::move(task));
+  task = BasicAsyncTask<T>::make_sole_owner(std::move(task));
   if (task)
   {
     DEBUG_CHECK(task.h_.promise().sched_, "unexpected: task scheduler is not set!");
@@ -346,7 +362,7 @@ inline void AsyncTask::reschedule(AsyncTask task)
   }
 }
 
-inline AsyncTask AsyncTask::make_sole_owner(AsyncTask&& task)
+template <typename T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_owner(BasicAsyncTask<T>&& task)
 {
   auto& p = task.h_.promise();
   if (p.release_awaiter() == 1)
@@ -362,7 +378,7 @@ inline AsyncTask AsyncTask::make_sole_owner(AsyncTask&& task)
   return std::move(task);
 }
 
-inline void AsyncTask::resume()
+template <typename T> void BasicAsyncTask<T>::resume()
 {
   CHECK(h_);
   TRACE("Resuming AsyncTask", h_);
@@ -377,9 +393,8 @@ inline void AsyncTask::resume()
   TRACE("returned from coroutine::resume");
 }
 
-inline AsyncTask& AsyncTask::operator=(AsyncTask&& other) noexcept
+template <typename T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
 {
-  trace::TracingBaseClass<AsyncTask>::operator=(std::move(other));
   TRACE("AsyncTask move assignment", this, h_, &other, other.h_);
   if (this != &other)
   {
@@ -390,7 +405,7 @@ inline AsyncTask& AsyncTask::operator=(AsyncTask&& other) noexcept
   return *this;
 }
 
-inline AsyncTask::~AsyncTask()
+template <typename T> BasicAsyncTask<T>::~BasicAsyncTask()
 {
   TRACE("Destroying AsyncTask", this, h_);
   if (h_ && h_.promise().release_awaiter())
@@ -400,7 +415,7 @@ inline AsyncTask::~AsyncTask()
   }
 }
 
-inline bool AsyncTask::set_scheduler(IScheduler* sched)
+template <typename T> bool BasicAsyncTask<T>::set_scheduler(IScheduler* sched)
 {
   if (h_)
   {
@@ -410,13 +425,8 @@ inline bool AsyncTask::set_scheduler(IScheduler* sched)
   return false;
 }
 
-inline AsyncTaskFactory AsyncTask::promise_type::take_shared_ownership(int count)
-{
-  return AsyncTaskFactory(std::coroutine_handle<promise_type>::from_promise(*this), count);
-}
-
-inline std::coroutine_handle<AsyncTask::promise_type>
-AsyncTask::await_suspend(std::coroutine_handle<AsyncTask::promise_type> Outer)
+template <typename T>
+BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T>::handle_type Outer)
 {
   DEBUG_CHECK(h_);
   DEBUG_CHECK(!h_.promise().continuation_);
@@ -428,6 +438,6 @@ AsyncTask::await_suspend(std::coroutine_handle<AsyncTask::promise_type> Outer)
   return h_transfer;
 }
 
-inline void AsyncTask::await_resume() const noexcept {}
+template <typename T> void BasicAsyncTask<T>::await_resume() const noexcept {}
 
 } // namespace uni20::async

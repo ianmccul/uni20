@@ -306,7 +306,11 @@ template <typename T> class EpochContextWriter : public trace::TracingBaseClass<
       if (epoch_) epoch_->writer_acquire();
     }
 
-    EpochContextWriter(EpochContextWriter const&) = delete;
+    EpochContextWriter(EpochContextWriter const& other) : parent_(other.parent_), epoch_(other.epoch_)
+    {
+      if (epoch_) epoch_->writer_acquire();
+    }
+
     EpochContextWriter& operator=(EpochContextWriter const&) = delete;
 
     EpochContextWriter(EpochContextWriter&& other) noexcept : parent_(other.parent_), epoch_(other.epoch_)

@@ -31,6 +31,8 @@ template <typename T> class ReadBuffer {
     explicit ReadBuffer(EpochContextReader<T> reader) : reader_(std::move(reader)) {}
 
     ReadBuffer(ReadBuffer const&) = default;
+
+    // No copy ctor here, although we could add one
     ReadBuffer& operator=(ReadBuffer const&) = delete;
 
     ReadBuffer(ReadBuffer&&) noexcept = default;
@@ -83,6 +85,7 @@ template <typename T> class WriteBuffer {
     /// \brief Construct a write buffer from an RAII writer handle.
     explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
 
+    // Not copyable, but instead we have dup(WriteBuffer&) function
     WriteBuffer(WriteBuffer const&) = delete;
     WriteBuffer& operator=(WriteBuffer const&) = delete;
 
@@ -118,6 +121,8 @@ template <typename T> class WriteBuffer {
 
   private:
     EpochContextWriter<T> writer_; ///< RAII handle for write coordination.
+
+    friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
 };
 
 } // namespace uni20::async

@@ -1,5 +1,5 @@
 /// \file async_task.hpp
-/// \brief Defines AsyncTask, the fire-and-forget coroutine handle.
+/// \brief Defines BasicAsyncTask, the fire-and-forget coroutine handle.
 /// \ingroup async_core
 
 #pragma once
@@ -14,15 +14,22 @@ namespace uni20::async
 
 class IScheduler;
 
+class BasicAsyncTaskPromise;
+
+// We require the BasicAsyncTask promise type to inherit from BasicAsyncTaskPromise,
+// so that it is layout-compatible for type-safe upcasts
+template <typename T>
+concept IsAsyncTaskPromise = std::derived_from<T, BasicAsyncTaskPromise>;
+
 /// \brief A fire-and-forget coroutine handle.
 /// \ingroup async_core
-struct AsyncTask : public trace::TracingBaseClass<AsyncTask>
-{
-    /// \brief Promise type for AsyncTask, forward declare
-    struct promise_type;
+template <IsAsyncTaskPromise Promise> class BasicAsyncTask {
+  public:
+    using promise_type = Promise;
+    using handle_type = std::coroutine_handle<promise_type>;
 
     /// \brief Destroy the coroutine if still present.
-    ~AsyncTask();
+    ~BasicAsyncTask();
 
     // bool done() const noexcept { return !h_ || h_.done(); }
 
@@ -37,14 +44,14 @@ struct AsyncTask : public trace::TracingBaseClass<AsyncTask>
     /// \return true if the handle is non-null (in which case the scheduler has been set)
     bool set_scheduler(IScheduler* sched);
 
-    /// \brief Resubmit a suspended AsyncTask to its scheduler, if this is the sole remaining owner.
+    /// \brief Resubmit a suspended BasicAsyncTask to its scheduler, if this is the sole remaining owner.
     ///
     /// This transfers ownership to the scheduler only if the task has exclusive ownership of the coroutine.
     /// If other awaiters remain, the task is discarded and not rescheduled.
     ///
     /// \pre The scheduler in the promise must have been set.
     /// \param task The task to be conditionally rescheduled.
-    static void reschedule(AsyncTask task);
+    static void reschedule(BasicAsyncTask task);
 
     /// \brief Retain the task only if it is the sole remaining owner.
     ///
@@ -53,26 +60,26 @@ struct AsyncTask : public trace::TracingBaseClass<AsyncTask>
     /// it requivalent to a moved-from state.
     ///
     /// \return The original task if it had exclusive ownership; otherwise a null task.
-    static AsyncTask make_sole_owner(AsyncTask&& task);
+    static BasicAsyncTask make_sole_owner(BasicAsyncTask&& task);
 
-    AsyncTask() = default;
+    BasicAsyncTask() = default;
 
-    AsyncTask(const AsyncTask&) = delete;            ///< non-copyable
-    AsyncTask& operator=(const AsyncTask&) = delete; ///< non-copyable
+    BasicAsyncTask(const BasicAsyncTask&) = delete;            ///< non-copyable
+    BasicAsyncTask& operator=(const BasicAsyncTask&) = delete; ///< non-copyable
 
     /// \brief Move-construct.
-    AsyncTask(AsyncTask&& other) noexcept : trace::TracingBaseClass<AsyncTask>(std::move(other)), h_{other.h_}
+    BasicAsyncTask(BasicAsyncTask&& other) noexcept : h_{other.h_}
     {
-      TRACE("AsyncTask move", this, &other, h_);
+      DEBUG_TRACE("BasicAsyncTask move", this, &other, h_);
       other.h_ = nullptr;
     }
 
     /// \brief Move-assign.
-    AsyncTask& operator=(AsyncTask&& other) noexcept;
+    BasicAsyncTask& operator=(BasicAsyncTask&& other) noexcept;
 
     //
     // Awaiter interface
-    // If we co_await on an AsyncTask, then it has the semantics of transferring execution
+    // If we co_await on an BasicAsyncTask, then it has the semantics of transferring execution
     // to that task, and then resuming the current coroutine afterwards.
     // if coroutine Outer contains co_await Inner, then we end up with
     // Inner.await_suspend(Outer)
@@ -80,19 +87,23 @@ struct AsyncTask : public trace::TracingBaseClass<AsyncTask>
 
     bool await_ready() const noexcept { return !h_ || h_.done(); }
 
-    std::coroutine_handle<AsyncTask::promise_type> await_suspend(std::coroutine_handle<AsyncTask::promise_type> Outer);
+    handle_type await_suspend(handle_type Outer);
 
     void await_resume() const noexcept;
 
     //  private:
-    std::coroutine_handle<promise_type> h_; ///< Underlying coroutine handle.
+    handle_type h_; ///< Underlying coroutine handle.
 
     /// \brief Construct from a coroutine handle.
     /// \param h The coroutine handle.
-    explicit AsyncTask(std::coroutine_handle<promise_type> h) noexcept : trace::TracingBaseClass<AsyncTask>(h), h_{h} {}
+    explicit BasicAsyncTask(std::coroutine_handle<promise_type> h) noexcept : h_(h) {}
 
-    friend struct AsyncTask::promise_type;
-    friend class AsyncTaskFactory;
+    friend promise_type;
+    friend class BasicAsyncTaskFactory;
 };
+
+struct BasicAsyncTaskPromise;
+
+using AsyncTask = BasicAsyncTask<BasicAsyncTaskPromise>;
 
 } // namespace uni20::async

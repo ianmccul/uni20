@@ -21,7 +21,7 @@ class IScheduler {
     using promise_type = AsyncTask::promise_type;
 
   private:
-    friend class AsyncTask;
+    friend AsyncTask;
 
     /// \brief Schedule a coroutine to be resumed later.
     /// \param h The coroutine handle to schedule.

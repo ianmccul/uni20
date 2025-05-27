@@ -38,7 +38,7 @@ AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
 AsyncTask async_assign_indirect(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
 {
   TRACE("starting async_assign_indirect");
-  co_await async_assign(std::move(readBuf), std::move(writeBuf));
+  co_await async_assign(readBuf, dup(writeBuf));
   TRACE("finished async_assign_indirect");
 }
 
