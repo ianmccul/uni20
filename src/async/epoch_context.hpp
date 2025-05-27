@@ -15,10 +15,15 @@ namespace uni20::async
 {
 
 template <typename T> class Async;
-template <typename T> class AsyncImpl;
 template <typename T> class EpochContextReader;
 
+class EpochQueue;
+
+namespace detail
+{
+template <typename T> struct AsyncImpl;
 template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
+} // namespace detail
 
 // The EpochContext manages readers and writers to a particular causal write → read cycle.
 // The writer lifecycle is tracked by three boolean flags:
@@ -219,7 +224,8 @@ template <typename T> class EpochContextReader {
     /// \brief Construct a new reader handle for a given parent and epoch.
     /// \param parent Pointer to the Async<T> owning the queue and data.
     /// \param epoch Pointer to the epoch being tracked.
-    EpochContextReader(AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch)
+    EpochContextReader(detail::AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept
+        : parent_(parent), epoch_(epoch)
     {
       if (epoch_) epoch_->reader_acquire();
     }
@@ -293,7 +299,7 @@ template <typename T> class EpochContextReader {
     }
 
   private:
-    AsyncImplPtr<T> parent_;
+    detail::AsyncImplPtr<T> parent_;
     EpochContext* epoch_ = nullptr; ///< Epoch currently tracked.
 };
 
@@ -308,7 +314,8 @@ template <typename T> class EpochContextReader {
 template <typename T> class EpochContextWriter {
   public:
     /// \brief Construct an active writer.
-    EpochContextWriter(AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch)
+    EpochContextWriter(detail::AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept
+        : parent_(parent), epoch_(epoch)
     {
       if (epoch_) epoch_->writer_acquire();
     }
@@ -381,7 +388,7 @@ template <typename T> class EpochContextWriter {
     }
 
   private:
-    AsyncImplPtr<T> parent_;
+    detail::AsyncImplPtr<T> parent_;
     EpochContext* epoch_ = nullptr;
 };
 

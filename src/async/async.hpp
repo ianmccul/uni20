@@ -16,6 +16,8 @@
 namespace uni20::async
 {
 
+namespace detail
+{
 /// \brief Internal reference-counted data and coordination for Async<T>
 ///
 /// Holds the actual value of type T and the epoch queue used to
@@ -36,8 +38,7 @@ template <typename T> struct AsyncImpl
     AsyncImpl(const AsyncImpl&) = delete;
     AsyncImpl& operator=(const AsyncImpl&) = delete;
 };
-
-template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
+} // namespace detail
 
 /// \brief Async<T> is a move-only container for asynchronously accessed data.
 ///
@@ -55,13 +56,13 @@ template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
 template <typename T> class Async {
   public:
     /// \brief Default-constructs a T value and an empty access queue.
-    Async() : impl_(std::make_shared<AsyncImpl<T>>()) {}
+    Async() : impl_(std::make_shared<detail::AsyncImpl<T>>()) {}
 
     /// \brief Constructs with a copy of an initial value.
-    Async(const T& val) : impl_(std::make_shared<AsyncImpl<T>>(val)) {}
+    Async(const T& val) : impl_(std::make_shared<detail::AsyncImpl<T>>(val)) {}
 
     /// \brief Constructs with a moved initial value.
-    Async(T&& val) : impl_(std::make_shared<AsyncImpl<T>>(std::move(val))) {}
+    Async(T&& val) : impl_(std::make_shared<detail::AsyncImpl<T>>(std::move(val))) {}
 
     Async(const Async&) = delete;
     Async& operator=(const Async&) = delete;
@@ -100,10 +101,10 @@ template <typename T> class Async {
     T& unsafe_value_ref() { return impl_->value_; }
 
     /// \return Access to underlying implementation (shared with buffers).
-    std::shared_ptr<AsyncImpl<T>> const& impl() const { return impl_; }
+    std::shared_ptr<detail::AsyncImpl<T>> const& impl() const { return impl_; }
 
   private:
-    std::shared_ptr<AsyncImpl<T>> impl_;
+    std::shared_ptr<detail::AsyncImpl<T>> impl_;
 };
 
 } // namespace uni20::async
