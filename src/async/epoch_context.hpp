@@ -7,6 +7,7 @@
 #include "async_task_promise.hpp"
 #include <atomic>
 #include <coroutine>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -14,7 +15,10 @@ namespace uni20::async
 {
 
 template <typename T> class Async;
+template <typename T> class AsyncImpl;
 template <typename T> class EpochContextReader;
+
+template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
 
 // The EpochContext manages readers and writers to a particular causal write → read cycle.
 // The writer lifecycle is tracked by three boolean flags:
@@ -190,7 +194,7 @@ class EpochContext {
 ///
 /// \note This type is move-only. Reader ownership must be transferred or dropped exactly once.
 /// \pre The epoch and parent must remain valid for the lifetime of the reader.
-template <typename T> class EpochContextReader : public trace::TracingBaseClass<EpochContextReader<T>> {
+template <typename T> class EpochContextReader {
   public:
     /// \brief Default-constructed inactive reader (no effect).
     EpochContextReader() = default;
@@ -215,7 +219,7 @@ template <typename T> class EpochContextReader : public trace::TracingBaseClass<
     /// \brief Construct a new reader handle for a given parent and epoch.
     /// \param parent Pointer to the Async<T> owning the queue and data.
     /// \param epoch Pointer to the epoch being tracked.
-    EpochContextReader(Async<T>* parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch)
+    EpochContextReader(AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch)
     {
       if (epoch_) epoch_->reader_acquire();
     }
@@ -267,7 +271,7 @@ template <typename T> class EpochContextReader : public trace::TracingBaseClass<
     {
       DEBUG_PRECONDITION(epoch_, this);
       DEBUG_PRECONDITION(epoch_->reader_is_ready());
-      return *parent_->data();
+      return parent_->value_;
     }
 
     /// \brief Check whether this epoch is at the front of the queue.
@@ -289,7 +293,7 @@ template <typename T> class EpochContextReader : public trace::TracingBaseClass<
     }
 
   private:
-    Async<T>* parent_ = nullptr;    ///< Container owning the data and queue.
+    AsyncImplPtr<T> parent_;
     EpochContext* epoch_ = nullptr; ///< Epoch currently tracked.
 };
 
@@ -301,10 +305,10 @@ template <typename T> class EpochContextReader : public trace::TracingBaseClass<
 /// release() or automatically on destruction.
 ///
 /// \ingroup async_core
-template <typename T> class EpochContextWriter : public trace::TracingBaseClass<EpochContextWriter<T>> {
+template <typename T> class EpochContextWriter {
   public:
     /// \brief Construct an active writer.
-    EpochContextWriter(Async<T>* parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch)
+    EpochContextWriter(AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept : parent_(parent), epoch_(epoch)
     {
       if (epoch_) epoch_->writer_acquire();
     }
@@ -359,7 +363,7 @@ template <typename T> class EpochContextWriter : public trace::TracingBaseClass<
       DEBUG_PRECONDITION(parent_);                          // the parent_ must exist
       DEBUG_PRECONDITION(parent_->queue_.is_front(epoch_)); // we must be at the front of the queue
       DEBUG_PRECONDITION(!epoch_->writer_is_done());        // writer still holds the gate
-      return *parent_->data();
+      return parent_->value_;
     }
 
     /// \brief Finalize this write gate, if not already done.
@@ -377,7 +381,7 @@ template <typename T> class EpochContextWriter : public trace::TracingBaseClass<
     }
 
   private:
-    Async<T>* parent_ = nullptr;
+    AsyncImplPtr<T> parent_;
     EpochContext* epoch_ = nullptr;
 };
 

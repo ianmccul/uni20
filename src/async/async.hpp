@@ -11,72 +11,99 @@
 
 #include "buffers.hpp"
 #include "epoch_queue.hpp"
+#include <memory>
 
 namespace uni20::async
 {
 
-/// \brief Asynchronous value container supporting ordered R/W via coroutines.
-/// \tparam T The type of the stored value.
+/// \brief Internal reference-counted data and coordination for Async<T>
+///
+/// Holds the actual value of type T and the epoch queue used to
+/// coordinate asynchronous read and write operations.
+///
+/// Instances are managed by shared_ptr and never copied or moved directly.
+/// All access is mediated through owning Async<T> or active buffers.
+template <typename T> struct AsyncImpl
+{
+    T value_;          ///< Stored data
+    EpochQueue queue_; ///< Coordination structure
+
+    AsyncImpl() = default;
+
+    explicit AsyncImpl(const T& val) : value_(val) {}
+    explicit AsyncImpl(T&& val) : value_(std::move(val)) {}
+
+    AsyncImpl(const AsyncImpl&) = delete;
+    AsyncImpl& operator=(const AsyncImpl&) = delete;
+};
+
+template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
+
+/// \brief Async<T> is a move-only container for asynchronously accessed data.
+///
+/// `Async<T>` stores a value of type `T` and mediates access through
+/// epoch-based coordination. The value and access queue are jointly
+/// refcounted by internal shared state, allowing buffer handles
+/// to outlive the owning Async container.
+///
+/// Copying is disabled: deep copy must be performed via explicit kernels.
+///
+/// \note Buffers maintain shared ownership of the internal state, so
+/// `ReadBuffer<T>` and `WriteBuffer<T>` may safely outlive the Async.
+///
+/// \note The value of T must be copyable or movable as appropriate for construction.
 template <typename T> class Async {
   public:
-    /// \brief Default-construct the stored value.
-    /// \post Stored value is value-initialized; no pending operations.
-    constexpr Async() noexcept = default;
+    /// \brief Default-constructs a T value and an empty access queue.
+    Async() : impl_(std::make_shared<AsyncImpl<T>>()) {}
 
-    /// \brief Construct the stored value from \p v.
-    /// \param v Initial value to store.
-    constexpr Async(T v) noexcept : data_(std::move(v)) {}
+    /// \brief Constructs with a copy of an initial value.
+    Async(const T& val) : impl_(std::make_shared<AsyncImpl<T>>(val)) {}
 
-    /// \brief Acquire a snapshot‐read gate awaitable.
-    /// \note The returned ReadBuffer<T> must outlive any references bound to the value
-    ///       returned by co_await, to ensure the snapshot remains valid.
-    /// \return A ReadBuffer<T> that suspends until all prior writes complete and then
-    ///         yields a copy of the stored value.
-    // ReadBuffer<T> read() noexcept { return ReadBuffer<T>(this, queue_.new_reader()); }
-    ReadBuffer<T> read() noexcept { return ReadBuffer<T>(queue_.create_read_context(this)); }
+    /// \brief Constructs with a moved initial value.
+    Async(T&& val) : impl_(std::make_shared<AsyncImpl<T>>(std::move(val))) {}
 
-    /// \brief Acquire an in‐place write gate awaitable.
-    /// \note The returned WriteBuffer<T> must outlive any references bound to its
-    ///       await_resume() result, and any assignment through that reference must
-    ///       occur before the WriteBuffer is destroyed.
-    /// \return A WriteBuffer<T> that suspends until it’s safe to write (after all
-    ///         prior reads and writes), then yields a mutable reference to the value.
-    WriteBuffer<T> write() noexcept { return WriteBuffer<T>(queue_.create_write_context(this)); }
+    Async(const Async&) = delete;
+    Async& operator=(const Async&) = delete;
 
-    /// \brief Blocking access: drive \p sched until all prior writes finish.
-    /// \note In coroutine context it is much better to co_await on a read() or
-    ///       write() buffer.
-    /// \tparam Sched Scheduler type (must implement run()).
-    /// \param sched Scheduler instance used to advance coroutines.
-    /// \return Reference to the stored value.
+    Async(Async&&) noexcept = default;
+    Async& operator=(Async&&) noexcept = default;
+
+    ~Async() = default;
+
+    /// \brief Begin an asynchronous read of the value.
+    /// \return A ReadBuffer<T> which may be co_awaited.
+    ReadBuffer<T> read() noexcept { return ReadBuffer<T>(impl_->queue_.create_read_context(impl_)); }
+
+    /// \brief Begin an asynchronous write to the value.
+    /// \return A WriteBuffer<T> which may be co_awaited.
+    WriteBuffer<T> write() noexcept { return WriteBuffer<T>(impl_->queue_.create_write_context(impl_)); }
+
     template <typename Sched> T& get_wait(Sched& sched)
     {
-      while (queue_.has_pending_writers())
+      while (impl_->queue_.has_pending_writers())
       {
         TRACE("Has pending writers");
         sched.run();
       }
-      return data_;
+      return impl_->value_;
     }
 
     // FiXME: this is a hack for debugging
-    void set(T const& x) { data_ = x; }
+    void set(T const& x) { impl_->value_ = x; }
 
     // FiXME: this is a hack for debugging
-    T value() const { return data_; }
+    T value() const { return impl_->value_; }
+
+    /// \return Direct reference to stored value (for diagnostics only).
+    T const& unsafe_value_ref() const { return impl_->value_; }
+    T& unsafe_value_ref() { return impl_->value_; }
+
+    /// \return Access to underlying implementation (shared with buffers).
+    std::shared_ptr<AsyncImpl<T>> const& impl() const { return impl_; }
 
   private:
-    friend class ReadBuffer<T>;
-    friend class EpochContextReader<T>;
-    friend class WriteBuffer<T>;
-    friend class EpochContextWriter<T>;
-
-    /// \brief Pointer to the stored data.
-    /// \return Address of the contained T.
-    T* data() noexcept { return &data_; }
-
-    T data_;           ///< The stored value.
-    EpochQueue queue_; ///< Underlying R/W synchronization queue.
+    std::shared_ptr<AsyncImpl<T>> impl_;
 };
 
 } // namespace uni20::async

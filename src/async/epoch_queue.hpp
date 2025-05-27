@@ -24,7 +24,7 @@ class EpochQueue {
     /// \tparam T The data type managed by the Async container.
     /// \param parent Pointer to the owning Async<T> instance.
     /// \return A new EpochContextReader<T> bound to the back of the queue.
-    template <typename T> EpochContextReader<T> create_read_context(Async<T>* parent)
+    template <typename T> EpochContextReader<T> create_read_context(AsyncImplPtr<T> const& parent)
     {
       if (queue_.empty())
       {
@@ -47,7 +47,7 @@ class EpochQueue {
     /// \tparam T The data type managed by the Async container.
     /// \param parent Pointer to the owning Async<T> instance.
     /// \return A new EpochContextWriter<T> bound to the back of the queue.
-    template <typename T> EpochContextWriter<T> create_write_context(Async<T>* parent)
+    template <typename T> EpochContextWriter<T> create_write_context(AsyncImplPtr<T> const& parent)
     {
       std::lock_guard lock(mtx_);
       queue_.emplace_back(/*writer_already_done=*/false);
