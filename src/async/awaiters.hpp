@@ -198,4 +198,56 @@ template <typename Aw> constexpr auto try_await(Aw&& aw) noexcept
   return TryAwaiter<Aw>{std::move(aw)};
 }
 
+namespace detail
+{
+/// \brief Awaitable that writes a value to a WriteBuffer<T>.
+///
+/// This awaiter performs a write of a value to an Async<T> object by
+/// acquiring a WriteBuffer<T>, suspending if needed, and assigning the
+/// provided value at resume.
+///
+/// \tparam Buffer A WriteBuffer<T> or compatible wrapper, passed by value or reference.
+/// \tparam Value The type of the value to be written. Moved into the buffer at resume.
+///
+/// \note Use this when you want to write a computed value directly into an Async<T>
+///       in one expression. Especially useful when the WriteBuffer is a temporary.
+///       `co_await write_to(buffer, v)` is equivalent to `auto& vo = co_await buffer; vo = std::move(v)`
+///
+/// \warning The WriteBuffer must not be reused after passing to write_to. It is moved
+///          into the coroutine and consumed during co_await.
+template <typename T, typename Value> class WriteToAwaiter {
+  public:
+    WriteToAwaiter(WriteBuffer<T>&& buffer, Value&& value)
+        : buffer_(std::move(buffer)), value_(std::forward<Value>(value))
+    {
+      static_assert(std::is_convertible_v<Value, T>, "Value must be convertible to T for WriteBuffer<T>");
+    }
+
+    bool await_ready() const noexcept { return buffer_.await_ready(); }
+
+    auto await_suspend(AsyncTask&& t) noexcept { return buffer_.await_suspend(std::move(t)); }
+
+    void await_resume() { buffer_.await_resume() = std::move(value_); }
+
+  private:
+    WriteBuffer<T> buffer_;
+    std::remove_reference_t<Value> value_;
+};
+} // namespace detail
+
+/// \brief Create a coroutine awaiter that writes a value to a WriteBuffer<T>.
+///
+/// Constructs an awaitable object that can be co_awaited to write a given value
+/// into an Async<T> via its WriteBuffer. Ensures lifetime safety and correct
+/// causal ordering when the buffer is a temporary.
+///
+/// \param buffer A WriteBuffer<T>, moved into the coroutine.
+/// \param value The value to assign, moved into the awaiter frame.
+///
+/// \return An awaitable object that performs the write upon resumption.
+template <typename T, typename Value> auto write_to(WriteBuffer<T>&& buffer, Value value)
+{
+  return detail::WriteToAwaiter<T, Value>(std::move(buffer), std::move(value));
+}
+
 } // namespace uni20::async

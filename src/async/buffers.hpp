@@ -48,7 +48,15 @@ template <typename T> class ReadBuffer {
 
     /// \brief Resume execution and return the stored value.
     /// \return Reference to the stored T inside Async<T>.
-    T const& await_resume() const noexcept { return reader_.data(); }
+    T const& await_resume() const& noexcept { return reader_.data(); }
+
+    /// \brief Resume execution and return a copy of the stored value.
+    /// \note Called when co_awaiting on a prvalue ReadBuffer.
+    T await_resume() && noexcept
+    {
+      static_assert(std::is_copy_constructible_v<T>, "Cannot co_await prvalue ReadBuffer<T> unless T is copyable");
+      return reader_.data();
+    }
 
     /// \brief Manually release the epoch reader before awaitable destruction.
     ///
@@ -65,8 +73,9 @@ template <typename T> class ReadBuffer {
     auto operator co_await() & noexcept -> ReadBuffer& { return *this; }
     auto operator co_await() const& noexcept -> ReadBuffer const& { return *this; }
 
-    /// \brief Deleted rvalue co_await to avoid use-after-move or lifetime errors.
-    auto operator co_await() && = delete;
+    /// \brief Enable co_await on rvalue ReadBuffer. Returns by value.
+    /// \note This avoids dangling reference when co_awaiting on a temporary.
+    auto operator co_await() && noexcept -> ReadBuffer&& { return std::move(*this); }
 
   private:
     EpochContextReader<T> reader_; ///< RAII object managing epoch state.
@@ -80,6 +89,13 @@ template <typename T> class ReadBuffer {
 /// binds once and either suspends or proceeds directly based on epoch ordering.
 ///
 /// \note Not copyable. Must not be co_awaited on a temporary.
+/// \note To pass a WriteBuffer into a nested coroutine, use dup() to retain ownership.
+///       Be aware that duplicated WriteBuffers point to the same epoch — they do not
+///       insert additional causality or memory ordering into the queue.
+///
+/// \warning Multiple active WriteBuffers to the same Async<T> are not causally isolated.
+/// It is the user's responsibility to ensure they are not used concurrently or
+/// inconsistently. This is akin to having multiple references to a shared global variable.
 template <typename T> class WriteBuffer {
   public:
     /// \brief Construct a write buffer from an RAII writer handle.
@@ -122,6 +138,14 @@ template <typename T> class WriteBuffer {
   private:
     EpochContextWriter<T> writer_; ///< RAII handle for write coordination.
 
+    /// \brief Duplicate a WriteBuffer to the same epoch and parent.
+    ///
+    /// This creates another WriteBuffer<T> referencing the same EpochContext and Async<T>.
+    /// Use this when passing a WriteBuffer into another coroutine while retaining access in the caller.
+    ///
+    /// \note This does not alter the DAG — no new epoch is created. Both buffers refer to
+    /// the same pending write. The caller must ensure only one write actually occurs, or
+    /// they are otherwise syncronized.
     friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
 };
 
