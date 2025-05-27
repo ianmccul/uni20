@@ -202,10 +202,13 @@ template <typename T> class EpochContextReader : public trace::TracingBaseClass<
 
     EpochContextReader& operator=(EpochContextReader const& other)
     {
-      if (other.epoch_) other.epoch_->reader_acquire();
-      this->release();
-      parent_ = other.parent_;
-      epoch_ = other.epoch_;
+      if (this != &other)
+      {
+        if (other.epoch_) other.epoch_->reader_acquire();
+        this->release();
+        parent_ = other.parent_;
+        epoch_ = other.epoch_;
+      }
       return *this;
     }
 
@@ -253,7 +256,7 @@ template <typename T> class EpochContextReader : public trace::TracingBaseClass<
     /// \return True if all prerequisites for this epoch are satisfied.
     bool ready() const noexcept
     {
-      DEBUG_PRECONDITION(epoch_);
+      DEBUG_PRECONDITION(epoch_, this);
       return epoch_->reader_is_ready();
     }
 
@@ -262,7 +265,7 @@ template <typename T> class EpochContextReader : public trace::TracingBaseClass<
     /// \pre The value must be ready. Should only be called after await_ready() returns true.
     T const& data() const noexcept
     {
-      DEBUG_PRECONDITION(epoch_);
+      DEBUG_PRECONDITION(epoch_, this);
       DEBUG_PRECONDITION(epoch_->reader_is_ready());
       return *parent_->data();
     }
@@ -271,7 +274,7 @@ template <typename T> class EpochContextReader : public trace::TracingBaseClass<
     /// \return True if the associated epoch is the head of the epoch queue.
     bool is_front() const noexcept
     {
-      DEBUG_PRECONDITION(epoch_);
+      DEBUG_PRECONDITION(epoch_, this);
       return parent_->queue_.is_front(epoch_);
     }
 

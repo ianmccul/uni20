@@ -2,6 +2,11 @@
 /// \brief The Async<T> container: coroutine‐safe asynchronous read/write.
 /// \ingroup async_api
 
+// NOTE: Immediately-invoked coroutine lambdas must not capture variables.
+// Captures (by reference or value) are stored in the lambda frame, which is destroyed
+// after the lambda returns. If the coroutine suspends, any captured state becomes dangling.
+// Instead, pass all needed data via parameters, which are safely moved into the coroutine frame.
+
 #pragma once
 
 #include "buffers.hpp"
@@ -54,8 +59,10 @@ template <typename T> class Async {
       return data_;
     }
 
+    // FiXME: this is a hack for debugging
     void set(T const& x) { data_ = x; }
 
+    // FiXME: this is a hack for debugging
     T value() const { return data_; }
 
   private:
