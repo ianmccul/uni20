@@ -14,15 +14,53 @@ namespace uni20::async
 /// \defgroup async_api Asynchronous Expression System
 /// @{
 
-/// \brief Trait: true if any argument is an Async<T>
-/// \ingroup async_api
-template <typename T> struct is_async : std::false_type
-{};
+/// \brief concept for a valid type that behaves as ar read buffer awaitable.
+///        This requires that `T x = co_await a` is valid.
+template <typename Awaitable, typename T>
+concept read_buffer_awaitable =
+    requires(Awaitable a) { requires std::constructible_from<T, decltype(a.await_resume())>; };
 
-template <typename T> struct is_async<Async<T>> : std::true_type
-{};
+/// \brief concept for a valid type that behaves as a write buffer awaitable
+///        This requires that `T x; co_await a = x` is valid.
+template <typename Awaitable, typename T>
+concept write_buffer_awaitable =
+    requires(Awaitable a, T x) { requires std::assignable_from<decltype(a.await_resume()), T>; };
 
-template <typename T> constexpr bool is_async_v = is_async<std::remove_cvref_t<T>>::value;
+/// \brief concept for a valid type that behaves as a write buffer that is also readable
+///        This requires that `T x = co_await a; co_await a = x` is valid
+template <typename Awaitable, typename T>
+concept read_write_buffer_awaitable = read_buffer_awaitable<Awaitable, T> && write_buffer_awaitable<Awaitable, T>;
+
+/// \brief concept for a type that behaves like an asyncronous reader: it has a read() function that returns an
+///        awaiter that is convertible to the nested value_type
+template <typename T>
+concept async_reader =
+    requires(std::remove_cvref_t<T> t) {
+      typename std::remove_cvref_t<T>::value_type;
+      requires read_buffer_awaitable<decltype(t.read()), typename std::remove_cvref_t<T>::value_type>;
+    };
+
+/// \brief concept for a type that behaves like an asyncronous writer: it has a write() function that returns an
+///        awaiter that can be assigned from the nested value_type
+template <typename T>
+concept async_writer =
+    requires(std::remove_cvref_t<T> t) {
+      typename std::remove_cvref_t<T>::value_type;
+      requires write_buffer_awaitable<decltype(t.write()), typename std::remove_cvref_t<T>::value_type>;
+    };
+
+/// \brief concept for a type that behaves like an asyncronous writer that is also readable:
+///        it has a write() function that returns an awaiter that can be assigned from the nested value_type,
+///        and also read from
+template <typename T>
+concept async_read_writer = requires(T t) {
+                              typename T::value_type;
+                              requires read_write_buffer_awaitable<decltype(t.write()), typename T::value_type>;
+                            };
+
+/// \brief concept for a type that behaves like an asyncronous reader and writer (like Async<T>)
+template <typename T>
+concept async_like = async_reader<T> && async_writer<T>;
 
 /// \brief Awaitable wrapper for scalar values used in async expressions.
 ///
@@ -56,15 +94,11 @@ template <typename T> struct ValueAwaiter
 /// Wraps a scalar value into an awaitable that can be co_awaited like an Async buffer.
 /// \ingroup async_api
 template <typename T>
-  requires(!is_async_v<T>)
+  requires(!async_like<std::remove_cvref_t<T>>)
 ValueAwaiter<std::remove_cvref_t<T>> read(T&& x)
 {
   return ValueAwaiter<std::remove_cvref_t<T>>{std::forward<T>(x)};
 }
-
-// true if any of the arguments is Async<T> fomr some T
-template <typename... Args>
-constexpr bool contains_an_async = (false || ... || is_async<std::remove_cvref_t<Args>>::value);
 
 /// \brief Strip Async<T> to T for type deduction
 /// \ingroup async_api
@@ -90,17 +124,25 @@ using async_binary_result_t =
 
 /// \brief Concept to determine if Op(T,U) is a candidate for forwarding for Async
 template <typename T, typename U, typename Op>
-concept async_binary_applicable = (is_async_v<T> || is_async_v<U>) &&
+concept async_binary_applicable = (async_reader<std::remove_cvref_t<T>> || async_reader<std::remove_cvref_t<U>>) &&
                                   requires(Op op, async_value_t<T> t, async_value_t<U> u) {
                                     {
                                       op(t, u)
                                     };
                                   };
 
+/// \brief concept for validating a binary operation
+///        true if co_await out.write() = op(a,b) is valid
+template <typename A, typename B, typename Writer, typename Op>
+concept async_binary_assignable =
+    async_writer<Writer> && requires(Op op, async_value_t<A> a, async_value_t<B> b, Writer& out) {
+                              requires std::assignable_from<decltype(out.write().await_resume()), decltype(op(a, b))>;
+                            };
+
 template <typename T, typename U, typename Op>
-concept is_async_compound_applicable = is_async_v<T> && requires(async_value_t<T>& lhs, async_value_t<U>&& rhs, Op op) {
-                                                          op(lhs, std::forward<async_value_t<U>>(rhs));
-                                                        };
+concept is_async_compound_applicable =
+    async_read_writer<std::remove_reference_t<T>> &&
+    requires(async_value_t<T>& lhs, async_value_t<U>&& rhs, Op op) { op(lhs, std::forward<async_value_t<U>>(rhs)); };
 
 // Example using move semantics
 // template <typename A, typename B, typename R, typename Op> void async_binary_op(A&& a, B&& b, Async<R>& out, Op op)
@@ -125,16 +167,15 @@ concept is_async_compound_applicable = is_async_v<T> && requires(async_value_t<T
 /// \tparam R Result value type
 /// \tparam Op Callable with signature R(op(A, B))
 /// \ingroup async_api
-template <typename A, typename B, typename R, typename Op> void async_binary_op(A&& a, B&& b, Async<R>& out, Op op)
+template <typename A, typename B, async_writer Writer, typename Op>
+  requires async_binary_applicable<A, B, Op>
+void async_binary_op(A&& a, B&& b, Writer& out, Op op)
 {
   auto a_buf = read(std::forward<A>(a));
   auto b_buf = read(std::forward<B>(b));
   auto out_buf = out.write();
 
-  schedule([](auto a_, auto b_, WriteBuffer<R> out_, Op op_) -> AsyncTask {
-    // auto& [va, vb] = make_ref(co_await all(a_, b_));
-    // TRACE(&va, &vb);
-    // auto tmp = op_(va, vb);
+  schedule([](auto a_, auto b_, auto out_, Op op_) -> AsyncTask {
     auto ab = co_await all(a_, b_);
     auto tmp = op_(std::get<0>(ab), std::get<1>(ab));
     a_.release();

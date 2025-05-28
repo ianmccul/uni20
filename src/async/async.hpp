@@ -58,6 +58,8 @@ template <typename T> struct AsyncImpl
 /// \note The value of T must be copyable or movable as appropriate for construction.
 template <typename T> class Async {
   public:
+    using value_type = T;
+
     /// \brief Default-constructs a T value and an empty access queue.
     Async() : impl_(std::make_shared<detail::AsyncImpl<T>>()) {}
 
