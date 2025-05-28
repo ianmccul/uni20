@@ -48,10 +48,12 @@ struct AllAwaiter
     }
 
     /// \brief Resume all awaiters and collect their results.
-    /// \return Tuple of each await_resume() value.
+    /// \return Tuple of each await_resume() value. Make sure we preserve the exact type
+    /// returned by the client awaiters, so references are preserved.
     auto await_resume()
     {
-      return std::apply([](auto&... w) { return std::make_tuple(w.await_resume()...); }, bufs_);
+      return std::apply([](auto&&... w) -> decltype(auto) { return std::forward_as_tuple(w.await_resume()...); },
+                        bufs_);
     }
 
   private:

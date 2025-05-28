@@ -16,14 +16,25 @@ namespace uni20::async
 
 template <typename T> class Async;
 
-/// \brief Awaitable read-gate for an Async<T> value.
+/// \brief RAII handle for reading the value from an Async container at a given epoch.
 ///
-/// Represents one reader of an Async<T> value within a single epoch.
-/// Constructed from an EpochContextReader<T>, which manages all coordination
-/// with the EpochQueue. This buffer is a move-only coroutine awaiter that
-/// suspends and resumes once.
+/// A ReadBuffer<T> represents a read-only access to the value of an Async<T>
+/// at a specific epoch. It is awaitable, and yields either a reference or value
+/// depending on value category:
 ///
-/// \note Not copyable. Must not be co_awaited on a temporary.
+/// - `co_await buf` yields `T const&`: shared read access.
+/// - `co_await std::move(buf)` yields `T` for exclusive read access. The buffer
+///   will attempt to move the value if it is the last reader; otherwise it will copy.
+///
+/// \note The `std::move(buf)` form is recommended when the buffer will be consumed
+///       immediately, such as when assigning to a local variable.
+///
+/// \note A `ReadBuffer<T>` can be co_awaited multiple times, but `std::move(buf)`
+///       transfers ownership semantics and should only be used once. After moving,
+///       further use is undefined.
+///
+/// \tparam T The underlying value type.
+// TODO: actually moving the value is not yet implemented
 template <typename T> class ReadBuffer {
   public:
     /// \brief Construct a read buffer tied to a reader context.

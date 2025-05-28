@@ -94,6 +94,8 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask {
     //  private:
     handle_type h_; ///< Underlying coroutine handle.
 
+    inline static IScheduler* sched_ = nullptr;
+
     /// \brief Construct from a coroutine handle.
     /// \param h The coroutine handle.
     explicit BasicAsyncTask(std::coroutine_handle<promise_type> h) noexcept : h_(h) {}

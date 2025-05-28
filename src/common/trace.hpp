@@ -310,8 +310,8 @@ namespace trace
 
 struct FormattingOptions;
 
-/// \brief get the FormattingOptions object for a given module; use "" as the module name (or default parameter) for the
-/// global format
+/// \brief get the FormattingOptions object for a given module; use "" as the module name (or default parameter) for
+/// the global format
 inline FormattingOptions& get_formatting_options(const std::string& module = "");
 
 /// \brief Configuration and formatting options for a trace module.
@@ -597,7 +597,8 @@ struct FormattingOptions
     }
 
     /// Format text using this module's style for the given kind.
-    // std::string format_module_style(const std::string& str, const std::string& kind, const std::string& module) const
+    // std::string format_module_style(const std::string& str, const std::string& kind, const std::string& module)
+    // const
     // {
     //   return showColor ? terminal::color_text(str, get_module_terminal_style(kind, module)) : str;
     // }
@@ -1154,7 +1155,7 @@ template <typename... Args> void TraceCall(const char* exprList, const char* fil
   if (opts.showThreadId)
   {
     auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("[TID {:>8x}] ", id);
+    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
     th = opts.format_style(th, "THREAD_ID");
   }
 
@@ -1183,7 +1184,7 @@ void TraceModuleCall(const char* module, const char* exprList, const char* file,
   if (opts.showThreadId)
   {
     auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("[TID {:>8x}] ", id);
+    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
     th = opts.format_style(th, "THREAD_ID");
   }
 
@@ -1210,7 +1211,7 @@ template <typename... Args> void DebugTraceCall(const char* exprList, const char
   if (opts.showThreadId)
   {
     auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("[TID {:>8x}] ", id);
+    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
     th = opts.format_style(th, "THREAD_ID");
   }
 
@@ -1238,7 +1239,7 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
   if (opts.showThreadId)
   {
     auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("[TID {:>8x}] ", id);
+    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
     th = opts.format_style(th, "THREAD_ID");
   }
 

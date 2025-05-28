@@ -16,6 +16,8 @@
 namespace uni20::async
 {
 
+class DebugScheduler;
+
 namespace detail
 {
 /// \brief Internal reference-counted data and coordination for Async<T>
@@ -38,6 +40,7 @@ template <typename T> struct AsyncImpl
     AsyncImpl(const AsyncImpl&) = delete;
     AsyncImpl& operator=(const AsyncImpl&) = delete;
 };
+
 } // namespace detail
 
 /// \brief Async<T> is a move-only container for asynchronously accessed data.
@@ -65,7 +68,15 @@ template <typename T> class Async {
     Async(T&& val) : impl_(std::make_shared<detail::AsyncImpl<T>>(std::move(val))) {}
 
     Async(const Async&) = delete;
-    Async& operator=(const Async&) = delete;
+
+    Async& operator=(const Async& rhs)
+    {
+      if (this != &rhs)
+      {
+        async_assign(rhs, *this);
+      }
+      return *this;
+    }
 
     Async(Async&&) noexcept = default;
     Async& operator=(Async&&) noexcept = default;
@@ -74,11 +85,11 @@ template <typename T> class Async {
 
     /// \brief Begin an asynchronous read of the value.
     /// \return A ReadBuffer<T> which may be co_awaited.
-    ReadBuffer<T> read() noexcept { return ReadBuffer<T>(impl_->queue_.create_read_context(impl_)); }
+    ReadBuffer<T> read() const noexcept { return ReadBuffer<T>(impl_->queue_.create_read_context(impl_)); }
 
     /// \brief Begin an asynchronous write to the value.
     /// \return A WriteBuffer<T> which may be co_awaited.
-    WriteBuffer<T> write() noexcept { return WriteBuffer<T>(impl_->queue_.create_write_context(impl_)); }
+    WriteBuffer<T> write() const noexcept { return WriteBuffer<T>(impl_->queue_.create_write_context(impl_)); }
 
     template <typename Sched> T& get_wait(Sched& sched)
     {
@@ -89,6 +100,10 @@ template <typename T> class Async {
       }
       return impl_->value_;
     }
+
+    T& get_wait();
+
+    T const& get_wait() const;
 
     // FiXME: this is a hack for debugging
     void set(T const& x) { impl_->value_ = x; }
@@ -106,5 +121,8 @@ template <typename T> class Async {
   private:
     std::shared_ptr<detail::AsyncImpl<T>> impl_;
 };
+
+template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
+template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
 
 } // namespace uni20::async

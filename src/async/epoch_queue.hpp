@@ -50,6 +50,14 @@ class EpochQueue {
     template <typename T> EpochContextWriter<T> create_write_context(detail::AsyncImplPtr<T> const& parent)
     {
       std::lock_guard lock(mtx_);
+
+      // Now that we have a new epoch, prune drained epochs from the front of the queue
+      while (!queue_.empty() && queue_.front().writer_is_done() && queue_.front().reader_is_empty())
+      {
+        TRACE("EpochQueue: removing drained front epoch before new writer", &queue_.front());
+        queue_.pop_front(); // Assumes pop() updates front safely
+      }
+
       queue_.emplace_back(/*writer_already_done=*/false);
       TRACE("EpochQueue: create_write_context, queue size:", queue_.size());
       return EpochContextWriter<T>(parent, &queue_.back());
@@ -106,12 +114,14 @@ class EpochQueue {
       std::unique_lock lock(mtx_);
       if (e != &queue_.front())
       {
+        TRACE("Finished writer is not at the front of the queue; not advancing");
         return;
       }
       // If readers are waiting, schedule them first
       auto readers = e->reader_take_tasks();
       if (!readers.empty())
       {
+        TRACE("Finished writer results in some readers getting rescheduled");
         lock.unlock();
         for (auto&& task : readers)
         {
@@ -119,11 +129,14 @@ class EpochQueue {
         }
         return;
       }
-      // No readers: pop this epoch and advance
-      TRACE("advancing an epoch!");
-      queue_.pop_front();
-      lock.unlock();
-      advance();
+      if (e->reader_is_empty())
+      {
+        // No readers: pop this epoch and advance
+        TRACE("advancing an epoch!");
+        queue_.pop_front();
+        lock.unlock();
+        advance();
+      }
     }
 
     /// \brief Called when the last reader of an EpochContext has been released.

@@ -30,6 +30,10 @@ class DebugScheduler final : public IScheduler {
       }
     }
 
+    inline static DebugScheduler* global_scheduler = nullptr;
+
+    bool can_run() const noexcept { return !Handles_.empty(); }
+
     /// \brief Run one batch of scheduled coroutines (in LIFO order).
     void run();
 
@@ -51,6 +55,44 @@ class DebugScheduler final : public IScheduler {
 
     std::vector<AsyncTask> Handles_;
 };
+
+inline void set_global_scheduler(DebugScheduler* sched) { DebugScheduler::global_scheduler = sched; }
+
+inline DebugScheduler* get_global_scheduler() { return DebugScheduler::global_scheduler; }
+
+inline void schedule(AsyncTask&& task) { get_global_scheduler()->schedule(std::move(task)); }
+
+template <typename T> T& Async<T>::get_wait()
+{
+  auto* sched = get_global_scheduler();
+  while (impl_->queue_.has_pending_writers())
+  {
+    auto ds = dynamic_cast<DebugScheduler*>(sched);
+    if (ds)
+    {
+      CHECK(ds->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+    }
+    TRACE("Async::get_wait: has pending writers");
+    sched->run();
+  }
+  return impl_->value_;
+}
+
+template <typename T> T const& Async<T>::get_wait() const
+{
+  auto* sched = get_global_scheduler();
+  while (impl_->queue_.has_pending_writers())
+  {
+    auto ds = dynamic_cast<DebugScheduler*>(sched);
+    if (ds)
+    {
+      CHECK(ds->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+    }
+    TRACE("Async::get_wait: has pending writers");
+    sched->run();
+  }
+  return impl_->value_;
+}
 
 //-----------------------------------------------------------------------------
 // Inline definitions

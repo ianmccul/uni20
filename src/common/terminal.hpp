@@ -191,10 +191,8 @@ constexpr ColorAttribute& operator|=(ColorAttribute& lhs, ColorAttribute rhs)
 /// \brief A simple yes/no toggle that parses from a string.
 ///
 /// Accepts "yes", "true", "1" (case-insensitive) as true,
-/// and "no", "false", "0" as false. An empty string is treated as true.
-/// Unrecognized values also default to true.
-///
-/// Useful for parsing environment variables and optional flags.
+/// and "no", "false", "0" as false. An empty string or unregognised
+/// value returns the default_value, which itself defaults to true.
 struct toggle
 {
     bool value;
