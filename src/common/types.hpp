@@ -12,13 +12,32 @@ namespace uni20
 using size_type = std::ptrdiff_t;
 using index_type = std::ptrdiff_t;
 
-// We sometimes need to extract the element_type from a proxy reference
-template <typename R> struct remove_proxy_reference
-{
-    using type = std::remove_cv_t<std::remove_reference_t<R>>;
-};
+/// \brief Trait for extracting the element type from a proxy reference.
+///
+/// This is a customization point: user-defined proxy types should specialize this template
+/// for their proxy wrapper `Proxy<T>`, mapping it to `T`.
+///
+/// The default implementation removes only the reference qualifier (not CV).
+/// CV and reference qualifications are handled automatically by the wrapper logic.
+template <typename R> struct remove_proxy_reference : std::remove_reference<R>
+{};
 
-template <typename R> using remove_proxy_reference_t = typename remove_proxy_reference<R>::type;
+/// \brief Detects whether a type is considered a proxy reference.
+///
+/// Evaluates to true if `remove_proxy_reference` changes the type,
+/// i.e., if the transformation produces a different type than the CV-ref stripped input.
+template <typename R>
+constexpr bool is_proxy_v =
+    !std::is_same_v<typename remove_proxy_reference<std::remove_cvref_t<R>>::type, std::remove_cvref_t<R>>;
+
+/// \brief Extracts the underlying value type of a proxy (or normal) reference.
+///
+/// If the type is detected as a proxy via `is_proxy_v`, removes the proxy
+/// wrapper and CV qualifiers. Otherwise, removes only the reference qualifier.
+template <typename R>
+using remove_proxy_reference_t =
+    std::conditional_t<is_proxy_v<R>, typename remove_proxy_reference<std::remove_cvref_t<R>>::type,
+                       std::remove_reference_t<R>>;
 
 // aliases for types
 
@@ -46,7 +65,7 @@ template <> struct is_real_t<double> : std::true_type
 template <> struct is_real_t<long double> : std::true_type
 {};
 
-template <typename T> constexpr bool is_real = is_real_t<T>::value;
+template <typename T> constexpr bool is_real = is_real_t<std::remove_cvref_t<T>>::value;
 
 // is_complex
 // A trait for determining whether a type is treated as complex,
@@ -56,14 +75,14 @@ template <typename T> struct is_complex_t : std::false_type
 template <typename T> struct is_complex_t<std::complex<T>> : std::true_type
 {};
 
-template <typename T> constexpr bool is_complex = is_complex_t<T>::value;
+template <typename T> constexpr bool is_complex = is_complex_t<std::remove_cvref_t<T>>::value;
 
 // is_integer
 // A trait to check for an integer type (excluding bool)
 template <typename T> struct is_integer_t : std::bool_constant<std::integral<T> && (!std::same_as<T, bool>)>
 {};
 
-template <typename T> constexpr bool is_integer = is_integer_t<T>::value;
+template <typename T> constexpr bool is_integer = is_integer_t<std::remove_cvref_t<T>>::value;
 
 //
 // Concepts
