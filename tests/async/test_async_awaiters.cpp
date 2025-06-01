@@ -13,13 +13,13 @@ TEST(AsyncAwaitersTest, TryAwaitReady)
   DebugScheduler sched;
   int count = 0;
 
-  auto task = [&count](ReadBuffer<int> rbuf) -> AsyncTask {
+  auto task = [](int& count, ReadBuffer<int> rbuf) -> AsyncTask {
     auto opt = co_await try_await(rbuf);
     EXPECT_TRUE(opt.has_value());
     EXPECT_EQ(*opt, 123);
     ++count;
     co_return;
-  }(a.read());
+  }(count, a.read());
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -32,21 +32,21 @@ TEST(AsyncAwaitersTest, TryAwaitFailsThenSucceeds)
   Async<int> a;
   DebugScheduler sched;
 
-  auto writer = [&count](WriteBuffer<int> w) -> AsyncTask {
+  auto writer = [](int& count, WriteBuffer<int> w) -> AsyncTask {
     auto& ref = co_await w;
     ref = 99;
     ++count;
     co_return;
-  }(a.write());
+  }(count, a.write());
 
-  auto task = [&count](ReadBuffer<int> rbuf) -> AsyncTask {
+  auto task = [](int& count, ReadBuffer<int> rbuf) -> AsyncTask {
     auto opt = co_await try_await(rbuf);
     EXPECT_FALSE(opt.has_value());
     auto& val = co_await rbuf;
     EXPECT_EQ(val, 99);
     ++count;
     co_return;
-  }(a.read());
+  }(count, a.read());
 
   sched.schedule(std::move(task));
   sched.run_all();

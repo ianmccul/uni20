@@ -37,6 +37,8 @@ template <typename T> class Async;
 // TODO: actually moving the value is not yet implemented
 template <typename T> class ReadBuffer {
   public:
+    using value_type = T;
+
     /// \brief Construct a read buffer tied to a reader context.
     /// \param reader The RAII epoch reader handle for this operation.
     explicit ReadBuffer(EpochContextReader<T> reader) : reader_(std::move(reader)) {}
@@ -109,6 +111,9 @@ template <typename T> class ReadBuffer {
 /// inconsistently. This is akin to having multiple references to a shared global variable.
 template <typename T> class WriteBuffer {
   public:
+    using value_type = T;
+    using element_type = T&;
+
     /// \brief Construct a write buffer from an RAII writer handle.
     explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
 
@@ -136,6 +141,10 @@ template <typename T> class WriteBuffer {
     /// This may be called before destruction if the write is complete.
     /// It is safe and idempotent to call more than once.
     void release() noexcept { writer_.release(); }
+
+    /// \brief Flag the buffer that any tasks waiting on it should be destroyed if the buffer
+    ///        is released without being written to.
+    void destroy_if_unwritten() noexcept { writer_.destroy_if_unwritten(); }
 
     /// \brief Enable co_await on lvalue WriteBuffer only.
     ///

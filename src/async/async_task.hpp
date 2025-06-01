@@ -28,8 +28,11 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask {
     using promise_type = Promise;
     using handle_type = std::coroutine_handle<promise_type>;
 
-    /// \brief Destroy the coroutine if still present.
-    ~BasicAsyncTask();
+    /// \brief release the coroutine
+    ~BasicAsyncTask() noexcept;
+
+    /// \brief Drop the reference to the coroutine handle, destroying it if we are the least reference
+    void release() noexcept;
 
     // bool done() const noexcept { return !h_ || h_.done(); }
 
@@ -37,8 +40,18 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask {
     /// \return true if the handle is non-null.
     explicit operator bool() const noexcept { return static_cast<bool>(h_); }
 
-    /// \brief Resume the coroutine; null the coroutine handle if ownership has been transferred
+    /// \brief Resume the coroutine
+    /// \pre We are the sole owner of the coroutine
+    /// \note This releases ownership to the scheduler
     void resume();
+
+    /// \brief Indicate that the coroutine should be destroyed rather than resumed
+    void destroy_on_resume() noexcept;
+
+    /// \brief Destroy the coroutine
+    /// \pre We are the sole owner of the coroutine
+    /// \note This releases ownership
+    void destroy() noexcept;
 
     /// \brief Attempt to set the coroutine scheduler to use when rescheduling the task.
     /// \return true if the handle is non-null (in which case the scheduler has been set)

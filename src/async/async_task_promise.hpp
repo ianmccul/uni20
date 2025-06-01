@@ -75,13 +75,31 @@ struct BasicAsyncTaskPromise
     /// \brief Scheduler to notify when the coroutine is ready to resume.
     IScheduler* sched_ = nullptr;
 
+    std::coroutine_handle<promise_type> continuation_ = nullptr;
+
     /// \brief Number of active awaiters (owners) of this coroutine.
     ///        This is exactly equal to the number of AsyncTask instances that refer to this coroutine.
     /// \note When the count reaches zero, the coroutine is considered unowned.
     ///       Ownership must be transferred explicitly using take_ownership().
     std::atomic<int> awaiter_count = 0;
 
-    std::coroutine_handle<> continuation_ = nullptr;
+    /// \brief indicates that the coroutine should be destroyed instead of resuming
+    std::atomic<bool> destroy_on_resume_ = false;
+
+    void destroy_on_resume() noexcept { destroy_on_resume_.store(true, std::memory_order_release); }
+
+    bool is_destroy_on_resume() const noexcept { return destroy_on_resume_.load(std::memory_order_acquire); }
+
+    /// \brief safely destroy this coroutine, returning the continuation_ (which also must now be destroyed)
+    std::coroutine_handle<promise_type> destroy_with_continuation() noexcept
+    {
+      auto c = continuation_;
+      continuation_ = nullptr;
+      std::coroutine_handle<promise_type>::from_promise(*this).destroy();
+      return c;
+    }
+
+    ~BasicAsyncTaskPromise() noexcept { DEBUG_CHECK_EQUAL(continuation_, nullptr); }
 
     /// \brief Decrease the number of active awaiters by one.
     /// \return true if this was the last awaiter and the coroutine is now unowned.
@@ -134,7 +152,7 @@ struct BasicAsyncTaskPromise
     /// \return A newly constructed AsyncTask that takes ownership of the coroutine.
     AsyncTask take_ownership() noexcept
     {
-      int prior_count = this->add_awaiter();
+      [[maybe_unused]] int prior_count = this->add_awaiter();
       DEBUG_CHECK_EQUAL(prior_count, 0, "expected handle to be previously unowned!");
       return AsyncTask{std::coroutine_handle<promise_type>::from_promise(*this)};
     }
@@ -186,7 +204,10 @@ struct BasicAsyncTaskPromise
             TRACE("Final suspend of coroutine", h, continuation);
             h.destroy();
             TRACE("Destroy is done");
-            return continuation ? continuation : std::noop_coroutine();
+            if (continuation)
+              return continuation;
+            else
+              return std::noop_coroutine();
           }
 
           void await_resume() noexcept {}
@@ -272,7 +293,7 @@ class AsyncTaskFactory {
     /// \param count The number of AsyncTask instances to dispense.
     AsyncTaskFactory(HandleType h, int count) : handle_(h), count_(count)
     {
-      int prior_count = handle_.promise().add_awaiter(count);
+      [[maybe_unused]] int prior_count = handle_.promise().add_awaiter(count);
       DEBUG_CHECK_EQUAL(prior_count, 0, "expected handle to be previously unowned!");
       // if we requested zero references, then we can destroy the handle immediately
       if (count_ == 0) handle_.destroy();
@@ -384,13 +405,34 @@ template <typename T> void BasicAsyncTask<T>::resume()
   TRACE("Resuming AsyncTask", h_);
   if (!h_.promise().release_awaiter()) PANIC("Attempt to resume() a non-exclusive AsyncTask");
 
+  bool to_destroy = h_.promise().is_destroy_on_resume();
+
   auto handle = h_;
   h_ = nullptr; // Always drop ownership, we are now effectively in a 'moved from' state
   // we need to do this *before* calling h_.resume(), because it is possible that this AsyncTask
   // is on that coroutine frame, and it might get destroyed.
 
-  handle.resume();
+  if (to_destroy)
+  {
+    // if we need to destroy the coroutine, recursively destroy any continuations as well
+    while (handle)
+    {
+      TRACE("Destroying AsyncTask", handle);
+      handle = handle.promise().destroy_with_continuation();
+    }
+  }
+  else
+  {
+    handle.resume();
+  }
+
   TRACE("returned from coroutine::resume");
+}
+
+template <typename T> void BasicAsyncTask<T>::destroy_on_resume() noexcept
+{
+  CHECK(h_);
+  h_.promise().destroy_on_resume();
 }
 
 template <typename T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
@@ -405,15 +447,20 @@ template <typename T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsync
   return *this;
 }
 
-template <typename T> BasicAsyncTask<T>::~BasicAsyncTask()
+template <typename T> void BasicAsyncTask<T>::release() noexcept
 {
   TRACE("Destroying AsyncTask", this, h_);
   if (h_ && h_.promise().release_awaiter())
   {
-    TRACE("AsyncTask destructor is destroying the coroutine!", this, h_);
-    h_.destroy(); // We are the last owner, safe to destroy
+    while (h_)
+    {
+      TRACE("AsyncTask destructor is destroying the coroutine!", this, h_);
+      h_ = h_.promise().destroy_with_continuation();
+    }
   }
 }
+
+template <typename T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept { this->release(); }
 
 template <typename T> bool BasicAsyncTask<T>::set_scheduler(IScheduler* sched)
 {

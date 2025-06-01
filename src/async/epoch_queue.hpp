@@ -153,7 +153,7 @@ class EpochQueue {
       TRACE("readers finished - we might be able to advance the epoch");
       DEBUG_CHECK(e->reader_is_empty());
       std::unique_lock lock(mtx_);
-      // Only pop if this is the front epoch and fully done
+      //  Only pop if this is the front epoch and fully done
       if (&queue_.front() != e || !e->writer_is_done())
       {
         return;

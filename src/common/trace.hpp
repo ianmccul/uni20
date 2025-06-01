@@ -29,6 +29,10 @@
 #define TRACE_HAS_STACKTRACE 0
 #endif
 
+#ifndef TRACE_DISABLE
+#define TRACE_DISABLE 0
+#endif
+
 // stringize helper (two levels needed so that macro args expand first)
 #define TRACE_STRINGIZE_IMPL(x) #x
 #define TRACE_STRINGIZE(x) TRACE_STRINGIZE_IMPL(x)
@@ -71,17 +75,7 @@
     {}                                                                                                                 \
     else                                                                                                               \
     {                                                                                                                  \
-      trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                    \
-    }                                                                                                                  \
-  }                                                                                                                    \
-  while (0)
-
-#define TRACE_IF(cond, ...)                                                                                            \
-  do                                                                                                                   \
-  {                                                                                                                    \
-    if (cond)                                                                                                          \
-    {                                                                                                                  \
-      if consteval                                                                                                     \
+      if constexpr (TRACE_DISABLE)                                                                                     \
       {}                                                                                                               \
       else                                                                                                             \
       {                                                                                                                \
@@ -91,16 +85,43 @@
   }                                                                                                                    \
   while (0)
 
+#define TRACE_IF(cond, ...)                                                                                            \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (TRACE_DISABLE)                                                                                     \
+      {}                                                                                                               \
+      else if (cond)                                                                                                   \
+      {                                                                                                                \
+        if consteval                                                                                                   \
+        {}                                                                                                             \
+        else                                                                                                           \
+        {                                                                                                              \
+          trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
 #define TRACE_MODULE(m, ...)                                                                                           \
   do                                                                                                                   \
   {                                                                                                                    \
-    if constexpr (ENABLE_TRACE_##m)                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
     {                                                                                                                  \
-      if consteval                                                                                                     \
-      {}                                                                                                               \
-      else                                                                                                             \
+      if constexpr (ENABLE_TRACE_##m)                                                                                  \
       {                                                                                                                \
-        trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
+        if constexpr (TRACE_DISABLE)                                                                                   \
+        {}                                                                                                             \
+        else                                                                                                           \
+        {                                                                                                              \
+          trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
+        }                                                                                                              \
       }                                                                                                                \
     }                                                                                                                  \
   }                                                                                                                    \
@@ -109,15 +130,20 @@
 #define TRACE_MODULE_IF(m, cond, ...)                                                                                  \
   do                                                                                                                   \
   {                                                                                                                    \
-    if constexpr (ENABLE_TRACE_##m)                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
     {                                                                                                                  \
-      if (cond)                                                                                                        \
+      if constexpr (ENABLE_TRACE_##m)                                                                                  \
       {                                                                                                                \
-        if consteval                                                                                                   \
-        {}                                                                                                             \
-        else                                                                                                           \
+        if (cond)                                                                                                      \
         {                                                                                                              \
-          trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
+          if constexpr (TRACE_DISABLE)                                                                                 \
+          {}                                                                                                           \
+          else                                                                                                         \
+          {                                                                                                            \
+            trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                    \
+          }                                                                                                            \
         }                                                                                                              \
       }                                                                                                                \
     }                                                                                                                  \
@@ -225,12 +251,22 @@
   while (0)
 #else
 
-#define DEBUG_TRACE(...) trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));
+#define DEBUG_TRACE(...)                                                                                               \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if constexpr (TRACE_DISABLE)                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+      trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                               \
+  }                                                                                                                    \
+  while (0)
 
 #define DEBUG_TRACE_IF(cond, ...)                                                                                      \
   do                                                                                                                   \
   {                                                                                                                    \
-    if (cond)                                                                                                          \
+    if constexpr (TRACE_DISABLE)                                                                                       \
+    {}                                                                                                                 \
+    else if (cond)                                                                                                     \
     {                                                                                                                  \
       trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                               \
     }                                                                                                                  \
@@ -240,7 +276,9 @@
 #define DEBUG_TRACE_MODULE(m, ...)                                                                                     \
   do                                                                                                                   \
   {                                                                                                                    \
-    if constexpr (ENABLE_TRACE_##m)                                                                                    \
+    if constexpr (TRACE_DISABLE)                                                                                       \
+    {}                                                                                                                 \
+    else if constexpr (ENABLE_TRACE_##m)                                                                               \
     {                                                                                                                  \
       trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                     \
     }                                                                                                                  \
@@ -250,7 +288,9 @@
 #define DEBUG_TRACE_MODULE_IF(m, cond, ...)                                                                            \
   do                                                                                                                   \
   {                                                                                                                    \
-    if constexpr (ENABLE_TRACE_##m)                                                                                    \
+    if constexpr (TRACE_DISABLE)                                                                                       \
+    {}                                                                                                                 \
+    else if constexpr (ENABLE_TRACE_##m)                                                                               \
     {                                                                                                                  \
       if (cond)                                                                                                        \
       {                                                                                                                \

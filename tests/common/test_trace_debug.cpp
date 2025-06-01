@@ -2,6 +2,10 @@
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
+#ifdef TRACE_DISABLE
+#undef TRACE_DISABLE
+#define TRACE_DISABLE 0
+#endif
 
 #include <gtest/gtest.h>
 

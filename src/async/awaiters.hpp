@@ -116,11 +116,12 @@ concept HasMemberCoAwait = requires(T t) { t.operator co_await(); };
 template <typename T>
 concept HasFreeCoAwait = (!HasMemberCoAwait<T> && requires(T t) { operator co_await(t); });
 
-/// \brief Get the “true” awaiter for an object outside a coroutine.
-/// Handles member and free `operator co_await`, else forwards.
-/// @tparam U Awaitable or awaiter type.
-/// @param u The object to transform.
-/// @return The awaiter object to use.
+/// \brief for an awaitable `a`, return the actual Awaitable object returned by co_await
+/// \tparam U Awaitable or awaiter type.
+/// \param u The object to transform.
+/// \return The awaiter object to use.
+/// \note Within a coroutine, this type may be transformed into something else via
+///       the promise_type::await_transform() function.
 template <typename U> decltype(auto) get_awaiter(U&& u) noexcept
 {
   if constexpr (HasMemberCoAwait<U>)

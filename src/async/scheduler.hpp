@@ -2,6 +2,8 @@
 /// \brief Defines the IScheduler interface
 /// \ingroup async_core
 
+// see https://github.com/dbittman/waitfree-mpsc-queue/blob/master/mpsc.c
+
 #pragma once
 
 #include "async_task.hpp"

@@ -91,13 +91,27 @@ class EpochContext {
     /// \note Stored coroutines are resumed when the epoch advances.
     void reader_enqueue(AsyncTask&& h)
     {
-      std::lock_guard lock(reader_mtx_);
-      reader_handles_.push_back(std::move(h));
+      if (writer_done_.load(std::memory_order_acquire) && writer_required_.load(std::memory_order_acquire))
+      {
+        h.destroy_on_resume();
+        h.release();
+      }
+      else
+      {
+        std::lock_guard lock(reader_mtx_);
+        reader_handles_.push_back(std::move(h));
+      }
     }
 
     /// \brief Are readers allowed to run?
-    /// \return true if the writer is done.
-    bool reader_is_ready() const noexcept { return this->writer_is_done(); }
+    /// \return true if the writer is done, and we don't still requre a writer
+    /// \note if this->writer_is_done() && writer_required_, then the caller must have initialized
+    /// writer_required_ to true, and the writer was released without actually writing to the buffer,
+    /// which means that we destory the readers of this epoch
+    bool reader_is_ready() const noexcept
+    {
+      return this->writer_is_done() && !writer_required_.load(std::memory_order_acquire);
+    }
 
     // EpochQueue interface
 
@@ -142,8 +156,8 @@ class EpochContext {
     void writer_bind(AsyncTask&& task) noexcept
     {
       DEBUG_TRACE("Binding writer", this);
-      DEBUG_CHECK(!writer_done_.load(std::memory_order_relaxed));
-      DEBUG_CHECK(!writer_task_set_.load(std::memory_order_relaxed));
+      DEBUG_CHECK(!writer_done_.load(std::memory_order_acquire));
+      DEBUG_CHECK(!writer_task_set_.load(std::memory_order_acquire));
       writer_task_ = std::move(task);
       writer_task_set_.store(true, std::memory_order_release);
     }
@@ -152,12 +166,29 @@ class EpochContext {
     /// \pre Must follow writer_acquire(), and only be called once.
     bool writer_release() noexcept
     {
-      DEBUG_CHECK(!writer_done_.load(std::memory_order_relaxed));
+      DEBUG_CHECK(!writer_done_.load(std::memory_order_acquire));
       bool done = created_writers_.fetch_sub(1, std::memory_order_acq_rel) == 1;
 
-      /// Mark the writer as done, allowing readers to proceed.
-      if (done) writer_done_.store(true, std::memory_order_release);
+      if (done)
+      {
+        /// Mark the writer as done, allowing readers to proceed.
+        writer_done_.store(true, std::memory_order_release);
+
+        // if we still require a writer, then we have a cancellation condition. Drop all readers
+        if (writer_required_.load(std::memory_order_acquire))
+        {
+          for (auto&& t : this->reader_take_tasks())
+          {
+            t.destroy_on_resume();
+          }
+        }
+      }
       return done;
+    }
+
+    bool should_drop_readers() noexcept
+    {
+      return writer_done_.load(std::memory_order_acquire) && writer_required_.load(std::memory_order_acquire);
     }
 
     // External Writer interface
@@ -171,6 +202,12 @@ class EpochContext {
     /// \brief Check if the writer has released the write gate.
     /// \return true if the epoch is ready for readers.
     bool writer_is_done() const noexcept { return writer_done_.load(std::memory_order_acquire); }
+
+    /// \brief Indicate that the writer getting released without performing a write causes readers to drop
+    void destroy_if_unwritten() noexcept { writer_required_.store(true, std::memory_order_release); }
+
+    /// \brief Indicate that the writer has actually written to the buffer (or at least attempted....)
+    void writer_has_written() noexcept { writer_required_.store(false, std::memory_order_release); }
 
     /// \brief Transfer ownership of the bound writer coroutine.
     /// \return The bound writer coroutine (may be null if none bound).
@@ -186,9 +223,10 @@ class EpochContext {
     std::vector<AsyncTask> reader_handles_;
 
     AsyncTask writer_task_;                    ///< Coroutine task (if bound).
+    std::atomic<int> created_writers_{0};      ///< number of active writers (normally max 1)
     std::atomic<bool> writer_task_set_{false}; ///< Set if task has been bound.
     std::atomic<bool> writer_done_{false};     ///< Set when writer releases gate.
-    std::atomic<int> created_writers_{0};      ///< number of active writers (normally max 1)
+    std::atomic<bool> writer_required_{false}; ///< Flag that we want ReadBuffers to get dropped if we don't write
 };
 
 /// \brief RAII-scoped representation of a reader's participation in an EpochContext.
@@ -347,7 +385,7 @@ template <typename T> class EpochContextWriter {
     ~EpochContextWriter() { this->release(); }
 
     /// \brief Check whether the writer may proceed immediately.
-    /// \return True if the writer is at the front of the queue.
+    /// \return true if the writer is at the front of the queue.
     bool ready() const noexcept
     {
       DEBUG_PRECONDITION(epoch_);
@@ -370,6 +408,7 @@ template <typename T> class EpochContextWriter {
       DEBUG_PRECONDITION(parent_);                          // the parent_ must exist
       DEBUG_PRECONDITION(parent_->queue_.is_front(epoch_)); // we must be at the front of the queue
       DEBUG_PRECONDITION(!epoch_->writer_is_done());        // writer still holds the gate
+      epoch_->writer_has_written(); // this is the best we can do, to label the write has (or will) actually occur
       return parent_->value_;
     }
 
@@ -385,6 +424,12 @@ template <typename T> class EpochContextWriter {
         if (epoch_->writer_release()) parent_->queue_.on_writer_done(epoch_);
         epoch_ = nullptr;
       }
+    }
+
+    void destroy_if_unwritten() noexcept
+    {
+      DEBUG_PRECONDITION(epoch_);
+      epoch_->destroy_if_unwritten();
     }
 
   private:

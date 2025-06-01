@@ -32,13 +32,20 @@ class DebugScheduler final : public IScheduler {
 
     inline static DebugScheduler* global_scheduler = nullptr;
 
-    bool can_run() const noexcept { return !Handles_.empty(); }
+    bool can_run() const noexcept { return !Blocked_ && !Handles_.empty(); }
 
     /// \brief Run one batch of scheduled coroutines (in LIFO order).
     void run();
 
     /// \brief Run until no pending tasks remain.
     void run_all();
+
+    /// \brief Block the scheduler from running.
+    /// \note This turns run() and run_all() into no-operation;
+    void block() { Blocked_ = true; }
+
+    /// \brief Unblock the scheduler
+    void unblock() { Blocked_ = false; }
 
     /// \brief Check if there are no pending tasks.
     /// \return true if the scheduler queue is empty.
@@ -52,6 +59,8 @@ class DebugScheduler final : public IScheduler {
       // Assume sched_ is already set
       Handles_.push_back(std::move(task));
     }
+
+    bool Blocked_ = false;
 
     std::vector<AsyncTask> Handles_;
 };
@@ -100,7 +109,13 @@ template <typename T> T const& Async<T>::get_wait() const
 
 inline void DebugScheduler::run()
 {
+  if (Blocked_)
+  {
+    DEBUG_TRACE("run() on a blocked DebugQueue: doing nothing");
+    return;
+  }
   TRACE("Got some coroutines to resume", Handles_.size());
+  // fmt::print("Got some coroutines to resume {}\n", Handles_.size());
   std::vector<AsyncTask> H;
   std::swap(H, Handles_);
   std::reverse(H.begin(), H.end());
@@ -115,6 +130,11 @@ inline void DebugScheduler::run()
 
 inline void DebugScheduler::run_all()
 {
+  if (Blocked_)
+  {
+    DEBUG_TRACE("run() on a blocked DebugQueue: doing nothing");
+    return;
+  }
   while (!done())
   {
     run();

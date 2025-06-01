@@ -14,49 +14,139 @@ namespace uni20::async
 /// \defgroup async_api Asynchronous Expression System
 /// @{
 
-/// \brief concept for a valid type that behaves as ar read buffer awaitable.
-///        This requires that `T x = co_await a` is valid.
-template <typename Awaitable, typename T>
+// /// \brief concept for a valid type that behaves as ar read buffer awaitable.
+// ///        This requires that `T x = co_await a` is valid.
+// template <typename Awaitable, typename T>
+// concept read_buffer_awaitable =
+//     requires(Awaitable a) { requires std::constructible_from<T, decltype(a.await_resume())>; };
+//
+// /// \brief concept for a valid type that behaves as a write buffer awaitable
+// ///        This requires that `T x; co_await a = x` is valid.
+// template <typename Awaitable, typename T>
+// concept write_buffer_awaitable =
+//     requires(Awaitable a, T x) { requires std::assignable_from<decltype(a.await_resume()), T>; };
+
+template <typename Awaitable>
 concept read_buffer_awaitable =
+    requires(Awaitable a) {
+      typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type;
+      requires std::constructible_from<typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type,
+                                       decltype(get_awaiter(a).await_resume())>;
+    };
+
+// template <typename Awaitable>
+// concept read_buffer_awaitable =
+//     requires(Awaitable a) {
+//       typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type;
+//       requires std::constructible_from<typename remove_cvref_t<decltype(get_awaiter(a))>::value_type,
+//                                        decltype(get_awaiter(a).await_resume())>;
+//     };
+
+template <typename Awaitable>
+concept write_buffer_awaitable =
+    requires(Awaitable a, typename Awaitable::value_type v) {
+      typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type;
+      requires std::assignable_from<decltype(get_awaiter(a).await_resume()),
+                                    typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type>;
+    };
+
+template <typename Awaitable, typename T>
+concept read_buffer_awaitable_of =
     requires(Awaitable a) { requires std::constructible_from<T, decltype(a.await_resume())>; };
 
-/// \brief concept for a valid type that behaves as a write buffer awaitable
-///        This requires that `T x; co_await a = x` is valid.
 template <typename Awaitable, typename T>
-concept write_buffer_awaitable =
-    requires(Awaitable a, T x) { requires std::assignable_from<decltype(a.await_resume()), T>; };
+concept write_buffer_awaitable_of =
+    requires(Awaitable a) { requires std::assignable_from<decltype(a.await_resume()), T>; };
 
 /// \brief concept for a valid type that behaves as a write buffer that is also readable
 ///        This requires that `T x = co_await a; co_await a = x` is valid
+// template <typename Awaitable, typename T>
+// concept read_write_buffer_awaitable = read_buffer_awaitable<Awaitable, T> && write_buffer_awaitable<Awaitable, T>;
+
+template <typename Awaitable>
+concept read_write_buffer_awaitable = read_buffer_awaitable<Awaitable> && write_buffer_awaitable<Awaitable>;
+
 template <typename Awaitable, typename T>
-concept read_write_buffer_awaitable = read_buffer_awaitable<Awaitable, T> && write_buffer_awaitable<Awaitable, T>;
+concept read_write_buffer_awaitable_of =
+    read_buffer_awaitable_of<Awaitable, T> && write_buffer_awaitable_of<Awaitable, T>;
 
-/// \brief concept for a type that behaves like an asyncronous reader: it has a read() function that returns an
-///        awaiter that is convertible to the nested value_type
-template <typename T>
-concept async_reader =
-    requires(std::remove_cvref_t<T> t) {
-      typename std::remove_cvref_t<T>::value_type;
-      requires read_buffer_awaitable<decltype(t.read()), typename std::remove_cvref_t<T>::value_type>;
-    };
+template <typename Awaitable, typename T>
+concept async_reader_of =
+    requires(std::remove_cvref_t<Awaitable> a) { requires read_buffer_awaitable_of<decltype(a.read()), T>; };
 
-/// \brief concept for a type that behaves like an asyncronous writer: it has a write() function that returns an
-///        awaiter that can be assigned from the nested value_type
+template <typename Awaitable, typename T>
+concept async_writer_of =
+    requires(std::remove_cvref_t<Awaitable> a) { requires write_buffer_awaitable_of<decltype(a.write()), T>; };
+
+// template <typename T, typename Expected>
+// concept async_writer_of = requires(std::remove_cvref_t<T> t) {
+//                             {
+//                               t.write()
+//                               } -> write_buffer_awaitable<Expected>;
+//                           };
+//
+// template <typename T, typename U>
+// concept async_reader_of = requires(std::remove_cvref_t<T> t) {
+//   { t.read() } -> read_buffer_awaitable<U>;
+// };
+//
+// template <typename T, typename U>
+// concept async_writer_of = requires(std::remove_cvref_t<T> t) {
+//   { t.writer() } -> read_buffer_awaitable<U>;
+// };
+
 template <typename T>
-concept async_writer =
-    requires(std::remove_cvref_t<T> t) {
-      typename std::remove_cvref_t<T>::value_type;
-      requires write_buffer_awaitable<decltype(t.write()), typename std::remove_cvref_t<T>::value_type>;
-    };
+concept async_reader = requires(T t) { requires read_buffer_awaitable<decltype(t.read())>; };
+
+template <typename T>
+concept async_writer = requires(T t) { requires write_buffer_awaitable<decltype(t.write())>; };
+
+//
+// template <typename T>
+// concept async_reader =
+//   requires(std::remove_cvref_t<T> t) {
+//     typename decltype(t.read())::value_type;
+//   };
+//
+// template <typename T>
+// concept async_writer =
+//   requires(std::remove_cvref_t<T> t) {
+//     typename decltype(t.write())::value_type;
+//   };
+//
+
+// /// \brief concept for a type that behaves like an asyncronous reader: it has a read() function that returns an
+// ///        awaiter that is convertible to the nested value_type
+// template <typename T>
+// concept async_reader =
+//     requires(std::remove_cvref_t<T> t) {
+//       typename std::remove_cvref_t<T>::value_type;
+//       requires read_buffer_awaitable<decltype(t.read()), typename std::remove_cvref_t<T>::value_type>;
+//     };
+//
+// /// \brief concept for a type that behaves like an asyncronous writer: it has a write() function that returns an
+// ///        awaiter that can be assigned from the nested value_type
+// template <typename T>
+// concept async_writer =
+//     requires(std::remove_cvref_t<T> t) {
+//       typename std::remove_cvref_t<T>::value_type;
+//       requires write_buffer_awaitable<decltype(t.write()), typename std::remove_cvref_t<T>::value_type>;
+//     };
 
 /// \brief concept for a type that behaves like an asyncronous writer that is also readable:
 ///        it has a write() function that returns an awaiter that can be assigned from the nested value_type,
 ///        and also read from
 template <typename T>
 concept async_read_writer = requires(T t) {
-                              typename T::value_type;
-                              requires read_write_buffer_awaitable<decltype(t.write()), typename T::value_type>;
+                              requires read_buffer_awaitable<decltype(t.read())>;
+                              requires write_buffer_awaitable<decltype(t.write())>;
                             };
+
+// template <typename T>
+// concept async_read_writer = requires(T t) {
+//                               typename T::value_type;
+//                               requires read_write_buffer_awaitable<decltype(t.write())>;
+//                             };
 
 /// \brief concept for a type that behaves like an asyncronous reader and writer (like Async<T>)
 template <typename T>
@@ -243,7 +333,7 @@ void async_assign(U&& rhs, Async<T>& lhs)
   schedule([](auto in_, WriteBuffer<T> out_) -> AsyncTask {
     auto const& val = co_await in_;
     auto& out = co_await out_;
-    out = static_cast<T>(val); // conversion if needed
+    out = val;
     co_return;
   }(read(std::forward<U>(rhs)), lhs.write()));
 }
@@ -285,8 +375,10 @@ UNI20_DEFINE_ASSIGN_OP(divides_assign, /=)
 
 #define UNI20_DEFINE_ASYNC_COMPOUND_OPERATOR(OPSYM, FUNCTOR)                                                           \
   template <typename T, typename U>                                                                                    \
-    requires uni20::async::is_async_compound_applicable<U, T, uni20::async::FUNCTOR>                                   \
-  Async<T>& operator OPSYM(Async<T>& lhs, U&& rhs)                                                                     \
+    requires uni20::async::is_async_compound_applicable<Async<T>                                                       \
+                                                        &,                                                             \
+                                                        U, uni20::async::FUNCTOR>                                      \
+        Async<T>& operator OPSYM(Async<T>& lhs, U&& rhs)                                                               \
   {                                                                                                                    \
     uni20::async::async_compound_op(std::forward<U>(rhs), lhs, uni20::async::FUNCTOR{});                               \
     return lhs;                                                                                                        \
