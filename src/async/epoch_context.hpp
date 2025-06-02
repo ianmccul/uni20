@@ -58,7 +58,13 @@ class EpochContext {
   public:
     /// \brief Construct an epoch context.
     /// \param writer_already_done If true, readers may proceed immediately.
-    explicit EpochContext(bool writer_already_done) noexcept : writer_done_{writer_already_done} {}
+    // explicit EpochContext(bool writer_already_done) noexcept : writer_done_{writer_already_done} {}
+
+    EpochContext(EpochContext const* prev, bool writer_already_done) noexcept
+        : writer_done_{writer_already_done},
+          writer_required_(prev ? prev->writer_required_.load(std::memory_order_acquire) : false),
+          counter_(prev ? prev->counter_ + 1 : 0)
+    {}
 
     // reader interface
   private:
@@ -217,6 +223,11 @@ class EpochContext {
       return std::move(writer_task_);
     }
 
+    // Informational interface
+
+    // return the epoch counter (generation number)
+    uint64_t counter() const noexcept { return counter_; }
+
   private:
     std::atomic<int> created_readers_{0};
     std::mutex reader_mtx_;
@@ -227,6 +238,8 @@ class EpochContext {
     std::atomic<bool> writer_task_set_{false}; ///< Set if task has been bound.
     std::atomic<bool> writer_done_{false};     ///< Set when writer releases gate.
     std::atomic<bool> writer_required_{false}; ///< Flag that we want ReadBuffers to get dropped if we don't write
+
+    uint64_t counter_ = -1LL;
 };
 
 /// \brief RAII-scoped representation of a reader's participation in an EpochContext.

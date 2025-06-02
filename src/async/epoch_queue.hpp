@@ -28,7 +28,7 @@ class EpochQueue {
     {
       if (queue_.empty())
       {
-        queue_.emplace_back(/*writer_already_done=*/true);
+        queue_.emplace_back(nullptr, /*writer_already_done=*/true);
       }
       TRACE("EpochQueue: create_read_context");
       return EpochContextReader<T>(parent, &queue_.back());
@@ -51,15 +51,24 @@ class EpochQueue {
     {
       std::lock_guard lock(mtx_);
 
-      // Now that we have a new epoch, prune drained epochs from the front of the queue
-      while (!queue_.empty() && queue_.front().writer_is_done() && queue_.front().reader_is_empty())
+      if (queue_.empty())
       {
-        TRACE("EpochQueue: removing drained front epoch before new writer", &queue_.front());
-        queue_.pop_front(); // Assumes pop() updates front safely
+        queue_.emplace_back(nullptr, /*writer_already_done=*/false);
       }
+      else
+      {
+        // create the new epoch first, so we can inherit from the previous
+        queue_.emplace_back(&queue_.back(), /*writer_already_done=*/false);
 
-      queue_.emplace_back(/*writer_already_done=*/false);
-      TRACE("EpochQueue: create_write_context, queue size:", queue_.size());
+        // Now that we have a new epoch, prune drained epochs from the front of the queue
+        // (this cannot drain our recently added epoch, since the writer is not done)
+        while (queue_.front().writer_is_done() && queue_.front().reader_is_empty())
+        {
+          TRACE("EpochQueue: removing drained front epoch before new writer", &queue_.front());
+          queue_.pop_front();
+        }
+      }
+      TRACE("EpochQueue: create_write_context", queue_.size(), queue_.back().counter());
       return EpochContextWriter<T>(parent, &queue_.back());
     }
 
@@ -100,10 +109,14 @@ class EpochQueue {
       std::unique_lock lock(mtx_);
       if (e == &queue_.front() && e->reader_is_ready())
       {
+        lock.unlock(); // drop the mutex before entering the scheduler
         AsyncTask::reschedule(std::move(task));
       }
       else
+      {
+        lock.unlock(); // important to drop the mutex here; if the task is cancelled then it might advance the epoch
         e->reader_enqueue(std::move(task));
+      }
     }
 
     /// \brief Called when a write gate is released (writer done).
@@ -129,9 +142,9 @@ class EpochQueue {
         }
         return;
       }
-      if (e->reader_is_empty())
+      if (e->reader_is_empty() && queue_.size() > 1)
       {
-        // No readers: pop this epoch and advance
+        // no readers and there is another epoch waiting; advance to the new epoch
         TRACE("advancing an epoch!");
         queue_.pop_front();
         lock.unlock();
@@ -153,8 +166,8 @@ class EpochQueue {
       TRACE("readers finished - we might be able to advance the epoch");
       DEBUG_CHECK(e->reader_is_empty());
       std::unique_lock lock(mtx_);
-      //  Only pop if this is the front epoch and fully done
-      if (&queue_.front() != e || !e->writer_is_done())
+      //  Only pop if this is the front epoch and fully done, and there are other epochs waiting
+      if (&queue_.front() != e || !e->writer_is_done() || queue_.size() == 1)
       {
         return;
       }
@@ -211,8 +224,8 @@ class EpochQueue {
           }
         }
 
-        // Phase 3: pop epoch if both writer and readers are done
-        if (e->writer_is_done() && e->reader_is_empty())
+        // Phase 3: pop epoch if both writer and readers are done, and there are more epochs to come
+        if (e->writer_is_done() && e->reader_is_empty() && queue_.size() > 1)
         {
           queue_.pop_front();
           continue;
