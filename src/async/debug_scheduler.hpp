@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "async.hpp"
 #include "scheduler.hpp"
 #include <algorithm>
 #include <utility>
@@ -71,37 +72,38 @@ inline DebugScheduler* get_global_scheduler() { return DebugScheduler::global_sc
 
 inline void schedule(AsyncTask&& task) { get_global_scheduler()->schedule(std::move(task)); }
 
-template <typename T> T& Async<T>::get_wait()
+template <typename T> T const& EpochContextReader<T>::get_wait() const
 {
   auto* sched = get_global_scheduler();
-  while (impl_->queue_.has_pending_writers())
+  while (!this->ready())
   {
-    auto ds = dynamic_cast<DebugScheduler*>(sched);
-    if (ds)
+    CHECK(sched);
+    if (auto* dbg = dynamic_cast<DebugScheduler*>(sched))
     {
-      CHECK(ds->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+      CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
     }
-    TRACE("Async::get_wait: has pending writers");
     sched->run();
   }
-  return impl_->value_;
+  return this->data();
 }
 
-template <typename T> T const& Async<T>::get_wait() const
+template <typename T> T&& EpochContextWriter<T>::move_from_wait() const
 {
   auto* sched = get_global_scheduler();
-  while (impl_->queue_.has_pending_writers())
+  while (!this->ready())
   {
-    auto ds = dynamic_cast<DebugScheduler*>(sched);
-    if (ds)
+    CHECK(sched);
+    if (auto* dbg = dynamic_cast<DebugScheduler*>(sched))
     {
-      CHECK(ds->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+      CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
     }
-    TRACE("Async::get_wait: has pending writers");
     sched->run();
   }
-  return impl_->value_;
+  return std::move(this->data());
 }
+template <typename T> T Async<T>::get_wait() const { return this->read().get_wait(); }
+
+template <typename T> T Async<T>::move_from_wait() { return this->write().move_from_wait(); }
 
 //-----------------------------------------------------------------------------
 // Inline definitions

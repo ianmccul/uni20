@@ -349,6 +349,9 @@ template <typename T> class EpochContextReader {
       }
     }
 
+    /// \brief Wait for the epoch to become available, and then return a reference to the value
+    T const& get_wait() const;
+
   private:
     detail::AsyncImplPtr<T> parent_;
     EpochContext* epoch_ = nullptr; ///< Epoch currently tracked.
@@ -444,6 +447,9 @@ template <typename T> class EpochContextWriter {
       DEBUG_PRECONDITION(epoch_);
       epoch_->destroy_if_unwritten();
     }
+
+    /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value
+    T&& move_from_wait() const;
 
   private:
     detail::AsyncImplPtr<T> parent_;

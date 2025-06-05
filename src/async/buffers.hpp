@@ -80,6 +80,9 @@ template <typename T> class ReadBuffer {
     ///       more than once has no effect.
     void release() noexcept { reader_.release(); }
 
+    T get_wait() && { return reader_.get_wait(); }
+    T const& get_wait() const& { return reader_.get_wait(); }
+
     /// \brief Enable co_await on lvalue ReadBuffer only.
     ///
     /// Prevents unsafe use on temporaries by deleting rvalue overload.
@@ -93,6 +96,9 @@ template <typename T> class ReadBuffer {
   private:
     EpochContextReader<T> reader_; ///< RAII object managing epoch state.
 };
+
+// Forward declaration
+template <typename T> class WriteProxy;
 
 /// \brief Awaitable write-gate for an Async<T> value.
 ///
@@ -146,6 +152,42 @@ template <typename T> class WriteBuffer {
     ///        is released without being written to.
     void destroy_if_unwritten() noexcept { writer_.destroy_if_unwritten(); }
 
+    /// \brief Wait for the epoch to become available, and then move the value.
+    T move_from_wait() { return writer_.move_from_wait(); }
+
+    /// \brief Launch a coroutine to write a value.
+    /// \note This releases() the buffer.
+    template <typename U> void write(U&& val) { async_assign(std::forward<U>(val), std::move(*this)); }
+
+    /// \brief Write immediately without suspending — asserts write readiness.
+    template <typename U>
+    void write_assert(U&& val)
+      requires std::assignable_from<T&, U&&>
+    {
+      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
+      writer_.data() = std::forward<U>(val);
+    }
+
+    /// \brief Moved immediately without suspending — asserts write readiness.
+    /// This is redundant in the sense that it is equivalent to write_assert(std::move(val))
+    template <typename U>
+    void write_move_assert(U&& val)
+      requires std::assignable_from<T&, U&&>
+
+    {
+      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
+      writer_.data() = std::move(val);
+    }
+
+    // Returns a proxy object for writing, as syntactic sugar.
+    // WriteBuffer<T> x;
+    // x.write() = 5;    // equivalent to x.write(5);
+    [[nodiscard]] WriteProxy<T> write();
+
+    /// \brief Launch a coroutine to write to the buffer using move semantics (if possible)
+    /// \note This releases() the buffer.
+    template <typename U> void write_move(U&& val) { async_move(std::move(val), std::move(*this)); }
+
     /// \brief Enable co_await on lvalue WriteBuffer only.
     ///
     /// Prevents unsafe use on temporaries by deleting rvalue overload.
@@ -168,5 +210,38 @@ template <typename T> class WriteBuffer {
     /// they are otherwise syncronized.
     friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
 };
+
+template <typename T> class Defer;
+
+// A proxy class that allows left-hand-side assignment, while holding a refcount
+template <typename T> class WriteProxy {
+  public:
+    using value_type = T;
+
+    WriteProxy() = delete;
+
+    // Not copyable
+    WriteProxy(WriteProxy const&) = delete;
+    WriteProxy& operator=(WriteProxy const&) = delete;
+
+    WriteProxy(WriteProxy&&) noexcept = default;
+
+    WriteProxy& operator=(WriteProxy&&) noexcept = delete;
+
+    /// \brief Assignment
+    template <typename U> void operator=(U&& u) { async_assign(std::forward<U>(u), WriteBuffer(std::move(writer_))); }
+
+  private:
+    /// \brief Construct a write buffer from an RAII writer handle.
+    explicit WriteProxy(EpochContextWriter<T>&& writer) : writer_(std::move(writer)) {}
+
+    friend class WriteBuffer<T>;
+
+    friend class Defer<T>;
+
+    EpochContextWriter<T> writer_; ///< RAII handle for write coordination.
+};
+
+template <typename T> WriteProxy<T> WriteBuffer<T>::write() { return WriteProxy<T>(std::move(writer_)); }
 
 } // namespace uni20::async

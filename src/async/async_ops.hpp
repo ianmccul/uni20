@@ -70,16 +70,37 @@ template <typename Awaitable, typename T>
 concept read_write_buffer_awaitable_of =
     read_buffer_awaitable_of<Awaitable, T> && write_buffer_awaitable_of<Awaitable, T>;
 
+/// \Brief an async_reader is satisfied if the .read() member returns an async read buffer
+template <typename T>
+concept async_reader = requires(T t) { requires read_buffer_awaitable<decltype(t.read())>; };
+
+/// \Brief an async_reader is satisfied if the .write() member returns an async write buffer
+template <typename T>
+concept async_writer = requires(T t) { requires write_buffer_awaitable<decltype(t.write())>; };
+
+// FIXME: I think the std::remove_cvref_t is wrong here
 template <typename Awaitable, typename T>
 concept async_reader_of =
     requires(std::remove_cvref_t<Awaitable> a) { requires read_buffer_awaitable_of<decltype(a.read()), T>; };
 
+// FIXME: I think the std::remove_cvref_t is wrong here
 template <typename Awaitable, typename T>
-concept async_writer_of =
+concept async_writer_to =
     requires(std::remove_cvref_t<Awaitable> a) { requires write_buffer_awaitable_of<decltype(a.write()), T>; };
 
+template <typename Awaitable, typename T>
+concept async_movable_to =
+    async_writer<Awaitable> &&
+    requires(Awaitable a) {
+      // Write buffer yields a movable type...
+      typename std::remove_cvref_t<decltype(get_awaiter(a.write()))>::element_type;
+
+      // ...that can be moved into T
+      requires std::constructible_from<T, decltype(std::move(get_awaiter(a.write()).await_resume()))>;
+    };
+
 // template <typename T, typename Expected>
-// concept async_writer_of = requires(std::remove_cvref_t<T> t) {
+// concept async_writer_to = requires(std::remove_cvref_t<T> t) {
 //                             {
 //                               t.write()
 //                               } -> write_buffer_awaitable<Expected>;
@@ -91,15 +112,9 @@ concept async_writer_of =
 // };
 //
 // template <typename T, typename U>
-// concept async_writer_of = requires(std::remove_cvref_t<T> t) {
+// concept async_writer_to = requires(std::remove_cvref_t<T> t) {
 //   { t.writer() } -> read_buffer_awaitable<U>;
 // };
-
-template <typename T>
-concept async_reader = requires(T t) { requires read_buffer_awaitable<decltype(t.read())>; };
-
-template <typename T>
-concept async_writer = requires(T t) { requires write_buffer_awaitable<decltype(t.write())>; };
 
 //
 // template <typename T>
@@ -184,7 +199,7 @@ template <typename T> struct ValueAwaiter
 /// Wraps a scalar value into an awaitable that can be co_awaited like an Async buffer.
 /// \ingroup async_api
 template <typename T>
-  requires(!async_like<std::remove_cvref_t<T>>)
+  requires(!async_reader<std::remove_cvref_t<T>>)
 ValueAwaiter<std::remove_cvref_t<T>> read(T&& x)
 {
   return ValueAwaiter<std::remove_cvref_t<T>>{std::forward<T>(x)};
@@ -327,7 +342,7 @@ template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, A
 /// \tparam T The value type of the destination.
 /// \tparam U The source type, either a value or Async<U>.
 template <typename U, typename T>
-void async_assign(U&& rhs, Async<T>& lhs)
+void async_assign(U&& rhs, WriteBuffer<T> lhs)
   requires requires { T{std::declval<async_value_t<U>>()}; }
 {
   schedule([](auto in_, WriteBuffer<T> out_) -> AsyncTask {
@@ -335,7 +350,42 @@ void async_assign(U&& rhs, Async<T>& lhs)
     auto& out = co_await out_;
     out = val;
     co_return;
-  }(read(std::forward<U>(rhs)), lhs.write()));
+  }(read(std::forward<U>(rhs)), std::move(lhs)));
+}
+
+template <typename U, typename T>
+void async_assign(U&& rhs, Async<T>& lhs)
+  requires requires { T{std::declval<async_value_t<U>>()}; }
+{
+  async_assign(rhs, lhs.write());
+}
+
+template <typename U, typename T>
+  requires async_movable_to<U, T>
+void async_move(U& rhs, WriteBuffer<T> lhs)
+{
+  schedule([](auto src, WriteBuffer<T> dst) -> AsyncTask {
+    auto&& movable = co_await src;
+    auto& out = co_await dst;
+    out = std::move(movable);
+    co_return;
+  }(rhs.write(), std::move(lhs)));
+}
+
+template <typename U, typename T>
+  requires(!async_writer<U>)
+void async_move(U&& rhs, Async<T>& lhs)
+{
+  schedule([](T val, WriteBuffer<T> dst) -> AsyncTask {
+    auto& out = co_await dst;
+    out = std::move(val);
+    co_return;
+  }(std::move(rhs), lhs.write()));
+}
+
+template <typename U, typename T> void async_move(U&& rhs, Async<T>& lhs)
+{
+  async_move(std::forward<U>(rhs), lhs.write());
 }
 
 // +, -, *, /

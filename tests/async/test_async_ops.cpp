@@ -73,3 +73,163 @@ TEST(AsyncOpsTest, BasicArithmeticOps)
 
   EXPECT_DOUBLE_EQ(x.get_wait(), 20.0);
 }
+
+TEST(AsyncOpsTest, MoveOnlyType)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  using Ptr = std::unique_ptr<std::string>;
+  Async<Ptr> dst;
+
+  Ptr src = std::make_unique<std::string>("test-move");
+  async_move(std::move(src), dst);
+
+  Ptr result = dst.move_from_wait(); // Must return by value
+  ASSERT_TRUE(result);
+  EXPECT_EQ(*result, "test-move");
+}
+
+TEST(AsyncBasicTest, EpochQueueResetOnAssignment)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Async<int> a;
+  int count1 = 0, count2 = 0;
+  int v1, v2;
+
+  // This test demonstrates that
+  // a = 5;
+  // a += 10;
+  //
+  // will run simultaneously with
+  // a = 10;
+  // a += 20;
+
+  a = 5;
+  schedule([](ReadBuffer<int> a, int& count, int& v) -> AsyncTask {
+    v = co_await a;
+    ++count;
+  }(a.read(), count1, v1));
+  a += 10;
+  schedule([](ReadBuffer<int> a, int& count, int& v) -> AsyncTask {
+    v = co_await a;
+    ++count;
+  }(a.read(), count1, v1));
+
+  a = 10;
+  schedule([](ReadBuffer<int> a, int& count, int& v) -> AsyncTask {
+    v = co_await a;
+    ++count;
+  }(a.read(), count2, v2));
+  a += 20;
+  schedule([](ReadBuffer<int> a, int& count, int& v) -> AsyncTask {
+    v = co_await a;
+    ++count;
+  }(a.read(), count2, v2));
+
+  // initial state; no tasks have run yet
+  EXPECT_EQ(count1, 0);
+  EXPECT_EQ(count2, 0);
+
+  // there should be exactly two runnable tasks
+  sched.run();
+  EXPECT_EQ(count1, 1);
+  EXPECT_EQ(count2, 1);
+
+  EXPECT_EQ(v1, 5);
+  EXPECT_EQ(v2, 10);
+
+  // next set of tasks should be a += 10 and a += 20, to separate variables
+  sched.run();
+  EXPECT_EQ(count1, 1);
+  EXPECT_EQ(count2, 1);
+
+  EXPECT_EQ(v1, 5);
+  EXPECT_EQ(v2, 10);
+
+  // next set of tasks is our second round of immmediate coroutines
+  sched.run();
+  EXPECT_EQ(count1, 2);
+  EXPECT_EQ(count2, 2);
+
+  EXPECT_EQ(v1, 15);
+  EXPECT_EQ(v2, 30);
+}
+
+TEST(AsyncBasicTest, EpochQueueResetOnAssignmentAsync)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Async<int> a;
+  int count1 = 0, count2 = 0;
+  int v1, v2;
+
+  Async<int> aa = 5;
+
+  // This test demonstrates that
+  // Async<int> aa = 5;
+  // a = aa;
+  // a += 10;
+  //
+  // will run simultaneously with
+  // aa = 10;
+  // a = aa;
+  // a += 20;
+
+  a = aa;
+  schedule([](ReadBuffer<int> a, int& count, int& v) -> AsyncTask {
+    v = co_await a;
+    ++count;
+  }(a.read(), count1, v1));
+  a += 10;
+  schedule([](ReadBuffer<int> a, int& count, int& v) -> AsyncTask {
+    v = co_await a;
+    ++count;
+  }(a.read(), count1, v1));
+
+  aa = 10;
+  a = aa;
+  schedule([](ReadBuffer<int> a, int& count, int& v) -> AsyncTask {
+    v = co_await a;
+    ++count;
+  }(a.read(), count2, v2));
+  a += 20;
+  schedule([](ReadBuffer<int> a, int& count, int& v) -> AsyncTask {
+    v = co_await a;
+    ++count;
+  }(a.read(), count2, v2));
+
+  // initial state; no tasks have run yet
+  EXPECT_EQ(count1, 0);
+  EXPECT_EQ(count2, 0);
+
+  // there should be exactly two runnable tasks, the initial assignments
+  sched.run();
+
+  // there should be exactly two runnable tasks, the first two coroutines
+  sched.run();
+  EXPECT_EQ(count1, 1);
+  EXPECT_EQ(count2, 1);
+
+  EXPECT_EQ(v1, 5);
+  EXPECT_EQ(v2, 10);
+
+  // next set of tasks should be a += 10 and a += 20, to separate variables
+  sched.run();
+  EXPECT_EQ(count1, 1);
+  EXPECT_EQ(count2, 1);
+
+  EXPECT_EQ(v1, 5);
+  EXPECT_EQ(v2, 10);
+
+  // next set of tasks is our second round of immmediate coroutines
+  sched.run();
+  EXPECT_EQ(count1, 2);
+  EXPECT_EQ(count2, 2);
+
+  EXPECT_EQ(v1, 15);
+  EXPECT_EQ(v2, 30);
+}

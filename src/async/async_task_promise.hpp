@@ -200,7 +200,7 @@ struct BasicAsyncTaskPromise
 
           std::coroutine_handle<> await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
           {
-            auto continuation = h.promise().continuation_;
+            auto continuation = std::exchange(h.promise().continuation_, nullptr);
             TRACE("Final suspend of coroutine", h, continuation);
             h.destroy();
             TRACE("Destroy is done");

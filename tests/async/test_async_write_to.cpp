@@ -5,7 +5,7 @@
 
 using namespace uni20::async;
 
-TEST(AsyncWriteToTest, WriteValueCorrectly)
+TEST(AsyncWriteTest, WriteValueCorrectly)
 {
   DebugScheduler sched;
   Async<int> x;

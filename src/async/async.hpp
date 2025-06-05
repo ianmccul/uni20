@@ -63,23 +63,62 @@ template <typename T> class Async {
     /// \brief Default-constructs a T value and an empty access queue.
     Async() : impl_(std::make_shared<detail::AsyncImpl<T>>()) {}
 
-    /// \brief Constructs with a copy of an initial value.
-    Async(const T& val) : impl_(std::make_shared<detail::AsyncImpl<T>>(val)) {}
+    /// \brief Constructs with a copy of an initial value that can be implicitly converted to T
+    template <typename U>
+      requires std::convertible_to<U, T>
+    Async(U&& val) : impl_(std::make_shared<detail::AsyncImpl<T>>(std::forward<U>(val)))
+    {}
 
-    /// \brief Constructs with a moved initial value.
-    Async(T&& val) : impl_(std::make_shared<detail::AsyncImpl<T>>(std::move(val))) {}
+    /// \brief Explicit conversion ctor for cases where there is an explicit, but no implicit, conversion
+    ///        from U to T
+    template <typename U>
+      requires std::constructible_from<T, U> && (!std::convertible_to<U, T>)
+    explicit Async(U&& u) : impl_(std::make_shared<detail::AsyncImpl<T>>(static_cast<T>(std::forward<U>(u))))
+    {}
 
-    Async(const Async&) = delete;
+    /// \brief Construct a new Async<T> by copying the value from another Async<T>.
+    ///
+    /// \note This constructor schedules a coroutine that reads the current or eventual value of `rhs`
+    ///       and writes it into the initial epoch of the newly constructed `*this`.
+    ///
+    /// \warning This is not a structural copy — it does not replicate the state or dependencies of `rhs`.
+    ///          Coroutine handles, epoch queues, and computation histories are not copied.
+    ///
+    /// \see `async_assign` for explicit value-level copy scheduling.
+    Async(const Async& rhs) { async_assign(rhs, *this); }
 
+    /// \brief Copy-assign from another Async<T>, overwriting this instance's value timeline.
+    ///
+    /// \note This operator first resets the internal epoch queue of `*this` by move-assigning a fresh `Async<T>`.
+    ///       It then schedules a coroutine that awaits `rhs` and writes its result to `*this`.
+    ///
+    /// \warning This operation does not preserve prior epochs or dependencies of `*this`.
+    ///          If you wish to serialize with prior writes, use `async_assign(rhs, *this)` directly.
+    ///
+    /// \code
+    ///   Async<T> x, y;
+    ///   x = y;              // copies value from y into x, resets x's causal history
+    ///
+    ///   x = Async<T>{};     // explicitly reset x
+    ///   async_assign(y, x); // equivalent to copy-assignment
+    /// \endcode
+    ///
+    /// \see Async::operator=(Async&&) for structural replacement
+    /// \see async_assign for explicit value-copy semantics
     Async& operator=(const Async& rhs)
     {
       if (this != &rhs)
       {
+        *this = Async<T>{}; // reset the epoch queue
         async_assign(rhs, *this);
       }
       return *this;
     }
 
+    /// \note `Async<T>` supports standard move construction and assignment. These operations
+    ///       transfer the handle (logical reference to the async value), not the value itself.
+    ///       To schedule a value transfer from one async object to another, use `async_move(...)` explicitly.
+    ///       The results of both operations are rather similar.
     Async(Async&&) noexcept = default;
     Async& operator=(Async&&) noexcept = default;
 
@@ -103,9 +142,12 @@ template <typename T> class Async {
       return impl_->value_;
     }
 
-    T& get_wait();
+    T get_wait() const;
 
-    T const& get_wait() const;
+    // TODO: we could have a version that returns a ref-counted proxy, which enables reference rather than copy
+
+    /// \brief Block until the value is available, and move it into the return value (which is a write operation)
+    T move_from_wait();
 
     // FiXME: this is a hack for debugging
     void set(T const& x) { impl_->value_ = x; }
