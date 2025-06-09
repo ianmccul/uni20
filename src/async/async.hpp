@@ -85,7 +85,7 @@ template <typename T> class Async {
     ///          Coroutine handles, epoch queues, and computation histories are not copied.
     ///
     /// \see `async_assign` for explicit value-level copy scheduling.
-    Async(const Async& rhs) { async_assign(rhs, *this); }
+    Async(const Async& rhs) : Async() { async_assign(rhs, *this); }
 
     /// \brief Copy-assign from another Async<T>, overwriting this instance's value timeline.
     ///
@@ -126,17 +126,32 @@ template <typename T> class Async {
 
     /// \brief Begin an asynchronous read of the value.
     /// \return A ReadBuffer<T> which may be co_awaited.
-    ReadBuffer<T> read() const noexcept { return ReadBuffer<T>(impl_->queue_.create_read_context(impl_)); }
+    ReadBuffer<T> read() const noexcept
+    {
+      DEBUG_CHECK(impl_);
+      return ReadBuffer<T>(impl_->queue_.create_read_context(impl_));
+    }
 
     /// \brief Begin an asynchronous write to the value.
     /// \return A WriteBuffer<T> which may be co_awaited.
-    WriteBuffer<T> write() noexcept { return WriteBuffer<T>(impl_->queue_.create_write_context(impl_)); }
+    WriteBuffer<T> write() noexcept
+    {
+      DEBUG_CHECK(impl_);
+      return WriteBuffer<T>(impl_->queue_.create_write_context(impl_));
+    }
 
     // Used by FutureValue<T>; TODO: make private and friend
-    std::tuple<WriteBuffer<T>, ReadBuffer<T>> prepend_epoch() { return impl_->queue_.prepend_epoch(impl_); }
+    std::tuple<WriteBuffer<T>, ReadBuffer<T>> prepend_epoch()
+    {
+      DEBUG_TRACE("Prepending epoch!");
+      // std::abort();
+      DEBUG_CHECK(impl_);
+      return impl_->queue_.prepend_epoch(impl_);
+    }
 
     template <typename Sched> T& get_wait(Sched& sched)
     {
+      DEBUG_CHECK(impl_);
       while (impl_->queue_.has_pending_writers())
       {
         TRACE("Has pending writers");
@@ -153,14 +168,30 @@ template <typename T> class Async {
     T move_from_wait();
 
     // FiXME: this is a hack for debugging
-    void set(T const& x) { impl_->value_ = x; }
+    void set(T const& x)
+    {
+      DEBUG_CHECK(impl_);
+      impl_->value_ = x;
+    }
 
     // FiXME: this is a hack for debugging
-    T value() const { return impl_->value_; }
+    T value() const
+    {
+      DEBUG_CHECK(impl_);
+      return impl_->value_;
+    }
 
     /// \return Direct reference to stored value (for diagnostics only).
-    T const& unsafe_value_ref() const { return impl_->value_; }
-    T& unsafe_value_ref() { return impl_->value_; }
+    T const& unsafe_value_ref() const
+    {
+      DEBUG_CHECK(impl_);
+      return impl_->value_;
+    }
+    T& unsafe_value_ref()
+    {
+      DEBUG_CHECK(impl_);
+      return impl_->value_;
+    }
 
     /// \return Access to underlying implementation (shared with buffers).
     std::shared_ptr<detail::AsyncImpl<T>> const& impl() const { return impl_; }

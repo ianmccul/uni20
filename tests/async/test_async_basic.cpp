@@ -118,3 +118,25 @@ TEST(AsyncBasicTest, RAII_NoAwaitSafeDestruction)
   // Destructors must not throw or cause side effects
   // No explicit co_await or release
 }
+
+TEST(AsyncBasicTest, CopyConstructor)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Async<int> original = 42;
+
+  // Copy constructor
+  Async<int> copy = original;
+
+  // Check that both are valid and contain the same value
+  EXPECT_EQ(original.get_wait(), 42);
+  EXPECT_EQ(copy.get_wait(), 42);
+
+  // Mutate only the copy
+  copy += 57;
+
+  // The original should still hold 42
+  EXPECT_EQ(original.get_wait(), 42);
+  EXPECT_EQ(copy.get_wait(), 99);
+}

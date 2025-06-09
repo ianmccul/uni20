@@ -11,7 +11,7 @@ template <typename T> class ReverseValue {
     using value_type = T;
 
     /// Construct a new, uninitialized ReverseValue.
-    ReverseValue() : async_{}, write_buf_{async_.write()}, read_buf_{async_.read()} {}
+    ReverseValue() : async_{}, write_buf_(std::get<0>(async_.prepend_epoch())), read_buf_(async_.read()) {}
 
     // move ctor and move-assign should "just work"
     ReverseValue(ReverseValue&&) noexcept = default;
@@ -23,11 +23,31 @@ template <typename T> class ReverseValue {
     /// Access as an Async<T> (read-only use).
     // Async<T> const& async() const noexcept { return async_; }
 
-    /// \brief Get the final graident value
-    ReadBuffer<T> final_grad() const { return async_.read(); }
+    /// \brief Get the final graident value; also finalizes the computation chain
+    ReadBuffer<T> final()
+    {
+      this->finalize();
+      return async_.read();
+    }
 
-    /// Get a ReadBuffer<T> from the earliest epoch - this is the 'output gradient' to be fed into the next stage
-    ReadBuffer<T> grad_output() const { return read_buf_; }
+    /// Get a ReadBuffer<T> from the earliest epoch - this is the 'input gradient' to be fed into the next stage
+    ReadBuffer<T> input() const { return read_buf_; }
+
+    ReadBuffer<T> read() const { return read_buf_; }
+
+    // Get a WriteBuffer<T> to the earliest epoch - this is the 'output gradient' fed from the next stage
+    [[nodiscard]] WriteBuffer<T> output()
+    {
+      WriteBuffer<T> w = std::move(write_buf_);
+      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+      return w;
+    }
+
+    void finalize()
+    {
+      read_buf_.release();
+      write_buf_.release();
+    }
 
     /// Since we are guaranteed that the write is immediate, we don't need to wait
     template <typename U>
@@ -36,18 +56,18 @@ template <typename T> class ReverseValue {
     {
       write_buf_.write_assert(std::forward<U>(v));
       write_buf_.release();
-      async_ = Async<T>{};
-      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+      read_buf_.release();
+      // async_ = Async<T>{};
+      // std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
       return *this;
     }
 
     // Assigning from an Async<T> is possible; this launches a coroutine do to the copy
-    // This is 'final', and cannot assign a second time
+    // This is 'final', and cannot assign a second time, nor can we access the input gradient
     template <typename U> ReverseValue& operator=(Async<U> const& v)
     {
+      read_buf_.release();
       async_assign(v.read(), std::move(write_buf_));
-      // async_ = Async<T>{};
-      // std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
       return *this;
     }
 
@@ -55,9 +75,8 @@ template <typename T> class ReverseValue {
     // This is 'final', and cannot assign a second time
     template <typename U> ReverseValue& operator=(Async<U>&& v)
     {
+      read_buf_.release();
       async_move(std::move(v), std::move(write_buf_));
-      // async_ = Async<T>{};
-      // std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
       return *this;
     }
 
@@ -67,9 +86,11 @@ template <typename T> class ReverseValue {
       std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
 
       schedule([](auto a_, auto b_, auto out_) -> AsyncTask {
+        DEBUG_TRACE("Reverse +=");
         auto ab = co_await all(a_, b_);
         auto tmp = std::get<0>(ab);
         tmp += std::get<1>(ab);
+        TRACE(tmp);
         a_.release();
         b_.release();
         co_await out_ = std::move(tmp); // Suspend *after* releasing readers
@@ -78,8 +99,66 @@ template <typename T> class ReverseValue {
       return *this;
     }
 
-    Async<T>& value() { return async_; }
-    Async<T> const& value() const { return async_; }
+    template <typename U> ReverseValue& operator+=(ReadBuffer<U> v)
+    {
+      WriteBuffer<T> w = std::move(write_buf_);
+      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+
+      schedule([](auto a_, auto b_, auto out_) -> AsyncTask {
+        DEBUG_TRACE("Reverse +=");
+        auto ab = co_await all(a_, b_);
+        auto tmp = std::get<0>(ab);
+        tmp += std::get<1>(ab);
+        TRACE(tmp);
+        a_.release();
+        b_.release();
+        co_await out_ = std::move(tmp); // Suspend *after* releasing readers
+        co_return;
+      }(read_buf_, std::move(v), std::move(w)));
+      return *this;
+    }
+
+    template <typename U> ReverseValue& operator-=(Async<U> const& v)
+    {
+      WriteBuffer<T> w = std::move(write_buf_);
+      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+
+      schedule([](auto a_, auto b_, auto out_) -> AsyncTask {
+        DEBUG_TRACE("Reverse -=");
+        auto ab = co_await all(a_, b_);
+        auto tmp = std::get<0>(ab);
+        tmp -= std::get<1>(ab);
+        TRACE(tmp);
+        a_.release();
+        b_.release();
+        co_await out_ = std::move(tmp); // Suspend *after* releasing readers
+        co_return;
+      }(read_buf_, v.read(), std::move(w)));
+      return *this;
+    }
+
+    template <typename U> ReverseValue& operator-=(ReadBuffer<U> v)
+    {
+      WriteBuffer<T> w = std::move(write_buf_);
+      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+
+      schedule([](auto a_, auto b_, auto out_) -> AsyncTask {
+        DEBUG_TRACE("Reverse -=");
+        auto ab = co_await all(a_, b_);
+        auto tmp = std::get<0>(ab);
+        tmp -= std::get<1>(ab);
+        TRACE(tmp);
+        a_.release();
+        b_.release();
+        co_await out_ = std::move(tmp); // Suspend *after* releasing readers
+        co_return;
+      }(read_buf_, std::move(v), std::move(w)));
+      return *this;
+    }
+
+    Async<T>& value() & { return async_; }
+    Async<T> const& value() const& { return async_; }
+    Async<T> value() && { return std::move(async_); }
 
   private:
     Async<T> async_;
@@ -91,5 +170,7 @@ template <typename T> struct async_value_type<ReverseValue<T>>
 {
     using type = T;
 };
+
+template <typename T> ReadBuffer<T> read(ReverseValue<T> const& x) { return x.input(); }
 
 } // namespace uni20::async

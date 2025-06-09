@@ -16,6 +16,14 @@ class IScheduler;
 
 class BasicAsyncTaskPromise;
 
+class AsyncAwaiter {
+  public:
+    virtual void set_cancel() = 0;
+    virtual void set_exception(std::exception_ptr e) = 0;
+};
+
+class BasicAsyncTaskPromise;
+
 // We require the BasicAsyncTask promise type to inherit from BasicAsyncTaskPromise,
 // so that it is layout-compatible for type-safe upcasts
 template <typename T>
@@ -23,7 +31,7 @@ concept IsAsyncTaskPromise = std::derived_from<T, BasicAsyncTaskPromise>;
 
 /// \brief A fire-and-forget coroutine handle.
 /// \ingroup async_core
-template <IsAsyncTaskPromise Promise> class BasicAsyncTask {
+template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAwaiter {
   public:
     using promise_type = Promise;
     using handle_type = std::coroutine_handle<promise_type>;
@@ -45,8 +53,11 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask {
     /// \note This releases ownership to the scheduler
     void resume();
 
-    /// \brief Indicate that the coroutine should be destroyed rather than resumed
-    void destroy_on_resume() noexcept;
+    /// \brief Indicate that the coroutine should be cancelled upon resume
+    void cancel_on_resume() noexcept;
+
+    /// \brief Indicate that the coroutine should pass an exception upon resume
+    void exception_on_resume(std::exception_ptr e) noexcept;
 
     /// \brief Destroy the coroutine
     /// \pre We are the sole owner of the coroutine
@@ -81,9 +92,10 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask {
     BasicAsyncTask& operator=(const BasicAsyncTask&) = delete; ///< non-copyable
 
     /// \brief Move-construct.
-    BasicAsyncTask(BasicAsyncTask&& other) noexcept : h_{other.h_}
+    BasicAsyncTask(BasicAsyncTask&& other) noexcept
+        : h_{other.h_}, cancel_{other.cancel_.load(std::memory_order_acquire)}
     {
-      DEBUG_TRACE("BasicAsyncTask move", this, &other, h_);
+      // DEBUG_TRACE("BasicAsyncTask move", this, &other, h_);
       other.h_ = nullptr;
     }
 
@@ -104,14 +116,50 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask {
 
     void await_resume() const noexcept;
 
+    // void set_cancel() override final { cancel_.store(true, std::memory_order_release); }
+    //
+    // void set_exception(std::exception_ptr e) override final
+    // {
+    //   exception_ = e;
+    //   cancel_.store(true, std::memory_order_release);
+    // }
+
+    void cancel_if_unwritten() { cancel_.store(true, std::memory_order_release); }
+
+    void written() { cancel_.store(false, std::memory_order_release); }
+
+    // void set_current_awaiter(AsyncAwaiter* awaiter)
+    // {
+    //   DEBUG_CHECK(!current_awaiter_);
+    //   current_awaiter_ = awaiter;
+    // }
+    // void clear_current_awaiter() noexcept
+    // {
+    //   DEBUG_CHECK(current_awaiter_);
+    //   current_awaiter_ = nullptr;
+    // }
+
     //  private:
     handle_type h_; ///< Underlying coroutine handle.
+
+    // When a buffer detects an error condition, we need to know which awaiter to send it to
+    //  AsyncAwaiter* current_awaiter_ = nullptr;
+
+    /// \brief indicates that the coroutine has an error condition waiting on resume.
+    /// If eptr_ is non-null, then an exception has been thrown; otherwise the buffer has been cancelled
+    /// \note this is only used by the AsyncTask awaiter interface
+    //    std::exception_ptr exception_ = nullptr;
+    std::atomic<bool> cancel_ = false;
 
     inline static IScheduler* sched_ = nullptr;
 
     /// \brief Construct from a coroutine handle.
     /// \param h The coroutine handle.
     explicit BasicAsyncTask(std::coroutine_handle<promise_type> h) noexcept : h_(h) {}
+
+    // explicit BasicAsyncTask(std::coroutine_handle<promise_type> h, AsyncAwaiter* awaiter) noexcept
+    //     : h_(h) //, current_awaiter_(awaiter)
+    // {}
 
     friend promise_type;
     friend class BasicAsyncTaskFactory;
@@ -122,3 +170,5 @@ struct BasicAsyncTaskPromise;
 using AsyncTask = BasicAsyncTask<BasicAsyncTaskPromise>;
 
 } // namespace uni20::async
+
+#include "async-task-impl.hpp"

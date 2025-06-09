@@ -16,7 +16,7 @@ TEST(ReverseValue, BasicWriteRead)
 
   ReverseValue<int> fv;
   Async<int> v;
-  async_assign(fv.final_grad(), v.write());
+  async_assign(fv.value().read(), v.write());
   fv = 42;
   EXPECT_EQ(v.read().get_wait(), 42);
 }
@@ -46,5 +46,5 @@ TEST(ReverseValue, AssignFromAsync)
 
   sched.run_all(); // drive coroutine
 
-  EXPECT_EQ(fv.final_grad().get_wait(), 99);
+  EXPECT_EQ(fv.final().get_wait(), 99);
 }

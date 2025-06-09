@@ -7,7 +7,6 @@
 #pragma once
 
 #include "async_task.hpp"
-#include <coroutine>
 
 namespace uni20::async
 {
@@ -20,7 +19,7 @@ class IScheduler {
     virtual ~IScheduler() = default;
 
   protected:
-    using promise_type = AsyncTask::promise_type;
+    // using promise_type = AsyncTask::promise_type;
 
   private:
     friend AsyncTask;

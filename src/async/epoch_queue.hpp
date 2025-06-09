@@ -30,7 +30,7 @@ class EpochQueue {
       {
         queue_.emplace_back(nullptr, /*writer_already_done=*/true);
       }
-      TRACE("EpochQueue: create_read_context");
+      // TRACE("EpochQueue: create_read_context");
       return EpochContextReader<T>(parent, &queue_.back());
     }
 
@@ -65,10 +65,12 @@ class EpochQueue {
         while (queue_.front().writer_is_done() && queue_.front().reader_is_empty())
         {
           TRACE("EpochQueue: removing drained front epoch before new writer", &queue_.front());
+          bool writer_required = queue_.front().writer_is_required();
           queue_.pop_front();
+          if (writer_required) queue_.front().writer_require();
         }
       }
-      TRACE("EpochQueue: create_write_context", queue_.size(), queue_.back().counter());
+      // TRACE("EpochQueue: create_write_context", queue_.size(), queue_.back().counter());
       return EpochContextWriter<T>(parent, &queue_.back());
     }
 
@@ -86,7 +88,7 @@ class EpochQueue {
       else
       {
         DEBUG_CHECK(!queue_.front().writer_has_task());
-        queue_.emplace_front(&queue_.front(), /*writer_already_done=*/false);
+        queue_.emplace_front(&queue_.front(), std::integral_constant<bool, true>{});
       }
       return {EpochContextWriter<T>(parent, &queue_.front()), EpochContextReader<T>(parent, &queue_.front())};
     }
@@ -129,6 +131,8 @@ class EpochQueue {
       if (e == &queue_.front() && e->reader_is_ready())
       {
         lock.unlock(); // drop the mutex before entering the scheduler
+        bool MaybeCancel = e->reader_error() && (e->reader_exception() == nullptr);
+        if (!MaybeCancel) task.written();
         AsyncTask::reschedule(std::move(task));
       }
       else
@@ -151,21 +155,27 @@ class EpochQueue {
       }
       // If readers are waiting, schedule them first
       auto readers = e->reader_take_tasks();
+      TRACE(readers.size());
       if (!readers.empty())
       {
         TRACE("Finished writer results in some readers getting rescheduled");
         lock.unlock();
+        bool MaybeCancel = e->reader_error() && (e->reader_exception() == nullptr);
         for (auto&& task : readers)
         {
+          TRACE("Rescheduling", &task);
+          if (!MaybeCancel) task.written();
           AsyncTask::reschedule(std::move(task));
         }
         return;
       }
+      TRACE(e, queue_.size(), e->reader_is_empty());
       if (e->reader_is_empty() && queue_.size() > 1)
       {
-        // no readers and there is another epoch waiting; advance to the new epoch
-        TRACE("advancing an epoch!");
+        // If we have writer_required() then carry it forward to the new epoch
+        bool writer_required = e->writer_is_required();
         queue_.pop_front();
+        if (writer_required) queue_.front().writer_require();
         lock.unlock();
         advance();
       }
@@ -190,7 +200,9 @@ class EpochQueue {
       {
         return;
       }
+      bool writer_required = e->writer_is_required();
       queue_.pop_front();
+      if (writer_required) queue_.front().writer_require();
       lock.unlock();
       this->advance();
     }
@@ -235,8 +247,10 @@ class EpochQueue {
           if (!readers.empty())
           {
             lock.unlock();
+            bool MaybeCancel = e->reader_error() && (e->reader_exception() == nullptr);
             for (auto&& task : readers)
             {
+              if (!MaybeCancel) task.written();
               AsyncTask::reschedule(std::move(task));
             }
             return;
@@ -246,7 +260,10 @@ class EpochQueue {
         // Phase 3: pop epoch if both writer and readers are done, and there are more epochs to come
         if (e->writer_is_done() && e->reader_is_empty() && queue_.size() > 1)
         {
+          bool writer_required = e->writer_is_required();
           queue_.pop_front();
+          if (writer_required) queue_.front().writer_require();
+
           continue;
         }
 

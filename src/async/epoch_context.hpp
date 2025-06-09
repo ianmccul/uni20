@@ -25,6 +25,11 @@ template <typename T> struct AsyncImpl;
 template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
 } // namespace detail
 
+// This needs a rethink.We want to track if the data has been initialized.That is, if we require_read at some point,
+//     then we want to track and see if it was.We need to know this,
+//     so that operator+= can detect whether we are adding to it,
+//     or assigning a new value.
+
 /// \brief Per-epoch state for an Async<T> value, coordinating one writer and multiple readers.
 ///
 /// \details
@@ -35,6 +40,11 @@ template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
 ///   - \c writer_task_set_ : set once the writer coroutine is registered.
 ///   - \c writer_done_     : set when the write gate has been released.
 ///   - \c writer_required_ : true if readers must be destroyed when no write occurs (e.g., canceled).
+///   - \c eptr_            : if writer_done_ && writer_required_ then the writer has finished, but not
+///                           written to the buffer. In this case, eptr_ == null indicates that the write
+///                           was cancelled, which readers may detect and handle, OR if eptr_ != null
+///                           then an exception was thrown and this will be passed on to readers.
+///                           eptr_ is not itself atomic, but is fenced by writer_required_
 ///
 /// \note
 /// Epochs are constructed in a chain. The previous epoch may pass forward `writer_required_`,
@@ -43,23 +53,28 @@ template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
 /// The `counter_` tracks generation number for debugging.
 class EpochContext {
   public:
+    EpochContext() = delete;
+
     /// \brief Construct a new epoch.
     /// \param prev Pointer to the previous epoch (if any).
     /// \param writer_already_done If true, this epoch begins in the "bootstrap" state.
     ///
     /// \post If \p writer_already_done is true, this epoch is considered immediately readable.
     EpochContext(EpochContext const* prev, bool writer_already_done) noexcept
-        : writer_done_{writer_already_done},
-          writer_required_(prev ? prev->writer_required_.load(std::memory_order_acquire) : false),
+        : eptr_(prev ? prev->eptr_ : nullptr), writer_done_{writer_already_done}, writer_required_(false),
           counter_(prev ? prev->counter_ + 1 : 0)
-    {}
+    {
+      TRACE("Creating new forwards epoch", this, counter_);
+    }
 
     /// \brief Construct a reverse-mode epoch, linked to the next one in time.
     /// \param next Pointer to the next epoch (i.e., earlier in forward time).
     /// \param writer_already_done If true, this epoch begins in released state.
     EpochContext(EpochContext const* next, std::integral_constant<bool, true> reverse)
         : writer_done_{false}, writer_required_(true), counter_(next ? next->counter_ - 1 : 0)
-    {}
+    {
+      TRACE("Creating new reverse epoch", this, counter_);
+    }
 
     // reader interface
   private:
@@ -70,7 +85,7 @@ class EpochContext {
     ///       matched with a corresponding call to reader_release().
     void reader_acquire() noexcept
     {
-      DEBUG_TRACE("reader_acquire()", this);
+      // DEBUG_TRACE("reader_acquire()", this);
       created_readers_.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -80,7 +95,8 @@ class EpochContext {
     ///       the epoch may be advanced by the queue.
     bool reader_release() noexcept
     {
-      DEBUG_TRACE("reader_release()", this, created_readers_.load(std::memory_order_acquire), reader_handles_.size());
+      // DEBUG_TRACE("reader_release()", this, created_readers_.load(std::memory_order_acquire),
+      // reader_handles_.size());
       return created_readers_.fetch_sub(1, std::memory_order_acq_rel) == 1;
     }
 
@@ -92,27 +108,22 @@ class EpochContext {
     /// \note Stored coroutines are resumed when the epoch advances.
     void reader_enqueue(AsyncTask&& h)
     {
-      if (this->should_drop_readers())
-      {
-        h.destroy_on_resume();
-        h.release();
-      }
-      else
-      {
-        std::lock_guard lock(reader_mtx_);
-        reader_handles_.push_back(std::move(h));
-      }
+      std::lock_guard lock(reader_mtx_);
+      reader_handles_.push_back(std::move(h));
     }
 
     /// \brief Are readers allowed to run?
-    /// \return true if the writer is done, and we don't still requre a writer
-    /// \note if this->writer_is_done() && writer_required_, then the caller must have initialized
-    /// writer_required_ to true, and the writer was released without actually writing to the buffer,
-    /// which means that we destory the readers of this epoch
-    bool reader_is_ready() const noexcept
+    /// \return true if the writer is done
+    bool reader_is_ready() const noexcept { return this->writer_is_done(); }
+
+    /// \brief Returns true if reading from the buffer right now would be an error condition
+    bool reader_error() const noexcept
     {
-      return this->writer_is_done() && !writer_required_.load(std::memory_order_acquire);
+      return this->reader_is_ready() && writer_required_.load(std::memory_order_acquire);
     }
+
+    /// \brief returns the exception pointer set by the writer (nullptr, if no exception)
+    std::exception_ptr reader_exception() const noexcept { return eptr_; }
 
     // EpochQueue interface
 
@@ -120,6 +131,7 @@ class EpochContext {
     /// \return Vector of reader handles.
     std::vector<AsyncTask> reader_take_tasks() noexcept
     {
+      TRACE(created_readers_.load(std::memory_order_acquire));
       std::lock_guard lock(reader_mtx_);
       std::vector<AsyncTask> v;
       v.swap(reader_handles_);
@@ -147,7 +159,7 @@ class EpochContext {
     /// \brief Acquire the writer role for this epoch.
     void writer_acquire() noexcept
     {
-      DEBUG_TRACE("writer_acquire", this);
+      // DEBUG_TRACE("writer_acquire", this);
       created_writers_.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -156,10 +168,11 @@ class EpochContext {
     /// \pre Must follow writer_acquire(), and only be called once.
     void writer_bind(AsyncTask&& task) noexcept
     {
-      DEBUG_TRACE("Binding writer", this);
+      // DEBUG_TRACE("Binding writer", this);
       DEBUG_CHECK(!writer_done_.load(std::memory_order_acquire));
       DEBUG_CHECK(!writer_task_set_.load(std::memory_order_acquire));
       writer_task_ = std::move(task);
+      eptr_ = nullptr; // reset the exception pointer
       writer_task_set_.store(true, std::memory_order_release);
     }
 
@@ -174,28 +187,8 @@ class EpochContext {
       {
         /// Mark the writer as done, allowing readers to proceed.
         writer_done_.store(true, std::memory_order_release);
-
-        // if we still require a writer, then we have a cancellation condition. Drop all readers
-        if (writer_required_.load(std::memory_order_acquire))
-        {
-          for (auto&& t : this->reader_take_tasks())
-          {
-            t.destroy_on_resume();
-          }
-        }
       }
       return done;
-    }
-
-    /// \brief Check if this epoch's readers should be dropped without resumption.
-    ///
-    /// \return true if the writer was released without writing, and readers are required to cancel.
-    /// \note This should be used during reader handling to determine whether to destroy coroutines.
-    ///
-    /// \pre writer_release() must have been called before using this function.
-    bool should_drop_readers() noexcept
-    {
-      return writer_done_.load(std::memory_order_acquire) && writer_required_.load(std::memory_order_acquire);
     }
 
     // External Writer interface
@@ -213,10 +206,18 @@ class EpochContext {
     /// \brief Mark this epoch as requiring write; readers will be destroyed if no write occurs.
     /// \note This sets writer_required_ = true. If writer_release() is called without a prior write,
     ///       all reader coroutines will be destroyed.
-    void destroy_if_unwritten() noexcept { writer_required_.store(true, std::memory_order_release); }
+    void writer_require() noexcept { writer_required_.store(true, std::memory_order_release); }
 
     /// \brief Mark this epoch as successfully written.
     void writer_has_written() noexcept { writer_required_.store(false, std::memory_order_release); }
+
+    bool writer_is_required() const noexcept { return writer_required_.load(std::memory_order_acquire); }
+
+    void writer_set_exception(std::exception_ptr e) noexcept
+    {
+      eptr_ = e;
+      writer_required_.store(true, std::memory_order_release);
+    }
 
     /// \brief Transfer ownership of the bound writer coroutine.
     /// \return The bound writer coroutine (may be null if none bound).
@@ -235,6 +236,7 @@ class EpochContext {
     std::atomic<int> created_readers_{0};
     std::mutex reader_mtx_;
     std::vector<AsyncTask> reader_handles_;
+    std::exception_ptr eptr_{nullptr}; /// set by the writer, if we have a current exception to pass on to the readers
 
     AsyncTask writer_task_;                    ///< Coroutine task (if bound).
     std::atomic<int> created_writers_{0};      ///< number of active writers (normally max 1)
@@ -242,7 +244,13 @@ class EpochContext {
     std::atomic<bool> writer_done_{false};     ///< Set when writer releases gate.
     std::atomic<bool> writer_required_{false}; ///< Flag that we want ReadBuffers to get dropped if we don't write
 
-    uint64_t counter_ = -1LL;
+  public:
+    int64_t counter_ = 0;
+};
+
+class buffer_cancelled : public std::exception {
+  public:
+    const char* what() const noexcept override { return "ReadBuffer was cancelled: no value written"; }
 };
 
 /// \brief RAII-scoped representation of a reader's participation in an EpochContext.
@@ -327,10 +335,73 @@ template <typename T> class EpochContextReader {
     /// \brief Access the stored value inside the parent Async<T>.
     /// \return Reference to the T value.
     /// \pre The value must be ready. Should only be called after await_ready() returns true.
-    T const& data() const noexcept
+    T const& data() const
     {
       DEBUG_PRECONDITION(epoch_, this);
       DEBUG_PRECONDITION(epoch_->reader_is_ready());
+      DEBUG_TRACE(epoch_, epoch_->reader_error(), epoch_->counter_);
+      if (epoch_->reader_error())
+      {
+        if (auto e = epoch_->reader_exception(); e)
+          std::rethrow_exception(e);
+        else
+          throw buffer_cancelled();
+      }
+      return parent_->value_;
+    }
+
+    T const& data_assert() const
+    {
+      DEBUG_PRECONDITION(epoch_, this);
+      DEBUG_PRECONDITION(epoch_->reader_is_ready());
+      if (epoch_->reader_error())
+      {
+        if (auto e = epoch_->reader_exception(); e)
+          std::rethrow_exception(e);
+        else
+        {
+          PANIC("buffer cancelled but not caught");
+        }
+      }
+      return parent_->value_;
+    }
+
+    // \brief Optionally retrieves the value stored in this buffer, if available.
+    ///
+    /// \return A pointer to the value, if it is written, otherwise returns nullptr.
+    /// \throws Any exception stored in the writer, if the buffer is in an exception state
+    /// \pre The buffer must be ready for reading (i.e., the write gate is closed).
+    T const* data_maybe() const
+    {
+      DEBUG_PRECONDITION(epoch_, this);
+      DEBUG_PRECONDITION(epoch_->reader_is_ready());
+      if (epoch_->reader_error())
+      {
+        if (auto e = epoch_->reader_exception(); e)
+          std::rethrow_exception(e);
+        else
+          return nullptr;
+      }
+      return &parent_->value_;
+    }
+
+    /// \brief Optionally retrieves the value stored in this buffer, if available.
+    ///
+    /// \return A copy of the value if it was written; `std::nullopt` if the buffer was cancelled.
+    /// \throws Any exception stored in the writer, if the write failed exceptionally.
+    /// \pre The buffer must be ready for reading (i.e., the write gate is closed).
+    /// \post If a value is returned, it is a full copy and independent of the internal buffer.
+    std::optional<T> data_option() const
+    {
+      DEBUG_PRECONDITION(epoch_, this);
+      DEBUG_PRECONDITION(epoch_->reader_is_ready());
+      if (epoch_->reader_error())
+      {
+        if (auto e = epoch_->reader_exception(); e)
+          std::rethrow_exception(e);
+        else
+          return std::nullopt;
+      }
       return parent_->value_;
     }
 
@@ -346,7 +417,7 @@ template <typename T> class EpochContextReader {
     {
       if (epoch_)
       {
-        TRACE("EpochContextReader release");
+        // TRACE("EpochContextReader release");
         if (epoch_->reader_release()) parent_->queue_.on_all_readers_released(epoch_);
         epoch_ = nullptr;
       }
@@ -415,8 +486,8 @@ template <typename T> class EpochContextWriter {
     /// \param t The coroutine to bind and schedule.
     void suspend(AsyncTask&& t)
     {
-      TRACE("suspend", &t, epoch_);
       DEBUG_PRECONDITION(epoch_);
+      TRACE("suspend", &t, epoch_, epoch_->counter_);
       epoch_->writer_bind(std::move(t));
       parent_->queue_.on_writer_bound(epoch_);
     }
@@ -439,16 +510,16 @@ template <typename T> class EpochContextWriter {
     {
       if (epoch_)
       {
-        TRACE("EpochContextWriter: release");
+        // TRACE("EpochContextWriter: release");
         if (epoch_->writer_release()) parent_->queue_.on_writer_done(epoch_);
         epoch_ = nullptr;
       }
     }
 
-    void destroy_if_unwritten() noexcept
+    void writer_require() noexcept
     {
       DEBUG_PRECONDITION(epoch_);
-      epoch_->destroy_if_unwritten();
+      epoch_->writer_require();
     }
 
     /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value

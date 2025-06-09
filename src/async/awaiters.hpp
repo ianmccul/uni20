@@ -26,7 +26,7 @@ namespace uni20::async
 /// was useful.
 template <AsyncTaskAwaitable... Aw>
   requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
-struct AllAwaiter
+struct AllAwaiter //: public AsyncAwaiter
 {
     std::tuple<Aw...> bufs_;                  ///< Underlying awaiters
     std::array<bool, sizeof...(Aw)> ready_{}; ///< Readiness flags

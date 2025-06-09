@@ -16,6 +16,9 @@ namespace uni20::async
 
 template <typename T> class Async;
 
+template <typename T> class ReadMaybeAwaiter;
+template <typename T> class ReadOrCancelAwaiter;
+
 /// \brief RAII handle for reading the value from an Async container at a given epoch.
 ///
 /// A ReadBuffer<T> represents a read-only access to the value of an Async<T>
@@ -35,7 +38,7 @@ template <typename T> class Async;
 ///
 /// \tparam T The underlying value type.
 // TODO: actually moving the value is not yet implemented
-template <typename T> class ReadBuffer {
+template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
   public:
     using value_type = T;
 
@@ -51,6 +54,16 @@ template <typename T> class ReadBuffer {
     ReadBuffer(ReadBuffer&&) noexcept = default;
     ReadBuffer& operator=(ReadBuffer&&) noexcept = default;
 
+    /// \brief Returns a `ReadMaybeAwaiter`, that returns an std::optional (or optional-like) object
+    /// that is empty if the buffer is in a cancelled state.
+    ReadMaybeAwaiter<T const&> maybe() &;
+
+    ReadMaybeAwaiter<T> maybe() &&;
+
+    ReadOrCancelAwaiter<T const&> or_cancel() &;
+
+    ReadOrCancelAwaiter<T> or_cancel() &&;
+
     /// \brief Check if the value is already ready to be read.
     /// \return True if the epoch is ready and no suspension is needed.
     bool await_ready() const noexcept { return reader_.ready(); }
@@ -61,14 +74,16 @@ template <typename T> class ReadBuffer {
 
     /// \brief Resume execution and return the stored value.
     /// \return Reference to the stored T inside Async<T>.
-    T const& await_resume() const& noexcept { return reader_.data(); }
+    T const& await_resume() const& { return reader_.data(); }
 
     /// \brief Resume execution and return a copy of the stored value.
     /// \note Called when co_awaiting on a prvalue ReadBuffer.
-    T await_resume() && noexcept
+    T await_resume() &&
     {
       static_assert(std::is_copy_constructible_v<T>, "Cannot co_await prvalue ReadBuffer<T> unless T is copyable");
-      return reader_.data();
+      T result{reader_.data()};
+      reader_.release();
+      return result;
     }
 
     /// \brief Manually release the epoch reader before awaitable destruction.
@@ -97,6 +112,156 @@ template <typename T> class ReadBuffer {
     EpochContextReader<T> reader_; ///< RAII object managing epoch state.
 };
 
+template <typename T> class ReadMaybeAwaiter {
+  public:
+    using value_type = std::optional<T>;
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return True if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept { return reader_.ready(); }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t)); }
+
+    /// \brief Resume execution and return a copy of the stored value.
+    /// \note Called when co_awaiting on a prvalue ReadBuffer.
+    value_type await_resume() { return reader_.data_option(); }
+
+  private:
+    ReadMaybeAwaiter() = delete;
+    ReadMaybeAwaiter(ReadMaybeAwaiter const&) = delete;
+    ReadMaybeAwaiter& operator=(ReadMaybeAwaiter const&) = delete;
+    ReadMaybeAwaiter& operator=(ReadMaybeAwaiter&&) = delete;
+
+    ReadMaybeAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+
+    friend ReadBuffer<T>;
+
+    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+};
+
+template <typename T> class ReadMaybeAwaiter<T const&> {
+  public:
+    using value_type = T const*;
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return True if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept { return reader_.ready(); }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t)); }
+
+    /// \brief Resume execution and return a pointer to stored value, or nullptr
+    value_type await_resume() { return reader_.data_maybe(); }
+
+  private:
+    ReadMaybeAwaiter() = delete;
+    ReadMaybeAwaiter(ReadMaybeAwaiter const&) = delete;
+    ReadMaybeAwaiter& operator=(ReadMaybeAwaiter const&) = delete;
+    ReadMaybeAwaiter& operator=(ReadMaybeAwaiter&&) = delete;
+
+    ReadMaybeAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+
+    friend ReadBuffer<T>;
+
+    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+};
+
+template <typename T> class ReadOrCancelAwaiter {
+  public:
+    using value_type = T;
+
+    ReadOrCancelAwaiter(ReadOrCancelAwaiter&&) = default; // movable
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return true if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept
+    {
+      // we must suspend here, because it is a possible cancellation point
+      return false;
+    }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE("await_suspend of ReadOrCancelAwaiter");
+      t.cancel_if_unwritten();
+      reader_.suspend(std::move(t));
+    }
+
+    /// \brief Resume execution and return a copy of the stored value.
+    /// \note Called when co_awaiting on a prvalue ReadBuffer.
+    T await_resume() { return reader_.data_assert(); }
+
+  private:
+    ReadOrCancelAwaiter() = delete;
+    ReadOrCancelAwaiter(ReadOrCancelAwaiter const&) = delete;
+    ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter const&) = delete;
+    ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter&&) = delete;
+
+    ReadOrCancelAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+
+    friend ReadBuffer<T>;
+
+    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+};
+
+template <typename T> class ReadOrCancelAwaiter<T const&> {
+  public:
+    using value_type = T;
+
+    ReadOrCancelAwaiter(ReadOrCancelAwaiter&&) = default; // movable
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return true if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept
+    {
+      // we must suspend here, because it is a possible cancellation point
+      return false;
+    }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE("await_suspend of ReadOrCancelAwaiter");
+      t.cancel_if_unwritten();
+      reader_.suspend(std::move(t));
+    }
+
+    /// \brief Resume execution and return a copy of the stored value.
+    T const& await_resume() { return reader_.data_assert(); }
+
+  private:
+    ReadOrCancelAwaiter() = delete;
+    ReadOrCancelAwaiter(ReadOrCancelAwaiter const&) = delete;
+    ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter const&) = delete;
+    ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter&&) = delete;
+
+    ReadOrCancelAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+
+    friend ReadBuffer<T>;
+
+    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+};
+
+template <typename T> ReadMaybeAwaiter<T const&> ReadBuffer<T>::maybe() &
+{
+  return ReadMaybeAwaiter<T const&>(reader_);
+}
+
+template <typename T> ReadMaybeAwaiter<T> ReadBuffer<T>::maybe() && { return ReadMaybeAwaiter<T>(reader_); }
+
+template <typename T> ReadOrCancelAwaiter<T const&> ReadBuffer<T>::or_cancel() &
+{
+  return ReadOrCancelAwaiter<T const&>(reader_);
+}
+
+template <typename T> ReadOrCancelAwaiter<T> ReadBuffer<T>::or_cancel() && { return ReadOrCancelAwaiter<T>(reader_); }
+
 // Forward declaration
 template <typename T> class WriteProxy;
 
@@ -115,7 +280,7 @@ template <typename T> class WriteProxy;
 /// \warning Multiple active WriteBuffers to the same Async<T> are not causally isolated.
 /// It is the user's responsibility to ensure they are not used concurrently or
 /// inconsistently. This is akin to having multiple references to a shared global variable.
-template <typename T> class WriteBuffer {
+template <typename T> class WriteBuffer { //}: public AsyncAwaiter {
   public:
     using value_type = T;
     using element_type = T&;
@@ -150,7 +315,7 @@ template <typename T> class WriteBuffer {
 
     /// \brief Flag the buffer that any tasks waiting on it should be destroyed if the buffer
     ///        is released without being written to.
-    void destroy_if_unwritten() noexcept { writer_.destroy_if_unwritten(); }
+    void writer_require() noexcept { writer_.writer_require(); }
 
     /// \brief Wait for the epoch to become available, and then move the value.
     T move_from_wait() { return writer_.move_from_wait(); }
@@ -196,6 +361,9 @@ template <typename T> class WriteBuffer {
 
     /// \brief Deleted rvalue co_await to avoid use-after-move or lifetime errors.
     auto operator co_await() && = delete;
+
+    // void set_cancel() override final;
+    // void set_exception(std::exception_ptr e) override final;
 
   private:
     EpochContextWriter<T> writer_; ///< RAII handle for write coordination.
