@@ -41,7 +41,7 @@ template <typename T> class ReadBuffer {
 
     /// \brief Construct a read buffer tied to a reader context.
     /// \param reader The RAII epoch reader handle for this operation.
-    explicit ReadBuffer(EpochContextReader<T> reader) : reader_(std::move(reader)) {}
+    ReadBuffer(EpochContextReader<T> reader) : reader_(std::move(reader)) {}
 
     ReadBuffer(ReadBuffer const&) = default;
 
@@ -80,8 +80,8 @@ template <typename T> class ReadBuffer {
     ///       more than once has no effect.
     void release() noexcept { reader_.release(); }
 
-    T get_wait() && { return reader_.get_wait(); }
-    T const& get_wait() const& { return reader_.get_wait(); }
+    // T get_wait() && { return T(reader_.get_wait()); } // TODO: can this use move semantics?
+    T const& get_wait() const { return reader_.get_wait(); }
 
     /// \brief Enable co_await on lvalue ReadBuffer only.
     ///
@@ -121,7 +121,7 @@ template <typename T> class WriteBuffer {
     using element_type = T&;
 
     /// \brief Construct a write buffer from an RAII writer handle.
-    explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
+    WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
 
     // Not copyable, but instead we have dup(WriteBuffer&) function
     WriteBuffer(WriteBuffer const&) = delete;

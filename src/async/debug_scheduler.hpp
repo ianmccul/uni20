@@ -101,9 +101,6 @@ template <typename T> T&& EpochContextWriter<T>::move_from_wait() const
   }
   return std::move(this->data());
 }
-template <typename T> T Async<T>::get_wait() const { return this->read().get_wait(); }
-
-template <typename T> T Async<T>::move_from_wait() { return this->write().move_from_wait(); }
 
 //-----------------------------------------------------------------------------
 // Inline definitions

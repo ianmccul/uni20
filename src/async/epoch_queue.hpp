@@ -72,6 +72,25 @@ class EpochQueue {
       return EpochContextWriter<T>(parent, &queue_.back());
     }
 
+    /// \brief Prepend a new epoch to the front of the queue.
+    /// \return {EpochContextWriter, EpochContextReader} to the new front epoch.
+    /// \pre The current front epoch must not have a writer bound.
+    template <typename T>
+    std::tuple<EpochContextWriter<T>, EpochContextReader<T>> prepend_epoch(detail::AsyncImplPtr<T> const& parent)
+    {
+      std::lock_guard lock(mtx_);
+      if (queue_.empty())
+      {
+        queue_.emplace_front(nullptr, std::integral_constant<bool, true>{});
+      }
+      else
+      {
+        DEBUG_CHECK(!queue_.front().writer_has_task());
+        queue_.emplace_front(&queue_.front(), /*writer_already_done=*/false);
+      }
+      return {EpochContextWriter<T>(parent, &queue_.front()), EpochContextReader<T>(parent, &queue_.front())};
+    }
+
     /// \brief Called when a writer coroutine is bound to its epoch.
     /// \param e Epoch to which the writer was bound.
     void on_writer_bound(EpochContext* e) noexcept

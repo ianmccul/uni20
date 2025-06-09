@@ -1,5 +1,5 @@
 /// \file epoch_context.hpp
-/// \brief Manages one “generation” of write/read ordering.
+/// \brief Manages one “generation” of write/read ordering in an Async<T>
 /// \ingroup async_core
 
 #pragma once
@@ -25,45 +25,40 @@ template <typename T> struct AsyncImpl;
 template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
 } // namespace detail
 
-// The EpochContext manages readers and writers to a particular causal write → read cycle.
-// The writer lifecycle is tracked by three boolean flags:
-//
-//   writer_claimed_ : set to true when a write buffer has been attached (via EpochContextWriter).
-//
-//   writer_task_set_ : set to true when writer_task_ has been bound. This means it is safe
-//                      to read from writer_task_. Precondition: writer_claimed_ must be true.
-//
-//   writer_done_ : set to true once the write gate has been released, either via explicit
-//                  release() or destruction of the WriteBuffer.
-//
-// In special cases (e.g., initialization of Async<T> or post-final epoch), an EpochContext
-// may be constructed with writer_already_done = true, resulting in a “bootstrap” epoch.
-//
-// State table:
-//   claimed  task_set  done   |  Meaning
-//   -------------------------------------------
-//   false    false     false  | Unused (default-constructed epoch)
-//   false    false     true   | Bootstrap epoch: writer gate pre-released
-//   false    true      false  | Invalid: task set without claim
-//   false    true      true   | Invalid: task set + done without claim
-//   true     false     false  | Acquired but not yet suspended
-//   true     false     true   | Acquired, fast-path resume (no task bound)
-//   true     true      false  | Task bound, write in progress
-//   true     true      true   | Write complete, normal end state
-// FIXME: claimed no longer exists, replaced by a ref count
-
-/// \brief One generation’s context: one writer + N readers.
-/// \ingroup async_core
+/// \brief Per-epoch state for an Async<T> value, coordinating one writer and multiple readers.
+///
+/// \details
+/// The EpochContext tracks synchronization state for one generation of an Async<T>.
+/// One writer coroutine may be bound, and multiple readers.
+/// Writer progress is tracked via three flags:
+///
+///   - \c writer_task_set_ : set once the writer coroutine is registered.
+///   - \c writer_done_     : set when the write gate has been released.
+///   - \c writer_required_ : true if readers must be destroyed when no write occurs (e.g., canceled).
+///
+/// \note
+/// Epochs are constructed in a chain. The previous epoch may pass forward `writer_required_`,
+/// which means that the existing value is undetermined/invalid, and the writer is required
+/// to co_await on the buffer, or we enter an error state.
+/// The `counter_` tracks generation number for debugging.
 class EpochContext {
   public:
-    /// \brief Construct an epoch context.
-    /// \param writer_already_done If true, readers may proceed immediately.
-    // explicit EpochContext(bool writer_already_done) noexcept : writer_done_{writer_already_done} {}
-
+    /// \brief Construct a new epoch.
+    /// \param prev Pointer to the previous epoch (if any).
+    /// \param writer_already_done If true, this epoch begins in the "bootstrap" state.
+    ///
+    /// \post If \p writer_already_done is true, this epoch is considered immediately readable.
     EpochContext(EpochContext const* prev, bool writer_already_done) noexcept
         : writer_done_{writer_already_done},
           writer_required_(prev ? prev->writer_required_.load(std::memory_order_acquire) : false),
           counter_(prev ? prev->counter_ + 1 : 0)
+    {}
+
+    /// \brief Construct a reverse-mode epoch, linked to the next one in time.
+    /// \param next Pointer to the next epoch (i.e., earlier in forward time).
+    /// \param writer_already_done If true, this epoch begins in released state.
+    EpochContext(EpochContext const* next, std::integral_constant<bool, true> reverse)
+        : writer_done_{false}, writer_required_(true), counter_(next ? next->counter_ - 1 : 0)
     {}
 
     // reader interface
@@ -97,7 +92,7 @@ class EpochContext {
     /// \note Stored coroutines are resumed when the epoch advances.
     void reader_enqueue(AsyncTask&& h)
     {
-      if (writer_done_.load(std::memory_order_acquire) && writer_required_.load(std::memory_order_acquire))
+      if (this->should_drop_readers())
       {
         h.destroy_on_resume();
         h.release();
@@ -192,6 +187,12 @@ class EpochContext {
       return done;
     }
 
+    /// \brief Check if this epoch's readers should be dropped without resumption.
+    ///
+    /// \return true if the writer was released without writing, and readers are required to cancel.
+    /// \note This should be used during reader handling to determine whether to destroy coroutines.
+    ///
+    /// \pre writer_release() must have been called before using this function.
     bool should_drop_readers() noexcept
     {
       return writer_done_.load(std::memory_order_acquire) && writer_required_.load(std::memory_order_acquire);
@@ -209,10 +210,12 @@ class EpochContext {
     /// \return true if the epoch is ready for readers.
     bool writer_is_done() const noexcept { return writer_done_.load(std::memory_order_acquire); }
 
-    /// \brief Indicate that the writer getting released without performing a write causes readers to drop
+    /// \brief Mark this epoch as requiring write; readers will be destroyed if no write occurs.
+    /// \note This sets writer_required_ = true. If writer_release() is called without a prior write,
+    ///       all reader coroutines will be destroyed.
     void destroy_if_unwritten() noexcept { writer_required_.store(true, std::memory_order_release); }
 
-    /// \brief Indicate that the writer has actually written to the buffer (or at least attempted....)
+    /// \brief Mark this epoch as successfully written.
     void writer_has_written() noexcept { writer_required_.store(false, std::memory_order_release); }
 
     /// \brief Transfer ownership of the bound writer coroutine.

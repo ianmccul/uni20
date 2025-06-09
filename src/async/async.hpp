@@ -130,7 +130,10 @@ template <typename T> class Async {
 
     /// \brief Begin an asynchronous write to the value.
     /// \return A WriteBuffer<T> which may be co_awaited.
-    WriteBuffer<T> write() const noexcept { return WriteBuffer<T>(impl_->queue_.create_write_context(impl_)); }
+    WriteBuffer<T> write() noexcept { return WriteBuffer<T>(impl_->queue_.create_write_context(impl_)); }
+
+    // Used by FutureValue<T>; TODO: make private and friend
+    std::tuple<WriteBuffer<T>, ReadBuffer<T>> prepend_epoch() { return impl_->queue_.prepend_epoch(impl_); }
 
     template <typename Sched> T& get_wait(Sched& sched)
     {
@@ -142,7 +145,7 @@ template <typename T> class Async {
       return impl_->value_;
     }
 
-    T get_wait() const;
+    T const& get_wait() const;
 
     // TODO: we could have a version that returns a ref-counted proxy, which enables reference rather than copy
 
@@ -170,3 +173,5 @@ template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
 template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
 
 } // namespace uni20::async
+
+#include "async-impl.hpp"

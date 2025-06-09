@@ -24,9 +24,6 @@ template <typename T> class FutureValue {
     /// Access as an Async<T> (read-only use).
     Async<T> const& async() const noexcept { return async_; }
 
-    /// Await the value — same as co_await Async<T>.
-    auto operator co_await() const noexcept { return async_.operator co_await(); }
-
     /// Get a ReadBuffer<T> from the underlying Async.
     ReadBuffer<T> read() const { return async_.read(); }
 
@@ -46,7 +43,7 @@ template <typename T> class FutureValue {
     // Assigning from an Async<T> is possible; this launches a coroutine do to the copy
     template <typename U> FutureValue& operator=(Async<U> const& v)
     {
-      async_assign(v, std::move(write_buf_));
+      async_assign(v.read(), std::move(write_buf_));
       return *this;
     }
 
