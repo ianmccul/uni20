@@ -5,6 +5,52 @@
 namespace uni20::async
 {
 
+template <typename T, typename U> AsyncTask accumulate(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
+{
+  DEBUG_TRACE("Reverse +=");
+  auto a = co_await a_.maybe();
+  if (a)
+  {
+    auto tmp = std::move(*a);
+    a_.release();
+    auto b = co_await b_.maybe();
+    if (b) tmp += *b;
+    b_.release();
+    co_await out_ = std::move(tmp);
+  }
+  else
+  {
+    a_.release();
+    auto b = co_await b_.or_cancel();
+    b_.release();
+    co_await out_ = std::move(b);
+  }
+  co_return;
+}
+
+template <typename T, typename U> AsyncTask accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
+{
+  DEBUG_TRACE("Reverse -=");
+  auto a = co_await a_.maybe();
+  if (a)
+  {
+    auto tmp = std::move(*a);
+    a_.release();
+    auto b = co_await b_.maybe();
+    if (b) tmp -= *b;
+    b_.release();
+    co_await out_ = std::move(tmp);
+  }
+  else
+  {
+    a_.release();
+    auto b = co_await b_.or_cancel();
+    b_.release();
+    co_await out_ = -std::move(b);
+  }
+  co_return;
+}
+
 /// ReverseValue<T> owns a write-capable handle (WriteBuffer<T>) to an Async<T> value.
 template <typename T> class ReverseValue {
   public:
@@ -85,17 +131,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w = std::move(write_buf_);
       std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
 
-      schedule([](auto a_, auto b_, auto out_) -> AsyncTask {
-        DEBUG_TRACE("Reverse +=");
-        auto ab = co_await all(a_, b_);
-        auto tmp = std::get<0>(ab);
-        tmp += std::get<1>(ab);
-        TRACE(tmp);
-        a_.release();
-        b_.release();
-        co_await out_ = std::move(tmp); // Suspend *after* releasing readers
-        co_return;
-      }(read_buf_, v.read(), std::move(w)));
+      schedule(accumulate(read_buf_, v.read(), std::move(w)));
       return *this;
     }
 
@@ -104,17 +140,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w = std::move(write_buf_);
       std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
 
-      schedule([](auto a_, auto b_, auto out_) -> AsyncTask {
-        DEBUG_TRACE("Reverse +=");
-        auto ab = co_await all(a_, b_);
-        auto tmp = std::get<0>(ab);
-        tmp += std::get<1>(ab);
-        TRACE(tmp);
-        a_.release();
-        b_.release();
-        co_await out_ = std::move(tmp); // Suspend *after* releasing readers
-        co_return;
-      }(read_buf_, std::move(v), std::move(w)));
+      schedule(accumulate(read_buf_, std::move(v), std::move(w)));
       return *this;
     }
 
@@ -123,17 +149,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w = std::move(write_buf_);
       std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
 
-      schedule([](auto a_, auto b_, auto out_) -> AsyncTask {
-        DEBUG_TRACE("Reverse -=");
-        auto ab = co_await all(a_, b_);
-        auto tmp = std::get<0>(ab);
-        tmp -= std::get<1>(ab);
-        TRACE(tmp);
-        a_.release();
-        b_.release();
-        co_await out_ = std::move(tmp); // Suspend *after* releasing readers
-        co_return;
-      }(read_buf_, v.read(), std::move(w)));
+      schedule(accumulate_minus(read_buf_, v.read(), std::move(w)));
       return *this;
     }
 
@@ -142,17 +158,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w = std::move(write_buf_);
       std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
 
-      schedule([](auto a_, auto b_, auto out_) -> AsyncTask {
-        DEBUG_TRACE("Reverse -=");
-        auto ab = co_await all(a_, b_);
-        auto tmp = std::get<0>(ab);
-        tmp -= std::get<1>(ab);
-        TRACE(tmp);
-        a_.release();
-        b_.release();
-        co_await out_ = std::move(tmp); // Suspend *after* releasing readers
-        co_return;
-      }(read_buf_, std::move(v), std::move(w)));
+      schedule(accumulate_minus(read_buf_, std::move(v), std::move(w)));
       return *this;
     }
 

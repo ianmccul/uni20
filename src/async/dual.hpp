@@ -54,7 +54,7 @@ template <typename T> Dual<T> sin(Dual<T>& x)
   return Result;
 }
 
-template <typename T> Async<T> sin(Async<T> x)
+template <typename T> Async<T> sin(Async<T> const& x)
 {
   Async<T> Result;
   schedule([](ReadBuffer<T> in, WriteBuffer<T> out) -> AsyncTask {
@@ -66,7 +66,7 @@ template <typename T> Async<T> sin(Async<T> x)
   return Result;
 }
 
-template <typename T> Async<T> cos(Async<T> x)
+template <typename T> Async<T> cos(Async<T> const& x)
 {
   Async<T> Result;
   schedule([](ReadBuffer<T> in, WriteBuffer<T> out) -> AsyncTask {

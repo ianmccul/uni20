@@ -116,6 +116,8 @@ template <typename T> class ReadMaybeAwaiter {
   public:
     using value_type = std::optional<T>;
 
+    ReadMaybeAwaiter(ReadMaybeAwaiter&&) = default; // movable
+
     /// \brief Check if the value is already ready to be read.
     /// \return True if the epoch is ready and no suspension is needed.
     bool await_ready() const noexcept { return reader_.ready(); }
@@ -144,6 +146,8 @@ template <typename T> class ReadMaybeAwaiter {
 template <typename T> class ReadMaybeAwaiter<T const&> {
   public:
     using value_type = T const*;
+
+    ReadMaybeAwaiter(ReadMaybeAwaiter&&) = default; // movable
 
     /// \brief Check if the value is already ready to be read.
     /// \return True if the epoch is ready and no suspension is needed.
