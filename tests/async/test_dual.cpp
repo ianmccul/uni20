@@ -2,6 +2,7 @@
 #include "async/async_ops.hpp"
 #include "async/debug_scheduler.hpp"
 #include "async/dual.hpp"
+#include "async/dual_toys.hpp"
 #include <gtest/gtest.h>
 
 using namespace uni20::async;
@@ -63,7 +64,7 @@ TEST(Dual, SinUnused)
 
   {
     Dual<double> z = sin(x); // unused
-    // z.grad = 0.0;            // without this, we get an exception
+    // z.grad = 0.0;            // with this, the gradient can be calculated but is zero
   }
 
   EXPECT_NEAR(y.value.get_wait(), std::sin(v), 1e-10);

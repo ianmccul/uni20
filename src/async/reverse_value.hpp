@@ -7,7 +7,6 @@ namespace uni20::async
 
 template <typename T, typename U> AsyncTask accumulate(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
-  DEBUG_TRACE("Reverse +=");
   auto a = co_await a_.maybe();
   if (a)
   {
@@ -30,7 +29,6 @@ template <typename T, typename U> AsyncTask accumulate(ReadBuffer<T> a_, ReadBuf
 
 template <typename T, typename U> AsyncTask accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
-  DEBUG_TRACE("Reverse -=");
   auto a = co_await a_.maybe();
   if (a)
   {
@@ -70,10 +68,22 @@ template <typename T> class ReverseValue {
     // Async<T> const& async() const noexcept { return async_; }
 
     /// \brief Get the final graident value; also finalizes the computation chain
-    ReadBuffer<T> final()
+    // ReadBuffer<T> final()
+    // {
+    //   this->finalize();
+    //   return async_.read();
+    // }
+
+    Async<T> final()
     {
       this->finalize();
-      return async_.read();
+      return async_;
+    }
+
+    T final_wait()
+    {
+      this->finalize();
+      return async_.get_wait();
     }
 
     /// Get a ReadBuffer<T> from the earliest epoch - this is the 'input gradient' to be fed into the next stage

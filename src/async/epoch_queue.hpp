@@ -30,7 +30,6 @@ class EpochQueue {
       {
         queue_.emplace_back(nullptr, /*writer_already_done=*/true);
       }
-      // TRACE("EpochQueue: create_read_context");
       return EpochContextReader<T>(parent, &queue_.back());
     }
 
@@ -39,7 +38,6 @@ class EpochQueue {
     bool has_pending_writers() const noexcept
     {
       std::lock_guard lock(mtx_);
-      TRACE(queue_.size());
       return queue_.size() > 1 || (queue_.size() == 1 && !queue_.front().writer_is_done());
     }
 
@@ -64,13 +62,11 @@ class EpochQueue {
         // (this cannot drain our recently added epoch, since the writer is not done)
         while (queue_.front().writer_is_done() && queue_.front().reader_is_empty())
         {
-          TRACE("EpochQueue: removing drained front epoch before new writer", &queue_.front());
           bool writer_required = queue_.front().writer_is_required();
           queue_.pop_front();
           if (writer_required) queue_.front().writer_require();
         }
       }
-      // TRACE("EpochQueue: create_write_context", queue_.size(), queue_.back().counter());
       return EpochContextWriter<T>(parent, &queue_.back());
     }
 
@@ -100,14 +96,13 @@ class EpochQueue {
       std::unique_lock lock(mtx_);
       if (e == &queue_.front())
       {
-        TRACE("Scheduling writer for front epoch");
         auto task = e->writer_take_task();
         lock.unlock();
         AsyncTask::reschedule(std::move(task));
       }
       else
       {
-        TRACE("Writer bound to non-front epoch, deferring");
+        TRACE_MODULE(ASYNC, "Writer bound to non-front epoch, deferring");
       }
     }
 
@@ -146,30 +141,30 @@ class EpochQueue {
     /// \param e Epoch whose writer has completed.
     void on_writer_done(EpochContext* e) noexcept
     {
-      TRACE("Writer has finished", e, &queue_.front());
+      TRACE_MODULE(ASYNC, "Writer has finished", e, &queue_.front());
       std::unique_lock lock(mtx_);
       if (e != &queue_.front())
       {
-        TRACE("Finished writer is not at the front of the queue; not advancing");
+        TRACE_MODULE(ASYNC, "Finished writer is not at the front of the queue; not advancing");
         return;
       }
       // If readers are waiting, schedule them first
       auto readers = e->reader_take_tasks();
-      TRACE(readers.size());
+      TRACE_MODULE(ASYNC, readers.size());
       if (!readers.empty())
       {
-        TRACE("Finished writer results in some readers getting rescheduled");
+        TRACE_MODULE(ASYNC, "Finished writer results in some readers getting rescheduled");
         lock.unlock();
         bool MaybeCancel = e->reader_error() && (e->reader_exception() == nullptr);
         for (auto&& task : readers)
         {
-          TRACE("Rescheduling", &task);
+          TRACE_MODULE(ASYNC, "Rescheduling", &task);
           if (!MaybeCancel) task.written();
           AsyncTask::reschedule(std::move(task));
         }
         return;
       }
-      TRACE(e, queue_.size(), e->reader_is_empty());
+      TRACE_MODULE(ASYNC, e, queue_.size(), e->reader_is_empty());
       if (e->reader_is_empty() && queue_.size() > 1)
       {
         // If we have writer_required() then carry it forward to the new epoch
@@ -192,7 +187,7 @@ class EpochQueue {
     ///       if a ReadBuffer is destroyed or released before `await_suspend()` occurs.
     void on_all_readers_released(EpochContext* e) noexcept
     {
-      TRACE("readers finished - we might be able to advance the epoch");
+      TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch");
       DEBUG_CHECK(e->reader_is_empty());
       std::unique_lock lock(mtx_);
       //  Only pop if this is the front epoch and fully done, and there are other epochs waiting
@@ -221,14 +216,14 @@ class EpochQueue {
     /// \brief Advance the queue by scheduling next writer/readers as appropriate.
     void advance() noexcept
     {
-      TRACE("advance!");
+      TRACE_MODULE(ASYNC, "advance!");
       while (true)
       {
         std::unique_lock lock(mtx_);
         if (queue_.empty()) return;
         auto* e = &queue_.front();
 
-        TRACE(e->writer_has_task());
+        TRACE_MODULE(ASYNC, e->writer_has_task());
         e->show();
 
         // Phase 1: schedule writer if not yet fired

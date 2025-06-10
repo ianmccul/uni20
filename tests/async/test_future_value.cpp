@@ -21,7 +21,7 @@ TEST(FutureValue, MoveOnlyType)
   using Ptr = std::unique_ptr<std::string>;
   FutureValue<Ptr> fv;
   fv = std::make_unique<std::string>("hello");
-  auto str_ptr = std::move(fv.value().move_from_wait());
+  auto str_ptr = fv.value().move_from_wait();
   EXPECT_EQ(*str_ptr, "hello");
 }
 

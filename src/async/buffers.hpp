@@ -112,6 +112,12 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     EpochContextReader<T> reader_; ///< RAII object managing epoch state.
 };
 
+/// \brief adaptor for forcing return by value and release of the buffer.  This is actually
+///        a synoym for std::move
+template <typename T> ReadBuffer<T>&& release(ReadBuffer<T>& in) { return std::move(in); }
+
+template <typename T> ReadBuffer<T>&& release(ReadBuffer<T>&& in) { return std::move(in); }
+
 template <typename T> class ReadMaybeAwaiter {
   public:
     using value_type = std::optional<T>;
@@ -191,7 +197,6 @@ template <typename T> class ReadOrCancelAwaiter {
     /// \param t Coroutine task to enqueue.
     void await_suspend(AsyncTask&& t) noexcept
     {
-      TRACE("await_suspend of ReadOrCancelAwaiter");
       t.cancel_if_unwritten();
       reader_.suspend(std::move(t));
     }
@@ -231,7 +236,6 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
     /// \param t Coroutine task to enqueue.
     void await_suspend(AsyncTask&& t) noexcept
     {
-      TRACE("await_suspend of ReadOrCancelAwaiter");
       t.cancel_if_unwritten();
       reader_.suspend(std::move(t));
     }

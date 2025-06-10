@@ -6,20 +6,20 @@
 namespace uni20::async
 {
 
-template <typename T> void BasicAsyncTask<T>::reschedule(BasicAsyncTask<T> task)
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::reschedule(BasicAsyncTask<T> task)
 {
-  TRACE("rescheduling AsyncTask", &task);
+  TRACE_MODULE(ASYNC, "rescheduling AsyncTask", &task);
   task = BasicAsyncTask<T>::make_sole_owner(std::move(task));
   if (task)
   {
     DEBUG_CHECK(task.h_.promise().sched_, "unexpected: task scheduler is not set!");
-    TRACE("rescheduling AsyncTask, submitting to queue", &task, task.h_);
+    TRACE_MODULE(ASYNC, "rescheduling AsyncTask, submitting to queue", &task, task.h_);
     auto sched = task.h_.promise().sched_;
     sched->reschedule(std::move(task));
   }
 }
 
-template <typename T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_owner(BasicAsyncTask<T>&& task)
+template <IsAsyncTaskPromise T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_owner(BasicAsyncTask<T>&& task)
 {
   auto& p = task.h_.promise();
   if (p.release_awaiter() == 1)
@@ -35,10 +35,10 @@ template <typename T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_owner(Basic
   return std::move(task);
 }
 
-template <typename T> void BasicAsyncTask<T>::resume()
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
 {
   CHECK(h_);
-  TRACE("Resuming AsyncTask", h_);
+  TRACE_MODULE(ASYNC, "Resuming AsyncTask", h_);
   if (!h_.promise().release_awaiter()) PANIC("Attempt to resume() a non-exclusive AsyncTask");
 
   bool to_destroy = cancel_.load(std::memory_order_acquire); // h_.promise().is_destroy_on_resume();
@@ -53,7 +53,7 @@ template <typename T> void BasicAsyncTask<T>::resume()
     // if we need to destroy the coroutine, recursively destroy any continuations as well
     while (handle)
     {
-      TRACE("Destroying AsyncTask", handle);
+      TRACE_MODULE(ASYNC, "Destroying AsyncTask", handle);
       handle = handle.promise().destroy_with_continuation();
     }
   }
@@ -62,7 +62,7 @@ template <typename T> void BasicAsyncTask<T>::resume()
     handle.resume();
   }
 
-  TRACE("returned from coroutine::resume");
+  TRACE_MODULE(ASYNC, "returned from coroutine::resume");
 }
 
 // template <typename T> void BasicAsyncTask<T>::cancel_on_resume() noexcept
@@ -79,9 +79,9 @@ template <typename T> void BasicAsyncTask<T>::resume()
 //   current_awaiter_->set_exception(e);
 // }
 //
-template <typename T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
+template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
 {
-  // TRACE("AsyncTask move assignment", this, h_, &other, other.h_);
+  // TRACE_MODULE(ASYNC, "AsyncTask move assignment", this, h_, &other, other.h_);
   if (this != &other)
   {
     if (h_ && h_.promise().release_awaiter()) h_.destroy();
@@ -92,22 +92,22 @@ template <typename T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsync
   return *this;
 }
 
-template <typename T> void BasicAsyncTask<T>::release() noexcept
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::release() noexcept
 {
-  // TRACE("Destroying AsyncTask", this, h_);
+  // TRACE_MODULE(ASYNC, "Destroying AsyncTask", this, h_);
   if (h_ && h_.promise().release_awaiter())
   {
     while (h_)
     {
-      TRACE("AsyncTask destructor is destroying the coroutine!", this, h_);
+      TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, h_);
       h_ = h_.promise().destroy_with_continuation();
     }
   }
 }
 
-template <typename T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept { this->release(); }
+template <IsAsyncTaskPromise T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept { this->release(); }
 
-template <typename T> bool BasicAsyncTask<T>::set_scheduler(IScheduler* sched)
+template <IsAsyncTaskPromise T> bool BasicAsyncTask<T>::set_scheduler(IScheduler* sched)
 {
   if (h_)
   {
@@ -117,7 +117,7 @@ template <typename T> bool BasicAsyncTask<T>::set_scheduler(IScheduler* sched)
   return false;
 }
 
-template <typename T>
+template <IsAsyncTaskPromise T>
 BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T>::handle_type Outer)
 {
   DEBUG_CHECK(h_);
@@ -131,7 +131,7 @@ BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T
   return h_transfer;
 }
 
-template <typename T> void BasicAsyncTask<T>::await_resume() const noexcept
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::await_resume() const noexcept
 {
   // if (cancel_)
   // {

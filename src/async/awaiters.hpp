@@ -60,7 +60,6 @@ struct AllAwaiter //: public AsyncAwaiter
     template <std::size_t... I> bool await_ready_impl(std::index_sequence<I...>) noexcept
     {
       ((ready_[I] = std::get<I>(bufs_).await_ready()), ...);
-      DEBUG_TRACE(ready_);
       return (ready_[I] && ...);
     }
 

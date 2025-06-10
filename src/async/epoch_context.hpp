@@ -64,7 +64,7 @@ class EpochContext {
         : eptr_(prev ? prev->eptr_ : nullptr), writer_done_{writer_already_done}, writer_required_(false),
           counter_(prev ? prev->counter_ + 1 : 0)
     {
-      TRACE("Creating new forwards epoch", this, counter_);
+      TRACE_MODULE(ASYNC, "Creating new forwards epoch", this, counter_);
     }
 
     /// \brief Construct a reverse-mode epoch, linked to the next one in time.
@@ -73,7 +73,7 @@ class EpochContext {
     EpochContext(EpochContext const* next, std::integral_constant<bool, true> reverse)
         : writer_done_{false}, writer_required_(true), counter_(next ? next->counter_ - 1 : 0)
     {
-      TRACE("Creating new reverse epoch", this, counter_);
+      TRACE_MODULE(ASYNC, "Creating new reverse epoch", this, counter_);
     }
 
     // reader interface
@@ -85,7 +85,7 @@ class EpochContext {
     ///       matched with a corresponding call to reader_release().
     void reader_acquire() noexcept
     {
-      // DEBUG_TRACE("reader_acquire()", this);
+      // DEBUG_TRACE_MODULE(ASYNC, "reader_acquire()", this);
       created_readers_.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -95,7 +95,7 @@ class EpochContext {
     ///       the epoch may be advanced by the queue.
     bool reader_release() noexcept
     {
-      // DEBUG_TRACE("reader_release()", this, created_readers_.load(std::memory_order_acquire),
+      // DEBUG_TRACE_MODULE(ASYNC, "reader_release()", this, created_readers_.load(std::memory_order_acquire),
       // reader_handles_.size());
       return created_readers_.fetch_sub(1, std::memory_order_acq_rel) == 1;
     }
@@ -131,7 +131,7 @@ class EpochContext {
     /// \return Vector of reader handles.
     std::vector<AsyncTask> reader_take_tasks() noexcept
     {
-      TRACE(created_readers_.load(std::memory_order_acquire));
+      TRACE_MODULE(ASYNC, created_readers_.load(std::memory_order_acquire));
       std::lock_guard lock(reader_mtx_);
       std::vector<AsyncTask> v;
       v.swap(reader_handles_);
@@ -148,8 +148,9 @@ class EpochContext {
 
     void show()
     {
-      DEBUG_TRACE(this, created_readers_.load(std::memory_order_acquire), reader_handles_.size(),
-                  writer_done_.load(std::memory_order_acquire), writer_task_set_.load(std::memory_order_acquire));
+      DEBUG_TRACE_MODULE(ASYNC, this, created_readers_.load(std::memory_order_acquire), reader_handles_.size(),
+                         writer_done_.load(std::memory_order_acquire),
+                         writer_task_set_.load(std::memory_order_acquire));
     }
 
     // Writer interface
@@ -159,7 +160,7 @@ class EpochContext {
     /// \brief Acquire the writer role for this epoch.
     void writer_acquire() noexcept
     {
-      // DEBUG_TRACE("writer_acquire", this);
+      // DEBUG_TRACE_MODULE(ASYNC, "writer_acquire", this);
       created_writers_.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -168,7 +169,7 @@ class EpochContext {
     /// \pre Must follow writer_acquire(), and only be called once.
     void writer_bind(AsyncTask&& task) noexcept
     {
-      // DEBUG_TRACE("Binding writer", this);
+      // DEBUG_TRACE_MODULE(ASYNC, "Binding writer", this);
       DEBUG_CHECK(!writer_done_.load(std::memory_order_acquire));
       DEBUG_CHECK(!writer_task_set_.load(std::memory_order_acquire));
       writer_task_ = std::move(task);
@@ -319,7 +320,7 @@ template <typename T> class EpochContextReader {
     /// \param t The coroutine task to register.
     void suspend(AsyncTask&& t)
     {
-      TRACE("suspend", &t, epoch_);
+      TRACE_MODULE(ASYNC, "suspend", &t, epoch_);
       DEBUG_PRECONDITION(epoch_);
       parent_->queue_.enqueue_reader(epoch_, std::move(t));
     }
@@ -339,7 +340,7 @@ template <typename T> class EpochContextReader {
     {
       DEBUG_PRECONDITION(epoch_, this);
       DEBUG_PRECONDITION(epoch_->reader_is_ready());
-      DEBUG_TRACE(epoch_, epoch_->reader_error(), epoch_->counter_);
+      DEBUG_TRACE_MODULE(ASYNC, epoch_, epoch_->reader_error(), epoch_->counter_);
       if (epoch_->reader_error())
       {
         if (auto e = epoch_->reader_exception(); e)
@@ -417,7 +418,7 @@ template <typename T> class EpochContextReader {
     {
       if (epoch_)
       {
-        // TRACE("EpochContextReader release");
+        // TRACE_MODULE(ASYNC, "EpochContextReader release");
         if (epoch_->reader_release()) parent_->queue_.on_all_readers_released(epoch_);
         epoch_ = nullptr;
       }
@@ -487,7 +488,7 @@ template <typename T> class EpochContextWriter {
     void suspend(AsyncTask&& t)
     {
       DEBUG_PRECONDITION(epoch_);
-      TRACE("suspend", &t, epoch_, epoch_->counter_);
+      TRACE_MODULE(ASYNC, "suspend", &t, epoch_, epoch_->counter_);
       epoch_->writer_bind(std::move(t));
       parent_->queue_.on_writer_bound(epoch_);
     }
@@ -510,7 +511,7 @@ template <typename T> class EpochContextWriter {
     {
       if (epoch_)
       {
-        // TRACE("EpochContextWriter: release");
+        // TRACE_MODULE(ASYNC, "EpochContextWriter: release");
         if (epoch_->writer_release()) parent_->queue_.on_writer_done(epoch_);
         epoch_ = nullptr;
       }

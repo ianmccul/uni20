@@ -401,6 +401,19 @@ UNI20_DEFINE_ASYNC_COMPOUND_OPERATOR(/=, divides_assign)
 
 #undef UNI20_DEFINE_ASYNC_COMPOUND_OPERATOR
 
+// unary operators
+
+template <typename T>
+auto operator-(Async<T> const& x)
+  requires requires(T x) { -x; }
+{
+  using U = std::remove_cvref_t<decltype(-std::declval<T>())>;
+  Async<U> Result;
+  schedule(
+      [](ReadBuffer<T> in, WriteBuffer<U> out) { co_await out = -(co_await release(in)); }(x.read(), Result.write()));
+  return Result;
+}
+
 /// @}
 
 } // namespace uni20::async

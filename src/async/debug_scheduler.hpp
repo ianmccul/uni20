@@ -24,7 +24,7 @@ class DebugScheduler final : public IScheduler {
     /// \param task An AsyncTask bound to *this* scheduler.
     void schedule(AsyncTask&& task)
     {
-      TRACE("Scheduling a task", &task, task.h_);
+      TRACE_MODULE(ASYNC, "Scheduling a task", &task, task.h_);
       if (task.set_scheduler(this))
       {
         Handles_.push_back(std::move(task));
@@ -56,7 +56,7 @@ class DebugScheduler final : public IScheduler {
     // Internal resubmission
     virtual void reschedule(AsyncTask&& task)
     {
-      TRACE("Rescheduling a task", &task, task.h_);
+      TRACE_MODULE(ASYNC, "Rescheduling a task", &task, task.h_);
       // Assume sched_ is already set
       Handles_.push_back(std::move(task));
     }
@@ -110,20 +110,20 @@ inline void DebugScheduler::run()
 {
   if (Blocked_)
   {
-    DEBUG_TRACE("run() on a blocked DebugQueue: doing nothing");
+    DEBUG_TRACE_MODULE(ASYNC, "run() on a blocked DebugQueue: doing nothing");
     return;
   }
-  TRACE("Got some coroutines to resume", Handles_.size());
-  // fmt::print("Got some coroutines to resume {}\n", Handles_.size());
+  TRACE_MODULE(ASYNC, "Got some coroutines to resume", Handles_.size());
+
   std::vector<AsyncTask> H;
   std::swap(H, Handles_);
   std::reverse(H.begin(), H.end());
   for (auto&& h : H)
   {
-    TRACE("resuming coroutine...");
+    TRACE_MODULE(ASYNC, "resuming coroutine...");
     h.resume();
     CHECK(!h);
-    TRACE("here", &h, Handles_.size());
+    TRACE_MODULE(ASYNC, "here", &h, Handles_.size());
   }
 }
 
@@ -131,7 +131,7 @@ inline void DebugScheduler::run_all()
 {
   if (Blocked_)
   {
-    DEBUG_TRACE("run() on a blocked DebugQueue: doing nothing");
+    DEBUG_TRACE_MODULE(ASYNC, "run() on a blocked DebugQueue: doing nothing");
     return;
   }
   while (!done())

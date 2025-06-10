@@ -219,9 +219,9 @@ struct BasicAsyncTaskPromise
           std::coroutine_handle<> await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
           {
             auto continuation = std::exchange(h.promise().continuation_, nullptr);
-            TRACE("Final suspend of coroutine", h, continuation);
+            TRACE_MODULE(ASYNC, "Final suspend of coroutine", h, continuation);
             h.destroy();
-            TRACE("Destroy is done");
+            TRACE_MODULE(ASYNC, "Destroy is done");
             if (continuation)
               return continuation;
             else
@@ -293,7 +293,7 @@ class AsyncTaskFactory {
       // return the outstanding references. If this results in a zero reference count, then destroy the handle.
       // it is possible that the handle has already been destroyed, but that could only happen if we gave out
       // all of the references (and they were since destructed), which would require count_ == 0.
-      DEBUG_TRACE(this, handle_, count_);
+      DEBUG_TRACE_MODULE(ASYNC, this, handle_, count_);
       if (count_ > 0 && handle_.promise().release_awaiter(count_))
       {
         handle_.destroy();

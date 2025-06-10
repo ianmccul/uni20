@@ -143,7 +143,7 @@ template <typename T> class Async {
     // Used by FutureValue<T>; TODO: make private and friend
     std::tuple<WriteBuffer<T>, ReadBuffer<T>> prepend_epoch()
     {
-      DEBUG_TRACE("Prepending epoch!");
+      DEBUG_TRACE_MODULE(ASYNC, "Prepending epoch!");
       // std::abort();
       DEBUG_CHECK(impl_);
       return impl_->queue_.prepend_epoch(impl_);
@@ -154,7 +154,7 @@ template <typename T> class Async {
       DEBUG_CHECK(impl_);
       while (impl_->queue_.has_pending_writers())
       {
-        TRACE("Has pending writers");
+        TRACE_MODULE(ASYNC, "Has pending writers");
         sched.run();
       }
       return impl_->value_;
