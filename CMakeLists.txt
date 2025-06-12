@@ -124,7 +124,7 @@ endif()
 if(UNI20_BUILD_TESTS)
   FetchContent_Declare(
     googletest
-    URL https://github.com/google/googletest/archive/release-1.12.1.zip
+    URL https://github.com/google/googletest/releases/download/v1.17.0/googletest-1.17.0.tar.gz
   )
   # For Windows: Force shared CRT to avoid issues
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
@@ -135,7 +135,7 @@ endif()
 if(UNI20_BUILD_BENCH)
   FetchContent_Declare(
     benchmark
-    URL https://github.com/google/benchmark/archive/v1.6.1.tar.gz
+    URL https://github.com/google/benchmark/archive/refs/tags/v1.9.4.tar.gz
   )
   FetchContent_MakeAvailable(benchmark)
 endif()

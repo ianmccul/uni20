@@ -9,7 +9,7 @@ using namespace uni20::async;
 
 static void Baseline(benchmark::State& state)
 {
-  int x = 0;
+  double x = 0;
   for (auto _ : state)
   {
     x += 1;
@@ -22,7 +22,7 @@ BENCHMARK(Baseline);
 static void Sine(benchmark::State& state)
 {
   using std::sin;
-  int x = 0;
+  double x = 1;
   for (auto _ : state)
   {
     x += sin(x);
@@ -40,7 +40,8 @@ static void SimpleAsync(benchmark::State& state)
   Async<int> x = 0;
   for (auto _ : state)
     x += 1;
-  benchmark::DoNotOptimize(x.get_wait());
+  int result = (x.get_wait());
+  benchmark::DoNotOptimize(result);
 }
 
 BENCHMARK(SimpleAsync);
@@ -53,7 +54,8 @@ static void Binary(benchmark::State& state)
   Async<int> x = 0;
   for (auto _ : state)
     x = x + 1;
-  benchmark::DoNotOptimize(x.get_wait());
+  int result = (x.get_wait());
+  benchmark::DoNotOptimize(result);
 }
 
 BENCHMARK(Binary);
