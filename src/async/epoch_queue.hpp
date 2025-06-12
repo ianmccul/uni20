@@ -73,8 +73,13 @@ class EpochQueue {
     /// \brief Prepend a new epoch to the front of the queue.
     /// \return {EpochContextWriter, EpochContextReader} to the new front epoch.
     /// \pre The current front epoch must not have a writer bound.
-    template <typename T>
-    std::tuple<EpochContextWriter<T>, EpochContextReader<T>> prepend_epoch(detail::AsyncImplPtr<T> const& parent)
+    template <typename T> struct EpochPair
+    {
+        EpochContextWriter<T> writer;
+        EpochContextReader<T> reader;
+    };
+
+    template <typename T> EpochPair<T> prepend_epoch(detail::AsyncImplPtr<T> const& parent)
     {
       std::lock_guard lock(mtx_);
       if (queue_.empty())

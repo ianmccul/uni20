@@ -18,6 +18,8 @@ namespace uni20::async
 
 class DebugScheduler;
 
+template <typename T> class ReverseValue; // forward declaration so we can add it as a friend of Async<T>
+
 namespace detail
 {
 /// \brief Internal reference-counted data and coordination for Async<T>
@@ -140,15 +142,6 @@ template <typename T> class Async {
       return WriteBuffer<T>(impl_->queue_.create_write_context(impl_));
     }
 
-    // Used by FutureValue<T>; TODO: make private and friend
-    std::tuple<WriteBuffer<T>, ReadBuffer<T>> prepend_epoch()
-    {
-      DEBUG_TRACE_MODULE(ASYNC, "Prepending epoch!");
-      // std::abort();
-      DEBUG_CHECK(impl_);
-      return impl_->queue_.prepend_epoch(impl_);
-    }
-
     template <typename Sched> T& get_wait(Sched& sched)
     {
       DEBUG_CHECK(impl_);
@@ -197,6 +190,16 @@ template <typename T> class Async {
     std::shared_ptr<detail::AsyncImpl<T>> const& impl() const { return impl_; }
 
   private:
+    // Add a new epoch to the front of the queue; used by ReverseValue for reverse mode autodifferentiation
+    EpochQueue::EpochPair<T> prepend_epoch()
+    {
+      DEBUG_TRACE_MODULE(ASYNC, "Prepending epoch!");
+      DEBUG_CHECK(impl_);
+      return impl_->queue_.prepend_epoch(impl_);
+    }
+
+    friend class ReverseValue<T>;
+
     std::shared_ptr<detail::AsyncImpl<T>> impl_;
 };
 

@@ -55,7 +55,7 @@ template <typename T> class ReverseValue {
     using value_type = T;
 
     /// Construct a new, uninitialized ReverseValue.
-    ReverseValue() : async_{}, write_buf_(std::get<0>(async_.prepend_epoch())), read_buf_(async_.read()) {}
+    ReverseValue() : async_{}, buffers_(async_.prepend_epoch()) {}
 
     // move ctor and move-assign should "just work"
     ReverseValue(ReverseValue&&) noexcept = default;
@@ -87,22 +87,22 @@ template <typename T> class ReverseValue {
     }
 
     /// Get a ReadBuffer<T> from the earliest epoch - this is the 'input gradient' to be fed into the next stage
-    ReadBuffer<T> input() const { return read_buf_; }
+    ReadBuffer<T> input() const { return buffers_.reader; }
 
-    ReadBuffer<T> read() const { return read_buf_; }
+    ReadBuffer<T> read() const { return buffers_.reader; }
 
     // Get a WriteBuffer<T> to the earliest epoch - this is the 'output gradient' fed from the next stage
     [[nodiscard]] WriteBuffer<T> output()
     {
-      WriteBuffer<T> w = std::move(write_buf_);
-      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+      WriteBuffer<T> w{std::move(buffers_.writer)};
+      buffers_ = async_.prepend_epoch();
       return w;
     }
 
     void finalize()
     {
-      read_buf_.release();
-      write_buf_.release();
+      buffers_.reader.release();
+      buffers_.writer.release();
     }
 
     /// Since we are guaranteed that the write is immediate, we don't need to wait
@@ -110,11 +110,9 @@ template <typename T> class ReverseValue {
     ReverseValue& operator=(U&& v)
       requires std::assignable_from<T&, U&&>
     {
-      write_buf_.write_assert(std::forward<U>(v));
-      write_buf_.release();
-      read_buf_.release();
-      // async_ = Async<T>{};
-      // std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+      buffers_.writer.data() = std::forward<U>(v);
+      buffers_.writer.release();
+      buffers_.reader.release();
       return *this;
     }
 
@@ -122,8 +120,8 @@ template <typename T> class ReverseValue {
     // This is 'final', and cannot assign a second time, nor can we access the input gradient
     template <typename U> ReverseValue& operator=(Async<U> const& v)
     {
-      read_buf_.release();
-      async_assign(v.read(), std::move(write_buf_));
+      buffers_.reader.release();
+      async_assign(v.read(), WriteBuffer<T>(std::move(buffers_.writer)));
       return *this;
     }
 
@@ -131,44 +129,44 @@ template <typename T> class ReverseValue {
     // This is 'final', and cannot assign a second time
     template <typename U> ReverseValue& operator=(Async<U>&& v)
     {
-      read_buf_.release();
-      async_move(std::move(v), std::move(write_buf_));
+      buffers_.reader.release();
+      async_move(std::move(v), WriteBuffer<T>(std::move(buffers_.writer)));
       return *this;
     }
 
     template <typename U> ReverseValue& operator+=(Async<U> const& v)
     {
-      WriteBuffer<T> w = std::move(write_buf_);
-      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+      WriteBuffer<T> w{std::move(buffers_.writer)};
+      buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate(read_buf_, v.read(), std::move(w)));
+      schedule(accumulate(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
     }
 
     template <typename U> ReverseValue& operator+=(ReadBuffer<U> v)
     {
-      WriteBuffer<T> w = std::move(write_buf_);
-      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+      WriteBuffer<T> w{std::move(buffers_.writer)};
+      buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate(read_buf_, std::move(v), std::move(w)));
+      schedule(accumulate(ReadBuffer<T>(buffers_.reader), std::move(v), std::move(w)));
       return *this;
     }
 
     template <typename U> ReverseValue& operator-=(Async<U> const& v)
     {
-      WriteBuffer<T> w = std::move(write_buf_);
-      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+      WriteBuffer<T> w{std::move(buffers_.writer)};
+      buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate_minus(read_buf_, v.read(), std::move(w)));
+      schedule(accumulate_minus(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
     }
 
     template <typename U> ReverseValue& operator-=(ReadBuffer<U> v)
     {
-      WriteBuffer<T> w = std::move(write_buf_);
-      std::tie(write_buf_, read_buf_) = async_.prepend_epoch();
+      WriteBuffer<T> w{std::move(buffers_.writer)};
+      buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate_minus(read_buf_, std::move(v), std::move(w)));
+      schedule(accumulate_minus(ReadBuffer<T>(buffers_.reader), std::move(v), std::move(w)));
       return *this;
     }
 
@@ -178,8 +176,7 @@ template <typename T> class ReverseValue {
 
   private:
     Async<T> async_;
-    WriteBuffer<T> write_buf_;
-    ReadBuffer<T> read_buf_;
+    EpochQueue::EpochPair<T> buffers_;
 };
 
 template <typename T> struct async_value_type<ReverseValue<T>>
