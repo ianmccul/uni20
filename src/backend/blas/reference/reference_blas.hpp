@@ -1,8 +1,8 @@
 #pragma once
 
 #include "backend/backend.hpp"
-#include "common/types.hpp"
 #include "config.hpp"
+#include "core/types.hpp"
 
 #define BLASCHAR s
 #define BLASTYPE float32

@@ -2,7 +2,7 @@
 
 #include "common/mdspan.hpp"
 #include "common/static_vector.hpp"
-#include "common/types.hpp"
+#include "core/types.hpp"
 #include "zip_layout.hpp"
 #include <algorithm>
 #include <cstddef>

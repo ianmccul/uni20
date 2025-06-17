@@ -3,7 +3,7 @@
 #include "apply_unary.hpp"
 #include "common/mdspan.hpp"
 #include "common/trace.hpp"
-#include "common/types.hpp"
+#include "core/types.hpp"
 #include "mdspan/concepts.hpp"
 
 namespace uni20

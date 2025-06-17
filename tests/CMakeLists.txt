@@ -4,6 +4,7 @@ enable_testing()
 include(GoogleTest)
 
 # Add subdirectories that contribute source files
+add_subdirectory(core)
 add_subdirectory(common)
 add_subdirectory(level1)
 add_subdirectory(kernel)

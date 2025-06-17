@@ -18,10 +18,7 @@ target_include_directories(uni20_deps INTERFACE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(uni20_deps INTERFACE ${PROJECT_SOURCE_DIR}/src)
 
 # Add the core library with its source files.
-add_library(uni20
-    core/dummy.cpp           # <-- Include the dummy source file
-    # ... add other source files as needed
-)
+add_library(uni20 STATIC uni20.cpp)
 
 # Specify include directories for the public interface.
 #target_include_directories(uni20 PUBLIC
@@ -30,8 +27,9 @@ add_library(uni20
 #)
 
 # Link external libraries (for example, fmt)
-target_link_libraries(uni20 PUBLIC uni20_deps)
+target_link_libraries(uni20 PUBLIC uni20_deps uni20_core uni20_common)
 
+add_subdirectory(core)
 add_subdirectory(common)
 add_subdirectory(backend)
 add_subdirectory(level1)

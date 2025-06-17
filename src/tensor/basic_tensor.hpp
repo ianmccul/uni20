@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common/mdspan.hpp"
-#include "common/types.hpp"
+#include "core/types.hpp"
 #include "storage/vectorstorage.hpp"
 
 namespace uni20

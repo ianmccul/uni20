@@ -1,7 +1,7 @@
 // tests/backend/test_blas_reference_gem.cpp
 
 #include "backend/blas/backend_blas.hpp"
-#include "common/types.hpp"
+#include "core/types.hpp"
 #include <cmath>
 #include <complex>
 #include <gtest/gtest.h>

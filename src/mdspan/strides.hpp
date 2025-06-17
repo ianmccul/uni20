@@ -3,8 +3,8 @@
 #include "common/mdspan.hpp"
 #include "common/static_vector.hpp"
 #include "common/trace.hpp"
-#include "common/types.hpp"
 #include "concepts.hpp"
+#include "core/types.hpp"
 #include <algorithm>
 #include <array>
 

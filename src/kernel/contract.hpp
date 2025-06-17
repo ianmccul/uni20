@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/mdspan.hpp"
+#include "core/scalar_concepts.hpp"
 #include "mdspan/strides.hpp"
 
 #include "cpu/contract.hpp" // always available fallback

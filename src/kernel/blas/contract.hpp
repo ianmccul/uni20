@@ -2,7 +2,7 @@
 
 #include "backend/blas/backend_blas.hpp"
 #include "blas.hpp"
-#include "common/types.hpp"
+#include "core/types.hpp"
 
 namespace uni20::kernel
 {
