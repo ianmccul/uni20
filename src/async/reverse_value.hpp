@@ -143,6 +143,15 @@ template <typename T> class ReverseValue {
       return *this;
     }
 
+    template <typename U> ReverseValue& operator+=(ReverseValue<U> const& v)
+    {
+      WriteBuffer<T> w{std::move(buffers_.writer)};
+      buffers_ = async_.prepend_epoch();
+
+      schedule(accumulate(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
+      return *this;
+    }
+
     template <typename U> ReverseValue& operator+=(ReadBuffer<U> v)
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
@@ -153,6 +162,15 @@ template <typename T> class ReverseValue {
     }
 
     template <typename U> ReverseValue& operator-=(Async<U> const& v)
+    {
+      WriteBuffer<T> w{std::move(buffers_.writer)};
+      buffers_ = async_.prepend_epoch();
+
+      schedule(accumulate_minus(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
+      return *this;
+    }
+
+    template <typename U> ReverseValue& operator-=(ReverseValue<U> const& v)
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
       buffers_ = async_.prepend_epoch();

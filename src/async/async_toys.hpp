@@ -1,6 +1,7 @@
 #pragma once
 
 #include "async.hpp"
+#include "core/math.hpp"
 #include "scheduler.hpp"
 #include <cmath>
 #include <fmt/format.h>
@@ -36,6 +37,36 @@ template <typename T> Async<T> cos(Async<T> const& x)
 {
   Async<T> Result;
   schedule(co_cos(x.read(), Result.write()));
+  return Result;
+}
+
+template <typename T> AsyncTask co_conj(ReadBuffer<T> in, WriteBuffer<T> out)
+{
+  using uni20::conj;
+  auto x = co_await in;
+  in.release();
+  co_await out = conj(x);
+}
+
+template <typename T> Async<T> conj(Async<T> const& x)
+{
+  Async<T> Result;
+  schedule(co_conj(x.read(), Result.write()));
+  return Result;
+}
+
+template <typename T> AsyncTask co_herm(ReadBuffer<T> in, WriteBuffer<T> out)
+{
+  using uni20::conj;
+  auto x = co_await in;
+  in.release();
+  co_await out = herm(x);
+}
+
+template <typename T> Async<T> herm(Async<T> const& x)
+{
+  Async<T> Result;
+  schedule(co_herm(x.read(), Result.write()));
   return Result;
 }
 
