@@ -16,11 +16,13 @@ class IScheduler;
 
 class BasicAsyncTaskPromise;
 
+#if 0 // an experiment
 class AsyncAwaiter {
   public:
     virtual void set_cancel() = 0;
     virtual void set_exception(std::exception_ptr e) = 0;
 };
+#endif
 
 class BasicAsyncTaskPromise;
 
