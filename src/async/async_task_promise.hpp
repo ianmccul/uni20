@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "async_node.hpp"
 #include "async_task.hpp"
 #include "scheduler.hpp"
 #include <atomic>
@@ -86,6 +87,16 @@ struct BasicAsyncTaskPromise
     ///       Ownership must be transferred explicitly using take_ownership().
     std::atomic<int> awaiter_count_ = 0;
 
+    // debugging / DAG info
+    std::string Name;  // function name of the coroutine
+    uint64_t Instance; // instance number, global
+
+#if UNI20_DEBUG_DAG
+    // For debug tracking the DAG, we store the nodes of the incoming (ReadBuffer) and outgoing (WriteBuffer) objects.
+    std::vector<NodeInfo const*> ReadDependencies;
+    std::vector<NodeInfo const*> WriteDependencies;
+#endif
+
     // /// \brief To propogate exceptions and cancellations to the appropriate awaiter, whenever we suspend
     // /// we stash the awaiter here, so we can pass on set_cancel() and set_exception()
     // AsyncAwaiter* current_awaiter_ = nullptr;
@@ -107,6 +118,13 @@ struct BasicAsyncTaskPromise
     // {
     //   return awaiter_has_error_.load(std::memory_order_acquire) ? nullptr : eptr_;
     // }
+
+    template <typename... Args> BasicAsyncTaskPromise(Args&&... args)
+    {
+      // For each parameter, detect ReadBuffer / WriteBuffer
+      ([&](auto const& x) { ProcessCoroutineArgument(this, args); }(args),
+       ...); // fold expression over args
+    }
 
     /// \brief safely destroy this coroutine, returning the continuation_ (which also must now be destroyed)
     std::coroutine_handle<promise_type> destroy_with_continuation() noexcept
@@ -360,6 +378,9 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
     //
     // void set_exception(std::exception_ptr e) override final { awaitable.set_exception(e); }
 };
+
+// Process an argument of the coroutine.  By default we do nothing
+template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, T const&) {}
 
 template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public AsyncAwaiter
 {

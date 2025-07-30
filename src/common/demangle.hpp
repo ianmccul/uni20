@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <cstdlib>
@@ -39,5 +38,7 @@ inline std::string demangle(const char* name)
   return name;
 #endif
 }
+
+template <typename T> std::string demangle_type() { return demangle(typeid(T).name()); }
 
 } // namespace uni20::demangle

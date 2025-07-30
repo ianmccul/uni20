@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "async_node.hpp"
 #include "async_task_promise.hpp"
 #include <atomic>
 #include <coroutine>
@@ -316,6 +317,11 @@ template <typename T> class EpochContextReader {
     /// \post If owning an epoch, marks reader done and notifies the queue.
     ~EpochContextReader() { this->release(); }
 
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object
+    NodeInfo const* node() const { return parent_->node(); }
+#endif
+
     /// \brief Suspend a coroutine task as a reader of this epoch.
     /// \param t The coroutine task to register.
     void suspend(AsyncTask&& t)
@@ -474,6 +480,11 @@ template <typename T> class EpochContextWriter {
     }
 
     ~EpochContextWriter() { this->release(); }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object
+    NodeInfo const* node() const { return parent_->node(); }
+#endif
 
     /// \brief Check whether the writer may proceed immediately.
     /// \return true if the writer is at the front of the queue.

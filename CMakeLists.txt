@@ -51,6 +51,17 @@ option(UNI20_BUILD_COMBINED_TESTS "Build combined test executable (in addition t
 option(UNI20_BUILD_BENCH          "Build benchmarks" ON)
 option(UNI20_ENABLE_WARNINGS      "Enable compiler warnings" ON)
 option(UNI20_BUILD_ASM            "Build stand-alone assembly dumps for snippets in asm/" ON)
+option(UNI20_DEBUG_DAG            "Enable DAG debug info (for Async buffer tracking and visualization)" OFF)
+option(UNI20_ENABLE_STACKTRACE    "Enable C++20 <stacktrace> header (requires library support)" OFF)
+
+# If user did not specify, set default based on build type
+if(NOT DEFINED UNI20_DEBUG_DAG)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(UNI20_DEBUG_DAG ON CACHE BOOL "Enable DAG debug info (for Async buffer tracking and visualization)" FORCE)
+    else()
+        set(UNI20_DEBUG_DAG OFF CACHE BOOL "Enable DAG debug info (for Async buffer tracking and visualization)" FORCE)
+    endif()
+endif()
 
 if(UNI20_ENABLE_WARNINGS)
   # temporarily added -Wno-array-bounds here due to spurious warnings from std::sort;

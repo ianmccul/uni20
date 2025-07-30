@@ -22,13 +22,8 @@
 #include <vector>
 
 // Check for stacktrace support (C++23 and GCC 13+ or Clang+libc++)
-#if __has_include(<stacktrace>)
-#include <stacktrace>
-#if defined(__cpp_lib_stacktrace) && (__cpp_lib_stacktrace >= 202011L)
+#if UNI20_HAS_STACKTRACE
 #define TRACE_HAS_STACKTRACE 1
-#else
-#define TRACE_HAS_STACKTRACE 0
-#endif
 #else
 #define TRACE_HAS_STACKTRACE 0
 #endif
@@ -1481,7 +1476,7 @@ template <typename... Args> void PanicCall(const char* exprList, const char* fil
 
 #if TRACE_HAS_STACKTRACE
   opts.sink(fmt::format("{}\n", opts.format_style("Stacktrace:\n", "PANIC")));
-  opts.sink(fmt::format("{}\n", detail::to_string(std::stacktrace::current())));
+  opts.sink(fmt::format("{}\n", detail::to_string(std::stacktrace::current(1)))); // skip the top frame ('PanicCall')
 #else
   opts.sink("Stacktrace not available (compiler too old)\n");
 #endif

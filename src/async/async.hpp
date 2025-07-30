@@ -9,7 +9,10 @@
 
 #pragma once
 
+#include "async_node.hpp"
 #include "buffers.hpp"
+#include "common/demangle.hpp"
+#include "config.hpp"
 #include "epoch_queue.hpp"
 #include <memory>
 
@@ -22,6 +25,14 @@ template <typename T> class ReverseValue; // forward declaration so we can add i
 
 namespace detail
 {
+
+struct AsyncImplBase
+{
+#if UNI20_DEBUG_DAG
+    inline static std::atomic<uint64_t> global_counter_ = 0;
+#endif
+};
+
 /// \brief Internal reference-counted data and coordination for Async<T>
 ///
 /// Holds the actual value of type T and the epoch queue used to
@@ -29,15 +40,30 @@ namespace detail
 ///
 /// Instances are managed by shared_ptr and never copied or moved directly.
 /// All access is mediated through owning Async<T> or active buffers.
-template <typename T> struct AsyncImpl
+template <typename T> struct AsyncImpl : private AsyncImplBase
 {
     T value_;          ///< Stored data
     EpochQueue queue_; ///< Coordination structure
 
+#if UNI20_DEBUG_DAG
+    // debugging
+    NodeInfo const* node_; // unique node pointer
+
+    AsyncImpl() : node_(NodeInfo::create(&value_)) {}
+
+    explicit AsyncImpl(const T& val) : value_(val), node_(NodeInfo::create(&value_)) {}
+    explicit AsyncImpl(T&& val) : value_(std::move(val)), node_(NodeInfo::create(&value_)) {}
+
+    NodeInfo const* node() const { return node_; }
+#else
     AsyncImpl() = default;
 
     explicit AsyncImpl(const T& val) : value_(val) {}
     explicit AsyncImpl(T&& val) : value_(std::move(val)) {}
+
+    // if we're not debugging, we don't have a valid NodeInfo
+    NodeInfo const* node() const { return nullptr; }
+#endif
 
     AsyncImpl(const AsyncImpl&) = delete;
     AsyncImpl& operator=(const AsyncImpl&) = delete;

@@ -167,8 +167,6 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     friend class BasicAsyncTaskFactory;
 };
 
-struct BasicAsyncTaskPromise;
-
 using AsyncTask = BasicAsyncTask<BasicAsyncTaskPromise>;
 
 } // namespace uni20::async

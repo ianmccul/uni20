@@ -5,6 +5,7 @@
 #pragma once
 
 #include "async_task.hpp"
+#include "async_task_promise.hpp"
 #include "common/trace.hpp"
 #include "epoch_context.hpp"
 
@@ -53,6 +54,11 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
 
     ReadBuffer(ReadBuffer&&) noexcept = default;
     ReadBuffer& operator=(ReadBuffer&&) noexcept = default;
+
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object
+    NodeInfo const* node() const { return reader_.node(); }
+#endif
 
     /// \brief Returns a `ReadMaybeAwaiter`, that returns an std::optional (or optional-like) object
     /// that is empty if the buffer is in a cancelled state.
@@ -303,6 +309,11 @@ template <typename T> class WriteBuffer { //}: public AsyncAwaiter {
     WriteBuffer(WriteBuffer&&) noexcept = default;
     WriteBuffer& operator=(WriteBuffer&&) noexcept = default;
 
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object
+    NodeInfo const* node() const { return writer_.node(); }
+#endif
+
     /// \brief Check if this writer may proceed immediately.
     /// \return True if the epoch is at the front of the queue.
     bool await_ready() const noexcept { return writer_.ready(); }
@@ -386,6 +397,22 @@ template <typename T> class WriteBuffer { //}: public AsyncAwaiter {
     /// they are otherwise syncronized.
     friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
 };
+
+// For a ReadBuffer, we add the node to the ReadDependencies
+template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, ReadBuffer<T> const& x)
+{
+#if UNI20_DEBUG_DAG
+  promise->ReadDependencies.push_back(x.node());
+#endif
+}
+
+// For a WriteBuffer, we add the node to the WriteDependencies
+template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, WriteBuffer<T> const& x)
+{
+#if UNI20_DEBUG_DAG
+  promise->WriteDependencies.push_back(x.node());
+#endif
+}
 
 template <typename T> class Defer;
 
