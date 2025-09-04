@@ -49,3 +49,21 @@ __pycache__/
 *.exe
 *.out
 *.app
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Mac/Windows OS junk
+.DS_Store
+Thumbs.db
+
+
+# Coverage / profiling
+*.gcno
+*.gcda
+*.profraw
+*.profdata
+
