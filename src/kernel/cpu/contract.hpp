@@ -7,11 +7,15 @@
 namespace uni20::kernel
 {
 
-template <typename T,StridedMdspan AType,StridedMdspan BType, std::size_t N>
-std::pair<bool, bool> transpose_strided(AType const& A,BType const& B,std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims,std::vector<T>& outputA,std::vector<T>& outputB,cpu_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
+template <typename T, std::size_t N>
+std::pair<bool, bool> transpose_strided(T const* A,T const* B,
+  std::vector<size_t> oldExtentA, std::vector<size_t> oldExtentB,
+  std::vector<size_t> oldStrideA, std::vector<size_t> oldStrideB,
+  std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims,std::vector<T>& outputA,
+  std::vector<T>& outputB,cpu_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
 {
-  for(size_t i=0;i<outputA.size();i++)  outputA[i] = A.data_handle()[i];
-  for(size_t i=0;i<outputB.size();i++)  outputB[i] = B.data_handle()[i];
+  for(size_t i=0;i<outputA.size();i++)  outputA[i] = A[i];
+  for(size_t i=0;i<outputB.size();i++)  outputB[i] = B[i];
   return std::pair{false, false};
   
 }

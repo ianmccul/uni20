@@ -9,42 +9,39 @@
 
 namespace uni20::kernel
 {
-    template <typename T,StridedMdspan AType>
+    template <typename T>
     void transpose_loop(std::vector<size_t>& permutation,size_t step,size_t rank,std::vector<size_t>& indexList,
-                        std::vector<size_t>& extentA,std::vector<size_t>& extentB,
-                        std::vector<size_t>& strideA,std::vector<size_t>& strideB,
-                        AType const& A,std::vector<T>& dataA)
+                        std::vector<size_t>& old_extent,std::vector<size_t>& new_extent,
+                        std::vector<size_t>& old_stride,std::vector<size_t>& new_stride,
+                        std::vector<T>& data,T const* old_data)
     {
       if(step == rank){
         size_t old_index = 0,new_index = 0;
-        for(size_t i =0;i<strideA.size();i++){
-            old_index = old_index + indexList[i]*strideA[i];
-            new_index = new_index + indexList[i]*strideB[permutation[i]];
+        for(size_t i =0;i<old_stride.size();i++){
+            old_index = old_index + indexList[i]*old_stride[i];
+            new_index = new_index + indexList[i]*new_stride[permutation[i]];
         }
-        dataA[new_index] = A.data_handle()[old_index];
+        data[new_index] = old_data[old_index];
         return;
       }
-      for(size_t i=0; i < extentA[step]; i++){
+      for(size_t i=0; i < old_extent[step]; i++){
           indexList[step] = i;
-          transpose_loop(permutation,step+1, rank,indexList, extentA,extentB, strideA,strideB,A,dataA);
+          transpose_loop(permutation,step+1, rank,indexList, old_extent,new_extent, old_stride,new_stride,data,old_data);
       }
     }
-    template <typename T,StridedMdspan AType,StridedMdspan BType, std::size_t N>
-    std::pair<bool, bool> transpose_strided(AType const& A,BType const& B,std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims,std::vector<T>& outputA,std::vector<T>& outputB,blas_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
+    template <typename T, std::size_t N>
+    std::pair<bool, bool> transpose_strided(
+      T const* A,T const* B,
+      std::vector<size_t> oldExtentA, std::vector<size_t> oldExtentB,
+      std::vector<size_t> oldStrideA, std::vector<size_t> oldStrideB,
+      std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims,
+      std::vector<T>& outputA,std::vector<T>& outputB,blas_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
     {
-      std::vector<size_t> newExtentA(AType::rank()),oldExtentA(AType::rank()),newExtentB(BType::rank()),oldExtentB(BType::rank());
-      std::vector<size_t> newStrideA(AType::rank()),oldStrideA(AType::rank()),newStrideB(BType::rank()),oldStrideB(BType::rank());
+      std::vector<size_t> newExtentA(oldExtentA.size()),newExtentB(oldExtentB.size());
+      std::vector<size_t> newStrideA(oldExtentA.size()),newStrideB(oldExtentB.size());
       std::vector<size_t> tmpA,tmpB;
-      for(size_t i=0;i<AType::rank();i++){
-        newExtentA[i] = A.extent(i);
-        oldExtentA[i] = A.extent(i);
-        oldStrideA[i] = A.stride(i);
-      }
-      for(size_t i=0;i<BType::rank();i++){
-        newExtentB[i] = B.extent(i);
-        oldExtentB[i] = B.extent(i);
-        oldStrideB[i] = B.stride(i);
-      }
+      for(size_t i=0;i<oldExtentA.size();i++) newExtentA[i] = oldExtentA[i];
+      for(size_t i=0;i<oldExtentB.size();i++) newExtentB[i] = oldExtentB[i];
       for(size_t i=0;i<N;i++){
         auto [a,b] = contractDims[i];
         tmpA.push_back(oldExtentA[a]);
@@ -57,17 +54,17 @@ namespace uni20::kernel
       newExtentA.insert(newExtentA.end(), tmpA.begin(), tmpA.end());
       newExtentB.insert(newExtentB.end(), tmpB.begin(), tmpB.end());
       size_t stride_step = 1;
-      for(size_t i=0;i<AType::rank();i++){
-        newStrideA[AType::rank()-1-i] = stride_step;
-        stride_step = stride_step * newExtentA[AType::rank()-1-i];
+      for(size_t i=0;i<oldExtentA.size();i++){
+        newStrideA[oldExtentA.size()-1-i] = stride_step;
+        stride_step = stride_step * newExtentA[oldExtentA.size()-1-i];
       }
       stride_step = 1;
-      for(size_t i=0;i<BType::rank();i++){
-        newStrideB[BType::rank()-1-i] = stride_step;
-        stride_step = stride_step * newExtentB[BType::rank()-1-i];
+      for(size_t i=0;i<oldExtentB.size();i++){
+        newStrideB[oldExtentB.size()-1-i] = stride_step;
+        stride_step = stride_step * newExtentB[oldExtentB.size()-1-i];
       }
-      std::vector<size_t> indexListA(AType::rank()),permutationA(AType::rank());
-      std::vector<size_t> indexListB(BType::rank()),permutationB(BType::rank());
+      std::vector<size_t> indexListA(oldExtentA.size()),permutationA(oldExtentA.size());
+      std::vector<size_t> indexListB(oldExtentB.size()),permutationB(oldExtentB.size());
       std::vector<size_t> mova,movb,ord,ore;
       bool flagA = 0,flagB = 0;
     
@@ -76,20 +73,26 @@ namespace uni20::kernel
         mova.push_back(a);
         movb.push_back(b);
       }
-      for(size_t i = 0; i < AType::rank(); ++i)
+      for(size_t i = 0; i < oldExtentA.size(); ++i)
           if (std::find(mova.begin(), mova.end(), i) == mova.end())
               ord.push_back(i);
       ord.insert(ord.end(), mova.begin(), mova.end());
       for(size_t i = 0; i < ord.size(); ++i)   permutationA[ord[i]] = i;
       for(size_t i = 0; i < permutationA.size();i++) if(permutationA[i] != i) flagA = true;
-      if(flagA == true) transpose_loop(permutationA,0,AType::rank(),indexListA,oldExtentA,newExtentA,oldStrideA,newStrideA,A,outputA);
-      for (size_t i = 0; i < BType::rank(); ++i)
+      if(flagA == true) transpose_loop(permutationA,0,oldExtentA.size(),indexListA,
+                                       oldExtentA,newExtentA,
+                                       oldStrideA,newStrideA,
+                                       outputA,A);
+      for (size_t i = 0; i < oldExtentB.size(); ++i)
         if (std::find(movb.begin(), movb.end(), i) == movb.end())
             ore.push_back(i);
       ore.insert(ore.end(), movb.begin(), movb.end());
       for(size_t i = 0; i < ore.size(); ++i)   permutationB[ore[i]] = i;
       for(size_t i = 0;i < permutationB.size();i++) if(permutationB[i] != i) flagB = true;
-      if(flagB == true) transpose_loop(permutationB,0,BType::rank(),indexListB,oldExtentB,newExtentB,oldStrideB,newStrideB,B,outputB);
+      if(flagB == true) transpose_loop(permutationB,0,oldExtentB.size(),indexListB,
+                                       oldExtentB,newExtentB,
+                                       oldStrideB,newStrideB
+                                       ,outputB,B);
       return std::pair{flagA, flagB};
 }
 
