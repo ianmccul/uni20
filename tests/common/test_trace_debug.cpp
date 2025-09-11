@@ -58,32 +58,32 @@ TEST(DebugPreconditionEqualMacro, PassingDebugPreconditionEqualDoesNotAbort) { D
 TEST(TraceModuleMacro, TRACE_MODULE_AlwaysAvailable)
 {
   std::ostringstream oss;
-  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options("TESTMODULE").set_sink([&oss](std::string msg) { oss << msg; });
   auto n = 123;
   TRACE_MODULE(TESTMODULE, "foo", n);
   EXPECT_NE(oss.str().find("foo, n = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::get_formatting_options().set_output_stream(stderr);
+  trace::get_formatting_options("TESTMODULE").set_output_stream(stderr);
 }
 
 TEST(DebugTraceModuleMacro, DEBUG_TRACE_MODULE_EmitsWhenEnabled)
 {
   std::ostringstream oss;
-  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options("TESTMODULE").set_sink([&oss](std::string msg) { oss << msg; });
   auto n = 456;
   DEBUG_TRACE_MODULE(TESTMODULE, "bar", n);
   EXPECT_NE(oss.str().find("bar, n = 456"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::get_formatting_options().set_output_stream(stderr);
+  trace::get_formatting_options("TESTMODULE").set_output_stream(stderr);
 }
 
 TEST(DebugTraceModuleIfMacro, DEBUG_TRACE_MODULE_IF_EmitsWhenTrue)
 {
   std::ostringstream oss;
-  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
+  trace::get_formatting_options("TESTMODULE").set_sink([&oss](std::string msg) { oss << msg; });
   bool x = true;
   auto n = 123;
   DEBUG_TRACE_MODULE_IF(TESTMODULE, x, "baz", n);
   EXPECT_NE(oss.str().find("baz, n = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
-  trace::get_formatting_options().set_output_stream(stderr);
+  trace::get_formatting_options("TESTMODULE").set_output_stream(stderr);
 }
 
 TEST(DebugCheckFloatingEq, PassesWithinTolerance)

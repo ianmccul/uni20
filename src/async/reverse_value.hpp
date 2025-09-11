@@ -5,6 +5,8 @@
 namespace uni20::async
 {
 
+// Computes out_ = a_ + b_
+// in such a way that a_ and/or b_ can be cancelled
 template <typename T, typename U> AsyncTask accumulate(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
   auto a = co_await a_.maybe();
@@ -27,6 +29,8 @@ template <typename T, typename U> AsyncTask accumulate(ReadBuffer<T> a_, ReadBuf
   co_return;
 }
 
+// Computes out_ = a_ - b_
+// in such a way that a_ and/or b_ can be cancelled
 template <typename T, typename U> AsyncTask accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
   auto a = co_await a_.maybe();

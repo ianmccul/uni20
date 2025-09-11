@@ -95,7 +95,7 @@ TEST(ContractKernel2D, ReversedA)
 
   // build A as reversed 2×3
   using stdex2 = stdex::dextents<ptrdiff_t, 2>;
-  auto mapA = make_mapping<2>(std::array{M, K}, std::array{-static_cast<ptrdiff_t>(K), ptrdiff_t(1)});
+  auto mapA = make_mapping<2>(std::array{M, K}, std::array{-static_cast<ptrdiff_t>(K), -ptrdiff_t(1)});
   stdex::mdspan<double, stdex2, stdex::layout_stride> A(av.data() + av.size() - 1, mapA);
 
   auto B = make_mdspan_2d(bv, K, N);
@@ -107,7 +107,7 @@ TEST(ContractKernel2D, ReversedA)
 
   // reference
   std::vector<double> cref = cv;
-  naive_matmul_2d(M, K, N, 1.0, av.data() + av.size() - 1, -static_cast<ptrdiff_t>(K), 1, bv.data(), N, 1, 0.0,
+  naive_matmul_2d(M, K, N, 1.0, av.data() + av.size() - 1, -static_cast<ptrdiff_t>(K), -1, bv.data(), N, 1, 0.0,
                   cref.data(), N, 1);
 
   for (size_t i = 0; i < M; ++i)

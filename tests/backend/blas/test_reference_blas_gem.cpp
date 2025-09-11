@@ -55,7 +55,7 @@ void gemv_ref(char trans, int m, int n, T alpha, const T* A, int lda, const T* x
   }
   else
   {
-    // y_i = α ∑_j A(j,i)*x_j + β*y_i    for i=0..n-1
+    // y_i = α ∑_j A(j,i)*x_j + β*y_i    for i=0..m-1
     for (int i = 0; i < n; ++i)
     {
       T sum = T{};
@@ -137,20 +137,20 @@ TEST(BLAS_Wrapper, GemvFloat32)
 
 TEST(BLAS_Wrapper, GemvFloat64)
 {
-  using T = float64;
+  using T = double;
   const int m = 3, n = 2;
   T alpha = 0.5, beta = 2;
 
-  std::vector<T> A = {1, 2, 3, 4, 5, 6}; // 3×2
-  std::vector<T> x = {1, 2};
-  std::vector<T> y = {0, 1, 2};
+  std::vector<T> A = {1, 2, 3, 4, 5, 6}; // 3×2, column-major
+  std::vector<T> x = {1, 2, 3};          // length m = 3
+  std::vector<T> y = {0, 1};             // length n = 2
   auto yref = y;
 
   uni20::blas::gemv('T', m, n, alpha, A.data(), m, x.data(), 1, beta, y.data(), 1);
 
   gemv_ref('T', m, n, alpha, A.data(), m, x.data(), 1, beta, yref.data(), 1);
 
-  for (int i = 0; i < m; ++i)
+  for (int i = 0; i < n; ++i) // y has length n
     EXPECT_DOUBLE_EQ(y[i], yref[i]);
 }
 

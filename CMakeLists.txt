@@ -53,6 +53,7 @@ option(UNI20_ENABLE_WARNINGS      "Enable compiler warnings" ON)
 option(UNI20_BUILD_ASM            "Build stand-alone assembly dumps for snippets in asm/" ON)
 option(UNI20_DEBUG_DAG            "Enable DAG debug info (for Async buffer tracking and visualization)" OFF)
 option(UNI20_ENABLE_STACKTRACE    "Enable C++20 <stacktrace> header (requires library support)" OFF)
+option(UNI20_SANITIZE             "Enable sanitizers (comma-separated list: address,undefined,thread,memory,leak)" "")
 
 # If user did not specify, set default based on build type
 if(NOT DEFINED UNI20_DEBUG_DAG)
@@ -69,6 +70,19 @@ if(UNI20_ENABLE_WARNINGS)
   set(UNI20_WARN_FLAGS "-Wall;-Wextra;-Wattributes;-pedantic;-pedantic-errors;-fstrict-aliasing;-Wstrict-aliasing;-Wno-unused-parameter;-Wno-array-bounds")
 else()
   set(UNI20_WARN_FLAGS "")
+endif()
+
+if(UNI20_SANITIZE)
+  message(STATUS "Enabling sanitizers: ${UNI20_SANITIZE}")
+  foreach(san ${UNI20_SANITIZE})
+    set(SAN_FLAGS "${SAN_FLAGS} -fsanitize=${san}")
+  endforeach()
+
+  # Add common flags for better diagnostics
+  set(SAN_FLAGS "${SAN_FLAGS} -fno-omit-frame-pointer -g")
+
+  add_compile_options(${SAN_FLAGS})
+  add_link_options(${SAN_FLAGS})
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
