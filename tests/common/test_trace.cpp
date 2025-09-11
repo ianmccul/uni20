@@ -23,6 +23,7 @@ TEST(TraceMacro, TraceVariable)
   trace::get_formatting_options().set_output_stream(stderr);
 }
 
+// Disable warning that ("foo", n) discards "foo"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-value"
 
@@ -61,6 +62,46 @@ TEST(TraceMacro, TraceConsteval)
   auto n = 123;
   TraceConsteval(n);
   SUCCEED();
+}
+
+TEST(TraceMacro, TraceOnceFiresOnlyOnce)
+{
+  std::ostringstream oss;
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
+
+  for (int i = 0; i < 5; ++i)
+  {
+    TRACE_ONCE("hello", i);
+  }
+
+  auto output = oss.str();
+  // Should contain exactly one occurrence of "hello"
+  EXPECT_NE(output.find("hello"), std::string::npos);
+  EXPECT_EQ(output.find("hello", output.find("hello") + 1), std::string::npos) << "TRACE_ONCE emitted more than once:\n"
+                                                                               << output;
+
+  trace::get_formatting_options().set_output_stream(stderr);
+}
+
+TEST(TraceMacro, TraceOnceDifferentSitesAreIndependent)
+{
+  std::ostringstream oss;
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
+
+  for (int i = 0; i < 3; ++i)
+  {
+    TRACE_ONCE("siteA", i);
+    TRACE_ONCE("siteB", i);
+  }
+
+  auto output = oss.str();
+  // Each call site should fire exactly once
+  EXPECT_NE(output.find("siteA"), std::string::npos);
+  EXPECT_EQ(output.find("siteA", output.find("siteA") + 1), std::string::npos);
+  EXPECT_NE(output.find("siteB"), std::string::npos);
+  EXPECT_EQ(output.find("siteB", output.find("siteB") + 1), std::string::npos);
+
+  trace::get_formatting_options().set_output_stream(stderr);
 }
 
 // CHECK

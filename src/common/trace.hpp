@@ -107,6 +107,27 @@
   }                                                                                                                    \
   while (0)
 
+#define TRACE_ONCE(...)                                                                                                \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (TRACE_DISABLE)                                                                                     \
+      {}                                                                                                               \
+      else                                                                                                             \
+      {                                                                                                                \
+        static std::atomic_flag _trace_once_flag = ATOMIC_FLAG_INIT;                                                   \
+        if (!_trace_once_flag.test_and_set(std::memory_order_relaxed))                                                 \
+        {                                                                                                              \
+          ::trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                              \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
 #define TRACE_MODULE(m, ...)                                                                                           \
   do                                                                                                                   \
   {                                                                                                                    \
@@ -257,6 +278,10 @@
   do                                                                                                                   \
   {}                                                                                                                   \
   while (0)
+#define DEBUG_TRACE_ONCE(...)                                                                                          \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_TRACE_MODULE(...)                                                                                        \
   do                                                                                                                   \
   {}                                                                                                                   \
@@ -309,6 +334,27 @@
     else if (cond)                                                                                                     \
     {                                                                                                                  \
       ::trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define DEBUG_TRACE_ONCE(...)                                                                                          \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (TRACE_DISABLE)                                                                                     \
+      {}                                                                                                               \
+      else                                                                                                             \
+      {                                                                                                                \
+        static std::atomic_flag _trace_once_flag = ATOMIC_FLAG_INIT;                                                   \
+        if (!_trace_once_flag.test_and_set(std::memory_order_relaxed))                                                 \
+        {                                                                                                              \
+          ::trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                         \
+        }                                                                                                              \
+      }                                                                                                                \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
