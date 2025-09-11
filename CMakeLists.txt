@@ -122,6 +122,20 @@ target_compile_definitions(mdspan INTERFACE MDSPAN_IMPL_STANDARD_NAMESPACE=stdex
 # Use the square bracket operator for multidimensional arrays, not needed for c++23
 # add_compile_definitions(MDSPAN_USE_BRACKET_OPERATOR=1)
 
+# oneAPI TBB (Threading Building Blocks)
+# this makes available TBB::tbb and TBB::tbbmalloc
+
+# Intel TBB libraries, as of v2022.2.0, use deprecated std::aligned_storage in test/common/container_move_support.h
+# disable building the TBB tests
+set(TBB_TEST OFF CACHE BOOL "Disable TBB tests" FORCE)
+
+FetchContent_Declare(
+  tbb
+  GIT_REPOSITORY https://github.com/uxlfoundation/oneTBB
+  GIT_TAG v2022.2.0
+)
+FetchContent_MakeAvailable(tbb)
+
 # Enable CUDA if requested
 if(UNI20_ENABLE_CUDA)
   message(STATUS "CUDA support enabled. Looking for nvcc...")
@@ -151,7 +165,7 @@ if(UNI20_BUILD_BENCH)
   FetchContent_MakeAvailable(benchmark)
 endif()
 
-# Create an interface library for common, header-only dependencies.
+# Create an interface library for common dependencies
 add_library(uni20_deps INTERFACE)
 target_link_libraries(uni20_deps INTERFACE fmt::fmt)
 
