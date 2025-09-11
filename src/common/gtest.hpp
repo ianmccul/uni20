@@ -11,8 +11,6 @@
 /// - Work with `std::complex<T>` where `T` is floating point.
 /// - Allow explicit specification of ULP tolerance.
 /// - Default to a tolerance of 4 ULPs if none is provided, matching GoogleTest.
-/// - Accept arbitrary additional parameters, which are forwarded to the
-///   diagnostic output on failure.
 ///
 /// \details
 /// Usage patterns:
@@ -25,9 +23,6 @@
 ///
 /// // Explicit tolerance of 1 ULP
 /// EXPECT_FLOATING_EQ(a, b, 1);
-///
-/// // Explicit tolerance plus extra context
-/// EXPECT_FLOATING_EQ(a, b, 2, "during normalization");
 ///
 /// // ASSERT_ variant aborts the current test case on failure
 /// ASSERT_FLOATING_EQ(a, b, 1);
