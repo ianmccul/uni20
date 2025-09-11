@@ -7,6 +7,21 @@
 namespace trace
 {
 
+namespace detail
+{
+
+template <typename T, std::integral U, typename... Extra>
+inline unsigned get_ulps(T const& a, T const& b, U ulps, Extra&&... extra)
+{
+  return static_cast<unsigned>(ulps);
+}
+
+template <typename T> inline unsigned get_ulps(T const& a, T const& b) { return 4; }
+
+template <typename T, typename... Extra> inline unsigned get_ulps(T const& a, T const& b, Extra&&...) { return 4; }
+
+} // namespace detail
+
 struct FormattingOptions;
 
 /// \brief get the FormattingOptions object for a given module; use "" as the module name (or default parameter) for
@@ -943,7 +958,7 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
   }
 
   std::string pre = opts.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " in module " +
-                    opts.format_style(module, module) + " at " + opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(module, "DEBUG_TRACE") + " at " + opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
   opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
@@ -1028,6 +1043,50 @@ void DebugCheckEqualCall(const char* a, const char* b, const char* exprList, con
 }
 
 //------------------------------------------------------------------------------
+// CHECK_FLOATING_EQ
+//------------------------------------------------------------------------------
+template <typename... Args>
+void CheckFloatingEqCall(const char* a, const char* b, unsigned ulps, const char* exprList, const char* file, int line,
+                         const Args&... args)
+{
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble =
+      opts.format_style("CHECK_FLOATING_EQ", "CHECK") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+      opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not approx-equal to {} (to {} ULP)!", opts.format_style(a, "TRACE_EXPR"),
+                  opts.format_style(b, "TRACE_EXPR"), opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
+
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
+  std::abort();
+}
+
+//------------------------------------------------------------------------------
+// DEBUG_CHECK_FLOATING_EQ
+//------------------------------------------------------------------------------
+template <typename... Args>
+void DebugCheckFloatingEqCall(const char* a, const char* b, unsigned ulps, const char* exprList, const char* file,
+                              int line, const Args&... args)
+{
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble = opts.format_style("DEBUG_CHECK_FLOATING_EQ", "DEBUG_CHECK") + " at " +
+                         opts.format_style(file, "TRACE_FILENAME") +
+                         opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+                         fmt::format("\n{} is not approx-equal to {}!", opts.format_style(a, "TRACE_EXPR"),
+                                     opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
+
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
+  std::abort();
+}
+
+//------------------------------------------------------------------------------
 // PRECONDITION
 //------------------------------------------------------------------------------
 template <typename... Args>
@@ -1103,6 +1162,50 @@ void DebugPreconditionEqualCall(const char* a, const char* b, const char* exprLi
       opts.format_style("DEBUG_PRECONDITION_EQUAL", "DEBUG_PRECONDITION") + " at " +
       opts.format_style(file, "TRACE_FILENAME") + opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
+
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
+  std::abort();
+}
+
+//------------------------------------------------------------------------------
+// PRECONDITION_FLOATING_EQ
+//------------------------------------------------------------------------------
+template <typename... Args>
+void PreconditionFloatingEqCall(const char* a, const char* b, unsigned ulps, const char* exprList, const char* file,
+                                int line, const Args&... args)
+{
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble =
+      opts.format_style("PRECONDITION_FLOATING_EQ", "PRECONDITION") + " at " +
+      opts.format_style(file, "TRACE_FILENAME") + opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not approx-equal to {} (to {} ULP)!", opts.format_style(a, "TRACE_EXPR"),
+                  opts.format_style(b, "TRACE_EXPR"), opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
+
+  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
+  std::fflush(nullptr); // flush all output streams
+  std::abort();
+}
+
+//------------------------------------------------------------------------------
+// DEBUG_PRECONDITION_FLOATING_EQ
+//------------------------------------------------------------------------------
+template <typename... Args>
+void DebugPreconditionFloatingEqCall(const char* a, const char* b, unsigned ulps, const char* exprList,
+                                     const char* file, int line, const Args&... args)
+{
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string preamble =
+      opts.format_style("DEBUG_PRECONDITION_FLOATING_EQ", "DEBUG_PRECONDITION") + " at " +
+      opts.format_style(file, "TRACE_FILENAME") + opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not approx-equal to {} (to {} ULP)!", opts.format_style(a, "TRACE_EXPR"),
+                  opts.format_style(b, "TRACE_EXPR"), opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
 
   print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
   std::fflush(nullptr); // flush all output streams

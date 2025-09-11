@@ -154,3 +154,166 @@ TEST(ErrorIfMacro, ErrorIfFalseDoesNotThrowWhenAbortDisabled)
   trace::get_formatting_options().set_errors_abort(false);
   ERROR_IF(false, "no throw");
 }
+
+// CHECK_FLOATING_EQ
+TEST(CheckFloatingEq, EqualScalarsPass)
+{
+  float x = 1.0f;
+  float y = std::nextafter(x, 2.0f); // within 1 ULP
+  CHECK_FLOATING_EQ(x, y);           // should not abort
+  SUCCEED();
+}
+
+TEST(CheckFloatingEq, UnequalScalarsAbort)
+{
+  double x = 1.0;
+  double y = 1.1; // many ULPs apart
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(x, y); }, "CHECK_FLOATING_EQ");
+}
+
+// --- Complex numbers ---
+TEST(CheckFloatingEq, ComplexEqualPass)
+{
+  std::complex<double> a{1.0, 2.0};
+  std::complex<double> b{std::nextafter(1.0, 2.0), 2.0};
+  CHECK_FLOATING_EQ(a, b); // real differs by 1 ULP, imag equal
+  SUCCEED();
+}
+
+TEST(CheckFloatingEq, ComplexUnequalAbort)
+{
+  std::complex<float> a{1.0f, 2.0f};
+  std::complex<float> b{1.0f, 2.1f}; // imag off by many ULPs
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b); }, "CHECK_FLOATING_EQ");
+}
+
+// --- PRECONDITION_FLOATING_EQ ---
+TEST(PreconditionFloatingEq, EqualPass)
+{
+  PRECONDITION_FLOATING_EQ(1.0f, std::nextafter(1.0f, 2.0f));
+  SUCCEED();
+}
+
+TEST(PreconditionFloatingEq, UnequalAbort)
+{
+  EXPECT_DEATH({ PRECONDITION_FLOATING_EQ(1.0f, 2.0f); }, "PRECONDITION_FLOATING_EQ");
+}
+
+// --- CHECK_FLOATING_EQ with explicit ULPs ---
+TEST(CheckFloatingEq, ThreeParamExplicitUlpsPass)
+{
+  float x = 1.0f;
+  float y = std::nextafter(x, 2.0f); // 1 ULP away
+  CHECK_FLOATING_EQ(x, y, 1);        // should pass with ulps = 1
+  SUCCEED();
+}
+
+TEST(CheckFloatingEq, ThreeParamExplicitUlpsAbort)
+{
+  double x = 1.0;
+  double y = 1.0000000000001; // many ULPs away
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(x, y, 1); }, "CHECK_FLOATING_EQ");
+}
+
+// --- CHECK_FLOATING_EQ with extra context parameters ---
+TEST(CheckFloatingEq, FourParamWithMessagePass)
+{
+  double x = 1.0;
+  double y = std::nextafter(1.0, 2.0); // within 1 ULP
+  CHECK_FLOATING_EQ(x, y, 2, "values should be close");
+  SUCCEED();
+}
+
+TEST(CheckFloatingEq, FourParamWithMessageAbort)
+{
+  float x = 1.0f;
+  float y = 1.1f;
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(x, y, 2, "extra context", 42); }, "CHECK_FLOATING_EQ");
+}
+
+// Helper: move 'n' ULPs away from a
+template <typename T> T offset_by_ulps(T value, int n)
+{
+  T x = value;
+  if (n > 0)
+  {
+    for (int i = 0; i < n; i++)
+      x = std::nextafter(x, std::numeric_limits<T>::infinity());
+  }
+  else if (n < 0)
+  {
+    for (int i = 0; i < -n; i++)
+      x = std::nextafter(x, -std::numeric_limits<T>::infinity());
+  }
+  return x;
+}
+
+// --- PRECONDITION_FLOATING_EQ with explicit ULPs ---
+TEST(PreconditionFloatingEq, ThreeParamExplicitUlpsPass)
+{
+  PRECONDITION_FLOATING_EQ(1.0, std::nextafter(1.0, 2.0), 1);
+  SUCCEED();
+}
+
+TEST(PreconditionFloatingEq, FourParamWithMessageAbort)
+{
+  EXPECT_DEATH({ PRECONDITION_FLOATING_EQ(1.0, 1.5, 1, "bad precondition"); }, "PRECONDITION_FLOATING_EQ");
+}
+
+TEST(CheckFloatingEq, UlpToleranceOnePassesOneAway)
+{
+  float a = 1.0f;
+  float b = offset_by_ulps(a, 1);
+  CHECK_FLOATING_EQ(a, b, 1); // within 1 ULP
+  SUCCEED();
+}
+
+TEST(CheckFloatingEq, UlpToleranceOneFailsTwoAway)
+{
+  float a = 1.0f;
+  float b = offset_by_ulps(a, 2);
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 1); }, "CHECK_FLOATING_EQ");
+}
+
+TEST(CheckFloatingEq, UlpToleranceTwoPassesTwoAway)
+{
+  double a = 1.0;
+  double b = offset_by_ulps(a, 2);
+  CHECK_FLOATING_EQ(a, b, 2); // should pass
+  SUCCEED();
+}
+
+TEST(CheckFloatingEq, UlpToleranceTwoFailsThreeAway)
+{
+  double a = 1.0;
+  double b = offset_by_ulps(a, 3);
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 2); }, "CHECK_FLOATING_EQ");
+}
+
+TEST(CheckFloatingEq, ComplexWithinTolerancePass)
+{
+  std::complex<float> a{1.0f, 2.0f};
+  // real part differs by 1 ULP, imag identical
+  std::complex<float> b{std::nextafter(1.0f, 2.0f), 2.0f};
+  CHECK_FLOATING_EQ(a, b, 1); // should pass
+  SUCCEED();
+}
+
+TEST(CheckFloatingEq, ComplexOutsideToleranceFail)
+{
+  std::complex<double> a{1.0, 2.0};
+  // imag part shifted by 10 ULPs
+  double imag_shift = std::bit_cast<double>(std::bit_cast<std::uint64_t>(2.0) + 10);
+  std::complex<double> b{1.0, imag_shift};
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 1); }, "CHECK_FLOATING_EQ");
+}
+
+TEST(CheckFloatingEq, ComplexDefaultTolerance)
+{
+  std::complex<float> a{1.0f, 2.0f};
+  // real part is 4 ULPs away, imag identical
+  float shifted = std::bit_cast<float>(std::bit_cast<std::uint32_t>(1.0f) + 4);
+  std::complex<float> b{shifted, 2.0f};
+  CHECK_FLOATING_EQ(a, b); // should pass with default 4 ULPs
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 3); }, "CHECK_FLOATING_EQ");
+}

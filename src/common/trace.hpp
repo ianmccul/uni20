@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "demangle.hpp"
+#include "floating_eq.hpp"
 #include "namedenum.hpp"
 #include "terminal.hpp"
 
@@ -78,7 +79,7 @@
       {}                                                                                                               \
       else                                                                                                             \
       {                                                                                                                \
-        trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                  \
+        ::trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                \
       }                                                                                                                \
     }                                                                                                                  \
   }                                                                                                                    \
@@ -99,7 +100,7 @@
         {}                                                                                                             \
         else                                                                                                           \
         {                                                                                                              \
-          trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                                \
+          ::trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                              \
         }                                                                                                              \
       }                                                                                                                \
     }                                                                                                                  \
@@ -119,7 +120,7 @@
         {}                                                                                                             \
         else                                                                                                           \
         {                                                                                                              \
-          trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
+          ::trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                    \
         }                                                                                                              \
       }                                                                                                                \
     }                                                                                                                  \
@@ -141,7 +142,7 @@
           {}                                                                                                           \
           else                                                                                                         \
           {                                                                                                            \
-            trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                    \
+            ::trace::TraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                  \
           }                                                                                                            \
         }                                                                                                              \
       }                                                                                                                \
@@ -158,7 +159,7 @@
   {                                                                                                                    \
     if (!(cond))                                                                                                       \
     {                                                                                                                  \
-      trace::CheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
+      ::trace::CheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                           \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -168,8 +169,24 @@
   {                                                                                                                    \
     if (!((a) == (b)))                                                                                                 \
     {                                                                                                                  \
-      trace::CheckEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,                   \
-                            b __VA_OPT__(, __VA_ARGS__));                                                              \
+      ::trace::CheckEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,                 \
+                              b __VA_OPT__(, __VA_ARGS__));                                                            \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define CHECK_FLOATING_EQ(a, b, ...)                                                                                   \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    auto va = (a);                                                                                                     \
+    auto vb = (b);                                                                                                     \
+    using T = std::decay_t<decltype(va)>;                                                                              \
+    static_assert(::uni20::check::is_ulp_comparable<T>, "CHECK_FLOATING_EQ requires a scalar type");                   \
+    unsigned ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                         \
+    if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
+    {                                                                                                                  \
+      ::trace::CheckFloatingEqCall(#a, #b, ulps, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,      \
+                                   b __VA_OPT__(, __VA_ARGS__));                                                       \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -179,7 +196,7 @@
   {                                                                                                                    \
     if (!(cond))                                                                                                       \
     {                                                                                                                  \
-      trace::PreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
+      ::trace::PreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                    \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -189,8 +206,24 @@
   {                                                                                                                    \
     if (!((a) == (b)))                                                                                                 \
     {                                                                                                                  \
-      trace::PreconditionEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,            \
-                                   b __VA_OPT__(, __VA_ARGS__));                                                       \
+      ::trace::PreconditionEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,          \
+                                     b __VA_OPT__(, __VA_ARGS__));                                                     \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define PRECONDITION_FLOATING_EQ(a, b, ...)                                                                            \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    auto va = (a);                                                                                                     \
+    auto vb = (b);                                                                                                     \
+    using T = std::decay_t<decltype(va)>;                                                                              \
+    static_assert(::uni20::check::is_ulp_comparable<T>, "PRECONDITION_FLOATING_EQ requires a scalar type");            \
+    unsigned ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                         \
+    if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
+    {                                                                                                                  \
+      ::trace::PreconditionFloatingEqCall(#a, #b, ulps, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__,  \
+                                          a, b __VA_OPT__(, __VA_ARGS__));                                             \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -208,7 +241,7 @@
   {                                                                                                                    \
     if (cond)                                                                                                          \
     {                                                                                                                  \
-      trace::ErrorIfCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                           \
+      ::trace::ErrorIfCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                         \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -240,11 +273,19 @@
   do                                                                                                                   \
   {}                                                                                                                   \
   while (0)
+#define DEBUG_CHECK_FLOATING_EQ(...)                                                                                   \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_PRECONDITION(...)                                                                                        \
   do                                                                                                                   \
   {}                                                                                                                   \
   while (0)
 #define DEBUG_PRECONDITION_EQUAL(...)                                                                                  \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
+#define DEBUG_PRECONDITION_FLOATING_EQ(...)                                                                            \
   do                                                                                                                   \
   {}                                                                                                                   \
   while (0)
@@ -256,7 +297,7 @@
     if constexpr (TRACE_DISABLE)                                                                                       \
     {}                                                                                                                 \
     else                                                                                                               \
-      trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                               \
+      ::trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
   }                                                                                                                    \
   while (0)
 
@@ -267,7 +308,7 @@
     {}                                                                                                                 \
     else if (cond)                                                                                                     \
     {                                                                                                                  \
-      trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                               \
+      ::trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                             \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -279,7 +320,7 @@
     {}                                                                                                                 \
     else if constexpr (ENABLE_TRACE_##m)                                                                               \
     {                                                                                                                  \
-      trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                     \
+      ::trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                   \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -293,7 +334,7 @@
     {                                                                                                                  \
       if (cond)                                                                                                        \
       {                                                                                                                \
-        trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                   \
+        ::trace::DebugTraceModuleCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                 \
       }                                                                                                                \
     }                                                                                                                  \
   }                                                                                                                    \
@@ -304,7 +345,7 @@
   {                                                                                                                    \
     if (!(cond))                                                                                                       \
     {                                                                                                                  \
-      trace::DebugCheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
+      ::trace::DebugCheckCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                      \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -314,8 +355,24 @@
   {                                                                                                                    \
     if (!((a) == (b)))                                                                                                 \
     {                                                                                                                  \
-      trace::DebugCheckEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,              \
-                                 b __VA_OPT__(, __VA_ARGS__));                                                         \
+      ::trace::DebugCheckEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,            \
+                                   b __VA_OPT__(, __VA_ARGS__));                                                       \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define DEBUG_CHECK_FLOATING_EQ(a, b, ...)                                                                             \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    auto va = (a);                                                                                                     \
+    auto vb = (b);                                                                                                     \
+    using T = std::decay_t<decltype(va)>;                                                                              \
+    static_assert(::uni20::check::is_ulp_comparable<T>, "DEBUG_CHECK_FLOATING_EQ requires a scalar type");             \
+    unsigned ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                         \
+    if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
+    {                                                                                                                  \
+      ::trace::DebugCheckFloatingEqCall(#a, #b, ulps, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a, \
+                                        b __VA_OPT__(, __VA_ARGS__));                                                  \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -325,7 +382,7 @@
   {                                                                                                                    \
     if (!(cond))                                                                                                       \
     {                                                                                                                  \
-      trace::DebugPreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                 \
+      ::trace::DebugPreconditionCall(#cond, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));               \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)
@@ -335,8 +392,24 @@
   {                                                                                                                    \
     if (!((a) == (b)))                                                                                                 \
     {                                                                                                                  \
-      trace::DebugPreconditionEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,       \
-                                        b __VA_OPT__(, __VA_ARGS__));                                                  \
+      ::trace::DebugPreconditionEqualCall(#a, #b, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,     \
+                                          b __VA_OPT__(, __VA_ARGS__));                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define DEBUG_PRECONDITION_FLOATING_EQ(a, b, ...)                                                                      \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    auto va = (a);                                                                                                     \
+    auto vb = (b);                                                                                                     \
+    using T = std::decay_t<decltype(va)>;                                                                              \
+    static_assert(::uni20::check::is_ulp_comparable<T>, "DEBUG_PRECONDITION_FLOATING_EQ requires a scalar type");      \
+    unsigned ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                         \
+    if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
+    {                                                                                                                  \
+      ::trace::DebugPreconditionFloatingEqCall(#a, #b, ulps, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__,       \
+                                               __LINE__, a, b __VA_OPT__(, __VA_ARGS__));                              \
     }                                                                                                                  \
   }                                                                                                                    \
   while (0)

@@ -12,7 +12,7 @@
 #include "common/trace.hpp"
 
 #if ENABLE_TRACE_TESTMODULE == 0
-COMPILER_NOTE("ENABLE_TRACE_TESTMODULE is 0 — trace tests will likely fail.")
+COMPILER_NOTE("ENABLE_TRACE_TESTMODULE is 0 - trace tests will likely fail.")
 #endif
 
 // Disable ANSI colors so death‑tests see plain text
@@ -84,4 +84,50 @@ TEST(DebugTraceModuleIfMacro, DEBUG_TRACE_MODULE_IF_EmitsWhenTrue)
   DEBUG_TRACE_MODULE_IF(TESTMODULE, x, "baz", n);
   EXPECT_NE(oss.str().find("baz, n = 123"), std::string::npos) << "Trace output was:\n" << oss.str();
   trace::get_formatting_options().set_output_stream(stderr);
+}
+
+TEST(DebugCheckFloatingEq, PassesWithinTolerance)
+{
+  float a = 1.0f;
+  float b = std::nextafter(a, 2.0f); // 1 ULP away
+  CHECK_FLOATING_EQ(a, b, 1);        // should not abort
+  SUCCEED();
+}
+
+TEST(DebugCheckFloatingEq, FailsOutsideTolerance)
+{
+  float a = 1.0f;
+  float b = std::bit_cast<float>(std::bit_cast<uint32_t>(a) + 10);
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 1); }, "CHECK_FLOATING_EQ");
+}
+
+TEST(DebugCheckFloatingEq, DefaultToleranceIsFour)
+{
+  float a = 1.0f;
+  float b = std::bit_cast<float>(std::bit_cast<uint32_t>(a) + 4);
+  CHECK_FLOATING_EQ(a, b);                                            // 4 ULPs away, should pass
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 3); }, "CHECK_FLOATING_EQ"); // but not within 3
+}
+
+TEST(DebugPreconditionFloatingEq, PassesWithinTolerance)
+{
+  float a = 1.0f;
+  float b = std::nextafter(a, 2.0f); // 1 ULP away
+  PRECONDITION_FLOATING_EQ(a, b, 1); // should not abort
+  SUCCEED();
+}
+
+TEST(DebugPreconditionFloatingEq, FailsOutsideTolerance)
+{
+  float a = 1.0f;
+  float b = std::bit_cast<float>(std::bit_cast<uint32_t>(a) + 10);
+  EXPECT_DEATH({ PRECONDITION_FLOATING_EQ(a, b, 1); }, "PRECONDITION_FLOATING_EQ");
+}
+
+TEST(DebugPreconditionFloatingEq, DefaultToleranceIsFour)
+{
+  float a = 1.0f;
+  float b = std::bit_cast<float>(std::bit_cast<uint32_t>(a) + 4);
+  PRECONDITION_FLOATING_EQ(a, b);                                                   // 4 ULPs away, should pass
+  EXPECT_DEATH({ PRECONDITION_FLOATING_EQ(a, b, 3); }, "PRECONDITION_FLOATING_EQ"); // but not within 3
 }

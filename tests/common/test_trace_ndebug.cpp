@@ -32,6 +32,13 @@ TEST(DebugMacrosNoOp, DebugCheckEqualDoesNothing)
   SUCCEED();
 }
 
+TEST(DebugMacrosNoOp, DebugCheckFloatingEqDoesNothing)
+{
+  DEBUG_CHECK_FLOATING_EQ(1, 2);
+  DEBUG_CHECK_FLOATING_EQ(3, 3);
+  SUCCEED();
+}
+
 TEST(DebugMacrosNoOp, DebugPreconditionDoesNothing)
 {
   DEBUG_PRECONDITION(false);
@@ -43,6 +50,13 @@ TEST(DebugMacrosNoOp, DebugPreconditionEqualDoesNothing)
 {
   DEBUG_PRECONDITION_EQUAL(2, 3);
   DEBUG_PRECONDITION_EQUAL(4, 4);
+  SUCCEED();
+}
+
+TEST(DebugMacrosNoOp, DebugPreconditionFloatingEqDoesNothing)
+{
+  DEBUG_PRECONDITION_FLOATING_EQ(1, 2);
+  DEBUG_PRECONDITION_FLOATING_EQ(3, 3);
   SUCCEED();
 }
 
