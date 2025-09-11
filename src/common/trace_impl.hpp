@@ -11,14 +11,14 @@ namespace detail
 {
 
 template <typename T, std::integral U, typename... Extra>
-inline unsigned get_ulps(T const& a, T const& b, U ulps, Extra&&... extra)
+inline std::int64_t get_ulps(T const& a, T const& b, U ulps, Extra&&... extra)
 {
-  return static_cast<unsigned>(ulps);
+  return static_cast<std::int64_t>(ulps);
 }
 
-template <typename T> inline unsigned get_ulps(T const& a, T const& b) { return 4; }
+template <typename T> inline std::int64_t get_ulps(T const& a, T const& b) { return 4; }
 
-template <typename T, typename... Extra> inline unsigned get_ulps(T const& a, T const& b, Extra&&...) { return 4; }
+template <typename T, typename... Extra> inline std::int64_t get_ulps(T const& a, T const& b, Extra&&...) { return 4; }
 
 } // namespace detail
 
@@ -1046,8 +1046,8 @@ void DebugCheckEqualCall(const char* a, const char* b, const char* exprList, con
 // CHECK_FLOATING_EQ
 //------------------------------------------------------------------------------
 template <typename... Args>
-void CheckFloatingEqCall(const char* a, const char* b, unsigned ulps, const char* exprList, const char* file, int line,
-                         const Args&... args)
+void CheckFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList, const char* file,
+                         int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1068,7 +1068,7 @@ void CheckFloatingEqCall(const char* a, const char* b, unsigned ulps, const char
 // DEBUG_CHECK_FLOATING_EQ
 //------------------------------------------------------------------------------
 template <typename... Args>
-void DebugCheckFloatingEqCall(const char* a, const char* b, unsigned ulps, const char* exprList, const char* file,
+void DebugCheckFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList, const char* file,
                               int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
@@ -1172,7 +1172,7 @@ void DebugPreconditionEqualCall(const char* a, const char* b, const char* exprLi
 // PRECONDITION_FLOATING_EQ
 //------------------------------------------------------------------------------
 template <typename... Args>
-void PreconditionFloatingEqCall(const char* a, const char* b, unsigned ulps, const char* exprList, const char* file,
+void PreconditionFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList, const char* file,
                                 int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
@@ -1194,7 +1194,7 @@ void PreconditionFloatingEqCall(const char* a, const char* b, unsigned ulps, con
 // DEBUG_PRECONDITION_FLOATING_EQ
 //------------------------------------------------------------------------------
 template <typename... Args>
-void DebugPreconditionFloatingEqCall(const char* a, const char* b, unsigned ulps, const char* exprList,
+void DebugPreconditionFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList,
                                      const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();

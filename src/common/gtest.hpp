@@ -1,4 +1,4 @@
-#pramga once
+#pragma once
 
 /// \file gtest_floating_eq.hpp
 /// \brief GoogleTest integration for ULP-based floating-point comparisons.
@@ -49,7 +49,7 @@
 /// \see CHECK_FLOATING_EQ, PRECONDITION_FLOATING_EQ, uni20::check::float_distance
 
 #include "floating_eq.hpp"
-#include "trace.h"
+#include "trace.hpp"
 #include <gtest/gtest.h>
 
 #define EXPECT_FLOATING_EQ(a, b, ...)                                                                                  \
@@ -65,7 +65,7 @@
       ::testing::Message msg;                                                                                          \
       msg << "EXPECT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
           << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULPs"                                     \
-          << "\n  actual distance: " << ::uni20::check::float_distance(va, vb);                                        \
+          << "\n  actual distance: " << ::uni20::check::float_abs_distance(va, vb);                                    \
       ADD_FAILURE() << msg;                                                                                            \
     }                                                                                                                  \
   }                                                                                                                    \
@@ -78,13 +78,13 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "ASSERT_FLOATING_EQ requires a ULP-comparable scalar type");   \
-    unsigned ulps = ::trace::detail::default_ulps(va, vb, __VA_ARGS__);                                                \
+    unsigned ulps = ::trace::detail::get_ulps(va, vb, __VA_ARGS__);                                                    \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
       ::testing::Message msg;                                                                                          \
       msg << "ASSERT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
           << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULPs"                                     \
-          << "\n  actual distance: " << ::uni20::check::float_distance(va, vb);                                        \
+          << "\n  actual distance: " << ::uni20::check::float_abs_distance(va, vb);                                    \
       FAIL() << msg;                                                                                                   \
     }                                                                                                                  \
   }                                                                                                                    \

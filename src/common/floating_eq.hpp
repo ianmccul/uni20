@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/scalar_concepts.hpp"
 #include "core/scalar_traits.hpp"
 #include <bit>
 #include <cmath>
@@ -65,7 +66,7 @@ template <typename T>
   requires std::floating_point<T>
 struct FloatingULP<T>
 {
-    static bool eq(T a, T b, unsigned max_ulps = 4)
+    static bool eq(T a, T b, std::int64_t max_ulps = 4)
     {
       auto dist = float_distance(a, b);
       return dist != std::numeric_limits<long long>::max() && std::llabs(dist) <= static_cast<long long>(max_ulps);
@@ -77,7 +78,7 @@ template <typename T>
   requires uni20::is_complex<T>
 struct FloatingULP<T>
 {
-    static bool eq(T const& a, T const& b, unsigned max_ulps = 4)
+    static bool eq(T const& a, T const& b, std::int64_t max_ulps = 4)
     {
       using S = uni20::make_real_t<T>;
       return FloatingULP<S>::eq(a.real(), b.real(), max_ulps) && FloatingULP<S>::eq(a.imag(), b.imag(), max_ulps);
@@ -91,5 +92,23 @@ concept is_ulp_comparable = requires(T a, T b) {
                                 FloatingULP<T>::eq(a, b)
                                 } -> std::same_as<bool>;
                             };
+
+/// Absolute ULP distance for scalars
+template <typename T>
+  requires requires(T x) { float_distance(x, x); }
+inline long long float_abs_distance(T a, T b)
+{
+  auto dist = float_distance(a, b);
+  return (dist == std::numeric_limits<long long>::max()) ? std::numeric_limits<long long>::max() : std::llabs(dist);
+}
+
+template <uni20::Complex T>
+  requires requires(T x) { float_distance(x.real(), x.real()); }
+inline long long float_abs_distance(T a, T b)
+{
+  auto dr = float_abs_distance(a.real(), b.real());
+  auto di = float_abs_distance(a.imag(), b.imag());
+  return std::max(dr, di);
+}
 
 } // namespace uni20::check

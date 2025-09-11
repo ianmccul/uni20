@@ -182,7 +182,7 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "CHECK_FLOATING_EQ requires a scalar type");                   \
-    unsigned ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                         \
+    ::std::int64_t ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                   \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
       ::trace::CheckFloatingEqCall(#a, #b, ulps, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a,      \
@@ -219,7 +219,7 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "PRECONDITION_FLOATING_EQ requires a scalar type");            \
-    unsigned ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                         \
+    ::std::int64_t ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                   \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
       ::trace::PreconditionFloatingEqCall(#a, #b, ulps, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__,  \
@@ -368,7 +368,7 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "DEBUG_CHECK_FLOATING_EQ requires a scalar type");             \
-    unsigned ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                         \
+    ::std::int64_t ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                   \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
       ::trace::DebugCheckFloatingEqCall(#a, #b, ulps, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__, __LINE__, a, \
@@ -405,7 +405,7 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "DEBUG_PRECONDITION_FLOATING_EQ requires a scalar type");      \
-    unsigned ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                         \
+    ::std::int64_t ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                   \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
       ::trace::DebugPreconditionFloatingEqCall(#a, #b, ulps, (#a "," #b __VA_OPT__("," #__VA_ARGS__)), __FILE__,       \
