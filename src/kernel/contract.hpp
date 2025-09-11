@@ -31,4 +31,13 @@ void contract(T const& alpha, AType A, BType B, std::array<std::pair<std::size_t
   contract_strided(Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), B.data_handle(), beta, C.data_handle(), TagType{});
 }
 
+template <typename T, StridedMdspan AType, StridedMdspan BType, typename U, MutableStridedMdspan CType,
+          typename TagType, std::size_t N>
+void contract(T const& alpha, AType A, BType B,
+              const std::pair<std::size_t, std::size_t> (&dims)[N], // array reference, size known at compile time
+              U const& beta, CType C, TagType t)
+{
+  contract(alpha, A, B, std::to_array(dims), beta, C, t);
+}
+
 } // namespace uni20::kernel

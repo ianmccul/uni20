@@ -17,6 +17,34 @@ template <std::size_t N> struct extent_strides
     index_type extent;
     std::array<std::ptrdiff_t, N> strides;
 
+    constexpr extent_strides() = default;
+
+    /// \brief Construct from extent and a list of strides.
+    template <typename Ext>
+      requires std::is_integral_v<Ext>
+    constexpr extent_strides(Ext e, std::initializer_list<std::ptrdiff_t> s) : extent(static_cast<index_type>(e))
+    {
+      assert(s.size() == N);
+      std::copy(s.begin(), s.end(), strides.begin());
+    }
+
+    /// \brief Construct from extent and an array of strides.
+    template <typename Ext, typename Str>
+      requires std::is_integral_v<Ext> && std::is_integral_v<Str>
+    constexpr extent_strides(Ext e, std::array<Str, N> s) : extent(static_cast<index_type>(e))
+    {
+      for (std::size_t i = 0; i < N; ++i)
+      {
+        strides[i] = static_cast<std::ptrdiff_t>(s[i]);
+      }
+    }
+
+    template <typename Ext, typename... Strides>
+      requires(std::is_integral_v<Ext> && sizeof...(Strides) == N)
+    constexpr extent_strides(Ext e, Strides... s)
+        : extent(static_cast<index_type>(e)), strides{static_cast<std::ptrdiff_t>(s)...}
+    {}
+
     /// @brief Returns true if the current (outer) dimension and the given inner dimension can be merged.
     ///
     /// Coalescing is allowed if the inner dimension's stride equals the outer stride multiplied by the outer extent.
@@ -105,7 +133,7 @@ auto extract_strides(AType const& A, BType const& B,
     ERROR_IF(A.extent(ai) != B.extent(bi), "Extent along tensor contraction dimension does not match", ai, bi);
     AContracted[ai] = true;
     BContracted[bi] = true;
-    Kgroup.push_back({A.extent(ai), {A.stride(ai), B.stride(bi)}});
+    Kgroup.emplace_back(A.extent(ai), A.stride(ai), B.stride(bi));
   }
   // Now fill out the uncontracted dimensions and verify that they match with C
   std::size_t ci = 0;
@@ -114,7 +142,7 @@ auto extract_strides(AType const& A, BType const& B,
     if (!AContracted[ai])
     {
       ERROR_IF(A.extent(ai) != C.extent(ci), "Extent along uncontracted dimension does not match", ai, ci);
-      Mgroup.push_back({A.extent(ai), {A.stride(ai), C.stride(ci)}});
+      Mgroup.emplace_back(A.extent(ai), A.stride(ai), C.stride(ci));
       ++ci;
     }
   }
@@ -123,7 +151,7 @@ auto extract_strides(AType const& A, BType const& B,
     if (!BContracted[bi])
     {
       ERROR_IF(B.extent(bi) != C.extent(ci), "Extent along uncontracted dimension does not match", bi, ci);
-      Ngroup.push_back({B.extent(bi), {B.stride(bi), C.stride(ci)}});
+      Ngroup.emplace_back(B.extent(bi), B.stride(bi), C.stride(ci));
       ++ci;
     }
   }

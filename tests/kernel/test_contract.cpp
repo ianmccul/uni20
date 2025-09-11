@@ -1,4 +1,5 @@
 #include "../helpers.hpp"
+#include "common/mdspan.hpp"
 #include "kernel/contract.hpp"
 #include "gtest/gtest.h"
 #include <numeric>
@@ -196,4 +197,59 @@ TEST(ContractKernel3D, AlphaBeta)
   for (size_t i = 0; i < I; ++i)
     for (size_t j = 0; j < J; ++j)
       EXPECT_DOUBLE_EQ((C[i, j]), cref[i * J + j]);
+}
+
+/// Test 2x2 matrix multiplication with exact integer values
+///
+/// Matrix A = [[1,2],[3,4]]
+/// Matrix B = [[5,6],[7,8]]
+/// Expected result C = [[19,22],[43,50]]
+///
+/// We duplicate buffers for row-major and column-major layouts,
+/// so that Arow and Acol (resp. Brow and Bcol) represent the same
+/// logical matrices with different stride mappings.
+TEST(ContractKernel2x2, AllLayoutCombinations)
+{
+  using extents2d = stdex::extents<size_t, 2, 2>;
+  using mdspan2d_row = stdex::mdspan<double, extents2d, stdex::layout_right>;
+  using mdspan2d_col = stdex::mdspan<double, extents2d, stdex::layout_left>;
+
+  // Buffers for A
+  double a_row_buf[4] = {1, 2, 3, 4}; // row-major
+  double a_col_buf[4] = {1, 3, 2, 4}; // column-major
+
+  // Buffers for B
+  double b_row_buf[4] = {5, 6, 7, 8}; // row-major
+  double b_col_buf[4] = {5, 7, 6, 8}; // column-major
+
+  // Buffers for C
+  double c_row_buf[4];
+  double c_col_buf[4];
+
+  mdspan2d_row Arow(a_row_buf);
+  mdspan2d_col Acol(a_col_buf);
+  mdspan2d_row Brow(b_row_buf);
+  mdspan2d_col Bcol(b_col_buf);
+  mdspan2d_row Crow(c_row_buf);
+  mdspan2d_col Ccol(c_col_buf);
+
+  auto run_and_check = [&](auto A, auto B, auto C) {
+    std::fill(C.data_handle(), C.data_handle() + C.size(), 0.0);
+
+    contract(1.0, A, B, {{1, 0}}, 0.0, C, cpu_tag{});
+
+    EXPECT_DOUBLE_EQ((C[0, 0]), 19.0);
+    EXPECT_DOUBLE_EQ((C[0, 1]), 22.0);
+    EXPECT_DOUBLE_EQ((C[1, 0]), 43.0);
+    EXPECT_DOUBLE_EQ((C[1, 1]), 50.0);
+  };
+
+  run_and_check(Arow, Brow, Crow);
+  run_and_check(Arow, Brow, Ccol);
+  run_and_check(Arow, Bcol, Crow);
+  run_and_check(Arow, Bcol, Ccol);
+  run_and_check(Acol, Brow, Crow);
+  run_and_check(Acol, Brow, Ccol);
+  run_and_check(Acol, Bcol, Crow);
+  run_and_check(Acol, Bcol, Ccol);
 }
