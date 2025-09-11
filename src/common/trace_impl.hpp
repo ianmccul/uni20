@@ -882,6 +882,37 @@ template <typename... Args> void TraceCall(const char* exprList, const char* fil
 }
 
 //-----------------------------------------------------------------------------
+// TRACE_ONCE
+//-----------------------------------------------------------------------------
+template <typename... Args> void TraceOnceCall(const char* exprList, const char* file, int line, const Args&... args)
+{
+  auto& opts = get_formatting_options();
+
+  // format argument list
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  // optional timestamp
+  std::string ts;
+  if (opts.timestamp) ts = format_timestamp();
+
+  // optional thread-ID
+  std::string th;
+  if (opts.showThreadId)
+  {
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
+    th = opts.format_style(th, "THREAD_ID");
+  }
+
+  // build preamble
+  std::string pre = opts.format_style("TRACE_ONCE", "TRACE") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  // emit
+  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+}
+
+//-----------------------------------------------------------------------------
 // Module-aware TRACE
 //-----------------------------------------------------------------------------
 template <typename... Args>
@@ -937,6 +968,34 @@ template <typename... Args> void DebugTraceCall(const char* exprList, const char
 }
 
 //-----------------------------------------------------------------------------
+// DEBUG_TRACE_ONCE
+//-----------------------------------------------------------------------------
+template <typename... Args>
+void DebugTraceOnceCall(const char* exprList, const char* file, int line, const Args&... args)
+{
+  auto& opts = get_formatting_options();
+
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string ts;
+  if (opts.timestamp) ts = format_timestamp();
+
+  std::string th;
+  if (opts.showThreadId)
+  {
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
+    th = opts.format_style(th, "THREAD_ID");
+  }
+
+  std::string pre = opts.format_style("DEBUG_TRACE_ONCE", "DEBUG_TRACE") + " at " +
+                    opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+}
+
+//-----------------------------------------------------------------------------
 // Module-aware DEBUG_TRACE
 //-----------------------------------------------------------------------------
 template <typename... Args>
@@ -965,7 +1024,7 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
 }
 
 template <typename... Args>
-void CheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+[[noreturn]] void CheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -985,7 +1044,8 @@ void CheckCall(const char* cond, const char* exprList, const char* file, int lin
 // DEBUG_CHECK
 //------------------------------------------------------------------------------
 template <typename... Args>
-void DebugCheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+[[noreturn]] void DebugCheckCall(const char* cond, const char* exprList, const char* file, int line,
+                                 const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1005,7 +1065,8 @@ void DebugCheckCall(const char* cond, const char* exprList, const char* file, in
 // CHECK_EQUAL
 //------------------------------------------------------------------------------
 template <typename... Args>
-void CheckEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line, const Args&... args)
+[[noreturn]] void CheckEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
+                                 const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1025,8 +1086,8 @@ void CheckEqualCall(const char* a, const char* b, const char* exprList, const ch
 // DEBUG_CHECK_EQUAL
 //------------------------------------------------------------------------------
 template <typename... Args>
-void DebugCheckEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
-                         const Args&... args)
+[[noreturn]] void DebugCheckEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
+                                      const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1046,8 +1107,8 @@ void DebugCheckEqualCall(const char* a, const char* b, const char* exprList, con
 // CHECK_FLOATING_EQ
 //------------------------------------------------------------------------------
 template <typename... Args>
-void CheckFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList, const char* file,
-                         int line, const Args&... args)
+[[noreturn]] void CheckFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList,
+                                      const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1068,8 +1129,8 @@ void CheckFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const 
 // DEBUG_CHECK_FLOATING_EQ
 //------------------------------------------------------------------------------
 template <typename... Args>
-void DebugCheckFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList, const char* file,
-                              int line, const Args&... args)
+[[noreturn]] void DebugCheckFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList,
+                                           const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1090,7 +1151,8 @@ void DebugCheckFloatingEqCall(const char* a, const char* b, std::int64_t ulps, c
 // PRECONDITION
 //------------------------------------------------------------------------------
 template <typename... Args>
-void PreconditionCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+[[noreturn]] void PreconditionCall(const char* cond, const char* exprList, const char* file, int line,
+                                   const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1110,7 +1172,8 @@ void PreconditionCall(const char* cond, const char* exprList, const char* file, 
 // DEBUG_PRECONDITION
 //------------------------------------------------------------------------------
 template <typename... Args>
-void DebugPreconditionCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+[[noreturn]] void DebugPreconditionCall(const char* cond, const char* exprList, const char* file, int line,
+                                        const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1130,8 +1193,8 @@ void DebugPreconditionCall(const char* cond, const char* exprList, const char* f
 // PRECONDITION_EQUAL
 //------------------------------------------------------------------------------
 template <typename... Args>
-void PreconditionEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
-                           const Args&... args)
+[[noreturn]] void PreconditionEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
+                                        const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1151,8 +1214,8 @@ void PreconditionEqualCall(const char* a, const char* b, const char* exprList, c
 // DEBUG_PRECONDITION_EQUAL
 //------------------------------------------------------------------------------
 template <typename... Args>
-void DebugPreconditionEqualCall(const char* a, const char* b, const char* exprList, const char* file, int line,
-                                const Args&... args)
+[[noreturn]] void DebugPreconditionEqualCall(const char* a, const char* b, const char* exprList, const char* file,
+                                             int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1172,8 +1235,8 @@ void DebugPreconditionEqualCall(const char* a, const char* b, const char* exprLi
 // PRECONDITION_FLOATING_EQ
 //------------------------------------------------------------------------------
 template <typename... Args>
-void PreconditionFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList, const char* file,
-                                int line, const Args&... args)
+[[noreturn]] void PreconditionFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList,
+                                             const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1194,8 +1257,8 @@ void PreconditionFloatingEqCall(const char* a, const char* b, std::int64_t ulps,
 // DEBUG_PRECONDITION_FLOATING_EQ
 //------------------------------------------------------------------------------
 template <typename... Args>
-void DebugPreconditionFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList,
-                                     const char* file, int line, const Args&... args)
+[[noreturn]] void DebugPreconditionFloatingEqCall(const char* a, const char* b, std::int64_t ulps, const char* exprList,
+                                                  const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1228,7 +1291,8 @@ inline std::string to_string(const std::stacktrace& st)
 } // namespace detail
 #endif
 
-template <typename... Args> void PanicCall(const char* exprList, const char* file, int line, const Args&... args)
+template <typename... Args>
+[[noreturn]] void PanicCall(const char* exprList, const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1253,7 +1317,8 @@ template <typename... Args> void PanicCall(const char* exprList, const char* fil
 //------------------------------------------------------------------------------
 // ERROR
 //------------------------------------------------------------------------------
-template <typename... Args> void ErrorCall(const char* exprList, const char* file, int line, const Args&... args)
+template <typename... Args>
+[[noreturn]] void ErrorCall(const char* exprList, const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 
@@ -1277,7 +1342,7 @@ template <typename... Args> void ErrorCall(const char* exprList, const char* fil
 // ERROR_IF
 //------------------------------------------------------------------------------
 template <typename... Args>
-void ErrorIfCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
+[[noreturn]] void ErrorIfCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
   auto& opts = get_formatting_options();
 

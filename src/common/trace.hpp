@@ -121,7 +121,7 @@
         static std::atomic_flag _trace_once_flag = ATOMIC_FLAG_INIT;                                                   \
         if (!_trace_once_flag.test_and_set(std::memory_order_relaxed))                                                 \
         {                                                                                                              \
-          ::trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                              \
+          ::trace::TraceOnceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                          \
         }                                                                                                              \
       }                                                                                                                \
     }                                                                                                                  \
@@ -352,7 +352,7 @@
         static std::atomic_flag _trace_once_flag = ATOMIC_FLAG_INIT;                                                   \
         if (!_trace_once_flag.test_and_set(std::memory_order_relaxed))                                                 \
         {                                                                                                              \
-          ::trace::DebugTraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                         \
+          ::trace::DebugTraceOnceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                     \
         }                                                                                                              \
       }                                                                                                                \
     }                                                                                                                  \
