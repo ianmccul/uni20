@@ -20,7 +20,7 @@
 #include <vector>
 
 // Check for stacktrace support (C++23 and GCC 13+ or Clang+libc++)
-#if defined(__cpp_lib_stacktrace) && (__cpp_lib_stacktrace >= 202011L)
+#if defined(__cpp_lib_stacktrace) && (__cpp_lib_stacktrace >= 202011L) && 0
 #define TRACE_HAS_STACKTRACE 1
 #include <stacktrace>
 #else
