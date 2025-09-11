@@ -59,12 +59,12 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "EXPECT_FLOATING_EQ requires a ULP-comparable scalar type");   \
-    unsigned ulps = ::trace::detail::get_ulps(va, vb, __VA_ARGS__);                                                    \
+    unsigned ulps = ::trace::detail::get_ulps(va, vb __VA_OPT__(, __VA_ARGS__));                                       \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
       ::testing::Message msg;                                                                                          \
       msg << "EXPECT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
-          << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULPs"                                     \
+          << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP"                                      \
           << "\n  actual distance: " << ::uni20::check::float_abs_distance(va, vb);                                    \
       ADD_FAILURE() << msg;                                                                                            \
     }                                                                                                                  \
@@ -78,12 +78,12 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "ASSERT_FLOATING_EQ requires a ULP-comparable scalar type");   \
-    unsigned ulps = ::trace::detail::get_ulps(va, vb, __VA_ARGS__);                                                    \
+    unsigned ulps = ::trace::detail::get_ulps(va, vb __VA_OPT__(, __VA_ARGS__));                                       \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
       ::testing::Message msg;                                                                                          \
       msg << "ASSERT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
-          << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULPs"                                     \
+          << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP"                                      \
           << "\n  actual distance: " << ::uni20::check::float_abs_distance(va, vb);                                    \
       FAIL() << msg;                                                                                                   \
     }                                                                                                                  \

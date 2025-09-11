@@ -36,3 +36,9 @@ target_link_libraries(ad_example PRIVATE fmt::fmt uni20_common uni20_async)
 
 add_executable(gradient_solver gradient_solver.cpp)
 target_link_libraries(gradient_solver PRIVATE fmt::fmt uni20_common uni20_async)
+
+enable_testing()
+include(GoogleTest)
+
+add_executable(gtest_floating_eq_example gtest_floating_eq_example.cpp)
+target_link_libraries(gtest_floating_eq_example PRIVATE gtest fmt::fmt uni20_common)
