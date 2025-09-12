@@ -21,7 +21,7 @@
 function(detect_blas_vendor)
   if(BLAS_FOUND)
     if(DEFINED BLAS_VENDOR AND NOT BLAS_VENDOR STREQUAL "")
-      set(UNI20_BLAS_VENDOR "${BLAS_VENDOR}" CACHE INTERNAL "Detected BLAS vendor from FindBLAS" FORCE)
+      set(UNI20_DETECTED_BLAS_VENDOR "${BLAS_VENDOR}" CACHE INTERNAL "Detected BLAS vendor from FindBLAS" FORCE)
     else()
       # Auto-detect vendor by scanning for variables of the form BLAS_XXXX_LIBRARY.
       get_cmake_property(cacheVars CACHE_VARIABLES)
@@ -50,16 +50,16 @@ function(detect_blas_vendor)
       if(_detected_vendor STREQUAL "")
         set(_detected_vendor "Generic")
       endif()
-      set(UNI20_BLAS_VENDOR "${_detected_vendor}" CACHE INTERNAL "Detected BLAS vendor (auto-detected)" FORCE)
+      set(UNI20_DETECTED_BLAS_VENDOR "${_detected_vendor}" CACHE INTERNAL "Detected BLAS vendor (auto-detected)" FORCE)
     endif()
   else()
     set(UNI20_BLAS_VENDOR "None" CACHE INTERNAL "BLAS not found" FORCE)
   endif()
 
   # Convert the detected vendor to uppercase.
-  string(TOUPPER "${UNI20_BLAS_VENDOR}" UNI20_BLAS_VENDOR_UPPER)
+  string(TOUPPER "${UNI20_DETECTED_BLAS_VENDOR}" UNI20_BLAS_VENDOR_UPPER)
   # Build the vendor macro name, e.g., UNI20_BLAS_VENDOR_MKL.
-  set(UNI20_BLAS_VENDOR_MACRO "UNI20_BLAS_VENDOR_${UNI20_BLAS_VENDOR_UPPER}" CACHE INTERNAL "Vendor-specific macro for BLAS" FORCE)
+  set(UNI20_DETECTED_BLAS_VENDOR_MACRO "UNI20_BLAS_VENDOR_${UNI20_BLAS_VENDOR_UPPER}" CACHE INTERNAL "Vendor-specific macro for BLAS" FORCE)
 
-  message(STATUS "Detected UNI20_BLAS_VENDOR: ${UNI20_BLAS_VENDOR}")
+  message(STATUS "Detected UNI20_DETECTED_BLAS_VENDOR: ${UNI20_DETECTED_BLAS_VENDOR}")
 endfunction()

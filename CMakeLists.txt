@@ -276,3 +276,60 @@ if(DOXYGEN_FOUND)
 else()
   message(WARNING "Doxygen not found; 'doc' target will be unavailable.")
 endif()
+
+# ------------------------------
+# Uni20 option summary
+# ------------------------------
+
+# Helper to print all UNI20_* options (excluding advanced unless user asked)
+# options starting UNI20_DETECTED_ are part of the environment, not variables
+# that we expect users will override.
+message(STATUS "")
+message(STATUS "===== Uni20 Build Options =====")
+get_cmake_property(_vars CACHE_VARIABLES)
+foreach(v ${_vars})
+  if(v MATCHES "^UNI20_" AND NOT v MATCHES "^UNI20_DETECTED_")
+    get_property(_help CACHE ${v} PROPERTY HELPSTRING)
+    get_property(_adv  CACHE ${v} PROPERTY ADVANCED)
+    if(NOT _adv OR UNI20_SHOW_ADVANCED)
+      message(STATUS "${v} = ${${v}}   # ${_help}")
+    endif()
+  endif()
+endforeach()
+
+message(STATUS "")
+
+# Determine current build type (for single-config generators)
+if(NOT CMAKE_BUILD_TYPE AND CMAKE_CONFIGURATION_TYPES)
+  set(_current_config "Release") # default assumption for multi-config
+else()
+  set(_current_config "${CMAKE_BUILD_TYPE}")
+endif()
+string(TOUPPER "${_current_config}" _config_uc)
+
+set(_well_known
+  CMAKE_BUILD_TYPE
+  CMAKE_INSTALL_PREFIX
+  BUILD_SHARED_LIBS
+  CMAKE_CXX_FLAGS
+  CMAKE_CXX_FLAGS_${_config_uc}
+)
+
+message(STATUS "===== Common CMake Options =====")
+foreach(v IN LISTS _well_known)
+  if(DEFINED ${v})
+    get_property(_help CACHE ${v} PROPERTY HELPSTRING)
+    message(STATUS "${v} = ${${v}}   # ${_help}")
+  endif()
+endforeach()
+message(STATUS "")
+
+message(STATUS "===== Detected Environment =====")
+foreach(v ${_vars})
+  if(v MATCHES "^UNI20_DETECTED_")
+    get_property(_help CACHE ${v} PROPERTY HELPSTRING)
+    message(STATUS "${v} = ${${v}}   # ${_help}")
+  endif()
+endforeach()
+
+message(STATUS "")
