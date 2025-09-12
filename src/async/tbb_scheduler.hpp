@@ -4,7 +4,6 @@
 /// \ingroup async_core
 
 #include "scheduler.hpp"
-#include <oneapi/tbb/global_control.h>
 #include <oneapi/tbb/task_arena.h>
 #include <oneapi/tbb/task_group.h>
 #include <utility>
@@ -40,7 +39,10 @@ class TbbScheduler final : public IScheduler {
     }
 
     /// \brief Schedule a coroutine for initial execution.
-    void schedule(AsyncTask&& h) override { this->enqueue_task(std::move(h)); }
+    void schedule(AsyncTask&& h) override
+    {
+      if (h.set_scheduler(this)) this->enqueue_task(std::move(h));
+    }
 
     /// \brief Block until all tasks scheduled on this scheduler are complete.
     ///
@@ -68,26 +70,6 @@ class TbbScheduler final : public IScheduler {
 
     oneapi::tbb::task_arena arena_;
     oneapi::tbb::task_group tg_;
-};
-
-/// \brief Scoped override of TBB global concurrency limit.
-///
-/// Creates a temporary \c oneapi::tbb::global_control object
-/// that raises \c max_allowed_parallelism for the lifetime of
-/// the guard. This is useful in unit tests or benchmarks where
-/// the combined test binary may have restricted concurrency
-/// (e.g. to keep GoogleTest death tests safe), but individual
-/// tests require more worker threads.
-///
-/// \note This guard is intended for short-lived scoped use.
-///       Normal application code should configure TBB
-///       concurrency at process startup instead.
-class ScopedTbbConcurrency {
-  public:
-    ScopedTbbConcurrency(int threads) : ctrl_(oneapi::tbb::global_control::max_allowed_parallelism, threads) {}
-
-  private:
-    oneapi::tbb::global_control ctrl_;
 };
 
 } // namespace uni20::async

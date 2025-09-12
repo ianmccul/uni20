@@ -1,15 +1,16 @@
 #include "async/async.hpp"
 #include "async/debug_scheduler.hpp"
+#include "async/reverse_value.hpp"
 #include "async/tbb_scheduler.hpp"
 #include <atomic>
 #include <chrono>
 #include <gtest/gtest.h>
+#include <thread>
 
 using namespace uni20::async;
 
 TEST(TbbScheduler, BasicSchedule)
 {
-  ScopedTbbConcurrency tbb{2};
   TbbScheduler sched{2};
   ScopedScheduler guard(&sched);
 
@@ -24,7 +25,6 @@ TEST(TbbScheduler, BasicSchedule)
 
 TEST(TbbScheduler, AsyncArithmetic)
 {
-  ScopedTbbConcurrency tbb{4};
   TbbScheduler sched{4};
   ScopedScheduler guard(&sched);
 
@@ -37,7 +37,6 @@ TEST(TbbScheduler, AsyncArithmetic)
 
 TEST(TbbScheduler, CoroutineAndAsync)
 {
-  ScopedTbbConcurrency tbb{4};
   TbbScheduler sched{4};
   ScopedScheduler guard(&sched);
 
@@ -55,7 +54,6 @@ TEST(TbbScheduler, CoroutineAndAsync)
 
 TEST(TbbScheduler, ManyTasks)
 {
-  ScopedTbbConcurrency tbb{4};
   TbbScheduler sched{4};
 
   std::atomic<int> counter{0};
@@ -76,7 +74,6 @@ TEST(TbbScheduler, Parallelism)
 {
   // This  test is not strictly deterministic but should be robust enough
   // (with 4 threads, runtime should be ~100–150 ms instead of 400 ms).
-  ScopedTbbConcurrency tbb{4};
   TbbScheduler sched{4};
   using clock = std::chrono::steady_clock;
 
@@ -93,4 +90,26 @@ TEST(TbbScheduler, Parallelism)
 
   // With 4 threads, should take significantly less than 8*50ms sequential
   EXPECT_LT(elapsed, 400);
+}
+
+TEST(TbbScheduler, ReverseValue)
+{
+  // Test a case where we are guaranteed that dependencies are non-trivial
+  TbbScheduler sched{4};
+  set_global_scheduler(&sched);
+
+  ReverseValue<int> rv;
+  Async<int> v;
+  async_assign(rv.value().read(), v.write());
+
+  // At this point, v is not ready: rv hasn’t been written yet.
+  // get_wait() must suspend/resume under the scheduler.
+  std::thread writer([&] {
+    // Small delay ensures the consumer suspends first
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    rv = 99;
+  });
+
+  EXPECT_EQ(v.read().get_wait(), 99);
+  writer.join();
 }

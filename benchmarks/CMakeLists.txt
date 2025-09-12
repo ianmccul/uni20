@@ -10,6 +10,7 @@ target_link_libraries(uni20_benchmarks
     PRIVATE uni20_common
             mdspan
             benchmark::benchmark
+            TBB::tbb
 )
 
 # Disable TRACE for benchmark builds

@@ -31,8 +31,6 @@ class DebugScheduler final : public IScheduler {
       }
     }
 
-    inline static DebugScheduler* global_scheduler = nullptr;
-
     bool can_run() const noexcept { return !Blocked_ && !Handles_.empty(); }
 
     /// \brief Run one batch of scheduled coroutines (in LIFO order).
