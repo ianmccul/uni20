@@ -18,6 +18,10 @@ class IScheduler {
     /// \brief Virtual destructor.
     virtual ~IScheduler() = default;
 
+    /// \brief Schedule a coroutine for its initial execution.
+    /// \param h The coroutine handle to schedule.
+    virtual void schedule(AsyncTask&& h) = 0;
+
   protected:
     // using promise_type = AsyncTask::promise_type;
 

@@ -35,10 +35,9 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_o
   return std::move(task);
 }
 
-template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
+template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::release_handle()
 {
   CHECK(h_);
-  TRACE_MODULE(ASYNC, "Resuming AsyncTask", h_);
   if (!h_.promise().release_awaiter()) PANIC("Attempt to resume() a non-exclusive AsyncTask");
 
   bool to_destroy = cancel_.load(std::memory_order_acquire); // h_.promise().is_destroy_on_resume();
@@ -57,11 +56,14 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
       handle = handle.promise().destroy_with_continuation();
     }
   }
-  else
-  {
-    handle.resume();
-  }
+  return handle;
+}
 
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
+{
+  auto handle = this->release_handle();
+  TRACE_MODULE(ASYNC, "Resuming AsyncTask", handle);
+  if (handle) handle.resume();
   TRACE_MODULE(ASYNC, "returned from coroutine::resume");
 }
 

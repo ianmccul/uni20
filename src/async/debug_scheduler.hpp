@@ -22,7 +22,7 @@ class DebugScheduler final : public IScheduler {
 
     /// \brief Enqueue a task for later run.
     /// \param task An AsyncTask bound to *this* scheduler.
-    void schedule(AsyncTask&& task)
+    void schedule(AsyncTask&& task) override
     {
       TRACE_MODULE(ASYNC, "Scheduling a task", &task, task.h_);
       if (task.set_scheduler(this))
@@ -54,7 +54,7 @@ class DebugScheduler final : public IScheduler {
 
   private:
     // Internal resubmission
-    virtual void reschedule(AsyncTask&& task)
+    void reschedule(AsyncTask&& task) override
     {
       TRACE_MODULE(ASYNC, "Rescheduling a task", &task, task.h_);
       // Assume sched_ is already set
@@ -66,9 +66,31 @@ class DebugScheduler final : public IScheduler {
     std::vector<AsyncTask> Handles_;
 };
 
-inline void set_global_scheduler(DebugScheduler* sched) { DebugScheduler::global_scheduler = sched; }
+namespace detail
+{
+inline DebugScheduler DefaultScheduler;
+inline IScheduler* global_scheduler = &DefaultScheduler;
+} // namespace detail
 
-inline DebugScheduler* get_global_scheduler() { return DebugScheduler::global_scheduler; }
+inline void set_global_scheduler(IScheduler* sched) { detail::global_scheduler = sched; }
+
+inline IScheduler* get_global_scheduler() { return detail::global_scheduler; }
+
+inline void reset_global_scheduler() { detail::global_scheduler = &detail::DefaultScheduler; }
+
+// ScopedScheduler is useful for testing; set the scheduler for the lifetime of a block
+class ScopedScheduler {
+  public:
+    explicit ScopedScheduler(IScheduler* sched)
+    {
+      old_ = get_global_scheduler();
+      set_global_scheduler(sched);
+    }
+    ~ScopedScheduler() { set_global_scheduler(old_); }
+
+  private:
+    IScheduler* old_;
+};
 
 inline void schedule(AsyncTask&& task) { get_global_scheduler()->schedule(std::move(task)); }
 
@@ -81,8 +103,13 @@ template <typename T> T const& EpochContextReader<T>::get_wait() const
     if (auto* dbg = dynamic_cast<DebugScheduler*>(sched))
     {
       CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+      dbg->run();
     }
-    sched->run();
+    else
+    {
+      // TBB or other threaded schedulers: just yield
+      std::this_thread::yield();
+    }
   }
   return this->data();
 }
@@ -96,8 +123,13 @@ template <typename T> T&& EpochContextWriter<T>::move_from_wait() const
     if (auto* dbg = dynamic_cast<DebugScheduler*>(sched))
     {
       CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+      dbg->run();
     }
-    sched->run();
+    else
+    {
+      // TBB or other threaded schedulers: just yield
+      std::this_thread::yield();
+    }
   }
   return std::move(this->data());
 }

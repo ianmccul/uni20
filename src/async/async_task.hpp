@@ -55,6 +55,11 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \note This releases ownership to the scheduler
     void resume();
 
+    /// \brief Transfer ownership of the coroutine and get the handle
+    /// \pre We are the sole owner of the coroutine
+    /// \note The returned handle may be null, if the coroutine has been cancelled
+    handle_type release_handle();
+
     /// \brief Indicate that the coroutine should be cancelled upon resume
     void cancel_on_resume() noexcept;
 

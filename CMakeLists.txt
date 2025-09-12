@@ -150,6 +150,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tbb)
 
+# If sanitizers are enabled, exclude them from TBB (known incompatibility).
+if(UNI20_SANITIZE)
+  string(FIND "${UNI20_SANITIZE}" "address" _has_asan)
+  string(FIND "${UNI20_SANITIZE}" "undefined" _has_ubsan)
+  if(NOT _has_asan EQUAL -1 OR NOT _has_ubsan EQUAL -1)
+    message(WARNING "Building uni20 with sanitizers (${UNI20_SANITIZE}), "
+  "but disabling sanitizer instrumentation for oneTBB.")
+
+    # Apply -fno-sanitize=all to all TBB sources
+    get_target_property(tbb_sources TBB::tbb SOURCES)
+    if(tbb_sources)
+      set_source_files_properties(${tbb_sources} PROPERTIES COMPILE_FLAGS "-fno-sanitize=all")
+    endif()
+  endif()
+endif()
+
 # Enable CUDA if requested
 if(UNI20_ENABLE_CUDA)
   message(STATUS "CUDA support enabled. Looking for nvcc...")
