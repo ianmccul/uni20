@@ -67,31 +67,37 @@ BENCHMARK(Binary);
 
 static void SimpleAsyncTbb(benchmark::State& state)
 {
-  TbbScheduler sched{4};
+  int threads = state.range(0);
+
+  TbbScheduler sched{threads};
   ScopedScheduler guard(&sched);
 
   Async<int> x = 0;
   for (auto _ : state)
-    x = x + 1;
+    x += 1;
 
+  sched.run_all(); // this blocks until the scheduler has finished
   int result = x.get_wait();
   benchmark::DoNotOptimize(result);
 }
-BENCHMARK(SimpleAsyncTbb);
+BENCHMARK(SimpleAsyncTbb)->Arg(1)->Arg(2)->Arg(4)->ArgName("threads");
 
 static void BinaryTbb(benchmark::State& state)
 {
-  TbbScheduler sched{4};
+  int threads = state.range(0);
+
+  TbbScheduler sched{threads};
   ScopedScheduler guard(&sched);
 
   Async<int> x = 0;
   for (auto _ : state)
     x = x + 1;
 
+  sched.run_all(); // this blocks until the scheduler has finished
   int result = x.get_wait();
   benchmark::DoNotOptimize(result);
 }
-BENCHMARK(BinaryTbb);
+BENCHMARK(BinaryTbb)->Arg(1)->Arg(2)->Arg(4)->ArgName("threads");
 
 // --------------------- Benchmark Main ---------------------
 

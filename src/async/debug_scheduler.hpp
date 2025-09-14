@@ -41,10 +41,10 @@ class DebugScheduler final : public IScheduler {
 
     /// \brief Block the scheduler from running.
     /// \note This turns run() and run_all() into no-operation;
-    void block() { Blocked_ = true; }
+    void pause() override { Blocked_ = true; }
 
     /// \brief Unblock the scheduler
-    void unblock() { Blocked_ = false; }
+    void resume() override { Blocked_ = false; }
 
     /// \brief Check if there are no pending tasks.
     /// \return true if the scheduler queue is empty.
@@ -99,6 +99,24 @@ template <typename T> T const& EpochContextReader<T>::get_wait() const
   {
     CHECK(sched);
     if (auto* dbg = dynamic_cast<DebugScheduler*>(sched))
+    {
+      CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+      dbg->run();
+    }
+    else
+    {
+      // TBB or other threaded schedulers: just yield
+      std::this_thread::yield();
+    }
+  }
+  return this->data();
+}
+
+template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched) const
+{
+  while (!this->ready())
+  {
+    if (auto* dbg = dynamic_cast<DebugScheduler*>(&sched))
     {
       CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
       dbg->run();

@@ -430,8 +430,11 @@ template <typename T> class EpochContextReader {
       }
     }
 
-    /// \brief Wait for the epoch to become available, and then return a reference to the value
+    /// \brief Wait for the epoch to become available on the global scheduler, and then return a reference to the value
     T const& get_wait() const;
+
+    /// \brief Wait for the epoch to become available on the given scheduler, and then return a reference to the value
+    T const& get_wait(IScheduler& sched) const;
 
   private:
     detail::AsyncImplPtr<T> parent_;

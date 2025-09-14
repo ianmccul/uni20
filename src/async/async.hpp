@@ -168,18 +168,20 @@ template <typename T> class Async {
       return WriteBuffer<T>(impl_->queue_.create_write_context(impl_));
     }
 
-    template <typename Sched> T& get_wait(Sched& sched)
-    {
-      DEBUG_CHECK(impl_);
-      while (impl_->queue_.has_pending_writers())
-      {
-        TRACE_MODULE(ASYNC, "Has pending writers");
-        sched.run();
-      }
-      return impl_->value_;
-    }
+    // template <typename Sched> T& get_wait(Sched& sched)
+    // {
+    //   DEBUG_CHECK(impl_);
+    //   while (impl_->queue_.has_pending_writers())
+    //   {
+    //     TRACE_MODULE(ASYNC, "Has pending writers");
+    //     sched.run();
+    //   }
+    //   return impl_->value_;
+    // }
 
     T const& get_wait() const;
+
+    T const& get_wait(IScheduler& sched) const;
 
     // TODO: we could have a version that returns a ref-counted proxy, which enables reference rather than copy
 

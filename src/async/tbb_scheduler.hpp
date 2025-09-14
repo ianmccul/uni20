@@ -4,6 +4,7 @@
 /// \ingroup async_core
 
 #include "scheduler.hpp"
+#include <oneapi/tbb/concurrent_queue.h>
 #include <oneapi/tbb/task_arena.h>
 #include <oneapi/tbb/task_group.h>
 #include <utility>
@@ -27,7 +28,7 @@ class TbbScheduler final : public IScheduler {
   public:
     /// \brief Construct a TBB scheduler with a given number of worker threads.
     /// \param threads Number of threads. Use task_arena::automatic for default.
-    explicit TbbScheduler(int threads = oneapi::tbb::task_arena::automatic) : arena_(threads)
+    explicit TbbScheduler(int threads = oneapi::tbb::task_arena::automatic) : arena_(threads), paused_(false)
     {
       arena_.initialize(threads);
     }
@@ -52,7 +53,22 @@ class TbbScheduler final : public IScheduler {
     ///       will resume later if rescheduled.
     void run_all()
     {
+      this->resume();
       arena_.execute([&] { tg_.wait(); });
+    }
+
+    /// \brief Pause the scheduler. Don't execute scheduled tasks, but instead add them to a queue.
+    void pause() override { paused_.store(true, std::memory_order_relaxed); }
+
+    /// \brief Unpause the scheduler, and execute any tasks that have been queued.
+    void resume() override
+    {
+      paused_.store(false, std::memory_order_relaxed);
+      AsyncTask::handle_type h;
+      while (queue_.try_pop(h))
+      {
+        arena_.execute([this, h]() { tg_.run([h]() { h.resume(); }); });
+      }
     }
 
   protected:
@@ -64,12 +80,21 @@ class TbbScheduler final : public IScheduler {
     {
       if (auto h = t.release_handle())
       {
-        arena_.execute([this, h]() { tg_.run([h]() { h.resume(); }); });
+        if (paused_)
+        {
+          queue_.push(h);
+        }
+        else
+        {
+          arena_.execute([this, h]() { tg_.run([h]() { h.resume(); }); });
+        }
       }
     }
 
     oneapi::tbb::task_arena arena_;
     oneapi::tbb::task_group tg_;
+    std::atomic<bool> paused_;
+    oneapi::tbb::concurrent_queue<AsyncTask::handle_type> queue_;
 };
 
 } // namespace uni20::async

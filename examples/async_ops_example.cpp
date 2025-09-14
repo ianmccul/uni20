@@ -39,7 +39,7 @@ int main()
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  sched.block(); // prevent the scheduler from running
+  sched.pause(); // prevent the scheduler from running
 
   Async<int> a = 2;     // a has a value that can be read immediately
   Async<int> b = a + 1; // schedule computation of a+1; b cannot be read until that completes
@@ -53,12 +53,12 @@ int main()
   auto r3 = branch_dag_dynamic(mode1, a, b, c); // 14
   auto r4 = branch_dag_dynamic(mode2, a, b, c); // 20
 
-  sched.unblock(); // alow the scheduler to run
+  sched.resume(); // alow the scheduler to run
 
   auto r5 = branch_dag_dynamic_wait(mode1, a, b, c); // this can run immediately; mode1 has a known value
   auto r6 = branch_dag_dynamic_wait(mode2, a, b, c); // if the scheduler is blocked, reading mode2 will deadlock
 
-  sched.unblock(); // alow the scheduler to run
+  sched.resume(); // alow the scheduler to run
 
   fmt::print("Static mode 1: {}\n", r1.get_wait());
   fmt::print("Static mode 2: {}\n", r2.get_wait());

@@ -9,6 +9,8 @@ namespace uni20::async
 
 template <typename T> T const& Async<T>::get_wait() const { return this->read().get_wait(); }
 
+template <typename T> T const& Async<T>::get_wait(IScheduler& sched) const { return this->read().get_wait(sched); }
+
 template <typename T> T Async<T>::move_from_wait() { return this->write().move_from_wait(); }
 
 template <AsyncTaskAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A& a)

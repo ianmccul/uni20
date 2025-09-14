@@ -104,6 +104,8 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     // T get_wait() && { return T(reader_.get_wait()); } // TODO: can this use move semantics?
     T const& get_wait() const { return reader_.get_wait(); }
 
+    T const& get_wait(IScheduler& sched) const { return reader_.get_wait(sched); }
+
     /// \brief Enable co_await on lvalue ReadBuffer only.
     ///
     /// Prevents unsafe use on temporaries by deleting rvalue overload.
