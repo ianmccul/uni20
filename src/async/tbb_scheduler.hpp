@@ -40,9 +40,9 @@ class TbbScheduler final : public IScheduler {
     }
 
     /// \brief Schedule a coroutine for initial execution.
-    void schedule(AsyncTask&& h) override
+    void schedule(AsyncTask&& t) override
     {
-      if (h.set_scheduler(this)) this->enqueue_task(std::move(h));
+      if (t.set_scheduler(this)) this->enqueue_task(std::move(t));
     }
 
     /// \brief Block until all tasks scheduled on this scheduler are complete.
@@ -67,13 +67,19 @@ class TbbScheduler final : public IScheduler {
       AsyncTask::handle_type h;
       while (queue_.try_pop(h))
       {
-        arena_.execute([this, h]() { tg_.run([h]() { h.resume(); }); });
+        TRACE_MODULE(ASYNC, "scheduling coroutine", h);
+        arena_.execute([this, h]() {
+          tg_.run([h]() {
+            TRACE_MODULE(ASYNC, "resuming coroutine", h);
+            h.resume();
+          });
+        });
       }
     }
 
   protected:
     /// \brief Reschedule a previously suspended coroutine.
-    void reschedule(AsyncTask&& h) override { this->enqueue_task(std::move(h)); }
+    void reschedule(AsyncTask&& t) override { this->enqueue_task(std::move(t)); }
 
   private:
     void enqueue_task(AsyncTask&& t)
@@ -86,7 +92,13 @@ class TbbScheduler final : public IScheduler {
         }
         else
         {
-          arena_.execute([this, h]() { tg_.run([h]() { h.resume(); }); });
+          TRACE_MODULE(ASYNC, "scheduling coroutine", h);
+          arena_.execute([this, h]() {
+            tg_.run([h]() {
+              TRACE_MODULE(ASYNC, "resuming coroutine", h);
+              h.resume();
+            });
+          });
         }
       }
     }
@@ -95,6 +107,7 @@ class TbbScheduler final : public IScheduler {
     oneapi::tbb::task_group tg_;
     std::atomic<bool> paused_;
     oneapi::tbb::concurrent_queue<AsyncTask::handle_type> queue_;
+    // FIXME: the concurrent_queue is overkill here, since we don't need to preserve order of tasks
 };
 
 } // namespace uni20::async

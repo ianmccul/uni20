@@ -26,6 +26,7 @@ class EpochQueue {
     /// \return A new EpochContextReader<T> bound to the back of the queue.
     template <typename T> EpochContextReader<T> create_read_context(detail::AsyncImplPtr<T> const& parent)
     {
+      std::lock_guard lock(mtx_);
       if (queue_.empty())
       {
         queue_.emplace_back(nullptr, /*writer_already_done=*/true);
@@ -107,7 +108,7 @@ class EpochQueue {
       }
       else
       {
-        TRACE_MODULE(ASYNC, "Writer bound to non-front epoch, deferring");
+        TRACE_MODULE(ASYNC, "Writer bound to non-front epoch, deferring", e, &queue_.front());
       }
     }
 
@@ -150,7 +151,10 @@ class EpochQueue {
       std::unique_lock lock(mtx_);
       if (e != &queue_.front())
       {
-        TRACE_MODULE(ASYNC, "Finished writer is not at the front of the queue; not advancing");
+        TRACE_MODULE(ASYNC, "Finished writer is not at the front of the queue; will probe queue front", e,
+                     &queue_.front());
+        lock.unlock();
+        this->advance();
         return;
       }
       // If readers are waiting, schedule them first
@@ -228,16 +232,20 @@ class EpochQueue {
         if (queue_.empty()) return;
         auto* e = &queue_.front();
 
-        TRACE_MODULE(ASYNC, e->writer_has_task());
+        TRACE_MODULE(ASYNC, e, e->writer_has_task());
         e->show();
 
         // Phase 1: schedule writer if not yet fired
         if (e->writer_has_task())
         {
           auto task = e->writer_take_task();
-          lock.unlock();
-          AsyncTask::reschedule(std::move(task));
-          return;
+          // The task might already have been taken by another thread, in which case it will be null here
+          if (task)
+          {
+            lock.unlock();
+            AsyncTask::reschedule(std::move(task));
+            return;
+          }
         }
 
         // Phase 2: schedule readers if writer done

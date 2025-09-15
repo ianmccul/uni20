@@ -8,7 +8,7 @@ namespace uni20::async
 
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::reschedule(BasicAsyncTask<T> task)
 {
-  TRACE_MODULE(ASYNC, "rescheduling AsyncTask", &task);
+  TRACE_MODULE(ASYNC, "rescheduling AsyncTask", &task, task.h_);
   task = BasicAsyncTask<T>::make_sole_owner(std::move(task));
   if (task)
   {

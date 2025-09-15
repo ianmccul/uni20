@@ -158,7 +158,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     //    std::exception_ptr exception_ = nullptr;
     std::atomic<bool> cancel_ = false;
 
-    inline static IScheduler* sched_ = nullptr;
+    // inline static IScheduler* sched_ = nullptr;
 
     /// \brief Construct from a coroutine handle.
     /// \param h The coroutine handle.

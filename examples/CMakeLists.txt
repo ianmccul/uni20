@@ -19,6 +19,9 @@ endif()
 add_executable(async_tbb_reduction_example async_tbb_reduction_example.cpp)
 target_link_libraries(async_tbb_reduction_example PRIVATE fmt::fmt uni20_common uni20_async TBB::tbb)
 
+add_executable(bug bug.cpp)
+target_link_libraries(bug PRIVATE fmt::fmt uni20_common uni20_async TBB::tbb)
+
 add_executable(async_example async_example.cpp)
 target_link_libraries(async_example PRIVATE fmt::fmt uni20_common uni20_async)
 

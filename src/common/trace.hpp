@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.hpp"
+
 #include "demangle.hpp"
 #include "floating_eq.hpp"
 #include "namedenum.hpp"

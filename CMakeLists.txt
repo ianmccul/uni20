@@ -54,6 +54,8 @@ option(UNI20_BUILD_ASM            "Build stand-alone assembly dumps for snippets
 option(UNI20_DEBUG_DAG            "Enable DAG debug info (for Async buffer tracking and visualization)" OFF)
 option(UNI20_ENABLE_STACKTRACE    "Enable C++20 <stacktrace> header (requires library support)" OFF)
 option(UNI20_SANITIZE             "Enable sanitizers (comma-separated list: address,undefined,thread,memory,leak)" "")
+option(UNI20_EXTERNAL_NO_WERROR   "Disable -Werror for external libraries" ON)
+option(UNI20_EXTERNAL_NO_WARN     "Disable all warnings for external libraries" OFF)
 
 # If user did not specify, set default based on build type
 if(NOT DEFINED UNI20_DEBUG_DAG)
@@ -65,21 +67,51 @@ if(NOT DEFINED UNI20_DEBUG_DAG)
 endif()
 
 if(UNI20_ENABLE_WARNINGS)
-  # temporarily added -Wno-array-bounds here due to spurious warnings from std::sort;
-  # see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=107986
   set(UNI20_WARN_FLAGS "-Wall;-Wextra;-Wattributes;-pedantic;-pedantic-errors;-fstrict-aliasing;-Wstrict-aliasing;-Wno-unused-parameter;-Wno-array-bounds")
+
+  set(UNI20_WARN_FLAGS_INTERNAL "${UNI20_WARN_FLAGS};-Werror")
+
+  if(UNI20_EXTERNAL_NO_WARN)
+    set(UNI20_WARN_FLAGS_EXTERNAL "")
+  else()
+    set(UNI20_WARN_FLAGS_EXTERNAL "${UNI20_WARN_FLAGS}")
+  endif()
 else()
-  set(UNI20_WARN_FLAGS "")
+  set(UNI20_WARN_FLAGS_INTERNAL "")
+  set(UNI20_WARN_FLAGS_EXTERNAL "")
 endif()
+
+function(relax_warnings target)
+  if(NOT TARGET ${target})
+    return() # target not created yet
+  endif()
+
+  # If this is an ALIAS target, resolve to the real one
+  get_target_property(alias ${target} ALIASED_TARGET)
+  if(alias)
+    set(real_target ${alias})
+  else()
+    set(real_target ${target})
+  endif()
+
+  if(UNI20_EXTERNAL_NO_WERROR)
+    message(STATUS "Relaxing warnings for external target: ${real_target}")
+    set_target_properties(${real_target} PROPERTIES COMPILE_OPTIONS "${UNI20_WARN_FLAGS_EXTERNAL}")
+  endif()
+endfunction()
+
+add_compile_options(${UNI20_WARN_FLAGS_INTERNAL})
 
 if(UNI20_SANITIZE)
   message(STATUS "Enabling sanitizers: ${UNI20_SANITIZE}")
-  foreach(san ${UNI20_SANITIZE})
-    set(SAN_FLAGS "${SAN_FLAGS} -fsanitize=${san}")
+  # Split comma-separated UNI20_SANITIZE into a proper CMake list
+  string(REPLACE "," ";" UNI20_SANITIZE_LIST "${UNI20_SANITIZE}")
+
+  foreach(san ${UNI20_SANITIZE_LIST})
+    list(APPEND SAN_FLAGS "-fsanitize=${san}")
   endforeach()
 
-  # Add common flags for better diagnostics
-  set(SAN_FLAGS "${SAN_FLAGS} -fno-omit-frame-pointer -g")
+  list(APPEND SAN_FLAGS -fno-omit-frame-pointer -g)
 
   add_compile_options(${SAN_FLAGS})
   add_link_options(${SAN_FLAGS})
@@ -88,8 +120,6 @@ endif()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
-add_compile_options(${UNI20_WARN_FLAGS})
 
 # Sub-modules, for detailed tracing/logging
 set(SUBMODULES BLAS LAPACK CUSOLVER ASYNC TESTMODULE)
@@ -120,6 +150,7 @@ FetchContent_Declare(
   GIT_TAG 11.1.3
 )
 FetchContent_MakeAvailable(fmt)
+relax_warnings(fmt)
 
 # mdspan reference implementation, put it into stdex namespace to prevent possible conflict with standard library version
 # and set up an interface library uni20_mdspan to set up the include directories
@@ -129,9 +160,8 @@ FetchContent_Declare(
   GIT_TAG stable
 )
 FetchContent_MakeAvailable(mdspan)
-#add_library(mdspan INTERFACE)
-#target_include_directories(mdspan INTERFACE ${mdspan_SOURCE_DIR}/include)
 target_compile_definitions(mdspan INTERFACE MDSPAN_IMPL_STANDARD_NAMESPACE=stdex)
+relax_warnings(mdspan)
 
 # Use the square bracket operator for multidimensional arrays, not needed for c++23
 # add_compile_definitions(MDSPAN_USE_BRACKET_OPERATOR=1)
@@ -149,12 +179,22 @@ FetchContent_Declare(
   GIT_TAG v2022.2.0
 )
 FetchContent_MakeAvailable(tbb)
+relax_warnings(TBB::tbb)
+
+# # If requested, relax warnings for external libraries
+# if(UNI20_EXTERNAL_NO_WERROR)
+#   get_target_property(tbb_sources TBB::tbb SOURCES)
+#   if(tbb_sources)
+#     set_source_files_properties(${tbb_sources} PROPERTIES COMPILE_FLAGS "${UNI20_WARN_FLAGS_EXTERNAL}")
+#   endif()
+# endif()
 
 # If sanitizers are enabled, exclude them from TBB (known incompatibility).
 if(UNI20_SANITIZE)
   string(FIND "${UNI20_SANITIZE}" "address" _has_asan)
   string(FIND "${UNI20_SANITIZE}" "undefined" _has_ubsan)
-  if(NOT _has_asan EQUAL -1 OR NOT _has_ubsan EQUAL -1)
+  string(FIND "${UNI20_SANITIZE}" "thread" _has_tsan)
+  if(NOT _has_asan EQUAL -1 OR NOT _has_ubsan EQUAL -1 OR NOT _has_tsan EQUAL -1)
     message(WARNING "Building uni20 with sanitizers (${UNI20_SANITIZE}), "
   "but disabling sanitizer instrumentation for oneTBB.")
 
@@ -220,12 +260,6 @@ if(UNI20_BACKEND_CUSOLVER)
   endif()
   set(UNI20_BACKEND_CUDA ON CACHE BOOL "Enable the CUDA backend (required by cuSOLVER)" FORCE)
 endif()
-
-# Configure the config.hpp header.
-configure_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/config.hpp.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/config.hpp"
-)
 
 # Enable link-time optimizations
 include(CheckIPOSupported)

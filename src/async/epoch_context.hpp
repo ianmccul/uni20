@@ -222,10 +222,16 @@ class EpochContext {
     }
 
     /// \brief Transfer ownership of the bound writer coroutine.
-    /// \return The bound writer coroutine (may be null if none bound).
+    /// \return The bound writer coroutine (may be null if another thread has already taken it)
     AsyncTask writer_take_task() noexcept
     {
-      DEBUG_PRECONDITION(writer_task_set_.load(std::memory_order_acquire));
+      bool expected = true;
+      if (!writer_task_set_.compare_exchange_strong(expected, false, std::memory_order_acquire,
+                                                    std::memory_order_relaxed))
+      {
+        // No task was set, or another thread already claimed it
+        return {};
+      }
       return std::move(writer_task_);
     }
 
