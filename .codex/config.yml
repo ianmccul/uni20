@@ -1,3 +1,4 @@
 setup:
   apt:
     - libopenblas-dev
+    - liblapack-dev
