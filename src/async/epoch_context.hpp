@@ -8,6 +8,8 @@
 #include "async_task_promise.hpp"
 #include <atomic>
 #include <coroutine>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -61,10 +63,15 @@ class EpochContext {
     /// \param writer_already_done If true, this epoch begins in the "bootstrap" state.
     ///
     /// \post If \p writer_already_done is true, this epoch is considered immediately readable.
-    EpochContext(EpochContext const* prev, bool writer_already_done) noexcept
+    EpochContext(EpochContext const* prev, bool writer_already_done,
+                 bool initial_value_initialized = true) noexcept
         : eptr_(prev ? prev->eptr_ : nullptr), writer_done_{writer_already_done}, writer_required_(false),
           counter_(prev ? prev->counter_ + 1 : 0)
     {
+      bool initialized = prev ? prev->value_initialized_for_next() : initial_value_initialized;
+      value_initialized_.store(initialized, std::memory_order_relaxed);
+      value_initialized_for_next_.store(initialized, std::memory_order_relaxed);
+      writer_has_written_.store(writer_already_done && initialized, std::memory_order_relaxed);
       TRACE_MODULE(ASYNC, "Creating new forwards epoch", this, counter_);
     }
 
@@ -74,6 +81,8 @@ class EpochContext {
     EpochContext(EpochContext const* next, std::integral_constant<bool, true> reverse)
         : writer_done_{false}, writer_required_(true), counter_(next ? next->counter_ - 1 : 0)
     {
+      value_initialized_.store(false, std::memory_order_relaxed);
+      value_initialized_for_next_.store(false, std::memory_order_relaxed);
       TRACE_MODULE(ASYNC, "Creating new reverse epoch", this, counter_);
     }
 
@@ -147,6 +156,25 @@ class EpochContext {
     /// \pre Caller must hold exclusive access to the epoch queue.
     bool reader_is_empty() const noexcept { return created_readers_.load(std::memory_order_acquire) == 0; }
 
+    /// \brief Link this epoch to its successor in the queue.
+    void set_next(EpochContext* next) noexcept
+    {
+      next_.store(next, std::memory_order_release);
+      if (next)
+      {
+        next->inherit_value_initialized(value_initialized_for_next_.load(std::memory_order_acquire));
+      }
+    }
+
+    /// \brief Report whether the underlying value is currently initialized for this epoch.
+    bool value_is_initialized() const noexcept { return value_initialized_.load(std::memory_order_acquire); }
+
+    /// \brief Return the initialization state that should be inherited by the next epoch.
+    bool value_initialized_for_next() const noexcept
+    {
+      return value_initialized_for_next_.load(std::memory_order_acquire);
+    }
+
     void show()
     {
       DEBUG_TRACE_MODULE(ASYNC, this, created_readers_.load(std::memory_order_acquire), reader_handles_.size(),
@@ -170,9 +198,15 @@ class EpochContext {
     /// \pre Must follow writer_acquire(), and only be called once.
     void writer_bind(AsyncTask&& task) noexcept
     {
-      // DEBUG_TRACE_MODULE(ASYNC, "Binding writer", this);
-      DEBUG_CHECK(!writer_done_.load(std::memory_order_acquire));
-      DEBUG_CHECK(!writer_task_set_.load(std::memory_order_acquire));
+      std::lock_guard lock(writer_task_mtx_);
+      if (writer_done_.load(std::memory_order_acquire))
+      {
+        fail_writer_binding("EpochContext::writer_bind called after writer completed\n");
+      }
+      if (writer_task_set_.load(std::memory_order_acquire))
+      {
+        fail_writer_binding("EpochContext::writer_bind called twice for the same epoch\n");
+      }
       writer_task_ = std::move(task);
       eptr_ = nullptr; // reset the exception pointer
       writer_task_set_.store(true, std::memory_order_release);
@@ -189,6 +223,7 @@ class EpochContext {
       {
         /// Mark the writer as done, allowing readers to proceed.
         writer_done_.store(true, std::memory_order_release);
+        this->propagate_value_initialized(value_initialized_.load(std::memory_order_acquire));
       }
       return done;
     }
@@ -208,10 +243,21 @@ class EpochContext {
     /// \brief Mark this epoch as requiring write; readers will be destroyed if no write occurs.
     /// \note This sets writer_required_ = true. If writer_release() is called without a prior write,
     ///       all reader coroutines will be destroyed.
-    void writer_require() noexcept { writer_required_.store(true, std::memory_order_release); }
+    void writer_require() noexcept
+    {
+      writer_required_.store(true, std::memory_order_release);
+      value_initialized_.store(false, std::memory_order_release);
+      this->propagate_value_initialized(false);
+    }
 
     /// \brief Mark this epoch as successfully written.
-    void writer_has_written() noexcept { writer_required_.store(false, std::memory_order_release); }
+    void writer_has_written() noexcept
+    {
+      writer_required_.store(false, std::memory_order_release);
+      writer_has_written_.store(true, std::memory_order_release);
+      value_initialized_.store(true, std::memory_order_release);
+      this->propagate_value_initialized(true);
+    }
 
     bool writer_is_required() const noexcept { return writer_required_.load(std::memory_order_acquire); }
 
@@ -219,18 +265,21 @@ class EpochContext {
     {
       eptr_ = e;
       writer_required_.store(true, std::memory_order_release);
+      this->propagate_value_initialized(false);
     }
 
     /// \brief Transfer ownership of the bound writer coroutine.
     /// \return The bound writer coroutine (may be null if another thread has already taken it)
     AsyncTask writer_take_task() noexcept
     {
+      DEBUG_TRACE_MODULE(ASYNC, "writer_take_task", this, counter_);
       bool expected = true;
       if (!writer_task_set_.compare_exchange_strong(expected, false, std::memory_order_acquire,
                                                     std::memory_order_relaxed))
       {
         // No task was set, or another thread already claimed it
         return {};
+        DEBUG_TRACE_MODULE(ASYNC, "writer_take_task: no task set!", this, counter_);
       }
       return std::move(writer_task_);
     }
@@ -241,6 +290,24 @@ class EpochContext {
     uint64_t counter() const noexcept { return counter_; }
 
   private:
+    void propagate_value_initialized(bool value) noexcept
+    {
+      value_initialized_for_next_.store(value, std::memory_order_release);
+      if (auto* next = next_.load(std::memory_order_acquire))
+      {
+        next->inherit_value_initialized(value);
+      }
+    }
+
+    void inherit_value_initialized(bool value) noexcept
+    {
+      if (!writer_required_.load(std::memory_order_acquire))
+      {
+        value_initialized_.store(value, std::memory_order_release);
+        value_initialized_for_next_.store(value, std::memory_order_relaxed);
+      }
+    }
+
     std::atomic<int> created_readers_{0};
     std::mutex reader_mtx_;
     std::vector<AsyncTask> reader_handles_;
@@ -251,6 +318,17 @@ class EpochContext {
     std::atomic<bool> writer_task_set_{false}; ///< Set if task has been bound.
     std::atomic<bool> writer_done_{false};     ///< Set when writer releases gate.
     std::atomic<bool> writer_required_{false}; ///< Flag that we want ReadBuffers to get dropped if we don't write
+    std::atomic<bool> writer_has_written_{false};
+    std::atomic<bool> value_initialized_{false};
+    std::atomic<bool> value_initialized_for_next_{false};
+    std::atomic<EpochContext*> next_{nullptr};
+    std::mutex writer_task_mtx_;
+
+    [[noreturn]] static void fail_writer_binding(const char* message)
+    {
+      std::fputs(message, stderr);
+      std::abort();
+    }
 
   public:
     int64_t counter_ = 0;
@@ -541,6 +619,11 @@ template <typename T> class EpochContextWriter {
     {
       DEBUG_PRECONDITION(epoch_);
       epoch_->writer_require();
+    }
+
+    bool value_is_initialized() const noexcept
+    {
+      return epoch_ && epoch_->value_is_initialized();
     }
 
     /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value

@@ -42,24 +42,24 @@ struct AsyncImplBase
 /// All access is mediated through owning Async<T> or active buffers.
 template <typename T> struct AsyncImpl : private AsyncImplBase
 {
-    T value_;          ///< Stored data
+    T value_{};        ///< Stored data
     EpochQueue queue_; ///< Coordination structure
 
 #if UNI20_DEBUG_DAG
     // debugging
     NodeInfo const* node_; // unique node pointer
 
-    AsyncImpl() : node_(NodeInfo::create(&value_)) {}
+    AsyncImpl() : node_(NodeInfo::create(&value_)) { queue_.initialize(false); }
 
-    explicit AsyncImpl(const T& val) : value_(val), node_(NodeInfo::create(&value_)) {}
-    explicit AsyncImpl(T&& val) : value_(std::move(val)), node_(NodeInfo::create(&value_)) {}
+    explicit AsyncImpl(const T& val) : value_(val), node_(NodeInfo::create(&value_)) { queue_.initialize(true); }
+    explicit AsyncImpl(T&& val) : value_(std::move(val)), node_(NodeInfo::create(&value_)) { queue_.initialize(true); }
 
     NodeInfo const* node() const { return node_; }
 #else
-    AsyncImpl() = default;
+    AsyncImpl() { queue_.initialize(false); }
 
-    explicit AsyncImpl(const T& val) : value_(val) {}
-    explicit AsyncImpl(T&& val) : value_(std::move(val)) {}
+    explicit AsyncImpl(const T& val) : value_(val) { queue_.initialize(true); }
+    explicit AsyncImpl(T&& val) : value_(std::move(val)) { queue_.initialize(true); }
 
     // if we're not debugging, we don't have a valid NodeInfo
     NodeInfo const* node() const { return nullptr; }
@@ -81,7 +81,7 @@ template <typename T> struct AsyncImpl : private AsyncImplBase
 /// Copying is disabled: deep copy must be performed via explicit kernels.
 ///
 /// \note Buffers maintain shared ownership of the internal state, so
-/// `ReadBuffer<T>` and `WriteBuffer<T>` may safely outlive the Async.
+/// `ReadBuffer<T>`, `MutableBuffer<T>`, and `WriteBuffer<T>` may safely outlive the Async.
 ///
 /// \note The value of T must be copyable or movable as appropriate for construction.
 template <typename T> class Async {
@@ -160,7 +160,15 @@ template <typename T> class Async {
       return ReadBuffer<T>(impl_->queue_.create_read_context(impl_));
     }
 
-    /// \brief Begin an asynchronous write to the value.
+    /// \brief Begin an asynchronous mutation of the current value.
+    /// \return A MutableBuffer<T> which may be co_awaited.
+    MutableBuffer<T> mutate() noexcept
+    {
+      DEBUG_CHECK(impl_);
+      return MutableBuffer<T>(impl_->queue_.create_write_context(impl_));
+    }
+
+    /// \brief Begin writing a fresh value, treating the storage as uninitialized until completion.
     /// \return A WriteBuffer<T> which may be co_awaited.
     WriteBuffer<T> write() noexcept
     {
@@ -232,6 +240,7 @@ template <typename T> class Async {
 };
 
 template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
+template <typename T> MutableBuffer<T> mutate(Async<T>& a) { return a.mutate(); }
 template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
 
 } // namespace uni20::async

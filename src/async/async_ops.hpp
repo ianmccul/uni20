@@ -105,6 +105,7 @@ template <typename T>
 concept async_read_writer = requires(T t) {
                               requires read_buffer_awaitable<decltype(t.read())>;
                               requires write_buffer_awaitable<decltype(t.write())>;
+                              requires write_buffer_awaitable<decltype(t.mutate())>;
                             };
 
 /// \brief concept for a type that behaves like an asyncronous reader and writer (like Async<T>)
@@ -258,13 +259,13 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
 /// \ingroup async_api
 template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, Async<T>& lhs, Op op)
 {
-  schedule([](auto rhs_, WriteBuffer<T> out_, Op op_) -> AsyncTask {
+  schedule([](auto rhs_, MutableBuffer<T> out_, Op op_) -> AsyncTask {
     auto tmp = co_await all(rhs_, out_);
     auto& rhs_val = std::get<0>(tmp);
     auto& lhs_ref = std::get<1>(tmp);
     op_(lhs_ref, rhs_val); // in-place mutation
     co_return;
-  }(read(std::forward<U>(rhs)), lhs.write(), std::move(op)));
+  }(read(std::forward<U>(rhs)), lhs.mutate(), std::move(op)));
 }
 
 // This version is correct, but does not use all() awaiter

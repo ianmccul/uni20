@@ -17,10 +17,15 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::reschedule(BasicAsyncTas
     auto sched = task.h_.promise().sched_;
     sched->reschedule(std::move(task));
   }
+  else
+  {
+    DEBUG_TRACE_MODULE(ASYNC, "AsyncTask is not sole-owner");
+  }
 }
 
 template <IsAsyncTaskPromise T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_owner(BasicAsyncTask<T>&& task)
 {
+  DEBUG_CHECK(task.h_);
   auto& p = task.h_.promise();
   if (p.release_awaiter() == 1)
   {
@@ -102,13 +107,24 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::release() noexcept
     // Recursively destroy the coroutine and any continuation
     while (h_)
     {
-      TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, h_);
+      // TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, h_);
       h_ = h_.promise().destroy_with_continuation();
     }
   }
 }
 
-template <IsAsyncTaskPromise T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept { this->release(); }
+template <IsAsyncTaskPromise T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept
+{
+  if (h_ && h_.promise().release_awaiter())
+  {
+    // Recursively destroy the coroutine and any continuation
+    while (h_)
+    {
+      DEBUG_TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, h_);
+      h_ = h_.promise().destroy_with_continuation();
+    }
+  }
+}
 
 template <IsAsyncTaskPromise T> bool BasicAsyncTask<T>::set_scheduler(IScheduler* sched)
 {

@@ -20,6 +20,12 @@ TEST(ConceptTest, WriteBufferSatisfiesConcepts)
   static_assert(read_write_buffer_awaitable_of<WriteBuffer<int>, int>);
 }
 
+TEST(ConceptTest, MutableBufferSatisfiesConcepts)
+{
+  static_assert(write_buffer_awaitable_of<MutableBuffer<int>, int>);
+  static_assert(read_write_buffer_awaitable_of<MutableBuffer<int>, int>);
+}
+
 TEST(ConceptTest, AsyncDoubleSatisfiesConcepts)
 {
   static_assert(async_reader<Async<double>>);

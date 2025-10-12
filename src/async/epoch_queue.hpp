@@ -6,7 +6,7 @@
 
 #include "common/trace.hpp"
 #include "epoch_context.hpp"
-#include <deque>
+#include <memory>
 #include <mutex>
 #include <utility>
 
@@ -16,9 +16,33 @@ namespace uni20::async
 /// \brief Coordinates multiple epochs of read/write gates.
 /// \ingroup async_core
 class EpochQueue {
+  private:
+    struct Node
+    {
+        Node(EpochContext const* prev, bool writer_already_done) : ctx(prev, writer_already_done) {}
+        Node(bool writer_already_done, bool value_initialized) : ctx(nullptr, writer_already_done, value_initialized) {}
+        Node(EpochContext const* next, std::integral_constant<bool, true> reverse)
+            : ctx(next, std::integral_constant<bool, true>{})
+        {}
+
+        EpochContext ctx;
+        std::unique_ptr<Node> next;
+    };
+
   public:
     /// \brief Default-construct an empty epoch queue.
     EpochQueue() = default;
+
+    /// \brief Establish the initial epoch state before any readers or writers are created.
+    void initialize(bool value_initialized)
+    {
+      std::lock_guard lock(mtx_);
+      if (bootstrapped_) return;
+
+      bootstrapped_ = true;
+      initial_value_initialized_ = value_initialized;
+      initial_writer_pending_ = !value_initialized;
+    }
 
     /// \brief Start a new reader epoch and return a RAII reader handle.
     /// \tparam T The data type managed by the Async container.
@@ -27,11 +51,10 @@ class EpochQueue {
     template <typename T> EpochContextReader<T> create_read_context(detail::AsyncImplPtr<T> const& parent)
     {
       std::lock_guard lock(mtx_);
-      if (queue_.empty())
-      {
-        queue_.emplace_back(nullptr, /*writer_already_done=*/true);
-      }
-      return EpochContextReader<T>(parent, &queue_.back());
+      CHECK(bootstrapped_, "EpochQueue must be initialized before use");
+      ensure_initial_epoch_locked();
+      CHECK(tail_, "EpochQueue must retain a tail epoch");
+      return EpochContextReader<T>(parent, &tail_->ctx);
     }
 
     /// \brief Check if there are pending writers ahead of reads.
@@ -39,7 +62,9 @@ class EpochQueue {
     bool has_pending_writers() const noexcept
     {
       std::lock_guard lock(mtx_);
-      return queue_.size() > 1 || (queue_.size() == 1 && !queue_.front().writer_is_done());
+      if (!head_) return false;
+      if (!head_->ctx.writer_is_done()) return true;
+      return static_cast<bool>(head_->next);
     }
 
     /// \brief Start a new writer epoch and return a RAII writer handle.
@@ -50,25 +75,23 @@ class EpochQueue {
     {
       std::lock_guard lock(mtx_);
 
-      if (queue_.empty())
-      {
-        queue_.emplace_back(nullptr, /*writer_already_done=*/false);
-      }
-      else
-      {
-        // create the new epoch first, so we can inherit from the previous
-        queue_.emplace_back(&queue_.back(), /*writer_already_done=*/false);
+      CHECK(bootstrapped_, "EpochQueue must be initialized before use");
+      ensure_initial_epoch_locked();
+      CHECK(tail_, "EpochQueue must retain a tail epoch");
 
-        // Now that we have a new epoch, prune drained epochs from the front of the queue
-        // (this cannot drain our recently added epoch, since the writer is not done)
-        while (queue_.front().writer_is_done() && queue_.front().reader_is_empty())
-        {
-          bool writer_required = queue_.front().writer_is_required();
-          queue_.pop_front();
-          if (writer_required) queue_.front().writer_require();
-        }
+      if (initial_writer_pending_ && !tail_->ctx.writer_is_done())
+      {
+        initial_writer_pending_ = false;
+        return EpochContextWriter<T>(parent, &tail_->ctx);
       }
-      return EpochContextWriter<T>(parent, &queue_.back());
+
+      auto new_node = std::make_unique<Node>(&tail_->ctx, /*writer_already_done=*/false);
+      Node* new_tail = new_node.get();
+      tail_->ctx.set_next(&new_tail->ctx);
+      tail_->next = std::move(new_node);
+      tail_ = new_tail;
+      prune_front_locked();
+      return EpochContextWriter<T>(parent, &tail_->ctx);
     }
 
     /// \brief Prepend a new epoch to the front of the queue.
@@ -83,16 +106,22 @@ class EpochQueue {
     template <typename T> EpochPair<T> prepend_epoch(detail::AsyncImplPtr<T> const& parent)
     {
       std::lock_guard lock(mtx_);
-      if (queue_.empty())
+      CHECK(bootstrapped_, "EpochQueue must be initialized before use");
+      if (!head_)
       {
-        queue_.emplace_front(nullptr, std::integral_constant<bool, true>{});
+        head_ = std::make_unique<Node>(nullptr, std::integral_constant<bool, true>{});
+        tail_ = head_.get();
       }
       else
       {
-        DEBUG_CHECK(!queue_.front().writer_has_task());
-        queue_.emplace_front(&queue_.front(), std::integral_constant<bool, true>{});
+        DEBUG_CHECK(!head_->ctx.writer_has_task());
+        auto new_node = std::make_unique<Node>(&head_->ctx, std::integral_constant<bool, true>{});
+        new_node->ctx.set_next(&head_->ctx);
+        new_node->next = std::move(head_);
+        head_ = std::move(new_node);
+        if (!tail_) tail_ = head_.get();
       }
-      return {EpochContextWriter<T>(parent, &queue_.front()), EpochContextReader<T>(parent, &queue_.front())};
+      return {EpochContextWriter<T>(parent, &head_->ctx), EpochContextReader<T>(parent, &head_->ctx)};
     }
 
     /// \brief Called when a writer coroutine is bound to its epoch.
@@ -100,15 +129,18 @@ class EpochQueue {
     void on_writer_bound(EpochContext* e) noexcept
     {
       std::unique_lock lock(mtx_);
-      if (e == &queue_.front())
+      if (head_ && e == &head_->ctx)
       {
         auto task = e->writer_take_task();
-        lock.unlock();
-        AsyncTask::reschedule(std::move(task));
+        if (task)
+        {
+          lock.unlock();
+          AsyncTask::reschedule(std::move(task));
+        }
       }
       else
       {
-        TRACE_MODULE(ASYNC, "Writer bound to non-front epoch, deferring", e, &queue_.front());
+        TRACE_MODULE(ASYNC, "Writer bound to non-front epoch, deferring", e, head_ ? &head_->ctx : nullptr);
       }
     }
 
@@ -129,7 +161,7 @@ class EpochQueue {
     void enqueue_reader(EpochContext* e, AsyncTask&& task)
     {
       std::unique_lock lock(mtx_);
-      if (e == &queue_.front() && e->reader_is_ready())
+      if (head_ && e == &head_->ctx && e->reader_is_ready())
       {
         lock.unlock(); // drop the mutex before entering the scheduler
         bool MaybeCancel = e->reader_error() && (e->reader_exception() == nullptr);
@@ -152,12 +184,12 @@ class EpochQueue {
     /// \param e Epoch whose writer has completed.
     void on_writer_done(EpochContext* e) noexcept
     {
-      TRACE_MODULE(ASYNC, "Writer has finished", e, &queue_.front());
+      TRACE_MODULE(ASYNC, "Writer has finished", e, head_ ? &head_->ctx : nullptr);
       std::unique_lock lock(mtx_);
-      if (e != &queue_.front())
+      if (!head_ || e != &head_->ctx)
       {
         TRACE_MODULE(ASYNC, "Finished writer is not at the front of the queue; will probe queue front", e,
-                     &queue_.front());
+                     head_ ? &head_->ctx : nullptr);
         lock.unlock();
         this->advance();
         return;
@@ -178,13 +210,12 @@ class EpochQueue {
         }
         return;
       }
-      TRACE_MODULE(ASYNC, e, queue_.size(), e->reader_is_empty());
-      if (e->reader_is_empty() && queue_.size() > 1)
+      TRACE_MODULE(ASYNC, e, head_ ? 1 : 0, e->reader_is_empty());
+      if (e->reader_is_empty() && head_ && head_->next)
       {
-        // If we have writer_required() then carry it forward to the new epoch
         bool writer_required = e->writer_is_required();
-        queue_.pop_front();
-        if (writer_required) queue_.front().writer_require();
+        pop_front_locked();
+        if (head_ && writer_required) head_->ctx.writer_require();
         lock.unlock();
         advance();
       }
@@ -201,17 +232,17 @@ class EpochQueue {
     ///       if a ReadBuffer is destroyed or released before `await_suspend()` occurs.
     void on_all_readers_released(EpochContext* e) noexcept
     {
-      TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch");
       DEBUG_CHECK(e->reader_is_empty());
       std::unique_lock lock(mtx_);
+      TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch");
       //  Only pop if this is the front epoch and fully done, and there are other epochs waiting
-      if (&queue_.front() != e || !e->writer_is_done() || queue_.size() == 1)
+      if (!head_ || &head_->ctx != e || !e->writer_is_done() || !head_->next)
       {
         return;
       }
       bool writer_required = e->writer_is_required();
-      queue_.pop_front();
-      if (writer_required) queue_.front().writer_require();
+      pop_front_locked();
+      if (head_ && writer_required) head_->ctx.writer_require();
       lock.unlock();
       this->advance();
     }
@@ -222,20 +253,19 @@ class EpochQueue {
     bool is_front(const EpochContext* e) const noexcept
     {
       std::lock_guard lock(mtx_);
-      DEBUG_CHECK(!queue_.empty(), "EpochQueue is empty");
-      return e == &queue_.front();
+      DEBUG_CHECK(head_, "EpochQueue is empty");
+      return head_ && e == &head_->ctx;
     }
 
   private:
     /// \brief Advance the queue by scheduling next writer/readers as appropriate.
     void advance() noexcept
     {
-      TRACE_MODULE(ASYNC, "advance!");
       while (true)
       {
         std::unique_lock lock(mtx_);
-        if (queue_.empty()) return;
-        auto* e = &queue_.front();
+        if (!head_) return;
+        auto* e = &head_->ctx;
 
         TRACE_MODULE(ASYNC, e, e->writer_has_task());
         e->show();
@@ -271,11 +301,11 @@ class EpochQueue {
         }
 
         // Phase 3: pop epoch if both writer and readers are done, and there are more epochs to come
-        if (e->writer_is_done() && e->reader_is_empty() && queue_.size() > 1)
+        if (e->writer_is_done() && e->reader_is_empty() && head_ && head_->next)
         {
           bool writer_required = e->writer_is_required();
-          queue_.pop_front();
-          if (writer_required) queue_.front().writer_require();
+          pop_front_locked();
+          if (head_ && writer_required) head_->ctx.writer_require();
 
           continue;
         }
@@ -285,8 +315,54 @@ class EpochQueue {
       }
     }
 
-    mutable std::mutex mtx_;         ///< Protects queue_.
-    std::deque<EpochContext> queue_; ///< Epoch queue.
+    void prune_front_locked()
+    {
+      while (head_ && head_->ctx.writer_is_done() && head_->ctx.reader_is_empty() && head_->next)
+      {
+        bool writer_required = head_->ctx.writer_is_required();
+        pop_front_locked();
+        if (head_ && writer_required) head_->ctx.writer_require();
+      }
+    }
+
+    void pop_front_locked()
+    {
+      auto old_head = std::move(head_);
+      if (!old_head)
+      {
+        tail_ = nullptr;
+        return;
+      }
+      head_ = std::move(old_head->next);
+      if (!head_)
+      {
+        tail_ = nullptr;
+      }
+    }
+
+    void ensure_initial_epoch_locked()
+    {
+      if (head_) return;
+
+      head_ = std::make_unique<Node>(initial_value_initialized_, initial_value_initialized_);
+      tail_ = head_.get();
+
+      if (initial_value_initialized_)
+      {
+        head_->ctx.writer_has_written();
+      }
+      else
+      {
+        head_->ctx.writer_require();
+      }
+    }
+
+    mutable std::mutex mtx_;                ///< Protects queue_.
+    std::unique_ptr<Node> head_;            ///< Head of the epoch list.
+    Node* tail_ = nullptr;                  ///< Tail pointer for O(1) append.
+    bool bootstrapped_ = false;             ///< True once initialize() has been called.
+    bool initial_writer_pending_ = false;   ///< True if the initial epoch still expects its first writer.
+    bool initial_value_initialized_ = true; ///< Tracks bootstrap initialization state.
 };
 
 } // namespace uni20::async

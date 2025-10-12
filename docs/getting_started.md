@@ -78,6 +78,12 @@ Before building the project, ensure you have the following installed:
 
 > **Note:** The project uses CMake’s FetchContent module to automatically download external libraries (like fmt, mdspan, GoogleTest, and Google Benchmark). If you prefer to manage these dependencies differently, adjust the CMake configurations accordingly.
 
+## Dependencies
+
+```bash
+apt-get install libopenblas-dev liblapack-dev
+```
+
 ## Building the Project
 
 It is recommended to use an out-of-source build. From the project root, run:

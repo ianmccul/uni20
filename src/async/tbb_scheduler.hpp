@@ -92,7 +92,7 @@ class TbbScheduler final : public IScheduler {
         }
         else
         {
-          TRACE_MODULE(ASYNC, "scheduling coroutine", h);
+          // TRACE_MODULE(ASYNC, "scheduling coroutine", h);
           arena_.execute([this, h]() {
             tg_.run([h]() {
               TRACE_MODULE(ASYNC, "resuming coroutine", h);

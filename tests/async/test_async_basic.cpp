@@ -78,12 +78,12 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   }(a.read(), count));
 
   // Writer
-  sched.schedule([](WriteBuffer<int> wbuf, int& count) -> AsyncTask {
+  sched.schedule([](MutableBuffer<int> wbuf, int& count) -> AsyncTask {
     auto& w = co_await wbuf;
     w = 8;
     ++count;
     co_return;
-  }(a.write(), count));
+  }(a.mutate(), count));
 
   // Schedule two new readers that should observe the updated value
   sched.schedule([](ReadBuffer<int> rbuf, int& count) -> AsyncTask {
