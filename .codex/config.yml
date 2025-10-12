@@ -1,0 +1,3 @@
+setup:
+  apt:
+    - libopenblas-dev
