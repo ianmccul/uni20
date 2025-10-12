@@ -140,6 +140,11 @@ class EpochQueue {
       {
         lock.unlock(); // important to drop the mutex here; if the task is cancelled then it might advance the epoch
         e->reader_enqueue(std::move(task));
+        // The writer may have completed after we released the queue mutex but
+        // before the reader task was enqueued. In that case no subsequent
+        // queue activity would reschedule the task, so explicitly advance here
+        // to probe the queue again.
+        this->advance();
       }
     }
 

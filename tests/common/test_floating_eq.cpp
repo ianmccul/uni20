@@ -33,7 +33,7 @@ TEST(FloatingEqGTest, AssertPassesWithinTolerance)
 
 TEST(FloatingEqGTest, AssertFailsOutsideTolerance)
 {
-  static double const a = 1.0;
+  static double const a = 1.0; // these need to be static because EXPECT_FATAL_FAILURE uses a lambda with no capture
   static double const b = std::nextafter(a, 0.0);
   EXPECT_FATAL_FAILURE(ASSERT_FLOATING_EQ(a, b, 0), "ASSERT_FLOATING_EQ failed");
 }
@@ -46,5 +46,3 @@ TEST(FloatingEqGTest, ComplexPasses)
   std::complex<float> b{std::nextafter(1.0f, 2.0f), 2.0f};
   EXPECT_FLOATING_EQ(a, b, 1); // real differs by 1 ULP
 }
-
-// The failure paths are covered via EXPECT_NONFATAL_FAILURE / EXPECT_FATAL_FAILURE above.
