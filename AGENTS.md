@@ -17,6 +17,11 @@ Welcome! This file lists the expectations for changes anywhere in this repositor
 - Keep header interfaces tight: minimize `#include`s in headers and prefer forward declarations where possible.
 - Guard platform-specific code with the appropriate feature-detection macros found in `src/common`.
 
+## Environment setup
+- Before any build, ensure required system dependencies are installed:
+  - sudo apt-get update
+  - sudo apt-get install -y libopenblas-dev liblapack-dev
+
 ## Build configuration
 - Use out-of-tree builds (`cmake -S . -B build`). Helpful options:
   - `-DUNI20_BUILD_TESTS=ON` (default) to compile tests.
