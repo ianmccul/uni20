@@ -99,6 +99,7 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::release() noexcept
   // TRACE_MODULE(ASYNC, "Destroying AsyncTask", this, h_);
   if (h_ && h_.promise().release_awaiter())
   {
+    // Recursively destroy the coroutine and any continuation
     while (h_)
     {
       TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, h_);

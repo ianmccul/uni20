@@ -42,8 +42,10 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     ~BasicAsyncTask() noexcept;
 
     /// \brief Drop the reference to the coroutine handle, destroying it if we are the least reference
+  private:
     void release() noexcept;
 
+  public:
     // bool done() const noexcept { return !h_ || h_.done(); }
 
     /// \brief Check if this task refers to a coroutine.

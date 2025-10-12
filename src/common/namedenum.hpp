@@ -27,6 +27,7 @@
 #include <array>
 #include <exception>
 #include <fmt/format.h>
+#include <format>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -121,7 +122,7 @@ template <typename Traits> NamedEnumeration<Traits>::NamedEnumeration(std::strin
   throw std::runtime_error(ErrorStr);
 }
 
-template <typename Traits> struct fmt::formatter<NamedEnumeration<Traits>>
+template <typename Traits> struct std::formatter<NamedEnumeration<Traits>>
 {
     // Parse format string; you can support options if needed
     constexpr auto parse(format_parse_context& ctx)

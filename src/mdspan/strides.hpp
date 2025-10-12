@@ -115,8 +115,8 @@ template <StridedMdspan AType, StridedMdspan BType, StridedMdspan CType, std::si
 auto extract_strides(AType const& A, BType const& B,
                      std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims, CType const& C)
 {
-  constexpr std::size_t MR = AType::rank() - N; // rank of the N group (A/C legs that are not contracted over)
-  constexpr std::size_t NR = BType::rank() - N; // rank of the M group (B/C legs that are not contracted over)
+  constexpr std::size_t MR = AType::rank() - N; // rank of the M group (A/C legs that are not contracted over)
+  constexpr std::size_t NR = BType::rank() - N; // rank of the N group (B/C legs that are not contracted over)
   constexpr std::size_t KR = N;                 // rank of the K group (A/Blegs that are contracted over)
 
   static_vector<extent_strides<2>, MR> Mgroup;

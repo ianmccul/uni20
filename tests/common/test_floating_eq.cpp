@@ -1,5 +1,10 @@
 #include "common/gtest.hpp"
 
+#include <cmath>
+#include <complex>
+
+#include <gtest/gtest-spi.h>
+
 // --- EXPECT_FLOATING_EQ ---
 
 TEST(FloatingEqGTest, ExpectPassesWithinTolerance)
@@ -7,6 +12,13 @@ TEST(FloatingEqGTest, ExpectPassesWithinTolerance)
   float a = 1.0f;
   float b = std::nextafter(a, 2.0f); // 1 ULP away
   EXPECT_FLOATING_EQ(a, b, 1);       // should pass
+}
+
+TEST(FloatingEqGTest, ExpectFailsOutsideTolerance)
+{
+  float a = 1.0f;
+  float b = std::nextafter(a, 0.0f); // 1 ULP away in the opposite direction
+  EXPECT_NONFATAL_FAILURE(EXPECT_FLOATING_EQ(a, b, 0), "EXPECT_FLOATING_EQ failed");
 }
 
 // --- ASSERT_FLOATING_EQ ---
@@ -19,6 +31,13 @@ TEST(FloatingEqGTest, AssertPassesWithinTolerance)
   SUCCEED();
 }
 
+TEST(FloatingEqGTest, AssertFailsOutsideTolerance)
+{
+  static double const a = 1.0;
+  static double const b = std::nextafter(a, 0.0);
+  EXPECT_FATAL_FAILURE(ASSERT_FLOATING_EQ(a, b, 0), "ASSERT_FLOATING_EQ failed");
+}
+
 // --- Complex numbers ---
 
 TEST(FloatingEqGTest, ComplexPasses)
@@ -28,4 +47,4 @@ TEST(FloatingEqGTest, ComplexPasses)
   EXPECT_FLOATING_EQ(a, b, 1); // real differs by 1 ULP
 }
 
-// It doesn't seem possible to write a test where EXPECT_FLOATING_EQ will fail, but still have the test succeed
+// The failure paths are covered via EXPECT_NONFATAL_FAILURE / EXPECT_FATAL_FAILURE above.

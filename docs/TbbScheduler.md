@@ -24,7 +24,7 @@ It integrates with [oneAPI Threading Building Blocks (TBB)](https://github.com/u
 * In contrast to `DebugScheduler`, the `TbbScheduler` does **not** step tasks in the current thread.
 * Instead, `get_wait()` yields until worker threads complete the task.
 * This allows true parallelism but means deadlocks cannot be detected by the scheduler.
-* **FIXME** This is not an optimal implementation, since we should instead use some syncronization to only wait until the required task has finished, rather than polling in a loop with `thread::yield()`. It is not clear however whether this is possible using TBB.
+* **FIXME** This is not an optimal implementation, since we should instead use some synchronization to only wait until the required task has finished, rather than polling in a loop with `thread::yield()`. It is not clear however whether this is possible using TBB.
 
 ---
 

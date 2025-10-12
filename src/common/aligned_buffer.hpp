@@ -24,6 +24,7 @@
  * @note All returned unique_ptrs are aligned to `align` bytes (default 64).
  */
 
+#include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <cstdlib>
@@ -111,8 +112,8 @@ inline void* allocate_raw(std::size_t bytes, std::size_t align)
 /// Ownership = free via `std::free` / `_aligned_free`.
 template <typename T> using aligned_buf_t = std::unique_ptr<T[], aligned_deleter<T>>;
 
-/// \brief Alias for a buffer of `T*` whose deleter will run dtors then free.
-template <typename T> using aligned_buf_with_dtor_t = std::unique_ptr<T, aligned_destructor_deleter<T>>;
+/// \brief Alias for a buffer of `T[]` whose deleter will run dtors then free.
+template <typename T> using aligned_buf_with_dtor_t = std::unique_ptr<T[], aligned_destructor_deleter<T>>;
 
 } // namespace detail
 

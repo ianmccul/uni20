@@ -1,5 +1,7 @@
 #pragma once
 
+#include <fmt/core.h>
+
 // implementation of trace functions.
 // TODO: the formatting part, uncluding formatValue, could be moved to a public header
 
@@ -360,10 +362,10 @@ inline FormattingOptions& get_formatting_options(const std::string& module)
   }
 }
 
-// Concept for a type that has a fmt::formatter specialization
+// Concept for a type that has a std::formatter specialization
 template <typename T, typename CharT = char>
 concept HasFormatter =
-    fmt::formattable<T, CharT>; // requires(const T& t) { fmt::is_formattable<T, CharT>::value == true; };
+    std::formattable<T, CharT>; // requires(const T& t) { fmt::is_formattable<T, CharT>::value == true; };
 
 // Formatted output of containers, if they look like a range and have no existing formatter
 template <typename T>
@@ -372,8 +374,8 @@ concept Container = std::ranges::forward_range<T> && (!HasFormatter<T>);
 // formatValue: Converts a value to a string using fmt::format.
 // The generic version works for most types.
 
-/// \brief Format a non-container, non-floating-point type with fmt::formatter.
-/// \tparam T             Any type that has an fmt::formatter and is not a floating-point or container.
+/// \brief Format a non-container, non-floating-point type with std::formatter.
+/// \tparam T             Any type that has an std::formatter and is not a floating-point or container.
 /// \param value         The value to format.
 /// \param opts          Formatting options (currently unused for this overload).
 /// \returns             The string produced by `fmt::format("{}", value)`.

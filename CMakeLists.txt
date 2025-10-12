@@ -144,11 +144,28 @@ endforeach()
 include(FetchContent)
 
 # fmt library for formatting
-FetchContent_Declare(
-  fmt
-  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-  GIT_TAG 11.1.3
-)
+if(DEFINED ENV{CODE_INTERPRETER} OR DEFINED ENV{OPENAI_ENV})
+  # Running in Codex sandbox → use tarball
+  message(STATUS "Using tarball fetch for fmt (Codex environment detected)")
+  FetchContent_Declare(
+    fmt
+    URL https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.tar.gz
+    URL_HASH SHA256=2b99378565e79af344f80de9f8821c3acb5a4d2c4b785b689dced3f6371968e7
+  )
+else()
+  # Normal environment → use git
+  FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG 10.2.1
+  )
+endif()
+
+# FetchContent_Declare(
+#   fmt
+#   GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+#   GIT_TAG 11.1.3
+# )
 FetchContent_MakeAvailable(fmt)
 relax_warnings(fmt)
 

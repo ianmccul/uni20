@@ -23,22 +23,39 @@ Tests are located in the `tests/` directory and organized by subdirectory:
 <!-- To update the test list below, run from the root of the repo: tree -P '*.cpp' tests/ -->
 ```
 tests
+├── async
+│   ├── test_async_awaiters.cpp
+│   ├── test_async_basic.cpp
+│   ├── test_async_concepts.cpp
+│   ├── test_async_destroy.cpp
+│   ├── test_async_ops.cpp
+│   ├── test_async_task_await.cpp
+│   ├── test_async_write_to.cpp
+│   ├── test_dual.cpp
+│   ├── test_future_value.cpp
+│   ├── test_reverse_value.cpp
+│   └── test_tbb_scheduler.cpp
 ├── common
+│   ├── test_aligned_buffer.cpp
+│   ├── test_dummy.cpp
+│   ├── test_floating_eq.cpp
 │   ├── test_terminal_color.cpp
 │   ├── test_trace.cpp
 │   ├── test_trace_debug.cpp
-│   ├── test_trace_ndebug.cpp
+│   └── test_trace_ndebug.cpp
+├── core
+│   ├── test_scalar_concepts.cpp
+│   ├── test_scalar_traits.cpp
 │   └── test_types.cpp
 ├── kernel
-│   ├── cpu
 │   └── test_contract.cpp
-└── level1
-    ├── test_apply_unary.cpp
-    ├── test_assign.cpp
-    ├── test_sum.cpp
-    ├── test_zip_layout.cpp
-    └── test_zip_transform.cpp
-...
+├── level1
+│   ├── test_apply_unary.cpp
+│   ├── test_assign.cpp
+│   ├── test_sum.cpp
+│   ├── test_zip_layout.cpp
+│   └── test_zip_transform.cpp
+└── uni20_tests_main.cpp
 ```
 
 Each subdirectory corresponds to a logical component or layer of the library (e.g., `common`, `level1`, etc.).
