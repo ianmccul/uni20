@@ -60,3 +60,41 @@ inline auto make_mdspan_3d(std::vector<double>& v, std::size_t R, std::size_t K,
   auto m = stdex::layout_stride::mapping<extents_t>(extents_t{R, K, L}, strides);
   return stdex::mdspan<double, extents_t, stdex::layout_stride>(v.data(), m);
 }
+
+/// \brief Compute the minimal span size needed for the supplied extents/strides.
+template <std::size_t Rank>
+constexpr std::size_t span_size_for(std::array<std::size_t, Rank> const& extents,
+                                    std::array<index_t, Rank> const& strides)
+{
+  std::ptrdiff_t min_offset = 0;
+  std::ptrdiff_t max_offset = 0;
+
+  auto update = [&](std::ptrdiff_t stride, std::size_t extent) {
+    if (extent == 0) return;
+    if (stride >= 0)
+    {
+      max_offset += stride * static_cast<std::ptrdiff_t>(extent - 1);
+    }
+    else
+    {
+      min_offset += stride * static_cast<std::ptrdiff_t>(extent - 1);
+    }
+  };
+
+  for (std::size_t i = 0; i < Rank; ++i)
+  {
+    update(strides[i], extents[i]);
+  }
+
+  return static_cast<std::size_t>(max_offset - min_offset + 1);
+}
+
+/// \brief Build an mdspan with arbitrary extents and strides.
+template <std::size_t Rank>
+inline auto make_mdspan_strided(std::vector<double>& v, std::array<std::size_t, Rank> const& extents,
+                                std::array<index_t, Rank> const& strides, std::ptrdiff_t offset = 0)
+{
+  using extents_t = stdex::dextents<index_t, Rank>;
+  auto mapping = stdex::layout_stride::mapping<extents_t>(extents_t(extents), strides);
+  return stdex::mdspan<double, extents_t, stdex::layout_stride>(v.data() + offset, mapping);
+}

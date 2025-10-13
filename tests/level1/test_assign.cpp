@@ -157,3 +157,72 @@ TEST(Assign, TransformScaleShift)
   for (int i = 0; i < 4; ++i)
     EXPECT_EQ(out[i], 2 * v[i] + 1);
 }
+
+TEST(Assign, NonCoalesced4DStridesUseDynamic)
+{
+  std::array<std::size_t, 4> const extents{2, 3, 4, 5};
+  std::array<index_t, 4> const dst_strides{500, 73, 13, 2};
+  std::array<index_t, 4> const src_strides{707, 101, 17, 3};
+
+  std::vector<double> dst_data(span_size_for(extents, dst_strides), -123.0);
+  std::vector<double> src_data(span_size_for(extents, src_strides), 0.0);
+
+  auto dst = make_mdspan_strided(dst_data, extents, dst_strides);
+  auto src = make_mdspan_strided(src_data, extents, src_strides);
+
+  for (index_t i0 = 0; i0 < static_cast<index_t>(extents[0]); ++i0)
+    for (index_t i1 = 0; i1 < static_cast<index_t>(extents[1]); ++i1)
+      for (index_t i2 = 0; i2 < static_cast<index_t>(extents[2]); ++i2)
+        for (index_t i3 = 0; i3 < static_cast<index_t>(extents[3]); ++i3)
+        {
+          double const value = static_cast<double>(1000 * i0 + 100 * i1 + 10 * i2 + i3);
+          auto const src_offset = static_cast<std::size_t>(i0 * src_strides[0] + i1 * src_strides[1] +
+                                                          i2 * src_strides[2] + i3 * src_strides[3]);
+          auto const dst_offset = static_cast<std::size_t>(i0 * dst_strides[0] + i1 * dst_strides[1] +
+                                                          i2 * dst_strides[2] + i3 * dst_strides[3]);
+          src_data[src_offset] = value;
+          dst_data[dst_offset] = -1.0;
+        }
+
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{dst.mapping(), src.mapping()});
+  ASSERT_EQ(plan.size(), 4);
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 0);
+
+  uni20::assign(src, dst);
+
+  for (index_t i0 = 0; i0 < static_cast<index_t>(extents[0]); ++i0)
+    for (index_t i1 = 0; i1 < static_cast<index_t>(extents[1]); ++i1)
+      for (index_t i2 = 0; i2 < static_cast<index_t>(extents[2]); ++i2)
+        for (index_t i3 = 0; i3 < static_cast<index_t>(extents[3]); ++i3)
+        {
+          auto const src_offset = static_cast<std::size_t>(i0 * src_strides[0] + i1 * src_strides[1] +
+                                                          i2 * src_strides[2] + i3 * src_strides[3]);
+          auto const dst_offset = static_cast<std::size_t>(i0 * dst_strides[0] + i1 * dst_strides[1] +
+                                                          i2 * dst_strides[2] + i3 * dst_strides[3]);
+          EXPECT_EQ(dst_data[dst_offset], src_data[src_offset]);
+        }
+}
+
+TEST(Assign, ZeroExtentNoOp)
+{
+  std::array<std::size_t, 1> const extents{0};
+  std::array<index_t, 1> const strides{1};
+
+  std::vector<double> dst_data = {42.0, 43.0, 44.0, 45.0, 46.0};
+  std::vector<double> src_data = {1.0};
+
+  auto dst = make_mdspan_strided(dst_data, extents, strides);
+  auto src = make_mdspan_strided(src_data, extents, strides);
+
+  auto const baseline = dst_data;
+
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{dst.mapping(), src.mapping()});
+  EXPECT_TRUE(plan.empty());
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 0);
+
+  uni20::assign(src, dst);
+
+  EXPECT_EQ(dst_data, baseline);
+}
