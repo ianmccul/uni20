@@ -57,7 +57,7 @@ class DebugScheduler final : public IScheduler {
       {
         CHECK(false, "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
       }
-      run();
+      this->run();
     }
 
     /// \brief Check if there are no pending tasks.

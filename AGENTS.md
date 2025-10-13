@@ -31,6 +31,13 @@ Welcome! This file lists the expectations for changes anywhere in this repositor
 - Keep header interfaces tight: minimize `#include`s in headers and prefer forward declarations where possible.
 - Guard platform-specific code with the appropriate feature-detection macros found in `src/common`.
 
+## C++ Coding Style
+- Use `int const& x` style — `const` follows the type.
+- When calling member functions from within other members, use `this->foo()` to clarify scope.
+- Use trailing underscores (`_`) on private member variables, except for simple aggregates.
+- Use `constexpr`, `consteval`, and concepts from C++23 wherever they simplify code or improve correctness.
+
+
 ## Environment setup
 - Before any build, ensure required system dependencies are installed:
   - sudo apt-get update
