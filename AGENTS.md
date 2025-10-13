@@ -34,8 +34,9 @@ Welcome! This file lists the expectations for changes anywhere in this repositor
 ## Environment setup
 - Before any build, ensure required system dependencies are installed:
   - sudo apt-get update
-  - sudo apt-get install -y libopenblas-dev liblapack-dev
+  - sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libopenblas-dev libgtest-dev
 - CMake attempts to use system versions of TBB and google benchmark (if benchmarking is configured), but will use FetchContent if not available
+- CMake always uses FetchContent to fetch the reference version of kokkos/mdspan
 
 ## Build configuration
 - Use out-of-tree builds (`cmake -S . -B build`). Helpful options:
