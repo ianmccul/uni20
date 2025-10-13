@@ -122,17 +122,15 @@ template <typename Traits> NamedEnumeration<Traits>::NamedEnumeration(std::strin
   throw std::runtime_error(ErrorStr);
 }
 
-template <typename Traits> struct std::formatter<NamedEnumeration<Traits>>
+template <typename Traits, typename CharT> struct std::formatter<NamedEnumeration<Traits>, CharT>
 {
-    // Parse format string; you can support options if needed
-    constexpr auto parse(format_parse_context& ctx)
+    constexpr auto parse(std::basic_format_parse_context<CharT>& ctx)
     {
-      return ctx.begin(); // no format options for now
+      return ctx.begin();
     }
 
-    // Format the enum by printing its name
-    template <typename FormatContext> auto format(const NamedEnumeration<Traits>& e, FormatContext& ctx)
+    template <typename FormatContext> auto format(const NamedEnumeration<Traits>& e, FormatContext& ctx) const
     {
-      return format_to(ctx.out(), "{}", e.Name());
+      return std::format_to(ctx.out(), "{}", e.Name());
     }
 };
