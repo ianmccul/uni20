@@ -3,6 +3,7 @@
 #include "async/debug_scheduler.hpp"
 #include "async/dual.hpp"
 #include "async/dual_toys.hpp"
+#include <complex>
 #include <gtest/gtest.h>
 
 using namespace uni20::async;
@@ -65,6 +66,81 @@ TEST(Dual, SinUnused)
   y.grad = 1.0; // this seeds the backprop chain, accumulating values into x.grad
 
   EXPECT_NEAR(x.grad.final().get_wait(), std::cos(v), 1e-10);
+
+  sched.run_all();
+}
+
+TEST(Dual, MultiplyAndScalarCombos)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Dual<double> a = 2.0;
+  Dual<double> b = -0.5;
+
+  Dual<double> c = a * b;
+  Dual<double> d = a * 3.0;
+  Dual<double> e = 4.0 - a;
+
+  EXPECT_NEAR(c.value.get_wait(), -1.0, 1e-12);
+  EXPECT_NEAR(d.value.get_wait(), 6.0, 1e-12);
+  EXPECT_NEAR(e.value.get_wait(), 2.0, 1e-12);
+
+  c.grad = 1.0;
+  d.grad = 1.0;
+  e.grad = 1.0;
+
+  sched.run_all();
+
+  EXPECT_NEAR(a.grad.final().get_wait(), 1.5, 1e-12);
+  EXPECT_NEAR(b.grad.final().get_wait(), 2.0, 1e-12);
+
+  sched.run_all();
+}
+
+TEST(Dual, RealImagGradients)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+
+  auto r = real(z);
+  auto i = imag(z);
+
+  EXPECT_NEAR(r.value.get_wait(), 1.5, 1e-12);
+  EXPECT_NEAR(i.value.get_wait(), -2.5, 1e-12);
+
+  r.grad = 2.0;
+  i.grad = 3.0;
+
+  sched.run_all();
+
+  auto z_grad = z.grad.final().get_wait();
+  EXPECT_NEAR(z_grad.real(), 2.0, 1e-12);
+  EXPECT_NEAR(z_grad.imag(), 3.0, 1e-12);
+
+  sched.run_all();
+}
+
+TEST(Dual, RealImagGradientSum)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+
+  auto f = 2.0 * real(z) + 3.0 * imag(z);
+
+  EXPECT_NEAR(f.value.get_wait(), -4.5, 1e-12);
+
+  f.grad = 1.0;
+
+  sched.run_all();
+
+  auto z_grad = z.grad.final().get_wait();
+  EXPECT_NEAR(z_grad.real(), 2.0, 1e-12);
+  EXPECT_NEAR(z_grad.imag(), 3.0, 1e-12);
 
   sched.run_all();
 }

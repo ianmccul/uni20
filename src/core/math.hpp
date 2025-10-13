@@ -20,4 +20,14 @@ template <HasIntegerScalar I> I conj(I const& x) { return x; }
 // uni20 herm function for scalar types
 template <HasScalar S> auto herm(S x) { return conj(x); }
 
+// lvalue real() and imag() functions. These are well-defined, since the C++ standard requires
+// array-oriented access for std::complex<T>.
+template <typename T> constexpr T& real(std::complex<T>& z) noexcept { return reinterpret_cast<T*>(&z)[0]; }
+
+using std::real;
+
+template <typename T> constexpr T& imag(std::complex<T>& z) noexcept { return reinterpret_cast<T*>(&z)[1]; }
+
+using std::imag;
+
 } // namespace uni20

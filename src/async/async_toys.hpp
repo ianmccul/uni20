@@ -55,6 +55,38 @@ template <typename T> Async<T> conj(Async<T> const& x)
   return Result;
 }
 
+template <typename T> AsyncTask co_real(ReadBuffer<T> in, WriteBuffer<uni20::make_real_t<T>> out)
+{
+  using uni20::real;
+  auto const& value = co_await in;
+  auto const result = real(value);
+  in.release();
+  co_await out = result;
+}
+
+template <typename T> Async<uni20::make_real_t<T>> real(Async<T> const& x)
+{
+  Async<uni20::make_real_t<T>> Result;
+  schedule(co_real(x.read(), Result.write()));
+  return Result;
+}
+
+template <typename T> AsyncTask co_imag(ReadBuffer<T> in, WriteBuffer<uni20::make_real_t<T>> out)
+{
+  using uni20::imag;
+  auto const& value = co_await in;
+  auto const result = imag(value);
+  in.release();
+  co_await out = result;
+}
+
+template <typename T> Async<uni20::make_real_t<T>> imag(Async<T> const& x)
+{
+  Async<uni20::make_real_t<T>> Result;
+  schedule(co_imag(x.read(), Result.write()));
+  return Result;
+}
+
 template <typename T> AsyncTask co_herm(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   using uni20::conj;

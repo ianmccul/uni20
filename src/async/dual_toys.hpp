@@ -47,15 +47,6 @@ template <typename T> Dual<T> cos(Dual<T> x)
   return Result;
 }
 
-template <typename T> Dual<T> operator*(Dual<T> x, Dual<T> y)
-{
-  Dual<T> Result;
-  Result.value = x.value * y.value;
-  x.grad += Result.grad * herm(y.value);
-  y.grad += herm(x.value) * Result.grad;
-  return Result;
-}
-
 template <typename T> Dual<T> operator-(Dual<T> x, T y)
 {
   Dual<T> Result;
@@ -72,6 +63,39 @@ template <typename T> Dual<T> operator-(T x, Dual<T> y)
   return Result;
 }
 
+template <typename T> Dual<T> operator-(Dual<T> x, Dual<T> y)
+{
+  Dual<T> Result;
+  Result.value = x.value + y.value;
+  x.grad += Result.grad;
+  y.grad -= Result.grad;
+  return Result;
+}
+
+template <typename T> Dual<T> operator+(Dual<T> x, T y)
+{
+  Dual<T> Result;
+  Result.value = x.value + y;
+  x.grad += Result.grad;
+  return Result;
+}
+
+template <typename T> Dual<T> operator+(T x, Dual<T> y)
+{
+  Dual<T> Result;
+  Result.value = x + y.value;
+  y.grad += Result.grad;
+  return Result;
+}
+template <typename T> Dual<T> operator+(Dual<T> x, Dual<T> y)
+{
+  Dual<T> Result;
+  Result.value = x.value + y.value;
+  x.grad += Result.grad;
+  y.grad += Result.grad;
+  return Result;
+}
+
 template <typename T> Dual<T> operator*(T x, Dual<T> y)
 {
   using uni20::herm;
@@ -81,8 +105,27 @@ template <typename T> Dual<T> operator*(T x, Dual<T> y)
   return Result;
 }
 
+template <typename T> Dual<T> operator*(Dual<T> x, T y)
+{
+  using uni20::herm;
+  Dual<T> Result;
+  Result.value = x.value * y;
+  x.grad += Result.grad * herm(y);
+  return Result;
+}
+
+template <typename T> Dual<T> operator*(Dual<T> x, Dual<T> y)
+{
+  Dual<T> Result;
+  Result.value = x.value * y.value;
+  x.grad += Result.grad * herm(y.value);
+  y.grad += herm(x.value) * Result.grad;
+  return Result;
+}
+
 template <typename T> Dual<uni20::make_real_t<T>> real(Dual<T> z)
 {
+  using uni20::real;
   using r_type = uni20::make_real_t<T>;
   Dual<r_type> Result;
   Result.value = real(z.value);
@@ -92,13 +135,14 @@ template <typename T> Dual<uni20::make_real_t<T>> real(Dual<T> z)
   return Result;
 }
 
-template <typename T> Dual<T> imag(Dual<T> z)
+template <typename T> Dual<uni20::make_real_t<T>> imag(Dual<T> z)
 {
-  Dual<T> Result;
+  using uni20::imag;
+  using r_type = uni20::make_real_t<T>;
+  Dual<r_type> Result;
   Result.value = imag(z.value);
-  schedule([](ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) -> AsyncTask {
-    using uni20::conj;
-    real(co_await out_grad) += imag(co_await in_grad.or_cancel());
+  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) -> AsyncTask {
+    imag(co_await out_grad) += co_await in_grad.or_cancel();
   }(Result.grad.input(), z.grad.output()));
   return Result;
 }

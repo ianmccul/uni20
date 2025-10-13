@@ -404,15 +404,25 @@ UNI20_DEFINE_ASYNC_COMPOUND_OPERATOR(/=, divides_assign)
 
 // unary operators
 
+template <typename U, typename T>
+void async_negate(U&& rhs, WriteBuffer<T> lhs)
+  requires read_buffer_awaitable_of<U, T>
+{
+  schedule([](auto in_, WriteBuffer<T> out_) -> AsyncTask {
+    auto const& val = co_await in_;
+    auto& out = co_await out_;
+    out = -val;
+    co_return;
+  }(std::move(rhs), std::move(lhs)));
+}
+
 template <typename T>
 auto operator-(Async<T> const& x)
-  requires requires(T x) { -x; }
+  requires requires(T t) { -t; }
 {
-  using U = std::remove_cvref_t<decltype(-std::declval<T>())>;
-  Async<U> Result;
-  schedule(
-      [](ReadBuffer<T> in, WriteBuffer<U> out) { co_await out = -(co_await release(in)); }(x.read(), Result.write()));
-  return Result;
+  Async<T> result;
+  async_negate(x.read(), result.write());
+  return result;
 }
 
 /// @}

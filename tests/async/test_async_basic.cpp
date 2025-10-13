@@ -119,6 +119,48 @@ TEST(AsyncBasicTest, RAII_NoAwaitSafeDestruction)
   // No explicit co_await or release
 }
 
+TEST(AsyncBasicTest, WriteProxyReleasesEpochs)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  // Initialization path should use WriteBuffer to populate the first value.
+  Async<int> uninitialized_value;
+
+  auto init_writer = [](WriteBuffer<int> buf) -> AsyncTask {
+    co_await buf = 42;
+    co_return;
+  }(uninitialized_value.write());
+
+  auto init_reader = [](ReadBuffer<int> buf) -> AsyncTask {
+    auto& value = co_await buf;
+    EXPECT_EQ(value, 42);
+    co_return;
+  }(uninitialized_value.read());
+
+  sched.schedule(std::move(init_writer));
+  sched.schedule(std::move(init_reader));
+  sched.run_all();
+
+  // MutableBuffer path must observe the most recent initialized value.
+  Async<int> initialized_value = 5;
+
+  auto mutate_writer = [](MutableBuffer<int> buf) -> AsyncTask {
+    co_await buf += 42;
+    co_return;
+  }(initialized_value.mutate());
+
+  auto mutate_reader = [](ReadBuffer<int> buf) -> AsyncTask {
+    auto value = co_await buf;
+    EXPECT_EQ(value, 47);
+    co_return;
+  }(initialized_value.read());
+
+  sched.schedule(std::move(mutate_writer));
+  sched.schedule(std::move(mutate_reader));
+  sched.run_all();
+}
+
 TEST(AsyncBasicTest, CopyConstructor)
 {
   DebugScheduler sched;

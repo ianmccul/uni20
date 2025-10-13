@@ -18,6 +18,22 @@ TEST(AsyncOpsTest, AddTwoAsyncInts)
   EXPECT_EQ(c.get_wait(), 12);
 }
 
+TEST(AsyncOpsTest, UnaryNegation)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Async<int> value = 21;
+  auto negated_value = -value;
+  EXPECT_EQ(negated_value.get_wait(), -21);
+
+  Async<int> lhs = 4;
+  Async<int> rhs = 6;
+  auto summed_async = lhs + rhs; // produces result through coroutine path
+  auto negated_sum = -summed_async;
+  EXPECT_EQ(negated_sum.get_wait(), -10);
+}
+
 TEST(AsyncOpsTest, AddMixedTypesIntDouble)
 {
   DebugScheduler sched;

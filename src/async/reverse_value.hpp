@@ -7,7 +7,7 @@ namespace uni20::async
 
 // Computes out_ = a_ + b_
 // in such a way that a_ and/or b_ can be cancelled
-template <typename T, typename U> AsyncTask accumulate(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
+template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
   auto a = co_await a_.maybe();
   if (a)
@@ -31,7 +31,8 @@ template <typename T, typename U> AsyncTask accumulate(ReadBuffer<T> a_, ReadBuf
 
 // Computes out_ = a_ - b_
 // in such a way that a_ and/or b_ can be cancelled
-template <typename T, typename U> AsyncTask accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
+template <typename T, typename U>
+AsyncTask async_accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
   auto a = co_await a_.maybe();
   if (a)
@@ -143,7 +144,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w{std::move(buffers_.writer)};
       buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
+      schedule(async_accumulate(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
     }
 
@@ -152,7 +153,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w{std::move(buffers_.writer)};
       buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
+      schedule(async_accumulate(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
     }
 
@@ -161,7 +162,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w{std::move(buffers_.writer)};
       buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate(ReadBuffer<T>(buffers_.reader), std::move(v), std::move(w)));
+      schedule(async_accumulate(ReadBuffer<T>(buffers_.reader), std::move(v), std::move(w)));
       return *this;
     }
 
@@ -170,7 +171,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w{std::move(buffers_.writer)};
       buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate_minus(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
+      schedule(async_accumulate_minus(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
     }
 
@@ -179,7 +180,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w{std::move(buffers_.writer)};
       buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate_minus(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
+      schedule(async_accumulate_minus(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
     }
 
@@ -188,7 +189,7 @@ template <typename T> class ReverseValue {
       WriteBuffer<T> w{std::move(buffers_.writer)};
       buffers_ = async_.prepend_epoch();
 
-      schedule(accumulate_minus(ReadBuffer<T>(buffers_.reader), std::move(v), std::move(w)));
+      schedule(async_accumulate_minus(ReadBuffer<T>(buffers_.reader), std::move(v), std::move(w)));
       return *this;
     }
 
