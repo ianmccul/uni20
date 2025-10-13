@@ -26,6 +26,41 @@ TEST(AsyncAwaitersTest, TryAwaitReady)
   EXPECT_EQ(count, 1);
 }
 
+TEST(AsyncAwaitersTest, TryAwaitPrvalueDummyAwaiter)
+{
+  struct DummyAwaiter
+  {
+      bool* ready;
+      int* value;
+
+      bool await_ready() const noexcept { return *ready; }
+      void await_suspend(AsyncTask) const noexcept {}
+      int await_resume() const noexcept { return *value; }
+  };
+
+  static_assert(std::is_trivially_move_constructible_v<DummyAwaiter>);
+
+  bool ready_flag = false;
+  int produced_value = 0;
+  DebugScheduler sched;
+
+  auto task = [](bool& ready, int& produced) -> AsyncTask {
+    auto first = co_await try_await(DummyAwaiter{&ready, &produced});
+    EXPECT_FALSE(first.has_value());
+
+    ready = true;
+    produced = 42;
+
+    auto second = co_await try_await(DummyAwaiter{&ready, &produced});
+    EXPECT_TRUE(second.has_value());
+    EXPECT_EQ(*second, 42);
+    co_return;
+  }(ready_flag, produced_value);
+
+  sched.schedule(std::move(task));
+  sched.run_all();
+}
+
 TEST(AsyncAwaitersTest, TryAwaitFailsThenSucceeds)
 {
   int count = 0;

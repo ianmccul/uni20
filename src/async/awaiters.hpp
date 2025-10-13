@@ -10,6 +10,7 @@
 #include <array>
 #include <coroutine>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <tuple>
 #include <type_traits>
@@ -143,35 +144,73 @@ template <typename U> decltype(auto) get_awaiter(U&& u) noexcept
 /// @tparam Awt Either an awaiter type or a reference to one.
 template <typename Awt> struct TryAwaiter
 {
-    Awt& awaiter_;
+    using Awaiter = std::remove_reference_t<Awt>;
+    using StoredAwaiter = std::conditional_t<std::is_lvalue_reference_v<Awt>, Awaiter*, Awt>;
+
+    StoredAwaiter awaiter_;
+
+    constexpr explicit TryAwaiter(Awt aw) noexcept : awaiter_(store(std::forward<Awt>(aw))) {}
 
     bool await_ready() const noexcept { return true; }
 
-    void await_suspend(AsyncTask t) noexcept { awaiter_.await_suspend(std::move(t)); }
+    void await_suspend(AsyncTask t) noexcept { access().await_suspend(std::move(t)); }
 
     auto await_resume() noexcept
     {
-      using R = decltype(awaiter_.await_resume());
-      // If R is a reference, StoreT is reference_wrapper<remove_reference_t<R>>,
-      // otherwise it's just R.
+      auto& inner = access();
+      using R = decltype(inner.await_resume());
       using StoreT =
           std::conditional_t<std::is_lvalue_reference_v<R>, std::reference_wrapper<std::remove_reference_t<R>>, R>;
 
-      if (!awaiter_.await_ready())
+      if (!inner.await_ready())
       {
-        // no value yet → empty optional
         return std::optional<StoreT>{};
       }
 
       if constexpr (std::is_lvalue_reference_v<R>)
       {
-        // need to wrap the reference
-        return std::optional<StoreT>{std::ref(awaiter_.await_resume())};
+        return std::optional<StoreT>{std::ref(inner.await_resume())};
       }
       else
       {
-        // plain value
-        return std::optional<StoreT>{awaiter_.await_resume()};
+        return std::optional<StoreT>{inner.await_resume()};
+      }
+    }
+
+  private:
+    static constexpr StoredAwaiter store(Awt aw) noexcept
+    {
+      if constexpr (std::is_lvalue_reference_v<Awt>)
+      {
+        return std::addressof(aw);
+      }
+      else
+      {
+        return std::move(aw);
+      }
+    }
+
+    constexpr Awaiter& access() noexcept
+    {
+      if constexpr (std::is_lvalue_reference_v<Awt>)
+      {
+        return *awaiter_;
+      }
+      else
+      {
+        return awaiter_;
+      }
+    }
+
+    constexpr Awaiter const& access() const noexcept
+    {
+      if constexpr (std::is_lvalue_reference_v<Awt>)
+      {
+        return *awaiter_;
+      }
+      else
+      {
+        return awaiter_;
       }
     }
 };
@@ -194,7 +233,7 @@ template <typename Awt> struct TryAwaiter
 ///
 /// \param aw An awaitable (must outlive the coroutine for references).
 /// \returns A TryAwaiter<Aw>
-template <typename Aw> constexpr auto try_await(Aw& aw) noexcept { return TryAwaiter<Aw>{aw}; }
+template <typename Aw> constexpr auto try_await(Aw& aw) noexcept { return TryAwaiter<Aw&>{aw}; }
 
 template <typename Aw> constexpr auto try_await(Aw&& aw) noexcept
 {
