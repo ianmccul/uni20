@@ -24,6 +24,26 @@ TEST(MakeIterationPlanTest, CoalescedContiguousPlan)
   EXPECT_EQ(offset, 0);
 }
 
+TEST(MakeIterationPlanTest, ZeroExtentProducesEmptyPlan)
+{
+  auto mapping = make_mapping(std::array<std::size_t, 1>{0}, std::array<index_t, 1>{1});
+  auto [plan, offset] = make_iteration_plan_with_offset(mapping);
+  EXPECT_TRUE(plan.empty());
+  EXPECT_EQ(offset, 0);
+
+  std::array<double, 3> buffer{1.0, 2.0, 3.0};
+  using extents_t = stdex::dextents<index_t, 1>;
+  std::array<std::ptrdiff_t, 1> strides{1};
+  auto zero_map = stdex::layout_stride::mapping<extents_t>(extents_t{0}, strides);
+  stdex::mdspan<double, extents_t, stdex::layout_stride> span(buffer.data(), zero_map);
+
+  apply_unary_inplace(span, [](double x) { return x + 10.0; });
+
+  EXPECT_DOUBLE_EQ(buffer[0], 1.0);
+  EXPECT_DOUBLE_EQ(buffer[1], 2.0);
+  EXPECT_DOUBLE_EQ(buffer[2], 3.0);
+}
+
 TEST(MakeIterationPlanTest, OutOfOrderStrides)
 {
   auto mapping = make_mapping(std::array<std::size_t, 3>{30, 20, 10}, std::array<index_t, 3>{200, 10, 1});
@@ -156,4 +176,39 @@ TEST(ApplyUnaryInplace, ScaleAndShiftMixedStrides)
       EXPECT_DOUBLE_EQ(v, static_cast<double>((r * 3 + c) * 10 - 1));
     }
   }
+}
+
+TEST(ApplyUnaryInplace, NonCoalescable4DDispatchesDynamically)
+{
+  using extents_t = stdex::dextents<index_t, 4>;
+  extents_t extents{2, 3, 4, 5};
+  std::array<std::ptrdiff_t, 4> strides{500, 60, 7, 1};
+  auto mapping = stdex::layout_stride::mapping<extents_t>(extents, strides);
+  auto [plan, offset] = make_iteration_plan_with_offset(mapping);
+  ASSERT_GE(plan.size(), 4u);
+  EXPECT_EQ(offset, 0);
+
+  std::vector<double> storage(mapping.required_span_size(), -1.0);
+  stdex::mdspan<double, extents_t, stdex::layout_stride> tensor(storage.data(), mapping);
+
+  for (index_t i0 = 0; i0 < extents.extent(0); ++i0)
+    for (index_t i1 = 0; i1 < extents.extent(1); ++i1)
+      for (index_t i2 = 0; i2 < extents.extent(2); ++i2)
+        for (index_t i3 = 0; i3 < extents.extent(3); ++i3)
+        {
+          auto idx = mapping(i0, i1, i2, i3);
+          storage[idx] = static_cast<double>(i0 * 1000 + i1 * 100 + i2 * 10 + i3);
+        }
+
+  apply_unary_inplace(tensor, [](double x) { return x - 2.5; });
+
+  for (index_t i0 = 0; i0 < extents.extent(0); ++i0)
+    for (index_t i1 = 0; i1 < extents.extent(1); ++i1)
+      for (index_t i2 = 0; i2 < extents.extent(2); ++i2)
+        for (index_t i3 = 0; i3 < extents.extent(3); ++i3)
+        {
+          auto idx = mapping(i0, i1, i2, i3);
+          double expected = static_cast<double>(i0 * 1000 + i1 * 100 + i2 * 10 + i3) - 2.5;
+          EXPECT_DOUBLE_EQ(storage[idx], expected);
+        }
 }
