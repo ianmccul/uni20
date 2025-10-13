@@ -36,12 +36,15 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ClangFormat)
 include(Uni20TestHelpers)
+include(Uni20Dependencies)
 #include(cmake/DetectBlasIntSize.cmake)
 
 # Set a centralized directory for fetched content.
 set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/.cmake/third_party")
 
 # Build Options (including testing/benchmarking)
+option(UNI20_USE_SYSTEM_TBB       "Use system-installed oneTBB if available" ON)
+option(UNI20_USE_SYSTEM_BENCHMARK "Use system-installed Google Benchmark if available" ON)
 option(UNI20_BUILD_EXTERNAL_TESTS "Build tests for external dependencies" OFF)
 option(UNI20_ILP64                "Enable ILP64 integer type for BLAS (64-bit integers)" OFF)
 option(UNI20_BUILD_PYTHON         "Build the Python bindings" ON)
@@ -194,20 +197,48 @@ relax_warnings(mdspan)
 # Use the square bracket operator for multidimensional arrays, not needed for c++23
 # add_compile_definitions(MDSPAN_USE_BRACKET_OPERATOR=1)
 
-# oneAPI TBB (Threading Building Blocks)
-# this makes available TBB::tbb and TBB::tbbmalloc
-
-# Intel TBB libraries, as of v2022.2.0, use deprecated std::aligned_storage in test/common/container_move_support.h
-# disable building the TBB tests
-set(TBB_TEST OFF CACHE BOOL "Disable TBB tests" FORCE)
-
-FetchContent_Declare(
-  tbb
-  GIT_REPOSITORY https://github.com/uxlfoundation/oneTBB
-  GIT_TAG v2022.2.0
+# oneTBB
+uni20_add_dependency(
+  NAME TBB
+  VERSION 2021
+  TARGET TBB::tbb
+  REPO https://github.com/uxlfoundation/oneTBB
+  TAG v2022.2.0
+  COMPONENTS tbb
+  SETTINGS
+    "TBB_TEST=OFF"
+    "TBB_BUILD_TESTS=OFF"
 )
-FetchContent_MakeAvailable(tbb)
-relax_warnings(TBB::tbb)
+
+
+# # oneAPI TBB (Threading Building Blocks)
+# # this makes available TBB::tbb and TBB::tbbmalloc
+#
+# # Intel TBB libraries, as of v2022.2.0, use deprecated std::aligned_storage in test/common/container_move_support.h
+# # disable building the TBB tests
+# set(TBB_TEST OFF CACHE BOOL "Disable TBB tests" FORCE)
+#
+# if(UNI20_USE_SYSTEM_TBB)
+#   find_package(TBB 2021 QUIET COMPONENTS tbb)
+# endif()
+#
+# if(TBB_FOUND)
+#   message(STATUS "Using system TBB: ${TBB_DIR}")
+#   set(UNI20_TBB_SOURCE "system")
+# else()
+#   message(STATUS "System TBB not found — fetching oneTBB via FetchContent")
+#
+#   include(FetchContent)
+#   FetchContent_Declare(
+#     tbb
+#     GIT_REPOSITORY https://github.com/uxlfoundation/oneTBB
+#     GIT_TAG v2022.2.0
+#   )
+#   FetchContent_MakeAvailable(tbb)
+#   relax_warnings(TBB::tbb)
+#
+#   set(UNI20_TBB_SOURCE "fetched")
+# endif()
 
 # # If requested, relax warnings for external libraries
 # if(UNI20_EXTERNAL_NO_WERROR)
@@ -256,11 +287,47 @@ endif()
 
 # Optionally fetch Google Benchmark for performance testing
 if(UNI20_BUILD_BENCH)
-  FetchContent_Declare(
-    benchmark
-    URL https://github.com/google/benchmark/archive/refs/tags/v1.9.4.tar.gz
+
+  uni20_add_dependency(
+    NAME benchmark
+    VERSION 1.9.0
+    TARGET benchmark::benchmark
+    REPO https://github.com/google/benchmark.git
+    TAG v1.9.0
+    SETTINGS
+      "BENCHMARK_ENABLE_TESTING=OFF"
+      "BENCHMARK_ENABLE_GTEST_TESTS=OFF"
+      "BENCHMARK_ENABLE_INSTALL=OFF"
+      "BENCHMARK_ENABLE_EXCEPTIONS=ON"
   )
-  FetchContent_MakeAvailable(benchmark)
+
+  # if(UNI20_USE_SYSTEM_BENCHMARK)
+  #   find_package(benchmark QUIET)
+  # endif()
+  #
+  # if(benchmark_FOUND)
+  #   message(STATUS "Using system Google Benchmark: ${benchmark_DIR}")
+  #   set(UNI20_BENCHMARK_SOURCE "system")
+  # else()
+  #   message(STATUS "System Google Benchmark not found — fetching via FetchContent")
+  #
+  #   include(FetchContent)
+  #   FetchContent_Declare(
+  #     benchmark
+  #     GIT_REPOSITORY https://github.com/google/benchmark.git
+  #     GIT_TAG v1.9.4
+  #     # URL https://github.com/google/benchmark/archive/refs/tags/v1.9.4.tar.gz
+  #   )
+  #
+  #   # Disable Google Benchmark’s own tests and examples
+  #   set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable Google Benchmark tests" FORCE)
+  #   set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "Disable Google Benchmark GTest integration tests" FORCE)
+  #   set(BENCHMARK_ENABLE_EXCEPTIONS ON CACHE BOOL "Enable exceptions in Google Benchmark" FORCE)
+  #
+  #   FetchContent_MakeAvailable(benchmark)
+  #
+  #   set(UNI20_BENCHMARK_SOURCE "fetched")
+  # endif()
 endif()
 
 # Create an interface library for common dependencies
