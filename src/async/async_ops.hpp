@@ -41,13 +41,17 @@ concept write_buffer_awaitable =
 ///        `T(co_await a)` is valid.
 template <typename Awaitable, typename T>
 concept read_buffer_awaitable_of =
-    requires(Awaitable a) { requires std::constructible_from<T, decltype(a.await_resume())>; };
+    requires(Awaitable a) {
+      requires std::constructible_from<T, decltype(get_awaiter(a).await_resume())>;
+    };
 
 /// \brief concept for a valid type that behaves as a write buffer awaitable
 ///        This requires that `T x; co_await a = x` is valid.
 template <typename Awaitable, typename T>
 concept write_buffer_awaitable_of =
-    requires(Awaitable a) { requires std::assignable_from<decltype(a.await_resume()), T>; };
+    requires(Awaitable a) {
+      requires std::assignable_from<decltype(get_awaiter(a).await_resume()), T>;
+    };
 
 /// \brief concept for a valid type that behaves as a write buffer that is also readable
 ///        This requires that `value_type x = co_await a; co_await a = x` is valid
@@ -76,15 +80,18 @@ template <typename AsyncLike>
 concept async_writer =
     requires(AsyncLike t) { requires write_buffer_awaitable<std::remove_cvref_t<write_awaiter_t<AsyncLike>>>; };
 
-// FIXME: I think the std::remove_cvref_t is wrong here
 template <typename AsyncLike, typename T>
-concept async_reader_of =
-    requires(std::remove_cvref_t<AsyncLike> a) { requires read_buffer_awaitable_of<decltype(a.read()), T>; };
+concept async_reader_of = requires {
+                             requires read_buffer_awaitable_of<decltype(std::declval<AsyncLike&>().read()), T>;
+                           };
 
-// FIXME: I think the std::remove_cvref_t is wrong here
 template <typename AsyncLike, typename T>
-concept async_writer_to =
-    requires(std::remove_cvref_t<AsyncLike> a) { requires write_buffer_awaitable_of<decltype(a.write()), T>; };
+concept async_writer_to = requires {
+                             requires write_buffer_awaitable_of<decltype(std::declval<AsyncLike&>().write()), T>;
+                           };
+
+static_assert(async_writer_to<Async<int>, int>);
+static_assert(!async_writer_to<Async<int> const, int>);
 
 /// \brief Concept for an Awaitable that yields a movable object that can be moved into T
 /// \note  Moving-from is a write operation
