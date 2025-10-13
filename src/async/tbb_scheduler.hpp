@@ -4,6 +4,8 @@
 /// \ingroup async_core
 
 #include "scheduler.hpp"
+#include <condition_variable>
+#include <mutex>
 #include <oneapi/tbb/concurrent_queue.h>
 #include <oneapi/tbb/task_arena.h>
 #include <oneapi/tbb/task_group.h>
@@ -28,9 +30,10 @@ class TbbScheduler final : public IScheduler {
   public:
     /// \brief Construct a TBB scheduler with a given number of worker threads.
     /// \param threads Number of threads. Use task_arena::automatic for default.
-    explicit TbbScheduler(int threads = oneapi::tbb::task_arena::automatic) : arena_(threads), paused_(false)
+    explicit TbbScheduler(int threads = oneapi::tbb::task_arena::automatic)
+        : arena_(threads, /*reserved_for_masters=*/0), paused_(false)
     {
-      arena_.initialize(threads);
+      arena_.initialize(threads, /*reserved_for_masters=*/0);
     }
 
     ~TbbScheduler() noexcept override
@@ -69,15 +72,26 @@ class TbbScheduler final : public IScheduler {
       {
         TRACE_MODULE(ASYNC, "scheduling coroutine", h);
         arena_.execute([this, h]() {
-          tg_.run([h]() {
+          tg_.run([this, h]() {
             TRACE_MODULE(ASYNC, "resuming coroutine", h);
-            h.resume();
+            try
+            {
+              h.resume();
+            }
+            catch (...)
+            {
+              wait_cv_.notify_all();
+              throw;
+            }
+            wait_cv_.notify_all();
           });
         });
       }
     }
 
-    void help_while_waiting(const WaitPredicate& is_ready) override
+    void help_while_waiting(const WaitPredicate& is_ready) override { this->wait_for(is_ready); }
+
+    void wait_for(const WaitPredicate& is_ready) override
     {
       if (is_ready())
       {
@@ -93,12 +107,8 @@ class TbbScheduler final : public IScheduler {
         return;
       }
 
-      arena_.execute([&] {
-        while (!is_ready())
-        {
-          tg_.wait();
-        }
-      });
+      std::unique_lock<std::mutex> lock(wait_mutex_);
+      wait_cv_.wait(lock, [&] { return is_ready(); });
     }
 
   protected:
@@ -117,9 +127,18 @@ class TbbScheduler final : public IScheduler {
         else
         {
           arena_.execute([this, h]() {
-            tg_.run([h]() {
+            tg_.run([this, h]() {
               TRACE_MODULE(ASYNC, "resuming coroutine", h);
-              h.resume();
+              try
+              {
+                h.resume();
+              }
+              catch (...)
+              {
+                wait_cv_.notify_all();
+                throw;
+              }
+              wait_cv_.notify_all();
             });
           });
         }
@@ -130,6 +149,8 @@ class TbbScheduler final : public IScheduler {
     oneapi::tbb::task_group tg_;
     std::atomic<bool> paused_;
     oneapi::tbb::concurrent_queue<AsyncTask::handle_type> queue_;
+    std::condition_variable wait_cv_;
+    std::mutex wait_mutex_;
     // FIXME: the concurrent_queue is overkill here, since we don't need to preserve order of tasks
 };
 

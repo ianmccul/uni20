@@ -22,9 +22,8 @@ It integrates with [oneAPI Threading Building Blocks (TBB)](https://github.com/u
 ### Blocking (`get_wait()`)
 
 * In contrast to `DebugScheduler`, the `TbbScheduler` does **not** step tasks in the current thread.
-* Instead, `get_wait()` yields until worker threads complete the task.
+* Blocking waits park on a condition variable and wake only when the awaited result is ready, so the calling thread no longer joins the worker pool.
 * This allows true parallelism but means deadlocks cannot be detected by the scheduler.
-* **FIXME** This is not an optimal implementation, since we should instead use some synchronization to only wait until the required task has finished, rather than polling in a loop with `thread::yield()`. It is not clear however whether this is possible using TBB.
 
 ---
 
@@ -70,7 +69,7 @@ Despite its simple implementation, `TbbScheduler` is close to optimal:
 ```cpp
 using namespace uni20::async;
 
-TbbScheduler sched{4};          // use 4 worker threads
+TbbScheduler sched{4};          // use 4 worker slots (no master slot reserved)
 ScopedScheduler guard(&sched);
 
 Async<int> a = 1;

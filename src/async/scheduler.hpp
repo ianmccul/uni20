@@ -49,6 +49,20 @@ class IScheduler {
       }
     }
 
+    /// \brief Block the calling thread until \p is_ready returns true.
+    ///
+    /// Implementations may override this to provide scheduler-specific
+    /// waiting semantics (e.g., parking on a condition variable). The
+    /// default implementation repeatedly invokes help_while_waiting until
+    /// the predicate succeeds.
+    virtual void wait_for(const WaitPredicate& is_ready)
+    {
+      while (!is_ready())
+      {
+        this->help_while_waiting(is_ready);
+      }
+    }
+
   protected:
     // using promise_type = AsyncTask::promise_type;
 

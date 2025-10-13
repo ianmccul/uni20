@@ -109,19 +109,19 @@ inline void schedule(AsyncTask&& task) { get_global_scheduler()->schedule(std::m
 template <typename T> T const& EpochContextReader<T>::get_wait() const
 {
   auto* sched = get_global_scheduler();
-  while (!this->ready())
+  if (!this->ready())
   {
     CHECK(sched);
-    sched->help_while_waiting([this] { return this->ready(); });
+    sched->wait_for([this] { return this->ready(); });
   }
   return this->data();
 }
 
 template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched) const
 {
-  while (!this->ready())
+  if (!this->ready())
   {
-    sched.help_while_waiting([this] { return this->ready(); });
+    sched.wait_for([this] { return this->ready(); });
   }
   return this->data();
 }
@@ -129,10 +129,10 @@ template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched
 template <typename T> T&& EpochContextWriter<T>::move_from_wait() const
 {
   auto* sched = get_global_scheduler();
-  while (!this->ready())
+  if (!this->ready())
   {
     CHECK(sched);
-    sched->help_while_waiting([this] { return this->ready(); });
+    sched->wait_for([this] { return this->ready(); });
   }
   return std::move(this->data());
 }
