@@ -98,6 +98,53 @@ TEST(Dual, MultiplyAndScalarCombos)
   sched.run_all();
 }
 
+TEST(Dual, CopyAssignment)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Dual<double> source = 0.75;
+  Dual<double> target;
+
+  target = source;
+
+  target.grad = 1.0;
+
+  sched.run_all();
+
+  EXPECT_NEAR(source.grad.final().get_wait(), 1.0, 1e-12);
+
+  sched.run_all();
+}
+
+TEST(Dual, SubtractionOps)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Dual<double> x = 5.0;
+  Dual<double> y = -1.5;
+
+  Dual<double> diff_xy = x - y;
+  Dual<double> diff_xs = x - 2.0;
+  Dual<double> diff_sx = 10.0 - y;
+
+  EXPECT_NEAR(diff_xy.value.get_wait(), 6.5, 1e-12);
+  EXPECT_NEAR(diff_xs.value.get_wait(), 3.0, 1e-12);
+  EXPECT_NEAR(diff_sx.value.get_wait(), 11.5, 1e-12);
+
+  diff_xy.grad = 1.0;
+  diff_xs.grad = 1.0;
+  diff_sx.grad = 1.0;
+
+  sched.run_all();
+
+  EXPECT_NEAR(x.grad.final().get_wait(), 2.0, 1e-12);
+  EXPECT_NEAR(y.grad.final().get_wait(), -2.0, 1e-12);
+
+  sched.run_all();
+}
+
 TEST(Dual, RealImagGradients)
 {
   DebugScheduler sched;

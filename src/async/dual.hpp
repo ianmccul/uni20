@@ -58,6 +58,7 @@ template <typename T> class Dual {
     {
       other.grad += grad.input();
       value = other.value;
+      return *this;
     }
 
     /// \brief Constructs with a copy of an initial value that can be implicitly converted to T

@@ -66,7 +66,7 @@ template <typename T> Dual<T> operator-(T x, Dual<T> y)
 template <typename T> Dual<T> operator-(Dual<T> x, Dual<T> y)
 {
   Dual<T> Result;
-  Result.value = x.value + y.value;
+  Result.value = x.value - y.value;
   x.grad += Result.grad;
   y.grad -= Result.grad;
   return Result;
