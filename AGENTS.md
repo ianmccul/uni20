@@ -7,6 +7,20 @@ Welcome! This file lists the expectations for changes anywhere in this repositor
 - When adding new functionality, check whether existing documentation in `docs/` or the top-level `README.md` needs an update to stay accurate.
 - New features should be accompanied by unit tests (see **Testing** below) when practical.
 
+## Core Development Rules
+
+* **C++ Standard:** C++23 required.
+* **Coroutine Safety:**
+  - Lambdas defining coroutines **must not** have capture lists.
+  - All coroutine parameters must be passed **by value**, not by reference.
+  - Any lambda with captures that suspends leads to **undefined behavior** (the lambda object’s stack frame is destroyed).
+* **Asynchronous Execution Model:**
+  - `Async<T>` is the canonical asynchronous value wrapper.
+  - Schedulers (`DebugScheduler`, `TbbScheduler`, etc.) manage task lifetimes; no direct `std::thread` use.
+* **Thread Safety:**
+  - `EpochQueue`, `ReadBuffer`, `WriteBuffer`, `MutableBuffer` enforce causal access.
+  - All shared state modifications must be guarded by atomic operations or appropriate mutexes
+
 ## C++ and CUDA sources (`src/`, `tests/`, `bindings/python/`)
 - The project is built with C++23; prefer standard-library utilities over bespoke helpers when they exist.
 - Follow the existing `.clang-format` configuration. After configuring the build directory run:
@@ -21,6 +35,7 @@ Welcome! This file lists the expectations for changes anywhere in this repositor
 - Before any build, ensure required system dependencies are installed:
   - sudo apt-get update
   - sudo apt-get install -y libopenblas-dev liblapack-dev
+- CMake attempts to use system versions of TBB and google benchmark (if benchmarking is configured), but will use FetchContent if not available
 
 ## Build configuration
 - Use out-of-tree builds (`cmake -S . -B build`). Helpful options:
