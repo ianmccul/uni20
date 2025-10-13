@@ -60,6 +60,37 @@ option(UNI20_ENABLE_STACKTRACE    "Enable C++20 <stacktrace> header (requires li
 option(UNI20_SANITIZE             "Enable sanitizers (comma-separated list: address,undefined,thread,memory,leak)" "")
 option(UNI20_EXTERNAL_NO_WERROR   "Disable -Werror for external libraries" ON)
 option(UNI20_EXTERNAL_NO_WARN     "Disable all warnings for external libraries" OFF)
+option(UNI20_ENABLE_COVERAGE      "Enable code coverage instrumentation" OFF)
+
+if(UNI20_ENABLE_COVERAGE)
+  message(STATUS "Enabling coverage instrumentation")
+
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate -fcoverage-mapping)
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+    add_custom_target(coverage
+      COMMAND ${CMAKE_COMMAND} -E env
+              GCOVR_SRCDIR=${CMAKE_SOURCE_DIR}
+              GCOVR_BUILDDIR=${CMAKE_BINARY_DIR}
+              gcovr
+                --root ${CMAKE_SOURCE_DIR}
+                --object-directory ${CMAKE_BINARY_DIR}
+                --exclude '.*third_party.*'
+                --exclude '.*tests/.*'
+                --exclude '.*examples/.*'
+                --exclude '.*benchmarks/.*'
+                --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
+                --html --html-details -o coverage.html
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      COMMENT "Generating coverage report"
+    )
+  else()
+    message(WARNING "Coverage not supported for this compiler")
+  endif()
+endif()
 
 # If user did not specify, set default based on build type
 if(NOT DEFINED UNI20_DEBUG_DAG)
