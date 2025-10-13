@@ -13,8 +13,7 @@ IndentWidth: 2
 UseTab: Never
 
 # Break before braces in functions, classes, namespaces, etc. Alternative is 'attach'
-BreakBeforeBraces: Allman
-
+# BreakBeforeBraces: Allman
 BreakBeforeBraces: Custom
 BraceWrapping:
   AfterCaseLabel: true

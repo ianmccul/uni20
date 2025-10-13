@@ -7,6 +7,8 @@
 #pragma once
 
 #include "async_task.hpp"
+#include <functional>
+#include <thread>
 
 namespace uni20::async
 {
@@ -29,6 +31,23 @@ class IScheduler {
     /// \brief Resume the scheduler.  Tasks cheduled while paused can start running, as can
     /// newly scheduled tasks.
     virtual void resume() = 0;
+
+    using WaitPredicate = std::function<bool()>;
+
+    /// \brief Allow a scheduler to advance queued work while a thread is blocking.
+    ///
+    /// Blocking waits (e.g., `Async<T>::get_wait()`) call this hook to
+    /// cooperatively drive progress on the owning scheduler until
+    /// `is_ready()` reports completion. The default implementation simply
+    /// yields the calling thread until the predicate succeeds, which is
+    /// suitable for schedulers that rely on dedicated worker threads.
+    virtual void help_while_waiting(const WaitPredicate& is_ready)
+    {
+      while (!is_ready())
+      {
+        std::this_thread::yield();
+      }
+    }
 
   protected:
     // using promise_type = AsyncTask::promise_type;

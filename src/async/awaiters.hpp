@@ -30,6 +30,7 @@ struct AllAwaiter //: public AsyncAwaiter
 {
     std::tuple<Aw...> bufs_;                  ///< Underlying awaiters
     std::array<bool, sizeof...(Aw)> ready_{}; ///< Readiness flags
+    int pending_ = sizeof...(Aw);             ///< Number of awaiters that still need to suspend
 
     /// \brief Check if all awaiters are ready.
     /// \return true if no suspension is required.
@@ -37,7 +38,7 @@ struct AllAwaiter //: public AsyncAwaiter
 
     /// \brief Return the number of awaiters, needed by the AsyncTaskFactory model.
     /// \note It is safe to over-allocate: unused AsyncTasks will be returned in the factory destructor.
-    int num_awaiters() const noexcept { return sizeof...(Aw); }
+    int num_awaiters() const noexcept { return pending_; }
 
     /// \brief Suspend the coroutine on awaiters not yet ready.
     /// \tparam Promise The coroutine’s promise type.
@@ -59,8 +60,9 @@ struct AllAwaiter //: public AsyncAwaiter
   private:
     template <std::size_t... I> bool await_ready_impl(std::index_sequence<I...>) noexcept
     {
-      ((ready_[I] = std::get<I>(bufs_).await_ready()), ...);
-      return (ready_[I] && ...);
+      pending_ = 0;
+      ((ready_[I] = std::get<I>(bufs_).await_ready(), pending_ += ready_[I] ? 0 : 1), ...);
+      return pending_ == 0;
     }
 
     template <std::size_t... I> void await_suspend_impl(AsyncTaskFactory f, std::index_sequence<I...>) noexcept

@@ -46,6 +46,20 @@ class DebugScheduler final : public IScheduler {
     /// \brief Unblock the scheduler
     void resume() override { Blocked_ = false; }
 
+    void help_while_waiting(const WaitPredicate& is_ready) override
+    {
+      if (is_ready())
+      {
+        return;
+      }
+
+      if (Blocked_ || Handles_.empty())
+      {
+        CHECK(false, "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+      }
+      run();
+    }
+
     /// \brief Check if there are no pending tasks.
     /// \return true if the scheduler queue is empty.
     bool done() const noexcept { return Handles_.empty(); }
@@ -98,16 +112,7 @@ template <typename T> T const& EpochContextReader<T>::get_wait() const
   while (!this->ready())
   {
     CHECK(sched);
-    if (auto* dbg = dynamic_cast<DebugScheduler*>(sched))
-    {
-      CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
-      dbg->run();
-    }
-    else
-    {
-      // TBB or other threaded schedulers: just yield
-      std::this_thread::yield();
-    }
+    sched->help_while_waiting([this] { return this->ready(); });
   }
   return this->data();
 }
@@ -116,16 +121,7 @@ template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched
 {
   while (!this->ready())
   {
-    if (auto* dbg = dynamic_cast<DebugScheduler*>(&sched))
-    {
-      CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
-      dbg->run();
-    }
-    else
-    {
-      // TBB or other threaded schedulers: just yield
-      std::this_thread::yield();
-    }
+    sched.help_while_waiting([this] { return this->ready(); });
   }
   return this->data();
 }
@@ -136,16 +132,7 @@ template <typename T> T&& EpochContextWriter<T>::move_from_wait() const
   while (!this->ready())
   {
     CHECK(sched);
-    if (auto* dbg = dynamic_cast<DebugScheduler*>(sched))
-    {
-      CHECK(dbg->can_run(), "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
-      dbg->run();
-    }
-    else
-    {
-      // TBB or other threaded schedulers: just yield
-      std::this_thread::yield();
-    }
+    sched->help_while_waiting([this] { return this->ready(); });
   }
   return std::move(this->data());
 }

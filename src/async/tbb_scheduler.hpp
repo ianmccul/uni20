@@ -77,6 +77,30 @@ class TbbScheduler final : public IScheduler {
       }
     }
 
+    void help_while_waiting(const WaitPredicate& is_ready) override
+    {
+      if (is_ready())
+      {
+        return;
+      }
+
+      if (oneapi::tbb::this_task_arena::current_thread_index() != oneapi::tbb::task_arena::not_initialized)
+      {
+        while (!is_ready())
+        {
+          std::this_thread::yield();
+        }
+        return;
+      }
+
+      arena_.execute([&] {
+        while (!is_ready())
+        {
+          tg_.wait();
+        }
+      });
+    }
+
   protected:
     /// \brief Reschedule a previously suspended coroutine.
     void reschedule(AsyncTask&& t) override { this->enqueue_task(std::move(t)); }
@@ -92,7 +116,6 @@ class TbbScheduler final : public IScheduler {
         }
         else
         {
-          // TRACE_MODULE(ASYNC, "scheduling coroutine", h);
           arena_.execute([this, h]() {
             tg_.run([h]() {
               TRACE_MODULE(ASYNC, "resuming coroutine", h);
