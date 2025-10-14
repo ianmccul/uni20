@@ -11,3 +11,6 @@ QUIET                  = YES
 JAVADOC_AUTOBRIEF      = YES
 ALLOW_UNICODE_NAMES    = YES
 MARKDOWN_SUPPORT       = YES
+INTERNAL_DOCS          = YES
+EXTRACT_ALL            = YES
+EXCLUDE_SYMBOLS        = detail

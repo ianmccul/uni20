@@ -148,3 +148,13 @@ When cleaning or generating documentation, automated agents must:
       * \brief Tensor addition and contraction routines.
       */
      ```
+
+6. **Internal vs. Public Documentation**
+
+Uni20 does not currently define a stable "public API" boundary.  
+All code should be documented, including internal helpers, but documentation must distinguish between *conceptual interfaces* and *implementation internals*.
+
+- Use `\ingroup internal` or `\internal ... \endinternal` for functions, classes, or templates not intended for external use.
+- Internal documentation follows the same Doxygen formatting rules as all other code.
+- Documentation generators may exclude internal content using `INTERNAL_DOCS = NO` in the Doxygen configuration.
+- Codex and other agents may automatically infer internal scope from namespaces such as `uni20::internal`, `detail`, or directories named `internal` or `detail`.
