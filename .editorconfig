@@ -1,0 +1,42 @@
+# .editorconfig
+# Mirrors uni20 .clang-format: 2-space indents, Allman braces, no tabs, 120-col soft limit.
+
+root = true
+
+# Apply to all source files
+[*.{cpp,h,cc,hpp,c,ixx,tpp}]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+continuation_indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 120
+
+# Match the "UseTab: Never" and consistent indentation for YAML, CMake, etc.
+[*.{yml,yaml,cmake,txt}]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Markdown files — keep trailing spaces (for line breaks)
+[*.md]
+trim_trailing_whitespace = false
+insert_final_newline = true
+
+# Python (if present in tools/tests)
+[*.py]
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Scripts (bash, sh)
+[*.sh]
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
