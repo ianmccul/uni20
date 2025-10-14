@@ -1,6 +1,5 @@
 #pragma once
 
-#include "common/mdspan.hpp"
 #include "mdspan/iteration_plan.hpp"
 
 namespace uni20

@@ -118,8 +118,6 @@ TEST(AsyncAwaitersTest, AllAwaiterBlockedThenUnblocked)
   Async<int> b;
   DebugScheduler sched;
 
-  TRACE(&count);
-
   auto writer_a = [](WriteBuffer<int> w, int& count) -> AsyncTask {
     auto& ref = co_await w;
     ref = 42;
@@ -130,7 +128,6 @@ TEST(AsyncAwaitersTest, AllAwaiterBlockedThenUnblocked)
   auto writer_b = [](WriteBuffer<int> w, int& count) -> AsyncTask {
     auto& ref = co_await w;
     ref = 77;
-    TRACE(&count);
     ++count;
     co_return;
   }(b.write(), count);
