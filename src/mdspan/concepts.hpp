@@ -1,5 +1,17 @@
 #pragma once
 
+/**
+ * \file concepts.hpp
+ * \ingroup core
+ * \brief Mdspan concept and accessor extensions for Uni20.
+ */
+
+/**
+ * \defgroup mdspan_ext Mdspan extensions
+ * \ingroup core
+ * \brief Additional concepts, adaptors, and helpers that extend the reference mdspan implementation.
+ */
+
 #include "common/mdspan.hpp"
 #include <cassert>
 #include <concepts>
@@ -8,37 +20,41 @@
 namespace uni20
 {
 
-/// \brief Trait to pull an AccessorPolicy’s offset_type if present,
-///        or fall back to std::size_t otherwise.
-/// \tparam AP  The accessor policy to inspect.
-/// \note this is an extension to the standard mdspan AccessorPolicy
-///       https://en.cppreference.com/w/cpp/named_req/AccessorPolicy
-///       that has no offset_type but simply uses std::size_t
+/// \brief Trait to pull an AccessorPolicy’s offset_type if present, or fall back to std::size_t otherwise.
+/// \note This extends the standard mdspan AccessorPolicy requirement to surface an offset type when available.
+/// \tparam AP The accessor policy to inspect.
+/// \ingroup mdspan_ext
 template <typename AP, typename = void> struct span_offset_type
 {
     /// \brief The resulting offset type (std::size_t by default).
+    /// \ingroup mdspan_ext
     using type = std::size_t;
 };
 
-/// \brief Partial specialization: when AP declares offset_type, use it.
-/// \tparam AP  The accessor policy that provides offset_type.
+/// \brief Partial specialization that uses an accessor policy’s declared offset_type.
+/// \tparam AP The accessor policy that provides offset_type.
+/// \ingroup mdspan_ext
 template <typename AP> struct span_offset_type<AP, std::void_t<typename AP::offset_type>>
 {
+    /// \brief The resulting offset type defined by the accessor policy.
+    /// \ingroup mdspan_ext
     using type = typename AP::offset_type;
 };
 
 /// \brief Convenience alias for accessor_offset_type<AP>::type.
-/// \tparam AP  The accessor policy to inspect.
+/// \tparam AP The accessor policy to inspect.
+/// \ingroup mdspan_ext
 template <typename AP> using span_offset_t = typename span_offset_type<AP>::type;
 
 /// \concept AccessorPolicy
 /// \brief A model of the C++ mdspan AccessorPolicy named requirement.
-/// Requirements for AP:
-///  - nested types: element_type, data_handle_type, offset_policy, reference
-///  - offset(dh, off) must be constexpr noexcept and return
-///    a type convertible to offset_policy::data_handle_type.
-///  - access(dh, off) must be constexpr noexcept and return exactly AP::reference.
-/// \tparam AP  The accessor policy to test.
+/// \details Requirements for \c AP:
+///          - nested types: element_type, data_handle_type, offset_policy, reference.
+///          - \c offset(dh, off) must be constexpr noexcept and return a type convertible to
+///            \c offset_policy::data_handle_type.
+///          - \c access(dh, off) must be constexpr noexcept and return exactly \c AP::reference.
+/// \tparam AP The accessor policy to test.
+/// \ingroup mdspan_ext
 template <class AP>
 concept AccessorPolicy = requires {
                            typename AP::element_type;
@@ -54,18 +70,14 @@ concept AccessorPolicy = requires {
                                   } -> std::same_as<typename AP::reference>;
                               };
 
-/// \brief Generic adaptor that converts an AccessorPolicy’s reference type
-///        to an arbitrary compatible reference type.
-///
-/// \tparam Accessor     An AccessorPolicy whose \c reference type will be adapted.
-/// \tparam NewReference The new reference type returned by \c access(); must be
-///                      convertible from \c Accessor::reference.
-///
-/// Example: to turn a mutable accessor (returning \c T&) into a read-only one
-/// returning \c T const&, use
-/// \code
-/// conversion_accessor_adaptor<MyAccessor, MyAccessor::element_type const&> rd_access{my_access};
-/// \endcode
+/// \brief Generic adaptor that converts an AccessorPolicy’s reference type to a compatible const-qualified reference.
+/// \details Example: to turn a mutable accessor (returning \c T&) into a read-only one returning \c T const&, use
+///          \code
+///          conversion_accessor_adaptor<MyAccessor, MyAccessor::element_type const&> rd_access{my_access};
+///          \endcode
+/// \tparam Accessor An AccessorPolicy whose \c reference type will be adapted.
+/// \tparam NewReference The new reference type returned by \c access(); must be convertible from \c Accessor::reference.
+/// \ingroup mdspan_ext
 template <AccessorPolicy Accessor, typename NewReference>
   requires std::is_same_v<typename Accessor::reference, typename Accessor::element_type&>
 class const_accessor_adaptor {
@@ -91,8 +103,14 @@ class const_accessor_adaptor {
 //
 
 /// \brief Wrap a default_accessor<T> into a const_default_accessor<T>.
-template <typename T> constexpr stdex::default_accessor<T const> const_accessor(stdex::default_accessor<T> const&)
+/// \tparam T Element type accessed by the policy.
+/// \param accessor_policy The accessor policy to upgrade.
+/// \return A default accessor for \c T const.
+/// \ingroup mdspan_ext
+template <typename T>
+constexpr stdex::default_accessor<T const> const_accessor(stdex::default_accessor<T> const& accessor_policy)
 {
+  (void)accessor_policy;
   return stdex::default_accessor<T const>();
 }
 
@@ -103,9 +121,10 @@ template <typename T> constexpr stdex::default_accessor<T const> const_accessor(
 // }
 
 /// \brief Wrap any accessor whose reference is T& into a const adaptor.
-/// \tparam Acc  A mutable accessor policy with reference == element_type&.
-/// \param acc   The accessor to wrap.
-/// \return      A conversion_accessor_adaptor<Acc, Acc::element_type const&>.
+/// \tparam Acc A mutable accessor policy with reference equal to \c element_type&.
+/// \param acc The accessor to wrap.
+/// \return A const-qualified accessor adaptor.
+/// \ingroup mdspan_ext
 template <AccessorPolicy Acc>
   requires std::is_same_v<typename Acc::reference, typename Acc::element_type&>
 constexpr auto const_accessor(Acc const& acc)
@@ -113,9 +132,11 @@ constexpr auto const_accessor(Acc const& acc)
   return const_accessor_adaptor<Acc, typename Acc::element_type const&>{acc};
 }
 
-/// \brief if accessor returns element_type const&, no change needed.
-/// \tparam Acc  A read-only accessor policy with reference == element_type const&.
-/// \param acc   The accessor (returned by-value).
+/// \brief If an accessor returns element_type const&, no change is required.
+/// \tparam Acc A read-only accessor policy with reference equal to \c element_type const&.
+/// \param acc The accessor (returned by value).
+/// \return The original accessor policy.
+/// \ingroup mdspan_ext
 template <AccessorPolicy Acc>
   requires std::is_same_v<typename Acc::reference, typename Acc::element_type const&>
 constexpr Acc const_accessor(Acc const& acc)
@@ -123,9 +144,11 @@ constexpr Acc const_accessor(Acc const& acc)
   return acc;
 }
 
-/// \brief if accessor returns element_type by-value, no change needed.
-/// \tparam Acc  A read-only accessor policy with reference == element_type.
-/// \param acc   The accessor (returned by-value).
+/// \brief If an accessor returns element_type by value, no change is required.
+/// \tparam Acc A read-only accessor policy with reference equal to \c element_type.
+/// \param acc The accessor (returned by value).
+/// \return The original accessor policy.
+/// \ingroup mdspan_ext
 template <AccessorPolicy Acc>
   requires std::is_same_v<typename Acc::reference, typename Acc::element_type>
 constexpr Acc const_accessor(Acc const& acc)
@@ -133,7 +156,9 @@ constexpr Acc const_accessor(Acc const& acc)
   return acc;
 }
 
-/// \brief Type alias for the const version of AccessorPolicy
+/// \brief Type alias that produces the const-qualified version of an accessor policy.
+/// \tparam Acc An accessor policy.
+/// \ingroup mdspan_ext
 template <AccessorPolicy Acc> using const_accessor_t = decltype(const_accessor(std::declval<Acc>()));
 
 /// \concept SpanLike
@@ -148,6 +173,8 @@ template <AccessorPolicy Acc> using const_accessor_t = decltype(const_accessor(s
 ///   - a const \c data_handle() member returning something convertible to
 ///     \c accessor_type::data_handle_type
 ///   - an \c accessor() member returning something convertible to \c accessor_type
+/// \tparam S The type being tested for SpanLike requirements.
+/// \ingroup mdspan_ext
 template <class S>
 concept SpanLike = requires(S s) {
                      typename S::element_type;
@@ -197,6 +224,10 @@ concept SpanLike = requires(S s) {
 //         } -> std::convertible_to<typename S::accessor_type>;
 //     } && AccessorPolicy<typename S::accessor_type> && std::is_const_v<typename S::element_type>;
 
+/// \concept MutableSpanLike
+/// \brief SpanLike types whose reference type supports assignment.
+/// \tparam S The type being evaluated for mutable access.
+/// \ingroup mdspan_ext
 template <class S>
 concept MutableSpanLike =
     requires(S s) {
@@ -226,22 +257,30 @@ concept MutableSpanLike =
       ref = val;
     }; // must be able to assign a value to a reference
 
-/// \brief A “strided mdspan‐like” type:
-///        – models SpanLike (has extents_type, layout_type, accessor_type, mapping(), data_handle())
-///        – uses layout_stride as its layout_policy
+/// \brief A “strided mdspan‐like” type that models SpanLike and reports layout_stride.
+/// \tparam MDS The mdspan-like type under test.
+/// \ingroup mdspan_ext
 template <class MDS>
 concept StridedMdspan = SpanLike<MDS> && // must satisfy our mdspan‐like protocol
                         MDS::is_always_strided();
 
+/// \concept MutableStridedMdspan
+/// \brief Mutable span-like types whose layout reports they are always strided.
+/// \tparam MDS The mdspan-like type under test.
+/// \ingroup mdspan_ext
 template <class MDS>
 concept MutableStridedMdspan = MutableSpanLike<MDS> && // must satisfy our mdspan‐like protocol
                                MDS::is_always_strided();
 
-/// \brief free function to get the strides of a strided mdspan
-
 namespace detail
 {
 
+/// \brief Helper that materializes strides from the layout mapping.
+/// \tparam S The strided mdspan-like type.
+/// \tparam I Index sequence selecting the stride positions.
+/// \param s The mdspan instance whose strides will be computed.
+/// \return An array containing strides for each dimension in \c S.
+/// \ingroup internal
 template <StridedMdspan S, size_t... I> constexpr auto strides_impl(S const& s, std::index_sequence<I...>)
 {
   using index_type = typename S::index_type;
@@ -251,11 +290,23 @@ template <StridedMdspan S, size_t... I> constexpr auto strides_impl(S const& s, 
 
 } // namespace detail
 
+/// \brief Retrieve the strides associated with a strided mdspan-like type.
+/// \tparam S The strided mdspan-like type.
+/// \param s The mdspan instance whose strides will be returned.
+/// \return A std::array containing the strides for each rank.
+/// \ingroup mdspan_ext
 template <StridedMdspan S> auto strides(S const& s)
 {
   return detail::strides_impl(s, std::make_index_sequence<S::rank>{});
 }
 
+/// \brief Retrieve the strides from a reference layout_stride mdspan.
+/// \tparam T Element type stored by the mdspan.
+/// \tparam Extents Extents type of the mdspan.
+/// \tparam AccessorPolicy Accessor policy used by the mdspan.
+/// \param s The mdspan instance whose native strides will be returned.
+/// \return The strides exposed by the mdspan.
+/// \ingroup mdspan_ext
 template <typename T, typename Extents, typename AccessorPolicy>
 constexpr auto strides(stdex::mdspan<T, Extents, stdex::layout_stride, AccessorPolicy> const& s) noexcept
 {
@@ -267,6 +318,11 @@ constexpr auto strides(stdex::mdspan<T, Extents, stdex::layout_stride, AccessorP
 namespace fmt
 {
 
+/// \brief Formatter specialization that prints mdspan extents as a comma-separated list.
+/// \tparam IndexType Integral type used for extents.
+/// \tparam StaticExts Static extent values embedded in the extents type.
+/// \tparam CharT Character type for the target formatter.
+/// \ingroup mdspan_ext
 template <typename IndexType, std::size_t... StaticExts, typename CharT>
 struct formatter<stdex::extents<IndexType, StaticExts...>, CharT>
 {

@@ -10,21 +10,33 @@ namespace uni20::kernel
 namespace cpu
 {
 
-/// \brief  Generic M×N×K contraction engine with full K-dim recursion.
-///
-/// Each group (M, N, K) has extents and two stride arrays:
-///   • Mgrp: strides for A and C
-///   • Ngrp: strides for B and C
-///   • Kgrp: strides for A and B
+/// \brief Generic M×N×K contraction engine with full K-dimension recursion.
+/// \details Each dimension group stores extents and operand strides used to perform
+///          fused tensor contractions without materialising temporaries.
+/// \tparam T Scalar type stored in the tensors.
+/// \tparam MR Number of fused M dimensions.
+/// \tparam NR Number of fused N dimensions.
+/// \tparam KR Number of fused K dimensions.
+/// \ingroup kernel_cpu
 template <typename T, std::size_t MR, std::size_t NR, std::size_t KR> class GemmLoop {
   public:
-    /// \brief  Build the loop engine.
+    /// \brief Build the loop engine for a fused contraction.
+    /// \param Mgrp Metadata describing extents and strides for the fused M dimensions.
+    /// \param Ngrp Metadata describing extents and strides for the fused N dimensions.
+    /// \param Kgrp Metadata describing extents and strides for the fused K dimensions.
+    /// \param alpha Scaling factor applied to the contraction output.
+    /// \param beta Scaling factor applied to the pre-existing contents of the destination tensor.
+    /// \ingroup kernel_cpu
     GemmLoop(static_vector<extent_strides<2>, MR> const& Mgrp, static_vector<extent_strides<2>, NR> const& Ngrp,
              static_vector<extent_strides<2>, KR> const& Kgrp, T alpha, T beta) noexcept
         : Mgrp_(Mgrp), Ngrp_(Ngrp), Kgrp_(Kgrp), alpha_(alpha), beta_(beta)
     {}
 
-    /// \brief  Perform C = β·C + α·(A ⋅ B) over all fused M, N, K dims.
+    /// \brief Perform C = β·C + α·(A ⋅ B) over all fused M, N, and K dimensions.
+    /// \param A0 Pointer to the base of the left-hand operand.
+    /// \param B0 Pointer to the base of the right-hand operand.
+    /// \param C0 Pointer to the base of the destination tensor.
+    /// \ingroup kernel_cpu
     void run(T const* A0, T const* B0, T* C0) noexcept { this->loopM(0, A0, B0, C0); }
 
   private:
@@ -33,7 +45,12 @@ template <typename T, std::size_t MR, std::size_t NR, std::size_t KR> class Gemm
     static_vector<extent_strides<2>, KR> const Kgrp_;
     T const alpha_, beta_;
 
-    //--- M-dimension recursion (A↔C) ---//
+    /// \brief Recursively advances through the fused M dimensions.
+    /// \param dim Index of the current M dimension.
+    /// \param a_ptr Pointer to the active location within the left-hand operand.
+    /// \param b_ptr Pointer to the active location within the right-hand operand.
+    /// \param c_ptr Pointer to the active location within the destination tensor.
+    /// \ingroup internal
     void loopM(std::size_t dim, T const* a_ptr, T const* b_ptr, T* c_ptr) noexcept
     {
       if (dim == Mgrp_.size())
@@ -52,7 +69,12 @@ template <typename T, std::size_t MR, std::size_t NR, std::size_t KR> class Gemm
       }
     }
 
-    //--- N-dimension recursion (B↔C) ---//
+    /// \brief Recursively advances through the fused N dimensions.
+    /// \param dim Index of the current N dimension.
+    /// \param a_ptr Pointer to the active location within the left-hand operand.
+    /// \param b_ptr Pointer to the active location within the right-hand operand.
+    /// \param c_ptr Pointer to the active location within the destination tensor.
+    /// \ingroup internal
     void loopN(std::size_t dim, T const* a_ptr, T const* b_ptr, T* c_ptr) noexcept
     {
       if (dim == Ngrp_.size())
@@ -74,7 +96,12 @@ template <typename T, std::size_t MR, std::size_t NR, std::size_t KR> class Gemm
       }
     }
 
-    //--- K-dimension recursion (A↔B) accumulation ---//
+    /// \brief Recursively accumulates dot products across the fused K dimensions.
+    /// \param dim Index of the current K dimension.
+    /// \param a_ptr Pointer to the active location within the left-hand operand.
+    /// \param b_ptr Pointer to the active location within the right-hand operand.
+    /// \param acc Running contraction accumulator.
+    /// \ingroup internal
     void dotK(std::size_t dim, T const* a_ptr, T const* b_ptr, T& acc) noexcept
     {
       if (dim == Kgrp_.size())
@@ -98,11 +125,27 @@ template <typename T, std::size_t MR, std::size_t NR, std::size_t KR> class Gemm
 } // namespace cpu
 
 template <typename T, std::size_t MR, std::size_t NR, std::size_t KR>
+/// \brief Execute the CPU tensor contraction using precomputed stride groupings.
+/// \tparam T Scalar type stored in the tensors.
+/// \tparam MR Number of fused M dimensions.
+/// \tparam NR Number of fused N dimensions.
+/// \tparam KR Number of fused K dimensions.
+/// \param Mgrp Metadata describing extents and strides for the fused M dimensions.
+/// \param Ngrp Metadata describing extents and strides for the fused N dimensions.
+/// \param Kgrp Metadata describing extents and strides for the fused K dimensions.
+/// \param alpha Scaling factor applied to the contraction output.
+/// \param A Pointer to the base of the left-hand operand.
+/// \param B Pointer to the base of the right-hand operand.
+/// \param beta Scaling factor applied to the pre-existing contents of the destination tensor.
+/// \param C Pointer to the base of the destination tensor.
+/// \param tag Backend selector tag.
+/// \ingroup kernel_cpu
 void contract_strided(static_vector<extent_strides<2>, MR> const& Mgrp,
                       static_vector<extent_strides<2>, NR> const& Ngrp,
                       static_vector<extent_strides<2>, KR> const& Kgrp, T alpha, T const* A, T const* B, T beta, T* C,
-                      cpu_tag)
+                      cpu_tag tag)
 {
+  static_cast<void>(tag);
   cpu::GemmLoop Loop(Mgrp, Ngrp, Kgrp, alpha, beta);
   Loop.run(A, B, C);
 }

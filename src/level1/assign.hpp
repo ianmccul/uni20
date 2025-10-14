@@ -6,11 +6,20 @@
 #include "core/types.hpp"
 #include "mdspan/concepts.hpp"
 
+/**
+ * \defgroup level1_ops Level-1 tensor algorithms
+ * \brief Element-wise tensor kernels that operate on strided mdspan views.
+ */
+
 namespace uni20
 {
 
-/// \brief Represents a multi-tensor stride plan for one dimension.
-///        All tensors share the same extent, with individual strides.
+/// \brief Represents the stride plan for one dimension across multiple tensors.
+/// \details All tensors share the same extent while allowing independent strides.
+/// \tparam ExtentT Integral type describing the extent of the dimension.
+/// \tparam StrideT Integral type describing the stride along the dimension.
+/// \tparam N       Number of tensors that participate in the plan.
+/// \ingroup internal
 template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t, std::size_t N = 2>
 struct multi_extent_stride
 {
@@ -21,7 +30,10 @@ struct multi_extent_stride
 
     constexpr multi_extent_stride(ExtentT e, std::array<StrideT, N> const& s) : extent(e), strides(s) {}
 
-    /// Check if this (outer) dimension can be merged with the inner one
+    /// \brief Check if this outer dimension can be merged with the inner one.
+    /// \param inner Candidate inner dimension.
+    /// \return True when the strides match the contiguity rule.
+    /// \ingroup internal
     constexpr bool can_merge_with_inner(const multi_extent_stride& inner) const noexcept
     {
       for (std::size_t i = 0; i < N; ++i)
@@ -29,7 +41,9 @@ struct multi_extent_stride
       return true;
     }
 
-    /// Merge an inner dimension into this one (assuming `can_merge_with_inner` is true)
+    /// \brief Merge an inner dimension into this one.
+    /// \param inner Dimension that satisfies can_merge_with_inner.
+    /// \ingroup internal
     constexpr void merge_with_inner(const multi_extent_stride& inner) noexcept
     {
       extent *= inner.extent;
@@ -37,18 +51,14 @@ struct multi_extent_stride
     }
 };
 
-/// \brief Represents a multi-tensor strided iteration plan for a fixed-rank layout.
-///
-/// This variant handles multiple tensors with the same extents but independent strides.
-/// It coalesces contiguous dimensions across all tensors and flips stride signs so
-/// that the first tensor (typically the output) has positive strides.
-///
-/// \tparam Mapping A layout mapping type (e.g. layout_stride::mapping<Extents>)
-/// \tparam N       Number of tensors (e.g., 2 for A = B + C)
-/// \param mappings Array of mappings, one per tensor. All must have the same extents.
-/// \return A pair of:
-///   - `static_vector<multi_extent_stride<size, index, N>, Rank>`: coalesced loop plan
-///   - `std::array<index_type, N>`: base offset for each tensor (based on stride sign flips)
+/// \brief Build a coalesced iteration plan for multiple tensors that share extents.
+/// \details Negative strides are flipped to positive by adjusting the offsets, and
+/// contiguous dimensions across all tensors are merged.
+/// \tparam Mapping Layout mapping type (for example, layout_stride::mapping<Extents>).
+/// \tparam N       Number of tensors that participate in the iteration plan.
+/// \param mappings Array of mappings, one per tensor.
+/// \return Pair of the coalesced iteration plan and the per-tensor offset corrections.
+/// \ingroup internal
 template <typename Mapping, std::size_t N>
 auto make_multi_iteration_plan_with_offset(std::array<Mapping, N> const& mappings)
 {
@@ -120,9 +130,10 @@ auto make_multi_iteration_plan_with_offset(std::array<Mapping, N> const& mapping
   return std::pair{merged, offsets};
 }
 
-/// \brief Helper to unroll nested loops over a fixed‐rank N‐span view.
-/// \tparam Op        Callable taking N element‐values and returning the result.
-/// \tparam Spans...  StridedMdspan types (all share the same extents/rank).
+/// \brief Helper to unroll nested loops over a fixed-rank N-span view.
+/// \tparam Op        Callable taking N element values and returning the result.
+/// \tparam Spans...  StridedMdspan types that share identical extents and rank.
+/// \ingroup internal
 template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
 {
     std::tuple<typename Spans::data_handle_type...> dh_;
@@ -145,6 +156,10 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
     using op_result_type = std::invoke_result_t<Op, raw_arg_t<Spans>...>;
 
     /// \brief Build from each span’s data_handle and accessor.
+    /// \tparam FwdOp Type deduced for the operation functor.
+    /// \param op    Callable that produces the destination value.
+    /// \param spans Source and destination spans participating in the assignment.
+    /// \ingroup internal
     template <typename FwdOp>
     MultiUnrollHelper(FwdOp&& op, Spans const&... spans)
         : dh_{spans.data_handle()...}, accs_{spans.accessor()...}, op_(std::forward<FwdOp>(op))
@@ -233,6 +248,12 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
 
 template <typename Op, typename... Spans> MultiUnrollHelper(Op&&, Spans...) -> MultiUnrollHelper<Op, Spans...>;
 
+/// \brief Copy elements from a source mdspan into a destination mdspan.
+/// \tparam MDS1 Source mdspan type that models StridedMdspan.
+/// \tparam MDS2 Destination mdspan type that models StridedMdspan.
+/// \param src Source view providing the element values.
+/// \param dst Destination view receiving the copied elements.
+/// \ingroup level1_ops
 template <StridedMdspan MDS1, StridedMdspan MDS2> void assign(MDS1 const& src, MDS2 dst)
 {
   static_assert(MDS1::rank() == MDS2::rank(), "assign: rank mismatch");

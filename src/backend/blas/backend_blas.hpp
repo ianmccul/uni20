@@ -1,5 +1,9 @@
 #pragma once
 
+/// \file backend_blas.hpp
+/// \brief Central include that selects the configured BLAS backend wrappers.
+/// \ingroup backend_blas
+
 #include "backend/backend.hpp"
 #include "config.hpp"
 

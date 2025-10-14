@@ -99,9 +99,16 @@ template <typename FirstSpan, typename... OtherSpans> struct common_extents
 
 } // namespace detail
 
-// Convenience alias to get the stdex::extents type that represents the common extents of a set of mdspans
+/// \brief Convenience alias that represents the common extents of a set of mdspans.
+/// \tparam Spans Mdspan types whose extents are merged.
+/// \ingroup internal
 template <typename... Spans> using common_extents_t = typename detail::common_extents<Spans...>::type;
 
+/// \brief Build an extents object representing the common shape of the given spans.
+/// \tparam Spans Mdspan types participating in the merge.
+/// \param spans Mdspan instances with compatible extents.
+/// \return Extents describing the common shape.
+/// \ingroup internal
 template <typename... Spans> auto make_common_extents(Spans... spans)
 {
   return detail::common_extents<Spans...>::make(spans...);
@@ -132,7 +139,14 @@ constexpr std::array<T, N + 1> concat_impl(const T& x, const std::array<T, N>& a
 
 } // namespace detail
 
-/// \brief Concat two std::array into one (constexpr).
+/// \brief Concatenate two std::array instances into one (constexpr helper).
+/// \tparam T   Element type stored in the arrays.
+/// \tparam N1  Length of the first array.
+/// \tparam N2  Length of the second array.
+/// \param a1  First array.
+/// \param a2  Second array.
+/// \return Array containing the elements of \p a1 followed by \p a2.
+/// \ingroup internal
 template <typename T, std::size_t N1, std::size_t N2>
 constexpr std::array<T, N1 + N2> concat(const std::array<T, N1>& a1, const std::array<T, N2>& a2)
 {
@@ -140,12 +154,24 @@ constexpr std::array<T, N1 + N2> concat(const std::array<T, N1>& a1, const std::
 }
 
 /// \brief Prepend a single element in front of an array.
+/// \tparam T  Element type stored in the arrays.
+/// \tparam N  Length of the original array.
+/// \param x  Element inserted at the beginning.
+/// \param a  Array whose contents follow \p x.
+/// \return Array with \p x prepended.
+/// \ingroup internal
 template <typename T, std::size_t N> constexpr std::array<T, N + 1> concat(const T& x, const std::array<T, N>& a)
 {
   return detail::concat_impl(x, a, std::make_index_sequence<N>{});
 }
 
 /// \brief Append a single element to the end of an array.
+/// \tparam T  Element type stored in the arrays.
+/// \tparam N  Length of the original array.
+/// \param a  Original array.
+/// \param x  Element appended at the end.
+/// \return Array with \p x appended.
+/// \ingroup internal
 template <typename T, std::size_t N> constexpr std::array<T, N + 1> concat(const std::array<T, N>& a, const T& x)
 {
   return detail::concat_impl(a, x, std::make_index_sequence<N>{});
@@ -163,14 +189,16 @@ template <typename T, std::size_t... I> constexpr auto make_tuple_n_impl(std::in
 
 } // namespace detail
 
-/// \brief Alias: tuple_n<T,N> is std::tuple<T,T,…> with N Ts.
-/// \tparam T  The type to repeat.
-/// \tparam N  How many copies.
+/// \brief Alias: tuple_n<T,N> is std::tuple<T,T,…> with N repetitions of \p T.
+/// \tparam T  Type to repeat.
+/// \tparam N  Number of repetitions.
+/// \ingroup internal
 template <typename T, std::size_t N>
 using tuple_n = decltype(detail::make_tuple_n_impl<T>(std::make_index_sequence<N>{}));
 
 /// \brief Zip layout for \p NumSpans strided spans (all using layout_stride).
 /// \tparam NumSpans  Number of child spans to zip.
+/// \ingroup level1_ops
 template <std::size_t NumSpans> struct StridedZipLayout
 {
     static_assert(NumSpans >= 1, "StridedZipLayout requires at least one span");
@@ -179,6 +207,8 @@ template <std::size_t NumSpans> struct StridedZipLayout
     static constexpr std::size_t num_spans = NumSpans;
 
     /// \brief Nested mapping policy for extents \p Ext, modeling LayoutMappingPolicy.
+    /// \tparam Ext Extents type managed by the mapping.
+    /// \ingroup level1_ops
     template <typename Ext> struct mapping
     {
         using layout_type = StridedZipLayout; ///< back‑link to policy
@@ -191,23 +221,31 @@ template <std::size_t NumSpans> struct StridedZipLayout
         using mapping_type = mapping<Ext>;
 
         /// \brief Number of spans in this zip layout.
+        /// \ingroup level1_ops
         static constexpr std::size_t num_spans = NumSpans;
 
-        /// \brief Always unique for uni20 tensors
+        /// \brief Always unique for uni20 tensors.
+        /// \ingroup level1_ops
         static constexpr bool is_always_unique() noexcept { return true; }
         /// \brief Never exhaustive: no single contiguous backing buffer.
+        /// \ingroup level1_ops
         static constexpr bool is_always_exhaustive() noexcept { return false; }
         /// \brief Statically unknown if strided: may differ per dimension.
+        /// \ingroup level1_ops
         static constexpr bool is_always_strided() noexcept { return false; }
 
         /// \brief Always unique at runtime.
+        /// \ingroup level1_ops
         constexpr bool is_unique() const noexcept { return true; }
         /// \brief Never exhaustive at runtime.
+        /// \ingroup level1_ops
         constexpr bool is_exhaustive() const noexcept { return false; }
 
         // std::size_t required_span_size() const does not make sense for a StridedZipLayout
 
         /// \brief True if every dimension uses the same stride across all spans.
+        /// \return True when each span shares identical strides per dimension.
+        /// \ingroup level1_ops
         constexpr bool is_strided() const noexcept
         {
           for (std::size_t d = 0; d < Ext::rank(); ++d)
@@ -221,6 +259,9 @@ template <std::size_t NumSpans> struct StridedZipLayout
           return true;
         }
 
+        /// \brief Return the common strides for each dimension.
+        /// \return Array of strides indexed by dimension.
+        /// \ingroup level1_ops
         constexpr std::array<index_type, Ext::rank()> strides() const noexcept
         {
           DEBUG_PRECONDITION(this->is_strided());
@@ -231,6 +272,7 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \pre All spans share the same stride in dimension \p r.
         /// \param r Dimension index, 0 ≤ r < rank().
         /// \return The stride (step) in the flattened data for dim \p r.
+        /// \ingroup level1_ops
         constexpr index_type stride(rank_type r) const noexcept
         {
           DEBUG_PRECONDITION(this->is_strided());
@@ -238,20 +280,26 @@ template <std::size_t NumSpans> struct StridedZipLayout
         }
 
         /// \brief Retrieve the 2-D array of all per-span strides.
-        // \return An array [span][dim] of strides.
+        /// \return An array [span][dim] of strides.
+        /// \ingroup level1_ops
         std::array<std::array<index_type, Ext::rank()>, num_spans> const& all_strides() const noexcept
         {
           return all_strides_;
         }
 
         template <typename... Mappings>
+        /// \brief Construct from extents and existing child mappings.
+        /// \param exts Shared extents of all spans.
+        /// \param maps Existing mappings whose strides are copied into this layout.
+        /// \ingroup level1_ops
         constexpr mapping(extents_type const& exts, Mappings... maps) noexcept
             : extents_(exts), all_strides_{maps.strides()...}
         {}
 
         /// \brief Construct from shared extents and per-span raw strides.
         /// \param exts         Common extents of the view.
-        /// \param strides_pack strides_pack[s][d] is the stride of span s in dim d.
+        /// \param strides_pack strides_pack[s][d] is the stride of span s in dimension d.
+        /// \ingroup level1_ops
         constexpr mapping(extents_type const& exts,
                           std::array<std::array<index_type, Ext::rank()>, NumSpans> const& strides_pack) noexcept
             : extents_(exts), all_strides_(strides_pack)
@@ -259,6 +307,7 @@ template <std::size_t NumSpans> struct StridedZipLayout
 
         /// \brief Prepend one span’s strides before an existing mapping of N–1 spans.
         /// \tparam OtherExt  Extents type of the smaller mapping.
+        /// \ingroup level1_ops
         template <typename OtherExt>
         constexpr mapping(std::array<index_type, Ext::rank()> const& new_strides,
                           typename StridedZipLayout<num_spans - 1>::template mapping<OtherExt> const& other) noexcept
@@ -267,6 +316,7 @@ template <std::size_t NumSpans> struct StridedZipLayout
 
         /// \brief Append one span’s strides after an existing mapping of N–1 spans.
         /// \tparam OtherExt  Extents type of the smaller mapping.
+        /// \ingroup level1_ops
         template <typename OtherExt>
         constexpr mapping(typename StridedZipLayout<num_spans - 1>::template mapping<OtherExt> const& other,
                           std::array<index_type, Ext::rank()> const& new_strides) noexcept
@@ -276,20 +326,23 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \brief Merge two sub‑mappings whose span counts sum to NumSpans.
         /// \tparam LeftMap   Mapping of the first n spans.
         /// \tparam RightMap  Mapping of the remaining spans.
+        /// \ingroup level1_ops
         template <typename LeftMap, typename RightMap>
           requires(LeftMap::num_spans + RightMap::num_spans == num_spans)
         constexpr mapping(LeftMap const& left, RightMap const& right) noexcept
             : extents_(left.extents()), all_strides_(concat(left.all_strides(), right.all_strides()))
         {}
 
-        /// \brief Return the extents of the layout
-        /// \return The common extents of all of the child layouts
+        /// \brief Return the extents of the layout.
+        /// \return The common extents of all child layouts.
+        /// \ingroup level1_ops
         constexpr extents_type const& extents() const noexcept { return extents_; }
 
         /// \brief Compute per-span linear offsets for a multi‑index.
         /// \tparam Idx  Types of each index argument.
         /// \param idxs  Indices for each dimension.
         /// \return      Array of per-span offsets.
+        /// \ingroup level1_ops
         template <typename... Idx> constexpr offset_type operator()(Idx... idxs) const noexcept
         {
           static_assert(sizeof...(Idx) == Ext::rank(), "Wrong number of indices");
@@ -323,8 +376,10 @@ template <std::size_t NumSpans> struct StridedZipLayout
     };
 };
 
-// \brief Fallback “zip” layout for arbitrary mapping policies.
-/// Models the C++23 LayoutMappingPolicy requirements.
+/// \brief Fallback zip layout for arbitrary mapping policies.
+/// \details Models the C++23 LayoutMappingPolicy requirements.
+/// \tparam Layouts Child layout mapping policies to combine.
+/// \ingroup level1_ops
 template <typename... Layouts> struct GeneralZipLayout
 {
     template <typename Extents> struct mapping
@@ -338,20 +393,32 @@ template <typename... Layouts> struct GeneralZipLayout
         using offset_type = std::tuple<span_offset_t<typename Layouts::template mapping<Extents>>...>;
         using mapping_type = mapping<Extents>;
 
-        /// \brief Always unique for uni20 tensors
+        /// \brief Always unique for uni20 tensors.
+        /// \ingroup level1_ops
         static constexpr bool is_always_unique() noexcept { return true; }
         /// \brief Never exhaustive: no single contiguous backing buffer.
+        /// \ingroup level1_ops
         static constexpr bool is_always_exhaustive() noexcept { return false; }
-        /// \brief Not strided
+        /// \brief Not strided.
+        /// \ingroup level1_ops
         static constexpr bool is_always_strided() noexcept { return false; }
 
-        /// \brief Construct child mappings
+        /// \brief Construct child mappings.
+        /// \param ext Common extents shared by every mapping.
+        /// \param m   Child mappings stored within the layout.
+        /// \ingroup level1_ops
         explicit constexpr mapping(Extents const& ext, typename Layouts::template mapping<Extents> const&... m) noexcept
             : extents_(ext), impls_{m...}
         {}
 
+        /// \brief Access the common extents.
+        /// \return Shared extents across all child mappings.
+        /// \ingroup level1_ops
         constexpr extents_type const& extents() const noexcept { return extents_; }
 
+        /// \brief Return the maximum required span size among the child mappings.
+        /// \return Maximum number of elements any child mapping may touch.
+        /// \ingroup level1_ops
         constexpr std::size_t required_span_size() const noexcept
         {
           std::size_t max_sz = 0;
@@ -364,15 +431,28 @@ template <typename... Layouts> struct GeneralZipLayout
           return max_sz;
         }
 
+        /// \brief Compute the per-layout offsets for a given multi-index.
+        /// \tparam Idx Types of each index argument.
+        /// \param idxs Indices for each dimension.
+        /// \return Tuple containing offsets for every child mapping.
+        /// \ingroup level1_ops
         template <typename... Idx> constexpr offset_type operator()(Idx... idxs) const noexcept
         {
           return std::apply([&](auto const&... m) { return offset_type{m(idxs...)...}; }, impls_);
         }
 
+        /// \brief Compare two mappings for equality.
+        /// \param o Mapping to compare against.
+        /// \return True when both extents and child mappings match.
+        /// \ingroup level1_ops
         constexpr bool operator==(mapping const& o) const noexcept
         {
           return extents_ == o.extents_ && impls_ == o.impls_;
         }
+        /// \brief Compare two mappings for inequality.
+        /// \param o Mapping to compare against.
+        /// \return True when either extents or child mappings differ.
+        /// \ingroup level1_ops
         constexpr bool operator!=(mapping const& o) const noexcept { return !(*this == o); }
 
       private:
@@ -381,23 +461,25 @@ template <typename... Layouts> struct GeneralZipLayout
     };
 };
 
-/// \brief Picks the right Zip‑Layout for a pack of mdspan types.
-/// \tparam Spans  The mdspan types (e.g. stdex::mdspan<…>).
+/// \brief Picks the right zip layout for a pack of mdspan types.
+/// \tparam Spans  Mdspan types (for example, stdex::mdspan<…>).
+/// \ingroup level1_ops
 template <typename... Spans> struct zip_layout_selector
 {
     using type = GeneralZipLayout<typename Spans::layout_type...>;
 };
 
-/// \brief Specialization: if *all* Spans are StridedMdspan,
-///        use StridedZipLayout instead.
-/// \tparam Spans  The mdspan types.
+/// \brief Specialization that selects StridedZipLayout when all spans are strided.
+/// \tparam Spans  Mdspan types that satisfy StridedMdspan.
+/// \ingroup level1_ops
 template <StridedMdspan... Spans> struct zip_layout_selector<Spans...>
 {
     using type = StridedZipLayout<sizeof...(Spans)>;
 };
 
-/// \brief Alias to extract the chosen layout.
-/// \tparam Spans  The mdspan types.
+/// \brief Alias to extract the chosen layout policy for the given spans.
+/// \tparam Spans  Mdspan types.
+/// \ingroup level1_ops
 template <typename... Spans> using zip_layout_t = typename zip_layout_selector<Spans...>::type;
 
 } // namespace uni20

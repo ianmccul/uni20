@@ -101,6 +101,13 @@ This section defines how automated tools should detect, modify, and validate doc
 
 * Every Doxygen block must begin with `\brief`. Do *not* follow this with a blank line, unless readability demands it. Remove existing blank lines where where possible.
 * Always include `\param`, `\tparam`, and `\return` when applicable.
+* Only emit `\return` for callable entities (functions, lambdas, or overloaded operators)
+  whose declaration includes parentheses and is not a constructor or destructor.
+* Do NOT add `\return` for:
+  - typedefs, using-aliases
+  - structs, classes, enums, concepts
+  - variables or constants
+* Remove any spurious \return lines previously added to such declarations.
 * Maintain this tag order:
   `\brief`, `\details`, `\pre`, `\post`, `\throws`, `\note`, `\warning`, `\tparam`, `\param`, `\return`, `\ingroup`.
 * Preserve indentation relative to the documented entity.
@@ -135,6 +142,10 @@ When cleaning or generating documentation, automated agents must:
        /// \details Real numbers are unchanged by conjugation, so the value is returned verbatim.
        ///          The overload is `constexpr`, enabling compile-time evaluation for literal arguments.
        ```
+   * When adding or normalizing \ingroup tags:
+     - Apply \ingroup only to top-level declarations (functions, classes, aliases, concepts, etc.).
+     - Do not repeat \ingroup on members, nested types, or typedefs that reside within a grouped entity.
+     - Only reapply \ingroup if a nested entity belongs to a *different* group than its parent.
 
 3. **Maintain implementation commentary**
 

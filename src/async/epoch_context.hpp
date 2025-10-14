@@ -54,6 +54,7 @@ template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
 /// which means that the existing value is undetermined/invalid, and the writer is required
 /// to co_await on the buffer, or we enter an error state.
 /// The `counter_` tracks generation number for debugging.
+/// \ingroup async_core
 class EpochContext {
   public:
     EpochContext() = delete;
@@ -61,8 +62,9 @@ class EpochContext {
     /// \brief Construct a new epoch.
     /// \param prev Pointer to the previous epoch (if any).
     /// \param writer_already_done If true, this epoch begins in the "bootstrap" state.
-    ///
+    /// \param initial_value_initialized Whether the initial value should be treated as initialized.
     /// \post If \p writer_already_done is true, this epoch is considered immediately readable.
+    /// \ingroup async_core
     EpochContext(EpochContext const* prev, bool writer_already_done,
                  bool initial_value_initialized = true) noexcept
         : eptr_(prev ? prev->eptr_ : nullptr), writer_done_{writer_already_done}, writer_required_(false),
@@ -77,7 +79,8 @@ class EpochContext {
 
     /// \brief Construct a reverse-mode epoch, linked to the next one in time.
     /// \param next Pointer to the next epoch (i.e., earlier in forward time).
-    /// \param writer_already_done If true, this epoch begins in released state.
+    /// \param reverse Tag indicating that this is a reverse-mode epoch.
+    /// \ingroup async_core
     EpochContext(EpochContext const* next, std::integral_constant<bool, true> reverse)
         : writer_done_{false}, writer_required_(true), counter_(next ? next->counter_ - 1 : 0)
     {
@@ -93,6 +96,7 @@ class EpochContext {
     ///
     /// \note Each call increases the reference count for readers. Must be
     ///       matched with a corresponding call to reader_release().
+    /// \ingroup internal
     void reader_acquire() noexcept
     {
       // DEBUG_TRACE_MODULE(ASYNC, "reader_acquire()", this);
@@ -103,6 +107,8 @@ class EpochContext {
     ///
     /// \note Decreases the reader reference count. When all readers are released,
     ///       the epoch may be advanced by the queue.
+    /// \return true if this call released the final reader handle.
+    /// \ingroup internal
     bool reader_release() noexcept
     {
       // DEBUG_TRACE_MODULE(ASYNC, "reader_release()", this, created_readers_.load(std::memory_order_acquire),
@@ -116,6 +122,7 @@ class EpochContext {
     /// \param h The suspended reader task.
     /// \pre Must be called after reader_acquire().
     /// \note Stored coroutines are resumed when the epoch advances.
+    /// \ingroup async_core
     void reader_enqueue(AsyncTask&& h)
     {
       std::lock_guard lock(reader_mtx_);
@@ -123,22 +130,28 @@ class EpochContext {
     }
 
     /// \brief Are readers allowed to run?
-    /// \return true if the writer is done
+    /// \return true if the writer is done.
+    /// \ingroup async_core
     bool reader_is_ready() const noexcept { return this->writer_is_done(); }
 
     /// \brief Returns true if reading from the buffer right now would be an error condition
+    /// \return true if the buffer is in an error state.
+    /// \ingroup async_core
     bool reader_error() const noexcept
     {
       return this->reader_is_ready() && writer_required_.load(std::memory_order_acquire);
     }
 
     /// \brief returns the exception pointer set by the writer (nullptr, if no exception)
+    /// \return Exception pointer captured during writing, or nullptr if none.
+    /// \ingroup async_core
     std::exception_ptr reader_exception() const noexcept { return eptr_; }
 
     // EpochQueue interface
 
     /// \brief Extract all pending reader handles.
     /// \return Vector of reader handles.
+    /// \ingroup async_core
     std::vector<AsyncTask> reader_take_tasks() noexcept
     {
       TRACE_MODULE(ASYNC, created_readers_.load(std::memory_order_acquire));
@@ -154,9 +167,13 @@ class EpochContext {
     ///       Not valid for concurrent polling by external threads.
     ///
     /// \pre Caller must hold exclusive access to the epoch queue.
+    /// \return true if there are no outstanding readers.
+    /// \ingroup internal
     bool reader_is_empty() const noexcept { return created_readers_.load(std::memory_order_acquire) == 0; }
 
     /// \brief Link this epoch to its successor in the queue.
+    /// \param next Next epoch in the chain.
+    /// \ingroup internal
     void set_next(EpochContext* next) noexcept
     {
       next_.store(next, std::memory_order_release);
@@ -167,14 +184,20 @@ class EpochContext {
     }
 
     /// \brief Report whether the underlying value is currently initialized for this epoch.
+    /// \return true if the stored value can be safely read.
+    /// \ingroup async_core
     bool value_is_initialized() const noexcept { return value_initialized_.load(std::memory_order_acquire); }
 
     /// \brief Return the initialization state that should be inherited by the next epoch.
+    /// \return true if the next epoch should treat the value as initialized.
+    /// \ingroup internal
     bool value_initialized_for_next() const noexcept
     {
       return value_initialized_for_next_.load(std::memory_order_acquire);
     }
 
+    /// \brief Emit debugging information for this epoch.
+    /// \ingroup internal
     void show()
     {
       DEBUG_TRACE_MODULE(ASYNC, this, created_readers_.load(std::memory_order_acquire), reader_handles_.size(),
@@ -187,6 +210,7 @@ class EpochContext {
     // internal private used only by EpochContextWriter<T>
 
     /// \brief Acquire the writer role for this epoch.
+    /// \ingroup internal
     void writer_acquire() noexcept
     {
       // DEBUG_TRACE_MODULE(ASYNC, "writer_acquire", this);
@@ -196,6 +220,7 @@ class EpochContext {
     /// \brief Bind a coroutine to act as the writer.
     /// \param task The coroutine task to register.
     /// \pre Must follow writer_acquire(), and only be called once.
+    /// \ingroup async_core
     void writer_bind(AsyncTask&& task) noexcept
     {
       std::lock_guard lock(writer_task_mtx_);
@@ -214,6 +239,8 @@ class EpochContext {
 
     /// \brief Mark the writer as complete, releasing the epoch to readers.
     /// \pre Must follow writer_acquire(), and only be called once.
+    /// \return true if this call released the final writer.
+    /// \ingroup async_core
     bool writer_release() noexcept
     {
       DEBUG_CHECK(!writer_done_.load(std::memory_order_acquire));
@@ -234,15 +261,18 @@ class EpochContext {
 
     /// \brief Check if a writer coroutine has been bound.
     /// \return true if a writer task was assigned via await_suspend().
+    /// \ingroup async_core
     bool writer_has_task() const noexcept { return writer_task_set_.load(std::memory_order_acquire); }
 
     /// \brief Check if the writer has released the write gate.
     /// \return true if the epoch is ready for readers.
+    /// \ingroup async_core
     bool writer_is_done() const noexcept { return writer_done_.load(std::memory_order_acquire); }
 
     /// \brief Mark this epoch as requiring write; readers will be destroyed if no write occurs.
     /// \note This sets writer_required_ = true. If writer_release() is called without a prior write,
     ///       all reader coroutines will be destroyed.
+    /// \ingroup async_core
     void writer_require() noexcept
     {
       writer_required_.store(true, std::memory_order_release);
@@ -251,6 +281,7 @@ class EpochContext {
     }
 
     /// \brief Mark this epoch as successfully written.
+    /// \ingroup async_core
     void writer_has_written() noexcept
     {
       writer_required_.store(false, std::memory_order_release);
@@ -259,8 +290,14 @@ class EpochContext {
       this->propagate_value_initialized(true);
     }
 
+    /// \brief Determine whether the writer is still required to produce a value.
+    /// \return true if readers expect a write.
+    /// \ingroup async_core
     bool writer_is_required() const noexcept { return writer_required_.load(std::memory_order_acquire); }
 
+    /// \brief Record an exception thrown by the writer coroutine.
+    /// \param e Exception pointer to propagate to readers.
+    /// \ingroup async_core
     void writer_set_exception(std::exception_ptr e) noexcept
     {
       eptr_ = e;
@@ -269,7 +306,8 @@ class EpochContext {
     }
 
     /// \brief Transfer ownership of the bound writer coroutine.
-    /// \return The bound writer coroutine (may be null if another thread has already taken it)
+    /// \return The bound writer coroutine (may be null if another thread has already taken it).
+    /// \ingroup async_core
     AsyncTask writer_take_task() noexcept
     {
       DEBUG_TRACE_MODULE(ASYNC, "writer_take_task", this, counter_);
@@ -286,10 +324,15 @@ class EpochContext {
 
     // Informational interface
 
-    // return the epoch counter (generation number)
+    /// \brief Generation counter associated with this epoch.
+    /// \return Sequential identifier for debugging.
+    /// \ingroup async_core
     uint64_t counter() const noexcept { return counter_; }
 
   private:
+    /// \brief Propagate initialization state to the following epoch.
+    /// \param value Initialization flag to propagate.
+    /// \ingroup internal
     void propagate_value_initialized(bool value) noexcept
     {
       value_initialized_for_next_.store(value, std::memory_order_release);
@@ -299,6 +342,9 @@ class EpochContext {
       }
     }
 
+    /// \brief Adopt initialization state from the previous epoch.
+    /// \param value Initialization flag inherited from predecessor.
+    /// \ingroup internal
     void inherit_value_initialized(bool value) noexcept
     {
       if (!writer_required_.load(std::memory_order_acquire))
@@ -347,16 +393,24 @@ class buffer_cancelled : public std::exception {
 ///
 /// \note This type is move-only. Reader ownership must be transferred or dropped exactly once.
 /// \pre The epoch and parent must remain valid for the lifetime of the reader.
+/// \ingroup async_core
 template <typename T> class EpochContextReader {
   public:
     /// \brief Default-constructed inactive reader (no effect).
+    /// \ingroup async_core
     EpochContextReader() = default;
 
+    /// \brief Copy constructor retaining the reader reference count.
+    /// \ingroup async_core
     EpochContextReader(EpochContextReader const& other) : parent_(other.parent_), epoch_(other.epoch_)
     {
       if (epoch_) epoch_->reader_acquire();
     }
 
+    /// \brief Copy assignment retaining the reader reference count.
+    /// \param other Reader being copied from.
+    /// \return Reference to *this after copy.
+    /// \ingroup async_core
     EpochContextReader& operator=(EpochContextReader const& other)
     {
       if (this != &other)
@@ -372,6 +426,7 @@ template <typename T> class EpochContextReader {
     /// \brief Construct a new reader handle for a given parent and epoch.
     /// \param parent Pointer to the Async<T> owning the queue and data.
     /// \param epoch Pointer to the epoch being tracked.
+    /// \ingroup async_core
     EpochContextReader(detail::AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept
         : parent_(parent), epoch_(epoch)
     {
@@ -379,12 +434,17 @@ template <typename T> class EpochContextReader {
     }
 
     /// \brief Move constructor. Transfers ownership and nulls the source.
+    /// \param other Reader being moved from.
+    /// \ingroup async_core
     EpochContextReader(EpochContextReader&& other) noexcept : parent_(other.parent_), epoch_(other.epoch_)
     {
       other.epoch_ = nullptr;
     }
 
     /// \brief Move assignment. Releases prior ownership and transfers.
+    /// \param other Reader being moved from.
+    /// \return Reference to *this after transfer.
+    /// \ingroup async_core
     EpochContextReader& operator=(EpochContextReader&& other) noexcept
     {
       if (this != &other)
@@ -399,6 +459,7 @@ template <typename T> class EpochContextReader {
 
     /// \brief Destructor. Signals epoch reader completion if still active.
     /// \post If owning an epoch, marks reader done and notifies the queue.
+    /// \ingroup async_core
     ~EpochContextReader() { this->release(); }
 
 #if UNI20_DEBUG_DAG
@@ -408,6 +469,7 @@ template <typename T> class EpochContextReader {
 
     /// \brief Suspend a coroutine task as a reader of this epoch.
     /// \param t The coroutine task to register.
+    /// \ingroup async_core
     void suspend(AsyncTask&& t)
     {
       TRACE_MODULE(ASYNC, "suspend", &t, epoch_);
@@ -417,6 +479,7 @@ template <typename T> class EpochContextReader {
 
     /// \brief Check whether the reader is ready to resume.
     /// \return True if all prerequisites for this epoch are satisfied.
+    /// \ingroup async_core
     bool ready() const noexcept
     {
       DEBUG_PRECONDITION(epoch_, this);
@@ -426,6 +489,7 @@ template <typename T> class EpochContextReader {
     /// \brief Access the stored value inside the parent Async<T>.
     /// \return Reference to the T value.
     /// \pre The value must be ready. Should only be called after await_ready() returns true.
+    /// \ingroup async_core
     T const& data() const
     {
       DEBUG_PRECONDITION(epoch_, this);
@@ -460,8 +524,9 @@ template <typename T> class EpochContextReader {
     // \brief Optionally retrieves the value stored in this buffer, if available.
     ///
     /// \return A pointer to the value, if it is written, otherwise returns nullptr.
-    /// \throws Any exception stored in the writer, if the buffer is in an exception state
+    /// \throws Any exception stored in the writer, if the buffer is in an exception state.
     /// \pre The buffer must be ready for reading (i.e., the write gate is closed).
+    /// \ingroup async_core
     T const* data_maybe() const
     {
       DEBUG_PRECONDITION(epoch_, this);
@@ -482,6 +547,7 @@ template <typename T> class EpochContextReader {
     /// \throws Any exception stored in the writer, if the write failed exceptionally.
     /// \pre The buffer must be ready for reading (i.e., the write gate is closed).
     /// \post If a value is returned, it is a full copy and independent of the internal buffer.
+    /// \ingroup async_core
     std::optional<T> data_option() const
     {
       DEBUG_PRECONDITION(epoch_, this);
@@ -498,12 +564,15 @@ template <typename T> class EpochContextReader {
 
     /// \brief Check whether this epoch is at the front of the queue.
     /// \return True if the associated epoch is the head of the epoch queue.
+    /// \ingroup async_core
     bool is_front() const noexcept
     {
       DEBUG_PRECONDITION(epoch_, this);
       return parent_->queue_.is_front(epoch_);
     }
 
+    /// \brief Release the reader, notifying the queue when appropriate.
+    /// \ingroup async_core
     void release() noexcept
     {
       if (epoch_)
@@ -515,9 +584,12 @@ template <typename T> class EpochContextReader {
     }
 
     /// \brief Wait for the epoch to become available on the global scheduler, and then return a reference to the value
+    /// \ingroup async_core
     T const& get_wait() const;
 
     /// \brief Wait for the epoch to become available on the given scheduler, and then return a reference to the value
+    /// \param sched Scheduler used to drive readiness.
+    /// \ingroup async_core
     T const& get_wait(IScheduler& sched) const;
 
   private:
@@ -536,12 +608,17 @@ template <typename T> class EpochContextReader {
 template <typename T> class EpochContextWriter {
   public:
     /// \brief Construct an active writer.
+    /// \param parent Owning Async implementation pointer.
+    /// \param epoch Epoch tracked by this writer.
+    /// \ingroup async_core
     EpochContextWriter(detail::AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept
         : parent_(parent), epoch_(epoch)
     {
       if (epoch_) epoch_->writer_acquire();
     }
 
+    /// \brief Copy constructor acquiring a writer reference for diagnostics.
+    /// \ingroup async_core
     EpochContextWriter(EpochContextWriter const& other) : parent_(other.parent_), epoch_(other.epoch_)
     {
       if (epoch_) epoch_->writer_acquire();
@@ -549,11 +626,18 @@ template <typename T> class EpochContextWriter {
 
     EpochContextWriter& operator=(EpochContextWriter const&) = delete;
 
+    /// \brief Move constructor transferring the writer handle.
+    /// \param other Writer being moved from.
+    /// \ingroup async_core
     EpochContextWriter(EpochContextWriter&& other) noexcept : parent_(other.parent_), epoch_(other.epoch_)
     {
       other.epoch_ = nullptr;
     }
 
+    /// \brief Move assignment transferring the writer handle.
+    /// \param other Writer being moved from.
+    /// \return Reference to *this after transfer.
+    /// \ingroup async_core
     EpochContextWriter& operator=(EpochContextWriter&& other) noexcept
     {
       if (this != &other)
@@ -566,6 +650,8 @@ template <typename T> class EpochContextWriter {
       return *this;
     }
 
+    /// \brief Destructor releasing any held writer epoch.
+    /// \ingroup async_core
     ~EpochContextWriter() { this->release(); }
 
 #if UNI20_DEBUG_DAG
@@ -575,6 +661,7 @@ template <typename T> class EpochContextWriter {
 
     /// \brief Check whether the writer may proceed immediately.
     /// \return true if the writer is at the front of the queue.
+    /// \ingroup async_core
     bool ready() const noexcept
     {
       DEBUG_PRECONDITION(epoch_);
@@ -583,6 +670,7 @@ template <typename T> class EpochContextWriter {
 
     /// \brief Suspend the writer task and submit to the epoch queue.
     /// \param t The coroutine to bind and schedule.
+    /// \ingroup async_core
     void suspend(AsyncTask&& t)
     {
       DEBUG_PRECONDITION(epoch_);
@@ -591,7 +679,9 @@ template <typename T> class EpochContextWriter {
       parent_->queue_.on_writer_bound(epoch_);
     }
 
-    // Access the stored data.
+    /// \brief Access the stored data while holding the writer gate.
+    /// \return Mutable reference to the stored value.
+    /// \ingroup async_core
     T& data() const noexcept
     {
       DEBUG_PRECONDITION(parent_);                          // the parent_ must exist
@@ -605,6 +695,7 @@ template <typename T> class EpochContextWriter {
     ///
     /// \note This may be called explicitly or automatically by the destructor.
     ///       It is idempotent and safe to call more than once.
+    /// \ingroup async_core
     void release() noexcept
     {
       if (epoch_)
@@ -615,18 +706,24 @@ template <typename T> class EpochContextWriter {
       }
     }
 
+    /// \brief Require the writer to produce a value, canceling pending readers if omitted.
+    /// \ingroup async_core
     void writer_require() noexcept
     {
       DEBUG_PRECONDITION(epoch_);
       epoch_->writer_require();
     }
 
+    /// \brief Report whether the associated value is currently initialized.
+    /// \return true if the epoch reports initialized storage.
+    /// \ingroup async_core
     bool value_is_initialized() const noexcept
     {
       return epoch_ && epoch_->value_is_initialized();
     }
 
-    /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value
+    /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value.
+    /// \ingroup async_core
     T&& move_from_wait() const;
 
   private:

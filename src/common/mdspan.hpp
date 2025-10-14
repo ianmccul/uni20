@@ -1,5 +1,11 @@
 #pragma once
 
+/**
+ * \file mdspan.hpp
+ * \ingroup mdspan_ext
+ * \brief Wrapper that exposes the mdspan reference implementation and a formatter bridge.
+ */
+
 // use reference implementation
 #ifndef MDSPAN_IMPL_STANDARD_NAMESPACE
 #error "cmake configuration error: mdspan namespace is not defined"
@@ -9,6 +15,10 @@
 #include <format>
 #include <mdspan/mdspan.hpp>
 
+/// \brief Formatter specialization that prints extents in a human-readable form.
+/// \tparam IndexType Integral type used for runtime extents.
+/// \tparam Extents Compile-time extent values of the mdspan extents type.
+/// \ingroup mdspan_ext
 template <class IndexType, size_t... Extents> struct std::formatter<stdex::extents<IndexType, Extents...>>
 {
     constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }

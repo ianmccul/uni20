@@ -16,6 +16,7 @@ namespace uni20
 /// \brief Trait to pull an AccessorPolicy’s offset_type if present,
 ///        or fall back to std::size_t otherwise.
 /// \tparam AP  The accessor policy to inspect.
+/// \ingroup internal
 template <typename AP, typename = void> struct accessor_offset_type
 {
     using type = std::size_t;
@@ -27,12 +28,14 @@ template <typename AP> struct accessor_offset_type<AP, std::void_t<typename AP::
 };
 /// \brief Alias for accessor_offset_type<AP>::type.
 /// \tparam AP  The accessor policy to inspect.
+/// \ingroup internal
 template <typename AP> using accessor_offset_t = typename accessor_offset_type<AP>::type;
 
 /// \brief An mdspan accessor that applies an N‑ary functor to N child spans,
 ///        with maximal empty‑base optimizations.
 /// \tparam Func   A callable taking Spans::reference... and returning R.
 /// \tparam Spans  Zero or more mdspan types (must share extents & rank).
+/// \ingroup internal
 template <class Func, class... Spans>
 struct TransformAccessor : private Func // EBO if Func is empty
     ,
@@ -61,6 +64,10 @@ struct TransformAccessor : private Func // EBO if Func is empty
     /// \brief Perfect‑forwarding CTAD constructor.
     /// \tparam FwdFunc  Deduced type of the functor (can bind to temporaries).
     template <class FwdFunc>
+    /// \brief Perfect-forwarding constructor used by class template argument deduction.
+    /// \param f      Callable object to store within the accessor.
+    /// \param spans  Child spans whose accessors are captured.
+    /// \ingroup internal
     TransformAccessor(FwdFunc&& f, Spans const&... spans) noexcept(std::is_nothrow_constructible_v<Func, FwdFunc>)
         : Func(std::forward<FwdFunc>(f)), accessor_tuple(spans.accessor()...)
     {}
@@ -69,6 +76,7 @@ struct TransformAccessor : private Func // EBO if Func is empty
     /// \param handles  Tuple of current child data handles.
     /// \param rel      Tuple of per‑child offsets.
     /// \return         New tuple of advanced handles.
+    /// \ingroup internal
     constexpr data_handle_type offset(data_handle_type const& handles, offset_type const& rel) const noexcept
     {
       return offset_impl(handles, rel, std::make_index_sequence<sizeof...(Spans)>{});
@@ -78,6 +86,7 @@ struct TransformAccessor : private Func // EBO if Func is empty
     /// \param handles  Tuple of current child data handles.
     /// \param rel      Tuple of per‑child offsets.
     /// \return         Result of calling func_(child0, child1, ...).
+    /// \ingroup internal
     constexpr reference access(data_handle_type const& handles, offset_type const& rel) const noexcept
     {
       return access_impl(handles, rel, std::make_index_sequence<sizeof...(Spans)>{});
@@ -85,6 +94,7 @@ struct TransformAccessor : private Func // EBO if Func is empty
 
   private:
     /// \brief Helper: call each child.offset() and bundle new handles.
+    /// \ingroup internal
     template <std::size_t... I>
     constexpr data_handle_type offset_impl(data_handle_type const& handles, offset_type const& rel,
                                            std::index_sequence<I...>) const noexcept
@@ -93,6 +103,7 @@ struct TransformAccessor : private Func // EBO if Func is empty
     }
 
     /// \brief Helper: call each child.access() then Func::operator()(...).
+    /// \ingroup internal
     template <std::size_t... I>
     constexpr reference access_impl(data_handle_type const& handles, offset_type const& rel,
                                     std::index_sequence<I...>) const noexcept
@@ -105,6 +116,7 @@ struct TransformAccessor : private Func // EBO if Func is empty
 /// \brief CTAD guide: deduce TransformAccessor<Func,Spans...>
 /// \tparam Func   Functor type.
 /// \tparam Spans  Span types.
+/// \ingroup internal
 template <typename Func, typename... Spans>
 TransformAccessor(Func&&, Spans const&...) -> TransformAccessor<std::decay_t<Func>, Spans...>;
 
@@ -115,6 +127,7 @@ TransformAccessor(Func&&, Spans const&...) -> TransformAccessor<std::decay_t<Fun
 /// \param  spans  The input spans to zip (all must have identical extents).
 /// \return        An mdspan whose element at multi-index I is
 ///                f(spans0(I), spans1(I), …).
+/// \ingroup level1_ops
 template <typename Func, typename... Spans> auto zip_transform(Func&& f, Spans const&... spans)
 {
   static_assert(sizeof...(Spans) >= 1, "zip_transform needs at least one span");
@@ -148,6 +161,7 @@ template <typename Func, typename... Spans> auto zip_transform(Func&& f, Spans c
 /// \param  span  The input mdspan.
 /// \return       An mdspan view whose element(i…) == f(span(i…)), with the same layout_type and extents_type as \p
 /// span.
+/// \ingroup level1_ops
 template <typename Func, typename Span> auto zip_transform(Func&& f, Span const& span)
 {
   // build the transform‐accessor

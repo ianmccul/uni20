@@ -31,9 +31,12 @@ class EpochQueue {
 
   public:
     /// \brief Default-construct an empty epoch queue.
+    /// \ingroup async_core
     EpochQueue() = default;
 
     /// \brief Establish the initial epoch state before any readers or writers are created.
+    /// \param value_initialized True if the initial epoch already contains a valid value.
+    /// \ingroup async_core
     void initialize(bool value_initialized)
     {
       std::lock_guard lock(mtx_);
@@ -48,6 +51,7 @@ class EpochQueue {
     /// \tparam T The data type managed by the Async container.
     /// \param parent Pointer to the owning Async<T> instance.
     /// \return A new EpochContextReader<T> bound to the back of the queue.
+    /// \ingroup async_core
     template <typename T> EpochContextReader<T> create_read_context(detail::AsyncImplPtr<T> const& parent)
     {
       std::lock_guard lock(mtx_);
@@ -59,6 +63,7 @@ class EpochQueue {
 
     /// \brief Check if there are pending writers ahead of reads.
     /// \return true if any writer is still pending.
+    /// \ingroup async_core
     bool has_pending_writers() const noexcept
     {
       std::lock_guard lock(mtx_);
@@ -71,6 +76,7 @@ class EpochQueue {
     /// \tparam T The data type managed by the Async container.
     /// \param parent Pointer to the owning Async<T> instance.
     /// \return A new EpochContextWriter<T> bound to the back of the queue.
+    /// \ingroup async_core
     template <typename T> EpochContextWriter<T> create_write_context(detail::AsyncImplPtr<T> const& parent)
     {
       std::lock_guard lock(mtx_);
@@ -97,12 +103,18 @@ class EpochQueue {
     /// \brief Prepend a new epoch to the front of the queue.
     /// \return {EpochContextWriter, EpochContextReader} to the new front epoch.
     /// \pre The current front epoch must not have a writer bound.
+    /// \ingroup async_core
     template <typename T> struct EpochPair
     {
         EpochContextWriter<T> writer;
         EpochContextReader<T> reader;
     };
 
+    /// \brief Create a new epoch at the front of the queue for reverse-mode operations.
+    /// \tparam T The data type managed by the Async container.
+    /// \param parent Pointer to the owning Async<T> instance.
+    /// \return Writer/reader handles for the new epoch.
+    /// \ingroup async_core
     template <typename T> EpochPair<T> prepend_epoch(detail::AsyncImplPtr<T> const& parent)
     {
       std::lock_guard lock(mtx_);
@@ -126,6 +138,7 @@ class EpochQueue {
 
     /// \brief Called when a writer coroutine is bound to its epoch.
     /// \param e Epoch to which the writer was bound.
+    /// \ingroup async_core
     void on_writer_bound(EpochContext* e) noexcept
     {
       std::unique_lock lock(mtx_);
@@ -145,19 +158,15 @@ class EpochQueue {
     }
 
     /// \brief Conditionally enqueue or immediately schedule a reader task.
-    ///
-    /// This is called by EpochContextReader to register a suspended coroutine
-    /// associated with an epoch. If the epoch is already at the front of the
-    /// queue and the writer has completed, the task is scheduled immediately
-    /// without being enqueued.
-    ///
+    /// \details Called by EpochContextReader to register a suspended coroutine associated with an epoch. If the
+    ///          epoch is already at the front of the queue and the writer has completed, the task is scheduled
+    ///          immediately without being enqueued.
     /// \param e The EpochContext associated with the reader.
     /// \param task The suspended coroutine representing the reader.
-    ///
-    /// \note This method must only be called after the reader has been acquired.
-    ///       The queue mutex is held during the readiness check to ensure atomicity.
-    ///       If the epoch is not ready, the task is stored inside the epoch
-    ///       until the queue advances and schedules it.
+    /// \note This method must only be called after the reader has been acquired. The queue mutex is held during
+    ///       the readiness check to ensure atomicity. If the epoch is not ready, the task is stored inside the
+    ///       epoch until the queue advances and schedules it.
+    /// \ingroup async_core
     void enqueue_reader(EpochContext* e, AsyncTask&& task)
     {
       std::unique_lock lock(mtx_);
@@ -182,6 +191,7 @@ class EpochQueue {
 
     /// \brief Called when a write gate is released (writer done).
     /// \param e Epoch whose writer has completed.
+    /// \ingroup async_core
     void on_writer_done(EpochContext* e) noexcept
     {
       TRACE_MODULE(ASYNC, "Writer has finished", e, head_ ? &head_->ctx : nullptr);
@@ -222,14 +232,12 @@ class EpochQueue {
     }
 
     /// \brief Called when the last reader of an EpochContext has been released.
-    ///
-    /// Invoked by EpochContextReader only when the reference count reaches zero.
-    /// If this epoch is the front of the queue and the writer is also done,
-    /// the epoch can be safely removed.
-    ///
+    /// \details Invoked by EpochContextReader only when the reference count reaches zero. If this epoch is the
+    ///          front of the queue and the writer is also done, the epoch can be safely removed.
     /// \param e Epoch whose final reader has been released.
-    /// \note It is possible for all readers to be released before the writer is fired,
-    ///       if a ReadBuffer is destroyed or released before `await_suspend()` occurs.
+    /// \note It is possible for all readers to be released before the writer is fired if a ReadBuffer is destroyed
+    ///       or released before await_suspend() occurs.
+    /// \ingroup async_core
     void on_all_readers_released(EpochContext* e) noexcept
     {
       DEBUG_CHECK(e->reader_is_empty());
@@ -250,6 +258,7 @@ class EpochQueue {
     /// \brief Check if a given epoch is at the front of the queue.
     /// \param e Epoch to test.
     /// \return true if \p e is the front epoch.
+    /// \ingroup async_core
     bool is_front(const EpochContext* e) const noexcept
     {
       std::lock_guard lock(mtx_);
@@ -259,6 +268,7 @@ class EpochQueue {
 
   private:
     /// \brief Advance the queue by scheduling next writer/readers as appropriate.
+    /// \ingroup internal
     void advance() noexcept
     {
       while (true)
@@ -315,6 +325,8 @@ class EpochQueue {
       }
     }
 
+    /// \brief Remove completed epochs at the front while the queue mutex is held.
+    /// \ingroup internal
     void prune_front_locked()
     {
       while (head_ && head_->ctx.writer_is_done() && head_->ctx.reader_is_empty() && head_->next)
@@ -325,6 +337,8 @@ class EpochQueue {
       }
     }
 
+    /// \brief Pop the front epoch while holding the queue mutex.
+    /// \ingroup internal
     void pop_front_locked()
     {
       auto old_head = std::move(head_);
@@ -340,6 +354,8 @@ class EpochQueue {
       }
     }
 
+    /// \brief Lazily create the bootstrap epoch if none exists.
+    /// \ingroup internal
     void ensure_initial_epoch_locked()
     {
       if (head_) return;

@@ -12,6 +12,9 @@
 namespace uni20
 {
 
+/// \brief Accessor that sums elements from multiple child spans.
+/// \tparam Spans Pack of StridedMdspan types participating in the sum.
+/// \ingroup internal
 template <StridedMdspan... Spans> struct SumAccessor
 {
     static constexpr std::size_t NumSpans = sizeof...(Spans);
@@ -33,21 +36,34 @@ template <StridedMdspan... Spans> struct SumAccessor
     // True element type (handles proxy references)
     using element_type = uni20::remove_proxy_reference_t<reference>;
 
-    // Store each span’s accessor instance
+    /// \brief Store each span's accessor instance.
+    /// \param accs Accessor objects sourced from each input span.
+    /// \ingroup internal
     constexpr SumAccessor(typename Spans::accessor_type const&... accs) : accessors_(accs...) {}
 
-    // Delegate to each contained accessor.offset():
+    /// \brief Delegate to each contained accessor.offset().
+    /// \param handles Tuple of child data handles.
+    /// \param rel     Per-child relative offsets produced by the mapping.
+    /// \return Tuple of advanced data handles.
+    /// \ingroup internal
     constexpr data_handle_type offset(data_handle_type const& handles, offset_type rel) const noexcept
     {
       return offset_impl(handles, rel, std::make_index_sequence<NumSpans>{});
     }
 
-    // index via the array of offsets
+    /// \brief Index via the array of offsets.
+    /// \param h   Tuple of child data handles.
+    /// \param rel Per-child offsets relative to the common origin.
+    /// \return    Sum of the referenced elements.
+    /// \ingroup internal
     constexpr reference access(data_handle_type const& h, offset_type rel) const noexcept
     {
       return access_impl(h, rel, std::make_index_sequence<NumSpans>{});
     }
 
+    /// \brief Access the stored accessor tuple.
+    /// \return Tuple containing the original accessors.
+    /// \ingroup internal
     accessor_tuple const& get_accessors() const noexcept { return accessors_; }
 
   private:
@@ -70,28 +86,38 @@ template <StridedMdspan... Spans> struct SumAccessor
     accessor_tuple accessors_;
 };
 
-// Trait to detect SumAccessor instantiations
+/// \brief Trait to detect SumAccessor instantiations.
+/// \tparam T Candidate accessor type.
+/// \ingroup internal
 template <typename T> struct is_sum_accessor : std::false_type
 {};
 
+/// \brief Specialization for SumAccessor instantiations.
+/// \tparam Spans Pack of mdspan types used by the accessor.
+/// \ingroup internal
 template <typename... Spans> struct is_sum_accessor<SumAccessor<Spans...>> : std::true_type
 {};
 
+/// \brief Convenience boolean for the is_sum_accessor trait.
+/// \tparam T Candidate accessor type.
+/// \ingroup internal
 template <typename T> inline constexpr bool is_sum_accessor_v = is_sum_accessor<T>::value;
 
+/// \brief Concept that detects mdspans using SumAccessor.
+/// \tparam MDS Mdspan type to inspect.
+/// \ingroup internal
 template <class MDS>
 concept SumMdspan = is_sum_accessor_v<typename MDS::accessor_type>;
 
-/// \brief  Element‐wise sum of one or more strided mdspans.
-///
-/// For each index tuple (i₀,…,i{Rank−1}), returns
+/// \brief Element-wise sum of one or more strided mdspans.
+/// \details For each index tuple (i₀,…,i{Rank−1}) the resulting view evaluates to
 /// <code>first(i₀,…,i{Rank−1}) + rest₀(i₀,…,i{Rank−1}) + … + restₙ(i₀,…,i{Rank−1})</code>.
-///
-/// \tparam First  The first strided mdspan type (\c layout_stride).
-/// \tparam Rest   Zero or more additional strided mdspan types.
-/// \param  first  The first operand: a raw mdspan view.
-/// \param  rest   The remaining operands: raw mdspan views.
-/// \return        A new mdspan whose elements are the sum of all inputs.
+/// \tparam First First strided mdspan type (typically layout_stride based).
+/// \tparam Rest  Zero or more additional strided mdspan types.
+/// \param first  First operand as a raw mdspan view.
+/// \param rest   Remaining operands as raw mdspan views.
+/// \return Mdspan whose elements are the sum of all inputs.
+/// \ingroup level1_ops
 template <StridedMdspan First, StridedMdspan... Rest> auto sum_view(First const& first, Rest const&... rest)
 {
   static_assert((... && (First::rank() == Rest::rank())), "sum_view: rank mismatch");
@@ -155,11 +181,15 @@ template <typename SA, typename SB> using join_sum_acc_t = typename join_sum_acc
 
 } // namespace detail
 
+/// \brief Sum of a raw strided mdspan and an existing sum-mdspan.
 /// \overload
-/// \brief  Sum of a raw strided mdspan and an existing sum‑mdspan.
-///
-/// Prepends one more span \c A to the front of a \c SumMdspan \c B.  Otherwise
-/// the parameter names and return value are the same as the primary overload.
+/// \details Prepends one more span \c A to the front of a \c SumMdspan \c B.
+/// \tparam A Raw strided mdspan type.
+/// \tparam B Sum mdspan type.
+/// \param a New leading operand.
+/// \param b Existing sum view.
+/// \return Mdspan view representing a + b (element-wise).
+/// \ingroup level1_ops
 template <StridedMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute merged extents type & object
@@ -188,11 +218,15 @@ template <StridedMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
   return stdex::mdspan<typename accessor_type::element_type, CE, NewLayout, accessor_type>{handles, map, accessor};
 }
 
+/// \brief Sum of an existing sum-mdspan and a raw strided mdspan.
 /// \overload
-/// \brief  Sum of an existing sum‑mdspan and a raw strided mdspan.
-///
-/// Appends one more span \c B to the end of a \c SumMdspan \c A.  Otherwise
-/// the parameter names and return value are the same as the primary overload.
+/// \details Appends one more span \c B to the end of a \c SumMdspan \c A.
+/// \tparam A Existing sum mdspan type.
+/// \tparam B Raw strided mdspan type.
+/// \param a Existing sum view.
+/// \param b New trailing operand.
+/// \return Mdspan view representing a + b (element-wise).
+/// \ingroup level1_ops
 template <SumMdspan A, StridedMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute the merged extents type & object
@@ -221,12 +255,16 @@ template <SumMdspan A, StridedMdspan B> auto sum_view(A const& a, B const& b)
   return stdex::mdspan<typename accessor_type::element_type, CE, NewLayout, accessor_type>{handles, map, accessor};
 }
 
+/// \brief Sum of two existing sum-mdspans.
 /// \overload
-/// \brief  Sum of two existing sum‑mdspans.
-///
-/// Flattens both \c A and \c B into a single new sum‑mdspan (i.e.
-/// `A₀ + A₁ + … + B₀ + B₁ + …`).  Otherwise the parameter names and return
-/// value are the same as the primary overload.
+/// \details Flattens both \c A and \c B into a single new sum-mdspan (i.e.
+/// `A₀ + A₁ + … + B₀ + B₁ + …`).
+/// \tparam A First sum mdspan type.
+/// \tparam B Second sum mdspan type.
+/// \param a First sum view.
+/// \param b Second sum view.
+/// \return Mdspan view representing the concatenated sum of all operands.
+/// \ingroup level1_ops
 template <SumMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 {
   // Compute the merged extents type & object

@@ -182,8 +182,8 @@ foreach(module IN LISTS SUBMODULES)
     set(default_value OFF)
   endif()
 
-  # This creates options like ENABLE_TRACE_BLAS2, ENABLE_TRACE_BLAS3, etc.
-  option(ENABLE_TRACE_${MODULE_UPPER} "Enable tracing for ${module}" ${default_value})
+  # This creates options like UNI20_ENABLE_TRACE_BLAS2, UNI20_ENABLE_TRACE_BLAS3, etc.
+  option(UNI20_ENABLE_TRACE_${MODULE_UPPER} "Enable tracing for ${module}" ${default_value})
 endforeach()
 
 include(FetchContent)
@@ -241,44 +241,6 @@ uni20_add_dependency(
     "TBB_BUILD_TESTS=OFF"
 )
 
-
-# # oneAPI TBB (Threading Building Blocks)
-# # this makes available TBB::tbb and TBB::tbbmalloc
-#
-# # Intel TBB libraries, as of v2022.2.0, use deprecated std::aligned_storage in test/common/container_move_support.h
-# # disable building the TBB tests
-# set(TBB_TEST OFF CACHE BOOL "Disable TBB tests" FORCE)
-#
-# if(UNI20_USE_SYSTEM_TBB)
-#   find_package(TBB 2021 QUIET COMPONENTS tbb)
-# endif()
-#
-# if(TBB_FOUND)
-#   message(STATUS "Using system TBB: ${TBB_DIR}")
-#   set(UNI20_TBB_SOURCE "system")
-# else()
-#   message(STATUS "System TBB not found — fetching oneTBB via FetchContent")
-#
-#   include(FetchContent)
-#   FetchContent_Declare(
-#     tbb
-#     GIT_REPOSITORY https://github.com/uxlfoundation/oneTBB
-#     GIT_TAG v2022.2.0
-#   )
-#   FetchContent_MakeAvailable(tbb)
-#   relax_warnings(TBB::tbb)
-#
-#   set(UNI20_TBB_SOURCE "fetched")
-# endif()
-
-# # If requested, relax warnings for external libraries
-# if(UNI20_EXTERNAL_NO_WERROR)
-#   get_target_property(tbb_sources TBB::tbb SOURCES)
-#   if(tbb_sources)
-#     set_source_files_properties(${tbb_sources} PROPERTIES COMPILE_FLAGS "${UNI20_WARN_FLAGS_EXTERNAL}")
-#   endif()
-# endif()
-
 # If sanitizers are enabled, exclude them from TBB (known incompatibility).
 if(UNI20_SANITIZE)
   string(FIND "${UNI20_SANITIZE}" "address" _has_asan)
@@ -331,34 +293,6 @@ if(UNI20_BUILD_BENCH)
       "BENCHMARK_ENABLE_INSTALL=OFF"
       "BENCHMARK_ENABLE_EXCEPTIONS=ON"
   )
-
-  # if(UNI20_USE_SYSTEM_BENCHMARK)
-  #   find_package(benchmark QUIET)
-  # endif()
-  #
-  # if(benchmark_FOUND)
-  #   message(STATUS "Using system Google Benchmark: ${benchmark_DIR}")
-  #   set(UNI20_BENCHMARK_SOURCE "system")
-  # else()
-  #   message(STATUS "System Google Benchmark not found — fetching via FetchContent")
-  #
-  #   include(FetchContent)
-  #   FetchContent_Declare(
-  #     benchmark
-  #     GIT_REPOSITORY https://github.com/google/benchmark.git
-  #     GIT_TAG v1.9.4
-  #     # URL https://github.com/google/benchmark/archive/refs/tags/v1.9.4.tar.gz
-  #   )
-  #
-  #   # Disable Google Benchmark’s own tests and examples
-  #   set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable Google Benchmark tests" FORCE)
-  #   set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "Disable Google Benchmark GTest integration tests" FORCE)
-  #   set(BENCHMARK_ENABLE_EXCEPTIONS ON CACHE BOOL "Enable exceptions in Google Benchmark" FORCE)
-  #
-  #   FetchContent_MakeAvailable(benchmark)
-  #
-  #   set(UNI20_BENCHMARK_SOURCE "fetched")
-  # endif()
 endif()
 
 # Create an interface library for common dependencies

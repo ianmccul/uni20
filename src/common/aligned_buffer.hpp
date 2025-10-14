@@ -1,27 +1,19 @@
 #pragma once
 
 /**
- * @file aligned_buffer.hpp
- * @brief Aligned, (un)initialized and temporary buffer allocation utilities.
- *
- * This header provides low-overhead, cache-line-aligned buffers, as
- * std::unique_ptr<T[], deleter>
- *
- *   - allocate_temporary_buffer<T>(N, align)
- *     If T is trivially copyable, gives raw storage; otherwise placement-news
- *     each T and automatically runs dtors on free. This is always safe to
- *     use with no need to use placement-new or manual destruction.
- *
- *   - allocate_temporary_buffer_uninitialized<T>(N, align)
- *     Always gives raw storage, but for non-trivial T will run dtors on free
- *     (caller still must placement-new before use).
- *
- *   - allocate_uninitialized_buffer<T>(N, align)
- *     Returns a unique_ptr<T[]> of raw storage for N Ts—**no** constructors
- *     or destructors ever run.  If T requires non-trivial construction or
- *     destruction then the caller must use placement-new and std::destroy_n.
- *
- * @note All returned unique_ptrs are aligned to `align` bytes (default 64).
+ * \file aligned_buffer.hpp
+ * \brief Aligned, (un)initialized and temporary buffer allocation utilities.
+ * \defgroup common_utilities Core support utilities
+ * \details
+ *   This header provides low-overhead, cache-line-aligned buffers, exposed as
+ *   `std::unique_ptr<T[], Deleter>` factories:
+ *   - `allocate_temporary_buffer<T>(N, align)` constructs elements when
+ *     required and cleans them up automatically.
+ *   - `allocate_temporary_buffer_uninitialized<T>(N, align)` returns raw
+ *     storage but still ensures destructors run on release.
+ *   - `allocate_uninitialized_buffer<T>(N, align)` exposes raw storage without
+ *     ever invoking constructors or destructors.
+ * \note All returned unique_ptr instances are aligned to `align` bytes (default 64).
  */
 
 #include <algorithm>
@@ -37,8 +29,9 @@ namespace uni20
 namespace detail
 {
 
-/// \brief Stateless deleter: frees aligned memory, does NOT call any destructors.
-/// \tparam T element type
+/// \brief Stateless deleter that frees aligned memory without invoking destructors.
+/// \tparam T Element type held in the buffer.
+/// \ingroup internal
 template <typename T> struct aligned_deleter
 {
     void operator()(T* p) const noexcept
@@ -52,8 +45,9 @@ template <typename T> struct aligned_deleter
     }
 };
 
-/// \brief Deleter which calls each element's destructor, then frees aligned memory.
-/// \tparam T element type
+/// \brief Deleter that destroys each element before freeing aligned memory.
+/// \tparam T Element type held in the buffer.
+/// \ingroup internal
 template <typename T> struct aligned_destructor_deleter
 {
     std::size_t count;
@@ -75,10 +69,12 @@ template <typename T> struct aligned_destructor_deleter
     }
 };
 
-/// \brief Allocate `bytes` aligned to `align`, but if `bytes < align`,
-///        reduce alignment to the largest power-of-two ≤ bytes,
-///        with a floor of sizeof(void*).
-/// \throws std::bad_alloc
+/// \brief Allocate raw storage with the requested alignment, adjusting for small buffers.
+/// \param bytes Total number of bytes requested.
+/// \param align Desired alignment in bytes.
+/// \return Pointer to aligned storage suitable for manual placement new.
+/// \throws std::bad_alloc If the allocation fails.
+/// \ingroup internal
 inline void* allocate_raw(std::size_t bytes, std::size_t align)
 {
   // if the buffer is smaller than the requested alignment,
@@ -108,51 +104,50 @@ inline void* allocate_raw(std::size_t bytes, std::size_t align)
   return ptr;
 }
 
-/// \brief Alias for a raw buffer of `T[]` with no-ctor/no-dtor semantics.
-/// Ownership = free via `std::free` / `_aligned_free`.
+/// \brief Alias for a raw buffer of `T[]` with no-constructor and no-destructor semantics.
+/// \tparam T Element type owned by the buffer.
+/// \ingroup internal
 template <typename T> using aligned_buf_t = std::unique_ptr<T[], aligned_deleter<T>>;
 
-/// \brief Alias for a buffer of `T[]` whose deleter will run dtors then free.
+/// \brief Alias for a buffer of `T[]` whose deleter destroys elements before freeing storage.
+/// \tparam T Element type owned by the buffer.
+/// \ingroup internal
 template <typename T> using aligned_buf_with_dtor_t = std::unique_ptr<T[], aligned_destructor_deleter<T>>;
 
 } // namespace detail
 
-/// \brief True for any T that can be safely copied into raw storage.
-/// \note implies trivial copy-ctor, trivial move-ctor, trivial dtor.
+/// \brief Concept that evaluates to true when `T` can be copied into raw storage safely.
+/// \note Implies trivial copy constructor, move constructor, and destructor.
+/// \tparam T Candidate element type.
+/// \ingroup common_utilities
 template <typename T>
 concept uninitialized_ok = std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>;
 
-/// \brief Allocate raw, aligned storage for `T[N]`, **no ctors or dtors run**.
-/// \note If `T` is *not* trivially copyable, you must:
-///   1. Placement-new each element before use:
-///      \code
-///      auto buf = allocate_uninitialized_buffer<MyType>(N);
-///      MyType* p = buf.get();
-///      for(size_t i = 0; i < N; ++i)
-///        new (p + i) MyType(/*ctor args*/);
-///      \endcode
-///   2. When you’re done, call destructors *before* the buffer is freed:
-///      \code
-///      std::destroy_n(p, N);            // #include <memory>
-///      \endcode
-/// \tparam T   element type
-/// \param N   how many Ts to allocate
-/// \param align byte‐alignment (default 64)
-/// \returns unique_ptr that will free the raw storage (no dtors)
+/// \brief Allocate raw, aligned storage for `T[N]` without running constructors or destructors.
+/// \details When `T` is not trivially copyable you must placement-new each element before use
+///          and invoke `std::destroy_n` prior to releasing the buffer.
+/// \tparam T Element type stored in the buffer.
+/// \param N Number of elements to allocate.
+/// \param align Byte alignment for the allocation (defaults to 64).
+/// \return Unique pointer that releases the raw storage without invoking destructors.
+/// \throws std::bad_alloc If allocation fails.
+/// \ingroup common_utilities
 template <typename T> detail::aligned_buf_t<T> allocate_uninitialized_buffer(std::size_t N, std::size_t align = 64)
 {
   void* raw = detail::allocate_raw(sizeof(T) * N, align);
   return detail::aligned_buf_t<T>(static_cast<T*>(raw), detail::aligned_deleter<T>{});
 }
 
-/// \brief Allocate a temporary buffer of `T[N]`, aligned to `align`.
-///        - If `T` is trivially_initializable, the buffer is left uninitialized.
-///        - Otherwise each `T` is default-constructed in-place, and
-///          on destruction each dtor is run before freeing.
-/// \param N     number of elements
-/// \param align alignment in bytes
-/// \returns unique_ptr that owns the memory and runs dtors if needed.
-/// \throws std::bad_alloc
+/// \brief Allocate a temporary buffer of `T[N]` aligned to `align`.
+/// \details
+///   - If `T` is trivially initializable, the buffer is left uninitialized.
+///   - Otherwise each `T` is default-constructed and the deleter runs destructors before freeing.
+/// \tparam T Element type stored in the buffer.
+/// \param N Number of elements to allocate.
+/// \param align Alignment in bytes.
+/// \return Unique pointer owning the memory and running destructors when needed.
+/// \throws std::bad_alloc If allocation fails.
+/// \ingroup common_utilities
 template <typename T> auto allocate_temporary_buffer(std::size_t N, std::size_t align = 64)
 {
   if constexpr (uninitialized_ok<T>)
@@ -177,10 +172,15 @@ template <typename T> auto allocate_temporary_buffer(std::size_t N, std::size_t 
   }
 }
 
-/// Allocate a temporary buffer of T[N], **always uninitialized**, but
-/// for non‐trivial T will call ~~T()~~ on each element when freed.
-/// You must placement‐new() each element before use if T isn’t
-/// trivially‐copyable.
+/// \brief Allocate a temporary buffer of `T[N]` that is always uninitialized.
+/// \details The deleter destroys elements for non-trivial types, so callers must placement-new
+///          each element before use when `T` is not trivially copyable.
+/// \tparam T Element type stored in the buffer.
+/// \param N Number of elements to allocate.
+/// \param align Alignment in bytes.
+/// \return Unique pointer owning the memory and running destructors when needed.
+/// \throws std::bad_alloc If allocation fails.
+/// \ingroup common_utilities
 template <typename T> auto allocate_temporary_buffer_uninitialized(std::size_t N, std::size_t align = 64)
 {
   if constexpr (uninitialized_ok<T>)

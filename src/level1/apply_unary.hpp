@@ -12,13 +12,12 @@ namespace uni20
 {
 
 /// \brief Represents a single dimension's extent and its corresponding stride.
-///
-/// Used for creating iteration plans for multidimensional memory traversal.
-/// The extent is the size along that dimension, and the stride is the number
-/// of memory units to jump to reach the next element in that dimension.
-///
-/// \param Index Integer type for memory strides (usually signed).
-/// \param Size  Integer type for extents (usually unsigned).
+/// \details Used for creating iteration plans for multidimensional memory traversal.
+/// The extent is the size along that dimension, and the stride is the number of
+/// memory units to jump to reach the next element in that dimension.
+/// \tparam ExtentT Integer type for extents (usually unsigned).
+/// \tparam StrideT Integer type for memory strides (usually signed).
+/// \ingroup internal
 template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> struct extent_stride
 {
     ExtentT extent;
@@ -27,18 +26,21 @@ template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> str
     constexpr extent_stride() = default;
     constexpr extent_stride(ExtentT extent, StrideT stride) : extent(extent), stride(stride) {}
 
-    /// @brief Returns true if the current (outer) dimension and the given inner dimension can be merged.
-    ///
-    /// Coalescing is allowed if the inner dimension's stride equals the outer stride multiplied by the outer extent.
+    /// \brief Check if the current outer dimension and the inner dimension can be merged.
+    /// \details Coalescing is allowed when the inner stride equals the outer stride multiplied by the outer extent.
     /// This ensures a contiguous memory layout between the two.
+    /// \param inner Candidate inner dimension.
+    /// \return True when the contiguity requirement holds.
+    /// \ingroup internal
     constexpr bool can_merge_with_inner(extent_stride inner) const noexcept
     {
       return stride == inner.stride * static_cast<StrideT>(inner.extent);
     }
 
-    /// @brief Merge an inner dimension into this one (assuming can_merge_with_inner returns true).
-    ///
-    /// After merging, the extent becomes the product, and the stride is updated to the inner stride.
+    /// \brief Merge an inner dimension into this one.
+    /// \details After merging, the extent becomes the product and the stride is updated to the inner stride.
+    /// \param inner Dimension that satisfies can_merge_with_inner.
+    /// \ingroup internal
     constexpr void merge_with_inner(extent_stride inner) noexcept
     {
       extent *= inner.extent;
@@ -47,20 +49,12 @@ template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> str
 };
 
 /// \brief Create a coalesced iteration plan for looping over a strided layout.
-///
-/// This function analyzes the layout of a tensor (represented by an mdspan mapping)
-/// and produces a compact, optimized loop plan:
-///   - Negative strides are flipped and an offset is computed
-///   - Dimensions with zero extent are dropped
-///   - Dimensions are sorted by stride (largest first = outermost loop)
-///   - Contiguous dimensions are coalesced into a single loop
-///
-/// \tparam Mapping A layout mapping type (e.g. layout_stride::mapping<Extents>)
-/// \param mapping The layout mapping to analyze
-/// \return A pair of:
-///   - `static_vector<extent_stride<size_type, index_type>, Rank>`: the compact loop plan
-///   - `index_type offset`: the base offset from the data pointer
-///
+/// \details Negative strides are flipped to positive by adjusting the offset, zero-extent
+/// dimensions are dropped, and contiguous dimensions are coalesced.
+/// \tparam Mapping Layout mapping type (for example, layout_stride::mapping<Extents>).
+/// \param mapping Layout mapping to analyze.
+/// \return Pair of the compact loop plan and the base offset from the data pointer.
+/// \ingroup internal
 template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& mapping)
 {
   using size_type = typename Mapping::size_type;
@@ -122,11 +116,19 @@ template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& 
 //   }
 // }
 
+/// \brief Trait detecting whether an mdspan-like accessor exposes offset().
+/// \tparam T Accessor policy type to probe.
+/// \ingroup internal
 template <typename T> constexpr bool HasOffset = requires(T const& t) { t.offset(); };
 
 namespace detail
 {
 
+/// \brief Helper that executes nested loops according to an iteration plan.
+/// \tparam DataHandle Data handle type from the mdspan.
+/// \tparam Accessor   Accessor policy associated with the mdspan.
+/// \tparam Op         Unary callable applied to each element.
+/// \ingroup internal
 template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelper
 {
     DataHandle data_;
@@ -189,6 +191,11 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
       }
     }
 
+    /// \brief Dispatch to the unrolled or dynamic traversal depending on depth.
+    /// \param Offset Current offset in the data handle.
+    /// \param plan   Pointer to the first dimension in the iteration plan.
+    /// \param depth  Remaining depth to traverse.
+    /// \ingroup internal
     void run(idx_t Offset, extent_stride<std::size_t, idx_t> const* plan, std::size_t depth)
     {
       switch (depth)
@@ -211,6 +218,12 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
 
 } // namespace detail
 
+/// \brief Apply a unary operation to every element of a strided mdspan in-place.
+/// \tparam MDS Mdspan-like type that models StridedMdspan.
+/// \tparam Op  Unary callable applied to each element.
+/// \param a    Target span whose elements are mutated.
+/// \param op   Unary functor invoked for each element.
+/// \ingroup level1_ops
 template <typename MDS, typename Op> void apply_unary_inplace(MDS a, Op&& op)
 {
   auto const& map = a.mapping();

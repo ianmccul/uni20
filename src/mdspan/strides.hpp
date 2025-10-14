@@ -1,5 +1,11 @@
 #pragma once
 
+/**
+ * \file strides.hpp
+ * \ingroup mdspan_ext
+ * \brief Stride utilities for mdspan-like tensors.
+ */
+
 #include "common/mdspan.hpp"
 #include "common/static_vector.hpp"
 #include "common/trace.hpp"
@@ -7,11 +13,14 @@
 #include "core/types.hpp"
 #include <algorithm>
 #include <array>
+#include <initializer_list>
 
 namespace uni20
 {
 
-/// \brief Structure to represent a common extent and an array of strides
+/// \brief Structure to represent a common extent and an array of strides.
+/// \tparam N Number of stride values tracked for each dimension.
+/// \ingroup mdspan_ext
 template <std::size_t N> struct extent_strides
 {
     index_type extent;
@@ -19,7 +28,11 @@ template <std::size_t N> struct extent_strides
 
     constexpr extent_strides() = default;
 
-    /// \brief Construct from extent and a list of strides.
+    /// \brief Construct from an extent and initializer-list strides.
+    /// \tparam Ext Integral type for the extent.
+    /// \param e The extent value.
+    /// \param s The strides associated with the dimension.
+    /// \ingroup mdspan_ext
     template <typename Ext>
       requires std::is_integral_v<Ext>
     constexpr extent_strides(Ext e, std::initializer_list<std::ptrdiff_t> s) : extent(static_cast<index_type>(e))
@@ -28,7 +41,12 @@ template <std::size_t N> struct extent_strides
       std::copy(s.begin(), s.end(), strides.begin());
     }
 
-    /// \brief Construct from extent and an array of strides.
+    /// \brief Construct from an extent and an array of strides.
+    /// \tparam Ext Integral type for the extent.
+    /// \tparam Str Integral type for the stride values.
+    /// \param e The extent value.
+    /// \param s The strides associated with the dimension.
+    /// \ingroup mdspan_ext
     template <typename Ext, typename Str>
       requires std::is_integral_v<Ext> && std::is_integral_v<Str>
     constexpr extent_strides(Ext e, std::array<Str, N> s) : extent(static_cast<index_type>(e))
@@ -39,16 +57,22 @@ template <std::size_t N> struct extent_strides
       }
     }
 
+    /// \brief Construct from an extent and a parameter pack of stride values.
+    /// \tparam Ext Integral type for the extent.
+    /// \tparam Strides Integral stride arguments matching \c N.
+    /// \param e The extent value.
+    /// \param s The stride values.
+    /// \ingroup mdspan_ext
     template <typename Ext, typename... Strides>
       requires(std::is_integral_v<Ext> && sizeof...(Strides) == N)
     constexpr extent_strides(Ext e, Strides... s)
         : extent(static_cast<index_type>(e)), strides{static_cast<std::ptrdiff_t>(s)...}
     {}
 
-    /// @brief Returns true if the current (outer) dimension and the given inner dimension can be merged.
-    ///
-    /// Coalescing is allowed if the inner dimension's stride equals the outer stride multiplied by the outer extent.
-    /// This ensures a contiguous memory layout between the two.
+    /// \brief Returns true if the current (outer) dimension and the given inner dimension can be merged.
+    /// \param inner The inner dimension metadata to test.
+    /// \return True when the two dimensions can be coalesced.
+    /// \ingroup mdspan_ext
     constexpr bool can_merge_with_inner(extent_strides inner) const noexcept
     {
       for (std::size_t i = 0; i < N; ++i)
@@ -58,9 +82,9 @@ template <std::size_t N> struct extent_strides
       return true;
     }
 
-    /// @brief Merge an inner dimension into this one (assuming can_merge_with_inner returns true).
-    ///
-    /// After merging, the extent becomes the product, and the stride is updated to the inner stride.
+    /// \brief Merge an inner dimension into this one when coalescing is valid.
+    /// \param inner The inner dimension metadata to merge.
+    /// \ingroup mdspan_ext
     constexpr void merge_with_inner(extent_strides inner) noexcept
     {
       extent *= inner.extent;
@@ -68,6 +92,14 @@ template <std::size_t N> struct extent_strides
     }
 };
 
+/// \brief Build and coalesce stride metadata from two stride arrays.
+/// \tparam Extents Extents type supplying extents via \c operator[].
+/// \tparam R Tensor rank captured by the stride arrays.
+/// \param ext The extents of the tensor.
+/// \param Stride1 The strides for the first operand.
+/// \param Stride2 The strides for the second operand.
+/// \return A compacted sequence of stride descriptors sorted by decreasing primary stride.
+/// \ingroup mdspan_ext
 template <typename Extents, std::size_t R>
   requires(Extents::rank() == R)
 inline static_vector<extent_strides<2>, R> coalesce_strides(Extents const& ext,
@@ -98,6 +130,11 @@ inline static_vector<extent_strides<2>, R> coalesce_strides(Extents const& ext,
   return out;
 }
 
+/// \brief Coalesce adjacent stride descriptors in place.
+/// \tparam N Number of stride values per descriptor.
+/// \tparam R Capacity of the static vector.
+/// \param out The sequence of stride descriptors to compact.
+/// \ingroup mdspan_ext
 template <std::size_t N, std::size_t R> void coalesce_strides(static_vector<extent_strides<N>, R>& out)
 {
   std::size_t write = 1;
@@ -111,6 +148,17 @@ template <std::size_t N, std::size_t R> void coalesce_strides(static_vector<exte
   out.resize(write);
 }
 
+/// \brief Extract coalesced stride groups for a tensor contraction.
+/// \tparam AType Strided mdspan describing the A operand.
+/// \tparam BType Strided mdspan describing the B operand.
+/// \tparam CType Strided mdspan describing the C operand.
+/// \tparam N Number of contraction dimensions.
+/// \param A The left operand tensor.
+/// \param B The right operand tensor.
+/// \param contractDims Pairs of contraction indices mapping A to B dimensions.
+/// \param C The output tensor.
+/// \return Tuple of stride descriptors for the M, N, and K groupings.
+/// \ingroup mdspan_ext
 template <StridedMdspan AType, StridedMdspan BType, StridedMdspan CType, std::size_t N>
 auto extract_strides(AType const& A, BType const& B,
                      std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims, CType const& C)

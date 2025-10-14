@@ -26,6 +26,8 @@ template <typename T> class ReverseValue; // forward declaration so we can add i
 namespace detail
 {
 
+/// \brief Shared instrumentation for Async implementation state.
+/// \ingroup internal
 struct AsyncImplBase
 {
 #if UNI20_DEBUG_DAG
@@ -33,13 +35,12 @@ struct AsyncImplBase
 #endif
 };
 
-/// \brief Internal reference-counted data and coordination for Async<T>
-///
-/// Holds the actual value of type T and the epoch queue used to
-/// coordinate asynchronous read and write operations.
-///
-/// Instances are managed by shared_ptr and never copied or moved directly.
-/// All access is mediated through owning Async<T> or active buffers.
+/// \brief Shared state for Async<T> values.
+/// \details Holds the actual value and the epoch queue that coordinates asynchronous read/write operations.
+///          Instances are managed by shared_ptr and never copied or moved directly; all access is mediated
+///          through owning Async<T> wrappers or active buffer handles.
+/// \tparam T Stored value type managed by the Async container.
+/// \ingroup internal
 template <typename T> struct AsyncImpl : private AsyncImplBase
 {
     T value_{};        ///< Stored data
@@ -49,11 +50,17 @@ template <typename T> struct AsyncImpl : private AsyncImplBase
     // debugging
     NodeInfo const* node_; // unique node pointer
 
+    /// \brief Access the debug node describing the stored value.
+    /// \return Pointer to the diagnostic node structure.
+    /// \ingroup internal
     AsyncImpl() : node_(NodeInfo::create(&value_)) { queue_.initialize(false); }
 
     explicit AsyncImpl(const T& val) : value_(val), node_(NodeInfo::create(&value_)) { queue_.initialize(true); }
     explicit AsyncImpl(T&& val) : value_(std::move(val)), node_(NodeInfo::create(&value_)) { queue_.initialize(true); }
 
+    /// \brief Retrieve the debug node pointer for visualization.
+    /// \return Pointer to the NodeInfo structure associated with the value.
+    /// \ingroup internal
     NodeInfo const* node() const { return node_; }
 #else
     AsyncImpl() { queue_.initialize(false); }
@@ -62,6 +69,9 @@ template <typename T> struct AsyncImpl : private AsyncImplBase
     explicit AsyncImpl(T&& val) : value_(std::move(val)) { queue_.initialize(true); }
 
     // if we're not debugging, we don't have a valid NodeInfo
+    /// \brief Retrieve the debug node pointer for visualization.
+    /// \return nullptr when DAG debugging is disabled.
+    /// \ingroup internal
     NodeInfo const* node() const { return nullptr; }
 #endif
 
@@ -80,25 +90,32 @@ template <typename T> struct AsyncImpl : private AsyncImplBase
 ///
 /// Copying is disabled: deep copy must be performed via explicit kernels.
 ///
-/// \note Buffers maintain shared ownership of the internal state, so
-/// `ReadBuffer<T>`, `MutableBuffer<T>`, and `WriteBuffer<T>` may safely outlive the Async.
-///
+/// \note Buffers maintain shared ownership of the internal state, so `ReadBuffer<T>`, `MutableBuffer<T>`, and
+///       `WriteBuffer<T>` may safely outlive the Async.
 /// \note The value of T must be copyable or movable as appropriate for construction.
+/// \tparam T Stored value type.
+/// \ingroup async_api
 template <typename T> class Async {
   public:
     using value_type = T;
 
     /// \brief Default-constructs a T value and an empty access queue.
+    /// \ingroup async_api
     Async() : impl_(std::make_shared<detail::AsyncImpl<T>>()) {}
 
-    /// \brief Constructs with a copy of an initial value that can be implicitly converted to T
+    /// \brief Construct from a value convertible to T.
+    /// \tparam U Value type convertible to T.
+    /// \param val Initial value forwarded into the Async storage.
+    /// \ingroup async_api
     template <typename U>
       requires std::convertible_to<U, T>
     Async(U&& val) : impl_(std::make_shared<detail::AsyncImpl<T>>(std::forward<U>(val)))
     {}
 
-    /// \brief Explicit conversion ctor for cases where there is an explicit, but no implicit, conversion
-    ///        from U to T
+    /// \brief Explicitly construct from a value that requires explicit conversion.
+    /// \tparam U Source type that can explicitly construct T.
+    /// \param u Value forwarded to construct the stored T instance.
+    /// \ingroup async_api
     template <typename U>
       requires std::constructible_from<T, U> && (!std::convertible_to<U, T>)
     explicit Async(U&& u) : impl_(std::make_shared<detail::AsyncImpl<T>>(static_cast<T>(std::forward<U>(u))))
@@ -113,6 +130,7 @@ template <typename T> class Async {
     ///          Coroutine handles, epoch queues, and computation histories are not copied.
     ///
     /// \see `async_assign` for explicit value-level copy scheduling.
+    /// \ingroup async_api
     Async(const Async& rhs) : Async() { async_assign(rhs, *this); }
 
     /// \brief Copy-assign from another Async<T>, overwriting this instance's value timeline.
@@ -133,6 +151,9 @@ template <typename T> class Async {
     ///
     /// \see Async::operator=(Async&&) for structural replacement
     /// \see async_assign for explicit value-copy semantics
+    /// \param rhs Source Async whose value timeline is copied.
+    /// \return Reference to *this after scheduling the copy.
+    /// \ingroup async_api
     Async& operator=(const Async& rhs)
     {
       if (this != &rhs)
@@ -147,13 +168,21 @@ template <typename T> class Async {
     ///       transfer the handle (logical reference to the async value), not the value itself.
     ///       To schedule a value transfer from one async object to another, use `async_move(...)` explicitly.
     ///       The results of both operations are rather similar.
+    /// \brief Move-construct from another Async<T> handle.
+    /// \param other Source Async.
+    /// \ingroup async_api
     Async(Async&&) noexcept = default;
+    /// \brief Move-assign from another Async<T> handle.
+    /// \param other Source Async.
+    /// \return Reference to *this after ownership transfer.
+    /// \ingroup async_api
     Async& operator=(Async&&) noexcept = default;
 
     ~Async() = default;
 
     /// \brief Begin an asynchronous read of the value.
     /// \return A ReadBuffer<T> which may be co_awaited.
+    /// \ingroup async_api
     ReadBuffer<T> read() const noexcept
     {
       DEBUG_CHECK(impl_);
@@ -162,6 +191,7 @@ template <typename T> class Async {
 
     /// \brief Begin an asynchronous mutation of the current value.
     /// \return A MutableBuffer<T> which may be co_awaited.
+    /// \ingroup async_api
     MutableBuffer<T> mutate() noexcept
     {
       DEBUG_CHECK(impl_);
@@ -170,6 +200,7 @@ template <typename T> class Async {
 
     /// \brief Begin writing a fresh value, treating the storage as uninitialized until completion.
     /// \return A WriteBuffer<T> which may be co_awaited.
+    /// \ingroup async_api
     WriteBuffer<T> write() noexcept
     {
       DEBUG_CHECK(impl_);
@@ -193,7 +224,9 @@ template <typename T> class Async {
 
     // TODO: we could have a version that returns a ref-counted proxy, which enables reference rather than copy
 
-    /// \brief Block until the value is available, and move it into the return value (which is a write operation)
+    /// \brief Block until the value is available, then move it out of the Async.
+    /// \return The stored value, moved out of the Async container.
+    /// \ingroup async_api
     T move_from_wait();
 
     // FiXME: this is a hack for debugging
@@ -210,7 +243,9 @@ template <typename T> class Async {
       return impl_->value_;
     }
 
+    /// \brief Access the stored value without synchronization.
     /// \return Direct reference to stored value (for diagnostics only).
+    /// \ingroup async_api
     T const& unsafe_value_ref() const
     {
       DEBUG_CHECK(impl_);
@@ -222,11 +257,16 @@ template <typename T> class Async {
       return impl_->value_;
     }
 
+    /// \brief Inspect the shared implementation block.
     /// \return Access to underlying implementation (shared with buffers).
+    /// \ingroup async_api
     std::shared_ptr<detail::AsyncImpl<T>> const& impl() const { return impl_; }
 
   private:
     // Add a new epoch to the front of the queue; used by ReverseValue for reverse mode autodifferentiation
+    /// \brief Prepend a reverse-mode epoch to the queue.
+    /// \return Writer and reader handles for the new epoch.
+    /// \ingroup internal
     EpochQueue::EpochPair<T> prepend_epoch()
     {
       DEBUG_TRACE_MODULE(ASYNC, "Prepending epoch!");
@@ -239,8 +279,23 @@ template <typename T> class Async {
     std::shared_ptr<detail::AsyncImpl<T>> impl_;
 };
 
+/// \brief Convenience helper that forwards to Async<T>::read().
+/// \tparam T Stored value type.
+/// \param a Async container providing the read buffer.
+/// \return Read buffer obtained from the Async instance.
+/// \ingroup async_api
 template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
+/// \brief Convenience helper that forwards to Async<T>::mutate().
+/// \tparam T Stored value type.
+/// \param a Async container providing the mutable buffer.
+/// \return Mutable buffer obtained from the Async instance.
+/// \ingroup async_api
 template <typename T> MutableBuffer<T> mutate(Async<T>& a) { return a.mutate(); }
+/// \brief Convenience helper that forwards to Async<T>::write().
+/// \tparam T Stored value type.
+/// \param a Async container providing the write buffer.
+/// \return Write buffer obtained from the Async instance.
+/// \ingroup async_api
 template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
 
 } // namespace uni20::async
