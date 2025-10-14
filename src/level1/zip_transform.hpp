@@ -3,6 +3,7 @@
 #include "common/mdspan.hpp"
 #include "common/static_vector.hpp"
 #include "core/types.hpp"
+#include "mdspan/concepts.hpp"
 #include "zip_layout.hpp"
 #include <algorithm>
 #include <cstddef>
@@ -12,24 +13,6 @@
 
 namespace uni20
 {
-
-/// \brief Trait to pull an AccessorPolicy’s offset_type if present,
-///        or fall back to std::size_t otherwise.
-/// \tparam AP  The accessor policy to inspect.
-/// \ingroup internal
-template <typename AP, typename = void> struct accessor_offset_type
-{
-    using type = std::size_t;
-};
-
-template <typename AP> struct accessor_offset_type<AP, std::void_t<typename AP::offset_type>>
-{
-    using type = typename AP::offset_type;
-};
-/// \brief Alias for accessor_offset_type<AP>::type.
-/// \tparam AP  The accessor policy to inspect.
-/// \ingroup internal
-template <typename AP> using accessor_offset_t = typename accessor_offset_type<AP>::type;
 
 /// \brief An mdspan accessor that applies an N‑ary functor to N child spans,
 ///        with maximal empty‑base optimizations.
@@ -50,7 +33,7 @@ struct TransformAccessor : private Func // EBO if Func is empty
     using data_handle_type = std::tuple<typename Spans::data_handle_type...>;
 
     /// \brief Per‑child offset_type (falls back to std::size_t).
-    using offset_type = std::tuple<accessor_offset_t<typename Spans::accessor_type>...>;
+    using offset_type = std::tuple<span_offset_t<typename Spans::accessor_type>...>;
 
     /// \brief Return type when calling func_ on each child::reference.
     using reference = std::invoke_result_t<Func, typename Spans::reference...>;
