@@ -31,21 +31,20 @@ These rules ensure that:
 Each documented symbol (function, class, struct, typedef, concept, etc.) should follow this order:
 
 1. `\brief` — One-sentence summary.
-2. (blank line)
-3. Optional `\details` — Extended description.
-4. Optional clauses in the following order:
+2. Optional `\details` — Extended description.
+3. Optional clauses in the following order:
 
    * `\pre` — Preconditions
    * `\post` — Postconditions
    * `\throws` — Exception behavior
    * `\note` — Implementation, lifetime, or concurrency remarks
    * `\warning` — Hazard or race condition
-5. Parameter and return tags:
+4. Parameter and return tags:
 
    * `\tparam` — Template parameters
    * `\param` — Function parameters
    * `\return` — Return values
-6. Grouping tags:
+5. Grouping tags:
 
    * `\ingroup` — Link to a module
    * `\defgroup` / `\addtogroup` — For defining module groups
@@ -132,7 +131,7 @@ Example:
 
 ## 7. Formatting Rules
 
-* Always put a **blank line after `\brief`**.
+* Avoid a **blank line after `\brief`**, unless it is needed for readability.
 * End all sentences and parameter descriptions with a period.
 * Keep `\brief` to **one sentence** — the first period ends the summary.
 * Prefer **imperative mood** (“Constructs…”, “Returns…”, “Throws…”).
@@ -150,14 +149,10 @@ Example:
 Here’s a canonical example illustrating the complete structure:
 
 ```cpp
-/// \brief Constructs an asynchronous tensor addition task.
-///
-/// Performs element-wise addition of tensors `a` and `b`.
-///
+/// \brief Performs element-wise addition of tensors `a` and `b`.
 /// \details
 /// The returned Async<Tensor> defers evaluation until awaited.
 /// Useful for building lazy tensor computation graphs.
-///
 /// \tparam T Tensor element type.
 /// \param a First operand tensor.
 /// \param b Second operand tensor.

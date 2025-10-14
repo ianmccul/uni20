@@ -99,7 +99,7 @@ This section defines how automated tools should detect, modify, and validate doc
 
 ### 2. Formatting Expectations
 
-* Every Doxygen block must begin with `\brief`, followed by a blank line.
+* Every Doxygen block must begin with `\brief`. Do *not* follow this with a blank line, unless readability demands it. Remove existing blank lines where where possible.
 * Always include `\param`, `\tparam`, and `\return` when applicable.
 * Maintain this tag order:
   `\brief`, `\details`, `\pre`, `\post`, `\throws`, `\note`, `\warning`, `\tparam`, `\param`, `\return`, `\ingroup`.
