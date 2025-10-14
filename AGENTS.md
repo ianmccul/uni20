@@ -125,6 +125,9 @@ When cleaning or generating documentation, automated agents must:
 
    * Convert `/** ... */` comments on individual members to `///` form unless the block contains multi-paragraph or LaTeX-heavy content.
    * File- or module-level headers using `/** ... */` should remain block-style.
+   * Use `/** ... */` **only** for `\defgroup` or file-level documentation.
+   * All ordinary macros, functions, and classes must use `///` Doxygen comments.
+   * Convert misplaced `/** ... */` to `///` while preserving all tags and text.
 
 3. **Maintain implementation commentary**
 

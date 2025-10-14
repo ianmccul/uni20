@@ -21,6 +21,8 @@ These rules ensure that:
 * Use regular `//` comments for **implementation details** not intended for Doxygen.
 * Do **not** mix `/** ... */` and `///` styles in the same component.
 * Place Doxygen comments **immediately above** the entity (function, struct, class) they describe.
+* Use `/** ... */` **only** for `\defgroup` or file-level documentation.
+* All ordinary macros, functions, and classes must use `///` Doxygen comments.
 
 ---
 
