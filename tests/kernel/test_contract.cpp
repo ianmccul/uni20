@@ -236,14 +236,7 @@ TEST(ContractKernel2x2, AllLayoutCombinations)
   auto run_and_check = [&](auto A, auto B, auto C) {
     std::fill(C.data_handle(), C.data_handle() + C.size(), 0.0);
 
-    TRACE(A.extents(), B.extents(), C.extents());
-    TRACE(A.stride(0), A.stride(1), B.stride(0), B.stride(1), C.stride(0), C.stride(1));
-
-    TRACE((A[0, 0]), (A[0, 1]), (A[1, 0]), (A[1, 1]));
-    TRACE((B[0, 0]), (B[0, 1]), (B[1, 0]), (B[1, 1]));
-
     contract(1.0, A, B, {{1, 0}}, 1.0, C, cpu_tag{});
-    TRACE((C[0, 0]), (C[0, 1]), (C[1, 0]), (C[1, 1]));
 
     EXPECT_DOUBLE_EQ((C[0, 0]), 19.0);
     EXPECT_DOUBLE_EQ((C[0, 1]), 22.0);
