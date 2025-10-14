@@ -1,10 +1,9 @@
 #pragma once
 
 #include "common/mdspan.hpp"
-#include "common/static_vector.hpp"
 #include "core/types.hpp"
 #include "mdspan/concepts.hpp"
-#include "zip_layout.hpp"
+#include "mdspan/zip_layout.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <tuple>
