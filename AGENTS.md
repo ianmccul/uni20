@@ -128,6 +128,13 @@ When cleaning or generating documentation, automated agents must:
    * Use `/** ... */` **only** for `\defgroup` or file-level documentation.
    * All ordinary macros, functions, and classes must use `///` Doxygen comments.
    * Convert misplaced `/** ... */` to `///` while preserving all tags and text.
+   * When a description line (for `\brief`, `\details`, `\note`, `\warning`, etc.) wraps, indent the following lines so that the first character of text aligns under the first character of the text on the previous line.
+     - Example:
+
+       ```cpp
+       /// \details Real numbers are unchanged by conjugation, so the value is returned verbatim.
+       ///          The overload is `constexpr`, enabling compile-time evaluation for literal arguments.
+       ```
 
 3. **Maintain implementation commentary**
 

@@ -16,13 +16,22 @@ These rules ensure that:
   Example:
   ```cpp
   /// \brief Adds two tensors asynchronously.
-````
+  ```
 
 * Use regular `//` comments for **implementation details** not intended for Doxygen.
 * Do **not** mix `/** ... */` and `///` styles in the same component.
 * Place Doxygen comments **immediately above** the entity (function, struct, class) they describe.
 * Use `/** ... */` **only** for `\defgroup` or file-level documentation.
 * All ordinary macros, functions, and classes must use `///` Doxygen comments.
+* When a description line (for `\brief`, `\details`, `\note`, `\warning`, etc.) wraps, indent the following
+  lines so that the first character of text aligns under the first character of the text on
+  the previous line.
+  - Example:
+
+    ```cpp
+    /// \details Real numbers are unchanged by conjugation, so the value is returned verbatim.
+    ///          The overload is `constexpr`, enabling compile-time evaluation for literal arguments.
+    ```
 
 ---
 
@@ -150,9 +159,8 @@ Here’s a canonical example illustrating the complete structure:
 
 ```cpp
 /// \brief Performs element-wise addition of tensors `a` and `b`.
-/// \details
-/// The returned Async<Tensor> defers evaluation until awaited.
-/// Useful for building lazy tensor computation graphs.
+/// \details The returned Async<Tensor> defers evaluation until awaited.
+///          Useful for building lazy tensor computation graphs.
 /// \tparam T Tensor element type.
 /// \param a First operand tensor.
 /// \param b Second operand tensor.
@@ -207,6 +215,6 @@ must be fixed immediately — no undocumented parameters are allowed.
 | Grouping                | Use `\ingroup` and `\defgroup` |
 | Unicode                 | Avoid; prefer LaTeX            |
 | Concurrency notes       | Required for async code        |
-| Brief format            | One sentence + blank line      |
+| Brief format            | One sentence,  blank line      |
+| Multi-line tags         | Continuation lines align under first text column |
 | Implementation comments | Use `//`, not Doxygen          |
-
