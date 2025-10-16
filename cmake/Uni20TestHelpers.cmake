@@ -15,7 +15,7 @@ function(add_test_module name)
   endforeach()
 
   add_executable(uni20_${name}_tests ${ABS_SOURCES})
-  target_link_libraries(uni20_${name}_tests PRIVATE ${TESTMOD_LIBS} gtest_main)
+  target_link_libraries(uni20_${name}_tests PRIVATE ${TESTMOD_LIBS} GTest::gtest_main)
   target_compile_definitions(uni20_${name}_tests PRIVATE UNIT_TEST)
   gtest_discover_tests(uni20_${name}_tests)
 
