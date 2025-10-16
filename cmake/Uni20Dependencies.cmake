@@ -47,7 +47,7 @@ function(uni20_add_dependency)
     endif()
   endif()
 
-  if(${DEP_NAME}_FOUND)
+  if(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND AND DEFINED ${DEP_NAME}_VERSION)
     message(STATUS "Using system ${DEP_NAME}: ${${DEP_NAME}_DIR}")
 
     set(${source_var} "system" CACHE STRING "Source type for ${DEP_NAME} (system or fetched)" FORCE)
@@ -66,7 +66,11 @@ function(uni20_add_dependency)
     set(${detected_var} "system" CACHE STRING "${_uni20_detected_help}" FORCE)
 
   else()
-    message(STATUS "System ${DEP_NAME} not found — fetching via FetchContent")
+    if(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
+      message(STATUS "System ${DEP_NAME} installed, but not the required version (${DEP_VERSION}) — fetching via FetchContent")
+    else()
+      message(STATUS "System ${DEP_NAME} not found — fetching via FetchContent")
+    endif()
 
     if(DEP_SETTINGS)
       foreach(setting IN LISTS DEP_SETTINGS)
