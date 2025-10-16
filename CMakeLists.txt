@@ -260,7 +260,7 @@ if(UNI20_BUILD_TESTS)
 
   uni20_add_dependency(
     NAME gtest
-    VERSION 1.17.0
+    VERSION 1.10.0
     TARGET GTest::gtest
     REPO https://github.com/google/googletest.git
     TAG v1.17.0
@@ -273,7 +273,7 @@ if(UNI20_BUILD_BENCH)
 
   uni20_add_dependency(
     NAME benchmark
-    VERSION 1.9.0
+    VERSION 1.5.2
     TARGET benchmark::benchmark
     REPO https://github.com/google/benchmark.git
     TAG v1.9.0
@@ -334,7 +334,6 @@ if(UNI20_BUILD_PYTHON)
 endif()
 
 if(UNI20_BUILD_TESTS)
-  enable_testing()
   add_subdirectory(tests)
 endif()
 

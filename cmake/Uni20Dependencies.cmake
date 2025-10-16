@@ -1,5 +1,3 @@
-include(FetchContent)
-
 # -----------------------------------------------------------------------------
 # \brief Unified dependency handler for uni20 external projects.
 #
@@ -38,6 +36,9 @@ function(uni20_add_dependency)
   set(dir_var      "UNI20_${NAME_UPPER}_DIR")
   set(detected_var "UNI20_DETECTED_${NAME_UPPER}")
 
+  set(_uni20_fetch_reason "")
+  set(_uni20_detected_version "")
+
   if(${use_system_var})
     if(DEP_COMPONENTS)
       find_package(${DEP_NAME} ${DEP_VERSION} QUIET COMPONENTS ${DEP_COMPONENTS})
@@ -57,7 +58,12 @@ function(uni20_add_dependency)
     if(DEFINED ${DEP_NAME}_DIR)
       set(${dir_var} ${${DEP_NAME}_DIR} CACHE PATH "Install directory for ${DEP_NAME}" FORCE)
     endif()
-    set(${detected_var} "system" CACHE STRING "Found via ${${DEP_NAME}_DIR}" FORCE)
+    if(DEFINED ${DEP_NAME}_DIR)
+      set(_uni20_detected_help "Found via ${${DEP_NAME}_DIR}")
+    else()
+      set(_uni20_detected_help "Found system installation")
+    endif()
+    set(${detected_var} "system" CACHE STRING "${_uni20_detected_help}" FORCE)
 
   else()
     message(STATUS "System ${DEP_NAME} not found — fetching via FetchContent")
@@ -102,6 +108,10 @@ function(uni20_add_dependency)
       set(help_text "Cloned from ${repo_info}")
     else()
       set(help_text "Fetched via FetchContent (no repository URL)")
+    endif()
+
+    if(_uni20_fetch_reason)
+      string(APPEND help_text "; ${_uni20_fetch_reason}")
     endif()
 
     set(${source_var} "fetched" CACHE STRING "Source type for ${DEP_NAME} (system or fetched)" FORCE)
