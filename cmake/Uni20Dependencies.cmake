@@ -62,6 +62,30 @@ function(uni20_add_dependency)
   else()
     message(STATUS "System ${DEP_NAME} not found — fetching via FetchContent")
 
+    if(DEP_SETTINGS)
+      foreach(setting IN LISTS DEP_SETTINGS)
+        if(NOT setting MATCHES "^([^:=]+)(:([^=]+))?=(.*)$")
+          message(FATAL_ERROR "Invalid SETTINGS entry '${setting}' for ${DEP_NAME}; expected VAR=VALUE or VAR:TYPE=VALUE")
+        endif()
+
+        set(var "${CMAKE_MATCH_1}")
+        set(type "${CMAKE_MATCH_3}")
+        set(value "${CMAKE_MATCH_4}")
+
+        if(NOT type)
+          string(TOUPPER "${value}" value_upper)
+          if(value_upper STREQUAL "ON" OR value_upper STREQUAL "OFF"
+             OR value_upper STREQUAL "TRUE" OR value_upper STREQUAL "FALSE")
+            set(type BOOL)
+          else()
+            set(type STRING)
+          endif()
+        endif()
+
+        set(${var} "${value}" CACHE ${type} "Auto-configured by uni20_add_dependency(${DEP_NAME})" FORCE)
+      endforeach()
+    endif()
+
     include(FetchContent)
     FetchContent_Declare(
       ${DEP_NAME}

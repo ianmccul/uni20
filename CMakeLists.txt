@@ -188,29 +188,11 @@ endforeach()
 
 include(FetchContent)
 
-# fmt library for formatting
-# if(DEFINED ENV{CODE_INTERPRETER} OR DEFINED ENV{OPENAI_ENV})
-#   # Running in Codex sandbox → use tarball
-#   message(STATUS "Using tarball fetch for fmt (Codex environment detected)")
-#   FetchContent_Declare(
-#     fmt
-#     URL https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.tar.gz
-#     URL_HASH SHA256=2b99378565e79af344f80de9f8821c3acb5a4d2c4b785b689dced3f6371968e7
-#   )
-# else()
-# Normal environment → use git
 FetchContent_Declare(
   fmt
   GIT_REPOSITORY https://github.com/fmtlib/fmt.git
   GIT_TAG 10.2.1
 )
-# endif()
-
-# FetchContent_Declare(
-#   fmt
-#   GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-#   GIT_TAG 11.1.3
-# )
 FetchContent_MakeAvailable(fmt)
 relax_warnings(fmt)
 
@@ -269,13 +251,21 @@ endif()
 
 # Optionally fetch GoogleTest for unit testing
 if(UNI20_BUILD_TESTS)
-  FetchContent_Declare(
-    googletest
-    URL https://github.com/google/googletest/releases/download/v1.17.0/googletest-1.17.0.tar.gz
+  set(_gtest_settings)
+  if(MSVC)
+    # GoogleTest defaults to the static MSVC runtime (/MT); opt into the shared
+    # CRT so that gtest links cleanly with uni20's /MD configuration.
+    set(_gtest_settings SETTINGS "gtest_force_shared_crt:BOOL=ON")
+  endif()
+
+  uni20_add_dependency(
+    NAME gtest
+    VERSION 1.17.0
+    TARGET GTest::gtest
+    REPO https://github.com/google/googletest.git
+    TAG v1.17.0
+    ${_gtest_settings}
   )
-  # For Windows: Force shared CRT to avoid issues
-  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(googletest)
 endif()
 
 # Optionally fetch Google Benchmark for performance testing

@@ -21,7 +21,7 @@ if(UNI20_BUILD_COMBINED_TESTS AND UNI20_COMBINED_TEST_SRCS)
     ${UNI20_COMBINED_TEST_SRCS}
     uni20_tests_main.cpp
   )
-  target_link_libraries(uni20_tests PRIVATE ${UNI20_COMBINED_TEST_LIBS} gtest)
+  target_link_libraries(uni20_tests PRIVATE ${UNI20_COMBINED_TEST_LIBS} GTest::gtest)
   gtest_discover_tests(uni20_tests)
 elseif(UNI20_BUILD_COMBINED_TESTS)
   message(WARNING "UNI20_BUILD_COMBINED_TESTS is ON, but no test sources were registered.")
