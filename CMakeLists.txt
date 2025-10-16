@@ -260,7 +260,7 @@ if(UNI20_BUILD_TESTS)
 
   uni20_add_dependency(
     NAME GTest
-    VERSION 1.10.0
+    VERSION 1.12.0
     TARGET GTest::gtest
     REPO https://github.com/google/googletest.git
     TAG v1.17.0

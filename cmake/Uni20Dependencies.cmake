@@ -67,9 +67,9 @@ function(uni20_add_dependency)
 
   else()
     if(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
-      message(STATUS "System ${DEP_NAME} installed, but not the required version (${DEP_VERSION}) — fetching via FetchContent")
-    else()
-      message(STATUS "System ${DEP_NAME} not found — fetching via FetchContent")
+      # this is a case that seems to only happen with older .cmake configurations, where we don't have the correct version
+      # but we still have the module imported.  It doesn't seem possible to cleanly recover from this.
+      message(FATAL_ERROR "System ${DEP_NAME} installed, but not the required version (${DEP_VERSION}). You must disable the system version with -DUNI20_USE_SYSTEM_${NAME_UPPER}=OFF")
     endif()
 
     if(DEP_SETTINGS)
@@ -109,9 +109,16 @@ function(uni20_add_dependency)
       if(DEFINED DEP_TAG)
         string(APPEND repo_info " (tag ${DEP_TAG})")
       endif()
-      set(help_text "Cloned from ${repo_info}")
     else()
-      set(help_text "Fetched via FetchContent (no repository URL)")
+      set(repo_info "(no repository URL)")
+    endif()
+
+    set(help_text "Cloned from ${repo_info}")
+
+    if(${use_system_var})
+      message(STATUS "System ${DEP_NAME} not found or version is too old. Fetching from ${repo_info}")
+    else()
+      message(STATUS "Fetching ${DEP_NAME} from ${repo_info}")
     endif()
 
     if(_uni20_fetch_reason)
