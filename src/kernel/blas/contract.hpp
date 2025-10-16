@@ -35,7 +35,7 @@ namespace uni20::kernel
       std::vector<size_t> oldExtentA, std::vector<size_t> oldExtentB,
       std::vector<size_t> oldStrideA, std::vector<size_t> oldStrideB,
       std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims,
-      std::vector<T>& outputA,std::vector<T>& outputB,blas_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
+      std::vector<T>& outputA,std::vector<T>& outputB,char modea,char modeb,blas_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
     {
       std::vector<size_t> newExtentA(oldExtentA.size()),newExtentB(oldExtentB.size());
       std::vector<size_t> newStrideA(oldExtentA.size()),newStrideB(oldExtentB.size());
@@ -55,13 +55,23 @@ namespace uni20::kernel
       newExtentB.insert(newExtentB.end(), tmpB.begin(), tmpB.end());
       size_t stride_step = 1;
       for(size_t i=0;i<oldExtentA.size();i++){
-        newStrideA[oldExtentA.size()-1-i] = stride_step;
-        stride_step = stride_step * newExtentA[oldExtentA.size()-1-i];
+        if(modea == 'r'){
+          newStrideA[oldExtentA.size()-1-i] = stride_step;
+          stride_step = stride_step * newExtentA[oldExtentA.size()-1-i];
+        }else{
+          newStrideA[i] = stride_step;
+          stride_step = stride_step * newExtentA[i];
+        }
       }
       stride_step = 1;
       for(size_t i=0;i<oldExtentB.size();i++){
-        newStrideB[oldExtentB.size()-1-i] = stride_step;
-        stride_step = stride_step * newExtentB[oldExtentB.size()-1-i];
+        if(modeb == 'r'){
+          newStrideB[oldExtentB.size()-1-i] = stride_step;
+          stride_step = stride_step * newExtentB[oldExtentB.size()-1-i];
+        }else{
+          newStrideB[i] = stride_step;
+          stride_step = stride_step * newExtentB[i];
+        }
       }
       std::vector<size_t> indexListA(oldExtentA.size()),permutationA(oldExtentA.size());
       std::vector<size_t> indexListB(oldExtentB.size()),permutationB(oldExtentB.size());
@@ -98,18 +108,61 @@ namespace uni20::kernel
 
 
 template <typename T, std::size_t MR, std::size_t NR, std::size_t KR>
-void contract_strided(static_vector<extent_strides<2>, MR> const& Mgrp,
+void contract_strided(char a, char b, char c,
+                      static_vector<extent_strides<2>, MR> const& Mgrp,
                       static_vector<extent_strides<2>, NR> const& Ngrp,
-                      static_vector<extent_strides<2>, KR> const& Kgrp, T alpha, T const* A, T const* B, T beta, T* C,
+                      static_vector<extent_strides<2>, KR> const& Kgrp, 
+                      T alpha, T const* A, T const* B, T beta, T* C,
                       blas_tag)
 {
     size_t K = 1, M = 1, N = 1;
     for(size_t i = 0; i < Kgrp.size(); i++) K = K * Kgrp[i].extent;
     for(size_t i = 0; i < Mgrp.size(); i++) M = M * Mgrp[i].extent;
     for(size_t i = 0; i < Ngrp.size(); i++) N = N * Ngrp[i].extent;
-    if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
-    else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
-    else                uni20::blas::gemm('T', 'N', N, M, K, alpha, B, K, A, K, beta, C, N);
+    std::cout<<" M = "<<M<<" N = "<<N<<" K = "<<K<<std::endl;
+    if ((a == 'r') && (b == 'r') && (c == 'r')){
+      if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
+      else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
+      else                uni20::blas::gemm('T', 'N', N, M, K, alpha, B, K, A, K, beta, C, N);//uni20::blas::gemm('T', 'N', N, M, K, alpha, B, K, A, K, beta, C, N);
+    }else if((a == 'r') && (b == 'r') && (c == 'c')){
+      if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
+      else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
+      else                uni20::blas::gemm('T', 'N', M, N, K, alpha, A, K, B, K, beta, C, M);//uni20::blas::gemm('T', 'N', M, N, K, alpha, A, K, B, K, beta, C, M);
+
+//////////
+    }else if((a == 'r') && (b == 'c') && (c == 'r')){
+      if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
+      else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
+      else                uni20::blas::gemm('T', 'N', N, M, K, alpha, B, K, A, K, beta, C, N);//uni20::blas::gemm('N', 'N', N, M, K, alpha, B, N, A, K, beta, C, N);
+    }else if((a == 'r') && (b == 'c') && (c == 'c')){
+      if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
+      else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
+      else                uni20::blas::gemm('T', 'N', M, N, K, alpha, A, K, B, K, beta, C, M);//uni20::blas::gemm('T', 'T', M, N, K, alpha, A, K, B, N, beta, C, M);
+//////////
+
+
+    }else if((a == 'c') && (b == 'r') && (c == 'r')){
+      if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
+      else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
+      else                uni20::blas::gemm('T', 'T', N, M, K, alpha, B, K, A, M, beta, C, N);//uni20::blas::gemm('T', 'T', N, M, K, alpha, B, K, A, M, beta, C, N);
+    }else if((a == 'c') && (b == 'r') && (c == 'c')){
+      if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
+      else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
+      else                uni20::blas::gemm('N', 'N', M, N, K, alpha, A, M, B, K, beta, C, M);//uni20::blas::gemm('N', 'N', M, N, K, alpha, A, M, B, K, beta, C, M);
+
+    ////////  
+    }else if((a == 'c') && (b == 'c') && (c == 'r')){
+      if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
+      else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
+      else                uni20::blas::gemm('T', 'T', N, M, K, alpha, B, K, A, M, beta, C, N);//uni20::blas::gemm('N', 'T', N, M, K, alpha, B, N, A, M, beta, C, N);
+     
+    }else if((a == 'c') && (b == 'c') && (c == 'c')){
+      if(N==1)            uni20::blas::gemv('T', K, M, alpha, A, K, B, 1, beta, C, 1);
+      else if(M==1)       uni20::blas::gemv('T', K, N, alpha, B, K, A, 1, beta, C, 1);
+      else                uni20::blas::gemm('N', 'N', M, N, K, alpha, A, M, B, K, beta, C, M);//uni20::blas::gemm('N', 'T', M, N, K, alpha, A, M, B, N, beta, C, M);
+       
+    }else{}
+    /////////
 }
 //"XXXXXXLLXXPPXXXX"
 } 

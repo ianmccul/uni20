@@ -12,7 +12,7 @@ std::pair<bool, bool> transpose_strided(T const* A,T const* B,
   std::vector<size_t> oldExtentA, std::vector<size_t> oldExtentB,
   std::vector<size_t> oldStrideA, std::vector<size_t> oldStrideB,
   std::array<std::pair<std::size_t, std::size_t>, N> const& contractDims,std::vector<T>& outputA,
-  std::vector<T>& outputB,cpu_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
+  std::vector<T>& outputB,char modea,char modeb,cpu_tag)//, T const* In, std::span<std::ptrdiff_t> InStrides, T* Out,                            //std::span<std::ptrdiff_t> OutStrides)
 {
   for(size_t i=0;i<outputA.size();i++)  outputA[i] = A[i];
   for(size_t i=0;i<outputB.size();i++)  outputB[i] = B[i];
@@ -111,9 +111,12 @@ template <typename T, std::size_t MR, std::size_t NR, std::size_t KR> class Gemm
 } // namespace cpu
 
 template <typename T, std::size_t MR, std::size_t NR, std::size_t KR>
-void contract_strided(static_vector<extent_strides<2>, MR> const& Mgrp,
+void contract_strided(
+                      char a, char b,char c,
+                      static_vector<extent_strides<2>, MR> const& Mgrp,
                       static_vector<extent_strides<2>, NR> const& Ngrp,
-                      static_vector<extent_strides<2>, KR> const& Kgrp, T alpha, T const* A, T const* B, T beta, T* C,
+                      static_vector<extent_strides<2>, KR> const& Kgrp, 
+                      T alpha, T const* A, T const* B, T beta, T* C,
                       cpu_tag)
 {
   cpu::GemmLoop Loop(Mgrp, Ngrp, Kgrp, alpha, beta);

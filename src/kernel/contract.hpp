@@ -88,26 +88,29 @@ void contract(T const& alpha, AType A, BType B, std::array<std::pair<std::size_t
         ExtentC[i]     = C.extent(i);
       }
   std::vector<T> outputA(A.size()),outputB(B.size()),ToutputA(A.size()),ToutputB(B.size()),ToutputC(C.size());
- 
+  char a,b,c;
   
-  rearrange(A.data_handle(),ToutputA.data(),ExtentA,ExtentA,oldStrideA,newStrideA);
-  rearrange(B.data_handle(),ToutputB.data(),ExtentB,ExtentB,oldStrideB,newStrideB);
-  rearrange(C.data_handle(),ToutputC.data(),ExtentC,ExtentC,oldStrideC,newStrideC);
+  //rearrange(A.data_handle(),ToutputA.data(),ExtentA,ExtentA,oldStrideA,newStrideA);
+  //rearrange(B.data_handle(),ToutputB.data(),ExtentB,ExtentB,oldStrideB,newStrideB);
+  //rearrange(C.data_handle(),ToutputC.data(),ExtentC,ExtentC,oldStrideC,newStrideC);    
+  if(newStrideA == oldStrideA) a = 'r';       
+  else a = 'c';
+  if(newStrideB == oldStrideB) b = 'r';       
+  else b = 'c';
+  if(newStrideC == oldStrideC) c= 'r';       
+  else c = 'c';
   
 
-
-
-  auto [flagA,flagB] = transpose_strided(ToutputA.data(),ToutputB.data(),
+  auto [flagA,flagB] = transpose_strided(A.data_handle(),B.data_handle(),
                                          ExtentA,ExtentB,
                                          newStrideA,newStrideB,
-                                         constractDims,outputA,outputB, TagType{});
+                                         constractDims,outputA,outputB,a,b, TagType{});
   auto [Mgroup, Ngroup, Kgroup] = extract_strides(A, B, constractDims, C);
-
-  if(flagA == false && flagB == false)  contract_strided(Mgroup, Ngroup, Kgroup, alpha, ToutputA.data(), ToutputB.data(), beta, ToutputC.data(), TagType{});
-  if(flagA == false && flagB ==  true)  contract_strided(Mgroup, Ngroup, Kgroup, alpha, ToutputA.data(), outputB.data(), beta, ToutputC.data(), TagType{});
-  if(flagA ==  true && flagB == false)  contract_strided(Mgroup, Ngroup, Kgroup, alpha, outputA.data(), ToutputB.data(), beta, ToutputC.data(), TagType{});
-  if(flagA ==  true && flagB ==  true)  contract_strided(Mgroup, Ngroup, Kgroup, alpha, outputA.data(), outputB.data(), beta, ToutputC.data(), TagType{});
-  rearrange(ToutputC.data(),C.data_handle(),ExtentC,ExtentC,newStrideC,oldStrideC);
+  if(flagA == false && flagB == false)  contract_strided(a,b,c,Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), B.data_handle(), beta, C.data_handle(), TagType{});
+  if(flagA == false && flagB ==  true)  contract_strided(a,b,c,Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), outputB.data(), beta, C.data_handle(), TagType{});
+  if(flagA ==  true && flagB == false)  contract_strided(a,b,c,Mgroup, Ngroup, Kgroup, alpha, outputA.data(), B.data_handle(), beta, C.data_handle(), TagType{});
+  if(flagA ==  true && flagB ==  true)  contract_strided(a,b,c,Mgroup, Ngroup, Kgroup, alpha, outputA.data(), outputB.data(), beta, C.data_handle(), TagType{});
+  //rearrange(ToutputC.data(),C.data_handle(),ExtentC,ExtentC,newStrideC,oldStrideC);
     }
   }
  // namespace uni20::kernel
