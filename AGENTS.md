@@ -1,90 +1,144 @@
+# Uni20 Contributor Guide
 
-## Mandatory environment setup (must run before cmake)
+> This document defines the reproducible environment, coding rules, and documentation standards for Uni20.
+> It serves both human developers and automated agents (e.g., Codex, Copilot Workspace, ChatGPT Code Interpreter).
+> **Agents must execute the “Mandatory Environment Setup” section before running CMake.**
+
+---
+
+## 1. Mandatory Environment Setup (must run before CMake)
+
+```bash
 sudo apt-get update -y && \
-sudo apt-get install -y cmake libopenblas-dev liblapack-dev
+sudo apt-get install -y \
+    cmake ninja-build g++ \
+    libopenblas-dev liblapack-dev
+```
 
-## General expectations
-- Keep commits focused and well described. Prefer small, logically-scoped changes.  
-- When adding new functionality, check whether existing documentation in `docs/` or the top-level `README.md` needs an update to stay accurate.  
-- New features should be accompanied by unit tests (see **Testing** below) when practical.  
+**Notes for hosted environments:**
 
-## Core Development Rules
+* Do **not** modify `CMakeLists.txt` to bypass dependency detection.
+* If BLAS/LAPACK detection fails, re-run the install step above.
+* Codex-like agents should always execute this block before attempting a build.
 
-* **C++ Standard:** C++23 required.  
-* **Coroutine Safety:**  
-  - Lambdas defining coroutines **must not** have capture lists.  
-  - All coroutine parameters must be passed **by value**, not by reference.  
-  - Any lambda with captures that suspends leads to **undefined behavior** (the lambda object’s stack frame is destroyed).  
-* **Asynchronous Execution Model:**  
-  - `Async<T>` is the canonical asynchronous value wrapper.  
-  - Schedulers (`DebugScheduler`, `TbbScheduler`, etc.) manage task lifetimes; no direct `std::thread` use.  
-* **Thread Safety:**  
-  - `EpochQueue`, `ReadBuffer`, `WriteBuffer`, `MutableBuffer` enforce causal access.  
-  - All shared state modifications must be guarded by atomic operations or appropriate mutexes.  
+**Optional packages**
 
-## C++ and CUDA sources (`src/`, `tests/`, `bindings/python/`)
-- The project is built with C++23; prefer standard-library utilities over bespoke helpers when they exist.  
-- Follow the existing `.clang-format` configuration. After configuring the build directory run:  
-  ```bash
-  cmake --build build --target clang_format
-````
+These packages are automatically fetched from github if they are not detected.
+```
+sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
+```
 
-or run `clang-format` manually on touched files before committing.
+---
 
-* Keep header interfaces tight: minimize `#include`s in headers and prefer forward declarations where possible.
-* Guard platform-specific code with the appropriate feature-detection macros found in `src/common`.
+## 2. General Expectations
 
-## C++ Coding Style
+* Keep commits focused, small, and logically scoped.
+* Update documentation in `docs/` or `README.md` whenever APIs change.
+* Add or update unit tests for new functionality.
+* Commit messages should clearly describe what changed and why.
 
+---
+
+## 3. Core Development Rules
+
+### 3.1 C++ Standard
+
+* Uni20 requires **C++23**.
 * Use `int const& x` style — `const` follows the type.
 * When calling member functions from within other members, use `this->foo()` to clarify scope.
 * Use trailing underscores (`_`) on private member variables, except for simple aggregates.
 * Use `constexpr`, `consteval`, and concepts from C++23 wherever they simplify code or improve correctness.
 
-## Environment setup
+---
 
-* Before any build, ensure required system dependencies are installed:
+### 3.2 Coroutine Safety
 
-  * `sudo apt-get update`
-  * `sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libopenblas-dev libgtest-dev`
-* CMake attempts to use system versions of TBB and google benchmark (if benchmarking is configured), but will use FetchContent if not available.
-* CMake always uses FetchContent to fetch the reference version of kokkos/mdspan.
+**Rule:**
+Lambdas that define coroutines **must not have capture lists.**
 
-## Build configuration
+```cpp
+// ❌ Wrong
+auto f = [x]() -> Async<int> { co_return x + 1; };
 
-* Use out-of-tree builds (`cmake -S . -B build`). Helpful options:
+// ✅ Correct
+auto f = [](int x) -> Async<int> { co_return x + 1; };
+```
 
-  * `-DUNI20_BUILD_TESTS=ON` (default) to compile tests.
-  * `-DUNI20_ENABLE_WARNINGS=ON` (default) to keep warnings visible.
-* The code should compile without warnings when `UNI20_ENABLE_WARNINGS` is `ON` and without relying on `-Werror` suppressions.
+**Why:**
+When a coroutine suspends, the lambda object is destroyed, invalidating any captured variables.
+The coroutine’s heap-allocated state frame stores only its parameters and locals — not captures.
+Capturing any variable risks **dangling references or use-after-free** upon resumption.
+Passing values explicitly ensures safety and reproducible async semantics.
 
-## Testing
-
-* After configuring the project, build it with your preferred generator (e.g. `cmake --build build`).
-* Run tests with CTest from the build directory:
-
-  ```bash
-  ctest --output-on-failure
-  ```
-* When you add or modify tests, register them via the `add_test_module(...)` helper in the relevant `tests/<module>/CMakeLists.txt` file.
-
-## Python bindings
-
-* Python bindings live in `bindings/python/`. They are C++ source files compiled into an extension; follow the same formatting rules as the rest of the C++ code.
-* If you introduce new Python-facing APIs, update any reference material under `docs/` accordingly.
-
-## Documentation
-
-* The `docs/` directory contains developer references. Keep these files synchronized with behavior changes, and prefer Markdown tables and code fences for examples.
+> **Agents must enforce:** no coroutine lambda may have a capture list, even if immediately invoked.
 
 ---
 
-## Doxygen Documentation Policy (for automated agents)
+**Rule:**
+All coroutine parameters must be passed **by value**, not by reference.
 
-This section defines how automated tools should detect, modify, and validate documentation in Uni20 source files.
+**Why:**
+Coroutines decouple lifetime from their caller’s stack.
+A suspended coroutine may outlive its caller, so reference parameters can dangle.
+Passing by value ensures lifetime independence and safe resumption.
 
-### 1. Comment Type Rules
+---
 
+### 3.3 Asynchronous Execution Model
+
+* `Async<T>` is the canonical async value wrapper.
+* Task schedulers (`DebugScheduler`, `TbbScheduler`, etc.) manage task lifetimes.
+* **Do not** use raw `std::thread` or manual synchronization primitives.
+
+**Why:**
+Schedulers coordinate task causality and epoch ordering.
+Direct threading bypasses dependency tracking, leading to data races or missed wakeups.
+
+---
+
+### 3.4 Thread Safety
+
+* Access to shared state must go through `EpochQueue`, `ReadBuffer`, `WriteBuffer`, or `MutableBuffer`.
+* Mutations must be atomic or mutex-protected.
+
+**Why:**
+These primitives enforce *causal consistency*: all reads and writes occur in dependency order, ensuring determinism across async tasks.
+
+---
+
+## 4. Testing
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+* Add or modify tests in `tests/<module>/`.
+* Register new tests using `add_test_module(...)` in the relevant CMakeLists.txt.
+* Keep tests deterministic; avoid random seeds without `REQUIRE_SEED`.
+
+---
+
+## 5. Python Bindings
+
+* Source files live under `bindings/python/`.
+* Follow the same C++ style and coroutine safety rules.
+* Update API documentation in `docs/` when adding or modifying bindings.
+
+---
+
+## 6. Documentation
+
+* All developer docs reside in `docs/`.
+* Use Markdown tables and fenced code blocks for clarity.
+* Sync all docs with behavior and API changes.
+
+---
+
+## 7. Doxygen Documentation Policy
+
+**Purpose:** define how tools detect, modify, and validate documentation.
+
+### 7.1 Comment Types
 * `///` is the **canonical Doxygen form** for function, class, and member documentation.
   Tools must treat contiguous `///` lines as a single documentation block immediately preceding a declaration.
 
@@ -98,7 +152,7 @@ This section defines how automated tools should detect, modify, and validate doc
   They are free for agents to clean, rewrite, or insert to clarify logic, lifetime, or invariants.
   These comments do not appear in generated documentation.
 
-### 2. Formatting Expectations
+### 7.2 Formatting Rules
 
 * Every Doxygen block must begin with `\brief`. Do *not* follow this with a blank line, unless readability demands it. Remove existing blank lines where where possible.
 * Always include `\param`, `\tparam`, and `\return` when applicable.
@@ -113,9 +167,9 @@ This section defines how automated tools should detect, modify, and validate doc
   `\brief`, `\details`, `\pre`, `\post`, `\throws`, `\note`, `\warning`, `\tparam`, `\param`, `\return`, `\ingroup`.
 * Preserve indentation relative to the documented entity.
 
-### 3. Enforcement Logic
+### 7.3 Enforcement
 
-When cleaning or generating documentation, automated agents must:
+When cleaning or generating documentation:
 
 1. **Insert missing documentation**
 
