@@ -1,0 +1,29 @@
+#pragma once
+
+#include <array>
+#include <string_view>
+
+namespace uni20::python::build_info {
+struct Entry {
+  std::string_view key;
+  std::string_view value;
+  std::string_view help;
+};
+
+inline constexpr std::string_view kGenerator{"@UNI20_PY_GENERATOR_ESCAPED@"};
+inline constexpr std::string_view kBuildType{"@UNI20_PY_BUILD_TYPE_ESCAPED@"};
+inline constexpr std::string_view kSystemName{"@UNI20_PY_SYSTEM_NAME_ESCAPED@"};
+inline constexpr std::string_view kSystemVersion{"@UNI20_PY_SYSTEM_VERSION_ESCAPED@"};
+inline constexpr std::string_view kSystemProcessor{"@UNI20_PY_SYSTEM_PROCESSOR_ESCAPED@"};
+inline constexpr std::string_view kCompilerId{"@UNI20_PY_COMPILER_ID_ESCAPED@"};
+inline constexpr std::string_view kCompilerVersion{"@UNI20_PY_COMPILER_VERSION_ESCAPED@"};
+inline constexpr std::string_view kCompilerPath{"@UNI20_PY_COMPILER_PATH_ESCAPED@"};
+
+inline constexpr std::array<Entry, @UNI20_PY_BUILD_OPTIONS_COUNT@> kBuildOptions{{
+@UNI20_PY_BUILD_OPTIONS_INITS@
+}};
+
+inline constexpr std::array<Entry, @UNI20_PY_DETECTED_ENV_COUNT@> kDetectedEnvironment{{
+@UNI20_PY_DETECTED_ENV_INITS@
+}};
+}  // namespace uni20::python::build_info

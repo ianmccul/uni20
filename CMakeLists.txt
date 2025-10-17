@@ -48,6 +48,7 @@ option(UNI20_USE_SYSTEM_BENCHMARK "Use system-installed Google Benchmark if avai
 option(UNI20_BUILD_EXTERNAL_TESTS "Build tests for external dependencies" OFF)
 option(UNI20_ILP64                "Enable ILP64 integer type for BLAS (64-bit integers)" OFF)
 option(UNI20_BUILD_PYTHON         "Build the Python bindings" ON)
+option(UNI20_BUILD_EXAMPLES       "Build the example programs" ON)
 option(UNI20_ENABLE_CUDA          "Enable CUDA backend support" OFF)
 option(UNI20_ENABLE_MPI           "Enable MPI support" OFF)
 option(UNI20_BUILD_TESTS          "Build unit tests" ON)
@@ -341,7 +342,9 @@ if(UNI20_BUILD_BENCH)
   add_subdirectory(benchmarks)
 endif()
 
-add_subdirectory(examples)
+if(UNI20_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
 
 if(UNI20_BUILD_ASM)
   add_subdirectory(asm)
@@ -407,7 +410,9 @@ endif()
 string(TOUPPER "${_current_config}" _config_uc)
 
 set(_well_known
-  CMAKE_BUILD_TYPE
+  CMAKE_SYSTEM_VERSION
+  CMAKE_SYSTEM_PROCESSOR
+  MAKE_BUILD_TYPE
   CMAKE_INSTALL_PREFIX
   BUILD_SHARED_LIBS
   CMAKE_CXX_FLAGS
