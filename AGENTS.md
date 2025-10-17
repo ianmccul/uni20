@@ -1,6 +1,7 @@
-# Repository Guidelines for `uni20`
 
-Welcome! This file lists the expectations for changes anywhere in this repository.  
+## Mandatory environment setup (must run before cmake)
+sudo apt-get update -y && \
+sudo apt-get install -y cmake libopenblas-dev liblapack-dev
 
 ## General expectations
 - Keep commits focused and well described. Prefer small, logically-scoped changes.  
