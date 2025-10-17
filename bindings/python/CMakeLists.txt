@@ -1,33 +1,40 @@
 cmake_minimum_required(VERSION 3.18)
-project(uni20_python LANGUAGES CXX)
 
-include(FetchContent)
-FetchContent_Declare(
-  pybind11
-  GIT_REPOSITORY https://github.com/pybind/pybind11.git
-  GIT_TAG stable
+# Ensure Python headers/libraries are available before loading nanobind's CMake
+# helpers.
+find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+
+# Ensure nanobind is available via the repository-wide dependency helper, which
+# first looks for an existing installation before falling back to FetchContent.
+uni20_add_dependency(
+  NAME nanobind
+  VERSION 1.8.0
+  TARGET nanobind::nanobind
+  REPO https://github.com/wjakob/nanobind.git
+  TAG v1.8.0
 )
-FetchContent_MakeAvailable(pybind11)
 
-# Option 2 (Alternative): If you already have pybind11 installed system-wide,
-# you could comment out the FetchContent block above and use:
-# find_package(pybind11 CONFIG REQUIRED)
-
-# Create the Python module using pybind11
-# This command creates a Python extension module (shared library) from your source file.
-pybind11_add_module(uni20_python MODULE
+# Build the Python extension module using nanobind. NB_SHARED ensures we emit a
+# loadable extension rather than a static archive.
+nanobind_add_module(
+  uni20_python
+  NB_SHARED
   uni20_python.cpp
 )
 
-# Link against the uni20 library (assumed to be defined in src/CMakeLists.txt)
+# Link against the core uni20 library (declared in src/CMakeLists.txt).
 target_link_libraries(uni20_python PRIVATE uni20)
 
-# Optionally, specify the C++ standard if needed.
-set_target_properties(uni20_python PROPERTIES
-  CXX_STANDARD 20
-  CXX_STANDARD_REQUIRED ON
-)
+set_property(TARGET uni20_python PROPERTY CXX_STANDARD 23)
+set_property(TARGET uni20_python PROPERTY CXX_STANDARD_REQUIRED ON)
 
-# You can also add additional include directories if your bindings need access
-# to headers outside of the default include paths. For example:
-# target_include_directories(uni20_python PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# nanobind relies on zero-sized arrays for some of its internals, which trips the
+# project's global -pedantic-errors setting. Relax the check locally for the
+# extension module.
+target_compile_options(uni20_python PRIVATE -Wno-pedantic -Wno-error=pedantic)
+
+foreach(nb_target IN ITEMS nanobind nanobind-static nanobind-abi3)
+  if(TARGET ${nb_target})
+    target_compile_options(${nb_target} PRIVATE -Wno-pedantic -Wno-error=pedantic)
+  endif()
+endforeach()

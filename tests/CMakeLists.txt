@@ -11,6 +11,10 @@ add_subdirectory(kernel)
 add_subdirectory(backend)
 add_subdirectory(async)
 
+if(UNI20_BUILD_PYTHON)
+  add_subdirectory(python)
+endif()
+
 # Retrieve accumulated combined test inputs
 get_property(UNI20_COMBINED_TEST_SRCS GLOBAL PROPERTY UNI20_COMBINED_TEST_SRCS)
 get_property(UNI20_COMBINED_TEST_LIBS GLOBAL PROPERTY UNI20_COMBINED_TEST_LIBS)
