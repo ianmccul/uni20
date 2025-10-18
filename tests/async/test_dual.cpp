@@ -191,3 +191,43 @@ TEST(Dual, RealImagGradientSum)
 
   sched.run_all();
 }
+
+TEST(Dual, StressBackpropMatchesAnalytic)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  double const base_value = 0.375;
+  Dual<double> x = base_value;
+  Dual<double> total = 0.0;
+
+  constexpr int kTerms = 128;
+  double expected_value = 0.0;
+  double expected_grad = 0.0;
+
+  for (int term_index = 0; term_index < kTerms; ++term_index)
+  {
+    double const shift = static_cast<double>(term_index) * 0.0025;
+    Dual<double> term = sin(x + shift) * cos(x - shift);
+    Dual<double> new_total = total + term;
+    total = new_total;
+
+    double const plus = base_value + shift;
+    double const minus = base_value - shift;
+    double const term_value = std::sin(plus) * std::cos(minus);
+    expected_value += term_value;
+    double const derivative = std::cos(plus) * std::cos(minus) - std::sin(plus) * std::sin(minus);
+    expected_grad += derivative;
+  }
+
+  double const actual_value = total.value.get_wait();
+  EXPECT_NEAR(actual_value, expected_value, 1e-12);
+
+  total.grad = 1.0;
+  sched.run_all();
+
+  double const actual_grad = x.grad.final().get_wait();
+  EXPECT_NEAR(actual_grad, expected_grad, 1e-12);
+
+  sched.run_all();
+}

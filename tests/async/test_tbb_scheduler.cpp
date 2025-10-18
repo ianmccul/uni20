@@ -1,11 +1,16 @@
 #include "async/async.hpp"
+#include "async/async_ops.hpp"
 #include "async/debug_scheduler.hpp"
+#include "async/dual.hpp"
+#include "async/dual_toys.hpp"
 #include "async/reverse_value.hpp"
 #include "async/tbb_scheduler.hpp"
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <gtest/gtest.h>
 #include <thread>
+#include <vector>
 
 using namespace uni20::async;
 
@@ -175,4 +180,96 @@ TEST(TbbScheduler, PausePreventsExecutionUntilResume)
 
   EXPECT_EQ(direct_counter.load(std::memory_order_relaxed), kDirectTasks);
   EXPECT_EQ(async_counter.load(std::memory_order_relaxed), kWrittenValue);
+}
+
+TEST(TbbScheduler, StressLongAsyncChain)
+{
+  TbbScheduler sched{4};
+  ScopedScheduler guard(&sched);
+
+  Async<int> value = 0;
+  constexpr int kChainLength = 4096;
+
+  for (int i = 0; i < kChainLength; ++i)
+  {
+    value += 1;
+  }
+
+  EXPECT_EQ(value.get_wait(), kChainLength);
+  sched.run_all();
+}
+
+TEST(TbbScheduler, StressConcurrentProducers)
+{
+  TbbScheduler sched{6};
+
+  std::atomic<int> counter{0};
+
+  constexpr int kProducerThreads = 6;
+  constexpr int kTasksPerThread = 512;
+
+  std::vector<std::thread> producers;
+  producers.reserve(kProducerThreads);
+
+  for (int t = 0; t < kProducerThreads; ++t)
+  {
+    producers.emplace_back([&sched, &counter] {
+      for (int i = 0; i < kTasksPerThread; ++i)
+      {
+        sched.schedule([](std::atomic<int>* target) -> AsyncTask {
+          target->fetch_add(1, std::memory_order_relaxed);
+          co_return;
+        }(&counter));
+      }
+    });
+  }
+
+  for (auto& producer : producers)
+  {
+    producer.join();
+  }
+
+  sched.run_all();
+
+  EXPECT_EQ(counter.load(std::memory_order_relaxed), kProducerThreads * kTasksPerThread);
+}
+
+TEST(TbbScheduler, DualBackpropStress)
+{
+  TbbScheduler sched{4};
+  ScopedScheduler guard(&sched);
+
+  double const base_value = 0.375;
+  Dual<double> x = base_value;
+  Dual<double> total = 0.0;
+
+  constexpr int kTerms = 128;
+  double expected_value = 0.0;
+  double expected_grad = 0.0;
+
+  for (int term_index = 0; term_index < kTerms; ++term_index)
+  {
+    double const shift = static_cast<double>(term_index) * 0.0025;
+    Dual<double> term = sin(x + shift) * cos(x - shift);
+    Dual<double> new_total = total + term;
+    total = new_total;
+
+    double const plus = base_value + shift;
+    double const minus = base_value - shift;
+    double const term_value = std::sin(plus) * std::cos(minus);
+    expected_value += term_value;
+    double const derivative = std::cos(plus) * std::cos(minus) - std::sin(plus) * std::sin(minus);
+    expected_grad += derivative;
+  }
+
+  double const actual_value = total.value.get_wait();
+  EXPECT_NEAR(actual_value, expected_value, 1e-9);
+
+  total.grad = 1.0;
+  sched.run_all();
+
+  double const actual_grad = x.grad.final().get_wait();
+  EXPECT_NEAR(actual_grad, expected_grad, 1e-9);
+
+  sched.run_all();
 }
