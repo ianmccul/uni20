@@ -35,6 +35,23 @@ TEST(TbbScheduler, AsyncArithmetic)
   EXPECT_EQ(c.get_wait(), 3);
 }
 
+TEST(TbbScheduler, AsyncAccumulationGetWait)
+{
+  TbbScheduler sched{4};
+  ScopedScheduler guard(&sched);
+
+  Async<int> x = 0;
+  constexpr int iterations = 64;
+  for (int i = 0; i < iterations; ++i)
+  {
+    x += 1;
+  }
+
+  // Regression coverage: a historical bug dropped coroutines in linear chains
+  // of tasks, so the final get_wait() never observed all increments.
+  EXPECT_EQ(x.get_wait(), iterations);
+}
+
 TEST(TbbScheduler, CoroutineAndAsync)
 {
   TbbScheduler sched{4};
