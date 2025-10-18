@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke tests for the Uni20 Python bindings."""
+"""Basic tests for the Uni20 Python bindings."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def _load_module() -> object:
     sys.path.insert(0, str(bindings_dir))
     # Remove the injected argument so unittest does not attempt to parse it.
     sys.argv = [sys.argv[0]]
-    return importlib.import_module("uni20_python")
+    return importlib.import_module("uni20")
 
 
 _UNI20_MODULE = _load_module()
@@ -31,4 +31,4 @@ class GreetTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    unittest.main()

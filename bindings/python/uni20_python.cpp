@@ -4,11 +4,12 @@
 
 namespace nb = nanobind;
 
-NB_MODULE(uni20_python, module)
+NB_MODULE(uni20, module)
 {
-  module.doc() = "uni20 Python bindings (hello world example)";
+  module.doc() = "uni20 Python bindings";
 
-  for (auto const& fn : BindingRegistry::list()) {
+  for (auto const& fn : BindingRegistry::list())
+  {
     fn(module);
   }
 }

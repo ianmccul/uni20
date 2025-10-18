@@ -196,7 +196,7 @@ A simple Python binding is provided via pybind11. After building:
 3. Test the module in a Python shell:
 
    ```bash
-   python3 -c "import uni20_python; print(uni20_python.greet())"
+   python3 -c "import uni20; print(uni20.greet())"
    ```
 
    You should see the output:

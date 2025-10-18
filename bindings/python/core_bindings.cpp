@@ -1,5 +1,5 @@
-#include "registry.hpp"
 #include "buildinfo.hpp"
+#include "registry.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
@@ -9,7 +9,8 @@
 
 namespace nb = nanobind;
 
-namespace {
+namespace
+{
 
 /// \brief Returns a dictionary with details about the current CMake build.
 nb::dict buildinfo()
@@ -27,10 +28,12 @@ nb::dict buildinfo()
   info["cxx_compiler_path"] = nb::str(kCompilerPath.data(), kCompilerPath.size());
 
   auto populate_entries = [](nb::dict& target, auto const& entries) {
-    for (auto const& entry : entries) {
+    for (auto const& entry : entries)
+    {
       nb::dict metadata;
       metadata["value"] = nb::str(entry.value.data(), entry.value.size());
-      if (!entry.help.empty()) {
+      if (!entry.help.empty())
+      {
         metadata["help"] = nb::str(entry.help.data(), entry.help.size());
       }
 
@@ -50,14 +53,13 @@ nb::dict buildinfo()
 
 void register_core(nb::module_& module)
 {
-  module.def("version", [] { return std::string("0.1.0"); });
   module.def("buildinfo", &buildinfo, "Return build system metadata for the current uni20 build.");
 
   // Any other core utilities can go here
   // e.g., module.def("set_log_level", &set_log_level);
 }
 
-}  // namespace
+} // namespace
 
 // Register into the global registry
 static RegisterBinding core_reg([](nb::module_& module) { register_core(module); });

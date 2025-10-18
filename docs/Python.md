@@ -1,6 +1,6 @@
 # Uni20 Python Bindings
 
-The `uni20_python` extension exposes a subset of the Uni20 C++ API to Python via [nanobind](https://github.com/wjakob/nanobind). This guide explains the prerequisites, build steps, and example usage for the module.
+The `uni20` extension exposes a subset of the Uni20 C++ API to Python via [nanobind](https://github.com/wjakob/nanobind). This guide explains the prerequisites, build steps, and example usage for the module.
 
 ## Prerequisites
 
@@ -28,10 +28,10 @@ The configuration step locates your Python interpreter and development headers. 
 Compile both the C++ library and the Python extension:
 
 ```bash
-cmake --build build --target uni20_python
+cmake --build build --target uni20
 ```
 
-CMake emits the loadable extension to `build/bindings/python/`. On Linux and macOS the file is named `uni20_python.cpython-<abi>.so`; on Windows it is `uni20_python.cp<abi>.pyd`.
+CMake emits the loadable extension to `build/bindings/python/`. On Linux and macOS the file is named `uni20.cpython-<abi>.so`; on Windows it is `uni20.cp<abi>.pyd`.
 
 To rebuild after making source changes rerun the same build command. Ninja and other generators only recompile files that changed.
 
@@ -41,7 +41,7 @@ The sample module currently exports a single `greet()` function. Add the build o
 
 ```bash
 export PYTHONPATH="$(pwd)/build/bindings/python:${PYTHONPATH}"
-python -c "import uni20_python; print(uni20_python.greet())"
+python -c "import uni20; print(uni20.greet())"
 ```
 
 The script should print:
@@ -57,8 +57,8 @@ python -m venv .venv
 source .venv/bin/activate
 pip install build
 python -m build --wheel --outdir dist bindings/python
-pip install dist/uni20_python-*.whl
-python -c "import uni20_python; print(uni20_python.greet())"
+pip install dist/uni20-*.whl
+python -c "import uni20; print(uni20.greet())"
 ```
 
 ## Running tests

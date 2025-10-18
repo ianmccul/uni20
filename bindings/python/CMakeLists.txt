@@ -112,6 +112,9 @@ target_link_libraries(uni20_python PRIVATE uni20)
 
 target_include_directories(uni20_python PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
+# Set the name of the module to "uni20"
+set_target_properties(uni20_python PROPERTIES OUTPUT_NAME "uni20")
+
 set_property(TARGET uni20_python PROPERTY CXX_STANDARD 23)
 set_property(TARGET uni20_python PROPERTY CXX_STANDARD_REQUIRED ON)
 
