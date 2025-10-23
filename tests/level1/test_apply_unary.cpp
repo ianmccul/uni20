@@ -15,7 +15,7 @@ TEST(MakeIterationPlanTest, SimpleContiguousPlan)
   EXPECT_EQ(offset, 0);
 }
 
-TEST(MakeIterationPlanTest, CoalescedContiguousPlan)
+TEST(MakeIterationPlanTest, MergedContiguousPlan)
 {
   auto mapping = make_mapping(std::array<std::size_t, 3>{10, 20, 30}, std::array<index_t, 3>{1, 10, 200});
   auto [plan, offset] = make_iteration_plan_with_offset(mapping);
@@ -93,7 +93,7 @@ TEST(MakeIterationPlanTest, MixedSignsNoMerge)
   EXPECT_EQ(offset, -21); // offset = (extent-1)*stride = (4-1)*-7 = -21
 }
 
-TEST(MakeIterationPlanTest, CoalescableNegativeStrides)
+TEST(MakeIterationPlanTest, MergeableNegativeStrides)
 {
   auto mapping = make_mapping(std::array<std::size_t, 2>{4, 5}, std::array<index_t, 2>{-1, -4});
   auto [plan, offset] = make_iteration_plan_with_offset(mapping);
@@ -178,7 +178,7 @@ TEST(ApplyUnaryInplace, ScaleAndShiftMixedStrides)
   }
 }
 
-TEST(ApplyUnaryInplace, NonCoalescable4DDispatchesDynamically)
+TEST(ApplyUnaryInplace, NonMergeable4DDispatchesDynamically)
 {
   using extents_t = stdex::dextents<index_t, 4>;
   extents_t extents{2, 3, 4, 5};

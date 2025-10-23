@@ -13,6 +13,8 @@
 #include "core/types.hpp"
 #include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <functional>
 #include <initializer_list>
 
 namespace uni20
@@ -71,7 +73,7 @@ template <std::size_t N> struct extent_strides
 
     /// \brief Returns true if the current (outer) dimension and the given inner dimension can be merged.
     /// \param inner The inner dimension metadata to test.
-    /// \return True when the two dimensions can be coalesced.
+    /// \return True when the two dimensions are mergeable.
     /// \ingroup mdspan_ext
     constexpr bool can_merge_with_inner(extent_strides inner) const noexcept
     {
@@ -82,7 +84,7 @@ template <std::size_t N> struct extent_strides
       return true;
     }
 
-    /// \brief Merge an inner dimension into this one when coalescing is valid.
+    /// \brief Merge an inner dimension into this one when merging is valid.
     /// \param inner The inner dimension metadata to merge.
     /// \ingroup mdspan_ext
     constexpr void merge_with_inner(extent_strides inner) noexcept
@@ -92,7 +94,63 @@ template <std::size_t N> struct extent_strides
     }
 };
 
-/// \brief Build and coalesce stride metadata from two stride arrays.
+namespace detail
+{
+
+template <std::size_t N, std::size_t R> void merge_adjacent(static_vector<extent_strides<N>, R>& out)
+{
+  if (out.size() <= 1) return;
+
+  std::size_t write = 1;
+  for (std::size_t i = 1; i < out.size(); ++i)
+  {
+    if (out[write - 1].can_merge_with_inner(out[i]))
+      out[write - 1].merge_with_inner(out[i]);
+    else
+      out[write++] = out[i];
+  }
+  out.resize(write);
+}
+
+template <typename Compare, std::size_t N, std::size_t R>
+void sort_and_merge(static_vector<extent_strides<N>, R>& out, Compare cmp)
+{
+  if (out.size() <= 1) return;
+
+  std::sort(out.begin(), out.end(),
+            [&](auto const& lhs, auto const& rhs) { return cmp(std::abs(lhs.strides[0]), std::abs(rhs.strides[0])); });
+
+  merge_adjacent(out);
+}
+
+} // namespace detail
+
+/// \brief Build and merge stride metadata from two stride arrays favouring column-major (left) order.
+/// \tparam Extents Extents type supplying extents via \c operator[].
+/// \tparam R Tensor rank captured by the stride arrays.
+/// \param ext The extents of the tensor.
+/// \param Stride1 The strides for the first operand.
+/// \param Stride2 The strides for the second operand.
+/// \return A compacted sequence of stride descriptors sorted by increasing primary stride.
+/// \ingroup mdspan_ext
+template <typename Extents, std::size_t R>
+  requires(Extents::rank() == R)
+inline static_vector<extent_strides<2>, R> merge_strides_left(Extents const& ext,
+                                                              std::array<std::ptrdiff_t, R> const& Stride1,
+                                                              std::array<std::ptrdiff_t, R> const& Stride2)
+{
+  static_vector<extent_strides<2>, R> out;
+  for (std::size_t i = 0; i < R; ++i)
+  {
+    out.emplace_back({ext[i], {Stride1[i], Stride2[i]}});
+  }
+
+  detail::sort_and_merge(out, std::less<>{});
+
+  return out;
+}
+
+/// \brief Build and merge stride metadata from two stride arrays favouring row-major (right) order.
 /// \tparam Extents Extents type supplying extents via \c operator[].
 /// \tparam R Tensor rank captured by the stride arrays.
 /// \param ext The extents of the tensor.
@@ -102,9 +160,9 @@ template <std::size_t N> struct extent_strides
 /// \ingroup mdspan_ext
 template <typename Extents, std::size_t R>
   requires(Extents::rank() == R)
-inline static_vector<extent_strides<2>, R> coalesce_strides(Extents const& ext,
-                                                            std::array<std::ptrdiff_t, R> const& Stride1,
-                                                            std::array<std::ptrdiff_t, R> const& Stride2)
+inline static_vector<extent_strides<2>, R> merge_strides_right(Extents const& ext,
+                                                               std::array<std::ptrdiff_t, R> const& Stride1,
+                                                               std::array<std::ptrdiff_t, R> const& Stride2)
 {
   static_vector<extent_strides<2>, R> out;
   for (std::size_t i = 0; i < R; ++i)
@@ -112,43 +170,32 @@ inline static_vector<extent_strides<2>, R> coalesce_strides(Extents const& ext,
     out.emplace_back({ext[i], {Stride1[i], Stride2[i]}});
   }
 
-  // Sort by stride1 descending.
-  std::sort(out.begin(), out.end(),
-            [](auto const& i, auto const& j) { return std::abs(i.strides[0]) > std::abs(j.strides[0]); });
-
-  // Coalesce adjacent dims where both strides agree on contiguity.
-  std::size_t write = 1;
-  for (std::size_t i = 1; i < R; ++i)
-  {
-    if (out[write - 1].can_merge_with_inner(out[i]))
-      out[write - 1].merge_with_inner(out[i]);
-    else
-      out[write++] = out[i];
-  }
-  out.resize(write);
+  detail::sort_and_merge(out, std::greater<>{});
 
   return out;
 }
 
-/// \brief Coalesce adjacent stride descriptors in place.
+/// \brief Merge adjacent stride descriptors in place using column-major (left) ordering.
 /// \tparam N Number of stride values per descriptor.
 /// \tparam R Capacity of the static vector.
 /// \param out The sequence of stride descriptors to compact.
 /// \ingroup mdspan_ext
-template <std::size_t N, std::size_t R> void coalesce_strides(static_vector<extent_strides<N>, R>& out)
+template <std::size_t N, std::size_t R> void merge_strides_left(static_vector<extent_strides<N>, R>& out)
 {
-  std::size_t write = 1;
-  for (std::size_t i = 1; i < R; ++i)
-  {
-    if (out[write - 1].can_merge_with_inner(out[i]))
-      out[write - 1].merge_with_inner(out[i]);
-    else
-      out[write++] = out[i];
-  }
-  out.resize(write);
+  detail::sort_and_merge(out, std::less<>{});
 }
 
-/// \brief Extract coalesced stride groups for a tensor contraction.
+/// \brief Merge adjacent stride descriptors in place using row-major (right) ordering.
+/// \tparam N Number of stride values per descriptor.
+/// \tparam R Capacity of the static vector.
+/// \param out The sequence of stride descriptors to compact.
+/// \ingroup mdspan_ext
+template <std::size_t N, std::size_t R> void merge_strides_right(static_vector<extent_strides<N>, R>& out)
+{
+  detail::sort_and_merge(out, std::greater<>{});
+}
+
+/// \brief Extract merged stride groups for a tensor contraction.
 /// \tparam AType Strided mdspan describing the A operand.
 /// \tparam BType Strided mdspan describing the B operand.
 /// \tparam CType Strided mdspan describing the C operand.
@@ -204,9 +251,9 @@ auto extract_strides(AType const& A, BType const& B,
     }
   }
 
-  coalesce_strides(Mgroup);
-  coalesce_strides(Ngroup);
-  coalesce_strides(Kgroup);
+  merge_strides_right(Mgroup);
+  merge_strides_right(Ngroup);
+  merge_strides_right(Kgroup);
 
   return std::tuple{Mgroup, Ngroup, Kgroup};
 }

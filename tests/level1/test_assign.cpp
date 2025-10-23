@@ -20,7 +20,7 @@ TEST(MultiIterationPlanTest, SimpleMatchingLayouts)
   EXPECT_EQ(offsets[1], 0);
 }
 
-TEST(MultiIterationPlanTest, MismatchedButCoalescable)
+TEST(MultiIterationPlanTest, MismatchedButMergeable)
 {
   auto a = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{4, 1});
   auto b = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{40, 10});
@@ -158,7 +158,7 @@ TEST(Assign, TransformScaleShift)
     EXPECT_EQ(out[i], 2 * v[i] + 1);
 }
 
-TEST(Assign, NonCoalesced4DStridesUseDynamic)
+TEST(Assign, NonMergeable4DStridesUseDynamic)
 {
   std::array<std::size_t, 4> const extents{2, 3, 4, 5};
   std::array<index_t, 4> const dst_strides{500, 73, 13, 2};

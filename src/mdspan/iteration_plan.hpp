@@ -3,7 +3,7 @@
 /**
  * \file iteration_plan.hpp
  * \ingroup mdspan_ext
- * \brief Helpers for constructing coalesced iteration plans over strided tensors.
+ * \brief Helpers for constructing merged iteration plans over strided tensors.
  */
 
 #include "common/static_vector.hpp"
@@ -60,10 +60,10 @@ template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> str
 template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t, std::size_t N = 2>
 using multi_extent_stride = extent_strides<N>;
 
-/// \brief Construct a coalesced iteration plan and offset for a single mapping.
+/// \brief Construct a merged iteration plan and offset for a single mapping.
 /// \tparam Mapping Layout mapping type modelling the mdspan mapping interface.
 /// \param mapping Mapping used to compute strides and extents.
-/// \return Pair consisting of the coalesced plan and the starting offset adjustment.
+/// \return Pair consisting of the merged plan and the starting offset adjustment.
 /// \ingroup internal
 template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& mapping)
 {
@@ -93,11 +93,10 @@ template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& 
 
   if (raw_plan.empty()) return std::pair{plan, offset};
 
-  std::sort(raw_plan.begin(), raw_plan.end(), [](auto const& lhs, auto const& rhs) {
-    return std::abs(lhs.strides[0]) > std::abs(rhs.strides[0]);
-  });
+  std::sort(raw_plan.begin(), raw_plan.end(),
+            [](auto const& lhs, auto const& rhs) { return std::abs(lhs.strides[0]) > std::abs(rhs.strides[0]); });
 
-  coalesce_strides(raw_plan);
+  merge_strides_right(raw_plan);
 
   for (auto const& dim : raw_plan)
   {
@@ -107,11 +106,11 @@ template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& 
   return std::pair{plan, offset};
 }
 
-/// \brief Build a coalesced iteration plan for multiple tensors sharing the same extents.
+/// \brief Build a merged iteration plan for multiple tensors sharing the same extents.
 /// \tparam Mapping Layout mapping type modelling the mdspan mapping interface.
 /// \tparam N       Number of tensors participating in the iteration.
 /// \param mappings Array of mappings, one per tensor.
-/// \return Pair of the coalesced plan and the per-tensor offset corrections.
+/// \return Pair of the merged plan and the per-tensor offset corrections.
 /// \ingroup internal
 template <typename Mapping, std::size_t N>
 auto make_multi_iteration_plan_with_offset(std::array<Mapping, N> const& mappings)
@@ -160,11 +159,10 @@ auto make_multi_iteration_plan_with_offset(std::array<Mapping, N> const& mapping
 
   if (raw_plan.empty()) return std::pair{raw_plan, offsets};
 
-  std::sort(raw_plan.begin(), raw_plan.end(), [](auto const& lhs, auto const& rhs) {
-    return std::abs(lhs.strides[0]) > std::abs(rhs.strides[0]);
-  });
+  std::sort(raw_plan.begin(), raw_plan.end(),
+            [](auto const& lhs, auto const& rhs) { return std::abs(lhs.strides[0]) > std::abs(rhs.strides[0]); });
 
-  coalesce_strides(raw_plan);
+  merge_strides_right(raw_plan);
 
   return std::pair{raw_plan, offsets};
 }
@@ -368,10 +366,8 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
     template <std::size_t I> auto& accs_get() noexcept { return std::get<I>(accs_); }
 };
 
-template <typename Op, typename... Spans>
-MultiUnrollHelper(Op&&, Spans...) -> MultiUnrollHelper<Op, Spans...>;
+template <typename Op, typename... Spans> MultiUnrollHelper(Op&&, Spans...) -> MultiUnrollHelper<Op, Spans...>;
 
 } // namespace detail
 
 } // namespace uni20
-
