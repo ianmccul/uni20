@@ -687,7 +687,7 @@ template <typename T> class EpochContextWriter {
       DEBUG_PRECONDITION(parent_);                          // the parent_ must exist
       DEBUG_PRECONDITION(parent_->queue_.is_front(epoch_)); // we must be at the front of the queue
       DEBUG_PRECONDITION(!epoch_->writer_is_done());        // writer still holds the gate
-      epoch_->writer_has_written(); // this is the best we can do, to label the write has (or will) actually occur
+      accessed_ = true;
       return parent_->value_;
     }
 
@@ -700,9 +700,16 @@ template <typename T> class EpochContextWriter {
     {
       if (epoch_)
       {
+        if (accessed_ && !marked_written_)
+        {
+          epoch_->writer_has_written();
+          marked_written_ = true;
+        }
         // TRACE_MODULE(ASYNC, "EpochContextWriter: release");
         if (epoch_->writer_release()) parent_->queue_.on_writer_done(epoch_);
         epoch_ = nullptr;
+        accessed_ = false;
+        marked_written_ = false;
       }
     }
 
@@ -729,6 +736,8 @@ template <typename T> class EpochContextWriter {
   private:
     detail::AsyncImplPtr<T> parent_;
     EpochContext* epoch_ = nullptr;
+    mutable bool accessed_ = false;
+    mutable bool marked_written_ = false;
 };
 
 } // namespace uni20::async

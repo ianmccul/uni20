@@ -182,3 +182,35 @@ TEST(AsyncBasicTest, CopyConstructor)
   EXPECT_EQ(original.get_wait(), 42);
   EXPECT_EQ(copy.get_wait(), 99);
 }
+
+TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  Async<int> mutable_value = 0;
+  Async<int> write_only;
+
+  auto mutate_task = [](MutableBuffer<int> buffer) -> AsyncTask {
+    auto& ref = co_await buffer;
+    ref = 17;
+    auto moved = std::move(buffer);
+    (void)moved;
+    co_return;
+  }(mutable_value.mutate());
+
+  auto write_task = [](WriteBuffer<int> buffer) -> AsyncTask {
+    auto& ref = co_await buffer;
+    ref = 23;
+    auto moved = std::move(buffer);
+    (void)moved;
+    co_return;
+  }(write_only.write());
+
+  sched.schedule(std::move(mutate_task));
+  sched.schedule(std::move(write_task));
+  sched.run_all();
+
+  EXPECT_EQ(mutable_value.get_wait(), 17);
+  EXPECT_EQ(write_only.get_wait(), 23);
+}
