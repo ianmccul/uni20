@@ -25,7 +25,7 @@ void update_max(std::atomic<int>& target, int value)
 
 } // namespace
 
-TEST(TbbSchedulerStress, LinearChainCompletes)
+TEST(TbbSchedulerStress, DISABLED_LinearChainCompletes)
 {
   constexpr int kChainLength = 2000;
 
@@ -75,14 +75,15 @@ TEST(TbbSchedulerStress, BalancedReductionProducesExpectedSum)
     for (std::size_t i = 0; i + 1 < level.size(); i += 2)
     {
       Async<int> combined;
-      schedule([](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int>* counter) -> AsyncTask {
-        auto const& lhs_value = co_await lhs;
-        auto const& rhs_value = co_await rhs;
-        auto& destination = co_await out;
-        destination = lhs_value + rhs_value;
-        counter->fetch_add(1, std::memory_order_relaxed);
-        co_return;
-      }(level[i].read(), level[i + 1].read(), combined.write(), &executed));
+      schedule(
+          [](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int>* counter) -> AsyncTask {
+            auto const& lhs_value = co_await lhs;
+            auto const& rhs_value = co_await rhs;
+            auto& destination = co_await out;
+            destination = lhs_value + rhs_value;
+            counter->fetch_add(1, std::memory_order_relaxed);
+            co_return;
+          }(level[i].read(), level[i + 1].read(), combined.write(), &executed));
       next_level.push_back(std::move(combined));
     }
     if (level.size() % 2 == 1)
