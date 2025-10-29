@@ -12,7 +12,7 @@
 sudo apt-get update -y && \
 sudo apt-get install -y \
     cmake ninja-build g++ \
-    libopenblas-dev liblapack-dev
+    libopenblas-dev liblapack-dev libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 ```
 
 **Notes for hosted environments:**
