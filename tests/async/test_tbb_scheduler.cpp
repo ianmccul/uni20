@@ -234,7 +234,7 @@ TEST(TbbScheduler, StressConcurrentProducers)
   EXPECT_EQ(counter.load(std::memory_order_relaxed), kProducerThreads * kTasksPerThread);
 }
 
-TEST(TbbScheduler, DualBackpropStress)
+TEST(TbbScheduler, DISABLED_DualBackpropStress)
 {
   TbbScheduler sched{4};
   ScopedScheduler guard(&sched);

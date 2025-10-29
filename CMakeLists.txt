@@ -144,6 +144,12 @@ function(relax_warnings target)
     message(STATUS "Relaxing warnings for external target: ${real_target}")
     set_target_properties(${real_target} PROPERTIES COMPILE_OPTIONS "${UNI20_WARN_FLAGS_EXTERNAL}")
   endif()
+
+  # mark includes as system
+  get_target_property(_includes ${real_target} INTERFACE_INCLUDE_DIRECTORIES)
+  if(_includes)
+    target_include_directories(${real_target} SYSTEM INTERFACE ${_includes})
+  endif()
 endfunction()
 
 add_compile_options(${UNI20_WARN_FLAGS_INTERNAL})
