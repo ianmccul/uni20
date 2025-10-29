@@ -72,6 +72,72 @@ template <class Mdspan> struct StaticRankMdspan : Mdspan
 };
 } // namespace
 
+TEST(MergeStridesLeft, MergesAllBroadcastDimensions)
+{
+    static_vector<extent_strides<2>, 3> dims;
+    dims.emplace_back(2, std::array<std::ptrdiff_t, 2>{0, 0});
+    dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{0, 0});
+    dims.emplace_back(4, std::array<std::ptrdiff_t, 2>{0, 0});
+
+    merge_strides_left(dims);
+
+    ASSERT_EQ(dims.size(), 1);
+    EXPECT_EQ(dims[0].extent, 24);
+    EXPECT_EQ(dims[0].strides[0], 0);
+    EXPECT_EQ(dims[0].strides[1], 0);
+}
+
+TEST(MergeStridesLeft, PartiallyMergesBroadcastDimensions)
+{
+    static_vector<extent_strides<2>, 3> dims;
+    dims.emplace_back(7, std::array<std::ptrdiff_t, 2>{14, 21});
+    dims.emplace_back(2, std::array<std::ptrdiff_t, 2>{0, 0});
+    dims.emplace_back(5, std::array<std::ptrdiff_t, 2>{0, 0});
+
+    merge_strides_left(dims);
+
+    ASSERT_EQ(dims.size(), 2);
+    EXPECT_EQ(dims[0].extent, 10);
+    EXPECT_EQ(dims[0].strides[0], 0);
+    EXPECT_EQ(dims[0].strides[1], 0);
+    EXPECT_EQ(dims[1].extent, 7);
+    EXPECT_EQ(dims[1].strides[0], 14);
+    EXPECT_EQ(dims[1].strides[1], 21);
+}
+
+TEST(MergeStridesRight, MergesAllContiguousDimensions)
+{
+    static_vector<extent_strides<2>, 3> dims;
+    dims.emplace_back(2, std::array<std::ptrdiff_t, 2>{12, 60});
+    dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{4, 20});
+    dims.emplace_back(4, std::array<std::ptrdiff_t, 2>{1, 5});
+
+    merge_strides_right(dims);
+
+    ASSERT_EQ(dims.size(), 1);
+    EXPECT_EQ(dims[0].extent, 24);
+    EXPECT_EQ(dims[0].strides[0], 1);
+    EXPECT_EQ(dims[0].strides[1], 5);
+}
+
+TEST(MergeStridesRight, PartiallyMergesContiguousDimensions)
+{
+    static_vector<extent_strides<2>, 3> dims;
+    dims.emplace_back(2, std::array<std::ptrdiff_t, 2>{15, 45});
+    dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{5, 15});
+    dims.emplace_back(5, std::array<std::ptrdiff_t, 2>{2, 7});
+
+    merge_strides_right(dims);
+
+    ASSERT_EQ(dims.size(), 2);
+    EXPECT_EQ(dims[0].extent, 6);
+    EXPECT_EQ(dims[0].strides[0], 5);
+    EXPECT_EQ(dims[0].strides[1], 15);
+    EXPECT_EQ(dims[1].extent, 5);
+    EXPECT_EQ(dims[1].strides[0], 2);
+    EXPECT_EQ(dims[1].strides[1], 7);
+}
+
 TEST(StridesHelpers, StridesOverloadsReturnExpectedArrays)
 {
     using row_major_extents = stdex::extents<std::size_t, 2, 3>;
