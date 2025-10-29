@@ -26,6 +26,23 @@ current kernels so that new contributors can reason about correctness and perfor
 We focus on the CPU and BLAS backends, where the core strategy is to decompose an arbitrary
 contraction into groups of indices that resemble the \((M,N,K)\) structure of a GEMM operation.
 
+\section{Terminology and Layout Conventions}
+The C++ \texttt{mdspan} reference implementation distinguishes between
+\texttt{layout\_right}---where the right-most index varies fastest and therefore has stride~1---and
+\texttt{layout\_left}, whose left-most index is contiguous.  Uni20 adopts this vocabulary verbatim
+for concrete layouts while reserving the shorter ``right'' and ``left'' adjectives for the
+corresponding traversal heuristics.  When we describe a heuristic as ``right-biased'', we mean that
+it follows the same prioritisation of contiguous axes as \texttt{layout\_right}; likewise a
+``left-biased'' heuristic mirrors \texttt{layout\_left}.  Later discussions of
+\texttt{merge\_strides\_right()} and \texttt{merge\_strides\_left()} (Section~\ref{sec:merge-order})
+use this convention to indicate which end of the descriptor list they prefer when ordering strides.
+
+Throughout the remainder of this document we use \emph{merging} as the canonical term for combining
+adjacent stride descriptors whose outer stride equals the inner stride multiplied by the extent.
+This replaces the earlier ``coalescing'' wording and aligns the prose with the
+\texttt{merge\_strides\_*} helper names.  Forward references to the merging algorithms in
+Section~\ref{sec:merge-order} establish the terminology before the algorithms themselves appear.
+
 \section{From \texttt{mdspan} to Concrete Tensors}
 Uni20 adopts the C++ reference implementation of \texttt{std::experimental::mdspan} (hereafter
 \texttt{mdspan}) as the fundamental view of multi-dimensional data.  An \texttt{mdspan} couples a
@@ -80,7 +97,7 @@ effectively fusing neighbour indices that already form a single logical block.  
 calls \texttt{merge\_strides\_right()} on each group, yielding a compact representation of the
 contraction that resembles GEMM's $(M,N,K)$ tuple.
 
-\section{Ordering Behaviour of Stride Utilities}
+\section{Ordering Behaviour of Stride Utilities}\label{sec:merge-order}
 The descriptors returned by \texttt{extract\_strides()} are appended in a fixed logical order:
 contracted pairs populate the $K$ group first, followed by the remaining legs of $A$ and $B$ that
 populate the $M$ and $N$ groups alongside their matching indices in $C$.  When the resulting
@@ -91,13 +108,13 @@ the relative ordering otherwise remains untouched.
 Other utilities, such as the helper that constructs iteration plans, may invoke either
 \texttt{merge\_strides\_right()} or \texttt{merge\_strides\_left()} depending on the desired
 traversal order.  The ``right'' variant reproduces the previous behaviour: it sorts descriptors by
-the absolute value of the first stride in descending order before attempting any merges, so
-dimensions whose first operand has the largest stride are considered first while axes that are
-already close to contiguous (stride~$\pm 1$) tend to appear later in the plan.  The ``left'' variant
-mirrors column-major order by sorting those absolute strides ascending, encouraging merges that
-preserve stride~1 on the first logical axis.  Callers therefore have explicit control over whether
-the merged plan favours row-major or column-major traversal while still relying on the same
-mergeability test.
+the absolute value of the first stride in descending order before attempting any merges, mirroring
+the row-major preference of \texttt{layout\_right}.  Dimensions whose first operand has the largest
+stride are considered first while axes that are already close to contiguous (stride~$\pm 1$) tend to
+appear later in the plan.  The ``left'' variant mirrors column-major order by sorting those absolute
+strides ascending, encouraging merges that preserve stride~1 on the first logical axis in the spirit
+of \texttt{layout\_left}.  Callers therefore have explicit control over whether the merged plan
+favours row-major or column-major traversal while still relying on the same mergeability test.
 
 This split also surfaces where additional heuristics could help.  Sorting solely on the primary
 stride fails to notice when the chosen operand cannot be merged but a different tensor could.  A

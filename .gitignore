@@ -67,3 +67,8 @@ Thumbs.db
 *.profraw
 *.profdata
 
+# Latex scratch files
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
