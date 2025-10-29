@@ -1,0 +1,294 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath, amssymb}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily\small, breaklines=true}
+
+\title{Background on Tensor Contraction Kernels in Uni20}
+\author{Uni20 Developer Documentation}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+Tensor contraction is the multilinear generalisation of matrix multiplication.  Uni20 exposes
+contraction kernels that operate on tensor operands described by \texttt{mdspan}-compatible
+interfaces.  This note collects the background theory and implementation strategy used by Uni20's
+current kernels so that new contributors can reason about correctness and performance trade-offs.
+We focus on the CPU and BLAS backends, where the core strategy is to decompose an arbitrary
+contraction into groups of indices that resemble the \((M,N,K)\) structure of a GEMM operation.
+
+\section{From \texttt{mdspan} to Concrete Tensors}
+Uni20 adopts the C++ reference implementation of \texttt{std::experimental::mdspan} (hereafter
+\texttt{mdspan}) as the fundamental view of multi-dimensional data.  An \texttt{mdspan} couples a
+raw pointer (``data handle'') with an \emph{extents} object, a layout mapping, and an accessor.
+Within Uni20 we wrap that interface in convenience aliases and concepts (see
+\texttt{src/common/mdspan.hpp} and \texttt{src/mdspan/concepts.hpp}).  Any type that models the
+\texttt{StridedMdspan} concept exposes the rank, extents, and per-index strides required to navigate
+strided storage.  The kernel front-end therefore accepts operands as \texttt{StridedMdspan}
+instances, enabling it to operate on plain \texttt{mdspan}, custom views, and tensor wrappers alike.
+
+A concrete owning tensor pairs storage with such an \texttt{mdspan}.  The class template
+\texttt{Tensor<\ldots>} stores an owning buffer and an \texttt{mdspan} view over that buffer
+(Fig.~\ref{fig:tensor-mdspan}).  The kernel path only interacts with the non-owning view: when a
+tensor is passed to a contraction routine we immediately retrieve its \texttt{mdspan} via
+\texttt{view()} and use \texttt{data\_handle()}, extents, and strides to drive the computation.
+This makes the implementation agnostic to how memory is allocated while keeping the backend code
+focused on pointer arithmetic.
+
+\begin{figure}[h]
+  \centering
+  \begin{minipage}{0.9\linewidth}
+    \begin{lstlisting}
+class Tensor {
+  using mdspan_type = stdex::mdspan<T, extents_type, layout_type, accessor_type>;
+  std::vector<T> storage_;   // owning buffer
+  mdspan_type    view_;      // mdspan over that buffer
+};
+    \end{lstlisting}
+  \end{minipage}
+  \caption{A Uni20 tensor owns storage but exposes an \texttt{mdspan} view.  Backend kernels consume
+  the \texttt{mdspan} interface only.}
+  \label{fig:tensor-mdspan}
+\end{figure}
+
+\section{Stride Group Extraction}
+Consider a contraction of rank-$A$ tensor $A$ and rank-$B$ tensor $B$ over $N$ contracted index
+pairs.  Uni20 reorganises the indices into three groups, each represented by a small array of
+\texttt{extent\_strides} structures:
+\begin{itemize}
+  \item The \emph{$M$-group} stores all uncontracted indices sourced from $A$ (which also appear in
+        the output tensor $C$).
+  \item The \emph{$N$-group} stores all uncontracted indices sourced from $B$ (also present in $C$).
+  \item The \emph{$K$-group} contains the contracted index pairs between $A$ and $B$.
+\end{itemize}
+Each descriptor captures the extent of the grouped dimension and the strides in both participating
+operands.  The helper \texttt{extract\_strides()} walks the contracted index pairs, checks that
+extents agree, and fills the $K$-group with matching stride metadata.  It then visits the remaining
+indices of $A$ and $B$, checking that they match the layout of $C$ while filling the $M$- and
+$N$-groups respectively.  Finally, each group is merged: adjacent descriptors combine when both
+operands present mergeable strides (the outer stride equals the inner stride scaled by the extent),
+effectively fusing neighbour indices that already form a single logical block.  Uni20's implementation
+calls \texttt{merge\_strides\_right()} on each group, yielding a compact representation of the
+contraction that resembles GEMM's $(M,N,K)$ tuple.
+
+\section{Ordering Behaviour of Stride Utilities}
+The descriptors returned by \texttt{extract\_strides()} are appended in a fixed logical order:
+contracted pairs populate the $K$ group first, followed by the remaining legs of $A$ and $B$ that
+populate the $M$ and $N$ groups alongside their matching indices in $C$.  When the resulting
+\texttt{static\_vector} instances are passed to the in-place overload of
+\texttt{merge\_strides\_right()} they are only compacted by merging adjacent, mergeable entries;
+the relative ordering otherwise remains untouched.
+
+Other utilities, such as the helper that constructs iteration plans, may invoke either
+\texttt{merge\_strides\_right()} or \texttt{merge\_strides\_left()} depending on the desired
+traversal order.  The ``right'' variant reproduces the previous behaviour: it sorts descriptors by
+the absolute value of the first stride in descending order before attempting any merges, so
+dimensions whose first operand has the largest stride are considered first while axes that are
+already close to contiguous (stride~$\pm 1$) tend to appear later in the plan.  The ``left'' variant
+mirrors column-major order by sorting those absolute strides ascending, encouraging merges that
+preserve stride~1 on the first logical axis.  Callers therefore have explicit control over whether
+the merged plan favours row-major or column-major traversal while still relying on the same
+mergeability test.
+
+This split also surfaces where additional heuristics could help.  Sorting solely on the primary
+stride fails to notice when the chosen operand cannot be merged but a different tensor could.  A
+more sophisticated approach could fall back to the second stride (or additional tie-break criteria)
+once it detects that the primary ordering prevents merges, or even allow callers to select the
+preferred tensor when only one operand is scheduled for rearrangement.  Such changes would make
+the heuristic explicit and would simplify contraction decisions in cases where we wish to keep a
+particular tensor untouched while packing the others.
+
+\section{CPU Reference Kernel}
+The CPU reference backend executes the grouped contraction via recursive loops.  The $M$-group is
+iterated outer-most, the $N$-group governs the middle loops, and the $K$-group contributes to the
+innermost dot product.  Each recursion level adjusts the active pointers by the precomputed strides
+so that no additional index arithmetic is required.  This implementation serves two purposes: it is
+an always-available fallback and, more importantly, it codifies the semantics used to validate more
+specialised backends.  Because the recursion operates directly on \texttt{mdspan}-derived strides,
+any layout that satisfies \texttt{StridedMdspan} can be contracted without additional preparation.
+
+\section{Delegating to BLAS}
+When the grouped representation aligns with the requirements of a GEMM, the contraction can be
+mapped to a single BLAS call:
+\begin{equation}
+  C_{MN} \gets \beta C_{MN} + \alpha A_{MK} B_{KN}.
+\end{equation}
+A BLAS GEMM operates on column-major matrices with the following key properties:
+\begin{itemize}
+  \item Each operand must present at least one axis with unit stride.  The $\texttt{TRANS}$
+        parameter selects whether that axis corresponds to rows or columns, effectively allowing
+        either row-major or column-major interpretation for each input matrix.
+  \item The leading dimensions (strides between consecutive columns/rows) may exceed the logical
+        extents, allowing batched or padded storage.
+  \item The output matrix $C$ likewise requires a unit-stride axis, but by choosing the transpose
+        flags consistently we can always align the stored unit stride with BLAS's expectation.  When
+        $C$ itself is row-major we can compute $C^\top = B^\top A^\top$ instead and transpose the
+        interpretation of every operand simultaneously.
+\end{itemize}
+Uni20's stride descriptors already capture both extents and strides.  A direct GEMM is therefore
+possible when:
+\begin{enumerate}
+  \item Each of the $M$-, $N$-, and $K$-groups collapses to a single descriptor so that every
+        operand presents exactly two logical axes.
+  \item For $A$ either the $M$- or the $K$-descriptor has stride $1$.  The transpose flag determines
+        which logical axis BLAS treats as contiguous.
+  \item For $B$ either the $K$- or the $N$-descriptor has stride $1$, again selecting the appropriate
+        transpose mode.
+  \item For $C$ either the $M$- or the $N$-descriptor has stride $1$.  If $C$ is row-major we flip
+        both operands so that BLAS computes $C^\top = B^\top A^\top$ and then reinterpret the result.
+\end{enumerate}
+Because BLAS exposes two transpose choices per operand there are $2\times2=4$ combinations for the
+inputs and, once the result orientation is taken into account, eight total possibilities when
+deciding which physical axis supplies the unit stride.  When these criteria hold, the grouped
+contraction represents a simple matrix multiplication with
+matrices laid out in memory exactly as BLAS expects.  Uni20 forwards the contraction to the BLAS
+backend, providing extents as matrix sizes and the outer strides as leading dimensions.
+
+Although the logical requirements above are symmetric, practical implementations of GEMM usually
+achieve their highest throughput when the contracting ($K$) group is contiguous in both operands.
+In column-major Fortran notation this corresponds to computing $C \leftarrow A^\top B$, so that the
+transpose flag exposes the $K$-group as the unit-stride axis in $A$ while $B$ already presents a unit
+stride along its rows.  Modern BLAS libraries pack input panels into contiguous buffers, which
+reduces the penalty when one operand lacks stride-1 access; nevertheless, presenting contiguous
+memory along $K$ minimises packing cost and aligns best with vendor-optimised micro-kernels.
+
+\section{Rearrangement Strategies}
+Many practical contractions violate at least one of the BLAS-friendly criteria.  The two common
+issues are:
+\begin{enumerate}
+  \item \textbf{Grouped indices that are not contiguous.}  After merging we may still retain
+        multiple descriptors per group because strides disagree.  For instance, an $M$-group may
+        contain two indices where the stride of the inner index is not the extent-scaled stride of
+        the outer index.  This prevents the fused dimension from being interpreted as a single
+        matrix axis.
+  \item \textbf{Operand has no stride-1 index.}  If a tensor has no stride-1 index (for example,
+        it might be obtained by \emph{slicing} a tensor, e.g. taking every second element of a
+        tensor\footnote{A practical example of this is taking the real components of a complex
+        tensor.}) then that tensor is not compatible with BLAS.
+\end{enumerate}
+To exploit BLAS in these scenarios we must rearrange storage so that each group behaves like a
+single contiguous axis.  Uni20 can deploy several strategies:
+\begin{description}
+  \item[Looped GEMM.]  If only one group fails to merge completely, we can treat the remaining
+        dimensions as batch loops around a GEMM call.  For example, suppose the $M$-group contains
+        two descriptors but the $N$- and $K$-groups each reduce to one.  We can iterate over the
+        extra $M$-group descriptor, adjusting pointers by its stride, and issue a GEMM for every
+        slice.  This preserves GEMM's efficiency while avoiding a full rearrangement.
+  \item[Rearrange $\rightarrow$ GEMM $\rightarrow$ Rearrange.]  When multiple groups have
+        non-contiguous descriptors or when unit stride axes do not line up, we may materialise
+        temporary buffers whose layout is explicitly column-major.  The sequence proceeds as follows:
+        \begin{enumerate}
+          \item Copy or pack the relevant operand(s) into temporaries with contiguous grouped axes.
+          \item Call GEMM on the packed operands.
+          \item Unpack or scatter the result back to the original layout of $C$.
+        \end{enumerate}
+        The packing step often leverages the same stride metadata to generate efficient nested loops
+        or to drive vectorised copy kernels.
+\end{description}
+
+In practice Uni20 performs these rearrangements by materialising \texttt{mdspan} views over the
+temporary buffers and reusing the stride descriptors gathered during grouping.  Each descriptor
+provides an extent and two strides; packing iterates over the logical extents in lexicographic order,
+computes the source offset via the strides, and writes into a contiguous destination \texttt{mdspan}
+whose layout matches the intended GEMM operand.  The unpacking phase mirrors this process for $C$.
+Because both stages operate exclusively through \texttt{mdspan}-compatible interfaces, they respect
+custom accessors and allow future backends to substitute specialised copy kernels when available.
+
+The choice between these approaches depends on the relative size of the non-contiguous groups,
+cache behaviour, and the overhead of packing.  For high-order tensors where several groups resist
+merging, a full rearrangement can be amortised across the large volume of arithmetic in the GEMM.
+Conversely, when only a small extent prevents direct GEMM dispatch, keeping the native layout and
+looping over GEMM calls typically wins.
+
+\section{Putting It All Together}
+A general tensor contraction can therefore follow one of several execution paths:
+\begin{enumerate}
+  \item \textbf{Direct GEMM.}  When every group collapses to a single contiguous descriptor with
+        unit stride in the contracting operands, Uni20 maps the operation to a single BLAS GEMM.
+  \item \textbf{Batched GEMM.}  When a subset of groups contains descriptors that could not be merged
+        but the remaining ones do merge, Uni20 can run GEMM inside outer loops indexed by the residual
+        descriptors.
+  \item \textbf{Pack--GEMM--Unpack.}  When neither of the above is feasible, Uni20 can rearrange the
+        operands and/or result into contiguous temporaries, dispatch GEMM, and scatter the result
+        back.
+  \item \textbf{Reference Loop Kernel.}  As a fallback or correctness reference, the CPU recursive
+        kernel executes the contraction directly from the stride descriptors without relying on
+        GEMM.  This path also supports layouts that cannot be cheaply rearranged.
+\end{enumerate}
+These execution modes all stem from the same stride grouping produced by
+\texttt{extract\_strides()}.  By reasoning in terms of \texttt{mdspan} extents and strides, Uni20 is
+able to describe both generic and highly optimised kernels within a unified abstraction.
+
+\section{Worked Example}
+To illustrate the mechanics of stride grouping and rearrangement, consider the contraction
+\begin{equation}
+  C_{aij} = \sum_b A_{abi} B_{bj}
+\end{equation}
+with the following layouts (extents and per-index strides):
+\begin{align*}
+  C &\in \mathbb{R}^{3 \times 4 \times 5}, &\text{strides}&=(20, 5, 1), \\
+  A &\in \mathbb{R}^{3 \times 7 \times 4}, &\text{strides}&=(28, 4, 1), \\
+  B &\in \mathbb{R}^{7 \times 5},           &\text{strides}&=(5, 1).
+\end{align*}
+The index order in the explicit expression is not semantically relevant; only the mapping between
+indices and tensor layouts matters when extracting stride groups.  In particular, the permutation
+\(C_{iaj}\) with extents \((4, 3, 5)\) and strides \((5, 20, 1)\) is equivalent from the
+contraction engine's perspective.
+
+\paragraph{Initial stride grouping.}  Running \texttt{extract\_strides()} identifies two potential
+assignments for the $M$-group (the uncontracted indices sourced from $A$):
+\begin{itemize}
+  \item $M = (a, i)$ with extents $(3, 4)$, strides $(28, 1)$ in $A$, and corresponding strides
+        $(20, 5)$ in $C$.
+  \item $M = (i, a)$ with extents $(4, 3)$, strides $(4, 28)$ in $A$, and strides $(5, 20)$ in $C$.
+\end{itemize}
+In both cases the $K$-group contains the single contracted index $b$ with extent $7$, stride $4$ in
+$A$, and stride $5$ in $B$.  The $N$-group consists of the index $j$ with extent $5$, stride $1$ in
+$B$, and stride $1$ in $C$.  Either $M$-group choice preserves the contraction semantics, but neither
+configuration yields a stride-$1$ $K$-group in $A$, preventing a direct BLAS dispatch without further
+processing.
+
+\paragraph{Rearranging operand $A$.}  The kernel therefore decides to pack $A$ into a temporary
+layout where the $K$-group is contiguous.  One suitable rearrangement stores the indices in the order
+$(b, i, a)$ so that the packed tensor has strides $(1, 7, 28)$: the $b$ index (contracting group)
+occupies unit stride, while $(i, a)$ form the $M$-group with extents $(4, 3)$ and strides $(7, 28)$.
+After merging, the grouped descriptors become
+\begin{align*}
+  M &: \text{extent } 12, &\text{stride}_A &= 7, &\text{stride}_C &= 5, \\
+  N &: \text{extent } 5,  &\text{stride}_B &= 1, &\text{stride}_C &= 1, \\
+  K &: \text{extent } 7,  &\text{stride}_A &= 1, &\text{stride}_B &= 5,
+\end{align*}
+which fits the GEMM interface with $C_{MN} = A_{MK} B_{KN}$.  Because $K$ is now contiguous in both
+operands, the BLAS call operates without additional packing overhead.
+
+\paragraph{Matching result layout.}  The choice of permutation during packing matters when deciding
+whether $C$ also requires rearrangement.  If $C$ already presents a mergeable $M$-group---as in
+this example with strides $(20, 5)$---the kernel can align the packed $A$ with the result layout and
+avoid touching $C$ beyond the GEMM itself.  Conversely, had $C$ used non-mergeable strides (for
+instance $(5, 15, 1)$) the kernel could pack $A$ with strides $(7, 1, 21)$ so that the fused $M$
+dimension matches $C$'s memory order, allowing the GEMM output to be written in-place without a
+separate scatter.
+
+\paragraph{Decision test.}  The rule of thumb is:
+\begin{enumerate}
+  \item Check whether the $K$-group in $C$ is mergeable (contiguous after merging strides).  If it
+        is, choose the permutation of packed strides in $A$ that mirrors $C$'s grouping so that no
+        additional work on $C$ is required.
+  \item If the $K$-group is not mergeable in $C$, $C$ must be rearranged regardless.  In that case the
+        packed layout for $A$ (and subsequently $C$) can be chosen freely because both operands will
+        be materialised into temporaries.
+\end{enumerate}
+This worked example demonstrates how the abstract stride descriptors produced by
+\texttt{extract\_strides()} drive concrete decisions about packing order, BLAS dispatch, and optional
+rearrangement of the output tensor.
+
+\end{document}
