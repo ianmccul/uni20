@@ -26,7 +26,7 @@ current kernels so that new contributors can reason about correctness and perfor
 We focus on the CPU and BLAS backends, where the core strategy is to decompose an arbitrary
 contraction into groups of indices that resemble the \((M,N,K)\) structure of a GEMM operation.
 
-\section{Terminology and Layout Conventions}
+\section{Terminology and Layout Conventions}\label{sec:terminology}
 The C++ \texttt{mdspan} reference implementation distinguishes between
 \texttt{layout\_right}---where the right-most index varies fastest and therefore has stride~1---and
 \texttt{layout\_left}, whose left-most index is contiguous.  Uni20 adopts this vocabulary verbatim
@@ -44,8 +44,10 @@ This replaces the earlier ``coalescing'' wording and aligns the prose with the
 Section~\ref{sec:merge-order} establish the terminology before the algorithms themselves appear.
 
 \section{From \texttt{mdspan} to Concrete Tensors}
-Uni20 adopts the C++ reference implementation of \texttt{std::experimental::mdspan} (hereafter
-\texttt{mdspan}) as the fundamental view of multi-dimensional data.  An \texttt{mdspan} couples a
+Uni20 adopts the C++ reference implementation of \texttt{mdspan} (distributed under the
+\texttt{std::experimental} namespace) but follows the convention of importing it into the
+\texttt{stdex} namespace, so within this project the core view type is \texttt{stdex::mdspan}.  An
+\texttt{mdspan} couples a
 raw pointer (``data handle'') with an \emph{extents} object, a layout mapping, and an accessor.
 Within Uni20 we wrap that interface in convenience aliases and concepts (see
 \texttt{src/common/mdspan.hpp} and \texttt{src/mdspan/concepts.hpp}).  Any type that models the
@@ -102,19 +104,32 @@ The descriptors returned by \texttt{extract\_strides()} are appended in a fixed 
 contracted pairs populate the $K$ group first, followed by the remaining legs of $A$ and $B$ that
 populate the $M$ and $N$ groups alongside their matching indices in $C$.  When the resulting
 \texttt{static\_vector} instances are passed to the in-place overload of
-\texttt{merge\_strides\_right()} they are only compacted by merging adjacent, mergeable entries;
-the relative ordering otherwise remains untouched.
+\texttt{merge\_strides\_right()} they are only compacted by merging adjacent entries while
+preserving this logical ordering.  Readers who need a reminder of the terminology behind $M$, $N$, and
+"merging" can revisit Section~\ref{sec:terminology}.
 
-Other utilities, such as the helper that constructs iteration plans, may invoke either
-\texttt{merge\_strides\_right()} or \texttt{merge\_strides\_left()} depending on the desired
-traversal order.  The ``right'' variant reproduces the previous behaviour: it sorts descriptors by
-the absolute value of the first stride in descending order before attempting any merges, mirroring
-the row-major preference of \texttt{layout\_right}.  Dimensions whose first operand has the largest
-stride are considered first while axes that are already close to contiguous (stride~$\pm 1$) tend to
-appear later in the plan.  The ``left'' variant mirrors column-major order by sorting those absolute
-strides ascending, encouraging merges that preserve stride~1 on the first logical axis in the spirit
-of \texttt{layout\_left}.  Callers therefore have explicit control over whether the merged plan
-favours row-major or column-major traversal while still relying on the same mergeability test.
+Helpers that construct iteration plans may invoke either \texttt{merge\_strides\_right()} or
+\texttt{merge\_strides\_left()} depending on the desired traversal order.  The ``right'' variant
+implements the same prioritisation of contiguous axes as \texttt{layout\_right} described in
+Section~\ref{sec:terminology}: descriptors are sorted by the absolute value of their primary stride
+in descending order so that row-major friendly (right-biased) traversals merge outer indices before
+inner ones.  The ``left'' variant mirrors the column-major semantics of \texttt{layout\_left} by
+sorting those absolute strides ascending, allowing left-biased traversals to favour merges that keep
+the leading logical axis contiguous.  Both helpers therefore expose the layout-driven semantics of
+the earlier section while operating on stride descriptors rather than concrete views.
+
+Regardless of ordering, the helpers only perform a merge when the mergeability predicate holds in the
+merging sense: the outer stride of the candidate descriptor must equal the inner stride multiplied by
+the extent for every operand participating in the comparison.  This restatement ensures the
+terminology aligns with the merging contract enforced throughout Section~\ref{sec:terminology}.
+
+The ordering choice communicates intent to the contraction planner.  Right-biased merges are a better
+fit when we expect the final kernel to execute in a row-major friendly fashion---for example, when
+packing into buffers that expect \texttt{layout\_right}-style contiguity or when iterating directly
+over tensors stored with stride~1 on the trailing axis.  Conversely, left-biased merges should be
+preferred for column-major friendly plans, such as when the output will flow into BLAS routines that
+assume \texttt{layout\_left}-style contiguity or when the leading axis must remain contiguous for
+cache locality.
 
 This split also surfaces where additional heuristics could help.  Sorting solely on the primary
 stride fails to notice when the chosen operand cannot be merged but a different tensor could.  A
