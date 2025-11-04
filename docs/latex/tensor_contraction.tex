@@ -140,7 +140,7 @@ The CPU reference backend executes the grouped contraction via recursive loops. 
 iterated outer-most, the $N$-group governs the middle loops, and the $K$-group contributes to the
 innermost dot product.  Each recursion level adjusts the active pointers by the precomputed strides
 so that no additional index arithmetic is required.  This implementation
-works for arbitrary strided tensors that satisfy the texttt{StridedMdspan} concept, even if they are not in a
+works for arbitrary strided tensors that satisfy the \texttt{StridedMdspan} concept, even if they are not in a
 form that can readily be contracted using \texttt{GEMM} or other kernels.
 
 \section{Delegating to BLAS}
