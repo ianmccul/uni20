@@ -105,7 +105,7 @@ TEST(MergeStridesLeft, PartiallyMergesBroadcastDimensions)
   EXPECT_EQ(dims[1].strides[1], 21);
 }
 
-TEST(MergeStridesLeft, MergesContiguousLeftLayoutDimensions)
+TEST(MergeStridesLeft, MergesContiguousLayoutLeftDimensions)
 {
   static_vector<extent_strides<2>, 3> dims;
   dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{1, 5});
@@ -120,7 +120,7 @@ TEST(MergeStridesLeft, MergesContiguousLeftLayoutDimensions)
   EXPECT_EQ(dims[0].strides[1], 5);
 }
 
-TEST(MergeStridesLeft, PartiallyMergesContiguousLeftLayoutDimensions)
+TEST(MergeStridesLeft, PartiallyMergesContiguousLayoutLeftDimensions)
 {
   static_vector<extent_strides<2>, 3> dims;
   dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{1, 5});
@@ -174,8 +174,7 @@ TEST(MergeStridesRight, PartiallyMergesContiguousDimensions)
 TEST(StridesHelpers, StridesOverloadsReturnExpectedArrays)
 {
   using right_layout_extents = stdex::extents<std::size_t, 2, 3>;
-  using right_layout_base =
-      stdex::mdspan<int, right_layout_extents, stdex::layout_right>;
+  using right_layout_base = stdex::mdspan<int, right_layout_extents, stdex::layout_right>;
   std::array<int, 6> contiguous{};
   StaticRankMdspan<right_layout_base> right_layout(contiguous.data());
 
