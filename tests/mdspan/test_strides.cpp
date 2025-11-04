@@ -105,7 +105,7 @@ TEST(MergeStridesLeft, PartiallyMergesBroadcastDimensions)
   EXPECT_EQ(dims[1].strides[1], 21);
 }
 
-TEST(MergeStridesLeft, MergesContiguousColumnMajorDimensions)
+TEST(MergeStridesLeft, MergesContiguousLeftLayoutDimensions)
 {
   static_vector<extent_strides<2>, 3> dims;
   dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{1, 5});
@@ -120,7 +120,7 @@ TEST(MergeStridesLeft, MergesContiguousColumnMajorDimensions)
   EXPECT_EQ(dims[0].strides[1], 5);
 }
 
-TEST(MergeStridesLeft, PartiallyMergesContiguousColumnMajorDimensions)
+TEST(MergeStridesLeft, PartiallyMergesContiguousLeftLayoutDimensions)
 {
   static_vector<extent_strides<2>, 3> dims;
   dims.emplace_back(3, std::array<std::ptrdiff_t, 2>{1, 5});
@@ -173,14 +173,15 @@ TEST(MergeStridesRight, PartiallyMergesContiguousDimensions)
 
 TEST(StridesHelpers, StridesOverloadsReturnExpectedArrays)
 {
-  using row_major_extents = stdex::extents<std::size_t, 2, 3>;
-  using row_major_base = stdex::mdspan<int, row_major_extents>;
+  using right_layout_extents = stdex::extents<std::size_t, 2, 3>;
+  using right_layout_base =
+      stdex::mdspan<int, right_layout_extents, stdex::layout_right>;
   std::array<int, 6> contiguous{};
-  StaticRankMdspan<row_major_base> row_major(contiguous.data());
+  StaticRankMdspan<right_layout_base> right_layout(contiguous.data());
 
-  auto row_strides = strides(row_major);
-  EXPECT_EQ(row_strides[0], 3);
-  EXPECT_EQ(row_strides[1], 1);
+  auto right_strides = strides(right_layout);
+  EXPECT_EQ(right_strides[0], 3);
+  EXPECT_EQ(right_strides[1], 1);
 
   using dyn_extents = stdex::extents<std::size_t, stdex::dynamic_extent, stdex::dynamic_extent>;
   using strided_base = stdex::mdspan<int, dyn_extents, stdex::layout_stride>;
