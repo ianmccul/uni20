@@ -28,7 +28,7 @@ template <typename T> Dual<T> sin(Dual<T> x)
 
   schedule(co_sin(x.value.read(), Result.value.write()));
 
-  schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) -> AsyncTask {
+  schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     using std::cos;
     using uni20::conj;
     auto in_g = co_await in_grad.or_cancel();
@@ -129,7 +129,7 @@ template <typename T> Dual<uni20::make_real_t<T>> real(Dual<T> z)
   using r_type = uni20::make_real_t<T>;
   Dual<r_type> Result;
   Result.value = real(z.value);
-  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) -> AsyncTask {
+  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     real(co_await out_grad) += co_await in_grad.or_cancel();
   }(Result.grad.input(), z.grad.output()));
   return Result;
@@ -141,7 +141,7 @@ template <typename T> Dual<uni20::make_real_t<T>> imag(Dual<T> z)
   using r_type = uni20::make_real_t<T>;
   Dual<r_type> Result;
   Result.value = imag(z.value);
-  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) -> AsyncTask {
+  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     imag(co_await out_grad) += co_await in_grad.or_cancel();
   }(Result.grad.input(), z.grad.output()));
   return Result;

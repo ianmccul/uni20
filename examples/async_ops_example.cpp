@@ -21,7 +21,7 @@ Async<T> branch_dag_dynamic(Async<int> const& mode, Async<T> const& a, Async<T> 
 {
   Async<T> out;
 
-  schedule([](auto m, auto x, auto y, auto z, auto out_) -> AsyncTask {
+  schedule([](auto m, auto x, auto y, auto z, auto out_) static->AsyncTask {
     fmt::print("Entering coroutine\n");
 
     auto [mode_val, av, bv, cv] = co_await all(m, x, y, z); // suspend the coroutine until all values are available

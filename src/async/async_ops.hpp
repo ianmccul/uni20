@@ -240,7 +240,7 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
   auto b_buf = read(std::forward<B>(b));
   auto out_buf = out.write();
 
-  schedule([](auto a_, auto b_, auto out_, Op op_) -> AsyncTask {
+  schedule([](auto a_, auto b_, auto out_, Op op_) static -> AsyncTask {
     auto ab = co_await all(a_, b_);
     auto tmp = op_(std::get<0>(ab), std::get<1>(ab));
     a_.release();
@@ -266,7 +266,7 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
 /// \ingroup async_api
 template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, Async<T>& lhs, Op op)
 {
-  schedule([](auto rhs_, MutableBuffer<T> out_, Op op_) -> AsyncTask {
+  schedule([](auto rhs_, MutableBuffer<T> out_, Op op_) static -> AsyncTask {
     auto tmp = co_await all(rhs_, out_);
     auto& rhs_val = std::get<0>(tmp);
     auto& lhs_ref = std::get<1>(tmp);
@@ -306,7 +306,7 @@ void async_assign(U&& rhs, WriteBuffer<T> lhs)
   requires read_buffer_awaitable_of<U, T>
 // requires { T{std::declval<async_value_t<U>>()}; }
 {
-  schedule([](auto in_, WriteBuffer<T> out_) -> AsyncTask {
+  schedule([](auto in_, WriteBuffer<T> out_) static -> AsyncTask {
     auto const& val = co_await in_;
     auto& out = co_await out_;
     out = val;
@@ -332,7 +332,7 @@ template <typename U, typename T>
   requires async_movable_to<U, T>
 void async_move(U&& rhs, WriteBuffer<T> lhs)
 {
-  schedule([](auto src, WriteBuffer<T> dst) -> AsyncTask {
+  schedule([](auto src, WriteBuffer<T> dst) static -> AsyncTask {
     auto&& movable = co_await src;
     auto& out = co_await dst;
     out = std::move(movable);
@@ -344,7 +344,7 @@ template <typename U, typename T>
   requires(!async_writer<U>)
 void async_move(U&& rhs, Async<T>& lhs)
 {
-  schedule([](T val, WriteBuffer<T> dst) -> AsyncTask {
+  schedule([](T val, WriteBuffer<T> dst) static -> AsyncTask {
     auto& out = co_await dst;
     out = std::move(val);
     co_return;
@@ -415,7 +415,7 @@ template <typename U, typename T>
 void async_negate(U&& rhs, WriteBuffer<T> lhs)
   requires read_buffer_awaitable_of<U, T>
 {
-  schedule([](auto in_, WriteBuffer<T> out_) -> AsyncTask {
+  schedule([](auto in_, WriteBuffer<T> out_) static -> AsyncTask {
     auto const& val = co_await in_;
     auto& out = co_await out_;
     out = -val;

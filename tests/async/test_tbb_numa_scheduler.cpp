@@ -76,10 +76,10 @@ TEST(TbbNumaScheduler, RunAllDrainsArenas)
 
   for (int i = 0; i < kTasks; ++i)
   {
-    scheduler.schedule([&counter]() -> AsyncTask {
-      counter.fetch_add(1, std::memory_order_relaxed);
+    scheduler.schedule([](std::atomic<int>* counter) static -> AsyncTask {
+      counter->fetch_add(1, std::memory_order_relaxed);
       co_return;
-    }());
+    }(&counter));
   }
 
   scheduler.run_all();
