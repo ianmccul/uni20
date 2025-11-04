@@ -97,30 +97,63 @@ template <std::size_t N> struct extent_strides
 namespace detail
 {
 
-template <std::size_t N, std::size_t R> void merge_adjacent(static_vector<extent_strides<N>, R>& out)
+template <std::size_t N, std::size_t R>
+void sort_and_merge_left(static_vector<extent_strides<N>, R>& out)
 {
   if (out.size() <= 1) return;
 
-  std::size_t write = 1;
+  std::sort(out.begin(), out.end(), [](auto const& lhs, auto const& rhs) {
+    return std::abs(lhs.strides[0]) < std::abs(rhs.strides[0]);
+  });
+
+  extent_strides<N> current = out[0];
+  std::size_t write = 0;
   for (std::size_t i = 1; i < out.size(); ++i)
   {
-    if (out[write - 1].can_merge_with_inner(out[i]))
-      out[write - 1].merge_with_inner(out[i]);
+    auto candidate = out[i];
+    if (candidate.can_merge_with_inner(current))
+    {
+      candidate.merge_with_inner(current);
+      current = candidate;
+    }
     else
-      out[write++] = out[i];
+    {
+      out[write++] = current;
+      current = candidate;
+    }
   }
+
+  out[write++] = current;
   out.resize(write);
 }
 
-template <typename Compare, std::size_t N, std::size_t R>
-void sort_and_merge(static_vector<extent_strides<N>, R>& out, Compare cmp)
+template <std::size_t N, std::size_t R>
+void sort_and_merge_right(static_vector<extent_strides<N>, R>& out)
 {
   if (out.size() <= 1) return;
 
-  std::sort(out.begin(), out.end(),
-            [&](auto const& lhs, auto const& rhs) { return cmp(std::abs(lhs.strides[0]), std::abs(rhs.strides[0])); });
+  std::sort(out.begin(), out.end(), [](auto const& lhs, auto const& rhs) {
+    return std::abs(lhs.strides[0]) > std::abs(rhs.strides[0]);
+  });
 
-  merge_adjacent(out);
+  extent_strides<N> current = out[0];
+  std::size_t write = 0;
+  for (std::size_t i = 1; i < out.size(); ++i)
+  {
+    auto inner = out[i];
+    if (current.can_merge_with_inner(inner))
+    {
+      current.merge_with_inner(inner);
+    }
+    else
+    {
+      out[write++] = current;
+      current = inner;
+    }
+  }
+
+  out[write++] = current;
+  out.resize(write);
 }
 
 } // namespace detail
@@ -145,7 +178,7 @@ inline static_vector<extent_strides<2>, R> merge_strides_left(Extents const& ext
     out.emplace_back({ext[i], {Stride1[i], Stride2[i]}});
   }
 
-  detail::sort_and_merge(out, std::less<>{});
+  detail::sort_and_merge_left(out);
 
   return out;
 }
@@ -170,7 +203,7 @@ inline static_vector<extent_strides<2>, R> merge_strides_right(Extents const& ex
     out.emplace_back({ext[i], {Stride1[i], Stride2[i]}});
   }
 
-  detail::sort_and_merge(out, std::greater<>{});
+  detail::sort_and_merge_right(out);
 
   return out;
 }
@@ -182,7 +215,7 @@ inline static_vector<extent_strides<2>, R> merge_strides_right(Extents const& ex
 /// \ingroup mdspan_ext
 template <std::size_t N, std::size_t R> void merge_strides_left(static_vector<extent_strides<N>, R>& out)
 {
-  detail::sort_and_merge(out, std::less<>{});
+  detail::sort_and_merge_left(out);
 }
 
 /// \brief Merge adjacent stride descriptors in place using row-major (right) ordering.
@@ -192,7 +225,7 @@ template <std::size_t N, std::size_t R> void merge_strides_left(static_vector<ex
 /// \ingroup mdspan_ext
 template <std::size_t N, std::size_t R> void merge_strides_right(static_vector<extent_strides<N>, R>& out)
 {
-  detail::sort_and_merge(out, std::greater<>{});
+  detail::sort_and_merge_right(out);
 }
 
 /// \brief Extract merged stride groups for a tensor contraction.
