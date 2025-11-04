@@ -44,8 +44,7 @@ arrange the indices in left layout by ordering the strides from smallest to larg
 Throughout the remainder of this document we use \emph{merging} as the canonical term for combining
 adjacent stride descriptors whose outer stride equals the inner stride multiplied by the extent.
 This replaces the earlier ``coalescing'' wording and aligns the prose with the
-\texttt{merge\_strides\_*} helper names.  Forward references to the merging algorithms in
-Section~\ref{sec:merge-order} establish the terminology before the algorithms themselves appear.
+\texttt{merge\_strides\_*} helper names. 
 
 \section{From \texttt{mdspan} to Concrete Tensors}
 Uni20 adopts the C++ reference implementation of \texttt{mdspan}, placed in the
@@ -340,6 +339,31 @@ the \emph{extent}. This example would also work, for example, if $C$ had strides
 
 \section{Future work}
 
-We now need to to turn this into a full algorithm. This requires ...
+We now need to to turn this into a full algorithm. This requires:
+\begin{enumerate}
+  \item Finalize the stride merging API. The question here is how to handle cases where one tensor has mergable strides
+  but the other tensor in the group does not. We perhaps want to quickly check and see whether the first or second tensor
+  has mergable indices, and then reorder the strides based on whether we want the unmergable group to be layout left or
+  layout right.
+  \item Implement the \texttt{rearrange} function, to copy a tensor to different strides. This could optionally use the HPTT library,
+  although that library uses a permutation-based API rather than stride-based. So in the first instance, we should write our own
+  \texttt{rearrange} function, since we need this as a fallback anyway.  This function would look something like
+  \begin{lstlisting}
+void rearrange(extents_type Extents, stride_type InputStrides, stride_type OutputStrides, T const* In, T* Out)
+  \end{lstlisting}
+  We could re-use the `extent_strides` structure, which means we can use the existing functions to merge indices if possible.
+  We probably don't want to use `extent_strides` in the API interface though, since we won't naturally have the strides
+  in that structure yet. But maybe...
+  \item Implement the pack--GEMM--unpack function, with unit tests for each possible case. There are many different possibilties
+  that requre rearranging one or more tensors, so the tests should be careful to cover all possibilities.
+  \item Write some benchmark comparisons of the GEMM kernel versus the reference loop kernel.
+\end{enumerate}
+
+As additions/extensions, we could consider:
+\begin{enumerate}
+  \item Implement the loop-over-GEMM algorithm, with some benchmarks to see if/when this is more efficient than pack--GEMM--unpack.
+  \item Implement batched GEMM, for BLAS libraries that offer this as an extension (eg MKL). Probably the only one worth implementing
+  is a strided batched gemm, which allows for the case where either the $M$, $N$ (or both?) groups have more than 1 index.
+\end{enumerate}
 
 \end{document}
