@@ -173,14 +173,21 @@ TEST(MergeStridesRight, PartiallyMergesContiguousDimensions)
 
 TEST(StridesHelpers, StridesOverloadsReturnExpectedArrays)
 {
-  using right_layout_extents = stdex::extents<std::size_t, 2, 3>;
-  using right_layout_base = stdex::mdspan<int, right_layout_extents, stdex::layout_right>;
+  using layout_right_extents = stdex::extents<std::size_t, 2, 3>;
+  using layout_right_base = stdex::mdspan<int, layout_right_extents, stdex::layout_right>;
+  using layout_left_extents = stdex::extents<std::size_t, 2, 3>;
+  using layout_left_base = stdex::mdspan<int, layout_left_extents, stdex::layout_left>;
   std::array<int, 6> contiguous{};
-  StaticRankMdspan<right_layout_base> right_layout(contiguous.data());
+  StaticRankMdspan<layout_right_base> layout_right(contiguous.data());
+  StaticRankMdspan<layout_left_base> layout_left(contiguous.data());
 
-  auto right_strides = strides(right_layout);
+  auto right_strides = strides(layout_right);
   EXPECT_EQ(right_strides[0], 3);
   EXPECT_EQ(right_strides[1], 1);
+
+  auto left_strides = strides(layout_left);
+  EXPECT_EQ(left_strides[0], 1);
+  EXPECT_EQ(left_strides[1], 2);
 
   using dyn_extents = stdex::extents<std::size_t, stdex::dynamic_extent, stdex::dynamic_extent>;
   using strided_base = stdex::mdspan<int, dyn_extents, stdex::layout_stride>;

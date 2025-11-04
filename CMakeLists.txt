@@ -341,6 +341,7 @@ if(UNI20_BUILD_PYTHON)
 endif()
 
 if(UNI20_BUILD_TESTS)
+  enable_testing()
   add_subdirectory(tests)
 endif()
 
