@@ -291,7 +291,7 @@ $A$, and stride $5$ in $B$. The $N$-group consists of the index $j$ with extent 
 $B$, and stride $1$ in $C$.
 
 From the critera of when we can delegate to BLAS, from above we have 3 criteria:
-begin{enumerate}
+\begin{enumerate}
   \item \textit{Each of the $M$-, $N$-, and $K$-groups collapses to a single descriptor}: \textbf{No}. The $M$
         group contains 2 desriptors.
   \item \textit{For $A$ either the $M$- or the $K$-descriptor has stride $1$.}: \textbf{No}. Neither the $K$ or $M$ group
