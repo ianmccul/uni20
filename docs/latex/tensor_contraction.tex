@@ -293,7 +293,7 @@ $B$, and stride $1$ in $C$.
 From the critera of when we can delegate to BLAS, from above we have 3 criteria:
 \begin{enumerate}
   \item \textit{Each of the $M$-, $N$-, and $K$-groups collapses to a single descriptor}: \textbf{No}. The $M$
-        group contains 2 desriptors.
+        group contains 2 descriptors.
   \item \textit{For $A$ either the $M$- or the $K$-descriptor has stride $1$.}: \textbf{No}. Neither the $K$ or $M$ group
         has stride 1 for the $A$ tensor. (The stride 1 as part of the $M$ group for $A$ does not count here since there is more than one stride.)
   \item \textit{For $B$ either the $K$- or the $N$-descriptor has stride $1$.}: \textbf{Yes}. In this example, the $N$ group for $B$ has stride 1.
