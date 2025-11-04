@@ -44,7 +44,7 @@ arrange the indices in left layout by ordering the strides from smallest to larg
 Throughout the remainder of this document we use \emph{merging} as the canonical term for combining
 adjacent stride descriptors whose outer stride equals the inner stride multiplied by the extent.
 This replaces the earlier ``coalescing'' wording and aligns the prose with the
-\texttt{merge\_strides\_*} helper names. 
+\texttt{merge\_strides\_*} helper names.
 
 \section{From \texttt{mdspan} to Concrete Tensors}
 Uni20 adopts the C++ reference implementation of \texttt{mdspan}, placed in the
@@ -351,8 +351,8 @@ We now need to to turn this into a full algorithm. This requires:
   \begin{lstlisting}
 void rearrange(extents_type Extents, stride_type InputStrides, stride_type OutputStrides, T const* In, T* Out)
   \end{lstlisting}
-  We could re-use the `extent_strides` structure, which means we can use the existing functions to merge indices if possible.
-  We probably don't want to use `extent_strides` in the API interface though, since we won't naturally have the strides
+  We could re-use the \texttt{extent\_strides} structure, which means we can use the existing functions to merge indices if possible.
+  We probably don't want to use \texttt{extent\_strides} in the API interface though, since we won't naturally have the strides
   in that structure yet. But maybe...
   \item Implement the pack--GEMM--unpack function, with unit tests for each possible case. There are many different possibilties
   that requre rearranging one or more tensors, so the tests should be careful to cover all possibilities.
