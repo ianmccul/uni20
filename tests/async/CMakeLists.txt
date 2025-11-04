@@ -10,6 +10,6 @@ add_test_module(async
 # Put tests that use TBB into a separate module, since thread creation and death tests do not work well together
 # https://github.com/google/googletest/blob/main/docs/advanced.md#death-tests-and-threads
 add_test_module(async_tbb
-  SOURCES test_tbb_scheduler.cpp test_scheduler_stress.cpp
+  SOURCES test_tbb_scheduler.cpp test_scheduler_stress.cpp test_tbb_numa_scheduler.cpp
   LIBS uni20_common uni20_async TBB::tbb
 )

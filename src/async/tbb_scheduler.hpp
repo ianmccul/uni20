@@ -36,6 +36,20 @@ class TbbScheduler final : public IScheduler {
       arena_.initialize(threads, /*reserved_for_masters=*/0);
     }
 
+    /// \brief Construct a TBB scheduler constrained to a specific NUMA node.
+    /// \param constraints Binding constraints applied to the underlying arena.
+    /// \param threads Number of threads. Use task_arena::automatic for default.
+    explicit TbbScheduler(oneapi::tbb::task_arena::constraints constraints,
+                          int threads = oneapi::tbb::task_arena::automatic)
+        : arena_(constraints, /*reserved_for_masters=*/0), paused_(false)
+    {
+      if (threads != oneapi::tbb::task_arena::automatic)
+      {
+        constraints.set_max_concurrency(threads);
+      }
+      arena_.initialize(constraints, /*reserved_for_masters=*/0);
+    }
+
     ~TbbScheduler() noexcept override
     {
       // ensure all tasks finish before destruction

@@ -10,6 +10,8 @@
 #include <atomic>
 #include <coroutine>
 #include <exception>
+#include <limits>
+#include <optional>
 
 namespace uni20::async
 {
@@ -86,6 +88,11 @@ struct BasicAsyncTaskPromise
     /// \note When the count reaches zero, the coroutine is considered unowned.
     ///       Ownership must be transferred explicitly using take_ownership().
     std::atomic<int> awaiter_count_ = 0;
+
+    static constexpr int kNoPreferredNumaNode = std::numeric_limits<int>::min();
+
+    /// \brief Preferred NUMA node recorded for the coroutine.
+    std::atomic<int> preferred_numa_node_{kNoPreferredNumaNode};
 
     // debugging / DAG info
     std::string Name;  // function name of the coroutine
@@ -180,6 +187,22 @@ struct BasicAsyncTaskPromise
       static_assert(
           sizeof(T) == 0,
           "co_await expression does not match any known AsyncTaskAwaitable or AsyncTaskFactoryAwaitable type.");
+    }
+
+    /// \brief Set the preferred NUMA node recorded for this coroutine.
+    /// \param node Preferred node value, or empty to clear the preference.
+    void set_preferred_numa_node(std::optional<int> node) noexcept
+    {
+      preferred_numa_node_.store(node ? *node : kNoPreferredNumaNode, std::memory_order_release);
+    }
+
+    /// \brief Retrieve the preferred NUMA node for this coroutine.
+    /// \return Optional containing the preferred node, if one was recorded.
+    std::optional<int> preferred_numa_node() const noexcept
+    {
+      int node = preferred_numa_node_.load(std::memory_order_acquire);
+      if (node == kNoPreferredNumaNode) return std::nullopt;
+      return node;
     }
 
     /// \brief Acquire exclusive ownership of the coroutine.

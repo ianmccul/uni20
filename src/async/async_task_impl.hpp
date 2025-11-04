@@ -136,6 +136,18 @@ template <IsAsyncTaskPromise T> bool BasicAsyncTask<T>::set_scheduler(IScheduler
   return false;
 }
 
+template <IsAsyncTaskPromise T> std::optional<int> BasicAsyncTask<T>::preferred_numa_node() const noexcept
+{
+  if (!h_) return std::nullopt;
+  return h_.promise().preferred_numa_node();
+}
+
+template <IsAsyncTaskPromise T>
+void BasicAsyncTask<T>::set_preferred_numa_node(std::optional<int> node) noexcept
+{
+  if (h_) h_.promise().set_preferred_numa_node(node);
+}
+
 template <IsAsyncTaskPromise T>
 BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T>::handle_type Outer)
 {

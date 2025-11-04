@@ -8,6 +8,7 @@
 #include <atomic>
 #include <coroutine>
 #include <exception>
+#include <optional>
 
 namespace uni20::async
 {
@@ -86,6 +87,16 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \return true if the handle is non-null (in which case the scheduler has been set).
     /// \ingroup async_core
     bool set_scheduler(IScheduler* sched);
+
+    /// \brief Retrieve the preferred NUMA node associated with the coroutine, if any.
+    /// \return Optional containing the preferred NUMA node.
+    /// \ingroup async_core
+    std::optional<int> preferred_numa_node() const noexcept;
+
+    /// \brief Update the preferred NUMA node associated with the coroutine.
+    /// \param node Preferred node index, or empty to clear the preference.
+    /// \ingroup async_core
+    void set_preferred_numa_node(std::optional<int> node) noexcept;
 
     /// \brief Resubmit a suspended BasicAsyncTask to its scheduler, if this is the sole remaining owner.
     ///
