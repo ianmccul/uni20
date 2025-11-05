@@ -54,33 +54,32 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 ### 3.2 Coroutine Safety
 
 **Rule:**
-Lambdas that define coroutines **must not have capture lists.**
+Lambdas that define async coroutines **must not have capture lists and must be defined static.**
 
 ```cpp
 // ❌ Wrong
-auto f = [x]() -> Async<int> { co_return x + 1; };
+auto f = [x]() -> AsyncTask { foo(x); co_return; };
 
 // ✅ Correct
-auto f = [](int x) -> Async<int> { co_return x + 1; };
+auto f = [](int x) static -> AsyncTask { foo(x); co_return; };
 ```
 
 **Why:**
-When a coroutine suspends, the lambda object is destroyed, invalidating any captured variables.
-The coroutine’s heap-allocated state frame stores only its parameters and locals — not captures.
-Capturing any variable risks **dangling references or use-after-free** upon resumption.
-Passing values explicitly ensures safety and reproducible async semantics.
+Async coroutine lambdas are lambdas that return anything derived from `BasicAsyncTask`
+(so `AsyncTask`, `AsyncGpuTask`, etc). This is a wrapper for a `coroutine_handle`, and
+that coroutine handle has a lifetime that is distinct from the lambda itself. Captured
+values are stored inside the lambda closure object, and hence go out of scope as soon
+as the lambda variable is destroyed. They are not copied onto the coroutine stack frame.
+If the lifetime if the coroutine is longer than the lifetime of the lambda,
+then any use of the captured variable inside the coroutine will be referring to something that no longer
+exists (a dangling reference). Passing values explicitly puts them into the coroutine frame ensures safety
+and reproducible async semantics. This is ensured by making the lambda `operator()`` function `static`,
+using the C++23 `static` lambda modifier.
 
-> **Agents must enforce:** no coroutine lambda may have a capture list, even if immediately invoked.
+> **Agents must enforce:** no coroutine lambda that is passed into the scheduler may have a capture list. To ensure this, always use the `static` modifier on the lambda function.
 
----
-
-**Rule:**
-All coroutine parameters must be passed **by value**, not by reference.
-
-**Why:**
-Coroutines decouple lifetime from their caller’s stack.
-A suspended coroutine may outlive its caller, so reference parameters can dangle.
-Passing by value ensures lifetime independence and safe resumption.
+The same considerations apply to function objects that return coroutine handles, where it is clear that the function object
+cannot contain state that might have a shorter lifetime than the coroutine itself.
 
 ---
 
