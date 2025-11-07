@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <concepts>
 #include <type_traits>
 
 using namespace uni20;
@@ -46,6 +47,28 @@ TEST(TensorViewTest, MutableViewProvidesSeparateMutableHandle)
   static_assert(!requires(TensorView<int const, traits_type> const& tv) { tv.mutable_handle(); });
   static_assert(requires(TensorView<int, traits_type> & tv) { tv.mutable_handle(); });
   static_assert(!requires(TensorView<int, traits_type> const& tv) { tv.mutable_handle(); });
+}
+
+TEST(TensorViewTest, MdspanFromConstViewIsReadOnly)
+{
+  std::array<int, 6> storage{0, 1, 2, 3, 4, 5};
+  TensorView<int, traits_type> view(storage.data(), extents_2d{2, 3});
+
+  auto span_from_mutable = view.mutable_mdspan();
+  static_assert(std::is_same_v<typename decltype(span_from_mutable)::reference, int&>);
+  span_from_mutable(1, 2) = 42;
+  EXPECT_EQ(storage[5], 42);
+
+  TensorView<int, traits_type> const& const_ref = view;
+  using const_span_type = decltype(const_ref.mdspan());
+  static_assert(std::is_same_v<typename const_span_type::reference, int const&>);
+  static_assert(!requires(const_span_type const& span) { span(0, 0) = 7; });
+
+  auto span_from_mdspan = view.mdspan();
+  static_assert(std::is_same_v<typename decltype(span_from_mdspan)::reference, int const&>);
+  static_assert(!requires(decltype(span_from_mdspan) const& span) { span(0, 0) = 9; });
+
+  static_assert(!requires(TensorView<int, traits_type> const& tv) { tv.mutable_mdspan(); });
 }
 
 } // namespace

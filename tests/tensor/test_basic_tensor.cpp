@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <concepts>
+#include <type_traits>
 #include <vector>
 
 using namespace uni20;
@@ -97,6 +99,31 @@ TEST(BasicTensorTest, MappingBuilderSupportsLayoutLeft)
   }
 
   EXPECT_EQ((tensor[1, 2]), 21);
+}
+
+TEST(BasicTensorTest, MdspanFromConstTensorIsReadOnly)
+{
+  extents_2d exts{2, 3};
+  tensor_type tensor(exts);
+
+  auto mutable_span = tensor.mutable_mdspan();
+  static_assert(std::is_same_v<typename decltype(mutable_span)::reference, int&>);
+  mutable_span[0, 0] = 5;
+  mutable_span[1, 2] = 17;
+
+  tensor_type const& const_tensor = tensor;
+  using const_span_type = decltype(const_tensor.mdspan());
+  static_assert(std::is_same_v<typename const_span_type::reference, int const&>);
+  static_assert(!requires(const_span_type const& span) { span(0, 0) = 3; });
+
+  auto span_from_mdspan = tensor.mdspan();
+  static_assert(std::is_same_v<typename decltype(span_from_mdspan)::reference, int const&>);
+  static_assert(!requires(decltype(span_from_mdspan) const& span) { span(1, 1) = 12; });
+
+  EXPECT_EQ((span_from_mdspan[0, 0]), 5);
+  EXPECT_EQ((span_from_mdspan[1, 2]), 17);
+
+  static_assert(!requires(tensor_type const& t) { t.mutable_mdspan(); });
 }
 
 } // namespace
