@@ -1,5 +1,6 @@
 #pragma once
 
+#include "layout.hpp"
 #include "tensor_view.hpp"
 
 #include <array>
@@ -12,7 +13,8 @@ namespace uni20
 {
 
 template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = stdex::layout_stride, typename AccessorFactory = DefaultAccessorFactory>
+          typename LayoutPolicy = stdex::layout_stride,
+          typename AccessorFactory = DefaultAccessorFactory>
 class BasicTensor : public TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory> {
   private:
     using base_type = TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
@@ -20,6 +22,7 @@ class BasicTensor : public TensorView<ElementType, Extents, StoragePolicy, Layou
   public:
     using element_type = ElementType;
     using storage_policy = StoragePolicy;
+    using layout_policy = LayoutPolicy;
     using accessor_factory_type = AccessorFactory;
 
     using typename base_type::accessor_policy;
@@ -38,7 +41,18 @@ class BasicTensor : public TensorView<ElementType, Extents, StoragePolicy, Layou
     BasicTensor() = default;
 
     explicit BasicTensor(extents_type const& exts, accessor_factory_type accessor_factory = accessor_factory_type{})
-        : BasicTensor(internal_tag{}, make_payload(base_type::construct_mapping(exts), std::move(accessor_factory)))
+        : BasicTensor(internal_tag{},
+                      make_payload(make_default_mapping(exts), std::move(accessor_factory)))
+    {}
+
+    template <typename MappingBuilder>
+      requires(layout::mapping_builder_for<MappingBuilder, layout_policy, extents_type> &&
+               (!std::same_as<std::remove_cvref_t<MappingBuilder>, accessor_factory_type>))
+    explicit BasicTensor(extents_type const& exts, MappingBuilder&& mapping_builder,
+                         accessor_factory_type accessor_factory = accessor_factory_type{})
+        : BasicTensor(internal_tag{},
+                      make_payload(std::forward<MappingBuilder>(mapping_builder)(exts),
+                                   std::move(accessor_factory)))
     {}
 
     explicit BasicTensor(extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
@@ -102,6 +116,26 @@ class BasicTensor : public TensorView<ElementType, Extents, StoragePolicy, Layou
                 std::is_constructible_v<storage_type, std::size_t> || std::is_constructible_v<storage_type, size_type>,
             "StoragePolicy::storage_t must be constructible from a size or provide resize().");
         return storage_type{};
+      }
+    }
+
+    static constexpr auto make_default_mapping(extents_type const& exts)
+    {
+      if constexpr (requires { typename storage_policy::default_mapping_builder; })
+      {
+        using builder_type = typename storage_policy::default_mapping_builder;
+        if constexpr (layout::mapping_builder_for<builder_type, layout_policy, extents_type>)
+        {
+          return builder_type{}(exts);
+        }
+        else
+        {
+          return base_type::construct_mapping(exts);
+        }
+      }
+      else
+      {
+        return base_type::construct_mapping(exts);
       }
     }
 

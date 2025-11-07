@@ -1,6 +1,9 @@
 #pragma once
 
 #include "backend/backends.hpp"
+#include "common/mdspan.hpp"
+#include "tensor/layout.hpp"
+
 #include <vector>
 
 namespace uni20
@@ -9,6 +12,9 @@ namespace uni20
 struct VectorStorage
 {
     template <typename ElementType> using storage_t = std::vector<ElementType>;
+
+    using default_layout_policy = stdex::layout_stride;
+    using default_mapping_builder = layout::LayoutRightMappingBuilder;
 
     template <typename ElementType>
     static auto make_handle(storage_t<ElementType>& storage) noexcept -> ElementType*
