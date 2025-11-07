@@ -15,9 +15,11 @@ namespace uni20
 template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
           typename LayoutPolicy = stdex::layout_stride,
           typename AccessorFactory = DefaultAccessorFactory>
-class BasicTensor : public TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory> {
+class BasicTensor
+    : public TensorView<ElementType, tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>> {
   private:
-    using base_type = TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
+    using traits_type = tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
+    using base_type = TensorView<ElementType, traits_type>;
 
   public:
     using element_type = ElementType;
