@@ -17,6 +17,13 @@ struct DefaultAccessorFactory
 {
     /// \brief The accessor to use for plain memory-backed tensors.
     template <typename ElementType> using accessor_t = stdex::default_accessor<ElementType>;
+
+    /// \brief Construct an accessor instance for the given storage container.
+    template <typename ElementType, typename Storage>
+    constexpr auto make_accessor(Storage&) const noexcept -> accessor_t<ElementType>
+    {
+      return accessor_t<ElementType>{};
+    }
 };
 
 /// \brief A dense tensor that manages its own storage
@@ -28,6 +35,10 @@ struct DefaultAccessorFactory
 template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
           typename AccessorPolicy = DefaultAccessorFactory>
 class TensorView;
+
+template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
+          typename AccessorFactory>
+class Tensor;
 
 template <typename T, typename Extents, typename StoragePolicy, typename LayoutPolicy, typename AccessorPolicy>
 class TensorView<T const, Extents, StoragePolicy, LayoutPolicy, AccessorPolicy> {
@@ -76,8 +87,7 @@ class TensorView<T const, Extents, StoragePolicy, LayoutPolicy, AccessorPolicy> 
       requires(sizeof...(Idx) == extents_type::rank())
     reference operator[](Idx... idxs) const noexcept
     {
-      auto const offset = this->mapping_(static_cast<index_type>(idxs)...);
-      return this->accessor_.access(this->handle_, offset);
+      return this->accessor_.access(this->handle_, this->mapping_(static_cast<index_type>(idxs)...));
     }
 
     /// \brief The mdspan view (mapping + accessor).
@@ -102,7 +112,7 @@ class TensorView<T const, Extents, StoragePolicy, LayoutPolicy, AccessorPolicy> 
     accessor_type const& accessor() const noexcept { return accessor_; }
 
   protected:
-    handle_type handle_{}; ///< Element buffer, may be owned, or not
+    [[no_unique_address]] handle_type handle_{}; ///< Element buffer, may be owned, or not
     [[no_unique_address]] mapping_type mapping_{};
     [[no_unique_address]] extents_type extents_{};
     [[no_unique_address]] accessor_type accessor_{};
@@ -180,18 +190,32 @@ class TensorView<T, Extents, StoragePolicy, LayoutPolicy, AccessorPolicy>
       requires(sizeof...(Idx) == extents_type::rank())
     reference operator[](Idx... idxs) noexcept
     {
-      auto const offset = this->mapping_(static_cast<index_type>(idxs)...);
-      return accessor_mut_.access(this->handle_, offset);
+      return accessor_mut_.access(this->handle_, this->mapping_(static_cast<index_type>(idxs)...));
     }
 
     using base_type::operator[];
 
     mdspan_type mdspan() const noexcept { return mdspan_type(this->handle_, this->mapping_, accessor_mut_); }
 
+    mdspan_type mutable_mdspan() noexcept { return mdspan_type(this->handle_, this->mapping_, accessor_mut_); }
+
     accessor_type const& accessor() const noexcept { return accessor_mut_; }
 
   private:
-    accessor_type accessor_mut_{};
+    // We need a mutable accessor. This is a pain - if it not stateless, then it is likely to contain
+    // the same information as the TensorView<T const> version, but we cannot reuse it because it has
+    // the wrong return type of .access().
+    [[no_unique_address]] accessor_type accessor_mut_{};
 };
+
+template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
+          typename AccessorFactory>
+TensorView(Tensor<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>&)
+    -> TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
+
+template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
+          typename AccessorFactory>
+TensorView(Tensor<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory> const&)
+    -> TensorView<ElementType const, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
 
 } // namespace uni20

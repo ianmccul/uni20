@@ -1,171 +1,111 @@
 #pragma once
 
-#include "common/mdspan.hpp"
-#include "core/types.hpp"
-#include "storage/vectorstorage.hpp"
+#include "tensor_view.hpp"
+
+#include <array>
+#include <concepts>
+#include <cstddef>
+#include <type_traits>
+#include <utility>
 
 namespace uni20
 {
 
-/// \brief Given an ElementType, pick the right accessor for owned storage.
-struct DefaultAccessorFactory
-{
-    /// \brief The accessor to use for plain memory-backed tensors.
-    template <typename ElementType> using accessor_policy = stdex::default_accessor<ElementType>;
-};
+template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
+          typename LayoutPolicy = stdex::layout_stride, typename AccessorFactory = DefaultAccessorFactory>
+class BasicTensor : public TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory> {
+  private:
+    using base_type = TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
 
-/// \brief A dense tensor that manages its own storage
-/// \tparam T               Element type (e.g. float, double, complex<double>)
-/// \tparam Extents         An extents type (static or dynamic rank)
-/// \tparam StoragePolicy   Policy that provides a container for T
-/// \tparam LayoutPolicy    mdspan layout (e.g. stdex::layout_stride)
-/// \tparam AccessorPolicy  mdspan accessor (e.g. stdex::default_accessor<T>)
-template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
-          typename AccessorFactory>
-class BasicTensor {
   public:
-    /// \name Public type aliases
-    ///@{
-    using element_type = T;
-    using extents_type = Extents;
-    using storage_type = typename StoragePolicy::template storage_t<T>;
-    using layout_type = LayoutPolicy;
-    using mapping_type = typename LayoutPolicy::template mapping<extents_type>;
-    using accessor_type = typename AccessorFactory::template accessor_policy<element_type>;
-    using const_accessor_type = const_accessor_t<accessor_type>;
-    using mdspan_type = stdex::mdspan<T, extents_type, layout_type, accessor_type>;
-    using const_mdspan_type = stdex::mdspan<T const, extents_type, layout_type, const_accessor_type>;
-    using index_type = typename extents_type::index_type;
-    using size_type = uni20::size_type;
-    using reference = typename accessor_type::reference;
-    ///@}
+    using element_type = ElementType;
+    using storage_policy = StoragePolicy;
+    using accessor_factory_type = AccessorFactory;
 
-    /// \brief Default‐construct an “empty” tensor (no storage, uninitialized extents).
+    using typename base_type::accessor_policy;
+    using typename base_type::accessor_type;
+    using typename base_type::extents_type;
+    using typename base_type::handle_type;
+    using typename base_type::index_type;
+    using typename base_type::mapping_type;
+    using typename base_type::size_type;
+
+    using storage_type = typename storage_policy::template storage_t<element_type>;
+
+    using base_type::mdspan;
+    using base_type::mutable_mdspan;
+
     BasicTensor() = default;
 
-    /// \brief Construct from extents (+ optional strides).
-    /// \param exts     The shape in each dimension.
-    /// \param strides  Must be an array of length rank().
-    explicit BasicTensor(extents_type const& exts, std::array<index_type, extents_type::rank()> strides)
-        : data_{exts.required_span_size()}, view_{data_.data(), mapping_type{exts, strides}}
+    explicit BasicTensor(extents_type const& exts, accessor_factory_type accessor_factory = accessor_factory_type{})
+        : BasicTensor(internal_tag{}, make_payload(base_type::construct_mapping(exts), std::move(accessor_factory)))
     {}
 
-    /// \brief Construct from extents (+ optional strides).
-    /// \param exts         The shape in each dimension.
-    /// \param strides_opt  If provided, must be an array of length rank().
-    ///                     Otherwise a row-major default is used.
-    explicit BasicTensor(extents_type const& exts)
-        : data{exts.required_span_size()}, view_{data_.data(), mapping_type{exts, default_strides(exts)}}
+    explicit BasicTensor(extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
+                         accessor_factory_type accessor_factory = accessor_factory_type{})
+        : BasicTensor(internal_tag{}, make_payload(mapping_type{exts, strides}, std::move(accessor_factory)))
     {}
 
-    /// \brief Access via bracket-operator: t[i0,i1,…]
-    template <typename... Idx> reference operator[](Idx... idxs) { return view_[static_cast<index_type>(idxs)...]; }
-    template <typename... Idx> element_type operator[](Idx... idxs) const
-    {
-      return view_[static_cast<index_type>(idxs)...];
-    }
-
-    /// \brief Underlying storage container (e.g. std::vector<T>).
     storage_type& storage() noexcept { return data_; }
     storage_type const& storage() const noexcept { return data_; }
 
-    /// \brief The mdspan view (mapping + accessor).
-    mdspan_type& view() noexcept { return view_; }
-    const_mdspan_type view() const noexcept { return view_; }
-
-    /// \brief Rank of the tensor
-    static constexpr size_type rank() noexcept { return view_.rank(); }
-
-    /// \brief Number of elements = required_span_size().
-    size_type size() const noexcept { return view_.mapping().required_span_size(); }
-
-    /// \brief The extents (shape).
-    extents_type extents() const noexcept { return view_.mapping().extents(); }
-
-    /// \brief The layout mapping (holds strides + extents).
-    mapping_type mapping() const noexcept { return view_.mapping(); }
-
   private:
-    storage_type data_; ///< Owned element buffer
-    mdspan_type view_;  ///< mdspan over that buffer
+    struct internal_tag
+    {};
 
-    /// \brief Default row-major strides helper.
-    static constexpr std::array<index_type, extents_type::rank()> default_strides(extents_type const& exts) noexcept
+    struct ctor_payload
     {
-      std::array<index_type, extents_type::rank()> s{};
-      index_type run = 1;
-      // fill backwards for row-major
-      for (int d = int(extents_type::rank()) - 1; d >= 0; --d)
+        mapping_type mapping;
+        storage_type storage;
+        accessor_factory_type accessor_factory;
+    };
+
+    BasicTensor(internal_tag, ctor_payload payload)
+        : base_type(storage_policy::make_handle(payload.storage), payload.mapping,
+                    payload.accessor_factory.template make_accessor<element_type>(payload.storage)),
+          data_(std::move(payload.storage))
+    {}
+
+    static ctor_payload make_payload(mapping_type mapping, accessor_factory_type accessor_factory)
+    {
+      auto storage = make_storage(mapping);
+      return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
+    }
+
+    static storage_type make_storage(mapping_type const& mapping)
+    {
+      auto const span_size = static_cast<size_type>(mapping.required_span_size());
+      return create_storage(span_size);
+    }
+
+    static storage_type create_storage(size_type span_size)
+    {
+      auto const count = static_cast<std::size_t>(span_size);
+      if constexpr (requires(storage_type & s) { s.resize(std::size_t{}); })
       {
-        s[d] = run;
-        run *= exts.extent(d);
+        storage_type storage{};
+        storage.resize(count);
+        return storage;
       }
-      return s;
-    }
-};
-
-// A convenient alias for the  common case:
-//   - dynamic extents
-//   - default to std::vector storage
-//   - default to layout_stride + default accessor factory
-template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = stdex::latout_strided, typename AccessorFactory = DefaultAccessorFactory>
-using Tensor =
-    BasicTensor<ElementType, stdex::dextents<index_type, Rank>, StoragePolicy, LayoutPolicy, AccessorFactory>;
-
-/// \brief Non-owning view: wraps any mdspan-like object (pointer+mapping+accessor).
-/// \tparam T              Element type.
-/// \tparam Extents        mdspan extents type.
-/// \tparam StoragePolicy  Carries the tag_t for backend dispatch.
-/// \tparam LayoutPolicy   mdspan layout.
-/// \tparam AccessorPolicy The actual accessor type (e.g. default_accessor).
-template <typename ElementType, typename Extents, class StoragePolicy, class LayoutPolicy, class AccessorPolicy>
-class TensorView {
-  public:
-    using element_type = lementType;
-    using extents_type = Extents;
-    using layout_type = LayoutPolicy;
-    using mapping_type = typename layout_type::template mapping<extents_type>;
-    using accessor_type = AccessorPolicy;
-    using reference = typename acessor_type::reference;
-
-    using mdspan_type = stdex::mdspan<element_type, extents_type, layout_type, accessor_type>;
-
-    using index_type = typename extents_type::index_type;
-    using size_type = uni20::size_type;
-
-    // construction from a Tensor
-    template <typename TensorType> TensorView(TensorType& t) : view_(t.view()) {}
-
-    /// \brief Wrap any mdspan-compatible object.
-    TensorView(mdspan_type span) : view_{std::move(span)} {}
-
-    /// \brief Element access.
-    template <typename... Idx> reference operator[](Idx... idxs) { return view_[static_cast<index_type>(idxs)...]; }
-    template <typename... Idx> element_type operator[](Idx... idxs) const
-    {
-      return view_[static_cast<index_type>(idxs)...];
+      else if constexpr (std::is_constructible_v<storage_type, std::size_t>)
+      {
+        return storage_type{count};
+      }
+      else if constexpr (std::is_constructible_v<storage_type, size_type>)
+      {
+        return storage_type{span_size};
+      }
+      else
+      {
+        static_assert(
+            requires(storage_type & s) { s.resize(std::size_t{}); } ||
+                std::is_constructible_v<storage_type, std::size_t> || std::is_constructible_v<storage_type, size_type>,
+            "StoragePolicy::storage_t must be constructible from a size or provide resize().");
+        return storage_type{};
+      }
     }
 
-    /// \brief Access the underlying mdspan.
-    mdspan_type& view() noexcept { return view_; }
-    mdspan_type const& view() const noexcept { return view_; }
-
-  private:
-    mdspan_type view_;
+    storage_type data_{};
 };
-
-// deduction guides
-template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
-          typename AccessorFactory>
-TensorView(BasicTensor<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>&)
-    -> TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy,
-                  typename AccessorFactory::template accessor_policy<ElementType>>;
-
-template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
-          typename AccessorFactory>
-TensorView(BasicTensor<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory> const& t)
-    -> TensorView<ElementType, Extents, StoragePolicy, LayoutPolicy,
-                  const_accessor_t<typename AccessorFactory::template accessor_policy<ElementType>>>;
 
 } // namespace uni20
