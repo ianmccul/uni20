@@ -71,12 +71,8 @@ class TensorView<T const, Extents, StoragePolicy, LayoutPolicy, AccessorPolicy> 
       return this->accessor_(handle_, mapping_(static_cast<index_type>(idxs...)));
     }
 
-    /// \brief Underlying storage container (e.g. std::vector<T>).
-    storage_type& storage() noexcept { return data_; }
-    storage_type const& storage() const noexcept { return data_; }
-
     /// \brief The mdspan view (mapping + accessor).
-    const_mdspan_type mdspan() const noexcept { return const_mdspan_type(this->handle(), mapping_, accessor_); }
+    const_mdspan_type mdspan() const noexcept { return const_mdspan_type(handle_, mapping_, accessor_); }
 
     /// \brief Rank of the tensor
     static constexpr size_type rank() noexcept { return view_.rank(); }
@@ -85,7 +81,7 @@ class TensorView<T const, Extents, StoragePolicy, LayoutPolicy, AccessorPolicy> 
     size_type size() const noexcept { return mapping_.required_span_size(); }
 
     /// \brief handle to the buffer -- only exists if the storage is local
-    handle_type handle() const noexcept { return storage_policy::get_handle(storage_); }
+    handle_type handle() const noexcept { return handle_; }
 
     /// \brief The extents (shape).
     extents_type extents() const noexcept { return extents_; }
@@ -94,7 +90,7 @@ class TensorView<T const, Extents, StoragePolicy, LayoutPolicy, AccessorPolicy> 
     mapping_type mapping() const noexcept { return mapping_; }
 
   protected:
-    storage_type storage_; ///< Element buffer, may be owned, or not
+    handle_type handle_; ///< Element buffer, may be owned, or not
     [[no_unique_address]] extents_type extents_;
     [[no_unique_address]] mapping_type mapping_;
     [[no_unique_address]] accessor_type accessor_;
