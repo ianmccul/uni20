@@ -1,7 +1,7 @@
 #pragma once
 
-#include "backend/backends.hpp"
 #include "common/mdspan.hpp"
+#include "kernel/cpu/cpu.hpp"
 #include "tensor/layout.hpp"
 
 #include <vector>
@@ -14,10 +14,9 @@ struct VectorStorage
     template <typename ElementType> using storage_t = std::vector<ElementType>;
 
     using default_layout_policy = stdex::layout_stride;
-    using default_mapping_builder = layout::LayoutRightMappingBuilder;
+    using default_mapping_builder = layout::LayoutRight;
 
-    template <typename ElementType>
-    static auto make_handle(storage_t<ElementType>& storage) noexcept -> ElementType*
+    template <typename ElementType> static auto make_handle(storage_t<ElementType>& storage) noexcept -> ElementType*
     {
       return storage.data();
     }

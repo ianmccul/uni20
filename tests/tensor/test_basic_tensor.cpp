@@ -42,7 +42,7 @@ TEST(BasicTensorTest, DefaultMappingUsesVectorStorage)
     EXPECT_EQ(storage[idx], expected[idx]);
   }
 
-  EXPECT_EQ(tensor[1, 2], expected.back());
+  EXPECT_EQ((tensor[1, 2]), expected.back());
   EXPECT_EQ(tensor.mapping().stride(0), 3);
   EXPECT_EQ(tensor.mapping().stride(1), 1);
 }
@@ -68,14 +68,13 @@ TEST(BasicTensorTest, CustomStridesAllocateFullSpan)
   EXPECT_EQ(storage[1], 11);
   EXPECT_EQ(storage[3], 12);
   EXPECT_EQ(storage[4], 13);
-  EXPECT_EQ(tensor[1, 1], 13);
+  EXPECT_EQ((tensor[1, 1]), 13);
 }
 
 TEST(BasicTensorTest, MappingBuilderSupportsLayoutLeft)
 {
   extents_2d exts{2, 3};
-  layout::LayoutLeft builder{};
-  tensor_type tensor(exts, builder);
+  tensor_type tensor(exts, layout::LayoutLeft());
 
   EXPECT_EQ(tensor.mapping().stride(0), 1);
   EXPECT_EQ(tensor.mapping().stride(1), 2);
@@ -97,7 +96,7 @@ TEST(BasicTensorTest, MappingBuilderSupportsLayoutLeft)
     EXPECT_EQ(storage[idx], expected[idx]);
   }
 
-  EXPECT_EQ(tensor[1, 2], 21);
+  EXPECT_EQ((tensor[1, 2]), 21);
 }
 
 } // namespace
