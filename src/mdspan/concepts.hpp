@@ -21,8 +21,7 @@ namespace uni20
 {
 
 /// \brief Trait to pull an AccessorPolicy’s offset_type if present, or fall back to std::size_t otherwise.
-/// \note This extends the standard mdspan AccessorPolicy requirement to surface an offset type when available.
-/// \tparam AP The accessor policy to inspect.
+/// \note This is an extension to the standard mdspan AccessorPolicy.
 /// \ingroup mdspan_ext
 template <typename AP, typename = void> struct span_offset_type
 {
@@ -76,8 +75,8 @@ concept AccessorPolicy = requires {
 ///          conversion_accessor_adaptor<MyAccessor, MyAccessor::element_type const&> rd_access{my_access};
 ///          \endcode
 /// \tparam Accessor An AccessorPolicy whose \c reference type will be adapted.
-/// \tparam NewReference The new reference type returned by \c access(); must be convertible from \c Accessor::reference.
-/// \ingroup mdspan_ext
+/// \tparam NewReference The new reference type returned by \c access(); must be convertible from \c
+/// Accessor::reference. \ingroup mdspan_ext
 template <AccessorPolicy Accessor, typename NewReference>
   requires std::is_same_v<typename Accessor::reference, typename Accessor::element_type&>
 class const_accessor_adaptor {
