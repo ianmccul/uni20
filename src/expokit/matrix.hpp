@@ -186,6 +186,51 @@ double matrix_one_norm(Matrix<T> const& mat)
     return result;
 }
 
+/// \brief Raise a square matrix to an integer power.
+/// \tparam T Element type of the matrix.
+/// \param mat Input matrix to be exponentiated.
+/// \param power Non-negative integer exponent.
+/// \return Matrix power \f$mat^{\text{power}}\f$.
+/// \throws std::invalid_argument if \p mat is not square.
+template <typename T>
+Matrix<T> matrix_power(Matrix<T> const& mat, unsigned int power)
+{
+    if (mat.rows() != mat.cols()) {
+        throw std::invalid_argument("matrix_power requires a square matrix");
+    }
+
+    if (power == 0U) {
+        return make_identity<T>(mat.rows());
+    }
+
+    Matrix<T> result = make_identity<T>(mat.rows());
+    Matrix<T> base = mat;
+    unsigned int exponent = power;
+    while (exponent > 0U) {
+        if ((exponent & 1U) != 0U) {
+            result = multiply(result, base);
+        }
+        exponent >>= 1U;
+        if (exponent != 0U) {
+            base = multiply(base, base);
+        }
+    }
+
+    return result;
+}
+
+/// \brief Compute the matrix 1-norm of a matrix power.
+/// \tparam T Element type of the matrix.
+/// \param mat Input matrix.
+/// \param power Non-negative integer exponent.
+/// \return The 1-norm of \f$mat^{\text{power}}\f$.
+template <typename T>
+double matrix_one_norm_power(Matrix<T> const& mat, unsigned int power)
+{
+    Matrix<T> powered = matrix_power(mat, power);
+    return matrix_one_norm(powered);
+}
+
 /// \brief Swap two rows in a matrix.
 /// \tparam T Element type of the matrix.
 /// \param mat Matrix whose rows will be swapped.

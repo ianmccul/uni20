@@ -1,5 +1,5 @@
 add_library(uni20_expokit STATIC
-    zgpadm.cpp
+    adaptive_exponential.cpp
 )
 
 target_include_directories(uni20_expokit

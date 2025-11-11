@@ -27,12 +27,23 @@
 
 #include <complex>
 
+#include "core/scalar_concepts.hpp"
 #include "expokit/matrix.hpp"
 
 namespace EXPOKIT
 {
 
-Matrix<std::complex<double>> expm(Matrix<std::complex<double>> const& matrix, double t,
-                                  int ideg = 9);
+/// \brief Compute the matrix exponential using the adaptive scaling-and-squaring algorithm.
+/// \details Follows the Pad\'e-based scaling and squaring strategy of Higham (2005) and
+///          Al-Mohy & Higham (2011) while maintaining compatibility with the classical
+///          EXPOKIT interfaces derived from Sidje (1998). The routine automatically selects
+///          between Pad\'e degrees {3, 5, 7, 9, 13} based on matrix norms.
+/// \tparam Scalar Matrix element type; may be real or complex in single or double precision.
+/// \param matrix Matrix whose exponential will be evaluated.
+/// \param t Scalar multiplier applied to \p matrix before exponentiation.
+/// \param ideg Legacy Pad\'e degree hint retained for compatibility.
+/// \return The matrix exponential of \f$\exp(t \cdot \text{matrix})\f$.
+template <uni20::RealOrComplex Scalar>
+Matrix<Scalar> expm(Matrix<Scalar> const& matrix, uni20::make_real_t<Scalar> t, int ideg = 9);
 
 } // namespace EXPOKIT
