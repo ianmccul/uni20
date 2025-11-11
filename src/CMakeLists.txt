@@ -36,6 +36,9 @@ add_subdirectory(level1)
 add_subdirectory(mdspan)
 add_subdirectory(async)
 add_subdirectory(kernel)
+add_subdirectory(expokit)
+
+target_link_libraries(uni20 PUBLIC uni20_expokit)
 
 # Configure the header file. We need to do this last, because subdirectories may set their own variables.
 configure_file(

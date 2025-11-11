@@ -12,6 +12,7 @@ add_subdirectory(tensor)
 add_subdirectory(kernel)
 add_subdirectory(backend)
 add_subdirectory(async)
+add_subdirectory(expokit)
 
 if(UNI20_BUILD_PYTHON)
   add_subdirectory(python)

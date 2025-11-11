@@ -24,7 +24,6 @@
 
 #include "eigen.h"
 #include "expokit/expokitf.h"
-#include <algorithm>
 
 namespace LinearAlgebra
 {
@@ -32,27 +31,18 @@ namespace LinearAlgebra
 namespace Private
 {
 
-void Exponentiate(double t, int Size, std::complex<double> const* H, int ldH,
-                  std::complex<double>* R, int ldR)
+using Complex = std::complex<double>;
+using Matrix = EXPOKIT::Matrix<Complex>;
+
+Matrix expm(Matrix const& matrix, double t, int ideg)
 {
-   // 2015-06-26: Increased degree of Pade approximation from 6 to 10, to get
-   // better precision for low-dimensional operators
-   // 2015-08-15: The sweet spot for accuracy of exponentials appears to be degree 9
-   int ideg = 9;
-   int lwork = 4*Size*Size + ideg + 1;
-   std::complex<double>* work = new std::complex<double>[lwork];
-   int* ipiv = new int[Size];
-   int iexph;
-   int ns;
-   int iflag;
+   return EXPOKIT::expm(matrix, t, ideg);
+}
 
-   EXPOKIT::zgpadm(ideg, Size, t, H, ldH, work, lwork, ipiv, iexph, ns, iflag);
-   CHECK(iflag == 0)("EXPOKIT::zgpadm")(iflag);
-
-   memcpy(R, work+iexph-1, Size*Size*sizeof(std::complex<double>));
-
-   delete[] ipiv;
-   delete[] work;
+Matrix expm(Matrix const& matrix, double t)
+{
+   int constexpr pade_degree = 9;
+   return EXPOKIT::expm(matrix, t, pade_degree);
 }
 
 } // namespace Private
