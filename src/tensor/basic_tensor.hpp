@@ -16,9 +16,10 @@ template <typename ElementType, typename Extents, typename StoragePolicy = Vecto
           typename LayoutPolicy = stdex::layout_stride,
           typename AccessorFactory = DefaultAccessorFactory>
 class BasicTensor
-    : public TensorView<ElementType, tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>> {
+    : public TensorView<ElementType, mutable_tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>> {
   private:
-    using traits_type = tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
+    using traits_type = mutable_tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
+    using const_traits = tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
     using base_type = TensorView<ElementType, traits_type>;
 
   public:
@@ -64,6 +65,23 @@ class BasicTensor
 
     storage_type& storage() noexcept { return data_; }
     storage_type const& storage() const noexcept { return data_; }
+
+    auto view() noexcept -> TensorView<element_type, traits_type>
+    {
+      return TensorView<element_type, traits_type>(storage_policy::make_handle(data_), this->mapping(),
+                                                   this->accessor());
+    }
+
+    auto view() const noexcept -> TensorView<element_type const, const_traits>
+    {
+      return TensorView<element_type const, const_traits>(
+          storage_policy::make_handle(const_cast<storage_type&>(data_)), this->mapping(), this->accessor());
+    }
+
+    auto const_view() const noexcept -> TensorView<element_type const, const_traits>
+    {
+      return view();
+    }
 
   private:
     struct internal_tag
@@ -132,12 +150,12 @@ class BasicTensor
         }
         else
         {
-          return base_type::construct_mapping(exts);
+          return layout::make_mapping<layout_policy>(exts);
         }
       }
       else
       {
-        return base_type::construct_mapping(exts);
+        return layout::make_mapping<layout_policy>(exts);
       }
     }
 

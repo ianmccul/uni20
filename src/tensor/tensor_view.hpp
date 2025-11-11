@@ -13,6 +13,7 @@
 
 #include "common/mdspan.hpp"
 #include "core/types.hpp"
+#include "layout.hpp"
 #include "mdspan/concepts.hpp"
 #include "storage/vectorstorage.hpp"
 
@@ -66,29 +67,20 @@ struct tensor_traits
     template <typename ElementType> using storage_type = ElementType;
 };
 
+template <typename Extents, typename StoragePolicy = VectorStorage, typename LayoutPolicy = stdex::layout_stride,
+          typename AccessorPolicy = DefaultAccessorFactory>
+struct mutable_tensor_traits : tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorPolicy>
+{
+    /// \brief Adaptor to provide the actual storage type of the given ElementType for mutable access patterns.
+    template <typename ElementType> using storage_type = std::remove_cv_t<ElementType>;
+};
+
 /// \brief Trait bundle describing the policies required to build tensor views.
 /// \ingroup tensor
 /// \tparam Extents Extents type describing the tensor shape.
 /// \tparam StoragePolicy Policy that identifies how storage is owned or referenced.
 /// \tparam LayoutPolicy Layout policy that maps indices to offsets.
 /// \tparam AccessorPolicy Accessor policy used to interact with the storage handle.
-template <typename Extents, typename StoragePolicy = VectorStorage, typename LayoutPolicy = stdex::layout_stride,
-          typename AccessorPolicy = DefaultAccessorFactory>
-struct mutable_tensor_traits
-{
-    /// \brief Extents type representing the tensor shape.
-    using extents_type = Extents;
-    /// \brief Policy controlling storage ownership semantics.
-    using storage_policy = StoragePolicy;
-    /// \brief Layout policy that governs multidimensional index ordering.
-    using layout_policy = LayoutPolicy;
-    /// \brief Policy providing accessors for the underlying handle.
-    using accessor_policy = AccessorPolicy;
-    /// \brief Adaptor to provide the actual storage type of the given ElementType, for the mutable case
-    ///        we remove any const qualifiers
-    template <typename ElementType> using storage_type = std::remove_cv_t<ElementType>;
-};
-
 /// \brief Forward declaration for the TensorView template using bundled traits.
 /// \ingroup tensor
 /// \tparam ElementType Value type viewed by the tensor.
@@ -117,14 +109,13 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     using accessor_policy = typename traits_type::accessor_policy;
 
   protected:
-    /// \brief The data type that is actually stored. This goes via the traits because we want it to be
-    /// controlled by the derived-most class.
-    using storage_type = typename traits_type::storage_type<element_type>;
+    /// \brief The data type stored in the underlying buffer.
+    using storage_type = typename traits_type::template storage_type<std::remove_const_t<value_type>>;
 
   public:
     /// \brief Mapping type derived from the layout policy and extents.
     using mapping_type = typename layout_policy::template mapping<extents_type>;
-    /// \brief Accessor type that provides mutable access to the view elements.
+    /// \brief Accessor type providing mutable access semantics.
     using mutable_accessor_type = typename accessor_policy::template accessor_t<storage_type>;
     /// \brief Accessor type providing const access semantics.
     using accessor_type = typename accessor_policy::template accessor_t<element_type>;
@@ -145,39 +136,46 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     TensorView() = default;
 
     /// \brief Construct from a handle, mapping, and accessor.
-    /// \tparam Handle Handle type convertible to the const handle type.
+    /// \tparam Handle Handle type convertible to the mutable handle type.
+    /// \tparam Accessor Accessor type convertible to the mutable accessor type.
     /// \param handle Data handle referencing tensor elements.
     /// \param mapping Mapping that translates indices into offsets.
     /// \param accessor Accessor that interacts with the data handle.
-    template <typename Handle>
-      requires std::convertible_to<Handle, handle_type>
-    TensorView(Handle&& handle, mapping_type mapping, accessor_type accessor = accessor_type{})
-        : handle_(static_cast<handle_type>(std::forward<Handle>(handle))), mapping_(std::move(mapping)),
-          extents_(mapping_.extents()), accessor_(std::move(accessor))
+    template <typename Handle, typename Accessor = mutable_accessor_type>
+      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
+               std::convertible_to<Accessor, mutable_accessor_type>)
+    TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
+        : handle_(to_mutable_handle(std::forward<Handle>(handle))), mapping_(std::move(mapping)),
+          extents_(mapping_.extents()), accessor_(std::forward<Accessor>(accessor))
     {}
 
     /// \brief Construct from a handle and extents, using the layout mapping's preferred form.
-    /// \tparam Handle Handle type convertible to the const handle type.
+    /// \tparam Handle Handle type convertible to the mutable handle type.
+    /// \tparam Accessor Accessor type convertible to the mutable accessor type.
     /// \param handle Data handle referencing tensor elements.
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor Accessor that interacts with the data handle.
-    template <typename Handle>
-      requires std::convertible_to<Handle, handle_type>
-    TensorView(Handle&& handle, extents_type const& exts, accessor_type accessor = accessor_type{})
-        : TensorView(std::forward<Handle>(handle), construct_mapping(exts), std::move(accessor))
+    template <typename Handle, typename Accessor = mutable_accessor_type>
+      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
+               std::convertible_to<Accessor, mutable_accessor_type>)
+    TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
+        : TensorView(std::forward<Handle>(handle), layout::make_mapping<layout_policy>(exts),
+                     std::forward<Accessor>(accessor))
     {}
 
     /// \brief Construct from a handle, extents, and explicit strides.
-    /// \tparam Handle Handle type convertible to the const handle type.
+    /// \tparam Handle Handle type convertible to the mutable handle type.
+    /// \tparam Accessor Accessor type convertible to the mutable accessor type.
     /// \param handle Data handle referencing tensor elements.
     /// \param exts Extents that describe the tensor shape.
     /// \param strides Stride specification for each tensor dimension.
     /// \param accessor Accessor that interacts with the data handle.
-    template <typename Handle>
-      requires std::convertible_to<Handle, handle_type>
+    template <typename Handle, typename Accessor = mutable_accessor_type>
+      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
+               std::convertible_to<Accessor, mutable_accessor_type>)
     TensorView(Handle&& handle, extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
-               accessor_type accessor = accessor_type{})
-        : TensorView(std::forward<Handle>(handle), mapping_type{exts, strides}, std::move(accessor))
+               Accessor&& accessor = Accessor{})
+        : TensorView(std::forward<Handle>(handle), mapping_type{exts, strides}, std::forward<Accessor>(accessor))
     {}
 
     /// \brief Access via bracket-operator: t[i0,i1,…].
@@ -193,7 +191,7 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
 
     /// \brief Retrieve the mdspan view (mapping plus accessor).
     /// \return Mdspan object describing the tensor view.
-    mdspan_type mdspan() const noexcept { return mdspan_type(handle_, mapping_, accessor_); }
+    auto mdspan() const noexcept -> mdspan_type { return mdspan_type(handle(), mapping_, accessor()); }
 
     /// \brief Rank of the tensor.
     /// \return Static rank reported by the extents type.
@@ -204,37 +202,76 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     size_type size() const noexcept { return mapping_.required_span_size(); }
 
     /// \brief Handle to the buffer.
-    /// \return Data handle supplied by the accessor.
-    handle_type handle() const noexcept { return handle_; }
+    /// \return Data handle supplied by the accessor, with const qualifications applied.
+    auto handle() const noexcept -> handle_type
+    {
+      static_assert(std::convertible_to<mutable_handle_type, handle_type>,
+                    "Mutable handle must convert to const handle type.");
+      return static_cast<handle_type>(handle_);
+    }
 
     /// \brief The extents (shape).
     /// \return Extents that describe the tensor dimensions.
-    extents_type const& extents() const noexcept { return extents_; }
+    auto extents() const noexcept -> extents_type const& { return extents_; }
 
     /// \brief The layout mapping (holds strides plus extents).
     /// \return Mapping instance that translates coordinates to offsets.
-    mapping_type const& mapping() const noexcept { return mapping_; }
+    auto mapping() const noexcept -> mapping_type const& { return mapping_; }
 
-    /// \brief The accessor object.
-    /// \note  The accessor is stored as the mutable_accessor_type, but we cannot expose the mutable accessor
-    ///        in the public interface.
+    /// \brief The accessor object with const semantics applied.
     /// \return Accessor associated with the tensor view.
-    accessor_type const& accessor() const noexcept { return accessor_; }
+    auto accessor() const noexcept -> accessor_type
+    {
+      if constexpr (std::is_same_v<mutable_accessor_type, accessor_type>)
+      {
+        return accessor_;
+      }
+      else
+      {
+        return accessor_type(accessor_);
+      }
+    }
 
   protected:
-    /// \brief Construct a mapping from the supplied extents using the layout policy defaults.
-    /// \param exts Extents that describe the tensor shape.
-    /// \return Mapping instance that translates coordinates to offsets.
-    static constexpr auto construct_mapping(extents_type const& exts) -> mapping_type { return mapping_type{exts}; }
+    template <typename Handle>
+    static constexpr auto to_mutable_handle(Handle&& handle) -> mutable_handle_type
+    {
+      if constexpr (std::convertible_to<Handle, mutable_handle_type>)
+      {
+        return static_cast<mutable_handle_type>(std::forward<Handle>(handle));
+      }
+      else
+      {
+        static_assert(std::convertible_to<Handle, handle_type>,
+                      "Handle must be convertible to either the mutable or const handle type.");
+        if constexpr (std::is_pointer_v<mutable_handle_type> && std::is_pointer_v<handle_type>)
+        {
+          auto const_handle = static_cast<handle_type>(std::forward<Handle>(handle));
+          using pointed_type = std::remove_pointer_t<mutable_handle_type>;
+          return const_cast<pointed_type*>(const_handle);
+        }
+        else
+        {
+          static_assert(std::convertible_to<Handle, mutable_handle_type>,
+                        "Non-pointer handles must be directly convertible to the mutable handle type.");
+          return static_cast<mutable_handle_type>(std::forward<Handle>(handle));
+        }
+      }
+    }
 
-    /// \brief Element buffer handle, which may or may not be owned.
-    /// \note  We store the mutable_handle_type here, since derived classes may have mutable access
+    /// \brief Mutable handle storage accessible to derived classes.
+    auto mutable_handle_ref() noexcept -> mutable_handle_type& { return handle_; }
+    /// \brief Mutable handle storage accessible in const contexts for derived classes.
+    auto mutable_handle_ref() const noexcept -> mutable_handle_type const& { return handle_; }
+
+    /// \brief Mutable accessor storage accessible to derived classes.
+    auto mutable_accessor_ref() noexcept -> mutable_accessor_type& { return accessor_; }
+    /// \brief Mutable accessor storage accessible in const contexts for derived classes.
+    auto mutable_accessor_ref() const noexcept -> mutable_accessor_type const& { return accessor_; }
+
     [[no_unique_address]] mutable_handle_type handle_{};
-    /// \brief Layout mapping that translates indices to offsets.
     [[no_unique_address]] mapping_type mapping_{};
-    /// \brief Cached extents derived from the mapping.
     [[no_unique_address]] extents_type extents_{};
-    /// \brief Accessor used for const-qualified element access.
     [[no_unique_address]] mutable_accessor_type accessor_{};
 };
 
@@ -261,17 +298,15 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \brief Policy providing accessors for the underlying handle.
     using accessor_policy = typename traits_type::accessor_policy;
 
-  protected:
-    /// \brief The data type that is actually stored. This goes via the traits because we want it to be
-    /// controlled by the derived-most class.
-    using storage_type = typename traits_type::storage_type<element_type>;
+    using typename base_type::mutable_accessor_type;
+    using typename base_type::mutable_handle_type;
 
   public:
     /// \brief Mapping type derived from the layout policy and extents.
     using mapping_type = typename layout_policy::template mapping<extents_type>;
-    /// \brief Accessor type providing const access semantics.
+    /// \brief Accessor type providing mutable access semantics.
     using accessor_type = typename accessor_policy::template accessor_t<element_type>;
-    /// \brief Data handle type exposed by the const accessor.
+    /// \brief Data handle type exposed by the mutable accessor.
     using handle_type = typename accessor_type::data_handle_type;
     /// \brief Mdspan specialisation used to present the tensor view.
     using mdspan_type = stdex::mdspan<element_type, extents_type, layout_policy, accessor_type>;
@@ -283,38 +318,41 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
 
     /// \brief Construct from a handle, mapping, and mutable accessor.
     /// \tparam Handle Handle type convertible to the mutable handle type.
+    /// \tparam Accessor Accessor type convertible to the mutable accessor type.
     /// \param handle Data handle referencing tensor elements.
     /// \param mapping Mapping that translates indices into offsets.
     /// \param accessor Mutable accessor that interacts with the data handle.
-    template <typename Handle>
-      requires std::convertible_to<Handle, handle_type>
-    TensorView(Handle&& handle, mapping_type mapping, accessor_type accessor = accessor_type{})
-        : base_type(handle, std::move(mapping), make_accessor(accessor)), accessor_mut_{std::move(accessor)},
-          mutable_handle_{std::forward<Handle>(handle)}
+    template <typename Handle, typename Accessor = accessor_type>
+      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
+    TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
+        : base_type(std::forward<Handle>(handle), std::move(mapping), std::forward<Accessor>(accessor))
     {}
 
     /// \brief Construct from a handle and extents, using the layout mapping's preferred form.
     /// \tparam Handle Handle type convertible to the mutable handle type.
+    /// \tparam Accessor Accessor type convertible to the mutable accessor type.
     /// \param handle Data handle referencing tensor elements.
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor Mutable accessor that interacts with the data handle.
-    template <typename Handle>
-      requires std::convertible_to<Handle, handle_type>
-    TensorView(Handle&& handle, extents_type const& exts, accessor_type accessor = accessor_type{})
-        : TensorView(std::forward<Handle>(handle), base_type::construct_mapping(exts), std::move(accessor))
+    template <typename Handle, typename Accessor = accessor_type>
+      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
+    TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
+        : TensorView(std::forward<Handle>(handle), layout::make_mapping<layout_policy>(exts),
+                     std::forward<Accessor>(accessor))
     {}
 
     /// \brief Construct from a handle, extents, and explicit strides.
     /// \tparam Handle Handle type convertible to the mutable handle type.
+    /// \tparam Accessor Accessor type convertible to the mutable accessor type.
     /// \param handle Data handle referencing tensor elements.
     /// \param exts Extents that describe the tensor shape.
     /// \param strides Stride specification for each tensor dimension.
     /// \param accessor Mutable accessor that interacts with the data handle.
-    template <typename Handle>
-      requires std::convertible_to<Handle, handle_type>
-    TensorView(Handle&& handle, extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
-               accessor_type accessor = accessor_type{})
-        : TensorView(std::forward<Handle>(handle), mapping_type{exts, strides}, std::move(accessor))
+    template <typename Handle, typename Accessor = accessor_type>
+      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
+    TensorView(Handle&& handle, extents_type const& exts, std::array<typename base_type::index_type, extents_type::rank()> const& strides,
+               Accessor&& accessor = Accessor{})
+        : TensorView(std::forward<Handle>(handle), mapping_type{exts, strides}, std::forward<Accessor>(accessor))
     {}
 
     /// \brief Mutable bracket access for tensor elements.
@@ -325,21 +363,30 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
       requires(sizeof...(Idx) == extents_type::rank())
     reference operator[](Idx... idxs) noexcept
     {
-      return accessor_mut_.access(mutable_handle_, this->mapping_(static_cast<index_type>(idxs)...));
+      return this->mutable_accessor_ref().access(this->mutable_handle_ref(),
+                                                 this->mapping_(static_cast<typename base_type::index_type>(idxs)...));
     }
 
     using base_type::operator[];
 
-    /// \brief Retrieve the const-qualified mdspan view exposed by the base type.
-    /// \return Mdspan object providing read-only access to the tensor elements.
-    auto mdspan() const noexcept -> typename base_type::mdspan_type
+    /// \brief Retrieve the mdspan view exposed by the mutable accessor.
+    /// \return Mdspan object providing mutable access to the tensor elements.
+    auto mutable_mdspan() noexcept -> mdspan_type
     {
-      return static_cast<base_type const&>(*this).mdspan();
+      return mdspan_type(this->mutable_handle_ref(), this->mapping_, this->mutable_accessor_ref());
     }
 
-    /// \brief Mutable accessor in use by the tensor view.
+    /// \brief Provide mutable access to the underlying handle.
+    /// \return Mutable data handle supplied by the accessor.
+    auto mutable_handle() noexcept -> mutable_handle_type { return this->mutable_handle_ref(); }
+
+    /// \brief Retrieve the mutable accessor in use by the tensor view.
     /// \return Accessor that provides mutable access semantics.
-    accessor_type const& accessor() const noexcept { return accessor_mut_; }
+    auto accessor() noexcept -> accessor_type& { return this->mutable_accessor_ref(); }
+
+    /// \brief Retrieve the mutable accessor in const contexts.
+    /// \return Accessor providing mutable semantics, exposed as a const reference.
+    auto accessor() const noexcept -> accessor_type const& { return this->mutable_accessor_ref(); }
 };
 
 } // namespace uni20

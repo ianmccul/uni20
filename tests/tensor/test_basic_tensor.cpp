@@ -6,6 +6,7 @@
 #include <array>
 #include <concepts>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 using namespace uni20;
@@ -16,6 +17,17 @@ namespace
 using index_t = index_type;
 using extents_2d = stdex::dextents<index_t, 2>;
 using tensor_type = BasicTensor<int, extents_2d, VectorStorage>;
+
+template <typename T>
+constexpr bool has_mutable_mdspan_v = requires(T&& t) { std::forward<T>(t).mutable_mdspan(); };
+
+template <typename T>
+constexpr bool has_mutable_handle_v = requires(T&& t) { std::forward<T>(t).mutable_handle(); };
+
+template <typename Span>
+constexpr bool can_assign_element_v =
+    std::is_assignable_v<typename std::remove_reference_t<Span>::reference,
+                         std::remove_const_t<typename std::remove_reference_t<Span>::value_type>>;
 
 TEST(BasicTensorTest, DefaultMappingUsesVectorStorage)
 {
@@ -114,16 +126,55 @@ TEST(BasicTensorTest, MdspanFromConstTensorIsReadOnly)
   tensor_type const& const_tensor = tensor;
   using const_span_type = decltype(const_tensor.mdspan());
   static_assert(std::is_same_v<typename const_span_type::reference, int const&>);
-  static_assert(!requires(const_span_type const& span) { span(0, 0) = 3; });
+  static_assert(!can_assign_element_v<const_span_type const&>);
 
   auto span_from_mdspan = tensor.mdspan();
   static_assert(std::is_same_v<typename decltype(span_from_mdspan)::reference, int const&>);
-  static_assert(!requires(decltype(span_from_mdspan) const& span) { span(1, 1) = 12; });
+  static_assert(!can_assign_element_v<decltype(span_from_mdspan) const&>);
 
   EXPECT_EQ((span_from_mdspan[0, 0]), 5);
   EXPECT_EQ((span_from_mdspan[1, 2]), 17);
 
-  static_assert(!requires(tensor_type const& t) { t.mutable_mdspan(); });
+  static_assert(!has_mutable_mdspan_v<tensor_type const&>);
+}
+
+TEST(BasicTensorTest, ViewsShareStorageAndRespectConstness)
+{
+  extents_2d exts{2, 3};
+  tensor_type tensor(exts);
+
+  using mutable_view_type = TensorView<int, mutable_tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
+  using const_view_type =
+      TensorView<int const, tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
+
+  auto view = tensor.view();
+  static_assert(std::is_same_v<decltype(view), mutable_view_type>);
+  static_assert(has_mutable_handle_v<decltype(view)&>);
+  static_assert(has_mutable_mdspan_v<decltype(view)&>);
+
+  view[0, 0] = 9;
+  view[1, 2] = 42;
+
+  EXPECT_EQ(tensor.storage()[0], 9);
+  EXPECT_EQ(tensor.storage()[5], 42);
+
+  auto cview = tensor.const_view();
+  static_assert(std::is_same_v<decltype(cview), const_view_type>);
+  static_assert(!can_assign_element_v<decltype(cview) const&>);
+  static_assert(!has_mutable_handle_v<decltype(cview) const&>);
+
+  EXPECT_EQ((cview[0, 0]), 9);
+  EXPECT_EQ((cview[1, 2]), 42);
+
+  tensor_type const& const_tensor = tensor;
+  auto const_view_from_const = const_tensor.view();
+  static_assert(std::is_same_v<decltype(const_view_from_const), const_view_type>);
+  static_assert(!can_assign_element_v<decltype(const_view_from_const) const&>);
+  static_assert(!has_mutable_handle_v<decltype(const_view_from_const) const&>);
+
+  EXPECT_EQ(view.handle(), tensor.handle());
+  EXPECT_EQ(cview.handle(), static_cast<int const*>(tensor.handle()));
+  EXPECT_EQ(const_view_from_const.handle(), static_cast<int const*>(tensor.handle()));
 }
 
 } // namespace
