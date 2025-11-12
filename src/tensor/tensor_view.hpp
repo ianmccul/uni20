@@ -214,6 +214,20 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \return Extents that describe the tensor dimensions.
     auto extents() const noexcept -> extents_type const& { return extents_; }
 
+    /// \brief Number of matrix rows for rank-2 tensor views.
+    /// \return Count of the first extent when the tensor models a matrix.
+    auto rows() const noexcept requires(extents_type::rank() == 2)
+    {
+      return extents().extent(0);
+    }
+
+    /// \brief Number of matrix columns for rank-2 tensor views.
+    /// \return Count of the second extent when the tensor models a matrix.
+    auto cols() const noexcept requires(extents_type::rank() == 2)
+    {
+      return extents().extent(1);
+    }
+
     /// \brief The layout mapping (holds strides plus extents).
     /// \return Mapping instance that translates coordinates to offsets.
     auto mapping() const noexcept -> mapping_type const& { return mapping_; }
@@ -387,6 +401,9 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \brief Retrieve the mutable accessor in const contexts.
     /// \return Accessor providing mutable semantics, exposed as a const reference.
     auto accessor() const noexcept -> accessor_type const& { return this->mutable_accessor_ref(); }
+
+    using base_type::cols;
+    using base_type::rows;
 };
 
 } // namespace uni20

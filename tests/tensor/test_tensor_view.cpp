@@ -84,4 +84,20 @@ TEST(TensorViewTest, MdspanFromConstViewIsReadOnly)
   static_assert(!has_mutable_mdspan_v<TensorView<int, mutable_traits_type> const&>);
 }
 
+TEST(TensorViewTest, RankTwoTensorProvidesMatrixDimensions)
+{
+  std::array<int, 6> storage{0, 1, 2, 3, 4, 5};
+  TensorView<int const, const_traits_type> const_view(storage.data(), extents_2d{2, 3});
+  EXPECT_EQ(const_view.rows(), 2);
+  EXPECT_EQ(const_view.cols(), 3);
+
+  TensorView<int, mutable_traits_type> mutable_view(storage.data(), extents_2d{2, 3});
+  EXPECT_EQ(mutable_view.rows(), 2);
+  EXPECT_EQ(mutable_view.cols(), 3);
+
+  TensorView<int, mutable_traits_type> const& const_ref = mutable_view;
+  EXPECT_EQ(const_ref.rows(), 2);
+  EXPECT_EQ(const_ref.cols(), 3);
+}
+
 } // namespace
