@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tags/blas.hpp"
+
 /**
  * \defgroup backend_blas_mkl Intel MKL BLAS backend
  * \ingroup backend_blas

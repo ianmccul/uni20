@@ -48,6 +48,8 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 * When calling member functions from within other members, use `this->foo()` to clarify scope.
 * Use trailing underscores (`_`) on private member variables, except for simple aggregates.
 * Use `constexpr`, `consteval`, and concepts from C++23 wherever they simplify code or improve correctness.
+* Uni20 uses the Kokkos reference `mdspan` implementation, in namespace `stdex::`.
+* Uni20 uses square brackets `[]` for multi-dimensional indexing of tensors. **Do not** define `MDSPAN_USE_PAREN_OPERATOR`, use `[]` instead. This may mean adding brackets when code like `[a,b]` is used in a macro invocation, especially in TRACE and gtest macros.
 
 ---
 

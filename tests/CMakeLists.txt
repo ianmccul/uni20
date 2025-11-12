@@ -13,6 +13,7 @@ add_subdirectory(kernel)
 add_subdirectory(backend)
 add_subdirectory(async)
 add_subdirectory(expokit)
+add_subdirectory(linalg)
 
 if(UNI20_BUILD_PYTHON)
   add_subdirectory(python)

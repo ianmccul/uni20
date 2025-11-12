@@ -10,4 +10,5 @@ target_include_directories(uni20_expokit
 target_link_libraries(uni20_expokit
     PUBLIC
         uni20_deps
+        uni20_linalg
 )
