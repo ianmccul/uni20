@@ -27,7 +27,7 @@ struct VectorStorage
       return storage.data();
     }
 
-    using tag_t = cpu_tag;
+    using default_tag = cpu_tag;
 };
 
 } // namespace uni20

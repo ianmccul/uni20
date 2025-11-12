@@ -103,6 +103,8 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     using extents_type = typename traits_type::extents_type;
     /// \brief Policy controlling storage ownership semantics.
     using storage_policy = typename traits_type::storage_policy;
+    /// \brief Backend tag associated with the default storage policy.
+    using default_tag = typename storage_policy::default_tag;
     /// \brief Layout policy that governs multidimensional index ordering.
     using layout_policy = typename traits_type::layout_policy;
     /// \brief Policy providing accessors for the underlying handle.
@@ -307,6 +309,8 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     using extents_type = typename traits_type::extents_type;
     /// \brief Policy controlling storage ownership semantics.
     using storage_policy = typename traits_type::storage_policy;
+    /// \brief Backend tag associated with the default storage policy.
+    using default_tag = typename storage_policy::default_tag;
     /// \brief Layout policy that governs multidimensional index ordering.
     using layout_policy = typename traits_type::layout_policy;
     /// \brief Policy providing accessors for the underlying handle.

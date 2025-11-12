@@ -100,4 +100,16 @@ TEST(TensorViewTest, RankTwoTensorProvidesMatrixDimensions)
   EXPECT_EQ(const_ref.cols(), 3);
 }
 
+TEST(TensorViewTest, ExposesDefaultBackendTag)
+{
+  using const_view_type = TensorView<int const, const_traits_type>;
+  using mutable_view_type = TensorView<int, mutable_traits_type>;
+
+  static_assert(std::is_same_v<typename const_view_type::default_tag, VectorStorage::default_tag>);
+  static_assert(std::is_same_v<typename mutable_view_type::default_tag, VectorStorage::default_tag>);
+
+  EXPECT_TRUE((std::is_same_v<typename const_view_type::default_tag, VectorStorage::default_tag>));
+  EXPECT_TRUE((std::is_same_v<typename mutable_view_type::default_tag, VectorStorage::default_tag>));
+}
+
 } // namespace
