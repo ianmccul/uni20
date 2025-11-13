@@ -1,6 +1,11 @@
 #pragma once
 
 #include <fmt/core.h>
+#include <fmt/format.h>
+
+#include <format>
+#include <ranges>
+#include <type_traits>
 
 // implementation of trace functions.
 // TODO: the formatting part, uncluding formatValue, could be moved to a public header
@@ -362,28 +367,39 @@ inline FormattingOptions& get_formatting_options(const std::string& module)
   }
 }
 
-// Concept for a type that has a std::formatter specialization
-template <typename T, typename CharT = char>
-concept HasFormatter =
-    std::formattable<T, CharT>; // requires(const T& t) { fmt::is_formattable<T, CharT>::value == true; };
-
-// Formatted output of containers, if they look like a range and have no existing formatter
+// Concept for a type that has an fmt::formatter specialization.
 template <typename T>
-concept Container = std::ranges::forward_range<T> && (!HasFormatter<T>);
+concept HasFmtFormatter =
+    fmt::has_formatter<std::remove_cvref_t<T>, fmt::format_context>::value;
+
+// Concept for a type that is formattable via std::format (C++20 and later).
+template <typename T, typename CharT = char>
+concept HasStdFormatter = std::formattable<std::remove_cvref_t<T>, CharT>;
+
+// Formatted output of containers, if they look like a range and have no fmt formatter.
+template <typename T>
+concept Container = std::ranges::forward_range<T> && (!HasFmtFormatter<T>);
 
 // formatValue: Converts a value to a string using fmt::format.
 // The generic version works for most types.
 
-/// \brief Format a non-container, non-floating-point type with std::formatter.
-/// \tparam T             Any type that has an std::formatter and is not a floating-point or container.
+/// \brief Format a non-container, non-floating-point type with an fmt::formatter specialization.
+/// \tparam T             Any type that has an fmt::formatter and is not a floating-point or container.
 /// \param value         The value to format.
 /// \param opts          Formatting options (currently unused for this overload).
 /// \returns             The string produced by `fmt::format("{}", value)`.
 template <typename T>
 std::string formatValue(const T& value, FormattingOptions const& opts)
-  requires(!Container<T> && HasFormatter<T> && !std::floating_point<T>)
+  requires(!Container<T> && HasFmtFormatter<T> && !std::floating_point<T>)
 {
   return fmt::format("{}", value);
+}
+
+template <typename T>
+std::string formatValue(const T& value, FormattingOptions const& /*opts*/)
+  requires(!Container<T> && !HasFmtFormatter<T> && HasStdFormatter<T> && !std::floating_point<T>)
+{
+  return std::format("{}", value);
 }
 
 /// \brief Format a 32-bit float using user-configured precision.
@@ -1368,3 +1384,8 @@ template <typename... Args>
 }
 
 } // namespace trace
+/// \brief Format a non-container, non-floating-point type using `std::format` when only a
+///        standard formatter is available.
+/// \tparam T             Any type that lacks an fmt::formatter but satisfies `std::formattable`.
+/// \param value         The value to format.
+/// \returns             The string produced by `std::format("{}", value)`.

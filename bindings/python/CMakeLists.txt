@@ -120,11 +120,24 @@ set_property(TARGET uni20_python PROPERTY CXX_STANDARD_REQUIRED ON)
 
 # nanobind relies on zero-sized arrays for some of its internals, which trips the
 # project's global -pedantic-errors setting. Relax the check locally for the
-# extension module.
-target_compile_options(uni20_python PRIVATE -Wno-pedantic -Wno-error=pedantic)
+# extension module and silence GCC 15's deprecated literal operator warning
+# emitted from nanobind headers.
+target_compile_options(
+  uni20_python PRIVATE
+    -Wno-pedantic
+    -Wno-error=pedantic
+    -Wno-deprecated-literal-operator
+    -Wno-error=deprecated-literal-operator
+)
 
 foreach(nb_target IN ITEMS nanobind nanobind-static nanobind-abi3)
   if(TARGET ${nb_target})
-    target_compile_options(${nb_target} PRIVATE -Wno-pedantic -Wno-error=pedantic)
+    target_compile_options(
+      ${nb_target} PRIVATE
+        -Wno-pedantic
+        -Wno-error=pedantic
+        -Wno-deprecated-literal-operator
+        -Wno-error=deprecated-literal-operator
+    )
   endif()
 endforeach()
