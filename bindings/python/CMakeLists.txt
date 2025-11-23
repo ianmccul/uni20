@@ -122,22 +122,31 @@ set_property(TARGET uni20_python PROPERTY CXX_STANDARD_REQUIRED ON)
 # project's global -pedantic-errors setting. Relax the check locally for the
 # extension module and silence GCC 15's deprecated literal operator warning
 # emitted from nanobind headers.
+include(CheckCXXCompilerFlag)
+
+check_cxx_compiler_flag("-Wno-deprecated-literal-operator" NB_HAS_WNO_DEPRECATED_LITERAL_OPERATOR)
+check_cxx_compiler_flag("-Wno-error=deprecated-literal-operator" NB_HAS_WNO_ERROR_DEPRECATED_LITERAL_OPERATOR)
+
+set(NB_WARNING_FLAGS
+    -Wno-pedantic
+    -Wno-error=pedantic)
+if(NB_HAS_WNO_DEPRECATED_LITERAL_OPERATOR)
+  list(APPEND NB_WARNING_FLAGS -Wno-deprecated-literal-operator)
+endif()
+if(NB_HAS_WNO_ERROR_DEPRECATED_LITERAL_OPERATOR)
+  list(APPEND NB_WARNING_FLAGS -Wno-error=deprecated-literal-operator)
+endif()
+
 target_compile_options(
   uni20_python PRIVATE
-    -Wno-pedantic
-    -Wno-error=pedantic
-    -Wno-deprecated-literal-operator
-    -Wno-error=deprecated-literal-operator
+    ${NB_WARNING_FLAGS}
 )
 
 foreach(nb_target IN ITEMS nanobind nanobind-static nanobind-abi3)
   if(TARGET ${nb_target})
     target_compile_options(
       ${nb_target} PRIVATE
-        -Wno-pedantic
-        -Wno-error=pedantic
-        -Wno-deprecated-literal-operator
-        -Wno-error=deprecated-literal-operator
+        ${NB_WARNING_FLAGS}
     )
   endif()
 endforeach()

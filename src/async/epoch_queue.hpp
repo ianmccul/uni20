@@ -6,6 +6,7 @@
 
 #include "common/trace.hpp"
 #include "epoch_context.hpp"
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -34,6 +35,20 @@ class EpochQueue {
     /// \ingroup async_core
     EpochQueue() = default;
 
+#if UNI20_DEBUG_DAG
+    /// \brief Initialize debug metadata for DAG visualization.
+    /// \param value Pointer to the associated value stored in Async<T>.
+    template <typename V> void initialize_node(V const* value) noexcept
+    {
+      if (node_) return;
+      global_counter_.fetch_add(1, std::memory_order_relaxed);
+      node_ = NodeInfo::create(value);
+    }
+
+    /// \brief Access the debug node for this queue.
+    NodeInfo const* node() const noexcept { return node_; }
+#endif
+
     /// \brief Establish the initial epoch state before any readers or writers are created.
     /// \param value_initialized True if the initial epoch already contains a valid value.
     /// \ingroup async_core
@@ -52,13 +67,14 @@ class EpochQueue {
     /// \param parent Pointer to the owning Async<T> instance.
     /// \return A new EpochContextReader<T> bound to the back of the queue.
     /// \ingroup async_core
-    template <typename T> EpochContextReader<T> create_read_context(detail::AsyncImplPtr<T> const& parent)
+    template <typename T>
+    EpochContextReader<T> create_read_context(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
       CHECK(bootstrapped_, "EpochQueue must be initialized before use");
       ensure_initial_epoch_locked();
       CHECK(tail_, "EpochQueue must retain a tail epoch");
-      return EpochContextReader<T>(parent, &tail_->ctx);
+      return EpochContextReader<T>(value, self, &tail_->ctx);
     }
 
     /// \brief Check if there are pending writers ahead of reads.
@@ -77,7 +93,8 @@ class EpochQueue {
     /// \param parent Pointer to the owning Async<T> instance.
     /// \return A new EpochContextWriter<T> bound to the back of the queue.
     /// \ingroup async_core
-    template <typename T> EpochContextWriter<T> create_write_context(detail::AsyncImplPtr<T> const& parent)
+    template <typename T>
+    EpochContextWriter<T> create_write_context(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
 
@@ -88,7 +105,7 @@ class EpochQueue {
       if (initial_writer_pending_ && !tail_->ctx.writer_is_done())
       {
         initial_writer_pending_ = false;
-        return EpochContextWriter<T>(parent, &tail_->ctx);
+        return EpochContextWriter<T>(value, self, &tail_->ctx);
       }
 
       auto new_node = std::make_unique<Node>(&tail_->ctx, /*writer_already_done=*/false);
@@ -97,7 +114,7 @@ class EpochQueue {
       tail_->next = std::move(new_node);
       tail_ = new_tail;
       prune_front_locked();
-      return EpochContextWriter<T>(parent, &tail_->ctx);
+      return EpochContextWriter<T>(value, self, &tail_->ctx);
     }
 
     /// \brief Prepend a new epoch to the front of the queue.
@@ -115,7 +132,8 @@ class EpochQueue {
     /// \param parent Pointer to the owning Async<T> instance.
     /// \return Writer/reader handles for the new epoch.
     /// \ingroup async_core
-    template <typename T> EpochPair<T> prepend_epoch(detail::AsyncImplPtr<T> const& parent)
+    template <typename T>
+    EpochPair<T> prepend_epoch(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
       CHECK(bootstrapped_, "EpochQueue must be initialized before use");
@@ -133,7 +151,7 @@ class EpochQueue {
         head_ = std::move(new_node);
         if (!tail_) tail_ = head_.get();
       }
-      return {EpochContextWriter<T>(parent, &head_->ctx), EpochContextReader<T>(parent, &head_->ctx)};
+      return {EpochContextWriter<T>(value, self, &head_->ctx), EpochContextReader<T>(value, self, &head_->ctx)};
     }
 
     /// \brief Called when a writer coroutine is bound to its epoch.
@@ -379,6 +397,86 @@ class EpochQueue {
     bool bootstrapped_ = false;             ///< True once initialize() has been called.
     bool initial_writer_pending_ = false;   ///< True if the initial epoch still expects its first writer.
     bool initial_value_initialized_ = true; ///< Tracks bootstrap initialization state.
+
+#if UNI20_DEBUG_DAG
+    inline static std::atomic<uint64_t> global_counter_ = 0;
+    NodeInfo const* node_ = nullptr;
+#endif
 };
+
+#if UNI20_DEBUG_DAG
+template <typename T> inline NodeInfo const* EpochContextReader<T>::node() const
+{
+  return queue_ ? queue_->node() : nullptr;
+}
+#endif
+
+template <typename T> inline void EpochContextReader<T>::suspend(AsyncTask&& t)
+{
+  TRACE_MODULE(ASYNC, "suspend", &t, epoch_);
+  DEBUG_PRECONDITION(epoch_);
+  queue_->enqueue_reader(epoch_, std::move(t));
+}
+
+template <typename T> inline bool EpochContextReader<T>::is_front() const noexcept
+{
+  DEBUG_PRECONDITION(epoch_, this);
+  return queue_->is_front(epoch_);
+}
+
+template <typename T> inline void EpochContextReader<T>::release() noexcept
+{
+  if (epoch_)
+  {
+    if (epoch_->reader_release()) queue_->on_all_readers_released(epoch_);
+    epoch_ = nullptr;
+  }
+}
+
+#if UNI20_DEBUG_DAG
+template <typename T> inline NodeInfo const* EpochContextWriter<T>::node() const
+{
+  return queue_ ? queue_->node() : nullptr;
+}
+#endif
+
+template <typename T> inline bool EpochContextWriter<T>::ready() const noexcept
+{
+  DEBUG_PRECONDITION(epoch_);
+  return queue_->is_front(epoch_);
+}
+
+template <typename T> inline void EpochContextWriter<T>::suspend(AsyncTask&& t)
+{
+  DEBUG_PRECONDITION(epoch_);
+  TRACE_MODULE(ASYNC, "suspend", &t, epoch_, epoch_->counter_);
+  epoch_->writer_bind(std::move(t));
+  queue_->on_writer_bound(epoch_);
+}
+
+template <typename T> inline T& EpochContextWriter<T>::data() const noexcept
+{
+  DEBUG_PRECONDITION(value_);                     // the value must exist
+  DEBUG_PRECONDITION(queue_->is_front(epoch_));   // we must be at the front of the queue
+  DEBUG_PRECONDITION(!epoch_->writer_is_done());  // writer still holds the gate
+  accessed_ = true;
+  return *value_;
+}
+
+template <typename T> inline void EpochContextWriter<T>::release() noexcept
+{
+  if (epoch_)
+  {
+    if (accessed_ && !marked_written_)
+    {
+      epoch_->writer_has_written();
+      marked_written_ = true;
+    }
+    if (epoch_->writer_release()) queue_->on_writer_done(epoch_);
+    epoch_ = nullptr;
+    accessed_ = false;
+    marked_written_ = false;
+  }
+}
 
 } // namespace uni20::async

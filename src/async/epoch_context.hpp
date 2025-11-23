@@ -22,12 +22,6 @@ template <typename T> class EpochContextReader;
 
 class EpochQueue;
 
-namespace detail
-{
-template <typename T> struct AsyncImpl;
-template <typename T> using AsyncImplPtr = std::shared_ptr<AsyncImpl<T>>;
-} // namespace detail
-
 // This needs a rethink.We want to track if the data has been initialized.That is, if we require_read at some point,
 //     then we want to track and see if it was.We need to know this,
 //     so that operator+= can detect whether we are adding to it,
@@ -402,7 +396,8 @@ template <typename T> class EpochContextReader {
 
     /// \brief Copy constructor retaining the reader reference count.
     /// \ingroup async_core
-    EpochContextReader(EpochContextReader const& other) : parent_(other.parent_), epoch_(other.epoch_)
+    EpochContextReader(EpochContextReader const& other)
+        : value_(other.value_), queue_(other.queue_), epoch_(other.epoch_)
     {
       if (epoch_) epoch_->reader_acquire();
     }
@@ -417,18 +412,20 @@ template <typename T> class EpochContextReader {
       {
         if (other.epoch_) other.epoch_->reader_acquire();
         this->release();
-        parent_ = other.parent_;
+        value_ = other.value_;
+        queue_ = other.queue_;
         epoch_ = other.epoch_;
       }
       return *this;
     }
 
     /// \brief Construct a new reader handle for a given parent and epoch.
-    /// \param parent Pointer to the Async<T> owning the queue and data.
+    /// \param value Shared pointer to the stored value.
+    /// \param queue Shared pointer to the associated epoch queue.
     /// \param epoch Pointer to the epoch being tracked.
     /// \ingroup async_core
-    EpochContextReader(detail::AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept
-        : parent_(parent), epoch_(epoch)
+    EpochContextReader(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& queue, EpochContext* epoch) noexcept
+        : value_(value), queue_(queue), epoch_(epoch)
     {
       if (epoch_) epoch_->reader_acquire();
     }
@@ -436,7 +433,8 @@ template <typename T> class EpochContextReader {
     /// \brief Move constructor. Transfers ownership and nulls the source.
     /// \param other Reader being moved from.
     /// \ingroup async_core
-    EpochContextReader(EpochContextReader&& other) noexcept : parent_(other.parent_), epoch_(other.epoch_)
+    EpochContextReader(EpochContextReader&& other) noexcept
+        : value_(std::move(other.value_)), queue_(std::move(other.queue_)), epoch_(other.epoch_)
     {
       other.epoch_ = nullptr;
     }
@@ -450,7 +448,8 @@ template <typename T> class EpochContextReader {
       if (this != &other)
       {
         this->release();
-        parent_ = other.parent_;
+        value_ = std::move(other.value_);
+        queue_ = std::move(other.queue_);
         epoch_ = other.epoch_;
         other.epoch_ = nullptr;
       }
@@ -464,18 +463,13 @@ template <typename T> class EpochContextReader {
 
 #if UNI20_DEBUG_DAG
     /// \brief Get the debug node pointer of the object
-    NodeInfo const* node() const { return parent_->node(); }
+    NodeInfo const* node() const;
 #endif
 
     /// \brief Suspend a coroutine task as a reader of this epoch.
     /// \param t The coroutine task to register.
     /// \ingroup async_core
-    void suspend(AsyncTask&& t)
-    {
-      TRACE_MODULE(ASYNC, "suspend", &t, epoch_);
-      DEBUG_PRECONDITION(epoch_);
-      parent_->queue_.enqueue_reader(epoch_, std::move(t));
-    }
+    void suspend(AsyncTask&& t);
 
     /// \brief Check whether the reader is ready to resume.
     /// \return True if all prerequisites for this epoch are satisfied.
@@ -502,7 +496,7 @@ template <typename T> class EpochContextReader {
         else
           throw buffer_cancelled();
       }
-      return parent_->value_;
+      return *value_;
     }
 
     T const& data_assert() const
@@ -518,7 +512,7 @@ template <typename T> class EpochContextReader {
           PANIC("buffer cancelled but not caught");
         }
       }
-      return parent_->value_;
+      return *value_;
     }
 
     // \brief Optionally retrieves the value stored in this buffer, if available.
@@ -538,7 +532,7 @@ template <typename T> class EpochContextReader {
         else
           return nullptr;
       }
-      return &parent_->value_;
+      return value_.get();
     }
 
     /// \brief Optionally retrieves the value stored in this buffer, if available.
@@ -559,29 +553,17 @@ template <typename T> class EpochContextReader {
         else
           return std::nullopt;
       }
-      return parent_->value_;
+      return *value_;
     }
 
     /// \brief Check whether this epoch is at the front of the queue.
     /// \return True if the associated epoch is the head of the epoch queue.
     /// \ingroup async_core
-    bool is_front() const noexcept
-    {
-      DEBUG_PRECONDITION(epoch_, this);
-      return parent_->queue_.is_front(epoch_);
-    }
+    bool is_front() const noexcept;
 
     /// \brief Release the reader, notifying the queue when appropriate.
     /// \ingroup async_core
-    void release() noexcept
-    {
-      if (epoch_)
-      {
-        // TRACE_MODULE(ASYNC, "EpochContextReader release");
-        if (epoch_->reader_release()) parent_->queue_.on_all_readers_released(epoch_);
-        epoch_ = nullptr;
-      }
-    }
+    void release() noexcept;
 
     /// \brief Wait for the epoch to become available on the global scheduler, and then return a reference to the value
     /// \ingroup async_core
@@ -593,7 +575,8 @@ template <typename T> class EpochContextReader {
     T const& get_wait(IScheduler& sched) const;
 
   private:
-    detail::AsyncImplPtr<T> parent_;
+    std::shared_ptr<T> value_;
+    std::shared_ptr<EpochQueue> queue_;
     EpochContext* epoch_ = nullptr; ///< Epoch currently tracked.
 };
 
@@ -608,18 +591,19 @@ template <typename T> class EpochContextReader {
 template <typename T> class EpochContextWriter {
   public:
     /// \brief Construct an active writer.
-    /// \param parent Owning Async implementation pointer.
+    /// \param value Shared pointer to the stored value.
+    /// \param queue Shared pointer to the epoch queue.
     /// \param epoch Epoch tracked by this writer.
     /// \ingroup async_core
-    EpochContextWriter(detail::AsyncImplPtr<T> const& parent, EpochContext* epoch) noexcept
-        : parent_(parent), epoch_(epoch)
+    EpochContextWriter(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& queue, EpochContext* epoch) noexcept
+        : value_(value), queue_(queue), epoch_(epoch)
     {
       if (epoch_) epoch_->writer_acquire();
     }
 
     /// \brief Copy constructor acquiring a writer reference for diagnostics.
     /// \ingroup async_core
-    EpochContextWriter(EpochContextWriter const& other) : parent_(other.parent_), epoch_(other.epoch_)
+    EpochContextWriter(EpochContextWriter const& other) : value_(other.value_), queue_(other.queue_), epoch_(other.epoch_)
     {
       if (epoch_) epoch_->writer_acquire();
     }
@@ -629,7 +613,8 @@ template <typename T> class EpochContextWriter {
     /// \brief Move constructor transferring the writer handle.
     /// \param other Writer being moved from.
     /// \ingroup async_core
-    EpochContextWriter(EpochContextWriter&& other) noexcept : parent_(other.parent_), epoch_(other.epoch_)
+    EpochContextWriter(EpochContextWriter&& other) noexcept
+        : value_(std::move(other.value_)), queue_(std::move(other.queue_)), epoch_(other.epoch_)
     {
       other.epoch_ = nullptr;
     }
@@ -643,7 +628,8 @@ template <typename T> class EpochContextWriter {
       if (this != &other)
       {
         this->release();
-        parent_ = other.parent_;
+        value_ = std::move(other.value_);
+        queue_ = std::move(other.queue_);
         epoch_ = other.epoch_;
         other.epoch_ = nullptr;
       }
@@ -656,62 +642,30 @@ template <typename T> class EpochContextWriter {
 
 #if UNI20_DEBUG_DAG
     /// \brief Get the debug node pointer of the object
-    NodeInfo const* node() const { return parent_->node(); }
+    NodeInfo const* node() const;
 #endif
 
     /// \brief Check whether the writer may proceed immediately.
     /// \return true if the writer is at the front of the queue.
     /// \ingroup async_core
-    bool ready() const noexcept
-    {
-      DEBUG_PRECONDITION(epoch_);
-      return parent_->queue_.is_front(epoch_);
-    }
+    bool ready() const noexcept;
 
     /// \brief Suspend the writer task and submit to the epoch queue.
     /// \param t The coroutine to bind and schedule.
     /// \ingroup async_core
-    void suspend(AsyncTask&& t)
-    {
-      DEBUG_PRECONDITION(epoch_);
-      TRACE_MODULE(ASYNC, "suspend", &t, epoch_, epoch_->counter_);
-      epoch_->writer_bind(std::move(t));
-      parent_->queue_.on_writer_bound(epoch_);
-    }
+    void suspend(AsyncTask&& t);
 
     /// \brief Access the stored data while holding the writer gate.
     /// \return Mutable reference to the stored value.
     /// \ingroup async_core
-    T& data() const noexcept
-    {
-      DEBUG_PRECONDITION(parent_);                          // the parent_ must exist
-      DEBUG_PRECONDITION(parent_->queue_.is_front(epoch_)); // we must be at the front of the queue
-      DEBUG_PRECONDITION(!epoch_->writer_is_done());        // writer still holds the gate
-      accessed_ = true;
-      return parent_->value_;
-    }
+    T& data() const noexcept;
 
     /// \brief Finalize this write gate, if not already done.
     ///
     /// \note This may be called explicitly or automatically by the destructor.
     ///       It is idempotent and safe to call more than once.
     /// \ingroup async_core
-    void release() noexcept
-    {
-      if (epoch_)
-      {
-        if (accessed_ && !marked_written_)
-        {
-          epoch_->writer_has_written();
-          marked_written_ = true;
-        }
-        // TRACE_MODULE(ASYNC, "EpochContextWriter: release");
-        if (epoch_->writer_release()) parent_->queue_.on_writer_done(epoch_);
-        epoch_ = nullptr;
-        accessed_ = false;
-        marked_written_ = false;
-      }
-    }
+    void release() noexcept;
 
     /// \brief Require the writer to produce a value, canceling pending readers if omitted.
     /// \ingroup async_core
@@ -734,7 +688,8 @@ template <typename T> class EpochContextWriter {
     T&& move_from_wait() const;
 
   private:
-    detail::AsyncImplPtr<T> parent_;
+    std::shared_ptr<T> value_;
+    std::shared_ptr<EpochQueue> queue_;
     EpochContext* epoch_ = nullptr;
     mutable bool accessed_ = false;
     mutable bool marked_written_ = false;
