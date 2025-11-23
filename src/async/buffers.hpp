@@ -84,13 +84,7 @@ template <typename T, typename... Args> inline T* construct_deferred(std::shared
   auto* state = get_deferred_state(ptr);
   if (!state) return ptr.get();
 
-  auto* target = state->construct(std::forward<Args>(args)...);
-  if (!ptr.get())
-  {
-    auto owner = ptr;
-    ptr = std::shared_ptr<T>(owner, target);
-  }
-  return target;
+  return state->construct(std::forward<Args>(args)...);
 }
 } // namespace detail
 
