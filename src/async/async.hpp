@@ -18,6 +18,8 @@
 #include <new>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
+#include <initializer_list>
 
 namespace uni20::async
 {
@@ -83,6 +85,38 @@ template <typename T> class Async {
       requires std::constructible_from<T, U> && (!std::convertible_to<U, T>)
     explicit Async(U&& u)
         : value_(std::make_shared<T>(static_cast<T>(std::forward<U>(u)))), queue_(std::make_shared<EpochQueue>())
+    {
+      queue_->initialize(true);
+#if UNI20_DEBUG_DAG
+      queue_->initialize_node(value_.get());
+#endif
+    }
+
+    /// \brief Construct the stored value in place using forwarded arguments.
+    /// \tparam Args Argument types forwarded to `T`'s constructor.
+    /// \param args Arguments used to initialize the contained value.
+    /// \ingroup async_api
+    template <typename... Args>
+      requires std::constructible_from<T, Args...>
+    Async(std::in_place_t, Args&&... args)
+        : value_(std::make_shared<T>(std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>())
+    {
+      queue_->initialize(true);
+#if UNI20_DEBUG_DAG
+      queue_->initialize_node(value_.get());
+#endif
+    }
+
+    /// \brief Construct the stored value in place from an initializer list.
+    /// \tparam U Element type accepted by `T`'s initializer list constructor.
+    /// \tparam Args Additional argument types forwarded to `T`'s constructor.
+    /// \param init Initializer list forwarded to `T`.
+    /// \param args Additional arguments forwarded to `T`.
+    /// \ingroup async_api
+    template <typename U, typename... Args>
+      requires std::constructible_from<T, std::initializer_list<U>&, Args...>
+    Async(std::in_place_t, std::initializer_list<U> init, Args&&... args)
+        : value_(std::make_shared<T>(init, std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>())
     {
       queue_->initialize(true);
 #if UNI20_DEBUG_DAG

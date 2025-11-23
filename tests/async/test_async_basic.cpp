@@ -2,6 +2,8 @@
 #include "async/async_task.hpp"
 #include "async/debug_scheduler.hpp"
 #include <gtest/gtest.h>
+#include <string>
+#include <vector>
 
 using namespace uni20;
 using namespace uni20::async;
@@ -55,6 +57,38 @@ TEST(AsyncBasicTest, MultipleReaders)
   sched.run_all();
   for (int val : results)
     EXPECT_EQ(val, 99);
+}
+
+TEST(AsyncBasicTest, InPlaceConstructsValue)
+{
+  Async<std::string> value(std::in_place, 10, 'x');
+  DebugScheduler sched;
+
+  sched.schedule([](ReadBuffer<std::string> reader) static -> AsyncTask {
+    auto& str = co_await reader;
+    EXPECT_EQ(str, std::string(10, 'x'));
+    co_return;
+  }(value.read()));
+
+  sched.run_all();
+}
+
+TEST(AsyncBasicTest, InPlaceConstructsFromInitializerList)
+{
+  Async<std::vector<int>> value(std::in_place, {1, 2, 3, 4});
+  DebugScheduler sched;
+
+  sched.schedule([](ReadBuffer<std::vector<int>> reader) static -> AsyncTask {
+    auto const& vec = co_await reader;
+    EXPECT_EQ(vec.size(), std::size_t{4});
+    EXPECT_EQ(vec[0], 1);
+    EXPECT_EQ(vec[1], 2);
+    EXPECT_EQ(vec[2], 3);
+    EXPECT_EQ(vec[3], 4);
+    co_return;
+  }(value.read()));
+
+  sched.run_all();
 }
 
 TEST(AsyncBasicTest, WriterWaitsForReaders)
