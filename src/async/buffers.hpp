@@ -9,11 +9,90 @@
 #include "common/trace.hpp"
 #include "epoch_context.hpp"
 
+#include <cstddef>
 #include <coroutine>
+#include <memory>
+#include <mutex>
+#include <new>
+#include <stdexcept>
+#include <tuple>
+#include <type_traits>
 #include <utility>
 
 namespace uni20::async
 {
+
+namespace detail
+{
+template <typename T> struct DeferredState
+{
+  alignas(T) std::byte storage[sizeof(T)];
+  std::once_flag once{};
+  bool constructed{false};
+
+  T* ptr() noexcept { return std::launder(reinterpret_cast<T*>(storage)); }
+
+  template <typename... Args> T* construct(Args&&... args)
+  {
+    std::call_once(once, [&] {
+      std::construct_at(ptr(), std::forward<Args>(args)...);
+      constructed = true;
+    });
+    return ptr();
+  }
+
+  ~DeferredState() = default;
+};
+
+template <typename T> struct DeferredStateDeleter
+{
+  DeferredState<T>* state{};
+
+  void operator()(T*) const noexcept
+  {
+    if (!state) return;
+    if (state->constructed) std::destroy_at(state->ptr());
+    delete state;
+  }
+};
+
+template <typename T> inline DeferredState<T>* get_deferred_state(std::shared_ptr<T> const& ptr) noexcept
+{
+  if (auto* deleter = std::get_deleter<DeferredStateDeleter<T>>(ptr)) return deleter->state;
+  return nullptr;
+}
+
+template <typename T> inline std::shared_ptr<T> make_deferred_shared()
+{
+  return std::shared_ptr<T>(nullptr, DeferredStateDeleter<T>{new DeferredState<T>()});
+}
+
+template <typename T> inline T* alias_deferred_pointer(std::shared_ptr<T>& ptr)
+{
+  if (ptr.get()) return ptr.get();
+  if (auto* state = get_deferred_state(ptr))
+  {
+    auto owner = ptr;
+    ptr = std::shared_ptr<T>(owner, state->ptr());
+    return ptr.get();
+  }
+  return nullptr;
+}
+
+template <typename T, typename... Args> inline T* construct_deferred(std::shared_ptr<T>& ptr, Args&&... args)
+{
+  auto* state = get_deferred_state(ptr);
+  if (!state) return ptr.get();
+
+  auto* target = state->construct(std::forward<Args>(args)...);
+  if (!ptr.get())
+  {
+    auto owner = ptr;
+    ptr = std::shared_ptr<T>(owner, target);
+  }
+  return target;
+}
+} // namespace detail
 
 template <typename T> class Async;
 
@@ -475,6 +554,120 @@ template <typename T> class WriteBuffer {
     friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
 };
 
+template <typename T, typename... Args> class EmplaceAwaiter
+{
+  public:
+    EmplaceAwaiter(EpochContextWriter<T>&& writer, detail::DeferredState<T>* storage, Args&&... args)
+        : writer_(std::move(writer)), storage_(storage), args_(std::forward<Args>(args)...)
+    {}
+
+    bool await_ready() const noexcept { return writer_.ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept { writer_.suspend(std::move(t)); }
+
+    T& await_resume()
+    {
+      if (storage_)
+      {
+        std::apply(
+          [&](auto&&... unpacked) { storage_->construct(std::forward<Args>(unpacked)...); }, std::move(args_));
+      }
+      auto& ref = writer_.data();
+      writer_.release();
+      return ref;
+    }
+
+  private:
+    EpochContextWriter<T> writer_;
+    detail::DeferredState<T>* storage_{};
+    std::tuple<Args...> args_;
+};
+
+/// \brief Awaitable write buffer for constructing values in-place.
+template <typename T> class EmplaceBuffer
+{
+  public:
+    using value_type = T;
+    using element_type = T&;
+
+    EmplaceBuffer(EpochContextWriter<T> writer, detail::DeferredState<T>* storage)
+        : writer_(std::move(writer)), storage_(storage)
+    {
+      writer_.writer_require();
+    }
+
+    EmplaceBuffer(EmplaceBuffer const&) = delete;
+    EmplaceBuffer& operator=(EmplaceBuffer const&) = delete;
+
+    EmplaceBuffer(EmplaceBuffer&&) noexcept = default;
+    EmplaceBuffer& operator=(EmplaceBuffer&&) noexcept = default;
+
+    bool await_ready()
+    {
+      this->consume_once();
+      return writer_.ready();
+    }
+
+    void await_suspend(AsyncTask&& t) noexcept { writer_.suspend(std::move(t)); }
+
+    T& await_resume()
+    {
+      if (storage_)
+      {
+        if constexpr (std::is_default_constructible_v<T>)
+        {
+          storage_->construct();
+        }
+        else
+        {
+          throw std::logic_error("Async value not initialized; use EmplaceBuffer with arguments");
+        }
+      }
+      auto& ref = writer_.data();
+      writer_.release();
+      return ref;
+    }
+
+    template <typename... Args> auto operator()(Args&&... args) &&
+    {
+      this->consume_once();
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(std::move(writer_), storage_, std::forward<Args>(args)...);
+    }
+
+    auto operator co_await() & -> EmplaceBuffer&
+    {
+      this->consume_once();
+      return *this;
+    }
+
+    auto operator co_await() const& -> EmplaceBuffer const&
+    {
+      this->consume_once();
+      return *this;
+    }
+    auto operator co_await() && = delete;
+
+    NodeInfo const* node() const
+    {
+#if UNI20_DEBUG_DAG
+      return writer_.node();
+#else
+      return nullptr;
+#endif
+    }
+
+  private:
+    void consume_once()
+    {
+      if (consumed_) throw std::logic_error("EmplaceBuffer may only be awaited once");
+      consumed_ = true;
+    }
+
+    EpochContextWriter<T> writer_;
+    detail::DeferredState<T>* storage_{};
+    mutable bool consumed_{false};
+  };
+
 // For a ReadBuffer, we add the node to the ReadDependencies
 template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, ReadBuffer<T> const& x)
 {
@@ -493,6 +686,13 @@ template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promi
 
 // For a WriteBuffer, we add the node to the WriteDependencies
 template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, WriteBuffer<T> const& x)
+{
+#if UNI20_DEBUG_DAG
+  promise->WriteDependencies.push_back(x.node());
+#endif
+}
+
+template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, EmplaceBuffer<T> const& x)
 {
 #if UNI20_DEBUG_DAG
   promise->WriteDependencies.push_back(x.node());

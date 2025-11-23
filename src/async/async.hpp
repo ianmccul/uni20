@@ -15,6 +15,9 @@
 #include "config.hpp"
 #include "epoch_queue.hpp"
 #include <memory>
+#include <new>
+#include <stdexcept>
+#include <type_traits>
 
 namespace uni20::async
 {
@@ -23,8 +26,7 @@ class DebugScheduler;
 
 /// \brief Tag type to construct an Async without an initial value pointer.
 struct deferred_t
-{
-};
+{};
 
 /// \brief Tag constant for deferred Async construction.
 inline constexpr deferred_t deferred{};
@@ -49,11 +51,11 @@ template <typename T> class Async {
   public:
     using value_type = T;
 
-    /// \brief Default-constructs a T value and an empty access queue.
+    /// \brief Initializes async state without constructing the stored value.
     /// \ingroup async_api
-    Async() : value_(std::make_shared<T>()), queue_(std::make_shared<EpochQueue>())
+    Async() : value_(detail::make_deferred_shared<T>()), queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(false);
+      queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(value_.get());
 #endif
@@ -118,8 +120,7 @@ template <typename T> class Async {
     /// \ingroup async_api
     template <typename Control>
     Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
-        : value_(std::shared_ptr<T>(std::move(control), static_cast<T*>(nullptr))),
-          queue_(std::move(queue))
+        : value_(std::shared_ptr<T>(std::move(control), static_cast<T*>(nullptr))), queue_(std::move(queue))
     {
       (void)tag;
       DEBUG_CHECK(value_);
@@ -193,31 +194,39 @@ template <typename T> class Async {
     /// \brief Begin an asynchronous read of the value.
     /// \return A ReadBuffer<T> which may be co_awaited.
     /// \ingroup async_api
-    ReadBuffer<T> read() const noexcept
+    ReadBuffer<T> read() const
     {
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
+      ensure_default_value();
       return ReadBuffer<T>(queue_->create_read_context(value_, queue_));
     }
 
     /// \brief Begin an asynchronous mutation of the current value.
     /// \return A MutableBuffer<T> which may be co_awaited.
     /// \ingroup async_api
-    MutableBuffer<T> mutate() noexcept
+    MutableBuffer<T> mutate()
     {
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
+      ensure_default_value();
       return MutableBuffer<T>(queue_->create_write_context(value_, queue_));
     }
 
     /// \brief Begin writing a fresh value, treating the storage as uninitialized until completion.
     /// \return A WriteBuffer<T> which may be co_awaited.
     /// \ingroup async_api
-    WriteBuffer<T> write() noexcept
+    WriteBuffer<T> write()
     {
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
+      ensure_default_value();
       return WriteBuffer<T>(queue_->create_write_context(value_, queue_));
+    }
+
+    EmplaceBuffer<T> emplace() noexcept
+    {
+      DEBUG_CHECK(queue_);
+      detail::alias_deferred_pointer(value_);
+      DEBUG_CHECK(value_);
+      return EmplaceBuffer<T>(queue_->create_write_context(value_, queue_), detail::get_deferred_state(value_));
     }
 
     // template <typename Sched> T& get_wait(Sched& sched)
@@ -246,7 +255,7 @@ template <typename T> class Async {
     void set(T const& x)
     {
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
+      ensure_default_value();
       *value_ = x;
     }
 
@@ -261,7 +270,6 @@ template <typename T> class Async {
     void reset_value(T* ptr)
     {
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
       auto control = std::shared_ptr<void>(value_);
       value_ = std::shared_ptr<T>(std::move(control), ptr);
 #if UNI20_DEBUG_DAG
@@ -278,7 +286,7 @@ template <typename T> class Async {
     T value() const
     {
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
+      ensure_default_value();
       return *value_;
     }
 
@@ -288,13 +296,13 @@ template <typename T> class Async {
     T const& unsafe_value_ref() const
     {
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
+      ensure_default_value();
       return *value_;
     }
     T& unsafe_value_ref()
     {
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
+      ensure_default_value();
       return *value_;
     }
 
@@ -305,6 +313,22 @@ template <typename T> class Async {
     std::shared_ptr<T> const& value_ptr() const { return value_; }
 
   private:
+    T* ensure_default_value() const
+    {
+      if (auto* existing = value_.get()) return existing;
+
+      if constexpr (std::is_default_constructible_v<T>)
+      {
+        if (auto* initialized = detail::construct_deferred(value_)) return initialized;
+        value_ = std::make_shared<T>();
+        return value_.get();
+      }
+      else
+      {
+        throw std::logic_error("Async value requires initialization before access");
+      }
+    }
+
     // Add a new epoch to the front of the queue; used by ReverseValue for reverse mode autodifferentiation
     /// \brief Prepend a reverse-mode epoch to the queue.
     /// \return Writer and reader handles for the new epoch.
@@ -313,13 +337,13 @@ template <typename T> class Async {
     {
       DEBUG_TRACE_MODULE(ASYNC, "Prepending epoch!");
       DEBUG_CHECK(queue_);
-      DEBUG_CHECK(value_);
+      ensure_default_value();
       return queue_->prepend_epoch(value_, queue_);
     }
 
     friend class ReverseValue<T>;
 
-    std::shared_ptr<T> value_;
+    mutable std::shared_ptr<T> value_;
     std::shared_ptr<EpochQueue> queue_;
 };
 
@@ -341,6 +365,8 @@ template <typename T> MutableBuffer<T> mutate(Async<T>& a) { return a.mutate(); 
 /// \return Write buffer obtained from the Async instance.
 /// \ingroup async_api
 template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
+
+template <typename T> EmplaceBuffer<T> emplace_buffer(Async<T>& a) { return a.emplace(); }
 
 } // namespace uni20::async
 
