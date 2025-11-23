@@ -21,6 +21,14 @@ namespace uni20::async
 
 class DebugScheduler;
 
+/// \brief Tag type to construct an Async without an initial value pointer.
+struct deferred_t
+{
+};
+
+/// \brief Tag constant for deferred Async construction.
+inline constexpr deferred_t deferred{};
+
 template <typename T> class ReverseValue; // forward declaration so we can add it as a friend of Async<T>
 
 /// \brief Async<T> is a move-only container for asynchronously accessed data.
@@ -91,6 +99,49 @@ template <typename T> class Async {
     /// \see `async_assign` for explicit value-level copy scheduling.
     /// \ingroup async_api
     Async(const Async& rhs) : Async() { async_assign(rhs, *this); }
+
+    /// \brief Construct an Async that defers pointer initialization while sharing ownership.
+    ///
+    /// This constructor aliases the control block of \p control so that the lifetime of the
+    /// referenced object is tied to the same reference count as the source `std::shared_ptr`.
+    /// The stored pointer is left null until a later call to \ref emplace or \ref reset_value.
+    /// When supplied, \p queue is also shared so that deferred views participate in the same
+    /// sequencing as the originating Async value.
+    ///
+    /// \tparam Control Type of the shared pointer used for aliasing the control block.
+    /// \param tag `async::deferred` tag to select deferred construction.
+    /// \param control Shared pointer whose control block should be reused for this Async value.
+    /// \param queue Queue to reuse for sequencing; defaults to a fresh queue when omitted.
+    /// \warning The pointer installed via \ref emplace or \ref reset_value must remain valid for
+    ///          the duration of this Async's lifetime; the control block is shared, but the pointed
+    ///          value is not owned.
+    /// \ingroup async_api
+    template <typename Control>
+    Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
+        : value_(std::shared_ptr<T>(std::move(control), static_cast<T*>(nullptr))),
+          queue_(std::move(queue))
+    {
+      (void)tag;
+      DEBUG_CHECK(value_);
+      DEBUG_CHECK(queue_);
+      queue_->initialize(false);
+#if UNI20_DEBUG_DAG
+      queue_->initialize_node(value_.get());
+#endif
+    }
+
+    /// \brief Construct an Async that defers pointer initialization while sharing ownership.
+    /// \tparam Control Type of the shared pointer used for aliasing the control block.
+    /// \param tag `async::deferred` tag to select deferred construction.
+    /// \param control Shared pointer whose control block should be reused for this Async value.
+    /// \warning The pointer installed via \ref emplace or \ref reset_value must remain valid for
+    ///          the duration of this Async's lifetime; the control block is shared, but the pointed
+    ///          value is not owned.
+    /// \ingroup async_api
+    template <typename Control>
+    Async(deferred_t tag, std::shared_ptr<Control> control)
+        : Async(tag, std::move(control), std::make_shared<EpochQueue>())
+    {}
 
     /// \brief Copy-assign from another Async<T>, overwriting this instance's value timeline.
     ///
@@ -198,6 +249,30 @@ template <typename T> class Async {
       DEBUG_CHECK(value_);
       *value_ = x;
     }
+
+    /// \brief Install the value pointer for a deferred Async.
+    ///
+    /// The control block remains shared with the originating `std::shared_ptr`, but ownership of
+    /// the pointed-to object is *not* transferred. The caller must ensure that \p ptr remains
+    /// valid for the lifetime of this Async instance.
+    ///
+    /// \param ptr Pointer to the value managed externally.
+    /// \ingroup async_api
+    void reset_value(T* ptr)
+    {
+      DEBUG_CHECK(queue_);
+      DEBUG_CHECK(value_);
+      auto control = std::shared_ptr<void>(value_);
+      value_ = std::shared_ptr<T>(std::move(control), ptr);
+#if UNI20_DEBUG_DAG
+      queue_->initialize_node(value_.get());
+#endif
+    }
+
+    /// \brief Convenience alias for \ref reset_value.
+    /// \param ptr Pointer to the value managed externally.
+    /// \ingroup async_api
+    void emplace(T* ptr) { this->reset_value(ptr); }
 
     // FiXME: this is a hack for debugging
     T value() const
