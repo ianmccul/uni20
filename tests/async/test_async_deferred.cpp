@@ -2,8 +2,8 @@
 #include "async/async_task.hpp"
 #include "async/debug_scheduler.hpp"
 #include <gtest/gtest.h>
-#include <vector>
 #include <utility>
+#include <vector>
 
 using namespace uni20;
 using namespace uni20::async;
@@ -32,13 +32,9 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
     }(data.read(), view.emplace()));
 
     // read the data via the view
-    sched.schedule([](ReadBuffer<int const*> r, int& v) static->AsyncTask {
-      v = (co_await r)[0];
-    }(view.read(), view_element));
+    sched.schedule(
+        [](ReadBuffer<int const*> r, int& v) static->AsyncTask { v = (co_await r)[0]; }(view.read(), view_element));
   }
-
-  sched.run_all();
-  EXPECT_EQ(view_element, 3);
 
   // schedule a task that modifies the data again
   sched.schedule([](WriteBuffer<std::vector<int>> b) static->AsyncTask {
@@ -48,4 +44,5 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
   }(data.write()));
 
   sched.run_all();
+  EXPECT_EQ(view_element, 3);
 }
