@@ -2,8 +2,10 @@
 #include "async/async_task.hpp"
 #include "async/debug_scheduler.hpp"
 #include <gtest/gtest.h>
+#include <memory>
 #include <utility>
 #include <vector>
+#include <string>
 
 using namespace uni20;
 using namespace uni20::async;
@@ -14,6 +16,7 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
   ScopedScheduler scoped(&sched);
 
   Async<std::vector<int>> data(std::vector<int>{1, 2, 3, 4});
+  Async<bool> view_consumed(false);
 
   // schedule a task that modifies the data
   sched.schedule([](WriteBuffer<std::vector<int>> b) static->AsyncTask {
@@ -32,17 +35,120 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
     }(data.read(), view.emplace()));
 
     // read the data via the view
-    sched.schedule(
-        [](ReadBuffer<int const*> r, int& v) static->AsyncTask { v = (co_await r)[0]; }(view.read(), view_element));
+    sched.schedule([](ReadBuffer<int const*> r, int& v, WriteBuffer<bool> ready) static->AsyncTask {
+      v = (co_await r)[0];
+      auto& consumed = co_await ready;
+      consumed = true;
+    }(view.read(), view_element, view_consumed.write()));
   }
 
   // schedule a task that modifies the data again
-  sched.schedule([](WriteBuffer<std::vector<int>> b) static->AsyncTask {
+  sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b) static->AsyncTask {
+    co_await ready;
     auto& writer = co_await b;
     writer.resize(1024);
     writer[0] = 5;
-  }(data.write()));
+  }(view_consumed.read(), data.write()));
 
   sched.run_all();
   EXPECT_EQ(view_element, 3);
+}
+
+namespace
+{
+
+struct TrackingView
+{
+  TrackingView(std::shared_ptr<std::vector<std::string>> log, int const* ptr, int id)
+      : log_(std::move(log)), ptr_(ptr), id_(id)
+  {
+    log_->push_back("construct " + std::to_string(id_));
+  }
+
+  TrackingView(TrackingView const& other)
+      : log_(other.log_), ptr_(other.ptr_), id_(other.id_)
+  {
+    log_->push_back("copy " + std::to_string(id_));
+  }
+
+  TrackingView(TrackingView&& other) noexcept
+      : log_(std::move(other.log_)), ptr_(other.ptr_), id_(other.id_)
+  {
+    log_->push_back("move " + std::to_string(id_));
+  }
+
+  ~TrackingView()
+  {
+    log_->push_back("destroy " + std::to_string(id_));
+  }
+
+  int value() const { return *ptr_; }
+
+private:
+  std::shared_ptr<std::vector<std::string>> log_;
+  int const* ptr_;
+  int id_;
+};
+
+}  // namespace
+
+TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  auto log = std::make_shared<std::vector<std::string>>();
+  Async<bool> view_consumed(false);
+
+  Async<std::vector<int>> data(std::vector<int>{1, 2, 3});
+  int observed_value = 0;
+
+  {
+    Async<TrackingView> view(deferred, data);
+
+    sched.schedule([](WriteBuffer<std::vector<int>> b, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+      log->push_back("write start");
+      auto& writer = co_await b;
+      writer[0] = 7;
+      log->push_back("write done");
+    }(data.write(), log));
+
+    sched.schedule([](ReadBuffer<std::vector<int>> r, EmplaceBuffer<TrackingView> v, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+      auto const& vec = co_await r;
+      auto view_log = log;
+      co_await std::move(v)(std::move(view_log), vec.data(), 1);
+      log->push_back("emplace done");
+    }(data.read(), view.emplace(), log));
+
+    sched.schedule([](ReadBuffer<TrackingView> r, int& result, std::shared_ptr<std::vector<std::string>> log, WriteBuffer<bool> ready_signal) static->AsyncTask {
+      auto const& view = co_await r;
+      result = view.value();
+      log->push_back("consume");
+      auto& ready = co_await ready_signal;
+      ready = true;
+    }(view.read(), observed_value, log, view_consumed.write()));
+
+    sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+      co_await ready;
+      log->push_back("post-write start");
+      auto& writer = co_await b;
+      writer[1] = 9;
+      log->push_back("post-write done");
+    }(view_consumed.read(), data.write(), log));
+
+    sched.run_all();
+  }
+
+  std::vector<std::string> expected{
+      "write start",
+      "write done",
+      "construct 1",
+      "emplace done",
+      "consume",
+      "post-write start",
+      "post-write done",
+      "destroy 1"};
+
+  EXPECT_EQ(observed_value, 7);
+  EXPECT_EQ(*log, expected);
 }
