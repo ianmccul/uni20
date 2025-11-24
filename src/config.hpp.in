@@ -27,6 +27,7 @@
 
 // Debugging options
 #cmakedefine01 UNI20_DEBUG_DAG
+#cmakedefine01 UNI20_ASYNC_DEBUG
 
 // Backend configurations
 #cmakedefine01 UNI20_BACKEND_BLAS

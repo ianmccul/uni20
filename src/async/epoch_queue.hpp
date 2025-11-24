@@ -30,6 +30,7 @@ class EpochQueue {
   public:
     struct DebugCounters
     {
+#if UNI20_ASYNC_DEBUG
       uint64_t advance_calls;
       uint64_t advance_iterations;
       uint64_t writer_dispatches;
@@ -40,6 +41,7 @@ class EpochQueue {
       uint64_t reader_release_notifications;
       uint64_t writer_bound_notifications;
       uint64_t popped_epochs;
+#endif
     };
 
     /// \brief Default-construct an empty epoch queue.
@@ -177,7 +179,9 @@ class EpochQueue {
     /// \ingroup async_core
     void on_writer_bound(std::shared_ptr<EpochState> const& state) noexcept
     {
+#if UNI20_ASYNC_DEBUG
       writer_bound_notifications_.fetch_add(1, std::memory_order_relaxed);
+#endif
       std::unique_lock lock(mtx_);
       if (head_ && state.get() == head_->state.get())
       {
@@ -206,7 +210,9 @@ class EpochQueue {
     /// \ingroup async_core
     void enqueue_reader(std::shared_ptr<EpochState> const& state, AsyncTask&& task)
     {
+#if UNI20_ASYNC_DEBUG
       reader_enqueues_.fetch_add(1, std::memory_order_relaxed);
+#endif
       std::vector<AsyncTask> ready_readers;
       bool maybe_cancel = false;
       bool scheduled_now = false;
@@ -224,7 +230,9 @@ class EpochQueue {
 
         if (ready)
         {
+#if UNI20_ASYNC_DEBUG
           ready_immediate_.fetch_add(1, std::memory_order_relaxed);
+#endif
           ready_readers = state->ctx.reader_take_tasks();
           maybe_cancel = state->ctx.reader_error() && (state->ctx.reader_exception() == nullptr);
           state->ctx.enter_draining_phase();
@@ -251,7 +259,9 @@ class EpochQueue {
     /// \ingroup async_core
     void on_writer_done(std::shared_ptr<EpochState> const& state) noexcept
     {
+#if UNI20_ASYNC_DEBUG
       writer_done_notifications_.fetch_add(1, std::memory_order_relaxed);
+#endif
       TRACE_MODULE(ASYNC, "Writer has finished", state.get(), head_ ? head_->state.get() : nullptr);
       std::vector<AsyncTask> readers;
       bool maybe_cancel = false;
@@ -292,7 +302,9 @@ class EpochQueue {
         for (auto&& task : readers)
         {
           TRACE_MODULE(ASYNC, "Rescheduling", &task);
+#if UNI20_ASYNC_DEBUG
           reader_reschedules_.fetch_add(1, std::memory_order_relaxed);
+#endif
           if (!maybe_cancel) task.written();
           AsyncTask::reschedule(std::move(task));
         }
@@ -308,7 +320,9 @@ class EpochQueue {
     /// \ingroup async_core
     void on_all_readers_released(std::shared_ptr<EpochState> const& state) noexcept
     {
+#if UNI20_ASYNC_DEBUG
       reader_release_notifications_.fetch_add(1, std::memory_order_relaxed);
+#endif
       DEBUG_CHECK(state->ctx.reader_is_empty());
       std::unique_lock lock(mtx_);
       TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch");
@@ -337,6 +351,7 @@ class EpochQueue {
 
     DebugCounters counters() const noexcept
     {
+#if UNI20_ASYNC_DEBUG
       return DebugCounters{.advance_calls = advance_calls_.load(std::memory_order_relaxed),
                            .advance_iterations = advance_iterations_.load(std::memory_order_relaxed),
                            .writer_dispatches = writer_dispatches_.load(std::memory_order_relaxed),
@@ -350,15 +365,22 @@ class EpochQueue {
                            .writer_bound_notifications =
                                writer_bound_notifications_.load(std::memory_order_relaxed),
                            .popped_epochs = popped_epochs_.load(std::memory_order_relaxed)};
+#else
+      return DebugCounters{};
+#endif
     }
 
     void trace_counters(char const* label = nullptr) const noexcept
     {
+#if UNI20_ASYNC_DEBUG
       auto const snapshot = this->counters();
       TRACE_MODULE(ASYNC, label ? label : "epoch_queue", snapshot.advance_calls, snapshot.advance_iterations,
                    snapshot.writer_dispatches, snapshot.reader_reschedules, snapshot.reader_enqueues,
                    snapshot.ready_immediate, snapshot.writer_done_notifications, snapshot.reader_release_notifications,
                    snapshot.writer_bound_notifications, snapshot.popped_epochs);
+#else
+      (void)label;
+#endif
     }
 
   private:
@@ -366,10 +388,16 @@ class EpochQueue {
     /// \ingroup internal
     void advance() noexcept
     {
+      // Counters are compiled out when UNI20_ASYNC_DEBUG is disabled.
+#if UNI20_ASYNC_DEBUG
       advance_calls_.fetch_add(1, std::memory_order_relaxed);
+#endif
       while (true)
       {
+        // This loop may iterate multiple times; track iterations only when enabled.
+#if UNI20_ASYNC_DEBUG
         advance_iterations_.fetch_add(1, std::memory_order_relaxed);
+#endif
         std::vector<AsyncTask> ready_readers;
         AsyncTask writer_task;
         bool maybe_cancel = false;
@@ -387,7 +415,9 @@ class EpochQueue {
             writer_task = e->writer_take_task();
             if (writer_task)
             {
+#if UNI20_ASYNC_DEBUG
               writer_dispatches_.fetch_add(1, std::memory_order_relaxed);
+#endif
               lock.unlock();
               AsyncTask::reschedule(std::move(writer_task));
               return;
@@ -400,7 +430,9 @@ class EpochQueue {
             maybe_cancel = e->reader_error() && (e->reader_exception() == nullptr);
             if (!ready_readers.empty())
             {
+#if UNI20_ASYNC_DEBUG
               reader_reschedules_.fetch_add(ready_readers.size(), std::memory_order_relaxed);
+#endif
               e->enter_draining_phase();
               lock.unlock();
               for (auto&& task : ready_readers)
@@ -415,7 +447,9 @@ class EpochQueue {
           if (e->writer_is_done() && e->reader_is_empty() && head_ && nodes_.size() > 1)
           {
             bool writer_required = e->writer_is_required();
+#if UNI20_ASYNC_DEBUG
             popped_epochs_.fetch_add(1, std::memory_order_relaxed);
+#endif
             pop_front_locked();
             if (head_ && writer_required) head_->state->ctx.writer_require();
 
@@ -429,15 +463,17 @@ class EpochQueue {
 
     /// \brief Remove completed epochs at the front while the queue mutex is held.
     /// \ingroup internal
-    void prune_front_locked()
+  void prune_front_locked()
+  {
+    while (head_ && head_->state->ctx.writer_is_done() && head_->state->ctx.reader_is_empty() && nodes_.size() > 1)
     {
-      while (head_ && head_->state->ctx.writer_is_done() && head_->state->ctx.reader_is_empty() && nodes_.size() > 1)
-      {
-        bool writer_required = head_->state->ctx.writer_is_required();
-        popped_epochs_.fetch_add(1, std::memory_order_relaxed);
-        pop_front_locked();
-        if (head_ && writer_required) head_->state->ctx.writer_require();
-      }
+      bool writer_required = head_->state->ctx.writer_is_required();
+#if UNI20_ASYNC_DEBUG
+      popped_epochs_.fetch_add(1, std::memory_order_relaxed);
+#endif
+      pop_front_locked();
+      if (head_ && writer_required) head_->state->ctx.writer_require();
+    }
     }
 
     /// \brief Pop the front epoch while holding the queue mutex.
@@ -490,6 +526,7 @@ class EpochQueue {
     bool bootstrapped_ = false;             ///< True once initialize() has been called.
     bool initial_writer_pending_ = false;   ///< True if the initial epoch still expects its first writer.
     bool initial_value_initialized_ = true; ///< Tracks bootstrap initialization state.
+#if UNI20_ASYNC_DEBUG
     std::atomic<uint64_t> advance_calls_{0};
     std::atomic<uint64_t> advance_iterations_{0};
     std::atomic<uint64_t> writer_dispatches_{0};
@@ -500,6 +537,7 @@ class EpochQueue {
     std::atomic<uint64_t> reader_release_notifications_{0};
     std::atomic<uint64_t> writer_bound_notifications_{0};
     std::atomic<uint64_t> popped_epochs_{0};
+#endif
 
 #if UNI20_DEBUG_DAG
     inline static std::atomic<uint64_t> global_counter_ = 0;

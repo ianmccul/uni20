@@ -36,6 +36,7 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 * Update documentation in `docs/` or `README.md` whenever APIs change.
 * Add or update unit tests for new functionality.
 * Commit messages should clearly describe what changed and why.
+* Always run the tests, unless explicitly instructed otherwise.
 
 ---
 
