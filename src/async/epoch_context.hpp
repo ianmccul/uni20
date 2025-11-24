@@ -34,12 +34,12 @@ struct EpochState;
 /// \details
 /// The EpochContext tracks synchronization state for one generation of an Async<T>.
 /// One writer coroutine may be bound, and multiple readers.
-/// Writer progress is tracked via three flags:
+/// Writer progress is tracked via a phase enum and supporting flags:
 ///
 ///   - \c writer_task_set_ : set once the writer coroutine is registered.
-///   - \c writer_done_     : set when the write gate has been released.
+///   - \c phase_           : the lifecycle state of the epoch (Idle/WriterRunning/Ready/Draining).
 ///   - \c writer_required_ : true if readers must be destroyed when no write occurs (e.g., canceled).
-///   - \c eptr_            : if writer_done_ && writer_required_ then the writer has finished, but not
+///   - \c eptr_            : if the writer is done and writer_required_ then the writer has finished, but not
 ///                           written to the buffer. In this case, eptr_ == null indicates that the write
 ///                           was cancelled, which readers may detect and handle, OR if eptr_ != null
 ///                           then an exception was thrown and this will be passed on to readers.
@@ -51,8 +51,30 @@ struct EpochState;
 /// to co_await on the buffer, or we enter an error state.
 /// The `counter_` tracks generation number for debugging.
 /// \ingroup async_core
-class EpochContext {
+    class EpochContext {
   public:
+    enum class Phase
+    {
+      Idle,
+      WriterRunning,
+      Ready,
+      Draining
+    };
+
+    struct DebugSnapshot
+    {
+      Phase phase;
+      int created_readers;
+      int created_writers;
+      bool writer_task_set;
+      bool writer_required;
+      bool writer_has_written;
+      bool value_initialized;
+      bool value_initialized_for_next;
+      EpochState* next;
+      int64_t counter;
+    };
+
     EpochContext() = delete;
 
     /// \brief Construct a new epoch.
@@ -63,13 +85,13 @@ class EpochContext {
     /// \ingroup async_core
     EpochContext(EpochContext const* prev, bool writer_already_done,
                  bool initial_value_initialized = true) noexcept
-        : eptr_(prev ? prev->eptr_ : nullptr), writer_done_{writer_already_done}, writer_required_(false),
-          counter_(prev ? prev->counter_ + 1 : 0)
+        : eptr_(prev ? prev->eptr_ : nullptr), writer_required_(false), counter_(prev ? prev->counter_ + 1 : 0)
     {
       bool initialized = prev ? prev->value_initialized_for_next() : initial_value_initialized;
       value_initialized_.store(initialized, std::memory_order_relaxed);
       value_initialized_for_next_.store(initialized, std::memory_order_relaxed);
       writer_has_written_.store(writer_already_done && initialized, std::memory_order_relaxed);
+      phase_.store(writer_already_done ? Phase::Ready : Phase::Idle, std::memory_order_relaxed);
       TRACE_MODULE(ASYNC, "Creating new forwards epoch", this, counter_);
     }
 
@@ -78,10 +100,11 @@ class EpochContext {
     /// \param reverse Tag indicating that this is a reverse-mode epoch.
     /// \ingroup async_core
     EpochContext(EpochContext const* next, std::integral_constant<bool, true> reverse)
-        : writer_done_{false}, writer_required_(true), counter_(next ? next->counter_ - 1 : 0)
+        : writer_required_(true), counter_(next ? next->counter_ - 1 : 0)
     {
       value_initialized_.store(false, std::memory_order_relaxed);
       value_initialized_for_next_.store(false, std::memory_order_relaxed);
+      phase_.store(Phase::Idle, std::memory_order_relaxed);
       TRACE_MODULE(ASYNC, "Creating new reverse epoch", this, counter_);
     }
 
@@ -190,8 +213,7 @@ class EpochContext {
     void show()
     {
       DEBUG_TRACE_MODULE(ASYNC, this, created_readers_.load(std::memory_order_acquire), reader_handles_.size(),
-                         writer_done_.load(std::memory_order_acquire),
-                         writer_task_set_.load(std::memory_order_acquire));
+                         phase_.load(std::memory_order_acquire), writer_task_set_.load(std::memory_order_acquire));
     }
 
     // Writer interface
@@ -213,7 +235,7 @@ class EpochContext {
     void writer_bind(AsyncTask&& task) noexcept
     {
       std::lock_guard lock(writer_task_mtx_);
-      if (writer_done_.load(std::memory_order_acquire))
+      if (this->writer_is_done())
       {
         fail_writer_binding("EpochContext::writer_bind called after writer completed\n");
       }
@@ -232,13 +254,13 @@ class EpochContext {
     /// \ingroup async_core
     bool writer_release() noexcept
     {
-      DEBUG_CHECK(!writer_done_.load(std::memory_order_acquire));
+      DEBUG_CHECK(!this->writer_is_done());
       bool done = created_writers_.fetch_sub(1, std::memory_order_acq_rel) == 1;
 
       if (done)
       {
         /// Mark the writer as done, allowing readers to proceed.
-        writer_done_.store(true, std::memory_order_release);
+        phase_.store(Phase::Ready, std::memory_order_release);
         this->propagate_value_initialized(value_initialized_.load(std::memory_order_acquire));
       }
       return done;
@@ -256,7 +278,17 @@ class EpochContext {
     /// \brief Check if the writer has released the write gate.
     /// \return true if the epoch is ready for readers.
     /// \ingroup async_core
-    bool writer_is_done() const noexcept { return writer_done_.load(std::memory_order_acquire); }
+    bool writer_is_done() const noexcept
+    {
+      auto const phase = phase_.load(std::memory_order_acquire);
+      return phase == Phase::Ready || phase == Phase::Draining;
+    }
+
+    Phase current_phase() const noexcept { return phase_.load(std::memory_order_acquire); }
+
+    void enter_ready_phase() noexcept { phase_.store(Phase::Ready, std::memory_order_release); }
+
+    void enter_draining_phase() noexcept { phase_.store(Phase::Draining, std::memory_order_release); }
 
     /// \brief Mark this epoch as requiring write; readers will be destroyed if no write occurs.
     /// \note This sets writer_required_ = true. If writer_release() is called without a prior write,
@@ -308,6 +340,7 @@ class EpochContext {
         return {};
         DEBUG_TRACE_MODULE(ASYNC, "writer_take_task: no task set!", this, counter_);
       }
+      phase_.store(Phase::WriterRunning, std::memory_order_release);
       return std::move(writer_task_);
     }
 
@@ -317,6 +350,30 @@ class EpochContext {
     /// \return Sequential identifier for debugging.
     /// \ingroup async_core
     uint64_t counter() const noexcept { return counter_; }
+
+    DebugSnapshot debug_snapshot() const noexcept
+    {
+      return DebugSnapshot{.phase = phase_.load(std::memory_order_acquire),
+                           .created_readers = created_readers_.load(std::memory_order_acquire),
+                           .created_writers = created_writers_.load(std::memory_order_acquire),
+                           .writer_task_set = writer_task_set_.load(std::memory_order_acquire),
+                           .writer_required = writer_required_.load(std::memory_order_acquire),
+                           .writer_has_written = writer_has_written_.load(std::memory_order_acquire),
+                           .value_initialized = value_initialized_.load(std::memory_order_acquire),
+                           .value_initialized_for_next =
+                               value_initialized_for_next_.load(std::memory_order_acquire),
+                           .next = next_.load(std::memory_order_acquire),
+                           .counter = counter_};
+    }
+
+    void trace_snapshot(char const* label = nullptr) const noexcept
+    {
+      auto const snapshot = this->debug_snapshot();
+      TRACE_MODULE(ASYNC, label ? label : "epoch", this, snapshot.counter, static_cast<int>(snapshot.phase),
+                   snapshot.created_readers, snapshot.created_writers, snapshot.writer_task_set,
+                   snapshot.writer_required, snapshot.writer_has_written, snapshot.value_initialized,
+                   snapshot.value_initialized_for_next, snapshot.next);
+    }
 
   private:
     /// \brief Propagate initialization state to the following epoch.
@@ -344,11 +401,11 @@ class EpochContext {
     AsyncTask writer_task_;                    ///< Coroutine task (if bound).
     std::atomic<int> created_writers_{0};      ///< number of active writers (normally max 1)
     std::atomic<bool> writer_task_set_{false}; ///< Set if task has been bound.
-    std::atomic<bool> writer_done_{false};     ///< Set when writer releases gate.
     std::atomic<bool> writer_required_{false}; ///< Flag that we want ReadBuffers to get dropped if we don't write
     std::atomic<bool> writer_has_written_{false};
     std::atomic<bool> value_initialized_{false};
     std::atomic<bool> value_initialized_for_next_{false};
+    std::atomic<Phase> phase_{Phase::Idle};
     std::atomic<EpochState*> next_{nullptr};
     std::mutex writer_task_mtx_;
 
@@ -632,7 +689,8 @@ template <typename T> class EpochContextWriter {
     /// \brief Copy constructor acquiring a writer reference for diagnostics.
     /// \ingroup async_core
     EpochContextWriter(EpochContextWriter const& other)
-        : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_)
+        : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_), accessed_(other.accessed_),
+          marked_written_(other.marked_written_)
     {
       if (epoch_) epoch_->ctx.writer_acquire();
     }
@@ -643,9 +701,12 @@ template <typename T> class EpochContextWriter {
     /// \param other Writer being moved from.
     /// \ingroup async_core
       EpochContextWriter(EpochContextWriter&& other) noexcept
-          : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(std::move(other.epoch_))
+          : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(std::move(other.epoch_)),
+            accessed_(other.accessed_), marked_written_(other.marked_written_)
       {
         other.epoch_.reset();
+        other.accessed_ = false;
+        other.marked_written_ = false;
       }
 
     /// \brief Move assignment transferring the writer handle.
@@ -660,7 +721,11 @@ template <typename T> class EpochContextWriter {
         storage_ = std::move(other.storage_);
         queue_ = std::move(other.queue_);
         epoch_ = std::move(other.epoch_);
+        accessed_ = other.accessed_;
+        marked_written_ = other.marked_written_;
         other.epoch_.reset();
+        other.accessed_ = false;
+        other.marked_written_ = false;
       }
       return *this;
     }

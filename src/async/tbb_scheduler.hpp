@@ -10,6 +10,7 @@
 #include <oneapi/tbb/task_arena.h>
 #include <oneapi/tbb/task_group.h>
 #include <utility>
+#include <vector>
 
 namespace uni20::async
 {
@@ -75,31 +76,31 @@ class TbbScheduler final : public IScheduler {
     }
 
     /// \brief Pause the scheduler. Don't execute scheduled tasks, but instead add them to a queue.
-    void pause() override { paused_.store(true, std::memory_order_relaxed); }
+    void pause() override
+    {
+      std::scoped_lock lock(pause_mutex_);
+      paused_.store(true, std::memory_order_release);
+    }
 
     /// \brief Unpause the scheduler, and execute any tasks that have been queued.
     void resume() override
     {
-      paused_.store(false, std::memory_order_relaxed);
-      AsyncTask::handle_type h;
-      while (queue_.try_pop(h))
+      std::vector<AsyncTask::handle_type> drained;
+      {
+        std::scoped_lock lock(pause_mutex_);
+        paused_.store(false, std::memory_order_release);
+        AsyncTask::handle_type h;
+        while (queue_.try_pop(h))
+        {
+          drained_on_resume_.fetch_add(1, std::memory_order_relaxed);
+          drained.push_back(h);
+        }
+      }
+
+      for (auto h : drained)
       {
         TRACE_MODULE(ASYNC, "scheduling coroutine", h);
-        arena_.execute([this, h]() {
-          tg_.run([this, h]() {
-            TRACE_MODULE(ASYNC, "resuming coroutine", h);
-            try
-            {
-              h.resume();
-            }
-            catch (...)
-            {
-              wait_cv_.notify_all();
-              throw;
-            }
-            wait_cv_.notify_all();
-          });
-        });
+        this->dispatch_handle(h);
       }
     }
 
@@ -130,41 +131,88 @@ class TbbScheduler final : public IScheduler {
     void reschedule(AsyncTask&& t) override { this->enqueue_task(std::move(t)); }
 
   private:
+    struct DebugCounters
+    {
+      uint64_t enqueued;
+      uint64_t paused_enqueues;
+      uint64_t dispatches;
+      uint64_t drained_on_resume;
+    };
+
+    DebugCounters counters() const noexcept
+    {
+      return DebugCounters{.enqueued = enqueued_.load(std::memory_order_relaxed),
+                           .paused_enqueues = paused_enqueues_.load(std::memory_order_relaxed),
+                           .dispatches = dispatches_.load(std::memory_order_relaxed),
+                           .drained_on_resume = drained_on_resume_.load(std::memory_order_relaxed)};
+    }
+
+    void trace_counters(char const* label = nullptr) const noexcept
+    {
+      auto const snapshot = this->counters();
+      TRACE_MODULE(ASYNC, label ? label : "tbb_scheduler", snapshot.enqueued, snapshot.paused_enqueues,
+                   snapshot.dispatches, snapshot.drained_on_resume);
+    }
+
     void enqueue_task(AsyncTask&& t)
     {
       if (auto h = t.release_handle())
       {
-        if (paused_)
+        enqueued_.fetch_add(1, std::memory_order_relaxed);
+        bool paused = paused_.load(std::memory_order_acquire);
+        if (paused)
         {
+          paused_enqueues_.fetch_add(1, std::memory_order_relaxed);
           queue_.push(h);
         }
         else
         {
-          arena_.execute([this, h]() {
-            tg_.run([this, h]() {
-              TRACE_MODULE(ASYNC, "resuming coroutine", h);
-              try
-              {
-                h.resume();
-              }
-              catch (...)
-              {
-                wait_cv_.notify_all();
-                throw;
-              }
-              wait_cv_.notify_all();
-            });
-          });
+          {
+            std::scoped_lock lock(pause_mutex_);
+            if (paused_.load(std::memory_order_acquire))
+            {
+              paused_enqueues_.fetch_add(1, std::memory_order_relaxed);
+              queue_.push(h);
+              return;
+            }
+          }
+
+          this->dispatch_handle(h);
         }
       }
+    }
+
+    void dispatch_handle(AsyncTask::handle_type h)
+    {
+      dispatches_.fetch_add(1, std::memory_order_relaxed);
+      arena_.execute([this, h]() {
+        tg_.run([this, h]() {
+          TRACE_MODULE(ASYNC, "resuming coroutine", h);
+          try
+          {
+            h.resume();
+          }
+          catch (...)
+          {
+            wait_cv_.notify_all();
+            throw;
+          }
+          wait_cv_.notify_all();
+        });
+      });
     }
 
     oneapi::tbb::task_arena arena_;
     oneapi::tbb::task_group tg_;
     std::atomic<bool> paused_;
+    std::mutex pause_mutex_;
     oneapi::tbb::concurrent_queue<AsyncTask::handle_type> queue_;
     std::condition_variable wait_cv_;
     std::mutex wait_mutex_;
+    std::atomic<uint64_t> enqueued_{0};
+    std::atomic<uint64_t> paused_enqueues_{0};
+    std::atomic<uint64_t> dispatches_{0};
+    std::atomic<uint64_t> drained_on_resume_{0};
     // FIXME: the concurrent_queue is overkill here, since we don't need to preserve order of tasks
 };
 

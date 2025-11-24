@@ -136,7 +136,7 @@ TEST(TbbScheduler, ReverseValue)
   writer.join();
 }
 
-TEST(TbbScheduler, DISABLED_PausePreventsExecutionUntilResume)
+TEST(TbbScheduler, PausePreventsExecutionUntilResume)
 {
   TbbScheduler sched{2};
   ScopedScheduler guard(&sched);
@@ -145,6 +145,8 @@ TEST(TbbScheduler, DISABLED_PausePreventsExecutionUntilResume)
 
   std::atomic<int> direct_counter{0};
   std::atomic<int> async_counter{0};
+  std::atomic<int> writer_runs{0};
+  std::atomic<int> reader_runs{0};
   Async<int> value;
 
   constexpr int kDirectTasks = 3;
@@ -156,30 +158,45 @@ TEST(TbbScheduler, DISABLED_PausePreventsExecutionUntilResume)
     }(&direct_counter));
   }
 
-  sched.schedule([](ReadBuffer<int> read_buffer, std::atomic<int>* counter) -> AsyncTask {
+  constexpr int kWrittenValue = 42;
+  constexpr int kDelayMs = 20;
+  sched.schedule(
+      [](WriteBuffer<int> write_buffer, int value_to_write, int delay_ms, std::atomic<int>* runs) -> AsyncTask {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+        runs->fetch_add(1, std::memory_order_relaxed);
+        auto& out = co_await write_buffer;
+        out = value_to_write;
+        co_return;
+      }(value.write(), kWrittenValue, kDelayMs, &writer_runs));
+
+  sched.schedule([](ReadBuffer<int> read_buffer, std::atomic<int>* counter, std::atomic<int>* runs) -> AsyncTask {
+    runs->fetch_add(1, std::memory_order_relaxed);
     auto& result = co_await read_buffer;
     counter->fetch_add(result, std::memory_order_relaxed);
     co_return;
-  }(value.read(), &async_counter));
-
-  constexpr int kWrittenValue = 42;
-  constexpr int kDelayMs = 20;
-  sched.schedule([](WriteBuffer<int> write_buffer, int value_to_write, int delay_ms) -> AsyncTask {
-    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-    auto& out = co_await write_buffer;
-    out = value_to_write;
-    co_return;
-  }(value.write(), kWrittenValue, kDelayMs));
+  }(value.read(), &async_counter, &reader_runs));
 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   EXPECT_EQ(direct_counter.load(std::memory_order_relaxed), 0);
   EXPECT_EQ(async_counter.load(std::memory_order_relaxed), 0);
+  {
+    auto paused_read = value.read();
+    EXPECT_FALSE(paused_read.await_ready());
+    paused_read.release();
+  }
 
   sched.resume();
   sched.run_all();
 
-  EXPECT_EQ(direct_counter.load(std::memory_order_relaxed), kDirectTasks);
-  EXPECT_EQ(async_counter.load(std::memory_order_relaxed), kWrittenValue);
+  auto const direct_result = direct_counter.load(std::memory_order_relaxed);
+  auto const async_result = async_counter.load(std::memory_order_relaxed);
+  auto const writer_result = writer_runs.load(std::memory_order_relaxed);
+  auto const reader_result = reader_runs.load(std::memory_order_relaxed);
+  EXPECT_EQ(direct_result, kDirectTasks);
+  EXPECT_EQ(async_result, kWrittenValue) << "direct=" << direct_result << ", writers=" << writer_result
+                                         << ", readers=" << reader_result;
+  EXPECT_EQ(writer_result, 1);
+  EXPECT_EQ(reader_result, 1);
 }
 
 TEST(TbbScheduler, StressLongAsyncChain)
@@ -234,9 +251,9 @@ TEST(TbbScheduler, StressConcurrentProducers)
   EXPECT_EQ(counter.load(std::memory_order_relaxed), kProducerThreads * kTasksPerThread);
 }
 
-TEST(TbbScheduler, DISABLED_DualBackpropStress)
+TEST(TbbScheduler, DualBackpropStress)
 {
-  TbbScheduler sched{4};
+  DebugScheduler sched; //{4};
   ScopedScheduler guard(&sched);
 
   double const base_value = 0.375;

@@ -25,7 +25,7 @@ void update_max(std::atomic<int>& target, int value)
 
 } // namespace
 
-TEST(TbbSchedulerStress, DISABLED_LinearChainCompletes)
+TEST(TbbSchedulerStress, LinearChainCompletes)
 {
   constexpr int kChainLength = 2000;
 

@@ -192,7 +192,7 @@ TEST(Dual, RealImagGradientSum)
   sched.run_all();
 }
 
-TEST(Dual, DISABLED_StressBackpropMatchesAnalytic)
+TEST(Dual, StressBackpropMatchesAnalytic)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);

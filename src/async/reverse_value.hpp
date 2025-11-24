@@ -1,6 +1,7 @@
 #pragma once
 #include "async.hpp"
 #include "buffers.hpp"
+#include <type_traits>
 
 namespace uni20::async
 {
@@ -60,7 +61,7 @@ template <typename T> class ReverseValue {
     using value_type = T;
 
     /// Construct a new, uninitialized ReverseValue.
-    ReverseValue() : async_{}, buffers_(async_.prepend_epoch()) {}
+    ReverseValue() : async_{make_async()}, buffers_(async_.prepend_epoch()) {}
 
     // move ctor and move-assign should "just work"
     ReverseValue(ReverseValue&&) noexcept = default;
@@ -198,6 +199,15 @@ template <typename T> class ReverseValue {
     Async<T> value() && { return std::move(async_); }
 
   private:
+    static Async<T> make_async()
+    {
+      if constexpr (std::is_default_constructible_v<T>)
+      {
+        return Async<T>(std::in_place);
+      }
+      return Async<T>();
+    }
+
     Async<T> async_;
     EpochQueue::EpochPair<T> buffers_;
 };

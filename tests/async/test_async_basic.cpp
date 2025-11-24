@@ -220,7 +220,7 @@ TEST(AsyncBasicTest, CopyConstructor)
   EXPECT_EQ(copy.get_wait(), 99);
 }
 
-TEST(AsyncBasicTest, DISABLED_WriteCommitsAfterAwaitAndMove)
+TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
 {
   DebugScheduler sched;
   ScopedScheduler scoped(&sched);
