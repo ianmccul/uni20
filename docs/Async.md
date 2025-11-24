@@ -46,13 +46,16 @@ references by focusing on how values, tasks, and cancellation interact.
 
 ## Cancellation and error propagation
 
-- When a coroutine cannot produce its value, `BasicAsyncTask::cancel_if_unwritten()` marks the handle so that the next
-  resume conveys cancellation instead of normal completion. Awaiters test this flag to propagate cancellation to
-  dependent tasks without resuming the coroutine body again.
-- `BasicAsyncTask::release_handle()` and destructor paths destroy coroutines only when cancellation is intentional or
-  the coroutine has finished, preventing dangling continuations.
-- Readers resumed after a cancellation observe the cancellation flag and surface an error or exception rather than an
-  uninitialized value.
+- `BasicAsyncTask::cancel_if_unwritten()` sets a cancellation flag on the promise whenever the coroutine has not yet
+  produced a value. Awaiters observe this flag on their next resume and propagate cancellation without re-entering the
+  coroutine body.
+- Coroutine destruction depends on exclusive ownership of the handle, not on whether cancellation occurred. Destroying
+  an `AsyncTask` drops one reference to the coroutine; the coroutine frame is destroyed only after the last owner
+  releases it.
+- `BasicAsyncTask::release_handle()` transfers ownership of the coroutine handle to the caller when they are the sole
+  owner, enabling manual lifetime management when cooperative scheduling or inspection is required.
+- Awaiters resumed after a cancellation see the cancellation flag and surface an error or exception instead of producing
+  an uninitialized value.
 
 ## Buffer types
 
