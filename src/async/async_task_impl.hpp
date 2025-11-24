@@ -40,6 +40,18 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_o
   return std::move(task);
 }
 
+template <IsAsyncTaskPromise T>
+bool BasicAsyncTask<T>::can_destroy_coroutine(BasicAsyncTask<T>::handle_type h) const noexcept
+{
+  if (!h) return true;
+
+  auto const cancelled = cancel_.load(std::memory_order_acquire);
+  auto const done = h.done();
+  auto const started = h.promise().has_started();
+
+  return cancelled || done || !started;
+}
+
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::release_handle()
 {
   CHECK(h_);
@@ -54,12 +66,17 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>
 
   if (to_destroy)
   {
+    CHECK(can_destroy_coroutine(handle), "unexpected destruction of an active AsyncTask without cancellation");
     // if we need to destroy the coroutine, recursively destroy any continuations as well
     while (handle)
     {
       TRACE_MODULE(ASYNC, "Destroying AsyncTask", handle);
       handle = handle.promise().destroy_with_continuation();
     }
+  }
+  else
+  {
+    handle.promise().mark_started();
   }
   return handle;
 }
@@ -99,17 +116,25 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(
   return *this;
 }
 
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::destroy_owned_coroutine() noexcept
+{
+  auto handle = h_;
+  CHECK(can_destroy_coroutine(handle), "unexpected destruction of an active AsyncTask without cancellation");
+  while (handle)
+  {
+    DEBUG_TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, handle);
+    handle = handle.promise().destroy_with_continuation();
+  }
+  h_ = nullptr;
+}
+
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::release() noexcept
 {
   // TRACE_MODULE(ASYNC, "Destroying AsyncTask", this, h_);
   if (h_ && h_.promise().release_awaiter())
   {
     // Recursively destroy the coroutine and any continuation
-    while (h_)
-    {
-      // TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, h_);
-      h_ = h_.promise().destroy_with_continuation();
-    }
+    destroy_owned_coroutine();
   }
 }
 
@@ -118,11 +143,7 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept
   if (h_ && h_.promise().release_awaiter())
   {
     // Recursively destroy the coroutine and any continuation
-    while (h_)
-    {
-      DEBUG_TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, h_);
-      h_ = h_.promise().destroy_with_continuation();
-    }
+    destroy_owned_coroutine();
   }
 }
 
@@ -156,6 +177,7 @@ BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T
   // h_.promise().current_awaiter_ = this;
   h_.promise().continuation_ = Outer;
   h_.promise().sched_ = Outer.promise().sched_;
+  h_.promise().mark_started();
   auto h_transfer = h_.promise().release_ownership();
   h_ = nullptr; // finish transferring ownership
   CHECK(h_transfer, "error: co_await on an AsyncTask that has shared ownership");

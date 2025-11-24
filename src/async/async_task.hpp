@@ -46,7 +46,10 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \brief Drop the reference to the coroutine handle, destroying it if we are the least reference
     /// \ingroup internal
   private:
+    [[nodiscard]] bool can_destroy_coroutine(handle_type h) const noexcept;
+
     void release() noexcept;
+    void destroy_owned_coroutine() noexcept;
 
   public:
     // bool done() const noexcept { return !h_ || h_.done(); }
@@ -216,6 +219,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
 
     friend promise_type;
     friend class BasicAsyncTaskFactory;
+    friend struct AsyncTaskTestAccess;
 };
 
 using AsyncTask = BasicAsyncTask<BasicAsyncTaskPromise>;

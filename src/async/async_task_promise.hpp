@@ -81,6 +81,9 @@ struct BasicAsyncTaskPromise
     /// \brief Scheduler to notify when the coroutine is ready to resume.
     IScheduler* sched_ = nullptr;
 
+    /// \brief Tracks whether the coroutine has been scheduled or otherwise started.
+    std::atomic<bool> started_{false};
+
     std::coroutine_handle<promise_type> continuation_ = nullptr;
 
     /// \brief Number of active awaiters (owners) of this coroutine.
@@ -204,6 +207,12 @@ struct BasicAsyncTaskPromise
       if (node == kNoPreferredNumaNode) return std::nullopt;
       return node;
     }
+
+    /// \brief Mark the coroutine as having been scheduled to start executing.
+    void mark_started() noexcept { started_.store(true, std::memory_order_release); }
+
+    /// \brief Query whether the coroutine has begun executing.
+    bool has_started() const noexcept { return started_.load(std::memory_order_acquire); }
 
     /// \brief Acquire exclusive ownership of the coroutine.
     ///       This increments the awaiter count and asserts that the coroutine was previously unowned.
