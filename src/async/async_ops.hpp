@@ -1,4 +1,8 @@
-// async_ops.hpp
+/**
+ * \file async_ops.hpp
+ * \brief Concepts and helpers for composing Async expressions.
+ * \ingroup async_api
+ */
 #pragma once
 
 #include "async.hpp"

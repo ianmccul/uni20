@@ -45,12 +45,12 @@ int main()
   {
     double xi = 1.0 + i;
     double yi = 2.0 + i;
-    x.set(xi);
-    y.set(yi);
+    x.unsafe_set(xi);
+    y.unsafe_set(yi);
 
     TRACE("=== Run", i + 1, "x =", xi, "y =", yi, "===");
     runner.run_forward();
-    double zi = z.value();
+    double zi = z.unsafe_value();
     TRACE("z =", zi);
   }
 

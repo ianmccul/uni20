@@ -20,5 +20,5 @@ TEST(AsyncWriteTest, WriteValueCorrectly)
   sched.schedule(std::move(task));
   sched.run_all();
 
-  EXPECT_EQ(x.value(), 42);
+  EXPECT_EQ(x.get_wait(sched), 42);
 }

@@ -48,7 +48,6 @@ TEST(AsyncMoveTest, DeferredViewRetainsExternalOwner)
 {
   auto backing = std::make_shared<int>(5);
   Async<int> view(deferred, backing);
-  view.reset_value(backing.get());
 
   Async<int> moved_view(std::move(view));
   backing.reset();

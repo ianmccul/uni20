@@ -36,7 +36,7 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_NestedAssignment)
 
   EXPECT_EQ(count, 2); // both inner and outer should have run
 
-  auto result = b.value();
+  auto result = b.get_wait(sched);
   EXPECT_EQ(result, 123);
 }
 
@@ -76,7 +76,7 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_IntermediateChannel)
   sched.schedule(std::move(outer));
   sched.run_all();
 
-  auto result = output.value(); // Access directly, test already count
+  auto result = output.get_wait(sched); // Access directly, test already count
   EXPECT_EQ(result, 11);        // (5 * 2) + 1
   EXPECT_EQ(count, 2);          // both kernel and outer
 }

@@ -28,7 +28,7 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
 
   {
     // create a view
-    Async<int const*> view(deferred, data);
+    Async<int const*> view;
     sched.schedule([](ReadBuffer<std::vector<int>> r, EmplaceBuffer<int const*> view) static->AsyncTask {
       auto const& vec = co_await r;
       co_await std::move(view)(vec.data());
@@ -123,7 +123,7 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
   int observed_value = 0;
 
   {
-    Async<TrackingView> view(deferred, data);
+    Async<TrackingView> view;
 
     sched.schedule(
         [](WriteBuffer<std::vector<int>> b, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
@@ -181,7 +181,7 @@ TEST(AsyncDeferredTest, MutableViewCanModifyUnderlyingData)
   int observed_value = 0;
 
   {
-    Async<MutableTrackingView> view(deferred, data);
+    Async<MutableTrackingView> view;
 
     sched.schedule([](WriteBuffer<std::vector<int>> b, EmplaceBuffer<MutableTrackingView> v,
                       std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {

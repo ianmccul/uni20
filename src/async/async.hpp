@@ -14,6 +14,7 @@
 #include "common/demangle.hpp"
 #include "config.hpp"
 #include "epoch_queue.hpp"
+#include <concepts>
 #include <atomic>
 #include <initializer_list>
 #include <memory>
@@ -148,26 +149,27 @@ template <typename T> class Async {
     ///
     /// This constructor aliases the control block of \p control so that the lifetime of the
     /// referenced object is tied to the same reference count as the source `std::shared_ptr`.
-    /// The stored pointer is left null until a later call to \ref emplace or \ref reset_value.
-    /// When supplied, \p queue is also shared so that deferred views participate in the same
-    /// sequencing as the originating Async value.
+    /// The stored pointer is installed from `control.get()` immediately so that deferred views
+    /// participate in the same sequencing as the originating Async value.
     ///
     /// \tparam Control Type of the shared pointer used for aliasing the control block.
     /// \param tag `async::deferred` tag to select deferred construction.
     /// \param control Shared pointer whose control block should be reused for this Async value.
     /// \param queue Queue to reuse for sequencing; defaults to a fresh queue when omitted.
-    /// \warning The pointer installed via \ref emplace or \ref reset_value must remain valid for
-    ///          the duration of this Async's lifetime; the control block is shared, but the pointed
-    ///          value is not owned.
+    /// \throws std::invalid_argument if \p control is null.
+    /// \warning The caller must ensure that `control.get()` remains valid for the Async lifetime.
     /// \ingroup async_api
     template <typename Control>
+      requires std::convertible_to<Control*, T*>
     Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
         : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::move(queue))
     {
       (void)tag;
       DEBUG_CHECK(storage_);
       DEBUG_CHECK(queue_);
-      storage_->set_external_owner(std::move(control));
+      if (!control) throw std::invalid_argument("Async deferred control block cannot be null");
+      auto* ptr = control.get();
+      storage_->reset_external_pointer(ptr, control);
       queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
@@ -178,11 +180,9 @@ template <typename T> class Async {
     /// \tparam Control Type of the shared pointer used for aliasing the control block.
     /// \param tag `async::deferred` tag to select deferred construction.
     /// \param control Shared pointer whose control block should be reused for this Async value.
-    /// \warning The pointer installed via \ref emplace or \ref reset_value must remain valid for
-    ///          the duration of this Async's lifetime; the control block is shared, but the pointed
-    ///          value is not owned.
     /// \ingroup async_api
     template <typename Control>
+      requires std::convertible_to<Control*, T*>
     Async(deferred_t tag, std::shared_ptr<Control> control)
         : Async(tag, std::move(control), std::make_shared<EpochQueue>())
     {}
@@ -190,20 +190,22 @@ template <typename T> class Async {
     /// \brief Construct a deferred Async that aliases another Async's storage while keeping a separate queue.
     ///
     /// The constructed Async retains the parent's storage lifetime via a shared
-    /// control block, while deferring pointer initialization until a later call to
-    /// \ref emplace or \ref reset_value. A fresh queue is created for the deferred
-    /// view; if queue sharing is required, use the overload that accepts an explicit
-    /// queue pointer.
+    /// control block and installs the parent's pointer immediately so that the
+    /// view participates in the same storage without needing additional setup.
+    /// A fresh queue is created for the deferred view; if queue sharing is required,
+    /// use the overload that accepts an explicit queue pointer.
     ///
     /// \tparam U Value type of the parent Async whose storage is retained.
     /// \param tag `async::deferred` tag to select deferred construction.
     /// \param parent Async whose storage and queue lifetimes should be preserved.
     template <typename U>
+      requires std::convertible_to<U*, T*>
     Async(deferred_t tag, Async<U>& parent)
         : Async(tag, parent.storage_ptr())
     {
       (void)tag;
-      storage_->set_external_owner(parent.storage_ptr());
+      auto* ptr = parent.require_value();
+      storage_->reset_external_pointer(ptr, parent.storage_ptr());
     }
 
     /// \brief Copy-assign from another Async<T>, overwriting this instance's value timeline.
@@ -291,6 +293,13 @@ template <typename T> class Async {
       return WriteBuffer<T>(queue_->create_write_context(storage_, queue_));
     }
 
+    /// \brief Begin constructing the value in-place using placement new semantics.
+    /// This variant returns an `EmplaceBuffer` that leaves the storage
+    /// uninitialized until the caller writes into the buffer. Ownership of
+    /// the underlying control block is preserved, making this suitable for
+    /// deferred initialization flows.
+    /// \return An emplace buffer that can be co_awaited to perform construction.
+    /// \ingroup async_api
     EmplaceBuffer<T> emplace() noexcept
     {
       DEBUG_CHECK(queue_);
@@ -310,8 +319,18 @@ template <typename T> class Async {
     //   return *value_;
     // }
 
+    /// \brief Block the current thread until the value becomes available.
+    /// \return Reference to the stored value once the pending writers have completed.
+    /// \ingroup async_api
     T const& get_wait() const;
 
+    /// \brief Block using an explicit scheduler until the value is ready.
+    /// The scheduler will be driven until all pending writers complete, then the
+    /// value reference is returned. This overload is useful for deterministic
+    /// execution in tests where the scheduling context must be controlled.
+    /// \param sched Scheduler instance used to make progress while waiting.
+    /// \return Reference to the stored value once writes have finished.
+    /// \ingroup async_api
     T const& get_wait(IScheduler& sched) const;
 
     // TODO: we could have a version that returns a ref-counted proxy, which enables reference rather than copy
@@ -321,40 +340,25 @@ template <typename T> class Async {
     /// \ingroup async_api
     T move_from_wait();
 
-    // FiXME: this is a hack for debugging
-    void set(T const& x)
+    /// \brief Overwrite the stored value directly.
+    /// Intended for debugging and test scaffolding where a synchronous update
+    /// is acceptable. No synchronization with pending writers or readers is
+    /// performed.
+    /// \param x New value to store.
+    /// \ingroup internal
+    void unsafe_set(T const& x)
     {
       DEBUG_CHECK(queue_);
       auto* ptr = require_value();
       *ptr = x;
     }
 
-    /// \brief Install the value pointer for a deferred Async.
-    ///
-    /// The control block remains shared with the originating `std::shared_ptr`, but ownership of
-    /// the pointed-to object is *not* transferred. The caller must ensure that \p ptr remains
-    /// valid for the lifetime of this Async instance.
-    ///
-    /// \param ptr Pointer to the value managed externally.
-    /// \ingroup async_api
-    void reset_value(T* ptr, std::shared_ptr<void> owner = {})
-    {
-      DEBUG_CHECK(queue_);
-      if (!storage_) storage_ = std::make_shared<detail::StorageBuffer<T>>();
-      auto shared_owner = owner ? std::move(owner) : storage_->external_owner();
-      storage_->reset_external_pointer(ptr, shared_owner);
-#if UNI20_DEBUG_DAG
-      queue_->initialize_node(storage_->get());
-#endif
-    }
-
-    /// \brief Convenience alias for \ref reset_value.
-    /// \param ptr Pointer to the value managed externally.
-    /// \ingroup async_api
-    void emplace(T* ptr) { this->reset_value(ptr); }
-
-    // FiXME: this is a hack for debugging
-    T value() const
+    /// \brief Return a copy of the stored value.
+    /// This helper is primarily for diagnostics; it will throw if the value
+    /// has not been initialized.
+    /// \return Copy of the contained value.
+    /// \ingroup internal
+    T unsafe_value() const
     {
       DEBUG_CHECK(queue_);
       return *require_value();
@@ -368,6 +372,10 @@ template <typename T> class Async {
       DEBUG_CHECK(queue_);
       return *require_value();
     }
+
+    /// \brief Access the stored value without synchronization.
+    /// \return Mutable reference to the stored value for diagnostic use.
+    /// \ingroup async_api
     T& unsafe_value_ref()
     {
       DEBUG_CHECK(queue_);
