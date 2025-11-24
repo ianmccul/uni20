@@ -4,7 +4,7 @@ This document summarizes the building blocks that make up Uni20's asynchronous v
 references by focusing on how values, tasks, and cancellation interact. The async layer is intentionally generic—`Async<Tensor>`
 is the primary target, but `Async<T>` can wrap any type and schedule operations that run as coroutines. Existing helpers already
 enqueue async math on their underlying objects, and new operations fit by writing small coroutines that return
-[`AsyncTask`](../src/async/AsyncTask.hpp). The main purpose of `Async<T>` is to simplify writing multi-threaded asyncronous code by tracking dependencies and timelines and syncronization without the need for explicit threading and locks.
+[`AsyncTask`](../src/async/AsyncTask.hpp). The main purpose of `Async<T>` is to simplify writing multi-threaded asynchronous code by tracking dependencies and timelines and synchronization without the need for explicit threading and locks.
 
 ## Key classes
 - An [`Async<T>`](../src/async/Async.hpp) is the handle that sequences every operation through an `EpochQueue` and a scheduler
@@ -15,18 +15,18 @@ enqueue async math on their underlying objects, and new operations fit by writin
 
 ## Epoch Queue
 
-The `EpochQueue` manages sequencing and time ordering of operations on an `Async<T>`. Epochs are implicitly numbered, and execution moves forwards in time. A single Epoch consists of a *writer* task, and any number of *readers*. Once the writer task has completed, the readers are scheduled (in parallel). Once all of the readers at that epoch have finished, the `EpochQueue` moves onto the next Epoch, and schedules the writer, and so on. We can think of an `EpochQueue` as managing reads and writes to one specific object (which will typically be a tensor, but could be anything).
+The `EpochQueue` manages sequencing and time ordering of operations on an `Async<T>`. Epochs are implicitly numbered, and execution moves forwards in time. A single Epoch consists of a *writer* task, and any number of *readers*. Once the writer task has completed, the readers are scheduled (in parallel).
 
-Execution proceeds as a sequence of barriers: once the writer of an epoch completes, its readers are eligible for scheduling; once all readers complete, the queue advances to the next epoch. There is no explicit dependency graph. Instead, causal dependencies are enforced *implicitly* by coroutine suspension and resumption:
+Once all of the readers at that epoch have finished, the `EpochQueue` moves onto the next Epoch, and schedules the writer, and so on. We can think of an `EpochQueue` as managing reads and writes to one specific object (which will typically be a tensor, but could be anything). When the final reader of an epoch signals completion, the `EpochQueue` advances to the next epoch and enqueues its writer for scheduling. There is no explicit dependency graph. Instead, causal dependencies are enforced *implicitly* by coroutine suspension and resumption:
  * When a coroutine `co_await`s a buffer, it suspends until the required value is ready.
  * When the awaited buffer becomes ready, the coroutine is resumed by the scheduler.
 
-This design yields the same causal guarantees as a DAG scheduler but with much lower overhead and simpler semantics. The dependencies do not need to be specified at the construction of each task, but are specified by coroutine itself.
+This design yields the same causal guarantees as a DAG scheduler but with much lower overhead and simpler semantics. The dependencies are not specified at task creation, but arise naturally from the points in the coroutine where `co_await` is invoked. Each `co_await` expresses a dependency that will suspend execution until its prerequisite value is ready.
 
 ### Async<T> overview
 - A wrapper around a value of type `T` that coordinates access through `EpochQueue`.
 - Construction options:
-  - Conversion constructor to intialize an `Async<T>` from an existing object of type `T`, or something implicitly or explicitly convertible to `T`.
+  - Conversion constructor to initialize an `Async<T>` from an existing object of type `T`, or something implicitly or explicitly convertible to `T`.
   - In-place construction (`Async<T>{std::in_place, ...}`) forwards arguments to the stored `T`, in the same way as in-place construction for `std::optional` and other `std` classes.
   - Default construction leaves the value unconstructed.
 - Copy construction schedules a copy of the value rather than cloning the async timeline:
@@ -44,12 +44,14 @@ This design yields the same causal guarantees as a DAG scheduler but with much l
 
 ## Tasks and scheduling
 
-### AsyncTask
-- A move-only wrapper around a coroutine handle produced by `AsyncTaskPromise`.
-- Awaiting an `AsyncTask` transfers execution into the awaited coroutine and resumes the awaiting coroutine once the
-  awaited coroutine completes.
-- Ownership is reference-counted via the promise. Helper utilities such as `reschedule` and `make_sole_owner` enforce
-  that only a single owner can hand control back to schedulers.
+### **AsyncTask**
+
+An `AsyncTask` represents a coroutine handle that can be scheduled, awaited, or destroyed according to RAII ownership rules. It is the fundamental executable unit in Uni20’s asynchronous layer. `AsyncTask` is an alias for a `BasicAsyncTask<BasicAsyncTaskPromise>`, it is expected in the future that there will be other variants, such as a `GPUTask` and so on.
+
+* `AsyncTask` is a **move-only** type wrapping a coroutine handle produced by an `AsyncTaskPromise`.
+* Holding an `AsyncTask` means **owning** the coroutine handle. Submitting it to a scheduler **transfers ownership** to that scheduler.
+* Implementation-wise, the ownership is *implemented* with a reference count in the promise object, but this count is normally `1`. In some cases it can be larger than 1, but this is not important in typical use.
+* As an advanced technique, it is possible to `co_await` on an `AsyncTask`. In this case, executation is immediately transferred into the awaited coroutine. When that coroutine completes, control returns to the outer coroutine. This enables nesting of tasks.
 
 ### Schedulers
 - `DebugScheduler` and `TbbScheduler` satisfy the `IScheduler` interface. They pick up `AsyncTask` instances enqueued
@@ -59,35 +61,57 @@ This design yields the same causal guarantees as a DAG scheduler but with much l
 
 ## Cancellation and error propagation
 
-- `BasicAsyncTask::cancel_if_unwritten()` sets a cancellation flag on the promise that indicates that it is expected that the `BasicAsyncTask::written()` function will be called on it; otherwise the task will be cancelled.
-  Awaiters observe this flag on their next resume and propagate cancellation without re-entering the
-  coroutine body. This is how a writer can exit early before touching the storage.
-- Coroutine destruction depends on exclusive ownership of the handle, not on whether cancellation occurred. Destroying
-  an `AsyncTask` drops one reference to the coroutine; the coroutine frame is destroyed only after the last owner
-  releases it.
-- `BasicAsyncTask::release_handle()` transfers ownership of the coroutine handle to the caller when they are the sole
-  owner, enabling manual lifetime management when cooperative scheduling or inspection is required.
+- `BasicAsyncTask::cancel_if_unwritten()` sets a cancellation flag on the promise that indicates that it is expected that the `BasicAsyncTask::written()` function will be called on it; otherwise the task will be cancelled. Awaiters observe this flag on their next resume and propagate cancellation without re-entering the coroutine body. This is how a writer can exit early before touching the storage.
 - Awaiters resumed after a cancellation see the cancellation flag and surface an error or exception instead of producing
   an uninitialized value. Exception plumbing is still maturing, but the expectation is that stored exceptions propagate
   along the same await-resume path once hook points are fully wired.
 
 ## Buffer types
 
-Asyncronous coroutines work by obtaining a *buffer*, which is an *awaitable* object that gives direct access to the object of an `Async<T>`. The buffer is obtained from member functions of `Async<T>`, `read()`, `write()`, `mutate()`, `emplace()`.
+asynchronous coroutines work by obtaining a *buffer*, which is an *awaitable* object that gives direct access to the object of an `Async<T>`. The buffer is obtained from member functions of `Async<T>`, `read()`, `write()`, `mutate()`, `emplace()`.
 
-The buffer object is typically passed into a coroutine (by value, so it exists on the coroutine stack frame), and is used in a `co_await` expression to return a reference to the underlying object. This acts as a syncronization point: if the object is not ready for access in the task dependency graph, the coroutine will suspend and only resume once all of the dependencies have finished. So when the `co_await` has returned, it is safe to access the object.
+The buffer object is typically passed into a coroutine (by value, so it exists on the coroutine stack frame), and is used in a `co_await` expression to return a reference to the underlying object. This acts as a synchronization point: if the object is not ready for access in the task dependency graph, the coroutine will suspend and only resume once all of the dependencies have finished. So when the `co_await` has returned, it is safe to access the object.
 
 - `read()` returns a `ReadBuffer<T>`. `co_await` on a `ReadBuffer<T>` gives either a value or a const reference to the object.
 - `mutate()` returns a `MutableBuffer<T>`. `co_await` on a `MutableBuffer<T>` returns a reference to the object, that can be read or modified.
-- `write()` returns a `WriteBuffer<T>`. This returns a reference to the value, but in principle should only be written, not read from (eg it might be in some moved-from state).
+- `write()` returns a `WriteBuffer<T>`. This returns a reference to the value, but in principle should only be written, not read from (e.g. it might be in some moved-from state).
 - `emplace()` returns `EmplaceBuffer<T>`. This is used to in-place construct the object by passing the constructor parameters to the `co_await` statement. The syntax is `co_await std::move(buffer)(arg1, arg2, ...)`. We need to `move` the buffer because this is a once-only operation, once the object is constructed the buffer is in an invalid moved-from state.
 
-## Debugging helpers
+## Compound awaiters
 
-- `NodeInfo` records DAG metadata (address, type name, global index) for values participating in async graphs. It is
-  used by debug schedulers and visualization tools.
-- `EpochQueue::NodeInfo` integration can be enabled with `UNI20_DEBUG_DAG` to trace epoch transitions and task
-  rescheduling.
+Uni20 defines several helper awaiters that extend how `co_await` can be used inside coroutines. These utilities live in [`awaiters.hpp`](../src/async/awaiters.hpp) and provide higher-level control and composition patterns on top of the core `Async<T>` and buffer primitives. The usual way to use these is via helper functions.
+
+### `AllAwaiter`
+
+* `AllAwaiter` waits for **all** of the provided awaitables to complete before resuming the coroutine.
+    It generalizes `co_await` to a tuple of awaitables and is used by the async task factory functions when a coroutine must wait for multiple dependencies simultaneously.
+* `co_await all(a, b, c)` suspends until all `a`, `b`, and `c` are ready, then resumes and returns a tuple of their results (or references).
+
+Each child awaiter is awaited independently; the parent resumes only when every sub-awaitable reports readiness. This is more efficient than waiting on N different buffers separately, since the coroutine only suspends once.
+
+### `TryAwaiter`
+
+* `try_await()' Wraps another awaiter and returns an `std::optional<T>` result. `co_await`ing on a `TryAwaiter` does not suspend, but tests to see if the buffer is available immediately. If the buffer is ready the value is returned in the `std::optional{value}`. Otherwise, if the buffer is not yet ready it produces an empty value.
+* This allows non-blocking “try” semantics — e.g., attempt to read a buffer if ready, otherwise skip or fallback. A typical use is where the coroutine needs to wait for two or more objects, and it can usefully do some preprocessing work as soon as it has any of the objects, and we don't know in which order they will become ready.
+
+Usage:
+
+```cpp
+  auto maybe_val = co_await try_await(buffer);
+  if (maybe_val) use(*maybe_val);
+```
+
+### `WriteToAwaiter`
+
+* Performs a write of a value into a `WriteBuffer<T>` or compatible awaitable.
+  It is constructed with a target buffer and a value (or reference) and, when awaited, ensures the write happens only when the buffer is ready.
+* this is a safer way to use a `WriteBuffer`.
+
+Helper:
+
+```cpp
+co_await write_to(write_buffer, std::move(value));
+```
 
 ## See also
 - Buffer types: [`ReadBuffer`](../src/async/buffers/ReadBuffer.hpp), [`MutableBuffer`](../src/async/buffers/MutableBuffer.hpp),
