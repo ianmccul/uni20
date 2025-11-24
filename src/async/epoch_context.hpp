@@ -22,6 +22,7 @@ template <typename T> class Async;
 template <typename T> class EpochContextReader;
 
 class EpochQueue;
+struct EpochState;
 
 // This needs a rethink.We want to track if the data has been initialized.That is, if we require_read at some point,
 //     then we want to track and see if it was.We need to know this,
@@ -169,14 +170,7 @@ class EpochContext {
     /// \brief Link this epoch to its successor in the queue.
     /// \param next Next epoch in the chain.
     /// \ingroup internal
-    void set_next(EpochContext* next) noexcept
-    {
-      next_.store(next, std::memory_order_release);
-      if (next)
-      {
-        next->inherit_value_initialized(value_initialized_for_next_.load(std::memory_order_acquire));
-      }
-    }
+    void set_next(EpochState* next) noexcept;
 
     /// \brief Report whether the underlying value is currently initialized for this epoch.
     /// \return true if the stored value can be safely read.
@@ -328,14 +322,7 @@ class EpochContext {
     /// \brief Propagate initialization state to the following epoch.
     /// \param value Initialization flag to propagate.
     /// \ingroup internal
-    void propagate_value_initialized(bool value) noexcept
-    {
-      value_initialized_for_next_.store(value, std::memory_order_release);
-      if (auto* next = next_.load(std::memory_order_acquire))
-      {
-        next->inherit_value_initialized(value);
-      }
-    }
+    void propagate_value_initialized(bool value) noexcept;
 
     /// \brief Adopt initialization state from the previous epoch.
     /// \param value Initialization flag inherited from predecessor.
@@ -362,7 +349,7 @@ class EpochContext {
     std::atomic<bool> writer_has_written_{false};
     std::atomic<bool> value_initialized_{false};
     std::atomic<bool> value_initialized_for_next_{false};
-    std::atomic<EpochContext*> next_{nullptr};
+    std::atomic<EpochState*> next_{nullptr};
     std::mutex writer_task_mtx_;
 
     [[noreturn]] static void fail_writer_binding(const char* message)
@@ -379,6 +366,38 @@ class buffer_cancelled : public std::exception {
   public:
     const char* what() const noexcept override { return "ReadBuffer was cancelled: no value written"; }
 };
+
+struct EpochState : std::enable_shared_from_this<EpochState>
+{
+    EpochState(EpochContext const* prev, bool writer_already_done, bool initial_value_initialized = true)
+        : ctx(prev, writer_already_done, initial_value_initialized)
+    {
+    }
+
+    EpochState(bool writer_already_done, bool value_initialized)
+        : ctx(nullptr, writer_already_done, value_initialized)
+    {
+    }
+
+    EpochState(EpochContext const* next, std::integral_constant<bool, true> reverse)
+        : ctx(next, std::integral_constant<bool, true>{})
+    {
+    }
+
+    EpochContext ctx;
+};
+
+inline void EpochContext::set_next(EpochState* next) noexcept
+{
+  next_.store(next, std::memory_order_release);
+  if (next) next->ctx.inherit_value_initialized(value_initialized_for_next_.load(std::memory_order_acquire));
+}
+
+inline void EpochContext::propagate_value_initialized(bool value) noexcept
+{
+  value_initialized_for_next_.store(value, std::memory_order_release);
+  if (auto* next = next_.load(std::memory_order_acquire)) { next->ctx.inherit_value_initialized(value); }
+}
 
 /// \brief RAII-scoped representation of a reader's participation in an EpochContext.
 ///
@@ -400,7 +419,7 @@ template <typename T> class EpochContextReader {
       EpochContextReader(EpochContextReader const& other)
           : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_)
     {
-      if (epoch_) epoch_->reader_acquire();
+      if (epoch_) epoch_->ctx.reader_acquire();
     }
 
     /// \brief Copy assignment retaining the reader reference count.
@@ -411,11 +430,11 @@ template <typename T> class EpochContextReader {
     {
       if (this != &other)
       {
-        if (other.epoch_) other.epoch_->reader_acquire();
+        if (other.epoch_) other.epoch_->ctx.reader_acquire();
         this->release();
-          storage_ = other.storage_;
-          queue_ = other.queue_;
-          epoch_ = other.epoch_;
+        storage_ = other.storage_;
+        queue_ = other.queue_;
+        epoch_ = other.epoch_;
       }
       return *this;
     }
@@ -426,19 +445,19 @@ template <typename T> class EpochContextReader {
     /// \param epoch Pointer to the epoch being tracked.
     /// \ingroup async_core
     EpochContextReader(std::shared_ptr<detail::StorageBuffer<T>> const& storage, std::shared_ptr<EpochQueue> const& queue,
-                       EpochContext* epoch) noexcept
-        : storage_(storage), queue_(queue), epoch_(epoch)
+                       std::shared_ptr<EpochState> epoch) noexcept
+        : storage_(storage), queue_(queue), epoch_(std::move(epoch))
     {
-      if (epoch_) epoch_->reader_acquire();
+      if (epoch_) epoch_->ctx.reader_acquire();
     }
 
     /// \brief Move constructor. Transfers ownership and nulls the source.
     /// \param other Reader being moved from.
     /// \ingroup async_core
     EpochContextReader(EpochContextReader&& other) noexcept
-        : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(other.epoch_)
+        : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(std::move(other.epoch_))
     {
-      other.epoch_ = nullptr;
+      other.epoch_.reset();
     }
 
     /// \brief Move assignment. Releases prior ownership and transfers.
@@ -452,8 +471,8 @@ template <typename T> class EpochContextReader {
         this->release();
         storage_ = std::move(other.storage_);
         queue_ = std::move(other.queue_);
-        epoch_ = other.epoch_;
-        other.epoch_ = nullptr;
+        epoch_ = std::move(other.epoch_);
+        other.epoch_.reset();
       }
       return *this;
     }
@@ -479,7 +498,7 @@ template <typename T> class EpochContextReader {
     bool ready() const noexcept
     {
       DEBUG_PRECONDITION(epoch_, this);
-      return epoch_->reader_is_ready();
+      return epoch_->ctx.reader_is_ready();
     }
 
     /// \brief Access the stored value inside the parent Async<T>.
@@ -489,11 +508,11 @@ template <typename T> class EpochContextReader {
     T const& data() const
     {
       DEBUG_PRECONDITION(epoch_, this);
-      DEBUG_PRECONDITION(epoch_->reader_is_ready());
-      DEBUG_TRACE_MODULE(ASYNC, epoch_, epoch_->reader_error(), epoch_->counter_);
-      if (epoch_->reader_error())
+      DEBUG_PRECONDITION(epoch_->ctx.reader_is_ready());
+      DEBUG_TRACE_MODULE(ASYNC, epoch_.get(), epoch_->ctx.reader_error(), epoch_->ctx.counter_);
+      if (epoch_->ctx.reader_error())
       {
-        if (auto e = epoch_->reader_exception(); e)
+        if (auto e = epoch_->ctx.reader_exception(); e)
           std::rethrow_exception(e);
         else
           throw buffer_cancelled();
@@ -506,10 +525,10 @@ template <typename T> class EpochContextReader {
     T const& data_assert() const
     {
       DEBUG_PRECONDITION(epoch_, this);
-      DEBUG_PRECONDITION(epoch_->reader_is_ready());
-      if (epoch_->reader_error())
+      DEBUG_PRECONDITION(epoch_->ctx.reader_is_ready());
+      if (epoch_->ctx.reader_error())
       {
-        if (auto e = epoch_->reader_exception(); e)
+        if (auto e = epoch_->ctx.reader_exception(); e)
           std::rethrow_exception(e);
         else
         {
@@ -530,10 +549,10 @@ template <typename T> class EpochContextReader {
     T const* data_maybe() const
     {
       DEBUG_PRECONDITION(epoch_, this);
-      DEBUG_PRECONDITION(epoch_->reader_is_ready());
-      if (epoch_->reader_error())
+      DEBUG_PRECONDITION(epoch_->ctx.reader_is_ready());
+      if (epoch_->ctx.reader_error())
       {
-        if (auto e = epoch_->reader_exception(); e)
+        if (auto e = epoch_->ctx.reader_exception(); e)
           std::rethrow_exception(e);
         else
           return nullptr;
@@ -551,10 +570,10 @@ template <typename T> class EpochContextReader {
     std::optional<T> data_option() const
     {
       DEBUG_PRECONDITION(epoch_, this);
-      DEBUG_PRECONDITION(epoch_->reader_is_ready());
-      if (epoch_->reader_error())
+      DEBUG_PRECONDITION(epoch_->ctx.reader_is_ready());
+      if (epoch_->ctx.reader_error())
       {
-        if (auto e = epoch_->reader_exception(); e)
+        if (auto e = epoch_->ctx.reader_exception(); e)
           std::rethrow_exception(e);
         else
           return std::nullopt;
@@ -585,7 +604,7 @@ template <typename T> class EpochContextReader {
   private:
     std::shared_ptr<detail::StorageBuffer<T>> storage_;
     std::shared_ptr<EpochQueue> queue_;
-    EpochContext* epoch_ = nullptr; ///< Epoch currently tracked.
+    std::shared_ptr<EpochState> epoch_{}; ///< Epoch currently tracked.
 };
 
 /// \brief RAII-scoped representation of a writer’s participation in an epoch.
@@ -604,17 +623,18 @@ template <typename T> class EpochContextWriter {
     /// \param epoch Epoch tracked by this writer.
     /// \ingroup async_core
     EpochContextWriter(std::shared_ptr<detail::StorageBuffer<T>> const& storage,
-                       std::shared_ptr<EpochQueue> const& queue, EpochContext* epoch) noexcept
-        : storage_(storage), queue_(queue), epoch_(epoch)
+                       std::shared_ptr<EpochQueue> const& queue, std::shared_ptr<EpochState> epoch) noexcept
+        : storage_(storage), queue_(queue), epoch_(std::move(epoch))
     {
-      if (epoch_) epoch_->writer_acquire();
+      if (epoch_) epoch_->ctx.writer_acquire();
     }
 
     /// \brief Copy constructor acquiring a writer reference for diagnostics.
     /// \ingroup async_core
-    EpochContextWriter(EpochContextWriter const& other) : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_)
+    EpochContextWriter(EpochContextWriter const& other)
+        : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_)
     {
-      if (epoch_) epoch_->writer_acquire();
+      if (epoch_) epoch_->ctx.writer_acquire();
     }
 
     EpochContextWriter& operator=(EpochContextWriter const&) = delete;
@@ -623,9 +643,9 @@ template <typename T> class EpochContextWriter {
     /// \param other Writer being moved from.
     /// \ingroup async_core
       EpochContextWriter(EpochContextWriter&& other) noexcept
-          : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(other.epoch_)
+          : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(std::move(other.epoch_))
       {
-        other.epoch_ = nullptr;
+        other.epoch_.reset();
       }
 
     /// \brief Move assignment transferring the writer handle.
@@ -639,8 +659,8 @@ template <typename T> class EpochContextWriter {
         this->release();
         storage_ = std::move(other.storage_);
         queue_ = std::move(other.queue_);
-        epoch_ = other.epoch_;
-        other.epoch_ = nullptr;
+        epoch_ = std::move(other.epoch_);
+        other.epoch_.reset();
       }
       return *this;
     }
@@ -681,7 +701,7 @@ template <typename T> class EpochContextWriter {
     void writer_require() noexcept
     {
       DEBUG_PRECONDITION(epoch_);
-      epoch_->writer_require();
+      epoch_->ctx.writer_require();
     }
 
     /// \brief Report whether the associated value is currently initialized.
@@ -689,7 +709,7 @@ template <typename T> class EpochContextWriter {
     /// \ingroup async_core
     bool value_is_initialized() const noexcept
     {
-      return epoch_ && epoch_->value_is_initialized();
+      return epoch_ && epoch_->ctx.value_is_initialized();
     }
 
     /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value.
@@ -699,7 +719,7 @@ template <typename T> class EpochContextWriter {
   private:
     std::shared_ptr<detail::StorageBuffer<T>> storage_;
     std::shared_ptr<EpochQueue> queue_;
-    EpochContext* epoch_ = nullptr;
+    std::shared_ptr<EpochState> epoch_{};
     mutable bool accessed_ = false;
     mutable bool marked_written_ = false;
 };
