@@ -140,17 +140,20 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   EXPECT_EQ(count, 5);
 }
 
-TEST(AsyncBasicTest, RAII_NoAwaitSafeDestruction)
+TEST(AsyncBasicTest, RAII_NoAwaitTriggersDeath)
 {
-  Async<int> a;
+  EXPECT_DEATH(
+      [] {
+        Async<int> a;
 
-  // Construct but do not await
-  auto r = a.read();
-  auto w = a.write();
-  AsyncTask task = []() -> AsyncTask { co_return; }();
-
-  // Destructors must not throw or cause side effects
-  // No explicit co_await or release
+        auto r = a.read();
+        auto w = a.write();
+        AsyncTask task = []() static -> AsyncTask { co_return; }();
+        (void)r;
+        (void)w;
+        (void)task;
+      }(),
+      "unexpected destruction");
 }
 
 TEST(AsyncBasicTest, WriteProxyReleasesEpochs)

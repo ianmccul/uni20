@@ -47,9 +47,7 @@ bool BasicAsyncTask<T>::can_destroy_coroutine(BasicAsyncTask<T>::handle_type h) 
 
   auto const cancelled = cancel_.load(std::memory_order_acquire);
   auto const done = h.done();
-  auto const started = h.promise().has_started();
-
-  return cancelled || done || !started;
+  return cancelled || done;
 }
 
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::release_handle()
@@ -163,8 +161,7 @@ template <IsAsyncTaskPromise T> std::optional<int> BasicAsyncTask<T>::preferred_
   return h_.promise().preferred_numa_node();
 }
 
-template <IsAsyncTaskPromise T>
-void BasicAsyncTask<T>::set_preferred_numa_node(std::optional<int> node) noexcept
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::set_preferred_numa_node(std::optional<int> node) noexcept
 {
   if (h_) h_.promise().set_preferred_numa_node(node);
 }
