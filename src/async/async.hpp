@@ -301,7 +301,7 @@ template <typename T> class Async {
       DEBUG_CHECK(queue_);
       DEBUG_CHECK(storage_);
       return EmplaceBuffer<T>(
-        queue_->create_write_context(storage_, queue_), storage_.get(), control_owner_);
+        queue_->create_write_context(storage_, queue_), storage_, control_owner_);
     }
 
     // template <typename Sched> T& get_wait(Sched& sched)
