@@ -3,17 +3,17 @@
 #include "async/debug_scheduler.hpp"
 #include <gtest/gtest.h>
 #include <vector>
+#include <utility>
 
 using namespace uni20;
 using namespace uni20::async;
 
-TEST(AsyncDeferredTest, DISABLED_SharesQueueAndInitializesAfterScheduling)
+TEST(AsyncDeferredTest, InitializesAfterScheduling)
 {
-#if 0
   DebugScheduler sched;
   ScopedScheduler scoped(&sched);
 
-  Async<std::vector<int>> data{1, 2, 3, 4};
+  Async<std::vector<int>> data(std::vector<int>{1, 2, 3, 4});
 
   // schedule a task that modifies the data
   sched.schedule([](WriteBuffer<std::vector<int>> b) static->AsyncTask {
@@ -28,14 +28,17 @@ TEST(AsyncDeferredTest, DISABLED_SharesQueueAndInitializesAfterScheduling)
     Async<int const*> view(deferred, data);
     sched.schedule([](ReadBuffer<std::vector<int>> r, EmplaceBuffer<int const*> view) static->AsyncTask {
       auto const& vec = co_await r;
-      co_await view(r.data());
-    }(data.read(), view.emplace());
+      co_await std::move(view)(vec.data());
+    }(data.read(), view.emplace()));
 
     // read the data via the view
     sched.schedule([](ReadBuffer<int const*> r, int& v) static->AsyncTask {
       v = (co_await r)[0];
     }(view.read(), view_element));
   }
+
+  sched.run_all();
+  EXPECT_EQ(view_element, 3);
 
   // schedule a task that modifies the data again
   sched.schedule([](WriteBuffer<std::vector<int>> b) static->AsyncTask {
@@ -45,6 +48,4 @@ TEST(AsyncDeferredTest, DISABLED_SharesQueueAndInitializesAfterScheduling)
   }(data.write()));
 
   sched.run_all();
-  EXPECT_EQ(view_element, 3);
-#endif
 }

@@ -37,6 +37,7 @@ template <typename T> class StorageBuffer
     template <typename... Args> T* construct(Args&&... args)
     {
       this->destroy_if_owned();
+      external_owner_.reset();
       auto* ptr = this->storage_ptr();
       std::construct_at(ptr, std::forward<Args>(args)...);
       owns_storage_ = true;
@@ -60,14 +61,22 @@ template <typename T> class StorageBuffer
       }
     }
 
-    T* reset_external_pointer(T* ptr) noexcept
+    T* reset_external_pointer(T* ptr, std::shared_ptr<void> owner = {}) noexcept
     {
       this->destroy_if_owned();
+      external_owner_ = std::move(owner);
       owns_storage_ = false;
       constructed_.store(true, std::memory_order_release);
       value_ptr_cache_.store(ptr, std::memory_order_release);
       return ptr;
     }
+
+    void set_external_owner(std::shared_ptr<void> owner) noexcept
+    {
+      external_owner_ = std::move(owner);
+    }
+
+    std::shared_ptr<void> const& external_owner() const noexcept { return external_owner_; }
 
   private:
     T* storage_ptr() noexcept { return std::launder(reinterpret_cast<T*>(storage_)); }
@@ -88,6 +97,7 @@ template <typename T> class StorageBuffer
     std::atomic<bool> constructed_{false};
     bool owns_storage_{false};
     std::once_flag default_once_{};
+    std::shared_ptr<void> external_owner_{};
 };
 
 } // namespace uni20::async::detail

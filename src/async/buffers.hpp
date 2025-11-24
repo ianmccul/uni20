@@ -486,8 +486,13 @@ template <typename T> class WriteBuffer {
 template <typename T, typename... Args> class EmplaceAwaiter
 {
   public:
-    EmplaceAwaiter(EpochContextWriter<T>&& writer, detail::StorageBuffer<T>* storage, Args&&... args)
-        : writer_(std::move(writer)), storage_(storage), args_(std::forward<Args>(args)...)
+    EmplaceAwaiter(
+      EpochContextWriter<T>&& writer,
+      detail::StorageBuffer<T>* storage,
+      std::shared_ptr<void> external_owner,
+      Args&&... args)
+        : writer_(std::move(writer)), storage_(storage), external_owner_(std::move(external_owner)),
+          args_(std::forward<Args>(args)...)
     {}
 
     bool await_ready() const noexcept { return writer_.ready(); }
@@ -500,6 +505,7 @@ template <typename T, typename... Args> class EmplaceAwaiter
       {
         std::apply(
           [&](auto&&... unpacked) { storage_->construct(std::forward<Args>(unpacked)...); }, std::move(args_));
+        storage_->set_external_owner(external_owner_);
       }
       auto& ref = writer_.data();
       writer_.release();
@@ -509,6 +515,7 @@ template <typename T, typename... Args> class EmplaceAwaiter
   private:
     EpochContextWriter<T> writer_;
     detail::StorageBuffer<T>* storage_{};
+    std::shared_ptr<void> external_owner_{};
     std::tuple<Args...> args_;
 };
 
@@ -519,8 +526,11 @@ template <typename T> class EmplaceBuffer
     using value_type = T;
     using element_type = T&;
 
-    EmplaceBuffer(EpochContextWriter<T> writer, detail::StorageBuffer<T>* storage)
-        : writer_(std::move(writer)), storage_(storage)
+    EmplaceBuffer(
+      EpochContextWriter<T> writer,
+      detail::StorageBuffer<T>* storage,
+      std::shared_ptr<void> external_owner = {})
+        : writer_(std::move(writer)), storage_(storage), external_owner_(std::move(external_owner))
     {
       writer_.writer_require();
     }
@@ -551,6 +561,7 @@ template <typename T> class EmplaceBuffer
         {
           throw std::logic_error("Async value not initialized; use EmplaceBuffer with arguments");
         }
+        storage_->set_external_owner(external_owner_);
       }
       auto& ref = writer_.data();
       writer_.release();
@@ -560,7 +571,8 @@ template <typename T> class EmplaceBuffer
     template <typename... Args> auto operator()(Args&&... args) &&
     {
       this->consume_once();
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(std::move(writer_), storage_, std::forward<Args>(args)...);
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(
+        std::move(writer_), storage_, external_owner_, std::forward<Args>(args)...);
     }
 
     auto operator co_await() & -> EmplaceBuffer&
@@ -594,6 +606,7 @@ template <typename T> class EmplaceBuffer
 
     EpochContextWriter<T> writer_;
     detail::StorageBuffer<T>* storage_{};
+    std::shared_ptr<void> external_owner_{};
     mutable bool consumed_{false};
   };
 
