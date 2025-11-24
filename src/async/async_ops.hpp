@@ -5,6 +5,7 @@
 #include "async_task.hpp"
 #include "awaiters.hpp"
 #include "debug_scheduler.hpp"
+#include <concepts>
 #include <functional>
 #include <type_traits>
 
@@ -103,6 +104,12 @@ concept async_movable_to =
 
       requires std::constructible_from<T,
                                        decltype(std::move(std::declval<write_awaiter_t<AsyncLike>>().await_resume()))>;
+    };
+
+template <typename AsyncLike, typename T>
+concept async_mutable_writer_of =
+    async_writer<AsyncLike> && requires(AsyncLike a) {
+      requires write_buffer_awaitable_of<decltype(a.mutate()), T>;
     };
 
 /// \brief concept for a type that behaves like an asyncronous writer that is also readable:
@@ -329,15 +336,26 @@ void async_assign(U&& rhs, WriteBuffer<T> lhs)
 }
 
 template <typename U, typename T>
-  requires async_movable_to<U, T>
+  requires async_mutable_writer_of<U, T> && async_movable_to<U, T>
 void async_move(U&& rhs, WriteBuffer<T> lhs)
 {
   schedule([](auto src, WriteBuffer<T> dst) static -> AsyncTask {
-    auto&& movable = co_await src;
+    auto& movable = co_await src;
     auto& out = co_await dst;
     out = std::move(movable);
     co_return;
-  }(rhs.write(), std::move(lhs)));
+  }(std::forward<U>(rhs).mutate(), std::move(lhs)));
+}
+
+template <typename U, typename T>
+  requires(!async_writer<std::remove_cvref_t<U>>) && std::constructible_from<T, U&&>
+void async_move(U&& rhs, WriteBuffer<T> lhs)
+{
+  schedule([](T val, WriteBuffer<T> dst) static -> AsyncTask {
+    auto& out = co_await dst;
+    out = std::move(val);
+    co_return;
+  }(std::move(rhs), std::move(lhs)));
 }
 
 template <typename U, typename T>

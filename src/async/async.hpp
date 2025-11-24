@@ -162,13 +162,12 @@ template <typename T> class Async {
     /// \ingroup async_api
     template <typename Control>
     Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
-        : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::move(queue)),
-          control_owner_(std::move(control))
+        : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::move(queue))
     {
       (void)tag;
       DEBUG_CHECK(storage_);
       DEBUG_CHECK(queue_);
-      storage_->set_external_owner(control_owner_);
+      storage_->set_external_owner(std::move(control));
       queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
@@ -245,10 +244,7 @@ template <typename T> class Async {
     /// \brief Move-construct from another Async<T> handle.
     /// \param other Source Async.
     /// \ingroup async_api
-    Async(Async&& other) noexcept
-        : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)),
-          control_owner_(std::move(other.control_owner_))
-    {}
+    Async(Async&& other) noexcept = default;
     /// \brief Move-assign from another Async<T> handle.
     /// \param other Source Async.
     /// \return Reference to *this after ownership transfer.
@@ -259,7 +255,6 @@ template <typename T> class Async {
       {
         storage_ = std::move(other.storage_);
         queue_ = std::move(other.queue_);
-        control_owner_ = std::move(other.control_owner_);
       }
       return *this;
     }
@@ -301,7 +296,7 @@ template <typename T> class Async {
       DEBUG_CHECK(queue_);
       DEBUG_CHECK(storage_);
       return EmplaceBuffer<T>(
-        queue_->create_write_context(storage_, queue_), storage_, control_owner_);
+        queue_->create_write_context(storage_, queue_), storage_, storage_->external_owner());
     }
 
     // template <typename Sched> T& get_wait(Sched& sched)
@@ -346,7 +341,7 @@ template <typename T> class Async {
     {
       DEBUG_CHECK(queue_);
       if (!storage_) storage_ = std::make_shared<detail::StorageBuffer<T>>();
-      auto shared_owner = owner ? std::move(owner) : control_owner_;
+      auto shared_owner = owner ? std::move(owner) : storage_->external_owner();
       storage_->reset_external_pointer(ptr, shared_owner);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
@@ -399,7 +394,8 @@ template <typename T> class Async {
   private:
     bool initial_value_initialized() const noexcept
     {
-      return (storage_ && storage_->constructed()) || (!control_owner_ && std::is_default_constructible_v<T>);
+      return (storage_ && storage_->constructed()) ||
+             (storage_ && !storage_->external_owner() && std::is_default_constructible_v<T>);
     }
 
     T* try_get_value() const
@@ -409,7 +405,7 @@ template <typename T> class Async {
 
       if constexpr (std::is_default_constructible_v<T>)
       {
-        if (!control_owner_) return storage_->ensure_default();
+        if (!storage_->external_owner()) return storage_->ensure_default();
       }
       return nullptr;
     }
@@ -436,8 +432,7 @@ template <typename T> class Async {
 
     mutable std::shared_ptr<detail::StorageBuffer<T>> storage_;
     std::shared_ptr<EpochQueue> queue_;
-    std::shared_ptr<void> control_owner_{};
-};
+  };
 
 /// \brief Convenience helper that forwards to Async<T>::read().
 /// \tparam T Stored value type.
