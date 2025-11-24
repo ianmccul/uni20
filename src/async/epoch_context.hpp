@@ -6,6 +6,7 @@
 
 #include "async_node.hpp"
 #include "async_task_promise.hpp"
+#include "storage_buffer.hpp"
 #include <atomic>
 #include <coroutine>
 #include <cstdio>
@@ -396,8 +397,8 @@ template <typename T> class EpochContextReader {
 
     /// \brief Copy constructor retaining the reader reference count.
     /// \ingroup async_core
-    EpochContextReader(EpochContextReader const& other)
-        : value_(other.value_), queue_(other.queue_), epoch_(other.epoch_)
+      EpochContextReader(EpochContextReader const& other)
+          : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_)
     {
       if (epoch_) epoch_->reader_acquire();
     }
@@ -412,9 +413,9 @@ template <typename T> class EpochContextReader {
       {
         if (other.epoch_) other.epoch_->reader_acquire();
         this->release();
-        value_ = other.value_;
-        queue_ = other.queue_;
-        epoch_ = other.epoch_;
+          storage_ = other.storage_;
+          queue_ = other.queue_;
+          epoch_ = other.epoch_;
       }
       return *this;
     }
@@ -424,8 +425,9 @@ template <typename T> class EpochContextReader {
     /// \param queue Shared pointer to the associated epoch queue.
     /// \param epoch Pointer to the epoch being tracked.
     /// \ingroup async_core
-    EpochContextReader(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& queue, EpochContext* epoch) noexcept
-        : value_(value), queue_(queue), epoch_(epoch)
+    EpochContextReader(std::shared_ptr<detail::StorageBuffer<T>> const& storage, std::shared_ptr<EpochQueue> const& queue,
+                       EpochContext* epoch) noexcept
+        : storage_(storage), queue_(queue), epoch_(epoch)
     {
       if (epoch_) epoch_->reader_acquire();
     }
@@ -434,7 +436,7 @@ template <typename T> class EpochContextReader {
     /// \param other Reader being moved from.
     /// \ingroup async_core
     EpochContextReader(EpochContextReader&& other) noexcept
-        : value_(std::move(other.value_)), queue_(std::move(other.queue_)), epoch_(other.epoch_)
+        : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(other.epoch_)
     {
       other.epoch_ = nullptr;
     }
@@ -448,7 +450,7 @@ template <typename T> class EpochContextReader {
       if (this != &other)
       {
         this->release();
-        value_ = std::move(other.value_);
+        storage_ = std::move(other.storage_);
         queue_ = std::move(other.queue_);
         epoch_ = other.epoch_;
         other.epoch_ = nullptr;
@@ -496,7 +498,9 @@ template <typename T> class EpochContextReader {
         else
           throw buffer_cancelled();
       }
-      return *value_;
+      auto* ptr = storage_ ? storage_->get() : nullptr;
+      DEBUG_CHECK(ptr);
+      return *ptr;
     }
 
     T const& data_assert() const
@@ -512,7 +516,9 @@ template <typename T> class EpochContextReader {
           PANIC("buffer cancelled but not caught");
         }
       }
-      return *value_;
+      auto* ptr = storage_ ? storage_->get() : nullptr;
+      DEBUG_CHECK(ptr);
+      return *ptr;
     }
 
     // \brief Optionally retrieves the value stored in this buffer, if available.
@@ -532,7 +538,7 @@ template <typename T> class EpochContextReader {
         else
           return nullptr;
       }
-      return value_.get();
+      return storage_ ? storage_->get() : nullptr;
     }
 
     /// \brief Optionally retrieves the value stored in this buffer, if available.
@@ -553,7 +559,9 @@ template <typename T> class EpochContextReader {
         else
           return std::nullopt;
       }
-      return *value_;
+        auto* ptr = storage_ ? storage_->get() : nullptr;
+        DEBUG_CHECK(ptr);
+        return *ptr;
     }
 
     /// \brief Check whether this epoch is at the front of the queue.
@@ -575,7 +583,7 @@ template <typename T> class EpochContextReader {
     T const& get_wait(IScheduler& sched) const;
 
   private:
-    std::shared_ptr<T> value_;
+    std::shared_ptr<detail::StorageBuffer<T>> storage_;
     std::shared_ptr<EpochQueue> queue_;
     EpochContext* epoch_ = nullptr; ///< Epoch currently tracked.
 };
@@ -595,15 +603,16 @@ template <typename T> class EpochContextWriter {
     /// \param queue Shared pointer to the epoch queue.
     /// \param epoch Epoch tracked by this writer.
     /// \ingroup async_core
-    EpochContextWriter(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& queue, EpochContext* epoch) noexcept
-        : value_(value), queue_(queue), epoch_(epoch)
+    EpochContextWriter(std::shared_ptr<detail::StorageBuffer<T>> const& storage,
+                       std::shared_ptr<EpochQueue> const& queue, EpochContext* epoch) noexcept
+        : storage_(storage), queue_(queue), epoch_(epoch)
     {
       if (epoch_) epoch_->writer_acquire();
     }
 
     /// \brief Copy constructor acquiring a writer reference for diagnostics.
     /// \ingroup async_core
-    EpochContextWriter(EpochContextWriter const& other) : value_(other.value_), queue_(other.queue_), epoch_(other.epoch_)
+    EpochContextWriter(EpochContextWriter const& other) : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_)
     {
       if (epoch_) epoch_->writer_acquire();
     }
@@ -613,11 +622,11 @@ template <typename T> class EpochContextWriter {
     /// \brief Move constructor transferring the writer handle.
     /// \param other Writer being moved from.
     /// \ingroup async_core
-    EpochContextWriter(EpochContextWriter&& other) noexcept
-        : value_(std::move(other.value_)), queue_(std::move(other.queue_)), epoch_(other.epoch_)
-    {
-      other.epoch_ = nullptr;
-    }
+      EpochContextWriter(EpochContextWriter&& other) noexcept
+          : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(other.epoch_)
+      {
+        other.epoch_ = nullptr;
+      }
 
     /// \brief Move assignment transferring the writer handle.
     /// \param other Writer being moved from.
@@ -628,7 +637,7 @@ template <typename T> class EpochContextWriter {
       if (this != &other)
       {
         this->release();
-        value_ = std::move(other.value_);
+        storage_ = std::move(other.storage_);
         queue_ = std::move(other.queue_);
         epoch_ = other.epoch_;
         other.epoch_ = nullptr;
@@ -688,7 +697,7 @@ template <typename T> class EpochContextWriter {
     T&& move_from_wait() const;
 
   private:
-    std::shared_ptr<T> value_;
+    std::shared_ptr<detail::StorageBuffer<T>> storage_;
     std::shared_ptr<EpochQueue> queue_;
     EpochContext* epoch_ = nullptr;
     mutable bool accessed_ = false;

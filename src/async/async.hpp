@@ -58,12 +58,11 @@ template <typename T> class Async {
     /// \brief Initializes async state without constructing the stored value.
     /// \ingroup async_api
     Async()
-        : value_(detail::make_deferred_shared<T>()), queue_(std::make_shared<EpochQueue>()),
-          value_ptr_cache_(value_.get())
+        : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
-      queue_->initialize_node(value_.get());
+      queue_->initialize_node(storage_->get());
 #endif
     }
 
@@ -74,12 +73,12 @@ template <typename T> class Async {
     template <typename U>
       requires std::convertible_to<U, T>
     Async(U&& val)
-        : value_(std::make_shared<T>(std::forward<U>(val))), queue_(std::make_shared<EpochQueue>()),
-          value_ptr_cache_(value_.get())
+        : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, std::forward<U>(val))),
+          queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
-      queue_->initialize_node(value_.get());
+      queue_->initialize_node(storage_->get());
 #endif
     }
 
@@ -90,12 +89,12 @@ template <typename T> class Async {
     template <typename U>
       requires std::constructible_from<T, U> && (!std::convertible_to<U, T>)
     explicit Async(U&& u)
-        : value_(std::make_shared<T>(static_cast<T>(std::forward<U>(u)))), queue_(std::make_shared<EpochQueue>()),
-          value_ptr_cache_(value_.get())
+        : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, static_cast<T>(std::forward<U>(u)))),
+          queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
-      queue_->initialize_node(value_.get());
+      queue_->initialize_node(storage_->get());
 #endif
     }
 
@@ -106,12 +105,12 @@ template <typename T> class Async {
     template <typename... Args>
       requires std::constructible_from<T, Args...>
     Async(std::in_place_t, Args&&... args)
-        : value_(std::make_shared<T>(std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>()),
-          value_ptr_cache_(value_.get())
+        : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, std::forward<Args>(args)...)),
+          queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
-      queue_->initialize_node(value_.get());
+      queue_->initialize_node(storage_->get());
 #endif
     }
 
@@ -124,12 +123,12 @@ template <typename T> class Async {
     template <typename U, typename... Args>
       requires std::constructible_from<T, std::initializer_list<U>&, Args...>
     Async(std::in_place_t, std::initializer_list<U> init, Args&&... args)
-        : value_(std::make_shared<T>(init, std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>()),
-          value_ptr_cache_(value_.get())
+        : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, init, std::forward<Args>(args)...)),
+          queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
-      queue_->initialize_node(value_.get());
+      queue_->initialize_node(storage_->get());
 #endif
     }
 
@@ -163,15 +162,15 @@ template <typename T> class Async {
     /// \ingroup async_api
     template <typename Control>
     Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
-        : value_(std::shared_ptr<T>(std::move(control), static_cast<T*>(nullptr))), queue_(std::move(queue)),
-          value_ptr_cache_(value_.get())
+        : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::move(queue)),
+          control_owner_(std::move(control))
     {
       (void)tag;
-      DEBUG_CHECK(value_);
+      DEBUG_CHECK(storage_);
       DEBUG_CHECK(queue_);
-      queue_->initialize(false);
+      queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
-      queue_->initialize_node(value_.get());
+      queue_->initialize_node(storage_->get());
 #endif
     }
 
@@ -227,12 +226,9 @@ template <typename T> class Async {
     /// \param other Source Async.
     /// \ingroup async_api
     Async(Async&& other) noexcept
-        : value_(std::move(other.value_)), queue_(std::move(other.queue_)),
-          value_ptr_cache_(other.value_ptr_cache_.load(std::memory_order_acquire)),
-          default_value_once_(std::move(other.default_value_once_))
-    {
-      if (!default_value_once_) default_value_once_ = std::make_shared<std::once_flag>();
-    }
+        : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)),
+          control_owner_(std::move(other.control_owner_))
+    {}
     /// \brief Move-assign from another Async<T> handle.
     /// \param other Source Async.
     /// \return Reference to *this after ownership transfer.
@@ -241,11 +237,9 @@ template <typename T> class Async {
     {
       if (this != &other)
       {
-        value_ = std::move(other.value_);
+        storage_ = std::move(other.storage_);
         queue_ = std::move(other.queue_);
-        value_ptr_cache_.store(other.value_ptr_cache_.load(std::memory_order_acquire), std::memory_order_release);
-        default_value_once_ = std::move(other.default_value_once_);
-        if (!default_value_once_) default_value_once_ = std::make_shared<std::once_flag>();
+        control_owner_ = std::move(other.control_owner_);
       }
       return *this;
     }
@@ -258,8 +252,8 @@ template <typename T> class Async {
     ReadBuffer<T> read() const
     {
       DEBUG_CHECK(queue_);
-      ensure_default_value();
-      return ReadBuffer<T>(queue_->create_read_context(value_, queue_));
+      (void)try_get_value();
+      return ReadBuffer<T>(queue_->create_read_context(storage_, queue_));
     }
 
     /// \brief Begin an asynchronous mutation of the current value.
@@ -268,8 +262,8 @@ template <typename T> class Async {
     MutableBuffer<T> mutate()
     {
       DEBUG_CHECK(queue_);
-      ensure_default_value();
-      return MutableBuffer<T>(queue_->create_write_context(value_, queue_));
+      require_value();
+      return MutableBuffer<T>(queue_->create_write_context(storage_, queue_));
     }
 
     /// \brief Begin writing a fresh value, treating the storage as uninitialized until completion.
@@ -278,17 +272,15 @@ template <typename T> class Async {
     WriteBuffer<T> write()
     {
       DEBUG_CHECK(queue_);
-      ensure_default_value();
-      return WriteBuffer<T>(queue_->create_write_context(value_, queue_));
+      require_value();
+      return WriteBuffer<T>(queue_->create_write_context(storage_, queue_));
     }
 
     EmplaceBuffer<T> emplace() noexcept
     {
       DEBUG_CHECK(queue_);
-      detail::alias_deferred_pointer(value_);
-      cache_value_pointer(value_.get());
-      DEBUG_CHECK(value_);
-      return EmplaceBuffer<T>(queue_->create_write_context(value_, queue_), detail::get_deferred_state(value_));
+      DEBUG_CHECK(storage_);
+      return EmplaceBuffer<T>(queue_->create_write_context(storage_, queue_), storage_.get());
     }
 
     // template <typename Sched> T& get_wait(Sched& sched)
@@ -317,8 +309,8 @@ template <typename T> class Async {
     void set(T const& x)
     {
       DEBUG_CHECK(queue_);
-      ensure_default_value();
-      *value_ = x;
+      auto* ptr = require_value();
+      *ptr = x;
     }
 
     /// \brief Install the value pointer for a deferred Async.
@@ -332,11 +324,10 @@ template <typename T> class Async {
     void reset_value(T* ptr)
     {
       DEBUG_CHECK(queue_);
-      auto control = std::shared_ptr<void>(value_);
-      value_ = std::shared_ptr<T>(std::move(control), ptr);
-      cache_value_pointer(value_.get());
+      if (!storage_) storage_ = std::make_shared<detail::StorageBuffer<T>>();
+      storage_->reset_external_pointer(ptr);
 #if UNI20_DEBUG_DAG
-      queue_->initialize_node(value_.get());
+      queue_->initialize_node(storage_->get());
 #endif
     }
 
@@ -349,8 +340,7 @@ template <typename T> class Async {
     T value() const
     {
       DEBUG_CHECK(queue_);
-      ensure_default_value();
-      return *value_;
+      return *require_value();
     }
 
     /// \brief Access the stored value without synchronization.
@@ -359,59 +349,53 @@ template <typename T> class Async {
     T const& unsafe_value_ref() const
     {
       DEBUG_CHECK(queue_);
-      ensure_default_value();
-      return *value_;
+      return *require_value();
     }
     T& unsafe_value_ref()
     {
       DEBUG_CHECK(queue_);
-      ensure_default_value();
-      return *value_;
+      return *require_value();
     }
 
     /// \brief Inspect the shared implementation block.
     /// \return Access to underlying implementation (shared with buffers).
     /// \ingroup async_api
     std::shared_ptr<EpochQueue> const& queue() const { return queue_; }
-    std::shared_ptr<T> const& value_ptr() const { return value_; }
+    std::shared_ptr<detail::StorageBuffer<T>> const& storage_ptr() const { return storage_; }
+
+    /// \brief Access the stored value pointer with shared ownership semantics.
+    ///
+    /// The returned pointer aliases the StorageBuffer control block so that the
+    /// lifetime of the referenced value is tied to the same shared ownership as
+    /// the Async container itself.
+    std::shared_ptr<T> value_ptr() const
+    {
+      if (!storage_) return {};
+      return std::shared_ptr<T>(storage_, storage_->get());
+    }
 
   private:
-    T* ensure_default_value() const
+    bool initial_value_initialized() const noexcept
     {
-      if (auto* cached = value_ptr_cache_.load(std::memory_order_acquire)) return cached;
+      return (storage_ && storage_->constructed()) || (!control_owner_ && std::is_default_constructible_v<T>);
+    }
 
-      if constexpr (!std::is_default_constructible_v<T>)
+    T* try_get_value() const
+    {
+      if (!storage_) throw std::logic_error("Async storage missing");
+      if (auto* cached = storage_->get()) return cached;
+
+      if constexpr (std::is_default_constructible_v<T>)
       {
-        if (auto* existing = value_.get())
-        {
-          cache_value_pointer(existing);
-          return existing;
-        }
-        throw std::logic_error("Async value requires initialization before access");
+        if (!control_owner_) return storage_->ensure_default();
       }
-      else
-      {
-        std::call_once(*default_value_once_, [this]() {
-          if (auto* existing = value_.get())
-          {
-            cache_value_pointer(existing);
-            return;
-          }
+      return nullptr;
+    }
 
-          if (auto* initialized = detail::construct_deferred(value_))
-          {
-            auto owner = value_;
-            if (!value_.get()) value_ = std::shared_ptr<T>(owner, initialized);
-            cache_value_pointer(value_.get());
-            return;
-          }
-
-          value_ = std::make_shared<T>();
-          cache_value_pointer(value_.get());
-        });
-
-        return value_ptr_cache_.load(std::memory_order_acquire);
-      }
+    T* require_value() const
+    {
+      if (auto* ptr = try_get_value()) return ptr;
+      throw std::logic_error("Async value requires initialization before access");
     }
 
     // Add a new epoch to the front of the queue; used by ReverseValue for reverse mode autodifferentiation
@@ -422,21 +406,15 @@ template <typename T> class Async {
     {
       DEBUG_TRACE_MODULE(ASYNC, "Prepending epoch!");
       DEBUG_CHECK(queue_);
-      ensure_default_value();
-      return queue_->prepend_epoch(value_, queue_);
+      require_value();
+      return queue_->prepend_epoch(storage_, queue_);
     }
 
     friend class ReverseValue<T>;
 
-    void cache_value_pointer(T* ptr) const noexcept
-    {
-      value_ptr_cache_.store(ptr, std::memory_order_release);
-    }
-
-    mutable std::shared_ptr<T> value_;
+    mutable std::shared_ptr<detail::StorageBuffer<T>> storage_;
     std::shared_ptr<EpochQueue> queue_;
-    mutable std::atomic<T*> value_ptr_cache_{nullptr};
-    mutable std::shared_ptr<std::once_flag> default_value_once_{std::make_shared<std::once_flag>()};
+    std::shared_ptr<void> control_owner_{};
 };
 
 /// \brief Convenience helper that forwards to Async<T>::read().
