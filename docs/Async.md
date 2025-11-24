@@ -6,11 +6,17 @@ references by focusing on how values, tasks, and cancellation interact.
 ## Core containers
 
 ### Async<T>
-- A move-only wrapper around a value of type `T` that coordinates access through `EpochQueue`.
+- A wrapper around a value of type `T` that coordinates access through `EpochQueue`.
 - Construction options:
   - Default construction leaves the value uninitialized but ready for queued reads/writes.
   - In-place construction (`Async<T>{std::in_place, ...}`) forwards arguments to the stored `T`.
   - Deferred construction via `async::deferred` keeps the control block alive while delaying pointer installation.
+- Copy construction schedules a copy of the value rather than cloning the async timeline:
+  - `Async(const Async&)` creates a fresh storage buffer and epoch queue, then enqueues an asynchronous read of the
+    source value followed by a write into the new instance's initial epoch.
+  - The copy does **not** duplicate epoch histories, coroutine handles, or other stateful dependencies; ownership of
+    storage is not shared between the two instances.
+  - Use `async_assign` when you want to explicitly schedule the copy of an `Async<T>`'s value.
 - Access patterns:
   - `read()`, `mutate()`, and `write()` yield awaitable buffers that coordinate through epochs to maintain
     writer→reader ordering.
