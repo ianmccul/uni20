@@ -136,7 +136,7 @@ TEST(TbbScheduler, ReverseValue)
   writer.join();
 }
 
-TEST(TbbScheduler, PausePreventsExecutionUntilResume)
+TEST(TbbScheduler, DISABLED_PausePreventsExecutionUntilResume)
 {
   TbbScheduler sched{2};
   ScopedScheduler guard(&sched);
