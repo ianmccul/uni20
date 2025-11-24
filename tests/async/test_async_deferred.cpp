@@ -3,9 +3,9 @@
 #include "async/debug_scheduler.hpp"
 #include <gtest/gtest.h>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
 
 using namespace uni20;
 using namespace uni20::async;
@@ -59,38 +59,57 @@ namespace
 
 struct TrackingView
 {
-  TrackingView(std::shared_ptr<std::vector<std::string>> log, int const* ptr, int id)
-      : log_(std::move(log)), ptr_(ptr), id_(id)
-  {
-    log_->push_back("construct " + std::to_string(id_));
-  }
+    TrackingView(std::shared_ptr<std::vector<std::string>> log, int const* ptr, int id)
+        : log_(std::move(log)), ptr_(ptr), id_(id)
+    {
+      log_->push_back("construct " + std::to_string(id_));
+    }
 
-  TrackingView(TrackingView const& other)
-      : log_(other.log_), ptr_(other.ptr_), id_(other.id_)
-  {
-    log_->push_back("copy " + std::to_string(id_));
-  }
+    TrackingView(TrackingView const& other) : log_(other.log_), ptr_(other.ptr_), id_(other.id_)
+    {
+      log_->push_back("copy " + std::to_string(id_));
+    }
 
-  TrackingView(TrackingView&& other) noexcept
-      : log_(std::move(other.log_)), ptr_(other.ptr_), id_(other.id_)
-  {
-    log_->push_back("move " + std::to_string(id_));
-  }
+    TrackingView(TrackingView&& other) noexcept : log_(std::move(other.log_)), ptr_(other.ptr_), id_(other.id_)
+    {
+      log_->push_back("move " + std::to_string(id_));
+    }
 
-  ~TrackingView()
-  {
-    log_->push_back("destroy " + std::to_string(id_));
-  }
+    ~TrackingView() { log_->push_back("destroy " + std::to_string(id_)); }
 
-  int value() const { return *ptr_; }
+    int value() const { return *ptr_; }
 
-private:
-  std::shared_ptr<std::vector<std::string>> log_;
-  int const* ptr_;
-  int id_;
+  private:
+    std::shared_ptr<std::vector<std::string>> log_;
+    int const* ptr_;
+    int id_;
 };
 
-}  // namespace
+struct MutableTrackingView
+{
+    MutableTrackingView(std::shared_ptr<std::vector<std::string>> log, int* ptr, int id)
+        : log_(std::move(log)), ptr_(ptr), id_(id)
+    {
+      log_->push_back("construct " + std::to_string(id_));
+    }
+
+    ~MutableTrackingView() { log_->push_back("destroy " + std::to_string(id_)); }
+
+    void set_value(int value) const
+    {
+      log_->push_back("mutate");
+      *ptr_ = value;
+    }
+
+    int value() const { return *ptr_; }
+
+  private:
+    std::shared_ptr<std::vector<std::string>> log_;
+    int* ptr_;
+    int id_;
+};
+
+} // namespace
 
 TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
 {
@@ -106,21 +125,24 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
   {
     Async<TrackingView> view(deferred, data);
 
-    sched.schedule([](WriteBuffer<std::vector<int>> b, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
-      log->push_back("write start");
-      auto& writer = co_await b;
-      writer[0] = 7;
-      log->push_back("write done");
-    }(data.write(), log));
+    sched.schedule(
+        [](WriteBuffer<std::vector<int>> b, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+          log->push_back("write start");
+          auto& writer = co_await b;
+          writer[0] = 7;
+          log->push_back("write done");
+        }(data.write(), log));
 
-    sched.schedule([](ReadBuffer<std::vector<int>> r, EmplaceBuffer<TrackingView> v, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+    sched.schedule([](ReadBuffer<std::vector<int>> r, EmplaceBuffer<TrackingView> v,
+                      std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
       auto const& vec = co_await r;
       auto view_log = log;
       co_await std::move(v)(std::move(view_log), vec.data(), 1);
       log->push_back("emplace done");
     }(data.read(), view.emplace(), log));
 
-    sched.schedule([](ReadBuffer<TrackingView> r, int& result, std::shared_ptr<std::vector<std::string>> log, WriteBuffer<bool> ready_signal) static->AsyncTask {
+    sched.schedule([](ReadBuffer<TrackingView> r, int& result, std::shared_ptr<std::vector<std::string>> log,
+                      WriteBuffer<bool> ready_signal) static->AsyncTask {
       auto const& view = co_await r;
       result = view.value();
       log->push_back("consume");
@@ -128,7 +150,8 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
       ready = true;
     }(view.read(), observed_value, log, view_consumed.write()));
 
-    sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+    sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b,
+                      std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
       co_await ready;
       log->push_back("post-write start");
       auto& writer = co_await b;
@@ -139,16 +162,60 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
     sched.run_all();
   }
 
-  std::vector<std::string> expected{
-      "write start",
-      "write done",
-      "construct 1",
-      "emplace done",
-      "consume",
-      "post-write start",
-      "post-write done",
-      "destroy 1"};
+  std::vector<std::string> expected{"write start", "write done",       "construct 1",     "emplace done",
+                                    "consume",     "post-write start", "post-write done", "destroy 1"};
 
   EXPECT_EQ(observed_value, 7);
+  EXPECT_EQ(*log, expected);
+}
+
+TEST(AsyncDeferredTest, MutableViewCanModifyUnderlyingData)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  auto log = std::make_shared<std::vector<std::string>>();
+  Async<bool> view_consumed(false);
+
+  Async<std::vector<int>> data(std::vector<int>{4, 5, 6});
+  int observed_value = 0;
+
+  {
+    Async<MutableTrackingView> view(deferred, data);
+
+    sched.schedule([](WriteBuffer<std::vector<int>> b, EmplaceBuffer<MutableTrackingView> v,
+                      std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+      log->push_back("emplace start");
+      auto& vec = co_await b;
+      auto view_log = log;
+      co_await std::move(v)(std::move(view_log), vec.data(), 2);
+      log->push_back("emplace done");
+    }(data.write(), view.emplace(), log));
+
+    sched.schedule([](ReadBuffer<MutableTrackingView> r, int& observed, std::shared_ptr<std::vector<std::string>> log,
+                      WriteBuffer<bool> ready) static->AsyncTask {
+      auto const& view = co_await r;
+      view.set_value(11);
+      observed = view.value();
+      log->push_back("consume");
+      auto& ready_flag = co_await ready;
+      ready_flag = true;
+    }(view.read(), observed_value, log, view_consumed.write()));
+
+    sched.schedule([](ReadBuffer<bool> ready, ReadBuffer<std::vector<int>> data_view,
+                      std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+      co_await ready;
+      auto const& vec = co_await data_view;
+      log->push_back("post-read");
+      EXPECT_EQ(vec[0], 11);
+    }(view_consumed.read(), data.read(), log));
+
+    sched.run_all();
+  }
+
+  std::vector<std::string> expected{"emplace start", "construct 2", "emplace done", "mutate",
+                                    "consume",       "post-read",   "destroy 2"};
+
+  EXPECT_EQ(observed_value, 11);
   EXPECT_EQ(*log, expected);
 }
