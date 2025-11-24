@@ -253,7 +253,8 @@ TEST(TbbScheduler, StressConcurrentProducers)
 
 TEST(TbbScheduler, DualBackpropStress)
 {
-  DebugScheduler sched; //{4};
+  // DebugScheduler sched; //{4};
+  TbbScheduler sched{4};
   ScopedScheduler guard(&sched);
 
   double const base_value = 0.375;

@@ -56,6 +56,7 @@ template <typename T> class Dual {
 
     Dual& operator=(Dual& other)
     {
+      grad = ReverseValue<T>{};
       other.grad += grad.input();
       value = other.value;
       return *this;
