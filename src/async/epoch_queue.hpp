@@ -68,13 +68,14 @@ class EpochQueue {
     /// \return A new EpochContextReader<T> bound to the back of the queue.
     /// \ingroup async_core
     template <typename T>
-    EpochContextReader<T> create_read_context(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& self)
+    EpochContextReader<T> create_read_context(std::shared_ptr<detail::StorageBuffer<T>> const& storage,
+                                             std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
       CHECK(bootstrapped_, "EpochQueue must be initialized before use");
       ensure_initial_epoch_locked();
       CHECK(tail_, "EpochQueue must retain a tail epoch");
-      return EpochContextReader<T>(value, self, &tail_->ctx);
+      return EpochContextReader<T>(storage, self, &tail_->ctx);
     }
 
     /// \brief Check if there are pending writers ahead of reads.
@@ -94,7 +95,8 @@ class EpochQueue {
     /// \return A new EpochContextWriter<T> bound to the back of the queue.
     /// \ingroup async_core
     template <typename T>
-    EpochContextWriter<T> create_write_context(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& self)
+    EpochContextWriter<T> create_write_context(std::shared_ptr<detail::StorageBuffer<T>> const& storage,
+                                              std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
 
@@ -105,7 +107,7 @@ class EpochQueue {
       if (initial_writer_pending_ && !tail_->ctx.writer_is_done())
       {
         initial_writer_pending_ = false;
-        return EpochContextWriter<T>(value, self, &tail_->ctx);
+        return EpochContextWriter<T>(storage, self, &tail_->ctx);
       }
 
       auto new_node = std::make_unique<Node>(&tail_->ctx, /*writer_already_done=*/false);
@@ -114,7 +116,7 @@ class EpochQueue {
       tail_->next = std::move(new_node);
       tail_ = new_tail;
       prune_front_locked();
-      return EpochContextWriter<T>(value, self, &tail_->ctx);
+      return EpochContextWriter<T>(storage, self, &tail_->ctx);
     }
 
     /// \brief Prepend a new epoch to the front of the queue.
@@ -133,7 +135,8 @@ class EpochQueue {
     /// \return Writer/reader handles for the new epoch.
     /// \ingroup async_core
     template <typename T>
-    EpochPair<T> prepend_epoch(std::shared_ptr<T> const& value, std::shared_ptr<EpochQueue> const& self)
+    EpochPair<T> prepend_epoch(std::shared_ptr<detail::StorageBuffer<T>> const& storage,
+                               std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
       CHECK(bootstrapped_, "EpochQueue must be initialized before use");
@@ -151,7 +154,7 @@ class EpochQueue {
         head_ = std::move(new_node);
         if (!tail_) tail_ = head_.get();
       }
-      return {EpochContextWriter<T>(value, self, &head_->ctx), EpochContextReader<T>(value, self, &head_->ctx)};
+      return {EpochContextWriter<T>(storage, self, &head_->ctx), EpochContextReader<T>(storage, self, &head_->ctx)};
     }
 
     /// \brief Called when a writer coroutine is bound to its epoch.
@@ -456,11 +459,13 @@ template <typename T> inline void EpochContextWriter<T>::suspend(AsyncTask&& t)
 
 template <typename T> inline T& EpochContextWriter<T>::data() const noexcept
 {
-  DEBUG_PRECONDITION(value_);                     // the value must exist
+  DEBUG_PRECONDITION(storage_);                   // the value must exist
   DEBUG_PRECONDITION(queue_->is_front(epoch_));   // we must be at the front of the queue
   DEBUG_PRECONDITION(!epoch_->writer_is_done());  // writer still holds the gate
   accessed_ = true;
-  return *value_;
+  auto* ptr = storage_->get();
+  DEBUG_CHECK(ptr);
+  return *ptr;
 }
 
 template <typename T> inline void EpochContextWriter<T>::release() noexcept
