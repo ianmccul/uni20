@@ -12,6 +12,13 @@
 namespace uni20
 {
 
+/// \brief Owning tensor that allocates storage and exposes mdspan-based access.
+/// \ingroup tensor
+/// \tparam ElementType Value type stored by the tensor.
+/// \tparam Extents Extents type describing the tensor shape.
+/// \tparam StoragePolicy Policy controlling ownership and allocation of the buffer.
+/// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
+/// \tparam AccessorFactory Factory that produces accessors for the storage handle.
 template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
           typename LayoutPolicy = stdex::layout_stride,
           typename AccessorFactory = DefaultAccessorFactory>
@@ -41,13 +48,22 @@ class BasicTensor
     using base_type::mdspan;
     using base_type::mutable_mdspan;
 
+    /// \brief Default-construct an empty tensor without allocated storage.
     BasicTensor() = default;
 
+    /// \brief Construct a tensor with default layout and accessor factory.
+    /// \param exts Extents that describe the tensor shape.
+    /// \param accessor_factory Factory used to create the accessor for the storage handle.
     explicit BasicTensor(extents_type const& exts, accessor_factory_type accessor_factory = accessor_factory_type{})
         : BasicTensor(internal_tag{},
                       make_payload(make_default_mapping(exts), std::move(accessor_factory)))
     {}
 
+    /// \brief Construct a tensor using a custom mapping builder.
+    /// \tparam MappingBuilder Callable that returns a mapping compatible with the layout policy.
+    /// \param exts Extents that describe the tensor shape.
+    /// \param mapping_builder Builder used to derive the mapping from the extents.
+    /// \param accessor_factory Factory used to create the accessor for the storage handle.
     template <typename MappingBuilder>
       requires(layout::mapping_builder_for<MappingBuilder, layout_policy, extents_type> &&
                (!std::same_as<std::remove_cvref_t<MappingBuilder>, accessor_factory_type>))
@@ -58,26 +74,41 @@ class BasicTensor
                                    std::move(accessor_factory)))
     {}
 
+    /// \brief Construct a tensor from explicit extents and strides.
+    /// \param exts Extents that describe the tensor shape.
+    /// \param strides Stride specification per dimension for the layout mapping.
+    /// \param accessor_factory Factory used to create the accessor for the storage handle.
     explicit BasicTensor(extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
                          accessor_factory_type accessor_factory = accessor_factory_type{})
         : BasicTensor(internal_tag{}, make_payload(mapping_type{exts, strides}, std::move(accessor_factory)))
     {}
 
+    /// \brief Access the owned storage container.
+    /// \return Mutable reference to the underlying storage.
     storage_type& storage() noexcept { return data_; }
+
+    /// \brief Access the owned storage container.
+    /// \return Constant reference to the underlying storage.
     storage_type const& storage() const noexcept { return data_; }
 
+    /// \brief Create a mutable tensor view referencing the owned storage.
+    /// \return TensorView exposing mutable element access with the current mapping and accessor.
     auto view() noexcept -> TensorView<element_type, traits_type>
     {
       return TensorView<element_type, traits_type>(storage_policy::make_handle(data_), this->mapping(),
                                                    this->accessor());
     }
 
+    /// \brief Create a const tensor view referencing the owned storage.
+    /// \return TensorView exposing read-only access with the current mapping and accessor.
     auto view() const noexcept -> TensorView<element_type const, const_traits>
     {
       return TensorView<element_type const, const_traits>(
           storage_policy::make_handle(const_cast<storage_type&>(data_)), this->mapping(), this->accessor());
     }
 
+    /// \brief Create a const tensor view alias for readability.
+    /// \return TensorView exposing read-only access with the current mapping and accessor.
     auto const_view() const noexcept -> TensorView<element_type const, const_traits>
     {
       return view();

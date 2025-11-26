@@ -32,9 +32,10 @@ class TbbScheduler final : public IScheduler {
     /// \brief Construct a TBB scheduler with a given number of worker threads.
     /// \param threads Number of threads. Use task_arena::automatic for default.
     explicit TbbScheduler(int threads = oneapi::tbb::task_arena::automatic)
-        : arena_(threads, /*reserved_for_masters=*/0), paused_(false)
+        : arena_(threads, /*reserved_for_masters=*/1), paused_(false)
     {
-      arena_.initialize(threads, /*reserved_for_masters=*/0);
+      // arena_.initialize(threads, /*reserved_for_masters=*/0);
+      // fmt::print("Arena concurrency = {}, nthreads={}\n", arena_.max_concurrency(), threads);
     }
 
     /// \brief Construct a TBB scheduler constrained to a specific NUMA node.
@@ -42,13 +43,13 @@ class TbbScheduler final : public IScheduler {
     /// \param threads Number of threads. Use task_arena::automatic for default.
     explicit TbbScheduler(oneapi::tbb::task_arena::constraints constraints,
                           int threads = oneapi::tbb::task_arena::automatic)
-        : arena_(constraints, /*reserved_for_masters=*/0), paused_(false)
+        : arena_(constraints, /*reserved_for_masters=*/1), paused_(false)
     {
-      if (threads != oneapi::tbb::task_arena::automatic)
-      {
-        constraints.set_max_concurrency(threads);
-      }
-      arena_.initialize(constraints, /*reserved_for_masters=*/0);
+      // if (threads != oneapi::tbb::task_arena::automatic)
+      // {
+      //   constraints.set_max_concurrency(threads);
+      // }
+      // arena_.initialize(constraints, /*reserved_for_masters=*/0);
     }
 
     ~TbbScheduler() noexcept override
@@ -136,10 +137,10 @@ class TbbScheduler final : public IScheduler {
     struct DebugCounters
     {
 #if UNI20_ASYNC_DEBUG
-      uint64_t enqueued;
-      uint64_t paused_enqueues;
-      uint64_t dispatches;
-      uint64_t drained_on_resume;
+        uint64_t enqueued;
+        uint64_t paused_enqueues;
+        uint64_t dispatches;
+        uint64_t drained_on_resume;
 #endif
     };
 
@@ -159,8 +160,8 @@ class TbbScheduler final : public IScheduler {
     {
 #if UNI20_ASYNC_DEBUG
       auto const snapshot = this->counters();
-      TRACE_MODULE(ASYNC, label ? label : "tbb_scheduler", snapshot.enqueued, snapshot.paused_enqueues, snapshot.dispatches,
-                   snapshot.drained_on_resume);
+      TRACE_MODULE(ASYNC, label ? label : "tbb_scheduler", snapshot.enqueued, snapshot.paused_enqueues,
+                   snapshot.dispatches, snapshot.drained_on_resume);
 #else
       (void)label;
 #endif
