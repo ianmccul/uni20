@@ -6,6 +6,9 @@
 using namespace uni20;
 using namespace uni20::async;
 
+// These tests check the coroutine cancel behavior, making sure that
+// local variables of the coroutine are destroyed.
+
 struct DestructionObserver
 {
     bool* destroyed_;
@@ -77,8 +80,6 @@ TEST(AsyncDestroyTest, DestroyNewReader)
   EXPECT_EQ(was_destroyed, true);
 }
 
-#if 0
-
 // This test is currently disabled. Arguiably, writer_require() should be transitive: if a writer is required at epoch
 // n, but there is no writer, and also no writer a a subsequent epoch n+1, then readers at epoch n+1 should also
 // cancel.
@@ -101,25 +102,21 @@ TEST(AsyncDestroyTest, DestroySubsequentReader)
     co_return;
   };
 
-  {
-    WriteBuffer<int> wb = result.write();
-    wb.writer_require();
-    // do not run the scheduler yet
-  }
-  // when wb goes out of scope, this marks the EpochContext as cancelled
+  // get a write buffer.  when wb goes out of scope, this marks the EpochContext as cancelled
+  (void)result.write();
+
   EXPECT_EQ(was_destroyed1, false);
 
   // Now schedule a new reader; this should appear in the same Epoch
   schedule(Reader(result.read(), &was_destroyed1));
 
-  // Now get another writer; this forces another epoch
-  (void)result.write();
+  // Now get another writer; this forces another epoch.
+  (void)result.mutate();
   // Now schedule another reader; this should inherit the writer_require() flag from the previous epoch
   schedule(Reader(result.read(), &was_destroyed2));
 
   // so when we finally run the scheduler, both coroutines should get destroyed
-  sched.run();
+  sched.run_all();
   EXPECT_EQ(was_destroyed1, true);
   EXPECT_EQ(was_destroyed2, true);
 }
-#endif
