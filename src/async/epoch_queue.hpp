@@ -5,7 +5,7 @@
 #pragma once
 
 #include "common/trace.hpp"
-#include "epoch_context.hpp"
+#include "epoch_context_decl.hpp"
 #include <atomic>
 #include <deque>
 #include <memory>
@@ -113,7 +113,12 @@ class EpochQueue {
       tail_->next = new_node;
       nodes_.push_back(new_node);
       tail_ = std::move(new_node);
-      prune_front_locked();
+
+      // we need to prune here, since otherwise we deadlock with no tasks running.  Presumably, what
+      // happens is there is no mechanism to reschedule the task as the front of the queue is an empty
+      // context.
+      this->prune_front_locked();
+
       return EpochContextWriter<T>(storage, self, tail_->state);
     }
 
@@ -258,7 +263,7 @@ class EpochQueue {
         else if (state->ctx.reader_is_empty() && head_ && nodes_.size() > 1)
         {
           bool writer_required = state->ctx.writer_is_required();
-          pop_front_locked();
+          this->pop_front_locked();
           if (head_ && writer_required) head_->state->ctx.writer_require();
           lock.unlock();
           advance();
@@ -284,22 +289,26 @@ class EpochQueue {
     /// \param state Epoch whose final reader has been released.
     /// \note It is possible for all readers to be released before the writer is fired if a ReadBuffer is destroyed
     ///       or released before await_suspend() occurs.
+    /// \note We need to check state->ctx.reader_is_empty() after acquiring the lock, to avoid a race condition where
+    ///       this epoch is current and another reader gets added.
     /// \ingroup async_core
     void on_all_readers_released(std::shared_ptr<EpochState> const& state) noexcept
     {
-      DEBUG_CHECK(state->ctx.reader_is_empty());
       std::unique_lock lock(mtx_);
-      TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch");
-      //  Only pop if this is the front epoch and fully done, and there are other epochs waiting
-      if (!head_ || head_->state.get() != state.get() || !state->ctx.writer_is_done() || nodes_.size() < 2)
+      if (state->ctx.reader_is_empty())
       {
-        return;
+        TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch");
+        //  Only pop if this is the front epoch and fully done, and there are other epochs waiting
+        if (!head_ || head_->state.get() != state.get() || !state->ctx.writer_is_done() || nodes_.size() < 2)
+        {
+          return;
+        }
+        bool writer_required = state->ctx.writer_is_required();
+        this->pop_front_locked();
+        if (head_ && writer_required) head_->state->ctx.writer_require();
+        lock.unlock();
+        this->advance();
       }
-      bool writer_required = state->ctx.writer_is_required();
-      pop_front_locked();
-      if (head_ && writer_required) head_->state->ctx.writer_require();
-      lock.unlock();
-      this->advance();
     }
 
     /// \brief Check if a given epoch is at the front of the queue.
@@ -362,7 +371,7 @@ class EpochQueue {
           if (e->writer_is_done() && e->reader_is_empty() && head_ && nodes_.size() > 1)
           {
             bool writer_required = e->writer_is_required();
-            pop_front_locked();
+            this->pop_front_locked();
             if (head_ && writer_required) head_->state->ctx.writer_require();
 
             continue;
@@ -380,7 +389,7 @@ class EpochQueue {
       while (head_ && head_->state->ctx.writer_is_done() && head_->state->ctx.reader_is_empty() && nodes_.size() > 1)
       {
         bool writer_required = head_->state->ctx.writer_is_required();
-        pop_front_locked();
+        this->pop_front_locked();
         if (head_ && writer_required) head_->state->ctx.writer_require();
       }
     }
@@ -442,82 +451,5 @@ class EpochQueue {
     NodeInfo const* node_ = nullptr;
 #endif
 };
-
-#if UNI20_DEBUG_DAG
-template <typename T> inline NodeInfo const* EpochContextReader<T>::node() const
-{
-  return queue_ ? queue_->node() : nullptr;
-}
-#endif
-
-template <typename T> inline void EpochContextReader<T>::suspend(AsyncTask&& t)
-{
-  TRACE_MODULE(ASYNC, "suspend", &t, epoch_.get());
-  DEBUG_PRECONDITION(epoch_);
-  queue_->enqueue_reader(epoch_, std::move(t));
-}
-
-template <typename T> inline bool EpochContextReader<T>::is_front() const noexcept
-{
-  DEBUG_PRECONDITION(epoch_, this);
-  return queue_->is_front(epoch_.get());
-}
-
-template <typename T> inline void EpochContextReader<T>::release() noexcept
-{
-  if (epoch_)
-  {
-    if (epoch_->ctx.reader_release()) queue_->on_all_readers_released(epoch_);
-    epoch_.reset();
-  }
-}
-
-#if UNI20_DEBUG_DAG
-template <typename T> inline NodeInfo const* EpochContextWriter<T>::node() const
-{
-  return queue_ ? queue_->node() : nullptr;
-}
-#endif
-
-template <typename T> inline bool EpochContextWriter<T>::ready() const noexcept
-{
-  DEBUG_PRECONDITION(epoch_);
-  return queue_->is_front(epoch_.get());
-}
-
-template <typename T> inline void EpochContextWriter<T>::suspend(AsyncTask&& t)
-{
-  DEBUG_PRECONDITION(epoch_);
-  TRACE_MODULE(ASYNC, "suspend", &t, epoch_.get(), epoch_->ctx.counter_);
-  epoch_->ctx.writer_bind(std::move(t));
-  queue_->on_writer_bound(epoch_);
-}
-
-template <typename T> inline T& EpochContextWriter<T>::data() const noexcept
-{
-  DEBUG_PRECONDITION(storage_);                       // the value must exist
-  DEBUG_PRECONDITION(queue_->is_front(epoch_.get())); // we must be at the front of the queue
-  DEBUG_PRECONDITION(!epoch_->ctx.writer_is_done());  // writer still holds the gate
-  accessed_ = true;
-  auto* ptr = storage_->get();
-  DEBUG_CHECK(ptr);
-  return *ptr;
-}
-
-template <typename T> inline void EpochContextWriter<T>::release() noexcept
-{
-  if (epoch_)
-  {
-    if (accessed_ && !marked_written_)
-    {
-      epoch_->ctx.writer_has_written();
-      marked_written_ = true;
-    }
-    if (epoch_->ctx.writer_release()) queue_->on_writer_done(epoch_);
-    epoch_.reset();
-    accessed_ = false;
-    marked_written_ = false;
-  }
-}
 
 } // namespace uni20::async
