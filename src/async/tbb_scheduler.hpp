@@ -93,9 +93,6 @@ class TbbScheduler final : public IScheduler {
         AsyncTask::handle_type h;
         while (queue_.try_pop(h))
         {
-#if UNI20_ASYNC_DEBUG
-          drained_on_resume_.fetch_add(1, std::memory_order_relaxed);
-#endif
           drained.push_back(h);
         }
       }
@@ -134,52 +131,13 @@ class TbbScheduler final : public IScheduler {
     void reschedule(AsyncTask&& t) override { this->enqueue_task(std::move(t)); }
 
   private:
-    struct DebugCounters
-    {
-#if UNI20_ASYNC_DEBUG
-        uint64_t enqueued;
-        uint64_t paused_enqueues;
-        uint64_t dispatches;
-        uint64_t drained_on_resume;
-#endif
-    };
-
-    DebugCounters counters() const noexcept
-    {
-#if UNI20_ASYNC_DEBUG
-      return DebugCounters{.enqueued = enqueued_.load(std::memory_order_relaxed),
-                           .paused_enqueues = paused_enqueues_.load(std::memory_order_relaxed),
-                           .dispatches = dispatches_.load(std::memory_order_relaxed),
-                           .drained_on_resume = drained_on_resume_.load(std::memory_order_relaxed)};
-#else
-      return DebugCounters{};
-#endif
-    }
-
-    void trace_counters(char const* label = nullptr) const noexcept
-    {
-#if UNI20_ASYNC_DEBUG
-      auto const snapshot = this->counters();
-      TRACE_MODULE(ASYNC, label ? label : "tbb_scheduler", snapshot.enqueued, snapshot.paused_enqueues,
-                   snapshot.dispatches, snapshot.drained_on_resume);
-#else
-      (void)label;
-#endif
-    }
-
     void enqueue_task(AsyncTask&& t)
     {
       if (auto h = t.release_handle())
       {
-#if UNI20_ASYNC_DEBUG
-        enqueued_.fetch_add(1, std::memory_order_relaxed);
-#endif
         bool paused = paused_.load(std::memory_order_acquire);
         if (paused)
         {
-#if UNI20_ASYNC_DEBUG
-          paused_enqueues_.fetch_add(1, std::memory_order_relaxed);
-#endif
           queue_.push(h);
         }
         else
@@ -188,9 +146,6 @@ class TbbScheduler final : public IScheduler {
             std::scoped_lock lock(pause_mutex_);
             if (paused_.load(std::memory_order_acquire))
             {
-#if UNI20_ASYNC_DEBUG
-              paused_enqueues_.fetch_add(1, std::memory_order_relaxed);
-#endif
               queue_.push(h);
               return;
             }
@@ -203,9 +158,6 @@ class TbbScheduler final : public IScheduler {
 
     void dispatch_handle(AsyncTask::handle_type h)
     {
-#if UNI20_ASYNC_DEBUG
-      dispatches_.fetch_add(1, std::memory_order_relaxed);
-#endif
       arena_.execute([this, h]() {
         tg_.run([this, h]() {
           TRACE_MODULE(ASYNC, "resuming coroutine", h);
@@ -230,12 +182,6 @@ class TbbScheduler final : public IScheduler {
     oneapi::tbb::concurrent_queue<AsyncTask::handle_type> queue_;
     std::condition_variable wait_cv_;
     std::mutex wait_mutex_;
-#if UNI20_ASYNC_DEBUG
-    std::atomic<uint64_t> enqueued_{0};
-    std::atomic<uint64_t> paused_enqueues_{0};
-    std::atomic<uint64_t> dispatches_{0};
-    std::atomic<uint64_t> drained_on_resume_{0};
-#endif
     // FIXME: the concurrent_queue is overkill here, since we don't need to preserve order of tasks
 };
 

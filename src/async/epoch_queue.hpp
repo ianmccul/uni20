@@ -6,8 +6,8 @@
 
 #include "common/trace.hpp"
 #include "epoch_context.hpp"
-#include <deque>
 #include <atomic>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -28,22 +28,6 @@ class EpochQueue {
     };
 
   public:
-    struct DebugCounters
-    {
-#if UNI20_ASYNC_DEBUG
-      uint64_t advance_calls;
-      uint64_t advance_iterations;
-      uint64_t writer_dispatches;
-      uint64_t reader_reschedules;
-      uint64_t reader_enqueues;
-      uint64_t ready_immediate;
-      uint64_t writer_done_notifications;
-      uint64_t reader_release_notifications;
-      uint64_t writer_bound_notifications;
-      uint64_t popped_epochs;
-#endif
-    };
-
     /// \brief Default-construct an empty epoch queue.
     /// \ingroup async_core
     EpochQueue() = default;
@@ -82,7 +66,7 @@ class EpochQueue {
     /// \ingroup async_core
     template <typename T>
     EpochContextReader<T> create_read_context(std::shared_ptr<detail::StorageBuffer<T>> const& storage,
-                                             std::shared_ptr<EpochQueue> const& self)
+                                              std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
       CHECK(bootstrapped_, "EpochQueue must be initialized before use");
@@ -109,7 +93,7 @@ class EpochQueue {
     /// \ingroup async_core
     template <typename T>
     EpochContextWriter<T> create_write_context(std::shared_ptr<detail::StorageBuffer<T>> const& storage,
-                                              std::shared_ptr<EpochQueue> const& self)
+                                               std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
 
@@ -179,9 +163,6 @@ class EpochQueue {
     /// \ingroup async_core
     void on_writer_bound(std::shared_ptr<EpochState> const& state) noexcept
     {
-#if UNI20_ASYNC_DEBUG
-      writer_bound_notifications_.fetch_add(1, std::memory_order_relaxed);
-#endif
       std::unique_lock lock(mtx_);
       if (head_ && state.get() == head_->state.get())
       {
@@ -194,7 +175,8 @@ class EpochQueue {
       }
       else
       {
-        TRACE_MODULE(ASYNC, "Writer bound to non-front epoch, deferring", state.get(), head_ ? head_->state.get() : nullptr);
+        TRACE_MODULE(ASYNC, "Writer bound to non-front epoch, deferring", state.get(),
+                     head_ ? head_->state.get() : nullptr);
       }
     }
 
@@ -210,9 +192,6 @@ class EpochQueue {
     /// \ingroup async_core
     void enqueue_reader(std::shared_ptr<EpochState> const& state, AsyncTask&& task)
     {
-#if UNI20_ASYNC_DEBUG
-      reader_enqueues_.fetch_add(1, std::memory_order_relaxed);
-#endif
       std::vector<AsyncTask> ready_readers;
       bool maybe_cancel = false;
       bool scheduled_now = false;
@@ -222,17 +201,12 @@ class EpochQueue {
         bool const at_front = head_ && state.get() == head_->state.get();
         bool const ready = at_front && state->ctx.reader_is_ready();
 
-        TRACE_MODULE(ASYNC, "enqueue_reader", state.get(), at_front, ready, state->ctx.debug_snapshot().created_readers,
-                     state->ctx.debug_snapshot().created_writers,
-                     static_cast<int>(state->ctx.debug_snapshot().phase));
+        TRACE_MODULE(ASYNC, "enqueue_reader", state.get(), at_front, ready);
 
         state->ctx.reader_enqueue(std::move(task));
 
         if (ready)
         {
-#if UNI20_ASYNC_DEBUG
-          ready_immediate_.fetch_add(1, std::memory_order_relaxed);
-#endif
           ready_readers = state->ctx.reader_take_tasks();
           maybe_cancel = state->ctx.reader_error() && (state->ctx.reader_exception() == nullptr);
           state->ctx.enter_draining_phase();
@@ -259,9 +233,6 @@ class EpochQueue {
     /// \ingroup async_core
     void on_writer_done(std::shared_ptr<EpochState> const& state) noexcept
     {
-#if UNI20_ASYNC_DEBUG
-      writer_done_notifications_.fetch_add(1, std::memory_order_relaxed);
-#endif
       TRACE_MODULE(ASYNC, "Writer has finished", state.get(), head_ ? head_->state.get() : nullptr);
       std::vector<AsyncTask> readers;
       bool maybe_cancel = false;
@@ -269,7 +240,6 @@ class EpochQueue {
       {
         std::unique_lock lock(mtx_);
         state->ctx.enter_ready_phase();
-        state->ctx.trace_snapshot("writer_done_front?");
         if (!head_ || state.get() != head_->state.get())
         {
           lock.unlock();
@@ -302,9 +272,6 @@ class EpochQueue {
         for (auto&& task : readers)
         {
           TRACE_MODULE(ASYNC, "Rescheduling", &task);
-#if UNI20_ASYNC_DEBUG
-          reader_reschedules_.fetch_add(1, std::memory_order_relaxed);
-#endif
           if (!maybe_cancel) task.written();
           AsyncTask::reschedule(std::move(task));
         }
@@ -320,9 +287,6 @@ class EpochQueue {
     /// \ingroup async_core
     void on_all_readers_released(std::shared_ptr<EpochState> const& state) noexcept
     {
-#if UNI20_ASYNC_DEBUG
-      reader_release_notifications_.fetch_add(1, std::memory_order_relaxed);
-#endif
       DEBUG_CHECK(state->ctx.reader_is_empty());
       std::unique_lock lock(mtx_);
       TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch");
@@ -349,55 +313,13 @@ class EpochQueue {
       return head_ && state == head_->state.get();
     }
 
-    DebugCounters counters() const noexcept
-    {
-#if UNI20_ASYNC_DEBUG
-      return DebugCounters{.advance_calls = advance_calls_.load(std::memory_order_relaxed),
-                           .advance_iterations = advance_iterations_.load(std::memory_order_relaxed),
-                           .writer_dispatches = writer_dispatches_.load(std::memory_order_relaxed),
-                           .reader_reschedules = reader_reschedules_.load(std::memory_order_relaxed),
-                           .reader_enqueues = reader_enqueues_.load(std::memory_order_relaxed),
-                           .ready_immediate = ready_immediate_.load(std::memory_order_relaxed),
-                           .writer_done_notifications =
-                               writer_done_notifications_.load(std::memory_order_relaxed),
-                           .reader_release_notifications =
-                               reader_release_notifications_.load(std::memory_order_relaxed),
-                           .writer_bound_notifications =
-                               writer_bound_notifications_.load(std::memory_order_relaxed),
-                           .popped_epochs = popped_epochs_.load(std::memory_order_relaxed)};
-#else
-      return DebugCounters{};
-#endif
-    }
-
-    void trace_counters(char const* label = nullptr) const noexcept
-    {
-#if UNI20_ASYNC_DEBUG
-      auto const snapshot = this->counters();
-      TRACE_MODULE(ASYNC, label ? label : "epoch_queue", snapshot.advance_calls, snapshot.advance_iterations,
-                   snapshot.writer_dispatches, snapshot.reader_reschedules, snapshot.reader_enqueues,
-                   snapshot.ready_immediate, snapshot.writer_done_notifications, snapshot.reader_release_notifications,
-                   snapshot.writer_bound_notifications, snapshot.popped_epochs);
-#else
-      (void)label;
-#endif
-    }
-
   private:
     /// \brief Advance the queue by scheduling next writer/readers as appropriate.
     /// \ingroup internal
     void advance() noexcept
     {
-      // Counters are compiled out when UNI20_ASYNC_DEBUG is disabled.
-#if UNI20_ASYNC_DEBUG
-      advance_calls_.fetch_add(1, std::memory_order_relaxed);
-#endif
       while (true)
       {
-        // This loop may iterate multiple times; track iterations only when enabled.
-#if UNI20_ASYNC_DEBUG
-        advance_iterations_.fetch_add(1, std::memory_order_relaxed);
-#endif
         std::vector<AsyncTask> ready_readers;
         AsyncTask writer_task;
         bool maybe_cancel = false;
@@ -408,16 +330,12 @@ class EpochQueue {
           auto* e = &head_->state->ctx;
 
           TRACE_MODULE(ASYNC, e, e->writer_has_task());
-          e->trace_snapshot("advance");
 
           if (e->writer_has_task())
           {
             writer_task = e->writer_take_task();
             if (writer_task)
             {
-#if UNI20_ASYNC_DEBUG
-              writer_dispatches_.fetch_add(1, std::memory_order_relaxed);
-#endif
               lock.unlock();
               AsyncTask::reschedule(std::move(writer_task));
               return;
@@ -430,9 +348,6 @@ class EpochQueue {
             maybe_cancel = e->reader_error() && (e->reader_exception() == nullptr);
             if (!ready_readers.empty())
             {
-#if UNI20_ASYNC_DEBUG
-              reader_reschedules_.fetch_add(ready_readers.size(), std::memory_order_relaxed);
-#endif
               e->enter_draining_phase();
               lock.unlock();
               for (auto&& task : ready_readers)
@@ -447,9 +362,6 @@ class EpochQueue {
           if (e->writer_is_done() && e->reader_is_empty() && head_ && nodes_.size() > 1)
           {
             bool writer_required = e->writer_is_required();
-#if UNI20_ASYNC_DEBUG
-            popped_epochs_.fetch_add(1, std::memory_order_relaxed);
-#endif
             pop_front_locked();
             if (head_ && writer_required) head_->state->ctx.writer_require();
 
@@ -463,17 +375,14 @@ class EpochQueue {
 
     /// \brief Remove completed epochs at the front while the queue mutex is held.
     /// \ingroup internal
-  void prune_front_locked()
-  {
-    while (head_ && head_->state->ctx.writer_is_done() && head_->state->ctx.reader_is_empty() && nodes_.size() > 1)
+    void prune_front_locked()
     {
-      bool writer_required = head_->state->ctx.writer_is_required();
-#if UNI20_ASYNC_DEBUG
-      popped_epochs_.fetch_add(1, std::memory_order_relaxed);
-#endif
-      pop_front_locked();
-      if (head_ && writer_required) head_->state->ctx.writer_require();
-    }
+      while (head_ && head_->state->ctx.writer_is_done() && head_->state->ctx.reader_is_empty() && nodes_.size() > 1)
+      {
+        bool writer_required = head_->state->ctx.writer_is_required();
+        pop_front_locked();
+        if (head_ && writer_required) head_->state->ctx.writer_require();
+      }
     }
 
     /// \brief Pop the front epoch while holding the queue mutex.
@@ -505,7 +414,8 @@ class EpochQueue {
     {
       if (head_) return;
 
-      head_ = std::make_shared<Node>(std::make_shared<EpochState>(initial_value_initialized_, initial_value_initialized_));
+      head_ =
+          std::make_shared<Node>(std::make_shared<EpochState>(initial_value_initialized_, initial_value_initialized_));
       tail_ = head_;
       nodes_.push_back(head_);
 
@@ -519,25 +429,13 @@ class EpochQueue {
       }
     }
 
-    mutable std::mutex mtx_;                ///< Protects queue_.
-    std::shared_ptr<Node> head_;            ///< Head of the epoch list.
-    std::shared_ptr<Node> tail_;            ///< Tail pointer for O(1) append.
+    mutable std::mutex mtx_;     ///< Protects queue_.
+    std::shared_ptr<Node> head_; ///< Head of the epoch list.
+    std::shared_ptr<Node> tail_; ///< Tail pointer for O(1) append.
     std::deque<std::shared_ptr<Node>> nodes_;
     bool bootstrapped_ = false;             ///< True once initialize() has been called.
     bool initial_writer_pending_ = false;   ///< True if the initial epoch still expects its first writer.
     bool initial_value_initialized_ = true; ///< Tracks bootstrap initialization state.
-#if UNI20_ASYNC_DEBUG
-    std::atomic<uint64_t> advance_calls_{0};
-    std::atomic<uint64_t> advance_iterations_{0};
-    std::atomic<uint64_t> writer_dispatches_{0};
-    std::atomic<uint64_t> reader_reschedules_{0};
-    std::atomic<uint64_t> reader_enqueues_{0};
-    std::atomic<uint64_t> ready_immediate_{0};
-    std::atomic<uint64_t> writer_done_notifications_{0};
-    std::atomic<uint64_t> reader_release_notifications_{0};
-    std::atomic<uint64_t> writer_bound_notifications_{0};
-    std::atomic<uint64_t> popped_epochs_{0};
-#endif
 
 #if UNI20_DEBUG_DAG
     inline static std::atomic<uint64_t> global_counter_ = 0;
@@ -597,7 +495,7 @@ template <typename T> inline void EpochContextWriter<T>::suspend(AsyncTask&& t)
 
 template <typename T> inline T& EpochContextWriter<T>::data() const noexcept
 {
-  DEBUG_PRECONDITION(storage_);                   // the value must exist
+  DEBUG_PRECONDITION(storage_);                       // the value must exist
   DEBUG_PRECONDITION(queue_->is_front(epoch_.get())); // we must be at the front of the queue
   DEBUG_PRECONDITION(!epoch_->ctx.writer_is_done());  // writer still holds the gate
   accessed_ = true;

@@ -51,7 +51,7 @@ struct EpochState;
 /// to co_await on the buffer, or we enter an error state.
 /// The `counter_` tracks generation number for debugging.
 /// \ingroup async_core
-    class EpochContext {
+class EpochContext {
   public:
     enum class Phase
     {
@@ -59,20 +59,6 @@ struct EpochState;
       WriterRunning,
       Ready,
       Draining
-    };
-
-    struct DebugSnapshot
-    {
-      Phase phase;
-      int created_readers;
-      int created_writers;
-      bool writer_task_set;
-      bool writer_required;
-      bool writer_has_written;
-      bool value_initialized;
-      bool value_initialized_for_next;
-      EpochState* next;
-      int64_t counter;
     };
 
     EpochContext() = delete;
@@ -83,8 +69,7 @@ struct EpochState;
     /// \param initial_value_initialized Whether the initial value should be treated as initialized.
     /// \post If \p writer_already_done is true, this epoch is considered immediately readable.
     /// \ingroup async_core
-    EpochContext(EpochContext const* prev, bool writer_already_done,
-                 bool initial_value_initialized = true) noexcept
+    EpochContext(EpochContext const* prev, bool writer_already_done, bool initial_value_initialized = true) noexcept
         : eptr_(prev ? prev->eptr_ : nullptr), writer_required_(false), counter_(prev ? prev->counter_ + 1 : 0)
     {
       bool initialized = prev ? prev->value_initialized_for_next() : initial_value_initialized;
@@ -351,30 +336,6 @@ struct EpochState;
     /// \ingroup async_core
     uint64_t counter() const noexcept { return counter_; }
 
-    DebugSnapshot debug_snapshot() const noexcept
-    {
-      return DebugSnapshot{.phase = phase_.load(std::memory_order_acquire),
-                           .created_readers = created_readers_.load(std::memory_order_acquire),
-                           .created_writers = created_writers_.load(std::memory_order_acquire),
-                           .writer_task_set = writer_task_set_.load(std::memory_order_acquire),
-                           .writer_required = writer_required_.load(std::memory_order_acquire),
-                           .writer_has_written = writer_has_written_.load(std::memory_order_acquire),
-                           .value_initialized = value_initialized_.load(std::memory_order_acquire),
-                           .value_initialized_for_next =
-                               value_initialized_for_next_.load(std::memory_order_acquire),
-                           .next = next_.load(std::memory_order_acquire),
-                           .counter = counter_};
-    }
-
-    void trace_snapshot(char const* label = nullptr) const noexcept
-    {
-      auto const snapshot = this->debug_snapshot();
-      TRACE_MODULE(ASYNC, label ? label : "epoch", this, snapshot.counter, static_cast<int>(snapshot.phase),
-                   snapshot.created_readers, snapshot.created_writers, snapshot.writer_task_set,
-                   snapshot.writer_required, snapshot.writer_has_written, snapshot.value_initialized,
-                   snapshot.value_initialized_for_next, snapshot.next);
-    }
-
   private:
     /// \brief Propagate initialization state to the following epoch.
     /// \param value Initialization flag to propagate.
@@ -428,18 +389,14 @@ struct EpochState : std::enable_shared_from_this<EpochState>
 {
     EpochState(EpochContext const* prev, bool writer_already_done, bool initial_value_initialized = true)
         : ctx(prev, writer_already_done, initial_value_initialized)
-    {
-    }
+    {}
 
-    EpochState(bool writer_already_done, bool value_initialized)
-        : ctx(nullptr, writer_already_done, value_initialized)
-    {
-    }
+    EpochState(bool writer_already_done, bool value_initialized) : ctx(nullptr, writer_already_done, value_initialized)
+    {}
 
     EpochState(EpochContext const* next, std::integral_constant<bool, true> reverse)
         : ctx(next, std::integral_constant<bool, true>{})
-    {
-    }
+    {}
 
     EpochContext ctx;
 };
@@ -453,7 +410,10 @@ inline void EpochContext::set_next(EpochState* next) noexcept
 inline void EpochContext::propagate_value_initialized(bool value) noexcept
 {
   value_initialized_for_next_.store(value, std::memory_order_release);
-  if (auto* next = next_.load(std::memory_order_acquire)) { next->ctx.inherit_value_initialized(value); }
+  if (auto* next = next_.load(std::memory_order_acquire))
+  {
+    next->ctx.inherit_value_initialized(value);
+  }
 }
 
 /// \brief RAII-scoped representation of a reader's participation in an EpochContext.
@@ -473,8 +433,8 @@ template <typename T> class EpochContextReader {
 
     /// \brief Copy constructor retaining the reader reference count.
     /// \ingroup async_core
-      EpochContextReader(EpochContextReader const& other)
-          : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_)
+    EpochContextReader(EpochContextReader const& other)
+        : storage_(other.storage_), queue_(other.queue_), epoch_(other.epoch_)
     {
       if (epoch_) epoch_->ctx.reader_acquire();
     }
@@ -501,8 +461,8 @@ template <typename T> class EpochContextReader {
     /// \param queue Shared pointer to the associated epoch queue.
     /// \param epoch Pointer to the epoch being tracked.
     /// \ingroup async_core
-    EpochContextReader(std::shared_ptr<detail::StorageBuffer<T>> const& storage, std::shared_ptr<EpochQueue> const& queue,
-                       std::shared_ptr<EpochState> epoch) noexcept
+    EpochContextReader(std::shared_ptr<detail::StorageBuffer<T>> const& storage,
+                       std::shared_ptr<EpochQueue> const& queue, std::shared_ptr<EpochState> epoch) noexcept
         : storage_(storage), queue_(queue), epoch_(std::move(epoch))
     {
       if (epoch_) epoch_->ctx.reader_acquire();
@@ -635,9 +595,9 @@ template <typename T> class EpochContextReader {
         else
           return std::nullopt;
       }
-        auto* ptr = storage_ ? storage_->get() : nullptr;
-        DEBUG_CHECK(ptr);
-        return *ptr;
+      auto* ptr = storage_ ? storage_->get() : nullptr;
+      DEBUG_CHECK(ptr);
+      return *ptr;
     }
 
     /// \brief Check whether this epoch is at the front of the queue.
@@ -700,14 +660,14 @@ template <typename T> class EpochContextWriter {
     /// \brief Move constructor transferring the writer handle.
     /// \param other Writer being moved from.
     /// \ingroup async_core
-      EpochContextWriter(EpochContextWriter&& other) noexcept
-          : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(std::move(other.epoch_)),
-            accessed_(other.accessed_), marked_written_(other.marked_written_)
-      {
-        other.epoch_.reset();
-        other.accessed_ = false;
-        other.marked_written_ = false;
-      }
+    EpochContextWriter(EpochContextWriter&& other) noexcept
+        : storage_(std::move(other.storage_)), queue_(std::move(other.queue_)), epoch_(std::move(other.epoch_)),
+          accessed_(other.accessed_), marked_written_(other.marked_written_)
+    {
+      other.epoch_.reset();
+      other.accessed_ = false;
+      other.marked_written_ = false;
+    }
 
     /// \brief Move assignment transferring the writer handle.
     /// \param other Writer being moved from.
@@ -772,10 +732,7 @@ template <typename T> class EpochContextWriter {
     /// \brief Report whether the associated value is currently initialized.
     /// \return true if the epoch reports initialized storage.
     /// \ingroup async_core
-    bool value_is_initialized() const noexcept
-    {
-      return epoch_ && epoch_->ctx.value_is_initialized();
-    }
+    bool value_is_initialized() const noexcept { return epoch_ && epoch_->ctx.value_is_initialized(); }
 
     /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value.
     /// \ingroup async_core
