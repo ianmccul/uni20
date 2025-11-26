@@ -200,7 +200,8 @@ class EpochContext {
     void show()
     {
       DEBUG_TRACE_MODULE(ASYNC, this, created_readers_.load(std::memory_order_acquire), reader_handles_.size(),
-                         phase_.load(std::memory_order_acquire), writer_task_set_.load(std::memory_order_acquire));
+                         static_cast<int>(phase_.load(std::memory_order_acquire)),
+                         writer_task_set_.load(std::memory_order_acquire));
     }
 
     // Writer interface
@@ -283,6 +284,7 @@ class EpochContext {
     /// \ingroup async_core
     void writer_require() noexcept
     {
+      DEBUG_TRACE_MODULE(ASYNC, "writer_require", this, counter_);
       writer_required_.store(true, std::memory_order_release);
       value_initialized_.store(false, std::memory_order_release);
       this->propagate_value_initialized(false);
@@ -308,6 +310,7 @@ class EpochContext {
     /// \ingroup async_core
     void writer_set_exception(std::exception_ptr e) noexcept
     {
+      DEBUG_TRACE_MODULE(ASYNC, "writer_set_exception", this, counter_);
       eptr_ = e;
       writer_required_.store(true, std::memory_order_release);
       this->propagate_value_initialized(false);
@@ -382,9 +385,31 @@ class EpochContext {
     int64_t counter_ = 0;
 };
 
-class buffer_cancelled : public std::exception {
+class buffer_error : public std::exception {
   public:
-    const char* what() const noexcept override { return "ReadBuffer was cancelled: no value written"; }
+    explicit buffer_error(std::string msg) : msg_(std::move(msg)) {}
+    char const* what() const noexcept override { return msg_.c_str(); }
+
+  private:
+    std::string msg_;
+};
+
+/// \brief Raised when a buffer is cancelled intentionally
+class buffer_cancelled : public buffer_error {
+  public:
+    buffer_cancelled() : buffer_error("ReadBuffer was cancelled: no value written") {}
+};
+
+/// \brief Raised when a buffer was expected to be written but never was.
+class buffer_unwritten : public buffer_error {
+  public:
+    buffer_unwritten() : buffer_error("WriteBuffer released without writing to the buffer, so is now invalid") {}
+};
+
+/// \brief Raised when a buffer was expected to be written but never was.
+class buffer_uninitialized : public buffer_error {
+  public:
+    buffer_uninitialized() : buffer_error("Attempt to read from a buffer that has not been initialized") {}
 };
 
 struct EpochState : std::enable_shared_from_this<EpochState>
@@ -529,13 +554,11 @@ template <typename T> class EpochContextReader {
       DEBUG_PRECONDITION(epoch_, this);
       DEBUG_PRECONDITION(epoch_->ctx.reader_is_ready());
       DEBUG_TRACE_MODULE(ASYNC, epoch_.get(), epoch_->ctx.reader_error(), epoch_->ctx.counter_);
-      if (epoch_->ctx.reader_error())
-      {
-        if (auto e = epoch_->ctx.reader_exception(); e)
-          std::rethrow_exception(e);
-        else
-          throw buffer_cancelled();
-      }
+
+      // check for error conditions
+      if (auto e = epoch_->ctx.reader_exception(); e) std::rethrow_exception(e);
+      if (epoch_->ctx.reader_error()) throw buffer_unwritten();
+
       auto* ptr = storage_ ? storage_->get() : nullptr;
       DEBUG_CHECK(ptr);
       return *ptr;

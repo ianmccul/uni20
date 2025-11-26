@@ -329,6 +329,7 @@ class EpochQueue {
     {
       while (true)
       {
+        TRACE_MODULE(ASYNC, "advance()");
         std::vector<AsyncTask> ready_readers;
         AsyncTask writer_task;
         bool maybe_cancel = false;

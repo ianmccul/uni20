@@ -64,7 +64,7 @@ TEST(AsyncBasicTest, InPlaceConstructsValue)
   Async<std::string> value(std::in_place, 10, 'x');
   DebugScheduler sched;
 
-  sched.schedule([](ReadBuffer<std::string> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<std::string> reader) static->AsyncTask {
     auto& str = co_await reader;
     EXPECT_EQ(str, std::string(10, 'x'));
     co_return;
@@ -78,7 +78,7 @@ TEST(AsyncBasicTest, InPlaceConstructsFromInitializerList)
   Async<std::vector<int>> value(std::in_place, {1, 2, 3, 4});
   DebugScheduler sched;
 
-  sched.schedule([](ReadBuffer<std::vector<int>> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<std::vector<int>> reader) static->AsyncTask {
     auto const& vec = co_await reader;
     EXPECT_EQ(vec.size(), std::size_t{4});
     EXPECT_EQ(vec[0], 1);
@@ -148,7 +148,8 @@ TEST(AsyncBasicTest, RAII_NoAwaitTriggersDeath)
 
         auto r = a.read();
         auto w = a.write();
-        AsyncTask task = []() static -> AsyncTask { co_return; }();
+        AsyncTask task = []() static->AsyncTask { co_return; }
+        ();
         (void)r;
         (void)w;
         (void)task;
@@ -250,4 +251,89 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
 
   EXPECT_EQ(mutable_value.get_wait(), 17);
   EXPECT_EQ(write_only.get_wait(), 23);
+}
+
+TEST(AsyncBasicTest, WriterDisappearsExpectException)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  Async<int> x = 10;
+
+  int val = 0;
+
+  {
+    auto Buf = x.write(); // get a WriteBuffer, but don't use it
+    schedule([](ReadBuffer<int> r, int& val) static->AsyncTask {
+      try
+      {
+        val = co_await r;
+      }
+      catch (buffer_unwritten const&) // we expect the buffer_cancelled exception
+      {
+        val = 1;
+      }
+      catch (...)
+      { // wrong exception
+        val = 2;
+      }
+    }(x.read(), val));
+  }
+  sched.run_all();
+  EXPECT_EQ(val, 1);
+}
+
+TEST(AsyncBasicTest, MutateDisappears)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  Async<int> x = 10;
+
+  int val = 0;
+
+  {
+    auto Buf = x.mutate(); // get a MutateBuffer, but don't use it. Should be no problem.
+    schedule([](ReadBuffer<int> r, int& val) static->AsyncTask { val = co_await r; }(x.read(), val));
+  }
+  sched.run_all();
+  EXPECT_EQ(val, 10);
+}
+
+TEST(AsyncBasicTest, WriterDisappearsCancelTask)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  Async<int> x = 10;
+
+  int val = 0;
+
+  {
+    auto Buf = x.write(); // get a WriteBuffer, but don't use it
+
+    // the .or_cancel() modifier cancels the coroutine if the buffer is invalid
+    schedule([](ReadBuffer<int> r, int& val) static->AsyncTask {
+      val = co_await r.or_cancel();
+      val = 3; // should never run, since the coroutine will be cancelled
+    }(x.read(), val));
+
+    // And we should propogate the 'unwritten' state to the next task
+    schedule([](ReadBuffer<int> r, int& val) static->AsyncTask {
+      try
+      {
+        val = co_await r;
+      }
+      catch (buffer_unwritten const&)
+      {
+        val = 1;
+      }
+      catch (...)
+      { // wrong exception
+        val = 2;
+      }
+    }(x.read(), val));
+  }
+  sched.run_all();
+  EXPECT_EQ(val, 1);
 }

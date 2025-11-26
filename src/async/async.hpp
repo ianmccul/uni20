@@ -14,8 +14,8 @@
 #include "common/demangle.hpp"
 #include "config.hpp"
 #include "epoch_queue.hpp"
-#include <concepts>
 #include <atomic>
+#include <concepts>
 #include <initializer_list>
 #include <memory>
 #include <mutex>
@@ -58,8 +58,7 @@ template <typename T> class Async {
 
     /// \brief Initializes async state without constructing the stored value.
     /// \ingroup async_api
-    Async()
-        : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::make_shared<EpochQueue>())
+    Async() : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::make_shared<EpochQueue>())
     {
       queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
@@ -77,7 +76,7 @@ template <typename T> class Async {
         : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, std::forward<U>(val))),
           queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(initial_value_initialized());
+      queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -93,7 +92,7 @@ template <typename T> class Async {
         : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, static_cast<T>(std::forward<U>(u)))),
           queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(initial_value_initialized());
+      queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -109,7 +108,7 @@ template <typename T> class Async {
         : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, std::forward<Args>(args)...)),
           queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(initial_value_initialized());
+      queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -120,14 +119,17 @@ template <typename T> class Async {
     /// \tparam Args Additional argument types forwarded to `T`'s constructor.
     /// \param init Initializer list forwarded to `T`.
     /// \param args Additional arguments forwarded to `T`.
+    /// \note This mirrors similar constuctors where std::in_place is used.
     /// \ingroup async_api
     template <typename U, typename... Args>
-      requires std::constructible_from<T, std::initializer_list<U>&, Args...>
-    Async(std::in_place_t, std::initializer_list<U> init, Args&&... args)
+      requires std::constructible_from<T, std::initializer_list<U>
+                                       &,
+                                       Args...>
+      Async(std::in_place_t, std::initializer_list<U> init, Args&&... args)
         : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, init, std::forward<Args>(args)...)),
           queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(initial_value_initialized());
+      queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -200,8 +202,7 @@ template <typename T> class Async {
     /// \param parent Async whose storage and queue lifetimes should be preserved.
     template <typename U>
       requires std::convertible_to<U*, T*>
-    Async(deferred_t tag, Async<U>& parent)
-        : Async(tag, parent.storage_ptr())
+    Async(deferred_t tag, Async<U>& parent) : Async(tag, parent.storage_ptr())
     {
       (void)tag;
       auto* ptr = parent.require_value();
@@ -304,8 +305,7 @@ template <typename T> class Async {
     {
       DEBUG_CHECK(queue_);
       DEBUG_CHECK(storage_);
-      return EmplaceBuffer<T>(
-        queue_->create_write_context(storage_, queue_), storage_, storage_->external_owner());
+      return EmplaceBuffer<T>(queue_->create_write_context(storage_, queue_), storage_, storage_->external_owner());
     }
 
     // template <typename Sched> T& get_wait(Sched& sched)
@@ -440,7 +440,7 @@ template <typename T> class Async {
 
     mutable std::shared_ptr<detail::StorageBuffer<T>> storage_;
     std::shared_ptr<EpochQueue> queue_;
-  };
+};
 
 /// \brief Convenience helper that forwards to Async<T>::read().
 /// \tparam T Stored value type.
