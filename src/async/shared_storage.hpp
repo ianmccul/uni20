@@ -1,7 +1,6 @@
 #pragma once
 #include "common/trace.hpp"
 #include <atomic>
-#include <cassert>
 #include <cstddef>
 #include <memory>
 #include <new>
@@ -127,8 +126,8 @@ template <typename T> class shared_storage {
 
     template <typename... Args> T& emplace(Args&&... args)
     {
-      assert(ctrl_ && "shared_storage must be initialized with make_shared_storage()");
-      assert(!constructed() && "Object already constructed");
+      CHECK(ctrl_, "shared_storage must be initialized with make_shared_storage()");
+      CHECK(!constructed(), "Object already constructed");
       ctrl_->construct(std::forward<Args>(args)...);
       return *ctrl_->ptr();
     }
