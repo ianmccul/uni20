@@ -71,6 +71,8 @@ template <typename T> class shared_storage {
 
     control_block* ctrl_ = nullptr;
 
+    template <typename U, typename... Args> friend shared_storage<U> make_shared_storage(Args&&... args);
+
     explicit shared_storage(control_block* c) noexcept : ctrl_(c) {}
 
   public:
@@ -127,10 +129,8 @@ template <typename T> class shared_storage {
     {
       assert(ctrl_ && "shared_storage must be initialized with make_shared_storage()");
       assert(!constructed() && "Object already constructed");
-      T* ptr = ctrl_->ptr();
-      ::new (ptr) T(std::forward<Args>(args)...);
-      ctrl_->constructed.store(true, std::memory_order_release);
-      return *ptr;
+      ctrl_->construct(std::forward<Args>(args)...);
+      return *ctrl_->ptr();
     }
 
     void destroy() noexcept
@@ -159,7 +159,7 @@ template <typename T> class shared_storage {
     }
     const T* operator->() const noexcept
     {
-      DEBuG_CHECK(constructed());
+      DEBUG_CHECK(constructed());
       return get();
     }
 
