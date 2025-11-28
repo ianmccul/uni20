@@ -126,8 +126,8 @@ template <typename T> class shared_storage {
 
     template <typename... Args> T& emplace(Args&&... args)
     {
-      CHECK(ctrl_, "shared_storage must be initialized with make_shared_storage()");
-      CHECK(!constructed(), "Object already constructed");
+      DEBUG_CHECK(ctrl_, "shared_storage must be initialized with make_shared_storage()");
+      DEBUG_CHECK(!constructed(), "Object already constructed");
       ctrl_->construct(std::forward<Args>(args)...);
       return *ctrl_->ptr();
     }
@@ -180,23 +180,17 @@ template <typename T> class shared_storage {
     friend bool operator==(const shared_storage& a, const shared_storage& b) noexcept { return a.ctrl_ == b.ctrl_; }
 };
 
-/// \brief Create a new shared_storage<T>.
-/// \details
-///   - Without arguments: returns unconstructed storage
-///   - With arguments: constructs T(args...) in-place
+/// \brief Create a new shared_storage<T> with an unconstructed T.
+template <typename T> [[nodiscard]] inline shared_storage<T> make_unconstructed_shared_storage()
+{
+  using ctrl_t = typename shared_storage<T>::control_block;
+  return shared_storage<T>(new ctrl_t{});
+}
+
+/// \brief Create a new shared_storage<T> with T(args...) in-place
 template <typename T, typename... Args> [[nodiscard]] inline shared_storage<T> make_shared_storage(Args&&... args)
 {
-  if constexpr (sizeof...(Args) == 0)
-  {
-    // Unconstructed variant
-    using ctrl_t = typename shared_storage<T>::control_block;
-    return shared_storage<T>(new ctrl_t{});
-  }
-  else
-  {
-    // Constructed variant
-    return shared_storage<T>::make_constructed(std::forward<Args>(args)...);
-  }
+  return shared_storage<T>::make_constructed(std::forward<Args>(args)...);
 }
 
 } // namespace uni20::async
