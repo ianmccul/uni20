@@ -48,14 +48,14 @@ template <typename Scalar, typename Tag> void test_rank2_contraction_correctness
   std::uniform_int_distribution<> idis(2, 10);
   std::uniform_real_distribution<> fdis(0, 1);
   std::unordered_map<std::string, size_t> hash_table;
-  hash_table["I"] = idis(gen);
-  hash_table["K"] = idis(gen);
-  hash_table["L"] = idis(gen);
-  hash_table["J"] = idis(gen);
-  hash_table["M"] = idis(gen);
+  hash_table["I"] = 4;//idis(gen);
+  hash_table["K"] = 5;//idis(gen);
+  hash_table["L"] = 6;//idis(gen);
+  hash_table["J"] = 7;//idis(gen);
+  hash_table["M"] = 8;//idis(gen);
   constexpr size_t rankA = 3, rankB = 4, rankC = 3;
   std::vector<std::string> arrangeA = {"M","K", "L"};
-  std::vector<std::string> arrangeB = {"L", "K", "I", "J"};
+  std::vector<std::string> arrangeB = {"L", "I","K", "J"};
   std::vector<std::string> arrangeC = {"M","I", "J"};
   size_t dimA = 1, dimB = 1, dimC = 1;
   for (size_t i = 0; i < rankA; i++)
@@ -64,7 +64,7 @@ template <typename Scalar, typename Tag> void test_rank2_contraction_correctness
     dimB = dimB * hash_table[arrangeB[i]];
   for (size_t i = 0; i < rankC; i++)
     dimC = dimC * hash_table[arrangeC[i]];
-  std::vector<INPUTTYPE> va(dimA), vb(dimB), v_cpu(dimC, 7.0), v_blas(dimC, 7.0);
+  std::vector<INPUTTYPE> va(dimA), vb(dimB), v_cpu(dimC, 0.0), v_blas(dimC, 0.0);
   for (size_t i = 0; i < va.size(); ++i)
     va[i] = fdis(gen);
   for (size_t i = 0; i < vb.size(); ++i)
@@ -149,7 +149,7 @@ template <typename Scalar, typename Tag> void test_rank2_contraction_correctness
 
   contract(alpha, A, B, Kdims, beta, C_cpu, cpu_tag{});
   contract(alpha, A, B, Kdims, beta, C_blas, Tag{});
-
+  std::cout<<"SDSDSD"<<std::endl;
   INPUTTYPE standard = 0;
   for (size_t i = 0; i < dimC; i++)
     standard = standard +

@@ -18,9 +18,26 @@
 
 #include <iostream>
 #include <vector>
+#include <ranges>
+
 namespace uni20::kernel
 {
-
+    
+inline std::ptrdiff_t index_find(const std::vector<size_t>& v, int x) {
+      auto it = std::ranges::find(v, x);
+      return (it == v.end()) ? -1 : std::ranges::distance(v.begin(), it);
+}
+inline void veiw_array(std::vector<size_t>& newStrideA){
+  for(size_t i = 0;i<newStrideA.size();i++)
+    std::cout<<newStrideA[i]<<" ";
+  std::cout<<" "<<std::endl;
+}
+template <StridedMdspan AType>
+char get_blas_trans(AType A){
+  if(A.stride(0)==1)                    return 'c';
+  else if(A.stride(AType::rank()-1)==1) return 'r';
+  else return 'e';
+}
     template <typename T>
     void transposes_loop(size_t step,size_t rank,std::vector<size_t>& indexList,
                         std::vector<size_t>& extentA,std::vector<size_t>& extentB,
@@ -87,30 +104,95 @@ void contract(T const& alpha, AType A, BType B, std::array<std::pair<std::size_t
         oldStrideC[i]  = C.stride(i);
         ExtentC[i]     = C.extent(i);
       }
-  std::vector<T> outputA(A.size()),outputB(B.size()),ToutputA(A.size()),ToutputB(B.size()),ToutputC(C.size());
-  char a,b,c;
-  
-  //rearrange(A.data_handle(),ToutputA.data(),ExtentA,ExtentA,oldStrideA,newStrideA);
-  //rearrange(B.data_handle(),ToutputB.data(),ExtentB,ExtentB,oldStrideB,newStrideB);
-  //rearrange(C.data_handle(),ToutputC.data(),ExtentC,ExtentC,oldStrideC,newStrideC);    
-  if(newStrideA == oldStrideA) a = 'r';       
-  else a = 'c';
-  if(newStrideB == oldStrideB) b = 'r';       
-  else b = 'c';
-  if(newStrideC == oldStrideC) c= 'r';       
-  else c = 'c';
-  
 
+
+  std::vector<T> outputA(A.size()),outputB(B.size()),ToutputA(A.size()),ToutputB(B.size()),ToutputC(C.size());
+  auto a = get_blas_trans(A);
+  auto b = get_blas_trans(B);  
+  auto c = get_blas_trans(C); 
+
+  
+/*
   auto [flagA,flagB] = transpose_strided(A.data_handle(),B.data_handle(),
                                          ExtentA,ExtentB,
                                          newStrideA,newStrideB,
                                          constractDims,outputA,outputB,a,b, TagType{});
+ */                                        
   auto [Mgroup, Ngroup, Kgroup] = extract_strides(A, B, constractDims, C);
+  //auto [ap,bp] = constractDims[0];
+  
+  /*
+  A_{ia jb ld kc}B_{jb qwer ld}
+  */
+  std::vector<size_t> stride_tpA(AType::rank()),stride_tpB(BType::rank());
+
+
+
+  stride_tmpA = A.size();
+  stride_tmpB = B.size();
+  for(size_t i=0 ; i < Mgroup.size() ; i++){
+        stride_tmpA = stride_tmpA/Mgroup[i].extent;
+        stride_tpA[i]  = stride_tmpA;
+      }
+  for(size_t i=0 ; i < Kgroup.size() ; i++){
+        stride_tmpA = stride_tmpA/Kgroup[i].extent;
+        stride_tpA[Mgroup.size() + i]  = stride_tmpA;
+        stride_tmpB = stride_tmpB/Kgroup[i].extent;
+        stride_tpB[i]  = stride_tmpB;
+    }
+  for(size_t i=0 ; i < Ngroup.size() ; i++){
+        stride_tmpB = stride_tmpB/Ngroup[i].extent;
+        stride_tpB[Kgroup.size() + i]  = stride_tmpB;
+      }
+  veiw_array(newStrideA);
+  veiw_array(newStrideB);
+  std::cout<<"XXXXXX"<<std::endl;
+  veiw_array(stride_tpA);
+  veiw_array(stride_tpB);
+  std::cout<<"ExtentA: ";
+  veiw_array(ExtentA);
+  std::cout<<"ExtentB: ";
+  veiw_array(ExtentB);
+  
+
+  for(size_t i=0 ; i < Mgroup.size() ; i++) std::cout<<"Mgroup extent:"<<Mgroup[i].extent<<
+  ",stride:{"<<Mgroup[i].strides[0]<<","<<Mgroup[i].strides[1]<<"}"<<std::endl;
+  for(size_t i=0 ; i < Ngroup.size() ; i++) std::cout<<"Ngroup extent:"<<Ngroup[i].extent<<
+  ",stride:{"<<Ngroup[i].strides[0]<<","<<Ngroup[i].strides[1]<<"}"<<std::endl;
+  for(size_t i=0 ; i < Kgroup.size() ; i++) std::cout<<"Kgroup extent:"<<Kgroup[i].extent<<
+  ",stride:{"<<Kgroup[i].strides[0]<<","<<Kgroup[i].strides[1]<<"}"<<std::endl;
+  std::vector<size_t> Astrides(AType::rank()),Bstrides(BType::rank());
+  //auto Astrides = stride_tpA;
+  //auto Bstrides = stride_tpB;
+  for(size_t i = 0; i < Mgroup.size(); i++) Astrides[index_find(oldStrideA,Mgroup[i].strides[0])] = stride_tpA[i];
+  for(size_t i = 0; i < Kgroup.size(); i++) Astrides[index_find(oldStrideA,Kgroup[i].strides[0])] = stride_tpA[Mgroup.size()+i];
+  for(size_t i = 0; i < Kgroup.size(); i++) Bstrides[index_find(oldStrideB,Kgroup[i].strides[1])] = stride_tpB[i];
+  for(size_t i = 0; i < Ngroup.size(); i++) Bstrides[index_find(oldStrideB,Ngroup[i].strides[0])] = stride_tpB[Kgroup.size()+i];
+  veiw_array(Astrides);
+  veiw_array(Bstrides);
+  std::cout<<"XXXXXXXXX"<<std::endl;
+  bool flagA = rearrange_flag(Astrides,stride_tpA,TagType{});
+  bool flagB = rearrange_flag(Bstrides,stride_tpB,TagType{});
+  if(flagA) rearrange(A.data_handle(),outputA.data(),ExtentA,ExtentA,oldStrideA,Astrides);
+  if(flagB) rearrange(B.data_handle(),outputB.data(),ExtentB,ExtentB,oldStrideB,Bstrides);
+  //rearrange(C.data_handle(),ToutputC.data(),ExtentC,ExtentC,oldStrideC,newStrideC); 
+  
+
   if(flagA == false && flagB == false)  contract_strided(a,b,c,Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), B.data_handle(), beta, C.data_handle(), TagType{});
   if(flagA == false && flagB ==  true)  contract_strided(a,b,c,Mgroup, Ngroup, Kgroup, alpha, A.data_handle(), outputB.data(), beta, C.data_handle(), TagType{});
   if(flagA ==  true && flagB == false)  contract_strided(a,b,c,Mgroup, Ngroup, Kgroup, alpha, outputA.data(), B.data_handle(), beta, C.data_handle(), TagType{});
   if(flagA ==  true && flagB ==  true)  contract_strided(a,b,c,Mgroup, Ngroup, Kgroup, alpha, outputA.data(), outputB.data(), beta, C.data_handle(), TagType{});
   //rearrange(ToutputC.data(),C.data_handle(),ExtentC,ExtentC,newStrideC,oldStrideC);
-    }
+  std::cout<<"flagM :"<<Mgroup.size()<<"flagN :"<<Ngroup.size()<<"flagK :"<<Kgroup.size()<<std::endl;
+}
   }
  // namespace uni20::kernel
+
+
+/*
+ A_{ijkl}B_{jmnk}--->A'_{iljk}B'{jkmn}
+(i,j,k,l) = (0001),(0002),(0003),(0010)...
+ A'[LJK*i+JK*l+K*j+k]------
+  A[i*KJL+j*KL+k*L+l]
+  A'[LJK*i+K*j+k+JK*l]
+  */

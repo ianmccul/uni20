@@ -7,6 +7,9 @@
 namespace uni20::kernel
 {
 
+ bool rearrange_flag(std::vector<size_t>& old_stride,std::vector<size_t>& new_stride,cpu_tag){
+        return false;
+    }
 template <typename T, std::size_t N>
 std::pair<bool, bool> transpose_strided(T const* A,T const* B,
   std::vector<size_t> oldExtentA, std::vector<size_t> oldExtentB,
