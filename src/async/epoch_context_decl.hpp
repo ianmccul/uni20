@@ -164,6 +164,7 @@ class EpochContext {
       std::lock_guard lock(reader_mtx_);
       std::vector<AsyncTask> v;
       v.swap(reader_handles_);
+      // TRACE(this);
       return v;
     }
 

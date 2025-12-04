@@ -4,6 +4,7 @@
 #include "async/async.hpp"
 #include "async/async_ops.hpp"
 #include "async/debug_scheduler.hpp"
+#include "async/tbb_scheduler.hpp"
 #include <fmt/core.h>
 
 using namespace uni20::async;
@@ -36,10 +37,11 @@ Async<uint64_t> fib(Async<uint64_t> const& in)
 
 int main()
 {
-  DebugScheduler sched;
+  // DebugScheduler sched;
+  TbbScheduler sched{4};
   set_global_scheduler(&sched);
 
-  int k = 30;
+  int k = 20;
   Async<uint64_t> n = k;
   uint64_t f = fib(n).get_wait();
 

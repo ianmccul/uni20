@@ -35,6 +35,8 @@ namespace uni20::async
 /// MyType& ref = s.get();
 /// s.destroy();  // explicitly destroy the contained object
 /// ```
+/// There is no facility (yet!) to share ownership with subobjects. This may be a useful facility
+/// (eg for tensor views)
 template <typename T> class shared_storage {
     struct control_block
     {

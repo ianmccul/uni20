@@ -254,8 +254,8 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
   schedule([](auto a_, auto b_, auto out_, Op op_) static -> AsyncTask {
     auto ab = co_await all(a_, b_);
     auto tmp = op_(std::get<0>(ab), std::get<1>(ab));
-    a_.release();
-    b_.release();
+    // a_.release();
+    // b_.release();
     co_await out_ = std::move(tmp); // Suspend *after* releasing readers
     co_return;
   }(std::move(a_buf), std::move(b_buf), std::move(out_buf), std::move(op)));

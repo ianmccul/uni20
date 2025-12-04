@@ -391,16 +391,34 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
       // h.promise().current_awaiter_ = this;
       if constexpr (std::is_void_v<await_return_type>)
       {
-        return awaitable.await_suspend(h.promise().take_ownership());
+        // Awaiter doesn't transfer ownership, just suspends
+        awaitable.await_suspend(h.promise().take_ownership());
+        return;
+      }
+      else if constexpr (std::is_same_v<await_return_type, AsyncTask>)
+      {
+        // Awaiter returns a concrete AsyncTask (ownership transfer)
+        auto t = awaitable.await_suspend(h.promise().take_ownership());
+
+        // null handle means suspend the coroutine
+        if (!t.h_) return std::noop_coroutine();
+
+        // Transfer ownership into a raw coroutine_handle
+        auto h_new = t.h_.promise().release_ownership();
+        CHECK(h_new, "coroutine handle was not exclusively owned!");
+
+        // If the same AsyncTask is given back to us, then resume it immediately
+        if (h_new == h) return h;
+
+        // Otherwise, if we have a different AsyncTask, then it is a nested task, immediately
+        // start running it, and then continue back with our original task once it has finished.
+        h_new.promise().continuation_ = h;
+        return h_new;
       }
       else
       {
-        auto t = awaitable.await_suspend(h.promise().take_ownership());
-        if (!t.h_) return std::noop_coroutine();
-        auto h_new = t.h_.promise().release_ownership();
-        CHECK(h_new, "coroutine handle was not exclusively owned!");
-        h_new.promise().continuation_ = h;
-        return h_new;
+        static_assert(std::is_same_v<await_return_type, void>,
+                      "Unsupported await_suspend() return type: must be void or AsyncTask");
       }
     }
 

@@ -50,6 +50,10 @@ template <typename T> class Dual {
     Dual(Dual&&) = default;
     Dual& operator=(Dual&&) = default;
 
+    /// Disable ordinary copying (Duals are never copied in the normal sense).
+    Dual(Dual const&) = delete;
+    Dual& operator=(Dual const&) = delete;
+
     Dual(Dual& other) : value(other.value) { other.grad += grad.input(); }
 
     Dual(Async<T> const& other) : value(other) {}

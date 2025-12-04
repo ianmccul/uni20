@@ -10,8 +10,8 @@
 #include "epoch_context.hpp"
 #include "storage_buffer.hpp"
 
-#include <cstddef>
 #include <coroutine>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -84,7 +84,11 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      reader_.suspend(std::move(t));
+    }
 
     /// \brief Resume execution and return the stored value.
     /// \return Reference to the stored T inside Async<T>.
@@ -146,7 +150,11 @@ template <typename T> class ReadMaybeAwaiter {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      reader_.suspend(std::move(t));
+    }
 
     /// \brief Resume execution and return a copy of the stored value.
     /// \note Called when co_awaiting on a prvalue ReadBuffer.
@@ -177,7 +185,11 @@ template <typename T> class ReadMaybeAwaiter<T const&> {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      reader_.suspend(std::move(t));
+    }
 
     /// \brief Resume execution and return a pointer to stored value, or nullptr
     value_type await_resume() { return reader_.data_maybe(); }
@@ -219,7 +231,7 @@ template <typename T> class ReadOrCancelAwaiter {
 
     /// \brief Resume execution and return a copy of the stored value.
     /// \note Called when co_awaiting on a prvalue ReadBuffer.
-    T await_resume() { return reader_.data_assert(); }
+    T await_resume() { return reader_.data(); }
 
   private:
     ReadOrCancelAwaiter() = delete;
@@ -257,7 +269,7 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
     }
 
     /// \brief Resume execution and return a copy of the stored value.
-    T const& await_resume() { return reader_.data_assert(); }
+    T const& await_resume() { return reader_.data(); }
 
   private:
     ReadOrCancelAwaiter() = delete;
@@ -331,7 +343,11 @@ template <typename T> class MutableBuffer { //}: public AsyncAwaiter {
 
     /// \brief Suspend the coroutine and bind as epoch writer.
     /// \param t Coroutine task to enqueue or bind.
-    void await_suspend(AsyncTask&& t) noexcept { writer_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      writer_.suspend(std::move(t));
+    }
 
     /// \brief Resume and return a reference to the writable value.
     /// \return Mutable reference to the stored T.
@@ -437,7 +453,11 @@ template <typename T> class WriteBuffer {
 
     bool await_ready() const noexcept { return writer_.ready(); }
 
-    void await_suspend(AsyncTask&& t) noexcept { writer_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      writer_.suspend(std::move(t));
+    }
 
     T& await_resume() const noexcept { return writer_.data(); }
 
@@ -483,29 +503,27 @@ template <typename T> class WriteBuffer {
     friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
 };
 
-template <typename T, typename... Args> class EmplaceAwaiter
-{
+template <typename T, typename... Args> class EmplaceAwaiter {
   public:
-    EmplaceAwaiter(
-      EpochContextWriter<T>&& writer,
-      std::shared_ptr<detail::StorageBuffer<T>> storage,
-      std::shared_ptr<void> external_owner,
-      Args&&... args)
-        : writer_(std::move(writer)), storage_owner_(std::move(storage)),
-          external_owner_(std::move(external_owner)), args_(std::forward<Args>(args)...)
+    EmplaceAwaiter(EpochContextWriter<T>&& writer, std::shared_ptr<detail::StorageBuffer<T>> storage,
+                   std::shared_ptr<void> external_owner, Args&&... args)
+        : writer_(std::move(writer)), storage_(std::move(storage)), args_(std::forward<Args>(args)...)
     {}
 
     bool await_ready() const noexcept { return writer_.ready(); }
 
-    void await_suspend(AsyncTask&& t) noexcept { writer_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      writer_.suspend(std::move(t));
+    }
 
     T& await_resume()
     {
-      auto* storage = storage_owner_.get();
+      auto* storage = storage_.get();
       if (storage)
       {
-        std::apply(
-          [&](auto&&... unpacked) { storage->construct(std::forward<Args>(unpacked)...); }, std::move(args_));
+        std::apply([&](auto&&... unpacked) { storage->construct(std::forward<Args>(unpacked)...); }, std::move(args_));
         storage->set_external_owner(external_owner_);
       }
       auto& ref = writer_.data();
@@ -515,24 +533,28 @@ template <typename T, typename... Args> class EmplaceAwaiter
 
   private:
     EpochContextWriter<T> writer_;
-    std::shared_ptr<detail::StorageBuffer<T>> storage_owner_{};
+    std::shared_ptr<detail::StorageBuffer<T>> storage_{};
     std::shared_ptr<void> external_owner_{};
     std::tuple<Args...> args_;
 };
 
+// TODO:
+// Implement EmplaceBuffer supporting both forms:
+//
+// co_await buf(x, y, z);
+// co_await buf; buf.emplace(x, y, z);
+//
+// Implement pointer-style access:
+// *buf; buf->member();
+
 /// \brief Awaitable write buffer for constructing values in-place.
-template <typename T> class EmplaceBuffer
-{
+template <typename T> class EmplaceBuffer {
   public:
     using value_type = T;
     using element_type = T&;
 
-    EmplaceBuffer(
-      EpochContextWriter<T> writer,
-      std::shared_ptr<detail::StorageBuffer<T>> storage,
-      std::shared_ptr<void> external_owner = {})
-        : writer_(std::move(writer)), storage_owner_(std::move(storage)),
-          external_owner_(std::move(external_owner))
+    EmplaceBuffer(EpochContextWriter<T> writer, std::shared_ptr<detail::StorageBuffer<T>> storage)
+        : writer_(std::move(writer)), storage_(std::move(storage))
     {
       writer_.writer_require();
     }
@@ -549,11 +571,14 @@ template <typename T> class EmplaceBuffer
       return writer_.ready();
     }
 
-    void await_suspend(AsyncTask&& t) noexcept { writer_.suspend(std::move(t)); }
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      writer_.suspend(std::move(t));
+    }
 
     T& await_resume()
     {
-      auto* storage = storage_owner_.get();
       if (storage)
       {
         if constexpr (std::is_default_constructible_v<T>)
@@ -564,18 +589,18 @@ template <typename T> class EmplaceBuffer
         {
           throw std::logic_error("Async value not initialized; use EmplaceBuffer with arguments");
         }
-        storage->set_external_owner(external_owner_);
       }
       auto& ref = writer_.data();
-      writer_.release();
       return ref;
     }
+
+    void release() noexcept { writer_.release(); }
 
     template <typename... Args> auto operator()(Args&&... args) &&
     {
       this->consume_once();
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(
-        std::move(writer_), std::move(storage_owner_), external_owner_, std::forward<Args>(args)...);
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(std::move(writer_), std::move(storage_),
+                                                      std::forward<Args>(args)...);
     }
 
     auto operator co_await() & -> EmplaceBuffer&
@@ -608,10 +633,9 @@ template <typename T> class EmplaceBuffer
     }
 
     EpochContextWriter<T> writer_;
-    std::shared_ptr<detail::StorageBuffer<T>> storage_owner_{};
-    std::shared_ptr<void> external_owner_{};
+    std::shared_ptr<detail::StorageBuffer<T>> storage_{};
     mutable bool consumed_{false};
-  };
+};
 
 // For a ReadBuffer, we add the node to the ReadDependencies
 template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, ReadBuffer<T> const& x)
@@ -657,11 +681,7 @@ template <typename Buffer> class BufferWriteProxy {
     BufferWriteProxy(BufferWriteProxy&&) noexcept = default;
     BufferWriteProxy& operator=(BufferWriteProxy&&) noexcept = delete;
 
-    template <typename U>
-    void operator=(U&& u)
-    {
-      async_assign(std::forward<U>(u), Buffer(std::move(writer_)));
-    }
+    template <typename U> void operator=(U&& u) { async_assign(std::forward<U>(u), Buffer(std::move(writer_))); }
 
   private:
     explicit BufferWriteProxy(EpochContextWriter<value_type>&& writer) : writer_(std::move(writer)) {}

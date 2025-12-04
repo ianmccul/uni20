@@ -69,6 +69,7 @@ class EpochQueue {
                                               std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
+      TRACE_MODULE(ASYNC, "create_read_context()", this);
       CHECK(bootstrapped_, "EpochQueue must be initialized before use");
       ensure_initial_epoch_locked();
       CHECK(tail_, "EpochQueue must retain a tail epoch");
@@ -96,6 +97,7 @@ class EpochQueue {
                                                std::shared_ptr<EpochQueue> const& self)
     {
       std::lock_guard lock(mtx_);
+      TRACE_MODULE(ASYNC, "create_write_context()", this);
 
       CHECK(bootstrapped_, "EpochQueue must be initialized before use");
       ensure_initial_epoch_locked();
@@ -206,7 +208,7 @@ class EpochQueue {
         bool const at_front = head_ && state.get() == head_->state.get();
         bool const ready = at_front && state->ctx.reader_is_ready();
 
-        TRACE_MODULE(ASYNC, "enqueue_reader", state.get(), at_front, ready);
+        TRACE_MODULE(ASYNC, "enqueue_reader", this, state.get(), at_front, ready);
 
         state->ctx.reader_enqueue(std::move(task));
 
@@ -238,7 +240,7 @@ class EpochQueue {
     /// \ingroup async_core
     void on_writer_done(std::shared_ptr<EpochState> const& state) noexcept
     {
-      TRACE_MODULE(ASYNC, "Writer has finished", state.get(), head_ ? head_->state.get() : nullptr);
+      TRACE_MODULE(ASYNC, "Writer has finished", this, state.get(), head_ ? head_->state.get() : nullptr);
       std::vector<AsyncTask> readers;
       bool maybe_cancel = false;
 
@@ -273,10 +275,10 @@ class EpochQueue {
 
       if (!readers.empty())
       {
-        TRACE_MODULE(ASYNC, "Finished writer results in some readers getting rescheduled");
+        TRACE_MODULE(ASYNC, "Finished writer results in some readers getting rescheduled", this);
         for (auto&& task : readers)
         {
-          TRACE_MODULE(ASYNC, "Rescheduling", &task);
+          TRACE_MODULE(ASYNC, "Rescheduling", this, &task);
           if (!maybe_cancel) task.written();
           AsyncTask::reschedule(std::move(task));
         }
@@ -297,7 +299,7 @@ class EpochQueue {
       std::unique_lock lock(mtx_);
       if (state->ctx.reader_is_empty())
       {
-        TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch");
+        TRACE_MODULE(ASYNC, "readers finished - we might be able to advance the epoch", this, nodes_.size());
         //  Only pop if this is the front epoch and fully done, and there are other epochs waiting
         if (!head_ || head_->state.get() != state.get() || !state->ctx.writer_is_done() || nodes_.size() < 2)
         {
@@ -322,6 +324,8 @@ class EpochQueue {
       return head_ && state == head_->state.get();
     }
 
+    ~EpochQueue() { TRACE_MODULE(ASYNC, "~EpochQueue()", this); }
+
   private:
     /// \brief Advance the queue by scheduling next writer/readers as appropriate.
     /// \ingroup internal
@@ -329,13 +333,16 @@ class EpochQueue {
     {
       while (true)
       {
-        TRACE_MODULE(ASYNC, "advance()");
+        std::this_thread::sleep_for(std::chrono::microseconds(1000));
+
+        TRACE_MODULE(ASYNC, "advance()", this);
         std::vector<AsyncTask> ready_readers;
         AsyncTask writer_task;
         bool maybe_cancel = false;
 
         {
           std::unique_lock lock(mtx_);
+          TRACE_MODULE(ASYNC, "advance()", this);
           if (!head_) return;
           auto* e = &head_->state->ctx;
 

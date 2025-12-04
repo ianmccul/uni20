@@ -8,18 +8,18 @@ namespace
 {
 struct Counting
 {
-  static void reset()
-  {
-    constructions = 0;
-    destructions = 0;
-  }
+    static void reset()
+    {
+      constructions = 0;
+      destructions = 0;
+    }
 
-  explicit Counting(int value_in) : value(value_in) { ++constructions; }
-  ~Counting() { ++destructions; }
+    explicit Counting(int value_in) : value(value_in) { ++constructions; }
+    ~Counting() { ++destructions; }
 
-  int value;
-  inline static int constructions = 0;
-  inline static int destructions = 0;
+    int value;
+    inline static int constructions = 0;
+    inline static int destructions = 0;
 };
 } // namespace
 
@@ -28,7 +28,7 @@ TEST(SharedStorageTest, DefaultConstructionEmplaceAndRefCount)
   Counting::reset();
 
   {
-    auto storage = make_shared_storage<Counting>();
+    auto storage = make_unconstructed_shared_storage<Counting>();
     EXPECT_TRUE(storage.valid());
     EXPECT_FALSE(storage.constructed());
     EXPECT_EQ(storage.use_count(), 1); // initial control block ref
