@@ -579,11 +579,11 @@ template <typename T> class EmplaceBuffer {
 
     T& await_resume()
     {
-      if (storage)
+      if (storage_)
       {
         if constexpr (std::is_default_constructible_v<T>)
         {
-          storage->construct();
+          storage_->construct();
         }
         else
         {

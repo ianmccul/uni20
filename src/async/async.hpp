@@ -60,7 +60,7 @@ template <typename T> class Async {
     /// \ingroup async_api
     Async() : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(initial_value_initialized());
+      //queue_->initialize(initial_value_initialized());
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -76,7 +76,7 @@ template <typename T> class Async {
         : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, std::forward<U>(val))),
           queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      //queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -92,7 +92,7 @@ template <typename T> class Async {
         : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, static_cast<T>(std::forward<U>(u)))),
           queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      //queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -108,7 +108,7 @@ template <typename T> class Async {
         : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, std::forward<Args>(args)...)),
           queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      //queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -129,7 +129,7 @@ template <typename T> class Async {
         : storage_(std::make_shared<detail::StorageBuffer<T>>(std::in_place, init, std::forward<Args>(args)...)),
           queue_(std::make_shared<EpochQueue>())
     {
-      queue_->initialize(true);
+      //queue_->initialize(true);
 #if UNI20_DEBUG_DAG
       queue_->initialize_node(storage_->get());
 #endif
@@ -161,22 +161,22 @@ template <typename T> class Async {
     /// \throws std::invalid_argument if \p control is null.
     /// \warning The caller must ensure that `control.get()` remains valid for the Async lifetime.
     /// \ingroup async_api
-    template <typename Control>
-      requires std::convertible_to<Control*, T*>
-    Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
-        : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::move(queue))
-    {
-      (void)tag;
-      DEBUG_CHECK(storage_);
-      DEBUG_CHECK(queue_);
-      if (!control) throw std::invalid_argument("Async deferred control block cannot be null");
-      auto* ptr = control.get();
-      storage_->reset_external_pointer(ptr, control);
-      queue_->initialize(initial_value_initialized());
-#if UNI20_DEBUG_DAG
-      queue_->initialize_node(storage_->get());
-#endif
-    }
+//     template <typename Control>
+//       requires std::convertible_to<Control*, T*>
+//     Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
+//         : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::move(queue))
+//     {
+//       (void)tag;
+//       DEBUG_CHECK(storage_);
+//       DEBUG_CHECK(queue_);
+//       if (!control) throw std::invalid_argument("Async deferred control block cannot be null");
+//       auto* ptr = control.get();
+//       storage_->reset_external_pointer(ptr, control);
+//       queue_->initialize(initial_value_initialized());
+// #if UNI20_DEBUG_DAG
+//       queue_->initialize_node(storage_->get());
+// #endif
+//     }
 
     /// \brief Construct an Async that defers pointer initialization while sharing ownership.
     /// \tparam Control Type of the shared pointer used for aliasing the control block.
@@ -424,17 +424,17 @@ template <typename T> class Async {
       throw std::logic_error("Async value requires initialization before access");
     }
 
-    // Add a new epoch to the front of the queue; used by ReverseValue for reverse mode autodifferentiation
-    /// \brief Prepend a reverse-mode epoch to the queue.
-    /// \return Writer and reader handles for the new epoch.
-    /// \ingroup internal
-    EpochQueue::EpochPair<T> prepend_epoch()
-    {
-      DEBUG_TRACE_MODULE(ASYNC, "Prepending epoch!");
-      DEBUG_CHECK(queue_);
-      require_value();
-      return queue_->prepend_epoch(storage_, queue_);
-    }
+    // // Add a new epoch to the front of the queue; used by ReverseValue for reverse mode autodifferentiation
+    // /// \brief Prepend a reverse-mode epoch to the queue.
+    // /// \return Writer and reader handles for the new epoch.
+    // /// \ingroup internal
+    // EpochQueue::EpochPair<T> prepend_epoch()
+    // {
+    //   DEBUG_TRACE_MODULE(ASYNC, "Prepending epoch!");
+    //   DEBUG_CHECK(queue_);
+    //   require_value();
+    //   return queue_->prepend_epoch(storage_, queue_);
+    // }
 
     friend class ReverseValue<T>;
 

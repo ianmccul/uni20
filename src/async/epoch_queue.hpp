@@ -5,7 +5,7 @@
 #pragma once
 
 #include "common/trace.hpp"
-#include "epoch_context_decl.hpp"
+#include "epoch_context.hpp"
 #include <atomic>
 #include <deque>
 #include <memory>
@@ -31,7 +31,7 @@ class EpochQueue {
     template <typename T> EpochContextWriter<T> create_write_context(shared_storage<T> storage)
     {
       TRACE_MODULE(ASYNC, "EpochQueue::create_write_context", this);
-      if (current->has_writer())
+      if (current_->has_writer())
       {
         std::shared_ptr<EpochContext> next = std::make_shared<EpochContext>();
         current_->set_next_epoch(next);
@@ -40,7 +40,7 @@ class EpochQueue {
       return EpochContextWriter<T>(storage, current_);
     }
 
-    std::shared_ptr<EpochContext> latest() noexcept const { return current_; }
+    std::shared_ptr<EpochContext> latest() const noexcept { return current_; }
 
   private:
     std::shared_ptr<EpochContext> current_;
