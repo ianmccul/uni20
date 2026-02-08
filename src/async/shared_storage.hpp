@@ -73,6 +73,7 @@ template <typename T> class shared_storage {
     control_block* ctrl_ = nullptr;
 
     template <typename U, typename... Args> friend shared_storage<U> make_shared_storage(Args&&... args);
+    template <typename U> friend shared_storage<U> make_unconstructed_shared_storage();
 
     explicit shared_storage(control_block* c) noexcept : ctrl_(c) {}
 
@@ -133,6 +134,9 @@ template <typename T> class shared_storage {
       ctrl_->construct(std::forward<Args>(args)...);
       return *ctrl_->ptr();
     }
+
+    bool operator!() const noexcept { return !ctrl_; };              // no control block
+    explicit operator bool() const noexcept { return bool(ctrl_); }; // has control block
 
     void destroy() noexcept
     {

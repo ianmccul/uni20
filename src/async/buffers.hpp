@@ -8,7 +8,7 @@
 #include "async_task_promise.hpp"
 #include "common/trace.hpp"
 #include "epoch_context.hpp"
-#include "storage_buffer.hpp"
+#include "shared_storage.hpp"
 
 #include <coroutine>
 #include <cstddef>
@@ -505,8 +505,7 @@ template <typename T> class WriteBuffer {
 
 template <typename T, typename... Args> class EmplaceAwaiter {
   public:
-    EmplaceAwaiter(EpochContextWriter<T>&& writer, std::shared_ptr<detail::StorageBuffer<T>> storage,
-                   std::shared_ptr<void> external_owner, Args&&... args)
+    EmplaceAwaiter(EpochContextWriter<T>&& writer, shared_storage<T> storage, Args&&... args)
         : writer_(std::move(writer)), storage_(std::move(storage)), args_(std::forward<Args>(args)...)
     {}
 
@@ -520,11 +519,11 @@ template <typename T, typename... Args> class EmplaceAwaiter {
 
     T& await_resume()
     {
-      auto* storage = storage_.get();
-      if (storage)
+      if (storage_.valid())
       {
-        std::apply([&](auto&&... unpacked) { storage->construct(std::forward<Args>(unpacked)...); }, std::move(args_));
-        storage->set_external_owner(external_owner_);
+        storage_.destroy();
+        std::apply([this](auto&&... unpacked) { storage_.emplace(std::forward<decltype(unpacked)>(unpacked)...); },
+                   std::move(args_));
       }
       auto& ref = writer_.data();
       writer_.release();
@@ -533,8 +532,7 @@ template <typename T, typename... Args> class EmplaceAwaiter {
 
   private:
     EpochContextWriter<T> writer_;
-    std::shared_ptr<detail::StorageBuffer<T>> storage_{};
-    std::shared_ptr<void> external_owner_{};
+    shared_storage<T> storage_{};
     std::tuple<Args...> args_;
 };
 
@@ -553,7 +551,7 @@ template <typename T> class EmplaceBuffer {
     using value_type = T;
     using element_type = T&;
 
-    EmplaceBuffer(EpochContextWriter<T> writer, std::shared_ptr<detail::StorageBuffer<T>> storage)
+    EmplaceBuffer(EpochContextWriter<T> writer, shared_storage<T> storage)
         : writer_(std::move(writer)), storage_(std::move(storage))
     {
       writer_.writer_require();
@@ -579,11 +577,12 @@ template <typename T> class EmplaceBuffer {
 
     T& await_resume()
     {
-      if (storage_)
+      if (storage_.valid())
       {
         if constexpr (std::is_default_constructible_v<T>)
         {
-          storage_->construct();
+          storage_.destroy();
+          storage_.emplace();
         }
         else
         {
@@ -633,7 +632,7 @@ template <typename T> class EmplaceBuffer {
     }
 
     EpochContextWriter<T> writer_;
-    std::shared_ptr<detail::StorageBuffer<T>> storage_{};
+    shared_storage<T> storage_{};
     mutable bool consumed_{false};
 };
 

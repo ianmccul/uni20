@@ -87,20 +87,14 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
   TRACE_MODULE(ASYNC, "returned from coroutine::resume");
 }
 
-// template <typename T> void BasicAsyncTask<T>::cancel_on_resume() noexcept
-// {
-//   CHECK(h_);
-//   CHECK(current_awaiter_);
-//   current_awaiter_->set_cancel();
-// }
-//
-// template <typename T> void BasicAsyncTask<T>::exception_on_resume(std::exception_ptr e) noexcept
-// {
-//   CHECK(h_);
-//   CHECK(current_awaiter_);
-//   current_awaiter_->set_exception(e);
-// }
-//
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::cancel_on_resume() noexcept
+{
+  cancel_.store(true, std::memory_order_release);
+}
+
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::exception_on_resume(std::exception_ptr) noexcept
+{}
+
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
 {
   // TRACE_MODULE(ASYNC, "AsyncTask move assignment", this, h_, &other, other.h_);

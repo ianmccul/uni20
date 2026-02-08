@@ -126,7 +126,7 @@ template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched
   return this->data();
 }
 
-template <typename T> T&& EpochContextWriter<T>::move_from_wait() const
+template <typename T> T&& EpochContextWriter<T>::move_from_wait()
 {
   auto* sched = get_global_scheduler();
   if (!this->ready())

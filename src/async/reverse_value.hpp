@@ -1,6 +1,7 @@
 #pragma once
 #include "async.hpp"
 #include "buffers.hpp"
+#include "epoch_queue.hpp"
 #include <type_traits>
 
 namespace uni20::async
@@ -60,8 +61,17 @@ template <typename T> class ReverseValue {
   public:
     using value_type = T;
 
+    struct EpochPair
+    {
+        EpochContextWriter<T> writer;
+        EpochContextReader<T> reader;
+    };
+
     /// Construct a new, uninitialized ReverseValue.
-    ReverseValue() : async_{make_async()}, buffers_(async_.prepend_epoch()) {}
+    ReverseValue()
+        : async_{make_async()}, queue_(std::make_shared<ReverseEpochQueue>(async_.queue()->latest())),
+          buffers_(this->prepend_epoch())
+    {}
 
     // move ctor and move-assign should "just work"
     ReverseValue(ReverseValue&&) noexcept = default;
@@ -101,12 +111,17 @@ template <typename T> class ReverseValue {
     [[nodiscard]] WriteBuffer<T> output()
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
-      buffers_ = async_.prepend_epoch();
+      buffers_ = this->prepend_epoch();
       return w;
     }
 
     void finalize()
     {
+      if (!started_)
+      {
+        queue_->start();
+        started_ = true;
+      }
       buffers_.reader.release();
       buffers_.writer.release();
     }
@@ -143,7 +158,7 @@ template <typename T> class ReverseValue {
     template <typename U> ReverseValue& operator+=(Async<U> const& v)
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
-      buffers_ = async_.prepend_epoch();
+      buffers_ = this->prepend_epoch();
 
       schedule(async_accumulate(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
@@ -152,7 +167,7 @@ template <typename T> class ReverseValue {
     template <typename U> ReverseValue& operator+=(ReverseValue<U> const& v)
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
-      buffers_ = async_.prepend_epoch();
+      buffers_ = this->prepend_epoch();
 
       schedule(async_accumulate(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
@@ -161,7 +176,7 @@ template <typename T> class ReverseValue {
     template <typename U> ReverseValue& operator+=(ReadBuffer<U> v)
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
-      buffers_ = async_.prepend_epoch();
+      buffers_ = this->prepend_epoch();
 
       schedule(async_accumulate(ReadBuffer<T>(buffers_.reader), std::move(v), std::move(w)));
       return *this;
@@ -170,7 +185,7 @@ template <typename T> class ReverseValue {
     template <typename U> ReverseValue& operator-=(Async<U> const& v)
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
-      buffers_ = async_.prepend_epoch();
+      buffers_ = this->prepend_epoch();
 
       schedule(async_accumulate_minus(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
@@ -179,7 +194,7 @@ template <typename T> class ReverseValue {
     template <typename U> ReverseValue& operator-=(ReverseValue<U> const& v)
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
-      buffers_ = async_.prepend_epoch();
+      buffers_ = this->prepend_epoch();
 
       schedule(async_accumulate_minus(ReadBuffer<T>(buffers_.reader), v.read(), std::move(w)));
       return *this;
@@ -188,7 +203,7 @@ template <typename T> class ReverseValue {
     template <typename U> ReverseValue& operator-=(ReadBuffer<U> v)
     {
       WriteBuffer<T> w{std::move(buffers_.writer)};
-      buffers_ = async_.prepend_epoch();
+      buffers_ = this->prepend_epoch();
 
       schedule(async_accumulate_minus(ReadBuffer<T>(buffers_.reader), std::move(v), std::move(w)));
       return *this;
@@ -199,6 +214,13 @@ template <typename T> class ReverseValue {
     Async<T> value() && { return std::move(async_); }
 
   private:
+    EpochPair prepend_epoch()
+    {
+      auto writer = queue_->create_write_context(async_.storage_ptr());
+      auto reader = queue_->create_read_context(async_.storage_ptr());
+      return EpochPair{std::move(writer), std::move(reader)};
+    }
+
     static Async<T> make_async()
     {
       if constexpr (std::is_default_constructible_v<T>)
@@ -209,7 +231,9 @@ template <typename T> class ReverseValue {
     }
 
     Async<T> async_;
-    EpochQueue::EpochPair<T> buffers_;
+    std::shared_ptr<ReverseEpochQueue> queue_;
+    EpochPair buffers_;
+    bool started_{false};
 };
 
 template <typename T> struct async_value_type<ReverseValue<T>>

@@ -210,7 +210,7 @@ class EpochContext {
     void start(std::exception_ptr eptr, bool cancelled)
     {
       std::unique_lock lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::start", this, counter_, eptr, cancelled);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::start", this, counter_, cancelled);
       DEBUG_CHECK(phase_ == Phase::Pending);
 
       if (inherit_error_state_)
@@ -296,7 +296,7 @@ class EpochContext {
     void writer_set_exception(std::exception_ptr e) noexcept
     {
       std::lock_guard lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_set_exception", this, counter_, e);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_set_exception", this, counter_);
       DEBUG_CHECK(phase_ == Phase::Writing);
       eptr_ = e;
     }
@@ -484,7 +484,7 @@ class EpochContext {
     friend class ReverseEpochQueue;
 
     // All of the data is protected by the mutex
-    std::mutex mtx_;
+    mutable std::mutex mtx_;
 
     // Exception pointer - if this is set, then any attempt to get a buffer throws the exception.
     // This is also propogated to future epochs
@@ -716,7 +716,7 @@ template <typename T> class EpochContextReader {
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
       if (epoch_->reader_cancelled()) throw buffer_cancelled();
 
-      auto* ptr = storage_ ? storage_->get() : nullptr;
+      auto* ptr = storage_.get();
       DEBUG_CHECK(ptr);
       return *ptr;
     }
@@ -732,7 +732,7 @@ template <typename T> class EpochContextReader {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
       if (epoch_->reader_cancelled()) return nullptr;
-      return storage_ ? storage_->get() : nullptr;
+      return storage_.get();
     }
 
     /// \brief Optionally retrieves the value stored in this buffer, if available.
@@ -747,24 +747,32 @@ template <typename T> class EpochContextReader {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
       if (epoch_->reader_cancelled()) return std::nullopt;
-      auto* ptr = storage_ ? storage_->get() : nullptr;
+      auto* ptr = storage_.get();
       DEBUG_CHECK(ptr);
       return *ptr;
     }
 
-    // /// \brief Wait for the epoch to become available on the global scheduler, and then return a reference to the
-    // /// value \ingroup async_core
-    // T const& get_wait() const;
-    //
-    // /// \brief Wait for the epoch to become available on the given scheduler, and then return a reference to the
-    // /// value \param sched Scheduler used to drive readiness. \ingroup async_core
-    // T const& get_wait(IScheduler& sched) const;
+    /// \brief Release the reader.
+    /// \ingroup async_core
+    void release() noexcept
+    {
+      if (epoch_)
+      {
+        epoch_->reader_release();
+        epoch_.reset();
+      }
+    }
+
+    /// \brief Wait for the epoch to become available on the global scheduler and return a reference to the value.
+    /// \ingroup async_core
+    T const& get_wait() const;
+
+    /// \brief Wait for the epoch to become available on the provided scheduler and return a reference to the value.
+    /// \param sched Scheduler used to drive readiness.
+    /// \ingroup async_core
+    T const& get_wait(IScheduler& sched) const;
 
   private:
-    /// \brief Release the reader,
-    /// \ingroup async_core
-    void release() noexcept { epoch_->reader_release(); }
-
     shared_storage<T> storage_;
     std::shared_ptr<EpochContext> epoch_{}; ///< Epoch currently tracked.
 };
@@ -858,7 +866,7 @@ template <typename T> class EpochContextWriter {
     T& data() const noexcept
     {
       accessed_ = true;
-      auto* ptr = storage_->get();
+      auto* ptr = storage_.get();
       DEBUG_CHECK(ptr);
       return *ptr;
     }
@@ -870,17 +878,26 @@ template <typename T> class EpochContextWriter {
     /// \brief Report whether the associated value is currently initialized.
     /// \return true if the epoch reports initialized storage.
     /// \ingroup async_core
-    bool constructed() const noexcept { return storage_.constructed(); }
+    bool value_is_initialized() const noexcept { return storage_.constructed(); }
 
     /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value.
     /// \ingroup async_core
-    T&& move_from_wait() const;
+    /// \brief Finalize this write gate, if not already done.
+    void release() noexcept
+    {
+      if (epoch_)
+      {
+        epoch_->writer_release();
+        epoch_.reset();
+      }
+    }
+
+    /// \brief Wait for the epoch to become available, and then return a prvalue-reference to the value.
+    /// \ingroup async_core
+    T&& move_from_wait();
 
   private:
-    /// \brief Finalize this write gate, if not already done.
-    void release() noexcept { epoch_->writer_release(); }
-
-    shared_storage<T> storage_;
+    mutable shared_storage<T> storage_;
     std::shared_ptr<EpochContext> epoch_;
     mutable bool accessed_ = false;
     mutable bool marked_written_ = false;

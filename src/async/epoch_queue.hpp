@@ -24,7 +24,7 @@ class EpochQueue {
     template <typename T> EpochContextReader<T> create_read_context(shared_storage<T> storage)
     {
       TRACE_MODULE(ASYNC, "EpochQueue::create_read_context", this);
-      CHECK(current_->has_writer());
+      if (!current_->has_writer() && storage.constructed()) current_->start();
       return EpochContextReader<T>(storage, current_);
     }
 
@@ -41,6 +41,8 @@ class EpochQueue {
     }
 
     std::shared_ptr<EpochContext> latest() const noexcept { return current_; }
+
+    bool has_pending_writers() const noexcept { return current_ && current_->has_writer(); }
 
   private:
     std::shared_ptr<EpochContext> current_;
