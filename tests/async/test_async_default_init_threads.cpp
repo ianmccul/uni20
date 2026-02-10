@@ -10,11 +10,11 @@ namespace
 {
 struct Counting
 {
-  Counting() { ++constructed; }
-  Counting(Counting const&) { ++constructed; }
-  Counting& operator=(Counting const&) = default;
+    Counting() { ++constructed; }
+    Counting(Counting const&) { ++constructed; }
+    Counting& operator=(Counting const&) = default;
 
-  static std::atomic<int> constructed;
+    static std::atomic<int> constructed;
 };
 
 std::atomic<int> Counting::constructed{0};
@@ -25,7 +25,7 @@ TEST(AsyncDefaultInit, InitializesOnceAcrossThreads)
   using namespace uni20::async;
 
   Counting::constructed.store(0);
-  Async<Counting> value;
+  Async<Counting> value = Counting();
 
   constexpr int kThreads = 16;
   std::vector<std::thread> threads;
@@ -39,7 +39,8 @@ TEST(AsyncDefaultInit, InitializesOnceAcrossThreads)
     });
   }
 
-  for (auto& thread : threads) thread.join();
+  for (auto& thread : threads)
+    thread.join();
 
   EXPECT_EQ(Counting::constructed.load(), 1);
 }

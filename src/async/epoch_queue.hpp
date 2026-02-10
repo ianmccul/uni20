@@ -21,10 +21,12 @@ class EpochQueue {
   public:
     EpochQueue() : current_(std::make_shared<EpochContext>()) { TRACE_MODULE(ASYNC, "EpochQueue Constructor", this); }
 
-    template <typename T> EpochContextReader<T> create_read_context(shared_storage<T> storage)
+    ~EpochQueue() { TRACE_MODULE(ASYNC, "EpochQueue Destructor", this); }
+
+    template <typename T> EpochContextReader<T> create_read_context(shared_storage<T> storage) const
     {
       TRACE_MODULE(ASYNC, "EpochQueue::create_read_context", this);
-      if (!current_->has_writer() && storage.constructed()) current_->start();
+      // if (!current_->has_writer() && storage.constructed()) current_->start();
       return EpochContextReader<T>(storage, current_);
     }
 
@@ -78,7 +80,7 @@ class ReverseEpochQueue {
       return EpochContextWriter<T>(storage, first_);
     }
 
-    /// Start running the queue. After it starts, we can no longer
+    /// Start running the queue. After it starts, we can no longer access the queue
     void start()
     {
       TRACE_MODULE(ASYNC, "ReverseEpochQueue::start", this);
@@ -87,6 +89,9 @@ class ReverseEpochQueue {
       first_->start();
       first_.reset();
     }
+
+    /// Returns true if the queue has been started.  In that case we can no longer access the initial epoch.
+    bool is_started() const { return !first_; }
 
   private:
     std::shared_ptr<EpochContext> first_;

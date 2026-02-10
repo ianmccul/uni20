@@ -256,9 +256,9 @@ struct BasicAsyncTaskPromise
     /// \brief Suspend immediately on coroutine entry.
     constexpr std::suspend_always initial_suspend() noexcept { return {}; }
 
-    /// \brief Suspend at ther end of the coroutine. This makes no practical difference in our case,
-    ///        either way the sceduler that called .resume() would see a done() coroutine and the only
-    ///        valid operation is to call .destroy()
+    /// \note At final_suspend the coroutine frame is owned exclusively by the coroutine.
+    ///       The scheduler must not retain or access the coroutine_handle after resume().
+    ///       This function eagerly destroys the coroutine and resumes its continuation.
 
     auto final_suspend() noexcept
     {

@@ -35,7 +35,7 @@ TEST(AsyncDestroyTest, DestroyWaitingReader)
 
   {
     WriteBuffer<int> wb = result.write();
-    wb.writer_require();
+    // wb.writer_require();
 
     schedule(Reader(result.read(), &was_destroyed));
     sched.run(); // ensure that Reader blocks at co_await
@@ -67,8 +67,8 @@ TEST(AsyncDestroyTest, DestroyNewReader)
 
   {
     WriteBuffer<int> wb = result.write();
-    wb.writer_require();
-    // do not run the scheduler yet
+    // wb.writer_require();
+    //  do not run the scheduler yet
   }
   // when wb goes out of scope, this marks the EpochContext as cancelled
   EXPECT_EQ(was_destroyed, false);

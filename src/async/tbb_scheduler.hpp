@@ -133,6 +133,7 @@ class TbbScheduler final : public IScheduler {
   private:
     void enqueue_task(AsyncTask&& t)
     {
+      TRACE_MODULE(ASYNC, "TBB scheduler enquing task", t.h_);
       if (auto h = t.release_handle())
       {
         bool paused = paused_.load(std::memory_order_acquire);

@@ -177,11 +177,19 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
 
     /// \brief Flag the coroutine so that the next resume will deliver a cancellation.
     /// \ingroup async_core
-    void cancel_if_unwritten() { cancel_.store(true, std::memory_order_release); }
+    void cancel_if_unwritten()
+    {
+      TRACE_MODULE(ASYNC, "BasicAsyncTask::cancel_if_unwritten", this, h_);
+      cancel_.store(true, std::memory_order_release);
+    }
 
     /// \brief Indicate that the coroutine produced a value successfully.
     /// \ingroup async_core
-    void written() { cancel_.store(false, std::memory_order_release); }
+    void written()
+    {
+      TRACE_MODULE(ASYNC, "BasicAsyncTask::written", this, h_);
+      cancel_.store(false, std::memory_order_release);
+    }
 
     // void set_current_awaiter(AsyncAwaiter* awaiter)
     // {

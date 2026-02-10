@@ -52,6 +52,7 @@ bool BasicAsyncTask<T>::can_destroy_coroutine(BasicAsyncTask<T>::handle_type h) 
 
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::release_handle()
 {
+  TRACE_MODULE(ASYNC, "BasicAsyncTask::release_handle", h_);
   CHECK(h_);
   if (!h_.promise().release_awaiter()) PANIC("Attempt to resume() a non-exclusive AsyncTask");
 
@@ -64,11 +65,12 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>
 
   if (to_destroy)
   {
-    CHECK(can_destroy_coroutine(handle), "unexpected destruction of an active AsyncTask without cancellation");
+    CHECK(this->can_destroy_coroutine(handle), "unexpected destruction of an active AsyncTask without cancellation",
+          handle);
     // if we need to destroy the coroutine, recursively destroy any continuations as well
     while (handle)
     {
-      TRACE_MODULE(ASYNC, "Destroying AsyncTask", handle);
+      TRACE_MODULE(ASYNC, "Destroying AsyncTask due to cancellation", handle);
       handle = handle.promise().destroy_with_continuation();
     }
   }
@@ -89,11 +91,11 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
 
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::cancel_on_resume() noexcept
 {
+  TRACE_MODULE(ASYNC, "Setting cancel flag on coroutine", this, h_);
   cancel_.store(true, std::memory_order_release);
 }
 
-template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::exception_on_resume(std::exception_ptr) noexcept
-{}
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::exception_on_resume(std::exception_ptr) noexcept {}
 
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
 {
@@ -111,7 +113,8 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::destroy_owned_coroutine() noexcept
 {
   auto handle = h_;
-  CHECK(can_destroy_coroutine(handle), "unexpected destruction of an active AsyncTask without cancellation");
+  CHECK(can_destroy_coroutine(handle), "unexpected destruction of an active AsyncTask without cancellation", this,
+        handle);
   while (handle)
   {
     DEBUG_TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, handle);

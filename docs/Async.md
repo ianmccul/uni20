@@ -27,7 +27,7 @@ This design yields the same causal guarantees as a DAG scheduler but with much l
 - A wrapper around a value of type `T` that coordinates access through `EpochQueue`.
 - Construction options:
   - Conversion constructor to initialize an `Async<T>` from an existing object of type `T`, or something implicitly or explicitly convertible to `T`.
-  - In-place construction (`Async<T>{std::in_place, ...}`) forwards arguments to the stored `T`, in the same way as in-place construction for `std::optional` and other `std` classes.
+  - In-place construction (`Async<T>{x, ...}`) forwards multiple arguments to the `T` constuctor.
   - Default construction leaves the value unconstructed.
 - Copy construction schedules a copy of the value rather than cloning the async timeline:
   - `Async(const Async&)` creates a fresh storage buffer and epoch queue, then enqueues an asynchronous read of the

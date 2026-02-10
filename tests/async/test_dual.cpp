@@ -16,13 +16,16 @@ TEST(Dual, Sin)
   double v = 0.1;
   Dual<double> x = v;
 
+  TRACE(x.grad.value().queue().latest().get());
   Dual<double> y = sin(x);
 
   EXPECT_NEAR(y.value.get_wait(), std::sin(v), 1e-10);
 
   y.grad = 1.0; // this seeds the backprop chain, accumulating values into x.grad
 
-  EXPECT_NEAR(x.grad.final().get_wait(), std::cos(v), 1e-10);
+  TRACE(x.grad.value().queue().latest().get());
+  EXPECT_NEAR(x.grad.value().get_wait(), std::cos(v), 1e-10);
+  TRACE(x.grad.value().queue().latest().get());
 
   sched.run_all();
 }

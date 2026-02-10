@@ -127,7 +127,9 @@ template <typename T> class shared_storage {
 
     size_t use_count() const noexcept { return ctrl_ ? ctrl_->strong_count.load(std::memory_order_relaxed) : 0; }
 
-    template <typename... Args> T& emplace(Args&&... args)
+    template <typename... Args>
+      requires std::constructible_from<T, Args...>
+    T& emplace(Args&&... args)
     {
       DEBUG_CHECK(ctrl_, "shared_storage must be initialized with make_shared_storage()");
       DEBUG_CHECK(!constructed(), "Object already constructed");

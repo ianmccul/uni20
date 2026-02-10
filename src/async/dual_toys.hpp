@@ -28,6 +28,7 @@ template <typename T> Dual<T> sin(Dual<T> x)
 
   schedule(co_sin(x.value.read(), Result.value.write()));
 
+  TRACE("Dual Sin", Result.grad.value().queue().latest().get());
   schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     using std::cos;
     using uni20::conj;

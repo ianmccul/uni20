@@ -10,16 +10,11 @@
 namespace uni20::async::detail
 {
 
-template <typename T> class StorageBuffer
-{
+template <typename T> class StorageBuffer {
   public:
     StorageBuffer() = default;
 
-    template <typename... Args>
-    explicit StorageBuffer(std::in_place_t, Args&&... args)
-    {
-      this->construct(std::forward<Args>(args)...);
-    }
+    template <typename... Args> explicit StorageBuffer(Args&&... args) { this->construct(std::forward<Args>(args)...); }
 
     StorageBuffer(StorageBuffer const&) = delete;
     StorageBuffer& operator=(StorageBuffer const&) = delete;
@@ -71,10 +66,7 @@ template <typename T> class StorageBuffer
       return ptr;
     }
 
-    void set_external_owner(std::shared_ptr<void> owner) noexcept
-    {
-      external_owner_ = std::move(owner);
-    }
+    void set_external_owner(std::shared_ptr<void> owner) noexcept { external_owner_ = std::move(owner); }
 
     std::shared_ptr<void> const& external_owner() const noexcept { return external_owner_; }
 
@@ -101,4 +93,3 @@ template <typename T> class StorageBuffer
 };
 
 } // namespace uni20::async::detail
-

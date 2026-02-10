@@ -61,7 +61,7 @@ TEST(AsyncBasicTest, MultipleReaders)
 
 TEST(AsyncBasicTest, InPlaceConstructsValue)
 {
-  Async<std::string> value(std::in_place, 10, 'x');
+  Async<std::string> value(10, 'x');
   DebugScheduler sched;
 
   sched.schedule([](ReadBuffer<std::string> reader) static->AsyncTask {
@@ -75,7 +75,7 @@ TEST(AsyncBasicTest, InPlaceConstructsValue)
 
 TEST(AsyncBasicTest, InPlaceConstructsFromInitializerList)
 {
-  Async<std::vector<int>> value(std::in_place, {1, 2, 3, 4});
+  Async<std::vector<int>> value({1, 2, 3, 4});
   DebugScheduler sched;
 
   sched.schedule([](ReadBuffer<std::vector<int>> reader) static->AsyncTask {

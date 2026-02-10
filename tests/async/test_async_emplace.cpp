@@ -11,50 +11,50 @@ namespace
 {
 struct NonDefault
 {
-  explicit NonDefault(int v_in) : v(v_in) {}
-  int v;
+    explicit NonDefault(int v_in) : v(v_in) {}
+    int v;
 };
 
 struct MoveOnly
 {
-  explicit MoveOnly(std::unique_ptr<int> ptr_in) : ptr(std::move(ptr_in)) {}
-  MoveOnly(MoveOnly&&) noexcept = default;
-  MoveOnly& operator=(MoveOnly&&) noexcept = default;
-  MoveOnly(MoveOnly const&) = delete;
-  MoveOnly& operator=(MoveOnly const&) = delete;
+    explicit MoveOnly(std::unique_ptr<int> ptr_in) : ptr(std::move(ptr_in)) {}
+    MoveOnly(MoveOnly&&) noexcept = default;
+    MoveOnly& operator=(MoveOnly&&) noexcept = default;
+    MoveOnly(MoveOnly const&) = delete;
+    MoveOnly& operator=(MoveOnly const&) = delete;
 
-  std::unique_ptr<int> ptr;
+    std::unique_ptr<int> ptr;
 };
 
 struct Counting
 {
-  Counting() = delete;
-  explicit Counting(int v_in) : v(v_in) { ++constructed; }
-  Counting(Counting&& other) noexcept : v(other.v) { ++constructed; }
-  Counting& operator=(Counting&& other) noexcept
-  {
-    v = other.v;
-    return *this;
-  }
-  Counting(Counting const&) = delete;
-  Counting& operator=(Counting const&) = delete;
-  ~Counting() = default;
+    Counting() = delete;
+    explicit Counting(int v_in) : v(v_in) { ++constructed; }
+    Counting(Counting&& other) noexcept : v(other.v) { ++constructed; }
+    Counting& operator=(Counting&& other) noexcept
+    {
+      v = other.v;
+      return *this;
+    }
+    Counting(Counting const&) = delete;
+    Counting& operator=(Counting const&) = delete;
+    ~Counting() = default;
 
-  static void reset() { constructed = 0; }
+    static void reset() { constructed = 0; }
 
-  int v;
-  inline static int constructed = 0;
+    int v;
+    inline static int constructed = 0;
 };
 
 struct DefaultConstructed
 {
-  DefaultConstructed() { ++constructed; }
-  explicit DefaultConstructed(int v_in) : v(v_in) { ++constructed; }
+    DefaultConstructed() { ++constructed; }
+    explicit DefaultConstructed(int v_in) : v(v_in) { ++constructed; }
 
-  int v = 7;
-  inline static int constructed = 0;
+    int v = 7;
+    inline static int constructed = 0;
 
-  static void reset() { constructed = 0; }
+    static void reset() { constructed = 0; }
 };
 } // namespace
 
@@ -63,13 +63,13 @@ TEST(AsyncEmplaceTest, ConstructsNonDefaultInTask)
   Async<NonDefault> value;
   DebugScheduler sched;
 
-  sched.schedule([](EmplaceBuffer<NonDefault> buffer) static -> AsyncTask {
+  sched.schedule([](EmplaceBuffer<NonDefault> buffer) static->AsyncTask {
     auto& obj = co_await std::move(buffer)(42);
     EXPECT_EQ(obj.v, 42);
     co_return;
   }(value.emplace()));
 
-  sched.schedule([](ReadBuffer<NonDefault> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<NonDefault> reader) static->AsyncTask {
     auto& obj = co_await reader;
     EXPECT_EQ(obj.v, 42);
     co_return;
@@ -84,15 +84,14 @@ TEST(AsyncEmplaceTest, ForwardsMoveOnlyArguments)
   DebugScheduler sched;
 
   auto ptr = std::make_unique<int>(99);
-  sched.schedule(
-    [](EmplaceBuffer<MoveOnly> buffer, std::unique_ptr<int> incoming) static -> AsyncTask {
-      auto& obj = co_await std::move(buffer)(std::move(incoming));
-      EXPECT_NE(obj.ptr, nullptr);
-      EXPECT_EQ(*obj.ptr, 99);
-      co_return;
-    }(value.emplace(), std::move(ptr)));
+  sched.schedule([](EmplaceBuffer<MoveOnly> buffer, std::unique_ptr<int> incoming) static->AsyncTask {
+    auto& obj = co_await std::move(buffer)(std::move(incoming));
+    EXPECT_NE(obj.ptr, nullptr);
+    EXPECT_EQ(*obj.ptr, 99);
+    co_return;
+  }(value.emplace(), std::move(ptr)));
 
-  sched.schedule([](ReadBuffer<MoveOnly> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<MoveOnly> reader) static->AsyncTask {
     auto& obj = co_await reader;
     EXPECT_NE(obj.ptr, nullptr);
     EXPECT_EQ(*obj.ptr, 99);
@@ -110,7 +109,7 @@ TEST(AsyncEmplaceTest, DefersConstructionUntilAwait)
 
   EXPECT_EQ(Counting::constructed, 0);
 
-  sched.schedule([](EmplaceBuffer<Counting> buffer) static -> AsyncTask {
+  sched.schedule([](EmplaceBuffer<Counting> buffer) static->AsyncTask {
     auto& obj = co_await std::move(buffer)(5);
     EXPECT_EQ(obj.v, 5);
     co_return;
@@ -128,7 +127,7 @@ TEST(AsyncEmplaceTest, LazyDefaultConstructsForReads)
 
   EXPECT_EQ(DefaultConstructed::constructed, 0);
 
-  sched.schedule([](ReadBuffer<DefaultConstructed> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<DefaultConstructed> reader) static->AsyncTask {
     auto& ref = co_await reader;
     EXPECT_EQ(ref.v, 7);
     co_return;
@@ -136,7 +135,7 @@ TEST(AsyncEmplaceTest, LazyDefaultConstructsForReads)
 
   EXPECT_EQ(DefaultConstructed::constructed, 1);
 
-  sched.schedule([](ReadBuffer<DefaultConstructed> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<DefaultConstructed> reader) static->AsyncTask {
     auto& ref = co_await reader;
     EXPECT_EQ(ref.v, 7);
     co_return;
@@ -157,13 +156,13 @@ TEST(AsyncEmplaceTest, LazyDefaultConstructsForWriteBuffer)
   auto writer = value.write();
   EXPECT_EQ(DefaultConstructed::constructed, 1);
 
-  sched.schedule([](WriteBuffer<DefaultConstructed> buffer) static -> AsyncTask {
+  sched.schedule([](WriteBuffer<DefaultConstructed> buffer) static->AsyncTask {
     auto& ref = co_await buffer;
     ref.v = 13;
     co_return;
   }(std::move(writer)));
 
-  sched.schedule([](ReadBuffer<DefaultConstructed> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<DefaultConstructed> reader) static->AsyncTask {
     auto& ref = co_await reader;
     EXPECT_EQ(ref.v, 13);
     co_return;
@@ -184,13 +183,13 @@ TEST(AsyncEmplaceTest, LazyDefaultConstructsForMutableBuffer)
   auto mutator = value.mutate();
   EXPECT_EQ(DefaultConstructed::constructed, 1);
 
-  sched.schedule([](MutableBuffer<DefaultConstructed> buffer) static -> AsyncTask {
+  sched.schedule([](MutableBuffer<DefaultConstructed> buffer) static->AsyncTask {
     auto& ref = co_await buffer;
     ref.v = 21;
     co_return;
   }(std::move(mutator)));
 
-  sched.schedule([](ReadBuffer<DefaultConstructed> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<DefaultConstructed> reader) static->AsyncTask {
     auto& ref = co_await reader;
     EXPECT_EQ(ref.v, 21);
     co_return;
@@ -207,11 +206,10 @@ TEST(AsyncEmplaceTest, DeferredControlBlockAndQueueAreInitialized)
 
   auto initial_control = value.value_ptr();
   auto queue = value.queue();
-  ASSERT_TRUE(queue);
-  EXPECT_FALSE(queue->has_pending_writers());
+  EXPECT_FALSE(queue.has_pending_writers());
   EXPECT_EQ(initial_control.get(), nullptr);
 
-  sched.schedule([](EmplaceBuffer<NonDefault> buffer, Async<NonDefault>& target) static -> AsyncTask {
+  sched.schedule([](EmplaceBuffer<NonDefault> buffer, Async<NonDefault> & target) static->AsyncTask {
     auto& ref = co_await std::move(buffer)(123);
     EXPECT_EQ(ref.v, 123);
 
@@ -238,7 +236,7 @@ TEST(AsyncEmplaceTest, EmplaceBufferCannotBeUsedTwice)
   EXPECT_THROW(std::move(buffer)(), std::logic_error);
 
   DebugScheduler sched;
-  sched.schedule([](EmplaceAwaiter<DefaultConstructed> emplacer) static -> AsyncTask {
+  sched.schedule([](EmplaceAwaiter<DefaultConstructed> emplacer) static->AsyncTask {
     auto& ref = co_await std::move(emplacer);
     EXPECT_EQ(ref.v, 7);
     co_return;

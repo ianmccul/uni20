@@ -155,7 +155,7 @@ inline void DebugScheduler::run()
   std::reverse(H.begin(), H.end());
   for (auto&& h : H)
   {
-    TRACE_MODULE(ASYNC, "resuming coroutine...");
+    TRACE_MODULE(ASYNC, "resuming coroutine...", &h, h.h_);
     h.resume();
     CHECK(!h);
     TRACE_MODULE(ASYNC, "here", &h, Handles_.size());

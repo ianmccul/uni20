@@ -439,7 +439,7 @@ template <typename T> class WriteBuffer {
     using value_type = T;
     using element_type = T&;
 
-    explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) { writer_.writer_require(); }
+    explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) { writer_.writer_required(); }
 
     WriteBuffer(WriteBuffer const&) = delete;
     WriteBuffer& operator=(WriteBuffer const&) = delete;
@@ -462,12 +462,6 @@ template <typename T> class WriteBuffer {
     T& await_resume() const noexcept { return writer_.data(); }
 
     void release() noexcept { writer_.release(); }
-
-    /// \brief Explicitly mark this epoch as requiring a write.
-    ///
-    /// WriteBuffer already marks the epoch on construction, but callers may
-    /// invoke this again for clarity; it is idempotent.
-    void writer_require() noexcept { writer_.writer_require(); }
 
     T move_from_wait() { return writer_.move_from_wait(); }
 
@@ -505,8 +499,8 @@ template <typename T> class WriteBuffer {
 
 template <typename T, typename... Args> class EmplaceAwaiter {
   public:
-    EmplaceAwaiter(EpochContextWriter<T>&& writer, shared_storage<T> storage, Args&&... args)
-        : writer_(std::move(writer)), storage_(std::move(storage)), args_(std::forward<Args>(args)...)
+    EmplaceAwaiter(EpochContextWriter<T>&& writer, Args&&... args)
+        : writer_(std::move(writer)), args_(std::forward<Args>(args)...)
     {}
 
     bool await_ready() const noexcept { return writer_.ready(); }
@@ -519,12 +513,13 @@ template <typename T, typename... Args> class EmplaceAwaiter {
 
     T& await_resume()
     {
-      if (storage_.valid())
+      if (writer_.storage().valid())
       {
-        storage_.destroy();
-        std::apply([this](auto&&... unpacked) { storage_.emplace(std::forward<decltype(unpacked)>(unpacked)...); },
-                   std::move(args_));
+        writer_.storage().destroy();
       }
+      std::apply(
+          [this](auto&&... unpacked) { writer_.storage().emplace(std::forward<decltype(unpacked)>(unpacked)...); },
+          std::move(args_));
       auto& ref = writer_.data();
       writer_.release();
       return ref;
@@ -532,7 +527,6 @@ template <typename T, typename... Args> class EmplaceAwaiter {
 
   private:
     EpochContextWriter<T> writer_;
-    shared_storage<T> storage_{};
     std::tuple<Args...> args_;
 };
 
@@ -551,11 +545,7 @@ template <typename T> class EmplaceBuffer {
     using value_type = T;
     using element_type = T&;
 
-    EmplaceBuffer(EpochContextWriter<T> writer, shared_storage<T> storage)
-        : writer_(std::move(writer)), storage_(std::move(storage))
-    {
-      writer_.writer_require();
-    }
+    EmplaceBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) { writer_.writer_required(); }
 
     EmplaceBuffer(EmplaceBuffer const&) = delete;
     EmplaceBuffer& operator=(EmplaceBuffer const&) = delete;
@@ -575,31 +565,14 @@ template <typename T> class EmplaceBuffer {
       writer_.suspend(std::move(t));
     }
 
-    T& await_resume()
-    {
-      if (storage_.valid())
-      {
-        if constexpr (std::is_default_constructible_v<T>)
-        {
-          storage_.destroy();
-          storage_.emplace();
-        }
-        else
-        {
-          throw std::logic_error("Async value not initialized; use EmplaceBuffer with arguments");
-        }
-      }
-      auto& ref = writer_.data();
-      return ref;
-    }
+    shared_storage<T>& await_resume() { return writer_.storage(); }
 
     void release() noexcept { writer_.release(); }
 
     template <typename... Args> auto operator()(Args&&... args) &&
     {
       this->consume_once();
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(std::move(writer_), std::move(storage_),
-                                                      std::forward<Args>(args)...);
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(std::move(writer_), std::forward<Args>(args)...);
     }
 
     auto operator co_await() & -> EmplaceBuffer&
@@ -624,6 +597,15 @@ template <typename T> class EmplaceBuffer {
 #endif
     }
 
+    template <typename... Args>
+      requires std::constructible_from<T, Args...>
+    T& emplace_assert(Args&&... args)
+    {
+      DEBUG_CHECK(writer_.ready(), "EmplaceBuffer must be immediately writable");
+      writer_.emplace(std::forward<Args>(args)...);
+      return writer_.data();
+    }
+
   private:
     void consume_once()
     {
@@ -632,7 +614,6 @@ template <typename T> class EmplaceBuffer {
     }
 
     EpochContextWriter<T> writer_;
-    shared_storage<T> storage_{};
     mutable bool consumed_{false};
 };
 

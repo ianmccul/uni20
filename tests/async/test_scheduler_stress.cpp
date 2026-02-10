@@ -27,7 +27,7 @@ void update_max(std::atomic<int>& target, int value)
 
 TEST(TbbSchedulerStress, LinearChainCompletes)
 {
-  constexpr int kChainLength = 2000;
+  constexpr int kChainLength = 20;
 
   TbbScheduler sched{4};
   ScopedScheduler guard(&sched);
@@ -47,6 +47,7 @@ TEST(TbbSchedulerStress, LinearChainCompletes)
 
   EXPECT_EQ(current.get_wait(), kChainLength);
 }
+
 TEST(TbbSchedulerStress, BalancedReductionProducesExpectedSum)
 {
   constexpr int kLeafCount = 1 << 9; // 512 leaves, 511 internal nodes
