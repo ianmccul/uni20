@@ -22,19 +22,45 @@ namespace uni20::async
 // ∂L/∂z* = ∂L/∂f* ⋅ conj(∂f/∂z) + conj(∂L/∂f) ⋅ ∂f/∂z*
 // out_grad += in_grad . conj(∂f/∂z) + conj(in_grad) . ∂f/∂z*
 
-template <typename T> Dual<T> sin(Dual<T> x)
+template <typename T> Dual<T> sin(Dual<T>& x)
 {
   Dual<T> Result;
 
   schedule(co_sin(x.value.read(), Result.value.write()));
 
-  TRACE("Dual Sin", Result.grad.value().queue().latest().get());
+  // TRACE("Dual Sin", Result.grad.value().queue().latest().get());
   schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     using std::cos;
     using uni20::conj;
+    TRACE("Dual Sin coroutine");
     auto in_g = co_await in_grad.or_cancel();
+    TRACE("Dual Sin", in_g);
     auto cos_x = cos(co_await in);
+    TRACE("Dual Sin", cos_x);
     co_await out_grad += conj(cos_x) * in_g;
+    TRACE("Dual Sin finished");
+  }(x.value.read(), Result.grad.input(), x.grad.output()));
+
+  return Result;
+}
+
+template <typename T> Dual<T> sin(Dual<T>&& x)
+{
+  Dual<T> Result;
+
+  schedule(co_sin(x.value.read(), Result.value.write()));
+
+  // TRACE("Dual Sin", Result.grad.value().queue().latest().get());
+  schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
+    using std::cos;
+    using uni20::conj;
+    TRACE("Dual Sin coroutine");
+    auto in_g = co_await in_grad.or_cancel();
+    TRACE("Dual Sin", in_g);
+    auto cos_x = cos(co_await in);
+    TRACE("Dual Sin", cos_x);
+    co_await out_grad += conj(cos_x) * in_g;
+    TRACE("Dual Sin finished");
   }(x.value.read(), Result.grad.input(), x.grad.output()));
 
   return Result;

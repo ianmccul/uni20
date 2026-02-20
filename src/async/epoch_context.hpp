@@ -29,6 +29,9 @@ template <typename T> class EpochContextWriter;
 ///
 /// An `EpochContext` coordinates synchronization for one logical "generation" of an `Async<T>` value.
 /// It governs when a writer may produce the value and when readers may consume it.
+/// The new design allows multiple writers. If there is more than one writer then they must be performing
+/// a cumulative sum operation (such as adding gradients in backpropogation). In the current implemention
+/// writers run sequentially in any order, but this could be replaced with a parallel reduction.
 ///
 /// ### Key Design Goals
 /// - Self-contained: manages its own state transitions.
@@ -107,11 +110,10 @@ template <typename T> class EpochContextWriter;
 // Phase transition rules:
 //
 //   * Pending → Started
-//       Triggered by start_epoch() with total_writers_ == 0.
-//       \note if (num_writers_ > 0) then we transition straight to Writing
+//       Triggered by start_epoch()
 //
 //   * Started → Writing
-//       Triggered total_writers_ > 0.
+//       Triggered by total_writers_ > 0.
 //
 //   * Writing → Reading
 //       Triggered when num_writers_ drops to to 0.
@@ -184,9 +186,22 @@ class EpochContext {
     {
       Pending, ///< The epoch is not yet active (i.e. it is in the future)
       Started, ///< The epoch has started but is waiting for a writer task
-      Writing, ///< The epoch is active and waiting for the writer to finish
+      Writing, ///< The epoch is active and waiting for the writers to finish, with no writer currently running
       Reading, ///< The epoch is active and waiting for readers to finish
       Finished ///< The epoch is not active, and readers have finished
+    };
+
+    struct TaskState
+    {
+        AsyncTask task;
+        bool cancel_on_exception;
+    };
+
+    struct TaskStateBuf
+    {
+        AsyncTask task;
+        bool cancel_on_exception;
+        void const* buf;
     };
 
     EpochContext() { TRACE_MODULE(ASYNC, "Creating new EpochContext", this); }
@@ -195,7 +210,7 @@ class EpochContext {
     /// \note this is backwards propogation, the counter is initialized to next->counter_ - 1
     explicit EpochContext(std::shared_ptr<EpochContext> next) : counter_(next->counter_ - 1), next_epoch_(next)
     {
-      TRACE_MODULE(ASYNC, "Creating new EpochContext with next_epoch", this, counter_);
+      TRACE_MODULE(ASYNC, "Creating new EpochContext with next_epoch", this, counter_, next_epoch_.get());
     }
 
     /// Helper factory to construct the previous epoch in a reverse-mode chain
@@ -222,17 +237,16 @@ class EpochContext {
 
       next->counter_ = counter_ + 1; // increment the epoch counter
       next_epoch_ = std::move(next);
-      if (phase_ == Phase::Reading && num_readers_ == 0) this->advance_finished_locked(lock);
+      if (phase_ == Phase::Reading && num_readers_ == 0) this->advance_finished_locked(std::move(lock));
     }
 
-    // start executing the epoch
+    // start executing the epoch, if it has not already started
     void start()
     {
       std::unique_lock lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::start", this, counter_);
-      DEBUG_CHECK(phase_ == Phase::Pending);
-
-      this->advance_start_locked(lock);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::start", this, counter_, phase_);
+      //      DEBUG_CHECK(phase_ == Phase::Pending);
+      if (phase_ == Phase::Pending) this->advance_start_locked(std::move(lock));
     }
 
     // start executing the epoch, assuming that we've already written
@@ -244,22 +258,17 @@ class EpochContext {
       DEBUG_CHECK(phase_ == Phase::Pending);
       DEBUG_CHECK(total_writers_ == 0);
       ++total_writers_;
-      this->advance_start_locked(lock);
+      this->advance_start_locked(std::move(lock));
     }
 
     // start executing the epoch, propogating the exception and cancellation state from a previous epoch
-    void start(std::exception_ptr eptr, bool cancelled)
+    void start(std::exception_ptr eptr)
     {
       std::unique_lock lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::start", this, counter_, cancelled);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::start", this, counter_);
       DEBUG_CHECK(phase_ == Phase::Pending);
-
-      // if (inherit_error_state_)
-      // {
-      //   eptr_ = eptr;
-      //   cancelled_ = cancelled;
-      // }
-      this->advance_start_locked(lock);
+      eptr_ = eptr;
+      this->advance_start_locked(std::move(lock));
     }
 
   private:
@@ -268,7 +277,7 @@ class EpochContext {
     template <typename T> friend class EpochContextWriter;
 
     /// \brief Acquire the writer role for this epoch.
-    /// \ingroup internal
+    /// \pre phase_ <= Phase::Started
     void writer_acquire() noexcept
     {
       std::unique_lock lock(mtx_);
@@ -295,79 +304,79 @@ class EpochContext {
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_clear_errors", this, counter_);
       DEBUG_CHECK(phase_ <= Phase::Writing);
       eptr_ = nullptr;
-      cancelled_ = false;
+      // cancelled_ = false;
       // inherit_error_state_ = false;
-    }
-
-    /// \brief Returns true if a writer tasks can be executed immediately
-    bool writer_ready() const noexcept
-    {
-      std::lock_guard lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_ready", this, counter_);
-      DEBUG_CHECK(phase_ <= Phase::Writing);
-
-      return phase_ == Phase::Writing;
     }
 
     /// \brief Bind a coroutine to act as the writer.
     /// \param task The coroutine task to register.
-    /// \pre Must follow writer_acquire(), and only be called once.
+    /// \pre Must follow writer_acquire()
     /// \ingroup async_core
-    void writer_bind(AsyncTask&& task) noexcept
+    void writer_bind(AsyncTask&& task, bool cancel_on_exception) noexcept
     {
       std::unique_lock lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_bind", this, counter_, task.h_);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_bind", this, counter_, task.h_, cancel_on_exception, phase_,
+                         num_writers_, writer_active_);
       DEBUG_CHECK(phase_ <= Phase::Writing);
       DEBUG_CHECK(phase_ != Phase::Started); // if this Epoch was started, it should have transitioned to Writing by now
 
       // If the Epoch is running, then execute the task immediately
-      if (phase_ == Phase::Writing)
+      if (phase_ == Phase::Writing && !writer_active_)
       {
-        lock.unlock();
-        AsyncTask::reschedule(std::move(task));
+        this->execute_writer_locked(std::move(lock), TaskState{std::move(task), cancel_on_exception});
         return;
       }
 
       // Otherwise, store the task for later
-      writer_task_ = std::move(task);
+      writer_tasks_.emplace_back(std::move(task), cancel_on_exception);
     }
 
-    void writer_required() noexcept
+    /// \brief See if it is possible to run a writer immediately
+    /// \note Returns true if the caller writer is now active
+    bool writer_try_make_active() noexcept
     {
-      std::lock_guard lock(mtx_);
-      writer_required_ = true;
+      std::unique_lock lock(mtx_);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_try_make_active", this, counter_, phase_, writer_active_);
+      DEBUG_CHECK(phase_ <= Phase::Writing);
+      if (phase_ < Phase::Writing || writer_active_) return false;
+      writer_active_ = true;
+      return true;
     }
 
-    void writer_has_written() noexcept
-    {
-      std::lock_guard lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_has_written", this, counter_);
-      has_written_ = true;
-    }
+    // void writer_required() noexcept
+    // {
+    //   std::lock_guard lock(mtx_);
+    //   writer_required_ = true;
+    // }
+    //
+    // void writer_has_written() noexcept
+    // {
+    //   std::lock_guard lock(mtx_);
+    //   DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_has_written", this, counter_);
+    //   has_written_ = true;
+    // }
 
     void writer_set_exception(std::exception_ptr e) noexcept
     {
       std::lock_guard lock(mtx_);
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_set_exception", this, counter_);
       DEBUG_CHECK(phase_ == Phase::Writing);
-      eptr_ = e;
+      if (!eptr_) eptr_ = e;
     }
 
-    void writer_set_cancel() noexcept
-    {
-      std::lock_guard lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_set_cancel", this, counter_);
-      DEBUG_CHECK(phase_ == Phase::Writing);
-      cancelled_ = true;
-    }
+    // void writer_set_cancel() noexcept
+    // {
+    //   std::lock_guard lock(mtx_);
+    //   DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_set_cancel", this, counter_);
+    //   DEBUG_CHECK(phase_ == Phase::Writing);
+    //   cancelled_ = true;
+    // }
 
-    /// \brief Mark the writer as complete, releasing the epoch to readers.
-    /// \pre Must follow writer_acquire(), and only be called once.
+    /// \brief Release a writer without it executing
+    /// \pre Must follow writer_acquire()
     /// \return true if this call released the final writer.
     /// \ingroup async_core
-    /// FIXME: this doesn't require Phase::Writing.  We might have a task that is cancelled,
-    /// or goes out of scope.  But in that case we just want to skip the Writing phase.
-    bool writer_release() noexcept
+    bool writer_cancel() noexcept
     {
       std::unique_lock lock(mtx_);
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_release", this, counter_, phase_);
@@ -378,8 +387,39 @@ class EpochContext {
 
       if (num_writers_ == 0 && phase_ == Phase::Writing)
       {
+        DEBUG_CHECK(!writer_active_);
         this->advance_reading_locked(std::move(lock));
         return true;
+      }
+      return false;
+    }
+
+    /// \brief Release a writer that is currently active.
+    /// \note This is called when a currently running coroutine releases a write buffer
+    /// \pre We must be in the Writing phase here (otherwise we would not have an active coroutine).
+    /// \return true if this call released the final writer.
+    bool writer_release_active() noexcept
+    {
+      std::unique_lock lock(mtx_);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_release", this, counter_, phase_);
+      DEBUG_CHECK(phase_ == Phase::Writing);
+      DEBUG_CHECK(num_writers_ >= 1);
+      DEBUG_CHECK(writer_active_);
+
+      writer_active_ = false;
+      --num_writers_;
+
+      if (num_writers_ == 0 && phase_ == Phase::Writing)
+      {
+        this->advance_reading_locked(std::move(lock));
+        return true;
+      }
+
+      if (!writer_tasks_.empty())
+      {
+        auto NextTask = std::move(writer_tasks_.back());
+        writer_tasks_.pop_back();
+        this->execute_writer_locked(std::move(lock), std::move(NextTask));
       }
 
       return false;
@@ -414,7 +454,7 @@ class EpochContext {
       return phase_ == Phase::Reading;
     }
 
-    void reader_bind(AsyncTask&& h)
+    void reader_bind(AsyncTask&& h, bool cancel_on_exception)
     {
       std::unique_lock lock(mtx_);
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind", this, counter_, phase_);
@@ -422,39 +462,42 @@ class EpochContext {
 
       if (phase_ == Phase::Reading)
       {
-        DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind is scheduling the task immediately", this, counter_,
-                           cancelled_);
+        DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind is scheduling the task immediately", this, counter_);
         std::exception_ptr my_eptr = eptr_;
-        bool my_cancelled = cancelled_;
         lock.unlock();
-        if (my_eptr) h.exception_on_resume(my_eptr);
-        if (my_cancelled) h.cancel_on_resume();
+        if (my_eptr)
+        {
+          if (cancel_on_exception)
+            h.cancel_on_resume();
+          else
+            h.exception_on_resume(my_eptr);
+        }
         AsyncTask::reschedule(std::move(h));
       }
       else
       {
         DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind is adding the reader task", h.h_);
-        reader_tasks_.push_back(std::move(h));
+        reader_tasks_.emplace_back(std::move(h), cancel_on_exception);
       }
     }
 
     /// \brief Returns the exception object.
     std::exception_ptr reader_exception() const noexcept
     {
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind", this, counter_);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_exception", this, counter_);
       DEBUG_PRECONDITION(phase_ == Phase::Reading);
 
       return eptr_;
     }
 
-    bool reader_cancelled() const noexcept
-    {
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind", this, counter_);
-      DEBUG_PRECONDITION(phase_ == Phase::Reading);
-
-      return cancelled_;
-    }
-
+    // bool reader_cancelled() const noexcept
+    // {
+    //   DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind", this, counter_);
+    //   DEBUG_PRECONDITION(phase_ == Phase::Reading);
+    //
+    //   return cancelled_;
+    // }
+    //
     bool reader_release() noexcept
     {
       std::lock_guard lock(mtx_);
@@ -467,14 +510,14 @@ class EpochContext {
       if (num_readers_ == 0 && next_epoch_ != nullptr)
       {
         phase_ = Phase::Finished;
-        next_epoch_->start(eptr_, cancelled_);
+        next_epoch_->start(eptr_);
       }
 
       return num_readers_ == 0;
     }
 
     // Helper functions
-    void advance_start_locked(std::unique_lock<std::mutex>& lock)
+    void advance_start_locked(std::unique_lock<std::mutex> lock)
     {
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::advance_start_locked", this, counter_);
       DEBUG_PRECONDITION(phase_ == Phase::Pending);
@@ -489,10 +532,11 @@ class EpochContext {
       DEBUG_PRECONDITION(phase_ == Phase::Started);
       phase_ = Phase::Writing;
 
-      if (writer_task_)
+      if (!writer_tasks_.empty())
       {
-        lock.unlock();
-        AsyncTask::reschedule(std::move(writer_task_));
+        auto NextTask = std::move(writer_tasks_.back());
+        writer_tasks_.pop_back();
+        this->execute_writer_locked(std::move(lock), std::move(NextTask));
         return;
       }
 
@@ -506,10 +550,11 @@ class EpochContext {
       phase_ = Phase::Reading;
 
       // Check the writer status and set the cancelled_ flag if we required a writer but didn't get one
-      if (writer_required_ && !has_written_)
-      {
-        cancelled_ = true;
-      }
+      // if (writer_required_ && !has_written_)
+      // {
+      //   DEBUG_TRACE_MODULE(ASYNC, "EpochContext::advance_reading_locked: CANCELLED!", this, counter_);
+      //   cancelled_ = true;
+      // }
 
       if (num_readers_ > 0)
       {
@@ -517,10 +562,10 @@ class EpochContext {
         return;
       }
 
-      if (num_readers_ == 0 && next_epoch_ != nullptr) this->advance_finished_locked(lock);
+      if (num_readers_ == 0 && next_epoch_ != nullptr) this->advance_finished_locked(std::move(lock));
     }
 
-    void advance_finished_locked(std::unique_lock<std::mutex>& lock) noexcept
+    void advance_finished_locked(std::unique_lock<std::mutex> lock) noexcept
     {
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::advance_finished_locked", this, counter_);
       DEBUG_PRECONDITION(phase_ == Phase::Reading && next_epoch_);
@@ -528,24 +573,51 @@ class EpochContext {
 
       if (next_epoch_)
       {
-        next_epoch_->start(eptr_, cancelled_);
+        next_epoch_->start(eptr_);
       }
+    }
+
+    void execute_writer_locked(std::unique_lock<std::mutex> lock, TaskState task)
+    {
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::execute_writer_locked", this, counter_);
+      DEBUG_CHECK(phase_ == Phase::Writing);
+      DEBUG_CHECK(!writer_active_);
+
+      if (eptr_)
+      {
+        if (task.cancel_on_exception)
+          task.task.cancel_on_resume();
+        else
+          task.task.exception_on_resume(eptr_);
+      }
+      writer_active_ = true;
+      lock.unlock();
+      AsyncTask::reschedule(std::move(task.task));
     }
 
     void execute_readers_locked(std::unique_lock<std::mutex> lock)
     {
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::execute_readers_locked", this, counter_, cancelled_);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::execute_readers_locked", this, counter_);
+
+      // When we reschedule (or cancel) a task, we need to assume that the coroutine frame may get
+      // destroyed at any time, which might result in the last reference to this EpochContext itself
+      // disappearing.  This means that we cannot reference *this at all once we start rescheduling
+      // tasks.  Hence copy all of the data structures we need into local storage and release the lock.
       std::exception_ptr my_eptr = eptr_;
-      bool my_cancelled = cancelled_;
-      std::vector<AsyncTask> my_reader_tasks;
+      std::vector<TaskState> my_reader_tasks;
       std::swap(reader_tasks_, my_reader_tasks);
       lock.unlock();
 
       for (auto&& task : my_reader_tasks)
       {
-        if (my_eptr) task.exception_on_resume(my_eptr);
-        if (my_cancelled) task.cancel_on_resume();
-        AsyncTask::reschedule(std::move(task));
+        if (my_eptr)
+        {
+          if (task.cancel_on_exception)
+            task.task.cancel_on_resume();
+          else
+            task.task.exception_on_resume(my_eptr);
+        }
+        AsyncTask::reschedule(std::move(task.task));
       }
     }
 
@@ -559,20 +631,11 @@ class EpochContext {
     // This is also propogated to future epochs
     std::exception_ptr eptr_{nullptr};
 
-    // Set to true if the epoch has been cancelled. A cancelled epoch will get turned into an
-    // epoch_cancelled exception if a buffer tries to await. Propogated to future epochs.
-    bool cancelled_{false};
-
-    // // By default, errors and cancellation flag from a previous epoch propogate into this epoch as well.
-    // // But if a writer is going to overwrite the object and clear a possible error state, then
-    // // we do NOT want to propogate.
-    // bool inherit_error_state_{true};
-
     // Set to true if a writer is required for this epoch
     bool writer_required_{false};
 
     // Set to true if a writer actually writes to the backing store
-    bool has_written_{false};
+    // bool has_written_{false};
 
     // Epoch counter. This is mainly for debugging
     int counter_{0};
@@ -584,13 +647,13 @@ class EpochContext {
 
     // Writer interface
     int total_writers_{0};
-    int num_writers_{0}; ///< number of active writers (normally max 1)
-    AsyncTask writer_task_;
-    // bool writer_required_{false}; ///< Indicates that we require a successful write ?? do we need this ??
+    int num_writers_{0}; ///< number of active writers
+    std::vector<TaskState> writer_tasks_;
+    bool writer_active_{false};
 
     // Reader interface
     int num_readers_{0};
-    std::vector<AsyncTask> reader_tasks_;
+    std::vector<TaskState> reader_tasks_;
 
     // NOTE: we should be able to use atomic operations for most data.
     // Data that is only written once in some phase, and read only in a later phase,
@@ -604,7 +667,7 @@ class EpochContext {
     // bool inherit_error_state{true};       // written only before phase_ = Reading
     // bool cancelled_{false};               // written only before phase_ = Reading
     // std::exception_ptr eptr_{nullptr};    // written only before phase_ = Reading
-    // AsyncTask writer_task_;               // written only before phase_ = Writing
+    // AsyncTask writer_tasks_;               // written only before phase_ = Writing
     // std::vector<AsyncTask> reader_tasks_; // protected by mutex
     // std::mutex reader_tasks_mtx_;         // protects reader_tasks_
     //
@@ -786,10 +849,10 @@ template <typename T> class EpochContextReader {
     /// \brief Suspend a coroutine task as a reader of this epoch.
     /// \param t The coroutine task to register.
     /// \ingroup async_core
-    void suspend(AsyncTask&& t)
+    void suspend(AsyncTask&& t, bool cancel_on_exception)
     {
       TRACE_MODULE(ASYNC, "EpochContextReader::suspend", this, t.h_, epoch_.get(), epoch_->counter_);
-      epoch_->reader_bind(std::move(t));
+      epoch_->reader_bind(std::move(t), cancel_on_exception);
     }
 
     /// \brief Check whether the reader is ready to resume.
@@ -805,11 +868,7 @@ template <typename T> class EpochContextReader {
     {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       DEBUG_TRACE_MODULE(ASYNC, "EpochContextReader::data", epoch_.get(), epoch_->counter_);
-
-      // check for error conditions
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
-      if (epoch_->reader_cancelled()) throw buffer_cancelled();
-
       auto* ptr = storage_.get();
       DEBUG_CHECK(ptr);
       return *ptr;
@@ -825,7 +884,6 @@ template <typename T> class EpochContextReader {
     {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
-      if (epoch_->reader_cancelled()) return nullptr;
       return storage_.get();
     }
 
@@ -840,7 +898,6 @@ template <typename T> class EpochContextReader {
     {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
-      if (epoch_->reader_cancelled()) return std::nullopt;
       auto* ptr = storage_.get();
       DEBUG_CHECK(ptr);
       return *ptr;
@@ -896,10 +953,12 @@ template <typename T> class EpochContextWriter {
 
     /// \brief Copy constructor acquiring a writer reference for diagnostics.
     /// \ingroup async_core
-    EpochContextWriter(EpochContextWriter const& other) : storage_(other.storage_), epoch_(other.epoch_)
-    {
-      epoch_->writer_acquire();
-    }
+    // EpochContextWriter(EpochContextWriter const& other) : storage_(other.storage_), epoch_(other.epoch_)
+    // {
+    //   epoch_->writer_acquire_duplicate(static_cast<void const*>(this));
+    // }
+
+    explicit operator bool() const noexcept { return epoch_ != nullptr; }
 
     EpochContextWriter& operator=(EpochContextWriter const&) = delete;
 
@@ -907,7 +966,7 @@ template <typename T> class EpochContextWriter {
     /// \param other Writer being moved from.
     /// \ingroup async_core
     EpochContextWriter(EpochContextWriter&& other) noexcept
-        : storage_(std::move(other.storage_)), epoch_(std::move(other.epoch_))
+        : storage_(std::move(other.storage_)), epoch_(std::move(other.epoch_)), acquired_(std::move(other.acquired_))
     {
       other.epoch_.reset();
     }
@@ -923,6 +982,7 @@ template <typename T> class EpochContextWriter {
         this->release();
         storage_ = std::move(other.storage_);
         epoch_ = std::move(other.epoch_);
+        acquired_ = other.acquired_;
         other.epoch_.reset();
       }
       return *this;
@@ -938,20 +998,28 @@ template <typename T> class EpochContextWriter {
 #endif
 
     /// \brief Check whether the writer may proceed immediately.
-    /// \ingroup async_core
-    bool ready() const noexcept { return epoch_->writer_ready(); }
+    /// \note If true, then the writer is now active
+    bool ready() const noexcept
+    {
+      if (acquired_) return true;
+      acquired_ = epoch_->writer_try_make_active();
+      return acquired_;
+    }
 
     /// \brief Suspend the writer task and submit to the epoch context
     /// \param t The coroutine to bind and schedule.
-    /// \ingroup async_core
-    void suspend(AsyncTask&& t) { epoch_->writer_bind(std::move(t)); }
+    void suspend(AsyncTask&& t, bool cancel_on_exception)
+    {
+      DEBUG_CHECK(!acquired_);
+      epoch_->writer_bind(std::move(t), cancel_on_exception);
+    }
+
+    void resume() const noexcept { acquired_ = true; }
 
     /// \brief Access the stored data while holding the writer gate.
     /// \return Mutable reference to the stored value.
-    /// \ingroup async_core
     T& data() const noexcept
     {
-      epoch_->writer_has_written();
       auto* ptr = storage_.get();
       DEBUG_CHECK(ptr);
       return *ptr;
@@ -972,13 +1040,15 @@ template <typename T> class EpochContextWriter {
     // }
 
     /// \brief Require that the storage/data is actually referenced, and pass this on to the epoch
-    void writer_required() { epoch_->writer_required(); }
+    // void writer_required() const { epoch_->writer_required(); }
 
-    shared_storage<T>& storage()
-    {
-      epoch_->writer_has_written();
-      return storage_;
-    }
+    /// \brief Notify the epoch that the buffer has been written to (or at least, a pointer to the object has been
+    /// obtained)
+    // void writer_has_written() const { epoch_->writer_has_written(); }
+
+    shared_storage<T>& storage() { return storage_; }
+
+    void set_exception(std::exception_ptr e) const noexcept { epoch_->writer_set_exception(e); }
 
     /// \brief Report whether the associated value is currently initialized.
     /// \return true if the epoch reports initialized storage.
@@ -992,8 +1062,12 @@ template <typename T> class EpochContextWriter {
     {
       if (epoch_)
       {
-        epoch_->writer_release();
+        if (acquired_)
+          epoch_->writer_release_active();
+        else
+          epoch_->writer_cancel(); // releasing without ever
         epoch_.reset();
+        storage_.reset();
       }
     }
 
@@ -1004,6 +1078,7 @@ template <typename T> class EpochContextWriter {
   private:
     mutable shared_storage<T> storage_;
     std::shared_ptr<EpochContext> epoch_;
+    mutable bool acquired_{false};
 };
 
 } // namespace uni20::async

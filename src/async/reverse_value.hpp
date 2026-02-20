@@ -19,14 +19,14 @@ template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, R
     auto b = co_await b_.maybe();
     if (b) tmp += *b;
     b_.release();
-    co_await out_ = std::move(tmp);
+    co_await out_.emplace(std::move(tmp));
   }
   else
   {
     a_.release();
     auto b = co_await b_.or_cancel();
     b_.release();
-    co_await out_ = std::move(b);
+    co_await out_.emplace(std::move(b));
   }
   co_return;
 }
@@ -44,14 +44,14 @@ AsyncTask async_accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer
     auto b = co_await b_.maybe();
     if (b) tmp -= *b;
     b_.release();
-    co_await out_ = std::move(tmp);
+    co_await out_.emplace(std::move(tmp));
   }
   else
   {
     a_.release();
     auto b = co_await b_.or_cancel();
     b_.release();
-    co_await out_ = -std::move(b);
+    co_await out_.emplace(-std::move(b));
   }
   co_return;
 }
@@ -81,6 +81,8 @@ template <typename T> class ReverseValue {
     //   return async_.read();
     // }
 
+    ~ReverseValue() { this->finalize(); }
+
     Async<T> final()
     {
       this->finalize();
@@ -105,7 +107,10 @@ template <typename T> class ReverseValue {
     {
       if (!started_)
       {
-        rqueue_.start();
+        if (!rqueue_.is_started())
+        {
+          rqueue_.start();
+        }
         started_ = true;
       }
     }
@@ -184,9 +189,27 @@ template <typename T> class ReverseValue {
       return *this;
     }
 
-    Async<T>& value() & { return async_; }
-    Async<T> const& value() const& { return async_; }
-    Async<T> value() && { return std::move(async_); }
+    Async<T>& backprop() &
+    {
+      this->finalize();
+      return async_;
+    }
+    Async<T> const& backprop() const&
+    {
+      this->finalize();
+      return async_;
+    }
+    Async<T> backprop() &&
+    {
+      this->finalize();
+      return std::move(async_);
+    }
+
+    Async<T>& last_value() & { return async_; }
+    Async<T> const& last_value() const& { return async_; }
+    Async<T> last_value() && { return std::move(async_); }
+
+    void start() { rqueue_.start(); }
 
   private:
     ReadBuffer<T> read_buffer() const { return ReadBuffer<T>(rqueue_.create_read_context(async_.storage())); }

@@ -38,6 +38,7 @@ namespace uni20::async
 /// There is no facility (yet!) to share ownership with subobjects. This may be a useful facility
 /// (eg for tensor views)
 template <typename T> class shared_storage {
+  private:
     struct control_block
     {
         alignas(T) unsigned char storage[sizeof(T)];

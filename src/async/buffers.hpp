@@ -87,7 +87,7 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      reader_.suspend(std::move(t));
+      reader_.suspend(std::move(t), false);
     }
 
     /// \brief Resume execution and return the stored value.
@@ -188,7 +188,7 @@ template <typename T> class ReadMaybeAwaiter<T const&> {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      reader_.suspend(std::move(t));
+      reader_.suspend(std::move(t), false);
     }
 
     /// \brief Resume execution and return a pointer to stored value, or nullptr
@@ -223,15 +223,16 @@ template <typename T> class ReadOrCancelAwaiter {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
-    {
-      t.cancel_if_unwritten();
-      reader_.suspend(std::move(t));
-    }
+    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
 
     /// \brief Resume execution and return a copy of the stored value.
     /// \note Called when co_awaiting on a prvalue ReadBuffer.
-    T await_resume() { return reader_.data(); }
+    T await_resume()
+    {
+      T* ptr = reader_.data_maybe();
+      if (!ptr) throw task_cancelled();
+      return *ptr;
+    }
 
   private:
     ReadOrCancelAwaiter() = delete;
@@ -262,14 +263,15 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
-    {
-      t.cancel_if_unwritten();
-      reader_.suspend(std::move(t));
-    }
+    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
 
     /// \brief Resume execution and return a copy of the stored value.
-    T const& await_resume() { return reader_.data(); }
+    T const& await_resume()
+    {
+      T const* ptr = reader_.data_maybe();
+      if (!ptr) throw task_cancelled();
+      return *ptr;
+    }
 
   private:
     ReadOrCancelAwaiter() = delete;
@@ -346,7 +348,7 @@ template <typename T> class MutableBuffer { //}: public AsyncAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t));
+      writer_.suspend(std::move(t), false);
     }
 
     /// \brief Resume and return a reference to the writable value.
@@ -354,6 +356,7 @@ template <typename T> class MutableBuffer { //}: public AsyncAwaiter {
     T& await_resume() const noexcept
     {
       CHECK(writer_.value_is_initialized(), "MutableBuffer requires initialized value");
+      writer_.resume();
       return writer_.data();
     }
 
@@ -426,75 +429,10 @@ template <typename T> class MutableBuffer { //}: public AsyncAwaiter {
     /// \note This does not alter the DAG — no new epoch is created. Both buffers refer to
     /// the same pending write. The caller must ensure only one write actually occurs, or
     /// they are otherwise syncronized.
-    friend MutableBuffer dup(MutableBuffer& wb) { return MutableBuffer(wb.writer_); }
-};
-
-/// \brief Awaitable write buffer for initializing uninitialized storage.
-///
-/// A WriteBuffer enforces that the underlying value is treated as uninitialized
-/// until a write occurs. The constructor marks the epoch as requiring a write,
-/// and consumers are expected to assign a value before releasing the buffer.
-template <typename T> class WriteBuffer {
-  public:
-    using value_type = T;
-    using element_type = T&;
-
-    explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) { writer_.writer_required(); }
-
-    WriteBuffer(WriteBuffer const&) = delete;
-    WriteBuffer& operator=(WriteBuffer const&) = delete;
-
-    WriteBuffer(WriteBuffer&&) noexcept = default;
-    WriteBuffer& operator=(WriteBuffer&&) noexcept = default;
-
-#if UNI20_DEBUG_DAG
-    NodeInfo const* node() const { return writer_.node(); }
-#endif
-
-    bool await_ready() const noexcept { return writer_.ready(); }
-
-    void await_suspend(AsyncTask&& t) noexcept
-    {
-      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t));
-    }
-
-    T& await_resume() const noexcept { return writer_.data(); }
-
-    void release() noexcept { writer_.release(); }
-
-    T move_from_wait() { return writer_.move_from_wait(); }
-
-    template <typename U> void write(U&& val) { async_assign(std::forward<U>(val), std::move(*this)); }
-
-    template <typename U>
-    void write_assert(U&& val)
-      requires std::assignable_from<T&, U&&>
-    {
-      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
-      writer_.data() = std::forward<U>(val);
-    }
-
-    template <typename U>
-    void write_move_assert(U&& val)
-      requires std::assignable_from<T&, U&&>
-    {
-      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
-      writer_.data() = std::move(val);
-    }
-
-    [[nodiscard]] BufferWriteProxy<WriteBuffer<T>> write();
-
-    template <typename U> void write_move(U&& val) { async_move(std::move(val), std::move(*this)); }
-
-    auto operator co_await() & noexcept -> WriteBuffer& { return *this; }
-    auto operator co_await() const& noexcept -> WriteBuffer const& { return *this; }
-    auto operator co_await() && = delete;
-
-  private:
-    EpochContextWriter<T> writer_;
-
-    friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
+    /// THIS FUNCTIONALITY REMOVED.  Once the EpochContext enables multiple writers, maintaining
+    /// reference counts for duplicated buffers is too complicated.  If needed, the dup() functionality
+    /// could be reintroduced with a different ownership model.
+    /// friend MutableBuffer dup(MutableBuffer& wb) { return MutableBuffer(wb.writer_); }
 };
 
 template <typename T, typename... Args> class EmplaceAwaiter {
@@ -508,7 +446,7 @@ template <typename T, typename... Args> class EmplaceAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t));
+      writer_.suspend(std::move(t), false);
     }
 
     T& await_resume()
@@ -545,7 +483,7 @@ template <typename T> class EmplaceBuffer {
     using value_type = T;
     using element_type = T&;
 
-    EmplaceBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) { writer_.writer_required(); }
+    EmplaceBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
 
     EmplaceBuffer(EmplaceBuffer const&) = delete;
     EmplaceBuffer& operator=(EmplaceBuffer const&) = delete;
@@ -565,7 +503,11 @@ template <typename T> class EmplaceBuffer {
       writer_.suspend(std::move(t));
     }
 
-    shared_storage<T>& await_resume() { return writer_.storage(); }
+    shared_storage<T>& await_resume()
+    {
+      // writer_.writer_written();
+      return writer_.storage();
+    }
 
     void release() noexcept { writer_.release(); }
 
@@ -615,6 +557,113 @@ template <typename T> class EmplaceBuffer {
 
     EpochContextWriter<T> writer_;
     mutable bool consumed_{false};
+};
+
+/// \brief Awaitable write buffer for initializing uninitialized storage.
+///
+/// A WriteBuffer enforces that the underlying value is treated as uninitialized
+/// until a write occurs. The constructor marks the epoch as requiring a write,
+/// and consumers are expected to assign a value before releasing the buffer.
+template <typename T> class WriteBuffer {
+  public:
+    using value_type = T;
+    using element_type = T&;
+
+    explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
+
+    ~WriteBuffer() noexcept
+    {
+      if (writer_ && !written_)
+      {
+        writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
+      }
+    }
+
+    WriteBuffer(WriteBuffer const&) = delete;
+    WriteBuffer& operator=(WriteBuffer const&) = delete;
+
+    WriteBuffer(WriteBuffer&&) noexcept = default;
+    WriteBuffer& operator=(WriteBuffer&& other) noexcept
+    {
+      if (this != &other)
+      {
+        writer_ = std::move(other.writer_);
+        written_ = other.written_;
+        other.written_ = true; // make moved-from state safe for destruction
+      }
+    }
+
+#if UNI20_DEBUG_DAG
+    NodeInfo const* node() const { return writer_.node(); }
+#endif
+
+    bool await_ready() const noexcept { return writer_.ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "WriteBuffer::await_suspend()", this, t.h_);
+      writer_.suspend(std::move(t), false);
+    }
+
+    T& await_resume() const noexcept
+    {
+      writer_.resume();
+      written_ = true;
+      return writer_.data();
+    }
+
+    void release() noexcept
+    {
+      if (!written_)
+      {
+        writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
+      }
+      writer_.release();
+    }
+
+    template <typename... Args> auto emplace(Args&&... args)
+    {
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(std::move(writer_), std::forward<Args>(args)...);
+    }
+
+    T move_from_wait() { return writer_.move_from_wait(); }
+
+    template <typename U> void write(U&& val) { async_assign(std::forward<U>(val), std::move(*this)); }
+
+    template <typename U>
+    void write_assert(U&& val)
+      requires std::assignable_from<T&, U&&>
+    {
+      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
+      written_ = true;
+      writer_.data() = std::forward<U>(val);
+    }
+
+    template <typename U>
+    void write_move_assert(U&& val)
+      requires std::assignable_from<T&, U&&>
+    {
+      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
+      written_ = true;
+      writer_.data() = std::move(val);
+    }
+
+    [[nodiscard]] BufferWriteProxy<WriteBuffer<T>> write();
+
+    template <typename U> void write_move(U&& val) { async_move(std::move(val), std::move(*this)); }
+
+    auto operator co_await() & noexcept -> WriteBuffer& { return *this; }
+    auto operator co_await() const& noexcept -> WriteBuffer const& { return *this; }
+    auto operator co_await() && = delete;
+
+  private:
+    EpochContextWriter<T> writer_;
+    bool acquired_{false}; // multiple awaits on the same buffer do not suspend
+    mutable bool written_{false};
+
+    // Duplicating a WriteBuffer is no longer possible with the refactored EpochContext.
+    // To re-enable this function we would need to make the
+    // friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
 };
 
 // For a ReadBuffer, we add the node to the ReadDependencies

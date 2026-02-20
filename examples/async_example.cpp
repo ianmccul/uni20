@@ -35,13 +35,6 @@ AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
   co_return;
 }
 
-AsyncTask async_assign_indirect(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
-{
-  TRACE("starting async_assign_indirect");
-  co_await async_assign(readBuf, dup(writeBuf));
-  TRACE("finished async_assign_indirect");
-}
-
 template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> b, WriteBuffer<T> out)
 {
   TRACE("starting async_assign_sum");
@@ -76,8 +69,6 @@ int main()
 
   // sched.schedule(async_assign(i.read(), j.write())); // j = i, but async
   sched.schedule(async_assign(j.read(), k.write())); // k = j, but async
-
-  sched.schedule(async_assign_indirect(k.read(), i.write())); // i = k, but async
 
   sched.schedule(async_assign_sum(i.read(), j.read(), k.write())); // k = i + j;
 

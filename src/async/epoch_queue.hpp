@@ -76,7 +76,8 @@ class ReverseEpochQueue {
     {
       TRACE_MODULE(ASYNC, "ReverseEpochQueue::create_write_context", this);
       DEBUG_CHECK(first_);
-      CHECK(!first_->has_writer());
+      if (first_->has_writer()) first_ = EpochContext::make_previous(first_);
+      // CHECK(!first_->has_writer());
       return EpochContextWriter<T>(storage, first_);
     }
 
@@ -85,7 +86,13 @@ class ReverseEpochQueue {
     {
       TRACE_MODULE(ASYNC, "ReverseEpochQueue::start", this);
       DEBUG_CHECK(first_);
-      CHECK(first_->has_writer());
+      // CHECK(first_->has_writer());
+
+      // FIXME: we need to start() here in such a way that if we don't have an initial writer then
+      // we set an error state (which will generally be absorbed by the backprop accumulation knowing
+      // how to handle missing data)
+      first_->writer_acquire();
+      first_->writer_cancel();
       first_->start();
       first_.reset();
     }

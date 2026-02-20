@@ -8,7 +8,7 @@ namespace uni20::async
 
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::reschedule(BasicAsyncTask<T> task)
 {
-  TRACE_MODULE(ASYNC, "rescheduling AsyncTask", &task, task.h_);
+  TRACE_MODULE(ASYNC, "BasicAsyncTask<T>::reschedule", &task, task.h_);
   task = BasicAsyncTask<T>::make_sole_owner(std::move(task));
   if (task)
   {
@@ -45,7 +45,7 @@ bool BasicAsyncTask<T>::can_destroy_coroutine(BasicAsyncTask<T>::handle_type h) 
 {
   if (!h) return true;
 
-  auto const cancelled = cancel_.load(std::memory_order_acquire);
+  auto const cancelled = h.promise().cancel_on_resume();
   auto const done = h.done();
   return cancelled || done;
 }
@@ -56,7 +56,7 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>
   CHECK(h_);
   if (!h_.promise().release_awaiter()) PANIC("Attempt to resume() a non-exclusive AsyncTask");
 
-  bool to_destroy = cancel_.load(std::memory_order_acquire); // h_.promise().is_destroy_on_resume();
+  bool to_destroy = h_.promise().cancel_on_resume();
 
   auto handle = h_;
   h_ = nullptr; // Always drop ownership, we are now effectively in a 'moved from' state
@@ -92,20 +92,22 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::cancel_on_resume() noexcept
 {
   TRACE_MODULE(ASYNC, "Setting cancel flag on coroutine", this, h_);
-  cancel_.store(true, std::memory_order_release);
+  h_.promise().cancel_on_resume();
 }
 
-template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::exception_on_resume(std::exception_ptr) noexcept {}
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::exception_on_resume(std::exception_ptr e) noexcept
+{
+  h_.promise().set_exception(e);
+}
 
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
 {
   // TRACE_MODULE(ASYNC, "AsyncTask move assignment", this, h_, &other, other.h_);
   if (this != &other)
   {
-    if (h_ && h_.promise().release_awaiter()) h_.destroy();
+    if (h_ && h_.promise().release_awaiter()) this->destroy_owned_coroutine();
 
     h_ = std::exchange(other.h_, nullptr);
-    cancel_.store(other.cancel_.load(std::memory_order_acquire), std::memory_order_release);
   }
   return *this;
 }
@@ -125,7 +127,7 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::destroy_owned_coroutine(
 
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::release() noexcept
 {
-  // TRACE_MODULE(ASYNC, "Destroying AsyncTask", this, h_);
+  TRACE_MODULE(ASYNC, "BasicAsyncTask::release", this, h_);
   if (h_ && h_.promise().release_awaiter())
   {
     // Recursively destroy the coroutine and any continuation
@@ -135,10 +137,11 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::release() noexcept
 
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept
 {
+  TRACE_MODULE(ASYNC, "BasicAsyncTask destructor", this, h_);
   if (h_ && h_.promise().release_awaiter())
   {
     // Recursively destroy the coroutine and any continuation
-    destroy_owned_coroutine();
+    this->destroy_owned_coroutine();
   }
 }
 
@@ -168,7 +171,6 @@ BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T
 {
   DEBUG_CHECK(h_);
   DEBUG_CHECK(!h_.promise().continuation_);
-  // h_.promise().current_awaiter_ = this;
   h_.promise().continuation_ = Outer;
   h_.promise().sched_ = Outer.promise().sched_;
   h_.promise().mark_started();
@@ -178,16 +180,7 @@ BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T
   return h_transfer;
 }
 
-template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::await_resume() const noexcept
-{
-  // if (cancel_)
-  // {
-  //   if (exception_)
-  //     std::rethrow_exception(exception_);
-  //   else
-  //     throw buffer_cancelled();
-  // }
-}
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::await_resume() const { h_.promise().rethrow_exception(); }
 
 // template <typename T> void BasicAsyncTask<T>::set_cancel() noexcept { h_.promise().set_cancel(); }
 //

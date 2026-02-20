@@ -72,6 +72,11 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter;
 /// AsyncTaskFactory
 template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter;
 
+struct task_cancelled : public std::exception
+{
+    char const* what() const noexcept override { return "AsyncTask was cancelled"; }
+};
+
 /// \brief Promise type for AsyncTask.
 /// \ingroup async_core
 struct BasicAsyncTaskPromise
@@ -84,6 +89,9 @@ struct BasicAsyncTaskPromise
     /// \brief Tracks whether the coroutine has been scheduled or otherwise started.
     std::atomic<bool> started_{false};
 
+    /// \brief AsyncTask coroutines are nestable -- we can co_await one AsyncTask inside another.
+    /// continuation_ tracks the 'parent' coroutine in this case, so that when we finish execution we return to
+    /// executing the parent coroutine.
     std::coroutine_handle<promise_type> continuation_ = nullptr;
 
     /// \brief Number of active awaiters (owners) of this coroutine.
@@ -91,6 +99,17 @@ struct BasicAsyncTaskPromise
     /// \note When the count reaches zero, the coroutine is considered unowned.
     ///       Ownership must be transferred explicitly using take_ownership().
     std::atomic<int> awaiter_count_ = 0;
+
+    /// \brief EpochContext can inject an exception into a coroutine, which will be thrown when resuming
+    /// from an awaiter.  This could, in principle, happen from multiple threads if we are awaiting multiple
+    /// buffers so we protect access by the exception_ flag.  Only the first attempt to set exception_ to true
+    /// is permitted to set eptr_; subsequent exceptions are simply dropped.
+    std::atomic<bool> exception_{false};
+    std::exception_ptr eptr_ = nullptr;
+
+    /// \brief If true, then when the coroutine is next resumed (i.e. transferred to the scheduler)
+    /// it is destroyed (stack unwound and coroutine frame freed).
+    std::atomic<bool> cancel_on_resume_{false};
 
     static constexpr int kNoPreferredNumaNode = std::numeric_limits<int>::min();
 
@@ -149,21 +168,53 @@ struct BasicAsyncTaskPromise
 
     /// \brief Decrease the number of active awaiters by one.
     /// \return true if this was the last awaiter and the coroutine is now unowned.
-    bool release_awaiter() { return awaiter_count_.fetch_sub(1, std::memory_order_acq_rel) == 1; }
+    bool release_awaiter() noexcept { return awaiter_count_.fetch_sub(1, std::memory_order_acq_rel) == 1; }
 
     /// \brief Decrease the number of active awaiters by a specified count.
     /// \param count The number of awaiters to release.
     /// \return true if the count reached zero exactly as a result of this call.
-    bool release_awaiter(int count) { return awaiter_count_.fetch_sub(count, std::memory_order_acq_rel) == count; }
+    bool release_awaiter(int count) noexcept
+    {
+      return awaiter_count_.fetch_sub(count, std::memory_order_acq_rel) == count;
+    }
 
     /// \brief Increase the number of active awaiters by one.
     /// \return The value of the counter prior to the increment.
-    int add_awaiter() { return awaiter_count_.fetch_add(1, std::memory_order_relaxed); }
+    int add_awaiter() noexcept { return awaiter_count_.fetch_add(1, std::memory_order_relaxed); }
 
     /// \brief Increase the number of active awaiters by a specified count.
     /// \param count The number of awaiters to add.
     /// \return The value of the counter prior to the increment.
-    int add_awaiter(int count) { return awaiter_count_.fetch_add(count, std::memory_order_relaxed); }
+    int add_awaiter(int count) noexcept { return awaiter_count_.fetch_add(count, std::memory_order_relaxed); }
+
+    void set_exception(std::exception_ptr e) noexcept
+    {
+      if (!exception_.exchange(true, std::memory_order_acq_rel))
+      {
+        eptr_ = e;
+      }
+    }
+
+    /// \brief Get the current exception pointer, or nullptr if there is no current exception.
+    /// \pre caller must be the sole owner of the coroutine, in order to avoid race conditions with set_exception()
+    std::exception_ptr get_exception() noexcept
+    {
+      if (exception_.load(std::memory_order_acquire))
+        return eptr_;
+      else
+        return nullptr;
+    }
+
+    /// \brief Throw the current exception, if there is one.
+    /// \pre caller must be the sole owner of the coroutine, in order to avoid race conditions with set_exception()
+    void rethrow_exception()
+    {
+      if (exception_.load(std::memory_order_acquire)) std::rethrow_exception(eptr_);
+    }
+
+    void set_cancel_on_resume() noexcept { cancel_on_resume_.store(true, std::memory_order_release); }
+
+    bool cancel_on_resume() const noexcept { return cancel_on_resume_.load(std::memory_order_acquire); }
 
     /// \brief Transform the awaiter to provide transfer of ownership of the AsyncTask
     template <AsyncTaskAwaitable A> auto await_transform(A& a);
@@ -269,11 +320,25 @@ struct BasicAsyncTaskPromise
           std::coroutine_handle<> await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
           {
             auto continuation = std::exchange(h.promise().continuation_, nullptr);
-            TRACE_MODULE(ASYNC, "Final suspend of coroutine", h, continuation);
+            bool cancelled = h.promise().cancel_on_resume();
+            auto eptr = h.promise().get_exception();
+            TRACE_MODULE(ASYNC, "Final suspend of coroutine", h, continuation, cancelled);
+
             h.destroy();
+
             TRACE_MODULE(ASYNC, "Destroy is done");
+
+            if (cancelled)
+            {
+              while (continuation)
+                continuation = continuation.promise().destroy_with_continuation();
+            }
+
             if (continuation)
+            {
+              if (eptr) continuation.promise().set_exception(eptr);
               return continuation;
+            }
             else
               return std::noop_coroutine();
           }
@@ -287,7 +352,21 @@ struct BasicAsyncTaskPromise
     constexpr void return_void() noexcept {}
 
     /// \brief Called on unhandled exception escaping the coroutine.
-    [[noreturn]] void unhandled_exception() { std::terminate(); }
+    void unhandled_exception()
+    {
+      try
+      {
+        throw;
+      }
+      catch (task_cancelled const&)
+      {
+        this->set_cancel_on_resume();
+      }
+      catch (...)
+      {
+        this->set_exception(std::current_exception());
+      }
+    }
 
     // /// \brief Called when the task is ready to run again.
     // /// \param h The coroutine handle to schedule.
@@ -381,6 +460,7 @@ inline AsyncTaskFactory BasicAsyncTaskPromise::take_shared_ownership(int count)
 template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
 {
     A awaitable;
+    AsyncTask::promise_type& promise;
 
     using await_return_type = decltype(awaitable.await_suspend(std::declval<AsyncTask>()));
 
@@ -435,6 +515,7 @@ template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promi
 template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public AsyncAwaiter
 {
     A awaitable;
+    AsyncTask::promise_type& promise;
 
     bool await_ready() { return awaitable.await_ready(); }
 

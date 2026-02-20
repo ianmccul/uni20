@@ -16,7 +16,7 @@ TEST(ReverseValue, BasicWriteRead)
 
   ReverseValue<int> fv;
   Async<int> v;
-  async_assign(fv.value().read(), v.write());
+  async_assign(fv.last_value().read(), v.write());
   fv = 42;
   EXPECT_EQ(v.read().get_wait(), 42);
 }
@@ -29,8 +29,8 @@ TEST(ReverseValue, MoveOnlyType)
   using Ptr = std::unique_ptr<std::string>;
   ReverseValue<Ptr> fv;
   Async<Ptr> v;
-  async_move(std::move(fv.value()), v);
-  // auto str_ptr = std::move(fv.value().move_from());
+  async_move(std::move(fv.last_value()), v);
+  // auto str_ptr = std::move(fv.last_value().move_from());
   fv = std::make_unique<std::string>("hello");
   EXPECT_EQ(*v.get_wait(), "hello");
 }
@@ -60,9 +60,9 @@ TEST(ReverseValue, ChainAccumulationWithCancellation)
   ReverseValue<double> cancel_sub;
   Async<double> cancel_async = 3.0;
 
-  canceled += cancel_async;  // Async operand
-  canceled += cancel_add;    // ReverseValue operand
-  canceled -= cancel_sub;    // ReverseValue operand
+  canceled += cancel_async; // Async operand
+  canceled += cancel_add;   // ReverseValue operand
+  canceled -= cancel_sub;   // ReverseValue operand
 
   cancel_add = 1.75;
   cancel_sub = 0.5;

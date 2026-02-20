@@ -131,8 +131,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \brief Move-construct.
     /// \param other Task being moved from.
     /// \ingroup async_core
-    BasicAsyncTask(BasicAsyncTask&& other) noexcept
-        : h_{other.h_}, cancel_{other.cancel_.load(std::memory_order_acquire)}
+    BasicAsyncTask(BasicAsyncTask&& other) noexcept : h_{other.h_}
     {
       // DEBUG_TRACE("BasicAsyncTask move", this, &other, h_);
       other.h_ = nullptr;
@@ -164,8 +163,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     handle_type await_suspend(handle_type Outer);
 
     /// \brief Resume the awaiting coroutine after completion.
-    /// \ingroup async_core
-    void await_resume() const noexcept;
+    void await_resume() const;
 
     // void set_cancel() override final { cancel_.store(true, std::memory_order_release); }
     //
@@ -175,21 +173,21 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     //   cancel_.store(true, std::memory_order_release);
     // }
 
-    /// \brief Flag the coroutine so that the next resume will deliver a cancellation.
-    /// \ingroup async_core
-    void cancel_if_unwritten()
-    {
-      TRACE_MODULE(ASYNC, "BasicAsyncTask::cancel_if_unwritten", this, h_);
-      cancel_.store(true, std::memory_order_release);
-    }
-
-    /// \brief Indicate that the coroutine produced a value successfully.
-    /// \ingroup async_core
-    void written()
-    {
-      TRACE_MODULE(ASYNC, "BasicAsyncTask::written", this, h_);
-      cancel_.store(false, std::memory_order_release);
-    }
+    // /// \brief Flag the coroutine so that the next resume will deliver a cancellation.
+    // /// \ingroup async_core
+    // void cancel_if_unwritten()
+    // {
+    //   TRACE_MODULE(ASYNC, "BasicAsyncTask::cancel_if_unwritten", this, h_);
+    //   cancel_.store(true, std::memory_order_release);
+    // }
+    //
+    // /// \brief Indicate that the coroutine produced a value successfully.
+    // /// \ingroup async_core
+    // void written()
+    // {
+    //   TRACE_MODULE(ASYNC, "BasicAsyncTask::written", this, h_);
+    //   cancel_.store(false, std::memory_order_release);
+    // }
 
     // void set_current_awaiter(AsyncAwaiter* awaiter)
     // {
@@ -211,8 +209,8 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \brief indicates that the coroutine has an error condition waiting on resume.
     /// If eptr_ is non-null, then an exception has been thrown; otherwise the buffer has been cancelled
     /// \note this is only used by the AsyncTask awaiter interface
-    //    std::exception_ptr exception_ = nullptr;
-    std::atomic<bool> cancel_ = false;
+    // std::exception_ptr exception_ = nullptr;
+    // std::atomic<bool> cancel_ = false;
 
     // inline static IScheduler* sched_ = nullptr;
 

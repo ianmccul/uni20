@@ -15,22 +15,22 @@ template <typename T> T Async<T>::move_from_wait() { return this->write().move_f
 
 template <AsyncTaskAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A& a)
 {
-  return AsyncTaskAwaiter<A&>(a);
+  return AsyncTaskAwaiter<A&>(a, *this);
 }
 
 template <AsyncTaskAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A&& a)
 {
-  return AsyncTaskAwaiter<std::remove_reference_t<A>>(std::move(a));
+  return AsyncTaskAwaiter<std::remove_reference_t<A>>(std::move(a), *this);
 }
 
 template <AsyncTaskFactoryAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A& a)
 {
-  return AsyncTaskFactoryAwaiter<A&>(a);
+  return AsyncTaskFactoryAwaiter<A&>(a, *this);
 }
 
 template <AsyncTaskFactoryAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A&& a)
 {
-  return AsyncTaskFactoryAwaiter<std::remove_reference_t<A>>(std::move(a));
+  return AsyncTaskFactoryAwaiter<std::remove_reference_t<A>>(std::move(a), *this);
 }
 
 } // namespace uni20::async

@@ -25,7 +25,7 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_NestedAssignment)
   DebugScheduler sched;
 
   auto outer = [](ReadBuffer<int> a, WriteBuffer<int> b, int& count) -> AsyncTask {
-    auto task = assign_task(a, dup(b), count);
+    auto task = assign_task(a, std::move(b), count);
     co_await task;
     ++count; // count this coroutine
     co_return;
@@ -77,6 +77,6 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_IntermediateChannel)
   sched.run_all();
 
   auto result = output.get_wait(sched); // Access directly, test already count
-  EXPECT_EQ(result, 11);        // (5 * 2) + 1
-  EXPECT_EQ(count, 2);          // both kernel and outer
+  EXPECT_EQ(result, 11);                // (5 * 2) + 1
+  EXPECT_EQ(count, 2);                  // both kernel and outer
 }

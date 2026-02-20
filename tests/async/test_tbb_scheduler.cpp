@@ -122,7 +122,7 @@ TEST(TbbScheduler, ReverseValue)
 
   ReverseValue<int> rv;
   Async<int> v;
-  async_assign(rv.value().read(), v.write());
+  async_assign(rv.last_value().read(), v.write());
 
   // At this point, v is not ready: rv hasn’t been written yet.
   // get_wait() must suspend/resume under the scheduler.

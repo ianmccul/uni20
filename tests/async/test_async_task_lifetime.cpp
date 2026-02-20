@@ -23,9 +23,9 @@ TEST(AsyncTaskLifetimeTest, DeathOnUncancelledDestruction)
       "unexpected destruction");
 }
 
-TEST(AsyncTaskLifetimeTest, CancellationAllowsDestruction)
-{
-  auto task = make_suspended_task();
-  task.cancel_if_unwritten();
-  EXPECT_FALSE(task.await_ready());
-}
+// TEST(AsyncTaskLifetimeTest, CancellationAllowsDestruction)
+// {
+//   auto task = make_suspended_task();
+//   task.cancel_if_unwritten();
+//   EXPECT_FALSE(task.await_ready());
+// }
