@@ -201,7 +201,7 @@ TEST(Dual, StressBackpropMatchesAnalytic)
   Dual<double> x = base_value;
   Dual<double> total = 0.0;
 
-  constexpr int kTerms = 2;
+  constexpr int kTerms = 128;
   double expected_value = 0.0;
   double expected_grad = 0.0;
 

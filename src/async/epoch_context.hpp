@@ -220,7 +220,6 @@ class EpochContext {
     /// \note this is backwards propogation, the counter is initialized to next->counter_ - 1
     explicit EpochContext(std::shared_ptr<EpochContext> next) : counter_(next->counter_ - 1), next_epoch_(next)
     {
-      TRACE_STACK("Creating new EpochContext with next_epoch", this, counter_, next_epoch_.get());
       TaskRegistry::register_epoch_context(this);
     }
 
@@ -234,7 +233,6 @@ class EpochContext {
     {
       {
         std::lock_guard lock(mtx_);
-        DEBUG_TRACE("EpochContext Destructor", this, counter_);
         CHECK_EQUAL(num_writers_, 0);
         CHECK_EQUAL(num_readers_, 0);
       }

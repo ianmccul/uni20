@@ -116,7 +116,6 @@ template <typename T> class ReverseValue {
 
     void finalize()
     {
-      TRACE("finalize", this, started_, rqueue_.is_started());
       if (!started_)
       {
         if (!rqueue_.is_started())
@@ -132,7 +131,6 @@ template <typename T> class ReverseValue {
     ReverseValue& operator=(U&& v)
       requires std::assignable_from<T&, U&&>
     {
-      TRACE("Assigning to ReverseValue", this);
       EmplaceBuffer<T> w(this->emplace_buffer());
       rqueue_.start();
       w.emplace_assert(std::forward<U>(v));

@@ -146,11 +146,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \brief Move-construct.
     /// \param other Task being moved from.
     /// \ingroup async_core
-    BasicAsyncTask(BasicAsyncTask&& other) noexcept : h_{other.h_}
-    {
-      DEBUG_TRACE("BasicAsyncTask move", this, &other, h_);
-      other.h_ = nullptr;
-    }
+    BasicAsyncTask(BasicAsyncTask&& other) noexcept : h_{other.h_} { other.h_ = nullptr; }
 
     /// \brief Move-assign.
     /// \param other Task being moved from.

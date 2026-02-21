@@ -2,7 +2,7 @@
 
 This guide documents the trace/assert macros in `src/common/trace.hpp`, runtime formatting controls, and stacktrace configuration.
 
-## Quick Mental Model
+## Quick Summary
 
 If you are new to the trace/assert system, this is the shortest useful model:
 
@@ -12,6 +12,8 @@ If you are new to the trace/assert system, this is the shortest useful model:
 - Use `ERROR...` when you want to report an error and then abort or throw (configurable).
 - Use `..._STACK` variants when you also want an immediate stacktrace.
 - Use `DEBUG_...` variants for diagnostics/asserts that should compile out when `NDEBUG` is set.
+
+Generally, use `CHECK...` and `PRECONDITION...` to test logical conditions that would indicate coding bugs, and use `ERROR...` where user input is involved. In Python bindings, `CHECK` and `PRECONDITION` will immediately halt the interpreter, whereas `ERROR` can be configured to propagate an exception into Python.
 
 ## Macro Families
 
@@ -138,6 +140,23 @@ CHECK_FLOATING_EQ(expected, actual, 1);
 ```
 
 `PRECONDITION_FLOATING_EQ(...)` and debug variants follow the same calling forms.
+
+### GoogleTest Integration
+
+For unit tests, there are GTest-oriented helpers in `src/common/gtest.hpp`:
+
+- `EXPECT_FLOATING_EQ(a, b[, ulps])`
+- `ASSERT_FLOATING_EQ(a, b[, ulps])`
+
+These use the same ULP comparison engine as `CHECK_FLOATING_EQ`, but report through
+GoogleTest (`ADD_FAILURE`/`FAIL`) instead of aborting the process.
+
+```cpp
+#include "common/gtest.hpp"
+
+EXPECT_FLOATING_EQ(value, reference);    // default 4 ULP
+ASSERT_FLOATING_EQ(value, reference, 2); // explicit tolerance
+```
 
 ### Error Macros
 

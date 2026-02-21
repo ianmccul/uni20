@@ -67,7 +67,7 @@ class ReverseEpochQueue {
     ReverseEpochQueue(ReverseEpochQueue&&) = default;
     ReverseEpochQueue& operator=(ReverseEpochQueue&&) = default;
 
-    ~ReverseEpochQueue() { TRACE("Destructor ReverseEpochQueue", this, first_.get()); }
+    ~ReverseEpochQueue() = default;
 
     /// \brief Construct a ReverseEpochQueue from a given EpochContext.
     explicit ReverseEpochQueue(std::shared_ptr<EpochContext> first) : first_(std::move(first))
@@ -81,7 +81,6 @@ class ReverseEpochQueue {
       TRACE_MODULE(ASYNC, "ReverseEpochQueue::create_read_context", this);
       DEBUG_CHECK(first_);
       if (first_->has_writer()) first_ = EpochContext::make_previous(first_);
-      TRACE("ReverseEpochQueue::create_read_context", first_.get());
       return EpochContextReader<T>(storage, first_);
     }
 
@@ -91,14 +90,12 @@ class ReverseEpochQueue {
       DEBUG_CHECK(first_);
       if (first_->has_writer()) first_ = EpochContext::make_previous(first_);
       // CHECK(!first_->has_writer());
-      TRACE("ReverseEpochQueue::create_write_context", first_.get());
       return EpochContextWriter<T>(storage, first_);
     }
 
     /// Start running the queue. After it starts, we can no longer access the queue
     void start()
     {
-      TRACE("ReverseEpochQueue::start", this, first_.get());
       DEBUG_CHECK(first_);
       // CHECK(first_->has_writer());
 

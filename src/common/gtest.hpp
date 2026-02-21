@@ -1,14 +1,14 @@
 #pragma once
 
-/// \file gtest_floating_eq.hpp
+/// \file gtest.hpp
 /// \brief GoogleTest integration for ULP-based floating-point comparisons.
 ///
 /// This header defines two macros, `EXPECT_FLOATING_EQ` and `ASSERT_FLOATING_EQ`,
 /// for use inside GoogleTest unit tests. They extend the standard GTest
 /// floating-point comparison macros (`EXPECT_FLOAT_EQ`, `EXPECT_DOUBLE_EQ`) to:
 ///
-/// - Work with any IEEE-754 floating point type (`float`, `double`, `long double`).
-/// - Work with `std::complex<T>` where `T` is floating point.
+/// - Work with `float` and `double`.
+/// - Work with `std::complex<T>` where `T` is `float` or `double`.
 /// - Allow explicit specification of ULP tolerance.
 /// - Default to a tolerance of 4 ULPs if none is provided, matching GoogleTest.
 ///
@@ -54,13 +54,22 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "EXPECT_FLOATING_EQ requires a ULP-comparable scalar type");   \
-    unsigned ulps = ::trace::detail::get_ulps(va, vb __VA_OPT__(, __VA_ARGS__));                                       \
-    if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
+    std::int64_t ulps = ::trace::detail::get_ulps(va, vb __VA_OPT__(, __VA_ARGS__));                                   \
+    if (ulps < 0)                                                                                                      \
     {                                                                                                                  \
+      ADD_FAILURE() << "EXPECT_FLOATING_EQ requires non-negative ULP tolerance, got " << ulps;                         \
+    }                                                                                                                  \
+    else if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                        \
+    {                                                                                                                  \
+      auto const dist = ::uni20::check::float_abs_distance(va, vb);                                                    \
       ::testing::Message msg;                                                                                          \
       msg << "EXPECT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
           << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP"                                      \
-          << "\n  actual distance: " << ::uni20::check::float_abs_distance(va, vb);                                    \
+          << "\n  actual distance: ";                                                                                  \
+      if (dist == std::numeric_limits<long long>::max())                                                                \
+        msg << "unrepresentable (NaN or mismatched infinity)";                                                         \
+      else                                                                                                             \
+        msg << dist;                                                                                                   \
       ADD_FAILURE() << msg;                                                                                            \
     }                                                                                                                  \
   }                                                                                                                    \
@@ -73,13 +82,22 @@
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
     static_assert(::uni20::check::is_ulp_comparable<T>, "ASSERT_FLOATING_EQ requires a ULP-comparable scalar type");   \
-    unsigned ulps = ::trace::detail::get_ulps(va, vb __VA_OPT__(, __VA_ARGS__));                                       \
-    if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
+    std::int64_t ulps = ::trace::detail::get_ulps(va, vb __VA_OPT__(, __VA_ARGS__));                                   \
+    if (ulps < 0)                                                                                                      \
     {                                                                                                                  \
+      FAIL() << "ASSERT_FLOATING_EQ requires non-negative ULP tolerance, got " << ulps;                                \
+    }                                                                                                                  \
+    else if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                        \
+    {                                                                                                                  \
+      auto const dist = ::uni20::check::float_abs_distance(va, vb);                                                    \
       ::testing::Message msg;                                                                                          \
       msg << "ASSERT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
           << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP"                                      \
-          << "\n  actual distance: " << ::uni20::check::float_abs_distance(va, vb);                                    \
+          << "\n  actual distance: ";                                                                                  \
+      if (dist == std::numeric_limits<long long>::max())                                                                \
+        msg << "unrepresentable (NaN or mismatched infinity)";                                                         \
+      else                                                                                                             \
+        msg << dist;                                                                                                   \
       FAIL() << msg;                                                                                                   \
     }                                                                                                                  \
   }                                                                                                                    \

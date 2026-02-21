@@ -54,17 +54,13 @@ template <typename T> Dual<T> sin(Dual<T> x)
   schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     using std::cos;
     using uni20::conj;
-    TRACE("Dual Sin coroutine");
     auto in_g = co_await in_grad.or_cancel();
-    TRACE("Dual Sin", in_g);
     auto cos_x = cos(co_await in);
-    TRACE("Dual Sin", cos_x);
     auto s = co_await out_grad.storage();
     if (s.constructed())
       *s += conj(cos_x) * in_g;
     else
       s.emplace(conj(cos_x) * in_g);
-    TRACE("Dual Sin finished");
   }(x.value.read(), Result.grad.input(), x.grad.output()));
 
   return Result;
