@@ -109,6 +109,7 @@ TEST(DebugTraceStackMacro, DebugTraceStackIncludesStacktraceDiagnostic)
   auto n = 789;
   DEBUG_TRACE_STACK("debug-trace-stack", n);
   auto const output = oss.str();
+  EXPECT_NE(output.find("DEBUG_TRACE_STACK at"), std::string::npos) << "Trace output was:\n" << output;
   EXPECT_NE(output.find("debug-trace-stack, n = 789"), std::string::npos) << "Trace output was:\n" << output;
 #if UNI20_HAS_STACKTRACE
   EXPECT_NE(output.find("Stacktrace:"), std::string::npos) << "Trace output was:\n" << output;

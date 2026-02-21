@@ -36,6 +36,7 @@ TEST(TraceStackMacro, TraceStackIncludesStacktraceDiagnostic)
   auto n = 123;
   TRACE_STACK("trace-stack", n);
   auto const output = oss.str();
+  EXPECT_NE(output.find("TRACE_STACK at"), std::string::npos) << "Trace output was:\n" << output;
   EXPECT_NE(output.find("trace-stack, n = 123"), std::string::npos) << "Trace output was:\n" << output;
 #if UNI20_HAS_STACKTRACE
   EXPECT_NE(output.find("Stacktrace:"), std::string::npos) << "Trace output was:\n" << output;

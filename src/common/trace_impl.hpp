@@ -5,7 +5,6 @@
 
 #include <format>
 #include <ranges>
-#include <sstream>
 #include <type_traits>
 
 // implementation of trace functions.
@@ -370,8 +369,7 @@ inline FormattingOptions& get_formatting_options(const std::string& module)
 
 // Concept for a type that has an fmt::formatter specialization.
 template <typename T>
-concept HasFmtFormatter =
-    fmt::has_formatter<std::remove_cvref_t<T>, fmt::format_context>::value;
+concept HasFmtFormatter = fmt::has_formatter<std::remove_cvref_t<T>, fmt::format_context>::value;
 
 // Concept for a type that is formattable via std::format (C++20 and later).
 template <typename T, typename CharT = char>
@@ -864,9 +862,11 @@ template <typename... Args> void print(fmt::format_string<Args...> fmt_str, Args
 
 inline std::string format_timestamp()
 {
-  auto now = std::chrono::system_clock::now();
-  auto us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()) % std::chrono::seconds(1);
-  return fmt::format("{:%F %T}.{:06}", now, us.count());
+  auto const now = std::chrono::system_clock::now();
+  auto const whole_seconds = std::chrono::floor<std::chrono::seconds>(now);
+  auto const nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(now - whole_seconds);
+  auto const local_time = fmt::localtime(std::chrono::system_clock::to_time_t(whole_seconds));
+  return fmt::format("{:%F %T}.{:09}", local_time, nanos.count());
 }
 
 //-----------------------------------------------------------------------------
@@ -1044,13 +1044,41 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
 
 namespace detail
 {
-// FIXME: fmt currently has no formatter for std::stacktrace.
 #if TRACE_HAS_STACKTRACE
-inline std::string stacktrace_to_string(std::stacktrace const& stacktrace)
+inline std::string format_stacktrace(FormattingOptions& opts, std::stacktrace const& stacktrace)
 {
-  std::ostringstream oss;
-  oss << stacktrace;
-  return oss.str();
+  std::string out;
+  std::size_t frame_index = 0;
+
+  for (auto const& frame : stacktrace)
+  {
+    std::string index_str = opts.format_style(fmt::format("{:>3}", frame_index), "TRACE_LINE");
+    std::string description = frame.description();
+    if (description.empty()) description = "(unknown)";
+    description = opts.format_style(description, "TRACE");
+
+    std::string source_file = frame.source_file();
+    auto source_line = frame.source_line();
+
+    if (!source_file.empty())
+    {
+      out += fmt::format("  {}# {} at {}{}\n", index_str, description, opts.format_style(source_file, "TRACE_FILENAME"),
+                         opts.format_style(fmt::format(":{}", source_line), "TRACE_LINE"));
+    }
+    else
+    {
+      out += fmt::format("  {}# {}\n", index_str, description);
+    }
+
+    ++frame_index;
+  }
+
+  if (frame_index == 0)
+  {
+    out += fmt::format("  {}\n", opts.format_style("(empty stacktrace)", "TRACE_VALUE"));
+  }
+
+  return out;
 }
 #endif
 
@@ -1058,61 +1086,110 @@ inline void emit_stacktrace(FormattingOptions& opts, std::string_view style_kind
 {
 #if TRACE_HAS_STACKTRACE
   opts.sink(fmt::format("{}\n", opts.format_style("Stacktrace:", std::string(style_kind))));
-  opts.sink(fmt::format("{}\n", stacktrace_to_string(std::stacktrace::current(skip_frames))));
+  opts.sink(format_stacktrace(opts, std::stacktrace::current(skip_frames)));
 #else
-  opts.sink(fmt::format(
-      "{}\n",
-      opts.format_style("WARNING: std::stacktrace is unavailable in this build; stacktrace omitted.",
-                        std::string(style_kind))));
+  opts.sink(fmt::format("{}\n",
+                        opts.format_style("WARNING: std::stacktrace is unavailable in this build; stacktrace omitted.",
+                                          std::string(style_kind))));
 #endif
 }
 
 [[noreturn]] inline void abort_with_stacktrace(FormattingOptions& opts, std::string const& message,
-                                                std::string_view style_kind, std::size_t skip_frames)
+                                               std::string_view style_kind, std::size_t skip_frames)
 {
   opts.sink(message);
   emit_stacktrace(opts, style_kind, skip_frames);
   std::fflush(nullptr); // flush all output streams
   std::abort();
 }
+
+template <typename... Args>
+inline void emit_trace_line(FormattingOptions& opts, std::string_view label, std::string_view style_kind,
+                            const char* exprList, const char* file, int line, const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string ts;
+  if (opts.timestamp) ts = format_timestamp();
+
+  std::string th;
+  if (opts.showThreadId)
+  {
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
+    th = opts.format_style(th, "THREAD_ID");
+  }
+
+  std::string pre = opts.format_style(std::string(label), std::string(style_kind)) + " at " +
+                    opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+}
+
+template <typename... Args>
+inline void emit_trace_line_module(FormattingOptions& opts, std::string_view label, std::string_view style_kind,
+                                   const char* module, const char* exprList, const char* file, int line,
+                                   const Args&... args)
+{
+  std::string trace_str = formatParameterList(exprList, opts, args...);
+
+  std::string ts;
+  if (opts.timestamp) ts = format_timestamp();
+
+  std::string th;
+  if (opts.showThreadId)
+  {
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
+    th = opts.format_style(th, "THREAD_ID");
+  }
+
+  std::string pre = opts.format_style(std::string(label), std::string(style_kind)) + " in module " +
+                    opts.format_style(module, std::string(style_kind)) + " at " +
+                    opts.format_style(file, "TRACE_FILENAME") +
+                    opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
+
+  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+}
 } // namespace detail
 
 template <typename... Args> void TraceStackCall(const char* exprList, const char* file, int line, const Args&... args)
 {
-  TraceCall(exprList, file, line, args...);
   auto& opts = get_formatting_options();
+  detail::emit_trace_line(opts, "TRACE_STACK", "TRACE", exprList, file, line, args...);
   detail::emit_stacktrace(opts, "TRACE", 2);
 }
 
 template <typename... Args>
 void TraceStackOnceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
-  TraceOnceCall(exprList, file, line, args...);
   auto& opts = get_formatting_options();
+  detail::emit_trace_line(opts, "TRACE_ONCE_STACK", "TRACE", exprList, file, line, args...);
   detail::emit_stacktrace(opts, "TRACE", 2);
 }
 
 template <typename... Args>
 void TraceModuleStackCall(const char* module, const char* exprList, const char* file, int line, const Args&... args)
 {
-  TraceModuleCall(module, exprList, file, line, args...);
   auto& opts = get_formatting_options(module);
+  detail::emit_trace_line_module(opts, "TRACE_MODULE_STACK", "TRACE", module, exprList, file, line, args...);
   detail::emit_stacktrace(opts, "TRACE", 2);
 }
 
 template <typename... Args>
 void DebugTraceStackCall(const char* exprList, const char* file, int line, const Args&... args)
 {
-  DebugTraceCall(exprList, file, line, args...);
   auto& opts = get_formatting_options();
+  detail::emit_trace_line(opts, "DEBUG_TRACE_STACK", "DEBUG_TRACE", exprList, file, line, args...);
   detail::emit_stacktrace(opts, "DEBUG_TRACE", 2);
 }
 
 template <typename... Args>
 void DebugTraceStackOnceCall(const char* exprList, const char* file, int line, const Args&... args)
 {
-  DebugTraceOnceCall(exprList, file, line, args...);
   auto& opts = get_formatting_options();
+  detail::emit_trace_line(opts, "DEBUG_TRACE_ONCE_STACK", "DEBUG_TRACE", exprList, file, line, args...);
   detail::emit_stacktrace(opts, "DEBUG_TRACE", 2);
 }
 
@@ -1120,8 +1197,9 @@ template <typename... Args>
 void DebugTraceModuleStackCall(const char* module, const char* exprList, const char* file, int line,
                                const Args&... args)
 {
-  DebugTraceModuleCall(module, exprList, file, line, args...);
   auto& opts = get_formatting_options(module);
+  detail::emit_trace_line_module(opts, "DEBUG_TRACE_MODULE_STACK", "DEBUG_TRACE", module, exprList, file, line,
+                                 args...);
   detail::emit_stacktrace(opts, "DEBUG_TRACE", 2);
 }
 

@@ -56,6 +56,6 @@ TEST(TraceFormatting, ContainerFormatting)
 TEST(TraceFormatting, TimestampMatchesPattern)
 {
   auto timestamp = trace::format_timestamp();
-  std::regex timestamp_pattern(R"((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?\.\d{6}))");
+  std::regex timestamp_pattern(R"((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{9}))");
   EXPECT_TRUE(std::regex_match(timestamp, timestamp_pattern)) << timestamp;
 } 
