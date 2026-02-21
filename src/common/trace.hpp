@@ -276,12 +276,6 @@
   }                                                                                                                    \
   while (0)
 
-// Aliases with STACK before condition/module suffixes.
-#define TRACE_STACK_IF TRACE_IF_STACK
-#define TRACE_STACK_ONCE TRACE_ONCE_STACK
-#define TRACE_STACK_MODULE TRACE_MODULE_STACK
-#define TRACE_STACK_MODULE_IF TRACE_MODULE_IF_STACK
-
 // CHECK and PRECONDITION MACROS
 // These macros check a condition and, if false, print diagnostic information and abort.
 // They forward additional debug information similarly to the TRACE macros.
@@ -662,12 +656,6 @@
   while (0)
 
 #endif
-
-// Aliases with STACK before condition/module suffixes.
-#define DEBUG_TRACE_STACK_IF DEBUG_TRACE_IF_STACK
-#define DEBUG_TRACE_STACK_ONCE DEBUG_TRACE_ONCE_STACK
-#define DEBUG_TRACE_STACK_MODULE DEBUG_TRACE_MODULE_STACK
-#define DEBUG_TRACE_STACK_MODULE_IF DEBUG_TRACE_MODULE_IF_STACK
 
 #include "trace_impl.hpp"
 

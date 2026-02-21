@@ -120,48 +120,55 @@ TEST(DebugTraceStackMacro, DebugTraceStackIncludesStacktraceDiagnostic)
   trace::get_formatting_options().set_output_stream(stderr);
 }
 
-TEST(DebugCheckFloatingEq, PassesWithinTolerance)
+TEST(DebugCheckFloatingEqMacro, PassesWithinTolerance)
 {
   float a = 1.0f;
   float b = std::nextafter(a, 2.0f); // 1 ULP away
-  CHECK_FLOATING_EQ(a, b, 1);        // should not abort
+  DEBUG_CHECK_FLOATING_EQ(a, b, 1);  // should not abort
   SUCCEED();
 }
 
-TEST(DebugCheckFloatingEq, FailsOutsideTolerance)
+TEST(DebugCheckFloatingEqMacro, FailsOutsideTolerance)
 {
   float a = 1.0f;
-  float b = std::bit_cast<float>(std::bit_cast<uint32_t>(a) + 10);
-  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 1); }, "CHECK_FLOATING_EQ");
+  float b = std::bit_cast<float>(std::bit_cast<std::uint32_t>(a) + 10);
+  EXPECT_DEATH({ DEBUG_CHECK_FLOATING_EQ(a, b, 1); }, "DEBUG_CHECK_FLOATING_EQ");
 }
 
-TEST(DebugCheckFloatingEq, DefaultToleranceIsFour)
+TEST(DebugCheckFloatingEqMacro, DefaultToleranceIsFour)
 {
   float a = 1.0f;
-  float b = std::bit_cast<float>(std::bit_cast<uint32_t>(a) + 4);
-  CHECK_FLOATING_EQ(a, b);                                            // 4 ULPs away, should pass
-  EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 3); }, "CHECK_FLOATING_EQ"); // but not within 3
+  float b = std::bit_cast<float>(std::bit_cast<std::uint32_t>(a) + 4);
+  DEBUG_CHECK_FLOATING_EQ(a, b);                                                  // 4 ULPs away, should pass
+  EXPECT_DEATH({ DEBUG_CHECK_FLOATING_EQ(a, b, 3); }, "DEBUG_CHECK_FLOATING_EQ"); // but not within 3
 }
 
-TEST(DebugPreconditionFloatingEq, PassesWithinTolerance)
+TEST(DebugCheckFloatingEqMacro, FailureMessageIncludesBothExpressionsAndUlps)
+{
+  static float lhs = 1.0f;
+  static float rhs = std::bit_cast<float>(std::bit_cast<std::uint32_t>(lhs) + 10);
+  EXPECT_DEATH({ DEBUG_CHECK_FLOATING_EQ(lhs, rhs, 1); }, "lhs is not approx-equal to rhs \\(to 1 ULP\\)!");
+}
+
+TEST(DebugPreconditionFloatingEqMacro, PassesWithinTolerance)
 {
   float a = 1.0f;
-  float b = std::nextafter(a, 2.0f); // 1 ULP away
-  PRECONDITION_FLOATING_EQ(a, b, 1); // should not abort
+  float b = std::nextafter(a, 2.0f);        // 1 ULP away
+  DEBUG_PRECONDITION_FLOATING_EQ(a, b, 1);  // should not abort
   SUCCEED();
 }
 
-TEST(DebugPreconditionFloatingEq, FailsOutsideTolerance)
+TEST(DebugPreconditionFloatingEqMacro, FailsOutsideTolerance)
 {
   float a = 1.0f;
-  float b = std::bit_cast<float>(std::bit_cast<uint32_t>(a) + 10);
-  EXPECT_DEATH({ PRECONDITION_FLOATING_EQ(a, b, 1); }, "PRECONDITION_FLOATING_EQ");
+  float b = std::bit_cast<float>(std::bit_cast<std::uint32_t>(a) + 10);
+  EXPECT_DEATH({ DEBUG_PRECONDITION_FLOATING_EQ(a, b, 1); }, "DEBUG_PRECONDITION_FLOATING_EQ");
 }
 
-TEST(DebugPreconditionFloatingEq, DefaultToleranceIsFour)
+TEST(DebugPreconditionFloatingEqMacro, DefaultToleranceIsFour)
 {
   float a = 1.0f;
-  float b = std::bit_cast<float>(std::bit_cast<uint32_t>(a) + 4);
-  PRECONDITION_FLOATING_EQ(a, b);                                                   // 4 ULPs away, should pass
-  EXPECT_DEATH({ PRECONDITION_FLOATING_EQ(a, b, 3); }, "PRECONDITION_FLOATING_EQ"); // but not within 3
+  float b = std::bit_cast<float>(std::bit_cast<std::uint32_t>(a) + 4);
+  DEBUG_PRECONDITION_FLOATING_EQ(a, b); // 4 ULPs away, should pass
+  EXPECT_DEATH({ DEBUG_PRECONDITION_FLOATING_EQ(a, b, 3); }, "DEBUG_PRECONDITION_FLOATING_EQ"); // not within 3
 }

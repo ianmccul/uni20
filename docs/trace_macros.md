@@ -2,6 +2,17 @@
 
 This guide documents the trace/assert macros in `src/common/trace.hpp`, runtime formatting controls, and stacktrace configuration.
 
+## Quick Mental Model
+
+If you are new to the trace/assert system, this is the shortest useful model:
+
+- Use `TRACE...` macros to observe execution and values while debugging.
+- Use `CHECK...` macros for invariants that must always hold inside correct code.
+- Use `PRECONDITION...` macros for caller/input contract checks.
+- Use `ERROR...` when you want to report an error and then abort or throw (configurable).
+- Use `..._STACK` variants when you also want an immediate stacktrace.
+- Use `DEBUG_...` variants for diagnostics/asserts that should compile out when `NDEBUG` is set.
+
 ## Macro Families
 
 ### General Trace
@@ -26,14 +37,7 @@ These emit the normal trace line and then a stacktrace block.
 | `TRACE_MODULE_STACK(MODULE, ...)` | `TRACE_MODULE` + stacktrace. |
 | `TRACE_MODULE_IF_STACK(MODULE, cond, ...)` | `TRACE_MODULE_IF` + stacktrace. |
 
-Alias spellings are also available:
-
-| Alias | Equivalent |
-|---|---|
-| `TRACE_STACK_IF` | `TRACE_IF_STACK` |
-| `TRACE_STACK_ONCE` | `TRACE_ONCE_STACK` |
-| `TRACE_STACK_MODULE` | `TRACE_MODULE_STACK` |
-| `TRACE_STACK_MODULE_IF` | `TRACE_MODULE_IF_STACK` |
+Naming convention: `_STACK` is always a suffix.
 
 ### Debug-Only Trace
 
@@ -51,15 +55,6 @@ When `NDEBUG` is defined, these expand to no-ops.
 | `DEBUG_TRACE_ONCE_STACK(...)` | Debug-only once stacktrace trace. |
 | `DEBUG_TRACE_MODULE_STACK(MODULE, ...)` | Debug-only module stacktrace trace. |
 | `DEBUG_TRACE_MODULE_IF_STACK(MODULE, cond, ...)` | Debug-only conditional module stacktrace trace. |
-
-Debug alias spellings:
-
-| Alias | Equivalent |
-|---|---|
-| `DEBUG_TRACE_STACK_IF` | `DEBUG_TRACE_IF_STACK` |
-| `DEBUG_TRACE_STACK_ONCE` | `DEBUG_TRACE_ONCE_STACK` |
-| `DEBUG_TRACE_STACK_MODULE` | `DEBUG_TRACE_MODULE_STACK` |
-| `DEBUG_TRACE_STACK_MODULE_IF` | `DEBUG_TRACE_MODULE_IF_STACK` |
 
 ### Assertions / Fail-Fast
 
@@ -83,6 +78,66 @@ Debug-only assertion forms:
 - `DEBUG_PRECONDITION(...)`
 - `DEBUG_PRECONDITION_EQUAL(...)`
 - `DEBUG_PRECONDITION_FLOATING_EQ(...)`
+
+### `CHECK_FLOATING_EQ` Examples
+
+`CHECK_FLOATING_EQ` is for floating-point values where exact bitwise equality is usually too strict.
+
+### What "ULP" Means
+
+ULP means "Unit in the Last Place":
+
+- Floating-point numbers are discrete representable points, not a continuous line.
+- A difference of `1` ULP means the values are adjacent representable numbers.
+- ULP distance scales with magnitude, so it is often more stable than a fixed absolute epsilon.
+
+Practical guidance:
+
+- `CHECK_EQUAL(a, b)` for integers, enums, pointers, and exact-match logic.
+- `CHECK_FLOATING_EQ(a, b)` for float/double/complex comparisons.
+- Start with default tolerance (`4` ULP), then tighten only if needed.
+
+Near `1.0`, the step size is:
+
+| Type | `1` ULP near `1.0` | `1.0 + 1 ULP` | `1.0 + 2 ULP` |
+|---|---|---|---|
+| `float` | `1.1920929e-07` | `1.00000012f` | `1.00000024f` |
+| `double` | `2.2204460492503131e-16` | `1.0000000000000002` | `1.0000000000000004` |
+
+Equivalent exact hex-float literals:
+
+- `float`: `0x1p+0f`, `0x1.000002p+0f`, `0x1.000004p+0f`
+- `double`: `0x1p+0`, `0x1.0000000000001p+0`, `0x1.0000000000002p+0`
+
+Default tolerance is `4` ULP:
+
+```cpp
+CHECK_FLOATING_EQ(1.0f, 1.00000024f); // ~2 ULP away, passes (default 4 ULP)
+CHECK_FLOATING_EQ(1.0, 1.0000000000000004); // ~2 ULP away, also passes
+```
+
+Specify explicit ULP tolerance:
+
+```cpp
+CHECK_FLOATING_EQ(1.0f, 1.00000024f, 2); // passes (2 ULP)
+CHECK_FLOATING_EQ(1.0f, 1.00000024f, 1); // fails (needs > 1 ULP)
+```
+
+Add extra diagnostics (printed on failure):
+
+```cpp
+CHECK_FLOATING_EQ(ref, got, 2, iter, timestep, "solver drift");
+```
+
+Complex values compare both real and imaginary parts:
+
+```cpp
+std::complex<double> expected{1.0, -2.0};
+std::complex<double> actual{1.0, -1.9999999999999998}; // imag differs by ~1 ULP
+CHECK_FLOATING_EQ(expected, actual, 1);
+```
+
+`PRECONDITION_FLOATING_EQ(...)` and debug variants follow the same calling forms.
 
 ### Error Macros
 
@@ -124,9 +179,48 @@ TRACE_STACK("creating epoch", epoch_ptr, generation);
 Example line format:
 
 ```text
-2026-02-21 20:35:55.374552 [TID ...] TRACE_STACK at /path/file.cpp:123 : creating epoch, ...
+2026-02-21 20:35:55.374552123 [TID ...] TRACE_STACK at /path/file.cpp:123 : creating epoch, ...
 Stacktrace:
   ...
+```
+
+The timestamp is local time and uses nanosecond precision (`.NNNNNNNNN`).
+
+### Additional Examples
+
+Simple trace with expression/value expansion:
+
+```cpp
+int i = 4;
+double x = 3.5;
+TRACE(i, x * i); // prints: i = 4, x * i = 14
+```
+
+One-shot trace at a noisy call site:
+
+```cpp
+for (int iter = 0; iter < 1000; ++iter) {
+  TRACE_ONCE("first iteration only", iter);
+}
+```
+
+Debug-only stacktrace trace:
+
+```cpp
+DEBUG_TRACE_STACK("suspending task", task_id, state);
+```
+
+Assertion with contextual diagnostics:
+
+```cpp
+CHECK_EQUAL(expected_epoch, actual_epoch, task_id, writer_count, reader_count);
+```
+
+Route one module to a separate file:
+
+```bash
+export UNI20_TRACEFILE=stderr
+export UNI20_TRACEFILE_MODULE_ASYNC=+async.trace.log
 ```
 
 ## Module Enable Flags
@@ -173,7 +267,7 @@ These can be turned on or off by setting variables to `true`/`on`/`1` or `false`
 
 | Variable | Default | Effect |
 |---|---|---|
-| `UNI20_TRACE_TIMESTAMP` | `true` | Show timestamp prefix `YYYY-MM-DD HH:MM:SS.NNNNNNNNN` |
+| `UNI20_TRACE_TIMESTAMP` | `true` | Show local-time timestamp prefix `YYYY-MM-DD HH:MM:SS.NNNNNNNNN` |
 | `UNI20_TRACE_THREAD_ID` | `true` | Show thread-id prefix. |
 
 Module-specific overrides:
@@ -219,6 +313,80 @@ Use `UNI20_COLOR_<KEY>=<style>`.
 Module-specific style overrides:
 
 - `UNI20_COLOR_<KEY>_MODULE_<MODULE>`
+
+### Style String Syntax
+
+Style strings support foreground/background colors plus attributes:
+
+- Separate style components with `,`.
+- Separate tokens within a component with `;`.
+- Use `fg:` or `bg:` to target foreground/background.
+- Unrecognized tokens are ignored.
+- In shell exports, quote style strings because `;` is a shell command separator.
+
+Examples:
+
+- `LightCyan;Bold`
+- `fg:Yellow;Underline, bg:DarkGray`
+- `fg:#7FDBFF;Bold`
+- `bg:rgb(40,40,40);LightGreen`
+
+### Named Colors
+
+Named colors are case-insensitive:
+
+| Name | Notes |
+|---|---|
+| `Default` | Reset to terminal default for fg/bg. |
+| `Black` |  |
+| `Red` |  |
+| `Green` |  |
+| `Yellow` |  |
+| `Blue` |  |
+| `Magenta` |  |
+| `Cyan` |  |
+| `LightGray` |  |
+| `DarkGray` | Bright black in many terminals. |
+| `LightRed` |  |
+| `LightGreen` |  |
+| `LightYellow` |  |
+| `LightBlue` |  |
+| `LightMagenta` |  |
+| `LightCyan` |  |
+| `White` |  |
+
+### Text Attributes
+
+Attributes are case-insensitive and can be combined:
+
+| Attribute | Effect |
+|---|---|
+| `Bold` | ANSI bold/intense text. |
+| `Dim` | ANSI dim/faint text. |
+| `Underline` | ANSI underline. |
+
+### RGB and Hex Colors
+
+In addition to named colors:
+
+- `rgb(r,g,b)` for 24-bit color (`r/g/b` in `0..255`, `rgb` must be lowercase).
+- `#RRGGBB` or `#RGB` hex color forms.
+
+Both can be used with `fg:` and `bg:`:
+
+- `UNI20_COLOR_TRACE='fg:rgb(255,200,0);Bold'`
+- `UNI20_COLOR_TRACE_FILENAME='fg:#FF6B6B'`
+- `UNI20_COLOR_TRACE_LINE='bg:#202020;LightCyan;Bold'`
+
+### Common Color Recipes
+
+| Goal | Example |
+|---|---|
+| Strong trace label | `UNI20_COLOR_TRACE='LightCyan;Bold'` |
+| Subtle timestamp | `UNI20_COLOR_TIMESTAMP='DarkGray'` |
+| Highlight file/line | `UNI20_COLOR_TRACE_FILENAME='Yellow'` and `UNI20_COLOR_TRACE_LINE='Bold'` |
+| High-contrast checks | `UNI20_COLOR_CHECK='White;Bold,bg:Red'` |
+| Module-specific ASYNC palette | `UNI20_COLOR_TRACE_MODULE_ASYNC='LightBlue;Bold'` |
 
 ### Floating-Point Precision
 

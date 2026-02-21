@@ -1314,7 +1314,8 @@ template <typename... Args>
   std::string preamble = opts.format_style("DEBUG_CHECK_FLOATING_EQ", "DEBUG_CHECK") + " at " +
                          opts.format_style(file, "TRACE_FILENAME") +
                          opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-                         fmt::format("\n{} is not approx-equal to {}!", opts.format_style(a, "TRACE_EXPR"),
+                         fmt::format("\n{} is not approx-equal to {} (to {} ULP)!",
+                                     opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"),
                                      opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
 
   detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),

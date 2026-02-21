@@ -246,6 +246,26 @@ TEST(CheckFloatingEq, UnequalScalarsAbort)
   EXPECT_DEATH({ CHECK_FLOATING_EQ(x, y); }, "CHECK_FLOATING_EQ");
 }
 
+TEST(CheckFloatingEq, NaNAlwaysFails)
+{
+  float nan = std::numeric_limits<float>::quiet_NaN();
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(nan, nan); }, "CHECK_FLOATING_EQ");
+}
+
+TEST(CheckFloatingEq, SameInfinityPasses)
+{
+  double inf = std::numeric_limits<double>::infinity();
+  CHECK_FLOATING_EQ(inf, inf);
+  SUCCEED();
+}
+
+TEST(CheckFloatingEq, OppositeInfinitiesFail)
+{
+  double pos_inf = std::numeric_limits<double>::infinity();
+  double neg_inf = -std::numeric_limits<double>::infinity();
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(pos_inf, neg_inf); }, "CHECK_FLOATING_EQ");
+}
+
 // --- Complex numbers ---
 TEST(CheckFloatingEq, ComplexEqualPass)
 {
