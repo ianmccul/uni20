@@ -407,6 +407,24 @@ template <typename T> class StorageAwaiter {
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
 };
 
+template <typename T> class TakeAwaiter {
+  public:
+    TakeAwaiter(EpochContextWriter<T>* writer) : writer_(writer) {}
+
+    bool await_ready() const noexcept { return writer_->ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "TakeAwaiter::await_suspend()", this, t.h_);
+      writer_->suspend(std::move(t), false);
+    }
+
+    T await_resume() { return writer_->storage().take(); }
+
+  private:
+    EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
+};
+
 /// MutableBuffer - a buffer type that must be previously constructed and allows read & write access
 template <typename T> class MutableBuffer {
   public:
@@ -596,6 +614,8 @@ template <typename T> class WriteBuffer {
     {
       return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
     }
+
+    auto take() { return TakeAwaiter<T>(&writer_); }
 
     auto storage() { return StorageAwaiter<T>(&writer_); }
 
