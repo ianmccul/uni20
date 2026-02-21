@@ -1,4 +1,7 @@
+#include "async/async.hpp"
 #include "async/async_task.hpp"
+#include "async/buffers.hpp"
+#include "async/debug_scheduler.hpp"
 #include "async/task_registry.hpp"
 #include "config.hpp"
 #include <gtest/gtest.h>
@@ -11,6 +14,20 @@ namespace
 {
 
 AsyncTask make_suspended_task() { co_return; }
+
+AsyncTask wait_for_reader(ReadBuffer<int> reader)
+{
+  auto const& value = co_await reader;
+  (void)value;
+  co_return;
+}
+
+AsyncTask write_value(WriteBuffer<int> writer, int value)
+{
+  auto& out = co_await writer;
+  out = value;
+  co_return;
+}
 
 } // namespace
 
@@ -71,5 +88,30 @@ TEST(TaskRegistryDebugTest, DumpShowsTaskStateAndTransitions)
   TaskRegistry::dump();
   auto const after_resume_dump = testing::internal::GetCapturedStderr();
   EXPECT_NE(after_resume_dump.find("Total tracked tasks: 0"), std::string::npos);
+}
+
+TEST(TaskRegistryDebugTest, DumpShowsEpochContextBindingsForSuspendedTask)
+{
+  DebugScheduler sched;
+  Async<int> value;
+
+  sched.schedule(wait_for_reader(value.read()));
+  sched.run();
+
+  testing::internal::CaptureStderr();
+  TaskRegistry::dump();
+  auto const dump = testing::internal::GetCapturedStderr();
+
+  EXPECT_NE(dump.find("Total tracked epoch contexts:"), std::string::npos);
+  EXPECT_NE(dump.find("held by epoch contexts:"), std::string::npos);
+  EXPECT_NE(dump.find("(reader)"), std::string::npos);
+
+  sched.schedule(write_value(value.write(), 7));
+  sched.run_all();
+
+  testing::internal::CaptureStderr();
+  TaskRegistry::dump();
+  auto const after_completion_dump = testing::internal::GetCapturedStderr();
+  EXPECT_NE(after_completion_dump.find("Total tracked tasks: 0"), std::string::npos);
 }
 #endif

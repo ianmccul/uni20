@@ -1,6 +1,7 @@
 #pragma once
 
 #include <coroutine>
+#include <vector>
 
 namespace uni20
 {
@@ -18,11 +19,22 @@ class TaskRegistryDebug {
         Leaked,
     };
 
+    enum class EpochTaskRole {
+        Reader,
+        Writer,
+    };
+
     static void register_task(std::coroutine_handle<> h);
     static void destroy_task(std::coroutine_handle<> h);
     static void leak_task(std::coroutine_handle<> h);
     static void mark_running(std::coroutine_handle<> h);
     static void mark_suspended(std::coroutine_handle<> h);
+    static void register_epoch_context(void const* epoch_context);
+    static void destroy_epoch_context(void const* epoch_context);
+    static void bind_epoch_task(void const* epoch_context, std::coroutine_handle<> h, EpochTaskRole role);
+    static void unbind_epoch_task(void const* epoch_context, std::coroutine_handle<> h, EpochTaskRole role);
+    static std::vector<std::coroutine_handle<>> epoch_reader_tasks(void const* epoch_context);
+    static std::vector<std::coroutine_handle<>> epoch_writer_tasks(void const* epoch_context);
     static void dump();
 };
 

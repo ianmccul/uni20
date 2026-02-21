@@ -9,6 +9,7 @@
 #include "async_node.hpp"
 #include "async_task_promise.hpp"
 #include "shared_storage.hpp"
+#include "task_registry.hpp"
 #include <atomic>
 #include <coroutine>
 #include <cstdio>
@@ -204,13 +205,18 @@ class EpochContext {
         void const* buf;
     };
 
-    EpochContext() { TRACE_MODULE(ASYNC, "Creating new EpochContext", this); }
+    EpochContext()
+    {
+      TRACE_MODULE(ASYNC, "Creating new EpochContext", this);
+      TaskRegistry::register_epoch_context(this);
+    }
 
     /// Construct an EpochContext given an existing next epoch.
     /// \note this is backwards propogation, the counter is initialized to next->counter_ - 1
     explicit EpochContext(std::shared_ptr<EpochContext> next) : counter_(next->counter_ - 1), next_epoch_(next)
     {
       TRACE_MODULE(ASYNC, "Creating new EpochContext with next_epoch", this, counter_, next_epoch_.get());
+      TaskRegistry::register_epoch_context(this);
     }
 
     /// Helper factory to construct the previous epoch in a reverse-mode chain
@@ -221,10 +227,13 @@ class EpochContext {
 
     ~EpochContext()
     {
-      std::lock_guard lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext Destructor", this, counter_);
-      CHECK_EQUAL(num_writers_, 0);
-      CHECK_EQUAL(num_readers_, 0);
+      {
+        std::lock_guard lock(mtx_);
+        DEBUG_TRACE_MODULE(ASYNC, "EpochContext Destructor", this, counter_);
+        CHECK_EQUAL(num_writers_, 0);
+        CHECK_EQUAL(num_readers_, 0);
+      }
+      TaskRegistry::destroy_epoch_context(this);
     }
 
     /// Set the next EpochContext in the chain.
@@ -271,10 +280,48 @@ class EpochContext {
       this->advance_start_locked(std::move(lock));
     }
 
+    /// \brief Return coroutine handles currently queued as readers in this epoch context.
+    std::vector<std::coroutine_handle<>> reader_task_handles() const
+    {
+      return TaskRegistry::epoch_reader_tasks(this);
+    }
+
+    /// \brief Return coroutine handles currently queued as writers in this epoch context.
+    std::vector<std::coroutine_handle<>> writer_task_handles() const
+    {
+      return TaskRegistry::epoch_writer_tasks(this);
+    }
+
   private:
     // Writer interface
     // internal private used only by EpochContextWriter<T>
     template <typename T> friend class EpochContextWriter;
+
+    static std::coroutine_handle<> to_generic_handle(AsyncTask const& task) noexcept
+    {
+      if (!task.h_) return {};
+      return std::coroutine_handle<>::from_address(task.h_.address());
+    }
+
+    void track_writer_task(AsyncTask const& task) const noexcept
+    {
+      TaskRegistry::bind_epoch_task(this, to_generic_handle(task), TaskRegistry::EpochTaskRole::Writer);
+    }
+
+    void untrack_writer_task(AsyncTask const& task) const noexcept
+    {
+      TaskRegistry::unbind_epoch_task(this, to_generic_handle(task), TaskRegistry::EpochTaskRole::Writer);
+    }
+
+    void track_reader_task(AsyncTask const& task) const noexcept
+    {
+      TaskRegistry::bind_epoch_task(this, to_generic_handle(task), TaskRegistry::EpochTaskRole::Reader);
+    }
+
+    void untrack_reader_task(AsyncTask const& task) const noexcept
+    {
+      TaskRegistry::unbind_epoch_task(this, to_generic_handle(task), TaskRegistry::EpochTaskRole::Reader);
+    }
 
     /// \brief Acquire the writer role for this epoch.
     /// \pre phase_ <= Phase::Started
@@ -328,6 +375,7 @@ class EpochContext {
       }
 
       // Otherwise, store the task for later
+      this->track_writer_task(task);
       writer_tasks_.emplace_back(std::move(task), cancel_on_exception);
     }
 
@@ -419,6 +467,7 @@ class EpochContext {
       {
         auto NextTask = std::move(writer_tasks_.back());
         writer_tasks_.pop_back();
+        this->untrack_writer_task(NextTask.task);
         this->execute_writer_locked(std::move(lock), std::move(NextTask));
       }
 
@@ -477,6 +526,7 @@ class EpochContext {
       else
       {
         DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind is adding the reader task", h.h_);
+        this->track_reader_task(h);
         reader_tasks_.emplace_back(std::move(h), cancel_on_exception);
       }
     }
@@ -536,6 +586,7 @@ class EpochContext {
       {
         auto NextTask = std::move(writer_tasks_.back());
         writer_tasks_.pop_back();
+        this->untrack_writer_task(NextTask.task);
         this->execute_writer_locked(std::move(lock), std::move(NextTask));
         return;
       }
@@ -606,6 +657,10 @@ class EpochContext {
       std::exception_ptr my_eptr = eptr_;
       std::vector<TaskState> my_reader_tasks;
       std::swap(reader_tasks_, my_reader_tasks);
+      for (auto const& task : my_reader_tasks)
+      {
+        this->untrack_reader_task(task.task);
+      }
       lock.unlock();
 
       for (auto&& task : my_reader_tasks)
