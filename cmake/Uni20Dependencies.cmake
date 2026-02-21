@@ -40,14 +40,28 @@ function(uni20_add_dependency)
   set(_uni20_detected_version "")
 
   if(${use_system_var})
+    # When a minimum version is requested, use CONFIG mode so CMake can verify
+    # the package version from a *ConfigVersion.cmake file. Module-mode finders
+    # (for example FindGTest) may report FOUND without providing version metadata.
+    # In that case we cannot verify compatibility and should fall back to fetching.
     if(DEP_COMPONENTS)
-      find_package(${DEP_NAME} ${DEP_VERSION} QUIET COMPONENTS ${DEP_COMPONENTS})
+      find_package(${DEP_NAME} ${DEP_VERSION} QUIET CONFIG COMPONENTS ${DEP_COMPONENTS})
     else()
-      find_package(${DEP_NAME} ${DEP_VERSION} QUIET)
+      find_package(${DEP_NAME} ${DEP_VERSION} QUIET CONFIG)
+    endif()
+
+    # If no explicit version was requested and config mode did not find a package,
+    # allow a module-mode fallback.
+    if((NOT DEP_VERSION) AND NOT (DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND))
+      if(DEP_COMPONENTS)
+        find_package(${DEP_NAME} QUIET MODULE COMPONENTS ${DEP_COMPONENTS})
+      else()
+        find_package(${DEP_NAME} QUIET MODULE)
+      endif()
     endif()
   endif()
 
-  if(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND AND DEFINED ${DEP_NAME}_VERSION)
+  if(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
     message(STATUS "Using system ${DEP_NAME}: ${${DEP_NAME}_DIR}")
 
     set(${source_var} "system" CACHE STRING "Source type for ${DEP_NAME} (system or fetched)" FORCE)
@@ -66,12 +80,6 @@ function(uni20_add_dependency)
     set(${detected_var} "system" CACHE STRING "${_uni20_detected_help}" FORCE)
 
   else()
-    if(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
-      # this is a case that seems to only happen with older .cmake configurations, where we don't have the correct version
-      # but we still have the module imported.  It doesn't seem possible to cleanly recover from this.
-      message(FATAL_ERROR "System ${DEP_NAME} installed, but not the required version (${DEP_VERSION}). You must disable the system version with -DUNI20_USE_SYSTEM_${NAME_UPPER}=OFF")
-    endif()
-
     if(DEP_SETTINGS)
       foreach(setting IN LISTS DEP_SETTINGS)
         if(NOT setting MATCHES "^([^:=]+)(:([^=]+))?=(.*)$")
