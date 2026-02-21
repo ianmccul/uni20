@@ -66,7 +66,18 @@ template <typename T> class ReverseValue {
 
     // move ctor and move-assign should "just work"
     ReverseValue(ReverseValue&&) noexcept = default;
-    ReverseValue& operator=(ReverseValue&&) noexcept = default;
+
+    ReverseValue& operator=(ReverseValue&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->finalize();
+        async_ = std::move(other.async_);
+        rqueue_ = std::move(other.rqueue_);
+        started_ = std::exchange(other.started_, false);
+      }
+      return *this;
+    }
 
     // copy-asssignment doesn't make sense
     ReverseValue(ReverseValue const&) = delete;

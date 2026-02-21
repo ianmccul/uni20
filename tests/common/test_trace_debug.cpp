@@ -102,6 +102,23 @@ TEST(DebugTraceModuleIfMacro, DEBUG_TRACE_MODULE_IF_EmitsWhenTrue)
   trace::get_formatting_options("TESTMODULE").set_output_stream(stderr);
 }
 
+TEST(DebugTraceStackMacro, DebugTraceStackIncludesStacktraceDiagnostic)
+{
+  std::ostringstream oss;
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
+  auto n = 789;
+  DEBUG_TRACE_STACK("debug-trace-stack", n);
+  auto const output = oss.str();
+  EXPECT_NE(output.find("debug-trace-stack, n = 789"), std::string::npos) << "Trace output was:\n" << output;
+#if UNI20_HAS_STACKTRACE
+  EXPECT_NE(output.find("Stacktrace:"), std::string::npos) << "Trace output was:\n" << output;
+#else
+  EXPECT_NE(output.find("WARNING: std::stacktrace is unavailable"), std::string::npos) << "Trace output was:\n"
+                                                                                        << output;
+#endif
+  trace::get_formatting_options().set_output_stream(stderr);
+}
+
 TEST(DebugCheckFloatingEq, PassesWithinTolerance)
 {
   float a = 1.0f;

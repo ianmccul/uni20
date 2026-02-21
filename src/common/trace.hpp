@@ -173,6 +173,115 @@
   }                                                                                                                    \
   while (0)
 
+#define TRACE_STACK(...)                                                                                               \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (TRACE_DISABLE)                                                                                     \
+      {}                                                                                                               \
+      else                                                                                                             \
+      {                                                                                                                \
+        ::trace::TraceStackCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                           \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define TRACE_IF_STACK(cond, ...)                                                                                      \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (TRACE_DISABLE)                                                                                     \
+      {}                                                                                                               \
+      else if (cond)                                                                                                   \
+      {                                                                                                                \
+        if consteval                                                                                                   \
+        {}                                                                                                             \
+        else                                                                                                           \
+        {                                                                                                              \
+          ::trace::TraceStackCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                         \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define TRACE_ONCE_STACK(...)                                                                                          \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (TRACE_DISABLE)                                                                                     \
+      {}                                                                                                               \
+      else                                                                                                             \
+      {                                                                                                                \
+        static std::atomic_flag _trace_once_stack_flag = ATOMIC_FLAG_INIT;                                             \
+        if (!_trace_once_stack_flag.test_and_set(std::memory_order_relaxed))                                           \
+        {                                                                                                              \
+          ::trace::TraceStackOnceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                     \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define TRACE_MODULE_STACK(m, ...)                                                                                     \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (ENABLE_TRACE_##m)                                                                                  \
+      {                                                                                                                \
+        if constexpr (TRACE_DISABLE)                                                                                   \
+        {}                                                                                                             \
+        else                                                                                                           \
+        {                                                                                                              \
+          ::trace::TraceModuleStackCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));               \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define TRACE_MODULE_IF_STACK(m, cond, ...)                                                                            \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (ENABLE_TRACE_##m)                                                                                  \
+      {                                                                                                                \
+        if (cond)                                                                                                      \
+        {                                                                                                              \
+          if constexpr (TRACE_DISABLE)                                                                                 \
+          {}                                                                                                           \
+          else                                                                                                         \
+          {                                                                                                            \
+            ::trace::TraceModuleStackCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));             \
+          }                                                                                                            \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+// Aliases with STACK before condition/module suffixes.
+#define TRACE_STACK_IF TRACE_IF_STACK
+#define TRACE_STACK_ONCE TRACE_ONCE_STACK
+#define TRACE_STACK_MODULE TRACE_MODULE_STACK
+#define TRACE_STACK_MODULE_IF TRACE_MODULE_IF_STACK
+
 // CHECK and PRECONDITION MACROS
 // These macros check a condition and, if false, print diagnostic information and abort.
 // They forward additional debug information similarly to the TRACE macros.
@@ -292,6 +401,26 @@
   do                                                                                                                   \
   {}                                                                                                                   \
   while (0)
+#define DEBUG_TRACE_STACK(...)                                                                                         \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
+#define DEBUG_TRACE_IF_STACK(...)                                                                                      \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
+#define DEBUG_TRACE_ONCE_STACK(...)                                                                                    \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
+#define DEBUG_TRACE_MODULE_STACK(...)                                                                                  \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
+#define DEBUG_TRACE_MODULE_IF_STACK(...)                                                                               \
+  do                                                                                                                   \
+  {}                                                                                                                   \
+  while (0)
 #define DEBUG_CHECK(...)                                                                                               \
   do                                                                                                                   \
   {}                                                                                                                   \
@@ -388,6 +517,76 @@
   }                                                                                                                    \
   while (0)
 
+#define DEBUG_TRACE_STACK(...)                                                                                         \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if constexpr (TRACE_DISABLE)                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+      ::trace::DebugTraceStackCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
+  }                                                                                                                    \
+  while (0)
+
+#define DEBUG_TRACE_IF_STACK(cond, ...)                                                                                \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if constexpr (TRACE_DISABLE)                                                                                       \
+    {}                                                                                                                 \
+    else if (cond)                                                                                                     \
+    {                                                                                                                  \
+      ::trace::DebugTraceStackCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                        \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define DEBUG_TRACE_ONCE_STACK(...)                                                                                    \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if consteval                                                                                                       \
+    {}                                                                                                                 \
+    else                                                                                                               \
+    {                                                                                                                  \
+      if constexpr (TRACE_DISABLE)                                                                                     \
+      {}                                                                                                               \
+      else                                                                                                             \
+      {                                                                                                                \
+        static std::atomic_flag _debug_trace_once_stack_flag = ATOMIC_FLAG_INIT;                                       \
+        if (!_debug_trace_once_stack_flag.test_and_set(std::memory_order_relaxed))                                     \
+        {                                                                                                              \
+          ::trace::DebugTraceStackOnceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define DEBUG_TRACE_MODULE_STACK(m, ...)                                                                               \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if constexpr (TRACE_DISABLE)                                                                                       \
+    {}                                                                                                                 \
+    else if constexpr (ENABLE_TRACE_##m)                                                                               \
+    {                                                                                                                  \
+      ::trace::DebugTraceModuleStackCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));              \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
+#define DEBUG_TRACE_MODULE_IF_STACK(m, cond, ...)                                                                      \
+  do                                                                                                                   \
+  {                                                                                                                    \
+    if constexpr (TRACE_DISABLE)                                                                                       \
+    {}                                                                                                                 \
+    else if constexpr (ENABLE_TRACE_##m)                                                                               \
+    {                                                                                                                  \
+      if (cond)                                                                                                        \
+      {                                                                                                                \
+        ::trace::DebugTraceModuleStackCall(#m, #__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));            \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  while (0)
+
 #define DEBUG_CHECK(cond, ...)                                                                                         \
   do                                                                                                                   \
   {                                                                                                                    \
@@ -463,6 +662,12 @@
   while (0)
 
 #endif
+
+// Aliases with STACK before condition/module suffixes.
+#define DEBUG_TRACE_STACK_IF DEBUG_TRACE_IF_STACK
+#define DEBUG_TRACE_STACK_ONCE DEBUG_TRACE_ONCE_STACK
+#define DEBUG_TRACE_STACK_MODULE DEBUG_TRACE_MODULE_STACK
+#define DEBUG_TRACE_STACK_MODULE_IF DEBUG_TRACE_MODULE_IF_STACK
 
 #include "trace_impl.hpp"
 

@@ -60,6 +60,13 @@ class ReverseEpochQueue {
       TRACE("Constructing ReverseEpochQueue EpochContext", first_.get());
     }
 
+    // move-only
+    ReverseEpochQueue(ReverseEpochQueue&) = delete;
+    ReverseEpochQueue& operator=(ReverseEpochQueue&) = delete;
+
+    ReverseEpochQueue(ReverseEpochQueue&&) = default;
+    ReverseEpochQueue& operator=(ReverseEpochQueue&&) = default;
+
     ~ReverseEpochQueue() { TRACE("Destructor ReverseEpochQueue", this, first_.get()); }
 
     /// \brief Construct a ReverseEpochQueue from a given EpochContext.

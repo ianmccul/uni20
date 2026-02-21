@@ -1054,7 +1054,7 @@ inline std::string stacktrace_to_string(std::stacktrace const& stacktrace)
 }
 #endif
 
-inline void emit_abort_stacktrace(FormattingOptions& opts, std::string_view style_kind, std::size_t skip_frames)
+inline void emit_stacktrace(FormattingOptions& opts, std::string_view style_kind, std::size_t skip_frames)
 {
 #if TRACE_HAS_STACKTRACE
   opts.sink(fmt::format("{}\n", opts.format_style("Stacktrace:", std::string(style_kind))));
@@ -1071,11 +1071,59 @@ inline void emit_abort_stacktrace(FormattingOptions& opts, std::string_view styl
                                                 std::string_view style_kind, std::size_t skip_frames)
 {
   opts.sink(message);
-  emit_abort_stacktrace(opts, style_kind, skip_frames);
+  emit_stacktrace(opts, style_kind, skip_frames);
   std::fflush(nullptr); // flush all output streams
   std::abort();
 }
 } // namespace detail
+
+template <typename... Args> void TraceStackCall(const char* exprList, const char* file, int line, const Args&... args)
+{
+  TraceCall(exprList, file, line, args...);
+  auto& opts = get_formatting_options();
+  detail::emit_stacktrace(opts, "TRACE", 2);
+}
+
+template <typename... Args>
+void TraceStackOnceCall(const char* exprList, const char* file, int line, const Args&... args)
+{
+  TraceOnceCall(exprList, file, line, args...);
+  auto& opts = get_formatting_options();
+  detail::emit_stacktrace(opts, "TRACE", 2);
+}
+
+template <typename... Args>
+void TraceModuleStackCall(const char* module, const char* exprList, const char* file, int line, const Args&... args)
+{
+  TraceModuleCall(module, exprList, file, line, args...);
+  auto& opts = get_formatting_options(module);
+  detail::emit_stacktrace(opts, "TRACE", 2);
+}
+
+template <typename... Args>
+void DebugTraceStackCall(const char* exprList, const char* file, int line, const Args&... args)
+{
+  DebugTraceCall(exprList, file, line, args...);
+  auto& opts = get_formatting_options();
+  detail::emit_stacktrace(opts, "DEBUG_TRACE", 2);
+}
+
+template <typename... Args>
+void DebugTraceStackOnceCall(const char* exprList, const char* file, int line, const Args&... args)
+{
+  DebugTraceOnceCall(exprList, file, line, args...);
+  auto& opts = get_formatting_options();
+  detail::emit_stacktrace(opts, "DEBUG_TRACE", 2);
+}
+
+template <typename... Args>
+void DebugTraceModuleStackCall(const char* module, const char* exprList, const char* file, int line,
+                               const Args&... args)
+{
+  DebugTraceModuleCall(module, exprList, file, line, args...);
+  auto& opts = get_formatting_options(module);
+  detail::emit_stacktrace(opts, "DEBUG_TRACE", 2);
+}
 
 template <typename... Args>
 [[noreturn]] void CheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)

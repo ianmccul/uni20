@@ -215,7 +215,8 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     //   current_awaiter_ = nullptr;
     // }
 
-    //  private:
+    // FIXME:
+    // private:
     handle_type h_; ///< Underlying coroutine handle.
 
     // When a buffer detects an error condition, we need to know which awaiter to send it to

@@ -293,8 +293,7 @@ struct BasicAsyncTaskPromise
     /// \param h Current coroutine handle.
     /// \param t Returned task object from awaitable.await_suspend(...).
     /// \return Handle selected for immediate transfer by coroutine semantics.
-    static std::coroutine_handle<> resolve_await_suspend_result(std::coroutine_handle<promise_type> h,
-                                                                AsyncTask&& t)
+    static std::coroutine_handle<> resolve_await_suspend_result(std::coroutine_handle<promise_type> h, AsyncTask&& t)
     {
       // null handle means suspend the current coroutine until externally resumed
       if (!t.h_)
@@ -482,6 +481,7 @@ class AsyncTaskFactory {
     {
       if (this != &other)
       {
+        this->release_outstanding();
         handle_ = std::exchange(other.handle_, {});
         count_ = std::exchange(other.count_, 0);
       }
@@ -497,14 +497,8 @@ class AsyncTaskFactory {
     /// If the coroutine is unowned after release, it will be destroyed.
     ~AsyncTaskFactory() noexcept
     {
-      // return the outstanding references. If this results in a zero reference count, then destroy the handle.
-      // it is possible that the handle has already been destroyed, but that could only happen if we gave out
-      // all of the references (and they were since destructed), which would require count_ == 0.
       DEBUG_TRACE_MODULE(ASYNC, this, handle_, count_);
-      if (count_ > 0 && handle_.promise().release_awaiter(count_))
-      {
-        AsyncTask::promise_type::destroy_and_track(handle_);
-      }
+      this->release_outstanding();
     }
 
   private:
@@ -524,7 +518,20 @@ class AsyncTaskFactory {
       if (count_ == 0)
       {
         AsyncTask::promise_type::destroy_and_track(handle_);
+        handle_ = {};
       }
+    }
+
+    /// \brief Release any undispatched ownership claims currently held by this factory.
+    void release_outstanding() noexcept
+    {
+      // Return the outstanding references. If this reaches zero, destroy the coroutine.
+      if (count_ > 0 && handle_.promise().release_awaiter(count_))
+      {
+        AsyncTask::promise_type::destroy_and_track(handle_);
+      }
+      count_ = 0;
+      handle_ = {};
     }
 
     HandleType handle_;

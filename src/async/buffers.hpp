@@ -580,6 +580,7 @@ template <typename T> class WriteBuffer {
         written_ = other.written_;
         other.written_ = true; // make moved-from state safe for destruction
       }
+      return *this;
     }
 
 #if UNI20_DEBUG_DAG
@@ -651,7 +652,6 @@ template <typename T> class WriteBuffer {
 
   private:
     EpochContextWriter<T> writer_;
-    bool acquired_{false}; // multiple awaits on the same buffer do not suspend
     mutable bool written_{false};
 
     // Duplicating a WriteBuffer is no longer possible with the refactored EpochContext.

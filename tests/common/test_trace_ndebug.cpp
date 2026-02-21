@@ -67,3 +67,13 @@ TEST(DebugMacrosNoOp, DebugTraceModuleDoesNothing)
   DEBUG_TRACE_MODULE_IF(TESTMODULE, true, "world");
   SUCCEED();
 }
+
+TEST(DebugMacrosNoOp, DebugTraceStackDoesNothing)
+{
+  DEBUG_TRACE_STACK("hello-stack", 123);
+  DEBUG_TRACE_IF_STACK(true, "if-stack");
+  DEBUG_TRACE_ONCE_STACK("once-stack");
+  DEBUG_TRACE_MODULE_STACK(TESTMODULE, "module-stack", 7);
+  DEBUG_TRACE_MODULE_IF_STACK(TESTMODULE, true, "module-if-stack");
+  SUCCEED();
+}

@@ -29,6 +29,23 @@ TEST(TraceMacro, TraceVariable)
   trace::get_formatting_options().set_output_stream(stderr);
 }
 
+TEST(TraceStackMacro, TraceStackIncludesStacktraceDiagnostic)
+{
+  std::ostringstream oss;
+  trace::get_formatting_options().set_sink([&oss](std::string msg) { oss << msg; });
+  auto n = 123;
+  TRACE_STACK("trace-stack", n);
+  auto const output = oss.str();
+  EXPECT_NE(output.find("trace-stack, n = 123"), std::string::npos) << "Trace output was:\n" << output;
+#if UNI20_HAS_STACKTRACE
+  EXPECT_NE(output.find("Stacktrace:"), std::string::npos) << "Trace output was:\n" << output;
+#else
+  EXPECT_NE(output.find("WARNING: std::stacktrace is unavailable"), std::string::npos) << "Trace output was:\n"
+                                                                                        << output;
+#endif
+  trace::get_formatting_options().set_output_stream(stderr);
+}
+
 // Disable warning that ("foo", n) discards "foo"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-value"

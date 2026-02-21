@@ -214,17 +214,13 @@ class EpochContext {
         std::vector<std::coroutine_handle<>> writer_tasks{};
     };
 
-    EpochContext()
-    {
-      TRACE("Creating new EpochContext", this);
-      TaskRegistry::register_epoch_context(this);
-    }
+    EpochContext() { TaskRegistry::register_epoch_context(this); }
 
     /// Construct an EpochContext given an existing next epoch.
     /// \note this is backwards propogation, the counter is initialized to next->counter_ - 1
     explicit EpochContext(std::shared_ptr<EpochContext> next) : counter_(next->counter_ - 1), next_epoch_(next)
     {
-      TRACE("Creating new EpochContext with next_epoch", this, counter_, next_epoch_.get());
+      TRACE_STACK("Creating new EpochContext with next_epoch", this, counter_, next_epoch_.get());
       TaskRegistry::register_epoch_context(this);
     }
 
@@ -262,7 +258,6 @@ class EpochContext {
     void start()
     {
       std::unique_lock lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::start", this, counter_, phase_);
       //      DEBUG_CHECK(phase_ == Phase::Pending);
       if (phase_ == Phase::Pending) this->advance_start_locked(std::move(lock));
     }
