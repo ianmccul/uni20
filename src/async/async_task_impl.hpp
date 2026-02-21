@@ -89,6 +89,13 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
   TRACE_MODULE(ASYNC, "returned from coroutine::resume");
 }
 
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::abandon_leak()
+{
+  auto handle = this->release_handle();
+  TaskRegistry::leak_task(handle);
+  TRACE_MODULE(ASYNC, "Abandoning task handle", handle);
+}
+
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::cancel_on_resume() noexcept
 {
   TRACE_MODULE(ASYNC, "Setting cancel flag on coroutine", this, h_);
@@ -102,7 +109,7 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::exception_on_resume(std:
 
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
 {
-  // TRACE_MODULE(ASYNC, "AsyncTask move assignment", this, h_, &other, other.h_);
+  TRACE_MODULE(ASYNC, "AsyncTask move assignment", this, h_, &other, other.h_);
   if (this != &other)
   {
     if (h_ && h_.promise().release_awaiter()) this->destroy_owned_coroutine();
@@ -120,6 +127,7 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::destroy_owned_coroutine(
   while (handle)
   {
     DEBUG_TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, handle);
+    TaskRegistry::destroy_task(handle);
     handle = handle.promise().destroy_with_continuation();
   }
   h_ = nullptr;

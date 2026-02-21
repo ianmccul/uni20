@@ -502,7 +502,26 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
       }
     }
 
-    decltype(auto) await_resume() { return awaitable.await_resume(); }
+    decltype(auto) await_resume()
+    {
+      // we can call await_resume on a moved awaitable here, because this is the last time
+      // that we refer to awaitable
+      return awaitable.await_resume();
+    }
+
+    // decltype(auto) await_resume() &
+    // {
+    //   // we can call await_resume on a moved awaitable here, because this is the last time
+    //   // that we refer to awaitable
+    //   return awaitable.await_resume();
+    // }
+    //
+    // decltype(auto) await_resume() &&
+    // {
+    //   // we can call await_resume on a moved awaitable here, because this is the last time
+    //   // that we refer to awaitable
+    //   return std::move(awaitable).await_resume();
+    // }
 
     // void set_cancel() override final { awaitable.set_cancel(); }
     //

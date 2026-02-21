@@ -269,7 +269,7 @@ TEST(AsyncBasicTest, WriterDisappearsExpectException)
       {
         val = co_await r;
       }
-      catch (buffer_unwritten const&) // we expect the buffer_cancelled exception
+      catch (buffer_uninitialized const&)
       {
         val = 1;
       }
@@ -324,7 +324,7 @@ TEST(AsyncBasicTest, WriterDisappearsCancelTask)
       {
         val = co_await r;
       }
-      catch (buffer_unwritten const&)
+      catch (buffer_uninitialized const&)
       {
         val = 1;
       }

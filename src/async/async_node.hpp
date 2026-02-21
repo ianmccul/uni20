@@ -47,7 +47,7 @@ class NodeInfo {
     uint64_t global_index() const { return global_index_; }
 
     /// \brief Returns the stacktrace of where the node was created
-#if UNI20_HAS_STACKTRACE
+#if 0 && UNI20_HAS_STACKTRACE
     std::stacktrace const& stack() const { return stack_; }
 #endif
 
@@ -64,7 +64,7 @@ class NodeInfo {
     template <typename T>
     NodeInfo(T const* value)
         : address_(static_cast<void const*>(value)), type_key_(typeid(T).name()), global_index_(next_global_++)
-#if UNI20_HAS_STACKTRACE
+#if 0 && UNI20_HAS_STACKTRACE
           ,
           stack_(std::stacktrace::current())
 #endif
@@ -79,7 +79,7 @@ class NodeInfo {
     void const* address_;   ///< Address of the referenced value.
     char const* type_key_;  ///< Mangled type name (from typeid).
     uint64_t global_index_; ///< Globally unique node index.
-#if UNI20_HAS_STACKTRACE
+#if 0 && UNI20_HAS_STACKTRACE
     std::stacktrace stack_; ///< stacktrace of where the node was constructed
 #endif
 };

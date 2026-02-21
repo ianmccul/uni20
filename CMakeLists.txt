@@ -62,6 +62,7 @@ option(UNI20_SANITIZE             "Enable sanitizers (comma-separated list: addr
 option(UNI20_EXTERNAL_NO_WERROR   "Disable -Werror for external libraries" ON)
 option(UNI20_EXTERNAL_NO_WARN     "Disable all warnings for external libraries" OFF)
 option(UNI20_ENABLE_COVERAGE      "Enable code coverage instrumentation" OFF)
+option(UNI20_DEBUG_ASYNC_TASKS    "Enable AsyncTask debug instrumentation" OFF)
 
 if(UNI20_ENABLE_COVERAGE)
   message(STATUS "Enabling coverage instrumentation")

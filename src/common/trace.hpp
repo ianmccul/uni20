@@ -26,6 +26,7 @@
 // Check for stacktrace support (C++23 and GCC 13+ or Clang+libc++)
 #if UNI20_HAS_STACKTRACE
 #define TRACE_HAS_STACKTRACE 1
+#include <stacktrace>
 #else
 #define TRACE_HAS_STACKTRACE 0
 #endif

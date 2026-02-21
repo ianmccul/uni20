@@ -4,20 +4,15 @@
 
 #cmakedefine01 UNI20_ENABLE_STACKTRACE
 
-#if UNI20_ENABLE_STACKTRACE
+#define STRINGIFY(x) #x
 
-  #if __has_include(<stacktrace>)
-    // Check for stacktrace support (C++23 and GCC 13+ or Clang+libc++)
-    #include <stacktrace>
-    #if defined(__cpp_lib_stacktrace) && (__cpp_lib_stacktrace >= 202011L)
-      #define UNI20_HAS_STACKTRACE 1
-    #else
-      #define UNI20_HAS_STACKTRACE 0
-    #endif
+#if UNI20_ENABLE_STACKTRACE
+  #include <version>
+  #if defined(__cpp_lib_stacktrace) && (__cpp_lib_stacktrace >= 202011L)
+    #define UNI20_HAS_STACKTRACE 1
   #else
     #define UNI20_HAS_STACKTRACE 0
   #endif
-
 #else
   #define UNI20_HAS_STACKTRACE 0
 #endif
@@ -27,6 +22,7 @@
 
 // Debugging options
 #cmakedefine01 UNI20_DEBUG_DAG
+#cmakedefine01 UNI20_DEBUG_ASYNC_TASKS
 #cmakedefine01 UNI20_ASYNC_DEBUG
 
 // Backend configurations

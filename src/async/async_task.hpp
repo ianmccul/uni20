@@ -5,6 +5,7 @@
 #pragma once
 
 #include "common/trace.hpp"
+#include "task_registry.hpp"
 #include <atomic>
 #include <coroutine>
 #include <exception>
@@ -63,6 +64,12 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \note This releases ownership to the scheduler.
     /// \ingroup async_core
     void resume();
+
+    /// \brief Abandon/leak the coroutine. This is useful only for emergencies, eg to unwind the stack without
+    /// causing further errors.
+    /// \pre We are the sole owner of the coroutine.
+    /// \note This releases ownership to the scheduler.
+    void abandon_leak();
 
     /// \brief Transfer ownership of the coroutine and get the handle.
     /// \pre We are the sole owner of the coroutine.
@@ -133,7 +140,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \ingroup async_core
     BasicAsyncTask(BasicAsyncTask&& other) noexcept : h_{other.h_}
     {
-      // DEBUG_TRACE("BasicAsyncTask move", this, &other, h_);
+      DEBUG_TRACE("BasicAsyncTask move", this, &other, h_);
       other.h_ = nullptr;
     }
 
@@ -217,7 +224,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \brief Construct from a coroutine handle.
     /// \param h The coroutine handle.
     /// \ingroup async_core
-    explicit BasicAsyncTask(std::coroutine_handle<promise_type> h) noexcept : h_(h) {}
+    explicit BasicAsyncTask(std::coroutine_handle<promise_type> h) noexcept : h_(h) { TaskRegistry::register_task(h_); }
 
     // explicit BasicAsyncTask(std::coroutine_handle<promise_type> h, AsyncAwaiter* awaiter) noexcept
     //     : h_(h) //, current_awaiter_(awaiter)

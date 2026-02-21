@@ -752,10 +752,10 @@ class buffer_cancelled : public buffer_error {
 };
 
 /// \brief Raised when a buffer was expected to be written but never was.
-class buffer_unwritten : public buffer_error {
-  public:
-    buffer_unwritten() : buffer_error("Async buffer released without writing to the buffer, so is now invalid") {}
-};
+// class buffer_unwritten : public buffer_error {
+//   public:
+//     buffer_unwritten() : buffer_error("Async buffer released without writing to the buffer, so is now invalid") {}
+// };
 
 /// \brief Raised when a buffer was expected to be written but never was.
 class buffer_uninitialized : public buffer_error {

@@ -6,6 +6,7 @@
 
 #include "async.hpp"
 #include "scheduler.hpp"
+#include "task_registry.hpp"
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -28,6 +29,20 @@ class DebugScheduler final : public IScheduler {
       if (task.set_scheduler(this))
       {
         Handles_.push_back(std::move(task));
+      }
+    }
+
+    ~DebugScheduler()
+    {
+      TRACE_MODULE(ASYNC, "~DebugScheduler", Handles_.size());
+
+      if (std::uncaught_exceptions() > 0)
+      {
+        while (!Handles_.empty())
+        {
+          Handles_.back().abandon_leak();
+          Handles_.pop_back();
+        }
       }
     }
 
@@ -55,6 +70,7 @@ class DebugScheduler final : public IScheduler {
 
       if (Blocked_ || Handles_.empty())
       {
+        TaskRegistry::dump();
         CHECK(false, "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
       }
       this->run();
@@ -143,6 +159,7 @@ template <typename T> T&& EpochContextWriter<T>::move_from_wait()
 
 inline void DebugScheduler::run()
 {
+  DEBUG_TRACE_MODULE(ASYNC, "DebugScheduler::run");
   if (Blocked_)
   {
     DEBUG_TRACE_MODULE(ASYNC, "run() on a blocked DebugQueue: doing nothing");
@@ -164,6 +181,7 @@ inline void DebugScheduler::run()
 
 inline void DebugScheduler::run_all()
 {
+  DEBUG_TRACE_MODULE(ASYNC, "DebugScheduler::run_all");
   if (Blocked_)
   {
     DEBUG_TRACE_MODULE(ASYNC, "run() on a blocked DebugQueue: doing nothing");

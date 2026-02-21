@@ -303,23 +303,112 @@ template <typename T> ReadOrCancelAwaiter<T> ReadBuffer<T>::or_cancel() && { ret
 // Forward declaration of the proxy used for deferred writes
 template <typename Buffer> class BufferWriteProxy;
 
-/// \brief Awaitable mutator gate for an Async<T> value.
-///
-/// Represents a single writer coroutine that gains exclusive mutable access to an
-/// already-initialized Async<T> value. Constructed from an EpochContextWriter<T>,
-/// this buffer ensures the underlying storage has been initialized before exposing
-/// a reference. It is a move-only awaiter that binds once and either suspends or
-/// proceeds directly based on epoch ordering.
-///
-/// \note Not copyable. Must not be co_awaited on a temporary.
-/// \note To pass a MutableBuffer into a nested coroutine, use dup() to retain ownership.
-///       Be aware that duplicated MutableBuffers point to the same epoch — they do not
-///       insert additional causality or memory ordering into the queue.
-///
-/// \warning Multiple active MutableBuffers to the same Async<T> are not causally isolated.
-/// It is the user's responsibility to ensure they are not used concurrently or
-/// inconsistently. This is akin to having multiple references to a shared global variable.
-template <typename T> class MutableBuffer { //}: public AsyncAwaiter {
+/// \brief An awaiter that emplaces a value when it is co_awaited.
+
+template <typename T, typename... Args> class EmplaceAwaiter {
+  public:
+    EmplaceAwaiter(EpochContextWriter<T>* writer, Args&&... args) : writer_(writer), args_(std::forward<Args>(args)...)
+    {}
+
+    bool await_ready() const noexcept { return writer_->ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "EmplaceAwaiter::await_suspend()", this, t.h_);
+      writer_->suspend(std::move(t), false);
+    }
+
+    T& await_resume()
+    {
+      if (writer_->storage().valid())
+      {
+        writer_->storage().destroy();
+      }
+      std::apply(
+          [this](auto&&... unpacked) { writer_->storage().emplace(std::forward<decltype(unpacked)>(unpacked)...); },
+          std::move(args_));
+      auto& ref = writer_->data();
+      return ref;
+    }
+
+  private:
+    EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
+    std::tuple<Args...> args_;
+};
+
+// TODO:
+// Implement EmplaceBuffer supporting both forms:
+//
+// co_await buf(x, y, z);
+// co_await buf; buf.emplace(x, y, z);
+//
+// Implement pointer-style access:
+// *buf; buf->member();
+
+/// \brief Awaitable write buffer for constructing values in-place.
+template <typename T> class EmplaceBuffer {
+  public:
+    using value_type = T;
+    using element_type = T&;
+
+    EmplaceBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
+
+    EmplaceBuffer(EmplaceBuffer const&) = delete;
+    EmplaceBuffer& operator=(EmplaceBuffer const&) = delete;
+
+    EmplaceBuffer(EmplaceBuffer&&) noexcept = default;
+    EmplaceBuffer& operator=(EmplaceBuffer&&) noexcept = default;
+
+    void release() noexcept { writer_.release(); }
+
+    template <typename... Args> auto operator()(Args&&... args) &&
+    {
+      CHECK(writer_);
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
+    }
+
+    NodeInfo const* node() const
+    {
+#if UNI20_DEBUG_DAG
+      return writer_.node();
+#else
+      return nullptr;
+#endif
+    }
+
+    template <typename... Args>
+      requires std::constructible_from<T, Args...>
+    T& emplace_assert(Args&&... args)
+    {
+      DEBUG_CHECK(writer_.ready(), "EmplaceBuffer must be immediately writable");
+      writer_.emplace(std::forward<Args>(args)...);
+      return writer_.data();
+    }
+
+  private:
+    EpochContextWriter<T> writer_;
+};
+
+template <typename T> class StorageAwaiter {
+  public:
+    StorageAwaiter(EpochContextWriter<T>* writer) : writer_(writer) {}
+
+    bool await_ready() const noexcept { return writer_->ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "EmplaceAwaiter::await_suspend()", this, t.h_);
+      writer_->suspend(std::move(t), false);
+    }
+
+    shared_storage<T>& await_resume() { return writer_->storage(); }
+
+  private:
+    EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
+};
+
+/// MutableBuffer - a buffer type that must be previously constructed and allows read & write access
+template <typename T> class MutableBuffer {
   public:
     using value_type = T;
     using element_type = T&;
@@ -358,6 +447,12 @@ template <typename T> class MutableBuffer { //}: public AsyncAwaiter {
       CHECK(writer_.value_is_initialized(), "MutableBuffer requires initialized value");
       writer_.resume();
       return writer_.data();
+    }
+
+    /// \brief Returns an awaiter that emplaces a new object directly into the storage
+    template <typename... Args> auto emplace(Args&&... args)
+    {
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(writer_, std::forward<Args>(args)...);
     }
 
     /// \brief Manually release the write gate, allowing queue advancement.
@@ -435,130 +530,6 @@ template <typename T> class MutableBuffer { //}: public AsyncAwaiter {
     /// friend MutableBuffer dup(MutableBuffer& wb) { return MutableBuffer(wb.writer_); }
 };
 
-template <typename T, typename... Args> class EmplaceAwaiter {
-  public:
-    EmplaceAwaiter(EpochContextWriter<T>&& writer, Args&&... args)
-        : writer_(std::move(writer)), args_(std::forward<Args>(args)...)
-    {}
-
-    bool await_ready() const noexcept { return writer_.ready(); }
-
-    void await_suspend(AsyncTask&& t) noexcept
-    {
-      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t), false);
-    }
-
-    T& await_resume()
-    {
-      if (writer_.storage().valid())
-      {
-        writer_.storage().destroy();
-      }
-      std::apply(
-          [this](auto&&... unpacked) { writer_.storage().emplace(std::forward<decltype(unpacked)>(unpacked)...); },
-          std::move(args_));
-      auto& ref = writer_.data();
-      writer_.release();
-      return ref;
-    }
-
-  private:
-    EpochContextWriter<T> writer_;
-    std::tuple<Args...> args_;
-};
-
-// TODO:
-// Implement EmplaceBuffer supporting both forms:
-//
-// co_await buf(x, y, z);
-// co_await buf; buf.emplace(x, y, z);
-//
-// Implement pointer-style access:
-// *buf; buf->member();
-
-/// \brief Awaitable write buffer for constructing values in-place.
-template <typename T> class EmplaceBuffer {
-  public:
-    using value_type = T;
-    using element_type = T&;
-
-    EmplaceBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
-
-    EmplaceBuffer(EmplaceBuffer const&) = delete;
-    EmplaceBuffer& operator=(EmplaceBuffer const&) = delete;
-
-    EmplaceBuffer(EmplaceBuffer&&) noexcept = default;
-    EmplaceBuffer& operator=(EmplaceBuffer&&) noexcept = default;
-
-    bool await_ready()
-    {
-      this->consume_once();
-      return writer_.ready();
-    }
-
-    void await_suspend(AsyncTask&& t) noexcept
-    {
-      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t));
-    }
-
-    shared_storage<T>& await_resume()
-    {
-      // writer_.writer_written();
-      return writer_.storage();
-    }
-
-    void release() noexcept { writer_.release(); }
-
-    template <typename... Args> auto operator()(Args&&... args) &&
-    {
-      this->consume_once();
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(std::move(writer_), std::forward<Args>(args)...);
-    }
-
-    auto operator co_await() & -> EmplaceBuffer&
-    {
-      this->consume_once();
-      return *this;
-    }
-
-    auto operator co_await() const& -> EmplaceBuffer const&
-    {
-      this->consume_once();
-      return *this;
-    }
-    auto operator co_await() && = delete;
-
-    NodeInfo const* node() const
-    {
-#if UNI20_DEBUG_DAG
-      return writer_.node();
-#else
-      return nullptr;
-#endif
-    }
-
-    template <typename... Args>
-      requires std::constructible_from<T, Args...>
-    T& emplace_assert(Args&&... args)
-    {
-      DEBUG_CHECK(writer_.ready(), "EmplaceBuffer must be immediately writable");
-      writer_.emplace(std::forward<Args>(args)...);
-      return writer_.data();
-    }
-
-  private:
-    void consume_once()
-    {
-      if (consumed_) throw std::logic_error("EmplaceBuffer may only be awaited once");
-      consumed_ = true;
-    }
-
-    EpochContextWriter<T> writer_;
-    mutable bool consumed_{false};
-};
-
 /// \brief Awaitable write buffer for initializing uninitialized storage.
 ///
 /// A WriteBuffer enforces that the underlying value is treated as uninitialized
@@ -573,10 +544,10 @@ template <typename T> class WriteBuffer {
 
     ~WriteBuffer() noexcept
     {
-      if (writer_ && !written_)
-      {
-        writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
-      }
+      // if (writer_ && !written_)
+      // {
+      //   writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
+      // }
     }
 
     WriteBuffer(WriteBuffer const&) = delete;
@@ -614,17 +585,19 @@ template <typename T> class WriteBuffer {
 
     void release() noexcept
     {
-      if (!written_)
-      {
-        writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
-      }
+      // if (!written_)
+      // {
+      //   writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
+      // }
       writer_.release();
     }
 
     template <typename... Args> auto emplace(Args&&... args)
     {
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(std::move(writer_), std::forward<Args>(args)...);
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
     }
+
+    auto storage() { return StorageAwaiter<T>(&writer_); }
 
     T move_from_wait() { return writer_.move_from_wait(); }
 

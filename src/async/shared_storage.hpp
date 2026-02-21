@@ -147,28 +147,35 @@ template <typename T> class shared_storage {
     }
 
     T* get() noexcept { return constructed() ? ctrl_->ptr() : nullptr; }
-    const T* get() const noexcept { return constructed() ? ctrl_->ptr() : nullptr; }
+    const T* get() const noexcept { return this->constructed() ? ctrl_->ptr() : nullptr; }
 
     T& operator*() noexcept
     {
       DEBUG_CHECK(constructed());
-      return *get();
+      return *this->get();
     }
     const T& operator*() const noexcept
     {
       DEBUG_CHECK(constructed());
-      return *get();
+      return *this->get();
     }
 
     T* operator->() noexcept
     {
       DEBUG_CHECK(constructed());
-      return get();
+      return this->get();
     }
     const T* operator->() const noexcept
     {
       DEBUG_CHECK(constructed());
       return get();
+    }
+
+    T take() noexcept(std::is_nothrow_move_constructible_v<T>)
+    {
+      T x = std::move(**this);
+      this->destroy();
+      return x;
     }
 
     template <typename... Args> static shared_storage make_constructed(Args&&... args)
