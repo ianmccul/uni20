@@ -1,19 +1,20 @@
 #include "config.hpp"
+#include "epoch_context.hpp"
 #include "task_registry.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <fmt/core.h>
 #include <fmt/chrono.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <mutex>
 #if UNI20_HAS_STACKTRACE
 #include <stacktrace>
 #endif
 #include <string>
+#include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace
@@ -21,6 +22,7 @@ namespace
 
 using TaskState = uni20::TaskRegistry::TaskState;
 using EpochTaskRole = uni20::TaskRegistry::EpochTaskRole;
+using EpochContext = uni20::async::EpochContext;
 
 char const* to_string(TaskState state) noexcept
 {
@@ -52,6 +54,8 @@ char const* to_string(EpochTaskRole role) noexcept
   return "unknown";
 }
 
+std::string_view to_string(EpochContext::Phase phase) noexcept { return uni20::async::format_as(phase); }
+
 std::string format_timestamp(std::chrono::system_clock::time_point timestamp)
 {
   auto us = std::chrono::duration_cast<std::chrono::microseconds>(timestamp.time_since_epoch()) % std::chrono::seconds(1);
@@ -75,6 +79,7 @@ void print_stacktrace(std::stacktrace const& trace)
 
 struct TaskDebugInfo
 {
+    std::size_t id{0};
     TaskState state{TaskState::Constructed};
     std::size_t transition_count{0};
     std::chrono::system_clock::time_point creation_timestamp{};
@@ -86,17 +91,16 @@ struct TaskDebugInfo
 #endif
 };
 
-struct EpochTaskBinding
-{
-    void const* epoch_context{nullptr};
-    EpochTaskRole role{EpochTaskRole::Reader};
-};
-
 struct EpochDebugInfo
 {
+    std::size_t id{0};
     std::chrono::system_clock::time_point creation_timestamp{};
-    std::unordered_set<void*> reader_tasks{};
-    std::unordered_set<void*> writer_tasks{};
+};
+
+struct TaskEpochAssociation
+{
+    std::size_t epoch_id{0};
+    EpochTaskRole role{EpochTaskRole::Reader};
 };
 
 class TaskRegistryImpl {
@@ -109,6 +113,7 @@ class TaskRegistryImpl {
       if (inserted)
       {
         auto const now = std::chrono::system_clock::now();
+        it->second.id = next_task_id_++;
         it->second.creation_timestamp = now;
 #if UNI20_HAS_STACKTRACE
         auto const trace = std::stacktrace::current(2);
@@ -124,20 +129,7 @@ class TaskRegistryImpl {
     {
       if (!h) return;
       std::lock_guard lock(mutex_);
-      void* task_addr = h.address();
-      tasks_.erase(task_addr);
-
-      auto binding_it = task_bindings_.find(task_addr);
-      if (binding_it != task_bindings_.end())
-      {
-        for (auto const& binding : binding_it->second)
-        {
-          auto context_it = epoch_contexts_.find(binding.epoch_context);
-          if (context_it != epoch_contexts_.end())
-            this->task_set_for_role(context_it->second, binding.role).erase(task_addr);
-        }
-        task_bindings_.erase(binding_it);
-      }
+      tasks_.erase(h.address());
     }
 
     void leak_task(std::coroutine_handle<> h) { this->set_state(h, TaskState::Leaked); }
@@ -146,120 +138,202 @@ class TaskRegistryImpl {
 
     void mark_suspended(std::coroutine_handle<> h) { this->set_state(h, TaskState::Suspended); }
 
-    void register_epoch_context(void const* epoch_context)
+    void register_epoch_context(EpochContext const* epoch_context)
     {
       if (!epoch_context) return;
       std::lock_guard lock(mutex_);
       auto [it, inserted] = epoch_contexts_.try_emplace(epoch_context);
-      if (inserted) it->second.creation_timestamp = std::chrono::system_clock::now();
+      if (inserted)
+      {
+        it->second.id = next_epoch_id_++;
+        it->second.creation_timestamp = std::chrono::system_clock::now();
+      }
     }
 
-    void destroy_epoch_context(void const* epoch_context)
+    void destroy_epoch_context(EpochContext const* epoch_context)
     {
       if (!epoch_context) return;
       std::lock_guard lock(mutex_);
-      auto context_it = epoch_contexts_.find(epoch_context);
-      if (context_it == epoch_contexts_.end()) return;
-
-      for (auto const& task_addr : context_it->second.reader_tasks)
-        this->erase_task_epoch_binding_locked(task_addr, epoch_context, EpochTaskRole::Reader);
-      for (auto const& task_addr : context_it->second.writer_tasks)
-        this->erase_task_epoch_binding_locked(task_addr, epoch_context, EpochTaskRole::Writer);
-
-      epoch_contexts_.erase(context_it);
+      epoch_contexts_.erase(epoch_context);
     }
 
-    void bind_epoch_task(void const* epoch_context, std::coroutine_handle<> h, EpochTaskRole role)
+    void bind_epoch_task(EpochContext const*, std::coroutine_handle<>, EpochTaskRole) {}
+
+    void unbind_epoch_task(EpochContext const*, std::coroutine_handle<>, EpochTaskRole) {}
+
+    std::vector<std::coroutine_handle<>> epoch_reader_tasks(EpochContext const* epoch_context) const
     {
-      if (!epoch_context || !h) return;
-      std::lock_guard lock(mutex_);
-      auto& context = epoch_contexts_[epoch_context];
-      if (context.creation_timestamp == std::chrono::system_clock::time_point{})
-        context.creation_timestamp = std::chrono::system_clock::now();
-
-      void* task_addr = h.address();
-      auto& task_set = this->task_set_for_role(context, role);
-      task_set.insert(task_addr);
-
-      auto& bindings = task_bindings_[task_addr];
-      if (!this->has_task_epoch_binding(bindings, epoch_context, role))
-        bindings.push_back(EpochTaskBinding{epoch_context, role});
+      if (!epoch_context) return {};
+      return epoch_context->reader_task_handles();
     }
 
-    void unbind_epoch_task(void const* epoch_context, std::coroutine_handle<> h, EpochTaskRole role)
+    std::vector<std::coroutine_handle<>> epoch_writer_tasks(EpochContext const* epoch_context) const
     {
-      if (!epoch_context || !h) return;
-      std::lock_guard lock(mutex_);
-      auto context_it = epoch_contexts_.find(epoch_context);
-      if (context_it != epoch_contexts_.end())
-      {
-        this->task_set_for_role(context_it->second, role).erase(h.address());
-      }
-      this->erase_task_epoch_binding_locked(h.address(), epoch_context, role);
-    }
-
-    std::vector<std::coroutine_handle<>> epoch_reader_tasks(void const* epoch_context)
-    {
-      std::lock_guard lock(mutex_);
-      return this->epoch_tasks_locked(epoch_context, EpochTaskRole::Reader);
-    }
-
-    std::vector<std::coroutine_handle<>> epoch_writer_tasks(void const* epoch_context)
-    {
-      std::lock_guard lock(mutex_);
-      return this->epoch_tasks_locked(epoch_context, EpochTaskRole::Writer);
+      if (!epoch_context) return {};
+      return epoch_context->writer_task_handles();
     }
 
     void dump()
     {
-      std::lock_guard lock(mutex_);
+      std::unordered_map<void*, TaskDebugInfo> tasks_copy;
+      std::vector<std::pair<EpochContext const*, EpochDebugInfo>> epoch_infos;
+      {
+        std::lock_guard lock(mutex_);
+        tasks_copy = tasks_;
+        epoch_infos.reserve(epoch_contexts_.size());
+        for (auto const& [epoch, info] : epoch_contexts_)
+          epoch_infos.emplace_back(epoch, info);
+      }
+
+      struct EpochDumpRecord
+      {
+          EpochContext const* epoch{nullptr};
+          EpochDebugInfo info{};
+          EpochContext::DebugSnapshot snapshot{};
+      };
+
+      std::vector<EpochDumpRecord> epochs;
+      epochs.reserve(epoch_infos.size());
+      for (auto const& [epoch, info] : epoch_infos)
+      {
+        if (!epoch) continue;
+        epochs.push_back(EpochDumpRecord{epoch, info, epoch->debug_snapshot()});
+      }
+
+      std::sort(epochs.begin(), epochs.end(), [](EpochDumpRecord const& lhs, EpochDumpRecord const& rhs) {
+        return lhs.info.id < rhs.info.id;
+      });
+
+      std::unordered_map<EpochContext const*, std::size_t> epoch_id_by_ptr;
+      epoch_id_by_ptr.reserve(epochs.size());
+      for (auto const& epoch : epochs)
+        epoch_id_by_ptr.emplace(epoch.epoch, epoch.info.id);
+
+      std::unordered_map<void*, std::vector<TaskEpochAssociation>> task_associations;
+      auto add_association = [&](std::coroutine_handle<> h, std::size_t epoch_id, EpochTaskRole role) {
+        if (!h) return;
+        task_associations[h.address()].push_back(TaskEpochAssociation{epoch_id, role});
+      };
+
+      for (auto const& epoch : epochs)
+      {
+        for (auto const& reader : epoch.snapshot.reader_tasks)
+          add_association(reader, epoch.info.id, EpochTaskRole::Reader);
+        for (auto const& writer : epoch.snapshot.writer_tasks)
+          add_association(writer, epoch.info.id, EpochTaskRole::Writer);
+      }
+
+      for (auto& [task_addr, associations] : task_associations)
+      {
+        (void)task_addr;
+        std::sort(associations.begin(), associations.end(), [](TaskEpochAssociation const& lhs, TaskEpochAssociation const& rhs) {
+          if (lhs.epoch_id != rhs.epoch_id) return lhs.epoch_id < rhs.epoch_id;
+          return static_cast<int>(lhs.role) < static_cast<int>(rhs.role);
+        });
+        associations.erase(std::unique(associations.begin(), associations.end(), [](TaskEpochAssociation const& lhs,
+                                                                                     TaskEpochAssociation const& rhs) {
+                             return lhs.epoch_id == rhs.epoch_id && lhs.role == rhs.role;
+                           }),
+                           associations.end());
+      }
+
+      std::vector<std::pair<void*, TaskDebugInfo const*>> sorted_tasks;
+      sorted_tasks.reserve(tasks_copy.size());
+      for (auto const& [addr, info] : tasks_copy)
+        sorted_tasks.emplace_back(addr, &info);
+
+      std::sort(sorted_tasks.begin(), sorted_tasks.end(), [](auto const& lhs, auto const& rhs) {
+        return lhs.second->id < rhs.second->id;
+      });
 
       fmt::print(stderr, "\n========== Async Task Registry Dump ==========\n");
-      fmt::print(stderr, "Total tracked tasks: {}\n", tasks_.size());
-      fmt::print(stderr, "Total tracked epoch contexts: {}\n\n", epoch_contexts_.size());
+      fmt::print(stderr, "Total tracked epoch contexts: {}\n", epochs.size());
+      fmt::print(stderr, "Total tracked tasks: {}\n\n", sorted_tasks.size());
 #if !UNI20_HAS_STACKTRACE
       fmt::print(stderr,
                  "WARNING: std::stacktrace is unavailable; dump output is degraded to state-only information.\n\n");
 #endif
 
-      std::vector<std::pair<void*, TaskDebugInfo const*>> sorted_tasks;
-      sorted_tasks.reserve(tasks_.size());
-      for (auto const& [addr, info] : tasks_)
-        sorted_tasks.emplace_back(addr, &info);
-
-      std::sort(sorted_tasks.begin(), sorted_tasks.end(), [](auto const& lhs, auto const& rhs) {
-        return reinterpret_cast<std::uintptr_t>(lhs.first) < reinterpret_cast<std::uintptr_t>(rhs.first);
-      });
-
-      std::size_t task_number = 1;
-      for (auto const& [addr, info_ptr] : sorted_tasks)
+      fmt::print(stderr, "EpochContext objects:\n");
+      if (epochs.empty())
       {
-        auto const& info = *info_ptr;
-        fmt::print(stderr, "Task {}:\n", task_number);
-        fmt::print(stderr, "  task pointer: {}\n", addr);
-        fmt::print(stderr, "  transition count: {}\n", info.transition_count);
-        fmt::print(stderr, "  current state: {}\n", to_string(info.state));
-        fmt::print(stderr, "  creation timestamp: {}\n", format_timestamp(info.creation_timestamp));
+        fmt::print(stderr, "  (none)\n\n");
+      }
+      else
+      {
+        std::size_t epoch_number = 1;
+        for (auto const& epoch : epochs)
+        {
+          fmt::print(stderr, "EpochContext {}:\n", epoch_number);
+          fmt::print(stderr, "  epoch id: {}\n", epoch.info.id);
+          fmt::print(stderr, "  epoch pointer: {}\n", static_cast<void const*>(epoch.epoch));
+          fmt::print(stderr, "  generation: {}\n", epoch.snapshot.generation);
+          fmt::print(stderr, "  phase: {}\n", to_string(epoch.snapshot.phase));
+          if (epoch.snapshot.next_epoch)
+          {
+            auto next_it = epoch_id_by_ptr.find(epoch.snapshot.next_epoch);
+            if (next_it != epoch_id_by_ptr.end())
+              fmt::print(stderr, "  next epoch id: {}\n", next_it->second);
+            else
+              fmt::print(stderr, "  next epoch id: unknown ({})\n", static_cast<void const*>(epoch.snapshot.next_epoch));
+          }
+          else
+          {
+            fmt::print(stderr, "  next epoch id: none\n");
+          }
+          fmt::print(stderr, "\n");
+          ++epoch_number;
+        }
+      }
 
-        if (!info.waiting_on.empty()) fmt::print(stderr, "  waiting on: {}\n", info.waiting_on);
-        if (info.state == TaskState::Suspended)
-          this->print_task_epoch_bindings_locked(addr);
+      fmt::print(stderr, "Coroutine tasks:\n");
+      if (sorted_tasks.empty())
+      {
+        fmt::print(stderr, "  (none)\n");
+      }
+      else
+      {
+        std::size_t task_number = 1;
+        for (auto const& [addr, info_ptr] : sorted_tasks)
+        {
+          auto const& info = *info_ptr;
+          fmt::print(stderr, "Task {}:\n", task_number);
+          fmt::print(stderr, "  task id: {}\n", info.id);
+          fmt::print(stderr, "  task pointer: {}\n", addr);
+          fmt::print(stderr, "  transition count: {}\n", info.transition_count);
+          fmt::print(stderr, "  current state: {}\n", to_string(info.state));
+          fmt::print(stderr, "  creation timestamp: {}\n", format_timestamp(info.creation_timestamp));
+
+          if (!info.waiting_on.empty()) fmt::print(stderr, "  waiting on: {}\n", info.waiting_on);
+
+          auto association_it = task_associations.find(addr);
+          if (association_it == task_associations.end() || association_it->second.empty())
+          {
+            fmt::print(stderr, "  associated epoch contexts: none\n");
+          }
+          else
+          {
+            fmt::print(stderr, "  associated epoch contexts:\n");
+            for (auto const& association : association_it->second)
+              fmt::print(stderr, "    {} ({})\n", association.epoch_id, to_string(association.role));
+          }
 
 #if UNI20_HAS_STACKTRACE
-        fmt::print(stderr, "  creation stacktrace:\n");
-        print_stacktrace(info.creation_trace);
-        fmt::print(stderr, "  last state-change: {}\n", to_string(info.state));
-        fmt::print(stderr, "  last state-change timestamp: {}\n", format_timestamp(info.last_state_change_timestamp));
-        fmt::print(stderr, "  last state-change stacktrace:\n");
-        print_stacktrace(info.last_state_change_trace);
+          fmt::print(stderr, "  creation stacktrace:\n");
+          print_stacktrace(info.creation_trace);
+          fmt::print(stderr, "  last state-change: {}\n", to_string(info.state));
+          fmt::print(stderr, "  last state-change timestamp: {}\n", format_timestamp(info.last_state_change_timestamp));
+          fmt::print(stderr, "  last state-change stacktrace:\n");
+          print_stacktrace(info.last_state_change_trace);
 #else
-        fmt::print(stderr, "  creation stacktrace: unavailable\n");
-        fmt::print(stderr, "  last state-change: {}\n", to_string(info.state));
-        fmt::print(stderr, "  last state-change timestamp: {}\n", format_timestamp(info.last_state_change_timestamp));
-        fmt::print(stderr, "  last state-change stacktrace: unavailable\n");
+          fmt::print(stderr, "  creation stacktrace: unavailable\n");
+          fmt::print(stderr, "  last state-change: {}\n", to_string(info.state));
+          fmt::print(stderr, "  last state-change timestamp: {}\n", format_timestamp(info.last_state_change_timestamp));
+          fmt::print(stderr, "  last state-change stacktrace: unavailable\n");
 #endif
-        fmt::print(stderr, "\n");
-        ++task_number;
+          fmt::print(stderr, "\n");
+          ++task_number;
+        }
       }
 
       fmt::print(stderr, "================================================\n");
@@ -272,77 +346,6 @@ class TaskRegistryImpl {
     }
 
   private:
-    static bool has_task_epoch_binding(std::vector<EpochTaskBinding> const& bindings, void const* epoch_context,
-                                       EpochTaskRole role)
-    {
-      return std::any_of(bindings.begin(), bindings.end(), [&](EpochTaskBinding const& binding) {
-        return binding.epoch_context == epoch_context && binding.role == role;
-      });
-    }
-
-    static std::unordered_set<void*>& task_set_for_role(EpochDebugInfo& info, EpochTaskRole role)
-    {
-      return (role == EpochTaskRole::Reader) ? info.reader_tasks : info.writer_tasks;
-    }
-
-    static std::unordered_set<void*> const& task_set_for_role(EpochDebugInfo const& info, EpochTaskRole role)
-    {
-      return (role == EpochTaskRole::Reader) ? info.reader_tasks : info.writer_tasks;
-    }
-
-    void erase_task_epoch_binding_locked(void* task_addr, void const* epoch_context, EpochTaskRole role)
-    {
-      auto binding_it = task_bindings_.find(task_addr);
-      if (binding_it == task_bindings_.end()) return;
-
-      auto& bindings = binding_it->second;
-      bindings.erase(std::remove_if(bindings.begin(), bindings.end(), [&](EpochTaskBinding const& binding) {
-                       return binding.epoch_context == epoch_context && binding.role == role;
-                     }),
-                     bindings.end());
-
-      if (bindings.empty()) task_bindings_.erase(binding_it);
-    }
-
-    std::vector<std::coroutine_handle<>> epoch_tasks_locked(void const* epoch_context, EpochTaskRole role) const
-    {
-      std::vector<std::coroutine_handle<>> handles;
-      auto context_it = epoch_contexts_.find(epoch_context);
-      if (context_it == epoch_contexts_.end()) return handles;
-
-      auto const& task_set = this->task_set_for_role(context_it->second, role);
-      handles.reserve(task_set.size());
-      for (auto const& task_addr : task_set)
-      {
-        if (tasks_.contains(task_addr)) handles.push_back(std::coroutine_handle<>::from_address(task_addr));
-      }
-
-      std::sort(handles.begin(), handles.end(), [](auto lhs, auto rhs) {
-        return reinterpret_cast<std::uintptr_t>(lhs.address()) < reinterpret_cast<std::uintptr_t>(rhs.address());
-      });
-      return handles;
-    }
-
-    void print_task_epoch_bindings_locked(void* task_addr) const
-    {
-      auto binding_it = task_bindings_.find(task_addr);
-      if (binding_it == task_bindings_.end() || binding_it->second.empty()) return;
-
-      auto bindings = binding_it->second;
-      std::sort(bindings.begin(), bindings.end(), [](EpochTaskBinding const& lhs, EpochTaskBinding const& rhs) {
-        auto const lhs_epoch = reinterpret_cast<std::uintptr_t>(lhs.epoch_context);
-        auto const rhs_epoch = reinterpret_cast<std::uintptr_t>(rhs.epoch_context);
-        if (lhs_epoch != rhs_epoch) return lhs_epoch < rhs_epoch;
-        return static_cast<int>(lhs.role) < static_cast<int>(rhs.role);
-      });
-
-      fmt::print(stderr, "  held by epoch contexts:\n");
-      for (auto const& binding : bindings)
-      {
-        fmt::print(stderr, "    {} ({})\n", binding.epoch_context, to_string(binding.role));
-      }
-    }
-
     void set_state(std::coroutine_handle<> h, TaskState state)
     {
       if (!h) return;
@@ -375,8 +378,9 @@ class TaskRegistryImpl {
 
     std::mutex mutex_;
     std::unordered_map<void*, TaskDebugInfo> tasks_;
-    std::unordered_map<void const*, EpochDebugInfo> epoch_contexts_;
-    std::unordered_map<void*, std::vector<EpochTaskBinding>> task_bindings_;
+    std::unordered_map<EpochContext const*, EpochDebugInfo> epoch_contexts_;
+    std::size_t next_task_id_{1};
+    std::size_t next_epoch_id_{1};
 };
 
 } // anonymous namespace
@@ -394,32 +398,33 @@ void TaskRegistry::mark_running(std::coroutine_handle<> h) { TaskRegistryImpl::i
 
 void TaskRegistry::mark_suspended(std::coroutine_handle<> h) { TaskRegistryImpl::instance().mark_suspended(h); }
 
-void TaskRegistry::register_epoch_context(void const* epoch_context)
+void TaskRegistry::register_epoch_context(async::EpochContext const* epoch_context)
 {
   TaskRegistryImpl::instance().register_epoch_context(epoch_context);
 }
 
-void TaskRegistry::destroy_epoch_context(void const* epoch_context)
+void TaskRegistry::destroy_epoch_context(async::EpochContext const* epoch_context)
 {
   TaskRegistryImpl::instance().destroy_epoch_context(epoch_context);
 }
 
-void TaskRegistry::bind_epoch_task(void const* epoch_context, std::coroutine_handle<> h, EpochTaskRole role)
+void TaskRegistry::bind_epoch_task(async::EpochContext const* epoch_context, std::coroutine_handle<> h, EpochTaskRole role)
 {
   TaskRegistryImpl::instance().bind_epoch_task(epoch_context, h, role);
 }
 
-void TaskRegistry::unbind_epoch_task(void const* epoch_context, std::coroutine_handle<> h, EpochTaskRole role)
+void TaskRegistry::unbind_epoch_task(async::EpochContext const* epoch_context, std::coroutine_handle<> h,
+                                     EpochTaskRole role)
 {
   TaskRegistryImpl::instance().unbind_epoch_task(epoch_context, h, role);
 }
 
-std::vector<std::coroutine_handle<>> TaskRegistry::epoch_reader_tasks(void const* epoch_context)
+std::vector<std::coroutine_handle<>> TaskRegistry::epoch_reader_tasks(async::EpochContext const* epoch_context)
 {
   return TaskRegistryImpl::instance().epoch_reader_tasks(epoch_context);
 }
 
-std::vector<std::coroutine_handle<>> TaskRegistry::epoch_writer_tasks(void const* epoch_context)
+std::vector<std::coroutine_handle<>> TaskRegistry::epoch_writer_tasks(async::EpochContext const* epoch_context)
 {
   return TaskRegistryImpl::instance().epoch_writer_tasks(epoch_context);
 }

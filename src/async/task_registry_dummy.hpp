@@ -3,6 +3,11 @@
 #include <coroutine>
 #include <vector>
 
+namespace uni20::async
+{
+class EpochContext;
+}
+
 namespace uni20 {
 
 class TaskRegistry {
@@ -24,12 +29,14 @@ public:
     static constexpr void leak_task(std::coroutine_handle<>) noexcept {}
     static constexpr void mark_running(std::coroutine_handle<>) noexcept {}
     static constexpr void mark_suspended(std::coroutine_handle<>) noexcept {}
-    static constexpr void register_epoch_context(void const*) noexcept {}
-    static constexpr void destroy_epoch_context(void const*) noexcept {}
-    static constexpr void bind_epoch_task(void const*, std::coroutine_handle<>, EpochTaskRole) noexcept {}
-    static constexpr void unbind_epoch_task(void const*, std::coroutine_handle<>, EpochTaskRole) noexcept {}
-    static std::vector<std::coroutine_handle<>> epoch_reader_tasks(void const*) { return {}; }
-    static std::vector<std::coroutine_handle<>> epoch_writer_tasks(void const*) { return {}; }
+    static constexpr void register_epoch_context(async::EpochContext const*) noexcept {}
+    static constexpr void destroy_epoch_context(async::EpochContext const*) noexcept {}
+    static constexpr void bind_epoch_task(async::EpochContext const*, std::coroutine_handle<>, EpochTaskRole) noexcept
+    {}
+    static constexpr void unbind_epoch_task(async::EpochContext const*, std::coroutine_handle<>, EpochTaskRole) noexcept
+    {}
+    static std::vector<std::coroutine_handle<>> epoch_reader_tasks(async::EpochContext const*) { return {}; }
+    static std::vector<std::coroutine_handle<>> epoch_writer_tasks(async::EpochContext const*) { return {}; }
     static constexpr void dump() noexcept {}
 };
 

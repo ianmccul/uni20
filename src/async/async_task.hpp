@@ -59,6 +59,14 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \return true if the handle is non-null.
     explicit operator bool() const noexcept { return static_cast<bool>(h_); }
 
+    /// \brief Get the raw coroutine handle for debug/introspection.
+    /// \return Generic coroutine handle, or null handle when this task is empty.
+    std::coroutine_handle<> coroutine_handle() const noexcept
+    {
+      if (!h_) return {};
+      return std::coroutine_handle<>::from_address(h_.address());
+    }
+
     /// \brief Resume the coroutine.
     /// \pre We are the sole owner of the coroutine.
     /// \note This releases ownership to the scheduler.

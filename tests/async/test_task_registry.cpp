@@ -103,7 +103,8 @@ TEST(TaskRegistryDebugTest, DumpShowsEpochContextBindingsForSuspendedTask)
   auto const dump = testing::internal::GetCapturedStderr();
 
   EXPECT_NE(dump.find("Total tracked epoch contexts:"), std::string::npos);
-  EXPECT_NE(dump.find("held by epoch contexts:"), std::string::npos);
+  EXPECT_NE(dump.find("EpochContext objects:"), std::string::npos);
+  EXPECT_NE(dump.find("associated epoch contexts:"), std::string::npos);
   EXPECT_NE(dump.find("(reader)"), std::string::npos);
 
   sched.schedule(write_value(value.write(), 7));
