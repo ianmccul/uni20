@@ -216,7 +216,7 @@ class EpochContext {
 
     EpochContext()
     {
-      TRACE_MODULE(ASYNC, "Creating new EpochContext", this);
+      TRACE("Creating new EpochContext", this);
       TaskRegistry::register_epoch_context(this);
     }
 
@@ -224,7 +224,7 @@ class EpochContext {
     /// \note this is backwards propogation, the counter is initialized to next->counter_ - 1
     explicit EpochContext(std::shared_ptr<EpochContext> next) : counter_(next->counter_ - 1), next_epoch_(next)
     {
-      TRACE_MODULE(ASYNC, "Creating new EpochContext with next_epoch", this, counter_, next_epoch_.get());
+      TRACE("Creating new EpochContext with next_epoch", this, counter_, next_epoch_.get());
       TaskRegistry::register_epoch_context(this);
     }
 
@@ -238,7 +238,7 @@ class EpochContext {
     {
       {
         std::lock_guard lock(mtx_);
-        DEBUG_TRACE_MODULE(ASYNC, "EpochContext Destructor", this, counter_);
+        DEBUG_TRACE("EpochContext Destructor", this, counter_);
         CHECK_EQUAL(num_writers_, 0);
         CHECK_EQUAL(num_readers_, 0);
       }
@@ -284,7 +284,7 @@ class EpochContext {
     {
       std::unique_lock lock(mtx_);
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::start", this, counter_);
-      DEBUG_CHECK(phase_ == Phase::Pending);
+      DEBUG_CHECK(phase_ == Phase::Pending, this);
       eptr_ = eptr;
       this->advance_start_locked(std::move(lock));
     }
@@ -563,7 +563,7 @@ class EpochContext {
 
       --num_readers_;
 
-      if (num_readers_ == 0 && next_epoch_ != nullptr)
+      if (phase_ == Phase::Reading && num_readers_ == 0 && next_epoch_ != nullptr)
       {
         phase_ = Phase::Finished;
         next_epoch_->start(eptr_);

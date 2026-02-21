@@ -95,6 +95,9 @@ struct EpochDebugInfo
 {
     std::size_t id{0};
     std::chrono::system_clock::time_point creation_timestamp{};
+#if UNI20_HAS_STACKTRACE
+    std::stacktrace creation_trace{};
+#endif
 };
 
 struct TaskEpochAssociation
@@ -147,6 +150,9 @@ class TaskRegistryImpl {
       {
         it->second.id = next_epoch_id_++;
         it->second.creation_timestamp = std::chrono::system_clock::now();
+#if UNI20_HAS_STACKTRACE
+        it->second.creation_trace = std::stacktrace::current(2);
+#endif
       }
     }
 
@@ -175,16 +181,6 @@ class TaskRegistryImpl {
 
     void dump()
     {
-      std::unordered_map<void*, TaskDebugInfo> tasks_copy;
-      std::vector<std::pair<EpochContext const*, EpochDebugInfo>> epoch_infos;
-      {
-        std::lock_guard lock(mutex_);
-        tasks_copy = tasks_;
-        epoch_infos.reserve(epoch_contexts_.size());
-        for (auto const& [epoch, info] : epoch_contexts_)
-          epoch_infos.emplace_back(epoch, info);
-      }
-
       struct EpochDumpRecord
       {
           EpochContext const* epoch{nullptr};
@@ -192,12 +188,17 @@ class TaskRegistryImpl {
           EpochContext::DebugSnapshot snapshot{};
       };
 
+      std::unordered_map<void*, TaskDebugInfo> tasks_copy;
       std::vector<EpochDumpRecord> epochs;
-      epochs.reserve(epoch_infos.size());
-      for (auto const& [epoch, info] : epoch_infos)
       {
-        if (!epoch) continue;
-        epochs.push_back(EpochDumpRecord{epoch, info, epoch->debug_snapshot()});
+        std::lock_guard lock(mutex_);
+        tasks_copy = tasks_;
+        epochs.reserve(epoch_contexts_.size());
+        for (auto const& [epoch, info] : epoch_contexts_)
+        {
+          if (!epoch) continue;
+          epochs.push_back(EpochDumpRecord{epoch, info, epoch->debug_snapshot()});
+        }
       }
 
       std::sort(epochs.begin(), epochs.end(), [](EpochDumpRecord const& lhs, EpochDumpRecord const& rhs) {
@@ -267,6 +268,7 @@ class TaskRegistryImpl {
           fmt::print(stderr, "EpochContext {}:\n", epoch_number);
           fmt::print(stderr, "  epoch id: {}\n", epoch.info.id);
           fmt::print(stderr, "  epoch pointer: {}\n", static_cast<void const*>(epoch.epoch));
+          fmt::print(stderr, "  creation timestamp: {}\n", format_timestamp(epoch.info.creation_timestamp));
           fmt::print(stderr, "  generation: {}\n", epoch.snapshot.generation);
           fmt::print(stderr, "  phase: {}\n", to_string(epoch.snapshot.phase));
           if (epoch.snapshot.next_epoch)
@@ -281,6 +283,12 @@ class TaskRegistryImpl {
           {
             fmt::print(stderr, "  next epoch id: none\n");
           }
+#if UNI20_HAS_STACKTRACE
+          fmt::print(stderr, "  creation stacktrace:\n");
+          print_stacktrace(epoch.info.creation_trace);
+#else
+          fmt::print(stderr, "  creation stacktrace: unavailable\n");
+#endif
           fmt::print(stderr, "\n");
           ++epoch_number;
         }

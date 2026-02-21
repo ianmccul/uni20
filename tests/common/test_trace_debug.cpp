@@ -22,12 +22,23 @@ struct DisableColor
 {
     DisableColor() { trace::get_formatting_options().set_color_output(trace::FormattingOptions::ColorOptions::no); }
 } _disableColor;
+
+#if UNI20_HAS_STACKTRACE
+char const* kStacktraceDiagnosticRegex = "Stacktrace:";
+#else
+char const* kStacktraceDiagnosticRegex = "WARNING: std::stacktrace is unavailable";
+#endif
 } // namespace
 
 // DEBUG_CHECK / DEBUG_CHECK_EQUAL
 TEST(DebugCheckMacro, FailingDebugCheckAborts)
 {
   EXPECT_DEATH({ DEBUG_CHECK(false); }, "false is false!");
+}
+
+TEST(DebugCheckMacro, FailingDebugCheckIncludesStacktraceDiagnostic)
+{
+  EXPECT_DEATH({ DEBUG_CHECK(false); }, kStacktraceDiagnosticRegex);
 }
 
 TEST(DebugCheckMacro, PassingDebugCheckDoesNotAbort) { DEBUG_CHECK(true); }
@@ -43,6 +54,11 @@ TEST(DebugCheckEqualMacro, PassingDebugCheckEqualDoesNotAbort) { DEBUG_CHECK_EQU
 TEST(DebugPreconditionMacro, FailingDebugPreconditionAborts)
 {
   EXPECT_DEATH({ DEBUG_PRECONDITION(false); }, "false is false!");
+}
+
+TEST(DebugPreconditionMacro, FailingDebugPreconditionIncludesStacktraceDiagnostic)
+{
+  EXPECT_DEATH({ DEBUG_PRECONDITION(false); }, kStacktraceDiagnosticRegex);
 }
 
 TEST(DebugPreconditionMacro, PassingDebugPreconditionDoesNotAbort) { DEBUG_PRECONDITION(true); }

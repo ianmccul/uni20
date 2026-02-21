@@ -5,6 +5,7 @@
 
 #include <format>
 #include <ranges>
+#include <sstream>
 #include <type_traits>
 
 // implementation of trace functions.
@@ -1041,6 +1042,41 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
   opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
+namespace detail
+{
+// FIXME: fmt currently has no formatter for std::stacktrace.
+#if TRACE_HAS_STACKTRACE
+inline std::string stacktrace_to_string(std::stacktrace const& stacktrace)
+{
+  std::ostringstream oss;
+  oss << stacktrace;
+  return oss.str();
+}
+#endif
+
+inline void emit_abort_stacktrace(FormattingOptions& opts, std::string_view style_kind, std::size_t skip_frames)
+{
+#if TRACE_HAS_STACKTRACE
+  opts.sink(fmt::format("{}\n", opts.format_style("Stacktrace:", std::string(style_kind))));
+  opts.sink(fmt::format("{}\n", stacktrace_to_string(std::stacktrace::current(skip_frames))));
+#else
+  opts.sink(fmt::format(
+      "{}\n",
+      opts.format_style("WARNING: std::stacktrace is unavailable in this build; stacktrace omitted.",
+                        std::string(style_kind))));
+#endif
+}
+
+[[noreturn]] inline void abort_with_stacktrace(FormattingOptions& opts, std::string const& message,
+                                                std::string_view style_kind, std::size_t skip_frames)
+{
+  opts.sink(message);
+  emit_abort_stacktrace(opts, style_kind, skip_frames);
+  std::fflush(nullptr); // flush all output streams
+  std::abort();
+}
+} // namespace detail
+
 template <typename... Args>
 [[noreturn]] void CheckCall(const char* cond, const char* exprList, const char* file, int line, const Args&... args)
 {
@@ -1053,9 +1089,8 @@ template <typename... Args>
       opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "CHECK", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1074,9 +1109,8 @@ template <typename... Args>
       opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "DEBUG_CHECK", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1095,9 +1129,8 @@ template <typename... Args>
       opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "CHECK", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1116,9 +1149,8 @@ template <typename... Args>
       opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "DEBUG_CHECK", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1138,9 +1170,8 @@ template <typename... Args>
       fmt::format("\n{} is not approx-equal to {} (to {} ULP)!", opts.format_style(a, "TRACE_EXPR"),
                   opts.format_style(b, "TRACE_EXPR"), opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "CHECK", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1160,9 +1191,8 @@ template <typename... Args>
                          fmt::format("\n{} is not approx-equal to {}!", opts.format_style(a, "TRACE_EXPR"),
                                      opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "DEBUG_CHECK", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1181,9 +1211,8 @@ template <typename... Args>
       opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "PRECONDITION", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1202,9 +1231,8 @@ template <typename... Args>
       opts.format_style(file, "TRACE_FILENAME") + opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is {}!", opts.format_style(cond, "TRACE_EXPR"), opts.format_style("false", "TRACE_VALUE"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "DEBUG_PRECONDITION", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1223,9 +1251,8 @@ template <typename... Args>
       opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "PRECONDITION", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1244,9 +1271,8 @@ template <typename... Args>
       opts.format_style(file, "TRACE_FILENAME") + opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
       fmt::format("\n{} is not equal to {}!", opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "DEBUG_PRECONDITION", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1266,9 +1292,8 @@ template <typename... Args>
       fmt::format("\n{} is not approx-equal to {} (to {} ULP)!", opts.format_style(a, "TRACE_EXPR"),
                   opts.format_style(b, "TRACE_EXPR"), opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "PRECONDITION", 2);
 }
 
 //------------------------------------------------------------------------------
@@ -1288,27 +1313,13 @@ template <typename... Args>
       fmt::format("\n{} is not approx-equal to {} (to {} ULP)!", opts.format_style(a, "TRACE_EXPR"),
                   opts.format_style(b, "TRACE_EXPR"), opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
 
-  print("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str);
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
+                                "DEBUG_PRECONDITION", 2);
 }
 
 //------------------------------------------------------------------------------
 // PANIC
 //------------------------------------------------------------------------------
-// FIXME: fmt lib does not currently have format support fot std::stacktrace
-#if TRACE_HAS_STACKTRACE
-namespace detail
-{
-inline std::string to_string(const std::stacktrace& st)
-{
-  std::ostringstream oss;
-  oss << st;
-  return oss.str();
-}
-} // namespace detail
-#endif
-
 template <typename... Args>
 [[noreturn]] void PanicCall(const char* exprList, const char* file, int line, const Args&... args)
 {
@@ -1319,17 +1330,7 @@ template <typename... Args>
   std::string preamble = opts.format_style("PANIC", "PANIC") + " at " + opts.format_style(file, "TRACE_FILENAME") +
                          opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
-  opts.sink(preamble + (trace_str.empty() ? "" : " : " + trace_str) + "\n");
-
-#if TRACE_HAS_STACKTRACE
-  opts.sink(fmt::format("{}\n", opts.format_style("Stacktrace:\n", "PANIC")));
-  opts.sink(fmt::format("{}\n", detail::to_string(std::stacktrace::current(1)))); // skip the top frame ('PanicCall')
-#else
-  opts.sink("Stacktrace not available (compiler too old)\n");
-#endif
-
-  std::fflush(nullptr); // flush all output streams
-  std::abort();
+  detail::abort_with_stacktrace(opts, preamble + (trace_str.empty() ? "" : " : " + trace_str) + "\n", "PANIC", 2);
 }
 
 //------------------------------------------------------------------------------

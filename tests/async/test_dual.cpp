@@ -210,7 +210,7 @@ TEST(Dual, StressBackpropMatchesAnalytic)
     double const shift = static_cast<double>(term_index) * 0.0025;
     Dual<double> term = sin(x + shift) * cos(x - shift);
     Dual<double> new_total = total + term;
-    total = std::move(new_total);
+    total = new_total; // std::move(new_total);
 
     double const plus = base_value + shift;
     double const minus = base_value - shift;

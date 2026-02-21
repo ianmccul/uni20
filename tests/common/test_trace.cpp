@@ -10,6 +10,12 @@ struct DisableColor
 {
     DisableColor() { trace::get_formatting_options().set_color_output(trace::FormattingOptions::ColorOptions::no); }
 } _disableColor;
+
+#if UNI20_HAS_STACKTRACE
+char const* kStacktraceDiagnosticRegex = "Stacktrace:";
+#else
+char const* kStacktraceDiagnosticRegex = "WARNING: std::stacktrace is unavailable";
+#endif
 } // namespace
 
 // TRACE
@@ -110,6 +116,11 @@ TEST(CheckMacro, FailingCheckAborts)
   EXPECT_DEATH({ CHECK(false); }, "false is false!");
 }
 
+TEST(CheckMacro, FailingCheckIncludesStacktraceDiagnostic)
+{
+  EXPECT_DEATH({ CHECK(false); }, kStacktraceDiagnosticRegex);
+}
+
 TEST(CheckMacro, PassingCheckDoesNotAbort) { CHECK(true); }
 
 // CHECK in consteval context
@@ -134,6 +145,11 @@ TEST(CheckEqualMacro, PassingCheckEqualDoesNotAbort) { CHECK_EQUAL(42, 42); }
 TEST(PreconditionMacro, FailingPreconditionAborts)
 {
   EXPECT_DEATH({ PRECONDITION(false); }, "false is false!");
+}
+
+TEST(PreconditionMacro, FailingPreconditionIncludesStacktraceDiagnostic)
+{
+  EXPECT_DEATH({ PRECONDITION(false); }, kStacktraceDiagnosticRegex);
 }
 
 TEST(PreconditionMacro, PassingPreconditionDoesNotAbort) { PRECONDITION(true); }
