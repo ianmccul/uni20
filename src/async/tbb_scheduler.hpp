@@ -164,7 +164,7 @@ class TbbScheduler final : public IScheduler {
           TRACE_MODULE(ASYNC, "resuming coroutine", h);
           try
           {
-            h.resume();
+            h.promise().resume_and_track(h);
           }
           catch (...)
           {

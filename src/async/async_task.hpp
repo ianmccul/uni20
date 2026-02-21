@@ -224,7 +224,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \brief Construct from a coroutine handle.
     /// \param h The coroutine handle.
     /// \ingroup async_core
-    explicit BasicAsyncTask(std::coroutine_handle<promise_type> h) noexcept : h_(h) { TaskRegistry::register_task(h_); }
+    explicit BasicAsyncTask(std::coroutine_handle<promise_type> h) noexcept : h_(h) {}
 
     // explicit BasicAsyncTask(std::coroutine_handle<promise_type> h, AsyncAwaiter* awaiter) noexcept
     //     : h_(h) //, current_awaiter_(awaiter)

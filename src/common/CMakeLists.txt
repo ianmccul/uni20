@@ -1,6 +1,7 @@
 # src/common/CMakeLists.txt
 
 include(CheckIncludeFile)
+include(CheckIncludeFileCXX)
 check_include_file_cxx("termios.h" HAVE_TERMIOS_H)
 check_include_file_cxx("sys/ioctl.h" HAVE_SYS_IOCTL_H)
 

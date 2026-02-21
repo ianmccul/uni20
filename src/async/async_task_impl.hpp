@@ -85,14 +85,14 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
 {
   auto handle = this->release_handle();
   TRACE_MODULE(ASYNC, "Resuming AsyncTask", handle);
-  if (handle) handle.resume();
+  if (handle) handle.promise().resume_and_track(handle);
   TRACE_MODULE(ASYNC, "returned from coroutine::resume");
 }
 
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::abandon_leak()
 {
   auto handle = this->release_handle();
-  TaskRegistry::leak_task(handle);
+  promise_type::note_leaked(handle);
   TRACE_MODULE(ASYNC, "Abandoning task handle", handle);
 }
 
@@ -127,7 +127,6 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::destroy_owned_coroutine(
   while (handle)
   {
     DEBUG_TRACE_MODULE(ASYNC, "AsyncTask destructor is destroying the coroutine!", this, handle);
-    TaskRegistry::destroy_task(handle);
     handle = handle.promise().destroy_with_continuation();
   }
   h_ = nullptr;
@@ -179,16 +178,22 @@ BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T
 {
   DEBUG_CHECK(h_);
   DEBUG_CHECK(!h_.promise().continuation_);
+  promise_type::note_suspended(Outer);
   h_.promise().continuation_ = Outer;
   h_.promise().sched_ = Outer.promise().sched_;
   h_.promise().mark_started();
   auto h_transfer = h_.promise().release_ownership();
   h_ = nullptr; // finish transferring ownership
   CHECK(h_transfer, "error: co_await on an AsyncTask that has shared ownership");
+  promise_type::note_running(h_transfer);
   return h_transfer;
 }
 
-template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::await_resume() const { h_.promise().rethrow_exception(); }
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::await_resume() const
+{
+  // await_suspend() transfers ownership and clears h_; only inspect the promise when a handle is still present.
+  if (h_) h_.promise().rethrow_exception();
+}
 
 // template <typename T> void BasicAsyncTask<T>::set_cancel() noexcept { h_.promise().set_cancel(); }
 //
