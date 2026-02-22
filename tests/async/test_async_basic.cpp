@@ -26,14 +26,14 @@ TEST(AsyncBasicTest, WriteThenRead)
   DebugScheduler sched;
 
   // Empty capture list: ensures safety if coroutine escapes the local scope (not possible here, but good style)
-  auto writer = [](WriteBuffer<int> wbuf) -> AsyncTask {
+  auto writer = [](WriteBuffer<int> wbuf) static -> AsyncTask {
     co_await wbuf.emplace(42);
     co_return;
   }(a.write());
   sched.schedule(std::move(writer));
   sched.run_all();
 
-  auto reader = [](ReadBuffer<int> rbuf) -> AsyncTask {
+  auto reader = [](ReadBuffer<int> rbuf) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 42);
     co_return;
@@ -55,10 +55,10 @@ TEST(AsyncBasicTest, MultipleReaders)
   std::vector<int> results(3);
   for (int i = 0; i < 3; ++i)
   {
-    // Capture by reference is OK here since &results will out-live the coroutine
-    sched.schedule([](int i, ReadBuffer<int> rbuf, std::vector<int>& results) -> AsyncTask {
+    // Pass references explicitly as coroutine parameters so lifetimes are clear.
+    sched.schedule([](int i, ReadBuffer<int> rbuf, std::vector<int>& results) static -> AsyncTask {
       auto& r = co_await rbuf;
-      // Safe to capture &results: it outlives all coroutines
+      // results outlives all scheduled coroutines in this test.
       results[i] = r;
       co_return;
     }(i, a.read(), results));
@@ -107,13 +107,13 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   DebugScheduler sched;
 
   // Schedule two readers that hold the value
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 7);
     ++count;
     co_return;
   }(a.read(), count));
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 7);
     ++count;
@@ -121,7 +121,7 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   }(a.read(), count));
 
   // Writer
-  sched.schedule([](WriteBuffer<int> wbuf, int& count) -> AsyncTask {
+  sched.schedule([](WriteBuffer<int> wbuf, int& count) static -> AsyncTask {
     auto& w = co_await wbuf;
     w = 8;
     ++count;
@@ -129,13 +129,13 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   }(a.write(), count));
 
   // Schedule two new readers that should observe the updated value
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 8);
     ++count;
     co_return;
   }(a.read(), count));
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 8);
     ++count;
@@ -226,12 +226,12 @@ TEST(AsyncBasicTest, WriteProxyReleasesEpochs)
   // Initialization path should use WriteBuffer to populate the first value.
   Async<int> uninitialized_value;
 
-  auto init_writer = [](WriteBuffer<int> buf) -> AsyncTask {
+  auto init_writer = [](WriteBuffer<int> buf) static -> AsyncTask {
     co_await buf = 42;
     co_return;
   }(uninitialized_value.write());
 
-  auto init_reader = [](ReadBuffer<int> buf) -> AsyncTask {
+  auto init_reader = [](ReadBuffer<int> buf) static -> AsyncTask {
     auto& value = co_await buf;
     EXPECT_EQ(value, 42);
     co_return;
@@ -437,6 +437,68 @@ TEST(AsyncBasicTest, PropagateExceptionsToRoutesReadFailuresToWriters)
 
   EXPECT_THROW((void)first.get_wait(), std::runtime_error);
   EXPECT_THROW((void)second.get_wait(), std::runtime_error);
+}
+
+TEST(AsyncBasicTest, PropagateExceptionsToReadBufferRoutesUnhandledException)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  Async<int> source;
+  Async<int> sink = 7;
+
+  schedule([](WriteBuffer<int> source_writer) static->AsyncTask {
+    (void)source_writer;
+    throw std::runtime_error("source failure");
+    co_return;
+  }(source.write()));
+
+  schedule([](ReadBuffer<int> source_reader, ReadBuffer<int> sink_reader) static->AsyncTask {
+    // Explicitly route unhandled exceptions from this coroutine into a read sink.
+    co_await propagate_exceptions_to(sink_reader);
+
+    // Exercise read-sink copy/move registration and teardown before the exception path.
+    {
+      auto sink_copy = sink_reader;
+      auto sink_moved = std::move(sink_copy);
+      (void)sink_moved;
+    }
+
+    (void)co_await source_reader;
+    co_return;
+  }(source.read(), sink.read()));
+
+  sched.run_all();
+
+  EXPECT_THROW((void)sink.get_wait(), std::runtime_error);
+}
+
+TEST(AsyncBasicTest, PropagateExceptionsToDuplicateWriteSinkIsHarmless)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  Async<int> source;
+  Async<int> out;
+
+  schedule([](WriteBuffer<int> source_writer) static->AsyncTask {
+    (void)source_writer;
+    throw std::runtime_error("source failure");
+    co_return;
+  }(source.write()));
+
+  schedule([](ReadBuffer<int> source_reader, WriteBuffer<int> out_writer) static->AsyncTask {
+    // out_writer is already auto-registered as a write sink by coroutine argument processing.
+    // Explicit registration should remain a no-op from the caller's perspective.
+    co_await propagate_exceptions_to(out_writer);
+    co_await propagate_exceptions_to(out_writer, out_writer);
+    (void)co_await source_reader;
+    co_return;
+  }(source.read(), out.write()));
+
+  sched.run_all();
+
+  EXPECT_THROW((void)out.get_wait(), std::runtime_error);
 }
 
 TEST(AsyncBasicTest, PropagateExceptionsToLocalSinkDestroyedDuringUnwindAborts)

@@ -5,6 +5,7 @@
 #include "async/task_registry.hpp"
 #include "config.hpp"
 #include <gtest/gtest.h>
+#include <cstdlib>
 #include <string>
 
 using namespace uni20;
@@ -27,9 +28,84 @@ AsyncTask write_value(WriteBuffer<int> writer, int value)
   co_return;
 }
 
+int dump_mode_probe(char const* value)
+{
+  if (value)
+    ::setenv("UNI20_DEBUG_ASYNC_TASKS", value, 1);
+  else
+    ::unsetenv("UNI20_DEBUG_ASYNC_TASKS");
+
+  switch (TaskRegistry::dump_mode())
+  {
+  case TaskRegistry::DumpMode::None:
+    return 0;
+  case TaskRegistry::DumpMode::Basic:
+    return 1;
+  case TaskRegistry::DumpMode::Full:
+    return 2;
+  }
+
+  return 99;
+}
+
 } // namespace
 
 #if UNI20_DEBUG_ASYNC_TASKS
+TEST(TaskRegistryDebugTest, DumpModeDefaultsToBasicWhenUnset)
+{
+  EXPECT_EXIT(
+      {
+        std::_Exit(dump_mode_probe(nullptr));
+      },
+      ::testing::ExitedWithCode(1), "");
+}
+
+TEST(TaskRegistryDebugTest, DumpModeParsesNoneSynonyms)
+{
+  EXPECT_EXIT(
+      {
+        std::_Exit(dump_mode_probe("0"));
+      },
+      ::testing::ExitedWithCode(0), "");
+  EXPECT_EXIT(
+      {
+        std::_Exit(dump_mode_probe("off"));
+      },
+      ::testing::ExitedWithCode(0), "");
+}
+
+TEST(TaskRegistryDebugTest, DumpModeParsesFullSynonyms)
+{
+  EXPECT_EXIT(
+      {
+        std::_Exit(dump_mode_probe("2"));
+      },
+      ::testing::ExitedWithCode(2), "");
+  EXPECT_EXIT(
+      {
+        std::_Exit(dump_mode_probe("verbose"));
+      },
+      ::testing::ExitedWithCode(2), "");
+}
+
+TEST(TaskRegistryDebugTest, DumpModeTrimsAndNormalizesCase)
+{
+  EXPECT_EXIT(
+      {
+        std::_Exit(dump_mode_probe("  YeS  "));
+      },
+      ::testing::ExitedWithCode(1), "");
+}
+
+TEST(TaskRegistryDebugTest, DumpModeFallsBackToBasicForUnknownValue)
+{
+  EXPECT_EXIT(
+      {
+        std::_Exit(dump_mode_probe("not-a-mode"));
+      },
+      ::testing::ExitedWithCode(1), "");
+}
+
 TEST(TaskRegistryDebugTest, DumpShowsTaskStateAndTransitions)
 {
   auto task = make_suspended_task();

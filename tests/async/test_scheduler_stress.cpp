@@ -77,11 +77,11 @@ TEST(TbbSchedulerStress, BalancedReductionProducesExpectedSum)
     {
       Async<int> combined;
       schedule(
-          [](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int>* counter) -> AsyncTask {
+          [](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int>* counter) static
+              -> AsyncTask {
             auto const& lhs_value = co_await lhs;
             auto const& rhs_value = co_await rhs;
-            auto& destination = co_await out;
-            destination = lhs_value + rhs_value;
+            co_await out.emplace(lhs_value + rhs_value);
             counter->fetch_add(1, std::memory_order_relaxed);
             co_return;
           }(level[i].read(), level[i + 1].read(), combined.write(), &executed));
@@ -114,10 +114,9 @@ TEST(TbbSchedulerStress, BalancedReductionShowsParallelism)
   for (int i = 0; i < kLeafCount; ++i)
   {
     Async<int> leaf;
-    schedule([](WriteBuffer<int> out) -> AsyncTask {
+    schedule([](WriteBuffer<int> out) static -> AsyncTask {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      auto& slot = co_await out;
-      slot = 1;
+      co_await out.emplace(1);
       co_return;
     }(leaf.write()));
     level.push_back(std::move(leaf));
@@ -137,14 +136,13 @@ TEST(TbbSchedulerStress, BalancedReductionShowsParallelism)
     {
       Async<int> combined;
       schedule([](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int>* active_tasks,
-                  std::atomic<int>* peak_tasks) -> AsyncTask {
+                  std::atomic<int>* peak_tasks) static -> AsyncTask {
         int current = active_tasks->fetch_add(1, std::memory_order_relaxed) + 1;
         update_max(*peak_tasks, current);
         auto const& lhs_value = co_await lhs;
         auto const& rhs_value = co_await rhs;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        auto& destination = co_await out;
-        destination = lhs_value + rhs_value;
+        co_await out.emplace(lhs_value + rhs_value);
         active_tasks->fetch_sub(1, std::memory_order_relaxed);
         co_return;
       }(level[i].read(), level[i + 1].read(), combined.write(), &active, &max_active));
