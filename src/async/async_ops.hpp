@@ -345,8 +345,7 @@ void async_move(U&& rhs, WriteBuffer<T> lhs)
 {
   schedule([](auto src, WriteBuffer<T> dst) static -> AsyncTask {
     auto& movable = co_await src;
-    auto& out = co_await dst;
-    out = std::move(movable);
+    co_await dst.emplace(std::move(movable));
     co_return;
   }(std::forward<U>(rhs).mutate(), std::move(lhs)));
 }
@@ -356,8 +355,7 @@ template <typename U, typename T>
 void async_move(U&& rhs, WriteBuffer<T> lhs)
 {
   schedule([](T val, WriteBuffer<T> dst) static -> AsyncTask {
-    auto& out = co_await dst;
-    out = std::move(val);
+    co_await dst.emplace(std::move(val));
     co_return;
   }(std::move(rhs), std::move(lhs)));
 }
@@ -367,8 +365,7 @@ template <typename U, typename T>
 void async_move(U&& rhs, Async<T>& lhs)
 {
   schedule([](T val, WriteBuffer<T> dst) static -> AsyncTask {
-    auto& out = co_await dst;
-    out = std::move(val);
+    co_await dst.emplace(std::move(val));
     co_return;
   }(std::move(rhs), lhs.write()));
 }

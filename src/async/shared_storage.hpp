@@ -133,7 +133,7 @@ template <typename T> class shared_storage {
     T& emplace(Args&&... args)
     {
       DEBUG_CHECK(ctrl_, "shared_storage must be initialized with make_shared_storage()");
-      DEBUG_CHECK(!constructed(), "Object already constructed");
+      if (this->constructed()) ctrl_->destroy_object();
       ctrl_->construct(std::forward<Args>(args)...);
       return *ctrl_->ptr();
     }

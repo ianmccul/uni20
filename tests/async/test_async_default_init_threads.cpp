@@ -1,4 +1,6 @@
 #include "async/async.hpp"
+#include "async/async_task.hpp"
+#include "async/debug_scheduler.hpp"
 
 #include <gtest/gtest.h>
 
@@ -24,8 +26,20 @@ TEST(AsyncDefaultInit, InitializesOnceAcrossThreads)
 {
   using namespace uni20::async;
 
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
   Counting::constructed.store(0);
-  Async<Counting> value = Counting();
+  Async<Counting> value;
+  EXPECT_EQ(Counting::constructed.load(), 0);
+
+  sched.schedule([](WriteBuffer<Counting> buffer) static->AsyncTask {
+    auto& initialized = co_await buffer.emplace();
+    (void)initialized;
+    co_return;
+  }(value.write()));
+  sched.run_all();
+  EXPECT_EQ(Counting::constructed.load(), 1);
 
   constexpr int kThreads = 16;
   std::vector<std::thread> threads;

@@ -307,7 +307,10 @@ template <typename Buffer> class BufferWriteProxy;
 
 template <typename T, typename... Args> class EmplaceAwaiter {
   public:
-    EmplaceAwaiter(EpochContextWriter<T>* writer, Args&&... args) : writer_(writer), args_(std::forward<Args>(args)...)
+    template <typename... U>
+      requires(sizeof...(U) == sizeof...(Args)) && std::constructible_from<std::tuple<Args...>, U&&...>
+    EmplaceAwaiter(EpochContextWriter<T>* writer, U&&... args)
+        : writer_(writer), args_(std::forward<U>(args)...)
     {}
 
     bool await_ready() const noexcept { return writer_->ready(); }
@@ -320,6 +323,7 @@ template <typename T, typename... Args> class EmplaceAwaiter {
 
     T& await_resume()
     {
+      writer_->resume();
       if (writer_->storage().valid())
       {
         writer_->storage().destroy();
@@ -401,7 +405,11 @@ template <typename T> class StorageAwaiter {
       writer_->suspend(std::move(t), false);
     }
 
-    shared_storage<T>& await_resume() { return writer_->storage(); }
+    shared_storage<T>& await_resume()
+    {
+      writer_->resume();
+      return writer_->storage();
+    }
 
   private:
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
@@ -419,7 +427,11 @@ template <typename T> class TakeAwaiter {
       writer_->suspend(std::move(t), false);
     }
 
-    T await_resume() { return writer_->storage().take(); }
+    T await_resume()
+    {
+      writer_->resume();
+      return writer_->storage().take();
+    }
 
   private:
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
@@ -470,7 +482,7 @@ template <typename T> class MutableBuffer {
     /// \brief Returns an awaiter that emplaces a new object directly into the storage
     template <typename... Args> auto emplace(Args&&... args)
     {
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(writer_, std::forward<Args>(args)...);
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
     }
 
     /// \brief Manually release the write gate, allowing queue advancement.

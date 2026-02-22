@@ -41,7 +41,7 @@ Stacktrace:
   ...
 ```
 
-By default, if the call is from a non-main thread, a `[TID ...]` prefix is inserted before `TRACE`, showing the thread ID of the caller. This can be customized -- see section Output and Formatting Controls below.
+By default, if the call is from a non-main thread, a `[TID ...]` prefix is inserted before `TRACE`, showing the thread ID of the caller. This can be customized - see section Output and Formatting Controls below.
 
 ## Macro Families
 

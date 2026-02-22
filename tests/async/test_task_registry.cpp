@@ -19,13 +19,11 @@ AsyncTask wait_for_reader(ReadBuffer<int> reader)
 {
   auto const& value = co_await reader;
   (void)value;
-  co_return;
 }
 
 AsyncTask write_value(WriteBuffer<int> writer, int value)
 {
-  auto& out = co_await writer;
-  out = value;
+  co_await writer.emplace(value);
   co_return;
 }
 

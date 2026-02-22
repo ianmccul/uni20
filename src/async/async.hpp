@@ -66,7 +66,6 @@ template <typename T> class Async {
     /// \brief Initializes async state without constructing the stored value.
     Async() : storage_(make_unconstructed_shared_storage<T>()), queue_()
     {
-      // queue_.initialize(initial_value_initialized());
       queue_.latest()->start();
 #if UNI20_DEBUG_DAG
       queue_.initialize_node(storage_->get());
@@ -295,7 +294,6 @@ template <typename T> class Async {
     /// \ingroup async_api
     WriteBuffer<T> write()
     {
-      require_value();
       return WriteBuffer<T>(queue_.create_write_context(storage_));
     }
 
@@ -394,22 +392,10 @@ template <typename T> class Async {
     }
 
   private:
-    bool initial_value_initialized() const noexcept
-    {
-      return storage_.constructed() || std::is_default_constructible_v<T>;
-    }
-
     T* try_get_value() const
     {
       if (!storage_.valid()) throw std::logic_error("Async storage missing");
-      if (auto* cached = storage_.get()) return cached;
-
-      if constexpr (std::is_default_constructible_v<T>)
-      {
-        storage_.emplace();
-        return storage_.get();
-      }
-      return nullptr;
+      return storage_.get();
     }
 
     T* require_value() const
