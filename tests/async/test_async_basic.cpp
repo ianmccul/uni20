@@ -112,7 +112,7 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   }(a.read(), count));
 
   // Writer
-  sched.schedule([](MutableBuffer<int> wbuf, int& count) -> AsyncTask {
+  sched.schedule([](WriteBuffer<int> wbuf, int& count) -> AsyncTask {
     auto& w = co_await wbuf;
     w = 8;
     ++count;
@@ -180,10 +180,10 @@ TEST(AsyncBasicTest, WriteProxyReleasesEpochs)
   sched.schedule(std::move(init_reader));
   sched.run_all();
 
-  // MutableBuffer path must observe the most recent initialized value.
+  // mutate() now also yields WriteBuffer and must observe the most recent initialized value.
   Async<int> initialized_value = 5;
 
-  auto mutate_writer = [](MutableBuffer<int> buf) -> AsyncTask {
+  auto mutate_writer = [](WriteBuffer<int> buf) -> AsyncTask {
     co_await buf += 42;
     co_return;
   }(initialized_value.mutate());
@@ -229,7 +229,7 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
   Async<int> mutable_value = 0;
   Async<int> write_only;
 
-  auto mutate_task = [](MutableBuffer<int> buffer) -> AsyncTask {
+  auto mutate_task = [](WriteBuffer<int> buffer) -> AsyncTask {
     auto& ref = co_await buffer;
     ref = 17;
     auto moved = std::move(buffer);
@@ -293,7 +293,7 @@ TEST(AsyncBasicTest, MutateDisappears)
   int val = 0;
 
   {
-    auto Buf = x.mutate(); // get a MutateBuffer, but don't use it. Should be no problem.
+    auto Buf = x.mutate(); // get a WriteBuffer from mutate(), but don't use it. Should be no problem.
     schedule([](ReadBuffer<int> r, int& val) static->AsyncTask { val = co_await r; }(x.read(), val));
   }
   sched.run_all();

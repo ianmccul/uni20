@@ -54,7 +54,7 @@ template <typename T> class ReverseValue; // forward declaration so we can add i
 ///
 /// Copying is disabled: deep copy must be performed via explicit kernels.
 ///
-/// \note Buffers maintain shared ownership of the internal state, so `ReadBuffer<T>`, `MutableBuffer<T>`, and
+/// \note Buffers maintain shared ownership of the internal state, so `ReadBuffer<T>` and
 ///       `WriteBuffer<T>` may safely outlive the Async.
 /// \note The value of T must be copyable or movable as appropriate for construction.
 /// \tparam T Stored value type.
@@ -281,12 +281,12 @@ template <typename T> class Async {
     }
 
     /// \brief Begin an asynchronous mutation of the current value.
-    /// \return A MutableBuffer<T> which may be co_awaited.
+    /// \return A WriteBuffer<T> which may be co_awaited.
     /// \ingroup async_api
-    MutableBuffer<T> mutate()
+    WriteBuffer<T> mutate()
     {
       require_value();
-      return MutableBuffer<T>(queue_.create_write_context(storage_));
+      return WriteBuffer<T>(queue_.create_write_context(storage_));
     }
 
     /// \brief Begin writing a fresh value, treating the storage as uninitialized until completion.
@@ -298,16 +298,12 @@ template <typename T> class Async {
     }
 
     /// \brief Begin constructing the value in-place using placement new semantics.
-    /// This variant returns an `EmplaceBuffer` that leaves the storage
-    /// uninitialized until the caller writes into the buffer. Ownership of
-    /// the underlying control block is preserved, making this suitable for
-    /// deferred initialization flows.
-    /// \return An emplace buffer that can be co_awaited to perform construction.
+    /// \return A WriteBuffer<T>; call `co_await buffer.emplace(...)` to construct in place.
     /// \ingroup async_api
-    EmplaceBuffer<T> emplace() noexcept
+    WriteBuffer<T> emplace() noexcept
     {
       DEBUG_CHECK(storage_);
-      return EmplaceBuffer<T>(queue_.create_write_context(storage_));
+      return WriteBuffer<T>(queue_.create_write_context(storage_));
     }
 
     // template <typename Sched> T& get_wait(Sched& sched)
@@ -422,10 +418,10 @@ template <typename T> class Async {
 template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
 /// \brief Convenience helper that forwards to Async<T>::mutate().
 /// \tparam T Stored value type.
-/// \param a Async container providing the mutable buffer.
-/// \return Mutable buffer obtained from the Async instance.
+/// \param a Async container providing the write buffer.
+/// \return Write buffer obtained from the Async instance.
 /// \ingroup async_api
-template <typename T> MutableBuffer<T> mutate(Async<T>& a) { return a.mutate(); }
+template <typename T> WriteBuffer<T> mutate(Async<T>& a) { return a.mutate(); }
 /// \brief Convenience helper that forwards to Async<T>::write().
 /// \tparam T Stored value type.
 /// \param a Async container providing the write buffer.
@@ -433,7 +429,7 @@ template <typename T> MutableBuffer<T> mutate(Async<T>& a) { return a.mutate(); 
 /// \ingroup async_api
 template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
 
-template <typename T> EmplaceBuffer<T> emplace_buffer(Async<T>& a) { return a.emplace(); }
+template <typename T> WriteBuffer<T> emplace_buffer(Async<T>& a) { return a.emplace(); }
 
 } // namespace uni20::async
 

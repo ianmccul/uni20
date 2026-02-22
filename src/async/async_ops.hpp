@@ -277,7 +277,7 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
 /// \ingroup async_api
 template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, Async<T>& lhs, Op op)
 {
-  schedule([](auto rhs_, MutableBuffer<T> out_, Op op_) static -> AsyncTask {
+  schedule([](auto rhs_, WriteBuffer<T> out_, Op op_) static -> AsyncTask {
     auto tmp = co_await all(rhs_, out_);
     auto& rhs_val = std::get<0>(tmp);
     auto& lhs_ref = std::get<1>(tmp);

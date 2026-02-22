@@ -29,7 +29,7 @@ TEST(AsyncMoveTest, MoveAssignPreservesQueue)
   lhs = std::move(rhs);
 
   DebugScheduler sched;
-  sched.schedule([](MutableBuffer<int> writer) static -> AsyncTask {
+  sched.schedule([](WriteBuffer<int> writer) static -> AsyncTask {
     auto& value = co_await writer;
     value = 9;
     co_return;

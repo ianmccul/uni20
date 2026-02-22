@@ -61,10 +61,10 @@ TEST(ConceptTest, WriteBufferSatisfiesConcepts)
   static_assert(read_write_buffer_awaitable_of<WriteBuffer<int>, int>);
 }
 
-TEST(ConceptTest, MutableBufferSatisfiesConcepts)
+TEST(ConceptTest, AsyncMutateReturnsWriteBufferConcept)
 {
-  static_assert(write_buffer_awaitable_of<MutableBuffer<int>, int>);
-  static_assert(read_write_buffer_awaitable_of<MutableBuffer<int>, int>);
+  static_assert(write_buffer_awaitable_of<decltype(std::declval<Async<int>&>().mutate()), int>);
+  static_assert(read_write_buffer_awaitable_of<decltype(std::declval<Async<int>&>().mutate()), int>);
 }
 
 TEST(ConceptTest, AsyncDoubleSatisfiesConcepts)

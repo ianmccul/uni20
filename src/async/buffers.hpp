@@ -340,59 +340,6 @@ template <typename T, typename... Args> class EmplaceAwaiter {
     std::tuple<Args...> args_;
 };
 
-// TODO:
-// Implement EmplaceBuffer supporting both forms:
-//
-// co_await buf(x, y, z);
-// co_await buf; buf.emplace(x, y, z);
-//
-// Implement pointer-style access:
-// *buf; buf->member();
-
-/// \brief Awaitable write buffer for constructing values in-place.
-template <typename T> class EmplaceBuffer {
-  public:
-    using value_type = T;
-    using element_type = T&;
-
-    EmplaceBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
-
-    EmplaceBuffer(EmplaceBuffer const&) = delete;
-    EmplaceBuffer& operator=(EmplaceBuffer const&) = delete;
-
-    EmplaceBuffer(EmplaceBuffer&&) noexcept = default;
-    EmplaceBuffer& operator=(EmplaceBuffer&&) noexcept = default;
-
-    void release() noexcept { writer_.release(); }
-
-    template <typename... Args> auto operator()(Args&&... args) &&
-    {
-      CHECK(writer_);
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
-    }
-
-    NodeInfo const* node() const
-    {
-#if UNI20_DEBUG_DAG
-      return writer_.node();
-#else
-      return nullptr;
-#endif
-    }
-
-    template <typename... Args>
-      requires std::constructible_from<T, Args...>
-    T& emplace_assert(Args&&... args)
-    {
-      DEBUG_CHECK(writer_.ready(), "EmplaceBuffer must be immediately writable");
-      writer_.emplace(std::forward<Args>(args)...);
-      return writer_.data();
-    }
-
-  private:
-    EpochContextWriter<T> writer_;
-};
-
 template <typename T> class StorageAwaiter {
   public:
     StorageAwaiter(EpochContextWriter<T>* writer) : writer_(writer) {}
@@ -435,129 +382,6 @@ template <typename T> class TakeAwaiter {
 
   private:
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
-};
-
-/// MutableBuffer - a buffer type that must be previously constructed and allows read & write access
-template <typename T> class MutableBuffer {
-  public:
-    using value_type = T;
-    using element_type = T&;
-
-    /// \brief Construct a write buffer from an RAII writer handle.
-    MutableBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
-
-    // Not copyable, but instead we have dup(WriteBuffer&) function
-    MutableBuffer(MutableBuffer const&) = delete;
-    MutableBuffer& operator=(MutableBuffer const&) = delete;
-
-    MutableBuffer(MutableBuffer&&) noexcept = default;
-    MutableBuffer& operator=(MutableBuffer&&) noexcept = default;
-
-#if UNI20_DEBUG_DAG
-    /// \brief Get the debug node pointer of the object
-    NodeInfo const* node() const { return writer_.node(); }
-#endif
-
-    /// \brief Check if this writer may proceed immediately.
-    /// \return True if the epoch is at the front of the queue.
-    bool await_ready() const noexcept { return writer_.ready(); }
-
-    /// \brief Suspend the coroutine and bind as epoch writer.
-    /// \param t Coroutine task to enqueue or bind.
-    void await_suspend(AsyncTask&& t) noexcept
-    {
-      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t), false);
-    }
-
-    /// \brief Resume and return a reference to the writable value.
-    /// \return Mutable reference to the stored T.
-    T& await_resume() const noexcept
-    {
-      CHECK(writer_.value_is_initialized(), "MutableBuffer requires initialized value");
-      writer_.resume();
-      return writer_.data();
-    }
-
-    /// \brief Returns an awaiter that emplaces a new object directly into the storage
-    template <typename... Args> auto emplace(Args&&... args)
-    {
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
-    }
-
-    /// \brief Manually release the write gate, allowing queue advancement.
-    ///
-    /// This may be called before destruction if the write is complete.
-    /// It is safe and idempotent to call more than once.
-    void release() noexcept { writer_.release(); }
-
-    /// \brief Flag the buffer that any tasks waiting on it should be destroyed if the buffer
-    ///        is released without being written to.
-    void writer_require() noexcept { writer_.writer_require(); }
-
-    /// \brief Wait for the epoch to become available, and then move the value.
-    T move_from_wait() { return writer_.move_from_wait(); }
-
-    /// \brief Launch a coroutine to write a value.
-    /// \note This releases() the buffer.
-    template <typename U> void write(U&& val) { async_assign(std::forward<U>(val), std::move(*this)); }
-
-    /// \brief Write immediately without suspending — asserts write readiness.
-    template <typename U>
-    void write_assert(U&& val)
-      requires std::assignable_from<T&, U&&>
-    {
-      DEBUG_CHECK(writer_.ready(), "MutableBuffer must be immediately writable");
-      writer_.data() = std::forward<U>(val);
-    }
-
-    /// \brief Moved immediately without suspending — asserts write readiness.
-    /// This is redundant in the sense that it is equivalent to write_assert(std::move(val))
-    template <typename U>
-    void write_move_assert(U&& val)
-      requires std::assignable_from<T&, U&&>
-
-    {
-      DEBUG_CHECK(writer_.ready(), "MutableBuffer must be immediately writable");
-      writer_.data() = std::move(val);
-    }
-
-    // Returns a proxy object for writing, as syntactic sugar.
-    // MutableBuffer<T> x;
-    // x.write() = 5;    // equivalent to x.write(5);
-    [[nodiscard]] BufferWriteProxy<MutableBuffer<T>> write();
-
-    /// \brief Launch a coroutine to write to the buffer using move semantics (if possible)
-    /// \note This releases() the buffer.
-    template <typename U> void write_move(U&& val) { async_move(std::move(val), std::move(*this)); }
-
-    /// \brief Enable co_await on lvalue WriteBuffer only.
-    ///
-    /// Prevents unsafe use on temporaries by deleting rvalue overload.
-    auto operator co_await() & noexcept -> MutableBuffer& { return *this; }
-    auto operator co_await() const& noexcept -> MutableBuffer const& { return *this; }
-
-    /// \brief Deleted rvalue co_await to avoid use-after-move or lifetime errors.
-    auto operator co_await() && = delete;
-
-    // void set_cancel() override final;
-    // void set_exception(std::exception_ptr e) override final;
-
-  private:
-    EpochContextWriter<T> writer_; ///< RAII handle for write coordination.
-
-    /// \brief Duplicate a WriteBuffer to the same epoch and parent.
-    ///
-    /// This creates another WriteBuffer<T> referencing the same EpochContext and Async<T>.
-    /// Use this when passing a WriteBuffer into another coroutine while retaining access in the caller.
-    ///
-    /// \note This does not alter the DAG — no new epoch is created. Both buffers refer to
-    /// the same pending write. The caller must ensure only one write actually occurs, or
-    /// they are otherwise syncronized.
-    /// THIS FUNCTIONALITY REMOVED.  Once the EpochContext enables multiple writers, maintaining
-    /// reference counts for duplicated buffers is too complicated.  If needed, the dup() functionality
-    /// could be reintroduced with a different ownership model.
-    /// friend MutableBuffer dup(MutableBuffer& wb) { return MutableBuffer(wb.writer_); }
 };
 
 /// \brief Awaitable write buffer for initializing uninitialized storage.
@@ -628,6 +452,16 @@ template <typename T> class WriteBuffer {
       return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
     }
 
+    template <typename... Args>
+      requires std::constructible_from<T, Args...>
+    T& emplace_assert(Args&&... args)
+    {
+      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
+      writer_.emplace(std::forward<Args>(args)...);
+      written_ = true;
+      return writer_.data();
+    }
+
     auto take() { return TakeAwaiter<T>(&writer_); }
 
     auto storage() { return StorageAwaiter<T>(&writer_); }
@@ -679,23 +513,8 @@ template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promi
 #endif
 }
 
-// For a MutableBuffer, we add the node to the WriteDependencies
-template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, MutableBuffer<T> const& x)
-{
-#if UNI20_DEBUG_DAG
-  promise->WriteDependencies.push_back(x.node());
-#endif
-}
-
 // For a WriteBuffer, we add the node to the WriteDependencies
 template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, WriteBuffer<T> const& x)
-{
-#if UNI20_DEBUG_DAG
-  promise->WriteDependencies.push_back(x.node());
-#endif
-}
-
-template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, EmplaceBuffer<T> const& x)
 {
 #if UNI20_DEBUG_DAG
   promise->WriteDependencies.push_back(x.node());
@@ -725,13 +544,7 @@ template <typename Buffer> class BufferWriteProxy {
     EpochContextWriter<value_type> writer_;
 };
 
-template <typename T> using MutableProxy = BufferWriteProxy<MutableBuffer<T>>;
 template <typename T> using WriteProxy = BufferWriteProxy<WriteBuffer<T>>;
-
-template <typename T> BufferWriteProxy<MutableBuffer<T>> MutableBuffer<T>::write()
-{
-  return BufferWriteProxy<MutableBuffer<T>>(std::move(writer_));
-}
 
 template <typename T> BufferWriteProxy<WriteBuffer<T>> WriteBuffer<T>::write()
 {

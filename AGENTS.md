@@ -100,7 +100,7 @@ Direct threading bypasses dependency tracking, leading to data races or missed w
 
 ### 3.4 Thread Safety
 
-* Access to shared state must go through `EpochQueue`, `ReadBuffer`, `WriteBuffer`, or `MutableBuffer`.
+* Access to shared state must go through `EpochQueue`, `ReadBuffer`, or `WriteBuffer`.
 * Mutations must be atomic or mutex-protected.
 
 **Why:**

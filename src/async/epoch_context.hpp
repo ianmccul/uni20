@@ -153,12 +153,8 @@ template <typename T> class EpochContextWriter;
 // Obtaining a WriteBuffer on an EpochContext requires that the buffer is actually written to. If not, then
 // the Epoch will enter the cancelled state.
 //
-// Similarly for an EmplaceBuffer.
-//
-// A MutateBuffer does not need to be written to.
-//
 // The mechanism for this is:
-// 1. WriteBuffer and EmplaceBuffer set the require_writer_ flag on the EpochContext.
+// 1. WriteBuffer sets the require_writer_ flag on the EpochContext.
 // 2. Any buffer object that actually does a write (or at least, obtains a writable pointer) sets the
 //    has_written_ flag.
 // 3. When the phase transitions from Writing to Reading, iF (require_writer_ && !has_written_) then
@@ -170,12 +166,6 @@ template <typename T> class EpochContextWriter;
 // If there is a next_epoch_, then the cancellation and exception status is propogated forwards.
 //
 // co_await on a WriteBuffer on a cancelled or exception EpochContext passes the error into the coroutine.
-// co_await on a MutateBuffer on a cancelled or exception EpochContext passes the error into the coroutine.
-// co_await on a EmplaceBuffer on a cancelled or exception EpochContext passes the error into the coroutine.
-// An EmplaceBuffer *could* eat the error and continue, however typically an EmplaceBuffer will be at the head of
-// a queue so there will never be an error state.  Getting an EmplaceBuffer at a later epoch is unusual,
-// and normally not the best option (better to make a new queue). If the user does this then we assume they have
-// reasons and want errors and cancellation to propogate into the EmplaceBuffer.
 //
 
 class EpochQueue;

@@ -36,9 +36,9 @@ This design yields the same causal guarantees as a DAG scheduler but with much l
     storage is not shared between the two instances.
   - Equivalently, Use `async_assign` when you want to explicitly schedule the copy of an `Async<T>`'s value.
 - Access patterns:
-  - `read()`, `mutate()`, and `write()` yield awaitable buffers that coordinate through epochs to maintain
+  - `read()`, `mutate()`, and `write()` yield awaitable buffers (`ReadBuffer<T>` and `WriteBuffer<T>`) that coordinate through epochs to maintain
     writer→reader ordering.
-  - `emplace()` returns an `EmplaceBuffer` that performs placement-new into the storage. This enables delayed initialization of `Async<T>` for types that do not have a default constructor.
+  - `co_await buffer.emplace(...)` performs placement-new into storage. This enables delayed initialization of `Async<T>` for types that do not have a default constructor.
   - `get_wait()` blocks until pending writers finish, optionally driving a scheduler explicitly when deterministic
     progress is required.
 
@@ -68,14 +68,13 @@ An `AsyncTask` represents a coroutine handle that can be scheduled, awaited, or 
 
 ## Buffer types
 
-asynchronous coroutines work by obtaining a *buffer*, which is an *awaitable* object that gives direct access to the object of an `Async<T>`. The buffer is obtained from member functions of `Async<T>`, `read()`, `write()`, `mutate()`, `emplace()`.
+asynchronous coroutines work by obtaining a *buffer*, which is an *awaitable* object that gives direct access to the object of an `Async<T>`. The buffer is obtained from member functions of `Async<T>`, `read()`, `write()`, and `mutate()`.
 
 The buffer object is typically passed into a coroutine (by value, so it exists on the coroutine stack frame), and is used in a `co_await` expression to return a reference to the underlying object. This acts as a synchronization point: if the object is not ready for access in the task dependency graph, the coroutine will suspend and only resume once all of the dependencies have finished. So when the `co_await` has returned, it is safe to access the object.
 
 - `read()` returns a `ReadBuffer<T>`. `co_await` on a `ReadBuffer<T>` gives either a value or a const reference to the object.
-- `mutate()` returns a `MutableBuffer<T>`. `co_await` on a `MutableBuffer<T>` returns a reference to the object, that can be read or modified.
-- `write()` returns a `WriteBuffer<T>`. This returns a reference to the value, but in principle should only be written, not read from (e.g. it might be in some moved-from state).
-- `emplace()` returns `EmplaceBuffer<T>`. This is used to in-place construct the object by passing the constructor parameters to the `co_await` statement. The syntax is `co_await std::move(buffer)(arg1, arg2, ...)`. We need to `move` the buffer because this is a once-only operation, once the object is constructed the buffer is in an invalid moved-from state.
+- `write()` and `mutate()` both return a `WriteBuffer<T>`. `mutate()` additionally requires the value to already be initialized.
+- `co_await buffer.emplace(arg1, arg2, ...)` in-place constructs (or reconstructs) the value in the target storage.
 
 ## Compound awaiters
 
@@ -114,7 +113,6 @@ co_await write_to(write_buffer, std::move(value));
 ```
 
 ## See also
-- Buffer types: [`ReadBuffer`](../src/async/buffers/ReadBuffer.hpp), [`MutableBuffer`](../src/async/buffers/MutableBuffer.hpp),
-  [`WriteBuffer`](../src/async/buffers/WriteBuffer.hpp), [`EmplaceBuffer`](../src/async/buffers/EmplaceBuffer.hpp).
+- Buffer types: [`ReadBuffer`](../src/async/buffers.hpp), [`WriteBuffer`](../src/async/buffers.hpp).
 - Scheduler overview: [`docs/Scheduler.md`](./Scheduler.md).
 - Debug DAG tracing: enable `UNI20_DEBUG_DAG` to emit `NodeInfo` edges via `EpochQueue`.

@@ -129,9 +129,9 @@ template <typename T> class ReverseValue {
     /// Since we are guaranteed that the write is immediate, we don't need to wait
     template <typename U>
     ReverseValue& operator=(U&& v)
-      requires std::assignable_from<T&, U&&>
+      requires std::constructible_from<T, U&&>
     {
-      EmplaceBuffer<T> w(this->emplace_buffer());
+      WriteBuffer<T> w(this->write_buffer());
       rqueue_.start();
       w.emplace_assert(std::forward<U>(v));
       return *this;
@@ -224,7 +224,6 @@ template <typename T> class ReverseValue {
   private:
     ReadBuffer<T> read_buffer() const { return ReadBuffer<T>(rqueue_.create_read_context(async_.storage())); }
     WriteBuffer<T> write_buffer() { return WriteBuffer<T>(rqueue_.create_write_context(async_.storage())); }
-    EmplaceBuffer<T> emplace_buffer() { return EmplaceBuffer<T>(rqueue_.create_write_context(async_.storage())); }
 
     Async<T> async_;
     mutable ReverseEpochQueue rqueue_; // must be mutable if we want read access to be logically const
