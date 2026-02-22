@@ -15,6 +15,34 @@ If you are new to the trace/assert system, this is the shortest useful model:
 
 Generally, use `CHECK...` and `PRECONDITION...` to test logical conditions that would indicate coding bugs, and use `ERROR...` where user input is involved. In Python bindings, `CHECK` and `PRECONDITION` will immediately halt the interpreter, whereas `ERROR` can be configured to propagate an exception into Python.
 
+## Quick Start
+
+Minimal usage in code:
+
+```cpp
+#include "common/trace.hpp"
+
+void f(int n)
+{
+  PRECONDITION(n > 2, "n must be larger than 2", n);
+  TRACE("begin", n);
+  TRACE_IF(n > 0, n);
+  TRACE_STACK("debug point", n); // same line + stacktrace block
+}
+```
+
+Typical output:
+
+```text
+2026-02-22 08:37:10.692231374 TRACE at /path/file.cpp:6 : begin, n = 3
+2026-02-22 08:37:10.692235001 TRACE at /path/file.cpp:7 : n = 3
+2026-02-22 08:37:10.692238442 TRACE_STACK at /path/file.cpp:8 : debug point, n = 3
+Stacktrace:
+  ...
+```
+
+By default, if the call is from a non-main thread, a `[TID ...]` prefix is inserted before `TRACE`, showing the thread ID of the caller. This can be customized -- see section Output and Formatting Controls below.
+
 ## Macro Families
 
 ### General Trace
