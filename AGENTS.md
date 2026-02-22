@@ -64,7 +64,7 @@ Lambdas that define async coroutines **must not have capture lists and must be d
 auto f = [x]() -> AsyncTask { foo(x); co_return; };
 
 // ✅ Correct
-auto f = [](int x) static -> AsyncTask { foo(x); co_return; };
+auto f = [](int x) static->AsyncTask { foo(x); co_return; };
 ```
 
 **Why:**
@@ -80,6 +80,7 @@ and reproducible async semantics. This is ensured by making the lambda `operator
 using the C++23 `static` lambda modifier.
 
 > **Agents must enforce:** no coroutine lambda that is passed into the scheduler may have a capture list. To ensure this, always use the `static` modifier on the lambda function.
+> Use the codebase formatting convention `static->AsyncTask` for coroutine lambdas.
 
 The same considerations apply to function objects that return coroutine handles, where it is clear that the function object
 cannot contain state that might have a shorter lifetime than the coroutine itself.
