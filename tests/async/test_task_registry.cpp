@@ -11,6 +11,7 @@
 using namespace uni20;
 using namespace uni20::async;
 
+#if UNI20_DEBUG_ASYNC_TASKS
 namespace
 {
 
@@ -49,6 +50,7 @@ int dump_mode_probe(char const* value)
 }
 
 } // namespace
+#endif
 
 #if UNI20_DEBUG_ASYNC_TASKS
 TEST(TaskRegistryDebugTest, DumpModeDefaultsToBasicWhenUnset)
