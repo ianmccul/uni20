@@ -150,15 +150,8 @@ template <typename T> class EpochContextWriter;
 //
 // Initialization status is handled separately.  The EpochContext simply handles writers and readers.
 
-// Obtaining a WriteBuffer on an EpochContext requires that the buffer is actually written to. If not, then
-// the Epoch will enter the cancelled state.
-//
-// The mechanism for this is:
-// 1. WriteBuffer sets the require_writer_ flag on the EpochContext.
-// 2. Any buffer object that actually does a write (or at least, obtains a writable pointer) sets the
-//    has_written_ flag.
-// 3. When the phase transitions from Writing to Reading, iF (require_writer_ && !has_written_) then
-//    we set the cancelled flag to true.
+// WriteBuffer participates in epoch scheduling only; value construction state is tracked by shared_storage<T>.
+// If a writer is released without emplacing/writing a value, the storage can remain unconstructed for this epoch.
 //
 // If you co_await on a ReadBuffer that points to an EpochContext that is in the cancelled state, then
 // it will either throw an exception, or cancel the coroutine (if .or_cancel() modifier was used).
@@ -382,19 +375,6 @@ class EpochContext {
       return true;
     }
 
-    // void writer_required() noexcept
-    // {
-    //   std::lock_guard lock(mtx_);
-    //   writer_required_ = true;
-    // }
-    //
-    // void writer_has_written() noexcept
-    // {
-    //   std::lock_guard lock(mtx_);
-    //   DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_has_written", this, counter_);
-    //   has_written_ = true;
-    // }
-
     void writer_set_exception(std::exception_ptr e) noexcept
     {
       std::lock_guard lock(mtx_);
@@ -588,13 +568,6 @@ class EpochContext {
       DEBUG_PRECONDITION(phase_ == Phase::Writing);
       phase_ = Phase::Reading;
 
-      // Check the writer status and set the cancelled_ flag if we required a writer but didn't get one
-      // if (writer_required_ && !has_written_)
-      // {
-      //   DEBUG_TRACE_MODULE(ASYNC, "EpochContext::advance_reading_locked: CANCELLED!", this, counter_);
-      //   cancelled_ = true;
-      // }
-
       if (num_readers_ > 0)
       {
         this->execute_readers_locked(std::move(lock));
@@ -669,12 +642,6 @@ class EpochContext {
     // Exception pointer - if this is set, then any attempt to get a buffer throws the exception.
     // This is also propogated to future epochs
     std::exception_ptr eptr_{nullptr};
-
-    // Set to true if a writer is required for this epoch
-    bool writer_required_{false};
-
-    // Set to true if a writer actually writes to the backing store
-    // bool has_written_{false};
 
     // Epoch counter. This is mainly for debugging
     int counter_{0};
@@ -1071,19 +1038,6 @@ template <typename T> class EpochContextWriter {
       storage_.emplace(std::forward<Args>(args)...);
       return *storage_.get();
     }
-
-    /// \brief Require the writer to produce a value, canceling pending readers if omitted.
-    /// \ingroup async_core
-    //    void writer_require() noexcept
-    // { /* epoch_->writer_require(); */
-    // }
-
-    /// \brief Require that the storage/data is actually referenced, and pass this on to the epoch
-    // void writer_required() const { epoch_->writer_required(); }
-
-    /// \brief Notify the epoch that the buffer has been written to (or at least, a pointer to the object has been
-    /// obtained)
-    // void writer_has_written() const { epoch_->writer_has_written(); }
 
     shared_storage<T>& storage() { return storage_; }
 
