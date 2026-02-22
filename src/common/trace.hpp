@@ -7,6 +7,7 @@
 #include "namedenum.hpp"
 #include "terminal.hpp"
 
+#include <atomic>
 #include <algorithm>
 #include <cctype>
 #include <chrono>

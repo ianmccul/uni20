@@ -50,7 +50,7 @@ int main()
   // export UNI20_TRACE_TIMESTAMP=no
   // export UNI20_TRACE_THREAD_ID=no
   trace::get_formatting_options().timestamp = false;
-  trace::get_formatting_options().showThreadId = false;
+  trace::get_formatting_options().threadId = trace::FormattingOptions::ThreadIdOptions::no;
 
   TRACE("Modified number of digits displayed; removed timestamp, thread ID:", vec2, foo, vec3, foo);
 

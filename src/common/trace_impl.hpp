@@ -81,8 +81,23 @@ struct FormattingOptions
     /// Prefix each trace with a timestamp (from UNI20_TRACE_TIMESTAMP or module override).
     bool timestamp = false;
 
-    /// Prefix each trace with a thread‐ID (from UNI20_TRACE_THREAD_ID or module override).
-    bool showThreadId = false;
+    /// Controls thread-id prefixing (from UNI20_TRACE_THREAD_ID or module override).
+    /// Values: yes / no / auto.
+    struct ThreadIdOptionTraits
+    {
+        enum Enum
+        {
+          yes,
+          no,
+          auto_detect
+        };
+        static constexpr Enum Default = auto_detect;
+        static constexpr const char* StaticName = "Thread-id options (yes/no/auto)";
+        static constexpr std::array<const char*, 3> Names = {"yes", "no", "auto"};
+    };
+
+    using ThreadIdOptions = NamedEnumeration<ThreadIdOptionTraits>;
+    ThreadIdOptions threadId = ThreadIdOptions();
 
     //--- Output sink -----------------------------------------------------------
 
@@ -176,7 +191,7 @@ struct FormattingOptions
 
       // Global flags
       timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP", true);
-      showThreadId = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_THREAD_ID", true);
+      threadId = parse_thread_id_option_from_env("UNI20_TRACE_THREAD_ID", threadId);
 
       // Global color control
       color = terminal::getenv_or_default<ColorOptions>("UNI20_TRACE_COLOR", color);
@@ -249,7 +264,7 @@ struct FormattingOptions
 
       // flags overrides
       timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP_MODULE_" + mod, timestamp);
-      showThreadId = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_THREAD_ID_MODULE_" + mod, showThreadId);
+      threadId = parse_thread_id_option_from_env("UNI20_TRACE_THREAD_ID_MODULE_" + mod, threadId);
 
       // color override
       color = terminal::getenv_or_default<ColorOptions>("UNI20_TRACE_COLOR_MODULE_" + mod, color);
@@ -325,6 +340,28 @@ struct FormattingOptions
     // }
 
   private:
+    static ThreadIdOptions parse_thread_id_option_from_string(std::string_view value, ThreadIdOptions fallback)
+    {
+      using Mode = ThreadIdOptions::Enum;
+
+      if (iequals(value, "auto")) return Mode::auto_detect;
+
+      if (iequals(value, "yes") || iequals(value, "true") || iequals(value, "on") || iequals(value, "1")) return Mode::yes;
+
+      if (iequals(value, "no") || iequals(value, "false") || iequals(value, "off") || iequals(value, "0")) return Mode::no;
+
+      return fallback;
+    }
+
+    static ThreadIdOptions parse_thread_id_option_from_env(std::string const& var, ThreadIdOptions fallback)
+    {
+      if (auto const* raw = std::getenv(var.c_str()))
+      {
+        return parse_thread_id_option_from_string(raw, fallback);
+      }
+      return fallback;
+    }
+
     /// \brief Update showColor based on the `color` setting and current outputStream.
     void updateShowColor()
     {
@@ -869,6 +906,38 @@ inline std::string format_timestamp()
   return fmt::format("{:%F %T}.{:09}", local_time, nanos.count());
 }
 
+namespace detail
+{
+inline std::thread::id const startup_thread_id = std::this_thread::get_id();
+} // namespace detail
+
+inline bool should_show_thread_id(FormattingOptions const& opts)
+{
+  using Mode = FormattingOptions::ThreadIdOptions::Enum;
+
+  if (opts.threadId == Mode::yes) return true;
+  if (opts.threadId == Mode::no) return false;
+  return std::this_thread::get_id() != detail::startup_thread_id;
+}
+
+inline std::string format_trace_prefix(FormattingOptions const& opts)
+{
+  std::string prefix;
+
+  if (opts.timestamp) prefix = format_timestamp();
+
+  if (should_show_thread_id(opts))
+  {
+    if (!prefix.empty()) prefix += " ";
+    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    std::string th = fmt::format("[TID {:>8x}]", id);
+    prefix += opts.format_style(th, "THREAD_ID");
+  }
+
+  if (!prefix.empty()) prefix += " ";
+  return prefix;
+}
+
 //-----------------------------------------------------------------------------
 // Non-module TRACE
 //-----------------------------------------------------------------------------
@@ -878,26 +947,14 @@ template <typename... Args> void TraceCall(const char* exprList, const char* fil
 
   // format argument list
   std::string trace_str = formatParameterList(exprList, opts, args...);
-
-  // optional timestamp
-  std::string ts;
-  if (opts.timestamp) ts = format_timestamp();
-
-  // optional thread-ID
-  std::string th;
-  if (opts.showThreadId)
-  {
-    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
-    th = opts.format_style(th, "THREAD_ID");
-  }
+  std::string prefix = format_trace_prefix(opts);
 
   // build preamble
   std::string pre = opts.format_style("TRACE", "TRACE") + " at " + opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
   // emit
-  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+  opts.sink(prefix + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
 //-----------------------------------------------------------------------------
@@ -909,26 +966,14 @@ template <typename... Args> void TraceOnceCall(const char* exprList, const char*
 
   // format argument list
   std::string trace_str = formatParameterList(exprList, opts, args...);
-
-  // optional timestamp
-  std::string ts;
-  if (opts.timestamp) ts = format_timestamp();
-
-  // optional thread-ID
-  std::string th;
-  if (opts.showThreadId)
-  {
-    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
-    th = opts.format_style(th, "THREAD_ID");
-  }
+  std::string prefix = format_trace_prefix(opts);
 
   // build preamble
   std::string pre = opts.format_style("TRACE_ONCE", "TRACE") + " at " + opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
   // emit
-  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+  opts.sink(prefix + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
 //-----------------------------------------------------------------------------
@@ -940,23 +985,13 @@ void TraceModuleCall(const char* module, const char* exprList, const char* file,
   auto& opts = get_formatting_options(module);
 
   std::string trace_str = formatParameterList(exprList, opts, args...);
-
-  std::string ts;
-  if (opts.timestamp) ts = format_timestamp();
-
-  std::string th;
-  if (opts.showThreadId)
-  {
-    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
-    th = opts.format_style(th, "THREAD_ID");
-  }
+  std::string prefix = format_trace_prefix(opts);
 
   std::string pre = opts.format_style("TRACE", "TRACE") + " in module " + opts.format_style(module, "TRACE") + " at " +
                     opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
-  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+  opts.sink(prefix + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
 //-----------------------------------------------------------------------------
@@ -967,23 +1002,13 @@ template <typename... Args> void DebugTraceCall(const char* exprList, const char
   auto& opts = get_formatting_options();
 
   std::string trace_str = formatParameterList(exprList, opts, args...);
-
-  std::string ts;
-  if (opts.timestamp) ts = format_timestamp();
-
-  std::string th;
-  if (opts.showThreadId)
-  {
-    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
-    th = opts.format_style(th, "THREAD_ID");
-  }
+  std::string prefix = format_trace_prefix(opts);
 
   std::string pre = opts.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " at " +
                     opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
-  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+  opts.sink(prefix + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
 //-----------------------------------------------------------------------------
@@ -995,23 +1020,13 @@ void DebugTraceOnceCall(const char* exprList, const char* file, int line, const 
   auto& opts = get_formatting_options();
 
   std::string trace_str = formatParameterList(exprList, opts, args...);
-
-  std::string ts;
-  if (opts.timestamp) ts = format_timestamp();
-
-  std::string th;
-  if (opts.showThreadId)
-  {
-    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
-    th = opts.format_style(th, "THREAD_ID");
-  }
+  std::string prefix = format_trace_prefix(opts);
 
   std::string pre = opts.format_style("DEBUG_TRACE_ONCE", "DEBUG_TRACE") + " at " +
                     opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
-  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+  opts.sink(prefix + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
 //-----------------------------------------------------------------------------
@@ -1023,23 +1038,13 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
   auto& opts = get_formatting_options(module);
 
   std::string trace_str = formatParameterList(exprList, opts, args...);
-
-  std::string ts;
-  if (opts.timestamp) ts = format_timestamp();
-
-  std::string th;
-  if (opts.showThreadId)
-  {
-    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
-    th = opts.format_style(th, "THREAD_ID");
-  }
+  std::string prefix = format_trace_prefix(opts);
 
   std::string pre = opts.format_style("DEBUG_TRACE", "DEBUG_TRACE") + " in module " +
                     opts.format_style(module, "DEBUG_TRACE") + " at " + opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
-  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+  opts.sink(prefix + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
 namespace detail
@@ -1108,23 +1113,13 @@ inline void emit_trace_line(FormattingOptions& opts, std::string_view label, std
                             const char* exprList, const char* file, int line, const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, opts, args...);
-
-  std::string ts;
-  if (opts.timestamp) ts = format_timestamp();
-
-  std::string th;
-  if (opts.showThreadId)
-  {
-    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
-    th = opts.format_style(th, "THREAD_ID");
-  }
+  std::string prefix = format_trace_prefix(opts);
 
   std::string pre = opts.format_style(std::string(label), std::string(style_kind)) + " at " +
                     opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
-  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+  opts.sink(prefix + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 
 template <typename... Args>
@@ -1133,24 +1128,14 @@ inline void emit_trace_line_module(FormattingOptions& opts, std::string_view lab
                                    const Args&... args)
 {
   std::string trace_str = formatParameterList(exprList, opts, args...);
-
-  std::string ts;
-  if (opts.timestamp) ts = format_timestamp();
-
-  std::string th;
-  if (opts.showThreadId)
-  {
-    auto id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    th = fmt::format("{}[TID {:>8x}] ", opts.timestamp ? " " : "", id);
-    th = opts.format_style(th, "THREAD_ID");
-  }
+  std::string prefix = format_trace_prefix(opts);
 
   std::string pre = opts.format_style(std::string(label), std::string(style_kind)) + " in module " +
                     opts.format_style(module, std::string(style_kind)) + " at " +
                     opts.format_style(file, "TRACE_FILENAME") +
                     opts.format_style(fmt::format(":{}", line), "TRACE_LINE");
 
-  opts.sink(ts + th + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
+  opts.sink(prefix + fmt::format("{}{}{}\n", pre, trace_str.empty() ? "" : " : ", trace_str));
 }
 } // namespace detail
 

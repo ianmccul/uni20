@@ -1,5 +1,6 @@
 #include "common/trace.hpp"
 #include <gtest/gtest.h>
+#include <thread>
 
 using namespace trace;
 
@@ -45,6 +46,63 @@ TEST(TraceStackMacro, TraceStackIncludesStacktraceDiagnostic)
                                                                                         << output;
 #endif
   trace::get_formatting_options().set_output_stream(stderr);
+}
+
+TEST(TraceMacro, ThreadIdAutoModeShowsOnlyNonMainThreadIds)
+{
+  auto& opts = trace::get_formatting_options();
+  auto const saved_mode = opts.threadId;
+
+  std::ostringstream oss;
+  opts.set_sink([&oss](std::string msg) { oss << msg; });
+  opts.threadId = trace::FormattingOptions::ThreadIdOptions::auto_detect;
+
+  TRACE("main-before-auto-flip");
+  auto main_before = oss.str();
+  EXPECT_EQ(main_before.find("[TID"), std::string::npos) << "Trace output was:\n" << main_before;
+  oss.str("");
+  oss.clear();
+
+  std::thread worker([] { TRACE("worker-auto-flip"); });
+  worker.join();
+
+  auto worker_trace = oss.str();
+  EXPECT_NE(worker_trace.find("[TID"), std::string::npos) << "Trace output was:\n" << worker_trace;
+  oss.str("");
+  oss.clear();
+
+  TRACE("main-after-auto-flip");
+  auto main_after = oss.str();
+  EXPECT_EQ(main_after.find("[TID"), std::string::npos) << "Trace output was:\n" << main_after;
+
+  opts.threadId = saved_mode;
+  trace::get_formatting_options().set_output_stream(stderr);
+}
+
+TEST(TraceMacro, TimestampWithoutThreadIdIncludesSeparatorSpace)
+{
+  auto& opts = trace::get_formatting_options("TESTMODULE");
+  auto const saved_mode = opts.threadId;
+  auto const saved_timestamp = opts.timestamp;
+
+  std::ostringstream oss;
+  opts.set_sink([&oss](std::string msg) { oss << msg; });
+  opts.threadId = trace::FormattingOptions::ThreadIdOptions::auto_detect;
+  opts.timestamp = true;
+
+  TRACE_MODULE(TESTMODULE, "spacing-check");
+  auto const output = oss.str();
+  auto const marker = std::string("TRACE in module TESTMODULE at ");
+  auto const pos = output.find(marker);
+
+  ASSERT_NE(pos, std::string::npos) << "Trace output was:\n" << output;
+  ASSERT_GT(pos, 0U) << "Trace output was:\n" << output;
+  EXPECT_EQ(output[pos - 1], ' ') << "Trace output was:\n" << output;
+  EXPECT_EQ(output.find("[TID"), std::string::npos) << "Trace output was:\n" << output;
+
+  opts.threadId = saved_mode;
+  opts.timestamp = saved_timestamp;
+  trace::get_formatting_options("TESTMODULE").set_output_stream(stderr);
 }
 
 // Disable warning that ("foo", n) discards "foo"

@@ -171,6 +171,8 @@ trace::get_formatting_options().set_errors_abort(false);
 
 ## Stacktrace Configuration (`<stacktrace>`)
 
+C++23 introduced the `<stacktrace>` library, which was supported by GCC in version 13 but only well supported in version 14, and in Clang LLVM 16+. Support in Linux varies by distro. The Ubuntu `gcc-13` does not include `<stacktrace>` support. Ubuntu 26.04 LTS should include good support for `<stacktrace>` with the GCC 15 compiler.
+
 Stacktrace support is controlled in two layers:
 
 1. CMake option:
@@ -281,18 +283,21 @@ Module-specific TRACE messages can be managed separately, so for example it is p
 
 ### Timestamp and Thread ID
 
-These can be turned on or off by setting variables to `true`/`on`/`1` or `false`/`off`/`0`.
+`UNI20_TRACE_TIMESTAMP` accepts `yes`/`no` (aliases: `true`/`false`, `1`/`0`).
+`UNI20_TRACE_THREAD_ID` additionally accepts `auto`.
 
 
 | Variable | Default | Effect |
 |---|---|---|
 | `UNI20_TRACE_TIMESTAMP` | `true` | Show local-time timestamp prefix `YYYY-MM-DD HH:MM:SS.NNNNNNNNN` |
-| `UNI20_TRACE_THREAD_ID` | `true` | Show thread-id prefix. |
+| `UNI20_TRACE_THREAD_ID` | `auto` | Show thread-id prefix (`yes`), disable it (`no`), or auto-detect (`auto`). |
 
 Module-specific overrides:
 
 - `UNI20_TRACE_TIMESTAMP_MODULE_<MODULE>`
 - `UNI20_TRACE_THREAD_ID_MODULE_<MODULE>`
+
+`UNI20_TRACE_THREAD_ID=auto` shows the thread-id only for non-main threads.
 
 ### Color Enable/Disable
 
@@ -439,6 +444,10 @@ Useful methods:
 - `set_sink(std::function<void(std::string)>)`
 - `set_color_output(trace::FormattingOptions::ColorOptions::yes/no/autocolor)`
 - `set_errors_abort(bool)` (static setting; callable through the object)
+
+Useful field for thread-id mode:
+
+- `threadId = trace::FormattingOptions::ThreadIdOptions::yes|no|auto_detect`
 
 ## Expression Parsing Notes
 
