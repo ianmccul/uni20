@@ -324,15 +324,9 @@ template <typename T, typename... Args> class EmplaceAwaiter {
     T& await_resume()
     {
       writer_->resume();
-      if (writer_->storage().valid())
-      {
-        writer_->storage().destroy();
-      }
-      std::apply(
-          [this](auto&&... unpacked) { writer_->storage().emplace(std::forward<decltype(unpacked)>(unpacked)...); },
+      return std::apply(
+          [this](auto&&... unpacked) -> T& { return writer_->emplace(std::forward<decltype(unpacked)>(unpacked)...); },
           std::move(args_));
-      auto& ref = writer_->data();
-      return ref;
     }
 
   private:
@@ -431,7 +425,7 @@ template <typename T> class WriteBuffer {
       writer_.suspend(std::move(t), false);
     }
 
-    T& await_resume() const noexcept
+    T& await_resume() const
     {
       writer_.resume();
       written_ = true;

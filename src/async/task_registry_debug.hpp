@@ -17,6 +17,12 @@ using TaskRegistry = TaskRegistryDebug;
 
 class TaskRegistryDebug {
   public:
+    enum class DumpMode {
+        None,
+        Basic,
+        Full,
+    };
+
     enum class TaskState {
         Constructed,
         Running,
@@ -41,6 +47,8 @@ class TaskRegistryDebug {
                                   EpochTaskRole role);
     static std::vector<std::coroutine_handle<>> epoch_reader_tasks(async::EpochContext const* epoch_context);
     static std::vector<std::coroutine_handle<>> epoch_writer_tasks(async::EpochContext const* epoch_context);
+    static DumpMode dump_mode() noexcept;
+    static void dump_epoch_context(async::EpochContext const* epoch_context, char const* reason = nullptr);
     static void dump();
 };
 

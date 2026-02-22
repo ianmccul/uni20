@@ -10,6 +10,7 @@
 #pragma once
 
 #include "async_node.hpp"
+#include "async_errors.hpp"
 #include "buffers.hpp"
 #include "common/demangle.hpp"
 #include "config.hpp"
@@ -390,14 +391,14 @@ template <typename T> class Async {
   private:
     T* try_get_value() const
     {
-      if (!storage_.valid()) throw std::logic_error("Async storage missing");
+      if (!storage_.valid()) throw async_storage_missing{};
       return storage_.get();
     }
 
     T* require_value() const
     {
       if (auto* ptr = try_get_value()) return ptr;
-      throw std::logic_error("Async value requires initialization before access");
+      throw async_value_uninitialized{};
     }
 
     friend class ReverseValue<T>;

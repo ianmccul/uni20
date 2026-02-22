@@ -3,8 +3,10 @@
 #include "task_registry.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <fmt/chrono.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
@@ -22,6 +24,7 @@ namespace
 
 using TaskState = uni20::TaskRegistry::TaskState;
 using EpochTaskRole = uni20::TaskRegistry::EpochTaskRole;
+using DumpMode = uni20::TaskRegistry::DumpMode;
 using EpochContext = uni20::async::EpochContext;
 
 char const* to_string(TaskState state) noexcept
@@ -62,6 +65,33 @@ std::string format_timestamp(std::chrono::system_clock::time_point timestamp)
   auto const time = std::chrono::system_clock::to_time_t(timestamp);
   auto const local_time = fmt::localtime(time);
   return fmt::format("{:%F %T}.{:06} {:%z}", local_time, us.count(), local_time);
+}
+
+DumpMode parse_dump_mode(char const* raw_value) noexcept
+{
+  if (!raw_value || *raw_value == '\0') return DumpMode::Basic;
+
+  std::string value(raw_value);
+  auto const is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+  value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), is_space));
+  value.erase(std::find_if_not(value.rbegin(), value.rend(), is_space).base(), value.end());
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+  if (value == "0" || value == "none" || value == "off" || value == "false" || value == "no")
+    return DumpMode::None;
+  if (value == "2" || value == "full" || value == "all" || value == "verbose")
+    return DumpMode::Full;
+  if (value == "1" || value == "basic" || value == "on" || value == "true" || value == "yes")
+    return DumpMode::Basic;
+
+  return DumpMode::Basic;
+}
+
+DumpMode runtime_dump_mode() noexcept
+{
+  static DumpMode const mode = parse_dump_mode(std::getenv("UNI20_DEBUG_ASYNC_TASKS"));
+  return mode;
 }
 
 #if UNI20_HAS_STACKTRACE
@@ -347,6 +377,93 @@ class TaskRegistryImpl {
       fmt::print(stderr, "================================================\n");
     }
 
+    DumpMode dump_mode() const noexcept { return runtime_dump_mode(); }
+
+    void dump_epoch_context(EpochContext const* epoch_context, char const* reason)
+    {
+      fmt::print(stderr, "\n========== Async Task Registry Diagnostic ==========\n");
+      if (reason && reason[0] != '\0') fmt::print(stderr, "reason: {}\n", reason);
+
+      if (!epoch_context)
+      {
+        fmt::print(stderr, "epoch: null\n");
+        fmt::print(stderr, "====================================================\n");
+        return;
+      }
+
+      EpochContext::DebugSnapshot snapshot = epoch_context->debug_snapshot();
+      TaskDebugInfoMap tasks_copy;
+      bool found_epoch = false;
+      EpochDebugInfo epoch_info{};
+      {
+        std::lock_guard lock(mutex_);
+        tasks_copy = tasks_;
+        auto const epoch_it = epoch_contexts_.find(epoch_context);
+        if (epoch_it != epoch_contexts_.end())
+        {
+          found_epoch = true;
+          epoch_info = epoch_it->second;
+        }
+      }
+
+      fmt::print(stderr, "epoch pointer: {}\n", static_cast<void const*>(epoch_context));
+      if (found_epoch)
+      {
+        fmt::print(stderr, "epoch id: {}\n", epoch_info.id);
+        fmt::print(stderr, "epoch creation timestamp: {}\n", format_timestamp(epoch_info.creation_timestamp));
+      }
+      else
+      {
+        fmt::print(stderr, "epoch id: unknown\n");
+        fmt::print(stderr, "epoch creation timestamp: unknown\n");
+      }
+
+      fmt::print(stderr, "epoch generation: {}\n", snapshot.generation);
+      fmt::print(stderr, "epoch phase: {}\n", to_string(snapshot.phase));
+      fmt::print(stderr, "next epoch pointer: {}\n", static_cast<void const*>(snapshot.next_epoch));
+
+      auto print_task_list = [&](char const* label, std::vector<std::coroutine_handle<>> const& handles) {
+        fmt::print(stderr, "{}: {}\n", label, handles.size());
+        for (auto const& handle : handles)
+        {
+          if (!handle)
+          {
+            fmt::print(stderr, "  - null handle\n");
+            continue;
+          }
+
+          auto const it = tasks_copy.find(handle.address());
+          if (it == tasks_copy.end())
+          {
+            fmt::print(stderr, "  - {} (untracked)\n", static_cast<void const*>(handle.address()));
+            continue;
+          }
+
+          fmt::print(stderr, "  - id={} ptr={} state={}\n", it->second.id, static_cast<void const*>(handle.address()),
+                     to_string(it->second.state));
+        }
+      };
+
+      print_task_list("reader tasks", snapshot.reader_tasks);
+      print_task_list("writer tasks", snapshot.writer_tasks);
+
+      if (found_epoch)
+      {
+#if UNI20_HAS_STACKTRACE
+        fmt::print(stderr, "epoch creation stacktrace:\n");
+        print_stacktrace(epoch_info.creation_trace);
+#else
+        fmt::print(stderr, "epoch creation stacktrace: unavailable\n");
+#endif
+      }
+      else
+      {
+        fmt::print(stderr, "epoch creation stacktrace: unknown\n");
+      }
+
+      fmt::print(stderr, "====================================================\n");
+    }
+
     static TaskRegistryImpl& instance()
     {
       static TaskRegistryImpl* inst = new TaskRegistryImpl(); // intentional leak
@@ -384,8 +501,10 @@ class TaskRegistryImpl {
 #endif
     }
 
+    using TaskDebugInfoMap = std::unordered_map<void*, TaskDebugInfo>;
+
     std::mutex mutex_;
-    std::unordered_map<void*, TaskDebugInfo> tasks_;
+    TaskDebugInfoMap tasks_;
     std::unordered_map<EpochContext const*, EpochDebugInfo> epoch_contexts_;
     std::size_t next_task_id_{1};
     std::size_t next_epoch_id_{1};
@@ -435,6 +554,13 @@ std::vector<std::coroutine_handle<>> TaskRegistry::epoch_reader_tasks(async::Epo
 std::vector<std::coroutine_handle<>> TaskRegistry::epoch_writer_tasks(async::EpochContext const* epoch_context)
 {
   return TaskRegistryImpl::instance().epoch_writer_tasks(epoch_context);
+}
+
+TaskRegistry::DumpMode TaskRegistry::dump_mode() noexcept { return TaskRegistryImpl::instance().dump_mode(); }
+
+void TaskRegistry::dump_epoch_context(async::EpochContext const* epoch_context, char const* reason)
+{
+  TaskRegistryImpl::instance().dump_epoch_context(epoch_context, reason);
 }
 
 void TaskRegistry::dump() { TaskRegistryImpl::instance().dump(); }

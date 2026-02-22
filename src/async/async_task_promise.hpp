@@ -5,6 +5,7 @@
 #pragma once
 
 #include "async_node.hpp"
+#include "async_errors.hpp"
 #include "async_task.hpp"
 #include "scheduler.hpp"
 #include <atomic>
@@ -71,11 +72,6 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter;
 /// \brief Forwarding awaiter that takes shared ownership of a std::coroutine_handle and forwards to an awaiter as an
 /// AsyncTaskFactory
 template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter;
-
-struct task_cancelled : public std::exception
-{
-    char const* what() const noexcept override { return "AsyncTask was cancelled"; }
-};
 
 /// \brief Promise type for AsyncTask.
 /// \ingroup async_core

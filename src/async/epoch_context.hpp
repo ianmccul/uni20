@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "async_errors.hpp"
 #include "async_node.hpp"
 #include "async_task_promise.hpp"
 #include "shared_storage.hpp"
@@ -14,6 +15,7 @@
 #include <coroutine>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <fmt/format.h>
 #include <memory>
 #include <mutex>
@@ -742,33 +744,6 @@ constexpr std::string_view format_as(uni20::async::EpochContext::Phase p)
   return "Unknown";
 }
 
-class buffer_error : public std::exception {
-  public:
-    explicit buffer_error(std::string msg) : msg_(std::move(msg)) {}
-    char const* what() const noexcept override { return msg_.c_str(); }
-
-  private:
-    std::string msg_;
-};
-
-/// \brief Raised when a buffer is cancelled intentionally
-class buffer_cancelled : public buffer_error {
-  public:
-    buffer_cancelled() : buffer_error("ReadBuffer was cancelled: no value written") {}
-};
-
-/// \brief Raised when a buffer was expected to be written but never was.
-// class buffer_unwritten : public buffer_error {
-//   public:
-//     buffer_unwritten() : buffer_error("Async buffer released without writing to the buffer, so is now invalid") {}
-// };
-
-/// \brief Raised when a buffer was expected to be written but never was.
-class buffer_uninitialized : public buffer_error {
-  public:
-    buffer_uninitialized() : buffer_error("Attempt to read from a buffer that has not been initialized") {}
-};
-
 /// \brief RAII handle representing the writer of a value in an EpochContext.
 ///
 /// On construction, this marks the epoch as having a writer. When the buffer
@@ -869,6 +844,7 @@ template <typename T> class EpochContextReader {
     /// \brief Access the stored value inside the parent Async<T>.
     /// \return Reference to the T value.
     /// \pre The value must be ready. Should only be called after await_ready() returns true.
+    /// \throws buffer_read_uninitialized if no value was constructed for this epoch.
     /// \ingroup async_core
     T const& data() const
     {
@@ -876,7 +852,23 @@ template <typename T> class EpochContextReader {
       DEBUG_TRACE_MODULE(ASYNC, "EpochContextReader::data", epoch_.get(), epoch_->counter_);
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
       auto* ptr = storage_.get();
-      DEBUG_CHECK(ptr);
+      if (!ptr)
+      {
+#if UNI20_DEBUG_ASYNC_TASKS
+        constexpr char const* reason = "EpochContextReader::data access on uninitialized storage";
+        auto const mode = TaskRegistry::dump_mode();
+        if (mode != TaskRegistry::DumpMode::None)
+        {
+          auto const epoch_counter = epoch_ ? epoch_->counter_ : -1;
+          TRACE_STACK(reason, this, epoch_.get(), epoch_counter);
+          if (mode == TaskRegistry::DumpMode::Full)
+            TaskRegistry::dump();
+          else
+            TaskRegistry::dump_epoch_context(epoch_.get(), reason);
+        }
+#endif
+        throw buffer_read_uninitialized{};
+      }
       return *ptr;
     }
 
@@ -905,7 +897,7 @@ template <typename T> class EpochContextReader {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
       auto* ptr = storage_.get();
-      DEBUG_CHECK(ptr);
+      if (!ptr) return std::nullopt;
       return *ptr;
     }
 
@@ -1024,10 +1016,29 @@ template <typename T> class EpochContextWriter {
 
     /// \brief Access the stored data while holding the writer gate.
     /// \return Mutable reference to the stored value.
-    T& data() const noexcept
+    /// \throws buffer_write_uninitialized if storage is not yet constructed.
+    T& data() const
     {
       auto* ptr = storage_.get();
-      DEBUG_CHECK(ptr);
+      if (!ptr)
+      {
+#if UNI20_DEBUG_ASYNC_TASKS
+        constexpr char const* reason = "EpochContextWriter::data access on uninitialized storage";
+        auto const mode = TaskRegistry::dump_mode();
+        if (mode != TaskRegistry::DumpMode::None)
+        {
+          auto const epoch_counter = epoch_ ? epoch_->counter_ : -1;
+          TRACE_STACK(reason, this, epoch_.get(), epoch_counter);
+          if (mode == TaskRegistry::DumpMode::Full)
+            TaskRegistry::dump();
+          else
+            TaskRegistry::dump_epoch_context(epoch_.get(), reason);
+        }
+#endif
+        std::exception_ptr eptr = std::make_exception_ptr(buffer_write_uninitialized{});
+        if (epoch_) epoch_->writer_set_exception(eptr);
+        std::rethrow_exception(eptr);
+      }
       return *ptr;
     }
 
@@ -1035,8 +1046,28 @@ template <typename T> class EpochContextWriter {
       requires std::constructible_from<T, Args...>
     T& emplace(Args&&... args)
     {
-      storage_.emplace(std::forward<Args>(args)...);
-      return *storage_.get();
+      try
+      {
+        return storage_.emplace(std::forward<Args>(args)...);
+      }
+      catch (...)
+      {
+#if UNI20_DEBUG_ASYNC_TASKS
+        constexpr char const* reason = "EpochContextWriter::emplace failed while constructing storage";
+        auto const mode = TaskRegistry::dump_mode();
+        if (mode != TaskRegistry::DumpMode::None)
+        {
+          auto const epoch_counter = epoch_ ? epoch_->counter_ : -1;
+          TRACE_STACK(reason, this, epoch_.get(), epoch_counter);
+          if (mode == TaskRegistry::DumpMode::Full)
+            TaskRegistry::dump();
+          else
+            TaskRegistry::dump_epoch_context(epoch_.get(), reason);
+        }
+#endif
+        this->set_exception(std::current_exception());
+        throw;
+      }
     }
 
     shared_storage<T>& storage() { return storage_; }

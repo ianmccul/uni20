@@ -12,6 +12,12 @@ namespace uni20 {
 
 class TaskRegistry {
 public:
+    enum class DumpMode {
+        None,
+        Basic,
+        Full,
+    };
+
     enum class TaskState {
         Constructed,
         Running,
@@ -37,6 +43,8 @@ public:
     {}
     static std::vector<std::coroutine_handle<>> epoch_reader_tasks(async::EpochContext const*) { return {}; }
     static std::vector<std::coroutine_handle<>> epoch_writer_tasks(async::EpochContext const*) { return {}; }
+    static constexpr DumpMode dump_mode() noexcept { return DumpMode::None; }
+    static constexpr void dump_epoch_context(async::EpochContext const*, char const* = nullptr) noexcept {}
     static constexpr void dump() noexcept {}
 };
 

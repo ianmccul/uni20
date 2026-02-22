@@ -15,9 +15,7 @@ TEST(AsyncBasicTest, WriteThenRead)
 
   // Empty capture list: ensures safety if coroutine escapes the local scope (not possible here, but good style)
   auto writer = [](WriteBuffer<int> wbuf) -> AsyncTask {
-    auto& w = co_await wbuf;
-    w = 42;
-    // Implicit RAII release
+    co_await wbuf.emplace(42);
     co_return;
   }(a.write());
   sched.schedule(std::move(writer));
@@ -26,7 +24,6 @@ TEST(AsyncBasicTest, WriteThenRead)
   auto reader = [](ReadBuffer<int> rbuf) -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 42);
-    // Implicit RAII release
     co_return;
   }(a.read());
   sched.schedule(std::move(reader));
@@ -229,7 +226,7 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
   Async<int> mutable_value = 0;
   Async<int> write_only;
 
-  auto mutate_task = [](WriteBuffer<int> buffer) -> AsyncTask {
+  auto mutate_task = [](WriteBuffer<int> buffer) static -> AsyncTask {
     auto& ref = co_await buffer;
     ref = 17;
     auto moved = std::move(buffer);
@@ -237,9 +234,9 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
     co_return;
   }(mutable_value.mutate());
 
-  auto write_task = [](WriteBuffer<int> buffer) -> AsyncTask {
-    auto& ref = co_await buffer;
-    ref = 23;
+  auto write_task = [](WriteBuffer<int> buffer) static -> AsyncTask {
+    auto& ref = co_await buffer.emplace(23);
+    EXPECT_EQ(ref, 23);
     auto moved = std::move(buffer);
     (void)moved;
     co_return;
@@ -251,6 +248,55 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
 
   EXPECT_EQ(mutable_value.get_wait(), 17);
   EXPECT_EQ(write_only.get_wait(), 23);
+}
+
+TEST(AsyncBasicTest, WriterAwaitOnUninitializedStoragePropagatesException)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  Async<int> value;
+  bool writer_saw_exception = false;
+  int reader_status = 0;
+
+  schedule([](WriteBuffer<int> writer, bool& saw_exception) static -> AsyncTask {
+    try
+    {
+      auto& ref = co_await writer;
+      (void)ref;
+    }
+    catch (buffer_write_uninitialized const&)
+    {
+      saw_exception = true;
+    }
+    co_return;
+  }(value.write(), writer_saw_exception));
+
+  schedule([](ReadBuffer<int> reader, int& status) static -> AsyncTask {
+    try
+    {
+      (void)co_await reader;
+      status = 0;
+    }
+    catch (buffer_write_uninitialized const&)
+    {
+      status = 1;
+    }
+    catch (buffer_read_uninitialized const&)
+    {
+      status = 2;
+    }
+    catch (...)
+    {
+      status = 3;
+    }
+    co_return;
+  }(value.read(), reader_status));
+
+  sched.run_all();
+
+  EXPECT_TRUE(writer_saw_exception);
+  EXPECT_EQ(reader_status, 1);
 }
 
 TEST(AsyncBasicTest, WriterDisappearsExpectException)
