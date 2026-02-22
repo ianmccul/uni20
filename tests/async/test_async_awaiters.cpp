@@ -13,13 +13,15 @@ TEST(AsyncAwaitersTest, TryAwaitReady)
   DebugScheduler sched;
   int count = 0;
 
-  auto task = [](int& count, ReadBuffer<int> rbuf) static -> AsyncTask {
+  auto task = [](int& count, ReadBuffer<int> rbuf) static->AsyncTask
+  {
     auto opt = co_await try_await(rbuf);
     EXPECT_TRUE(opt.has_value());
     EXPECT_EQ(*opt, 123);
     ++count;
     co_return;
-  }(count, a.read());
+  }
+  (count, a.read());
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -31,13 +33,16 @@ TEST(AsyncAwaitersTest, TryAwaitReadBufferBeforeAndAfterInitialization)
   Async<int> value;
   DebugScheduler sched;
 
-  auto writer = [](WriteBuffer<int> writer) static -> AsyncTask {
+  auto writer = [](WriteBuffer<int> writer) static->AsyncTask
+  {
     auto& out = co_await writer.emplace(42);
     EXPECT_EQ(out, 42);
     co_return;
-  }(value.write());
+  }
+  (value.write());
 
-  auto reader = [](ReadBuffer<int> reader) static -> AsyncTask {
+  auto reader = [](ReadBuffer<int> reader) static->AsyncTask
+  {
     auto first = co_await try_await(reader);
     EXPECT_FALSE(first.has_value());
 
@@ -48,7 +53,8 @@ TEST(AsyncAwaitersTest, TryAwaitReadBufferBeforeAndAfterInitialization)
     EXPECT_TRUE(second.has_value());
     EXPECT_EQ(second->get(), 42);
     co_return;
-  }(value.read());
+  }
+  (value.read());
 
   sched.schedule(std::move(reader));
   sched.run_all();
@@ -62,21 +68,25 @@ TEST(AsyncAwaitersTest, TryAwaitFailsThenSucceeds)
   Async<int> a;
   DebugScheduler sched;
 
-  auto writer = [](int& count, WriteBuffer<int> w) static -> AsyncTask {
+  auto writer = [](int& count, WriteBuffer<int> w) static->AsyncTask
+  {
     auto& ref = co_await w.emplace(99);
     EXPECT_EQ(ref, 99);
     ++count;
     co_return;
-  }(count, a.write());
+  }
+  (count, a.write());
 
-  auto task = [](int& count, ReadBuffer<int> rbuf) static -> AsyncTask {
+  auto task = [](int& count, ReadBuffer<int> rbuf) static->AsyncTask
+  {
     auto opt = co_await try_await(rbuf);
     EXPECT_FALSE(opt.has_value());
     auto& val = co_await rbuf;
     EXPECT_EQ(val, 99);
     ++count;
     co_return;
-  }(count, a.read());
+  }
+  (count, a.read());
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -93,12 +103,14 @@ TEST(AsyncAwaitersTest, AllAwaiterTwoBuffers)
   DebugScheduler sched;
 
   int sum = 0;
-  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count, int& sum) static -> AsyncTask {
+  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count, int& sum) static->AsyncTask
+  {
     auto [va, vb] = co_await all(a, b);
     sum = va + vb;
     ++count;
     co_return;
-  }(a.read(), b.read(), count, sum);
+  }
+  (a.read(), b.read(), count, sum);
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -113,27 +125,33 @@ TEST(AsyncAwaitersTest, AllAwaiterBlockedThenUnblocked)
   Async<int> b;
   DebugScheduler sched;
 
-  auto writer_a = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
+  auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
+  {
     auto& ref = co_await w.emplace(42);
     EXPECT_EQ(ref, 42);
     ++count;
     co_return;
-  }(a.write(), count);
+  }
+  (a.write(), count);
 
-  auto writer_b = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
+  auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
+  {
     auto& ref = co_await w.emplace(77);
     EXPECT_EQ(ref, 77);
     ++count;
     co_return;
-  }(b.write(), count);
+  }
+  (b.write(), count);
 
-  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static -> AsyncTask {
+  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static->AsyncTask
+  {
     auto [va, vb] = co_await all(a, b);
     EXPECT_EQ(va, 42);
     EXPECT_EQ(vb, 77);
     ++count;
     co_return;
-  }(a.read(), b.read(), count);
+  }
+  (a.read(), b.read(), count);
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -155,27 +173,33 @@ TEST(AsyncAwaitersTest, AllAwaiterOneUnblocksThenSecond)
   Async<int> b;
   DebugScheduler sched;
 
-  auto writer_a = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
+  auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
+  {
     auto& ref = co_await w.emplace(42);
     EXPECT_EQ(ref, 42);
     ++count;
     co_return;
-  }(a.write(), count);
+  }
+  (a.write(), count);
 
-  auto writer_b = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
+  auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
+  {
     auto& ref = co_await w.emplace(77);
     EXPECT_EQ(ref, 77);
     ++count;
     co_return;
-  }(b.write(), count);
+  }
+  (b.write(), count);
 
-  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static -> AsyncTask {
+  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static->AsyncTask
+  {
     auto [va, vb] = co_await all(a, b);
     EXPECT_EQ(va, 42);
     EXPECT_EQ(vb, 77);
     ++count;
     co_return;
-  }(a.read(), b.read(), count);
+  }
+  (a.read(), b.read(), count);
 
   sched.schedule(std::move(writer_b));
   sched.run_all();
@@ -198,27 +222,33 @@ TEST(AsyncAwaitersTest, AllAwaiterNoneBlocked)
   Async<int> b;
   DebugScheduler sched;
 
-  auto writer_a = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
+  auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
+  {
     auto& ref = co_await w.emplace(42);
     EXPECT_EQ(ref, 42);
     ++count;
     co_return;
-  }(a.write(), count);
+  }
+  (a.write(), count);
 
-  auto writer_b = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
+  auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
+  {
     auto& ref = co_await w.emplace(77);
     EXPECT_EQ(ref, 77);
     ++count;
     co_return;
-  }(b.write(), count);
+  }
+  (b.write(), count);
 
-  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static -> AsyncTask {
+  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static->AsyncTask
+  {
     auto [va, vb] = co_await all(a, b);
     EXPECT_EQ(va, 42);
     EXPECT_EQ(vb, 77);
     ++count;
     co_return;
-  }(a.read(), b.read(), count);
+  }
+  (a.read(), b.read(), count);
 
   sched.schedule(std::move(writer_b));
   sched.run_all();
@@ -244,7 +274,8 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
   int cancel_sum = 0;
   bool reader_finished = false;
 
-  auto writer = [](WriteBuffer<int> writer) static -> AsyncTask {
+  auto writer = [](WriteBuffer<int> writer) static->AsyncTask
+  {
     auto& first = co_await writer.emplace(1);
     EXPECT_EQ(first, 1);
 
@@ -280,10 +311,12 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
     auto& final_value = co_await writer.emplace(7);
     EXPECT_EQ(final_value, 7);
     co_return;
-  }(value.write());
+  }
+  (value.write());
 
-  auto reader = [](ReadBuffer<int> reader, int& read_sum, int& maybe_value, int& cancel_sum,
-                   bool& finished) static -> AsyncTask {
+  auto reader =
+      [](ReadBuffer<int> reader, int& read_sum, int& maybe_value, int& cancel_sum, bool& finished) static->AsyncTask
+  {
     auto const& first = co_await reader;
     auto const& second = co_await reader;
     read_sum = first + second;
@@ -301,7 +334,8 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
 
     finished = true;
     co_return;
-  }(value.read(), read_sum, maybe_value, cancel_sum, reader_finished);
+  }
+  (value.read(), read_sum, maybe_value, cancel_sum, reader_finished);
 
   sched.schedule(std::move(reader));
   sched.run_all();

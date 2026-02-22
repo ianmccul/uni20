@@ -114,7 +114,7 @@ TEST(TbbSchedulerStress, BalancedReductionShowsParallelism)
   for (int i = 0; i < kLeafCount; ++i)
   {
     Async<int> leaf;
-    schedule([](WriteBuffer<int> out) static -> AsyncTask {
+    schedule([](WriteBuffer<int> out) static->AsyncTask {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
       co_await out.emplace(1);
       co_return;
@@ -136,7 +136,7 @@ TEST(TbbSchedulerStress, BalancedReductionShowsParallelism)
     {
       Async<int> combined;
       schedule([](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int>* active_tasks,
-                  std::atomic<int>* peak_tasks) static -> AsyncTask {
+                  std::atomic<int>* peak_tasks) static->AsyncTask {
         int current = active_tasks->fetch_add(1, std::memory_order_relaxed) + 1;
         update_max(*peak_tasks, current);
         auto const& lhs_value = co_await lhs;

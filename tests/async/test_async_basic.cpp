@@ -26,18 +26,22 @@ TEST(AsyncBasicTest, WriteThenRead)
   DebugScheduler sched;
 
   // Empty capture list: ensures safety if coroutine escapes the local scope (not possible here, but good style)
-  auto writer = [](WriteBuffer<int> wbuf) static -> AsyncTask {
+  auto writer = [](WriteBuffer<int> wbuf) static->AsyncTask
+  {
     co_await wbuf.emplace(42);
     co_return;
-  }(a.write());
+  }
+  (a.write());
   sched.schedule(std::move(writer));
   sched.run_all();
 
-  auto reader = [](ReadBuffer<int> rbuf) static -> AsyncTask {
+  auto reader = [](ReadBuffer<int> rbuf) static->AsyncTask
+  {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 42);
     co_return;
-  }(a.read());
+  }
+  (a.read());
   sched.schedule(std::move(reader));
   sched.run_all();
 }
@@ -56,7 +60,7 @@ TEST(AsyncBasicTest, MultipleReaders)
   for (int i = 0; i < 3; ++i)
   {
     // Pass references explicitly as coroutine parameters so lifetimes are clear.
-    sched.schedule([](int i, ReadBuffer<int> rbuf, std::vector<int>& results) static -> AsyncTask {
+    sched.schedule([](int i, ReadBuffer<int> rbuf, std::vector<int>& results) static->AsyncTask {
       auto& r = co_await rbuf;
       // results outlives all scheduled coroutines in this test.
       results[i] = r;
@@ -107,13 +111,13 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   DebugScheduler sched;
 
   // Schedule two readers that hold the value
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static->AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 7);
     ++count;
     co_return;
   }(a.read(), count));
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static->AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 7);
     ++count;
@@ -121,7 +125,7 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   }(a.read(), count));
 
   // Writer
-  sched.schedule([](WriteBuffer<int> wbuf, int& count) static -> AsyncTask {
+  sched.schedule([](WriteBuffer<int> wbuf, int& count) static->AsyncTask {
     auto& w = co_await wbuf;
     w = 8;
     ++count;
@@ -129,13 +133,13 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   }(a.write(), count));
 
   // Schedule two new readers that should observe the updated value
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static->AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 8);
     ++count;
     co_return;
   }(a.read(), count));
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static->AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 8);
     ++count;
@@ -226,16 +230,20 @@ TEST(AsyncBasicTest, WriteProxyReleasesEpochs)
   // Initialization path should use WriteBuffer to populate the first value.
   Async<int> uninitialized_value;
 
-  auto init_writer = [](WriteBuffer<int> buf) static -> AsyncTask {
+  auto init_writer = [](WriteBuffer<int> buf) static->AsyncTask
+  {
     co_await buf = 42;
     co_return;
-  }(uninitialized_value.write());
+  }
+  (uninitialized_value.write());
 
-  auto init_reader = [](ReadBuffer<int> buf) static -> AsyncTask {
+  auto init_reader = [](ReadBuffer<int> buf) static->AsyncTask
+  {
     auto& value = co_await buf;
     EXPECT_EQ(value, 42);
     co_return;
-  }(uninitialized_value.read());
+  }
+  (uninitialized_value.read());
 
   sched.schedule(std::move(init_writer));
   sched.schedule(std::move(init_reader));

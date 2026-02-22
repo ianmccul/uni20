@@ -26,7 +26,7 @@ TEST(AsyncDestroyTest, DestroyWaitingReader)
 
   bool was_destroyed = false;
 
-  auto Reader = [](ReadBuffer<int> in, bool* flag) static -> AsyncTask {
+  auto Reader = [](ReadBuffer<int> in, bool* flag) static->AsyncTask {
     DestructionObserver obs(flag);
     auto buf = co_await in.or_cancel();
     EXPECT_EQ(&buf, nullptr); // this should never be executed
@@ -58,7 +58,7 @@ TEST(AsyncDestroyTest, DestroyNewReader)
 
   bool was_destroyed = false;
 
-  auto Reader = [](ReadBuffer<int> in, bool* flag) static -> AsyncTask {
+  auto Reader = [](ReadBuffer<int> in, bool* flag) static->AsyncTask {
     DestructionObserver obs(flag);
     auto buf = co_await in.or_cancel();
     EXPECT_EQ(&buf, nullptr); // this should never be executed
@@ -95,7 +95,7 @@ TEST(AsyncDestroyTest, DestroySubsequentReader)
   bool was_destroyed1 = false;
   bool was_destroyed2 = false;
 
-  auto Reader = [](ReadBuffer<int> in, bool* flag) static -> AsyncTask {
+  auto Reader = [](ReadBuffer<int> in, bool* flag) static->AsyncTask {
     DestructionObserver obs(flag);
     auto buf = co_await in.or_cancel();
     EXPECT_EQ(&buf, nullptr); // this should never be executed

@@ -26,7 +26,7 @@ TEST(TbbNumaScheduler, RoundRobinScheduling)
 
   for (std::size_t i = 0; i < task_count; ++i)
   {
-    scheduler.schedule([]() static -> AsyncTask { co_return; }());
+    scheduler.schedule([]() static->AsyncTask { co_return; }());
   }
 
   scheduler.run_all();
@@ -52,7 +52,7 @@ TEST(TbbNumaScheduler, HonorsPreferredNumaNode)
   int preferred = scheduler.numa_nodes().front();
   std::size_t before = scheduler.scheduled_count_for(preferred);
 
-  auto task = []() static -> AsyncTask { co_return; }();
+  auto task = []() static->AsyncTask { co_return; }();
   task.set_preferred_numa_node(preferred);
   scheduler.schedule(std::move(task));
   scheduler.run_all();
@@ -76,7 +76,7 @@ TEST(TbbNumaScheduler, RunAllDrainsArenas)
 
   for (int i = 0; i < kTasks; ++i)
   {
-    scheduler.schedule([](std::atomic<int>* counter) static -> AsyncTask {
+    scheduler.schedule([](std::atomic<int>* counter) static->AsyncTask {
       counter->fetch_add(1, std::memory_order_relaxed);
       co_return;
     }(&counter));
