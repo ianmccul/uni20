@@ -15,7 +15,7 @@ template <typename T> AsyncTask co_sin(ReadBuffer<T> in, WriteBuffer<T> out)
   using std::sin;
   // use release() to make sure we release the input before writing to the output
   // C+17 guarantees order of evaluation
-  co_await out = sin(co_await release(in));
+  co_await out.emplace(sin(co_await release(in)));
 }
 
 template <typename T> Async<T> sin(Async<T> const& x)
@@ -30,7 +30,7 @@ template <typename T> AsyncTask co_cos(ReadBuffer<T> in, WriteBuffer<T> out)
   using std::cos;
   auto x = co_await in;
   in.release();
-  co_await out = cos(x);
+  co_await out.emplace(cos(x));
 }
 
 template <typename T> Async<T> cos(Async<T> const& x)
@@ -45,7 +45,7 @@ template <typename T> AsyncTask co_conj(ReadBuffer<T> in, WriteBuffer<T> out)
   using uni20::conj;
   auto x = co_await in;
   in.release();
-  co_await out = conj(x);
+  co_await out.emplace(conj(x));
 }
 
 template <typename T> Async<T> conj(Async<T> const& x)
@@ -61,7 +61,7 @@ template <typename T> AsyncTask co_real(ReadBuffer<T> in, WriteBuffer<uni20::mak
   auto const& value = co_await in;
   auto const result = real(value);
   in.release();
-  co_await out = result;
+  co_await out.emplace(result);
 }
 
 template <typename T> Async<uni20::make_real_t<T>> real(Async<T> const& x)
@@ -77,7 +77,7 @@ template <typename T> AsyncTask co_imag(ReadBuffer<T> in, WriteBuffer<uni20::mak
   auto const& value = co_await in;
   auto const result = imag(value);
   in.release();
-  co_await out = result;
+  co_await out.emplace(result);
 }
 
 template <typename T> Async<uni20::make_real_t<T>> imag(Async<T> const& x)
@@ -92,7 +92,7 @@ template <typename T> AsyncTask co_herm(ReadBuffer<T> in, WriteBuffer<T> out)
   using uni20::conj;
   auto x = co_await in;
   in.release();
-  co_await out = herm(x);
+  co_await out.emplace(herm(x));
 }
 
 template <typename T> Async<T> herm(Async<T> const& x)
@@ -113,9 +113,10 @@ template <typename T> void async_print(std::string Format, Async<T> x)
 template <typename T> void async_read(std::string Prompt, Async<T>& x)
 {
   schedule([](std::string Prompt, WriteBuffer<T> out) static -> AsyncTask {
-    auto& x = co_await out;
     fmt::print("{}", Prompt);
-    std::cin >> x;
+    T value{};
+    std::cin >> value;
+    co_await out.emplace(std::move(value));
   }(std::move(Prompt), x.write()));
 }
 

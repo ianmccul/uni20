@@ -157,7 +157,12 @@ template <typename T> Dual<uni20::make_real_t<T>> real(Dual<T> z)
   Dual<r_type> Result;
   Result.value = real(z.value);
   schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
-    real(co_await out_grad) += co_await in_grad.or_cancel();
+    auto s = co_await out_grad.storage();
+    auto grad = co_await in_grad.or_cancel();
+    if (s.constructed())
+      real(*s) += grad;
+    else
+      s.emplace(grad);
   }(Result.grad.input(), z.grad.output()));
   return Result;
 }
@@ -169,7 +174,16 @@ template <typename T> Dual<uni20::make_real_t<T>> imag(Dual<T> z)
   Dual<r_type> Result;
   Result.value = imag(z.value);
   schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
-    imag(co_await out_grad) += co_await in_grad.or_cancel();
+    auto s = co_await out_grad.storage();
+    auto grad = co_await in_grad.or_cancel();
+    if (s.constructed())
+      imag(*s) += grad;
+    else
+    {
+      T value{};
+      imag(value) = grad;
+      s.emplace(std::move(value));
+    }
   }(Result.grad.input(), z.grad.output()));
   return Result;
 }

@@ -246,7 +246,7 @@ namespace detail
 /// \brief Awaitable that writes a value to a WriteBuffer<T>.
 ///
 /// This awaiter performs a write of a value to an Async<T> object by
-/// acquiring a WriteBuffer<T>, suspending if needed, and assigning the
+/// acquiring a WriteBuffer<T>, suspending if needed, and emplacing the
 /// provided value at resume.
 ///
 /// \tparam Buffer A WriteBuffer<T> or compatible wrapper, passed by value or reference.
@@ -254,7 +254,7 @@ namespace detail
 ///
 /// \note Use this when you want to write a computed value directly into an Async<T>
 ///       in one expression. Especially useful when the WriteBuffer is a temporary.
-///       `co_await write_to(buffer, v)` is equivalent to `auto& vo = co_await buffer; vo = std::move(v)`
+///       `co_await write_to(buffer, v)` is equivalent to `co_await buffer.emplace(std::move(v))`
 ///
 /// \warning The WriteBuffer must not be reused after passing to write_to. It is moved
 ///          into the coroutine and consumed during co_await.
@@ -263,14 +263,14 @@ template <typename T, typename Value> class WriteToAwaiter {
     WriteToAwaiter(WriteBuffer<T>&& buffer, Value&& value)
         : buffer_(std::move(buffer)), value_(std::forward<Value>(value))
     {
-      static_assert(std::is_convertible_v<Value, T>, "Value must be convertible to T for WriteBuffer<T>");
+      static_assert(std::constructible_from<T, Value&&>, "Value must be constructible as T for WriteBuffer<T>");
     }
 
     bool await_ready() const noexcept { return buffer_.await_ready(); }
 
     auto await_suspend(AsyncTask&& t) noexcept { return buffer_.await_suspend(std::move(t)); }
 
-    void await_resume() { buffer_.await_resume() = std::move(value_); }
+    void await_resume() { buffer_.emplace_assert(std::move(value_)); }
 
   private:
     WriteBuffer<T> buffer_;

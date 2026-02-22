@@ -106,6 +106,20 @@ TEST(AsyncOpsTest, MoveOnlyType)
   EXPECT_EQ(*result, "test-move");
 }
 
+TEST(AsyncOpsTest, AsyncAssignReadWriteSameAsyncDoesNotDeadlock)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Async<int> value = 9;
+  auto src = value.read();
+  auto dst = value.write();
+  async_assign(std::move(src), std::move(dst));
+
+  sched.run_all();
+  EXPECT_EQ(value.get_wait(), 9);
+}
+
 TEST(AsyncBasicTest, EpochQueueResetOnAssignment)
 {
   DebugScheduler sched;

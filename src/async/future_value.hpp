@@ -33,9 +33,9 @@ template <typename T> class FutureValue {
     /// Since we are guaranteed that the write is immediate, we don't need to wait
     template <typename U>
     FutureValue& operator=(U&& v)
-      requires std::assignable_from<T&, U&&>
+      requires std::constructible_from<T, U&&>
     {
-      write_buf_.write_assert(std::forward<U>(v));
+      write_buf_.emplace_assert(std::forward<U>(v));
       write_buf_.release();
       return *this;
     }
@@ -81,10 +81,10 @@ template <typename T> class Defer {
 
     /// \brief Write immediately without suspending — asserts write readiness.
     template <typename U>
-      requires std::assignable_from<T&, U&&>
+      requires std::constructible_from<T, U&&>
     void write_assert(U&& val)
     {
-      writer_.write_assert(std::forward<U>(val));
+      writer_.emplace_assert(std::forward<U>(val));
     }
 
     template <typename U>
