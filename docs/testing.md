@@ -37,7 +37,6 @@ tests
 │   └── test_tbb_scheduler.cpp
 ├── common
 │   ├── test_aligned_buffer.cpp
-│   ├── test_dummy.cpp
 │   ├── test_floating_eq.cpp
 │   ├── test_terminal_color.cpp
 │   ├── test_trace.cpp
