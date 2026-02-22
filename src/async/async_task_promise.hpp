@@ -276,7 +276,7 @@ struct BasicAsyncTaskPromise
 
     void set_cancel_on_resume() noexcept { cancel_on_resume_.store(true, std::memory_order_release); }
 
-    bool cancel_on_resume() const noexcept { return cancel_on_resume_.load(std::memory_order_acquire); }
+    bool is_cancel_on_resume() const noexcept { return cancel_on_resume_.load(std::memory_order_acquire); }
 
     /// \brief Transform the awaiter to provide transfer of ownership of the AsyncTask
     template <AsyncTaskAwaitable A> auto await_transform(A& a);
@@ -457,7 +457,7 @@ struct BasicAsyncTaskPromise
           std::coroutine_handle<> await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
           {
             auto continuation = std::exchange(h.promise().continuation_, nullptr);
-            bool cancelled = h.promise().cancel_on_resume();
+            bool cancelled = h.promise().is_cancel_on_resume();
             auto eptr = h.promise().get_exception();
             TRACE_MODULE(ASYNC, "Final suspend of coroutine", h, continuation, cancelled);
 

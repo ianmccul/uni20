@@ -88,7 +88,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
 
     /// \brief Indicate that the coroutine should be cancelled upon resume.
     /// \ingroup async_core
-    void cancel_on_resume() noexcept;
+    void set_cancel_on_resume() noexcept;
 
     /// \brief Indicate that the coroutine should pass an exception upon resume.
     /// \param e Exception pointer to deliver when resumed.

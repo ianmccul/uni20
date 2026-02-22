@@ -45,7 +45,7 @@ bool BasicAsyncTask<T>::can_destroy_coroutine(BasicAsyncTask<T>::handle_type h) 
 {
   if (!h) return true;
 
-  auto const cancelled = h.promise().cancel_on_resume();
+  auto const cancelled = h.promise().is_cancel_on_resume();
   auto const done = h.done();
   return cancelled || done;
 }
@@ -56,7 +56,7 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>
   CHECK(h_);
   if (!h_.promise().release_awaiter()) PANIC("Attempt to resume() a non-exclusive AsyncTask");
 
-  bool to_destroy = h_.promise().cancel_on_resume();
+  bool to_destroy = h_.promise().is_cancel_on_resume();
 
   auto handle = h_;
   h_ = nullptr; // Always drop ownership, we are now effectively in a 'moved from' state
@@ -96,10 +96,10 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::abandon_leak()
   TRACE_MODULE(ASYNC, "Abandoning task handle", handle);
 }
 
-template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::cancel_on_resume() noexcept
+template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::set_cancel_on_resume() noexcept
 {
   TRACE_MODULE(ASYNC, "Setting cancel flag on coroutine", this, h_);
-  h_.promise().cancel_on_resume();
+  h_.promise().set_cancel_on_resume();
 }
 
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::exception_on_resume(std::exception_ptr e) noexcept

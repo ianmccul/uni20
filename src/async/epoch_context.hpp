@@ -490,7 +490,7 @@ class EpochContext {
         if (my_eptr)
         {
           if (cancel_on_exception)
-            h.cancel_on_resume();
+            h.set_cancel_on_resume();
           else
             h.exception_on_resume(my_eptr);
         }
@@ -601,7 +601,7 @@ class EpochContext {
       if (eptr_)
       {
         if (task.cancel_on_exception)
-          task.task.cancel_on_resume();
+          task.task.set_cancel_on_resume();
         else
           task.task.exception_on_resume(eptr_);
       }
@@ -628,7 +628,7 @@ class EpochContext {
         if (my_eptr)
         {
           if (task.cancel_on_exception)
-            task.task.cancel_on_resume();
+            task.task.set_cancel_on_resume();
           else
             task.task.exception_on_resume(my_eptr);
         }
