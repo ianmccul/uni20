@@ -10,12 +10,14 @@ TEST(AsyncWriteTest, WriteValueCorrectly)
   DebugScheduler sched;
   Async<int> x;
 
-  auto task = [](WriteBuffer<int> buffer) static->AsyncTask {
+  auto task = [](WriteBuffer<int> buffer) static->AsyncTask
+  {
     Async<int> x;
     co_await write_to(x.write(), 42);
     co_await write_to(std::move(buffer), co_await x.read());
     co_return;
-  }(x.write());
+  }
+  (x.write());
 
   sched.schedule(std::move(task));
   sched.run_all();

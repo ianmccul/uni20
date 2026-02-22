@@ -26,8 +26,8 @@ namespace uni20::async
 /// \todo We currently don't allow nested waiting on AsyncTaskFactoryAwaitable children. This could be supported, if it
 /// was useful.
 template <AsyncTaskAwaitable... Aw>
-  requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
-struct AllAwaiter //: public AsyncAwaiter
+requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> &&
+          ...)) struct AllAwaiter //: public AsyncAwaiter
 {
     std::tuple<Aw...> bufs_;                  ///< Underlying awaiters
     std::array<bool, sizeof...(Aw)> ready_{}; ///< Readiness flags
@@ -98,8 +98,7 @@ template <typename T> struct MapToRefOrValue<T&>
 /// @param aw Awaitable arguments.
 /// @return An object supporting `co_await`.
 template <AsyncTaskAwaitable... Aw>
-  requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
-auto all(Aw&&... aw) noexcept
+requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...)) auto all(Aw&&... aw) noexcept
 {
   return AllAwaiter<typename detail::MapToRefOrValue<Aw>::type...>(
       std::tuple<typename detail::MapToRefOrValue<Aw>::type...>(std::forward<Aw>(aw)...));
@@ -111,7 +110,10 @@ auto all(Aw&&... aw) noexcept
 
 /// \brief Detects if `T` has a member `operator co_await()`.
 template <typename T>
-concept HasMemberCoAwait = requires(T t) { t.operator co_await(); };
+concept HasMemberCoAwait = requires(T t)
+{
+  t.operator co_await();
+};
 
 /// \brief Detects if a free `operator co_await(t)` exists.
 /// \note Excludes types that already have a member operator.

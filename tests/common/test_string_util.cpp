@@ -7,7 +7,7 @@ namespace
 {
 struct StreamReadable
 {
-  int value{};
+    int value{};
 };
 
 std::istream& operator>>(std::istream& is, StreamReadable& readable)
@@ -37,10 +37,7 @@ TEST(StringUtilTest, FromStringArithmeticSuccess)
   EXPECT_DOUBLE_EQ(from_string<double>("3.125"), 3.125);
 }
 
-TEST(StringUtilTest, FromStringArithmeticInvalidInput)
-{
-  EXPECT_THROW(from_string<int>("abc"), std::runtime_error);
-}
+TEST(StringUtilTest, FromStringArithmeticInvalidInput) { EXPECT_THROW(from_string<int>("abc"), std::runtime_error); }
 
 TEST(StringUtilTest, FromStringUsesStreamExtractorWhenAvailable)
 {

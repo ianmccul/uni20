@@ -34,15 +34,12 @@ namespace Private
 using Complex = std::complex<double>;
 using Matrix = EXPOKIT::Matrix<Complex>;
 
-Matrix expm(Matrix const& matrix, double t, int ideg)
-{
-   return EXPOKIT::expm(matrix, t, ideg);
-}
+Matrix expm(Matrix const& matrix, double t, int ideg) { return EXPOKIT::expm(matrix, t, ideg); }
 
 Matrix expm(Matrix const& matrix, double t)
 {
-   int constexpr pade_degree = 9;
-   return EXPOKIT::expm(matrix, t, pade_degree);
+  int constexpr pade_degree = 9;
+  return EXPOKIT::expm(matrix, t, pade_degree);
 }
 
 } // namespace Private

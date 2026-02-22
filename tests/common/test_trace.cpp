@@ -43,7 +43,7 @@ TEST(TraceStackMacro, TraceStackIncludesStacktraceDiagnostic)
   EXPECT_NE(output.find("Stacktrace:"), std::string::npos) << "Trace output was:\n" << output;
 #else
   EXPECT_NE(output.find("WARNING: std::stacktrace is unavailable"), std::string::npos) << "Trace output was:\n"
-                                                                                        << output;
+                                                                                       << output;
 #endif
   trace::get_formatting_options().set_output_stream(stderr);
 }

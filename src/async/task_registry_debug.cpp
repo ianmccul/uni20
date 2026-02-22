@@ -31,14 +31,14 @@ char const* to_string(TaskState state) noexcept
 {
   switch (state)
   {
-  case TaskState::Constructed:
-    return "constructed";
-  case TaskState::Running:
-    return "running";
-  case TaskState::Suspended:
-    return "suspended";
-  case TaskState::Leaked:
-    return "leaked";
+    case TaskState::Constructed:
+      return "constructed";
+    case TaskState::Running:
+      return "running";
+    case TaskState::Suspended:
+      return "suspended";
+    case TaskState::Leaked:
+      return "leaked";
   }
 
   return "unknown";
@@ -48,10 +48,10 @@ char const* to_string(EpochTaskRole role) noexcept
 {
   switch (role)
   {
-  case EpochTaskRole::Reader:
-    return "reader";
-  case EpochTaskRole::Writer:
-    return "writer";
+    case EpochTaskRole::Reader:
+      return "reader";
+    case EpochTaskRole::Writer:
+      return "writer";
   }
 
   return "unknown";
@@ -61,7 +61,8 @@ std::string_view to_string(EpochContext::Phase phase) noexcept { return uni20::a
 
 std::string format_timestamp(std::chrono::system_clock::time_point timestamp)
 {
-  auto us = std::chrono::duration_cast<std::chrono::microseconds>(timestamp.time_since_epoch()) % std::chrono::seconds(1);
+  auto us =
+      std::chrono::duration_cast<std::chrono::microseconds>(timestamp.time_since_epoch()) % std::chrono::seconds(1);
   auto const time = std::chrono::system_clock::to_time_t(timestamp);
   auto const local_time = fmt::localtime(time);
   return fmt::format("{:%F %T}.{:06} {:%z}", local_time, us.count(), local_time);
@@ -78,12 +79,9 @@ DumpMode parse_dump_mode(char const* raw_value) noexcept
   std::transform(value.begin(), value.end(), value.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-  if (value == "0" || value == "none" || value == "off" || value == "false" || value == "no")
-    return DumpMode::None;
-  if (value == "2" || value == "full" || value == "all" || value == "verbose")
-    return DumpMode::Full;
-  if (value == "1" || value == "basic" || value == "on" || value == "true" || value == "yes")
-    return DumpMode::Basic;
+  if (value == "0" || value == "none" || value == "off" || value == "false" || value == "no") return DumpMode::None;
+  if (value == "2" || value == "full" || value == "all" || value == "verbose") return DumpMode::Full;
+  if (value == "1" || value == "basic" || value == "on" || value == "true" || value == "yes") return DumpMode::Basic;
 
   return DumpMode::Basic;
 }
@@ -231,9 +229,8 @@ class TaskRegistryImpl {
         }
       }
 
-      std::sort(epochs.begin(), epochs.end(), [](EpochDumpRecord const& lhs, EpochDumpRecord const& rhs) {
-        return lhs.info.id < rhs.info.id;
-      });
+      std::sort(epochs.begin(), epochs.end(),
+                [](EpochDumpRecord const& lhs, EpochDumpRecord const& rhs) { return lhs.info.id < rhs.info.id; });
 
       std::unordered_map<EpochContext const*, std::size_t> epoch_id_by_ptr;
       epoch_id_by_ptr.reserve(epochs.size());
@@ -257,14 +254,15 @@ class TaskRegistryImpl {
       for (auto& [task_addr, associations] : task_associations)
       {
         (void)task_addr;
-        std::sort(associations.begin(), associations.end(), [](TaskEpochAssociation const& lhs, TaskEpochAssociation const& rhs) {
-          if (lhs.epoch_id != rhs.epoch_id) return lhs.epoch_id < rhs.epoch_id;
-          return static_cast<int>(lhs.role) < static_cast<int>(rhs.role);
-        });
-        associations.erase(std::unique(associations.begin(), associations.end(), [](TaskEpochAssociation const& lhs,
-                                                                                     TaskEpochAssociation const& rhs) {
-                             return lhs.epoch_id == rhs.epoch_id && lhs.role == rhs.role;
-                           }),
+        std::sort(associations.begin(), associations.end(),
+                  [](TaskEpochAssociation const& lhs, TaskEpochAssociation const& rhs) {
+                    if (lhs.epoch_id != rhs.epoch_id) return lhs.epoch_id < rhs.epoch_id;
+                    return static_cast<int>(lhs.role) < static_cast<int>(rhs.role);
+                  });
+        associations.erase(std::unique(associations.begin(), associations.end(),
+                                       [](TaskEpochAssociation const& lhs, TaskEpochAssociation const& rhs) {
+                                         return lhs.epoch_id == rhs.epoch_id && lhs.role == rhs.role;
+                                       }),
                            associations.end());
       }
 
@@ -273,9 +271,8 @@ class TaskRegistryImpl {
       for (auto const& [addr, info] : tasks_copy)
         sorted_tasks.emplace_back(addr, &info);
 
-      std::sort(sorted_tasks.begin(), sorted_tasks.end(), [](auto const& lhs, auto const& rhs) {
-        return lhs.second->id < rhs.second->id;
-      });
+      std::sort(sorted_tasks.begin(), sorted_tasks.end(),
+                [](auto const& lhs, auto const& rhs) { return lhs.second->id < rhs.second->id; });
 
       fmt::print(stderr, "\n========== Async Task Registry Dump ==========\n");
       fmt::print(stderr, "Total tracked epoch contexts: {}\n", epochs.size());
@@ -307,7 +304,8 @@ class TaskRegistryImpl {
             if (next_it != epoch_id_by_ptr.end())
               fmt::print(stderr, "  next epoch id: {}\n", next_it->second);
             else
-              fmt::print(stderr, "  next epoch id: unknown ({})\n", static_cast<void const*>(epoch.snapshot.next_epoch));
+              fmt::print(stderr, "  next epoch id: unknown ({})\n",
+                         static_cast<void const*>(epoch.snapshot.next_epoch));
           }
           else
           {
@@ -535,7 +533,8 @@ void TaskRegistry::destroy_epoch_context(async::EpochContext const* epoch_contex
   TaskRegistryImpl::instance().destroy_epoch_context(epoch_context);
 }
 
-void TaskRegistry::bind_epoch_task(async::EpochContext const* epoch_context, std::coroutine_handle<> h, EpochTaskRole role)
+void TaskRegistry::bind_epoch_task(async::EpochContext const* epoch_context, std::coroutine_handle<> h,
+                                   EpochTaskRole role)
 {
   TaskRegistryImpl::instance().bind_epoch_task(epoch_context, h, role);
 }

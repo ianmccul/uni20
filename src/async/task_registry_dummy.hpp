@@ -8,26 +8,30 @@ namespace uni20::async
 class EpochContext;
 }
 
-namespace uni20 {
+namespace uni20
+{
 
 class TaskRegistry {
-public:
-    enum class DumpMode {
-        None,
-        Basic,
-        Full,
+  public:
+    enum class DumpMode
+    {
+      None,
+      Basic,
+      Full,
     };
 
-    enum class TaskState {
-        Constructed,
-        Running,
-        Suspended,
-        Leaked,
+    enum class TaskState
+    {
+      Constructed,
+      Running,
+      Suspended,
+      Leaked,
     };
 
-    enum class EpochTaskRole {
-        Reader,
-        Writer,
+    enum class EpochTaskRole
+    {
+      Reader,
+      Writer,
     };
 
     static constexpr void register_task(std::coroutine_handle<>) noexcept {}

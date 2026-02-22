@@ -76,15 +76,14 @@ TEST(TbbSchedulerStress, BalancedReductionProducesExpectedSum)
     for (std::size_t i = 0; i + 1 < level.size(); i += 2)
     {
       Async<int> combined;
-      schedule(
-          [](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int>* counter) static
-              -> AsyncTask {
-            auto const& lhs_value = co_await lhs;
-            auto const& rhs_value = co_await rhs;
-            co_await out.emplace(lhs_value + rhs_value);
-            counter->fetch_add(1, std::memory_order_relaxed);
-            co_return;
-          }(level[i].read(), level[i + 1].read(), combined.write(), &executed));
+      schedule([](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out,
+                  std::atomic<int> * counter) static->AsyncTask {
+        auto const& lhs_value = co_await lhs;
+        auto const& rhs_value = co_await rhs;
+        co_await out.emplace(lhs_value + rhs_value);
+        counter->fetch_add(1, std::memory_order_relaxed);
+        co_return;
+      }(level[i].read(), level[i + 1].read(), combined.write(), &executed));
       next_level.push_back(std::move(combined));
     }
     if (level.size() % 2 == 1)
@@ -135,8 +134,8 @@ TEST(TbbSchedulerStress, BalancedReductionShowsParallelism)
     for (std::size_t i = 0; i + 1 < level.size(); i += 2)
     {
       Async<int> combined;
-      schedule([](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int>* active_tasks,
-                  std::atomic<int>* peak_tasks) static->AsyncTask {
+      schedule([](ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> out, std::atomic<int> * active_tasks,
+                  std::atomic<int> * peak_tasks) static->AsyncTask {
         int current = active_tasks->fetch_add(1, std::memory_order_relaxed) + 1;
         update_max(*peak_tasks, current);
         auto const& lhs_value = co_await lhs;

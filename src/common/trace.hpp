@@ -7,8 +7,8 @@
 #include "namedenum.hpp"
 #include "terminal.hpp"
 
-#include <atomic>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <complex>
@@ -74,8 +74,8 @@
 #define TRACE(...)                                                                                                     \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (TRACE_DISABLE)                                                                                     \
@@ -91,16 +91,16 @@
 #define TRACE_IF(cond, ...)                                                                                            \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (TRACE_DISABLE)                                                                                     \
       {}                                                                                                               \
       else if (cond)                                                                                                   \
       {                                                                                                                \
-        if consteval                                                                                                   \
-        {}                                                                                                             \
+        if                                                                                                             \
+          consteval {}                                                                                                 \
         else                                                                                                           \
         {                                                                                                              \
           ::trace::TraceCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                              \
@@ -113,8 +113,8 @@
 #define TRACE_ONCE(...)                                                                                                \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (TRACE_DISABLE)                                                                                     \
@@ -134,8 +134,8 @@
 #define TRACE_MODULE(m, ...)                                                                                           \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (ENABLE_TRACE_##m)                                                                                  \
@@ -154,8 +154,8 @@
 #define TRACE_MODULE_IF(m, cond, ...)                                                                                  \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (ENABLE_TRACE_##m)                                                                                  \
@@ -177,8 +177,8 @@
 #define TRACE_STACK(...)                                                                                               \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (TRACE_DISABLE)                                                                                     \
@@ -194,16 +194,16 @@
 #define TRACE_IF_STACK(cond, ...)                                                                                      \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (TRACE_DISABLE)                                                                                     \
       {}                                                                                                               \
       else if (cond)                                                                                                   \
       {                                                                                                                \
-        if consteval                                                                                                   \
-        {}                                                                                                             \
+        if                                                                                                             \
+          consteval {}                                                                                                 \
         else                                                                                                           \
         {                                                                                                              \
           ::trace::TraceStackCall(#__VA_ARGS__, __FILE__, __LINE__ __VA_OPT__(, __VA_ARGS__));                         \
@@ -216,8 +216,8 @@
 #define TRACE_ONCE_STACK(...)                                                                                          \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (TRACE_DISABLE)                                                                                     \
@@ -237,8 +237,8 @@
 #define TRACE_MODULE_STACK(m, ...)                                                                                     \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (ENABLE_TRACE_##m)                                                                                  \
@@ -257,8 +257,8 @@
 #define TRACE_MODULE_IF_STACK(m, cond, ...)                                                                            \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (ENABLE_TRACE_##m)                                                                                  \
@@ -467,8 +467,8 @@
 #define DEBUG_TRACE_ONCE(...)                                                                                          \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (TRACE_DISABLE)                                                                                     \
@@ -537,8 +537,8 @@
 #define DEBUG_TRACE_ONCE_STACK(...)                                                                                    \
   do                                                                                                                   \
   {                                                                                                                    \
-    if consteval                                                                                                       \
-    {}                                                                                                                 \
+    if                                                                                                                 \
+      consteval {}                                                                                                     \
     else                                                                                                               \
     {                                                                                                                  \
       if constexpr (TRACE_DISABLE)                                                                                     \

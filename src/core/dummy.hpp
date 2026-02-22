@@ -1,7 +1,8 @@
 #ifndef UNI20_DUMMY_HPP
 #define UNI20_DUMMY_HPP
 
-namespace uni20 {
+namespace uni20
+{
 
 // A simple function that adds two integers.
 int add(int a, int b);

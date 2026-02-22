@@ -221,7 +221,7 @@ TEST(AsyncEmplaceTest, DeferredControlBlockAndQueueAreInitialized)
   EXPECT_FALSE(queue.has_pending_writers());
   EXPECT_EQ(initial_control.get(), nullptr);
 
-  sched.schedule([](WriteBuffer<NonDefault> buffer, Async<NonDefault>& target) static->AsyncTask {
+  sched.schedule([](WriteBuffer<NonDefault> buffer, Async<NonDefault> & target) static->AsyncTask {
     auto& ref = co_await buffer.emplace(123);
     EXPECT_EQ(ref.v, 123);
 

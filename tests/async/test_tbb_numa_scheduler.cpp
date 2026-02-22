@@ -3,8 +3,8 @@
 
 #include <gtest/gtest.h>
 
-#include <atomic>
 #include <algorithm>
+#include <atomic>
 #include <vector>
 
 #include <oneapi/tbb/info.h>
@@ -52,7 +52,8 @@ TEST(TbbNumaScheduler, HonorsPreferredNumaNode)
   int preferred = scheduler.numa_nodes().front();
   std::size_t before = scheduler.scheduled_count_for(preferred);
 
-  auto task = []() static->AsyncTask { co_return; }();
+  auto task = []() static->AsyncTask { co_return; }
+  ();
   task.set_preferred_numa_node(preferred);
   scheduler.schedule(std::move(task));
   scheduler.run_all();
@@ -76,7 +77,7 @@ TEST(TbbNumaScheduler, RunAllDrainsArenas)
 
   for (int i = 0; i < kTasks; ++i)
   {
-    scheduler.schedule([](std::atomic<int>* counter) static->AsyncTask {
+    scheduler.schedule([](std::atomic<int> * counter) static->AsyncTask {
       counter->fetch_add(1, std::memory_order_relaxed);
       co_return;
     }(&counter));

@@ -13,4 +13,3 @@ struct cublas_tag : cuda_tag
 {};
 
 } // namespace uni20
-

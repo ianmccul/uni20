@@ -144,9 +144,9 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \param mapping Mapping that translates indices into offsets.
     /// \param accessor Accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = mutable_accessor_type>
-      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
-               std::convertible_to<Accessor, mutable_accessor_type>)
-    TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
+    requires((std::convertible_to<Handle, mutable_handle_type> ||
+              std::convertible_to<Handle, handle_type>)&&std::convertible_to<Accessor, mutable_accessor_type>)
+        TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
         : handle_(to_mutable_handle(std::forward<Handle>(handle))), mapping_(std::move(mapping)),
           extents_(mapping_.extents()), accessor_(std::forward<Accessor>(accessor))
     {}
@@ -158,9 +158,9 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor Accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = mutable_accessor_type>
-      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
-               std::convertible_to<Accessor, mutable_accessor_type>)
-    TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
+    requires((std::convertible_to<Handle, mutable_handle_type> ||
+              std::convertible_to<Handle, handle_type>)&&std::convertible_to<Accessor, mutable_accessor_type>)
+        TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
         : TensorView(std::forward<Handle>(handle), layout::make_mapping<layout_policy>(exts),
                      std::forward<Accessor>(accessor))
     {}
@@ -173,10 +173,10 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \param strides Stride specification for each tensor dimension.
     /// \param accessor Accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = mutable_accessor_type>
-      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
-               std::convertible_to<Accessor, mutable_accessor_type>)
-    TensorView(Handle&& handle, extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
-               Accessor&& accessor = Accessor{})
+    requires((std::convertible_to<Handle, mutable_handle_type> ||
+              std::convertible_to<Handle, handle_type>)&&std::convertible_to<Accessor, mutable_accessor_type>)
+        TensorView(Handle&& handle, extents_type const& exts,
+                   std::array<index_type, extents_type::rank()> const& strides, Accessor&& accessor = Accessor{})
         : TensorView(std::forward<Handle>(handle), mapping_type{exts, strides}, std::forward<Accessor>(accessor))
     {}
 
@@ -185,8 +185,7 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \param idxs Coordinate pack enumerating each dimension index.
     /// \return Reference to the tensor element at the requested coordinates.
     template <typename... Idx>
-      requires(sizeof...(Idx) == extents_type::rank())
-    reference operator[](Idx... idxs) const noexcept
+    requires(sizeof...(Idx) == extents_type::rank()) reference operator[](Idx... idxs) const noexcept
     {
       return accessor_.access(handle_, mapping_(static_cast<index_type>(idxs)...));
     }
@@ -218,17 +217,11 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
 
     /// \brief Number of matrix rows for rank-2 tensor views.
     /// \return Count of the first extent when the tensor models a matrix.
-    auto rows() const noexcept requires(extents_type::rank() == 2)
-    {
-      return extents().extent(0);
-    }
+    auto rows() const noexcept requires(extents_type::rank() == 2) { return extents().extent(0); }
 
     /// \brief Number of matrix columns for rank-2 tensor views.
     /// \return Count of the second extent when the tensor models a matrix.
-    auto cols() const noexcept requires(extents_type::rank() == 2)
-    {
-      return extents().extent(1);
-    }
+    auto cols() const noexcept requires(extents_type::rank() == 2) { return extents().extent(1); }
 
     /// \brief The layout mapping (holds strides plus extents).
     /// \return Mapping instance that translates coordinates to offsets.
@@ -249,8 +242,7 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     }
 
   protected:
-    template <typename Handle>
-    static constexpr auto to_mutable_handle(Handle&& handle) -> mutable_handle_type
+    template <typename Handle> static constexpr auto to_mutable_handle(Handle&& handle) -> mutable_handle_type
     {
       if constexpr (std::convertible_to<Handle, mutable_handle_type>)
       {
@@ -341,8 +333,8 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \param mapping Mapping that translates indices into offsets.
     /// \param accessor Mutable accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = accessor_type>
-      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
-    TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
+    requires(std::convertible_to<Handle, mutable_handle_type>&& std::convertible_to<Accessor, accessor_type>)
+        TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
         : base_type(std::forward<Handle>(handle), std::move(mapping), std::forward<Accessor>(accessor))
     {}
 
@@ -353,8 +345,8 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor Mutable accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = accessor_type>
-      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
-    TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
+    requires(std::convertible_to<Handle, mutable_handle_type>&& std::convertible_to<Accessor, accessor_type>)
+        TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
         : TensorView(std::forward<Handle>(handle), layout::make_mapping<layout_policy>(exts),
                      std::forward<Accessor>(accessor))
     {}
@@ -367,9 +359,10 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \param strides Stride specification for each tensor dimension.
     /// \param accessor Mutable accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = accessor_type>
-      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
-    TensorView(Handle&& handle, extents_type const& exts, std::array<typename base_type::index_type, extents_type::rank()> const& strides,
-               Accessor&& accessor = Accessor{})
+    requires(std::convertible_to<Handle, mutable_handle_type>&& std::convertible_to<Accessor, accessor_type>)
+        TensorView(Handle&& handle, extents_type const& exts,
+                   std::array<typename base_type::index_type, extents_type::rank()> const& strides,
+                   Accessor&& accessor = Accessor{})
         : TensorView(std::forward<Handle>(handle), mapping_type{exts, strides}, std::forward<Accessor>(accessor))
     {}
 
@@ -378,8 +371,7 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \param idxs Coordinate pack enumerating each dimension index.
     /// \return Mutable reference to the tensor element at the requested coordinates.
     template <typename... Idx>
-      requires(sizeof...(Idx) == extents_type::rank())
-    reference operator[](Idx... idxs) noexcept
+    requires(sizeof...(Idx) == extents_type::rank()) reference operator[](Idx... idxs) noexcept
     {
       return this->mutable_accessor_ref().access(this->mutable_handle_ref(),
                                                  this->mapping_(static_cast<typename base_type::index_type>(idxs)...));

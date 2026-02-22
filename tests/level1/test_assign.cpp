@@ -177,9 +177,9 @@ TEST(Assign, NonMergeable4DStridesUseDynamic)
         {
           double const value = static_cast<double>(1000 * i0 + 100 * i1 + 10 * i2 + i3);
           auto const src_offset = static_cast<std::size_t>(i0 * src_strides[0] + i1 * src_strides[1] +
-                                                          i2 * src_strides[2] + i3 * src_strides[3]);
+                                                           i2 * src_strides[2] + i3 * src_strides[3]);
           auto const dst_offset = static_cast<std::size_t>(i0 * dst_strides[0] + i1 * dst_strides[1] +
-                                                          i2 * dst_strides[2] + i3 * dst_strides[3]);
+                                                           i2 * dst_strides[2] + i3 * dst_strides[3]);
           src_data[src_offset] = value;
           dst_data[dst_offset] = -1.0;
         }
@@ -197,9 +197,9 @@ TEST(Assign, NonMergeable4DStridesUseDynamic)
         for (index_t i3 = 0; i3 < static_cast<index_t>(extents[3]); ++i3)
         {
           auto const src_offset = static_cast<std::size_t>(i0 * src_strides[0] + i1 * src_strides[1] +
-                                                          i2 * src_strides[2] + i3 * src_strides[3]);
+                                                           i2 * src_strides[2] + i3 * src_strides[3]);
           auto const dst_offset = static_cast<std::size_t>(i0 * dst_strides[0] + i1 * dst_strides[1] +
-                                                          i2 * dst_strides[2] + i3 * dst_strides[3]);
+                                                           i2 * dst_strides[2] + i3 * dst_strides[3]);
           EXPECT_EQ(dst_data[dst_offset], src_data[src_offset]);
         }
 }

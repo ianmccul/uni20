@@ -13,4 +13,3 @@ struct cusolver_tag : cublas_tag
 {};
 
 } // namespace uni20
-

@@ -127,9 +127,7 @@ template <typename T> class ReverseValue {
     }
 
     /// Since we are guaranteed that the write is immediate, we don't need to wait
-    template <typename U>
-    ReverseValue& operator=(U&& v)
-      requires std::constructible_from<T, U&&>
+    template <typename U> ReverseValue& operator=(U&& v) requires std::constructible_from<T, U&&>
     {
       WriteBuffer<T> w(this->write_buffer());
       rqueue_.start();

@@ -13,4 +13,3 @@ struct lapack_tag : blas_tag
 {};
 
 } // namespace uni20
-

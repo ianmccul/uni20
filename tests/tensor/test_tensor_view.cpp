@@ -17,11 +17,9 @@ using extents_2d = stdex::dextents<index_t, 2>;
 using const_traits_type = tensor_traits<extents_2d, VectorStorage>;
 using mutable_traits_type = mutable_tensor_traits<extents_2d, VectorStorage>;
 
-template <typename T>
-constexpr bool has_mutable_handle_v = requires(T&& t) { std::forward<T>(t).mutable_handle(); };
+template <typename T> constexpr bool has_mutable_handle_v = requires(T&& t) { std::forward<T>(t).mutable_handle(); };
 
-template <typename T>
-constexpr bool has_mutable_mdspan_v = requires(T&& t) { std::forward<T>(t).mutable_mdspan(); };
+template <typename T> constexpr bool has_mutable_mdspan_v = requires(T&& t) { std::forward<T>(t).mutable_mdspan(); };
 
 template <typename Span>
 constexpr bool can_assign_element_v =

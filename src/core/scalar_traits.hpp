@@ -80,15 +80,17 @@ template <typename T> struct scalar_type
 };
 
 template <typename T>
-  requires is_scalar<T>
+requires is_scalar<T>
 struct scalar_type<T>
 {
     using type = T;
 };
 
 template <typename T>
-  requires requires { typename T::value_type; } && (!is_scalar<T>) &&
-           requires { typename scalar_type<typename T::value_type>::type; }
+requires requires { typename T::value_type; } &&(!is_scalar<T>)&&requires
+{
+  typename scalar_type<typename T::value_type>::type;
+}
 struct scalar_type<T> : scalar_type<typename T::value_type>
 {};
 
@@ -103,23 +105,23 @@ template <typename T> inline constexpr bool has_scalar = !std::same_as<scalar_t<
 /// \brief Trait to detect whether `scalar_t<T>` is an integer scalar.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_integer_scalar = has_scalar<T> && is_integer<scalar_t<T>>;
+template <typename T> inline constexpr bool has_integer_scalar = has_scalar<T>&& is_integer<scalar_t<T>>;
 
 /// \brief Trait to detect whether `scalar_t<T>` is a real scalar.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_real_scalar = has_scalar<T> && is_real<scalar_t<T>>;
+template <typename T> inline constexpr bool has_real_scalar = has_scalar<T>&& is_real<scalar_t<T>>;
 
 /// \brief Trait to detect whether `scalar_t<T>` is a complex scalar.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_complex_scalar = has_scalar<T> && is_complex<scalar_t<T>>;
+template <typename T> inline constexpr bool has_complex_scalar = has_scalar<T>&& is_complex<scalar_t<T>>;
 
 /// \brief Trait to detect whether a type has a scalar that is real or complex.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
 template <typename T>
-inline constexpr bool has_real_or_complex_scalar = has_scalar<T> && is_real_or_complex<scalar_t<T>>;
+inline constexpr bool has_real_or_complex_scalar = has_scalar<T>&& is_real_or_complex<scalar_t<T>>;
 
 /// \brief Metafunction to convert a type to its real-valued analog.
 /// \details If `T` is a complex scalar, this returns the underlying real type. For real types, it returns `T`
@@ -131,14 +133,14 @@ inline constexpr bool has_real_or_complex_scalar = has_scalar<T> && is_real_or_c
 template <typename T> struct make_real;
 
 template <typename T>
-  requires has_real_scalar<T>
+requires has_real_scalar<T>
 struct make_real<T>
 {
     using type = T;
 };
 
 template <typename T>
-  requires is_complex<T>
+requires is_complex<T>
 struct make_real<T>
 {
     using type = typename T::value_type;
@@ -163,7 +165,7 @@ template <typename T> struct make_complex;
 /// \tparam T Floating-point type to complexify.
 /// \ingroup core_math
 template <typename T>
-  requires std::floating_point<T>
+requires std::floating_point<T>
 struct make_complex<T>
 {
     using type = std::complex<T>;
@@ -173,7 +175,7 @@ struct make_complex<T>
 /// \tparam T Type whose scalar component is already complex.
 /// \ingroup core_math
 template <typename T>
-  requires has_complex_scalar<T>
+requires has_complex_scalar<T>
 struct make_complex<T>
 {
     using type = T;

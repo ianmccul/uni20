@@ -8,4 +8,3 @@
  * \ingroup kernel
  * \brief Tag types for kernels implemented on top of BLAS libraries.
  */
-

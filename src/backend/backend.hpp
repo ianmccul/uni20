@@ -70,5 +70,4 @@
 ///        the backend function. Each argument is appended to the trace entry when provided.
 /// \ingroup backend
 #define UNI20_API_CALL(module, func, ...)                                                                              \
-  TRACE_MODULE(module,                                                                                                \
-               "Calling API function " UNI20_INTERNAL_API_CALL_STRINGIZE(func) __VA_OPT__(, __VA_ARGS__))
+  TRACE_MODULE(module, "Calling API function " UNI20_INTERNAL_API_CALL_STRINGIZE(func) __VA_OPT__(, __VA_ARGS__))

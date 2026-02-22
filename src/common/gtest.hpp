@@ -66,7 +66,7 @@
       msg << "EXPECT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
           << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP"                                      \
           << "\n  actual distance: ";                                                                                  \
-      if (dist == std::numeric_limits<long long>::max())                                                                \
+      if (dist == std::numeric_limits<long long>::max())                                                               \
         msg << "unrepresentable (NaN or mismatched infinity)";                                                         \
       else                                                                                                             \
         msg << dist;                                                                                                   \
@@ -94,7 +94,7 @@
       msg << "ASSERT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
           << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP"                                      \
           << "\n  actual distance: ";                                                                                  \
-      if (dist == std::numeric_limits<long long>::max())                                                                \
+      if (dist == std::numeric_limits<long long>::max())                                                               \
         msg << "unrepresentable (NaN or mismatched infinity)";                                                         \
       else                                                                                                             \
         msg << dist;                                                                                                   \

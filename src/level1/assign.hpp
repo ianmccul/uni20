@@ -33,4 +33,3 @@ template <StridedMdspan MDS1, StridedMdspan MDS2> void assign(MDS1 const& src, M
 }
 
 } // namespace uni20
-

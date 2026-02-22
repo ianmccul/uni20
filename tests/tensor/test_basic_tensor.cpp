@@ -18,11 +18,9 @@ using index_t = index_type;
 using extents_2d = stdex::dextents<index_t, 2>;
 using tensor_type = BasicTensor<int, extents_2d, VectorStorage>;
 
-template <typename T>
-constexpr bool has_mutable_mdspan_v = requires(T&& t) { std::forward<T>(t).mutable_mdspan(); };
+template <typename T> constexpr bool has_mutable_mdspan_v = requires(T&& t) { std::forward<T>(t).mutable_mdspan(); };
 
-template <typename T>
-constexpr bool has_mutable_handle_v = requires(T&& t) { std::forward<T>(t).mutable_handle(); };
+template <typename T> constexpr bool has_mutable_handle_v = requires(T&& t) { std::forward<T>(t).mutable_handle(); };
 
 template <typename Span>
 constexpr bool can_assign_element_v =
@@ -143,7 +141,8 @@ TEST(BasicTensorTest, ViewsShareStorageAndRespectConstness)
   extents_2d exts{2, 3};
   tensor_type tensor(exts);
 
-  using mutable_view_type = TensorView<int, mutable_tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
+  using mutable_view_type =
+      TensorView<int, mutable_tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
   using const_view_type =
       TensorView<int const, tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
 

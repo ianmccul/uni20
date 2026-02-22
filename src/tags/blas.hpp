@@ -13,4 +13,3 @@ struct blas_tag : cpu_tag
 {};
 
 } // namespace uni20
-

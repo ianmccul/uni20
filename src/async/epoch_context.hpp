@@ -1050,8 +1050,7 @@ template <typename T> class EpochContextWriter {
     }
 
     template <typename... Args>
-      requires std::constructible_from<T, Args...>
-    T& emplace(Args&&... args)
+    requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
     {
       try
       {

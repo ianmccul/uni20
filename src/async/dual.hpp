@@ -68,9 +68,7 @@ template <typename T> class Dual {
 
     /// \brief Constructs with a copy of an initial value that can be implicitly converted to T
     template <typename U>
-      requires std::convertible_to<U, T>
-    Dual(U&& val) : value(std::forward<U>(val))
-    {}
+    requires std::convertible_to<U, T> Dual(U&& val) : value(std::forward<U>(val)) {}
 
     Async<T> value;
     ReverseValue<T> grad;

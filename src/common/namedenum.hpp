@@ -124,10 +124,7 @@ template <typename Traits> NamedEnumeration<Traits>::NamedEnumeration(std::strin
 
 template <typename Traits, typename CharT> struct std::formatter<NamedEnumeration<Traits>, CharT>
 {
-    constexpr auto parse(std::basic_format_parse_context<CharT>& ctx)
-    {
-      return ctx.begin();
-    }
+    constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) { return ctx.begin(); }
 
     template <typename FormatContext> auto format(const NamedEnumeration<Traits>& e, FormatContext& ctx) const
     {

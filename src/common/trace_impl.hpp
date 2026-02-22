@@ -346,9 +346,11 @@ struct FormattingOptions
 
       if (iequals(value, "auto")) return Mode::auto_detect;
 
-      if (iequals(value, "yes") || iequals(value, "true") || iequals(value, "on") || iequals(value, "1")) return Mode::yes;
+      if (iequals(value, "yes") || iequals(value, "true") || iequals(value, "on") || iequals(value, "1"))
+        return Mode::yes;
 
-      if (iequals(value, "no") || iequals(value, "false") || iequals(value, "off") || iequals(value, "0")) return Mode::no;
+      if (iequals(value, "no") || iequals(value, "false") || iequals(value, "off") || iequals(value, "0"))
+        return Mode::no;
 
       return fallback;
     }
@@ -414,7 +416,7 @@ concept HasStdFormatter = std::formattable<std::remove_cvref_t<T>, CharT>;
 
 // Formatted output of containers, if they look like a range and have no fmt formatter.
 template <typename T>
-concept Container = std::ranges::forward_range<T> && (!HasFmtFormatter<T>);
+concept Container = std::ranges::forward_range<T> &&(!HasFmtFormatter<T>);
 
 // formatValue: Converts a value to a string using fmt::format.
 // The generic version works for most types.
@@ -425,15 +427,16 @@ concept Container = std::ranges::forward_range<T> && (!HasFmtFormatter<T>);
 /// \param opts          Formatting options (currently unused for this overload).
 /// \returns             The string produced by `fmt::format("{}", value)`.
 template <typename T>
-std::string formatValue(const T& value, FormattingOptions const& opts)
-  requires(!Container<T> && HasFmtFormatter<T> && !std::floating_point<T>)
+std::string formatValue(const T& value, FormattingOptions const& opts) requires(!Container<T> && HasFmtFormatter<T> &&
+                                                                                !std::floating_point<T>)
 {
   return fmt::format("{}", value);
 }
 
 template <typename T>
-std::string formatValue(const T& value, FormattingOptions const& /*opts*/)
-  requires(!Container<T> && !HasFmtFormatter<T> && HasStdFormatter<T> && !std::floating_point<T>)
+std::string formatValue(const T& value,
+                        FormattingOptions const& /*opts*/) requires(!Container<T> && !HasFmtFormatter<T> &&
+                                                                    HasStdFormatter<T> && !std::floating_point<T>)
 {
   return std::format("{}", value);
 }
@@ -548,8 +551,8 @@ inline std::string formatValue(char* s, FormattingOptions const& opts)
 /// \requires `U` is not `char` or `const char`.
 /// \returns A string like `"MyType* @ 0x7fffdeadbeef"`.
 template <typename U>
-inline std::string formatValue(U* ptr, FormattingOptions const& /*opts*/)
-  requires(!std::is_same_v<U, char> && !std::is_same_v<U, const char>)
+inline std::string formatValue(U* ptr, FormattingOptions const& /*opts*/) requires(!std::is_same_v<U, char> &&
+                                                                                   !std::is_same_v<U, const char>)
 {
   return fmt::format("{}* @ {:p}", uni20::demangle::demangle(typeid(U).name()), fmt::ptr(ptr));
 }
@@ -1296,12 +1299,11 @@ template <typename... Args>
 
   std::string trace_str = formatParameterList(exprList, opts, args...);
 
-  std::string preamble = opts.format_style("DEBUG_CHECK_FLOATING_EQ", "DEBUG_CHECK") + " at " +
-                         opts.format_style(file, "TRACE_FILENAME") +
-                         opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
-                         fmt::format("\n{} is not approx-equal to {} (to {} ULP)!",
-                                     opts.format_style(a, "TRACE_EXPR"), opts.format_style(b, "TRACE_EXPR"),
-                                     opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
+  std::string preamble =
+      opts.format_style("DEBUG_CHECK_FLOATING_EQ", "DEBUG_CHECK") + " at " + opts.format_style(file, "TRACE_FILENAME") +
+      opts.format_style(fmt::format(":{}", line), "TRACE_LINE") +
+      fmt::format("\n{} is not approx-equal to {} (to {} ULP)!", opts.format_style(a, "TRACE_EXPR"),
+                  opts.format_style(b, "TRACE_EXPR"), opts.format_style(fmt::format("{}", ulps), "TRACE_EXPR"));
 
   detail::abort_with_stacktrace(opts, fmt::format("{}{}{}\n", preamble, trace_str.empty() ? "" : "\n : ", trace_str),
                                 "DEBUG_CHECK", 2);

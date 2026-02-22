@@ -9,8 +9,7 @@
 namespace
 {
 
-class EnvVarGuard
-{
+class EnvVarGuard {
   public:
     explicit EnvVarGuard(std::string name) : name_(std::move(name))
     {
@@ -66,8 +65,7 @@ TEST(TerminalUtilsTest, CmdlineProducesQuotedCommandLine)
   char arg3[] = "quote\"and\\backslash";
   char* argv[] = {arg0, arg1, arg2, arg3};
 
-  EXPECT_EQ(terminal::cmdline(4, argv),
-            "prog simple \"needs space\" \"quote\\\"and\\\\backslash\"");
+  EXPECT_EQ(terminal::cmdline(4, argv), "prog simple \"needs space\" \"quote\\\"and\\\\backslash\"");
 }
 
 TEST(TerminalUtilsTest, GetenvOrDefaultIntReturnsConvertedValue)
@@ -118,4 +116,4 @@ TEST(TerminalUtilsTest, ToggleUsesDefaultForUnknownToken)
 {
   EXPECT_TRUE(terminal::toggle("maybe", true));
   EXPECT_FALSE(terminal::toggle("maybe", false));
-} 
+}

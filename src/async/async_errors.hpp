@@ -68,9 +68,7 @@ class buffer_uninitialized : public buffer_error {
 /// \brief Raised when a reader attempts to access an uninitialized buffer.
 class buffer_read_uninitialized : public buffer_uninitialized {
   public:
-    buffer_read_uninitialized()
-        : buffer_uninitialized("Attempt to read from a buffer that has not been initialized")
-    {}
+    buffer_read_uninitialized() : buffer_uninitialized("Attempt to read from a buffer that has not been initialized") {}
 };
 
 /// \brief Raised when a writer requests a mutable reference before construction.

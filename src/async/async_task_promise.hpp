@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "async_node.hpp"
 #include "async_errors.hpp"
+#include "async_node.hpp"
 #include "async_task.hpp"
 #include "scheduler.hpp"
 #include <atomic>
@@ -49,11 +49,12 @@ concept AwaitSuspendResult = std::same_as<Ret, void> || std::same_as<Ret, AsyncT
 /// \note This concept disallows await_suspend() from returning a coroutine_handle,
 ///       to ensure that ownership and resumption are managed solely by the scheduler.
 template <typename T>
-concept AsyncTaskAwaitable = requires(T a, AsyncTask t) {
-                               {
-                                 a.await_suspend(std::move(t))
-                                 } -> AwaitSuspendResult;
-                             };
+concept AsyncTaskAwaitable = requires(T a, AsyncTask t)
+{
+  {
+    a.await_suspend(std::move(t))
+    } -> AwaitSuspendResult;
+};
 
 /// \brief Concept for awaitables that support shared ownership via AsyncTaskFactory.
 ///
@@ -65,14 +66,15 @@ concept AsyncTaskAwaitable = requires(T a, AsyncTask t) {
 /// \note This is used by composite awaiters like `all(...)` that must split
 ///       ownership across multiple sub-awaitables.
 template <typename T>
-concept AsyncTaskFactoryAwaitable = requires(T a, AsyncTaskFactory t) {
-                                      {
-                                        a.await_suspend(std::move(t))
-                                        } -> AwaitSuspendResult;
-                                      {
-                                        a.num_awaiters()
-                                        } -> std::convertible_to<int>;
-                                    };
+concept AsyncTaskFactoryAwaitable = requires(T a, AsyncTaskFactory t)
+{
+  {
+    a.await_suspend(std::move(t))
+    } -> AwaitSuspendResult;
+  {
+    a.num_awaiters()
+    } -> std::convertible_to<int>;
+};
 
 /// \brief Forwarding awaiter that takes ownership of a std::coroutine_handle and forwards to an awaiter as an AsyncTask
 template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter;
@@ -236,8 +238,9 @@ struct BasicAsyncTaskPromise
       if (node.owner != this) return;
       if (from_destructor && node.explicit_sink && std::uncaught_exceptions() > 0)
       {
-        CHECK(false,
-              "propagate_exceptions_to sink destroyed during exception unwinding before coroutine unhandled_exception()");
+        CHECK(
+            false,
+            "propagate_exceptions_to sink destroyed during exception unwinding before coroutine unhandled_exception()");
       }
 
       if (node.prev)

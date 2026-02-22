@@ -341,8 +341,8 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \tparam RightMap  Mapping of the remaining spans.
         /// \ingroup mdspan_ext
         template <typename LeftMap, typename RightMap>
-          requires(LeftMap::num_spans + RightMap::num_spans == num_spans)
-        constexpr mapping(LeftMap const& left, RightMap const& right) noexcept
+        requires(LeftMap::num_spans + RightMap::num_spans ==
+                 num_spans) constexpr mapping(LeftMap const& left, RightMap const& right) noexcept
             : extents_(left.extents()), all_strides_(concat(left.all_strides(), right.all_strides()))
         {}
 
@@ -496,4 +496,3 @@ template <StridedMdspan... Spans> struct zip_layout_selector<Spans...>
 template <typename... Spans> using zip_layout_t = typename zip_layout_selector<Spans...>::type;
 
 } // namespace uni20
-

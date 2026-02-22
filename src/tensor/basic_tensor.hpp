@@ -20,8 +20,7 @@ namespace uni20
 /// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.
 template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = stdex::layout_stride,
-          typename AccessorFactory = DefaultAccessorFactory>
+          typename LayoutPolicy = stdex::layout_stride, typename AccessorFactory = DefaultAccessorFactory>
 class BasicTensor
     : public TensorView<ElementType, mutable_tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>> {
   private:
@@ -55,8 +54,7 @@ class BasicTensor
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
     explicit BasicTensor(extents_type const& exts, accessor_factory_type accessor_factory = accessor_factory_type{})
-        : BasicTensor(internal_tag{},
-                      make_payload(make_default_mapping(exts), std::move(accessor_factory)))
+        : BasicTensor(internal_tag{}, make_payload(make_default_mapping(exts), std::move(accessor_factory)))
     {}
 
     /// \brief Construct a tensor using a custom mapping builder.
@@ -65,13 +63,14 @@ class BasicTensor
     /// \param mapping_builder Builder used to derive the mapping from the extents.
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
     template <typename MappingBuilder>
-      requires(layout::mapping_builder_for<MappingBuilder, layout_policy, extents_type> &&
-               (!std::same_as<std::remove_cvref_t<MappingBuilder>, accessor_factory_type>))
-    explicit BasicTensor(extents_type const& exts, MappingBuilder&& mapping_builder,
-                         accessor_factory_type accessor_factory = accessor_factory_type{})
+    requires(layout::mapping_builder_for<MappingBuilder, layout_policy, extents_type> &&
+             (!std::same_as<std::remove_cvref_t<MappingBuilder>,
+                            accessor_factory_type>)) explicit BasicTensor(extents_type const& exts,
+                                                                          MappingBuilder&& mapping_builder,
+                                                                          accessor_factory_type accessor_factory =
+                                                                              accessor_factory_type{})
         : BasicTensor(internal_tag{},
-                      make_payload(std::forward<MappingBuilder>(mapping_builder)(exts),
-                                   std::move(accessor_factory)))
+                      make_payload(std::forward<MappingBuilder>(mapping_builder)(exts), std::move(accessor_factory)))
     {}
 
     /// \brief Construct a tensor from explicit extents and strides.
@@ -103,16 +102,13 @@ class BasicTensor
     /// \return TensorView exposing read-only access with the current mapping and accessor.
     auto view() const noexcept -> TensorView<element_type const, const_traits>
     {
-      return TensorView<element_type const, const_traits>(
-          storage_policy::make_handle(const_cast<storage_type&>(data_)), this->mapping(), this->accessor());
+      return TensorView<element_type const, const_traits>(storage_policy::make_handle(const_cast<storage_type&>(data_)),
+                                                          this->mapping(), this->accessor());
     }
 
     /// \brief Create a const tensor view alias for readability.
     /// \return TensorView exposing read-only access with the current mapping and accessor.
-    auto const_view() const noexcept -> TensorView<element_type const, const_traits>
-    {
-      return view();
-    }
+    auto const_view() const noexcept -> TensorView<element_type const, const_traits> { return view(); }
 
   private:
     struct internal_tag

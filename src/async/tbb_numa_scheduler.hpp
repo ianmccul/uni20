@@ -6,8 +6,8 @@
 #include "scheduler.hpp"
 #include "tbb_scheduler.hpp"
 
-#include <fmt/core.h>
 #include <atomic>
+#include <fmt/core.h>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -28,8 +28,7 @@ class TbbNumaScheduler final : public IScheduler {
 
     /// \brief Construct a scheduler with an explicit set of NUMA nodes.
     /// \param nodes NUMA node identifiers to manage.
-    explicit TbbNumaScheduler(std::vector<int> nodes)
-        : numa_nodes_(std::move(nodes))
+    explicit TbbNumaScheduler(std::vector<int> nodes) : numa_nodes_(std::move(nodes))
     {
       if (numa_nodes_.empty())
       {
@@ -62,10 +61,7 @@ class TbbNumaScheduler final : public IScheduler {
     /// \brief Schedule a coroutine on a specific NUMA node.
     /// \param task Coroutine to dispatch.
     /// \param numa_node Requested NUMA node identifier.
-    void schedule(AsyncTask&& task, int numa_node)
-    {
-      this->schedule_on_node(std::move(task), numa_node);
-    }
+    void schedule(AsyncTask&& task, int numa_node) { this->schedule_on_node(std::move(task), numa_node); }
 
     /// \brief Pause all managed arenas.
     void pause() override
@@ -124,7 +120,8 @@ class TbbNumaScheduler final : public IScheduler {
     }
 
   private:
-    struct Arena {
+    struct Arena
+    {
         int numa_node;
         std::unique_ptr<TbbScheduler> scheduler;
     };
@@ -168,4 +165,3 @@ class TbbNumaScheduler final : public IScheduler {
 };
 
 } // namespace uni20::async
-

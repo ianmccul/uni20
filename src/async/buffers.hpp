@@ -60,7 +60,10 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     // No copy ctor here, although we could add one
     ReadBuffer& operator=(ReadBuffer const&) = delete;
 
-    ReadBuffer(ReadBuffer&& other) noexcept : reader_(std::move(other.reader_)) { this->move_exception_sink_from(other); }
+    ReadBuffer(ReadBuffer&& other) noexcept : reader_(std::move(other.reader_))
+    {
+      this->move_exception_sink_from(other);
+    }
 
     ReadBuffer& operator=(ReadBuffer&& other) noexcept
     {
@@ -353,9 +356,10 @@ template <typename Buffer> class BufferWriteProxy;
 template <typename T, typename... Args> class EmplaceAwaiter {
   public:
     template <typename... U>
-      requires(sizeof...(U) == sizeof...(Args)) && std::constructible_from<std::tuple<Args...>, U&&...>
-    EmplaceAwaiter(EpochContextWriter<T>* writer, U&&... args)
-        : writer_(writer), args_(std::forward<U>(args)...)
+    requires(sizeof...(U) == sizeof...(Args)) && std::constructible_from<std::tuple<Args...>, U&&...> EmplaceAwaiter(
+                                                     EpochContextWriter<T>* writer, U&&... args)
+        : writer_(writer),
+    args_(std::forward<U>(args)...)
     {}
 
     bool await_ready() const noexcept { return writer_->ready(); }
@@ -506,8 +510,7 @@ template <typename T> class WriteBuffer {
     }
 
     template <typename... Args>
-      requires std::constructible_from<T, Args...>
-    T& emplace_assert(Args&&... args)
+    requires std::constructible_from<T, Args...> T& emplace_assert(Args&&... args)
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
       writer_.emplace(std::forward<Args>(args)...);
@@ -530,18 +533,14 @@ template <typename T> class WriteBuffer {
 
     template <typename U> void write(U&& val) { async_assign(std::forward<U>(val), std::move(*this)); }
 
-    template <typename U>
-    void write_assert(U&& val)
-      requires std::assignable_from<T&, U&&>
+    template <typename U> void write_assert(U&& val) requires std::assignable_from<T&, U&&>
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
       written_ = true;
       writer_.data() = std::forward<U>(val);
     }
 
-    template <typename U>
-    void write_move_assert(U&& val)
-      requires std::assignable_from<T&, U&&>
+    template <typename U> void write_move_assert(U&& val) requires std::assignable_from<T&, U&&>
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
       written_ = true;
@@ -602,9 +601,10 @@ template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promi
 template <typename T> class Defer;
 
 template <typename B>
-concept exception_sink_buffer = requires(B& buffer, BasicAsyncTaskPromise& promise) {
-                                  buffer.register_exception_sink(promise, true);
-                                };
+concept exception_sink_buffer = requires(B& buffer, BasicAsyncTaskPromise& promise)
+{
+  buffer.register_exception_sink(promise, true);
+};
 
 template <exception_sink_buffer... Buffers> class PropagateExceptionsAwaiter {
   public:

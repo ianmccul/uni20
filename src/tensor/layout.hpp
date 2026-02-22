@@ -15,11 +15,12 @@ template <typename LayoutPolicy, typename Extents>
 using mapping_for_t = typename LayoutPolicy::template mapping<Extents>;
 
 template <typename Builder, typename LayoutPolicy, typename Extents>
-concept mapping_builder_for = requires(Builder&& builder, Extents const& exts) {
-                                {
-                                  std::forward<Builder>(builder)(exts)
-                                  } -> std::same_as<mapping_for_t<LayoutPolicy, Extents>>;
-                              };
+concept mapping_builder_for = requires(Builder&& builder, Extents const& exts)
+{
+  {
+    std::forward<Builder>(builder)(exts)
+    } -> std::same_as<mapping_for_t<LayoutPolicy, Extents>>;
+};
 namespace detail
 {
 

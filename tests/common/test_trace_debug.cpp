@@ -115,7 +115,7 @@ TEST(DebugTraceStackMacro, DebugTraceStackIncludesStacktraceDiagnostic)
   EXPECT_NE(output.find("Stacktrace:"), std::string::npos) << "Trace output was:\n" << output;
 #else
   EXPECT_NE(output.find("WARNING: std::stacktrace is unavailable"), std::string::npos) << "Trace output was:\n"
-                                                                                        << output;
+                                                                                       << output;
 #endif
   trace::get_formatting_options().set_output_stream(stderr);
 }
@@ -153,8 +153,8 @@ TEST(DebugCheckFloatingEqMacro, FailureMessageIncludesBothExpressionsAndUlps)
 TEST(DebugPreconditionFloatingEqMacro, PassesWithinTolerance)
 {
   float a = 1.0f;
-  float b = std::nextafter(a, 2.0f);        // 1 ULP away
-  DEBUG_PRECONDITION_FLOATING_EQ(a, b, 1);  // should not abort
+  float b = std::nextafter(a, 2.0f);       // 1 ULP away
+  DEBUG_PRECONDITION_FLOATING_EQ(a, b, 1); // should not abort
   SUCCEED();
 }
 

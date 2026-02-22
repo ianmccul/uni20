@@ -66,17 +66,15 @@ extern "C"
 {
 
   // Level 3
-  void UNI20_INTERNAL_BLAS_FN(gemm)(char const* transa, char const* transb, blas_int const* m,
-                                    blas_int const* n, blas_int const* k, BLASTYPE const* alpha,
-                                    BLASTYPE const* A, blas_int const* lda, BLASTYPE const* B,
-                                    blas_int const* ldb, BLASTYPE const* beta, BLASTYPE* C,
+  void UNI20_INTERNAL_BLAS_FN(gemm)(char const* transa, char const* transb, blas_int const* m, blas_int const* n,
+                                    blas_int const* k, BLASTYPE const* alpha, BLASTYPE const* A, blas_int const* lda,
+                                    BLASTYPE const* B, blas_int const* ldb, BLASTYPE const* beta, BLASTYPE* C,
                                     blas_int const* ldc);
 
   // Level 2
-  void UNI20_INTERNAL_BLAS_FN(gemv)(char const* trans, blas_int const* m, blas_int const* n,
-                                    BLASTYPE const* alpha, BLASTYPE const* A, blas_int const* lda,
-                                    BLASTYPE const* x, blas_int const* incx, BLASTYPE const* beta,
-                                    BLASTYPE* y, blas_int const* incy);
+  void UNI20_INTERNAL_BLAS_FN(gemv)(char const* trans, blas_int const* m, blas_int const* n, BLASTYPE const* alpha,
+                                    BLASTYPE const* A, blas_int const* lda, BLASTYPE const* x, blas_int const* incx,
+                                    BLASTYPE const* beta, BLASTYPE* y, blas_int const* incy);
 
 #if BLASCOMPLEX
 
@@ -84,39 +82,35 @@ extern "C"
 #error "BLASREALTYPE must be defined before including blasproto.hpp for BLASCOMPLEX functions"
 #endif
 
-  void UNI20_INTERNAL_BLAS_FN(geru)(blas_int const* m, blas_int const* n, BLASTYPE const* alpha,
-                                    BLASTYPE const* x, blas_int const* incx, BLASTYPE const* y,
-                                    blas_int const* incy, BLASTYPE* A, blas_int const* lda);
+  void UNI20_INTERNAL_BLAS_FN(geru)(blas_int const* m, blas_int const* n, BLASTYPE const* alpha, BLASTYPE const* x,
+                                    blas_int const* incx, BLASTYPE const* y, blas_int const* incy, BLASTYPE* A,
+                                    blas_int const* lda);
 
-  void UNI20_INTERNAL_BLAS_FN(gerc)(blas_int const* m, blas_int const* n, BLASTYPE const* alpha,
-                                    BLASTYPE const* x, blas_int const* incx, BLASTYPE const* y,
-                                    blas_int const* incy, BLASTYPE* A, blas_int const* lda);
+  void UNI20_INTERNAL_BLAS_FN(gerc)(blas_int const* m, blas_int const* n, BLASTYPE const* alpha, BLASTYPE const* x,
+                                    blas_int const* incx, BLASTYPE const* y, blas_int const* incy, BLASTYPE* A,
+                                    blas_int const* lda);
 
-  void UNI20_INTERNAL_BLAS_FN(herk)(char const* uplo, char const* trans, blas_int const* n,
-                                    blas_int const* k, BLASREALTYPE const* alpha, BLASTYPE const* A,
-                                    blas_int const* lda, BLASREALTYPE const* beta, BLASTYPE* C,
-                                    blas_int const* ldc);
+  void UNI20_INTERNAL_BLAS_FN(herk)(char const* uplo, char const* trans, blas_int const* n, blas_int const* k,
+                                    BLASREALTYPE const* alpha, BLASTYPE const* A, blas_int const* lda,
+                                    BLASREALTYPE const* beta, BLASTYPE* C, blas_int const* ldc);
 
-  void UNI20_INTERNAL_BLAS_FN(her2k)(char const* uplo, char const* trans, blas_int const* n,
-                                     blas_int const* k, BLASTYPE const* alpha, BLASTYPE const* A,
-                                     blas_int const* lda, BLASTYPE const* B, blas_int const* ldb,
-                                     BLASREALTYPE const* beta, BLASTYPE* C, blas_int const* ldc);
+  void UNI20_INTERNAL_BLAS_FN(her2k)(char const* uplo, char const* trans, blas_int const* n, blas_int const* k,
+                                     BLASTYPE const* alpha, BLASTYPE const* A, blas_int const* lda, BLASTYPE const* B,
+                                     blas_int const* ldb, BLASREALTYPE const* beta, BLASTYPE* C, blas_int const* ldc);
 
 #else
 
-  void UNI20_INTERNAL_BLAS_FN(ger)(blas_int const* m, blas_int const* n, BLASTYPE const* alpha,
-                                   BLASTYPE const* x, blas_int const* incx, BLASTYPE const* y,
-                                   blas_int const* incy, BLASTYPE* A, blas_int const* lda);
+  void UNI20_INTERNAL_BLAS_FN(ger)(blas_int const* m, blas_int const* n, BLASTYPE const* alpha, BLASTYPE const* x,
+                                   blas_int const* incx, BLASTYPE const* y, blas_int const* incy, BLASTYPE* A,
+                                   blas_int const* lda);
 
-  void UNI20_INTERNAL_BLAS_FN(syrk)(char const* uplo, char const* trans, blas_int const* n,
-                                    blas_int const* k, BLASTYPE const* alpha, BLASTYPE const* A,
-                                    blas_int const* lda, BLASTYPE const* beta, BLASTYPE* C,
-                                    blas_int const* ldc);
+  void UNI20_INTERNAL_BLAS_FN(syrk)(char const* uplo, char const* trans, blas_int const* n, blas_int const* k,
+                                    BLASTYPE const* alpha, BLASTYPE const* A, blas_int const* lda, BLASTYPE const* beta,
+                                    BLASTYPE* C, blas_int const* ldc);
 
-  void UNI20_INTERNAL_BLAS_FN(syr2k)(char const* uplo, char const* trans, blas_int const* n,
-                                     blas_int const* k, BLASTYPE const* alpha, BLASTYPE const* A,
-                                     blas_int const* lda, BLASTYPE const* B, blas_int const* ldb,
-                                     BLASTYPE const* beta, BLASTYPE* C, blas_int const* ldc);
+  void UNI20_INTERNAL_BLAS_FN(syr2k)(char const* uplo, char const* trans, blas_int const* n, blas_int const* k,
+                                     BLASTYPE const* alpha, BLASTYPE const* A, blas_int const* lda, BLASTYPE const* B,
+                                     blas_int const* ldb, BLASTYPE const* beta, BLASTYPE* C, blas_int const* ldc);
 #endif
 
 } // extern "C"

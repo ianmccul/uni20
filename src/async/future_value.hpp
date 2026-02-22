@@ -31,9 +31,7 @@ template <typename T> class FutureValue {
     [[nodiscard]] WriteBuffer<T> write() noexcept { return std::move(write_buf_); }
 
     /// Since we are guaranteed that the write is immediate, we don't need to wait
-    template <typename U>
-    FutureValue& operator=(U&& v)
-      requires std::constructible_from<T, U&&>
+    template <typename U> FutureValue& operator=(U&& v) requires std::constructible_from<T, U&&>
     {
       write_buf_.emplace_assert(std::forward<U>(v));
       write_buf_.release();
@@ -81,18 +79,12 @@ template <typename T> class Defer {
 
     /// \brief Write immediately without suspending — asserts write readiness.
     template <typename U>
-      requires std::constructible_from<T, U&&>
-    void write_assert(U&& val)
-    {
-      writer_.emplace_assert(std::forward<U>(val));
-    }
+    requires std::constructible_from<T, U&&>
+    void write_assert(U&& val) { writer_.emplace_assert(std::forward<U>(val)); }
 
     template <typename U>
-      requires std::assignable_from<T&, async_value_t<U>>
-    void operator=(U&& val)
-    {
-      async_assign(std::forward<U>(val), std::move(writer_));
-    }
+    requires std::assignable_from<T&, async_value_t<U>>
+    void operator=(U&& val) { async_assign(std::forward<U>(val), std::move(writer_)); }
 
     /// \brief Get the WriteBuffer for coroutine-based use.
     [[nodiscard]] WriteProxy<T> write() { return writer_.write(); }

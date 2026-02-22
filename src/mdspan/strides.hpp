@@ -36,7 +36,7 @@ template <std::size_t N> struct extent_strides
     /// \param s The strides associated with the dimension.
     /// \ingroup mdspan_ext
     template <typename Ext>
-      requires std::is_integral_v<Ext>
+    requires std::is_integral_v<Ext>
     constexpr extent_strides(Ext e, std::initializer_list<std::ptrdiff_t> s) : extent(static_cast<index_type>(e))
     {
       assert(s.size() == N);
@@ -50,7 +50,7 @@ template <std::size_t N> struct extent_strides
     /// \param s The strides associated with the dimension.
     /// \ingroup mdspan_ext
     template <typename Ext, typename Str>
-      requires std::is_integral_v<Ext> && std::is_integral_v<Str>
+    requires std::is_integral_v<Ext> && std::is_integral_v<Str>
     constexpr extent_strides(Ext e, std::array<Str, N> s) : extent(static_cast<index_type>(e))
     {
       for (std::size_t i = 0; i < N; ++i)
@@ -66,8 +66,7 @@ template <std::size_t N> struct extent_strides
     /// \param s The stride values.
     /// \ingroup mdspan_ext
     template <typename Ext, typename... Strides>
-      requires(std::is_integral_v<Ext> && sizeof...(Strides) == N)
-    constexpr extent_strides(Ext e, Strides... s)
+    requires(std::is_integral_v<Ext> && sizeof...(Strides) == N) constexpr extent_strides(Ext e, Strides... s)
         : extent(static_cast<index_type>(e)), strides{static_cast<std::ptrdiff_t>(s)...}
     {}
 
@@ -97,14 +96,12 @@ template <std::size_t N> struct extent_strides
 namespace detail
 {
 
-template <std::size_t N, std::size_t R>
-void sort_and_merge_left(static_vector<extent_strides<N>, R>& out)
+template <std::size_t N, std::size_t R> void sort_and_merge_left(static_vector<extent_strides<N>, R>& out)
 {
   if (out.size() <= 1) return;
 
-  std::sort(out.begin(), out.end(), [](auto const& lhs, auto const& rhs) {
-    return std::abs(lhs.strides[0]) < std::abs(rhs.strides[0]);
-  });
+  std::sort(out.begin(), out.end(),
+            [](auto const& lhs, auto const& rhs) { return std::abs(lhs.strides[0]) < std::abs(rhs.strides[0]); });
 
   extent_strides<N> current = out[0];
   std::size_t write = 0;
@@ -127,14 +124,12 @@ void sort_and_merge_left(static_vector<extent_strides<N>, R>& out)
   out.resize(write);
 }
 
-template <std::size_t N, std::size_t R>
-void sort_and_merge_right(static_vector<extent_strides<N>, R>& out)
+template <std::size_t N, std::size_t R> void sort_and_merge_right(static_vector<extent_strides<N>, R>& out)
 {
   if (out.size() <= 1) return;
 
-  std::sort(out.begin(), out.end(), [](auto const& lhs, auto const& rhs) {
-    return std::abs(lhs.strides[0]) > std::abs(rhs.strides[0]);
-  });
+  std::sort(out.begin(), out.end(),
+            [](auto const& lhs, auto const& rhs) { return std::abs(lhs.strides[0]) > std::abs(rhs.strides[0]); });
 
   extent_strides<N> current = out[0];
   std::size_t write = 0;
@@ -167,10 +162,8 @@ void sort_and_merge_right(static_vector<extent_strides<N>, R>& out)
 /// \return A compacted sequence of stride descriptors sorted by increasing primary stride.
 /// \ingroup mdspan_ext
 template <typename Extents, std::size_t R>
-  requires(Extents::rank() == R)
-inline static_vector<extent_strides<2>, R> merge_strides_left(Extents const& ext,
-                                                              std::array<std::ptrdiff_t, R> const& Stride1,
-                                                              std::array<std::ptrdiff_t, R> const& Stride2)
+requires(Extents::rank() == R) inline static_vector<extent_strides<2>, R> merge_strides_left(
+    Extents const& ext, std::array<std::ptrdiff_t, R> const& Stride1, std::array<std::ptrdiff_t, R> const& Stride2)
 {
   static_vector<extent_strides<2>, R> out;
   for (std::size_t i = 0; i < R; ++i)
@@ -192,10 +185,8 @@ inline static_vector<extent_strides<2>, R> merge_strides_left(Extents const& ext
 /// \return A compacted sequence of stride descriptors sorted by decreasing primary stride.
 /// \ingroup mdspan_ext
 template <typename Extents, std::size_t R>
-  requires(Extents::rank() == R)
-inline static_vector<extent_strides<2>, R> merge_strides_right(Extents const& ext,
-                                                               std::array<std::ptrdiff_t, R> const& Stride1,
-                                                               std::array<std::ptrdiff_t, R> const& Stride2)
+requires(Extents::rank() == R) inline static_vector<extent_strides<2>, R> merge_strides_right(
+    Extents const& ext, std::array<std::ptrdiff_t, R> const& Stride1, std::array<std::ptrdiff_t, R> const& Stride2)
 {
   static_vector<extent_strides<2>, R> out;
   for (std::size_t i = 0; i < R; ++i)

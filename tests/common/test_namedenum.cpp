@@ -14,9 +14,9 @@ struct ExampleEnumTraits
 {
     enum Enum
     {
-        Alpha,
-        Beta,
-        Gamma
+      Alpha,
+      Beta,
+      Gamma
     };
 
     inline static constexpr Enum Default = Beta;
@@ -29,46 +29,46 @@ using ExampleNamedEnumeration = NamedEnumeration<ExampleEnumTraits>;
 
 TEST(NamedEnumerationTest, DefaultConstructionAndOperators)
 {
-    ExampleNamedEnumeration value;
-    EXPECT_TRUE(value == ExampleEnumTraits::Default);
+  ExampleNamedEnumeration value;
+  EXPECT_TRUE(value == ExampleEnumTraits::Default);
 
-    ++value;
-    EXPECT_TRUE(value == ExampleEnumTraits::Gamma);
+  ++value;
+  EXPECT_TRUE(value == ExampleEnumTraits::Gamma);
 
-    ExampleNamedEnumeration other(ExampleEnumTraits::Gamma);
-    EXPECT_TRUE(value == other);
+  ExampleNamedEnumeration other(ExampleEnumTraits::Gamma);
+  EXPECT_TRUE(value == other);
 
-    --value;
-    EXPECT_TRUE(value == ExampleEnumTraits::Beta);
-    EXPECT_TRUE(value != ExampleEnumTraits::Alpha);
+  --value;
+  EXPECT_TRUE(value == ExampleEnumTraits::Beta);
+  EXPECT_TRUE(value != ExampleEnumTraits::Alpha);
 }
 
 TEST(NamedEnumerationTest, ListAndEnumerate)
 {
-    EXPECT_EQ(ExampleNamedEnumeration::ListAll(), "alpha, beta, gamma");
+  EXPECT_EQ(ExampleNamedEnumeration::ListAll(), "alpha, beta, gamma");
 
-    std::vector<std::string> expected{"alpha", "beta", "gamma"};
-    EXPECT_EQ(ExampleNamedEnumeration::EnumerateAll(), expected);
+  std::vector<std::string> expected{"alpha", "beta", "gamma"};
+  EXPECT_EQ(ExampleNamedEnumeration::EnumerateAll(), expected);
 }
 
 TEST(NamedEnumerationTest, CaseInsensitiveConstructionAndError)
 {
-    ExampleNamedEnumeration uppercase{"GAMMA"};
-    EXPECT_TRUE(uppercase == ExampleEnumTraits::Gamma);
+  ExampleNamedEnumeration uppercase{"GAMMA"};
+  EXPECT_TRUE(uppercase == ExampleEnumTraits::Gamma);
 
-    try
-    {
-        [[maybe_unused]] ExampleNamedEnumeration invalid{"unknown"};
-        FAIL() << "Expected runtime_error when constructing with invalid name";
-    }
-    catch (const std::runtime_error& err)
-    {
-        EXPECT_NE(std::string_view{err.what()}.find("Unknown initializer for example enumeration"), std::string_view::npos);
-    }
+  try
+  {
+    [[maybe_unused]] ExampleNamedEnumeration invalid{"unknown"};
+    FAIL() << "Expected runtime_error when constructing with invalid name";
+  }
+  catch (const std::runtime_error& err)
+  {
+    EXPECT_NE(std::string_view{err.what()}.find("Unknown initializer for example enumeration"), std::string_view::npos);
+  }
 }
 
 TEST(NamedEnumerationTest, FormatterUsesFriendlyName)
 {
-    ExampleNamedEnumeration value{ExampleEnumTraits::Alpha};
-    EXPECT_EQ(std::format("{}", value), "alpha");
+  ExampleNamedEnumeration value{ExampleEnumTraits::Alpha};
+  EXPECT_EQ(std::format("{}", value), "alpha");
 }

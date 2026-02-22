@@ -25,4 +25,3 @@ template <typename MDS, typename Op> void apply_unary_inplace(MDS a, Op&& op)
 }
 
 } // namespace uni20
-

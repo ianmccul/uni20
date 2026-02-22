@@ -81,8 +81,7 @@ template <typename T> class Async {
     /// \param val Initial value forwarded into the Async storage.
     /// \ingroup async_api
     template <typename U>
-      requires std::convertible_to<U, T>
-    Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_()
+    requires std::convertible_to<U, T> Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_()
     {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
@@ -96,8 +95,8 @@ template <typename T> class Async {
     /// \param u Value forwarded to construct the stored T instance.
     /// \ingroup async_api
     template <typename U>
-      requires std::constructible_from<T, U> && (!std::convertible_to<U, T>)
-    explicit Async(U&& u) : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_()
+    requires std::constructible_from<T, U> &&(!std::convertible_to<U, T>)explicit Async(U&& u)
+        : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_()
     {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
@@ -111,8 +110,8 @@ template <typename T> class Async {
     /// \param args Arguments used to initialize the contained value.
     /// \ingroup async_api
     template <typename... Args>
-      requires std::constructible_from<T, Args...>
-    Async(Args&&... args) : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_()
+    requires std::constructible_from<T, Args...> Async(Args&&... args)
+        : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_()
     {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
@@ -129,11 +128,11 @@ template <typename T> class Async {
     /// \note This mirrors similar constuctors where std::in_place is used.
     /// \ingroup async_api
     template <typename U, typename... Args>
-      requires std::constructible_from<T, std::initializer_list<U>
-                                       &,
-                                       Args...>
-      Async(std::initializer_list<U> init, Args&&... args)
-        : storage_(make_shared_storage<T>(init, std::forward<Args>(args)...)), queue_()
+    requires std::constructible_from < T, std::initializer_list<U>
+    &,
+        Args... > Async(std::initializer_list<U> init, Args&&... args)
+        : storage_(make_shared_storage<T>(init, std::forward<Args>(args)...)),
+    queue_()
     {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
@@ -190,8 +189,8 @@ template <typename T> class Async {
     /// \param control Shared pointer whose control block should be reused for this Async value.
     /// \ingroup async_api
     template <typename Control>
-      requires std::convertible_to<Control*, T*>
-    Async(deferred_t tag, std::shared_ptr<Control> control) : storage_(make_unconstructed_shared_storage<T>()), queue_()
+    requires std::convertible_to<Control*, T*> Async(deferred_t tag, std::shared_ptr<Control> control)
+        : storage_(make_unconstructed_shared_storage<T>()), queue_()
     {
       (void)tag;
       if (!control) throw std::invalid_argument("Async deferred control block cannot be null");
@@ -210,8 +209,7 @@ template <typename T> class Async {
     /// \param tag `async::deferred` tag to select deferred construction.
     /// \param parent Async whose storage and queue lifetimes should be preserved.
     template <typename U>
-      requires std::convertible_to<U*, T*>
-    Async(deferred_t tag, Async<U>& parent) : storage_(parent.storage()), queue_()
+    requires std::convertible_to<U*, T*> Async(deferred_t tag, Async<U>& parent) : storage_(parent.storage()), queue_()
     {
       (void)tag;
       (void)parent;

@@ -21,7 +21,8 @@ TEST(TbbScheduler, BasicSchedule)
 
   std::atomic<bool> ran{false};
 
-  auto task = []() static->AsyncTask { co_return; }();
+  auto task = []() static->AsyncTask { co_return; }
+  ();
   sched.schedule(std::move(task));
 
   sched.run_all();
@@ -62,13 +63,15 @@ TEST(TbbScheduler, CoroutineAndAsync)
   TbbScheduler sched{4};
   ScopedScheduler guard(&sched);
 
-  auto task = []() static->AsyncTask {
+  auto task = []() static->AsyncTask
+  {
     Async<int> x = 10;
     Async<int> y = 32;
     Async<int> z = x + y;
     EXPECT_EQ(z.get_wait(), 42);
     co_return;
-  }();
+  }
+  ();
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -82,7 +85,7 @@ TEST(TbbScheduler, ManyTasks)
 
   for (int i = 0; i < 100; i++)
   {
-    sched.schedule([](std::atomic<int>& c) static->AsyncTask {
+    sched.schedule([](std::atomic<int> & c) static->AsyncTask {
       c.fetch_add(1, std::memory_order_relaxed);
       co_return;
     }(counter));
@@ -152,7 +155,7 @@ TEST(TbbScheduler, PausePreventsExecutionUntilResume)
   constexpr int kDirectTasks = 3;
   for (int i = 0; i < kDirectTasks; ++i)
   {
-    sched.schedule([](std::atomic<int>* counter) static->AsyncTask {
+    sched.schedule([](std::atomic<int> * counter) static->AsyncTask {
       counter->fetch_add(1, std::memory_order_relaxed);
       co_return;
     }(&direct_counter));
@@ -168,12 +171,13 @@ TEST(TbbScheduler, PausePreventsExecutionUntilResume)
         co_return;
       }(value.write(), kWrittenValue, kDelayMs, &writer_runs));
 
-  sched.schedule([](ReadBuffer<int> read_buffer, std::atomic<int>* counter, std::atomic<int>* runs) static->AsyncTask {
-    runs->fetch_add(1, std::memory_order_relaxed);
-    auto& result = co_await read_buffer;
-    counter->fetch_add(result, std::memory_order_relaxed);
-    co_return;
-  }(value.read(), &async_counter, &reader_runs));
+  sched.schedule(
+      [](ReadBuffer<int> read_buffer, std::atomic<int> * counter, std::atomic<int> * runs) static->AsyncTask {
+        runs->fetch_add(1, std::memory_order_relaxed);
+        auto& result = co_await read_buffer;
+        counter->fetch_add(result, std::memory_order_relaxed);
+        co_return;
+      }(value.read(), &async_counter, &reader_runs));
 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   EXPECT_EQ(direct_counter.load(std::memory_order_relaxed), 0);
@@ -232,7 +236,7 @@ TEST(TbbScheduler, StressConcurrentProducers)
     producers.emplace_back([&sched, &counter] {
       for (int i = 0; i < kTasksPerThread; ++i)
       {
-        sched.schedule([](std::atomic<int>* target) static->AsyncTask {
+        sched.schedule([](std::atomic<int> * target) static->AsyncTask {
           target->fetch_add(1, std::memory_order_relaxed);
           co_return;
         }(&counter));
