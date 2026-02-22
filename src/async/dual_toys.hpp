@@ -3,6 +3,7 @@
 #include "async_toys.hpp"
 #include "core/math.hpp"
 #include "dual.hpp"
+#include <type_traits>
 
 namespace uni20::async
 {
@@ -162,7 +163,18 @@ template <typename T> Dual<uni20::make_real_t<T>> real(Dual<T> z)
     if (s.constructed())
       real(*s) += grad;
     else
-      s.emplace(grad);
+    {
+      if constexpr (std::is_same_v<T, r_type>)
+      {
+        s.emplace(grad);
+      }
+      else
+      {
+        T value{};
+        real(value) = grad;
+        s.emplace(std::move(value));
+      }
+    }
   }(Result.grad.input(), z.grad.output()));
   return Result;
 }

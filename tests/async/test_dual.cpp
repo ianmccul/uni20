@@ -145,52 +145,78 @@ TEST(Dual, SubtractionOps)
   sched.run_all();
 }
 
-// TEST(Dual, RealImagGradients)
-// {
-//   DebugScheduler sched;
-//   set_global_scheduler(&sched);
-//
-//   Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
-//
-//   auto r = real(z);
-//   auto i = imag(z);
-//
-//   EXPECT_NEAR(r.value.get_wait(), 1.5, 1e-12);
-//   EXPECT_NEAR(i.value.get_wait(), -2.5, 1e-12);
-//
-//   r.grad = 2.0;
-//   i.grad = 3.0;
-//
-//   sched.run_all();
-//
-//   auto z_grad = z.grad.backprop().get_wait();
-//   EXPECT_NEAR(z_grad.real(), 2.0, 1e-12);
-//   EXPECT_NEAR(z_grad.imag(), 3.0, 1e-12);
-//
-//   sched.run_all();
-// }
-//
-// TEST(Dual, RealImagGradientSum)
-// {
-//   DebugScheduler sched;
-//   set_global_scheduler(&sched);
-//
-//   Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
-//
-//   auto f = 2.0 * real(z) + 3.0 * imag(z);
-//
-//   EXPECT_NEAR(f.value.get_wait(), -4.5, 1e-12);
-//
-//   f.grad = 1.0;
-//
-//   sched.run_all();
-//
-//   auto z_grad = z.grad.backprop().get_wait();
-//   EXPECT_NEAR(z_grad.real(), 2.0, 1e-12);
-//   EXPECT_NEAR(z_grad.imag(), 3.0, 1e-12);
-//
-//   sched.run_all();
-// }
+TEST(Dual, RealImagGradients)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+
+  auto r = real(z);
+  auto i = imag(z);
+
+  EXPECT_NEAR(r.value.get_wait(), 1.5, 1e-12);
+  EXPECT_NEAR(i.value.get_wait(), -2.5, 1e-12);
+
+  r.grad = 2.0;
+  i.grad = 3.0;
+
+  sched.run_all();
+
+  auto z_grad = z.grad.backprop().get_wait();
+  EXPECT_NEAR(z_grad.real(), 2.0, 1e-12);
+  EXPECT_NEAR(z_grad.imag(), 3.0, 1e-12);
+
+  sched.run_all();
+}
+
+TEST(Dual, RealImagGradientSum)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+
+  auto f = 2.0 * real(z) + 3.0 * imag(z);
+
+  EXPECT_NEAR(f.value.get_wait(), -4.5, 1e-12);
+
+  f.grad = 1.0;
+
+  sched.run_all();
+
+  auto z_grad = z.grad.backprop().get_wait();
+  EXPECT_NEAR(z_grad.real(), 2.0, 1e-12);
+  EXPECT_NEAR(z_grad.imag(), 3.0, 1e-12);
+
+  sched.run_all();
+}
+
+TEST(Dual, RealImagGradientsImagSeedFirst)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+
+  auto r = real(z);
+  auto i = imag(z);
+
+  EXPECT_NEAR(r.value.get_wait(), 1.5, 1e-12);
+  EXPECT_NEAR(i.value.get_wait(), -2.5, 1e-12);
+
+  // Seed imag first to exercise the "construct from imag contribution" path.
+  i.grad = 3.0;
+  r.grad = 2.0;
+
+  sched.run_all();
+
+  auto z_grad = z.grad.backprop().get_wait();
+  EXPECT_NEAR(z_grad.real(), 2.0, 1e-12);
+  EXPECT_NEAR(z_grad.imag(), 3.0, 1e-12);
+
+  sched.run_all();
+}
 
 TEST(Dual, StressBackpropMatchesAnalytic)
 {
