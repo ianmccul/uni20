@@ -36,15 +36,15 @@ struct OperatorCoAwaitWrite
 
         int& await_resume() const noexcept
         {
-            static int value = 0;
-            return value;
+          static int value = 0;
+          return value;
         }
     };
 
     Awaiter operator co_await() const noexcept { return {}; }
 };
 
-}  // namespace
+} // namespace
 
 TEST(ConceptTest, AsyncIntSatisfiesConcepts)
 {
@@ -59,12 +59,6 @@ TEST(ConceptTest, WriteBufferSatisfiesConcepts)
 {
   static_assert(write_buffer_awaitable_of<WriteBuffer<int>, int>);
   static_assert(read_write_buffer_awaitable_of<WriteBuffer<int>, int>);
-}
-
-TEST(ConceptTest, AsyncMutateReturnsWriteBufferConcept)
-{
-  static_assert(write_buffer_awaitable_of<decltype(std::declval<Async<int>&>().mutate()), int>);
-  static_assert(read_write_buffer_awaitable_of<decltype(std::declval<Async<int>&>().mutate()), int>);
 }
 
 TEST(ConceptTest, AsyncDoubleSatisfiesConcepts)

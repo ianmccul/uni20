@@ -85,8 +85,7 @@ concept async_reader = requires(T t) { requires read_buffer_awaitable<decltype(t
 
 /// \Brief returns the write buffer type that results from the write() function applied to an lvalue of AsyncLike
 template <typename AsyncLike> using write_buffer_t = decltype(std::declval<AsyncLike&>().write());
-template <typename AsyncLike> using mutate_buffer_t = decltype(std::declval<AsyncLike&>().mutate());
-template <typename AsyncLike> using mutate_awaiter_t = decltype(get_awaiter(std::declval<mutate_buffer_t<AsyncLike>&>()));
+template <typename AsyncLike> using take_awaiter_t = decltype(std::declval<write_buffer_t<AsyncLike>&>().take());
 
 /// \Brief an async_writer is satisfied if .write() returns a buffer supporting emplace(...)
 template <typename AsyncLike>
@@ -109,17 +108,16 @@ static_assert(!async_writer_to<Async<int> const, int>);
 /// \note  Moving-from is a write operation
 template <typename AsyncLike, typename T>
 concept async_movable_to =
-    requires(AsyncLike& a) {
-      requires emplace_buffer_awaitable_of<decltype(a.mutate()), T>;
-      typename std::remove_cvref_t<mutate_awaiter_t<AsyncLike>>::element_type;
-      requires std::constructible_from<T,
-                                       decltype(std::move(std::declval<mutate_awaiter_t<AsyncLike>>().await_resume()))>;
+    requires {
+      requires emplace_buffer_awaitable_of<write_buffer_t<AsyncLike>, T>;
+      requires read_buffer_awaitable_of<take_awaiter_t<AsyncLike>, T>;
     };
 
 template <typename AsyncLike, typename T>
 concept async_mutable_writer_of =
     requires {
-      requires emplace_buffer_awaitable_of<decltype(std::declval<AsyncLike&>().mutate()), T>;
+      requires emplace_buffer_awaitable_of<write_buffer_t<AsyncLike>, T>;
+      requires read_buffer_awaitable_of<take_awaiter_t<AsyncLike>, T>;
     };
 
 /// \brief concept for a type that behaves like an asyncronous writer that is also readable:
@@ -129,7 +127,7 @@ template <typename T>
 concept async_read_writer = requires(T t) {
                               requires async_reader<T>;
                               requires async_writer<T>;
-                              requires emplace_buffer_awaitable<decltype(t.mutate())>;
+                              requires emplace_buffer_awaitable<decltype(t.write())>;
                             };
 
 /// \brief concept for a type that behaves like an asyncronous reader and writer (like Async<T>)
@@ -358,12 +356,13 @@ template <typename U, typename T>
   requires async_mutable_writer_of<U, T> && async_movable_to<U, T>
 void async_move(U&& rhs, WriteBuffer<T> lhs)
 {
+  auto src = std::forward<U>(rhs).write();
   schedule([](auto src, WriteBuffer<T> dst) static -> AsyncTask {
-    T movable(std::move(co_await src));
+    T movable(co_await src.take());
     src.release();
     co_await dst.emplace(std::move(movable));
     co_return;
-  }(std::forward<U>(rhs).mutate(), std::move(lhs)));
+  }(std::move(src), std::move(lhs)));
 }
 
 template <typename U, typename T>

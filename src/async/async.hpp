@@ -9,8 +9,8 @@
 
 #pragma once
 
-#include "async_node.hpp"
 #include "async_errors.hpp"
+#include "async_node.hpp"
 #include "buffers.hpp"
 #include "common/demangle.hpp"
 #include "config.hpp"
@@ -275,37 +275,12 @@ template <typename T> class Async {
     /// \brief Begin an asynchronous read of the value.
     /// \return A ReadBuffer<T> which may be co_awaited.
     /// \ingroup async_api
-    ReadBuffer<T> read() const
-    {
-      (void)try_get_value();
-      return ReadBuffer<T>(queue_.create_read_context(storage_));
-    }
+    ReadBuffer<T> read() const { return ReadBuffer<T>(queue_.create_read_context(storage_)); }
 
-    /// \brief Begin an asynchronous mutation of the current value.
+    /// \brief Begin an asyncronous write of the value
     /// \return A WriteBuffer<T> which may be co_awaited.
     /// \ingroup async_api
-    WriteBuffer<T> mutate()
-    {
-      require_value();
-      return WriteBuffer<T>(queue_.create_write_context(storage_));
-    }
-
-    /// \brief Begin writing a fresh value, treating the storage as uninitialized until completion.
-    /// \return A WriteBuffer<T> which may be co_awaited.
-    /// \ingroup async_api
-    WriteBuffer<T> write()
-    {
-      return WriteBuffer<T>(queue_.create_write_context(storage_));
-    }
-
-    /// \brief Begin constructing the value in-place using placement new semantics.
-    /// \return A WriteBuffer<T>; call `co_await buffer.emplace(...)` to construct in place.
-    /// \ingroup async_api
-    WriteBuffer<T> emplace() noexcept
-    {
-      DEBUG_CHECK(storage_);
-      return WriteBuffer<T>(queue_.create_write_context(storage_));
-    }
+    WriteBuffer<T> write() { return WriteBuffer<T>(queue_.create_write_context(storage_)); }
 
     // template <typename Sched> T& get_wait(Sched& sched)
     // {
@@ -417,20 +392,12 @@ template <typename T> class Async {
 /// \return Read buffer obtained from the Async instance.
 /// \ingroup async_api
 template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
-/// \brief Convenience helper that forwards to Async<T>::mutate().
-/// \tparam T Stored value type.
-/// \param a Async container providing the write buffer.
-/// \return Write buffer obtained from the Async instance.
-/// \ingroup async_api
-template <typename T> WriteBuffer<T> mutate(Async<T>& a) { return a.mutate(); }
 /// \brief Convenience helper that forwards to Async<T>::write().
 /// \tparam T Stored value type.
 /// \param a Async container providing the write buffer.
 /// \return Write buffer obtained from the Async instance.
 /// \ingroup async_api
 template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
-
-template <typename T> WriteBuffer<T> emplace_buffer(Async<T>& a) { return a.emplace(); }
 
 } // namespace uni20::async
 

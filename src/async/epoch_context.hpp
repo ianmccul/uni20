@@ -309,6 +309,7 @@ class EpochContext {
     // Writer interface
     // internal private used only by EpochContextWriter<T>
     template <typename T> friend class EpochContextWriter;
+    friend void propagate_unhandled_writer_exception(EpochContext* epoch, std::exception_ptr eptr) noexcept;
 
     /// \brief Acquire the writer role for this epoch.
     /// \pre phase_ <= Phase::Started
@@ -381,7 +382,7 @@ class EpochContext {
     {
       std::lock_guard lock(mtx_);
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_set_exception", this, counter_);
-      DEBUG_CHECK(phase_ == Phase::Writing);
+      DEBUG_CHECK(phase_ <= Phase::Reading);
       if (!eptr_) eptr_ = e;
     }
 
@@ -725,6 +726,12 @@ class EpochContext {
     // }
 };
 
+inline void propagate_unhandled_writer_exception(EpochContext* epoch, std::exception_ptr eptr) noexcept
+{
+  if (!epoch || !eptr) return;
+  epoch->writer_set_exception(std::move(eptr));
+}
+
 constexpr std::string_view format_as(uni20::async::EpochContext::Phase p)
 {
   using Phase = uni20::async::EpochContext::Phase;
@@ -921,6 +928,8 @@ template <typename T> class EpochContextReader {
     /// \ingroup async_core
     T const& get_wait(IScheduler& sched) const;
 
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return epoch_; }
+
   private:
     shared_storage<T> storage_;
     std::shared_ptr<EpochContext> epoch_{}; ///< Epoch currently tracked.
@@ -1035,9 +1044,7 @@ template <typename T> class EpochContextWriter {
             TaskRegistry::dump_epoch_context(epoch_.get(), reason);
         }
 #endif
-        std::exception_ptr eptr = std::make_exception_ptr(buffer_write_uninitialized{});
-        if (epoch_) epoch_->writer_set_exception(eptr);
-        std::rethrow_exception(eptr);
+        throw buffer_write_uninitialized{};
       }
       return *ptr;
     }
@@ -1065,7 +1072,6 @@ template <typename T> class EpochContextWriter {
             TaskRegistry::dump_epoch_context(epoch_.get(), reason);
         }
 #endif
-        this->set_exception(std::current_exception());
         throw;
       }
     }
@@ -1073,6 +1079,8 @@ template <typename T> class EpochContextWriter {
     shared_storage<T>& storage() { return storage_; }
 
     void set_exception(std::exception_ptr e) const noexcept { epoch_->writer_set_exception(e); }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return epoch_; }
 
     /// \brief Report whether the associated value is currently initialized.
     /// \return true if the epoch reports initialized storage.

@@ -111,7 +111,7 @@ TEST(AsyncDestroyTest, DestroySubsequentReader)
   schedule(Reader(result.read(), &was_destroyed1));
 
   // Now get another writer; this forces another epoch.
-  (void)result.mutate();
+  (void)result.write();
   // Now schedule another reader; this should inherit the writer_require() flag from the previous epoch
   schedule(Reader(result.read(), &was_destroyed2));
 

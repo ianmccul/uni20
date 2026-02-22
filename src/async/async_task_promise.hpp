@@ -12,12 +12,20 @@
 #include <coroutine>
 #include <exception>
 #include <limits>
+#include <memory>
 #include <optional>
+#include <vector>
 
 namespace uni20::async
 {
 
 class AsyncTaskFactory;
+class EpochContext;
+
+/// \brief Inject an unhandled writer-side coroutine exception into an epoch.
+/// \param epoch Target epoch context associated with a writer buffer.
+/// \param eptr Exception captured by the coroutine promise.
+void propagate_unhandled_writer_exception(EpochContext* epoch, std::exception_ptr eptr) noexcept;
 
 // class AsyncTask;
 //
@@ -79,6 +87,16 @@ struct BasicAsyncTaskPromise
 {
     using promise_type = BasicAsyncTaskPromise;
 
+    /// \brief Intrusive node describing one exception propagation sink.
+    struct ExceptionSinkNode
+    {
+        BasicAsyncTaskPromise* owner{nullptr};
+        ExceptionSinkNode* prev{nullptr};
+        ExceptionSinkNode* next{nullptr};
+        std::shared_ptr<EpochContext> epoch{};
+        bool explicit_sink{false};
+    };
+
     /// \brief Scheduler to notify when the coroutine is ready to resume.
     IScheduler* sched_ = nullptr;
 
@@ -115,6 +133,7 @@ struct BasicAsyncTaskPromise
     // debugging / DAG info
     std::string Name;  // function name of the coroutine
     uint64_t Instance; // instance number, global
+    ExceptionSinkNode* exception_sinks_head_{nullptr};
 
 #if UNI20_DEBUG_DAG
     // For debug tracking the DAG, we store the nodes of the incoming (ReadBuffer) and outgoing (WriteBuffer) objects.
@@ -147,8 +166,7 @@ struct BasicAsyncTaskPromise
     template <typename... Args> BasicAsyncTaskPromise(Args&&... args)
     {
       // For each parameter, detect ReadBuffer / WriteBuffer
-      ([&](auto const& x) { ProcessCoroutineArgument(this, args); }(args),
-       ...); // fold expression over args
+      (ProcessCoroutineArgument(this, args), ...);
     }
 
     /// \brief safely destroy this coroutine, returning the continuation_ (which also must now be destroyed)
@@ -190,6 +208,50 @@ struct BasicAsyncTaskPromise
       {
         eptr_ = e;
       }
+    }
+
+    /// \brief Register one exception propagation sink with this promise.
+    /// \param node Intrusive node owned by a buffer object.
+    /// \param epoch Epoch that should receive unhandled coroutine exceptions.
+    /// \param explicit_sink true when registered via propagate_exceptions_to(...).
+    void register_exception_sink(ExceptionSinkNode& node, std::shared_ptr<EpochContext> epoch, bool explicit_sink)
+    {
+      if (node.owner) node.owner->unregister_exception_sink(node, false);
+      if (!epoch) return;
+
+      node.owner = this;
+      node.epoch = std::move(epoch);
+      node.explicit_sink = explicit_sink;
+      node.prev = nullptr;
+      node.next = exception_sinks_head_;
+      if (exception_sinks_head_) exception_sinks_head_->prev = &node;
+      exception_sinks_head_ = &node;
+    }
+
+    /// \brief Unregister one exception propagation sink from this promise.
+    /// \param node Intrusive node currently linked into this promise.
+    /// \param from_destructor true when called from buffer destruction.
+    void unregister_exception_sink(ExceptionSinkNode& node, bool from_destructor) noexcept
+    {
+      if (node.owner != this) return;
+      if (from_destructor && node.explicit_sink && std::uncaught_exceptions() > 0)
+      {
+        CHECK(false,
+              "propagate_exceptions_to sink destroyed during exception unwinding before coroutine unhandled_exception()");
+      }
+
+      if (node.prev)
+        node.prev->next = node.next;
+      else
+        exception_sinks_head_ = node.next;
+
+      if (node.next) node.next->prev = node.prev;
+
+      node.owner = nullptr;
+      node.prev = nullptr;
+      node.next = nullptr;
+      node.epoch.reset();
+      node.explicit_sink = false;
     }
 
     /// \brief Get the current exception pointer, or nullptr if there is no current exception.
@@ -437,7 +499,10 @@ struct BasicAsyncTaskPromise
       }
       catch (...)
       {
-        this->set_exception(std::current_exception());
+        auto eptr = std::current_exception();
+        this->set_exception(eptr);
+        for (auto* node = exception_sinks_head_; node; node = node->next)
+          propagate_unhandled_writer_exception(node->epoch.get(), eptr);
       }
     }
 
@@ -603,6 +668,10 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
 
     decltype(auto) await_resume()
     {
+      if constexpr (requires { awaitable.register_exception_sinks(promise); })
+      {
+        awaitable.register_exception_sinks(promise);
+      }
       // we can call await_resume on a moved awaitable here, because this is the last time
       // that we refer to awaitable
       return awaitable.await_resume();

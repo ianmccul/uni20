@@ -13,7 +13,7 @@ TEST(AsyncMoveTest, MoveConstructKeepsStorage)
   Async<int> moved(std::move(original));
 
   DebugScheduler sched;
-  sched.schedule([](ReadBuffer<int> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> reader) static->AsyncTask {
     auto& value = co_await reader;
     EXPECT_EQ(value, 7);
     co_return;
@@ -29,13 +29,13 @@ TEST(AsyncMoveTest, MoveAssignPreservesQueue)
   lhs = std::move(rhs);
 
   DebugScheduler sched;
-  sched.schedule([](WriteBuffer<int> writer) static -> AsyncTask {
+  sched.schedule([](WriteBuffer<int> writer) static->AsyncTask {
     auto& value = co_await writer;
     value = 9;
     co_return;
-  }(lhs.mutate()));
+  }(lhs.write()));
 
-  sched.schedule([](ReadBuffer<int> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> reader) static->AsyncTask {
     auto& value = co_await reader;
     EXPECT_EQ(value, 9);
     co_return;
@@ -53,7 +53,7 @@ TEST(AsyncMoveTest, DeferredViewRetainsExternalOwner)
   backing.reset();
 
   DebugScheduler sched;
-  sched.schedule([](ReadBuffer<int> reader) static -> AsyncTask {
+  sched.schedule([](ReadBuffer<int> reader) static->AsyncTask {
     auto& value = co_await reader;
     EXPECT_EQ(value, 5);
     co_return;
@@ -79,8 +79,7 @@ TEST(AsyncMoveTest, AsyncMoveTransfersValue)
   ASSERT_TRUE(received);
   EXPECT_EQ(*received, 42);
 
-  Ptr source_remaining = src.move_from_wait();
-  EXPECT_FALSE(source_remaining);
+  EXPECT_THROW((void)src.move_from_wait(), buffer_write_uninitialized);
 
   reset_global_scheduler();
 }
