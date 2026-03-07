@@ -1,6 +1,6 @@
 #include "../helpers.hpp"
-#include "common/mdspan.hpp"
-#include "kernel/contract.hpp"
+#include <uni20/common/mdspan.hpp>
+#include <uni20/kernel/contract.hpp>
 #include "gtest/gtest.h"
 #include <numeric>
 

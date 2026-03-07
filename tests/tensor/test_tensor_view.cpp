@@ -1,4 +1,4 @@
-#include "tensor/tensor_view.hpp"
+#include <uni20/tensor/tensor_view.hpp>
 
 #include <gtest/gtest.h>
 

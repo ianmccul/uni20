@@ -1,5 +1,5 @@
-#include "linalg/linalg.hpp"
-#include "tensor/basic_tensor.hpp"
+#include <uni20/linalg/linalg.hpp>
+#include <uni20/tensor/basic_tensor.hpp>
 
 #include <gtest/gtest.h>
 

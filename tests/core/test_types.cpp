@@ -1,4 +1,4 @@
-#include "core/types.hpp"
+#include <uni20/core/types.hpp>
 #include <gtest/gtest.h>
 
 // Simulated proxy type

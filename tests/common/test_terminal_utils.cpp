@@ -1,4 +1,4 @@
-#include "common/terminal.hpp"
+#include <uni20/common/terminal.hpp>
 
 #include "gtest/gtest.h"
 

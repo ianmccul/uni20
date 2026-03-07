@@ -1,5 +1,5 @@
-#include "mdspan/concepts.hpp"
-#include "mdspan/strides.hpp"
+#include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/strides.hpp>
 
 #include <fmt/format.h>
 #include <gtest/gtest.h>

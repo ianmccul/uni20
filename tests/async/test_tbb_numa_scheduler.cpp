@@ -1,5 +1,5 @@
-#include "async/debug_scheduler.hpp"
-#include "async/tbb_numa_scheduler.hpp"
+#include <uni20/async/debug_scheduler.hpp>
+#include <uni20/async/tbb_numa_scheduler.hpp>
 
 #include <gtest/gtest.h>
 

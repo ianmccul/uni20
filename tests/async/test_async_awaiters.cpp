@@ -1,7 +1,7 @@
-#include "async/async.hpp"
-#include "async/async_task.hpp"
-#include "async/awaiters.hpp"
-#include "async/debug_scheduler.hpp"
+#include <uni20/async/async.hpp>
+#include <uni20/async/async_task.hpp>
+#include <uni20/async/awaiters.hpp>
+#include <uni20/async/debug_scheduler.hpp>
 #include <gtest/gtest.h>
 
 using namespace uni20;

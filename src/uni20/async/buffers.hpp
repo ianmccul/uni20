@@ -1,0 +1,662 @@
+/// \file buffers.hpp
+/// \brief Awaitable gates for Async<T>: snapshot‐reads and in‐place writes.
+/// \ingroup async_api
+
+#pragma once
+
+#include "async_task.hpp"
+#include "async_task_promise.hpp"
+#include <uni20/common/trace.hpp>
+#include "epoch_context.hpp"
+#include "shared_storage.hpp"
+
+#include <coroutine>
+#include <cstddef>
+#include <memory>
+#include <mutex>
+#include <new>
+#include <stdexcept>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+
+namespace uni20::async
+{
+
+template <typename T> class Async;
+
+template <typename T> class ReadMaybeAwaiter;
+template <typename T> class ReadOrCancelAwaiter;
+
+/// \brief RAII handle for reading the value from an Async container at a given epoch.
+///
+/// A ReadBuffer<T> represents a read-only access to the value of an Async<T>
+/// at a specific epoch. It is awaitable, and yields either a reference or value
+/// depending on value category:
+///
+/// - `co_await buf` yields `T const&`: shared read access.
+/// - `co_await std::move(buf)` yields `T` by value and releases the reader gate. This currently copies `T`.
+///
+/// \note The `std::move(buf)` form is recommended when the buffer will be consumed
+///       immediately, such as when assigning to a local variable.
+///
+/// \note A `ReadBuffer<T>` can be co_awaited multiple times, but `std::move(buf)`
+///       transfers ownership semantics and should only be used once. After moving,
+///       further use is undefined.
+///
+/// \tparam T The underlying value type.
+template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
+  public:
+    using value_type = T;
+
+    /// \brief Construct a read buffer tied to a reader context.
+    /// \param reader The RAII epoch reader handle for this operation.
+    ReadBuffer(EpochContextReader<T> reader) : reader_(std::move(reader)) {}
+
+    ReadBuffer(ReadBuffer const& other) : reader_(other.reader_) { this->copy_exception_sink_from(other); }
+
+    // No copy ctor here, although we could add one
+    ReadBuffer& operator=(ReadBuffer const&) = delete;
+
+    ReadBuffer(ReadBuffer&& other) noexcept : reader_(std::move(other.reader_))
+    {
+      this->move_exception_sink_from(other);
+    }
+
+    ReadBuffer& operator=(ReadBuffer&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->unregister_exception_sink(false);
+        reader_ = std::move(other.reader_);
+        this->move_exception_sink_from(other);
+      }
+      return *this;
+    }
+
+    ~ReadBuffer() noexcept { this->unregister_exception_sink(true); }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object
+    NodeInfo const* node() const { return reader_.node(); }
+#endif
+
+    /// \brief Returns a `ReadMaybeAwaiter`, that returns an std::optional (or optional-like) object
+    /// that is empty if the buffer is in a cancelled state.
+    ReadMaybeAwaiter<T const&> maybe() &;
+
+    ReadMaybeAwaiter<T> maybe() &&;
+
+    ReadOrCancelAwaiter<T const&> or_cancel() &;
+
+    ReadOrCancelAwaiter<T> or_cancel() &&;
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return True if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept { return reader_.ready(); }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      reader_.suspend(std::move(t), false);
+    }
+
+    /// \brief Resume execution and return the stored value.
+    /// \return Reference to the stored T inside Async<T>.
+    T const& await_resume() const& { return reader_.data(); }
+
+    /// \brief Resume execution and return a copy of the stored value.
+    /// \note Called when co_awaiting on a prvalue ReadBuffer.
+    T await_resume() &&
+    {
+      static_assert(std::is_copy_constructible_v<T>, "Cannot co_await prvalue ReadBuffer<T> unless T is copyable");
+      T result{reader_.data()};
+      reader_.release();
+      return result;
+    }
+
+    /// \brief Manually release the epoch reader before awaitable destruction.
+    ///
+    /// This allows the coroutine to relinquish its reader role earlier than
+    /// its full lifetime.
+    ///
+    /// \post The ReadBuffer becomes inert and idempotent; calling `release()`
+    ///       more than once has no effect.
+    void release() noexcept { reader_.release(); }
+
+    // T get_wait() && { return T(reader_.get_wait()); } // TODO: can this use move semantics?
+    T const& get_wait() const { return reader_.get_wait(); }
+
+    T const& get_wait(IScheduler& sched) const { return reader_.get_wait(sched); }
+
+    /// \brief Enable co_await on lvalue ReadBuffer only.
+    ///
+    /// Prevents unsafe use on temporaries by deleting rvalue overload.
+    auto operator co_await() & noexcept -> ReadBuffer& { return *this; }
+    auto operator co_await() const& noexcept -> ReadBuffer const& { return *this; }
+
+    /// \brief Enable co_await on rvalue ReadBuffer. Returns by value.
+    /// \note This avoids dangling reference when co_awaiting on a temporary.
+    auto operator co_await() && noexcept -> ReadBuffer&& { return std::move(*this); }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return reader_.epoch_context_shared(); }
+
+    void register_exception_sink(BasicAsyncTaskPromise& promise, bool explicit_sink) const
+    {
+      promise.register_exception_sink(exception_sink_, this->epoch_context_shared(), explicit_sink);
+    }
+
+  private:
+    void copy_exception_sink_from(ReadBuffer const& other)
+    {
+      if (other.exception_sink_.owner)
+      {
+        other.exception_sink_.owner->register_exception_sink(exception_sink_, other.exception_sink_.epoch,
+                                                             other.exception_sink_.explicit_sink);
+      }
+    }
+
+    void move_exception_sink_from(ReadBuffer& other) noexcept
+    {
+      if (!other.exception_sink_.owner) return;
+      auto* owner = other.exception_sink_.owner;
+      auto epoch = std::move(other.exception_sink_.epoch);
+      bool const explicit_sink = other.exception_sink_.explicit_sink;
+      owner->unregister_exception_sink(other.exception_sink_, false);
+      owner->register_exception_sink(exception_sink_, std::move(epoch), explicit_sink);
+    }
+
+    void unregister_exception_sink(bool from_destructor) noexcept
+    {
+      if (!exception_sink_.owner) return;
+      exception_sink_.owner->unregister_exception_sink(exception_sink_, from_destructor);
+    }
+
+    EpochContextReader<T> reader_; ///< RAII object managing epoch state.
+    mutable BasicAsyncTaskPromise::ExceptionSinkNode exception_sink_{};
+};
+
+/// \brief adaptor for forcing return by value and release of the buffer.  This is actually
+///        a synoym for std::move
+template <typename T> ReadBuffer<T>&& release(ReadBuffer<T>& in) { return std::move(in); }
+
+template <typename T> ReadBuffer<T>&& release(ReadBuffer<T>&& in) { return std::move(in); }
+
+template <typename T> class ReadMaybeAwaiter {
+  public:
+    using value_type = std::optional<T>;
+
+    ReadMaybeAwaiter(ReadMaybeAwaiter&&) = default; // movable
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return True if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept { return reader_.ready(); }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      reader_.suspend(std::move(t));
+    }
+
+    /// \brief Resume execution and return a copy of the stored value.
+    /// \note Called when co_awaiting on a prvalue ReadBuffer.
+    value_type await_resume() { return reader_.data_option(); }
+
+  private:
+    ReadMaybeAwaiter() = delete;
+    ReadMaybeAwaiter(ReadMaybeAwaiter const&) = delete;
+    ReadMaybeAwaiter& operator=(ReadMaybeAwaiter const&) = delete;
+    ReadMaybeAwaiter& operator=(ReadMaybeAwaiter&&) = delete;
+
+    ReadMaybeAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+
+    friend ReadBuffer<T>;
+
+    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+};
+
+template <typename T> class ReadMaybeAwaiter<T const&> {
+  public:
+    using value_type = T const*;
+
+    ReadMaybeAwaiter(ReadMaybeAwaiter&&) = default; // movable
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return True if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept { return reader_.ready(); }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      reader_.suspend(std::move(t), false);
+    }
+
+    /// \brief Resume execution and return a pointer to stored value, or nullptr
+    value_type await_resume() { return reader_.data_maybe(); }
+
+  private:
+    ReadMaybeAwaiter() = delete;
+    ReadMaybeAwaiter(ReadMaybeAwaiter const&) = delete;
+    ReadMaybeAwaiter& operator=(ReadMaybeAwaiter const&) = delete;
+    ReadMaybeAwaiter& operator=(ReadMaybeAwaiter&&) = delete;
+
+    ReadMaybeAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+
+    friend ReadBuffer<T>;
+
+    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+};
+
+template <typename T> class ReadOrCancelAwaiter {
+  public:
+    using value_type = T;
+
+    ReadOrCancelAwaiter(ReadOrCancelAwaiter&&) = default; // movable
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return true if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept
+    {
+      // we must suspend here, because it is a possible cancellation point
+      return false;
+    }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
+
+    /// \brief Resume execution and return a copy of the stored value.
+    /// \note Called when co_awaiting on a prvalue ReadBuffer.
+    T await_resume()
+    {
+      T* ptr = reader_.data_maybe();
+      if (!ptr) throw task_cancelled();
+      return *ptr;
+    }
+
+  private:
+    ReadOrCancelAwaiter() = delete;
+    ReadOrCancelAwaiter(ReadOrCancelAwaiter const&) = delete;
+    ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter const&) = delete;
+    ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter&&) = delete;
+
+    ReadOrCancelAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+
+    friend ReadBuffer<T>;
+
+    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+};
+
+template <typename T> class ReadOrCancelAwaiter<T const&> {
+  public:
+    using value_type = T;
+
+    ReadOrCancelAwaiter(ReadOrCancelAwaiter&&) = default; // movable
+
+    /// \brief Check if the value is already ready to be read.
+    /// \return true if the epoch is ready and no suspension is needed.
+    bool await_ready() const noexcept
+    {
+      // we must suspend here, because it is a possible cancellation point
+      return false;
+    }
+
+    /// \brief Suspend this coroutine and enqueue for resumption.
+    /// \param t Coroutine task to enqueue.
+    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
+
+    /// \brief Resume execution and return a copy of the stored value.
+    T const& await_resume()
+    {
+      T const* ptr = reader_.data_maybe();
+      if (!ptr) throw task_cancelled();
+      return *ptr;
+    }
+
+  private:
+    ReadOrCancelAwaiter() = delete;
+    ReadOrCancelAwaiter(ReadOrCancelAwaiter const&) = delete;
+    ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter const&) = delete;
+    ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter&&) = delete;
+
+    ReadOrCancelAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+
+    friend ReadBuffer<T>;
+
+    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+};
+
+template <typename T> ReadMaybeAwaiter<T const&> ReadBuffer<T>::maybe() &
+{
+  return ReadMaybeAwaiter<T const&>(reader_);
+}
+
+template <typename T> ReadMaybeAwaiter<T> ReadBuffer<T>::maybe() && { return ReadMaybeAwaiter<T>(reader_); }
+
+template <typename T> ReadOrCancelAwaiter<T const&> ReadBuffer<T>::or_cancel() &
+{
+  return ReadOrCancelAwaiter<T const&>(reader_);
+}
+
+template <typename T> ReadOrCancelAwaiter<T> ReadBuffer<T>::or_cancel() && { return ReadOrCancelAwaiter<T>(reader_); }
+
+// Forward declaration of the proxy used for deferred writes
+template <typename Buffer> class BufferWriteProxy;
+
+/// \brief An awaiter that emplaces a value when it is co_awaited.
+
+template <typename T, typename... Args> class EmplaceAwaiter {
+  public:
+    template <typename... U>
+    requires(sizeof...(U) == sizeof...(Args)) && std::constructible_from<std::tuple<Args...>, U&&...> EmplaceAwaiter(
+                                                     EpochContextWriter<T>* writer, U&&... args)
+        : writer_(writer),
+    args_(std::forward<U>(args)...)
+    {}
+
+    bool await_ready() const noexcept { return writer_->ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "EmplaceAwaiter::await_suspend()", this, t.h_);
+      writer_->suspend(std::move(t), false);
+    }
+
+    T& await_resume()
+    {
+      writer_->resume();
+      return std::apply(
+          [this](auto&&... unpacked) -> T& { return writer_->emplace(std::forward<decltype(unpacked)>(unpacked)...); },
+          std::move(args_));
+    }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_->epoch_context_shared(); }
+
+  private:
+    EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
+    std::tuple<Args...> args_;
+};
+
+template <typename T> class StorageAwaiter {
+  public:
+    StorageAwaiter(EpochContextWriter<T>* writer) : writer_(writer) {}
+
+    bool await_ready() const noexcept { return writer_->ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "EmplaceAwaiter::await_suspend()", this, t.h_);
+      writer_->suspend(std::move(t), false);
+    }
+
+    shared_storage<T>& await_resume()
+    {
+      writer_->resume();
+      return writer_->storage();
+    }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_->epoch_context_shared(); }
+
+  private:
+    EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
+};
+
+template <typename T> class TakeAwaiter {
+  public:
+    TakeAwaiter(EpochContextWriter<T>* writer) : writer_(writer) {}
+
+    bool await_ready() const noexcept { return writer_->ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "TakeAwaiter::await_suspend()", this, t.h_);
+      writer_->suspend(std::move(t), false);
+    }
+
+    T await_resume()
+    {
+      writer_->resume();
+      return writer_->storage().take();
+    }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_->epoch_context_shared(); }
+
+  private:
+    EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
+};
+
+/// \brief Awaitable write buffer for initializing uninitialized storage.
+///
+/// A WriteBuffer enforces that the underlying value is treated as uninitialized
+/// until a write occurs. The constructor marks the epoch as requiring a write,
+/// and consumers are expected to assign a value before releasing the buffer.
+template <typename T> class WriteBuffer {
+  public:
+    using value_type = T;
+    using element_type = T&;
+
+    explicit WriteBuffer(EpochContextWriter<T> writer) : writer_(std::move(writer)) {}
+
+    ~WriteBuffer() noexcept
+    {
+      this->unregister_exception_sink(true);
+      // if (writer_ && !written_)
+      // {
+      //   writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
+      // }
+    }
+
+    WriteBuffer(WriteBuffer const&) = delete;
+    WriteBuffer& operator=(WriteBuffer const&) = delete;
+
+    WriteBuffer(WriteBuffer&& other) noexcept : writer_(std::move(other.writer_)), written_(other.written_)
+    {
+      this->move_exception_sink_from(other);
+      other.written_ = true; // make moved-from state safe for destruction
+    }
+
+    WriteBuffer& operator=(WriteBuffer&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->unregister_exception_sink(false);
+        writer_ = std::move(other.writer_);
+        written_ = other.written_;
+        this->move_exception_sink_from(other);
+        other.written_ = true; // make moved-from state safe for destruction
+      }
+      return *this;
+    }
+
+#if UNI20_DEBUG_DAG
+    NodeInfo const* node() const { return writer_.node(); }
+#endif
+
+    bool await_ready() const noexcept { return writer_.ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "WriteBuffer::await_suspend()", this, t.h_);
+      writer_.suspend(std::move(t), false);
+    }
+
+    T& await_resume() const
+    {
+      writer_.resume();
+      written_ = true;
+      return writer_.data();
+    }
+
+    void release() noexcept
+    {
+      // if (!written_)
+      // {
+      //   writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
+      // }
+      writer_.release();
+    }
+
+    template <typename... Args> auto emplace(Args&&... args)
+    {
+      return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    requires std::constructible_from<T, Args...> T& emplace_assert(Args&&... args)
+    {
+      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
+      writer_.emplace(std::forward<Args>(args)...);
+      written_ = true;
+      return writer_.data();
+    }
+
+    auto take() { return TakeAwaiter<T>(&writer_); }
+
+    auto storage() { return StorageAwaiter<T>(&writer_); }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
+
+    void register_exception_sink(BasicAsyncTaskPromise& promise, bool explicit_sink) const
+    {
+      promise.register_exception_sink(exception_sink_, this->epoch_context_shared(), explicit_sink);
+    }
+
+    T move_from_wait() { return writer_.move_from_wait(); }
+
+    template <typename U> void write(U&& val) { async_assign(std::forward<U>(val), std::move(*this)); }
+
+    template <typename U> void write_assert(U&& val) requires std::assignable_from<T&, U&&>
+    {
+      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
+      written_ = true;
+      writer_.data() = std::forward<U>(val);
+    }
+
+    template <typename U> void write_move_assert(U&& val) requires std::assignable_from<T&, U&&>
+    {
+      DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
+      written_ = true;
+      writer_.data() = std::move(val);
+    }
+
+    [[nodiscard]] BufferWriteProxy<WriteBuffer<T>> write();
+
+    template <typename U> void write_move(U&& val) { async_move(std::move(val), std::move(*this)); }
+
+    auto operator co_await() & noexcept -> WriteBuffer& { return *this; }
+    auto operator co_await() const& noexcept -> WriteBuffer const& { return *this; }
+    auto operator co_await() && = delete;
+
+  private:
+    void move_exception_sink_from(WriteBuffer& other) noexcept
+    {
+      if (!other.exception_sink_.owner) return;
+      auto* owner = other.exception_sink_.owner;
+      auto epoch = std::move(other.exception_sink_.epoch);
+      bool const explicit_sink = other.exception_sink_.explicit_sink;
+      owner->unregister_exception_sink(other.exception_sink_, false);
+      owner->register_exception_sink(exception_sink_, std::move(epoch), explicit_sink);
+    }
+
+    void unregister_exception_sink(bool from_destructor) noexcept
+    {
+      if (!exception_sink_.owner) return;
+      exception_sink_.owner->unregister_exception_sink(exception_sink_, from_destructor);
+    }
+
+    EpochContextWriter<T> writer_;
+    mutable bool written_{false};
+    mutable BasicAsyncTaskPromise::ExceptionSinkNode exception_sink_{};
+
+    // Duplicating a WriteBuffer is no longer possible with the refactored EpochContext.
+    // To re-enable this function we would need to make the
+    // friend WriteBuffer dup(WriteBuffer& wb) { return WriteBuffer(wb.writer_); }
+};
+
+// For a ReadBuffer, we add the node to the ReadDependencies
+template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, ReadBuffer<T> const& x)
+{
+#if UNI20_DEBUG_DAG
+  promise->ReadDependencies.push_back(x.node());
+#endif
+}
+
+// For a WriteBuffer, we add the node to the WriteDependencies
+template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, WriteBuffer<T> const& x)
+{
+#if UNI20_DEBUG_DAG
+  promise->WriteDependencies.push_back(x.node());
+#endif
+  x.register_exception_sink(*promise, false);
+}
+
+template <typename T> class Defer;
+
+template <typename B>
+concept exception_sink_buffer = requires(B& buffer, BasicAsyncTaskPromise& promise)
+{
+  buffer.register_exception_sink(promise, true);
+};
+
+template <exception_sink_buffer... Buffers> class PropagateExceptionsAwaiter {
+  public:
+    explicit PropagateExceptionsAwaiter(Buffers&... buffers) : buffers_(std::addressof(buffers)...) {}
+
+    bool await_ready() const noexcept { return true; }
+
+    AsyncTask await_suspend(AsyncTask&& task) noexcept { return std::move(task); }
+
+    void await_resume() noexcept {}
+
+    void register_exception_sinks(BasicAsyncTaskPromise& promise) const
+    {
+      std::apply([&](auto*... buffers) { (buffers->register_exception_sink(promise, true), ...); }, buffers_);
+    }
+
+  private:
+    std::tuple<Buffers*...> buffers_;
+};
+
+/// \brief Register buffers that should receive unhandled coroutine exceptions.
+/// \details The registration remains active for as long as each buffer object remains alive.
+/// \note If a registered explicit sink is destroyed during stack unwinding, the runtime aborts.
+template <exception_sink_buffer... Buffers> auto propagate_exceptions_to(Buffers&... buffers)
+{
+  return PropagateExceptionsAwaiter<Buffers...>(buffers...);
+}
+
+// A proxy class that allows left-hand-side assignment, while holding a refcount
+template <typename Buffer> class BufferWriteProxy {
+  public:
+    using value_type = typename Buffer::value_type;
+
+    BufferWriteProxy() = delete;
+    BufferWriteProxy(BufferWriteProxy const&) = delete;
+    BufferWriteProxy& operator=(BufferWriteProxy const&) = delete;
+    BufferWriteProxy(BufferWriteProxy&&) noexcept = default;
+    BufferWriteProxy& operator=(BufferWriteProxy&&) noexcept = delete;
+
+    template <typename U> void operator=(U&& u) { async_assign(std::forward<U>(u), Buffer(std::move(writer_))); }
+
+  private:
+    explicit BufferWriteProxy(EpochContextWriter<value_type>&& writer) : writer_(std::move(writer)) {}
+
+    friend Buffer;
+
+    EpochContextWriter<value_type> writer_;
+};
+
+template <typename T> using WriteProxy = BufferWriteProxy<WriteBuffer<T>>;
+
+template <typename T> BufferWriteProxy<WriteBuffer<T>> WriteBuffer<T>::write()
+{
+  return BufferWriteProxy<WriteBuffer<T>>(std::move(writer_));
+}
+
+} // namespace uni20::async

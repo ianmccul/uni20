@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "common/trace.hpp"
+#include <uni20/common/trace.hpp>
 
 #if ENABLE_TRACE_TESTMODULE == 0
 COMPILER_NOTE("ENABLE_TRACE_TESTMODULE is 0 - trace tests will likely fail.")

@@ -1,5 +1,5 @@
-#include "tensor/basic_tensor.hpp"
-#include "tensor/layout.hpp"
+#include <uni20/tensor/basic_tensor.hpp>
+#include <uni20/tensor/layout.hpp>
 
 #include <gtest/gtest.h>
 

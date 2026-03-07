@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "core/scalar_concepts.hpp"
-#include "expokit/expokitf.h"
+#include <uni20/core/scalar_concepts.hpp>
+#include <uni20/expokit/expokitf.h>
 
 #include <algorithm>
 #include <cmath>

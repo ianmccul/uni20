@@ -1,5 +1,5 @@
 #include "../helpers.hpp"
-#include "level1/sum.hpp"
+#include <uni20/level1/sum.hpp>
 #include "gtest/gtest.h"
 #include <numeric>
 

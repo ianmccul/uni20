@@ -1,4 +1,4 @@
-#include "common/terminal.hpp" // Your header containing TerminalStyle, parseTerminalStyle, etc.
+#include <uni20/common/terminal.hpp> // Your header containing TerminalStyle, parseTerminalStyle, etc.
 #include "gtest/gtest.h"
 
 using namespace terminal;

@@ -1,5 +1,5 @@
-#include "common/mdspan.hpp"
-#include "mdspan/concepts.hpp"
+#include <uni20/common/mdspan.hpp>
+#include <uni20/mdspan/concepts.hpp>
 #include <gtest/gtest.h>
 
 #include <cstddef>

@@ -1,4 +1,4 @@
-#include "core/dummy.hpp" // Make sure this header is found via the include directories
+#include <uni20/core/dummy.hpp> // Make sure this header is found via the include directories
 #include <benchmark/benchmark.h>
 
 // Benchmark for the heavy computation function.

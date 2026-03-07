@@ -1,4 +1,4 @@
-#include "core/scalar_traits.hpp"
+#include <uni20/core/scalar_traits.hpp>
 #include <gtest/gtest.h>
 
 // ----------------------------------------------------------------------------

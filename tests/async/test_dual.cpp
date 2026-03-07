@@ -1,8 +1,8 @@
 // tests/test_dual.cpp
-#include "async/async_ops.hpp"
-#include "async/debug_scheduler.hpp"
-#include "async/dual.hpp"
-#include "async/dual_toys.hpp"
+#include <uni20/async/async_ops.hpp>
+#include <uni20/async/debug_scheduler.hpp>
+#include <uni20/async/dual.hpp>
+#include <uni20/async/dual_toys.hpp>
 #include <complex>
 #include <gtest/gtest.h>
 
