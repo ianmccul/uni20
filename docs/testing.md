@@ -1,197 +1,145 @@
 # Testing uni20
 
-This document describes the testing infrastructure in the `uni20` library. It covers the test configuration system, the layout of the test sources, how to build and run tests using `CTest`, and how the test harness integrates with Google Test (`gtest`).
-
-The goal is to provide both a solid verification suite for the library and a convenient development environment for implementing new functionality.
+This document describes how uni20 tests are configured, built, and run.
 
 ## Overview
 
-The `uni20` testing system is based on:
+uni20 testing uses:
 
-- [Google Test](https://github.com/google/googletest): A C++ unit testing framework
-- [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html): CMake’s test runner and reporting tool
-- CMake’s [`gtest_discover_tests`](https://cmake.org/cmake/help/latest/module/GoogleTest.html) integration for automatic test registration
+- [Google Test](https://github.com/google/googletest) for C++ unit tests
+- [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html) for test discovery and execution
+- CMake [`gtest_discover_tests`](https://cmake.org/cmake/help/latest/module/GoogleTest.html) for automatic registration
 
-Tests are written using the standard `TEST(...)` and `EXPECT_...` macros provided by Google Test. All tests can be executed via CTest, and are grouped by module.
-
----
+Tests live in `tests/` and are organized by module.
 
 ## Test Layout
 
-Tests are located in the `tests/` directory and organized by subdirectory:
+Current test modules include:
 
-<!-- To update the test list below, run from the root of the repo: tree -P '*.cpp' tests/ -->
-```
-tests
-├── async
-│   ├── test_async_awaiters.cpp
-│   ├── test_async_basic.cpp
-│   ├── test_async_concepts.cpp
-│   ├── test_async_destroy.cpp
-│   ├── test_async_ops.cpp
-│   ├── test_async_task_await.cpp
-│   ├── test_async_write_to.cpp
-│   ├── test_dual.cpp
-│   ├── test_future_value.cpp
-│   ├── test_reverse_value.cpp
-│   └── test_tbb_scheduler.cpp
-├── common
-│   ├── test_aligned_buffer.cpp
-│   ├── test_floating_eq.cpp
-│   ├── test_terminal_color.cpp
-│   ├── test_trace.cpp
-│   ├── test_trace_debug.cpp
-│   └── test_trace_ndebug.cpp
-├── core
-│   ├── test_scalar_concepts.cpp
-│   ├── test_scalar_traits.cpp
-│   └── test_types.cpp
-├── kernel
-│   └── test_contract.cpp
-├── level1
-│   ├── test_apply_unary.cpp
-│   ├── test_assign.cpp
-│   ├── test_sum.cpp
-│   ├── test_zip_layout.cpp
-│   └── test_zip_transform.cpp
-└── uni20_tests_main.cpp
-```
-
-Each subdirectory corresponds to a logical component or layer of the library (e.g., `common`, `level1`, etc.).
-
+- `tests/async`
+- `tests/backend`
+- `tests/common`
+- `tests/core`
+- `tests/expokit`
+- `tests/kernel`
+- `tests/level1`
+- `tests/linalg`
+- `tests/mdspan`
+- `tests/tensor`
+- `tests/python` (only when `UNI20_BUILD_PYTHON=ON`)
 
 ## Configuration Options
 
-The following CMake options control the test system:
+Primary CMake options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `UNI20_BUILD_TESTS` | `ON` | Enables test compilation and registration |
-| `UNI20_BUILD_COMBINED_TESTS` | `ON` | Builds an additional combined test executable aggregating all test sources |
+| `UNI20_BUILD_TESTS` | `ON` | Build and register C++ tests |
+| `UNI20_BUILD_COMBINED_TESTS` | `ON` | Build `tests/uni20_tests` combined test executable |
+| `UNI20_BUILD_PYTHON` | `ON` | Also enable `tests/python` CTest entries |
 
-To disable all testing:
-
-```bash
-cmake -DUNI20_BUILD_TESTS=OFF ..
-```
-
-To build per-module test executables but skip the combined test:
+Example configure:
 
 ```bash
-cmake -DUNI20_BUILD_COMBINED_TESTS=OFF ..
+cmake -S . -B build -DUNI20_BUILD_TESTS=ON -DUNI20_BUILD_COMBINED_TESTS=ON
 ```
 
+To disable tests:
+
+```bash
+cmake -S . -B build -DUNI20_BUILD_TESTS=OFF
+```
 
 ## Building Tests
 
-After configuring the project with CMake (with testing enabled), the test targets are automatically added to the build.
-
-To build all tests:
+After configuration, build with:
 
 ```bash
-make
+cmake --build build -j
 ```
-
-The following test executables will be created (paths relative to the build directory):
-
-- `tests/common/uni20_common_tests`
-- `tests/level1/uni20_level1_tests`
-- ...
-- `tests/uni20_tests` (if `UNI20_BUILD_COMBINED_TESTS=ON`)
-
 
 ## Running Tests
 
-### With CTest
-
-CTest is the preferred way to execute tests. It provides filtering, output control, and integration with CI systems.
-
-List all available tests:
+List discovered tests:
 
 ```bash
-ctest -N
+ctest --test-dir build -N
 ```
 
-Run all tests (quiet mode):
+Run all tests:
 
 ```bash
-ctest
+ctest --test-dir build --output-on-failure
 ```
 
-Run all tests with verbose output:
+Run only matching tests:
 
 ```bash
-ctest -V
+ctest --test-dir build --output-on-failure -R IterationPlan
 ```
 
-Filter tests by name (regex match):
+You can also run binaries directly:
 
 ```bash
-ctest -R IterationPlan
+./build/tests/common/uni20_common_tests
+./build/tests/uni20_tests --gtest_filter=TraitsTest.*
 ```
-
-### Running Test Executables Directly
-
-Each test executable can also be invoked directly. This may be more convenient during development.
-
-Examples:
-
-```bash
-./tests/common/uni20_common_tests
-./tests/uni20_tests --gtest_filter=TraitsTest.*
-```
-
-The Google Test command-line interface allows fine-grained control over which tests are run, output formatting, and more. See the [Google Test Advanced Guide](https://github.com/google/googletest/blob/main/docs/advanced.md) for details.
-
 
 ## Separate vs Combined Test Executables
 
-The `uni20` testing framework supports both **per-module** and **combined** test execution.
+uni20 supports both modes:
 
-- **Per-module tests** are built individually and compiled with only the sources relevant to that module. This is useful during development and debugging of a specific component.
+- Per-module executables like `uni20_common_tests`, `uni20_async_tests`
+- Combined executable `uni20_tests`
 
-- The **combined test executable** aggregates all test sources into a single binary. This is convenient for CI pipelines and global test runs.
-
-Both systems are registered with CTest and can be run independently.
-
-Tests in the combined executable will appear **twice** in `ctest -N` output if both modes are enabled. This is intentional and allows independent test control.
-
+When both modes are enabled, CTest intentionally registers both.
 
 ## Adding New Tests
 
-To add a new test file:
+1. Add the source file in the appropriate `tests/<module>/` directory.
+2. Add it to that module’s `tests/<module>/CMakeLists.txt` via `add_test_module(...)`.
 
-1. Place the test source in the appropriate subdirectory under `tests/`.
-2. Add the filename to the `SOURCES` list in that subdirectory’s `CMakeLists.txt`, using the `add_test_module(...)` macro.
-
-For example:
+Example:
 
 ```cmake
-# tests/level1/CMakeLists.txt
-
 add_test_module(level1
   SOURCES
-    test_iteration_plan.cpp
-    test_tensor_assign.cpp   # <-- New test
+    test_apply_unary.cpp
+    test_assign.cpp
+    test_sum.cpp
+    test_new_case.cpp
   LIBS
     uni20_level1
     mdspan
 )
 ```
 
-The build system will automatically compile and register the new test with both the per-module and combined executables (if enabled).
-
-
 ## Internals
 
-Test registration is centralized through a CMake macro defined in `cmake/Uni20TestHelpers.cmake`. This macro accumulates test sources and libraries for both separate and combined builds.
+`cmake/Uni20TestHelpers.cmake` defines `add_test_module(...)`, creates per-module test executables, and accumulates sources/libs for the optional combined executable.
 
-The combined executable is only constructed **after** all per-module sources have been discovered, ensuring the source list is complete.
+## Linux crash handler slowdown (Apport)
 
+uni20 includes many GoogleTest death tests (`EXPECT_DEATH`/`ASSERT_DEATH`) that intentionally call `std::abort()` to verify contract failures.
 
-## Summary
+The configuration of some Linux systems may interpret these as system crashes which are directed to Apport, via the `kernel.core_pattern` sysctl knob. When this is enabled, each death test crash can launch an Apport Python helper. With many death tests, this can dramatically slow down the total test time.
 
-- Tests are organized by module and built using CMake and Google Test
-- Use `ctest` to run tests, either globally or filtered
-- Combined and per-module test modes can be enabled independently
-- The system requires minimal effort to extend and add new tests
+Check current setting:
+
+```bash
+cat /proc/sys/kernel/core_pattern
+```
+
+For development and CI environments focused on fast death-test runs, prefer:
+
+```bash
+sudo sysctl -w kernel.core_pattern=core
+```
+
+To persist this setting you could use
+
+```bash
+echo "kernel.core_pattern=core" | sudo tee /etc/sysctl.d/99-local-core-pattern.conf
+sudo sysctl --system
+```
+or disable the `apport` service.
