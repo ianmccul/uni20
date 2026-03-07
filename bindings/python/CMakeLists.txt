@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 
+set( Python_FIND_UNVERSIONED_NAMES FIRST ) # FIXME: we probably want to require a clean python environment one day
+set(Python_FIND_STRATEGY LOCATION)
 # Ensure Python headers/libraries are available before loading nanobind's CMake
 # helpers.
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
