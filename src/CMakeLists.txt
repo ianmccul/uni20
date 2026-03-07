@@ -28,6 +28,7 @@ add_library(uni20 STATIC uni20.cpp)
 
 # Link external libraries (for example, fmt)
 target_link_libraries(uni20 PUBLIC uni20_deps uni20_core uni20_common uni20_linalg)
+enable_ipo_if_supported(uni20)
 
 add_subdirectory(core)
 add_subdirectory(common)

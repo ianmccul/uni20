@@ -8,6 +8,13 @@ endif()
 message(STATUS "UNI20_ILP64 is set to: ${UNI20_ILP64}")
 message(STATUS "Using BLA_SIZEOF_INTEGER = ${BLA_SIZEOF_INTEGER}")
 
+if(UNI20_BLAS_VENDOR STREQUAL "")
+  set(UNI20_BLAS_VENDOR "All" CACHE STRING "BLAS vendor hint passed to FindBLAS as BLA_VENDOR" FORCE)
+endif()
+
+set(BLA_VENDOR "${UNI20_BLAS_VENDOR}" CACHE STRING "BLAS vendor hint used by FindBLAS" FORCE)
+message(STATUS "Using BLA_VENDOR = ${BLA_VENDOR} (from UNI20_BLAS_VENDOR)")
+
 find_package(BLAS REQUIRED)
 find_package(LAPACK REQUIRED)
 
@@ -19,8 +26,6 @@ if(NOT LAPACK_FOUND)
   message(FATAL_ERROR "LAPACK not found.")
 endif()
 
-# set variables for the BLAS configuration
-set(BLAS_FOUND "${BLAS_FOUND}" CACHE INTERNAL "BLAS was found")
 include(DetectBlasVendor)
 detect_blas_vendor()
 

@@ -1,65 +1,129 @@
-# cmake/DetectBlasVendor.cmake
-#
-# This module defines a function 'detect_blas_vendor()' that sets the variable
-# UNI20_BLAS_VENDOR based on the BLAS installation. It also sets
-# UNI20_BLAS_VENDOR_xxxx symbol, where xxxx is the UPPERCASE vendor name.
-#
-# Use AFTER calling find_package(BLAS), to set UNI20_BLAS_VENDOR according
-# to the found BLAS library.
-#
-# It first checks if BLAS is found (BLAS_FOUND). If yes, then:
-#  - If BLAS_VENDOR is defined and non-empty, it uses that.
-#  - Otherwise, it scans the cache for variables matching BLAS_*_LIBRARY,
-#    and tries to detect common vendors (e.g. OpenBLAS, MKL, or GotoBLAS).
-#  - If none of these match, it defaults to "Generic".
-#
-# If BLAS is not found, UNI20_BLAS_VENDOR is set to "None".
-#
-# This module depends on variables set internally by the FindBLAS module.
-# It might not work with future changes to that module!
+#[[
+Detect and normalize the BLAS vendor after `find_package(BLAS)`.
 
-function(detect_blas_vendor)
-  if(BLAS_FOUND)
-    if(DEFINED BLAS_VENDOR AND NOT BLAS_VENDOR STREQUAL "")
-      set(UNI20_DETECTED_BLAS_VENDOR "${BLAS_VENDOR}" CACHE INTERNAL "Detected BLAS vendor from FindBLAS" FORCE)
-    else()
-      # Auto-detect vendor by scanning for variables of the form BLAS_XXXX_LIBRARY.
-      get_cmake_property(cacheVars CACHE_VARIABLES)
-      set(_detected_vendor "")
-      foreach(var ${cacheVars})
-        if(var MATCHES "^BLAS_([A-Za-z0-9_]+)_LIBRARY$")
-          if(NOT "${${var}}" MATCHES "NOTFOUND")
-            # Extract the vendor hint from the variable name.
-            string(REGEX REPLACE "^BLAS_([A-Za-z0-9_]+)_LIBRARY$" "\\1" vendor_hint ${var})
-            message(STATUS "Found BLAS library variable: ${var} = ${${var}} (hint: ${vendor_hint})")
-            # Convert the vendor hint to lowercase for case-insensitive matching.
-            string(TOLOWER "${vendor_hint}" vendor_hint_lower)
-            if(vendor_hint_lower MATCHES "openblas")
-              set(_detected_vendor "OpenBLAS")
-              break()
-            elseif(vendor_hint_lower MATCHES "mkl")
-              set(_detected_vendor "MKL")
-              break()
-            elseif(vendor_hint_lower MATCHES "goto")
-              set(_detected_vendor "GotoBLAS")
-              break()
-            endif()
-          endif()
-        endif()
-      endforeach()
-      if(_detected_vendor STREQUAL "")
-        set(_detected_vendor "Generic")
-      endif()
-      set(UNI20_DETECTED_BLAS_VENDOR "${_detected_vendor}" CACHE INTERNAL "Detected BLAS vendor (auto-detected)" FORCE)
-    endif()
-  else()
-    set(UNI20_BLAS_VENDOR "None" CACHE INTERNAL "BLAS not found" FORCE)
+Output cache variables:
+  - UNI20_DETECTED_BLAS_VENDOR
+  - UNI20_DETECTED_BLAS_VENDOR_MACRO
+  - UNI20_DETECTED_BLAS_LIBRARIES
+]]
+
+function(_uni20_map_blas_vendor_name input_value output_var)
+  if(input_value STREQUAL "")
+    set(${output_var} "" PARENT_SCOPE)
+    return()
   endif()
 
-  # Convert the detected vendor to uppercase.
-  string(TOUPPER "${UNI20_DETECTED_BLAS_VENDOR}" UNI20_BLAS_VENDOR_UPPER)
-  # Build the vendor macro name, e.g., UNI20_BLAS_VENDOR_MKL.
-  set(UNI20_DETECTED_BLAS_VENDOR_MACRO "UNI20_BLAS_VENDOR_${UNI20_BLAS_VENDOR_UPPER}" CACHE INTERNAL "Vendor-specific macro for BLAS" FORCE)
+  # Prefer file basename over full path to avoid false positives from directory names.
+  get_filename_component(_candidate_file "${input_value}" NAME)
+  string(TOLOWER "${_candidate_file}" _candidate_file_lower)
+  string(TOLOWER "${input_value}" _candidate_path_lower)
+
+  if(_candidate_file_lower MATCHES "mkl")
+    set(${output_var} "MKL" PARENT_SCOPE)
+    return()
+  endif()
+  if(_candidate_file_lower MATCHES "openblas")
+    set(${output_var} "OpenBLAS" PARENT_SCOPE)
+    return()
+  endif()
+  if(_candidate_file_lower MATCHES "flexiblas")
+    set(${output_var} "FlexiBLAS" PARENT_SCOPE)
+    return()
+  endif()
+  if(_candidate_file_lower MATCHES "blis")
+    set(${output_var} "BLIS" PARENT_SCOPE)
+    return()
+  endif()
+  if(_candidate_file_lower MATCHES "atlas")
+    set(${output_var} "ATLAS" PARENT_SCOPE)
+    return()
+  endif()
+  if(_candidate_file_lower MATCHES "goto")
+    set(${output_var} "GotoBLAS" PARENT_SCOPE)
+    return()
+  endif()
+
+  if(_candidate_file_lower MATCHES "accelerate|veclib")
+    set(${output_var} "Accelerate" PARENT_SCOPE)
+    return()
+  endif()
+
+  # Fallback for non-file tokens (e.g., BLA_VENDOR names or unusual linker tokens).
+  if(_candidate_path_lower MATCHES "mkl|intel")
+    set(${output_var} "MKL" PARENT_SCOPE)
+  elseif(_candidate_path_lower MATCHES "openblas")
+    set(${output_var} "OpenBLAS" PARENT_SCOPE)
+  elseif(_candidate_path_lower MATCHES "accelerate|veclib")
+    set(${output_var} "Accelerate" PARENT_SCOPE)
+  elseif(_candidate_path_lower MATCHES "flexiblas")
+    set(${output_var} "FlexiBLAS" PARENT_SCOPE)
+  elseif(_candidate_path_lower MATCHES "blis")
+    set(${output_var} "BLIS" PARENT_SCOPE)
+  elseif(_candidate_path_lower MATCHES "atlas")
+    set(${output_var} "ATLAS" PARENT_SCOPE)
+  elseif(_candidate_path_lower MATCHES "goto")
+    set(${output_var} "GotoBLAS" PARENT_SCOPE)
+  else()
+    set(${output_var} "" PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(_uni20_vendor_macro_name vendor_name output_var)
+  string(TOUPPER "${vendor_name}" _vendor_upper)
+  string(REGEX REPLACE "[^A-Z0-9]+" "_" _vendor_upper "${_vendor_upper}")
+  string(REGEX REPLACE "_+" "_" _vendor_upper "${_vendor_upper}")
+  string(REGEX REPLACE "^_" "" _vendor_upper "${_vendor_upper}")
+  string(REGEX REPLACE "_$" "" _vendor_upper "${_vendor_upper}")
+
+  if(_vendor_upper STREQUAL "")
+    set(_vendor_upper "GENERIC")
+  endif()
+
+  set(${output_var} "UNI20_BLAS_VENDOR_${_vendor_upper}" PARENT_SCOPE)
+endfunction()
+
+function(detect_blas_vendor)
+  unset(UNI20_REQUESTED_BLAS_VENDOR CACHE)
+  unset(UNI20_DETECTED_BLAS_REQUESTED_VENDOR CACHE)
+
+  if(NOT BLAS_FOUND)
+    set(UNI20_DETECTED_BLAS_VENDOR "None" CACHE INTERNAL "Detected BLAS vendor" FORCE)
+    _uni20_vendor_macro_name("None" _none_vendor_macro)
+    set(UNI20_DETECTED_BLAS_VENDOR_MACRO "${_none_vendor_macro}" CACHE INTERNAL "Vendor-specific macro for BLAS" FORCE)
+    set(UNI20_DETECTED_BLAS_LIBRARIES "" CACHE INTERNAL "Detected BLAS libraries" FORCE)
+    message(STATUS "BLAS not found; UNI20_DETECTED_BLAS_VENDOR set to None")
+    return()
+  endif()
+
+  # Prefer detection from the actual library list selected by FindBLAS.
+  set(_detected_vendor "")
+  foreach(_blas_lib IN LISTS BLAS_LIBRARIES)
+    _uni20_map_blas_vendor_name("${_blas_lib}" _mapped_vendor)
+    if(NOT _mapped_vendor STREQUAL "")
+      set(_detected_vendor "${_mapped_vendor}")
+      break()
+    endif()
+  endforeach()
+
+  # Fall back to user-requested vendor when BLAS_LIBRARIES has no recognizable hints.
+  if(_detected_vendor STREQUAL "")
+    if(DEFINED BLA_VENDOR AND NOT BLA_VENDOR STREQUAL "" AND NOT BLA_VENDOR STREQUAL "All")
+      _uni20_map_blas_vendor_name("${BLA_VENDOR}" _mapped_requested_vendor)
+      if(_mapped_requested_vendor STREQUAL "")
+        set(_detected_vendor "${BLA_VENDOR}")
+      else()
+        set(_detected_vendor "${_mapped_requested_vendor}")
+      endif()
+    else()
+      set(_detected_vendor "Generic")
+    endif()
+  endif()
+
+  _uni20_vendor_macro_name("${_detected_vendor}" _vendor_macro)
+
+  set(UNI20_DETECTED_BLAS_VENDOR "${_detected_vendor}" CACHE INTERNAL "Detected BLAS vendor" FORCE)
+  set(UNI20_DETECTED_BLAS_VENDOR_MACRO "${_vendor_macro}" CACHE INTERNAL "Vendor-specific macro for BLAS" FORCE)
+  set(UNI20_DETECTED_BLAS_LIBRARIES "${BLAS_LIBRARIES}" CACHE INTERNAL "Detected BLAS libraries" FORCE)
 
   message(STATUS "Detected UNI20_DETECTED_BLAS_VENDOR: ${UNI20_DETECTED_BLAS_VENDOR}")
 endfunction()

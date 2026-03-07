@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.24)
 cmake_policy(SET CMP0135 NEW)
 project(uni20 VERSION 0.1.0 LANGUAGES CXX)
 
@@ -301,6 +301,20 @@ if(UNI20_BUILD_BENCH)
   )
 endif()
 
+# Enable link-time optimizations
+include(CheckIPOSupported)
+check_ipo_supported(
+  RESULT ipo_supported
+  OUTPUT ipo_error    # optional: captures the reason if it fails
+  LANGUAGES CXX
+)
+
+function(enable_ipo_if_supported target)
+  if(ipo_supported AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  endif()
+endfunction()
+
 # Create an interface library for common dependencies
 add_library(uni20_deps INTERFACE)
 target_link_libraries(uni20_deps INTERFACE fmt::fmt)
@@ -310,6 +324,7 @@ option(UNI20_BACKEND_BLAS     "Enable the BLAS backend" ON)
 option(UNI20_BACKEND_CUDA     "Enable the CUDA backend" ${UNI20_BACKEND_CUDA_DEFAULT})
 option(UNI20_BACKEND_CUSOLVER "Enable the cuSOLVER backend" OFF)
 option(UNI20_BACKEND_MKL      "Enable the MKL backend" OFF)
+set(UNI20_BLAS_VENDOR "All" CACHE STRING "BLAS vendor hint passed to FindBLAS as BLA_VENDOR (for example: All, OpenBLAS, Generic, Intel10_64lp)")
 
 # Dependency: MKL requires BLAS
 if(UNI20_BACKEND_MKL)
@@ -327,20 +342,13 @@ if(UNI20_BACKEND_CUSOLVER)
   set(UNI20_BACKEND_CUDA ON CACHE BOOL "Enable the CUDA backend (required by cuSOLVER)" FORCE)
 endif()
 
-# Enable link-time optimizations
-include(CheckIPOSupported)
-check_ipo_supported(
-  RESULT ipo_supported
-  OUTPUT ipo_error    # optional: captures the reason if it fails
-  LANGUAGES CXX
-)
-if(ipo_supported)
-  message(STATUS "Enabling full Link-Time Optimization (LTO)")
-  # Globally turn on IPO for *all* targets and all configs
-  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-else()
-  message(WARNING "IPO/LTO not supported: ${ipo_error}")
-endif()
+#if(ipo_supported)
+#  message(STATUS "Enabling full Link-Time Optimization (LTO)")
+#  # Globally turn on IPO for *all* targets and all configs
+#  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+#else()
+#  message(WARNING "IPO/LTO not supported: ${ipo_error}")
+#endif()
 
 # Add subdirectories
 add_subdirectory(src)
@@ -428,7 +436,7 @@ string(TOUPPER "${_current_config}" _config_uc)
 set(_well_known
   CMAKE_SYSTEM_VERSION
   CMAKE_SYSTEM_PROCESSOR
-  MAKE_BUILD_TYPE
+  CMAKE_BUILD_TYPE
   CMAKE_INSTALL_PREFIX
   BUILD_SHARED_LIBS
   CMAKE_CXX_FLAGS
@@ -438,8 +446,14 @@ set(_well_known
 message(STATUS "===== Common CMake Options =====")
 foreach(v IN LISTS _well_known)
   if(DEFINED ${v})
-    get_property(_help CACHE ${v} PROPERTY HELPSTRING)
-    message(STATUS "${v} = ${${v}}   # ${_help}")
+    if(DEFINED CACHE{${v}})
+      get_property(_help CACHE ${v} PROPERTY HELPSTRING)
+      message(STATUS "${v} = ${${v}}   # ${_help}")
+    else()
+      message(STATUS "${v} = ${${v}}")
+    endif()
+  else()
+    message(STATUS "${v} = # (not set)")
   endif()
 endforeach()
 message(STATUS "")
