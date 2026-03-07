@@ -236,7 +236,7 @@ function(uni20_add_dependency)
       endif()
     endif()
 
-    if(NOT _uni20_found_system_package AND (NOT DEP_VERSION))
+  if(NOT _uni20_found_system_package AND (NOT DEP_VERSION))
       # In no-version mode, system package detection is based on target existence
       # or package-found variables reported by CONFIG/MODULE finders.
       if(TARGET ${DEP_TARGET})
@@ -245,6 +245,36 @@ function(uni20_add_dependency)
         set(_uni20_found_system_package TRUE)
       endif()
     endif()
+  endif()
+
+  set(_uni20_ignored_cached_dir_is_expected_fetch_source FALSE)
+  if(_uni20_ignored_cached_dir)
+    set(_uni20_expected_fetch_source_dirs)
+    if(UNI20_FETCHCONTENT_SOURCE_BASE_DIR)
+      list(APPEND _uni20_expected_fetch_source_dirs
+        "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${NAME_LOWER}-src"
+        "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${DEP_NAME}-src")
+    else()
+      list(APPEND _uni20_expected_fetch_source_dirs
+        "${FETCHCONTENT_BASE_DIR}/${NAME_LOWER}-src"
+        "${FETCHCONTENT_BASE_DIR}/${DEP_NAME}-src")
+    endif()
+
+    file(TO_CMAKE_PATH "${_uni20_ignored_cached_dir}" _uni20_ignored_cached_dir_norm)
+    foreach(_uni20_expected_fetch_source_dir IN LISTS _uni20_expected_fetch_source_dirs)
+      if(NOT _uni20_expected_fetch_source_dir)
+        continue()
+      endif()
+      file(TO_CMAKE_PATH "${_uni20_expected_fetch_source_dir}" _uni20_expected_fetch_source_dir_norm)
+      if(_uni20_ignored_cached_dir_norm STREQUAL _uni20_expected_fetch_source_dir_norm)
+        set(_uni20_ignored_cached_dir_is_expected_fetch_source TRUE)
+      else()
+        string(FIND "${_uni20_ignored_cached_dir_norm}" "${_uni20_expected_fetch_source_dir_norm}/" _uni20_prefix_pos)
+        if(_uni20_prefix_pos EQUAL 0)
+          set(_uni20_ignored_cached_dir_is_expected_fetch_source TRUE)
+        endif()
+      endif()
+    endforeach()
   endif()
 
   if(_uni20_found_system_package)
@@ -278,7 +308,7 @@ function(uni20_add_dependency)
             "${use_system_var}=ON requires ${DEP_NAME} >= ${DEP_VERSION}, "
             "but the best system candidate is ${_uni20_system_candidate_version}.")
         endif()
-      elseif(_uni20_ignored_cached_dir)
+      elseif(_uni20_ignored_cached_dir AND NOT _uni20_ignored_cached_dir_is_expected_fetch_source)
         message(FATAL_ERROR
           "${use_system_var}=ON requires a system installation of ${DEP_NAME}, "
           "but an ignored cached local path was found at '${_uni20_ignored_cached_dir}' and "
@@ -340,7 +370,7 @@ function(uni20_add_dependency)
     endif()
 
     if(_uni20_use_system_mode STREQUAL "AUTO")
-      if(_uni20_ignored_cached_dir)
+      if(_uni20_ignored_cached_dir AND NOT _uni20_ignored_cached_dir_is_expected_fetch_source)
         message(STATUS
           "Ignoring cached local ${DEP_NAME}_DIR='${_uni20_ignored_cached_dir}' while resolving system ${DEP_NAME}.")
       endif()
@@ -374,7 +404,7 @@ function(uni20_add_dependency)
         set(help_text
           "Cloned from ${repo_info}; system ${DEP_NAME} ${_uni20_system_candidate_version} is below required ${DEP_VERSION}")
       endif()
-    elseif(_uni20_ignored_cached_dir)
+    elseif(_uni20_ignored_cached_dir AND NOT _uni20_ignored_cached_dir_is_expected_fetch_source)
       set(help_text
         "Cloned from ${repo_info}; ignored cached local ${DEP_NAME}_DIR=${_uni20_ignored_cached_dir}")
     endif()
