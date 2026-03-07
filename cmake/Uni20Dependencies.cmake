@@ -12,7 +12,7 @@
 #
 # Behavior:
 #   1. If UNI20_USE_SYSTEM_<NAME> is ON (default), try find_package().
-#   2. If not found, fetch from the specified repo+tag using FetchContent.
+#   2. If not found (or disabled), fetch from the specified repo+tag using FetchContent.
 #   3. Apply optional SETTINGS before FetchContent_MakeAvailable().
 #   4. Exports two cache variables:
 #        UNI20_<NAME>_SOURCE  ("system" | "fetched")
@@ -36,10 +36,10 @@ function(uni20_add_dependency)
   set(dir_var      "UNI20_${NAME_UPPER}_DIR")
   set(detected_var "UNI20_DETECTED_${NAME_UPPER}")
 
-  set(_uni20_fetch_reason "")
-  set(_uni20_detected_version "")
+  set(_uni20_found_system_package FALSE)
+  set(_uni20_try_system_lookup ${${use_system_var}})
 
-  if(${use_system_var})
+  if(_uni20_try_system_lookup)
     # When a minimum version is requested, use CONFIG mode so CMake can verify
     # the package version from a *ConfigVersion.cmake file. Module-mode finders
     # (for example FindGTest) may report FOUND without providing version metadata.
@@ -59,9 +59,15 @@ function(uni20_add_dependency)
         find_package(${DEP_NAME} QUIET MODULE)
       endif()
     endif()
+
+    if(TARGET ${DEP_TARGET})
+      set(_uni20_found_system_package TRUE)
+    elseif(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
+      set(_uni20_found_system_package TRUE)
+    endif()
   endif()
 
-  if(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
+  if(_uni20_found_system_package)
     message(STATUS "Using system ${DEP_NAME}: ${${DEP_NAME}_DIR}")
 
     set(${source_var} "system" CACHE STRING "Source type for ${DEP_NAME} (system or fetched)" FORCE)
@@ -127,10 +133,6 @@ function(uni20_add_dependency)
       message(STATUS "System ${DEP_NAME} not found or version is too old. Fetching from ${repo_info}")
     else()
       message(STATUS "Fetching ${DEP_NAME} from ${repo_info}")
-    endif()
-
-    if(_uni20_fetch_reason)
-      string(APPEND help_text "; ${_uni20_fetch_reason}")
     endif()
 
     set(${source_var} "fetched" CACHE STRING "Source type for ${DEP_NAME} (system or fetched)" FORCE)
