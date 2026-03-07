@@ -5,6 +5,8 @@ set(Python_FIND_STRATEGY LOCATION)
 # Ensure Python headers/libraries are available before loading nanobind's CMake
 # helpers.
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+set(UNI20_BINDINGS_PYTHON_EXECUTABLE "${Python_EXECUTABLE}" CACHE FILEPATH
+    "Python interpreter used to build uni20 Python bindings" FORCE)
 
 # Ensure nanobind is available via the repository-wide dependency helper, which
 # first looks for an existing installation before falling back to FetchContent.
