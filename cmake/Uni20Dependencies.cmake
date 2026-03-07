@@ -96,6 +96,10 @@ function(uni20_add_dependency)
   set(_uni20_found_system_package FALSE)
   set(_uni20_try_system_lookup FALSE)
   set(_uni20_require_system FALSE)
+  set(_uni20_system_probe_reason "")
+  set(_uni20_system_candidate_version "")
+  set(_uni20_system_candidate_config "")
+  set(_uni20_system_candidate_origin "system")
 
   if(_uni20_use_system_mode STREQUAL "AUTO")
     set(_uni20_try_system_lookup TRUE)
@@ -105,30 +109,165 @@ function(uni20_add_dependency)
   endif()
 
   if(_uni20_try_system_lookup)
+    # If a previous configure cached <Package>_DIR to a Uni20-managed FetchContent
+    # location, clear it before probing for a real system package. Otherwise
+    # find_package() will keep preferring that local path.
+    if(DEFINED ${DEP_NAME}_DIR AND NOT "${${DEP_NAME}_DIR}" STREQUAL "")
+      set(_uni20_cached_dep_dir "${${DEP_NAME}_DIR}")
+      file(TO_CMAKE_PATH "${_uni20_cached_dep_dir}" _uni20_cached_dep_dir_norm)
+      set(_uni20_cached_dep_dir_internal FALSE)
+      foreach(_uni20_internal_root IN ITEMS
+              "${FETCHCONTENT_BASE_DIR}"
+              "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}"
+              "${CMAKE_BINARY_DIR}"
+              "${CMAKE_SOURCE_DIR}/.cmake/third_party")
+        if(NOT _uni20_internal_root)
+          continue()
+        endif()
+        file(TO_CMAKE_PATH "${_uni20_internal_root}" _uni20_internal_root_norm)
+        if(_uni20_cached_dep_dir_norm STREQUAL _uni20_internal_root_norm)
+          set(_uni20_cached_dep_dir_internal TRUE)
+        else()
+          string(FIND "${_uni20_cached_dep_dir_norm}" "${_uni20_internal_root_norm}/" _uni20_prefix_pos)
+          if(_uni20_prefix_pos EQUAL 0)
+            set(_uni20_cached_dep_dir_internal TRUE)
+          endif()
+        endif()
+      endforeach()
+      if(NOT _uni20_cached_dep_dir_internal)
+        if(_uni20_cached_dep_dir_norm MATCHES "/(_deps|\\.cmake/third_party)/")
+          set(_uni20_cached_dep_dir_internal TRUE)
+        endif()
+      endif()
+      if(_uni20_cached_dep_dir_internal)
+        set(_uni20_system_probe_reason "internal-candidate")
+        set(_uni20_system_candidate_origin "cache-var")
+        set(_uni20_system_candidate_config "${_uni20_cached_dep_dir}")
+        if(NOT _uni20_system_candidate_version)
+          set(_uni20_system_candidate_version "unknown")
+        endif()
+        unset(${DEP_NAME}_DIR CACHE)
+      endif()
+    endif()
+
     # When a minimum version is requested, use CONFIG mode so CMake can verify
     # the package version from a *ConfigVersion.cmake file. Module-mode finders
     # (for example FindGTest) may report FOUND without providing version metadata.
     # In that case we cannot verify compatibility and should fall back to fetching.
-    if(DEP_COMPONENTS)
-      find_package(${DEP_NAME} ${DEP_VERSION} QUIET CONFIG COMPONENTS ${DEP_COMPONENTS})
-    else()
-      find_package(${DEP_NAME} ${DEP_VERSION} QUIET CONFIG)
-    endif()
-
-    # If no explicit version was requested and config mode did not find a package,
-    # allow a module-mode fallback.
-    if((NOT DEP_VERSION) AND NOT (DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND))
+    if(DEP_VERSION)
       if(DEP_COMPONENTS)
-        find_package(${DEP_NAME} QUIET MODULE COMPONENTS ${DEP_COMPONENTS})
+        find_package(${DEP_NAME} ${DEP_VERSION} QUIET CONFIG
+                     NO_CMAKE_PACKAGE_REGISTRY
+                     COMPONENTS ${DEP_COMPONENTS})
       else()
-        find_package(${DEP_NAME} QUIET MODULE)
+        find_package(${DEP_NAME} ${DEP_VERSION} QUIET CONFIG
+                     NO_CMAKE_PACKAGE_REGISTRY)
+      endif()
+
+      if(TARGET ${DEP_TARGET})
+        set(_uni20_found_system_package TRUE)
+      elseif(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
+        set(_uni20_found_system_package TRUE)
+      endif()
+
+      if(NOT _uni20_found_system_package)
+        if(DEFINED ${DEP_NAME}_CONSIDERED_VERSIONS AND NOT "${${DEP_NAME}_CONSIDERED_VERSIONS}" STREQUAL "")
+          set(_uni20_considered_versions "${${DEP_NAME}_CONSIDERED_VERSIONS}")
+          set(_uni20_considered_configs "${${DEP_NAME}_CONSIDERED_CONFIGS}")
+          list(LENGTH _uni20_considered_versions _uni20_versions_len)
+          list(LENGTH _uni20_considered_configs _uni20_configs_len)
+          math(EXPR _uni20_last_idx "${_uni20_versions_len} - 1")
+          foreach(_uni20_idx RANGE 0 ${_uni20_last_idx})
+            list(GET _uni20_considered_versions ${_uni20_idx} _uni20_candidate_version)
+            if(NOT _uni20_candidate_version)
+              continue()
+            endif()
+
+            if(NOT _uni20_system_candidate_version OR _uni20_system_candidate_version VERSION_LESS _uni20_candidate_version)
+              set(_uni20_system_candidate_version "${_uni20_candidate_version}")
+              if(_uni20_idx LESS _uni20_configs_len)
+                list(GET _uni20_considered_configs ${_uni20_idx} _uni20_system_candidate_config)
+              endif()
+            endif()
+          endforeach()
+
+          if(_uni20_system_candidate_version)
+            set(_uni20_candidate_is_internal FALSE)
+            if(_uni20_system_candidate_config)
+              file(TO_CMAKE_PATH "${_uni20_system_candidate_config}" _uni20_candidate_config_norm)
+              foreach(_uni20_internal_root IN ITEMS
+                      "${FETCHCONTENT_BASE_DIR}"
+                      "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}"
+                      "${CMAKE_BINARY_DIR}"
+                      "${CMAKE_SOURCE_DIR}/.cmake/third_party")
+                if(NOT _uni20_internal_root)
+                  continue()
+                endif()
+                file(TO_CMAKE_PATH "${_uni20_internal_root}" _uni20_internal_root_norm)
+                if(_uni20_candidate_config_norm STREQUAL _uni20_internal_root_norm)
+                  set(_uni20_candidate_is_internal TRUE)
+                else()
+                  string(FIND "${_uni20_candidate_config_norm}" "${_uni20_internal_root_norm}/" _uni20_prefix_pos)
+                  if(_uni20_prefix_pos EQUAL 0)
+                    set(_uni20_candidate_is_internal TRUE)
+                  endif()
+                endif()
+              endforeach()
+              if(NOT _uni20_candidate_is_internal)
+                if(_uni20_candidate_config_norm MATCHES "/(_deps|\\.cmake/third_party)/")
+                  set(_uni20_candidate_is_internal TRUE)
+                endif()
+              endif()
+            endif()
+
+            if(_uni20_candidate_is_internal)
+              set(_uni20_system_candidate_origin "local-cache")
+              set(_uni20_system_probe_reason "internal-candidate")
+            else()
+              string(REGEX MATCH "^[0-9]+(\\.[0-9]+)*([.-][0-9A-Za-z]+)*$" _uni20_candidate_version_match
+                                 "${_uni20_system_candidate_version}")
+              if(_uni20_candidate_version_match)
+                if(_uni20_system_candidate_version VERSION_LESS DEP_VERSION)
+                  set(_uni20_system_probe_reason "insufficient-version")
+                else()
+                  set(_uni20_system_probe_reason "config-version-check-failed")
+                endif()
+              else()
+                set(_uni20_system_probe_reason "unknown-version")
+              endif()
+            endif()
+          endif()
+        endif()
+      endif()
+    else()
+      if(DEP_COMPONENTS)
+        find_package(${DEP_NAME} QUIET CONFIG
+                     NO_CMAKE_PACKAGE_REGISTRY
+                     COMPONENTS ${DEP_COMPONENTS})
+      else()
+        find_package(${DEP_NAME} QUIET CONFIG
+                     NO_CMAKE_PACKAGE_REGISTRY)
+      endif()
+
+      # If no explicit version was requested and config mode did not find a package,
+      # allow a module-mode fallback.
+      if(NOT (DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND))
+        if(DEP_COMPONENTS)
+          find_package(${DEP_NAME} QUIET MODULE COMPONENTS ${DEP_COMPONENTS})
+        else()
+          find_package(${DEP_NAME} QUIET MODULE)
+        endif()
       endif()
     endif()
 
-    if(TARGET ${DEP_TARGET})
-      set(_uni20_found_system_package TRUE)
-    elseif(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
-      set(_uni20_found_system_package TRUE)
+    if(NOT _uni20_found_system_package AND (NOT DEP_VERSION))
+      # In no-version mode, system package detection is based on target existence
+      # or package-found variables reported by CONFIG/MODULE finders.
+      if(TARGET ${DEP_TARGET})
+        set(_uni20_found_system_package TRUE)
+      elseif(DEFINED ${DEP_NAME}_FOUND AND ${DEP_NAME}_FOUND)
+        set(_uni20_found_system_package TRUE)
+      endif()
     endif()
   endif()
 
@@ -152,10 +291,40 @@ function(uni20_add_dependency)
 
   else()
     if(_uni20_require_system)
-      message(FATAL_ERROR
-        "${use_system_var}=ON requires a system installation of ${DEP_NAME}, "
-        "but target '${DEP_TARGET}' was not found. "
-        "Use ${use_system_var}=AUTO for fallback fetch, or OFF to force fetch.")
+      if(_uni20_system_probe_reason STREQUAL "internal-candidate")
+        message(FATAL_ERROR
+          "${use_system_var}=ON requires a system installation of ${DEP_NAME}, "
+          "but found a non-system candidate in ${_uni20_system_candidate_origin} at "
+          "'${_uni20_system_candidate_config}'.")
+      elseif(_uni20_system_probe_reason STREQUAL "insufficient-version")
+        if(_uni20_system_candidate_config)
+          message(FATAL_ERROR
+            "${use_system_var}=ON requires ${DEP_NAME} >= ${DEP_VERSION}, "
+            "but the best system candidate is ${_uni20_system_candidate_version} "
+            "at '${_uni20_system_candidate_config}'.")
+        else()
+          message(FATAL_ERROR
+            "${use_system_var}=ON requires ${DEP_NAME} >= ${DEP_VERSION}, "
+            "but the best system candidate is ${_uni20_system_candidate_version}.")
+        endif()
+      elseif(_uni20_system_probe_reason STREQUAL "unknown-version")
+        if(_uni20_system_candidate_config)
+          message(FATAL_ERROR
+            "${use_system_var}=ON requires ${DEP_NAME} >= ${DEP_VERSION}, "
+            "but candidate '${_uni20_system_candidate_config}' reports a non-numeric version "
+            "('${_uni20_system_candidate_version}').")
+        else()
+          message(FATAL_ERROR
+            "${use_system_var}=ON requires ${DEP_NAME} >= ${DEP_VERSION}, "
+            "but the detected candidate reports a non-numeric version "
+            "('${_uni20_system_candidate_version}').")
+        endif()
+      else()
+        message(FATAL_ERROR
+          "${use_system_var}=ON requires a system installation of ${DEP_NAME}, "
+          "but target '${DEP_TARGET}' was not found. "
+          "Use ${use_system_var}=AUTO for fallback fetch, or OFF to force fetch.")
+      endif()
     endif()
 
     if(DEP_SETTINGS)
@@ -196,7 +365,6 @@ function(uni20_add_dependency)
       GIT_TAG ${DEP_TAG}
       ${_uni20_fetchcontent_paths}
     )
-    FetchContent_MakeAvailable(${DEP_NAME})
 
     if(DEFINED DEP_REPO)
       set(repo_info "${DEP_REPO}")
@@ -207,12 +375,60 @@ function(uni20_add_dependency)
       set(repo_info "(no repository URL)")
     endif()
 
-    set(help_text "Cloned from ${repo_info}")
-
     if(_uni20_use_system_mode STREQUAL "AUTO")
-      message(STATUS "System ${DEP_NAME} not found or version is too old. Fetching from ${repo_info}")
+      if(_uni20_system_probe_reason STREQUAL "internal-candidate")
+        message(STATUS
+          "Ignoring non-system ${DEP_NAME} candidate from ${_uni20_system_candidate_origin} "
+          "at ${_uni20_system_candidate_config}. Fetching from ${repo_info}")
+      elseif(_uni20_system_probe_reason STREQUAL "insufficient-version")
+        if(_uni20_system_candidate_config)
+          message(STATUS
+            "System ${DEP_NAME} found (${_uni20_system_candidate_version} at ${_uni20_system_candidate_config}) "
+            "but requires >= ${DEP_VERSION}. Fetching from ${repo_info}")
+        else()
+          message(STATUS
+            "System ${DEP_NAME} found (${_uni20_system_candidate_version}) "
+            "but requires >= ${DEP_VERSION}. Fetching from ${repo_info}")
+        endif()
+      elseif(_uni20_system_probe_reason STREQUAL "unknown-version")
+        if(_uni20_system_candidate_config)
+          message(STATUS
+            "System ${DEP_NAME} candidate at ${_uni20_system_candidate_config} reports non-numeric version "
+            "'${_uni20_system_candidate_version}'. Fetching from ${repo_info}")
+        else()
+          message(STATUS
+            "System ${DEP_NAME} candidate reports non-numeric version "
+            "'${_uni20_system_candidate_version}'. Fetching from ${repo_info}")
+        endif()
+      else()
+        message(STATUS "System ${DEP_NAME} not found or version is too old. Fetching from ${repo_info}")
+      endif()
     else()
       message(STATUS "Fetching ${DEP_NAME} from ${repo_info}")
+    endif()
+
+    FetchContent_MakeAvailable(${DEP_NAME})
+
+    set(help_text "Cloned from ${repo_info}")
+    if(_uni20_system_probe_reason STREQUAL "insufficient-version")
+      if(_uni20_system_candidate_config)
+        set(help_text
+          "Cloned from ${repo_info}; system ${DEP_NAME} ${_uni20_system_candidate_version} at ${_uni20_system_candidate_config} is below required ${DEP_VERSION}")
+      else()
+        set(help_text
+          "Cloned from ${repo_info}; system ${DEP_NAME} ${_uni20_system_candidate_version} is below required ${DEP_VERSION}")
+      endif()
+    elseif(_uni20_system_probe_reason STREQUAL "unknown-version")
+      if(_uni20_system_candidate_config)
+        set(help_text
+          "Cloned from ${repo_info}; system ${DEP_NAME} candidate at ${_uni20_system_candidate_config} reports non-numeric version ${_uni20_system_candidate_version}")
+      else()
+        set(help_text
+          "Cloned from ${repo_info}; system ${DEP_NAME} candidate reports non-numeric version ${_uni20_system_candidate_version}")
+      endif()
+    elseif(_uni20_system_probe_reason STREQUAL "internal-candidate")
+      set(help_text
+        "Cloned from ${repo_info}; ignored non-system ${DEP_NAME} candidate at ${_uni20_system_candidate_config}")
     endif()
 
     set(${source_var} "fetched" CACHE STRING "Source type for ${DEP_NAME} (system or fetched)" FORCE)

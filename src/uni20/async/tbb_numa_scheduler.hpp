@@ -48,7 +48,7 @@ class TbbNumaScheduler final : public IScheduler {
         arenas_.push_back(Arena{node, std::move(scheduler)});
       }
 
-      fmt::println("[uni20] TbbNumaScheduler: initialized {} NUMA nodes", arenas_.size());
+      fmt::print("[uni20] TbbNumaScheduler: initialized {} NUMA nodes\n", arenas_.size());
     }
 
     /// \brief Schedule a coroutine, choosing an arena based on NUMA preference.

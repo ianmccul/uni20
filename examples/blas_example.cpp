@@ -4,7 +4,7 @@
 
 int main()
 {
-  fmt::println("BLAS vendor string: {}", uni20::BLAS_Vendor());
-  fmt::println("BLAS version string: {}", uni20::BLAS_Version());
+  fmt::print("BLAS vendor string: {}\n", uni20::BLAS_Vendor());
+  fmt::print("BLAS version string: {}\n", uni20::BLAS_Version());
   return 0;
 }

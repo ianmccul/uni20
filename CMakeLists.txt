@@ -222,7 +222,7 @@ include(FetchContent)
 
 uni20_add_dependency(
   NAME fmt
-  VERSION 10.2.1
+  VERSION 8.1.1
   TARGET fmt::fmt
   REPO https://github.com/fmtlib/fmt.git
   TAG 10.2.1
