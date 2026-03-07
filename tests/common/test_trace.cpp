@@ -187,13 +187,15 @@ TEST(TraceMacro, TraceOnceDifferentSitesAreIndependent)
 }
 
 // CHECK
-TEST(CheckMacro, FailingCheckAborts)
+TEST(CheckMacroDeathTest, FailingCheckAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ CHECK(false); }, "false is false!");
 }
 
-TEST(CheckMacro, FailingCheckIncludesStacktraceDiagnostic)
+TEST(CheckMacroDeathTest, FailingCheckIncludesStacktraceDiagnostic)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ CHECK(false); }, kStacktraceDiagnosticRegex);
 }
 
@@ -211,20 +213,23 @@ TEST(CheckMacro, PassingCheckConsteval) { CHECK(CheckConsteval(true)); }
 // CheckConsteval(false) should produce a compile-time error.
 
 // CHECK_EQUAL
-TEST(CheckEqualMacro, FailingCheckEqualAborts)
+TEST(CheckEqualMacroDeathTest, FailingCheckEqualAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ CHECK_EQUAL(1, 2); }, "1 is not equal to 2!");
 }
 TEST(CheckEqualMacro, PassingCheckEqualDoesNotAbort) { CHECK_EQUAL(42, 42); }
 
 // PRECONDITION
-TEST(PreconditionMacro, FailingPreconditionAborts)
+TEST(PreconditionMacroDeathTest, FailingPreconditionAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ PRECONDITION(false); }, "false is false!");
 }
 
-TEST(PreconditionMacro, FailingPreconditionIncludesStacktraceDiagnostic)
+TEST(PreconditionMacroDeathTest, FailingPreconditionIncludesStacktraceDiagnostic)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ PRECONDITION(false); }, kStacktraceDiagnosticRegex);
 }
 
@@ -240,26 +245,30 @@ constexpr bool test_precondition()
 static_assert(test_precondition(), "PRECONDITION(true) should not fire");
 
 // PRECONDITION_EQUAL
-TEST(PreconditionEqualMacro, FailingPreconditionEqualAborts)
+TEST(PreconditionEqualMacroDeathTest, FailingPreconditionEqualAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ PRECONDITION_EQUAL(3, 4); }, "3 is not equal to 4!");
 }
 TEST(PreconditionEqualMacro, PassingPreconditionEqualDoesNotAbort) { PRECONDITION_EQUAL(5, 5); }
 
 // PANIC
-TEST(PanicMacro, PanicAlwaysAborts)
+TEST(PanicMacroDeathTest, PanicAlwaysAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ PANIC("unconditional panic"); }, "unconditional panic");
 }
 
 // ERROR / ERROR_IF in abort mode
-TEST(ErrorMacro, ErrorAlwaysAbortsWhenConfigured)
+TEST(ErrorMacroDeathTest, ErrorAlwaysAbortsWhenConfigured)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   trace::get_formatting_options().set_errors_abort(true);
   EXPECT_DEATH({ ERROR("fatal error"); }, "fatal error");
 }
-TEST(ErrorIfMacro, ErrorIfTrueAbortsWhenConfigured)
+TEST(ErrorIfMacroDeathTest, ErrorIfTrueAbortsWhenConfigured)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   trace::get_formatting_options().set_errors_abort(true);
   EXPECT_DEATH({ ERROR_IF(true, "conditional error"); }, "conditional error");
 }
@@ -297,15 +306,17 @@ TEST(CheckFloatingEq, EqualScalarsPass)
   SUCCEED();
 }
 
-TEST(CheckFloatingEq, UnequalScalarsAbort)
+TEST(CheckFloatingEqDeathTest, UnequalScalarsAbort)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   double x = 1.0;
   double y = 1.1; // many ULPs apart
   EXPECT_DEATH({ CHECK_FLOATING_EQ(x, y); }, "CHECK_FLOATING_EQ");
 }
 
-TEST(CheckFloatingEq, NaNAlwaysFails)
+TEST(CheckFloatingEqDeathTest, NaNAlwaysFails)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   float nan = std::numeric_limits<float>::quiet_NaN();
   EXPECT_DEATH({ CHECK_FLOATING_EQ(nan, nan); }, "CHECK_FLOATING_EQ");
 }
@@ -317,8 +328,9 @@ TEST(CheckFloatingEq, SameInfinityPasses)
   SUCCEED();
 }
 
-TEST(CheckFloatingEq, OppositeInfinitiesFail)
+TEST(CheckFloatingEqDeathTest, OppositeInfinitiesFail)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   double pos_inf = std::numeric_limits<double>::infinity();
   double neg_inf = -std::numeric_limits<double>::infinity();
   EXPECT_DEATH({ CHECK_FLOATING_EQ(pos_inf, neg_inf); }, "CHECK_FLOATING_EQ");
@@ -333,8 +345,9 @@ TEST(CheckFloatingEq, ComplexEqualPass)
   SUCCEED();
 }
 
-TEST(CheckFloatingEq, ComplexUnequalAbort)
+TEST(CheckFloatingEqDeathTest, ComplexUnequalAbort)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   std::complex<float> a{1.0f, 2.0f};
   std::complex<float> b{1.0f, 2.1f}; // imag off by many ULPs
   EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b); }, "CHECK_FLOATING_EQ");
@@ -347,8 +360,9 @@ TEST(PreconditionFloatingEq, EqualPass)
   SUCCEED();
 }
 
-TEST(PreconditionFloatingEq, UnequalAbort)
+TEST(PreconditionFloatingEqDeathTest, UnequalAbort)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ PRECONDITION_FLOATING_EQ(1.0f, 2.0f); }, "PRECONDITION_FLOATING_EQ");
 }
 
@@ -361,8 +375,9 @@ TEST(CheckFloatingEq, ThreeParamExplicitUlpsPass)
   SUCCEED();
 }
 
-TEST(CheckFloatingEq, ThreeParamExplicitUlpsAbort)
+TEST(CheckFloatingEqDeathTest, ThreeParamExplicitUlpsAbort)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   double x = 1.0;
   double y = 1.0000000000001; // many ULPs away
   EXPECT_DEATH({ CHECK_FLOATING_EQ(x, y, 1); }, "CHECK_FLOATING_EQ");
@@ -377,8 +392,9 @@ TEST(CheckFloatingEq, FourParamWithMessagePass)
   SUCCEED();
 }
 
-TEST(CheckFloatingEq, FourParamWithMessageAbort)
+TEST(CheckFloatingEqDeathTest, FourParamWithMessageAbort)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   float x = 1.0f;
   float y = 1.1f;
   EXPECT_DEATH({ CHECK_FLOATING_EQ(x, y, 2, "extra context", 42); }, "CHECK_FLOATING_EQ");
@@ -408,8 +424,9 @@ TEST(PreconditionFloatingEq, ThreeParamExplicitUlpsPass)
   SUCCEED();
 }
 
-TEST(PreconditionFloatingEq, FourParamWithMessageAbort)
+TEST(PreconditionFloatingEqDeathTest, FourParamWithMessageAbort)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ PRECONDITION_FLOATING_EQ(1.0, 1.5, 1, "bad precondition"); }, "PRECONDITION_FLOATING_EQ");
 }
 
@@ -421,8 +438,9 @@ TEST(CheckFloatingEq, UlpToleranceOnePassesOneAway)
   SUCCEED();
 }
 
-TEST(CheckFloatingEq, UlpToleranceOneFailsTwoAway)
+TEST(CheckFloatingEqDeathTest, UlpToleranceOneFailsTwoAway)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   float a = 1.0f;
   float b = offset_by_ulps(a, 2);
   EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 1); }, "CHECK_FLOATING_EQ");
@@ -436,8 +454,9 @@ TEST(CheckFloatingEq, UlpToleranceTwoPassesTwoAway)
   SUCCEED();
 }
 
-TEST(CheckFloatingEq, UlpToleranceTwoFailsThreeAway)
+TEST(CheckFloatingEqDeathTest, UlpToleranceTwoFailsThreeAway)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   double a = 1.0;
   double b = offset_by_ulps(a, 3);
   EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 2); }, "CHECK_FLOATING_EQ");
@@ -452,8 +471,9 @@ TEST(CheckFloatingEq, ComplexWithinTolerancePass)
   SUCCEED();
 }
 
-TEST(CheckFloatingEq, ComplexOutsideToleranceFail)
+TEST(CheckFloatingEqDeathTest, ComplexOutsideToleranceFail)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   std::complex<double> a{1.0, 2.0};
   // imag part shifted by 10 ULPs
   double imag_shift = std::bit_cast<double>(std::bit_cast<std::uint64_t>(2.0) + 10);
@@ -461,8 +481,9 @@ TEST(CheckFloatingEq, ComplexOutsideToleranceFail)
   EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 1); }, "CHECK_FLOATING_EQ");
 }
 
-TEST(CheckFloatingEq, ComplexDefaultTolerance)
+TEST(CheckFloatingEqDeathTest, ComplexDefaultTolerance)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   std::complex<float> a{1.0f, 2.0f};
   // real part is 4 ULPs away, imag identical
   float shifted = std::bit_cast<float>(std::bit_cast<std::uint32_t>(1.0f) + 4);

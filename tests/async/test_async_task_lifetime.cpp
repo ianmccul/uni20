@@ -14,8 +14,9 @@ AsyncTask make_suspended_task() { co_return; }
 
 } // namespace
 
-TEST(AsyncTaskLifetimeTest, DeathOnUncancelledDestruction)
+TEST(AsyncTaskLifetimeDeathTest, DeathOnUncancelledDestruction)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(
       []() {
         auto task = make_suspended_task();
@@ -35,8 +36,9 @@ TEST(AsyncTaskLifetimeTest, SetCancelOnResumeSetsPromiseFlag)
   EXPECT_TRUE(handle.promise().is_cancel_on_resume());
 }
 
-TEST(AsyncTaskLifetimeTest, CancelOnResumeAllowsDestruction)
+TEST(AsyncTaskLifetimeDeathTest, CancelOnResumeAllowsDestruction)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_EXIT(
       []() {
         {

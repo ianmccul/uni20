@@ -53,30 +53,35 @@ int dump_mode_probe(char const* value)
 #endif
 
 #if UNI20_DEBUG_ASYNC_TASKS
-TEST(TaskRegistryDebugTest, DumpModeDefaultsToBasicWhenUnset)
+TEST(TaskRegistryDebugDeathTest, DumpModeDefaultsToBasicWhenUnset)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_EXIT({ std::_Exit(dump_mode_probe(nullptr)); }, ::testing::ExitedWithCode(1), "");
 }
 
-TEST(TaskRegistryDebugTest, DumpModeParsesNoneSynonyms)
+TEST(TaskRegistryDebugDeathTest, DumpModeParsesNoneSynonyms)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_EXIT({ std::_Exit(dump_mode_probe("0")); }, ::testing::ExitedWithCode(0), "");
   EXPECT_EXIT({ std::_Exit(dump_mode_probe("off")); }, ::testing::ExitedWithCode(0), "");
 }
 
-TEST(TaskRegistryDebugTest, DumpModeParsesFullSynonyms)
+TEST(TaskRegistryDebugDeathTest, DumpModeParsesFullSynonyms)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_EXIT({ std::_Exit(dump_mode_probe("2")); }, ::testing::ExitedWithCode(2), "");
   EXPECT_EXIT({ std::_Exit(dump_mode_probe("verbose")); }, ::testing::ExitedWithCode(2), "");
 }
 
-TEST(TaskRegistryDebugTest, DumpModeTrimsAndNormalizesCase)
+TEST(TaskRegistryDebugDeathTest, DumpModeTrimsAndNormalizesCase)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_EXIT({ std::_Exit(dump_mode_probe("  YeS  ")); }, ::testing::ExitedWithCode(1), "");
 }
 
-TEST(TaskRegistryDebugTest, DumpModeFallsBackToBasicForUnknownValue)
+TEST(TaskRegistryDebugDeathTest, DumpModeFallsBackToBasicForUnknownValue)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_EXIT({ std::_Exit(dump_mode_probe("not-a-mode")); }, ::testing::ExitedWithCode(1), "");
 }
 

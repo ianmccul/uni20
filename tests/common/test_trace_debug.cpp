@@ -31,40 +31,46 @@ char const* kStacktraceDiagnosticRegex = "WARNING: std::stacktrace is unavailabl
 } // namespace
 
 // DEBUG_CHECK / DEBUG_CHECK_EQUAL
-TEST(DebugCheckMacro, FailingDebugCheckAborts)
+TEST(DebugCheckMacroDeathTest, FailingDebugCheckAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ DEBUG_CHECK(false); }, "false is false!");
 }
 
-TEST(DebugCheckMacro, FailingDebugCheckIncludesStacktraceDiagnostic)
+TEST(DebugCheckMacroDeathTest, FailingDebugCheckIncludesStacktraceDiagnostic)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ DEBUG_CHECK(false); }, kStacktraceDiagnosticRegex);
 }
 
 TEST(DebugCheckMacro, PassingDebugCheckDoesNotAbort) { DEBUG_CHECK(true); }
 
-TEST(DebugCheckEqualMacro, FailingDebugCheckEqualAborts)
+TEST(DebugCheckEqualMacroDeathTest, FailingDebugCheckEqualAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ DEBUG_CHECK_EQUAL(1, 2); }, "1 is not equal to 2!");
 }
 
 TEST(DebugCheckEqualMacro, PassingDebugCheckEqualDoesNotAbort) { DEBUG_CHECK_EQUAL(42, 42); }
 
 // DEBUG_PRECONDITION / DEBUG_PRECONDITION_EQUAL
-TEST(DebugPreconditionMacro, FailingDebugPreconditionAborts)
+TEST(DebugPreconditionMacroDeathTest, FailingDebugPreconditionAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ DEBUG_PRECONDITION(false); }, "false is false!");
 }
 
-TEST(DebugPreconditionMacro, FailingDebugPreconditionIncludesStacktraceDiagnostic)
+TEST(DebugPreconditionMacroDeathTest, FailingDebugPreconditionIncludesStacktraceDiagnostic)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ DEBUG_PRECONDITION(false); }, kStacktraceDiagnosticRegex);
 }
 
 TEST(DebugPreconditionMacro, PassingDebugPreconditionDoesNotAbort) { DEBUG_PRECONDITION(true); }
 
-TEST(DebugPreconditionEqualMacro, FailingDebugPreconditionEqualAborts)
+TEST(DebugPreconditionEqualMacroDeathTest, FailingDebugPreconditionEqualAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   EXPECT_DEATH({ DEBUG_PRECONDITION_EQUAL(3, 4); }, "3 is not equal to 4!");
 }
 
@@ -128,23 +134,26 @@ TEST(DebugCheckFloatingEqMacro, PassesWithinTolerance)
   SUCCEED();
 }
 
-TEST(DebugCheckFloatingEqMacro, FailsOutsideTolerance)
+TEST(DebugCheckFloatingEqMacroDeathTest, FailsOutsideTolerance)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   float a = 1.0f;
   float b = std::bit_cast<float>(std::bit_cast<std::uint32_t>(a) + 10);
   EXPECT_DEATH({ DEBUG_CHECK_FLOATING_EQ(a, b, 1); }, "DEBUG_CHECK_FLOATING_EQ");
 }
 
-TEST(DebugCheckFloatingEqMacro, DefaultToleranceIsFour)
+TEST(DebugCheckFloatingEqMacroDeathTest, DefaultToleranceIsFour)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   float a = 1.0f;
   float b = std::bit_cast<float>(std::bit_cast<std::uint32_t>(a) + 4);
   DEBUG_CHECK_FLOATING_EQ(a, b);                                                  // 4 ULPs away, should pass
   EXPECT_DEATH({ DEBUG_CHECK_FLOATING_EQ(a, b, 3); }, "DEBUG_CHECK_FLOATING_EQ"); // but not within 3
 }
 
-TEST(DebugCheckFloatingEqMacro, FailureMessageIncludesBothExpressionsAndUlps)
+TEST(DebugCheckFloatingEqMacroDeathTest, FailureMessageIncludesBothExpressionsAndUlps)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   static float lhs = 1.0f;
   static float rhs = std::bit_cast<float>(std::bit_cast<std::uint32_t>(lhs) + 10);
   EXPECT_DEATH({ DEBUG_CHECK_FLOATING_EQ(lhs, rhs, 1); }, "lhs is not approx-equal to rhs \\(to 1 ULP\\)!");
@@ -158,15 +167,17 @@ TEST(DebugPreconditionFloatingEqMacro, PassesWithinTolerance)
   SUCCEED();
 }
 
-TEST(DebugPreconditionFloatingEqMacro, FailsOutsideTolerance)
+TEST(DebugPreconditionFloatingEqMacroDeathTest, FailsOutsideTolerance)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   float a = 1.0f;
   float b = std::bit_cast<float>(std::bit_cast<std::uint32_t>(a) + 10);
   EXPECT_DEATH({ DEBUG_PRECONDITION_FLOATING_EQ(a, b, 1); }, "DEBUG_PRECONDITION_FLOATING_EQ");
 }
 
-TEST(DebugPreconditionFloatingEqMacro, DefaultToleranceIsFour)
+TEST(DebugPreconditionFloatingEqMacroDeathTest, DefaultToleranceIsFour)
 {
+  GTEST_FLAG_SET(death_test_style, "fast");
   float a = 1.0f;
   float b = std::bit_cast<float>(std::bit_cast<std::uint32_t>(a) + 4);
   DEBUG_PRECONDITION_FLOATING_EQ(a, b); // 4 ULPs away, should pass

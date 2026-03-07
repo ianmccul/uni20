@@ -108,7 +108,7 @@ cmake -S . -B build -DUNI20_ENABLE_CUDA=OFF -DUNI20_BUILD_TESTS=ON -DUNI20_BUILD
 
 The project leverages CMake’s built-in modules (`FindBLAS.cmake` and `FindLAPACK.cmake`) to automatically detect available BLAS and LAPACK libraries. This means:
 - If a standard BLAS/LAPACK implementation is present, the project will link against it.
-- If vendor-specific libraries such as Intel MKL or OpenBLAS are installed, the detection modules will set variables (e.g., `BLAS_VENDOR`) accordingly.  
+- If vendor-specific libraries such as Intel MKL or OpenBLAS are installed, CMake will resolve `BLAS_LIBRARIES`, and Uni20 normalizes the vendor from those resolved libraries. Use `-DUNI20_BLAS_VENDOR=<vendor>` to select a preferred vendor; Uni20 forwards it to `BLA_VENDOR` for `FindBLAS`.  
 - In the case of MKL, if the environment variable `MKLROOT` is defined, the project will add MKL’s include directory (e.g., `$MKLROOT/include`) to the target’s include paths, allowing vendor-specific extensions to be used.
 
 ## Running Tests

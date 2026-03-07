@@ -18,6 +18,7 @@ void schedule_record_read(Async<int>& value, std::vector<int>& observed)
     co_return;
   }(value.read(), observed));
 }
+
 } // namespace
 
 TEST(AsyncBasicTest, WriteThenRead)
@@ -205,8 +206,9 @@ TEST(AsyncBasicTest, EpochQueueResetOnAssignmentAsync)
   EXPECT_EQ(second_branch, (std::vector<int>{10, 30}));
 }
 
-TEST(AsyncBasicTest, RAII_NoAwaitTriggersDeath)
+TEST(AsyncBasicDeathTest, RAII_NoAwaitTriggersDeath)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(
       [] {
         Async<int> a;
@@ -509,8 +511,9 @@ TEST(AsyncBasicTest, PropagateExceptionsToDuplicateWriteSinkIsHarmless)
   EXPECT_THROW((void)out.get_wait(), std::runtime_error);
 }
 
-TEST(AsyncBasicTest, PropagateExceptionsToLocalSinkDestroyedDuringUnwindAborts)
+TEST(AsyncBasicDeathTest, PropagateExceptionsToLocalSinkDestroyedDuringUnwindAborts)
 {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH(
       [] {
         DebugScheduler sched;
