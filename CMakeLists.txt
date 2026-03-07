@@ -39,8 +39,17 @@ include(Uni20TestHelpers)
 include(Uni20Dependencies)
 #include(cmake/DetectBlasIntSize.cmake)
 
-# Set a centralized directory for fetched content.
-set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/.cmake/third_party")
+# Configure where FetchContent stores third-party sources/build trees.
+# Default to a build-local directory to avoid cross-build cache contamination
+# (for example Debug and Release builds sharing the same third-party build tree).
+set(UNI20_FETCHCONTENT_BASE_DIR ""
+    CACHE PATH
+    "Override FetchContent base directory. Empty uses <binary_dir>/.cmake/third_party")
+if(UNI20_FETCHCONTENT_BASE_DIR)
+  set(FETCHCONTENT_BASE_DIR "${UNI20_FETCHCONTENT_BASE_DIR}")
+else()
+  set(FETCHCONTENT_BASE_DIR "${CMAKE_BINARY_DIR}/.cmake/third_party")
+endif()
 
 # Build Options (including testing/benchmarking)
 uni20_dependency_option(UNI20_USE_SYSTEM_TBB "oneTBB library" AUTO)
