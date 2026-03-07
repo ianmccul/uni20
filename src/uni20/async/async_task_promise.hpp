@@ -14,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <type_traits>
 #include <vector>
 
 namespace uni20::async
@@ -675,9 +676,14 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
       {
         awaitable.register_exception_sinks(promise);
       }
-      // we can call await_resume on a moved awaitable here, because this is the last time
-      // that we refer to awaitable
-      return awaitable.await_resume();
+      if constexpr (std::is_lvalue_reference_v<A>)
+      {
+        return awaitable.await_resume();
+      }
+      else
+      {
+        return std::move(awaitable).await_resume();
+      }
     }
 
     // decltype(auto) await_resume() &

@@ -10,6 +10,8 @@
 #include "epoch_context.hpp"
 #include "shared_storage.hpp"
 
+#include <atomic>
+#include <concepts>
 #include <coroutine>
 #include <cstddef>
 #include <memory>
@@ -347,7 +349,17 @@ template <typename T> ReadOrCancelAwaiter<T const&> ReadBuffer<T>::or_cancel() &
 template <typename T> ReadOrCancelAwaiter<T> ReadBuffer<T>::or_cancel() && { return ReadOrCancelAwaiter<T>(reader_); }
 
 // Forward declaration of the proxy used for deferred writes
-template <typename Buffer> class BufferWriteProxy;
+template <typename T> class WriteAccessProxy;
+template <typename T> class OwningWriteAccessProxy;
+template <typename T> class OwningWriteAwaiter;
+template <typename T> class WriteAssignProxy;
+
+#if UNI20_DEBUG_ASYNC_TASKS
+struct WriteProxyLifetimeState
+{
+    std::atomic<bool> alive{true};
+};
+#endif
 
 /// \brief An awaiter that emplaces a value when it is co_awaited.
 
@@ -445,6 +457,7 @@ template <typename T> class WriteBuffer {
 
     ~WriteBuffer() noexcept
     {
+      this->invalidate_proxy_state();
       this->unregister_exception_sink(true);
       // if (writer_ && !written_)
       // {
@@ -458,6 +471,7 @@ template <typename T> class WriteBuffer {
     WriteBuffer(WriteBuffer&& other) noexcept : writer_(std::move(other.writer_)), written_(other.written_)
     {
       this->move_exception_sink_from(other);
+      other.invalidate_proxy_state();
       other.written_ = true; // make moved-from state safe for destruction
     }
 
@@ -465,10 +479,13 @@ template <typename T> class WriteBuffer {
     {
       if (this != &other)
       {
+        this->invalidate_proxy_state();
         this->unregister_exception_sink(false);
         writer_ = std::move(other.writer_);
         written_ = other.written_;
         this->move_exception_sink_from(other);
+        this->reset_proxy_state();
+        other.invalidate_proxy_state();
         other.written_ = true; // make moved-from state safe for destruction
       }
       return *this;
@@ -486,15 +503,43 @@ template <typename T> class WriteBuffer {
       writer_.suspend(std::move(t), false);
     }
 
-    T& await_resume() const
+    WriteAccessProxy<T> await_resume() &
     {
       writer_.resume();
       written_ = true;
-      return writer_.data();
+      return WriteAccessProxy<T>(
+          &writer_
+#if UNI20_DEBUG_ASYNC_TASKS
+          ,
+          proxy_state_
+#endif
+      );
+    }
+
+    WriteAccessProxy<T> await_resume() const&
+    {
+      auto* writer = const_cast<EpochContextWriter<T>*>(&writer_);
+      writer->resume();
+      written_ = true;
+      return WriteAccessProxy<T>(
+          writer
+#if UNI20_DEBUG_ASYNC_TASKS
+          ,
+          proxy_state_
+#endif
+      );
+    }
+
+    OwningWriteAccessProxy<T> await_resume() &&
+    {
+      writer_.resume();
+      written_ = true;
+      return OwningWriteAccessProxy<T>(std::move(writer_));
     }
 
     void release() noexcept
     {
+      this->invalidate_proxy_state();
       // if (!written_)
       // {
       //   writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
@@ -545,13 +590,18 @@ template <typename T> class WriteBuffer {
       writer_.data() = std::move(val);
     }
 
-    [[nodiscard]] BufferWriteProxy<WriteBuffer<T>> write();
+    [[nodiscard]] WriteAssignProxy<T> write();
 
     template <typename U> void write_move(U&& val) { async_move(std::move(val), std::move(*this)); }
 
     auto operator co_await() & noexcept -> WriteBuffer& { return *this; }
     auto operator co_await() const& noexcept -> WriteBuffer const& { return *this; }
-    auto operator co_await() && = delete;
+    auto operator co_await() && noexcept -> OwningWriteAwaiter<T>
+    {
+      this->invalidate_proxy_state();
+      written_ = true;
+      return OwningWriteAwaiter<T>(std::move(writer_));
+    }
 
   private:
     void move_exception_sink_from(WriteBuffer& other) noexcept
@@ -570,9 +620,26 @@ template <typename T> class WriteBuffer {
       exception_sink_.owner->unregister_exception_sink(exception_sink_, from_destructor);
     }
 
+    void invalidate_proxy_state() noexcept
+    {
+#if UNI20_DEBUG_ASYNC_TASKS
+      if (proxy_state_) proxy_state_->alive.store(false, std::memory_order_release);
+#endif
+    }
+
+    void reset_proxy_state() noexcept
+    {
+#if UNI20_DEBUG_ASYNC_TASKS
+      proxy_state_ = std::make_shared<WriteProxyLifetimeState>();
+#endif
+    }
+
     EpochContextWriter<T> writer_;
     mutable bool written_{false};
     mutable BasicAsyncTaskPromise::ExceptionSinkNode exception_sink_{};
+#if UNI20_DEBUG_ASYNC_TASKS
+    std::shared_ptr<WriteProxyLifetimeState> proxy_state_{std::make_shared<WriteProxyLifetimeState>()};
+#endif
 
     // Duplicating a WriteBuffer is no longer possible with the refactored EpochContext.
     // To re-enable this function we would need to make the
@@ -631,32 +698,253 @@ template <exception_sink_buffer... Buffers> auto propagate_exceptions_to(Buffers
   return PropagateExceptionsAwaiter<Buffers...>(buffers...);
 }
 
-// A proxy class that allows left-hand-side assignment, while holding a refcount
-template <typename Buffer> class BufferWriteProxy {
+/// \brief Non-owning proxy returned by `co_await` on an lvalue `WriteBuffer<T>`.
+/// \details This proxy references the underlying writer held by the buffer.
+template <typename T> class WriteAccessProxy {
   public:
-    using value_type = typename Buffer::value_type;
+    using value_type = T;
 
-    BufferWriteProxy() = delete;
-    BufferWriteProxy(BufferWriteProxy const&) = delete;
-    BufferWriteProxy& operator=(BufferWriteProxy const&) = delete;
-    BufferWriteProxy(BufferWriteProxy&&) noexcept = default;
-    BufferWriteProxy& operator=(BufferWriteProxy&&) noexcept = delete;
+    WriteAccessProxy() = delete;
+    WriteAccessProxy(WriteAccessProxy const&) noexcept = default;
+    WriteAccessProxy& operator=(WriteAccessProxy const&) = delete;
+    WriteAccessProxy(WriteAccessProxy&&) noexcept = default;
+    WriteAccessProxy& operator=(WriteAccessProxy&&) = delete;
 
-    template <typename U> void operator=(U&& u) { async_assign(std::forward<U>(u), Buffer(std::move(writer_))); }
+    template <typename U>
+    requires(!std::same_as<std::remove_cvref_t<U>, WriteAccessProxy>) &&
+        std::constructible_from<T, U&&> WriteAccessProxy& operator=(U&& u)
+    {
+      this->emplace(std::forward<U>(u));
+      return *this;
+    }
+
+    template <typename... Args>
+    requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
+    {
+      return this->writer().emplace(std::forward<Args>(args)...);
+    }
+
+    template <typename U>
+    requires requires(T& value, U&& x)
+    {
+      value += std::forward<U>(x);
+    } WriteAccessProxy& operator+=(U&& x)
+    {
+      this->get() += std::forward<U>(x);
+      return *this;
+    }
+
+    template <typename U>
+    requires requires(T& value, U&& x)
+    {
+      value -= std::forward<U>(x);
+    } WriteAccessProxy& operator-=(U&& x)
+    {
+      this->get() -= std::forward<U>(x);
+      return *this;
+    }
+
+    template <typename U>
+    requires requires(T& value, U&& x)
+    {
+      value *= std::forward<U>(x);
+    } WriteAccessProxy& operator*=(U&& x)
+    {
+      this->get() *= std::forward<U>(x);
+      return *this;
+    }
+
+    template <typename U>
+    requires requires(T& value, U&& x)
+    {
+      value /= std::forward<U>(x);
+    } WriteAccessProxy& operator/=(U&& x)
+    {
+      this->get() /= std::forward<U>(x);
+      return *this;
+    }
+
+    T& get() const { return this->writer().data(); }
+
+    operator T&() const { return this->get(); }
+
+    T* operator->() const { return std::addressof(this->get()); }
 
   private:
-    explicit BufferWriteProxy(EpochContextWriter<value_type>&& writer) : writer_(std::move(writer)) {}
+    explicit WriteAccessProxy(
+        EpochContextWriter<T>* writer
+#if UNI20_DEBUG_ASYNC_TASKS
+        ,
+        std::shared_ptr<WriteProxyLifetimeState> proxy_state
+#endif
+        ) noexcept
+        : writer_(writer)
+#if UNI20_DEBUG_ASYNC_TASKS
+        , proxy_state_(std::move(proxy_state))
+#endif
+    {}
 
-    friend Buffer;
+    EpochContextWriter<T>& writer() const
+    {
+#if UNI20_DEBUG_ASYNC_TASKS
+      auto state = proxy_state_.lock();
+      DEBUG_CHECK(state && state->alive.load(std::memory_order_acquire),
+                  "WriteAccessProxy used after WriteBuffer moved, released, or destroyed");
+#endif
+      DEBUG_CHECK(writer_, "WriteAccessProxy has no writer");
+      return *writer_;
+    }
 
-    EpochContextWriter<value_type> writer_;
+    friend class WriteBuffer<T>;
+
+    EpochContextWriter<T>* writer_;
+#if UNI20_DEBUG_ASYNC_TASKS
+    std::weak_ptr<WriteProxyLifetimeState> proxy_state_;
+#endif
 };
 
-template <typename T> using WriteProxy = BufferWriteProxy<WriteBuffer<T>>;
+/// \brief Owning proxy returned by `co_await std::move(write_buffer)`.
+/// \details Ownership of the writer handle is transferred into this proxy.
+template <typename T> class OwningWriteAccessProxy {
+  public:
+    using value_type = T;
 
-template <typename T> BufferWriteProxy<WriteBuffer<T>> WriteBuffer<T>::write()
+    OwningWriteAccessProxy() = delete;
+    OwningWriteAccessProxy(OwningWriteAccessProxy const&) = delete;
+    OwningWriteAccessProxy& operator=(OwningWriteAccessProxy const&) = delete;
+    OwningWriteAccessProxy(OwningWriteAccessProxy&&) noexcept = default;
+    OwningWriteAccessProxy& operator=(OwningWriteAccessProxy&&) noexcept = delete;
+
+    template <typename U>
+    requires(!std::same_as<std::remove_cvref_t<U>, OwningWriteAccessProxy>) &&
+        std::constructible_from<T, U&&> OwningWriteAccessProxy& operator=(U&& u)
+    {
+      this->emplace(std::forward<U>(u));
+      return *this;
+    }
+
+    template <typename... Args>
+    requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
+    {
+      return writer_.emplace(std::forward<Args>(args)...);
+    }
+
+    template <typename U>
+    requires requires(T& value, U&& x)
+    {
+      value += std::forward<U>(x);
+    } OwningWriteAccessProxy& operator+=(U&& x)
+    {
+      this->get() += std::forward<U>(x);
+      return *this;
+    }
+
+    template <typename U>
+    requires requires(T& value, U&& x)
+    {
+      value -= std::forward<U>(x);
+    } OwningWriteAccessProxy& operator-=(U&& x)
+    {
+      this->get() -= std::forward<U>(x);
+      return *this;
+    }
+
+    template <typename U>
+    requires requires(T& value, U&& x)
+    {
+      value *= std::forward<U>(x);
+    } OwningWriteAccessProxy& operator*=(U&& x)
+    {
+      this->get() *= std::forward<U>(x);
+      return *this;
+    }
+
+    template <typename U>
+    requires requires(T& value, U&& x)
+    {
+      value /= std::forward<U>(x);
+    } OwningWriteAccessProxy& operator/=(U&& x)
+    {
+      this->get() /= std::forward<U>(x);
+      return *this;
+    }
+
+    T& get() { return writer_.data(); }
+    T const& get() const { return writer_.data(); }
+
+    operator T&() { return this->get(); }
+    operator T const&() const { return this->get(); }
+
+    T* operator->() { return std::addressof(this->get()); }
+    T const* operator->() const { return std::addressof(this->get()); }
+
+  private:
+    explicit OwningWriteAccessProxy(EpochContextWriter<T>&& writer) : writer_(std::move(writer)) {}
+
+    friend class WriteBuffer<T>;
+    friend class OwningWriteAwaiter<T>;
+
+    EpochContextWriter<T> writer_;
+};
+
+/// \brief Awaiter that transfers a writer handle into an owning write proxy.
+template <typename T> class OwningWriteAwaiter {
+  public:
+    explicit OwningWriteAwaiter(EpochContextWriter<T>&& writer) : writer_(std::move(writer)) {}
+
+    bool await_ready() const noexcept { return writer_.ready(); }
+
+    void await_suspend(AsyncTask&& task) noexcept
+    {
+      TRACE_MODULE(ASYNC, "OwningWriteAwaiter::await_suspend()", this, task.h_);
+      writer_.suspend(std::move(task), false);
+    }
+
+    OwningWriteAccessProxy<T> await_resume()
+    {
+      writer_.resume();
+      return OwningWriteAccessProxy<T>(std::move(writer_));
+    }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
+
+  private:
+    EpochContextWriter<T> writer_;
+};
+
+template <typename T> using WriteAwaitProxy = WriteAccessProxy<T>;
+template <typename T> using OwningWriteProxy = OwningWriteAccessProxy<T>;
+
+/// \brief Assignment-only proxy returned by `WriteBuffer::write()`.
+template <typename T> class WriteAssignProxy {
+  public:
+    using value_type = T;
+
+    WriteAssignProxy() = delete;
+    WriteAssignProxy(WriteAssignProxy const&) = delete;
+    WriteAssignProxy& operator=(WriteAssignProxy const&) = delete;
+    WriteAssignProxy(WriteAssignProxy&&) noexcept = default;
+    WriteAssignProxy& operator=(WriteAssignProxy&&) noexcept = delete;
+
+    template <typename U>
+    requires(!std::same_as<std::remove_cvref_t<U>, WriteAssignProxy>) void operator=(U&& u)
+    {
+      async_assign(std::forward<U>(u), WriteBuffer<T>(std::move(writer_)));
+    }
+
+  private:
+    explicit WriteAssignProxy(EpochContextWriter<T>&& writer) : writer_(std::move(writer)) {}
+
+    friend class WriteBuffer<T>;
+
+    EpochContextWriter<T> writer_;
+};
+
+template <typename T> using WriteProxy = WriteAssignProxy<T>;
+
+template <typename T> WriteAssignProxy<T> WriteBuffer<T>::write()
 {
-  return BufferWriteProxy<WriteBuffer<T>>(std::move(writer_));
+  return WriteAssignProxy<T>(std::move(writer_));
 }
 
 } // namespace uni20::async

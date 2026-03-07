@@ -127,7 +127,7 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
 
   // Writer
   sched.schedule([](WriteBuffer<int> wbuf, int& count) static->AsyncTask {
-    auto& w = co_await wbuf;
+    auto w = co_await wbuf;
     w = 8;
     ++count;
     co_return;
@@ -284,10 +284,8 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
 
   auto mutate_task = [](WriteBuffer<int> buffer) static->AsyncTask
   {
-    auto& ref = co_await buffer;
+    auto ref = co_await std::move(buffer);
     ref = 17;
-    auto moved = std::move(buffer);
-    (void)moved;
     co_return;
   }
   (mutable_value.write());
@@ -322,7 +320,7 @@ TEST(AsyncBasicTest, WriterAwaitOnUninitializedStorageHandledExceptionDoesNotPro
   schedule([](WriteBuffer<int> writer, bool& saw_exception) static->AsyncTask {
     try
     {
-      auto& ref = co_await writer;
+      int& ref = co_await writer;
       (void)ref;
     }
     catch (buffer_write_uninitialized const&)
@@ -368,7 +366,7 @@ TEST(AsyncBasicTest, WriterAwaitOnUninitializedStorageUnhandledExceptionPropagat
   int reader_status = 0;
 
   schedule([](WriteBuffer<int> writer) static->AsyncTask {
-    auto& ref = co_await writer; // this will throw, since the buffer is uninitialized
+    int& ref = co_await writer; // this will throw, since the buffer is uninitialized
     (void)ref;
     co_return;
   }(value.write()));

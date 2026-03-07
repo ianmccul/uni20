@@ -30,7 +30,7 @@ TEST(AsyncMoveTest, MoveAssignPreservesQueue)
 
   DebugScheduler sched;
   sched.schedule([](WriteBuffer<int> writer) static->AsyncTask {
-    auto& value = co_await writer;
+    auto value = co_await writer;
     value = 9;
     co_return;
   }(lhs.write()));

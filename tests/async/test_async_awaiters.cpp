@@ -282,11 +282,11 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
     auto& second = co_await writer.emplace(2);
     EXPECT_EQ(second, 2);
 
-    auto& writable_1 = co_await writer;
+    auto writable_1 = co_await writer;
     EXPECT_EQ(writable_1, 2);
     writable_1 = 3;
 
-    auto& writable_2 = co_await writer;
+    auto writable_2 = co_await writer;
     EXPECT_EQ(writable_2, 3);
 
     auto& storage_1 = co_await writer.storage();

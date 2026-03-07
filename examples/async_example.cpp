@@ -24,7 +24,7 @@ AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
   TRACE("Got the readBuf");
 
   // Wait until it's our turn to write
-  auto& out = co_await writeBuf;
+  int& out = co_await writeBuf;
 
   TRACE("got the writeBuf");
 
@@ -46,7 +46,7 @@ template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> 
   // auto vb = co_await b;
 
   auto [va, vb] = co_await all(a, b);
-  auto& vout = co_await out;
+  T& vout = co_await out;
 
   // auto [va, vb] = co_await all(a, b);
 

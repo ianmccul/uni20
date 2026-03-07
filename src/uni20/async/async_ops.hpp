@@ -12,6 +12,7 @@
 #include <concepts>
 #include <functional>
 #include <type_traits>
+#include <utility>
 
 namespace uni20::async
 {
@@ -34,8 +35,7 @@ template <typename Awaitable>
 concept write_buffer_awaitable = requires(Awaitable& a, typename Awaitable::value_type v)
 {
   typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type;
-  requires std::assignable_from<decltype(get_awaiter(a).await_resume()),
-                                typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type>;
+  {get_awaiter(a).await_resume() = std::move(v)};
 };
 
 /// \brief concept for a valid type that supports in-place construction via emplace(...)
@@ -64,7 +64,7 @@ concept read_buffer_awaitable_of = requires(Awaitable a)
 template <typename Awaitable, typename T>
 concept write_buffer_awaitable_of = requires(Awaitable a)
 {
-  requires std::assignable_from<decltype(get_awaiter(a).await_resume()), T>;
+  {get_awaiter(a).await_resume() = std::declval<T>()};
 };
 
 /// \brief concept for a valid type that behaves as a write buffer that is also readable
