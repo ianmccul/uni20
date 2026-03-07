@@ -35,8 +35,7 @@ template <typename T> class ReadOrCancelAwaiter;
 /// depending on value category:
 ///
 /// - `co_await buf` yields `T const&`: shared read access.
-/// - `co_await std::move(buf)` yields `T` for exclusive read access. The buffer
-///   will attempt to move the value if it is the last reader; otherwise it will copy.
+/// - `co_await std::move(buf)` yields `T` by value and releases the reader gate. This currently copies `T`.
 ///
 /// \note The `std::move(buf)` form is recommended when the buffer will be consumed
 ///       immediately, such as when assigning to a local variable.
@@ -46,7 +45,6 @@ template <typename T> class ReadOrCancelAwaiter;
 ///       further use is undefined.
 ///
 /// \tparam T The underlying value type.
-// TODO: actually moving the value is not yet implemented
 template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
   public:
     using value_type = T;

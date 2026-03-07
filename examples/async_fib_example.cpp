@@ -14,9 +14,10 @@ Async<uint64_t> fib(Async<uint64_t> const& in);
 AsyncTask co_fib(ReadBuffer<uint64_t> in, WriteBuffer<uint64_t> out)
 {
   auto n = co_await in;
+  in.release();
   if (n < 2)
   {
-    co_await out = n;
+    co_await out.emplace(n);
     co_return;
   }
   Async<uint64_t> i = n - 1;
@@ -24,7 +25,8 @@ AsyncTask co_fib(ReadBuffer<uint64_t> in, WriteBuffer<uint64_t> out)
   Async<uint64_t> f = 0;
   f += fib(i);
   f += fib(j);
-  co_await out = co_await (f.read());
+  auto value = co_await f.read();
+  co_await out.emplace(value);
   co_return;
 }
 

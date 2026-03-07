@@ -46,14 +46,15 @@ inline constexpr async_do_not_start_t async_do_not_start{};
 
 template <typename T> class ReverseValue; // forward declaration so we can add it as a friend of Async<T>
 
-/// \brief Async<T> is a move-only container for asynchronously accessed data.
+/// \brief Async<T> is a container for coroutine-safe asynchronous read/write.
 ///
 /// `Async<T>` stores a value of type `T` and mediates access through
 /// epoch-based coordination. The value and access queue are jointly
 /// refcounted by internal shared state, allowing buffer handles
 /// to outlive the owning Async container.
 ///
-/// Copying is disabled: deep copy must be performed via explicit kernels.
+/// \note Copy construction and copy assignment are value-level operations: they schedule a copy kernel and do not
+///       clone dependency history or internal queue state.
 ///
 /// \note Buffers maintain shared ownership of the internal state, so `ReadBuffer<T>` and
 ///       `WriteBuffer<T>` may safely outlive the Async.

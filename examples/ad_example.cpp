@@ -27,16 +27,20 @@ AsyncTask compute(ReadBuffer<double> x, ReadBuffer<double> y, WriteBuffer<double
 {
   double xval = co_await x;
   double yval = co_await y;
+  x.release();
+  y.release();
   double result = (xval + yval) * yval;
   TRACE("Computed z =", result);
-  co_await z = result;
+  co_await z.emplace(result);
   co_return;
 }
 
 int main()
 {
   // Persistent buffers
-  Async<double> x, y, z;
+  Async<double> x = 0.0;
+  Async<double> y = 0.0;
+  Async<double> z = 0.0;
 
   // Builder function captures inputs and sets up the graph
   ADTaskRunner runner([&](DebugScheduler& sched) { sched.schedule(compute(x.read(), y.read(), z.write())); });

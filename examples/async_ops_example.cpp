@@ -28,7 +28,12 @@ Async<T> branch_dag_dynamic(Async<int> const& mode, Async<T> const& a, Async<T> 
 
     T result = (mode_val == 1) ? av + bv * cv : (av + bv) * cv;
 
-    co_await out_ = std::move(result);
+    m.release();
+    x.release();
+    y.release();
+    z.release();
+
+    co_await out_.emplace(std::move(result));
     co_return;
   }(mode.read(), a.read(), b.read(), c.read(), out.write()));
   return out;

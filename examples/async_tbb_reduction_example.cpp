@@ -38,7 +38,8 @@ using namespace uni20::async;
 AsyncTask square(ReadBuffer<int> in, WriteBuffer<int> out)
 {
   int x = co_await in;
-  co_await out = x * x;
+  in.release();
+  co_await out.emplace(x * x);
   co_return;
 }
 
@@ -47,7 +48,9 @@ AsyncTask sum(ReadBuffer<int> a, ReadBuffer<int> b, WriteBuffer<int> out)
 {
   int x = co_await a;
   int y = co_await b;
-  co_await out = x + y;
+  a.release();
+  b.release();
+  co_await out.emplace(x + y);
   co_return;
 }
 
