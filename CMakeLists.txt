@@ -39,12 +39,15 @@ include(Uni20TestHelpers)
 include(Uni20Dependencies)
 #include(cmake/DetectBlasIntSize.cmake)
 
-# Configure where FetchContent stores third-party sources/build trees.
+# Configure where FetchContent stores third-party build trees.
 # Default to a build-local directory to avoid cross-build cache contamination
 # (for example Debug and Release builds sharing the same third-party build tree).
 set(UNI20_FETCHCONTENT_BASE_DIR ""
     CACHE PATH
-    "Override FetchContent base directory. Empty uses <binary_dir>/.cmake/third_party")
+    "Override FetchContent base directory for build/stamp directories. Empty uses <binary_dir>/.cmake/third_party")
+set(UNI20_FETCHCONTENT_SOURCE_BASE_DIR ""
+    CACHE PATH
+    "Optional shared FetchContent source directory. Empty keeps sources under FETCHCONTENT_BASE_DIR")
 if(UNI20_FETCHCONTENT_BASE_DIR)
   set(FETCHCONTENT_BASE_DIR "${UNI20_FETCHCONTENT_BASE_DIR}")
 else()
@@ -53,7 +56,8 @@ endif()
 
 # Build Options (including testing/benchmarking)
 uni20_dependency_option(UNI20_USE_SYSTEM_TBB "oneTBB library" AUTO)
-uni20_dependency_option(UNI20_USE_SYSTEM_BENCHMARK "Google Benchmark library" AUTO)
+uni20_dependency_option(UNI20_USE_SYSTEM_FMT "fmt library" AUTO)
+uni20_dependency_option(UNI20_USE_SYSTEM_BENCHMARK "Google Benchmark library" OFF)
 uni20_dependency_option(UNI20_USE_SYSTEM_GTEST "Google Test library" AUTO)
 uni20_dependency_option(UNI20_USE_SYSTEM_NANOBIND "nanobind library" AUTO)
 option(UNI20_BUILD_EXTERNAL_TESTS "Build tests for external dependencies" OFF)
@@ -216,20 +220,31 @@ endforeach()
 
 include(FetchContent)
 
-FetchContent_Declare(
-  fmt
-  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-  GIT_TAG 10.2.1
+uni20_add_dependency(
+  NAME fmt
+  VERSION 10.2.1
+  TARGET fmt::fmt
+  REPO https://github.com/fmtlib/fmt.git
+  TAG 10.2.1
 )
-FetchContent_MakeAvailable(fmt)
-relax_warnings(fmt)
+if(TARGET fmt)
+  relax_warnings(fmt)
+endif()
 
 # mdspan reference implementation, put it into stdex namespace to prevent possible conflict with standard library version
 # and set up an interface library uni20_mdspan to set up the include directories
+set(_uni20_mdspan_fetchcontent_paths)
+if(UNI20_FETCHCONTENT_SOURCE_BASE_DIR)
+  list(APPEND _uni20_mdspan_fetchcontent_paths
+    SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/mdspan-src"
+    BINARY_DIR "${FETCHCONTENT_BASE_DIR}/mdspan-build")
+endif()
+
 FetchContent_Declare(
   mdspan
   GIT_REPOSITORY https://github.com/kokkos/mdspan.git
   GIT_TAG stable
+  ${_uni20_mdspan_fetchcontent_paths}
 )
 FetchContent_MakeAvailable(mdspan)
 target_compile_definitions(mdspan INTERFACE MDSPAN_IMPL_STANDARD_NAMESPACE=stdex)

@@ -75,6 +75,7 @@ function(uni20_add_dependency)
   endif()
 
   string(TOUPPER "${DEP_NAME}" NAME_UPPER)
+  string(TOLOWER "${DEP_NAME}" NAME_LOWER)
 
   set(use_system_var "UNI20_USE_SYSTEM_${NAME_UPPER}")
   if(NOT DEFINED ${use_system_var})
@@ -182,10 +183,18 @@ function(uni20_add_dependency)
     endif()
 
     include(FetchContent)
+    set(_uni20_fetchcontent_paths)
+    if(UNI20_FETCHCONTENT_SOURCE_BASE_DIR)
+      list(APPEND _uni20_fetchcontent_paths
+        SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${NAME_LOWER}-src"
+        BINARY_DIR "${FETCHCONTENT_BASE_DIR}/${NAME_LOWER}-build")
+    endif()
+
     FetchContent_Declare(
       ${DEP_NAME}
       GIT_REPOSITORY ${DEP_REPO}
       GIT_TAG ${DEP_TAG}
+      ${_uni20_fetchcontent_paths}
     )
     FetchContent_MakeAvailable(${DEP_NAME})
 
