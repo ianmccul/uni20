@@ -2,18 +2,18 @@
 
 #include "async_toys.hpp"
 #include <uni20/core/math.hpp>
-#include "dual.hpp"
+#include "var.hpp"
 #include <type_traits>
 
 namespace uni20::async
 {
 
 //
-// Demonstration trig fuctions for Dual<T>
+// Demonstration trig fuctions for Var<T>
 //
 // sin(x) is implemented as coroutines
 //
-// cos(x) is implemented using basic operations on Dual<T> and Async<T>
+// cos(x) is implemented using basic operations on Var<T> and Async<T>
 //
 
 // Chain rule: ∂L/∂z* = ∂L/∂f* ⋅ ∂f*/∂z* + ∂L/∂f ⋅ ∂f/∂z*
@@ -23,35 +23,35 @@ namespace uni20::async
 // ∂L/∂z* = ∂L/∂f* ⋅ conj(∂f/∂z) + conj(∂L/∂f) ⋅ ∂f/∂z*
 // out_grad += in_grad . conj(∂f/∂z) + conj(in_grad) . ∂f/∂z*
 
-// template <typename T> Dual<T> sin(Dual<T> x)
+// template <typename T> Var<T> sin(Var<T> x)
 // {
-//   Dual<T> Result;
+//   Var<T> Result;
 //
 //   schedule(co_sin(x.value.read(), Result.value.write()));
 //
-//   // TRACE("Dual Sin", Result.grad.value().queue().latest().get());
+//   // TRACE("Var Sin", Result.grad.value().queue().latest().get());
 //   schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
 //     using std::cos;
 //     using uni20::conj;
-//     TRACE("Dual Sin coroutine");
+//     TRACE("Var Sin coroutine");
 //     auto in_g = co_await in_grad.or_cancel();
-//     TRACE("Dual Sin", in_g);
+//     TRACE("Var Sin", in_g);
 //     auto cos_x = cos(co_await in);
-//     TRACE("Dual Sin", cos_x);
+//     TRACE("Var Sin", cos_x);
 //     co_await out_grad += conj(cos_x) * in_g;
-//     TRACE("Dual Sin finished");
+//     TRACE("Var Sin finished");
 //   }(x.value.read(), Result.grad.input(), x.grad.output()));
 //
 //   return Result;
 // }
 
-template <typename T> Dual<T> sin(Dual<T> x)
+template <typename T> Var<T> sin(Var<T> x)
 {
-  Dual<T> Result;
+  Var<T> Result;
 
   schedule(co_sin(x.value.read(), Result.value.write()));
 
-  // TRACE("Dual Sin", Result.grad.value().queue().latest().get());
+  // TRACE("Var Sin", Result.grad.value().queue().latest().get());
   schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     using std::cos;
     using uni20::conj;
@@ -67,95 +67,95 @@ template <typename T> Dual<T> sin(Dual<T> x)
   return Result;
 }
 
-template <typename T> Dual<T> cos(Dual<T> x)
+template <typename T> Var<T> cos(Var<T> x)
 {
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = cos(x.value);
   x.grad -= conj(sin(x.value)) * Result.grad;
   return Result;
 }
 
-template <typename T> Dual<T> operator-(Dual<T> x, T y)
+template <typename T> Var<T> operator-(Var<T> x, T y)
 {
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x.value - y;
   x.grad += Result.grad;
   return Result;
 }
 
-template <typename T> Dual<T> operator-(T x, Dual<T> y)
+template <typename T> Var<T> operator-(T x, Var<T> y)
 {
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x - y.value;
   y.grad -= Result.grad;
   return Result;
 }
 
-template <typename T> Dual<T> operator-(Dual<T> x, Dual<T> y)
+template <typename T> Var<T> operator-(Var<T> x, Var<T> y)
 {
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x.value - y.value;
   x.grad += Result.grad;
   y.grad -= Result.grad;
   return Result;
 }
 
-template <typename T> Dual<T> operator+(Dual<T> x, T y)
+template <typename T> Var<T> operator+(Var<T> x, T y)
 {
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x.value + y;
   x.grad += Result.grad;
   return Result;
 }
 
-template <typename T> Dual<T> operator+(T x, Dual<T> y)
+template <typename T> Var<T> operator+(T x, Var<T> y)
 {
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x + y.value;
   y.grad += Result.grad;
   return Result;
 }
-template <typename T> Dual<T> operator+(Dual<T> x, Dual<T> y)
+template <typename T> Var<T> operator+(Var<T> x, Var<T> y)
 {
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x.value + y.value;
   x.grad += Result.grad;
   y.grad += Result.grad;
   return Result;
 }
 
-template <typename T> Dual<T> operator*(T x, Dual<T> y)
+template <typename T> Var<T> operator*(T x, Var<T> y)
 {
   using uni20::herm;
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x * y.value;
   y.grad += herm(x) * Result.grad;
   return Result;
 }
 
-template <typename T> Dual<T> operator*(Dual<T> x, T y)
+template <typename T> Var<T> operator*(Var<T> x, T y)
 {
   using uni20::herm;
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x.value * y;
   x.grad += Result.grad * herm(y);
   return Result;
 }
 
-template <typename T> Dual<T> operator*(Dual<T> x, Dual<T> y)
+template <typename T> Var<T> operator*(Var<T> x, Var<T> y)
 {
-  Dual<T> Result;
+  Var<T> Result;
   Result.value = x.value * y.value;
   x.grad += Result.grad * herm(y.value);
   y.grad += herm(x.value) * Result.grad;
   return Result;
 }
 
-template <typename T> Dual<uni20::make_real_t<T>> real(Dual<T> z)
+template <typename T> Var<uni20::make_real_t<T>> real(Var<T> z)
 {
   using uni20::real;
   using r_type = uni20::make_real_t<T>;
-  Dual<r_type> Result;
+  Var<r_type> Result;
   Result.value = real(z.value);
   schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     auto s = co_await out_grad.storage();
@@ -179,11 +179,11 @@ template <typename T> Dual<uni20::make_real_t<T>> real(Dual<T> z)
   return Result;
 }
 
-template <typename T> Dual<uni20::make_real_t<T>> imag(Dual<T> z)
+template <typename T> Var<uni20::make_real_t<T>> imag(Var<T> z)
 {
   using uni20::imag;
   using r_type = uni20::make_real_t<T>;
-  Dual<r_type> Result;
+  Var<r_type> Result;
   Result.value = imag(z.value);
   schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
     auto s = co_await out_grad.storage();

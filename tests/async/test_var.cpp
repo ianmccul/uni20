@@ -1,22 +1,22 @@
-// tests/test_dual.cpp
+// tests/test_var.cpp
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include <uni20/async/dual.hpp>
-#include <uni20/async/dual_toys.hpp>
+#include <uni20/async/var.hpp>
+#include <uni20/async/var_toys.hpp>
 #include <complex>
 #include <gtest/gtest.h>
 
 using namespace uni20::async;
 
-TEST(Dual, Sin)
+TEST(Var, Sin)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
   double v = 0.1;
-  Dual<double> x = v;
+  Var<double> x = v;
 
-  Dual<double> y = sin(x);
+  Var<double> y = sin(x);
 
   EXPECT_NEAR(y.value.get_wait(), std::sin(v), 1e-10);
 
@@ -27,15 +27,15 @@ TEST(Dual, Sin)
   sched.run_all();
 }
 
-TEST(Dual, Cos)
+TEST(Var, Cos)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
   double v = 0.1;
-  Dual<double> x = v;
+  Var<double> x = v;
 
-  Dual<double> y = cos(x);
+  Var<double> y = cos(x);
 
   EXPECT_NEAR(y.value.get_wait(), std::cos(v), 1e-10);
 
@@ -46,19 +46,19 @@ TEST(Dual, Cos)
   sched.run_all();
 }
 
-TEST(Dual, SinUnused)
+TEST(Var, SinUnused)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
   double v = 0.1;
 
-  Dual<double> x = v;
+  Var<double> x = v;
 
-  Dual<double> y = sin(x);
+  Var<double> y = sin(x);
 
   {
-    Dual<double> z = sin(x); // unused
+    Var<double> z = sin(x); // unused
   }
 
   EXPECT_NEAR(y.value.get_wait(), std::sin(v), 1e-10);
@@ -70,17 +70,17 @@ TEST(Dual, SinUnused)
   sched.run_all();
 }
 
-TEST(Dual, MultiplyAndScalarCombos)
+TEST(Var, MultiplyAndScalarCombos)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Dual<double> a = 2.0;
-  Dual<double> b = -0.5;
+  Var<double> a = 2.0;
+  Var<double> b = -0.5;
 
-  Dual<double> c = a * b;
-  Dual<double> d = a * 3.0;
-  Dual<double> e = 4.0 - a;
+  Var<double> c = a * b;
+  Var<double> d = a * 3.0;
+  Var<double> e = 4.0 - a;
 
   EXPECT_NEAR(c.value.get_wait(), -1.0, 1e-12);
   EXPECT_NEAR(d.value.get_wait(), 6.0, 1e-12);
@@ -98,13 +98,13 @@ TEST(Dual, MultiplyAndScalarCombos)
   sched.run_all();
 }
 
-TEST(Dual, CopyAssignment)
+TEST(Var, CopyAssignment)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Dual<double> source = 0.75;
-  Dual<double> target;
+  Var<double> source = 0.75;
+  Var<double> target;
 
   target = source;
 
@@ -117,17 +117,17 @@ TEST(Dual, CopyAssignment)
   sched.run_all();
 }
 
-TEST(Dual, SubtractionOps)
+TEST(Var, SubtractionOps)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Dual<double> x = 5.0;
-  Dual<double> y = -1.5;
+  Var<double> x = 5.0;
+  Var<double> y = -1.5;
 
-  Dual<double> diff_xy = x - y;
-  Dual<double> diff_xs = x - 2.0;
-  Dual<double> diff_sx = 10.0 - y;
+  Var<double> diff_xy = x - y;
+  Var<double> diff_xs = x - 2.0;
+  Var<double> diff_sx = 10.0 - y;
 
   EXPECT_NEAR(diff_xy.value.get_wait(), 6.5, 1e-12);
   EXPECT_NEAR(diff_xs.value.get_wait(), 3.0, 1e-12);
@@ -145,12 +145,12 @@ TEST(Dual, SubtractionOps)
   sched.run_all();
 }
 
-TEST(Dual, RealImagGradients)
+TEST(Var, RealImagGradients)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+  Var<std::complex<double>> z = std::complex<double>{1.5, -2.5};
 
   auto r = real(z);
   auto i = imag(z);
@@ -170,12 +170,12 @@ TEST(Dual, RealImagGradients)
   sched.run_all();
 }
 
-TEST(Dual, RealImagGradientSum)
+TEST(Var, RealImagGradientSum)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+  Var<std::complex<double>> z = std::complex<double>{1.5, -2.5};
 
   auto f = 2.0 * real(z) + 3.0 * imag(z);
 
@@ -192,12 +192,12 @@ TEST(Dual, RealImagGradientSum)
   sched.run_all();
 }
 
-TEST(Dual, RealImagGradientsImagSeedFirst)
+TEST(Var, RealImagGradientsImagSeedFirst)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Dual<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+  Var<std::complex<double>> z = std::complex<double>{1.5, -2.5};
 
   auto r = real(z);
   auto i = imag(z);
@@ -218,14 +218,14 @@ TEST(Dual, RealImagGradientsImagSeedFirst)
   sched.run_all();
 }
 
-TEST(Dual, StressBackpropMatchesAnalytic)
+TEST(Var, StressBackpropMatchesAnalytic)
 {
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
   double const base_value = 0.375;
-  Dual<double> x = base_value;
-  Dual<double> total = 0.0;
+  Var<double> x = base_value;
+  Var<double> total = 0.0;
 
   constexpr int kTerms = 128;
   double expected_value = 0.0;
@@ -234,8 +234,8 @@ TEST(Dual, StressBackpropMatchesAnalytic)
   for (int term_index = 0; term_index < kTerms; ++term_index)
   {
     double const shift = static_cast<double>(term_index) * 0.0025;
-    Dual<double> term = sin(x + shift) * cos(x - shift);
-    Dual<double> new_total = total + term;
+    Var<double> term = sin(x + shift) * cos(x - shift);
+    Var<double> new_total = total + term;
     total = new_total; // std::move(new_total);
 
     double const plus = base_value + shift;

@@ -1,8 +1,8 @@
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include <uni20/async/dual.hpp>
-#include <uni20/async/dual_toys.hpp>
+#include <uni20/async/var.hpp>
+#include <uni20/async/var_toys.hpp>
 #include <uni20/async/reverse_value.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
 #include <atomic>
@@ -254,15 +254,15 @@ TEST(TbbScheduler, StressConcurrentProducers)
   EXPECT_EQ(counter.load(std::memory_order_relaxed), kProducerThreads * kTasksPerThread);
 }
 
-TEST(TbbScheduler, DualBackpropStress)
+TEST(TbbScheduler, VarBackpropStress)
 {
   // DebugScheduler sched; //{4};
   TbbScheduler sched{4};
   ScopedScheduler guard(&sched);
 
   double const base_value = 0.375;
-  Dual<double> x = base_value;
-  Dual<double> total = 0.0;
+  Var<double> x = base_value;
+  Var<double> total = 0.0;
 
   constexpr int kTerms = 128;
   double expected_value = 0.0;
@@ -271,8 +271,8 @@ TEST(TbbScheduler, DualBackpropStress)
   for (int term_index = 0; term_index < kTerms; ++term_index)
   {
     double const shift = static_cast<double>(term_index) * 0.0025;
-    Dual<double> term = sin(x + shift) * cos(x - shift);
-    Dual<double> new_total = total + term;
+    Var<double> term = sin(x + shift) * cos(x - shift);
+    Var<double> new_total = total + term;
     total = new_total;
 
     double const plus = base_value + shift;
