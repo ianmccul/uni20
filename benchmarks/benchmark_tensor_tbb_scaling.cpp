@@ -37,7 +37,7 @@ AsyncTask row_sum_task(tensor_type const* tensor, WriteBuffer<float> out, std::s
   for (std::size_t col = 0; col < cols; ++col)
     accum += view[row, col];
 
-  co_await out.emplace(accum);
+  co_await out = accum;
   co_return;
 }
 

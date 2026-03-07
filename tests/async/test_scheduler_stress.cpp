@@ -80,7 +80,7 @@ TEST(TbbSchedulerStress, BalancedReductionProducesExpectedSum)
                   std::atomic<int> * counter) static->AsyncTask {
         auto const& lhs_value = co_await lhs;
         auto const& rhs_value = co_await rhs;
-        co_await out.emplace(lhs_value + rhs_value);
+        co_await out = lhs_value + rhs_value;
         counter->fetch_add(1, std::memory_order_relaxed);
         co_return;
       }(level[i].read(), level[i + 1].read(), combined.write(), &executed));
@@ -115,7 +115,7 @@ TEST(TbbSchedulerStress, BalancedReductionShowsParallelism)
     Async<int> leaf;
     schedule([](WriteBuffer<int> out) static->AsyncTask {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      co_await out.emplace(1);
+      co_await out = 1;
       co_return;
     }(leaf.write()));
     level.push_back(std::move(leaf));
@@ -141,7 +141,7 @@ TEST(TbbSchedulerStress, BalancedReductionShowsParallelism)
         auto const& lhs_value = co_await lhs;
         auto const& rhs_value = co_await rhs;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        co_await out.emplace(lhs_value + rhs_value);
+        co_await out = lhs_value + rhs_value;
         active_tasks->fetch_sub(1, std::memory_order_relaxed);
         co_return;
       }(level[i].read(), level[i + 1].read(), combined.write(), &active, &max_active));

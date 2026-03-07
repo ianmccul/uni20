@@ -256,7 +256,7 @@ namespace detail
 ///
 /// \note Use this when you want to write a computed value directly into an Async<T>
 ///       in one expression. Especially useful when the WriteBuffer is a temporary.
-///       `co_await write_to(buffer, v)` is equivalent to `co_await buffer.emplace(std::move(v))`
+///       `co_await write_to(buffer, v)` is equivalent to `co_await buffer = std::move(v)`
 ///
 /// \warning The WriteBuffer must not be reused after passing to write_to. It is moved
 ///          into the coroutine and consumed during co_await.

@@ -31,7 +31,7 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
     Async<int const*> view;
     sched.schedule([](ReadBuffer<std::vector<int>> r, WriteBuffer<int const*> view) static->AsyncTask {
       auto const& vec = co_await r;
-      co_await view.emplace(vec.data());
+      co_await view = vec.data();
     }(data.read(), view.write()));
 
     // read the data via the view
@@ -137,7 +137,7 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
                       std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
       auto const& vec = co_await r;
       auto view_log = log;
-      co_await v.emplace(std::move(view_log), vec.data(), 1);
+      (co_await v).emplace(std::move(view_log), vec.data(), 1);
       log->push_back("emplace done");
     }(data.read(), view.write(), log));
 
@@ -188,7 +188,7 @@ TEST(AsyncDeferredTest, MutableViewCanModifyUnderlyingData)
       log->push_back("emplace start");
       std::vector<int>& vec = co_await b;
       auto view_log = log;
-      co_await v.emplace(std::move(view_log), vec.data(), 2);
+      (co_await v).emplace(std::move(view_log), vec.data(), 2);
       log->push_back("emplace done");
     }(data.write(), view.write(), log));
 

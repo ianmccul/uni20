@@ -167,7 +167,7 @@ TEST(TbbScheduler, PausePreventsExecutionUntilResume)
       [](WriteBuffer<int> write_buffer, int value_to_write, int delay_ms, std::atomic<int>* runs) static->AsyncTask {
         std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
         runs->fetch_add(1, std::memory_order_relaxed);
-        co_await write_buffer.emplace(value_to_write);
+        co_await write_buffer = value_to_write;
         co_return;
       }(value.write(), kWrittenValue, kDelayMs, &writer_runs));
 

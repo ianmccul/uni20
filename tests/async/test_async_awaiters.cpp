@@ -35,8 +35,8 @@ TEST(AsyncAwaitersTest, TryAwaitReadBufferBeforeAndAfterInitialization)
 
   auto writer = [](WriteBuffer<int> writer) static->AsyncTask
   {
-    auto& out = co_await writer.emplace(42);
-    EXPECT_EQ(out, 42);
+    co_await writer = 42;
+    EXPECT_EQ(co_await writer, 42);
     co_return;
   }
   (value.write());
@@ -70,8 +70,8 @@ TEST(AsyncAwaitersTest, TryAwaitFailsThenSucceeds)
 
   auto writer = [](int& count, WriteBuffer<int> w) static->AsyncTask
   {
-    auto& ref = co_await w.emplace(99);
-    EXPECT_EQ(ref, 99);
+    co_await w = 99;
+    EXPECT_EQ(co_await w, 99);
     ++count;
     co_return;
   }
@@ -127,8 +127,8 @@ TEST(AsyncAwaitersTest, AllAwaiterBlockedThenUnblocked)
 
   auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
   {
-    auto& ref = co_await w.emplace(42);
-    EXPECT_EQ(ref, 42);
+    co_await w = 42;
+    EXPECT_EQ(co_await w, 42);
     ++count;
     co_return;
   }
@@ -136,8 +136,8 @@ TEST(AsyncAwaitersTest, AllAwaiterBlockedThenUnblocked)
 
   auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
   {
-    auto& ref = co_await w.emplace(77);
-    EXPECT_EQ(ref, 77);
+    co_await w = 77;
+    EXPECT_EQ(co_await w, 77);
     ++count;
     co_return;
   }
@@ -175,8 +175,8 @@ TEST(AsyncAwaitersTest, AllAwaiterOneUnblocksThenSecond)
 
   auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
   {
-    auto& ref = co_await w.emplace(42);
-    EXPECT_EQ(ref, 42);
+    co_await w = 42;
+    EXPECT_EQ(co_await w, 42);
     ++count;
     co_return;
   }
@@ -184,8 +184,8 @@ TEST(AsyncAwaitersTest, AllAwaiterOneUnblocksThenSecond)
 
   auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
   {
-    auto& ref = co_await w.emplace(77);
-    EXPECT_EQ(ref, 77);
+    co_await w = 77;
+    EXPECT_EQ(co_await w, 77);
     ++count;
     co_return;
   }
@@ -224,8 +224,8 @@ TEST(AsyncAwaitersTest, AllAwaiterNoneBlocked)
 
   auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
   {
-    auto& ref = co_await w.emplace(42);
-    EXPECT_EQ(ref, 42);
+    co_await w = 42;
+    EXPECT_EQ(co_await w, 42);
     ++count;
     co_return;
   }
@@ -233,8 +233,8 @@ TEST(AsyncAwaitersTest, AllAwaiterNoneBlocked)
 
   auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
   {
-    auto& ref = co_await w.emplace(77);
-    EXPECT_EQ(ref, 77);
+    co_await w = 77;
+    EXPECT_EQ(co_await w, 77);
     ++count;
     co_return;
   }
@@ -276,11 +276,11 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
 
   auto writer = [](WriteBuffer<int> writer) static->AsyncTask
   {
-    auto& first = co_await writer.emplace(1);
-    EXPECT_EQ(first, 1);
+    co_await writer = 1;
+    EXPECT_EQ(co_await writer, 1);
 
-    auto& second = co_await writer.emplace(2);
-    EXPECT_EQ(second, 2);
+    co_await writer = 2;
+    EXPECT_EQ(co_await writer, 2);
 
     auto writable_1 = co_await writer;
     EXPECT_EQ(writable_1, 2);
@@ -302,14 +302,14 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
     EXPECT_EQ(taken_1, 3);
     EXPECT_FALSE(storage_1.constructed());
 
-    auto& rebuilt = co_await writer.emplace(5);
-    EXPECT_EQ(rebuilt, 5);
+    co_await writer = 5;
+    EXPECT_EQ(co_await writer, 5);
 
     auto taken_2 = co_await writer.take();
     EXPECT_EQ(taken_2, 5);
 
-    auto& final_value = co_await writer.emplace(7);
-    EXPECT_EQ(final_value, 7);
+    co_await writer = 7;
+    EXPECT_EQ(co_await writer, 7);
     co_return;
   }
   (value.write());

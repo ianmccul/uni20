@@ -31,7 +31,7 @@ AsyncTask compute(ReadBuffer<double> x, ReadBuffer<double> y, WriteBuffer<double
   y.release();
   double result = (xval + yval) * yval;
   TRACE("Computed z =", result);
-  co_await z.emplace(result);
+  co_await z = result;
   co_return;
 }
 

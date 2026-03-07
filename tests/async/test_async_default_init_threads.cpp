@@ -34,7 +34,7 @@ TEST(AsyncDefaultInit, InitializesOnceAcrossThreads)
   EXPECT_EQ(Counting::constructed.load(), 0);
 
   sched.schedule([](WriteBuffer<Counting> buffer) static->AsyncTask {
-    auto& initialized = co_await buffer.emplace();
+    auto& initialized = (co_await buffer).emplace();
     (void)initialized;
     co_return;
   }(value.write()));

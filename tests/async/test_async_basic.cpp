@@ -29,7 +29,7 @@ TEST(AsyncBasicTest, WriteThenRead)
   // Empty capture list: ensures safety if coroutine escapes the local scope (not possible here, but good style)
   auto writer = [](WriteBuffer<int> wbuf) static->AsyncTask
   {
-    co_await wbuf.emplace(42);
+    co_await wbuf = 42;
     co_return;
   }
   (a.write());
@@ -292,8 +292,8 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
 
   auto write_task = [](WriteBuffer<int> buffer) static->AsyncTask
   {
-    auto& ref = co_await buffer.emplace(23);
-    EXPECT_EQ(ref, 23);
+    co_await buffer = 23;
+    EXPECT_EQ(co_await buffer, 23);
     auto moved = std::move(buffer);
     (void)moved;
     co_return;
@@ -570,7 +570,7 @@ TEST(AsyncBasicTest, UninitializedCancelTask)
       try
       {
         val = 1;
-        co_await w.emplace(val + 1);
+        co_await w = val + 1;
       }
       catch (...)
       { // wrong exception

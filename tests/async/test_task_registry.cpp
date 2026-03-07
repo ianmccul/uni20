@@ -25,7 +25,7 @@ AsyncTask wait_for_reader(ReadBuffer<int> reader)
 
 AsyncTask write_value(WriteBuffer<int> writer, int value)
 {
-  co_await writer.emplace(value);
+  co_await writer = value;
   co_return;
 }
 

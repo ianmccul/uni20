@@ -361,40 +361,6 @@ struct WriteProxyLifetimeState
 };
 #endif
 
-/// \brief An awaiter that emplaces a value when it is co_awaited.
-
-template <typename T, typename... Args> class EmplaceAwaiter {
-  public:
-    template <typename... U>
-    requires(sizeof...(U) == sizeof...(Args)) && std::constructible_from<std::tuple<Args...>, U&&...> EmplaceAwaiter(
-                                                     EpochContextWriter<T>* writer, U&&... args)
-        : writer_(writer),
-    args_(std::forward<U>(args)...)
-    {}
-
-    bool await_ready() const noexcept { return writer_->ready(); }
-
-    void await_suspend(AsyncTask&& t) noexcept
-    {
-      TRACE_MODULE(ASYNC, "EmplaceAwaiter::await_suspend()", this, t.h_);
-      writer_->suspend(std::move(t), false);
-    }
-
-    T& await_resume()
-    {
-      writer_->resume();
-      return std::apply(
-          [this](auto&&... unpacked) -> T& { return writer_->emplace(std::forward<decltype(unpacked)>(unpacked)...); },
-          std::move(args_));
-    }
-
-    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_->epoch_context_shared(); }
-
-  private:
-    EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
-    std::tuple<Args...> args_;
-};
-
 template <typename T> class StorageAwaiter {
   public:
     StorageAwaiter(EpochContextWriter<T>* writer) : writer_(writer) {}
@@ -403,7 +369,7 @@ template <typename T> class StorageAwaiter {
 
     void await_suspend(AsyncTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "EmplaceAwaiter::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "StorageAwaiter::await_suspend()", this, t.h_);
       writer_->suspend(std::move(t), false);
     }
 
@@ -545,11 +511,6 @@ template <typename T> class WriteBuffer {
       //   writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
       // }
       writer_.release();
-    }
-
-    template <typename... Args> auto emplace(Args&&... args)
-    {
-      return EmplaceAwaiter<T, std::decay_t<Args>...>(&writer_, std::forward<Args>(args)...);
     }
 
     template <typename... Args>

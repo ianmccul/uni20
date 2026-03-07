@@ -39,7 +39,7 @@ AsyncTask square(ReadBuffer<int> in, WriteBuffer<int> out)
 {
   int x = co_await in;
   in.release();
-  co_await out.emplace(x * x);
+  co_await out = x * x;
   co_return;
 }
 
@@ -50,7 +50,7 @@ AsyncTask sum(ReadBuffer<int> a, ReadBuffer<int> b, WriteBuffer<int> out)
   int y = co_await b;
   a.release();
   b.release();
-  co_await out.emplace(x + y);
+  co_await out = x + y;
   co_return;
 }
 

@@ -81,7 +81,7 @@ TEST(AsyncEmplaceTest, WriteBufferEmplaceConstructsNonDefaultInTask)
   DebugScheduler sched;
 
   sched.schedule([](WriteBuffer<NonDefault> buffer) static->AsyncTask {
-    auto& obj = co_await buffer.emplace(42);
+    auto& obj = (co_await buffer).emplace(42);
     EXPECT_EQ(obj.v, 42);
     co_return;
   }(value.write()));
@@ -102,7 +102,7 @@ TEST(AsyncEmplaceTest, WriteBufferEmplaceForwardsMoveOnlyArguments)
 
   auto ptr = std::make_unique<int>(99);
   sched.schedule([](WriteBuffer<MoveOnly> buffer, std::unique_ptr<int> incoming) static->AsyncTask {
-    auto& obj = co_await buffer.emplace(std::move(incoming));
+    auto& obj = (co_await buffer).emplace(std::move(incoming));
     EXPECT_NE(obj.ptr, nullptr);
     EXPECT_EQ(*obj.ptr, 99);
     co_return;
@@ -130,7 +130,7 @@ TEST(AsyncEmplaceTest, WriteBufferEmplaceDefersConstructionUntilAwait)
     EXPECT_EQ(CountedNonDefault::constructions, 0);
 
     sched.schedule([](WriteBuffer<CountedNonDefault> buffer) static->AsyncTask {
-      auto& obj = co_await buffer.emplace(5);
+      auto& obj = (co_await buffer).emplace(5);
       EXPECT_EQ(obj.v, 5);
       co_return;
     }(std::move(writer)));
@@ -158,7 +158,7 @@ TEST(AsyncEmplaceTest, WriteBufferEmplaceNeverDefaultConstructsAsyncValue)
     EXPECT_EQ(CountedDefaultConstructible::default_constructions, 0);
 
     sched.schedule([](WriteBuffer<CountedDefaultConstructible> buffer) static->AsyncTask {
-      auto& obj = co_await buffer.emplace(13);
+      auto& obj = (co_await buffer).emplace(13);
       EXPECT_EQ(obj.v, 13);
       co_return;
     }(std::move(writer)));
@@ -188,9 +188,9 @@ TEST(AsyncEmplaceTest, WriteBufferEmplaceReplacesObjectOnRepeatedCalls)
     DebugScheduler sched;
 
     sched.schedule([](WriteBuffer<CountedDefaultConstructible> buffer) static->AsyncTask {
-      auto& first = co_await buffer.emplace(1);
+      auto& first = (co_await buffer).emplace(1);
       EXPECT_EQ(first.v, 1);
-      auto& second = co_await buffer.emplace(2);
+      auto& second = (co_await buffer).emplace(2);
       EXPECT_EQ(second.v, 2);
       co_return;
     }(value.write()));
@@ -222,7 +222,7 @@ TEST(AsyncEmplaceTest, DeferredControlBlockAndQueueAreInitialized)
   EXPECT_EQ(initial_control.get(), nullptr);
 
   sched.schedule([](WriteBuffer<NonDefault> buffer, Async<NonDefault> & target) static->AsyncTask {
-    auto& ref = co_await buffer.emplace(123);
+    auto& ref = (co_await buffer).emplace(123);
     EXPECT_EQ(ref.v, 123);
 
     auto reader = target.read();

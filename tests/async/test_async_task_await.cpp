@@ -10,7 +10,7 @@ using namespace uni20::async;
 AsyncTask assign_task(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf, int& count)
 {
   auto& val = co_await readBuf;
-  co_await writeBuf.emplace(val);
+  co_await writeBuf = val;
   ++count; // count this coroutine
   co_return;
 }
@@ -53,7 +53,7 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_IntermediateChannel)
   auto kernel = [](ReadBuffer<int> a, WriteBuffer<int> b, int& count) static->AsyncTask
   {
     auto& val = co_await a;
-    co_await b.emplace(val * 2);
+    co_await b = val * 2;
     ++count;
     co_return;
   };
@@ -69,9 +69,9 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_IntermediateChannel)
     co_await kernel_fn(in, tmp.write(), count);
     EXPECT_EQ(count, 1); // the inner coroutine must have finished once we get here
 
-    // Stage 2: consume the intermediate channel and emplace the final result.
+    // Stage 2: consume the intermediate channel and write the final result.
     auto mid = co_await tmp.read();
-    co_await final_out.emplace(mid + 1);
+    co_await final_out = mid + 1;
     ++count;
     co_return;
   }

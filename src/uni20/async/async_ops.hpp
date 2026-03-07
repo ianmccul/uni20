@@ -43,7 +43,7 @@ template <typename Awaitable>
 concept emplace_buffer_awaitable = requires(Awaitable& a, typename Awaitable::value_type v)
 {
   typename Awaitable::value_type;
-  a.emplace(std::move(v));
+  get_awaiter(a).await_resume().emplace(std::move(v));
 };
 
 template <typename Awaitable, typename T>
@@ -267,7 +267,7 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
     auto tmp = op_(std::get<0>(ab), std::get<1>(ab));
     a_.release();
     b_.release();
-    co_await out_.emplace(std::move(tmp));
+    co_await out_ = std::move(tmp);
     co_return;
   }(std::move(a_buf), std::move(b_buf), std::move(out_buf), std::move(op)));
 }
@@ -276,7 +276,7 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
 ///        where lhs is read, transformed, and written back.
 ///
 /// Schedules a coroutine that reads lhs and rhs, computes the updated lhs value in a local object,
-/// then emplaces that object into lhs storage. Readers are released before awaiting the writer to
+/// then writes that object into lhs storage. Readers are released before awaiting the writer to
 /// avoid read/write self-deadlocks on the same queue.
 ///
 /// \tparam U Right-hand operand type (scalar or Async<U>)
@@ -300,7 +300,7 @@ template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, A
     op_(out_val, rhs_val);
     lhs_in_.release();
     rhs_.release();
-    co_await out_.emplace(std::move(out_val));
+    co_await out_ = std::move(out_val);
     co_return;
   }(std::move(lhs_in), std::move(rhs_buf), std::move(lhs_out), std::move(op)));
 }
@@ -337,7 +337,7 @@ template <typename U, typename T> void async_assign(U&& rhs, WriteBuffer<T> lhs)
   schedule([](auto in_, WriteBuffer<T> out_) static->AsyncTask {
     T value(co_await in_);
     in_.release();
-    co_await out_.emplace(std::move(value));
+    co_await out_ = std::move(value);
     co_return;
   }(std::move(rhs), std::move(lhs)));
 }
@@ -366,7 +366,7 @@ void async_move(U&& rhs, WriteBuffer<T> lhs)
   schedule([](auto src, WriteBuffer<T> dst) static->AsyncTask {
     T movable(co_await src.take());
     src.release();
-    co_await dst.emplace(std::move(movable));
+    co_await dst = std::move(movable);
     co_return;
   }(std::move(src), std::move(lhs)));
 }
@@ -376,7 +376,7 @@ requires(!async_writer<std::remove_cvref_t<U>>) && std::constructible_from<T, U&
                                                                                                    WriteBuffer<T> lhs)
 {
   schedule([](T val, WriteBuffer<T> dst) static->AsyncTask {
-    co_await dst.emplace(std::move(val));
+    co_await dst = std::move(val);
     co_return;
   }(std::move(rhs), std::move(lhs)));
 }
@@ -444,7 +444,7 @@ template <typename U, typename T> void async_negate(U&& rhs, WriteBuffer<T> lhs)
   schedule([](auto in_, WriteBuffer<T> out_) static->AsyncTask {
     auto result = -co_await in_;
     in_.release();
-    co_await out_.emplace(std::move(result));
+    co_await out_ = std::move(result);
     co_return;
   }(std::move(rhs), std::move(lhs)));
 }
