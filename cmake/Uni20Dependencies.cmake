@@ -70,6 +70,52 @@ function(_uni20_is_internal_path input_path output_var)
   set(${output_var} "${_is_internal}" PARENT_SCOPE)
 endfunction()
 
+function(_uni20_is_numeric_version version_string output_var)
+  string(REGEX MATCH "^[0-9]+(\\.[0-9]+)*([.-][0-9A-Za-z]+)*$" _is_numeric "${version_string}")
+  if(_is_numeric)
+    set(${output_var} TRUE PARENT_SCOPE)
+  else()
+    set(${output_var} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(_uni20_select_best_external_considered_candidate dep_name output_version output_config)
+  set(_best_version "")
+  set(_best_config "")
+
+  if(DEFINED ${dep_name}_CONSIDERED_VERSIONS AND NOT "${${dep_name}_CONSIDERED_VERSIONS}" STREQUAL "")
+    set(_versions "${${dep_name}_CONSIDERED_VERSIONS}")
+    set(_configs "${${dep_name}_CONSIDERED_CONFIGS}")
+    list(LENGTH _versions _versions_len)
+    list(LENGTH _configs _configs_len)
+    math(EXPR _last_idx "${_versions_len} - 1")
+
+    foreach(_idx RANGE 0 ${_last_idx})
+      list(GET _versions ${_idx} _candidate_version)
+      if(NOT _candidate_version)
+        continue()
+      endif()
+
+      set(_candidate_config "")
+      if(_idx LESS _configs_len)
+        list(GET _configs ${_idx} _candidate_config)
+        _uni20_is_internal_path("${_candidate_config}" _candidate_is_internal)
+        if(_candidate_is_internal)
+          continue()
+        endif()
+      endif()
+
+      if(NOT _best_version OR _best_version VERSION_LESS _candidate_version)
+        set(_best_version "${_candidate_version}")
+        set(_best_config "${_candidate_config}")
+      endif()
+    endforeach()
+  endif()
+
+  set(${output_version} "${_best_version}" PARENT_SCOPE)
+  set(${output_config} "${_best_config}" PARENT_SCOPE)
+endfunction()
+
 function(uni20_dependency_option option_var dependency_label default_value)
   if(NOT option_var)
     message(FATAL_ERROR "uni20_dependency_option() requires option_var")
@@ -142,6 +188,12 @@ function(uni20_add_dependency)
   endif()
 
   if(_uni20_try_system_lookup)
+    # Resolution strategy:
+    #  1) Ignore stale Uni20-managed cached <Package>_DIR entries.
+    #  2) Probe CONFIG packages first (with optional version constraints).
+    #  3) For versioned lookups, report explicit "found but too old" when possible.
+    #  4) In AUTO mode, fetch when no compatible system package is available.
+
     # If a previous configure cached <Package>_DIR to a Uni20-managed FetchContent
     # location, clear it before probing for a real system package.
     if(DEFINED ${DEP_NAME}_DIR AND NOT "${${DEP_NAME}_DIR}" STREQUAL "")
@@ -174,44 +226,21 @@ function(uni20_add_dependency)
       endif()
 
       if(NOT _uni20_found_system_package)
-        if(DEFINED ${DEP_NAME}_CONSIDERED_VERSIONS AND NOT "${${DEP_NAME}_CONSIDERED_VERSIONS}" STREQUAL "")
-          set(_uni20_considered_versions "${${DEP_NAME}_CONSIDERED_VERSIONS}")
-          set(_uni20_considered_configs "${${DEP_NAME}_CONSIDERED_CONFIGS}")
-          list(LENGTH _uni20_considered_versions _uni20_versions_len)
-          list(LENGTH _uni20_considered_configs _uni20_configs_len)
-          math(EXPR _uni20_last_idx "${_uni20_versions_len} - 1")
-          foreach(_uni20_idx RANGE 0 ${_uni20_last_idx})
-            list(GET _uni20_considered_versions ${_uni20_idx} _uni20_candidate_version)
-            if(NOT _uni20_candidate_version)
-              continue()
-            endif()
+        _uni20_select_best_external_considered_candidate(
+          "${DEP_NAME}"
+          _uni20_system_candidate_version
+          _uni20_system_candidate_config
+        )
 
-            set(_uni20_candidate_config "")
-            if(_uni20_idx LESS _uni20_configs_len)
-              list(GET _uni20_considered_configs ${_uni20_idx} _uni20_candidate_config)
-              _uni20_is_internal_path("${_uni20_candidate_config}" _uni20_candidate_is_internal)
-              if(_uni20_candidate_is_internal)
-                continue()
-              endif()
+        if(_uni20_system_candidate_version)
+          _uni20_is_numeric_version("${_uni20_system_candidate_version}" _uni20_candidate_version_is_numeric)
+          if(_uni20_candidate_version_is_numeric)
+            if(_uni20_system_candidate_version VERSION_LESS DEP_VERSION)
+              set(_uni20_system_probe_reason "insufficient-version")
             endif()
-
-            if(NOT _uni20_system_candidate_version OR _uni20_system_candidate_version VERSION_LESS _uni20_candidate_version)
-              set(_uni20_system_candidate_version "${_uni20_candidate_version}")
-              set(_uni20_system_candidate_config "${_uni20_candidate_config}")
-            endif()
-          endforeach()
-
-          if(_uni20_system_candidate_version)
-            string(REGEX MATCH "^[0-9]+(\\.[0-9]+)*([.-][0-9A-Za-z]+)*$" _uni20_candidate_version_match
-                               "${_uni20_system_candidate_version}")
-            if(_uni20_candidate_version_match)
-              if(_uni20_system_candidate_version VERSION_LESS DEP_VERSION)
-                set(_uni20_system_probe_reason "insufficient-version")
-              endif()
-            else()
-              set(_uni20_system_candidate_version "")
-              set(_uni20_system_candidate_config "")
-            endif()
+          else()
+            set(_uni20_system_candidate_version "")
+            set(_uni20_system_candidate_config "")
           endif()
         endif()
       endif()
