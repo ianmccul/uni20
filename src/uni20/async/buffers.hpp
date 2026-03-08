@@ -425,20 +425,15 @@ template <typename T> class WriteBuffer {
     {
       this->invalidate_proxy_state();
       this->unregister_exception_sink(true);
-      // if (writer_ && !written_)
-      // {
-      //   writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
-      // }
     }
 
     WriteBuffer(WriteBuffer const&) = delete;
     WriteBuffer& operator=(WriteBuffer const&) = delete;
 
-    WriteBuffer(WriteBuffer&& other) noexcept : writer_(std::move(other.writer_)), written_(other.written_)
+    WriteBuffer(WriteBuffer&& other) noexcept : writer_(std::move(other.writer_))
     {
       this->move_exception_sink_from(other);
       other.invalidate_proxy_state();
-      other.written_ = true; // make moved-from state safe for destruction
     }
 
     WriteBuffer& operator=(WriteBuffer&& other) noexcept
@@ -448,11 +443,9 @@ template <typename T> class WriteBuffer {
         this->invalidate_proxy_state();
         this->unregister_exception_sink(false);
         writer_ = std::move(other.writer_);
-        written_ = other.written_;
         this->move_exception_sink_from(other);
         this->reset_proxy_state();
         other.invalidate_proxy_state();
-        other.written_ = true; // make moved-from state safe for destruction
       }
       return *this;
     }
@@ -472,7 +465,6 @@ template <typename T> class WriteBuffer {
     WriteAccessProxy<T> await_resume() &
     {
       writer_.resume();
-      written_ = true;
       return WriteAccessProxy<T>(
           &writer_
 #if UNI20_DEBUG_ASYNC_TASKS
@@ -486,7 +478,6 @@ template <typename T> class WriteBuffer {
     {
       auto* writer = const_cast<EpochContextWriter<T>*>(&writer_);
       writer->resume();
-      written_ = true;
       return WriteAccessProxy<T>(
           writer
 #if UNI20_DEBUG_ASYNC_TASKS
@@ -499,17 +490,12 @@ template <typename T> class WriteBuffer {
     OwningWriteAccessProxy<T> await_resume() &&
     {
       writer_.resume();
-      written_ = true;
       return OwningWriteAccessProxy<T>(std::move(writer_));
     }
 
     void release() noexcept
     {
       this->invalidate_proxy_state();
-      // if (!written_)
-      // {
-      //   writer_.set_exception(std::make_exception_ptr(buffer_unwritten{}));
-      // }
       writer_.release();
     }
 
@@ -518,7 +504,6 @@ template <typename T> class WriteBuffer {
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
       writer_.emplace(std::forward<Args>(args)...);
-      written_ = true;
       return writer_.data();
     }
 
@@ -540,14 +525,12 @@ template <typename T> class WriteBuffer {
     template <typename U> void write_assert(U&& val) requires std::assignable_from<T&, U&&>
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
-      written_ = true;
       writer_.data() = std::forward<U>(val);
     }
 
     template <typename U> void write_move_assert(U&& val) requires std::assignable_from<T&, U&&>
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
-      written_ = true;
       writer_.data() = std::move(val);
     }
 
@@ -560,7 +543,6 @@ template <typename T> class WriteBuffer {
     auto operator co_await() && noexcept -> OwningWriteAwaiter<T>
     {
       this->invalidate_proxy_state();
-      written_ = true;
       return OwningWriteAwaiter<T>(std::move(writer_));
     }
 
@@ -596,7 +578,6 @@ template <typename T> class WriteBuffer {
     }
 
     EpochContextWriter<T> writer_;
-    mutable bool written_{false};
     mutable BasicAsyncTaskPromise::ExceptionSinkNode exception_sink_{};
 #if UNI20_DEBUG_ASYNC_TASKS
     std::shared_ptr<WriteProxyLifetimeState> proxy_state_{std::make_shared<WriteProxyLifetimeState>()};
@@ -691,7 +672,19 @@ template <typename T> class WriteAccessProxy {
       value += std::forward<U>(x);
     } WriteAccessProxy& operator+=(U&& x)
     {
-      this->get() += std::forward<U>(x);
+      auto& storage = this->writer().storage();
+      if (storage.constructed())
+      {
+        this->get() += std::forward<U>(x);
+      }
+      else if constexpr (std::constructible_from<T, U&&>)
+      {
+        storage.emplace(std::forward<U>(x));
+      }
+      else
+      {
+        this->get() += std::forward<U>(x);
+      }
       return *this;
     }
 
@@ -701,7 +694,21 @@ template <typename T> class WriteAccessProxy {
       value -= std::forward<U>(x);
     } WriteAccessProxy& operator-=(U&& x)
     {
-      this->get() -= std::forward<U>(x);
+      auto& storage = this->writer().storage();
+      if (storage.constructed())
+      {
+        this->get() -= std::forward<U>(x);
+      }
+      else if constexpr (requires { -std::declval<U&&>(); } &&
+                         std::constructible_from<T, decltype(-std::declval<U&&>())>)
+      {
+        auto neg = -std::forward<U>(x);
+        storage.emplace(std::move(neg));
+      }
+      else
+      {
+        this->get() -= std::forward<U>(x);
+      }
       return *this;
     }
 
@@ -796,7 +803,19 @@ template <typename T> class OwningWriteAccessProxy {
       value += std::forward<U>(x);
     } OwningWriteAccessProxy& operator+=(U&& x)
     {
-      this->get() += std::forward<U>(x);
+      auto& storage = writer_.storage();
+      if (storage.constructed())
+      {
+        this->get() += std::forward<U>(x);
+      }
+      else if constexpr (std::constructible_from<T, U&&>)
+      {
+        storage.emplace(std::forward<U>(x));
+      }
+      else
+      {
+        this->get() += std::forward<U>(x);
+      }
       return *this;
     }
 
@@ -806,7 +825,21 @@ template <typename T> class OwningWriteAccessProxy {
       value -= std::forward<U>(x);
     } OwningWriteAccessProxy& operator-=(U&& x)
     {
-      this->get() -= std::forward<U>(x);
+      auto& storage = writer_.storage();
+      if (storage.constructed())
+      {
+        this->get() -= std::forward<U>(x);
+      }
+      else if constexpr (requires { -std::declval<U&&>(); } &&
+                         std::constructible_from<T, decltype(-std::declval<U&&>())>)
+      {
+        auto neg = -std::forward<U>(x);
+        storage.emplace(std::move(neg));
+      }
+      else
+      {
+        this->get() -= std::forward<U>(x);
+      }
       return *this;
     }
 

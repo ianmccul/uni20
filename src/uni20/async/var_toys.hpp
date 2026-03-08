@@ -3,7 +3,6 @@
 #include "async_toys.hpp"
 #include <uni20/core/math.hpp>
 #include "var.hpp"
-#include <type_traits>
 
 namespace uni20::async
 {
@@ -57,11 +56,7 @@ template <typename T> Var<T> sin(Var<T> x)
     using uni20::conj;
     auto in_g = co_await in_grad.or_cancel();
     auto cos_x = cos(co_await in);
-    auto s = co_await out_grad.storage();
-    if (s.constructed())
-      *s += conj(cos_x) * in_g;
-    else
-      s.emplace(conj(cos_x) * in_g);
+    co_await out_grad += conj(cos_x) * in_g;
   }(x.value.read(), Result.grad.input(), x.grad.output()));
 
   return Result;
@@ -158,23 +153,8 @@ template <typename T> Var<uni20::make_real_t<T>> real(Var<T> z)
   Var<r_type> Result;
   Result.value = real(z.value);
   schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
-    auto s = co_await out_grad.storage();
     auto grad = co_await in_grad.or_cancel();
-    if (s.constructed())
-      real(*s) += grad;
-    else
-    {
-      if constexpr (std::is_same_v<T, r_type>)
-      {
-        s.emplace(grad);
-      }
-      else
-      {
-        T value{};
-        real(value) = grad;
-        s.emplace(std::move(value));
-      }
-    }
+    co_await out_grad += grad;
   }(Result.grad.input(), z.grad.output()));
   return Result;
 }
@@ -186,16 +166,10 @@ template <typename T> Var<uni20::make_real_t<T>> imag(Var<T> z)
   Var<r_type> Result;
   Result.value = imag(z.value);
   schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
-    auto s = co_await out_grad.storage();
     auto grad = co_await in_grad.or_cancel();
-    if (s.constructed())
-      imag(*s) += grad;
-    else
-    {
-      T value{};
-      imag(value) = grad;
-      s.emplace(std::move(value));
-    }
+    T value{};
+    imag(value) = grad;
+    co_await out_grad += std::move(value);
   }(Result.grad.input(), z.grad.output()));
   return Result;
 }
