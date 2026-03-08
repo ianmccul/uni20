@@ -646,6 +646,124 @@ TEST(AsyncAwaitersTest, MoveWriteBufferKeepsRefcountStableDuringOwnershipTransfe
   EXPECT_EQ(value.get_wait(), 11);
 }
 
+TEST(AsyncAwaitersTest, MoveWriteBufferTakeRvalueMovesValueAndReleasesWriter)
+{
+  Async<int> value = 19;
+  DebugScheduler sched;
+
+  int taken = 0;
+
+  auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
+  {
+    taken = co_await std::move(writer).take();
+    co_return;
+  }
+  (value.write(), taken);
+
+  auto rewrite_task = [](WriteBuffer<int> writer) static->AsyncTask
+  {
+    co_await writer = 23;
+    co_return;
+  }
+  (value.write());
+
+  sched.schedule(std::move(take_task));
+  sched.schedule(std::move(rewrite_task));
+  sched.run_all();
+
+  EXPECT_EQ(taken, 19);
+  EXPECT_EQ(value.get_wait(), 23);
+}
+
+TEST(AsyncAwaitersTest, WriteBufferTakeReleaseLvalueMovesValueAndReleasesWriter)
+{
+  Async<int> value = 37;
+  DebugScheduler sched;
+
+  int taken = 0;
+
+  auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
+  {
+    taken = co_await writer.take_release();
+    co_return;
+  }
+  (value.write(), taken);
+
+  auto rewrite_task = [](WriteBuffer<int> writer) static->AsyncTask
+  {
+    co_await writer = 41;
+    co_return;
+  }
+  (value.write());
+
+  sched.schedule(std::move(take_task));
+  sched.schedule(std::move(rewrite_task));
+  sched.run_all();
+
+  EXPECT_EQ(taken, 37);
+  EXPECT_EQ(value.get_wait(), 41);
+}
+
+TEST(AsyncAwaitersTest, WriteProxyTakeReleaseMovesValueAndReleasesWriter)
+{
+  Async<int> value = 43;
+  DebugScheduler sched;
+
+  int taken = 0;
+
+  auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
+  {
+    auto proxy = co_await writer;
+    taken = proxy.take_release();
+    co_return;
+  }
+  (value.write(), taken);
+
+  auto rewrite_task = [](WriteBuffer<int> writer) static->AsyncTask
+  {
+    co_await writer = 47;
+    co_return;
+  }
+  (value.write());
+
+  sched.schedule(std::move(take_task));
+  sched.schedule(std::move(rewrite_task));
+  sched.run_all();
+
+  EXPECT_EQ(taken, 43);
+  EXPECT_EQ(value.get_wait(), 47);
+}
+
+TEST(AsyncAwaitersTest, MoveWriteProxyTakeReleaseMovesValueAndReleasesWriter)
+{
+  Async<int> value = 29;
+  DebugScheduler sched;
+
+  int taken = 0;
+
+  auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
+  {
+    auto owned = co_await std::move(writer);
+    taken = owned.take_release();
+    co_return;
+  }
+  (value.write(), taken);
+
+  auto rewrite_task = [](WriteBuffer<int> writer) static->AsyncTask
+  {
+    co_await writer = 31;
+    co_return;
+  }
+  (value.write());
+
+  sched.schedule(std::move(take_task));
+  sched.schedule(std::move(rewrite_task));
+  sched.run_all();
+
+  EXPECT_EQ(taken, 29);
+  EXPECT_EQ(value.get_wait(), 31);
+}
+
 TEST(AsyncAwaitersTest, MoveWriteStorageKeepsRefcountStableDuringOwnershipTransfer)
 {
   Async<int> value;

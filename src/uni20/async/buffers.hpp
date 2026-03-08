@@ -424,6 +424,7 @@ template <typename T> class OwningWriteAccessProxy;
 template <typename T> class OwningWriteAwaiter;
 template <typename T> class OwningStorageAccessProxy;
 template <typename T> class OwningStorageAwaiter;
+template <typename T> class OwningTakeAwaiter;
 template <typename T> class WriteAssignProxy;
 
 #if UNI20_DEBUG_ASYNC_TASKS
@@ -481,6 +482,32 @@ template <typename T> class TakeAwaiter {
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
 };
 
+template <typename T> class TakeReleaseAwaiter {
+  public:
+    TakeReleaseAwaiter(EpochContextWriter<T>* writer) : writer_(writer) {}
+
+    bool await_ready() const noexcept { return writer_->ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "TakeReleaseAwaiter::await_suspend()", this, t.h_);
+      writer_->suspend(std::move(t), false);
+    }
+
+    T await_resume()
+    {
+      writer_->resume();
+      T value = writer_->storage().take();
+      writer_->release();
+      return value;
+    }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_->epoch_context_shared(); }
+
+  private:
+    EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
+};
+
 template <typename T> class OwningStorageAccessProxy {
   public:
     using value_type = shared_storage<T>;
@@ -499,6 +526,15 @@ template <typename T> class OwningStorageAccessProxy {
 
     shared_storage<T>* operator->() { return std::addressof(this->get()); }
     shared_storage<T> const* operator->() const { return std::addressof(this->get()); }
+
+    T take() { return writer_.storage().take(); }
+
+    T take_release()
+    {
+      T value = this->take();
+      this->release();
+      return value;
+    }
 
     void release() noexcept { writer_.release(); }
 
@@ -528,6 +564,32 @@ template <typename T> class OwningStorageAwaiter {
     {
       writer_.resume();
       return OwningStorageAccessProxy<T>(std::move(writer_));
+    }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
+
+  private:
+    EpochContextWriter<T> writer_;
+};
+
+template <typename T> class OwningTakeAwaiter {
+  public:
+    explicit OwningTakeAwaiter(EpochContextWriter<T>&& writer) : writer_(std::move(writer)) {}
+
+    bool await_ready() const noexcept { return writer_.ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "OwningTakeAwaiter::await_suspend()", this, t.h_);
+      writer_.suspend(std::move(t), false);
+    }
+
+    T await_resume()
+    {
+      writer_.resume();
+      T value = writer_.storage().take();
+      writer_.release();
+      return value;
     }
 
     std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
@@ -635,6 +697,24 @@ template <typename T> class WriteBuffer {
     }
 
     auto take() & { return TakeAwaiter<T>(&writer_); }
+
+    auto take() && -> OwningTakeAwaiter<T>
+    {
+      this->invalidate_proxy_state();
+      return OwningTakeAwaiter<T>(std::move(writer_));
+    }
+
+    auto take_release() &
+    {
+      this->invalidate_proxy_state();
+      return TakeReleaseAwaiter<T>(&writer_);
+    }
+
+    auto take_release() && -> OwningTakeAwaiter<T>
+    {
+      this->invalidate_proxy_state();
+      return OwningTakeAwaiter<T>(std::move(writer_));
+    }
 
     auto storage() & { return StorageAwaiter<T>(&writer_); }
 
@@ -865,6 +945,30 @@ template <typename T> class WriteAccessProxy {
       return *this;
     }
 
+    T take() { return this->writer().storage().take(); }
+
+    T take_release()
+    {
+      T value = this->take();
+      this->release();
+      return value;
+    }
+
+    void release() noexcept
+    {
+#if UNI20_DEBUG_ASYNC_TASKS
+      if (auto state = proxy_state_.lock(); state)
+      {
+        state->alive.store(false, std::memory_order_release);
+      }
+#endif
+      if (writer_)
+      {
+        writer_->release();
+        writer_ = nullptr;
+      }
+    }
+
     T& get() const { return this->writer().data(); }
 
     operator T&() const { return this->get(); }
@@ -998,6 +1102,17 @@ template <typename T> class OwningWriteAccessProxy {
 
     T& get() { return writer_.data(); }
     T const& get() const { return writer_.data(); }
+
+    T take() { return writer_.storage().take(); }
+
+    T take_release()
+    {
+      T value = this->take();
+      this->release();
+      return value;
+    }
+
+    void release() noexcept { writer_.release(); }
 
     operator T&() { return this->get(); }
     operator T const&() const { return this->get(); }
