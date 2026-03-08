@@ -31,6 +31,9 @@ target_link_libraries(async_example2 PRIVATE fmt::fmt uni20_common uni20_async)
 add_executable(async_ops_example async_ops_example.cpp)
 target_link_libraries(async_ops_example PRIVATE fmt::fmt uni20_common uni20_async)
 
+add_executable(async_buffer_semantics_example async_buffer_semantics_example.cpp)
+target_link_libraries(async_buffer_semantics_example PRIVATE fmt::fmt uni20_common uni20_async)
+
 add_executable(future_example future_example.cpp)
 target_link_libraries(future_example PRIVATE fmt::fmt uni20_common uni20_async)
 
