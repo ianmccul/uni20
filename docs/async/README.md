@@ -62,6 +62,11 @@ Runnable examples in `examples/` that pair well with this docs set:
 - `examples/async_ops_example.cpp`: expression DAG composition and `all(...)`
 - `examples/async_tbb_reduction_example.cpp`: parallel scheduling with `TbbScheduler`
 
+## Related Top-Level Docs
+
+- `../async_storage.md`: storage and assignment semantics for async write paths
+- `../roadmap.md`: broader architecture and roadmap context
+
 ## Ground Truth and Drift Policy
 
 When docs and code disagree, code and tests are authoritative. This docs set is kept aligned to:

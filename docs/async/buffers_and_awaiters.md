@@ -76,6 +76,33 @@ co_await writer = value;
 
 This calls proxy `operator=`, which uses `emplace(...)` semantics internally when needed.
 
+### Assignment semantics trait
+
+Write-proxy assignment is type-driven via:
+
+- `uni20::async::assignment_semantics_of<T>`
+- `uni20::async::assignment_semantics_v<T>`
+
+Default behavior is `assignment_semantics::rebind`:
+
+- `co_await writer = rhs` reconstructs/rebinds the stored object (`emplace(...)` path).
+
+Types can opt into `assignment_semantics::write_through` by specialization:
+
+```cpp
+namespace uni20::async {
+template <>
+struct assignment_semantics_of<MyProxyType>
+    : std::integral_constant<assignment_semantics, assignment_semantics::write_through> {};
+}
+```
+
+For `write_through` types:
+
+- `co_await writer = rhs` assigns through the existing object
+- storage must already be constructed
+- use `proxy.rebind(...)` (or `proxy.emplace(...)`) for explicit retarget/reconstruction
+
 ### Why `+=` / `-=` can initialize
 
 Uni20 intentionally allows write-proxy `+=` and `-=` to initialize unconstructed storage.
@@ -94,6 +121,7 @@ Write proxies support:
 - `take()`: move out and destroy current stored value
 - `take_release()`: `take()` plus immediate writer release
 - `release()`: explicit early release when done writing
+- `rebind(...)`: explicit reconstruct/rebind path
 
 This is available for both:
 
