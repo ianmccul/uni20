@@ -21,7 +21,12 @@ template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, R
   }
   else
   {
-    U value = (co_await std::move(b_).or_cancel()).get();
+    // GCC 13 workaround for `(co_await ...).get()`: stage through a named proxy.
+    // GCC 14+ supports the one-liner form:
+    //   U value = (co_await std::move(b_).or_cancel()).get();
+    auto b = co_await std::move(b_).or_cancel();
+    U value = b.get();
+    b.release();
     co_await out_ += std::move(value);
   }
   co_return;
@@ -42,7 +47,9 @@ AsyncTask async_accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer
   }
   else
   {
-    U value = (co_await std::move(b_).or_cancel()).get();
+    auto b = co_await std::move(b_).or_cancel();
+    U value = b.get();
+    b.release();
     co_await out_ -= std::move(value);
   }
   co_return;
