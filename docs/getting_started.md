@@ -235,7 +235,7 @@ This will invoke clang-format in-place on all matching files. Many editors have 
   Use project-specific CMake options (prefixed with `UNI20_`) to enable/disable features like CUDA, MPI, testing, and benchmarking.
 
 - **Dependency Management:**  
-  External dependencies are managed via CMake’s FetchContent. If you have network issues or prefer local copies, adjust the `FETCHCONTENT_BASE_DIR` variable or use submodules.
+  External dependencies are managed via CMake’s FetchContent. `UNI20_FETCHCONTENT_BASE_DIR` controls build/stamp files. `UNI20_FETCHCONTENT_SOURCE` controls where source trees are stored: `OFF` keeps them under `UNI20_FETCHCONTENT_BASE_DIR`, and `ON` uses `UNI20_FETCHCONTENT_SOURCE_BASE_DIR` (default: `<source_dir>/.cmake/third_party`).
 
 - **Directory Structure & CTest:**  
   If you run CTest from the top-level build directory and no tests are found, use the `--recursive` flag, or run tests from the appropriate subdirectory (e.g., `build/tests`).

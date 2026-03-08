@@ -45,14 +45,38 @@ include(Uni20Dependencies)
 set(UNI20_FETCHCONTENT_BASE_DIR ""
     CACHE PATH
     "Override FetchContent base directory for build/stamp directories. Empty uses <binary_dir>/.cmake/third_party")
+set(UNI20_FETCHCONTENT_SOURCE ON
+    CACHE BOOL
+    "Store FetchContent source trees in a shared source cache directory. OFF keeps sources under FETCHCONTENT_BASE_DIR")
 set(UNI20_FETCHCONTENT_SOURCE_BASE_DIR ""
     CACHE PATH
-    "Optional shared FetchContent source directory. Empty keeps sources under FETCHCONTENT_BASE_DIR")
-if(UNI20_FETCHCONTENT_BASE_DIR)
-  set(FETCHCONTENT_BASE_DIR "${UNI20_FETCHCONTENT_BASE_DIR}")
-else()
-  set(FETCHCONTENT_BASE_DIR "${CMAKE_BINARY_DIR}/.cmake/third_party")
+    "When UNI20_FETCHCONTENT_SOURCE=ON, override shared FetchContent source directory. Empty uses <source_dir>/.cmake/third_party")
+if(NOT UNI20_FETCHCONTENT_BASE_DIR)
+  set(UNI20_FETCHCONTENT_BASE_DIR "${CMAKE_BINARY_DIR}/.cmake/third_party")
 endif()
+
+if(UNI20_FETCHCONTENT_SOURCE)
+  if(NOT UNI20_FETCHCONTENT_SOURCE_BASE_DIR)
+    set(UNI20_FETCHCONTENT_SOURCE_BASE_DIR "${CMAKE_SOURCE_DIR}/.cmake/third_party")
+  endif()
+else()
+  set(UNI20_FETCHCONTENT_SOURCE_BASE_DIR "${UNI20_FETCHCONTENT_BASE_DIR}")
+endif()
+
+set(UNI20_FETCHCONTENT_BASE_DIR "${UNI20_FETCHCONTENT_BASE_DIR}"
+    CACHE PATH
+    "Resolved FetchContent base directory for build/stamp directories"
+    FORCE)
+set(UNI20_FETCHCONTENT_SOURCE "${UNI20_FETCHCONTENT_SOURCE}"
+    CACHE BOOL
+    "Store FetchContent source trees in a shared source cache directory. OFF keeps sources under UNI20_FETCHCONTENT_BASE_DIR"
+    FORCE)
+set(UNI20_FETCHCONTENT_SOURCE_BASE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}"
+    CACHE PATH
+    "Resolved FetchContent source directory. With UNI20_FETCHCONTENT_SOURCE=OFF this matches UNI20_FETCHCONTENT_BASE_DIR"
+    FORCE)
+
+set(FETCHCONTENT_BASE_DIR "${UNI20_FETCHCONTENT_BASE_DIR}")
 
 # Build Options (including testing/benchmarking)
 uni20_dependency_option(UNI20_USE_SYSTEM_TBB "oneTBB library" AUTO)
@@ -233,12 +257,9 @@ endif()
 
 # mdspan reference implementation, put it into stdex namespace to prevent possible conflict with standard library version
 # and set up an interface library uni20_mdspan to set up the include directories
-set(_uni20_mdspan_fetchcontent_paths)
-if(UNI20_FETCHCONTENT_SOURCE_BASE_DIR)
-  list(APPEND _uni20_mdspan_fetchcontent_paths
-    SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/mdspan-src"
-    BINARY_DIR "${FETCHCONTENT_BASE_DIR}/mdspan-build")
-endif()
+set(_uni20_mdspan_fetchcontent_paths
+  SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/mdspan-src"
+  BINARY_DIR "${UNI20_FETCHCONTENT_BASE_DIR}/mdspan-build")
 
 FetchContent_Declare(
   mdspan

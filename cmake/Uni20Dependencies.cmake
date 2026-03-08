@@ -279,15 +279,9 @@ function(uni20_add_dependency)
   set(_uni20_ignored_cached_dir_is_expected_fetch_source FALSE)
   if(_uni20_ignored_cached_dir)
     set(_uni20_expected_fetch_source_dirs)
-    if(UNI20_FETCHCONTENT_SOURCE_BASE_DIR)
-      list(APPEND _uni20_expected_fetch_source_dirs
-        "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${NAME_LOWER}-src"
-        "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${DEP_NAME}-src")
-    else()
-      list(APPEND _uni20_expected_fetch_source_dirs
-        "${FETCHCONTENT_BASE_DIR}/${NAME_LOWER}-src"
-        "${FETCHCONTENT_BASE_DIR}/${DEP_NAME}-src")
-    endif()
+    list(APPEND _uni20_expected_fetch_source_dirs
+      "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${NAME_LOWER}-src"
+      "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${DEP_NAME}-src")
 
     file(TO_CMAKE_PATH "${_uni20_ignored_cached_dir}" _uni20_ignored_cached_dir_norm)
     foreach(_uni20_expected_fetch_source_dir IN LISTS _uni20_expected_fetch_source_dirs)
@@ -375,12 +369,9 @@ function(uni20_add_dependency)
     endif()
 
     include(FetchContent)
-    set(_uni20_fetchcontent_paths)
-    if(UNI20_FETCHCONTENT_SOURCE_BASE_DIR)
-      list(APPEND _uni20_fetchcontent_paths
-        SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${NAME_LOWER}-src"
-        BINARY_DIR "${FETCHCONTENT_BASE_DIR}/${NAME_LOWER}-build")
-    endif()
+    set(_uni20_fetchcontent_paths
+      SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/${NAME_LOWER}-src"
+      BINARY_DIR "${UNI20_FETCHCONTENT_BASE_DIR}/${NAME_LOWER}-build")
 
     FetchContent_Declare(
       ${DEP_NAME}
