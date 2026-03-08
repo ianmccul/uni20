@@ -1,6 +1,5 @@
 /// \file epoch_queue.hpp
 /// \brief FIFO queue enforcing writer→readers→next-writer ordering.
-/// \ingroup async_core
 
 #pragma once
 
@@ -16,7 +15,6 @@ namespace uni20::async
 {
 
 /// \brief Coordinates multiple epochs of read/write gates.
-/// \ingroup async_core
 class EpochQueue {
   public:
     EpochQueue() : current_(std::make_shared<EpochContext>()) { TRACE_MODULE(ASYNC, "EpochQueue Constructor", this); }

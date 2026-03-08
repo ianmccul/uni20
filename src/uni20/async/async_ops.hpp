@@ -1,7 +1,6 @@
 /**
  * \file async_ops.hpp
  * \brief Concepts and helpers for composing Async expressions.
- * \ingroup async_api
  */
 #pragma once
 
@@ -172,7 +171,6 @@ template <typename T> struct ValueAwaiter
 /// \brief Read adapter for scalar values.
 ///
 /// Wraps a scalar value into an awaitable that can be co_awaited like an Async buffer.
-/// \ingroup async_api
 template <typename T>
 requires(!async_reader<std::remove_cvref_t<T>>) ValueAwaiter<std::remove_cvref_t<T>> read(T&& x)
 {
@@ -184,7 +182,6 @@ template <typename T>
 requires(async_reader<std::remove_cvref_t<T>>) auto read(T&& x) { return std::forward<T>(x).read(); }
 
 /// \brief Strip Async<T> to T for type deduction
-/// \ingroup async_api
 template <typename T> struct async_value_type
 {
     using type = T;
@@ -196,11 +193,9 @@ template <typename T> struct async_value_type<Async<T>>
 };
 
 /// \brief Extract the underlying value type from scalar or Async<T>
-/// \ingroup async_api
 template <typename T> using async_value_t = typename async_value_type<std::remove_cvref_t<T>>::type;
 
 /// \brief Result type of applying binary op Op to async_value_t<T>, async_value_t<U>
-/// \ingroup async_api
 template <typename T, typename U, typename Op>
 using async_binary_result_t =
     decltype(std::declval<Op>()(std::declval<async_value_t<T>>(), std::declval<async_value_t<U>>()));
@@ -253,7 +248,6 @@ concept is_async_compound_applicable = async_like<std::remove_reference_t<T>> &&
 /// \tparam B Second operand (scalar or Async<U>)
 /// \tparam R Result value type
 /// \tparam Op Callable with signature R(op(A, B))
-/// \ingroup async_api
 template <typename A, typename B, async_writer Writer, typename Op>
 requires async_binary_applicable<A, B, Op>
 void async_binary_op(A&& a, B&& b, Writer& out, Op op)
@@ -285,7 +279,6 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
 /// \param rhs Right-hand operand (either U or Async<U>)
 /// \param lhs Left-hand operand of the form Async<T>& — this is the value being modified
 /// \param op  In-place operation to apply (e.g., a lambda using operator+=)
-/// \ingroup async_api
 template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, Async<T>& lhs, Op op)
 {
   auto rhs_buf = read(std::forward<U>(rhs));
@@ -324,7 +317,6 @@ template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, A
 // }
 
 /// \brief Assigns an Async or scalar value into an Async destination.
-/// \ingroup async_api
 ///
 /// This schedules a coroutine that reads the value `rhs` (whether it's an
 /// Async or a scalar), and writes it into `lhs`.

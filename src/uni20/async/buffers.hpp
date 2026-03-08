@@ -1,6 +1,5 @@
 /// \file buffers.hpp
 /// \brief Awaitable gates for Async<T>: snapshot‐reads and in‐place writes.
-/// \ingroup async_api
 
 #pragma once
 

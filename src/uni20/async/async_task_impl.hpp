@@ -1,11 +1,19 @@
 #pragma once
 
+/**
+ * \file async_task_impl.hpp
+ * \brief Inline implementation of `BasicAsyncTask` ownership and await mechanics.
+ */
+
 #include "async_task.hpp"
 #include "async_task_promise.hpp"
 
 namespace uni20::async
 {
 
+/// \brief Reschedules a task when this instance becomes its sole owner.
+/// \tparam T Promise type.
+/// \param task Task instance to reschedule.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::reschedule(BasicAsyncTask<T> task)
 {
   TRACE_MODULE(ASYNC, "BasicAsyncTask<T>::reschedule", &task, task.h_);
@@ -23,6 +31,10 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::reschedule(BasicAsyncTas
   }
 }
 
+/// \brief Converts a possibly-shared task into a sole-owner task handle.
+/// \tparam T Promise type.
+/// \param task Task whose ownership should be normalized.
+/// \return Sole-owner task if ownership transfer succeeded, otherwise an empty task.
 template <IsAsyncTaskPromise T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_owner(BasicAsyncTask<T>&& task)
 {
   DEBUG_CHECK(task.h_);
@@ -40,6 +52,10 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T> BasicAsyncTask<T>::make_sole_o
   return std::move(task);
 }
 
+/// \brief Validates whether a coroutine handle can be safely destroyed.
+/// \tparam T Promise type.
+/// \param h Coroutine handle to inspect.
+/// \return `true` when destruction is safe, otherwise `false`.
 template <IsAsyncTaskPromise T>
 bool BasicAsyncTask<T>::can_destroy_coroutine(BasicAsyncTask<T>::handle_type h) const noexcept
 {
@@ -50,6 +66,9 @@ bool BasicAsyncTask<T>::can_destroy_coroutine(BasicAsyncTask<T>::handle_type h) 
   return cancelled || done;
 }
 
+/// \brief Releases exclusive ownership and returns the resumable coroutine handle.
+/// \tparam T Promise type.
+/// \return Coroutine handle for resume or destruction.
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::release_handle()
 {
   TRACE_MODULE(ASYNC, "BasicAsyncTask::release_handle", h_);
@@ -81,6 +100,8 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>::handle_type BasicAsyncTask<T>
   return handle;
 }
 
+/// \brief Resumes the coroutine represented by this task.
+/// \tparam T Promise type.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
 {
   auto handle = this->release_handle();
@@ -89,6 +110,8 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::resume()
   TRACE_MODULE(ASYNC, "returned from coroutine::resume");
 }
 
+/// \brief Releases ownership and marks the task as intentionally leaked.
+/// \tparam T Promise type.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::abandon_leak()
 {
   auto handle = this->release_handle();
@@ -96,17 +119,26 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::abandon_leak()
   TRACE_MODULE(ASYNC, "Abandoning task handle", handle);
 }
 
+/// \brief Requests cancellation before the next resume.
+/// \tparam T Promise type.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::set_cancel_on_resume() noexcept
 {
   TRACE_MODULE(ASYNC, "Setting cancel flag on coroutine", this, h_);
   h_.promise().set_cancel_on_resume();
 }
 
+/// \brief Stores an exception to be rethrown on resume.
+/// \tparam T Promise type.
+/// \param e Exception pointer to propagate.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::exception_on_resume(std::exception_ptr e) noexcept
 {
   h_.promise().set_exception(e);
 }
 
+/// \brief Move-assigns task ownership, destroying any currently-owned coroutine.
+/// \tparam T Promise type.
+/// \param other Source task.
+/// \return Reference to `*this`.
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(BasicAsyncTask<T>&& other) noexcept
 {
   TRACE_MODULE(ASYNC, "AsyncTask move assignment", this, h_, &other, other.h_);
@@ -119,6 +151,8 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>& BasicAsyncTask<T>::operator=(
   return *this;
 }
 
+/// \brief Recursively destroys the owned coroutine and continuations.
+/// \tparam T Promise type.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::destroy_owned_coroutine() noexcept
 {
   auto handle = h_;
@@ -132,6 +166,8 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::destroy_owned_coroutine(
   h_ = nullptr;
 }
 
+/// \brief Releases ownership and destroys the coroutine when this was the last awaiter.
+/// \tparam T Promise type.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::release() noexcept
 {
   TRACE_MODULE(ASYNC, "BasicAsyncTask::release", this, h_);
@@ -142,6 +178,8 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::release() noexcept
   }
 }
 
+/// \brief Destroys the coroutine when this task still owns the last awaiter reference.
+/// \tparam T Promise type.
 template <IsAsyncTaskPromise T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept
 {
   TRACE_MODULE(ASYNC, "BasicAsyncTask destructor", this, h_);
@@ -152,6 +190,10 @@ template <IsAsyncTaskPromise T> BasicAsyncTask<T>::~BasicAsyncTask() noexcept
   }
 }
 
+/// \brief Sets the scheduler pointer on the underlying promise.
+/// \tparam T Promise type.
+/// \param sched Scheduler to assign.
+/// \return `true` when a coroutine handle exists, otherwise `false`.
 template <IsAsyncTaskPromise T> bool BasicAsyncTask<T>::set_scheduler(IScheduler* sched)
 {
   if (h_)
@@ -162,17 +204,27 @@ template <IsAsyncTaskPromise T> bool BasicAsyncTask<T>::set_scheduler(IScheduler
   return false;
 }
 
+/// \brief Returns the preferred NUMA node from the underlying promise.
+/// \tparam T Promise type.
+/// \return Preferred NUMA node when available.
 template <IsAsyncTaskPromise T> std::optional<int> BasicAsyncTask<T>::preferred_numa_node() const noexcept
 {
   if (!h_) return std::nullopt;
   return h_.promise().preferred_numa_node();
 }
 
+/// \brief Stores the preferred NUMA node in the underlying promise.
+/// \tparam T Promise type.
+/// \param node Preferred node identifier, or `std::nullopt`.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::set_preferred_numa_node(std::optional<int> node) noexcept
 {
   if (h_) h_.promise().set_preferred_numa_node(node);
 }
 
+/// \brief Suspends the awaiting coroutine and transfers ownership for direct resume.
+/// \tparam T Promise type.
+/// \param Outer Awaiting coroutine handle.
+/// \return Handle to resume immediately by the coroutine runtime.
 template <IsAsyncTaskPromise T>
 BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T>::handle_type Outer)
 {
@@ -189,6 +241,8 @@ BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T
   return h_transfer;
 }
 
+/// \brief Rethrows any exception captured by the awaited task.
+/// \tparam T Promise type.
 template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::await_resume() const
 {
   // await_suspend() transfers ownership and clears h_; only inspect the promise when a handle is still present.

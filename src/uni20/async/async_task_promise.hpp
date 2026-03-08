@@ -1,6 +1,5 @@
 /// \file async_task_promise.hpp
 /// \brief Defines AsyncTask::promise_type, the fire-and-forget coroutine handle.
-/// \ingroup async_core
 
 #pragma once
 
@@ -85,7 +84,6 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter;
 template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter;
 
 /// \brief Promise type for AsyncTask.
-/// \ingroup async_core
 struct BasicAsyncTaskPromise
 {
     using promise_type = BasicAsyncTaskPromise;
@@ -523,7 +521,6 @@ struct BasicAsyncTaskPromise
 ///
 /// \note This class must only be created while the coroutine is unowned. Attempting to add awaiters after
 ///       the coroutine is active leads to race conditions and is undefined behavior.
-/// \ingroup async_core
 class AsyncTaskFactory {
   public:
     /// \brief Dispense the next AsyncTask from the pool of shared ownership handles.

@@ -1,6 +1,5 @@
 /// \file awaiters.hpp
 /// \brief Utilities for awaiting on Async<T>: co_await overload, all(), try_await().
-/// \ingroup async_api
 
 #pragma once
 

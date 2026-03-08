@@ -1,7 +1,6 @@
 #pragma once
 /// \file tbb_scheduler.hpp
 /// \brief Scheduler implementation using oneAPI oneTBB task_arena + task_group.
-/// \ingroup async_core
 
 #include "scheduler.hpp"
 #include <condition_variable>

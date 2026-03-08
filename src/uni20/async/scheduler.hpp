@@ -1,6 +1,5 @@
 /// \file scheduler.hpp
 /// \brief Defines the IScheduler interface
-/// \ingroup async_core
 
 // see https://github.com/dbittman/waitfree-mpsc-queue/blob/master/mpsc.c
 
@@ -14,7 +13,6 @@ namespace uni20::async
 {
 
 /// \brief Minimal abstract interface for scheduling coroutine handles.
-/// \ingroup async_core
 class IScheduler {
   public:
     /// \brief Virtual destructor.

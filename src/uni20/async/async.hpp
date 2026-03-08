@@ -1,6 +1,5 @@
 /// \file async.hpp
 /// \brief The Async<T> container: coroutine‐safe asynchronous read/write.
-/// \ingroup async_api
 
 // NOTE: Immediately-invoked coroutine lambdas must not capture variables.
 // Captures (by reference or value) are stored in the lambda frame, which is destroyed
@@ -60,7 +59,6 @@ template <typename T> class ReverseValue; // forward declaration so we can add i
 ///       `WriteBuffer<T>` may safely outlive the Async.
 /// \note The value of T must be copyable or movable as appropriate for construction.
 /// \tparam T Stored value type.
-/// \ingroup async_api
 template <typename T> class Async {
   public:
     using value_type = T;
@@ -80,7 +78,6 @@ template <typename T> class Async {
     /// \brief Construct from a value convertible to T.
     /// \tparam U Value type convertible to T.
     /// \param val Initial value forwarded into the Async storage.
-    /// \ingroup async_api
     template <typename U>
     requires std::convertible_to<U, T> Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_()
     {
@@ -94,7 +91,6 @@ template <typename T> class Async {
     /// \brief Explicitly construct from a value that requires explicit conversion.
     /// \tparam U Source type that can explicitly construct T.
     /// \param u Value forwarded to construct the stored T instance.
-    /// \ingroup async_api
     template <typename U>
     requires std::constructible_from<T, U> &&(!std::convertible_to<U, T>)explicit Async(U&& u)
         : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_()
@@ -109,7 +105,6 @@ template <typename T> class Async {
     /// \brief Construct the stored value in place using forwarded arguments.
     /// \tparam Args Argument types forwarded to `T`'s constructor.
     /// \param args Arguments used to initialize the contained value.
-    /// \ingroup async_api
     template <typename... Args>
     requires std::constructible_from<T, Args...> Async(Args&&... args)
         : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_()
@@ -127,7 +122,6 @@ template <typename T> class Async {
     /// \param init Initializer list forwarded to `T`.
     /// \param args Additional arguments forwarded to `T`.
     /// \note This mirrors similar constuctors where std::in_place is used.
-    /// \ingroup async_api
     template <typename U, typename... Args>
     requires std::constructible_from < T, std::initializer_list<U>
     &,
@@ -151,7 +145,6 @@ template <typename T> class Async {
     ///          Coroutine handles, epoch queues, and computation histories are not copied.
     ///
     /// \see `async_assign` for explicit value-level copy scheduling.
-    /// \ingroup async_api
     Async(const Async& rhs) : Async() { async_assign(rhs, *this); }
 
     /// \brief Construct an Async that defers pointer initialization while sharing ownership.
@@ -167,7 +160,6 @@ template <typename T> class Async {
     /// \param queue Queue to reuse for sequencing; defaults to a fresh queue when omitted.
     /// \throws std::invalid_argument if \p control is null.
     /// \warning The caller must ensure that `control.get()` remains valid for the Async lifetime.
-    /// \ingroup async_api
     //     template <typename Control>
     //       requires std::convertible_to<Control*, T*>
     //     Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
@@ -188,7 +180,6 @@ template <typename T> class Async {
     /// \tparam Control Type of the shared pointer used for aliasing the control block.
     /// \param tag `async::deferred` tag to select deferred construction.
     /// \param control Shared pointer whose control block should be reused for this Async value.
-    /// \ingroup async_api
     template <typename Control>
     requires std::convertible_to<Control*, T*> Async(deferred_t tag, std::shared_ptr<Control> control)
         : storage_(make_unconstructed_shared_storage<T>()), queue_()
@@ -236,7 +227,6 @@ template <typename T> class Async {
     /// \see async_assign for explicit value-copy semantics
     /// \param rhs Source Async whose value timeline is copied.
     /// \return Reference to *this after scheduling the copy.
-    /// \ingroup async_api
     Async& operator=(const Async& rhs)
     {
       if (this != &rhs)
@@ -253,12 +243,10 @@ template <typename T> class Async {
     ///       The results of both operations are rather similar.
     /// \brief Move-construct from another Async<T> handle.
     /// \param other Source Async.
-    /// \ingroup async_api
     Async(Async&& other) noexcept = default;
     /// \brief Move-assign from another Async<T> handle.
     /// \param other Source Async.
     /// \return Reference to *this after ownership transfer.
-    /// \ingroup async_api
     Async& operator=(Async&& other) noexcept
     {
       if (this != &other)
@@ -273,12 +261,10 @@ template <typename T> class Async {
 
     /// \brief Begin an asynchronous read of the value.
     /// \return A ReadBuffer<T> which may be co_awaited.
-    /// \ingroup async_api
     ReadBuffer<T> read() const { return ReadBuffer<T>(queue_.create_read_context(storage_)); }
 
     /// \brief Begin an asyncronous write of the value
     /// \return A WriteBuffer<T> which may be co_awaited.
-    /// \ingroup async_api
     WriteBuffer<T> write() { return WriteBuffer<T>(queue_.create_write_context(storage_)); }
 
     // template <typename Sched> T& get_wait(Sched& sched)
@@ -293,7 +279,6 @@ template <typename T> class Async {
 
     /// \brief Block the current thread until the value becomes available.
     /// \return Reference to the stored value once the pending writers have completed.
-    /// \ingroup async_api
     T const& get_wait() const;
 
     /// \brief Block using an explicit scheduler until the value is ready.
@@ -302,14 +287,12 @@ template <typename T> class Async {
     /// execution in tests where the scheduling context must be controlled.
     /// \param sched Scheduler instance used to make progress while waiting.
     /// \return Reference to the stored value once writes have finished.
-    /// \ingroup async_api
     T const& get_wait(IScheduler& sched) const;
 
     // TODO: we could have a version that returns a ref-counted proxy, which enables reference rather than copy
 
     /// \brief Block until the value is available, then move it out of the Async.
     /// \return The stored value, moved out of the Async container.
-    /// \ingroup async_api
     T move_from_wait();
 
     /// \brief Overwrite the stored value directly.
@@ -317,7 +300,6 @@ template <typename T> class Async {
     /// is acceptable. No synchronization with pending writers or readers is
     /// performed.
     /// \param x New value to store.
-    /// \ingroup internal
     void unsafe_set(T const& x)
     {
       auto* ptr = require_value();
@@ -328,17 +310,14 @@ template <typename T> class Async {
     /// This helper is primarily for diagnostics; it will throw if the value
     /// has not been initialized.
     /// \return Copy of the contained value.
-    /// \ingroup internal
     T unsafe_value() const { return *require_value(); }
 
     /// \brief Access the stored value without synchronization.
     /// \return Direct reference to stored value (for diagnostics only).
-    /// \ingroup async_api
     T const& unsafe_value_ref() const { return *require_value(); }
 
     /// \brief Access the stored value without synchronization.
     /// \return Mutable reference to the stored value for diagnostic use.
-    /// \ingroup async_api
     T& unsafe_value_ref() { return *require_value(); }
 
     /// \brief Inspect the shared epoch queue.
@@ -347,7 +326,6 @@ template <typename T> class Async {
     /// the originating Async object, so they must retain the same queue instance to keep
     /// epoch transitions and task lifetime semantics valid.
     /// \return Shared access to the epoch queue implementation.
-    /// \ingroup async_api
     EpochQueue const& queue() const { return queue_; }
     shared_storage<T> const& storage() const { return storage_; }
 
@@ -389,13 +367,11 @@ template <typename T> class Async {
 /// \tparam T Stored value type.
 /// \param a Async container providing the read buffer.
 /// \return Read buffer obtained from the Async instance.
-/// \ingroup async_api
 template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
 /// \brief Convenience helper that forwards to Async<T>::write().
 /// \tparam T Stored value type.
 /// \param a Async container providing the write buffer.
 /// \return Write buffer obtained from the Async instance.
-/// \ingroup async_api
 template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
 
 } // namespace uni20::async

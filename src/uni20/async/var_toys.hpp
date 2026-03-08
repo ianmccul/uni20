@@ -1,5 +1,10 @@
 #pragma once
 
+/**
+ * \file var_toys.hpp
+ * \brief Demonstration reverse-mode helpers built on `Var<T>`.
+ */
+
 #include "async_toys.hpp"
 #include <uni20/core/math.hpp>
 #include "var.hpp"
@@ -7,43 +12,10 @@
 namespace uni20::async
 {
 
-//
-// Demonstration trig fuctions for Var<T>
-//
-// sin(x) is implemented as coroutines
-//
-// cos(x) is implemented using basic operations on Var<T> and Async<T>
-//
-
-// Chain rule: ∂L/∂z* = ∂L/∂f* ⋅ ∂f*/∂z* + ∂L/∂f ⋅ ∂f/∂z*
-// Since L is real-valued, ∂L/∂f = conj(∂L/∂f*)
-//
-// We can rewrite this as
-// ∂L/∂z* = ∂L/∂f* ⋅ conj(∂f/∂z) + conj(∂L/∂f) ⋅ ∂f/∂z*
-// out_grad += in_grad . conj(∂f/∂z) + conj(in_grad) . ∂f/∂z*
-
-// template <typename T> Var<T> sin(Var<T> x)
-// {
-//   Var<T> Result;
-//
-//   schedule(co_sin(x.value.read(), Result.value.write()));
-//
-//   // TRACE("Var Sin", Result.grad.value().queue().latest().get());
-//   schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
-//     using std::cos;
-//     using uni20::conj;
-//     TRACE("Var Sin coroutine");
-//     auto in_g = co_await in_grad.or_cancel();
-//     TRACE("Var Sin", in_g);
-//     auto cos_x = cos(co_await in);
-//     TRACE("Var Sin", cos_x);
-//     co_await out_grad += conj(cos_x) * in_g;
-//     TRACE("Var Sin finished");
-//   }(x.value.read(), Result.grad.input(), x.grad.output()));
-//
-//   return Result;
-// }
-
+/// \brief Computes `sin(x)` and wires reverse-mode accumulation for the input gradient.
+/// \tparam T Value type.
+/// \param x Input variable.
+/// \return Output variable representing `sin(x)`.
 template <typename T> Var<T> sin(Var<T> x)
 {
   Var<T> Result;
@@ -69,6 +41,10 @@ template <typename T> Var<T> sin(Var<T> x)
   return Result;
 }
 
+/// \brief Computes `cos(x)` and wires reverse-mode accumulation for the input gradient.
+/// \tparam T Value type.
+/// \param x Input variable.
+/// \return Output variable representing `cos(x)`.
 template <typename T> Var<T> cos(Var<T> x)
 {
   Var<T> Result;
@@ -77,6 +53,11 @@ template <typename T> Var<T> cos(Var<T> x)
   return Result;
 }
 
+/// \brief Computes `x - y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left input variable.
+/// \param y Right scalar operand.
+/// \return Output variable representing `x - y`.
 template <typename T> Var<T> operator-(Var<T> x, T y)
 {
   Var<T> Result;
@@ -85,6 +66,11 @@ template <typename T> Var<T> operator-(Var<T> x, T y)
   return Result;
 }
 
+/// \brief Computes `x - y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left scalar operand.
+/// \param y Right input variable.
+/// \return Output variable representing `x - y`.
 template <typename T> Var<T> operator-(T x, Var<T> y)
 {
   Var<T> Result;
@@ -93,6 +79,11 @@ template <typename T> Var<T> operator-(T x, Var<T> y)
   return Result;
 }
 
+/// \brief Computes `x - y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left input variable.
+/// \param y Right input variable.
+/// \return Output variable representing `x - y`.
 template <typename T> Var<T> operator-(Var<T> x, Var<T> y)
 {
   Var<T> Result;
@@ -102,6 +93,11 @@ template <typename T> Var<T> operator-(Var<T> x, Var<T> y)
   return Result;
 }
 
+/// \brief Computes `x + y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left input variable.
+/// \param y Right scalar operand.
+/// \return Output variable representing `x + y`.
 template <typename T> Var<T> operator+(Var<T> x, T y)
 {
   Var<T> Result;
@@ -110,6 +106,11 @@ template <typename T> Var<T> operator+(Var<T> x, T y)
   return Result;
 }
 
+/// \brief Computes `x + y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left scalar operand.
+/// \param y Right input variable.
+/// \return Output variable representing `x + y`.
 template <typename T> Var<T> operator+(T x, Var<T> y)
 {
   Var<T> Result;
@@ -117,6 +118,12 @@ template <typename T> Var<T> operator+(T x, Var<T> y)
   y.grad += Result.grad;
   return Result;
 }
+
+/// \brief Computes `x + y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left input variable.
+/// \param y Right input variable.
+/// \return Output variable representing `x + y`.
 template <typename T> Var<T> operator+(Var<T> x, Var<T> y)
 {
   Var<T> Result;
@@ -126,6 +133,11 @@ template <typename T> Var<T> operator+(Var<T> x, Var<T> y)
   return Result;
 }
 
+/// \brief Computes `x * y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left scalar operand.
+/// \param y Right input variable.
+/// \return Output variable representing `x * y`.
 template <typename T> Var<T> operator*(T x, Var<T> y)
 {
   using uni20::herm;
@@ -135,6 +147,11 @@ template <typename T> Var<T> operator*(T x, Var<T> y)
   return Result;
 }
 
+/// \brief Computes `x * y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left input variable.
+/// \param y Right scalar operand.
+/// \return Output variable representing `x * y`.
 template <typename T> Var<T> operator*(Var<T> x, T y)
 {
   using uni20::herm;
@@ -144,6 +161,11 @@ template <typename T> Var<T> operator*(Var<T> x, T y)
   return Result;
 }
 
+/// \brief Computes `x * y` with reverse-mode gradient propagation.
+/// \tparam T Value type.
+/// \param x Left input variable.
+/// \param y Right input variable.
+/// \return Output variable representing `x * y`.
 template <typename T> Var<T> operator*(Var<T> x, Var<T> y)
 {
   Var<T> Result;
@@ -153,6 +175,10 @@ template <typename T> Var<T> operator*(Var<T> x, Var<T> y)
   return Result;
 }
 
+/// \brief Computes the real part and propagates gradient to a complex source.
+/// \tparam T Complex-like value type.
+/// \param z Input variable.
+/// \return Output variable representing `real(z)`.
 template <typename T> Var<uni20::make_real_t<T>> real(Var<T> z)
 {
   using uni20::real;
@@ -168,6 +194,10 @@ template <typename T> Var<uni20::make_real_t<T>> real(Var<T> z)
   return Result;
 }
 
+/// \brief Computes the imaginary part and propagates gradient to a complex source.
+/// \tparam T Complex-like value type.
+/// \param z Input variable.
+/// \return Output variable representing `imag(z)`.
 template <typename T> Var<uni20::make_real_t<T>> imag(Var<T> z)
 {
   using uni20::imag;

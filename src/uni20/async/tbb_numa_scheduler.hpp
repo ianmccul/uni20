@@ -1,7 +1,6 @@
 #pragma once
 /// \file tbb_numa_scheduler.hpp
 /// \brief Scheduler that dispatches work across NUMA-aware TbbScheduler arenas.
-/// \ingroup async_core
 
 #include "scheduler.hpp"
 #include "tbb_scheduler.hpp"
@@ -20,7 +19,6 @@ namespace uni20::async
 {
 
 /// \brief NUMA-aware scheduler that balances work across per-node TBB arenas.
-/// \ingroup async_core
 class TbbNumaScheduler final : public IScheduler {
   public:
     /// \brief Construct a scheduler that reflects the system's visible NUMA nodes.

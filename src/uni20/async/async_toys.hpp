@@ -1,5 +1,10 @@
 #pragma once
 
+/**
+ * \file async_toys.hpp
+ * \brief Small async helper operations used in tests and examples.
+ */
+
 #include "async.hpp"
 #include "scheduler.hpp"
 #include <cmath>
@@ -10,6 +15,10 @@
 namespace uni20::async
 {
 
+/// \brief Coroutine implementation of `sin` over async buffers.
+/// \tparam T Value type.
+/// \param in Input read buffer.
+/// \param out Output write buffer.
 template <typename T> AsyncTask co_sin(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   using std::sin;
@@ -33,6 +42,10 @@ template <typename T> AsyncTask co_sin(ReadBuffer<T> in, WriteBuffer<T> out)
   co_await out = sin(input);
 }
 
+/// \brief Schedules asynchronous sine evaluation.
+/// \tparam T Value type.
+/// \param x Input async value.
+/// \return Async result of `sin(x)`.
 template <typename T> Async<T> sin(Async<T> const& x)
 {
   Async<T> Result;
@@ -40,6 +53,10 @@ template <typename T> Async<T> sin(Async<T> const& x)
   return Result;
 }
 
+/// \brief Coroutine implementation of `cos` over async buffers.
+/// \tparam T Value type.
+/// \param in Input read buffer.
+/// \param out Output write buffer.
 template <typename T> AsyncTask co_cos(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   using std::cos;
@@ -49,6 +66,10 @@ template <typename T> AsyncTask co_cos(ReadBuffer<T> in, WriteBuffer<T> out)
   co_await out = cos(input);
 }
 
+/// \brief Schedules asynchronous cosine evaluation.
+/// \tparam T Value type.
+/// \param x Input async value.
+/// \return Async result of `cos(x)`.
 template <typename T> Async<T> cos(Async<T> const& x)
 {
   Async<T> Result;
@@ -56,6 +77,10 @@ template <typename T> Async<T> cos(Async<T> const& x)
   return Result;
 }
 
+/// \brief Coroutine implementation of complex conjugation over async buffers.
+/// \tparam T Value type.
+/// \param in Input read buffer.
+/// \param out Output write buffer.
 template <typename T> AsyncTask co_conj(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   auto input_buffer = co_await std::move(in);
@@ -64,6 +89,10 @@ template <typename T> AsyncTask co_conj(ReadBuffer<T> in, WriteBuffer<T> out)
   co_await out = uni20::conj(input);
 }
 
+/// \brief Schedules asynchronous conjugation.
+/// \tparam T Value type.
+/// \param x Input async value.
+/// \return Async result of `conj(x)`.
 template <typename T> Async<T> conj(Async<T> const& x)
 {
   Async<T> Result;
@@ -71,6 +100,10 @@ template <typename T> Async<T> conj(Async<T> const& x)
   return Result;
 }
 
+/// \brief Coroutine implementation of real-part extraction over async buffers.
+/// \tparam T Value type.
+/// \param in Input read buffer.
+/// \param out Output write buffer.
 template <typename T> AsyncTask co_real(ReadBuffer<T> in, WriteBuffer<uni20::make_real_t<T>> out)
 {
   using uni20::real;
@@ -80,6 +113,10 @@ template <typename T> AsyncTask co_real(ReadBuffer<T> in, WriteBuffer<uni20::mak
   co_await out = real(input);
 }
 
+/// \brief Schedules asynchronous real-part extraction.
+/// \tparam T Value type.
+/// \param x Input async value.
+/// \return Async result containing `real(x)`.
 template <typename T> Async<uni20::make_real_t<T>> real(Async<T> const& x)
 {
   Async<uni20::make_real_t<T>> Result;
@@ -87,6 +124,10 @@ template <typename T> Async<uni20::make_real_t<T>> real(Async<T> const& x)
   return Result;
 }
 
+/// \brief Coroutine implementation of imaginary-part extraction over async buffers.
+/// \tparam T Value type.
+/// \param in Input read buffer.
+/// \param out Output write buffer.
 template <typename T> AsyncTask co_imag(ReadBuffer<T> in, WriteBuffer<uni20::make_real_t<T>> out)
 {
   using uni20::imag;
@@ -96,6 +137,10 @@ template <typename T> AsyncTask co_imag(ReadBuffer<T> in, WriteBuffer<uni20::mak
   co_await out = imag(input);
 }
 
+/// \brief Schedules asynchronous imaginary-part extraction.
+/// \tparam T Value type.
+/// \param x Input async value.
+/// \return Async result containing `imag(x)`.
 template <typename T> Async<uni20::make_real_t<T>> imag(Async<T> const& x)
 {
   Async<uni20::make_real_t<T>> Result;
@@ -103,6 +148,10 @@ template <typename T> Async<uni20::make_real_t<T>> imag(Async<T> const& x)
   return Result;
 }
 
+/// \brief Coroutine implementation of Hermitian conjugation over async buffers.
+/// \tparam T Value type.
+/// \param in Input read buffer.
+/// \param out Output write buffer.
 template <typename T> AsyncTask co_herm(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   using uni20::conj;
@@ -112,6 +161,10 @@ template <typename T> AsyncTask co_herm(ReadBuffer<T> in, WriteBuffer<T> out)
   co_await out = herm(input);
 }
 
+/// \brief Schedules asynchronous Hermitian conjugation.
+/// \tparam T Value type.
+/// \param x Input async value.
+/// \return Async result of `herm(x)`.
 template <typename T> Async<T> herm(Async<T> const& x)
 {
   Async<T> Result;
@@ -119,6 +172,10 @@ template <typename T> Async<T> herm(Async<T> const& x)
   return Result;
 }
 
+/// \brief Schedules a formatted print once an async value is ready.
+/// \tparam T Value type.
+/// \param Format `fmt`-style format string.
+/// \param x Async value to print.
 template <typename T> void async_print(std::string Format, Async<T> x)
 {
   schedule([](std::string Format, ReadBuffer<T> in) static->AsyncTask {
@@ -127,6 +184,10 @@ template <typename T> void async_print(std::string Format, Async<T> x)
   }(std::move(Format), x.read()));
 }
 
+/// \brief Schedules reading a value from `std::cin` into an async slot.
+/// \tparam T Value type.
+/// \param Prompt Prompt text printed before reading.
+/// \param x Async destination value.
 template <typename T> void async_read(std::string Prompt, Async<T>& x)
 {
   schedule([](std::string Prompt, WriteBuffer<T> out) static->AsyncTask {

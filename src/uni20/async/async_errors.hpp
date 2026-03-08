@@ -1,6 +1,5 @@
 /// \file async_errors.hpp
 /// \brief Exception hierarchy for async/dataflow operations.
-/// \ingroup async_core
 
 #pragma once
 

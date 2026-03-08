@@ -1,6 +1,5 @@
 /// \file debug_scheduler.hpp
 /// \brief Coroutine scheduler for AsyncTask.
-/// \ingroup async_core
 
 #pragma once
 
@@ -15,7 +14,6 @@ namespace uni20::async
 {
 
 /// \brief Simple FIFO scheduler
-/// \ingroup async_core
 class DebugScheduler final : public IScheduler {
   public:
     /// \brief Default-construct an empty scheduler.
