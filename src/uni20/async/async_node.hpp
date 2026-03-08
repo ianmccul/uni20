@@ -1,4 +1,5 @@
 /// \file async_node.hpp
+/// \brief Debug metadata nodes used for async DAG visualization.
 
 #pragma once
 

@@ -77,18 +77,19 @@ template <typename Awaitable, typename T>
 concept read_write_buffer_awaitable_of =
     read_buffer_awaitable_of<Awaitable, T> && write_buffer_awaitable_of<Awaitable, T>;
 
-/// \Brief an async_reader is satisfied if the .read() member returns an async read buffer
+/// \brief An async_reader is satisfied if `.read()` returns an async read buffer.
 template <typename T>
 concept async_reader = requires(T t)
 {
   requires read_buffer_awaitable<decltype(t.read())>;
 };
 
-/// \Brief returns the write buffer type that results from the write() function applied to an lvalue of AsyncLike
+/// \brief Alias for the write-buffer type produced by `write()` on an lvalue.
 template <typename AsyncLike> using write_buffer_t = decltype(std::declval<AsyncLike&>().write());
+/// \brief Alias for the awaiter type returned by `write_buffer_t::take()`.
 template <typename AsyncLike> using take_awaiter_t = decltype(std::declval<write_buffer_t<AsyncLike>&>().take());
 
-/// \Brief an async_writer is satisfied if .write() returns a buffer supporting emplace(...)
+/// \brief An async_writer is satisfied if `.write()` returns a buffer supporting `emplace(...)`.
 template <typename AsyncLike>
 concept async_writer = requires(AsyncLike t)
 {
@@ -101,6 +102,7 @@ concept async_reader_of = requires
   requires read_buffer_awaitable_of<decltype(std::declval<AsyncLike&>().read()), T>;
 };
 
+/// \brief Concept requiring an async writer that accepts values constructible from `T`.
 template <typename AsyncLike, typename T>
 concept async_writer_to = requires
 {
@@ -126,7 +128,7 @@ concept async_mutable_writer_of = requires
   requires read_buffer_awaitable_of<take_awaiter_t<AsyncLike>, T>;
 };
 
-/// \brief concept for a type that behaves like an asyncronous writer that is also readable:
+/// \brief Concept for a type that behaves like an asynchronous writer that is also readable:
 ///        it has a write() function that returns an awaiter that can be assigned from the nested value_type,
 ///        and also read from
 template <typename T>
@@ -137,7 +139,7 @@ concept async_read_writer = requires(T t)
   requires emplace_buffer_awaitable<decltype(t.write())>;
 };
 
-/// \brief concept for a type that behaves like an asyncronous reader and writer (like Async<T>)
+/// \brief Concept for a type that behaves like an asynchronous reader and writer (like Async<T>).
 template <typename T>
 concept async_like = async_reader<T> && async_writer<T>;
 
@@ -334,6 +336,11 @@ template <typename U, typename T> void async_assign(U&& rhs, WriteBuffer<T> lhs)
   }(std::move(rhs), std::move(lhs)));
 }
 
+/// \brief Assigns an Async or scalar value into an Async destination.
+/// \tparam U Source type (scalar or Async-like).
+/// \tparam T Destination value type.
+/// \param rhs Source expression.
+/// \param lhs Destination async value.
 template <typename U, typename T> void async_assign(U&& rhs, Async<T>& lhs) requires requires
 {
   T{std::declval<async_value_t<U>>()};
@@ -342,6 +349,11 @@ template <typename U, typename T> void async_assign(U&& rhs, Async<T>& lhs) requ
   async_assign(read(std::forward<U>(rhs)), lhs.write());
 }
 
+/// \brief Assigns an Async or scalar value into a write buffer destination.
+/// \tparam U Source type (scalar or Async-like).
+/// \tparam T Destination value type.
+/// \param rhs Source expression.
+/// \param lhs Destination write buffer.
 template <typename U, typename T> void async_assign(U&& rhs, WriteBuffer<T> lhs) requires requires
 {
   T{std::declval<async_value_t<U>>()};
@@ -352,6 +364,11 @@ template <typename U, typename T> void async_assign(U&& rhs, WriteBuffer<T> lhs)
 
 template <typename U, typename T>
 requires async_mutable_writer_of<U, T> && async_movable_to<U, T>
+/// \brief Move-assign from an async writer into a write buffer.
+/// \tparam U Source async-like type.
+/// \tparam T Destination value type.
+/// \param rhs Source expression.
+/// \param lhs Destination write buffer.
 void async_move(U&& rhs, WriteBuffer<T> lhs)
 {
   auto src = std::forward<U>(rhs).write();
@@ -373,6 +390,11 @@ requires(!async_writer<std::remove_cvref_t<U>>) && std::constructible_from<T, U&
   }(std::move(rhs), std::move(lhs)));
 }
 
+/// \brief Move-assign from a source expression into an Async destination.
+/// \tparam U Source type.
+/// \tparam T Destination value type.
+/// \param rhs Source expression.
+/// \param lhs Destination async value.
 template <typename U, typename T> void async_move(U&& rhs, Async<T>& lhs)
 {
   async_move(std::forward<U>(rhs), lhs.write());
@@ -431,6 +453,11 @@ UNI20_DEFINE_ASYNC_COMPOUND_OPERATOR(/=, divides_assign)
 
 // unary operators
 
+/// \brief Negate a source value asynchronously and write into a destination buffer.
+/// \tparam U Source type.
+/// \tparam T Destination value type.
+/// \param rhs Source expression.
+/// \param lhs Destination write buffer.
 template <typename U, typename T> void async_negate(U&& rhs, WriteBuffer<T> lhs) requires read_buffer_awaitable_of<U, T>
 {
   schedule([](auto in_, WriteBuffer<T> out_) static->AsyncTask {
@@ -441,6 +468,10 @@ template <typename U, typename T> void async_negate(U&& rhs, WriteBuffer<T> lhs)
   }(std::move(rhs), std::move(lhs)));
 }
 
+/// \brief Unary negation overload for Async values.
+/// \tparam T Value type.
+/// \param x Source async value.
+/// \return Async value representing `-x`.
 template <typename T> auto operator-(Async<T> const& x) requires requires(T t) { -t; }
 {
   Async<T> result;

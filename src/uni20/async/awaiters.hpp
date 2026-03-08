@@ -94,8 +94,8 @@ template <typename T> struct MapToRefOrValue<T&>
 } // namespace detail
 
 /// \brief Build an awaitable that waits for *all* of the provided awaitables.
-/// @param aw Awaitable arguments.
-/// @return An object supporting `co_await`.
+/// \param aw Awaitable arguments.
+/// \return An object supporting `co_await`.
 template <AsyncTaskAwaitable... Aw>
 requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...)) auto all(Aw&&... aw) noexcept
 {
@@ -142,7 +142,7 @@ template <typename U> decltype(auto) get_awaiter(U&& u) noexcept
 }
 
 /// \brief Awaiter wrapper that returns an optional result.
-/// @tparam Awt Either an awaiter type or a reference to one.
+/// \tparam Awt Either an awaiter type or a reference to one.
 template <typename Awt> struct TryAwaiter
 {
     using Awaiter = std::remove_reference_t<Awt>;
@@ -233,9 +233,13 @@ template <typename Awt> struct TryAwaiter
 /// ```
 ///
 /// \param aw An awaitable (must outlive the coroutine for references).
-/// \returns A TryAwaiter<Aw>
+/// \return A `TryAwaiter` wrapper around the supplied awaitable.
 template <typename Aw> constexpr auto try_await(Aw& aw) noexcept { return TryAwaiter<Aw&>{aw}; }
 
+/// \brief Build a non-blocking awaiter from an rvalue awaitable.
+/// \tparam Aw Awaitable type.
+/// \param aw Awaitable value moved into the try-await wrapper.
+/// \return A `TryAwaiter` that owns the awaitable value.
 template <typename Aw> constexpr auto try_await(Aw&& aw) noexcept
 {
   static_assert(std::is_trivially_move_constructible_v<Aw>, "try_await(x) on prvalues requires T to be safely movable");

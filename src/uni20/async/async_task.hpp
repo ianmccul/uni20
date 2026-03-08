@@ -15,6 +15,7 @@ namespace uni20::async
 
 class IScheduler;
 
+/// \brief Forward declaration for the base async-task promise type.
 class BasicAsyncTaskPromise;
 
 #if 0 // an experiment
@@ -27,8 +28,8 @@ class AsyncAwaiter {
 
 class BasicAsyncTaskPromise;
 
-// We require the BasicAsyncTask promise type to inherit from BasicAsyncTaskPromise,
-// so that it is layout-compatible for type-safe upcasts
+/// \brief Promise concept accepted by `BasicAsyncTask`.
+/// \details Requires inheritance from `BasicAsyncTaskPromise`.
 template <typename T>
 concept IsAsyncTaskPromise = std::derived_from<T, BasicAsyncTaskPromise>;
 
@@ -41,7 +42,9 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \brief Release the coroutine if this object owns the final reference.
     ~BasicAsyncTask() noexcept;
 
-    /// \brief Drop the reference to the coroutine handle, destroying it if we are the least reference
+    /// \brief Reports whether a coroutine handle can be destroyed safely.
+    /// \param h Candidate coroutine handle.
+    /// \return `true` when destruction is safe.
   private:
     [[nodiscard]] bool can_destroy_coroutine(handle_type h) const noexcept;
 
@@ -93,6 +96,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     void destroy() noexcept;
 
     /// \brief Attempt to set the coroutine scheduler to use when rescheduling the task.
+    /// \param sched Scheduler pointer to install on the promise.
     /// \return true if the handle is non-null (in which case the scheduler has been set).
     bool set_scheduler(IScheduler* sched);
 
@@ -117,7 +121,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     ///
     /// This operation checks the awaiter count. If this is the last owner,
     /// then return the task unchanged. Otherwise, releases the task and leaves
-    /// it requivalent to a moved-from state.
+    /// it equivalent to a moved-from state.
     ///
     /// \return The original task if it had exclusive ownership; otherwise a null task.
     static BasicAsyncTask make_sole_owner(BasicAsyncTask&& task);
@@ -218,6 +222,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     friend struct AsyncTaskTestAccess;
 };
 
+/// \brief Canonical async coroutine task type used throughout the async subsystem.
 using AsyncTask = BasicAsyncTask<BasicAsyncTaskPromise>;
 
 } // namespace uni20::async

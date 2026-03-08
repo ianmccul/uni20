@@ -33,7 +33,7 @@ void propagate_unhandled_writer_exception(EpochContext* epoch, std::exception_pt
 /// \brief Concept for the valid return types of await_suspend.
 /// \details
 /// An awaiter may return void, or it can return an AsyncTask, which means that
-/// executation of the current coroutine should be transferred to the new task,
+/// execution of the current coroutine should be transferred to the new task,
 /// resuming the coroutine only after the new task is complete.
 /// If an AsyncTask is returned, it must have exclusive ownership, otherwise the
 /// task cannot be scheduled
@@ -164,6 +164,9 @@ struct BasicAsyncTaskPromise
     //   return awaiter_has_error_.load(std::memory_order_acquire) ? nullptr : eptr_;
     // }
 
+    /// \brief Construct the promise and process coroutine arguments for debug metadata.
+    /// \tparam Args Coroutine argument types.
+    /// \param args Coroutine arguments forwarded for `ProcessCoroutineArgument`.
     template <typename... Args> BasicAsyncTaskPromise(Args&&... args)
     {
       // For each parameter, detect ReadBuffer / WriteBuffer
@@ -203,6 +206,8 @@ struct BasicAsyncTaskPromise
     /// \return The value of the counter prior to the increment.
     int add_awaiter(int count) noexcept { return awaiter_count_.fetch_add(count, std::memory_order_relaxed); }
 
+    /// \brief Record an exception for deferred rethrow on resume.
+    /// \param e Exception pointer to record.
     void set_exception(std::exception_ptr e) noexcept
     {
       if (!exception_.exchange(true, std::memory_order_acq_rel))
@@ -273,8 +278,11 @@ struct BasicAsyncTaskPromise
       if (exception_.load(std::memory_order_acquire)) std::rethrow_exception(eptr_);
     }
 
+    /// \brief Mark the coroutine for cancellation at next resume.
     void set_cancel_on_resume() noexcept { cancel_on_resume_.store(true, std::memory_order_release); }
 
+    /// \brief Reports whether cancellation-on-resume is currently set.
+    /// \return `true` when cancellation is requested.
     bool is_cancel_on_resume() const noexcept { return cancel_on_resume_.load(std::memory_order_acquire); }
 
     /// \brief Transform the awaiter to provide transfer of ownership of the AsyncTask
@@ -285,18 +293,27 @@ struct BasicAsyncTaskPromise
     template <AsyncTaskFactoryAwaitable A> auto await_transform(A& a);
     template <AsyncTaskFactoryAwaitable A> auto await_transform(A&& a);
 
-    // Pass-through for AsyncTask itself
+    /// \brief Pass-through await_transform overload for lvalue AsyncTask objects.
+    /// \tparam Promise Promise type carried by the task.
+    /// \param t Task being awaited.
+    /// \return Unmodified lvalue reference.
     template <IsAsyncTaskPromise Promise> BasicAsyncTask<Promise>& await_transform(BasicAsyncTask<Promise>& t) noexcept
     {
       return t;
     }
 
+    /// \brief Pass-through await_transform overload for rvalue AsyncTask objects.
+    /// \tparam Promise Promise type carried by the task.
+    /// \param t Task being awaited.
+    /// \return Forwarded rvalue reference.
     template <IsAsyncTaskPromise Promise>
     BasicAsyncTask<Promise>&& await_transform(BasicAsyncTask<Promise>&& t) noexcept
     {
       return std::move(t);
     }
 
+    /// \brief Fallback await_transform overload that rejects unsupported awaitables.
+    /// \tparam T Unsupported awaitable type.
     template <typename T> auto await_transform(T&&)
     {
       static_assert(
@@ -538,7 +555,9 @@ class AsyncTaskFactory {
         : handle_(std::exchange(other.handle_, {})), count_(std::exchange(other.count_, 0))
     {}
 
-    // Move assignment
+    /// \brief Move assignment.
+    /// \param other Source factory.
+    /// \return Reference to `*this`.
     AsyncTaskFactory& operator=(AsyncTaskFactory&& other) noexcept
     {
       if (this != &other)
@@ -660,13 +679,20 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
     A awaitable;
     AsyncTask::promise_type& promise;
 
+    /// \brief Checks whether the wrapped awaitable is ready.
+    /// \return `true` when no suspension is needed.
     bool await_ready() { return awaitable.await_ready(); }
 
+    /// \brief Suspend using AsyncTask ownership-transfer semantics.
+    /// \param h Current coroutine handle.
+    /// \return Transfer handle selected by suspend logic.
     auto await_suspend(std::coroutine_handle<AsyncTask::promise_type> h)
     {
       return AsyncTask::promise_type::suspend_task_awaitable(h, awaitable);
     }
 
+    /// \brief Resume wrapped awaitable and register explicit exception sinks if provided.
+    /// \return Result produced by the wrapped awaitable.
     decltype(auto) await_resume()
     {
       if constexpr (requires { awaitable.register_exception_sinks(promise); })
@@ -702,21 +728,35 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
     // void set_exception(std::exception_ptr e) override final { awaitable.set_exception(e); }
 };
 
-// Process an argument of the coroutine.  By default we do nothing
-template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, T const&) {}
+/// \brief Process a coroutine argument for debug metadata (default no-op).
+/// \tparam T Argument type.
+/// \param promise Promise receiving metadata.
+/// \param value Argument ignored by default.
+template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, T const& value)
+{
+  static_cast<void>(promise);
+  static_cast<void>(value);
+}
 
 template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public AsyncAwaiter
 {
     A awaitable;
     AsyncTask::promise_type& promise;
 
+    /// \brief Checks whether the wrapped awaitable is ready.
+    /// \return `true` when no suspension is needed.
     bool await_ready() { return awaitable.await_ready(); }
 
+    /// \brief Suspend using shared-ownership await-suspend semantics.
+    /// \param h Current coroutine handle.
+    /// \return Transfer handle selected by suspend logic.
     auto await_suspend(std::coroutine_handle<AsyncTask::promise_type> h)
     {
       return AsyncTask::promise_type::suspend_factory_awaitable(h, awaitable);
     }
 
+    /// \brief Resume wrapped awaitable and return its await result.
+    /// \return Result produced by the wrapped awaitable.
     decltype(auto) await_resume() { return awaitable.await_resume(); }
 
     // void set_cancel() override final { awaitable.set_cancel(); }

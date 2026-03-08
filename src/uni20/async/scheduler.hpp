@@ -26,7 +26,7 @@ class IScheduler {
     /// Tasks can still be scheduled, but they will not start running until resume() is called
     virtual void pause() = 0;
 
-    /// \brief Resume the scheduler.  Tasks cheduled while paused can start running, as can
+    /// \brief Resume the scheduler.  Tasks scheduled while paused can start running, as can
     /// newly scheduled tasks.
     virtual void resume() = 0;
 

@@ -73,6 +73,7 @@ template <typename T> class Async {
     }
 
     /// \brief Initializes async state without constructing the stored value or starting the queue.
+    /// \param tag Sentinel tag selecting non-starting construction.
     Async(async_do_not_start_t tag) : storage_(make_unconstructed_shared_storage<T>()), queue_() {}
 
     /// \brief Construct from a value convertible to T.
@@ -121,7 +122,7 @@ template <typename T> class Async {
     /// \tparam Args Additional argument types forwarded to `T`'s constructor.
     /// \param init Initializer list forwarded to `T`.
     /// \param args Additional arguments forwarded to `T`.
-    /// \note This mirrors similar constuctors where std::in_place is used.
+    /// \note This mirrors similar constructors where std::in_place is used.
     template <typename U, typename... Args>
     requires std::constructible_from < T, std::initializer_list<U>
     &,
@@ -263,7 +264,7 @@ template <typename T> class Async {
     /// \return A ReadBuffer<T> which may be co_awaited.
     ReadBuffer<T> read() const { return ReadBuffer<T>(queue_.create_read_context(storage_)); }
 
-    /// \brief Begin an asyncronous write of the value
+    /// \brief Begin an asynchronous write of the value.
     /// \return A WriteBuffer<T> which may be co_awaited.
     WriteBuffer<T> write() { return WriteBuffer<T>(queue_.create_write_context(storage_)); }
 
@@ -327,6 +328,8 @@ template <typename T> class Async {
     /// epoch transitions and task lifetime semantics valid.
     /// \return Shared access to the epoch queue implementation.
     EpochQueue const& queue() const { return queue_; }
+    /// \brief Access the shared storage control block.
+    /// \return Shared storage object for the contained value.
     shared_storage<T> const& storage() const { return storage_; }
 
     /// \brief Access the stored value pointer with shared ownership semantics.
@@ -341,12 +344,18 @@ template <typename T> class Async {
     }
 
   private:
+    /// \brief Returns the raw stored pointer when available.
+    /// \return Pointer to the stored value, or `nullptr` if unconstructed.
+    /// \throws async_storage_missing when storage metadata is unavailable.
     T* try_get_value() const
     {
       if (!storage_.valid()) throw async_storage_missing{};
       return storage_.get();
     }
 
+    /// \brief Returns the stored pointer and enforces constructed-value presence.
+    /// \return Pointer to the constructed value.
+    /// \throws async_value_uninitialized when the value is not yet constructed.
     T* require_value() const
     {
       if (auto* ptr = try_get_value()) return ptr;

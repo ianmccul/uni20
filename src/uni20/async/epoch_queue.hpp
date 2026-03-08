@@ -17,10 +17,16 @@ namespace uni20::async
 /// \brief Coordinates multiple epochs of read/write gates.
 class EpochQueue {
   public:
+    /// \brief Construct a queue with one initial epoch.
     EpochQueue() : current_(std::make_shared<EpochContext>()) { TRACE_MODULE(ASYNC, "EpochQueue Constructor", this); }
 
+    /// \brief Destroy the epoch queue.
     ~EpochQueue() { TRACE_MODULE(ASYNC, "EpochQueue Destructor", this); }
 
+    /// \brief Create a read context bound to the current epoch.
+    /// \tparam T Stored value type.
+    /// \param storage Shared value storage.
+    /// \return Reader handle for the current epoch.
     template <typename T> EpochContextReader<T> create_read_context(shared_storage<T> storage) const
     {
       TRACE_MODULE(ASYNC, "EpochQueue::create_read_context", this);
@@ -28,6 +34,10 @@ class EpochQueue {
       return EpochContextReader<T>(storage, current_);
     }
 
+    /// \brief Create a write context, advancing to a new epoch when needed.
+    /// \tparam T Stored value type.
+    /// \param storage Shared value storage.
+    /// \return Writer handle for the selected epoch.
     template <typename T> EpochContextWriter<T> create_write_context(shared_storage<T> storage)
     {
       TRACE_MODULE(ASYNC, "EpochQueue::create_write_context", this);
@@ -40,8 +50,12 @@ class EpochQueue {
       return EpochContextWriter<T>(storage, current_);
     }
 
+    /// \brief Returns the latest epoch context.
+    /// \return Shared pointer to the current epoch.
     std::shared_ptr<EpochContext> latest() const noexcept { return current_; }
 
+    /// \brief Reports whether the latest epoch already has a writer.
+    /// \return `true` when a writer is pending in the current epoch.
     bool has_pending_writers() const noexcept { return current_ && current_->has_writer(); }
 
   private:
@@ -51,20 +65,26 @@ class EpochQueue {
 // FIXME: we can probably fix the oddities with the ordering of getting the buffers by
 // pre-constructing the WriteBuffer.
 // If the first epoch goes away then we cancel() it
+/// \brief Reverse-order epoch queue used by reverse-mode gradient accumulation.
 class ReverseEpochQueue {
   public:
+    /// \brief Construct a reverse queue with one initial epoch.
     ReverseEpochQueue() : first_(std::make_shared<EpochContext>())
     {
       TRACE("Constructing ReverseEpochQueue EpochContext", first_.get());
     }
 
-    // move-only
+    /// \brief Non-copyable.
     ReverseEpochQueue(ReverseEpochQueue&) = delete;
+    /// \brief Non-copyable.
     ReverseEpochQueue& operator=(ReverseEpochQueue&) = delete;
 
+    /// \brief Move constructor.
     ReverseEpochQueue(ReverseEpochQueue&&) = default;
+    /// \brief Move assignment.
     ReverseEpochQueue& operator=(ReverseEpochQueue&&) = default;
 
+    /// \brief Destructor.
     ~ReverseEpochQueue() = default;
 
     /// \brief Construct a ReverseEpochQueue from a given EpochContext.
@@ -74,6 +94,10 @@ class ReverseEpochQueue {
       DEBUG_CHECK(!first_->has_writer());
     }
 
+    /// \brief Create a read context from the earliest active reverse epoch.
+    /// \tparam T Stored value type.
+    /// \param storage Shared value storage.
+    /// \return Reader handle for reverse traversal.
     template <typename T> EpochContextReader<T> create_read_context(shared_storage<T> storage)
     {
       TRACE_MODULE(ASYNC, "ReverseEpochQueue::create_read_context", this);
@@ -82,6 +106,10 @@ class ReverseEpochQueue {
       return EpochContextReader<T>(storage, first_);
     }
 
+    /// \brief Create a write context from the earliest active reverse epoch.
+    /// \tparam T Stored value type.
+    /// \param storage Shared value storage.
+    /// \return Writer handle for reverse traversal.
     template <typename T> EpochContextWriter<T> create_write_context(shared_storage<T> storage)
     {
       TRACE_MODULE(ASYNC, "ReverseEpochQueue::create_write_context", this);
@@ -91,7 +119,8 @@ class ReverseEpochQueue {
       return EpochContextWriter<T>(storage, first_);
     }
 
-    /// Start running the queue. After it starts, we can no longer access the queue
+    /// \brief Start running the reverse queue.
+    /// \details After start, the initial epoch is consumed and cannot be accessed again.
     void start()
     {
       DEBUG_CHECK(first_);
@@ -106,7 +135,8 @@ class ReverseEpochQueue {
       first_.reset();
     }
 
-    /// Returns true if the queue has been started.  In that case we can no longer access the initial epoch.
+    /// \brief Reports whether the reverse queue has already started.
+    /// \return `true` once `start()` has consumed the initial epoch.
     bool is_started() const { return !first_; }
 
   private:

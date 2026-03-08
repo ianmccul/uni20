@@ -30,6 +30,7 @@ class DebugScheduler final : public IScheduler {
       }
     }
 
+    /// \brief Destructor.
     ~DebugScheduler()
     {
       TRACE_MODULE(ASYNC, "~DebugScheduler", Handles_.size());
@@ -44,6 +45,8 @@ class DebugScheduler final : public IScheduler {
       }
     }
 
+    /// \brief Reports whether at least one runnable task exists.
+    /// \return `true` when the scheduler is not paused and has queued tasks.
     bool can_run() const noexcept { return !Blocked_ && !Handles_.empty(); }
 
     /// \brief Run one batch of scheduled coroutines (in LIFO order).
@@ -59,6 +62,8 @@ class DebugScheduler final : public IScheduler {
     /// \brief Unblock the scheduler
     void resume() override { Blocked_ = false; }
 
+    /// \brief Drives one runnable task while waiting for readiness.
+    /// \param is_ready Predicate that reports target readiness.
     void help_while_waiting(const WaitPredicate& is_ready) override
     {
       if (is_ready())
@@ -94,32 +99,48 @@ class DebugScheduler final : public IScheduler {
 
 namespace detail
 {
+/// \brief Process-wide default debug scheduler instance.
 inline DebugScheduler DefaultScheduler;
+/// \brief Global scheduler pointer used by free `schedule(...)` helpers.
 inline IScheduler* global_scheduler = &DefaultScheduler;
 } // namespace detail
 
+/// \brief Sets the process-wide scheduler used by async helpers.
+/// \param sched Scheduler pointer to install.
 inline void set_global_scheduler(IScheduler* sched) { detail::global_scheduler = sched; }
 
+/// \brief Returns the currently-installed process-wide scheduler.
+/// \return Pointer to the active scheduler.
 inline IScheduler* get_global_scheduler() { return detail::global_scheduler; }
 
+/// \brief Restores the process-wide scheduler to the default debug scheduler.
 inline void reset_global_scheduler() { detail::global_scheduler = &detail::DefaultScheduler; }
 
 // ScopedScheduler is useful for testing; set the scheduler for the lifetime of a block
+/// \brief RAII helper that temporarily overrides the global scheduler.
 class ScopedScheduler {
   public:
+    /// \brief Install a temporary global scheduler until destruction.
+    /// \param sched Scheduler pointer to activate.
     explicit ScopedScheduler(IScheduler* sched)
     {
       old_ = get_global_scheduler();
       set_global_scheduler(sched);
     }
+    /// \brief Restore the previous global scheduler.
     ~ScopedScheduler() { set_global_scheduler(old_); }
 
   private:
     IScheduler* old_;
 };
 
+/// \brief Schedule a task on the currently configured global scheduler.
+/// \param task Task to schedule.
 inline void schedule(AsyncTask&& task) { get_global_scheduler()->schedule(std::move(task)); }
 
+/// \brief Wait for a reader context using the global scheduler.
+/// \tparam T Stored value type.
+/// \return Reference to the ready value.
 template <typename T> T const& EpochContextReader<T>::get_wait() const
 {
   auto* sched = get_global_scheduler();
@@ -131,6 +152,10 @@ template <typename T> T const& EpochContextReader<T>::get_wait() const
   return this->data();
 }
 
+/// \brief Wait for a reader context using an explicit scheduler.
+/// \tparam T Stored value type.
+/// \param sched Scheduler used to drive progress.
+/// \return Reference to the ready value.
 template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched) const
 {
   if (!this->ready())
@@ -140,6 +165,9 @@ template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched
   return this->data();
 }
 
+/// \brief Wait for a writer context and move out the stored value.
+/// \tparam T Stored value type.
+/// \return Moved value from writer storage.
 template <typename T> T&& EpochContextWriter<T>::move_from_wait()
 {
   auto* sched = get_global_scheduler();

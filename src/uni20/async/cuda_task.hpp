@@ -1,5 +1,5 @@
-/// \file async_task.hpp
-/// \brief Defines CudaTask, the fire-and-forget coroutine handle.
+/// \file cuda_task.hpp
+/// \brief Defines CudaTask, a CUDA-oriented fire-and-forget coroutine handle.
 
 #pragma once
 
@@ -9,7 +9,7 @@
 namespace uni20::async
 {
 
-/// \brief Promise type for CudaTask, forward declare
+/// \brief Promise type for CudaTask.
 struct CudaTaskPromise : public AsyncTaskPromise
 {
     // CUDA-specific data here
