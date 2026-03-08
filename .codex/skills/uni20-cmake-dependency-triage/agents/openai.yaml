@@ -1,0 +1,4 @@
+interface:
+  display_name: "Uni20 CMake Dependency Triage"
+  short_description: "Diagnose/fix CMake dependency detection issues"
+  default_prompt: "Triage and fix the current Uni20 CMake dependency detection failure."

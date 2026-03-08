@@ -1,0 +1,4 @@
+interface:
+  display_name: "Uni20 Doxygen Audit"
+  short_description: "Enforce AGENTS.md Doxygen policy"
+  default_prompt: "Audit and fix Doxygen comments in the changed Uni20 files."

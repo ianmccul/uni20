@@ -1,0 +1,4 @@
+interface:
+  display_name: "Uni20 Doc Sync"
+  short_description: "Align docs with current code and APIs"
+  default_prompt: "Sync Uni20 docs with the current code changes and flag stale pages."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Uni20 Build Matrix"
+  short_description: "Run machine-agnostic Uni20 build/test matrix"
+  default_prompt: "Run a compact Uni20 build matrix on this machine and report failures by cell."

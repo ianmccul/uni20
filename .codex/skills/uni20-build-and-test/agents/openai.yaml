@@ -1,0 +1,4 @@
+interface:
+  display_name: "Uni20 Build and Test"
+  short_description: "Run reproducible Uni20 builds/tests (machine-agnostic)"
+  default_prompt: "Configure, build, and test Uni20 using build_codex conventions."
