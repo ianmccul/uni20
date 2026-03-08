@@ -14,19 +14,19 @@ template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, R
   auto a = co_await a_.maybe();
   if (a)
   {
-    auto tmp = std::move(*a);
+    auto value = std::move(*a);
     a_.release();
     auto b = co_await b_.maybe();
-    if (b) tmp += *b;
+    if (b) value += *b;
     b_.release();
-    co_await out_ = std::move(tmp);
+    co_await out_ = std::move(value);
   }
   else
   {
     a_.release();
     auto b = co_await b_.or_cancel();
     b_.release();
-    co_await out_ = std::move(b);
+    co_await out_ += std::move(b);
   }
   co_return;
 }
@@ -39,19 +39,19 @@ AsyncTask async_accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer
   auto a = co_await a_.maybe();
   if (a)
   {
-    auto tmp = std::move(*a);
+    auto value = std::move(*a);
     a_.release();
     auto b = co_await b_.maybe();
-    if (b) tmp -= *b;
+    if (b) value -= *b;
     b_.release();
-    co_await out_ = std::move(tmp);
+    co_await out_ = std::move(value);
   }
   else
   {
     a_.release();
     auto b = co_await b_.or_cancel();
     b_.release();
-    co_await out_ = -std::move(b);
+    co_await out_ -= std::move(b);
   }
   co_return;
 }

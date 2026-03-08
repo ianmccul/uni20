@@ -1,11 +1,11 @@
 #pragma once
 
 #include "async.hpp"
-#include <uni20/core/math.hpp>
 #include "scheduler.hpp"
 #include <cmath>
 #include <fmt/format.h>
 #include <iostream>
+#include <uni20/core/math.hpp>
 
 namespace uni20::async
 {
@@ -13,9 +13,23 @@ namespace uni20::async
 template <typename T> AsyncTask co_sin(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   using std::sin;
-  // use release() to make sure we release the input before writing to the output
-  // C+17 guarantees order of evaluation
-  co_await out = sin(co_await release(in));
+  // The owning proxy from `co_await std::move(in)` transfers ownership of the buffer into the proxy.
+  // `get_release()` reads and explicitly releases the buffer before we
+  // begin write-buffer acquisition. This ordering matters because it is possible that
+  // there are data dependencies that mean that we cannot get the WriteBuffer until after the Read
+  // has finished.  For example consider
+  // Async<double> x = 1.0;
+  // auto rbuf = x.read();
+  // x *= 2;
+  // auto wbuf = x.write();
+  // schedule(co_sin(std::move(rbuf), std::move(wbuf)));
+  auto const input = (co_await std::move(in)).get_release();
+  co_await out = sin(input);
+
+  // NOTE: the one-liner should work here but gcc-13 gives a compiler error
+  // "insufficient contextual information to determine type"
+  // This is a compiler limitation that works in gcc-15
+  // co_await out = sin((co_await std::move(in)).get_release());
 }
 
 template <typename T> Async<T> sin(Async<T> const& x)

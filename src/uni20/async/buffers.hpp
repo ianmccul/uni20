@@ -17,6 +17,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
@@ -29,15 +30,17 @@ template <typename T> class Async;
 
 template <typename T> class ReadMaybeAwaiter;
 template <typename T> class ReadOrCancelAwaiter;
+template <typename T> class OwningReadAccessProxy;
+template <typename T> class OwningReadAwaiter;
 
 /// \brief RAII handle for reading the value from an Async container at a given epoch.
 ///
 /// A ReadBuffer<T> represents a read-only access to the value of an Async<T>
-/// at a specific epoch. It is awaitable, and yields either a reference or value
-/// depending on value category:
+/// at a specific epoch. It is awaitable, and yields either a borrowed reference
+/// or an owning proxy depending on value category:
 ///
 /// - `co_await buf` yields `T const&`: shared read access.
-/// - `co_await std::move(buf)` yields `T` by value and releases the reader gate. This currently copies `T`.
+/// - `co_await std::move(buf)` yields an owning proxy that keeps the read epoch alive.
 ///
 /// \note The `std::move(buf)` form is recommended when the buffer will be consumed
 ///       immediately, such as when assigning to a local variable.
@@ -83,8 +86,8 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     NodeInfo const* node() const { return reader_.node(); }
 #endif
 
-    /// \brief Returns a `ReadMaybeAwaiter`, that returns an std::optional (or optional-like) object
-    /// that is empty if the buffer is in a cancelled state.
+    /// \brief Returns a `ReadMaybeAwaiter`.
+    /// \details Lvalue reads return `T const*`; moved reads return `std::optional<OwningReadAccessProxy<T>>`.
     ReadMaybeAwaiter<T const&> maybe() &;
 
     ReadMaybeAwaiter<T> maybe() &&;
@@ -109,15 +112,8 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     /// \return Reference to the stored T inside Async<T>.
     T const& await_resume() const& { return reader_.data(); }
 
-    /// \brief Resume execution and return a copy of the stored value.
-    /// \note Called when co_awaiting on a prvalue ReadBuffer.
-    T await_resume() &&
-    {
-      static_assert(std::is_copy_constructible_v<T>, "Cannot co_await prvalue ReadBuffer<T> unless T is copyable");
-      T result{reader_.data()};
-      reader_.release();
-      return result;
-    }
+    /// \brief Resume execution and return an owning read proxy.
+    OwningReadAccessProxy<T> await_resume() &&;
 
     /// \brief Manually release the epoch reader before awaitable destruction.
     ///
@@ -133,15 +129,12 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
 
     T const& get_wait(IScheduler& sched) const { return reader_.get_wait(sched); }
 
-    /// \brief Enable co_await on lvalue ReadBuffer only.
-    ///
-    /// Prevents unsafe use on temporaries by deleting rvalue overload.
+    /// \brief Enable co_await on lvalue ReadBuffer and return a borrowed reference.
     auto operator co_await() & noexcept -> ReadBuffer& { return *this; }
     auto operator co_await() const& noexcept -> ReadBuffer const& { return *this; }
 
-    /// \brief Enable co_await on rvalue ReadBuffer. Returns by value.
-    /// \note This avoids dangling reference when co_awaiting on a temporary.
-    auto operator co_await() && noexcept -> ReadBuffer&& { return std::move(*this); }
+    /// \brief Enable co_await on rvalue ReadBuffer and transfer ownership to an owning read proxy.
+    auto operator co_await() && noexcept -> OwningReadAwaiter<T> { return OwningReadAwaiter<T>(std::move(reader_)); }
 
     std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return reader_.epoch_context_shared(); }
 
@@ -180,15 +173,81 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     mutable BasicAsyncTaskPromise::ExceptionSinkNode exception_sink_{};
 };
 
-/// \brief adaptor for forcing return by value and release of the buffer.  This is actually
-///        a synoym for std::move
+/// \brief Adaptor for transferring ReadBuffer ownership into an await expression.
+/// \details This is a synonym for `std::move`.
 template <typename T> ReadBuffer<T>&& release(ReadBuffer<T>& in) { return std::move(in); }
 
 template <typename T> ReadBuffer<T>&& release(ReadBuffer<T>&& in) { return std::move(in); }
 
+/// \brief Owning proxy returned by `co_await std::move(read_buffer)`.
+/// \details This keeps the read epoch alive until the proxy is released or destroyed.
+template <typename T> class OwningReadAccessProxy {
+  public:
+    using value_type = T;
+
+    OwningReadAccessProxy() = delete;
+    OwningReadAccessProxy(OwningReadAccessProxy const&) = delete;
+    OwningReadAccessProxy& operator=(OwningReadAccessProxy const&) = delete;
+    OwningReadAccessProxy(OwningReadAccessProxy&&) noexcept = default;
+    OwningReadAccessProxy& operator=(OwningReadAccessProxy&&) noexcept = delete;
+
+    T const& get() const { return this->reader_.data(); }
+
+    operator T const&() const { return this->get(); }
+
+    T const* operator->() const { return std::addressof(this->get()); }
+
+    /// \brief Copy the value and release the read epoch in one call.
+    /// \return A copy of the buffered value.
+    T get_release()
+    {
+      T value = this->get();
+      this->release();
+      return value;
+    }
+
+    void release() noexcept { this->reader_.release(); }
+
+  private:
+    explicit OwningReadAccessProxy(EpochContextReader<T>&& reader) : reader_(std::move(reader)) {}
+
+    friend class ReadBuffer<T>;
+    friend class OwningReadAwaiter<T>;
+    friend class ReadMaybeAwaiter<T>;
+    friend class ReadOrCancelAwaiter<T>;
+
+    EpochContextReader<T> reader_;
+};
+
+/// \brief Awaiter that transfers a read handle into an owning read proxy.
+template <typename T> class OwningReadAwaiter {
+  public:
+    using value_type = T;
+
+    explicit OwningReadAwaiter(EpochContextReader<T>&& reader) : reader_(std::move(reader)) {}
+
+    bool await_ready() const noexcept { return this->reader_.ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "OwningReadAwaiter::await_suspend()", this, t.h_);
+      this->reader_.suspend(std::move(t), false);
+    }
+
+    OwningReadAccessProxy<T> await_resume() { return OwningReadAccessProxy<T>(std::move(this->reader_)); }
+
+  private:
+    EpochContextReader<T> reader_;
+};
+
+template <typename T> OwningReadAccessProxy<T> ReadBuffer<T>::await_resume() &&
+{
+  return OwningReadAccessProxy<T>(std::move(reader_));
+}
+
 template <typename T> class ReadMaybeAwaiter {
   public:
-    using value_type = std::optional<T>;
+    using value_type = std::optional<OwningReadAccessProxy<T>>;
 
     ReadMaybeAwaiter(ReadMaybeAwaiter&&) = default; // movable
 
@@ -201,12 +260,19 @@ template <typename T> class ReadMaybeAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      reader_.suspend(std::move(t));
+      this->reader_.suspend(std::move(t), false);
     }
 
-    /// \brief Resume execution and return a copy of the stored value.
-    /// \note Called when co_awaiting on a prvalue ReadBuffer.
-    value_type await_resume() { return reader_.data_option(); }
+    /// \brief Resume execution and return an optional owning read proxy.
+    value_type await_resume()
+    {
+      if (this->reader_.data_maybe() == nullptr)
+      {
+        this->reader_.release();
+        return std::nullopt;
+      }
+      return value_type(OwningReadAccessProxy<T>(std::move(this->reader_)));
+    }
 
   private:
     ReadMaybeAwaiter() = delete;
@@ -214,11 +280,11 @@ template <typename T> class ReadMaybeAwaiter {
     ReadMaybeAwaiter& operator=(ReadMaybeAwaiter const&) = delete;
     ReadMaybeAwaiter& operator=(ReadMaybeAwaiter&&) = delete;
 
-    ReadMaybeAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+    ReadMaybeAwaiter(EpochContextReader<T>&& reader) : reader_(std::move(reader)) {}
 
     friend ReadBuffer<T>;
 
-    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+    EpochContextReader<T> reader_; ///< RAII object managing epoch state.
 };
 
 template <typename T> class ReadMaybeAwaiter<T const&> {
@@ -257,7 +323,7 @@ template <typename T> class ReadMaybeAwaiter<T const&> {
 
 template <typename T> class ReadOrCancelAwaiter {
   public:
-    using value_type = T;
+    using value_type = OwningReadAccessProxy<T>;
 
     ReadOrCancelAwaiter(ReadOrCancelAwaiter&&) = default; // movable
 
@@ -271,15 +337,19 @@ template <typename T> class ReadOrCancelAwaiter {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
+    void await_suspend(AsyncTask&& t) noexcept { this->reader_.suspend(std::move(t), true); }
 
-    /// \brief Resume execution and return a copy of the stored value.
-    /// \note Called when co_awaiting on a prvalue ReadBuffer.
-    T await_resume()
+    /// \brief Resume execution and return an owning read proxy.
+    /// \throws task_cancelled when the read source was cancelled.
+    value_type await_resume()
     {
-      T* ptr = reader_.data_maybe();
-      if (!ptr) throw task_cancelled();
-      return *ptr;
+      T const* ptr = this->reader_.data_maybe();
+      if (ptr == nullptr)
+      {
+        this->reader_.release();
+        throw task_cancelled();
+      }
+      return value_type(std::move(this->reader_));
     }
 
   private:
@@ -288,11 +358,11 @@ template <typename T> class ReadOrCancelAwaiter {
     ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter const&) = delete;
     ReadOrCancelAwaiter& operator=(ReadOrCancelAwaiter&&) = delete;
 
-    ReadOrCancelAwaiter(EpochContextReader<T>& reader) : reader_(reader) {}
+    ReadOrCancelAwaiter(EpochContextReader<T>&& reader) : reader_(std::move(reader)) {}
 
     friend ReadBuffer<T>;
 
-    EpochContextReader<T>& reader_; ///< RAII object managing epoch state.
+    EpochContextReader<T> reader_; ///< RAII object managing epoch state.
 };
 
 template <typename T> class ReadOrCancelAwaiter<T const&> {
@@ -313,7 +383,7 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
     /// \param t Coroutine task to enqueue.
     void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
 
-    /// \brief Resume execution and return a copy of the stored value.
+    /// \brief Resume execution and return a borrowed reference to the stored value.
     T const& await_resume()
     {
       T const* ptr = reader_.data_maybe();
@@ -339,19 +409,21 @@ template <typename T> ReadMaybeAwaiter<T const&> ReadBuffer<T>::maybe() &
   return ReadMaybeAwaiter<T const&>(reader_);
 }
 
-template <typename T> ReadMaybeAwaiter<T> ReadBuffer<T>::maybe() && { return ReadMaybeAwaiter<T>(reader_); }
+template <typename T> ReadMaybeAwaiter<T> ReadBuffer<T>::maybe() && { return ReadMaybeAwaiter<T>(std::move(reader_)); }
 
 template <typename T> ReadOrCancelAwaiter<T const&> ReadBuffer<T>::or_cancel() &
 {
   return ReadOrCancelAwaiter<T const&>(reader_);
 }
 
-template <typename T> ReadOrCancelAwaiter<T> ReadBuffer<T>::or_cancel() && { return ReadOrCancelAwaiter<T>(reader_); }
+template <typename T> ReadOrCancelAwaiter<T> ReadBuffer<T>::or_cancel() && { return ReadOrCancelAwaiter<T>(std::move(reader_)); }
 
 // Forward declaration of the proxy used for deferred writes
 template <typename T> class WriteAccessProxy;
 template <typename T> class OwningWriteAccessProxy;
 template <typename T> class OwningWriteAwaiter;
+template <typename T> class OwningStorageAccessProxy;
+template <typename T> class OwningStorageAwaiter;
 template <typename T> class WriteAssignProxy;
 
 #if UNI20_DEBUG_ASYNC_TASKS
@@ -407,6 +479,61 @@ template <typename T> class TakeAwaiter {
 
   private:
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
+};
+
+template <typename T> class OwningStorageAccessProxy {
+  public:
+    using value_type = shared_storage<T>;
+
+    OwningStorageAccessProxy() = delete;
+    OwningStorageAccessProxy(OwningStorageAccessProxy const&) = delete;
+    OwningStorageAccessProxy& operator=(OwningStorageAccessProxy const&) = delete;
+    OwningStorageAccessProxy(OwningStorageAccessProxy&&) noexcept = default;
+    OwningStorageAccessProxy& operator=(OwningStorageAccessProxy&&) noexcept = delete;
+
+    shared_storage<T>& get() { return writer_.storage(); }
+    shared_storage<T> const& get() const { return writer_.storage(); }
+
+    operator shared_storage<T>&() { return this->get(); }
+    operator shared_storage<T> const&() const { return this->get(); }
+
+    shared_storage<T>* operator->() { return std::addressof(this->get()); }
+    shared_storage<T> const* operator->() const { return std::addressof(this->get()); }
+
+    void release() noexcept { writer_.release(); }
+
+  private:
+    explicit OwningStorageAccessProxy(EpochContextWriter<T>&& writer) : writer_(std::move(writer)) {}
+
+    friend class OwningStorageAwaiter<T>;
+
+    EpochContextWriter<T> writer_;
+};
+
+template <typename T> class OwningStorageAwaiter {
+  public:
+    using value_type = shared_storage<T>;
+
+    explicit OwningStorageAwaiter(EpochContextWriter<T>&& writer) : writer_(std::move(writer)) {}
+
+    bool await_ready() const noexcept { return writer_.ready(); }
+
+    void await_suspend(AsyncTask&& t) noexcept
+    {
+      TRACE_MODULE(ASYNC, "OwningStorageAwaiter::await_suspend()", this, t.h_);
+      writer_.suspend(std::move(t), false);
+    }
+
+    OwningStorageAccessProxy<T> await_resume()
+    {
+      writer_.resume();
+      return OwningStorageAccessProxy<T>(std::move(writer_));
+    }
+
+    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
+
+  private:
+    EpochContextWriter<T> writer_;
 };
 
 /// \brief Awaitable write buffer for initializing uninitialized storage.
@@ -507,9 +634,15 @@ template <typename T> class WriteBuffer {
       return writer_.data();
     }
 
-    auto take() { return TakeAwaiter<T>(&writer_); }
+    auto take() & { return TakeAwaiter<T>(&writer_); }
 
-    auto storage() { return StorageAwaiter<T>(&writer_); }
+    auto storage() & { return StorageAwaiter<T>(&writer_); }
+
+    auto storage() && -> OwningStorageAwaiter<T>
+    {
+      this->invalidate_proxy_state();
+      return OwningStorageAwaiter<T>(std::move(writer_));
+    }
 
     std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
 
