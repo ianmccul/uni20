@@ -6,6 +6,90 @@
 
 using namespace uni20::async;
 
+namespace async_test_types
+{
+struct IntWriteProxy
+{
+    explicit IntWriteProxy(int& target_in) : target(&target_in) {}
+
+    IntWriteProxy() = default;
+    IntWriteProxy(IntWriteProxy const&) = default;
+    IntWriteProxy(IntWriteProxy&&) noexcept = default;
+    IntWriteProxy& operator=(IntWriteProxy const&) = default;
+    IntWriteProxy& operator=(IntWriteProxy&&) noexcept = default;
+
+    IntWriteProxy& operator=(int value)
+    {
+      *target = value;
+      return *this;
+    }
+
+    int get() const { return *target; }
+
+    int* target = nullptr;
+};
+} // namespace async_test_types
+
+namespace uni20::async
+{
+template <>
+struct assignment_semantics_of<async_test_types::IntWriteProxy>
+    : std::integral_constant<assignment_semantics, assignment_semantics::write_through>
+{};
+} // namespace uni20::async
+
+TEST(AsyncOpsTest, AssignmentSemanticsDefaultsToRebind)
+{
+  static_assert(assignment_semantics_v<int> == assignment_semantics::rebind);
+  SUCCEED();
+}
+
+TEST(AsyncOpsTest, WriteThroughAssignmentMutatesProxyTarget)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  int backing = 7;
+  Async<async_test_types::IntWriteProxy> value{async_test_types::IntWriteProxy(backing)};
+
+  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out) static->AsyncTask {
+    co_await out = 42;
+    co_return;
+  }(value.write()));
+
+  sched.run_all();
+
+  EXPECT_EQ(backing, 42);
+  EXPECT_EQ(value.get_wait().get(), 42);
+}
+
+TEST(AsyncOpsTest, WriteThroughProxyCanRebindExplicitly)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  int first_target = 3;
+  int second_target = 9;
+
+  Async<async_test_types::IntWriteProxy> value{async_test_types::IntWriteProxy(first_target)};
+
+  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out, int& target) static->AsyncTask {
+    auto writer = co_await out;
+    writer.rebind(async_test_types::IntWriteProxy(target));
+    co_return;
+  }(value.write(), second_target));
+
+  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out) static->AsyncTask {
+    co_await out = 77;
+    co_return;
+  }(value.write()));
+
+  sched.run_all();
+
+  EXPECT_EQ(first_target, 3);
+  EXPECT_EQ(second_target, 77);
+}
+
 TEST(AsyncOpsTest, AddTwoAsyncInts)
 {
   DebugScheduler sched;

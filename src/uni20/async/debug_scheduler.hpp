@@ -74,7 +74,7 @@ class DebugScheduler final : public IScheduler {
       if (Blocked_ || Handles_.empty())
       {
         TaskRegistry::dump();
-        CHECK(false, "**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
+        PANIC("**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
       }
       this->run();
     }

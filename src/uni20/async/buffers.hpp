@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "assignment_semantics.hpp"
 #include "async_task.hpp"
 #include "async_task_promise.hpp"
 #include <uni20/common/trace.hpp>
@@ -1078,6 +1079,23 @@ template <exception_sink_buffer... Buffers> auto propagate_exceptions_to(Buffers
   return PropagateExceptionsAwaiter<Buffers...>(buffers...);
 }
 
+/// \brief Valid assignment source for a write proxy with destination type `T`.
+/// \tparam T Destination value type held by async storage.
+/// \tparam U Source assignment type.
+template <typename T, typename U>
+concept write_through_assignable_source = requires(T& value, U&& source)
+{
+  { value = std::forward<U>(source) } -> std::same_as<T&>;
+};
+
+/// \brief Valid assignment source for a write proxy with destination type `T`.
+/// \tparam T Destination value type held by async storage.
+/// \tparam U Source assignment type.
+template <typename T, typename U>
+concept write_proxy_assignable_source =
+    (write_through_assignment_v<T> && write_through_assignable_source<T, U>) ||
+    (!write_through_assignment_v<T> && std::constructible_from<T, U&&>);
+
 /// \brief Non-owning proxy returned by `co_await` on an lvalue `WriteBuffer<T>`.
 /// \details This proxy references the underlying writer held by the buffer.
 template <typename T> class WriteAccessProxy {
@@ -1090,15 +1108,25 @@ template <typename T> class WriteAccessProxy {
     WriteAccessProxy(WriteAccessProxy&&) noexcept = default;
     WriteAccessProxy& operator=(WriteAccessProxy&&) = delete;
 
-    /// \brief Assign by constructing/replacing the underlying value.
-    /// \tparam U Source type constructible as `T`.
+    /// \brief Assign through async write semantics for `T`.
+    /// \tparam U Source type compatible with the write semantics.
     /// \param u Source value.
     /// \return Reference to `*this`.
     template <typename U>
     requires(!std::same_as<std::remove_cvref_t<U>, WriteAccessProxy>) &&
-        std::constructible_from<T, U&&> WriteAccessProxy& operator=(U&& u)
+        write_proxy_assignable_source<T, U> WriteAccessProxy& operator=(U&& u)
     {
-      this->emplace(std::forward<U>(u));
+      if constexpr (write_through_assignment_v<T>)
+      {
+        auto& writer = this->writer();
+        DEBUG_CHECK(writer.storage().constructed(),
+                    "write-through assignment requires an already-constructed target; initialize with emplace/rebind");
+        writer.data() = std::forward<U>(u);
+      }
+      else
+      {
+        this->emplace(std::forward<U>(u));
+      }
       return *this;
     }
 
@@ -1110,6 +1138,16 @@ template <typename T> class WriteAccessProxy {
     requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
     {
       return this->writer().emplace(std::forward<Args>(args)...);
+    }
+
+    /// \brief Explicitly reconstruct/rebind the stored object.
+    /// \tparam Args Constructor argument types.
+    /// \param args Constructor arguments.
+    /// \return Reference to the reconstructed value.
+    template <typename... Args>
+    requires std::constructible_from<T, Args...> T& rebind(Args&&... args)
+    {
+      return this->emplace(std::forward<Args>(args)...);
     }
 
     /// \brief In-place `+=` update; emplaces when storage is unconstructed.
@@ -1283,15 +1321,24 @@ template <typename T> class OwningWriteAccessProxy {
     OwningWriteAccessProxy(OwningWriteAccessProxy&&) noexcept = default;
     OwningWriteAccessProxy& operator=(OwningWriteAccessProxy&&) noexcept = delete;
 
-    /// \brief Assign by constructing/replacing the underlying value.
-    /// \tparam U Source type constructible as `T`.
+    /// \brief Assign through async write semantics for `T`.
+    /// \tparam U Source type compatible with the write semantics.
     /// \param u Source value.
     /// \return Reference to `*this`.
     template <typename U>
     requires(!std::same_as<std::remove_cvref_t<U>, OwningWriteAccessProxy>) &&
-        std::constructible_from<T, U&&> OwningWriteAccessProxy& operator=(U&& u)
+        write_proxy_assignable_source<T, U> OwningWriteAccessProxy& operator=(U&& u)
     {
-      this->emplace(std::forward<U>(u));
+      if constexpr (write_through_assignment_v<T>)
+      {
+        DEBUG_CHECK(writer_.storage().constructed(),
+                    "write-through assignment requires an already-constructed target; initialize with emplace/rebind");
+        writer_.data() = std::forward<U>(u);
+      }
+      else
+      {
+        this->emplace(std::forward<U>(u));
+      }
       return *this;
     }
 
@@ -1303,6 +1350,16 @@ template <typename T> class OwningWriteAccessProxy {
     requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
     {
       return writer_.emplace(std::forward<Args>(args)...);
+    }
+
+    /// \brief Explicitly reconstruct/rebind the stored object.
+    /// \tparam Args Constructor argument types.
+    /// \param args Constructor arguments.
+    /// \return Reference to the reconstructed value.
+    template <typename... Args>
+    requires std::constructible_from<T, Args...> T& rebind(Args&&... args)
+    {
+      return this->emplace(std::forward<Args>(args)...);
     }
 
     /// \brief In-place `+=` update; emplaces when storage is unconstructed.
