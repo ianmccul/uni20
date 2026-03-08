@@ -104,6 +104,10 @@ template <typename T> class ReverseValue {
       return async_.get_wait();
     }
 
+    /// \brief Wait for and return the final gradient value.
+    /// \return Final gradient value copied from the finalized reverse channel.
+    T get_wait() { return this->final_wait(); }
+
     /// Get a ReadBuffer<T> from the earliest epoch - this is the 'input gradient' to be fed into the next stage
     ReadBuffer<T> input() const { return this->read_buffer(); }
 
@@ -112,7 +116,7 @@ template <typename T> class ReverseValue {
     // Get a WriteBuffer<T> to the earliest epoch - this is the 'output gradient' fed from the next stage
     [[nodiscard]] WriteBuffer<T> output() { return this->write_buffer(); }
 
-    void finalize()
+    void finalize() const
     {
       if (!started_)
       {
@@ -225,7 +229,7 @@ template <typename T> class ReverseValue {
 
     Async<T> async_;
     mutable ReverseEpochQueue rqueue_; // must be mutable if we want read access to be logically const
-    bool started_{false};
+    mutable bool started_{false};
 };
 
 template <typename T> struct async_value_type<ReverseValue<T>>

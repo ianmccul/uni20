@@ -70,6 +70,18 @@ template <typename T> class Var {
     template <typename U>
     requires std::convertible_to<U, T> Var(U&& val) : value(std::forward<U>(val)) {}
 
+    /// \brief Finalize reverse propagation and return the gradient channel.
+    /// \return Reference to the finalized gradient `Async<T>`.
+    Async<T>& backprop() & { return this->grad.backprop(); }
+
+    /// \brief Finalize reverse propagation and return the gradient channel.
+    /// \return Const reference to the finalized gradient `Async<T>`.
+    Async<T> const& backprop() const& { return this->grad.backprop(); }
+
+    /// \brief Finalize reverse propagation and move out the gradient channel.
+    /// \return Finalized gradient `Async<T>`.
+    Async<T> backprop() && { return std::move(this->grad).backprop(); }
+
     Async<T> value;
     ReverseValue<T> grad;
 };

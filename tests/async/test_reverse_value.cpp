@@ -97,3 +97,14 @@ TEST(ReverseValue, ChainAccumulationWithCancellation)
   double const base_expected = 1.0 + 1.25 - 0.75 + 2.0 - 0.5;
   EXPECT_DOUBLE_EQ(base.final().get_wait(), base_expected);
 }
+
+TEST(ReverseValue, GetWaitAliasMatchesFinalWait)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  ReverseValue<int> rv;
+  rv = 17;
+
+  EXPECT_EQ(rv.get_wait(), 17);
+}

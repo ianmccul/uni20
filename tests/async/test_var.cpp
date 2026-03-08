@@ -46,6 +46,23 @@ TEST(Var, Cos)
   sched.run_all();
 }
 
+TEST(Var, BackpropConvenienceForwardsToGradientChannel)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  double const v = 0.3;
+  Var<double> x = v;
+  Var<double> y = sin(x);
+
+  y.grad = 1.0;
+
+  EXPECT_NEAR(x.backprop().get_wait(), std::cos(v), 1e-10);
+
+  Var<double> const& cx = x;
+  EXPECT_NEAR(cx.backprop().get_wait(), std::cos(v), 1e-10);
+}
+
 TEST(Var, SinUnused)
 {
   DebugScheduler sched;
