@@ -14,8 +14,9 @@ template <typename T> AsyncTask co_sin(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   using std::sin;
   // The owning proxy from `co_await std::move(in)` transfers ownership of the buffer into the proxy.
-  // `get_release()` reads and explicitly releases the buffer before we
-  // begin write-buffer acquisition. This ordering matters because it is possible that
+  // `get()` reads the value; because this is a full statement, the temporary owning proxy is
+  // destroyed at the semicolon and releases the read buffer before we begin write-buffer acquisition.
+  // This ordering matters because it is possible that
   // there are data dependencies that mean that we cannot get the WriteBuffer until after the Read
   // has finished.  For example consider
   // Async<double> x = 1.0;
@@ -23,7 +24,7 @@ template <typename T> AsyncTask co_sin(ReadBuffer<T> in, WriteBuffer<T> out)
   // x *= 2;
   // auto wbuf = x.write();
   // schedule(co_sin(std::move(rbuf), std::move(wbuf)));
-  auto const input = (co_await std::move(in)).get_release();
+  auto const input = (co_await std::move(in)).get();
   co_await out = sin(input);
 
   // NOTE: the one-liner should work here but gcc-13 gives a compiler error
@@ -42,9 +43,8 @@ template <typename T> Async<T> sin(Async<T> const& x)
 template <typename T> AsyncTask co_cos(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   using std::cos;
-  auto x = co_await in;
-  in.release();
-  co_await out = cos(x);
+  auto const input = (co_await std::move(in)).get();
+  co_await out = cos(input);
 }
 
 template <typename T> Async<T> cos(Async<T> const& x)
@@ -56,10 +56,8 @@ template <typename T> Async<T> cos(Async<T> const& x)
 
 template <typename T> AsyncTask co_conj(ReadBuffer<T> in, WriteBuffer<T> out)
 {
-  using uni20::conj;
-  auto x = co_await in;
-  in.release();
-  co_await out = conj(x);
+  auto const input = (co_await std::move(in)).get();
+  co_await out = uni20::conj(input);
 }
 
 template <typename T> Async<T> conj(Async<T> const& x)
@@ -72,10 +70,8 @@ template <typename T> Async<T> conj(Async<T> const& x)
 template <typename T> AsyncTask co_real(ReadBuffer<T> in, WriteBuffer<uni20::make_real_t<T>> out)
 {
   using uni20::real;
-  auto const& value = co_await in;
-  auto const result = real(value);
-  in.release();
-  co_await out = result;
+  auto const input = (co_await std::move(in)).get();
+  co_await out = real(input);
 }
 
 template <typename T> Async<uni20::make_real_t<T>> real(Async<T> const& x)
@@ -88,10 +84,8 @@ template <typename T> Async<uni20::make_real_t<T>> real(Async<T> const& x)
 template <typename T> AsyncTask co_imag(ReadBuffer<T> in, WriteBuffer<uni20::make_real_t<T>> out)
 {
   using uni20::imag;
-  auto const& value = co_await in;
-  auto const result = imag(value);
-  in.release();
-  co_await out = result;
+  auto const input = (co_await std::move(in)).get();
+  co_await out = imag(input);
 }
 
 template <typename T> Async<uni20::make_real_t<T>> imag(Async<T> const& x)
@@ -104,9 +98,8 @@ template <typename T> Async<uni20::make_real_t<T>> imag(Async<T> const& x)
 template <typename T> AsyncTask co_herm(ReadBuffer<T> in, WriteBuffer<T> out)
 {
   using uni20::conj;
-  auto x = co_await in;
-  in.release();
-  co_await out = herm(x);
+  auto const input = (co_await std::move(in)).get();
+  co_await out = herm(input);
 }
 
 template <typename T> Async<T> herm(Async<T> const& x)

@@ -11,22 +11,18 @@ namespace uni20::async
 // in such a way that a_ and/or b_ can be cancelled
 template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
-  auto a = co_await a_.maybe();
+  auto a = co_await std::move(a_).maybe();
   if (a)
   {
-    auto value = std::move(*a);
-    a_.release();
-    auto b = co_await b_.maybe();
-    if (b) value += *b;
-    b_.release();
+    T value = std::move(*a).get_release();
+    auto b = co_await std::move(b_).maybe();
+    if (b) value += std::move(*b).get_release();
     co_await out_ = std::move(value);
   }
   else
   {
-    a_.release();
-    auto b = co_await b_.or_cancel();
-    b_.release();
-    co_await out_ += std::move(b);
+    U value = (co_await std::move(b_).or_cancel()).get();
+    co_await out_ += std::move(value);
   }
   co_return;
 }
@@ -36,22 +32,18 @@ template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, R
 template <typename T, typename U>
 AsyncTask async_accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
-  auto a = co_await a_.maybe();
+  auto a = co_await std::move(a_).maybe();
   if (a)
   {
-    auto value = std::move(*a);
-    a_.release();
-    auto b = co_await b_.maybe();
-    if (b) value -= *b;
-    b_.release();
+    T value = std::move(*a).get_release();
+    auto b = co_await std::move(b_).maybe();
+    if (b) value -= std::move(*b).get_release();
     co_await out_ = std::move(value);
   }
   else
   {
-    a_.release();
-    auto b = co_await b_.or_cancel();
-    b_.release();
-    co_await out_ -= std::move(b);
+    U value = (co_await std::move(b_).or_cancel()).get();
+    co_await out_ -= std::move(value);
   }
   co_return;
 }
@@ -64,7 +56,6 @@ template <typename T> class ReverseValue {
     /// Construct a new, uninitialized ReverseValue.
     ReverseValue() : async_(async_do_not_start), rqueue_(async_.queue().latest()) {}
 
-    // move ctor and move-assign should "just work"
     ReverseValue(ReverseValue&&) noexcept = default;
 
     ReverseValue& operator=(ReverseValue&& other) noexcept
@@ -127,7 +118,9 @@ template <typename T> class ReverseValue {
     }
 
     /// Since we are guaranteed that the write is immediate, we don't need to wait
-    template <typename U> ReverseValue& operator=(U&& v) requires std::constructible_from<T, U&&>
+    template <typename U>
+    ReverseValue& operator=(U&& v)
+      requires std::constructible_from<T, U&&>
     {
       WriteBuffer<T> w(this->write_buffer());
       rqueue_.start();

@@ -64,7 +64,7 @@ template <HasIntegerScalar I> constexpr I conj(I const& x) { return x; }
 /// \param x Scalar value whose Hermitian adjoint is requested.
 /// \return The result of calling `conj(x)`.
 /// \ingroup core_math
-template <HasScalar S> constexpr auto herm(S x) { return conj(x); }
+template <HasScalar S> constexpr auto herm(S x) { return uni20::conj(x); }
 
 /// \brief Provides mutable access to the real component of a `std::complex` value.
 /// \details This helper mirrors the `std::real` overload for lvalues while remaining `constexpr` and
