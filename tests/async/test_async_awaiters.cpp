@@ -351,7 +351,7 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
   EXPECT_EQ(cancel_sum, 14);
 }
 
-TEST(AsyncAwaitersTest, MoveReadBufferReturnsOwningProxy)
+TEST(AsyncAwaitersTest, TransferReadBufferReturnsOwningProxy)
 {
   Async<int> value = 19;
   DebugScheduler sched;
@@ -361,7 +361,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferReturnsOwningProxy)
 
   auto reader = [](ReadBuffer<int> reader, int& result, bool& released) static->AsyncTask
   {
-    auto owned = co_await std::move(reader);
+    auto owned = co_await reader.transfer();
     result = owned.get();
     owned.release();
     released = true;
@@ -376,7 +376,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferReturnsOwningProxy)
   EXPECT_EQ(result, 19);
 }
 
-TEST(AsyncAwaitersTest, MoveReadBufferGetReleaseAllowsSameCoroutineWriteAcquire)
+TEST(AsyncAwaitersTest, TransferReadBufferGetReleaseAllowsSameCoroutineWriteAcquire)
 {
   Async<int> value = 23;
   DebugScheduler sched;
@@ -387,7 +387,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferGetReleaseAllowsSameCoroutineWriteAcquire)
   auto const task_fn = [](ReadBuffer<int> reader, WriteBuffer<int> writer, bool& writer_ready_after_release,
                           int& observed) static->AsyncTask
   {
-    observed = (co_await std::move(reader)).get_release();
+    observed = (co_await reader.transfer()).get_release();
     writer_ready_after_release = writer.await_ready();
     co_await writer = observed + 1;
     co_return;
@@ -404,7 +404,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferGetReleaseAllowsSameCoroutineWriteAcquire)
   EXPECT_EQ(value.get_wait(), 24);
 }
 
-TEST(AsyncAwaitersTest, MoveReadBufferMaybeReturnsOwningProxy)
+TEST(AsyncAwaitersTest, TransferReadBufferMaybeReturnsOwningProxy)
 {
   Async<int> value = 27;
   DebugScheduler sched;
@@ -414,7 +414,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferMaybeReturnsOwningProxy)
 
   auto reader = [](ReadBuffer<int> reader, bool& has_value, int& read_value) static->AsyncTask
   {
-    auto maybe = co_await std::move(reader).maybe();
+    auto maybe = co_await reader.transfer().maybe();
     has_value = static_cast<bool>(maybe);
     if (maybe)
     {
@@ -432,7 +432,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferMaybeReturnsOwningProxy)
   EXPECT_EQ(read_value, 27);
 }
 
-TEST(AsyncAwaitersTest, MoveReadBufferMaybeReportsCancelled)
+TEST(AsyncAwaitersTest, TransferReadBufferMaybeReportsCancelled)
 {
   Async<int> value;
   auto writer = value.write();
@@ -443,7 +443,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferMaybeReportsCancelled)
 
   auto reader = [](ReadBuffer<int> reader, bool& has_value) static->AsyncTask
   {
-    auto maybe = co_await std::move(reader).maybe();
+    auto maybe = co_await reader.transfer().maybe();
     has_value = static_cast<bool>(maybe);
     if (maybe) maybe->release();
     co_return;
@@ -456,7 +456,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferMaybeReportsCancelled)
   EXPECT_FALSE(has_value);
 }
 
-TEST(AsyncAwaitersTest, MoveReadBufferOrCancelReturnsOwningProxy)
+TEST(AsyncAwaitersTest, TransferReadBufferOrCancelReturnsOwningProxy)
 {
   Async<int> value = 31;
   DebugScheduler sched;
@@ -466,7 +466,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferOrCancelReturnsOwningProxy)
 
   auto reader = [](ReadBuffer<int> reader, int& result, bool& released) static->AsyncTask
   {
-    auto owned = co_await std::move(reader).or_cancel();
+    auto owned = co_await reader.transfer().or_cancel();
     result = owned.get();
     owned.release();
     released = true;
@@ -481,7 +481,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferOrCancelReturnsOwningProxy)
   EXPECT_EQ(result, 31);
 }
 
-TEST(AsyncAwaitersTest, MoveReadBufferOrCancelThrowsOnCancelled)
+TEST(AsyncAwaitersTest, TransferReadBufferOrCancelThrowsOnCancelled)
 {
   Async<int> value;
   auto writer = value.write();
@@ -494,7 +494,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferOrCancelThrowsOnCancelled)
   {
     try
     {
-      auto owned = co_await std::move(reader).or_cancel();
+      auto owned = co_await reader.transfer().or_cancel();
       owned.release();
     }
     catch (task_cancelled const&)
@@ -511,7 +511,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferOrCancelThrowsOnCancelled)
   EXPECT_TRUE(cancelled);
 }
 
-TEST(AsyncAwaitersTest, MoveReadBufferKeepsRefcountStableDuringOwnershipTransfer)
+TEST(AsyncAwaitersTest, TransferReadBufferKeepsRefcountStableDuringOwnershipTransfer)
 {
   Async<int> value = 5;
   DebugScheduler sched;
@@ -526,7 +526,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferKeepsRefcountStableDuringOwnershipTransfer
   {
     count_before = storage.use_count();
     {
-      auto owned = co_await std::move(reader);
+      auto owned = co_await reader.transfer();
       count_during = storage.use_count();
       (void)owned.get();
     }
@@ -543,7 +543,7 @@ TEST(AsyncAwaitersTest, MoveReadBufferKeepsRefcountStableDuringOwnershipTransfer
   EXPECT_EQ(count_after, 1u);
 }
 
-TEST(AsyncAwaitersTest, MoveReadMaybeKeepsRefcountStableDuringOwnershipTransfer)
+TEST(AsyncAwaitersTest, TransferReadMaybeKeepsRefcountStableDuringOwnershipTransfer)
 {
   Async<int> value = 6;
   DebugScheduler sched;
@@ -559,7 +559,7 @@ TEST(AsyncAwaitersTest, MoveReadMaybeKeepsRefcountStableDuringOwnershipTransfer)
   {
     count_before = storage.use_count();
     {
-      auto maybe = co_await std::move(reader).maybe();
+      auto maybe = co_await reader.transfer().maybe();
       if (maybe)
       {
         saw_value = true;
@@ -581,7 +581,7 @@ TEST(AsyncAwaitersTest, MoveReadMaybeKeepsRefcountStableDuringOwnershipTransfer)
   EXPECT_EQ(count_after, 1u);
 }
 
-TEST(AsyncAwaitersTest, MoveReadOrCancelKeepsRefcountStableDuringOwnershipTransfer)
+TEST(AsyncAwaitersTest, TransferReadOrCancelKeepsRefcountStableDuringOwnershipTransfer)
 {
   Async<int> value = 7;
   DebugScheduler sched;
@@ -596,7 +596,7 @@ TEST(AsyncAwaitersTest, MoveReadOrCancelKeepsRefcountStableDuringOwnershipTransf
   {
     count_before = storage.use_count();
     {
-      auto owned = co_await std::move(reader).or_cancel();
+      auto owned = co_await reader.transfer().or_cancel();
       count_during = storage.use_count();
       owned.release();
     }
@@ -613,7 +613,7 @@ TEST(AsyncAwaitersTest, MoveReadOrCancelKeepsRefcountStableDuringOwnershipTransf
   EXPECT_EQ(count_after, 1u);
 }
 
-TEST(AsyncAwaitersTest, MoveWriteBufferKeepsRefcountStableDuringOwnershipTransfer)
+TEST(AsyncAwaitersTest, TransferWriteBufferKeepsRefcountStableDuringOwnershipTransfer)
 {
   Async<int> value;
   DebugScheduler sched;
@@ -628,7 +628,7 @@ TEST(AsyncAwaitersTest, MoveWriteBufferKeepsRefcountStableDuringOwnershipTransfe
   {
     count_before = storage.use_count();
     {
-      auto owned = co_await std::move(writer);
+      auto owned = co_await writer.transfer();
       count_during = storage.use_count();
       owned = 11;
     }
@@ -646,7 +646,7 @@ TEST(AsyncAwaitersTest, MoveWriteBufferKeepsRefcountStableDuringOwnershipTransfe
   EXPECT_EQ(value.get_wait(), 11);
 }
 
-TEST(AsyncAwaitersTest, MoveWriteBufferTakeRvalueMovesValueAndReleasesWriter)
+TEST(AsyncAwaitersTest, TransferWriteBufferTakeRvalueMovesValueAndReleasesWriter)
 {
   Async<int> value = 19;
   DebugScheduler sched;
@@ -655,7 +655,7 @@ TEST(AsyncAwaitersTest, MoveWriteBufferTakeRvalueMovesValueAndReleasesWriter)
 
   auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
   {
-    taken = co_await std::move(writer).take();
+    taken = co_await writer.transfer().take();
     co_return;
   }
   (value.write(), taken);
@@ -734,7 +734,7 @@ TEST(AsyncAwaitersTest, WriteProxyTakeReleaseMovesValueAndReleasesWriter)
   EXPECT_EQ(value.get_wait(), 47);
 }
 
-TEST(AsyncAwaitersTest, MoveWriteProxyTakeReleaseMovesValueAndReleasesWriter)
+TEST(AsyncAwaitersTest, TransferWriteProxyTakeReleaseMovesValueAndReleasesWriter)
 {
   Async<int> value = 29;
   DebugScheduler sched;
@@ -743,7 +743,7 @@ TEST(AsyncAwaitersTest, MoveWriteProxyTakeReleaseMovesValueAndReleasesWriter)
 
   auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
   {
-    auto owned = co_await std::move(writer);
+    auto owned = co_await writer.transfer();
     taken = owned.take_release();
     co_return;
   }
@@ -764,7 +764,7 @@ TEST(AsyncAwaitersTest, MoveWriteProxyTakeReleaseMovesValueAndReleasesWriter)
   EXPECT_EQ(value.get_wait(), 31);
 }
 
-TEST(AsyncAwaitersTest, MoveWriteStorageKeepsRefcountStableDuringOwnershipTransfer)
+TEST(AsyncAwaitersTest, TransferWriteStorageKeepsRefcountStableDuringOwnershipTransfer)
 {
   Async<int> value;
   DebugScheduler sched;
@@ -778,7 +778,7 @@ TEST(AsyncAwaitersTest, MoveWriteStorageKeepsRefcountStableDuringOwnershipTransf
                  std::size_t& count_after) static->AsyncTask
   {
     count_before = storage.use_count();
-    auto owned_storage = co_await std::move(writer).storage();
+    auto owned_storage = co_await writer.transfer().storage();
     count_during = storage.use_count();
     owned_storage->emplace(13);
     owned_storage.release();

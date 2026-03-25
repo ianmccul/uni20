@@ -27,12 +27,12 @@ template <typename T> Var<T> sin(Var<T> x)
     using std::cos;
     // GCC 13 workaround for `(co_await ...).get()`: use an explicit owning proxy.
     // GCC 14+ supports the one-liner form, e.g.
-    //   auto const in_g = (co_await std::move(in_grad).or_cancel()).get();
-    auto in_grad_buffer = co_await std::move(in_grad).or_cancel();
+    //   auto const in_g = (co_await in_grad.transfer().or_cancel()).get();
+    auto in_grad_buffer = co_await in_grad.transfer().or_cancel();
     auto const in_g = in_grad_buffer.get();
     in_grad_buffer.release();
 
-    auto in_buffer = co_await std::move(in);
+    auto in_buffer = co_await in.transfer();
     auto const cos_x = cos(in_buffer.get());
     in_buffer.release();
     co_await out_grad += uni20::conj(cos_x) * in_g;
@@ -186,7 +186,7 @@ template <typename T> Var<uni20::make_real_t<T>> real(Var<T> z)
   Var<r_type> Result;
   Result.value = real(z.value);
   schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
-    auto in_grad_buffer = co_await std::move(in_grad).or_cancel();
+    auto in_grad_buffer = co_await in_grad.transfer().or_cancel();
     auto const grad = in_grad_buffer.get();
     in_grad_buffer.release();
     co_await out_grad += grad;
@@ -205,7 +205,7 @@ template <typename T> Var<uni20::make_real_t<T>> imag(Var<T> z)
   Var<r_type> Result;
   Result.value = imag(z.value);
   schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
-    auto in_grad_buffer = co_await std::move(in_grad).or_cancel();
+    auto in_grad_buffer = co_await in_grad.transfer().or_cancel();
     auto const grad = in_grad_buffer.get();
     in_grad_buffer.release();
     T value{};

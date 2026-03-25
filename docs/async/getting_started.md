@@ -103,7 +103,7 @@ This can throw `buffer_write_uninitialized`.
 
 ```cpp
 auto increment = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
-  auto owned = co_await std::move(in);
+  auto owned = co_await in.transfer();
   int v = owned.get();
   owned.release();
   co_await out = v + 1;
@@ -115,6 +115,9 @@ Why `owned.release()` is often useful:
 
 - it releases the reader gate before awaiting writer work on related timelines
 - this avoids self-deadlock patterns in read-modify-write compositions
+
+`transfer()` is the explicit owning form for named buffers. Direct `co_await`
+on a temporary buffer still uses the owning rvalue path.
 
 ## Quick Error Handling
 

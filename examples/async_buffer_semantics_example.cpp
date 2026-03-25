@@ -37,7 +37,7 @@ int main()
   Async<int> source_value = 10;
   Async<int> transformed_value;
   auto transform = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
-    auto input = co_await std::move(in);
+    auto input = co_await in.transfer();
     int const value = input.get();
     input.release();
     co_await out = value + 5;
@@ -70,7 +70,7 @@ int main()
   bool saw_cancel = false;
 
   auto maybe_probe = [](ReadBuffer<int> in, bool& maybe_empty) static->AsyncTask {
-    auto maybe = co_await std::move(in).maybe();
+    auto maybe = co_await in.transfer().maybe();
     maybe_empty = !maybe.has_value();
     if (maybe) maybe->release();
     co_return;
@@ -80,7 +80,7 @@ int main()
   auto cancel_probe = [](ReadBuffer<int> in, bool& saw_cancel) static->AsyncTask {
     try
     {
-      auto value = co_await std::move(in).or_cancel();
+      auto value = co_await in.transfer().or_cancel();
       value.release();
     }
     catch (task_cancelled const&)

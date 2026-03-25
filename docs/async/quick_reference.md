@@ -16,8 +16,8 @@ For explanations, see:
 | Type | Purpose | Key methods |
 |---|---|---|
 | `Async<T>` | Async value + epoch queue | `read()`, `write()`, `get_wait()`, `move_from_wait()` |
-| `ReadBuffer<T>` | Read gate for one epoch | `co_await reader`, `maybe()`, `or_cancel()`, `release()` |
-| `WriteBuffer<T>` | Write gate for one epoch | `co_await writer`, `storage()`, `take()`, `take_release()`, `release()` |
+| `ReadBuffer<T>` | Read gate for one epoch | `co_await reader`, `transfer()`, `maybe()`, `or_cancel()`, `release()` |
+| `WriteBuffer<T>` | Write gate for one epoch | `co_await writer`, `transfer()`, `storage()`, `take()`, `take_release()`, `release()` |
 | `AsyncTask` | Move-only coroutine handle owner | schedule via `schedule(...)` |
 | `IScheduler` | Scheduler interface | `schedule`, `pause`, `resume`, wait hooks |
 
@@ -25,7 +25,7 @@ For explanations, see:
 
 ```cpp
 auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
-  auto owned = co_await std::move(in);
+  auto owned = co_await in.transfer();
   int v = owned.get();
   owned.release();
   co_await out = v + 1;
@@ -51,24 +51,24 @@ Rules:
 | Expression | Result |
 |---|---|
 | `co_await reader` (lvalue) | `T const&` |
-| `co_await std::move(reader)` | `OwningReadAccessProxy<T>` |
+| `co_await reader.transfer()` | `OwningReadAccessProxy<T>` |
 | `co_await reader.maybe()` | `T const*` |
-| `co_await std::move(reader).maybe()` | `std::optional<OwningReadAccessProxy<T>>` |
+| `co_await reader.transfer().maybe()` | `std::optional<OwningReadAccessProxy<T>>` |
 | `co_await reader.or_cancel()` | `T const&` or `task_cancelled` |
-| `co_await std::move(reader).or_cancel()` | `OwningReadAccessProxy<T>` or `task_cancelled` |
+| `co_await reader.transfer().or_cancel()` | `OwningReadAccessProxy<T>` or `task_cancelled` |
 
 ### `WriteBuffer<T>` await results
 
 | Expression | Result |
 |---|---|
 | `co_await writer` | `WriteAccessProxy<T>` (convertible to `T&`) |
-| `co_await std::move(writer)` | `OwningWriteAccessProxy<T>` |
+| `co_await writer.transfer()` | `OwningWriteAccessProxy<T>` |
 | `co_await writer.storage()` | `shared_storage<T>&` |
-| `co_await std::move(writer).storage()` | `OwningStorageAccessProxy<T>` |
+| `co_await writer.transfer().storage()` | `OwningStorageAccessProxy<T>` |
 | `co_await writer.take()` | `T` moved out, then storage destroyed |
-| `co_await std::move(writer).take()` | `T` moved out, then storage destroyed and writer released |
+| `co_await writer.transfer().take()` | `T` moved out, then storage destroyed and writer released |
 | `co_await writer.take_release()` | `T` moved out, then storage destroyed and writer released |
-| `co_await std::move(writer).take_release()` | `T` moved out, then storage destroyed and writer released |
+| `co_await writer.transfer().take_release()` | `T` moved out, then storage destroyed and writer released |
 
 Critical write rule:
 
@@ -95,7 +95,7 @@ Helper awaiters:
 
 - `all(a, b, ...)`
 - `try_await(awaitable)`
-- `write_to(std::move(writer), value)`
+- `write_to(writer.transfer(), value)`
 
 ## Exceptions and Cancellation
 

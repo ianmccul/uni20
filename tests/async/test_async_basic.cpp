@@ -274,7 +274,7 @@ TEST(AsyncBasicTest, CopyConstructor)
   EXPECT_EQ(copy.get_wait(), 99);
 }
 
-TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
+TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndTransfer)
 {
   DebugScheduler sched;
   ScopedScheduler scoped(&sched);
@@ -284,7 +284,7 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndMove)
 
   auto mutate_task = [](WriteBuffer<int> buffer) static->AsyncTask
   {
-    auto ref = co_await std::move(buffer);
+    auto ref = co_await buffer.transfer();
     ref = 17;
     co_return;
   }

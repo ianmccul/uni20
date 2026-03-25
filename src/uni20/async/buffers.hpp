@@ -40,12 +40,12 @@ template <typename T> class OwningReadAwaiter;
 /// or an owning proxy depending on value category:
 ///
 /// - `co_await buf` yields `T const&`: shared read access.
-/// - `co_await std::move(buf)` yields an owning proxy that keeps the read epoch alive.
+/// - `co_await buf.transfer()` yields an owning proxy that keeps the read epoch alive.
 ///
-/// \note The `std::move(buf)` form is recommended when the buffer will be consumed
-///       immediately, such as when assigning to a local variable.
+/// \note `transfer()` is the explicit owning form for named buffers.
+///       Direct `co_await` on a temporary buffer still uses the owning rvalue path.
 ///
-/// \note A `ReadBuffer<T>` can be co_awaited multiple times, but `std::move(buf)`
+/// \note A `ReadBuffer<T>` can be co_awaited multiple times, but `buf.transfer()`
 ///       transfers ownership semantics and should only be used once. After moving,
 ///       further use is undefined.
 ///
@@ -138,6 +138,14 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     ///       more than once has no effect.
     void release() noexcept { reader_.release(); }
 
+    /// \brief Transfer this read buffer into the owning-await path.
+    /// \return Rvalue reference to `*this`.
+    ReadBuffer&& transfer() & noexcept { return std::move(*this); }
+
+    /// \brief Transfer this read buffer into the owning-await path.
+    /// \return Rvalue reference to `*this`.
+    ReadBuffer&& transfer() && noexcept { return std::move(*this); }
+
     // T get_wait() && { return T(reader_.get_wait()); } // TODO: can this use move semantics?
     /// \brief Block until the read value is available.
     /// \return Const reference to the available value.
@@ -211,7 +219,7 @@ template <typename T> ReadBuffer<T>&& release(ReadBuffer<T>& in) { return std::m
 /// \details This is a synonym for `std::move`.
 template <typename T> ReadBuffer<T>&& release(ReadBuffer<T>&& in) { return std::move(in); }
 
-/// \brief Owning proxy returned by `co_await std::move(read_buffer)`.
+/// \brief Owning proxy returned by `co_await read_buffer.transfer()`.
 /// \details This keeps the read epoch alive until the proxy is released or destroyed.
 template <typename T> class OwningReadAccessProxy {
   public:
@@ -735,11 +743,10 @@ template <typename T> class OwningTakeAwaiter {
     EpochContextWriter<T> writer_;
 };
 
-/// \brief Awaitable write buffer for initializing uninitialized storage.
-///
-/// A WriteBuffer enforces that the underlying value is treated as uninitialized
-/// until a write occurs. The constructor marks the epoch as requiring a write,
-/// and consumers are expected to assign a value before releasing the buffer.
+/// \brief Awaitable write buffer for one `Async<T>` epoch.
+/// \details `co_await writer` yields a borrowed proxy tied to the `WriteBuffer<T>`
+///          object. `co_await writer.transfer()` yields an owning proxy whose
+///          lifetime no longer depends on the original buffer object.
 template <typename T> class WriteBuffer {
   public:
     using value_type = T;
@@ -842,6 +849,22 @@ template <typename T> class WriteBuffer {
     {
       this->invalidate_proxy_state();
       writer_.release();
+    }
+
+    /// \brief Transfer this write buffer into the owning-await path.
+    /// \return Rvalue reference to `*this`.
+    WriteBuffer&& transfer() & noexcept
+    {
+      this->invalidate_proxy_state();
+      return std::move(*this);
+    }
+
+    /// \brief Transfer this write buffer into the owning-await path.
+    /// \return Rvalue reference to `*this`.
+    WriteBuffer&& transfer() && noexcept
+    {
+      this->invalidate_proxy_state();
+      return std::move(*this);
     }
 
     /// \brief Construct the destination value in-place when immediately writable.
@@ -1309,7 +1332,7 @@ template <typename T> class WriteAccessProxy {
 #endif
 };
 
-/// \brief Owning proxy returned by `co_await std::move(write_buffer)`.
+/// \brief Owning proxy returned by `co_await write_buffer.transfer()`.
 /// \details Ownership of the writer handle is transferred into this proxy.
 template <typename T> class OwningWriteAccessProxy {
   public:

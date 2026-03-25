@@ -261,8 +261,9 @@ namespace detail
 ///       in one expression. Especially useful when the WriteBuffer is a temporary.
 ///       `co_await write_to(buffer, v)` is equivalent to `co_await buffer = std::move(v)`
 ///
-/// \warning The WriteBuffer must not be reused after passing to write_to. It is moved
-///          into the coroutine and consumed during co_await.
+/// \warning The WriteBuffer must not be reused after passing to write_to. For named
+///          buffers, prefer `write_to(buffer.transfer(), value)` to make that
+///          ownership transfer explicit.
 template <typename T, typename Value> class WriteToAwaiter {
   public:
     WriteToAwaiter(WriteBuffer<T>&& buffer, Value&& value)

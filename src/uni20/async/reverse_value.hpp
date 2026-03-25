@@ -17,11 +17,11 @@ namespace uni20::async
 /// \param out_ Output write buffer.
 template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
-  auto a = co_await std::move(a_).maybe();
+  auto a = co_await a_.transfer().maybe();
   if (a)
   {
     T value = std::move(*a).get_release();
-    auto b = co_await std::move(b_).maybe();
+    auto b = co_await b_.transfer().maybe();
     if (b) value += std::move(*b).get_release();
     co_await out_ = std::move(value);
   }
@@ -29,8 +29,8 @@ template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, R
   {
     // GCC 13 workaround for `(co_await ...).get()`: stage through a named proxy.
     // GCC 14+ supports the one-liner form:
-    //   U value = (co_await std::move(b_).or_cancel()).get();
-    auto b = co_await std::move(b_).or_cancel();
+    //   U value = (co_await b_.transfer().or_cancel()).get();
+    auto b = co_await b_.transfer().or_cancel();
     U value = b.get();
     b.release();
     co_await out_ += std::move(value);
@@ -47,17 +47,17 @@ template <typename T, typename U> AsyncTask async_accumulate(ReadBuffer<T> a_, R
 template <typename T, typename U>
 AsyncTask async_accumulate_minus(ReadBuffer<T> a_, ReadBuffer<U> b_, WriteBuffer<T> out_)
 {
-  auto a = co_await std::move(a_).maybe();
+  auto a = co_await a_.transfer().maybe();
   if (a)
   {
     T value = std::move(*a).get_release();
-    auto b = co_await std::move(b_).maybe();
+    auto b = co_await b_.transfer().maybe();
     if (b) value -= std::move(*b).get_release();
     co_await out_ = std::move(value);
   }
   else
   {
-    auto b = co_await std::move(b_).or_cancel();
+    auto b = co_await b_.transfer().or_cancel();
     U value = b.get();
     b.release();
     co_await out_ -= std::move(value);

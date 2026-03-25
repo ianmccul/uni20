@@ -92,7 +92,7 @@ Var<T> cube(Var<T> x)
   Var<T> result;
 
   schedule([](ReadBuffer<T> in, WriteBuffer<T> out) static->AsyncTask {
-    auto in_view = co_await std::move(in);
+    auto in_view = co_await in.transfer();
     T value = in_view.get();
     in_view.release();
     co_await out = value * value * value;
@@ -101,11 +101,11 @@ Var<T> cube(Var<T> x)
   schedule([](ReadBuffer<T> x_value,
               ReadBuffer<T> in_grad,
               WriteBuffer<T> out_grad) static->AsyncTask {
-    auto grad_view = co_await std::move(in_grad).or_cancel();
+    auto grad_view = co_await in_grad.transfer().or_cancel();
     T grad = grad_view.get();
     grad_view.release();
 
-    auto x_view = co_await std::move(x_value);
+    auto x_view = co_await x_value.transfer();
     T value = x_view.get();
     x_view.release();
 

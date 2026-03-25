@@ -14,7 +14,7 @@ TEST(AsyncWriteTest, WriteValueCorrectly)
   {
     Async<int> x;
     co_await write_to(x.write(), 42);
-    co_await write_to(std::move(buffer), co_await x.read());
+    co_await write_to(buffer.transfer(), co_await x.read());
     co_return;
   }
   (x.write());

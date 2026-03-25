@@ -21,22 +21,23 @@ This makes dependency order explicit in function signatures.
 - movable
 - copy-assignment deleted
 - move-assignment available
+- `transfer()` is the explicit named-buffer path to owning access
 
 ### Await behavior
 
 | Form | Return type | Notes |
 |---|---|---|
 | `co_await reader` | `T const&` | non-owning read access |
-| `co_await std::move(reader)` | `OwningReadAccessProxy<T>` | owning read access (`get()`, `get_release()`, `release()`) |
+| `co_await reader.transfer()` | `OwningReadAccessProxy<T>` | owning read access (`get()`, `get_release()`, `release()`) |
 
 ### Read modifiers
 
 | Modifier | Return behavior | Typical use |
 |---|---|---|
 | `co_await reader.maybe()` | `T const*` (nullable) | probe optional/cancelled paths without exception |
-| `co_await std::move(reader).maybe()` | `std::optional<OwningReadAccessProxy<T>>` | ownership-preserving optional read |
+| `co_await reader.transfer().maybe()` | `std::optional<OwningReadAccessProxy<T>>` | ownership-preserving optional read |
 | `co_await reader.or_cancel()` | `T const&` or throws `task_cancelled` | cancellation-aware borrowed read |
-| `co_await std::move(reader).or_cancel()` | `OwningReadAccessProxy<T>` or throws `task_cancelled` | cancellation-aware owning read |
+| `co_await reader.transfer().or_cancel()` | `OwningReadAccessProxy<T>` or throws `task_cancelled` | cancellation-aware owning read |
 
 ### Early release
 
@@ -52,19 +53,20 @@ Use it when a coroutine reads first and later awaits a writer on a related timel
 - not copyable
 - lvalue `co_await` returns a non-owning write proxy
 - rvalue `co_await` returns an owning write proxy
+- `transfer()` is the explicit named-buffer path to owning access
 
 ### Await behavior
 
 | Form | Return type | Notes |
 |---|---|---|
 | `co_await writer` | `WriteAccessProxy<T>` | non-owning proxy; convertible to `T&` |
-| `co_await std::move(writer)` | `OwningWriteAccessProxy<T>` | owning proxy |
+| `co_await writer.transfer()` | `OwningWriteAccessProxy<T>` | owning proxy |
 | `co_await writer.storage()` | `shared_storage<T>&` | explicit storage control |
-| `co_await std::move(writer).storage()` | `OwningStorageAccessProxy<T>` | owning storage access |
+| `co_await writer.transfer().storage()` | `OwningStorageAccessProxy<T>` | owning storage access |
 | `co_await writer.take()` | `T` | move out + destroy stored value |
-| `co_await std::move(writer).take()` | `T` | move out + destroy stored value, then release writer |
+| `co_await writer.transfer().take()` | `T` | move out + destroy stored value, then release writer |
 | `co_await writer.take_release()` | `T` | move out + destroy stored value, then release writer |
-| `co_await std::move(writer).take_release()` | `T` | owning shorthand for take + release |
+| `co_await writer.transfer().take_release()` | `T` | owning shorthand for take + release |
 
 ### Initialization rule
 
@@ -126,7 +128,7 @@ Write proxies support:
 This is available for both:
 
 - `WriteAccessProxy<T>` from `co_await writer`
-- `OwningWriteAccessProxy<T>` from `co_await std::move(writer)`
+- `OwningWriteAccessProxy<T>` from `co_await writer.transfer()`
 
 These are the write-side analogue of read-proxy `get_release()`.
 
@@ -200,14 +202,14 @@ This is how unhandled exceptions are forwarded to downstream epochs.
 |---|---|
 | `all(a, b, ...)` | await all inputs and return tuple of results |
 | `try_await(x)` | non-blocking readiness probe |
-| `write_to(std::move(writer), value)` | concise deferred write helper |
+| `write_to(writer.transfer(), value)` | concise deferred write helper |
 
 ## Common Kernel Pattern
 
 ```cpp
 auto fused = [](ReadBuffer<int> in_a, ReadBuffer<int> in_b, WriteBuffer<int> out) static->AsyncTask {
-  auto a = co_await std::move(in_a);
-  auto b = co_await std::move(in_b);
+  auto a = co_await in_a.transfer();
+  auto b = co_await in_b.transfer();
   int result = a.get() + b.get();
   a.release();
   b.release();

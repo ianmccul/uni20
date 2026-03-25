@@ -44,7 +44,7 @@ When you read and then later write to the same logical timeline, release reader 
 
 ```cpp
 auto add_in_place = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
-  auto owned = co_await std::move(in);
+  auto owned = co_await in.transfer();
   int v = owned.get();
   owned.release();
 
