@@ -9,6 +9,15 @@
 - [Architecture and Roadmap](roadmap.md)
 - [Async Storage and Assignment Semantics](async_storage.md)
 
+## AI Guidance
+
+- [AI Guidance: Custom GPT Instructions](ai_guidance/chatgpt.md)
+- [AI Guidance Index](ai_guidance/README.md)
+- [AI Guidance: Async Runtime](ai_guidance/async_runtime.md)
+- [AI Guidance: Reverse-Mode AD](ai_guidance/reverse_mode_ad.md)
+- [AI Guidance: Architecture Status](ai_guidance/architecture_status.md)
+- [AI Guidance: Glossary](ai_guidance/glossary.md)
+
 ## Async Runtime and AD Docs
 
 - [Async Docs Index](async/README.md)
