@@ -76,3 +76,6 @@ Thumbs.db
 
 # Local Codex machine overrides
 .codex/instructions.local.md
+
+# Local Codex build tree
+build_codex

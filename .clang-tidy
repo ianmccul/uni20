@@ -1,0 +1,16 @@
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-forwarding-reference-overload,
+  -bugprone-exception-escape,
+  -performance-unnecessary-value-param,
+  -performance-move-const-arg
+WarningsAsErrors: ''
+HeaderFilterRegex: '^(src|tests|examples|bindings)(/|$)'
+FormatStyle: none
