@@ -105,6 +105,17 @@ option(UNI20_ENABLE_COVERAGE      "Enable code coverage instrumentation" OFF)
 option(UNI20_DEBUG_ASYNC_TASKS    "Enable AsyncTask debug instrumentation" OFF)
 option(UNI20_DOCS_WEB             "Enable web-oriented Doxygen configuration for deployment" OFF)
 
+if(UNI20_DOCS_WEB)
+  message(STATUS "UNI20_DOCS_WEB=ON: configuring docs-only mode")
+  set(UNI20_BUILD_TESTS OFF CACHE BOOL "Build unit tests" FORCE)
+  set(UNI20_BUILD_COMBINED_TESTS OFF CACHE BOOL "Build combined test executable (in addition to per-module tests)" FORCE)
+  set(UNI20_BUILD_EXAMPLES OFF CACHE BOOL "Build the example programs" FORCE)
+  set(UNI20_BUILD_BENCH OFF CACHE BOOL "Build benchmarks" FORCE)
+  set(UNI20_BUILD_PYTHON OFF CACHE BOOL "Build the Python bindings" FORCE)
+  set(UNI20_BUILD_ASM OFF CACHE BOOL "Build stand-alone assembly dumps for snippets in asm/" FORCE)
+  set(UNI20_ENABLE_CUDA OFF CACHE BOOL "Enable CUDA backend support" FORCE)
+endif()
+
 if(UNI20_ENABLE_COVERAGE)
   message(STATUS "Enabling coverage instrumentation")
 
@@ -243,170 +254,11 @@ foreach(module IN LISTS SUBMODULES)
   option(UNI20_ENABLE_TRACE_${MODULE_UPPER} "Enable tracing for ${module}" ${default_value})
 endforeach()
 
-include(FetchContent)
-
-uni20_add_dependency(
-  NAME fmt
-  VERSION 8.1.1
-  TARGET fmt::fmt
-  REPO https://github.com/fmtlib/fmt.git
-  TAG 10.2.1
-)
-if(TARGET fmt)
-  relax_warnings(fmt)
-endif()
-
-# mdspan reference implementation, put it into stdex namespace to prevent possible conflict with standard library version
-# and set up an interface library uni20_mdspan to set up the include directories
-set(_uni20_mdspan_fetchcontent_paths
-  SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/mdspan-src"
-  BINARY_DIR "${UNI20_FETCHCONTENT_BASE_DIR}/mdspan-build")
-
-FetchContent_Declare(
-  mdspan
-  GIT_REPOSITORY https://github.com/kokkos/mdspan.git
-  GIT_TAG stable
-  ${_uni20_mdspan_fetchcontent_paths}
-)
-FetchContent_MakeAvailable(mdspan)
-target_compile_definitions(mdspan INTERFACE MDSPAN_IMPL_STANDARD_NAMESPACE=stdex)
-relax_warnings(mdspan)
-
-# Use the square bracket operator for multidimensional arrays, not needed for c++23
-# add_compile_definitions(MDSPAN_USE_BRACKET_OPERATOR=1)
-
-# oneTBB
-uni20_add_dependency(
-  NAME TBB
-  VERSION 2021
-  TARGET TBB::tbb
-  REPO https://github.com/uxlfoundation/oneTBB
-  TAG v2022.2.0
-  COMPONENTS tbb
-  SETTINGS
-    "TBB_TEST=OFF"
-    "TBB_BUILD_TESTS=OFF"
-)
-
-# If sanitizers are enabled, exclude them from TBB (known incompatibility).
-if(UNI20_SANITIZE)
-  string(FIND "${UNI20_SANITIZE}" "address" _has_asan)
-  string(FIND "${UNI20_SANITIZE}" "undefined" _has_ubsan)
-  string(FIND "${UNI20_SANITIZE}" "thread" _has_tsan)
-  if(NOT _has_asan EQUAL -1 OR NOT _has_ubsan EQUAL -1 OR NOT _has_tsan EQUAL -1)
-    message(WARNING "Building uni20 with sanitizers (${UNI20_SANITIZE}), "
-  "but disabling sanitizer instrumentation for oneTBB.")
-
-    # Apply -fno-sanitize=all to all TBB sources
-    get_target_property(tbb_sources TBB::tbb SOURCES)
-    if(tbb_sources)
-      set_source_files_properties(${tbb_sources} PROPERTIES COMPILE_FLAGS "-fno-sanitize=all")
-    endif()
-  endif()
-endif()
-
-# Enable CUDA if requested
-if(UNI20_ENABLE_CUDA)
+set(UNI20_BACKEND_CUDA_DEFAULT OFF)
+if(NOT UNI20_DOCS_WEB AND UNI20_ENABLE_CUDA)
   message(STATUS "CUDA support enabled. Looking for nvcc...")
   enable_language(CUDA)
   set(UNI20_BACKEND_CUDA_DEFAULT ON)
-else()
-  set(UNI20_BACKEND_CUDA_DEFAULT OFF)
-endif()
-
-# Optionally fetch GoogleTest for unit testing
-if(UNI20_BUILD_TESTS)
-  set(_gtest_settings)
-  if(MSVC)
-    # GoogleTest defaults to the static MSVC runtime (/MT); opt into the shared
-    # CRT so that gtest links cleanly with uni20's /MD configuration.
-    set(_gtest_settings SETTINGS "gtest_force_shared_crt:BOOL=ON")
-  endif()
-
-  uni20_add_dependency(
-    NAME GTest
-    VERSION 1.12.0
-    TARGET GTest::gtest
-    REPO https://github.com/google/googletest.git
-    TAG v1.17.0
-    ${_gtest_settings}
-  )
-endif()
-
-# Optionally fetch Google Benchmark for performance testing
-if(UNI20_BUILD_BENCH)
-
-  uni20_add_dependency(
-    NAME benchmark
-    VERSION 1.5.2
-    TARGET benchmark::benchmark
-    REPO https://github.com/google/benchmark.git
-    TAG v1.9.0
-    SETTINGS
-      "BENCHMARK_ENABLE_TESTING=OFF"
-      "BENCHMARK_ENABLE_GTEST_TESTS=OFF"
-      "BENCHMARK_ENABLE_INSTALL=OFF"
-      "BENCHMARK_ENABLE_EXCEPTIONS=ON"
-  )
-endif()
-
-# Enable link-time optimizations
-include(CheckIPOSupported)
-check_ipo_supported(
-  RESULT ipo_supported
-  OUTPUT ipo_error    # optional: captures the reason if it fails
-  LANGUAGES CXX
-)
-
-set(_uni20_lto_allowed FALSE)
-get_property(_uni20_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-
-if(_uni20_is_multi_config)
-  set(_uni20_lto_allowed TRUE)
-else()
-  string(TOUPPER "${CMAKE_BUILD_TYPE}" _uni20_build_type_upper)
-  if(_uni20_build_type_upper STREQUAL "RELEASE"
-     OR _uni20_build_type_upper STREQUAL "RELWITHDEBINFO"
-     OR _uni20_build_type_upper STREQUAL "MINSIZEREL"
-     OR _uni20_build_type_upper STREQUAL "DEBUGOPT")
-    set(_uni20_lto_allowed TRUE)
-  endif()
-endif()
-
-set(_uni20_enable_ipo_for_targets FALSE)
-if(UNI20_ENABLE_LTO AND ipo_supported AND _uni20_lto_allowed)
-  set(_uni20_enable_ipo_for_targets TRUE)
-endif()
-
-if(_uni20_enable_ipo_for_targets)
-  if(_uni20_is_multi_config)
-    message(STATUS "LTO/IPO enabled for configs: Release, RelWithDebInfo, MinSizeRel, DebugOpt")
-  else()
-    message(STATUS "LTO/IPO enabled for build type: ${CMAKE_BUILD_TYPE}")
-  endif()
-elseif(NOT UNI20_ENABLE_LTO)
-  message(STATUS "LTO/IPO disabled: UNI20_ENABLE_LTO=OFF")
-elseif(NOT ipo_supported)
-  message(STATUS "LTO/IPO disabled: toolchain does not support IPO (${ipo_error})")
-else()
-  if(CMAKE_BUILD_TYPE)
-    message(STATUS
-      "LTO/IPO disabled for build type '${CMAKE_BUILD_TYPE}' "
-      "(enabled for Release, RelWithDebInfo, MinSizeRel, DebugOpt)")
-  else()
-    message(STATUS "LTO/IPO disabled: no build type selected")
-  endif()
-endif()
-
-if(_uni20_enable_ipo_for_targets)
-  if(_uni20_is_multi_config)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL TRUE)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_DEBUGOPT TRUE)
-  else()
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-  endif()
 endif()
 
 function(enable_ipo_if_supported target)
@@ -422,16 +274,19 @@ function(enable_ipo_if_supported target)
   endif()
 endfunction()
 
-# Create an interface library for common dependencies
-add_library(uni20_deps INTERFACE)
-target_link_libraries(uni20_deps INTERFACE fmt::fmt)
-
 # Backends
 option(UNI20_BACKEND_BLAS     "Enable the BLAS backend" ON)
 option(UNI20_BACKEND_CUDA     "Enable the CUDA backend" ${UNI20_BACKEND_CUDA_DEFAULT})
 option(UNI20_BACKEND_CUSOLVER "Enable the cuSOLVER backend" OFF)
 option(UNI20_BACKEND_MKL      "Enable the MKL backend" OFF)
 set(UNI20_BLAS_VENDOR "All" CACHE STRING "BLAS vendor hint passed to FindBLAS as BLA_VENDOR (for example: All, OpenBLAS, Generic, Intel10_64lp)")
+
+if(UNI20_DOCS_WEB)
+  set(UNI20_BACKEND_BLAS OFF CACHE BOOL "Enable the BLAS backend" FORCE)
+  set(UNI20_BACKEND_CUDA OFF CACHE BOOL "Enable the CUDA backend" FORCE)
+  set(UNI20_BACKEND_CUSOLVER OFF CACHE BOOL "Enable the cuSOLVER backend" FORCE)
+  set(UNI20_BACKEND_MKL OFF CACHE BOOL "Enable the MKL backend" FORCE)
+endif()
 
 # Dependency: MKL requires BLAS
 if(UNI20_BACKEND_MKL)
@@ -457,28 +312,190 @@ endif()
 #  message(WARNING "IPO/LTO not supported: ${ipo_error}")
 #endif()
 
-# Add subdirectories
-add_subdirectory(src)
+if(NOT UNI20_DOCS_WEB)
+  include(FetchContent)
 
-if(UNI20_BUILD_PYTHON)
-  add_subdirectory(bindings/python)
-endif()
+  uni20_add_dependency(
+    NAME fmt
+    VERSION 8.1.1
+    TARGET fmt::fmt
+    REPO https://github.com/fmtlib/fmt.git
+    TAG 10.2.1
+  )
+  if(TARGET fmt)
+    relax_warnings(fmt)
+  endif()
 
-if(UNI20_BUILD_TESTS)
-  enable_testing()
-  add_subdirectory(tests)
-endif()
+  # mdspan reference implementation, put it into stdex namespace to prevent possible conflict with standard library version
+  # and set up an interface library uni20_mdspan to set up the include directories
+  set(_uni20_mdspan_fetchcontent_paths
+    SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/mdspan-src"
+    BINARY_DIR "${UNI20_FETCHCONTENT_BASE_DIR}/mdspan-build")
 
-if(UNI20_BUILD_BENCH)
-  add_subdirectory(benchmarks)
-endif()
+  FetchContent_Declare(
+    mdspan
+    GIT_REPOSITORY https://github.com/kokkos/mdspan.git
+    GIT_TAG stable
+    ${_uni20_mdspan_fetchcontent_paths}
+  )
+  FetchContent_MakeAvailable(mdspan)
+  target_compile_definitions(mdspan INTERFACE MDSPAN_IMPL_STANDARD_NAMESPACE=stdex)
+  relax_warnings(mdspan)
 
-if(UNI20_BUILD_EXAMPLES)
-  add_subdirectory(examples)
-endif()
+  # Use the square bracket operator for multidimensional arrays, not needed for c++23
+  # add_compile_definitions(MDSPAN_USE_BRACKET_OPERATOR=1)
 
-if(UNI20_BUILD_ASM)
-  add_subdirectory(asm)
+  # oneTBB
+  uni20_add_dependency(
+    NAME TBB
+    VERSION 2021
+    TARGET TBB::tbb
+    REPO https://github.com/uxlfoundation/oneTBB
+    TAG v2022.2.0
+    COMPONENTS tbb
+    SETTINGS
+      "TBB_TEST=OFF"
+      "TBB_BUILD_TESTS=OFF"
+  )
+
+  # If sanitizers are enabled, exclude them from TBB (known incompatibility).
+  if(UNI20_SANITIZE)
+    string(FIND "${UNI20_SANITIZE}" "address" _has_asan)
+    string(FIND "${UNI20_SANITIZE}" "undefined" _has_ubsan)
+    string(FIND "${UNI20_SANITIZE}" "thread" _has_tsan)
+    if(NOT _has_asan EQUAL -1 OR NOT _has_ubsan EQUAL -1 OR NOT _has_tsan EQUAL -1)
+      message(WARNING "Building uni20 with sanitizers (${UNI20_SANITIZE}), "
+      "but disabling sanitizer instrumentation for oneTBB.")
+
+      # Apply -fno-sanitize=all to all TBB sources
+      get_target_property(tbb_sources TBB::tbb SOURCES)
+      if(tbb_sources)
+        set_source_files_properties(${tbb_sources} PROPERTIES COMPILE_FLAGS "-fno-sanitize=all")
+      endif()
+    endif()
+  endif()
+
+  # Optionally fetch GoogleTest for unit testing
+  if(UNI20_BUILD_TESTS)
+    set(_gtest_settings)
+    if(MSVC)
+      # GoogleTest defaults to the static MSVC runtime (/MT); opt into the shared
+      # CRT so that gtest links cleanly with uni20's /MD configuration.
+      set(_gtest_settings SETTINGS "gtest_force_shared_crt:BOOL=ON")
+    endif()
+
+    uni20_add_dependency(
+      NAME GTest
+      VERSION 1.12.0
+      TARGET GTest::gtest
+      REPO https://github.com/google/googletest.git
+      TAG v1.17.0
+      ${_gtest_settings}
+    )
+  endif()
+
+  # Optionally fetch Google Benchmark for performance testing
+  if(UNI20_BUILD_BENCH)
+    uni20_add_dependency(
+      NAME benchmark
+      VERSION 1.5.2
+      TARGET benchmark::benchmark
+      REPO https://github.com/google/benchmark.git
+      TAG v1.9.0
+      SETTINGS
+        "BENCHMARK_ENABLE_TESTING=OFF"
+        "BENCHMARK_ENABLE_GTEST_TESTS=OFF"
+        "BENCHMARK_ENABLE_INSTALL=OFF"
+        "BENCHMARK_ENABLE_EXCEPTIONS=ON"
+    )
+  endif()
+
+  # Enable link-time optimizations
+  include(CheckIPOSupported)
+  check_ipo_supported(
+    RESULT ipo_supported
+    OUTPUT ipo_error    # optional: captures the reason if it fails
+    LANGUAGES CXX
+  )
+
+  set(_uni20_lto_allowed FALSE)
+  get_property(_uni20_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+
+  if(_uni20_is_multi_config)
+    set(_uni20_lto_allowed TRUE)
+  else()
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" _uni20_build_type_upper)
+    if(_uni20_build_type_upper STREQUAL "RELEASE"
+       OR _uni20_build_type_upper STREQUAL "RELWITHDEBINFO"
+       OR _uni20_build_type_upper STREQUAL "MINSIZEREL"
+       OR _uni20_build_type_upper STREQUAL "DEBUGOPT")
+      set(_uni20_lto_allowed TRUE)
+    endif()
+  endif()
+
+  set(_uni20_enable_ipo_for_targets FALSE)
+  if(UNI20_ENABLE_LTO AND ipo_supported AND _uni20_lto_allowed)
+    set(_uni20_enable_ipo_for_targets TRUE)
+  endif()
+
+  if(_uni20_enable_ipo_for_targets)
+    if(_uni20_is_multi_config)
+      message(STATUS "LTO/IPO enabled for configs: Release, RelWithDebInfo, MinSizeRel, DebugOpt")
+    else()
+      message(STATUS "LTO/IPO enabled for build type: ${CMAKE_BUILD_TYPE}")
+    endif()
+  elseif(NOT UNI20_ENABLE_LTO)
+    message(STATUS "LTO/IPO disabled: UNI20_ENABLE_LTO=OFF")
+  elseif(NOT ipo_supported)
+    message(STATUS "LTO/IPO disabled: toolchain does not support IPO (${ipo_error})")
+  else()
+    if(CMAKE_BUILD_TYPE)
+      message(STATUS
+        "LTO/IPO disabled for build type '${CMAKE_BUILD_TYPE}' "
+        "(enabled for Release, RelWithDebInfo, MinSizeRel, DebugOpt)")
+    else()
+      message(STATUS "LTO/IPO disabled: no build type selected")
+    endif()
+  endif()
+
+  if(_uni20_enable_ipo_for_targets)
+    if(_uni20_is_multi_config)
+      set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+      set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
+      set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL TRUE)
+      set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_DEBUGOPT TRUE)
+    else()
+      set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+    endif()
+  endif()
+
+  # Create an interface library for common dependencies
+  add_library(uni20_deps INTERFACE)
+  target_link_libraries(uni20_deps INTERFACE fmt::fmt)
+
+  # Add subdirectories
+  add_subdirectory(src)
+
+  if(UNI20_BUILD_PYTHON)
+    add_subdirectory(bindings/python)
+  endif()
+
+  if(UNI20_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+  endif()
+
+  if(UNI20_BUILD_BENCH)
+    add_subdirectory(benchmarks)
+  endif()
+
+  if(UNI20_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+  endif()
+
+  if(UNI20_BUILD_ASM)
+    add_subdirectory(asm)
+  endif()
 endif()
 
 # Doxygen documentation target
