@@ -1,0 +1,7 @@
+<map id="uni20::TransformAccessor&lt; Func, Spans &gt;" name="uni20::TransformAccessor&lt; Func, Spans &gt;">
+<area shape="rect" id="Node000001" title="An mdspan accessor that applies an N‑ary functor to N child spans, with maximal empty‑base optimizati..." alt="" coords="5,93,195,133"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="13,13,65,38"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="57,47,88,91,84,94,53,51"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="89,5,234,45"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="142,58,116,95,111,92,138,55"/>
+</map>

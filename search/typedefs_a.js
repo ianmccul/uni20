@@ -1,0 +1,12 @@
+var searchData=
+[
+  ['make_5fcomplex_5ft_0',['make_complex_t',['../group__core__math.html#gabbff478ba4f847ea9ccca64a8136b985',1,'uni20']]],
+  ['make_5freal_5ft_1',['make_real_t',['../group__core__math.html#ga8e6b84c69e8fdcd5d645d4ddc8ebc058',1,'uni20']]],
+  ['mapping_5ffor_5ft_2',['mapping_for_t',['../namespaceuni20_1_1layout.html#a2a157c6fdbeec585e172824a6d3dc6ab',1,'uni20::layout']]],
+  ['mapping_5ftype_3',['mapping_type',['../structuni20_1_1StridedZipLayout_1_1mapping.html#ab22d25a7bd5e30b75fa19c48356c0460',1,'uni20::StridedZipLayout::mapping::mapping_type'],['../structuni20_1_1GeneralZipLayout_1_1mapping.html#aa14fa19e6e51690f44af79ebae9501c9',1,'uni20::GeneralZipLayout::mapping::mapping_type'],['../classuni20_1_1TensorView_3_01T_01const_00_01Traits_01_4.html#afdf2240803155714038be540f38a61ec',1,'uni20::TensorView&lt; T const, Traits &gt;::mapping_type'],['../classuni20_1_1TensorView.html#ab4820de9889011e3321e16c38a18be10',1,'uni20::TensorView::mapping_type'],['../classuni20_1_1BasicTensor.html#ab4820de9889011e3321e16c38a18be10',1,'uni20::BasicTensor::mapping_type'],['../structuni20_1_1SumAccessor.html#a3040fbb887bed04eaaead1e332cc9693',1,'uni20::SumAccessor::mapping_type']]],
+  ['matrix_4',['Matrix',['../namespaceLinearAlgebra_1_1Private.html#ab92d71fe8256bdd02c298fb2fd0fc6fa',1,'LinearAlgebra::Private']]],
+  ['mdspan_5ftype_5',['mdspan_type',['../classuni20_1_1TensorView_3_01T_01const_00_01Traits_01_4.html#a0a36e039aca365ed93ff515b071f013d',1,'uni20::TensorView&lt; T const, Traits &gt;::mdspan_type'],['../classuni20_1_1TensorView.html#a84a4c383866b3d939a370a279dcff6de',1,'uni20::TensorView::mdspan_type']]],
+  ['multi_5fextent_5fstride_6',['multi_extent_stride',['../group__internal.html#ga1cb2381121a7595fa281ab53713a88d5',1,'uni20']]],
+  ['mutable_5faccessor_5ftype_7',['mutable_accessor_type',['../classuni20_1_1TensorView.html#aa096d3c4438f4b356633d9dcf88d09b8',1,'uni20::TensorView::mutable_accessor_type'],['../classuni20_1_1TensorView_3_01T_01const_00_01Traits_01_4.html#aa096d3c4438f4b356633d9dcf88d09b8',1,'uni20::TensorView&lt; T const, Traits &gt;::mutable_accessor_type']]],
+  ['mutable_5fhandle_5ftype_8',['mutable_handle_type',['../classuni20_1_1TensorView.html#a88ff893f188000bb45f1ddad99677316',1,'uni20::TensorView::mutable_handle_type'],['../classuni20_1_1TensorView_3_01T_01const_00_01Traits_01_4.html#a88ff893f188000bb45f1ddad99677316',1,'uni20::TensorView&lt; T const, Traits &gt;::mutable_handle_type']]]
+];

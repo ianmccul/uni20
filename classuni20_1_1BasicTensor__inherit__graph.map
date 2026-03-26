@@ -1,0 +1,5 @@
+<map id="uni20::BasicTensor&lt; ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory &gt;" name="uni20::BasicTensor&lt; ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory &gt;">
+<area shape="rect" id="Node000001" title="Owning tensor that allocates storage and exposes mdspan&#45;based access." alt="" coords="5,93,216,163"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1TensorView.html" title="Trait bundle describing the policies required to build tensor views." alt="" coords="35,5,186,45"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="113,59,113,93,108,93,108,59"/>
+</map>

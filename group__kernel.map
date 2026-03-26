@@ -1,0 +1,6 @@
+<map id="Tensor kernel dispatch" name="Tensor kernel dispatch">
+<area shape="rect" id="Node000001" title="Front&#45;end dispatchers that route tensor contractions to backend kernels." alt="" coords="252,31,419,56"/>
+<area shape="rect" id="Node000003" href="$group__kernel__blas.html" title="Tag types for kernels implemented on top of BLAS libraries." alt="" coords="467,5,632,31"/>
+<area shape="rect" id="Node000004" href="$group__kernel__cpu.html" title="Tag types and helpers specific to CPU tensor kernels." alt="" coords="470,55,629,80"/>
+<area shape="rect" id="Node000002" href="$group__kernel__ops.html" title="High&#45;level operations that dispatch to specialised tensor kernels." alt="" coords="5,31,204,56"/>
+</map>

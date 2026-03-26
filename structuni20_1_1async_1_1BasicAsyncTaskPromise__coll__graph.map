@@ -1,0 +1,9 @@
+<map id="uni20::async::BasicAsyncTaskPromise" name="uni20::async::BasicAsyncTaskPromise">
+<area shape="rect" id="Node000001" title="Promise type for AsyncTask." alt="" coords="31,93,218,133"/>
+<area shape="rect" id="Node000003" href="$structuni20_1_1async_1_1BasicAsyncTaskPromise_1_1ExceptionSinkNode.html" title="Intrusive node describing one exception propagation sink." alt="" coords="5,196,244,236"/>
+<area shape="poly" id="edge3_Node000003_Node000001" title=" " alt="" coords="94,145,86,158,84,168,87,177,101,194,96,198,82,179,79,168,81,156,89,142"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1async_1_1IScheduler.html" title="Minimal abstract interface for scheduling coroutine handles." alt="" coords="35,5,215,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="127,44,127,93,122,93,122,44"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="130,182,131,158,127,134,132,133,137,157,136,182"/>
+<area shape="poly" id="edge4_Node000003_Node000003" title=" " alt="" coords="259,208,271,216,263,223,245,227,244,222,260,219,265,216,256,212"/>
+</map>

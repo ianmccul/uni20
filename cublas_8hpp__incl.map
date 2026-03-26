@@ -1,0 +1,5 @@
+<map id="cublas.hpp" name="cublas.hpp">
+<area shape="rect" id="Node000001" title="Tag for selecting cuBLAS&#45;backed kernels." alt="" coords="36,5,128,31"/>
+<area shape="rect" id="Node000002" href="$cuda_8hpp.html" title="Tag for selecting CUDA&#45;capable kernels." alt="" coords="5,79,159,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="85,31,85,65,79,65,79,31"/>
+</map>

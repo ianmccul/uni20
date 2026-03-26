@@ -1,0 +1,5 @@
+<map id="reference_blas_mkl_direct.hpp" name="reference_blas_mkl_direct.hpp">
+<area shape="rect" id="Node000001" title="Enables MKL direct&#45;call support for Uni20 reference BLAS wrappers." alt="" coords="5,5,156,45"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="51,93,110,119"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="83,46,83,79,78,79,78,46"/>
+</map>

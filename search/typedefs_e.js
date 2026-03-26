@@ -1,0 +1,11 @@
+var searchData=
+[
+  ['scalar_5ft_0',['scalar_t',['../namespaceuni20.html#a607a302a9f92f28124836d2bf03133fa',1,'uni20']]],
+  ['sink_1',['Sink',['../structtrace_1_1FormattingOptions.html#a5a72272c613a50c0278b5f88b7eac5e0',1,'trace::FormattingOptions']]],
+  ['size_5ftype_2',['size_type',['../classstatic__vector.html#ac66d3af55626263ab9122139e309a3af',1,'static_vector::size_type'],['../classstatic__vector_3_01T_00_010_01_4.html#a2901bbf6eb2100e0da8232c42afccf8a',1,'static_vector&lt; T, 0 &gt;::size_type'],['../classuni20_1_1TensorView_3_01T_01const_00_01Traits_01_4.html#a392c8dcb1705092882a45920b8f1d41b',1,'uni20::TensorView&lt; T const, Traits &gt;::size_type'],['../namespaceuni20.html#a8ec481c308005356a794a31bad0ce03c',1,'uni20::size_type']]],
+  ['span_5foffset_5ft_3',['span_offset_t',['../group__mdspan__ext.html#gae2991cd7d3cc9846f90613ca6ea4c041',1,'uni20']]],
+  ['storage_5fpolicy_4',['storage_policy',['../classuni20_1_1TensorView.html#a563baa03f3f81fd9cd1ad1070c829335',1,'uni20::TensorView::storage_policy'],['../classuni20_1_1TensorView_3_01T_01const_00_01Traits_01_4.html#a32af60960592762d9466d289af3c62f2',1,'uni20::TensorView&lt; T const, Traits &gt;::storage_policy'],['../structuni20_1_1tensor__traits.html#a4dc90913ed37b5bf85a165b80a336742',1,'uni20::tensor_traits::storage_policy'],['../classuni20_1_1BasicTensor.html#af024b0d551735ee7c346b76ffd785103',1,'uni20::BasicTensor::storage_policy']]],
+  ['storage_5ft_5',['storage_t',['../structuni20_1_1VectorStorage.html#a88fd333ec7050412958e8c7636244602',1,'uni20::VectorStorage']]],
+  ['storage_5ftype_6',['storage_type',['../classuni20_1_1BasicTensor.html#a482722507e19014f295d6b9cd3d70f30',1,'uni20::BasicTensor::storage_type'],['../structuni20_1_1tensor__traits.html#aeb385f174ca050b121b4f5932fca8d4c',1,'uni20::tensor_traits::storage_type'],['../structuni20_1_1mutable__tensor__traits.html#ae4316bd86f4d137d3443a9875886a5be',1,'uni20::mutable_tensor_traits::storage_type'],['../classuni20_1_1TensorView_3_01T_01const_00_01Traits_01_4.html#a3b34a044f3933d1985a58504cc4eb7c0',1,'uni20::TensorView&lt; T const, Traits &gt;::storage_type']]],
+  ['storedawaiter_7',['StoredAwaiter',['../structuni20_1_1async_1_1TryAwaiter.html#ae98c067c3d5d6239428c2a780dda2a6f',1,'uni20::async::TryAwaiter']]]
+];

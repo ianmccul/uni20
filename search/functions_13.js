@@ -1,0 +1,9 @@
+var searchData=
+[
+  ['valid_0',['valid',['../classuni20_1_1async_1_1shared__storage.html#a26ec7effe34fd3b312b606c613d524bb',1,'uni20::async::shared_storage']]],
+  ['value_1',['value',['../classuni20_1_1async_1_1FutureValue.html#a47dee2345386d2fdc62331937cc2530f',1,'uni20::async::FutureValue::value()'],['../classuni20_1_1async_1_1FutureValue.html#abde1cfc4bd42a13515fc851abe148cdc',1,'uni20::async::FutureValue::value() const']]],
+  ['value_5fis_5finitialized_2',['value_is_initialized',['../classuni20_1_1async_1_1EpochContextWriter.html#ae3105f16a91d68bcd300766eb14a53f4',1,'uni20::async::EpochContextWriter']]],
+  ['value_5fptr_3',['value_ptr',['../classuni20_1_1async_1_1Async.html#aa8ce2a6c54139d5637ec54ae5dd01481',1,'uni20::async::Async']]],
+  ['var_4',['var',['../classuni20_1_1async_1_1Var.html#a96b293c1de2683194b545c7cb371618d',1,'uni20::async::Var::Var()=default'],['../classuni20_1_1async_1_1Var.html#afbbd19820a1bf5b5c1474e637840f966',1,'uni20::async::Var::Var(Var &amp;&amp;)=default'],['../classuni20_1_1async_1_1Var.html#a89ea48972564d8c7d7434d3c40fa2b3b',1,'uni20::async::Var::Var(Var const &amp;)=delete'],['../classuni20_1_1async_1_1Var.html#a512b6349b82e0cc7263ddc9aa1d57cfb',1,'uni20::async::Var::Var(Var &amp;other)'],['../classuni20_1_1async_1_1Var.html#adacb1a4b523108eb6f3662f29211be47',1,'uni20::async::Var::Var(Async&lt; T &gt; const &amp;other)'],['../classuni20_1_1async_1_1Var.html#ab841598c2672f59d3f70fda9dd781d33',1,'uni20::async::Var::Var(U &amp;&amp;val)']]],
+  ['view_5',['view',['../classuni20_1_1BasicTensor.html#afddf28dabba925966e843a80d1e7f452',1,'uni20::BasicTensor::view() noexcept -&gt; TensorView&lt; element_type, traits_type &gt;'],['../classuni20_1_1BasicTensor.html#a124fc6b6ed85c1a83cb6966dee1ea3aa',1,'uni20::BasicTensor::view() const noexcept -&gt; TensorView&lt; element_type const, const_traits &gt;']]]
+];

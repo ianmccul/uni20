@@ -1,0 +1,19 @@
+<map id="static_vector.hpp" name="static_vector.hpp">
+<area shape="rect" id="Node000001" title="Defines static_vector, a fixed&#45;capacity, stack&#45;allocated vector with a std::vector&#45;like API." alt="" coords="171,5,304,31"/>
+<area shape="rect" id="Node000002" href="$iteration__plan_8hpp.html" title="Helpers for constructing merged iteration plans over strided tensors." alt="" coords="114,152,254,177"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="231,45,191,153,186,151,226,43"/>
+<area shape="rect" id="Node000006" href="$strides_8hpp.html" title="Stride utilities for mdspan&#45;like tensors." alt="" coords="238,79,333,104"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="255,41,280,77,275,80,251,44"/>
+<area shape="rect" id="Node000003" href="$apply__unary_8hpp.html" title=" " alt="" coords="5,225,133,251"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="156,187,89,227,87,223,153,182"/>
+<area shape="rect" id="Node000005" href="$assign_8hpp.html" title=" " alt="" coords="158,225,250,251"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="194,190,203,224,198,226,188,191"/>
+<area shape="rect" id="Node000004" href="$sum_8hpp.html" title=" " alt="" coords="30,299,109,324"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="72,264,72,299,67,299,67,264"/>
+<area shape="poly" id="edge9_Node000006_Node000002" title=" " alt="" coords="259,114,202,154,199,150,256,110"/>
+<area shape="rect" id="Node000007" href="$contract_8hpp.html" title=" " alt="" coords="311,225,414,251"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="295,116,321,176,355,223,350,227,316,179,291,118"/>
+<area shape="rect" id="Node000008" href="$cpu_2contract_8hpp.html" title=" " alt="" coords="330,152,433,177"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="313,110,367,150,364,154,310,114"/>
+<area shape="poly" id="edge8_Node000008_Node000007" title=" " alt="" coords="377,191,368,226,363,225,372,190"/>
+</map>

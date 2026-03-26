@@ -1,0 +1,11 @@
+var searchData=
+[
+  ['leaked_0',['leaked',['../classuni20_1_1TaskRegistryDebug.html#a554fc983fb918a585fe7a0b1f329075aad5ed7b473202d9515d8e5cbb0b4f66b3',1,'uni20::TaskRegistryDebug::Leaked'],['../classuni20_1_1TaskRegistry.html#a0ef5ca971e8ab708620057b2a114f117ad5ed7b473202d9515d8e5cbb0b4f66b3',1,'uni20::TaskRegistry::Leaked']]],
+  ['lightblue_1',['lightblue',['../namespaceterminal.html#a21249c8c15a12b2959b9d8e6c9a27a87a4d7ff7393a484a7b9ed2e381f5cdeaf7',1,'terminal::LightBlue'],['../namespaceterminal.html#ab1e7ae6566dcfedfef9f0bba47f9eebda4d7ff7393a484a7b9ed2e381f5cdeaf7',1,'terminal::LightBlue']]],
+  ['lightcyan_2',['lightcyan',['../namespaceterminal.html#a21249c8c15a12b2959b9d8e6c9a27a87ac37b5ce4ba80a097d82726ae74d34b13',1,'terminal::LightCyan'],['../namespaceterminal.html#ab1e7ae6566dcfedfef9f0bba47f9eebdac37b5ce4ba80a097d82726ae74d34b13',1,'terminal::LightCyan']]],
+  ['lightgray_3',['lightgray',['../namespaceterminal.html#a21249c8c15a12b2959b9d8e6c9a27a87afb55202637692de4a494e9ade4cff2dd',1,'terminal::LightGray'],['../namespaceterminal.html#ab1e7ae6566dcfedfef9f0bba47f9eebdafb55202637692de4a494e9ade4cff2dd',1,'terminal::LightGray']]],
+  ['lightgreen_4',['lightgreen',['../namespaceterminal.html#a21249c8c15a12b2959b9d8e6c9a27a87a7a6a38bec67cbc2a39ce22f34e4ed8e2',1,'terminal::LightGreen'],['../namespaceterminal.html#ab1e7ae6566dcfedfef9f0bba47f9eebda7a6a38bec67cbc2a39ce22f34e4ed8e2',1,'terminal::LightGreen']]],
+  ['lightmagenta_5',['lightmagenta',['../namespaceterminal.html#a21249c8c15a12b2959b9d8e6c9a27a87af1ec64ef9f82e9fb86b094f8b548f9f1',1,'terminal::LightMagenta'],['../namespaceterminal.html#ab1e7ae6566dcfedfef9f0bba47f9eebdaf1ec64ef9f82e9fb86b094f8b548f9f1',1,'terminal::LightMagenta']]],
+  ['lightred_6',['lightred',['../namespaceterminal.html#a21249c8c15a12b2959b9d8e6c9a27a87af9a96fb667261a141d10021a66d6ad0f',1,'terminal::LightRed'],['../namespaceterminal.html#ab1e7ae6566dcfedfef9f0bba47f9eebdaf9a96fb667261a141d10021a66d6ad0f',1,'terminal::LightRed']]],
+  ['lightyellow_7',['lightyellow',['../namespaceterminal.html#a21249c8c15a12b2959b9d8e6c9a27a87afaf948b65bda38f44b17d156177d1728',1,'terminal::LightYellow'],['../namespaceterminal.html#ab1e7ae6566dcfedfef9f0bba47f9eebdafaf948b65bda38f44b17d156177d1728',1,'terminal::LightYellow']]]
+];

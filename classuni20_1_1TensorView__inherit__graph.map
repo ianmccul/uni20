@@ -1,0 +1,5 @@
+<map id="uni20::TensorView&lt; T, Traits &gt;" name="uni20::TensorView&lt; T, Traits &gt;">
+<area shape="rect" id="Node000001" title="Trait bundle describing the policies required to build tensor views." alt="" coords="5,20,156,60"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1BasicTensor.html" title="Owning tensor that allocates storage and exposes mdspan&#45;based access." alt="" coords="204,5,415,75"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="170,37,204,37,204,43,170,43"/>
+</map>

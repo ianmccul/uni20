@@ -1,0 +1,16 @@
+<map id="concepts.hpp" name="concepts.hpp">
+<area shape="rect" id="Node000001" title="Mdspan concept and accessor extensions for Uni20." alt="" coords="209,5,317,31"/>
+<area shape="rect" id="Node000002" href="$mdspan_8hpp.html" title="Wrapper that exposes the mdspan reference implementation and a formatter bridge." alt="" coords="82,79,285,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="252,33,208,72,205,68,249,29"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,152,111,177"/>
+<area shape="poly" id="edge7_Node000001_Node000003" title=" " alt="" coords="209,23,174,29,137,39,101,56,72,80,64,93,60,108,58,138,52,138,54,107,59,91,68,77,98,51,135,34,173,23,209,18"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="309,79,378,104"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="278,29,322,68,318,72,274,33"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="402,79,482,104"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="293,28,401,71,399,76,291,33"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="165,106,92,147,89,143,162,102"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="142,152,209,177"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="185,105,181,139,175,138,179,104"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="233,152,392,177"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="205,102,280,143,278,147,203,106"/>
+</map>

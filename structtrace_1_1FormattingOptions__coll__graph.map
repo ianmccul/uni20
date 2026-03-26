@@ -1,0 +1,11 @@
+<map id="trace::FormattingOptions" name="trace::FormattingOptions">
+<area shape="rect" id="Node000001" title="Configuration and formatting options for a trace module." alt="" coords="161,183,345,208"/>
+<area shape="rect" id="Node000002" href="$classNamedEnumeration.html" title=" " alt="" coords="5,80,249,120"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="166,126,239,180,236,185,162,131"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="60,5,195,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="130,44,130,80,125,80,125,44"/>
+<area shape="rect" id="Node000004" href="$classNamedEnumeration.html" title=" " alt="" coords="273,80,485,120"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="344,130,270,185,267,180,341,126"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="301,5,458,31"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="382,44,382,80,377,80,377,44"/>
+</map>

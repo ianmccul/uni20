@@ -1,0 +1,35 @@
+<map id="cpu.hpp" name="cpu.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="303,5,377,31"/>
+<area shape="rect" id="Node000002" href="$kernel_2blas_2blas_8hpp.html" title=" " alt="" coords="181,79,259,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="310,40,241,81,238,76,307,35"/>
+<area shape="rect" id="Node000005" href="$cpu_2contract_8hpp.html" title=" " alt="" coords="289,79,391,104"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="343,44,343,79,337,79,337,44"/>
+<area shape="rect" id="Node000007" href="$vectorstorage_8hpp.html" title=" " alt="" coords="415,79,555,104"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="377,34,463,76,460,81,374,39"/>
+<area shape="rect" id="Node000003" href="$kernel_2blas_2backend__blas_8hpp.html" title=" " alt="" coords="5,152,144,177"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="186,112,100,154,97,149,183,108"/>
+<area shape="rect" id="Node000004" href="$blas_2contract_8hpp.html" title=" " alt="" coords="169,152,271,177"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="223,118,223,152,217,152,217,118"/>
+<area shape="rect" id="Node000006" href="$contract_8hpp.html" title=" " alt="" coords="295,152,398,177"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="345,118,348,152,343,152,340,118"/>
+<area shape="rect" id="Node000008" href="$matrix__ops_8hpp.html" title=" " alt="" coords="501,445,624,471"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="481,118,470,172,464,237,464,313,466,334,473,354,496,391,523,421,549,443,545,447,520,425,491,394,468,356,461,335,459,313,459,237,465,171,476,117"/>
+<area shape="rect" id="Node000010" href="$tensor__view_8hpp.html" title="Tensor view abstractions and accessor factories built on std::mdspan." alt="" coords="524,152,652,177"/>
+<area shape="poly" id="edge9_Node000007_Node000010" title=" " alt="" coords="515,110,573,150,570,154,512,114"/>
+<area shape="rect" id="Node000009" href="$linalg_8hpp.html" title=" " alt="" coords="569,519,655,544"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="581,481,606,517,602,520,576,484"/>
+<area shape="poly" id="edge13_Node000010_Node000008" title=" " alt="" coords="566,188,551,206,540,226,532,257,529,289,534,352,547,407,560,444,555,446,542,408,529,353,524,289,527,256,535,224,547,203,562,185"/>
+<area shape="rect" id="Node000011" href="$basic__tensor_8hpp.html" title=" " alt="" coords="549,225,680,251"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="600,189,613,224,608,226,595,191"/>
+<area shape="rect" id="Node000013" href="$matrix__ops__cpu_8hpp.html" title=" " alt="" coords="705,225,858,251"/>
+<area shape="poly" id="edge14_Node000010_Node000013" title=" " alt="" coords="633,179,751,223,749,228,631,184"/>
+<area shape="poly" id="edge11_Node000011_Node000008" title=" " alt="" coords="605,264,591,299,573,383,566,446,561,445,568,382,585,298,600,262"/>
+<area shape="rect" id="Node000012" href="$tensor_8hpp.html" title=" " alt="" coords="600,299,691,324"/>
+<area shape="poly" id="edge12_Node000011_Node000012" title=" " alt="" coords="628,262,643,297,638,300,623,264"/>
+<area shape="rect" id="Node000014" href="$linalg__cpu_8hpp.html" title=" " alt="" coords="719,299,835,324"/>
+<area shape="poly" id="edge15_Node000013_Node000014" title=" " alt="" coords="783,265,781,299,775,298,777,264"/>
+<area shape="rect" id="Node000015" href="$backend__manifest_8hpp.html" title=" " alt="" coords="601,372,770,397"/>
+<area shape="poly" id="edge16_Node000014_Node000015" title=" " alt="" coords="754,334,702,374,699,370,750,330"/>
+<area shape="poly" id="edge18_Node000015_Node000008" title=" " alt="" coords="655,406,584,447,581,443,653,402"/>
+<area shape="poly" id="edge17_Node000015_Node000009" title=" " alt="" coords="675,411,620,520,616,517,671,409"/>
+</map>

@@ -1,0 +1,14 @@
+<map id="math.hpp" name="math.hpp">
+<area shape="rect" id="Node000001" title="Scalar math helper utilities." alt="" coords="299,5,383,31"/>
+<area shape="rect" id="Node000002" href="$async__toys_8hpp.html" title="Small async helper operations used in tests and examples." alt="" coords="230,79,353,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="327,44,302,80,297,77,323,41"/>
+<area shape="rect" id="Node000005" href="$var__toys_8hpp.html" title="Demonstration reverse&#45;mode helpers built on Var&lt;T&gt;." alt="" coords="365,152,471,177"/>
+<area shape="poly" id="edge6_Node000001_Node000005" title=" " alt="" coords="356,42,414,151,409,153,351,44"/>
+<area shape="rect" id="Node000003" href="$async__example2_8cpp.html" title=" " alt="" coords="5,152,164,177"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="246,111,119,154,117,149,244,106"/>
+<area shape="rect" id="Node000004" href="$future__example_8cpp.html" title=" " alt="" coords="189,152,341,177"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="285,118,271,153,266,151,280,116"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="325,108,399,149,396,154,322,113"/>
+<area shape="rect" id="Node000006" href="$gradient__solver_8cpp.html" title=" " alt="" coords="343,225,493,251"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="421,191,421,225,415,225,415,191"/>
+</map>

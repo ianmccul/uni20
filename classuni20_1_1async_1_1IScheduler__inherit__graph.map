@@ -1,0 +1,9 @@
+<map id="uni20::async::IScheduler" name="uni20::async::IScheduler">
+<area shape="rect" id="Node000001" title="Minimal abstract interface for scheduling coroutine handles." alt="" coords="5,55,185,80"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1async_1_1DebugScheduler.html" title="Simple FIFO scheduler." alt="" coords="243,5,462,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="175,49,285,28,286,33,176,55"/>
+<area shape="rect" id="Node000003" href="$classuni20_1_1async_1_1TbbNumaScheduler.html" title="NUMA&#45;aware scheduler that balances work across per&#45;node TBB arenas." alt="" coords="233,55,472,80"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="199,65,233,65,233,70,199,70"/>
+<area shape="rect" id="Node000004" href="$classuni20_1_1async_1_1TbbScheduler.html" title="Scheduler backend that uses Intel oneTBB to resume coroutines." alt="" coords="253,104,453,129"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="176,80,286,101,285,107,175,85"/>
+</map>

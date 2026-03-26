@@ -1,0 +1,22 @@
+<map id="math.hpp" name="math.hpp">
+<area shape="rect" id="Node000001" title="Scalar math helper utilities." alt="" coords="407,5,491,31"/>
+<area shape="rect" id="Node000002" href="$scalar__concepts_8hpp.html" title=" " alt="" coords="225,79,379,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="426,33,339,75,337,70,424,28"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="264,299,343,324"/>
+<area shape="poly" id="edge10_Node000001_Node000006" title=" " alt="" coords="454,30,459,70,461,128,452,192,441,224,426,252,411,268,394,281,357,299,355,294,391,277,408,264,421,249,437,221,447,191,455,128,454,71,448,31"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="486,79,561,104"/>
+<area shape="poly" id="edge11_Node000001_Node000009" title=" " alt="" coords="462,29,503,67,499,71,459,33"/>
+<area shape="rect" id="Node000003" href="$scalar__traits_8hpp.html" title=" " alt="" coords="237,152,367,177"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="305,104,305,138,299,138,299,104"/>
+<area shape="rect" id="Node000004" href="$types_8hpp.html" title=" " alt="" coords="156,225,243,251"/>
+<area shape="poly" id="edge9_Node000002_Node000004" title=" " alt="" coords="282,106,253,126,227,154,213,183,205,213,200,211,208,181,222,150,250,122,279,102"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="287,180,229,219,226,215,284,175"/>
+<area shape="poly" id="edge7_Node000003_Node000006" title=" " alt="" coords="305,178,306,285,300,285,299,178"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="319,225,411,251"/>
+<area shape="poly" id="edge8_Node000003_Node000008" title=" " alt="" coords="314,176,347,213,343,217,310,179"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="5,299,135,324"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="180,253,105,294,102,289,177,248"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="218,248,276,288,273,293,215,253"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="159,299,239,324"/>
+<area shape="poly" id="edge6_Node000004_Node000007" title=" " alt="" coords="202,251,202,285,197,285,197,251"/>
+</map>

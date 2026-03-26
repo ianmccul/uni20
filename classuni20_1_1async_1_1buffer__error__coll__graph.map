@@ -1,0 +1,9 @@
+<map id="uni20::async::buffer_error" name="uni20::async::buffer_error">
+<area shape="rect" id="Node000001" title="Base class for buffer&#45;related failures." alt="" coords="5,255,156,295"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1async_1_1async__state__error.html" title="Base class for invalid async state transitions or accesses." alt="" coords="5,167,156,207"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="83,221,83,254,78,254,78,221"/>
+<area shape="rect" id="Node000003" href="$classuni20_1_1async_1_1async__error.html" title="Base class for all async subsystem exceptions." alt="" coords="5,79,156,119"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="83,133,83,166,78,166,78,133"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="11,5,150,31"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="83,44,83,79,78,79,78,44"/>
+</map>

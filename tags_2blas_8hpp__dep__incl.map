@@ -1,0 +1,20 @@
+<map id="blas.hpp" name="blas.hpp">
+<area shape="rect" id="Node000001" title="Tag for selecting BLAS&#45;backed kernels." alt="" coords="181,5,259,31"/>
+<area shape="rect" id="Node000002" href="$backend__mkl_8hpp.html" title=" " alt="" coords="21,79,157,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="188,40,112,81,109,76,185,35"/>
+<area shape="rect" id="Node000003" href="$kernel_2blas_2blas_8hpp.html" title=" " alt="" coords="181,79,259,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="223,44,223,79,217,79,217,44"/>
+<area shape="rect" id="Node000006" href="$lapack_8hpp.html" title="Tag for selecting LAPACK&#45;backed kernels." alt="" coords="308,79,401,104"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="255,35,334,76,331,81,252,39"/>
+<area shape="rect" id="Node000004" href="$kernel_2blas_2backend__blas_8hpp.html" title=" " alt="" coords="5,152,144,177"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="186,112,100,154,97,149,183,108"/>
+<area shape="rect" id="Node000005" href="$blas_2contract_8hpp.html" title=" " alt="" coords="169,152,271,177"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="223,118,223,152,217,152,217,118"/>
+<area shape="rect" id="Node000007" href="$backend__manifest_8hpp.html" title=" " alt="" coords="295,152,465,177"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="366,116,378,151,373,153,361,118"/>
+<area shape="rect" id="Node000008" href="$linalg_8hpp.html" title=" " alt="" coords="337,299,423,324"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="371,190,359,226,358,246,362,265,376,298,371,300,357,267,353,246,353,225,366,189"/>
+<area shape="rect" id="Node000009" href="$matrix__ops_8hpp.html" title=" " alt="" coords="368,225,491,251"/>
+<area shape="poly" id="edge8_Node000007_Node000009" title=" " alt="" coords="398,187,424,224,419,227,394,190"/>
+<area shape="poly" id="edge9_Node000009_Node000008" title=" " alt="" coords="416,264,390,300,386,297,411,261"/>
+</map>

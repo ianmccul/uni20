@@ -1,0 +1,67 @@
+<map id="linalg_cpu.hpp" name="linalg_cpu.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="1319,5,1435,31"/>
+<area shape="rect" id="Node000002" href="$matrix__ops__cpu_8hpp.html" title=" " alt="" coords="1300,79,1453,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1379,31,1379,65,1374,65,1374,31"/>
+<area shape="rect" id="Node000003" href="$types_8hpp.html" title=" " alt="" coords="129,240,288,265"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="1300,97,1166,101,991,111,794,128,596,155,501,173,408,196,258,238,256,233,407,191,500,168,595,149,793,123,990,106,1166,96,1300,91"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="5,313,84,339"/>
+<area shape="poly" id="edge37_Node000002_Node000005" title=" " alt="" coords="1300,98,844,117,592,134,488,144,409,155,323,168,256,180,192,201,118,242,85,271,61,303,57,300,81,268,115,238,190,196,255,175,322,163,408,149,488,138,592,128,844,112,1300,92"/>
+<area shape="rect" id="Node000007" href="$tags_2cpu_8hpp.html" title="Tag for selecting CPU&#45;based Uni20 kernels." alt="" coords="1264,387,1409,412"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="1384,103,1396,143,1409,203,1412,272,1408,306,1398,340,1384,362,1366,380,1362,376,1380,359,1393,338,1403,305,1407,271,1403,204,1391,145,1378,105"/>
+<area shape="rect" id="Node000008" href="$tensor__view_8hpp.html" title="Tensor view abstractions and accessor factories built on std::mdspan." alt="" coords="608,152,756,192"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="1300,104,770,163,769,158,1299,99"/>
+<area shape="rect" id="Node000016" title=" " alt="" coords="955,387,1047,412"/>
+<area shape="poly" id="edge39_Node000002_Node000016" title=" " alt="" coords="1364,106,1027,380,1024,376,1361,102"/>
+<area shape="rect" id="Node000017" title=" " alt="" coords="1071,387,1131,412"/>
+<area shape="poly" id="edge40_Node000002_Node000017" title=" " alt="" coords="1382,104,1390,147,1394,210,1392,245,1385,279,1373,311,1353,340,1339,352,1318,362,1262,378,1144,396,1144,391,1261,372,1316,357,1336,347,1349,337,1368,309,1380,277,1387,244,1389,210,1385,148,1377,105"/>
+<area shape="rect" id="Node000023" title=" " alt="" coords="1465,159,1550,185"/>
+<area shape="poly" id="edge35_Node000002_Node000023" title=" " alt="" coords="1397,102,1478,150,1475,154,1395,106"/>
+<area shape="rect" id="Node000024" title=" " alt="" coords="1575,159,1637,185"/>
+<area shape="poly" id="edge36_Node000002_Node000024" title=" " alt="" coords="1417,101,1563,149,1569,152,1567,157,1561,155,1415,107"/>
+<area shape="rect" id="Node000025" title=" " alt="" coords="1661,159,1748,185"/>
+<area shape="poly" id="edge38_Node000002_Node000025" title=" " alt="" coords="1438,101,1538,122,1649,149,1660,153,1659,158,1648,155,1536,127,1437,107"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="108,313,237,339"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="205,267,187,302,182,300,200,264"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="183,268,85,310,83,305,181,263"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="286,387,366,412"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="220,264,310,374,306,378,216,267"/>
+<area shape="poly" id="edge12_Node000008_Node000003" title=" " alt="" coords="608,188,291,240,291,235,607,183"/>
+<area shape="poly" id="edge32_Node000008_Node000006" title=" " alt="" coords="609,188,546,205,478,230,411,266,380,289,353,315,338,343,330,374,325,372,333,341,349,312,377,285,408,262,476,225,545,199,607,183"/>
+<area shape="rect" id="Node000009" href="$mdspan_8hpp.html" title="Wrapper that exposes the mdspan reference implementation and a formatter bridge." alt="" coords="535,387,738,412"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="667,194,652,215,641,241,633,276,631,312,635,373,630,373,626,312,628,275,635,239,648,213,663,191"/>
+<area shape="rect" id="Node000013" href="$layout_8hpp.html" title=" " alt="" coords="745,313,835,339"/>
+<area shape="poly" id="edge13_Node000008_Node000013" title=" " alt="" coords="693,191,711,226,735,264,769,302,765,306,731,267,706,228,688,193"/>
+<area shape="rect" id="Node000014" title=" " alt="" coords="762,387,818,412"/>
+<area shape="poly" id="edge31_Node000008_Node000014" title=" " alt="" coords="687,192,703,259,716,299,735,337,750,358,767,375,763,379,746,361,730,340,711,301,698,260,682,193"/>
+<area shape="poly" id="edge33_Node000008_Node000016" title=" " alt="" coords="757,177,823,185,893,197,953,215,976,226,992,238,1010,271,1016,307,1015,343,1010,374,1005,373,1010,343,1011,308,1005,272,988,242,973,230,951,220,892,202,822,190,756,182"/>
+<area shape="poly" id="edge34_Node000008_Node000017" title=" " alt="" coords="757,178,904,200,972,217,999,227,1018,238,1049,268,1071,305,1087,341,1097,373,1092,374,1082,343,1067,307,1044,272,1015,242,996,232,970,222,903,205,756,183"/>
+<area shape="rect" id="Node000018" href="$concepts_8hpp.html" title="Mdspan concept and accessor extensions for Uni20." alt="" coords="364,313,568,339"/>
+<area shape="poly" id="edge20_Node000008_Node000018" title=" " alt="" coords="657,194,495,307,492,303,654,190"/>
+<area shape="rect" id="Node000020" href="$vectorstorage_8hpp.html" title=" " alt="" coords="745,240,979,265"/>
+<area shape="poly" id="edge25_Node000008_Node000020" title=" " alt="" coords="726,190,824,232,822,237,724,194"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="436,460,541,485"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="614,414,526,456,524,452,612,410"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="749,460,815,485"/>
+<area shape="poly" id="edge10_Node000009_Node000011" title=" " alt="" coords="661,410,747,452,745,456,659,414"/>
+<area shape="rect" id="Node000012" title=" " alt="" coords="565,460,724,485"/>
+<area shape="poly" id="edge11_Node000009_Node000012" title=" " alt="" coords="641,412,645,446,639,447,635,413"/>
+<area shape="poly" id="edge16_Node000013_Node000006" title=" " alt="" coords="744,335,587,356,380,389,379,384,586,351,744,330"/>
+<area shape="poly" id="edge14_Node000013_Node000009" title=" " alt="" coords="766,341,675,383,673,378,764,336"/>
+<area shape="poly" id="edge15_Node000013_Node000014" title=" " alt="" coords="793,339,793,373,787,373,787,339"/>
+<area shape="rect" id="Node000015" title=" " alt="" coords="843,387,913,412"/>
+<area shape="poly" id="edge17_Node000013_Node000015" title=" " alt="" coords="806,337,855,376,851,380,802,341"/>
+<area shape="poly" id="edge18_Node000013_Node000016" title=" " alt="" coords="825,336,955,380,953,385,823,341"/>
+<area shape="poly" id="edge19_Node000013_Node000017" title=" " alt="" coords="836,334,1058,384,1057,389,835,339"/>
+<area shape="poly" id="edge23_Node000018_Node000006" title=" " alt="" coords="445,341,362,383,360,378,442,336"/>
+<area shape="poly" id="edge21_Node000018_Node000009" title=" " alt="" coords="494,336,597,379,595,384,492,341"/>
+<area shape="poly" id="edge24_Node000018_Node000010" title=" " alt="" coords="470,339,487,446,482,447,465,340"/>
+<area shape="rect" id="Node000019" title=" " alt="" coords="390,387,459,412"/>
+<area shape="poly" id="edge22_Node000018_Node000019" title=" " alt="" coords="461,340,441,376,436,373,457,338"/>
+<area shape="poly" id="edge26_Node000020_Node000009" title=" " alt="" coords="831,268,784,288,734,316,693,347,659,379,655,375,690,343,731,311,782,283,829,263"/>
+<area shape="poly" id="edge29_Node000020_Node000013" title=" " alt="" coords="852,268,813,306,810,302,848,264"/>
+<area shape="rect" id="Node000021" href="$kernel_2cpu_2cpu_8hpp.html" title=" " alt="" coords="1155,313,1339,339"/>
+<area shape="poly" id="edge27_Node000020_Node000021" title=" " alt="" coords="924,263,1172,308,1171,313,923,268"/>
+<area shape="rect" id="Node000022" title=" " alt="" coords="860,313,923,339"/>
+<area shape="poly" id="edge30_Node000020_Node000022" title=" " alt="" coords="869,265,884,300,879,302,864,267"/>
+<area shape="poly" id="edge28_Node000021_Node000007" title=" " alt="" coords="1263,337,1313,376,1310,380,1260,341"/>
+</map>

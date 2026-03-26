@@ -1,0 +1,4 @@
+<map id="CUDA backend integration" name="CUDA backend integration">
+<area shape="rect" id="Node000002" href="$group__backend.html" title="Facilities that coordinate concrete compute backends with instrumentation hooks." alt="" coords="5,5,157,31"/>
+<area shape="rect" id="Node000001" title="Glue that binds Uni20 abstractions to CUDA runtime facilities." alt="" coords="205,5,399,31"/>
+</map>

@@ -1,0 +1,16 @@
+<map id="blas" name="blas">
+<area shape="rect" id="node1" href="dir_ed56e632fe828d43534bcd4d47ab9118.html" title="cpu" alt="" coords="29,125,75,151"/>
+<area shape="rect" id="node2" href="dir_73ed8d8d8c46bbb376b74271eac642d2.html" title="blas" alt="" coords="27,52,77,77"/>
+<area shape="poly" id="edge4" href="dir_000006_000009.html" alt="" coords="55,78,55,112,49,112,49,78"/>
+<area shape="rect" id="edge4-headlabel" href="dir_000006_000009.html" title="1" alt="" coords="56,100,65,114"/>
+<area shape="rect" id="node3" href="dir_3e5ffa48a1325bc882a7d929f6adf956.html" title="tags" alt="" coords="99,125,149,151"/>
+<area shape="poly" id="edge1" href="dir_000006_000026.html" alt="" coords="66,76,104,114,101,118,62,80"/>
+<area shape="rect" id="edge1-headlabel" href="dir_000006_000026.html" title="1" alt="" coords="101,99,110,114"/>
+<area shape="rect" id="node4" href="dir_6177e6abdd7cca43de0ab94841650211.html" title="core" alt="" coords="173,125,224,151"/>
+<area shape="poly" id="edge2" href="dir_000006_000008.html" alt="" coords="77,75,164,117,161,122,74,80"/>
+<area shape="rect" id="edge2-headlabel" href="dir_000006_000008.html" title="1" alt="" coords="157,102,167,117"/>
+<area shape="rect" id="node5" href="dir_a8f184f3bdd68d4605d40e42331db75b.html" title="backend" alt="" coords="249,125,325,151"/>
+<area shape="poly" id="edge3" href="dir_000006_000003.html" alt="" coords="77,71,236,119,235,124,76,76"/>
+<area shape="rect" id="edge3-headlabel" href="dir_000006_000003.html" title="1" alt="" coords="229,105,239,119"/>
+<area shape="rect" id="clust1" href="dir_0c962fd8ee21e5e6eb35e5fe620d04de.html" title="kernel" alt="" coords="16,16,88,161"/>
+</map>

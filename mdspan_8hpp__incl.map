@@ -1,0 +1,9 @@
+<map id="mdspan.hpp" name="mdspan.hpp">
+<area shape="rect" id="Node000001" title="Wrapper that exposes the mdspan reference implementation and a formatter bridge." alt="" coords="117,5,220,31"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,79,111,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="152,33,89,73,86,69,149,28"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="135,79,202,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="171,31,171,65,166,65,166,31"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="227,79,385,104"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="192,28,273,70,270,75,190,33"/>
+</map>

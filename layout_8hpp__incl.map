@@ -1,0 +1,21 @@
+<map id="layout.hpp" name="layout.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="418,5,509,31"/>
+<area shape="rect" id="Node000002" href="$mdspan_8hpp.html" title="Wrapper that exposes the mdspan reference implementation and a formatter bridge." alt="" coords="67,79,270,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="419,33,230,78,229,73,417,28"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="294,79,350,104"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="442,33,358,75,356,70,439,28"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="374,79,454,104"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="457,33,432,69,428,66,453,29"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="479,79,549,104"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="474,29,500,66,496,69,470,33"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="573,79,665,104"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="489,28,582,70,580,75,487,33"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="689,79,749,104"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="505,28,677,75,675,81,504,33"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,152,111,177"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="152,106,89,147,86,142,149,102"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="135,152,202,177"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="171,104,171,138,166,138,166,104"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="227,152,385,177"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="192,102,273,143,270,148,190,106"/>
+</map>

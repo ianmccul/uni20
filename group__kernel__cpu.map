@@ -1,0 +1,4 @@
+<map id="CPU kernel backends" name="CPU kernel backends">
+<area shape="rect" id="Node000002" href="$group__kernel.html" title="Front&#45;end dispatchers that route tensor contractions to backend kernels." alt="" coords="5,5,172,31"/>
+<area shape="rect" id="Node000001" title="Tag types and helpers specific to CPU tensor kernels." alt="" coords="220,5,379,31"/>
+</map>

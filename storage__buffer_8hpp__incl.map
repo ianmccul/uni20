@@ -1,0 +1,17 @@
+<map id="storage_buffer.hpp" name="storage_buffer.hpp">
+<area shape="rect" id="Node000001" title="Defines an in&#45;place storage helper used by async shared storage." alt="" coords="254,5,397,31"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,79,72,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="279,33,86,81,85,76,278,28"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="97,79,167,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="295,33,177,76,175,71,293,28"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="192,79,269,104"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="312,33,259,72,256,68,309,29"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="293,79,357,104"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="328,31,328,65,323,65,323,31"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="382,79,431,104"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="340,29,385,68,381,72,337,33"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="455,79,547,104"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="355,28,461,71,459,76,353,33"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="571,79,631,104"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="372,28,559,76,557,81,371,33"/>
+</map>

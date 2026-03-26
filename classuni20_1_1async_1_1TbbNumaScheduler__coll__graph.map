@@ -1,0 +1,5 @@
+<map id="uni20::async::TbbNumaScheduler" name="uni20::async::TbbNumaScheduler">
+<area shape="rect" id="Node000001" title="NUMA&#45;aware scheduler that balances work across per&#45;node TBB arenas." alt="" coords="5,79,244,104"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1async_1_1IScheduler.html" title="Minimal abstract interface for scheduling coroutine handles." alt="" coords="35,5,215,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="127,44,127,79,122,79,122,44"/>
+</map>

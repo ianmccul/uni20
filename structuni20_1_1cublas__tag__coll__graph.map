@@ -1,0 +1,5 @@
+<map id="uni20::cublas_tag" name="uni20::cublas_tag">
+<area shape="rect" id="Node000001" title="Tag selecting cuBLAS&#45;backed CUDA kernels." alt="" coords="5,79,141,104"/>
+<area shape="rect" id="Node000002" href="$structuni20_1_1cuda__tag.html" title="Tag selecting CUDA&#45;capable kernels." alt="" coords="11,5,136,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="76,44,76,79,71,79,71,44"/>
+</map>

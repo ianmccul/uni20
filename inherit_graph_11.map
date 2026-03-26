@@ -1,0 +1,11 @@
+<map id="Graphical Class Hierarchy" name="Graphical Class Hierarchy">
+<area shape="rect" id="Node000000" title=" " alt="" coords="5,95,124,121"/>
+<area shape="rect" id="Node000001" href="$structhas__stream__extractor.html" title=" " alt="" coords="197,5,361,45"/>
+<area shape="poly" id="edge6_Node000000_Node000001" title=" " alt="" coords="101,87,171,55,205,43,207,48,173,60,103,91"/>
+<area shape="rect" id="Node000002" href="$structuni20_1_1is__complex__t.html" title="Trait to detect whether a type is a complex scalar type." alt="" coords="184,70,375,95"/>
+<area shape="poly" id="edge7_Node000000_Node000002" title=" " alt="" coords="137,97,184,91,184,97,138,102"/>
+<area shape="rect" id="Node000003" href="$structuni20_1_1is__real__t.html" title="Trait to detect whether a type is a real&#45;valued scalar." alt="" coords="200,119,359,145"/>
+<area shape="poly" id="edge8_Node000000_Node000003" title=" " alt="" coords="138,113,200,121,200,126,138,119"/>
+<area shape="rect" id="Node000004" href="$structuni20_1_1is__sum__accessor.html" title="Trait to detect SumAccessor instantiations." alt="" coords="172,169,387,194"/>
+<area shape="poly" id="edge9_Node000000_Node000004" title=" " alt="" coords="104,124,173,153,217,166,215,171,171,159,102,129"/>
+</map>

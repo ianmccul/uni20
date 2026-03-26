@@ -1,0 +1,4 @@
+<map id="cuSOLVER backend integration" name="cuSOLVER backend integration">
+<area shape="rect" id="Node000002" href="$group__backend.html" title="Facilities that coordinate concrete compute backends with instrumentation hooks." alt="" coords="5,5,157,31"/>
+<area shape="rect" id="Node000001" title="Helpers that adapt cuSOLVER handles and status codes to Uni20 abstractions." alt="" coords="205,5,425,31"/>
+</map>

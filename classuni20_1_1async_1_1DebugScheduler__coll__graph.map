@@ -1,0 +1,5 @@
+<map id="uni20::async::DebugScheduler" name="uni20::async::DebugScheduler">
+<area shape="rect" id="Node000001" title="Simple FIFO scheduler." alt="" coords="5,79,224,104"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1async_1_1IScheduler.html" title="Minimal abstract interface for scheduling coroutine handles." alt="" coords="25,5,205,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="117,44,117,79,112,79,112,44"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="uni20::cusolver_tag" name="uni20::cusolver_tag">
+<area shape="rect" id="Node000001" title="Tag selecting cuSOLVER&#45;backed CUDA kernels." alt="" coords="5,152,155,177"/>
+<area shape="rect" id="Node000002" href="$structuni20_1_1cublas__tag.html" title="Tag selecting cuBLAS&#45;backed CUDA kernels." alt="" coords="12,79,148,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="83,118,83,152,77,152,77,118"/>
+<area shape="rect" id="Node000003" href="$structuni20_1_1cuda__tag.html" title="Tag selecting CUDA&#45;capable kernels." alt="" coords="17,5,143,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="83,44,83,79,77,79,77,44"/>
+</map>

@@ -1,0 +1,22 @@
+var searchData=
+[
+  ['_7easync_0',['~Async',['../classuni20_1_1async_1_1Async.html#af36aa78190969f03abf4bcc9b830cf55',1,'uni20::async::Async']]],
+  ['_7easynctaskfactory_1',['~AsyncTaskFactory',['../classuni20_1_1async_1_1AsyncTaskFactory.html#a817338e3e704ece43c8469452dd176e3',1,'uni20::async::AsyncTaskFactory']]],
+  ['_7ebasicasynctask_2',['~BasicAsyncTask',['../classuni20_1_1async_1_1BasicAsyncTask.html#aa09cf8d15d5dbcdf7d185162b79fa884',1,'uni20::async::BasicAsyncTask']]],
+  ['_7ebasicasynctaskpromise_3',['~BasicAsyncTaskPromise',['../structuni20_1_1async_1_1BasicAsyncTaskPromise.html#a46ec72b8119b64ff1a2823282b15f7d8',1,'uni20::async::BasicAsyncTaskPromise']]],
+  ['_7edebugscheduler_4',['~DebugScheduler',['../classuni20_1_1async_1_1DebugScheduler.html#a0f11d0e4850b04dd959752b6f6d35c80',1,'uni20::async::DebugScheduler']]],
+  ['_7eepochcontext_5',['~EpochContext',['../classuni20_1_1async_1_1EpochContext.html#aedeaee8d883e3d97374040ddb742250f',1,'uni20::async::EpochContext']]],
+  ['_7eepochcontextreader_6',['~EpochContextReader',['../classuni20_1_1async_1_1EpochContextReader.html#a0d55a2ffb9b9d144bc5513821d966ed3',1,'uni20::async::EpochContextReader']]],
+  ['_7eepochcontextwriter_7',['~EpochContextWriter',['../classuni20_1_1async_1_1EpochContextWriter.html#a70d0a9f3471e7176e671bc414f8e4908',1,'uni20::async::EpochContextWriter']]],
+  ['_7eepochqueue_8',['~EpochQueue',['../classuni20_1_1async_1_1EpochQueue.html#a85815836233ea2ddf2f9abacc43399f3',1,'uni20::async::EpochQueue']]],
+  ['_7eischeduler_9',['~IScheduler',['../classuni20_1_1async_1_1IScheduler.html#a67cd518cc6f6459b9d7602d6a2bd7f26',1,'uni20::async::IScheduler']]],
+  ['_7ereadbuffer_10',['~ReadBuffer',['../classuni20_1_1async_1_1ReadBuffer.html#ae42ed1be228aaab833f8a67b9a1eaa48',1,'uni20::async::ReadBuffer']]],
+  ['_7ereverseepochqueue_11',['~ReverseEpochQueue',['../classuni20_1_1async_1_1ReverseEpochQueue.html#ae6baf744aa61329cb5e0bef09f04cb69',1,'uni20::async::ReverseEpochQueue']]],
+  ['_7ereversevalue_12',['~ReverseValue',['../classuni20_1_1async_1_1ReverseValue.html#aa5c6859e119f17e62cabfd1d5e0d3dda',1,'uni20::async::ReverseValue']]],
+  ['_7escopedscheduler_13',['~ScopedScheduler',['../classuni20_1_1async_1_1ScopedScheduler.html#aa8835492a1f7e8ceb218373d1d12bc0b',1,'uni20::async::ScopedScheduler']]],
+  ['_7eshared_5fstorage_14',['~shared_storage',['../classuni20_1_1async_1_1shared__storage.html#aced4a1f6476d1c0a2906d3aeb008f3ec',1,'uni20::async::shared_storage']]],
+  ['_7estatic_5fvector_15',['~static_vector',['../classstatic__vector.html#ab60d4d1d7f83f8be933ae9bc53f21521',1,'static_vector']]],
+  ['_7etbbscheduler_16',['~TbbScheduler',['../classuni20_1_1async_1_1TbbScheduler.html#abbc52061b19fab19474737cc8ab9fc7d',1,'uni20::async::TbbScheduler']]],
+  ['_7etracingbaseclass_17',['~TracingBaseClass',['../structtrace_1_1TracingBaseClass.html#a2865a6860422822b50c721bed69a0304',1,'trace::TracingBaseClass']]],
+  ['_7ewritebuffer_18',['~WriteBuffer',['../classuni20_1_1async_1_1WriteBuffer.html#aba42bf3a3c221503e6211b300b6faf0e',1,'uni20::async::WriteBuffer']]]
+];

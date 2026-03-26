@@ -1,0 +1,23 @@
+var searchData=
+[
+  ['tags_2fblas_2ehpp_0',['blas.hpp',['../tags_2blas_8hpp.html',1,'']]],
+  ['tags_2fcpu_2ehpp_1',['cpu.hpp',['../tags_2cpu_8hpp.html',1,'']]],
+  ['task_5fregistry_2ehpp_2',['task_registry.hpp',['../task__registry_8hpp.html',1,'']]],
+  ['task_5fregistry_5fdebug_2ecpp_3',['task_registry_debug.cpp',['../task__registry__debug_8cpp.html',1,'']]],
+  ['task_5fregistry_5fdebug_2ehpp_4',['task_registry_debug.hpp',['../task__registry__debug_8hpp.html',1,'']]],
+  ['task_5fregistry_5fdebug_2emd_5',['task_registry_debug.md',['../task__registry__debug_8md.html',1,'']]],
+  ['task_5fregistry_5fdummy_2ehpp_6',['task_registry_dummy.hpp',['../task__registry__dummy_8hpp.html',1,'']]],
+  ['tbb_5fnuma_5fscheduler_2ehpp_7',['tbb_numa_scheduler.hpp',['../tbb__numa__scheduler_8hpp.html',1,'']]],
+  ['tbb_5fscheduler_2ehpp_8',['tbb_scheduler.hpp',['../tbb__scheduler_8hpp.html',1,'']]],
+  ['tensor_2ehpp_9',['tensor.hpp',['../tensor_8hpp.html',1,'']]],
+  ['tensor_5fview_2ehpp_10',['tensor_view.hpp',['../tensor__view_8hpp.html',1,'']]],
+  ['terminal_2ecpp_11',['terminal.cpp',['../terminal_8cpp.html',1,'']]],
+  ['terminal_2ehpp_12',['terminal.hpp',['../terminal_8hpp.html',1,'']]],
+  ['testing_2emd_13',['testing.md',['../testing_8md.html',1,'']]],
+  ['trace_2ehpp_14',['trace.hpp',['../trace_8hpp.html',1,'']]],
+  ['trace_5fexample_2ecpp_15',['trace_example.cpp',['../trace__example_8cpp.html',1,'']]],
+  ['trace_5fformat_5fmdspan_2ehpp_16',['trace_format_mdspan.hpp',['../trace__format__mdspan_8hpp.html',1,'']]],
+  ['trace_5fimpl_2ehpp_17',['trace_impl.hpp',['../trace__impl_8hpp.html',1,'']]],
+  ['trace_5fmacros_2emd_18',['trace_macros.md',['../trace__macros_8md.html',1,'']]],
+  ['types_2ehpp_19',['types.hpp',['../types_8hpp.html',1,'']]]
+];

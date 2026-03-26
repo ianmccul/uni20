@@ -1,0 +1,5 @@
+<map id="uni20::async::TbbScheduler" name="uni20::async::TbbScheduler">
+<area shape="rect" id="Node000001" title="Scheduler backend that uses Intel oneTBB to resume coroutines." alt="" coords="5,79,205,104"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1async_1_1IScheduler.html" title="Minimal abstract interface for scheduling coroutine handles." alt="" coords="15,5,195,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="108,44,108,79,103,79,103,44"/>
+</map>

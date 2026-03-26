@@ -1,0 +1,5 @@
+<map id="uni20::async::AsyncTaskAwaiter&lt; A &gt;" name="uni20::async::AsyncTaskAwaiter&lt; A &gt;">
+<area shape="rect" id="Node000001" title="Forwarding awaiter that takes ownership of a std::coroutine_handle and forwards to an awaiter as an A..." alt="" coords="5,93,275,119"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="121,5,159,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="143,45,143,93,137,93,137,45"/>
+</map>

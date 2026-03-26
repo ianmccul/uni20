@@ -1,0 +1,7 @@
+<map id="task_registry_dummy.hpp" name="task_registry_dummy.hpp">
+<area shape="rect" id="Node000001" title="Provides a no&#45;op task registry used when async debug tracking is disabled." alt="" coords="5,5,196,31"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="11,79,94,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="95,33,70,69,66,66,91,30"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="119,79,181,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="111,29,136,66,132,69,107,33"/>
+</map>

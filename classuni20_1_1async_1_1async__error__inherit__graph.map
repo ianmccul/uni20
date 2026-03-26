@@ -1,0 +1,25 @@
+<map id="uni20::async::async_error" name="uni20::async::async_error">
+<area shape="rect" id="Node000001" title="Base class for all async subsystem exceptions." alt="" coords="192,133,343,173"/>
+<area shape="rect" id="Node000003" href="$classuni20_1_1async_1_1async__cancellation.html" title="Base class for cancellation&#45;related async exceptions." alt="" coords="391,69,541,109"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="342,127,403,107,404,112,344,132"/>
+<area shape="rect" id="Node000006" href="$classuni20_1_1async_1_1async__state__error.html" title="Base class for invalid async state transitions or accesses." alt="" coords="391,165,541,205"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="357,165,391,171,390,176,356,170"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,141,144,166"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="158,151,192,151,192,156,158,156"/>
+<area shape="rect" id="Node000004" href="$classuni20_1_1async_1_1buffer__cancelled.html" title="Raised when a buffer read path is cancelled intentionally." alt="" coords="590,5,741,45"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="541,63,602,43,603,48,543,68"/>
+<area shape="rect" id="Node000005" href="$classuni20_1_1async_1_1task__cancelled.html" title="Raised when an AsyncTask is cancelled before completion." alt="" coords="595,69,735,109"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="555,87,595,87,595,92,555,92"/>
+<area shape="rect" id="Node000007" href="$classuni20_1_1async_1_1async__storage__missing.html" title="Thrown when Async storage metadata is missing unexpectedly." alt="" coords="590,133,741,173"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="555,168,589,163,590,168,555,174"/>
+<area shape="rect" id="Node000008" href="$classuni20_1_1async_1_1async__value__uninitialized.html" title="Thrown when an Async value is accessed before initialization." alt="" coords="589,197,741,237"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="555,197,589,202,588,208,554,202"/>
+<area shape="rect" id="Node000009" href="$classuni20_1_1async_1_1buffer__error.html" title="Base class for buffer&#45;related failures." alt="" coords="590,261,741,301"/>
+<area shape="poly" id="edge8_Node000006_Node000009" title=" " alt="" coords="517,209,590,247,617,259,614,264,588,252,514,214"/>
+<area shape="rect" id="Node000010" href="$classuni20_1_1async_1_1buffer__uninitialized.html" title="Base class for access to a buffer without a constructed value." alt="" coords="789,261,940,301"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="754,279,789,279,789,284,754,284"/>
+<area shape="rect" id="Node000011" href="$classuni20_1_1async_1_1buffer__read__uninitialized.html" title="Raised when a reader attempts to access an uninitialized buffer." alt="" coords="988,229,1139,269"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="953,264,987,259,988,264,954,270"/>
+<area shape="rect" id="Node000012" href="$classuni20_1_1async_1_1buffer__write__uninitialized.html" title="Raised when a writer requests a mutable reference before construction." alt="" coords="988,293,1139,333"/>
+<area shape="poly" id="edge11_Node000010_Node000012" title=" " alt="" coords="954,293,988,299,987,304,953,298"/>
+</map>

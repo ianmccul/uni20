@@ -1,0 +1,4 @@
+<map id="Backend implementation details" name="Backend implementation details">
+<area shape="rect" id="Node000002" href="$group__backend.html" title="Facilities that coordinate concrete compute backends with instrumentation hooks." alt="" coords="5,13,157,38"/>
+<area shape="rect" id="Node000001" title="Internal macros and helpers that support backend integrations without being part of the public API su..." alt="" coords="205,5,391,45"/>
+</map>

@@ -1,0 +1,4 @@
+<map id="BLAS kernel backends" name="BLAS kernel backends">
+<area shape="rect" id="Node000002" href="$group__kernel.html" title="Front&#45;end dispatchers that route tensor contractions to backend kernels." alt="" coords="5,5,172,31"/>
+<area shape="rect" id="Node000001" title="Tag types for kernels implemented on top of BLAS libraries." alt="" coords="220,5,385,31"/>
+</map>

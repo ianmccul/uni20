@@ -1,0 +1,9 @@
+<map id="uni20::async::async_value_uninitialized" name="uni20::async::async_value_uninitialized">
+<area shape="rect" id="Node000001" title="Thrown when an Async value is accessed before initialization." alt="" coords="5,255,157,295"/>
+<area shape="rect" id="Node000002" href="$classuni20_1_1async_1_1async__state__error.html" title="Base class for invalid async state transitions or accesses." alt="" coords="6,167,157,207"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="84,221,84,254,79,254,79,221"/>
+<area shape="rect" id="Node000003" href="$classuni20_1_1async_1_1async__error.html" title="Base class for all async subsystem exceptions." alt="" coords="6,79,157,119"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="84,133,84,166,79,166,79,133"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="12,5,151,31"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="84,44,84,79,79,79,79,44"/>
+</map>

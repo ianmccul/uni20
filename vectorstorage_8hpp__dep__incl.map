@@ -1,0 +1,23 @@
+<map id="vectorstorage.hpp" name="vectorstorage.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,5,145,31"/>
+<area shape="rect" id="Node000002" href="$matrix__ops_8hpp.html" title=" " alt="" coords="65,372,187,397"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="64,44,40,98,31,130,27,163,27,239,30,260,36,281,59,318,87,348,112,370,108,374,83,352,55,321,32,283,25,262,22,239,22,163,26,129,35,96,59,42"/>
+<area shape="rect" id="Node000004" href="$tensor__view_8hpp.html" title="Tensor view abstractions and accessor factories built on std::mdspan." alt="" coords="87,79,215,104"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="99,38,141,76,137,80,96,42"/>
+<area shape="rect" id="Node000003" href="$linalg_8hpp.html" title=" " alt="" coords="132,445,219,471"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="144,407,170,444,165,447,140,410"/>
+<area shape="poly" id="edge7_Node000004_Node000002" title=" " alt="" coords="129,115,114,133,103,153,95,183,92,215,97,279,111,333,124,371,119,373,106,335,92,279,87,215,90,183,98,151,110,130,125,112"/>
+<area shape="rect" id="Node000005" href="$basic__tensor_8hpp.html" title=" " alt="" coords="113,152,243,177"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="163,116,176,151,171,153,158,118"/>
+<area shape="rect" id="Node000007" href="$matrix__ops__cpu_8hpp.html" title=" " alt="" coords="268,152,421,177"/>
+<area shape="poly" id="edge8_Node000004_Node000007" title=" " alt="" coords="196,106,314,149,312,154,194,111"/>
+<area shape="poly" id="edge5_Node000005_Node000002" title=" " alt="" coords="168,191,154,226,136,309,129,372,124,372,131,308,149,225,163,189"/>
+<area shape="rect" id="Node000006" href="$tensor_8hpp.html" title=" " alt="" coords="163,225,254,251"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="191,189,206,224,201,226,186,191"/>
+<area shape="rect" id="Node000008" href="$linalg__cpu_8hpp.html" title=" " alt="" coords="283,225,399,251"/>
+<area shape="poly" id="edge9_Node000007_Node000008" title=" " alt="" coords="346,191,344,225,339,225,341,191"/>
+<area shape="rect" id="Node000009" href="$backend__manifest_8hpp.html" title=" " alt="" coords="164,299,333,324"/>
+<area shape="poly" id="edge10_Node000008_Node000009" title=" " alt="" coords="317,261,265,301,262,296,314,257"/>
+<area shape="poly" id="edge12_Node000009_Node000002" title=" " alt="" coords="219,333,147,374,145,369,216,328"/>
+<area shape="poly" id="edge11_Node000009_Node000003" title=" " alt="" coords="239,338,184,446,179,444,234,336"/>
+</map>

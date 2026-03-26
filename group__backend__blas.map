@@ -1,0 +1,6 @@
+<map id="BLAS backend integration" name="BLAS backend integration">
+<area shape="rect" id="Node000002" href="$group__backend.html" title="Facilities that coordinate concrete compute backends with instrumentation hooks." alt="" coords="5,31,157,56"/>
+<area shape="rect" id="Node000001" title="Glue that binds Uni20 abstractions to BLAS vendor implementations." alt="" coords="205,31,395,56"/>
+<area shape="rect" id="Node000003" href="$group__backend__blas__mkl.html" title="Tag types and helpers for integrating Intel MKL with Uni20 BLAS abstractions." alt="" coords="445,5,624,31"/>
+<area shape="rect" id="Node000004" href="$group__backend__blas__reference.html" title="Header&#45;only wrappers that provide a portable BLAS fallback implementation." alt="" coords="443,55,627,80"/>
+</map>

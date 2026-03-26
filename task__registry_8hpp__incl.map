@@ -1,0 +1,11 @@
+<map id="task_registry.hpp" name="task_registry.hpp">
+<area shape="rect" id="Node000001" title="Selects the task&#45;registry implementation for the current build mode." alt="" coords="95,5,229,31"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,79,135,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="149,33,97,72,94,68,146,29"/>
+<area shape="rect" id="Node000003" href="$task__registry__dummy_8hpp.html" title="Provides a no&#45;op task registry used when async debug tracking is disabled." alt="" coords="159,79,349,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="178,29,230,68,227,72,175,33"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="163,152,246,177"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="248,106,223,142,218,139,244,103"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="271,152,333,177"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="264,103,289,139,284,142,260,106"/>
+</map>

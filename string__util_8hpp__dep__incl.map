@@ -1,0 +1,156 @@
+<map id="string_util.hpp" name="string_util.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="2064,5,2179,31"/>
+<area shape="rect" id="Node000002" href="$namedenum_8hpp.html" title=" " alt="" coords="1985,79,2117,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="2102,43,2064,80,2060,77,2098,39"/>
+<area shape="rect" id="Node000054" href="$terminal_8hpp.html" title=" " alt="" coords="2141,79,2246,104"/>
+<area shape="poly" id="edge102_Node000001_Node000054" title=" " alt="" coords="2145,39,2183,77,2180,80,2141,43"/>
+<area shape="rect" id="Node000003" href="$trace_8hpp.html" title=" " alt="" coords="2021,152,2104,177"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="2057,117,2063,151,2058,152,2052,118"/>
+<area shape="rect" id="Node000004" href="$assign_8hpp.html" title=" " alt="" coords="2350,445,2442,471"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="2117,179,2165,197,2219,222,2272,255,2319,297,2393,444,2388,446,2315,300,2269,260,2216,227,2163,202,2115,184"/>
+<area shape="rect" id="Node000005" href="$async__task_8hpp.html" title="Defines BasicAsyncTask, the fire&#45;and&#45;forget coroutine handle." alt="" coords="1128,225,1251,251"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="2008,173,1251,234,1251,229,2007,168"/>
+<area shape="rect" id="Node000029" href="$buffers_8hpp.html" title="Awaitable gates for Async&lt;T&gt;: snapshot‐reads and in‐place writes." alt="" coords="1142,519,1237,544"/>
+<area shape="poly" id="edge81_Node000003_Node000029" title=" " alt="" coords="2008,170,1561,187,1303,204,1197,215,1116,228,1055,237,1004,243,982,249,962,260,942,276,922,300,912,319,908,337,910,354,916,371,940,404,978,434,1022,461,1070,484,1154,516,1152,521,1068,488,1020,465,975,438,937,408,911,374,904,355,903,337,907,317,918,297,938,272,959,255,980,245,1003,238,1054,232,1116,223,1196,210,1303,199,1561,182,2008,165"/>
+<area shape="rect" id="Node000030" href="$cuda__task_8hpp.html" title="Defines CudaTask, a CUDA&#45;oriented fire&#45;and&#45;forget coroutine handle." alt="" coords="1410,445,1526,471"/>
+<area shape="poly" id="edge82_Node000003_Node000030" title=" " alt="" coords="2008,172,1893,188,1829,205,1766,228,1719,252,1673,281,1589,345,1522,405,1480,447,1477,443,1519,401,1586,341,1670,277,1716,248,1764,223,1827,200,1892,183,2007,167"/>
+<area shape="rect" id="Node000032" href="$epoch__queue_8hpp.html" title="FIFO queue enforcing writer→readers→next&#45;writer ordering." alt="" coords="1589,592,1725,617"/>
+<area shape="poly" id="edge83_Node000003_Node000032" title=" " alt="" coords="2009,182,1963,200,1919,227,1879,268,1855,306,1835,348,1805,399,1668,593,1663,590,1800,396,1830,345,1850,303,1875,264,1916,223,1960,196,2007,177"/>
+<area shape="rect" id="Node000037" href="$backend_8hpp.html" title=" " alt="" coords="1929,225,2033,251"/>
+<area shape="poly" id="edge76_Node000003_Node000037" title=" " alt="" coords="2041,188,1996,227,1993,223,2038,184"/>
+<area shape="rect" id="Node000041" href="$gtest_8hpp.html" title="GoogleTest integration for ULP&#45;based floating&#45;point comparisons." alt="" coords="2104,225,2187,251"/>
+<area shape="poly" id="edge84_Node000003_Node000041" title=" " alt="" coords="2088,184,2133,223,2130,227,2085,188"/>
+<area shape="rect" id="Node000043" href="$shared__storage_8hpp.html" title="Reference&#45;counted optional in&#45;place storage used by async buffers." alt="" coords="1595,372,1746,397"/>
+<area shape="poly" id="edge86_Node000003_Node000043" title=" " alt="" coords="2008,171,1961,176,1908,186,1854,203,1803,228,1760,262,1724,303,1696,343,1679,373,1674,370,1692,340,1720,300,1756,258,1800,223,1852,198,1907,181,1960,171,2007,166"/>
+<area shape="rect" id="Node000044" href="$static__vector_8hpp.html" title="Defines static_vector, a fixed&#45;capacity, stack&#45;allocated vector with a std::vector&#45;like API." alt="" coords="2379,225,2512,251"/>
+<area shape="poly" id="edge89_Node000003_Node000044" title=" " alt="" coords="2118,174,2384,223,2383,228,2117,179"/>
+<area shape="rect" id="Node000048" href="$strides_8hpp.html" title="Stride utilities for mdspan&#45;like tensors." alt="" coords="2502,299,2597,324"/>
+<area shape="poly" id="edge97_Node000003_Node000048" title=" " alt="" coords="2118,173,2130,175,2218,180,2334,182,2393,186,2447,193,2492,205,2526,223,2539,241,2547,261,2552,298,2547,299,2542,263,2535,243,2522,227,2490,210,2446,198,2392,191,2334,187,2218,185,2129,180,2117,178"/>
+<area shape="rect" id="Node000051" href="$trace__example_8cpp.html" title=" " alt="" coords="2587,225,2733,251"/>
+<area shape="poly" id="edge98_Node000003_Node000051" title=" " alt="" coords="2118,173,2130,175,2349,200,2568,223,2586,225,2586,230,2568,228,2348,206,2129,180,2117,178"/>
+<area shape="rect" id="Node000052" href="$zip__layout_8hpp.html" title="Additional layout helpers and policies for zipped mdspan views." alt="" coords="2757,225,2875,251"/>
+<area shape="poly" id="edge99_Node000003_Node000052" title=" " alt="" coords="2118,173,2130,175,2302,192,2437,199,2572,206,2746,223,2757,224,2757,229,2745,228,2572,212,2437,204,2302,197,2129,180,2117,178"/>
+<area shape="rect" id="Node000006" href="$async__ops_8hpp.html" title="Concepts and helpers for composing Async expressions." alt="" coords="422,519,541,544"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="1115,251,1015,267,890,292,755,328,622,374,555,401,530,418,505,447,495,465,489,484,484,519,479,518,484,483,490,463,500,444,527,414,553,397,620,370,753,323,889,287,1014,262,1114,246"/>
+<area shape="rect" id="Node000027" href="$async__task__impl_8hpp.html" title="Inline implementation of BasicAsyncTask ownership and await mechanics." alt="" coords="1227,445,1386,471"/>
+<area shape="poly" id="edge47_Node000005_Node000027" title=" " alt="" coords="1205,260,1244,308,1265,338,1282,371,1294,411,1301,445,1296,446,1289,412,1277,373,1260,341,1240,311,1201,263"/>
+<area shape="rect" id="Node000028" href="$async__task__promise_8hpp.html" title="Defines AsyncTask::promise_type, the fire&#45;and&#45;forget coroutine handle." alt="" coords="1098,372,1281,397"/>
+<area shape="poly" id="edge49_Node000005_Node000028" title=" " alt="" coords="1192,265,1192,372,1187,372,1187,265"/>
+<area shape="poly" id="edge65_Node000005_Node000029" title=" " alt="" coords="1162,261,1133,287,1104,320,1093,338,1086,357,1084,377,1088,397,1106,434,1130,468,1178,517,1174,520,1126,471,1101,437,1083,398,1079,377,1081,356,1089,336,1100,317,1129,283,1159,257"/>
+<area shape="rect" id="Node000034" href="$scheduler_8hpp.html" title="Defines the IScheduler interface." alt="" coords="932,299,1044,324"/>
+<area shape="poly" id="edge66_Node000005_Node000034" title=" " alt="" coords="1145,258,1022,301,1020,296,1143,253"/>
+<area shape="rect" id="Node000007" href="$async__example2_8cpp.html" title=" " alt="" coords="1043,834,1202,859"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="494,555,554,677,591,739,609,762,625,776,660,792,707,803,822,813,940,817,1031,824,1071,831,1070,837,1030,829,940,823,822,819,706,808,659,797,622,781,605,765,587,742,549,680,489,558"/>
+<area shape="rect" id="Node000008" href="$async__fib__example_8cpp.html" title=" " alt="" coords="47,834,222,859"/>
+<area shape="poly" id="edge7_Node000006_Node000008" title=" " alt="" coords="451,553,391,594,314,662,242,732,146,836,143,832,238,728,310,658,388,590,448,549"/>
+<area shape="rect" id="Node000009" href="$async__impl_8hpp.html" title="Inline implementation of Async&lt;T&gt; helpers and task await transforms." alt="" coords="875,592,999,617"/>
+<area shape="poly" id="edge8_Node000006_Node000009" title=" " alt="" coords="554,541,875,591,875,596,554,547"/>
+<area shape="rect" id="Node000014" href="$async__kernel__shapes__example_8cpp.html" title=" " alt="" coords="452,827,612,867"/>
+<area shape="poly" id="edge43_Node000006_Node000014" title=" " alt="" coords="463,556,428,599,394,656,383,687,377,718,379,749,392,777,404,793,419,805,454,824,452,829,416,810,400,796,387,780,374,750,372,718,378,685,390,654,424,596,459,553"/>
+<area shape="rect" id="Node000015" href="$async__ops__example_8cpp.html" title=" " alt="" coords="247,834,428,859"/>
+<area shape="poly" id="edge44_Node000006_Node000015" title=" " alt="" coords="454,554,432,572,411,594,391,624,375,658,354,728,344,791,340,834,335,834,338,790,349,727,370,656,387,622,407,590,428,568,450,550"/>
+<area shape="rect" id="Node000018" href="$future__example_8cpp.html" title=" " alt="" coords="1231,834,1383,859"/>
+<area shape="poly" id="edge45_Node000006_Node000018" title=" " alt="" coords="555,541,666,561,789,589,863,615,913,626,961,632,1051,633,1212,620,1286,620,1322,625,1357,635,1391,650,1426,671,1460,700,1494,737,1504,756,1502,773,1490,788,1472,801,1423,822,1369,836,1368,831,1421,817,1470,797,1487,784,1497,771,1498,757,1490,740,1456,704,1423,676,1389,655,1355,640,1321,630,1286,626,1213,626,1052,639,961,637,913,631,862,620,787,595,665,567,554,547"/>
+<area shape="rect" id="Node000020" href="$gradient__solver_8cpp.html" title=" " alt="" coords="575,915,724,940"/>
+<area shape="poly" id="edge46_Node000006_Node000020" title=" " alt="" coords="427,550,284,597,203,630,126,670,62,714,38,737,20,761,10,786,9,812,17,838,36,865,63,878,112,889,260,906,429,916,574,922,574,927,429,922,259,911,112,894,61,883,33,869,13,840,4,812,5,785,16,759,34,733,58,709,123,665,201,626,283,592,425,545"/>
+<area shape="rect" id="Node000010" href="$async_8hpp.html" title="The Async&lt;T&gt; container: coroutine‐safe asynchronous read/write." alt="" coords="916,665,1004,691"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="948,630,959,664,954,666,943,632"/>
+<area shape="poly" id="edge15_Node000010_Node000006" title=" " alt="" coords="902,667,814,646,716,620,601,581,509,547,511,542,603,576,718,615,815,641,903,662"/>
+<area shape="poly" id="edge12_Node000010_Node000007" title=" " alt="" coords="970,703,985,740,1010,777,1029,795,1051,810,1094,832,1092,836,1049,814,1026,799,1006,780,981,743,965,705"/>
+<area shape="poly" id="edge13_Node000010_Node000008" title=" " alt="" coords="902,681,798,682,660,690,507,708,429,723,354,741,295,762,238,789,154,836,151,832,235,784,293,757,352,736,428,718,506,703,660,685,798,677,902,676"/>
+<area shape="rect" id="Node000011" href="$ad__example_8cpp.html" title=" " alt="" coords="890,834,1019,859"/>
+<area shape="poly" id="edge10_Node000010_Node000011" title=" " alt="" coords="962,704,958,834,952,834,956,704"/>
+<area shape="rect" id="Node000012" href="$async__buffer__semantics__example_8cpp.html" title=" " alt="" coords="687,827,865,867"/>
+<area shape="poly" id="edge11_Node000010_Node000012" title=" " alt="" coords="939,702,799,828,795,824,935,698"/>
+<area shape="poly" id="edge14_Node000010_Node000014" title=" " alt="" coords="924,699,851,741,829,762,805,781,757,802,707,818,613,839,612,833,706,813,756,797,803,776,825,758,848,737,921,694"/>
+<area shape="poly" id="edge16_Node000010_Node000015" title=" " alt="" coords="902,681,780,682,628,689,554,697,486,708,430,722,391,741,370,762,356,788,342,835,337,833,351,785,366,759,388,736,429,717,485,702,553,692,628,684,779,677,902,676"/>
+<area shape="rect" id="Node000016" href="$async__tbb__reduction__example_8cpp.html" title="Example of using uni20 coroutines with the TbbScheduler to parallelize a map–reduce computation." alt="" coords="637,739,793,779"/>
+<area shape="poly" id="edge17_Node000010_Node000016" title=" " alt="" coords="912,697,774,741,773,736,911,692"/>
+<area shape="rect" id="Node000017" href="$async__toys_8hpp.html" title="Small async helper operations used in tests and examples." alt="" coords="1151,746,1273,771"/>
+<area shape="poly" id="edge18_Node000010_Node000017" title=" " alt="" coords="1010,692,1176,743,1174,749,1009,697"/>
+<area shape="poly" id="edge36_Node000010_Node000018" title=" " alt="" coords="1018,680,1090,686,1169,696,1240,713,1268,724,1287,737,1302,760,1310,787,1311,833,1305,833,1305,788,1298,762,1283,741,1265,728,1239,718,1168,701,1089,691,1018,685"/>
+<area shape="rect" id="Node000021" href="$awaiters_8hpp.html" title="Utilities for awaiting on Async&lt;T&gt;: co_await overload, all(), try_await()." alt="" coords="1020,746,1127,771"/>
+<area shape="poly" id="edge21_Node000010_Node000021" title=" " alt="" coords="989,696,1058,744,1055,748,986,701"/>
+<area shape="rect" id="Node000023" href="$debug__scheduler_8hpp.html" title="Coroutine scheduler for AsyncTask." alt="" coords="402,746,561,771"/>
+<area shape="poly" id="edge26_Node000010_Node000023" title=" " alt="" coords="903,691,551,749,551,743,902,686"/>
+<area shape="rect" id="Node000024" href="$future__value_8hpp.html" title="Write&#45;once async wrappers (FutureValue and Defer) built on Async&lt;T&gt;." alt="" coords="1349,746,1481,771"/>
+<area shape="poly" id="edge37_Node000010_Node000024" title=" " alt="" coords="1018,685,1160,707,1330,736,1365,743,1364,749,1329,741,1159,712,1017,690"/>
+<area shape="rect" id="Node000025" href="$reverse__value_8hpp.html" title="Reverse&#45;mode gradient accumulation channel built on reverse epoch queues." alt="" coords="1607,746,1750,771"/>
+<area shape="poly" id="edge39_Node000010_Node000025" title=" " alt="" coords="1018,680,1266,699,1427,715,1588,736,1629,743,1628,749,1588,741,1426,720,1266,704,1018,685"/>
+<area shape="rect" id="Node000026" href="$var_8hpp.html" title=" " alt="" coords="1589,834,1659,859"/>
+<area shape="poly" id="edge42_Node000010_Node000026" title=" " alt="" coords="1018,679,1130,685,1268,696,1399,713,1453,724,1493,736,1532,757,1567,784,1616,832,1612,836,1564,788,1529,762,1491,741,1451,729,1398,718,1267,702,1130,691,1017,684"/>
+<area shape="poly" id="edge19_Node000017_Node000007" title=" " alt="" coords="1192,783,1137,835,1133,832,1188,779"/>
+<area shape="poly" id="edge20_Node000017_Node000018" title=" " alt="" coords="1237,779,1295,831,1292,835,1233,783"/>
+<area shape="poly" id="edge24_Node000021_Node000006" title=" " alt="" coords="1062,734,1043,699,1030,682,1014,667,989,651,966,641,922,632,876,629,818,620,525,547,527,541,819,615,876,624,923,627,967,636,991,647,1018,663,1034,678,1048,696,1067,731"/>
+<area shape="poly" id="edge23_Node000021_Node000007" title=" " alt="" coords="1089,782,1118,832,1113,835,1084,785"/>
+<area shape="poly" id="edge22_Node000021_Node000011" title=" " alt="" coords="1048,782,972,836,969,832,1044,777"/>
+<area shape="poly" id="edge25_Node000021_Node000018" title=" " alt="" coords="1119,774,1276,831,1274,836,1117,779"/>
+<area shape="poly" id="edge32_Node000023_Node000006" title=" " alt="" coords="479,732,479,544,484,544,484,732"/>
+<area shape="poly" id="edge29_Node000023_Node000007" title=" " alt="" coords="551,771,580,776,707,792,806,800,904,808,1031,824,1071,831,1070,837,1030,829,904,813,805,805,706,797,580,781,550,776"/>
+<area shape="poly" id="edge30_Node000023_Node000008" title=" " alt="" coords="422,777,181,837,180,831,421,772"/>
+<area shape="poly" id="edge27_Node000023_Node000011" title=" " alt="" coords="554,771,580,776,729,799,878,824,911,831,910,837,877,829,728,804,579,781,553,777"/>
+<area shape="poly" id="edge28_Node000023_Node000012" title=" " alt="" coords="535,773,712,824,710,829,534,778"/>
+<area shape="poly" id="edge31_Node000023_Node000014" title=" " alt="" coords="497,782,523,825,518,828,493,785"/>
+<area shape="poly" id="edge33_Node000023_Node000015" title=" " alt="" coords="452,781,358,836,355,831,449,776"/>
+<area shape="poly" id="edge34_Node000023_Node000018" title=" " alt="" coords="575,770,624,776,790,790,919,797,1048,805,1214,824,1256,831,1255,837,1213,829,1048,810,919,802,789,795,624,781,574,776"/>
+<area shape="poly" id="edge35_Node000023_Node000020" title=" " alt="" coords="544,773,588,793,608,808,626,825,639,847,647,872,652,914,647,914,642,873,634,849,622,828,605,812,585,798,542,778"/>
+<area shape="poly" id="edge38_Node000024_Node000018" title=" " alt="" coords="1391,782,1323,836,1320,832,1388,778"/>
+<area shape="poly" id="edge40_Node000025_Node000026" title=" " alt="" coords="1666,784,1634,835,1629,832,1662,781"/>
+<area shape="poly" id="edge41_Node000026_Node000020" title=" " alt="" coords="1575,855,1395,869,725,923,724,917,1394,864,1575,849"/>
+<area shape="poly" id="edge48_Node000027_Node000005" title=" " alt="" coords="1313,432,1310,403,1301,373,1281,336,1256,302,1207,253,1210,249,1260,299,1286,333,1306,371,1316,402,1318,432"/>
+<area shape="poly" id="edge50_Node000028_Node000009" title=" " alt="" coords="1167,408,953,594,949,590,1164,404"/>
+<area shape="poly" id="edge51_Node000028_Node000027" title=" " alt="" coords="1221,402,1289,443,1286,447,1218,407"/>
+<area shape="poly" id="edge52_Node000028_Node000029" title=" " alt="" coords="1192,411,1192,518,1187,518,1187,411"/>
+<area shape="poly" id="edge59_Node000028_Node000030" title=" " alt="" coords="1248,398,1423,443,1422,448,1246,403"/>
+<area shape="rect" id="Node000031" href="$epoch__context_8hpp.html" title="Manages one “generation” of write/read ordering in an Async&lt;T&gt;" alt="" coords="1550,445,1695,471"/>
+<area shape="poly" id="edge60_Node000028_Node000031" title=" " alt="" coords="1272,397,1553,443,1552,448,1272,402"/>
+<area shape="poly" id="edge54_Node000029_Node000009" title=" " alt="" coords="1136,550,979,594,977,589,1135,545"/>
+<area shape="poly" id="edge53_Node000029_Node000010" title=" " alt="" coords="1161,554,1057,620,980,667,977,663,1054,615,1158,549"/>
+<area shape="poly" id="edge55_Node000029_Node000016" title=" " alt="" coords="1150,552,1057,594,1012,620,905,668,754,741,751,736,903,663,1009,615,1055,590,1148,547"/>
+<area shape="poly" id="edge56_Node000029_Node000021" title=" " alt="" coords="1179,558,1082,747,1077,744,1175,555"/>
+<area shape="poly" id="edge57_Node000029_Node000024" title=" " alt="" coords="1197,557,1207,586,1223,616,1264,659,1310,695,1355,723,1392,743,1389,748,1352,728,1307,699,1260,662,1219,619,1202,589,1192,558"/>
+<area shape="poly" id="edge58_Node000029_Node000025" title=" " alt="" coords="1228,547,1655,743,1653,748,1225,552"/>
+<area shape="poly" id="edge61_Node000031_Node000029" title=" " alt="" coords="1540,476,1237,525,1236,520,1539,470"/>
+<area shape="poly" id="edge62_Node000031_Node000032" title=" " alt="" coords="1631,484,1657,591,1652,592,1626,485"/>
+<area shape="poly" id="edge63_Node000032_Node000010" title=" " alt="" coords="1576,617,1004,675,1004,670,1575,612"/>
+<area shape="poly" id="edge64_Node000032_Node000025" title=" " alt="" coords="1663,630,1680,745,1674,746,1658,631"/>
+<area shape="poly" id="edge68_Node000034_Node000017" title=" " alt="" coords="1013,332,1087,395,1136,426,1179,447,1217,472,1234,491,1250,518,1261,549,1265,582,1264,616,1258,649,1239,707,1221,747,1216,745,1234,705,1252,648,1258,616,1260,583,1256,550,1246,520,1230,494,1214,476,1176,451,1133,431,1084,399,1009,336"/>
+<area shape="poly" id="edge69_Node000034_Node000023" title=" " alt="" coords="967,335,496,748,492,744,963,331"/>
+<area shape="poly" id="edge75_Node000034_Node000026" title=" " alt="" coords="1057,311,1235,315,1454,325,1651,343,1720,355,1759,370,1777,389,1785,408,1787,457,1787,533,1792,604,1799,663,1799,690,1794,718,1783,748,1763,780,1742,803,1715,820,1661,841,1659,836,1713,816,1738,799,1759,777,1778,746,1789,717,1793,690,1793,663,1787,605,1781,533,1781,457,1780,409,1772,391,1756,374,1718,360,1650,348,1454,331,1234,321,1057,316"/>
+<area shape="poly" id="edge67_Node000034_Node000028" title=" " alt="" coords="1034,326,1157,369,1155,374,1032,331"/>
+<area shape="rect" id="Node000035" href="$tbb__numa__scheduler_8hpp.html" title="Scheduler that dispatches work across NUMA&#45;aware TbbScheduler arenas." alt="" coords="515,445,699,471"/>
+<area shape="poly" id="edge70_Node000034_Node000035" title=" " alt="" coords="919,327,748,355,648,374,633,390,622,410,611,446,606,444,617,407,629,387,645,370,747,350,918,321"/>
+<area shape="rect" id="Node000036" href="$tbb__scheduler_8hpp.html" title="Scheduler implementation using oneAPI oneTBB task_arena + task_group." alt="" coords="659,372,799,397"/>
+<area shape="poly" id="edge71_Node000034_Node000036" title=" " alt="" coords="934,330,772,374,770,369,933,325"/>
+<area shape="poly" id="edge72_Node000036_Node000008" title=" " alt="" coords="733,412,729,443,723,459,712,473,675,499,639,511,604,513,568,509,531,503,493,501,453,505,410,521,337,566,287,613,245,668,194,740,163,792,142,835,137,832,158,789,190,737,241,665,283,609,334,562,408,516,452,500,493,495,532,498,568,504,604,508,638,506,673,495,709,469,718,456,724,442,728,411"/>
+<area shape="poly" id="edge73_Node000036_Node000016" title=" " alt="" coords="747,408,775,462,785,495,789,530,789,606,783,646,769,683,750,715,732,740,728,737,746,712,764,680,778,644,784,606,784,530,780,496,770,464,742,410"/>
+<area shape="poly" id="edge74_Node000036_Node000035" title=" " alt="" coords="699,406,628,447,625,443,697,402"/>
+<area shape="rect" id="Node000038" href="$backend_2blas_2backend__blas_8hpp.html" title="Central include that selects the configured BLAS backend wrappers." alt="" coords="1899,372,2037,397"/>
+<area shape="poly" id="edge77_Node000037_Node000038" title=" " alt="" coords="1942,259,1917,277,1898,300,1895,310,1896,320,1907,339,1926,356,1947,370,1944,374,1923,360,1903,342,1891,321,1890,309,1894,297,1913,273,1939,255"/>
+<area shape="rect" id="Node000040" href="$reference__blas_8hpp.html" title="Instantiates the reference BLAS backend over all supported scalar types." alt="" coords="1908,299,2055,324"/>
+<area shape="poly" id="edge79_Node000037_Node000040" title=" " alt="" coords="1984,264,1984,299,1979,299,1979,264"/>
+<area shape="rect" id="Node000039" href="$blas_2contract_8hpp.html" title=" " alt="" coords="1917,445,2019,471"/>
+<area shape="poly" id="edge78_Node000038_Node000039" title=" " alt="" coords="1971,411,1971,445,1965,445,1965,411"/>
+<area shape="poly" id="edge80_Node000040_Node000038" title=" " alt="" coords="1979,338,1973,372,1967,371,1974,337"/>
+<area shape="rect" id="Node000042" href="$gtest__floating__eq__example_8cpp.html" title=" " alt="" coords="2079,299,2305,324"/>
+<area shape="poly" id="edge85_Node000041_Node000042" title=" " alt="" coords="2163,261,2187,297,2182,300,2158,264"/>
+<area shape="poly" id="edge87_Node000043_Node000029" title=" " alt="" coords="1694,407,1714,439,1716,456,1709,473,1683,485,1638,496,1506,513,1357,524,1237,531,1237,525,1357,519,1505,508,1637,491,1682,480,1705,469,1711,456,1709,440,1690,409"/>
+<area shape="poly" id="edge88_Node000043_Node000031" title=" " alt="" coords="1657,410,1633,447,1628,444,1653,407"/>
+<area shape="rect" id="Node000045" href="$iteration__plan_8hpp.html" title="Helpers for constructing merged iteration plans over strided tensors." alt="" coords="2379,372,2519,397"/>
+<area shape="poly" id="edge90_Node000044_Node000045" title=" " alt="" coords="2449,265,2452,372,2446,372,2443,265"/>
+<area shape="poly" id="edge92_Node000044_Node000048" title=" " alt="" coords="2475,256,2534,296,2531,301,2472,261"/>
+<area shape="poly" id="edge91_Node000045_Node000004" title=" " alt="" coords="2434,410,2407,447,2402,444,2430,407"/>
+<area shape="poly" id="edge96_Node000048_Node000045" title=" " alt="" coords="2524,334,2467,374,2464,370,2521,330"/>
+<area shape="rect" id="Node000049" href="$contract_8hpp.html" title=" " alt="" coords="2551,445,2654,471"/>
+<area shape="poly" id="edge93_Node000048_Node000049" title=" " alt="" coords="2561,336,2601,444,2596,446,2556,338"/>
+<area shape="rect" id="Node000050" href="$cpu_2contract_8hpp.html" title=" " alt="" coords="2595,372,2698,397"/>
+<area shape="poly" id="edge94_Node000048_Node000050" title=" " alt="" coords="2578,330,2632,370,2629,374,2575,334"/>
+<area shape="poly" id="edge95_Node000050_Node000049" title=" " alt="" coords="2634,411,2612,447,2607,444,2630,408"/>
+<area shape="rect" id="Node000047" href="$sum_8hpp.html" title=" " alt="" coords="2710,299,2789,324"/>
+<area shape="poly" id="edge100_Node000052_Node000047" title=" " alt="" coords="2797,263,2762,300,2758,297,2794,259"/>
+<area shape="rect" id="Node000053" href="$zip__transform_8hpp.html" title=" " alt="" coords="2813,299,2953,324"/>
+<area shape="poly" id="edge101_Node000052_Node000053" title=" " alt="" coords="2838,259,2874,297,2870,300,2834,263"/>
+<area shape="poly" id="edge104_Node000054_Node000003" title=" " alt="" coords="2161,113,2085,154,2083,149,2159,108"/>
+<area shape="rect" id="Node000055" href="$terminal_8cpp.html" title=" " alt="" coords="2141,152,2245,177"/>
+<area shape="poly" id="edge103_Node000054_Node000055" title=" " alt="" coords="2196,118,2196,152,2191,152,2191,118"/>
+</map>

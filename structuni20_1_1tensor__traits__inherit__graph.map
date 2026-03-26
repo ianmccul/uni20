@@ -1,0 +1,5 @@
+<map id="uni20::tensor_traits&lt; Extents, StoragePolicy, LayoutPolicy, AccessorPolicy &gt;" name="uni20::tensor_traits&lt; Extents, StoragePolicy, LayoutPolicy, AccessorPolicy &gt;">
+<area shape="rect" id="Node000001" title="Trait bundle describing the policies required to build tensor views." alt="" coords="5,5,235,60"/>
+<area shape="rect" id="Node000002" href="$structuni20_1_1mutable__tensor__traits.html" title=" " alt="" coords="283,5,512,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="249,30,282,30,282,35,249,35"/>
+</map>
