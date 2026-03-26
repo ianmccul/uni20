@@ -1,0 +1,47 @@
+name: Docs
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build and documentation dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            cmake ninja-build g++ \
+            libopenblas-dev liblapack-dev libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev \
+            doxygen graphviz
+
+      - name: Configure documentation build
+        run: cmake -S . -B build -DUNI20_DOCS_WEB=ON
+
+      - name: Generate documentation
+        run: cmake --build build --target doc
+
+      - name: Verify generated site
+        run: test -f build/docs/html/index.html
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./build/docs/html
+          enable_jekyll: false
+          force_orphan: true
