@@ -1,16 +1,44 @@
-# docs/Doxyfile.in –– Doxygen config template
-PROJECT_NAME           = "@PROJECT_NAME@"
-OUTPUT_DIRECTORY       = "@CMAKE_BINARY_DIR@/docs"
+# docs/Doxyfile.in -- authoritative Doxygen configuration configured by CMake.
+PROJECT_NAME           = "Uni20"
+PROJECT_BRIEF          = "Asynchronous tensor and runtime library."
+OUTPUT_DIRECTORY       = "@DOXYGEN_OUTPUT_DIRECTORY@"
+
 INPUT                  = @DOXYGEN_INPUT@
 FILE_PATTERNS          = *.hpp *.h *.cpp *.md
 RECURSIVE              = YES
+
+EXCLUDE                = @DOXYGEN_EXCLUDE@
+EXCLUDE_SYMBOLS        = detail
+
 GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_COLORSTYLE        = AUTO_LIGHT
+HTML_EXTRA_STYLESHEET  = @DOXYGEN_HTML_EXTRA_STYLESHEET@
+USE_MATHJAX            = YES
+MATHJAX_VERSION        = MathJax_3
+
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+
 GENERATE_LATEX         = NO
+MARKDOWN_SUPPORT       = YES
+USE_MDFILE_AS_MAINPAGE = "@CMAKE_SOURCE_DIR@/README.md"
+
 EXTRACT_ALL            = YES
+INTERNAL_DOCS          = YES
 QUIET                  = YES
 JAVADOC_AUTOBRIEF      = YES
-ALLOW_UNICODE_NAMES    = YES
-MARKDOWN_SUPPORT       = YES
-INTERNAL_DOCS          = YES
-EXTRACT_ALL            = YES
-EXCLUDE_SYMBOLS        = detail
+ALLOW_UNICODE_NAMES    = NO
+
+TIMESTAMP              = NO
+FULL_PATH_NAMES        = NO
+STRIP_FROM_PATH        = "@CMAKE_SOURCE_DIR@"
+SORT_MEMBER_DOCS       = YES
+SORT_BRIEF_DOCS        = YES
+SORT_BY_SCOPE_NAME     = YES
+
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+DOT_NUM_THREADS        = 1
+NUM_PROC_THREADS       = 1

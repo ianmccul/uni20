@@ -189,7 +189,8 @@ AsyncTensor operator+(AsyncTensor const& a, AsyncTensor const& b);
 Run:
 
 ```bash
-doxygen Doxyfile
+cmake -S . -B build -DUNI20_DOCS_WEB=ON
+cmake --build build --target doc
 ```
 
 to verify formatting.

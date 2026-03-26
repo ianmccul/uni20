@@ -103,6 +103,7 @@ option(UNI20_EXTERNAL_NO_WERROR   "Disable -Werror for external libraries" ON)
 option(UNI20_EXTERNAL_NO_WARN     "Disable all warnings for external libraries" OFF)
 option(UNI20_ENABLE_COVERAGE      "Enable code coverage instrumentation" OFF)
 option(UNI20_DEBUG_ASYNC_TASKS    "Enable AsyncTask debug instrumentation" OFF)
+option(UNI20_DOCS_WEB             "Enable web-oriented Doxygen configuration for deployment" OFF)
 
 if(UNI20_ENABLE_COVERAGE)
   message(STATUS "Enabling coverage instrumentation")
@@ -486,11 +487,24 @@ find_package(Doxygen QUIET)
 if(DOXYGEN_FOUND)
   # Where to look for our sources and markdown files
   set(DOXYGEN_INPUT
+      "${CMAKE_SOURCE_DIR}/README.md"
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/examples"
       "${CMAKE_SOURCE_DIR}/docs"
   )
   list(JOIN DOXYGEN_INPUT " " DOXYGEN_INPUT)
+
+  set(DOXYGEN_EXCLUDE
+      "${CMAKE_SOURCE_DIR}/docs/latex"
+  )
+  list(JOIN DOXYGEN_EXCLUDE " " DOXYGEN_EXCLUDE)
+
+  set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/docs")
+  if(UNI20_DOCS_WEB)
+    set(DOXYGEN_HTML_EXTRA_STYLESHEET "${CMAKE_SOURCE_DIR}/docs/doxygen-custom.css")
+  else()
+    set(DOXYGEN_HTML_EXTRA_STYLESHEET "")
+  endif()
 
   # Configure the Doxyfile from a template
   set(DOXYFILE_IN   "${CMAKE_SOURCE_DIR}/docs/Doxyfile.in")
@@ -501,7 +515,7 @@ if(DOXYGEN_FOUND)
   # Add a "doc" target
   add_custom_target(doc
     COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYFILE_OUT}
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/docs
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Generating API and Markdown documentation with Doxygen"
     VERBATIM
   )
