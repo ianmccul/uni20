@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+    workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,13 +23,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install build and documentation dependencies
+      - name: Install Doxygen
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y \
-            cmake ninja-build g++ \
-            libopenblas-dev liblapack-dev libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev \
-            doxygen graphviz
+          sudo apt-get install -y doxygen
 
       - name: Configure documentation build
         run: cmake -S . -B build -DUNI20_DOCS_WEB=ON
