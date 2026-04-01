@@ -27,7 +27,7 @@ namespace uni20
 ///         constant-expression contexts.
 /// \tparam T Scalar type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_trivial_conj = has_real_scalar<T> || has_integer_scalar<T>;
+template <typename T> inline constexpr bool has_trivial_conj = has_real_scalar_v<T> || has_integer_scalar_v<T>;
 
 /// \brief Returns the complex conjugate for complex-valued scalars.
 /// \details This overload forwards to `std::conj` and therefore returns a `std::complex<T>` copy of the
