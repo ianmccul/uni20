@@ -11,7 +11,9 @@ This note describes:
 
 - the `QNum` value type
 - the `QNumList` container type
+- the future `BlockSpace` type
 - the `Symmetry` / `SymmetryImpl` runtime model
+- directionality wrappers such as `conjugate<T>`
 - how future fusion support constrains the design
 - the role of braiding
 - the minimum functionality needed for the first DMRG implementation
@@ -26,13 +28,45 @@ This note does not define tensor storage or tensor algorithms directly.
 - Support future non-Abelian symmetries and braided categories without redesign.
 - Remove `Projection` from the core API completely.
 - Allow a `QNum` to be used as a small standalone value object.
+- Allow `QNum`, `QNumList`, and future `BlockSpace` objects to function as
+  tensor-leg / tensor-space types in their own right.
 
 ## Terminology
 
 - A `QNum` is an irreducible representation label.
+- A `QNum` is also a singleton irreducible tensor space of dimension 1.
 - A `Symmetry` is a direct product of braided fusion tensor categories.
+- A `QNumList` is an explicit sparse tensor space represented as an ordered list
+  of `QNum` labels.
+- A `BlockSpace` is a coalesced tensor space represented as symmetry blocks
+  `(QNum, dim)`.
+- `conjugate<T>` changes tensor-leg direction. It is related to, but distinct
+  from, value-level `dual(q)`.
 - A multiplicity label will eventually be needed once the fusion API is
   generalized beyond the U(1) first pass.
+
+## Tensor-Space View
+
+The quantum-number layer is not just a bookkeeping layer for values.
+It also defines the space-like objects that can appear as typed tensor legs.
+
+The intended family is:
+
+- `QNum`
+- `QNumList`
+- `BlockSpace`
+- `conjugate<T>` with a short alias `co<T>`
+
+Examples:
+
+```cpp
+Tensor<conjugate<BlockSpace>, QNum, BlockSpace>
+Tensor<conjugate<QNumList>, QNum, QNumList>
+```
+
+This is important for irreducible tensor operators. A tensor such as
+`Tensor<conjugate<BlockSpace>, QNum, BlockSpace>` has two free indices and one
+fixed transform-as leg. It is not a scalar operator with extra metadata.
 
 ## Core Types
 
@@ -56,6 +90,7 @@ Properties:
 - equality is pointer-plus-code equality
 - can be passed by value
 - carries enough context to interpret the irrep label
+- functions directly as a one-dimensional tensor space
 
 The packed integer `code_` is a canonical encoded representation of the irrep.
 Each concrete symmetry factor chooses its own encoding, subject to the invariants below.
@@ -102,6 +137,7 @@ on `U1`.
 ## `QNumList`
 
 `QNumList` is a container of `QNum` values that all share the same symmetry.
+It is also the intended sparse tensor-space representation.
 
 Conceptually it behaves like a `std::vector<QNum>`, but with the invariant that
 all entries have identical `SymmetryImpl*`.
@@ -110,15 +146,31 @@ This is useful for:
 
 - lists of allowed quantum numbers for an index or basis
 - block-label bookkeeping
+- sparse tensor legs whose repeated labels and ordering are semantically
+  meaningful
 - APIs that naturally return several `QNum`s but do not need multiplicity labels
 
 The intended invariant is:
 
 - an empty `QNumList` still carries a definite `Symmetry`
 - appending a `QNum` with a different symmetry is an error
+- the symmetry of a `QNumList` does not change over its lifetime
+- `QNumList` should be constructible from `Symmetry` and should not need a
+  default constructor
 
 This is distinct from future fusion output. Once multiplicities matter, the
 fusion API will need more structure than a plain list of `QNum`.
+
+When used as a tensor space, `QNumList` means:
+
+- explicit sparse representation
+- duplicates allowed
+- order is meaningful
+- automatic coalescing is not allowed
+
+This is important for objects such as MPO bond spaces or physical legs of
+A-matrices, where keeping slices explicit can drive contraction ordering and
+parallelization.
 
 Likely first-pass operations:
 
@@ -132,6 +184,37 @@ Likely first-pass operations:
 
 The encoded `uint64_t` order is intended to be the canonical display and sorting
 order, so `QNumList` should preserve or recover that ordering cheaply.
+
+## `BlockSpace`
+
+`BlockSpace` is the planned coalesced counterpart to `QNumList`.
+
+Conceptually:
+
+```cpp
+struct Block {
+  QNum q;
+  std::size_t dim;
+};
+```
+
+with the space itself storing an ordered list of blocks.
+
+Semantics:
+
+- each block represents a sector of states with common `QNum`
+- `dim` is the degeneracy / multiplicity of that sector
+- this is the natural regularized representation for dense block-linear algebra
+- if the same `QNum` appears more than once, operations should regularize
+  explicitly rather than silently coalescing
+
+So the intended split is:
+
+- `QNumList` = explicit sparse list representation
+- `BlockSpace` = coalesced block representation
+
+Both are valid tensor-space types. They simply carry different structural
+information and different execution hints.
 
 ## Future Fusion API
 
@@ -260,6 +343,29 @@ Examples:
 Operations that do not depend on braiding do not need to care about this distinction.
 Operations that do depend on braiding dispatch through the same `SymmetryImpl`.
 
+## Directionality And Conjugation
+
+Tensor-leg direction is not the same concept as value-level dualization.
+
+We need both:
+
+- `dual(q)` for representation-theoretic duals of value-level `QNum` and factor
+  types such as `U1`
+- `conjugate<T>` for changing the direction / arrow orientation of a tensor leg
+
+These are related but distinct.
+
+For example, a conventional irreducible tensor operator might have a type such as:
+
+```cpp
+Tensor<conjugate<BlockSpace>, QNum, BlockSpace>
+```
+
+Its Hermitian conjugate reverses leg order, conjugates coefficients, and applies
+`conjugate<>` to each tensor-leg type. This is not the same as simply replacing
+the transform-as `QNum` by `dual(q)`, even if those notions happen to coincide
+for some abelian first-pass cases.
+
 ## Why `Projection` Is Gone
 
 `Projection` is removed from the core design.
@@ -374,6 +480,12 @@ The first Uni20 version should implement:
 - `degree`
 - string formatting/parsing
 - hashing
+
+The intended next layer after that is:
+
+- `BlockSpace`
+- `conjugate<T>` / `co<T>`
+- explicit regularization/coalescing helpers between `QNumList` and `BlockSpace`
 
 This is enough for:
 
