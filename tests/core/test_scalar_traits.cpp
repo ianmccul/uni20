@@ -6,25 +6,25 @@
 // ----------------------------------------------------------------------------
 TEST(TraitsTest, IsInteger)
 {
-  EXPECT_TRUE(uni20::is_integer<int>);
-  EXPECT_TRUE(uni20::is_integer<unsigned int>);
-  EXPECT_FALSE(uni20::is_integer<bool>);
-  EXPECT_FALSE(uni20::is_integer<float>);
+  EXPECT_TRUE(uni20::is_integer_v<int>);
+  EXPECT_TRUE(uni20::is_integer_v<unsigned int>);
+  EXPECT_FALSE(uni20::is_integer_v<bool>);
+  EXPECT_FALSE(uni20::is_integer_v<float>);
 }
 
 TEST(TraitsTest, IsReal)
 {
-  EXPECT_TRUE(uni20::is_real<float>);
-  EXPECT_TRUE(uni20::is_real<double>);
-  EXPECT_TRUE(uni20::is_real<long double>);
-  EXPECT_FALSE(uni20::is_real<std::complex<float>>);
+  EXPECT_TRUE(uni20::is_real_v<float>);
+  EXPECT_TRUE(uni20::is_real_v<double>);
+  EXPECT_TRUE(uni20::is_real_v<long double>);
+  EXPECT_FALSE(uni20::is_real_v<std::complex<float>>);
 }
 
 TEST(TraitsTest, IsComplex)
 {
-  EXPECT_FALSE(uni20::is_complex<float>);
-  EXPECT_TRUE(uni20::is_complex<std::complex<float>>);
-  EXPECT_TRUE(uni20::is_complex<std::complex<double>>);
+  EXPECT_FALSE(uni20::is_complex_v<float>);
+  EXPECT_TRUE(uni20::is_complex_v<std::complex<float>>);
+  EXPECT_TRUE(uni20::is_complex_v<std::complex<double>>);
 }
 
 // ----------------------------------------------------------------------------
@@ -82,8 +82,8 @@ TEST(ScalarTypeTest, NestedContainer)
 TEST(ScalarTypeTest, NonScalarContainer)
 {
   // char is not a scalar type
-  EXPECT_FALSE(uni20::has_scalar<std::vector<char>>);
-  EXPECT_FALSE(uni20::has_scalar<std::vector<std::vector<char>>>);
+  EXPECT_FALSE(uni20::has_scalar_v<std::vector<char>>);
+  EXPECT_FALSE(uni20::has_scalar_v<std::vector<std::vector<char>>>);
 }
 
 TEST(ScalarTraitTest, HasScalarVariants)
@@ -92,15 +92,15 @@ TEST(ScalarTraitTest, HasScalarVariants)
   using ComplexMat = std::vector<std::vector<std::complex<float>>>;
   using NonScalar = std::vector<std::string>;
 
-  static_assert(uni20::has_scalar<RealVec>);
-  static_assert(uni20::has_real_scalar<RealVec>);
-  static_assert(!uni20::has_complex_scalar<RealVec>);
+  static_assert(uni20::has_scalar_v<RealVec>);
+  static_assert(uni20::has_real_scalar_v<RealVec>);
+  static_assert(!uni20::has_complex_scalar_v<RealVec>);
 
-  static_assert(uni20::has_scalar<ComplexMat>);
-  static_assert(!uni20::has_real_scalar<ComplexMat>);
-  static_assert(uni20::has_complex_scalar<ComplexMat>);
+  static_assert(uni20::has_scalar_v<ComplexMat>);
+  static_assert(!uni20::has_real_scalar_v<ComplexMat>);
+  static_assert(uni20::has_complex_scalar_v<ComplexMat>);
 
-  static_assert(!uni20::has_scalar<NonScalar>);
+  static_assert(!uni20::has_scalar_v<NonScalar>);
 }
 
 TEST(ScalarTraitTest, MakeRealTandMakeComplexT)
@@ -119,8 +119,8 @@ TEST(ScalarTraitTest, HasRealOrComplex)
   using T3 = std::vector<std::vector<char>>;
   using T4 = std::vector<std::vector<int>>;
 
-  static_assert(uni20::has_real_or_complex_scalar<T1>);
-  static_assert(uni20::has_real_or_complex_scalar<T2>);
-  static_assert(!uni20::has_real_or_complex_scalar<T3>);
-  static_assert(!uni20::has_real_or_complex_scalar<T4>);
+  static_assert(uni20::has_real_or_complex_scalar_v<T1>);
+  static_assert(uni20::has_real_or_complex_scalar_v<T2>);
+  static_assert(!uni20::has_real_or_complex_scalar_v<T3>);
+  static_assert(!uni20::has_real_or_complex_scalar_v<T4>);
 }

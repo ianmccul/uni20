@@ -3,6 +3,7 @@
 ## Core Docs
 
 - [Getting Started](getting_started.md)
+- [Quantum Numbers and Symmetry](qnum.md)
 - [Trace Macros](trace_macros.md)
 - [Testing Infrastructure](testing.md)
 - [Architecture Diagram](architecture_diagram.md)

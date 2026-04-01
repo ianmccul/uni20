@@ -10,25 +10,25 @@ namespace uni20
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept Integer = is_integer<T>;
+concept Integer = is_integer_v<T>;
 
 /// \brief Concept for real scalar types (float, double, etc.).
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept Real = is_real<T>;
+concept Real = is_real_v<T>;
 
 /// \brief Concept for complex scalar types.
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept Complex = is_complex<T>;
+concept Complex = is_complex_v<T>;
 
 /// \brief Concept for numeric scalar types (integer, real, or complex).
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept Scalar = is_scalar<T>;
+concept Scalar = is_scalar_v<T>;
 
 /// \brief Concept for types that are either real or complex.
 /// \tparam T Type to test.
@@ -58,24 +58,24 @@ concept BlasScalar = BlasReal<T> || BlasComplex<T>;
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept HasScalar = has_scalar<T>;
+concept HasScalar = has_scalar_v<T>;
 
 /// \brief Concept for types whose `scalar_t<T>` is an integer.
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept HasIntegerScalar = has_integer_scalar<T>;
+concept HasIntegerScalar = has_integer_scalar_v<T>;
 
 /// \brief Concept for types whose `scalar_t<T>` is real.
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept HasRealScalar = has_real_scalar<T>;
+concept HasRealScalar = has_real_scalar_v<T>;
 
 /// \brief Concept for types whose `scalar_t<T>` is complex.
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept HasComplexScalar = has_complex_scalar<T>;
+concept HasComplexScalar = has_complex_scalar_v<T>;
 
 } // namespace uni20
