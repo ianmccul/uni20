@@ -19,13 +19,11 @@ target_include_directories(uni20_deps INTERFACE ${PROJECT_SOURCE_DIR}/src)
 # Add the core library with its source files.
 add_library(uni20 STATIC uni20.cpp)
 
-# Link external libraries (for example, fmt)
-target_link_libraries(uni20 PUBLIC uni20_deps uni20_core uni20_common uni20_linalg uni20_symmetry)
-enable_ipo_if_supported(uni20)
-
 add_subdirectory(core)
 add_subdirectory(common)
 add_subdirectory(symmetry)
+add_subdirectory(matrix)
+add_subdirectory(operator)
 add_subdirectory(backend)
 add_subdirectory(level1)
 add_subdirectory(mdspan)
@@ -33,6 +31,10 @@ add_subdirectory(async)
 add_subdirectory(kernel)
 add_subdirectory(linalg)
 add_subdirectory(expokit)
+
+# Link external libraries (for example, fmt)
+target_link_libraries(uni20 PUBLIC uni20_deps uni20_core uni20_common uni20_matrix uni20_linalg uni20_operator uni20_symmetry)
+enable_ipo_if_supported(uni20)
 
 target_link_libraries(uni20 PUBLIC uni20_expokit)
 

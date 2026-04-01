@@ -168,6 +168,11 @@ class QNumList {
     /// \return End iterator.
     auto end() const { return values_.end(); }
 
+    /// \brief Compare two sparse irrep lists for exact equality.
+    /// \param other Other sparse irrep list.
+    /// \return `true` if symmetry and ordered values match.
+    auto operator==(QNumList const& other) const -> bool = default;
+
   private:
     /// \brief Check that a quantum number matches the list symmetry.
     /// \param q Quantum number to validate.
