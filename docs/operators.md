@@ -10,9 +10,9 @@ This layer is intentionally narrow.
 - `LocalSpace` is a semantic wrapper around `QNumList`.
 - `LocalOperator` is the first concrete operator object.
 - `OperatorComponent` is the per-site MPO object.
-- Lattice-level MPO objects are not implemented yet, but this layer is intended
-  to support them.
-- `FiniteTriangularMPO` is the next lattice-level type to use for DMRG.
+- `FiniteTriangularMPO` is the first lattice-level MPO type used by the DMRG
+  path.
+- Concrete model helpers now live in `docs/models.md`.
 
 ## `LocalSpace`
 
@@ -124,11 +124,9 @@ This is intentionally much narrower than a full MPO class hierarchy.
 
 ## Planned Use
 
-The intended next step is:
+The intended next steps are:
 
-- build sparse local creation, annihilation, number, and spin operators
-- build finite MPO containers on top of `OperatorComponent`
-- likely use `FiniteTriangularMPO` rather than a generic `FiniteMPO` first,
-  because that is the structure the DMRG Hamiltonian path actually needs
+- extend the model layer beyond the first spin-1/2 helpers
+- add richer MPO transformations and manipulations on top of `OperatorComponent`
 - compile that host-side MPO representation into TensorContraction block lists
   and coefficient terms
