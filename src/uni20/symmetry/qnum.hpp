@@ -1,6 +1,9 @@
 /**
  * \file qnum.hpp
  * \brief Defines packed quantum numbers and same-symmetry quantum-number containers.
+ *
+ * \details See `docs/qnum.md` for the implemented `QNum` and `QNumList` API,
+ *          along with the planned non-abelian, braiding, and coupling-data extensions.
  */
 
 #pragma once
@@ -22,6 +25,7 @@ namespace uni20
 {
 
 /// \brief One irrep label together with the symmetry context needed to interpret it.
+/// \details `QNum` is the packed runtime label used by the tensor code. See `docs/qnum.md`.
 class QNum {
   public:
     /// \brief Construct an invalid quantum number.
@@ -87,6 +91,7 @@ class QNum {
 };
 
 /// \brief Container of quantum numbers that all share one symmetry.
+/// \details This is intended for basis and block-label bookkeeping. See `docs/qnum.md`.
 class QNumList {
   public:
     /// \brief Construct an empty list tied to one symmetry.

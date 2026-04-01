@@ -50,6 +50,34 @@ TEST(QNumTest, BasicU1OperationsWork)
     EXPECT_EQ(degree(q1), 1);
 }
 
+TEST(QNumTest, IdentityAndMissingComponentsDefaultToZero)
+{
+    Symmetry const sym{"N:U(1),Sz:U(1)"};
+
+    auto const identity_q = QNum::identity(sym);
+    auto const n_only = make_qnum(sym, {{"N", U1{half_int{1.5}}}});
+
+    EXPECT_TRUE(is_scalar(identity_q));
+    EXPECT_EQ(to_string(identity_q), "N=0,Sz=0");
+    EXPECT_EQ(u1_component(n_only, "N"), U1{half_int{1.5}});
+    EXPECT_EQ(u1_component(n_only, "Sz"), U1{0});
+}
+
+TEST(QNumTest, InvalidInputsThrowUsefulErrors)
+{
+    Symmetry const sym{"N:U(1),Sz:U(1)"};
+    QNum const invalid;
+
+    EXPECT_FALSE(invalid.valid());
+    EXPECT_THROW(static_cast<void>(invalid.symmetry()), std::logic_error);
+    EXPECT_THROW(static_cast<void>(invalid.raw_code()), std::logic_error);
+    EXPECT_THROW(static_cast<void>(is_scalar(invalid)), std::logic_error);
+
+    EXPECT_THROW(static_cast<void>(make_qnum(sym, {{"Bogus", 0}})), std::invalid_argument);
+    EXPECT_THROW(static_cast<void>(make_qnum(sym, {{"N", 0}, {"N", 1}})), std::invalid_argument);
+    EXPECT_THROW(static_cast<void>(u1_component(make_qnum(sym, {{"N", 0}}), "Bogus")), std::invalid_argument);
+}
+
 TEST(QNumTest, CoercionUsesNamedComponents)
 {
     Symmetry const particle{"N:U(1)"};
@@ -66,6 +94,14 @@ TEST(QNumTest, CoercionUsesNamedComponents)
 
     EXPECT_THROW(static_cast<void>(coerce(make_qnum(full, {{"N", U1{1}}, {"Sz", U1{half_int{0.5}}}}), particle)),
                  std::invalid_argument);
+}
+
+TEST(QNumTest, OperatorPlusRequiresMatchingSymmetry)
+{
+    auto const n = make_qnum(Symmetry{"N:U(1)"}, {{"N", 1}});
+    auto const sz = make_qnum(Symmetry{"Sz:U(1)"}, {{"Sz", 1}});
+
+    EXPECT_THROW(static_cast<void>(n + sz), std::invalid_argument);
 }
 
 TEST(QNumListTest, EnforcesSharedSymmetryAndNormalizes)
@@ -87,4 +123,13 @@ TEST(QNumListTest, EnforcesSharedSymmetryAndNormalizes)
     EXPECT_EQ(u1_component(list[1], "N"), U1{2});
 
     EXPECT_THROW(list.push_back(make_qnum(other, {{"Sz", 0}})), std::invalid_argument);
+}
+
+TEST(QNumListTest, ConstructorRejectsMismatchedInitialValues)
+{
+    Symmetry const sym{"N:U(1)"};
+    Symmetry const other{"Sz:U(1)"};
+
+    EXPECT_THROW(static_cast<void>(QNumList(sym, {make_qnum(sym, {{"N", 0}}), make_qnum(other, {{"Sz", 0}})})),
+                 std::invalid_argument);
 }
