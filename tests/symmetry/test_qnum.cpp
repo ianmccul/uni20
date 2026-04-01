@@ -133,3 +133,16 @@ TEST(QNumListTest, ConstructorRejectsMismatchedInitialValues)
     EXPECT_THROW(static_cast<void>(QNumList(sym, {make_qnum(sym, {{"N", 0}}), make_qnum(other, {{"Sz", 0}})})),
                  std::invalid_argument);
 }
+
+TEST(QNumListTest, ClearPreservesTypedEmptyList)
+{
+    Symmetry const sym{"N:U(1)"};
+    QNumList list(sym, {make_qnum(sym, {{"N", 0}}), make_qnum(sym, {{"N", 1}})});
+
+    list.clear();
+
+    EXPECT_TRUE(list.empty());
+    EXPECT_EQ(list.symmetry(), sym);
+    list.push_back(make_qnum(sym, {{"N", -1}}));
+    EXPECT_EQ(u1_component(list[0], "N"), U1{-1});
+}
