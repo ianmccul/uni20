@@ -90,8 +90,8 @@ class QNum {
     std::uint64_t code_ = 0;
 };
 
-/// \brief Container of quantum numbers that all share one symmetry.
-/// \details This is intended for basis and block-label bookkeeping. See `docs/qnum.md`.
+/// \brief Explicit sparse tensor space represented as quantum numbers with one shared symmetry.
+/// \details `QNumList` keeps ordering and repeated labels explicit. See `docs/qnum.md`.
 class QNumList {
   public:
     /// \brief Construct an empty list tied to one symmetry.
@@ -128,6 +128,9 @@ class QNumList {
         this->verify_symmetry(q);
         values_.push_back(q);
     }
+
+    /// \brief Remove all quantum numbers while keeping the list symmetry.
+    void clear() { values_.clear(); }
 
     /// \brief Return whether the list already contains the given quantum number.
     /// \param q Quantum number to search for.

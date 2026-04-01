@@ -10,12 +10,14 @@ The code is intentionally small today:
   specification such as `N:U(1),Sz:U(1)`.
 - `QNum` is a packed irrep label together with the `Symmetry` needed to
   interpret it.
-- `QNumList` is a same-symmetry container for block labels and basis labels.
+- `QNumList` is the explicit sparse tensor-space representation.
+- `BlockSpace` is the coalesced `(QNum, dim)` tensor-space representation.
 - `U1` is the first value-level quantum-number type and currently the only
   implemented symmetry factor.
 
 The relevant headers are:
 
+- `src/uni20/symmetry/block_space.hpp`
 - `src/uni20/symmetry/symmetry.hpp`
 - `src/uni20/symmetry/qnum.hpp`
 - `src/uni20/symmetry/u1.hpp`
@@ -104,8 +106,9 @@ For the current U(1) implementation, missing component assignments in
 
 ### `QNumList`
 
-`QNumList` is a small container with one important invariant: every entry must
-have the same `Symmetry`.
+`QNumList` is the explicit sparse tensor-space representation. It is also a
+small container with one important invariant: every entry must have the same
+`Symmetry`.
 
 Implemented operations:
 
@@ -115,14 +118,65 @@ Implemented operations:
 - `size()`
 - `empty()`
 - `push_back(...)`
+- `clear()`
 - `contains(...)`
 - indexed access
 - iteration
 - `sort()`
 - `normalize()` which sorts and removes duplicates
 
-This is intended for basis-label bookkeeping and block-label sets, not for
-general fusion output.
+As a tensor space, `QNumList` means:
+
+- duplicates are allowed
+- order is meaningful
+- automatic coalescing is not allowed
+- an empty list still has a definite `Symmetry`
+
+This makes it suitable for sparse physical legs, sparse MPO bond spaces, and
+other cases where the explicit outer-loop structure should remain visible to the
+contraction engine.
+
+### `BlockSpace`
+
+`BlockSpace` is the coalesced tensor-space representation. It stores ordered
+blocks `(QNum, dim)`.
+
+Implemented operations:
+
+- construction from `Symmetry`
+- construction from `Symmetry` plus an initializer list of blocks
+- `symmetry()`
+- `size()`
+- `empty()`
+- `total_dim()`
+- `is_regular()`
+- `push_back(...)`
+- `clear()`
+- `contains(...)`
+- indexed access
+- iteration
+- equality comparison
+
+`BlockSpace` allows repeated `QNum` sectors, but that is treated as an
+irregular state that should be normalized explicitly before dense block-space
+operations.
+
+### Regularization Helpers
+
+Two explicit regularization helpers are now implemented:
+
+- `regularize(QNumList)` coalesces the sparse space into a `BlockSpace` and
+  records, for each original entry, the destination block and offset inside that
+  block
+- `regularize(BlockSpace)` coalesces repeated blocks with the same `QNum` and
+  records the destination block plus the covered range inside that block
+
+There is also a convenience conversion:
+
+- `to_block_space(QNumList)`
+
+These helpers are intended to support explicit sparse-to-coalesced transitions
+without making coalescing automatic.
 
 ## Encoding and Ordering
 
@@ -142,7 +196,7 @@ natural display order:
 - `...`
 
 This ordering is useful both for debugging output and for canonical sorting in
-`QNumList`.
+`QNumList` and canonical block ordering in `BlockSpace`.
 
 ## Coercion by Named Components
 
@@ -208,6 +262,61 @@ Future APIs are expected to cover at least:
 
 This layer will matter once Uni20 moves beyond abelian block bookkeeping and
 starts doing genuine non-abelian or braided tensor algebra.
+
+## Deferred Next Steps
+
+These items are intentionally deferred rather than part of the current public
+API, but they are likely to be the next symmetry-side tasks once the first U(1)
+DMRG prototype is underway.
+
+### Leg-direction wrapper
+
+We eventually want an explicit tensor-leg direction wrapper:
+
+- `conjugate<T>`
+- short alias `co<T>`
+
+The first AMatrix prototype does not need to wait for that wrapper. It can be
+implemented with the understanding that it behaves like a 3-leg tensor on:
+
+- `conjugate<BlockSpace>`
+- `QNumList`
+- `BlockSpace`
+
+without introducing the actual `conjugate<T>` type yet.
+
+### Space-level helpers
+
+Likely next convenience helpers on spaces:
+
+- `find_block(q)` / `index_of(q)` on `BlockSpace`
+- `dim(q)` on `BlockSpace`
+- space-level coercion for `QNumList` and `BlockSpace`
+- space-level shift helpers in the old `delta_shift` spirit
+
+These are expected to become useful as soon as the MPO and AMatrix compiler code
+is written.
+
+### Space conjugation and dualization
+
+Once `conjugate<T>` exists, Uni20 should define the corresponding space-level
+operations for:
+
+- `QNumList`
+- `BlockSpace`
+
+This must remain distinct from value-level `dual(QNum)`.
+
+### Inverse regularization metadata
+
+The current regularization helpers provide the forward block/index mapping
+needed to coalesce sparse spaces explicitly. Later work may also want:
+
+- explicit inverse mapping helpers
+- tensor-reshape metadata derived from the regularization
+- eventually actual transform operators where needed
+
+The first U(1) DMRG path does not require those operators yet.
 
 ## Keeping Code and Docs in Sync
 
