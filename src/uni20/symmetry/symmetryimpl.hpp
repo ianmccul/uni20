@@ -29,7 +29,7 @@ namespace uni20::detail
 struct SymmetryFactorSpec
 {
     std::string name;
-    SymmetryFactor const* factor = nullptr;
+    SymmetryFactorBase const* factor = nullptr;
 };
 
 /// \brief Internal canonicalized description of a direct-product symmetry.

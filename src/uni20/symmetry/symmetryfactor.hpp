@@ -1,6 +1,6 @@
 /**
  * \file symmetryfactor.hpp
- * \brief Defines the internal virtual interface for concrete symmetry factors.
+ * \brief Defines the internal runtime interface for concrete symmetry-factor adapters.
  */
 
 #pragma once
@@ -14,58 +14,109 @@
 namespace uni20::detail
 {
 
-/// \brief Virtual interface implemented by each concrete symmetry factor.
-class SymmetryFactor {
+/// \brief Runtime-erased interface for a concrete symmetry factor.
+class SymmetryFactorBase {
   public:
-    virtual ~SymmetryFactor() = default;
+    virtual ~SymmetryFactorBase() = default;
 
     /// \brief Return the canonical type name used in symmetry specifications.
     /// \return Canonical factor type string.
     virtual auto type_name() const -> std::string_view = 0;
 
-    /// \brief Encode a first-pass signed integer irrep label.
-    /// \param value Integer-valued irrep label.
-    /// \return Packed factor-local code.
-    virtual auto encode_int64(std::int64_t value) const -> std::uint64_t = 0;
-
-    /// \brief Decode a first-pass signed integer irrep label.
-    /// \param code Packed factor-local code.
-    /// \return Decoded integer-valued irrep label.
-    virtual auto decode_int64(std::uint64_t code) const -> std::int64_t = 0;
-
-    /// \brief Return the dual irrep of a factor-local code.
+    /// \brief Return the dual irrep of a packed factor-local code.
     /// \param code Packed factor-local code.
     /// \return Packed factor-local code of the dual irrep.
-    virtual auto dual(std::uint64_t code) const -> std::uint64_t = 0;
+    virtual auto dual_code(std::uint64_t code) const -> std::uint64_t = 0;
 
-    /// \brief Return the quantum dimension of a factor-local irrep.
+    /// \brief Return the quantum dimension of a packed factor-local irrep.
     /// \param code Packed factor-local code.
     /// \return Quantum dimension.
-    virtual auto qdim(std::uint64_t code) const -> double = 0;
+    virtual auto qdim_code(std::uint64_t code) const -> double = 0;
 
-    /// \brief Return the integral degree of a factor-local irrep.
+    /// \brief Return the integral degree of a packed factor-local irrep.
     /// \param code Packed factor-local code.
     /// \return Integral degree.
-    virtual auto degree(std::uint64_t code) const -> int = 0;
+    virtual auto degree_code(std::uint64_t code) const -> int = 0;
 
-    /// \brief Format a factor-local irrep code.
+    /// \brief Add two packed factor-local codes using the unique-fusion shortcut.
+    /// \param lhs Left packed factor-local code.
+    /// \param rhs Right packed factor-local code.
+    /// \return Packed factor-local code of the unique sum.
+    virtual auto add_codes(std::uint64_t lhs, std::uint64_t rhs) const -> std::uint64_t = 0;
+
+    /// \brief Format a packed factor-local irrep code.
     /// \param code Packed factor-local code.
     /// \return Human-readable string form.
-    virtual auto to_string(std::uint64_t code) const -> std::string = 0;
+    virtual auto format_code(std::uint64_t code) const -> std::string = 0;
+};
+
+/// \brief Traits that teach `SymmetryFactor<T>` how to encode and decode one concrete factor type.
+/// \tparam Q Concrete factor value type.
+template <typename Q> struct SymmetryFactorTraits;
+
+/// \brief Typed adapter that forwards runtime-erased operations to free functions on `Q`.
+/// \tparam Q Concrete factor value type.
+template <typename Q> class SymmetryFactor final : public SymmetryFactorBase {
+  public:
+    /// \brief Encode a concrete factor value into its packed factor-local representation.
+    /// \param value Concrete factor value.
+    /// \return Packed factor-local code.
+    auto encode(Q const& value) const -> std::uint64_t { return SymmetryFactorTraits<Q>::encode(value); }
+
+    /// \brief Decode a packed factor-local representation into a concrete factor value.
+    /// \param code Packed factor-local code.
+    /// \return Concrete factor value.
+    auto decode(std::uint64_t code) const -> Q { return SymmetryFactorTraits<Q>::decode(code); }
+
+    /// \brief Return the canonical type name used in symmetry specifications.
+    /// \return Canonical factor type string.
+    auto type_name() const -> std::string_view override { return SymmetryFactorTraits<Q>::type_name(); }
+
+    /// \brief Return the dual irrep of a packed factor-local code.
+    /// \param code Packed factor-local code.
+    /// \return Packed factor-local code of the dual irrep.
+    auto dual_code(std::uint64_t code) const -> std::uint64_t override
+    {
+        return this->encode(dual(this->decode(code)));
+    }
+
+    /// \brief Return the quantum dimension of a packed factor-local irrep.
+    /// \param code Packed factor-local code.
+    /// \return Quantum dimension.
+    auto qdim_code(std::uint64_t code) const -> double override { return qdim(this->decode(code)); }
+
+    /// \brief Return the integral degree of a packed factor-local irrep.
+    /// \param code Packed factor-local code.
+    /// \return Integral degree.
+    auto degree_code(std::uint64_t code) const -> int override { return degree(this->decode(code)); }
+
+    /// \brief Add two packed factor-local codes using the unique-fusion shortcut.
+    /// \param lhs Left packed factor-local code.
+    /// \param rhs Right packed factor-local code.
+    /// \return Packed factor-local code of the unique sum.
+    auto add_codes(std::uint64_t lhs, std::uint64_t rhs) const -> std::uint64_t override
+    {
+        return this->encode(this->decode(lhs) + this->decode(rhs));
+    }
+
+    /// \brief Format a packed factor-local irrep code.
+    /// \param code Packed factor-local code.
+    /// \return Human-readable string form.
+    auto format_code(std::uint64_t code) const -> std::string override { return to_string(this->decode(code)); }
 };
 
 /// \brief Return the process-local symmetry factor registry.
-/// \return Mapping from canonical factor type names to concrete factor implementations.
-inline auto symmetry_factor_registry() -> std::unordered_map<std::string, SymmetryFactor const*>&
+/// \return Mapping from canonical factor type names to concrete factor adapters.
+inline auto symmetry_factor_registry() -> std::unordered_map<std::string, SymmetryFactorBase const*>&
 {
-    static std::unordered_map<std::string, SymmetryFactor const*> registry;
+    static std::unordered_map<std::string, SymmetryFactorBase const*> registry;
     return registry;
 }
 
-/// \brief Register a concrete symmetry factor type in the process-local registry.
-/// \param factor Concrete factor implementation.
+/// \brief Register a concrete symmetry factor adapter in the process-local registry.
+/// \param factor Concrete factor adapter.
 /// \return The registered factor pointer.
-inline auto register_symmetry_factor(SymmetryFactor const* factor) -> SymmetryFactor const*
+inline auto register_symmetry_factor(SymmetryFactorBase const* factor) -> SymmetryFactorBase const*
 {
     symmetry_factor_registry().emplace(std::string{factor->type_name()}, factor);
     return factor;
@@ -73,8 +124,8 @@ inline auto register_symmetry_factor(SymmetryFactor const* factor) -> SymmetryFa
 
 /// \brief Look up a registered symmetry factor by its canonical type name.
 /// \param type_name Canonical factor type string.
-/// \return Registered factor implementation.
-inline auto find_symmetry_factor(std::string_view type_name) -> SymmetryFactor const*
+/// \return Registered factor adapter.
+inline auto find_symmetry_factor(std::string_view type_name) -> SymmetryFactorBase const*
 {
     auto const it = symmetry_factor_registry().find(std::string{type_name});
     if (it == symmetry_factor_registry().end())

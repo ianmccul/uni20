@@ -68,9 +68,9 @@ class QNum {
     friend auto qdim(QNum const&) -> double;
     friend auto degree(QNum const&) -> int;
     friend auto to_string(QNum const&) -> std::string;
-    friend auto make_qnum(Symmetry, std::initializer_list<std::pair<std::string_view, std::int64_t>>) -> QNum;
+    friend auto make_qnum(Symmetry, std::initializer_list<std::pair<std::string_view, U1>>) -> QNum;
     friend auto coerce(QNum const&, Symmetry) -> QNum;
-    friend auto u1_component(QNum const&, std::string_view) -> std::int64_t;
+    friend auto u1_component(QNum const&, std::string_view) -> U1;
     friend auto operator+(QNum const&, QNum const&) -> QNum;
 
     /// \brief Throw if this quantum number is invalid.
@@ -175,11 +175,11 @@ class QNumList {
     std::vector<QNum> values_;
 };
 
-/// \brief Construct a packed `QNum` from named first-pass integer component values.
+/// \brief Construct a packed `QNum` from named U(1) component values.
 /// \param sym Target symmetry.
 /// \param values Named component assignments. Missing components default to the identity.
 /// \return Packed quantum number in the requested symmetry.
-inline auto make_qnum(Symmetry sym, std::initializer_list<std::pair<std::string_view, std::int64_t>> values) -> QNum
+inline auto make_qnum(Symmetry sym, std::initializer_list<std::pair<std::string_view, U1>> values) -> QNum
 {
     auto const* impl = sym.impl();
     std::vector<std::uint64_t> codes(impl->factor_count(), 0);
@@ -199,7 +199,12 @@ inline auto make_qnum(Symmetry sym, std::initializer_list<std::pair<std::string_
         seen[*index] = true;
 
         auto const& factor = impl->factors()[*index];
-        codes[*index] = factor.factor->encode_int64(value);
+        auto const* typed_factor = dynamic_cast<detail::SymmetryFactor<U1> const*>(factor.factor);
+        if (typed_factor == nullptr)
+        {
+            throw std::invalid_argument("make_qnum(U1) used with a non-U(1) symmetry component");
+        }
+        codes[*index] = typed_factor->encode(value);
     }
 
     return QNum(sym, impl->pack(codes));
@@ -214,7 +219,7 @@ inline auto dual(QNum const& q) -> QNum
     auto codes = impl->unpack(q.code_);
     for (std::size_t i = 0; i < codes.size(); ++i)
     {
-        codes[i] = impl->factors()[i].factor->dual(codes[i]);
+        codes[i] = impl->factors()[i].factor->dual_code(codes[i]);
     }
     return QNum(q.symmetry(), impl->pack(codes));
 }
@@ -234,7 +239,7 @@ inline auto qdim(QNum const& q) -> double
     double result = 1.0;
     for (std::size_t i = 0; i < codes.size(); ++i)
     {
-        result *= impl->factors()[i].factor->qdim(codes[i]);
+        result *= impl->factors()[i].factor->qdim_code(codes[i]);
     }
     return result;
 }
@@ -249,7 +254,7 @@ inline auto degree(QNum const& q) -> int
     int result = 1;
     for (std::size_t i = 0; i < codes.size(); ++i)
     {
-        result *= impl->factors()[i].factor->degree(codes[i]);
+        result *= impl->factors()[i].factor->degree_code(codes[i]);
     }
     return result;
 }
@@ -257,8 +262,8 @@ inline auto degree(QNum const& q) -> int
 /// \brief Read one named U(1) component from a quantum number.
 /// \param q Quantum number to decode.
 /// \param name Name of the requested symmetry component.
-/// \return Signed U(1) charge for that component.
-inline auto u1_component(QNum const& q, std::string_view name) -> std::int64_t
+/// \return U(1) charge for that component.
+inline auto u1_component(QNum const& q, std::string_view name) -> U1
 {
     auto const* impl = q.sym_;
     auto const index = impl->find_factor(name);
@@ -267,14 +272,15 @@ inline auto u1_component(QNum const& q, std::string_view name) -> std::int64_t
         throw std::invalid_argument("unknown symmetry component name: " + std::string{name});
     }
 
-    auto const factor = impl->factors()[*index];
-    if (factor.factor->type_name() != "U(1)")
+    auto const& factor = impl->factors()[*index];
+    auto const* typed_factor = dynamic_cast<detail::SymmetryFactor<U1> const*>(factor.factor);
+    if (typed_factor == nullptr)
     {
         throw std::invalid_argument("requested U(1) component from a non-U(1) factor");
     }
 
     auto const codes = impl->unpack(q.code_);
-    return factor.factor->decode_int64(codes[*index]);
+    return typed_factor->decode(codes[*index]);
 }
 
 /// \brief Coerce a quantum number into a related symmetry by named components.
@@ -344,7 +350,7 @@ inline auto operator+(QNum const& lhs, QNum const& rhs) -> QNum
     for (std::size_t i = 0; i < out_codes.size(); ++i)
     {
         auto const* factor = impl->factors()[i].factor;
-        out_codes[i] = factor->encode_int64(factor->decode_int64(lhs_codes[i]) + factor->decode_int64(rhs_codes[i]));
+        out_codes[i] = factor->add_codes(lhs_codes[i], rhs_codes[i]);
     }
 
     return QNum(lhs.symmetry(), impl->pack(out_codes));
@@ -366,7 +372,7 @@ inline auto to_string(QNum const& q) -> std::string
         }
         result += impl->factors()[i].name;
         result += '=';
-        result += impl->factors()[i].factor->to_string(codes[i]);
+        result += impl->factors()[i].factor->format_code(codes[i]);
     }
     return result;
 }
