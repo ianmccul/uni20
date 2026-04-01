@@ -1,0 +1,32 @@
+/* Minimal stylesheet overrides for generated Doxygen HTML. */
+
+:root {
+  --page-accent: #0b6e4f;
+  --page-accent-strong: #084c3a;
+  --page-surface: #f6f8f6;
+}
+
+#titlearea {
+  border-bottom: 3px solid var(--page-accent);
+}
+
+#projectname {
+  color: var(--page-accent-strong);
+  letter-spacing: 0.02em;
+}
+
+.sm-dox a,
+.contents a,
+.headertitle a {
+  color: var(--page-accent);
+}
+
+.fragment,
+div.fragment {
+  border-radius: 6px;
+}
+
+table.directory tr:nth-child(even),
+table.memberdecls tr:nth-child(even) {
+  background: var(--page-surface);
+}
