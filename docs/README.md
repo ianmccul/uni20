@@ -6,6 +6,8 @@
 - [Build Information](buildinfo.md)
 - [GPU Landscape for Tensor Networks (2026-04)](gpu_landscape.md)
 - [Quantum Numbers and Symmetry](qnum.md)
+- [Sparse Matrices](matrix.md)
+- [Local Operators](operators.md)
 - [Trace Macros](trace_macros.md)
 - [Presentation Formatting](presentation.md)
 - [Testing Infrastructure](testing.md)
