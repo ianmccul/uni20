@@ -1,6 +1,8 @@
 /**
  * \file u1.hpp
  * \brief Defines `U1`, the value-level quantum number type for one U(1) symmetry factor.
+ *
+ * \details See `docs/qnum.md` for the role of `U1` inside the current `Symmetry`/`QNum` design.
  */
 
 #pragma once
@@ -23,6 +25,7 @@ namespace uni20
 {
 
 /// \brief Value-level quantum number type representing one U(1) irrep.
+/// \details `U1` is the first concrete value-level factor type in the symmetry system.
 class U1 {
   public:
     /// \brief Construct the scalar U(1) irrep.

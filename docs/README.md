@@ -5,6 +5,7 @@
 - [Getting Started](getting_started.md)
 - [Build Information](buildinfo.md)
 - [GPU Landscape for Tensor Networks (2026-04)](gpu_landscape.md)
+- [Quantum Numbers and Symmetry](qnum.md)
 - [Trace Macros](trace_macros.md)
 - [Presentation Formatting](presentation.md)
 - [Testing Infrastructure](testing.md)
