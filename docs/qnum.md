@@ -263,6 +263,61 @@ Future APIs are expected to cover at least:
 This layer will matter once Uni20 moves beyond abelian block bookkeeping and
 starts doing genuine non-abelian or braided tensor algebra.
 
+## Deferred Next Steps
+
+These items are intentionally deferred rather than part of the current public
+API, but they are likely to be the next symmetry-side tasks once the first U(1)
+DMRG prototype is underway.
+
+### Leg-direction wrapper
+
+We eventually want an explicit tensor-leg direction wrapper:
+
+- `conjugate<T>`
+- short alias `co<T>`
+
+The first AMatrix prototype does not need to wait for that wrapper. It can be
+implemented with the understanding that it behaves like a 3-leg tensor on:
+
+- `conjugate<BlockSpace>`
+- `QNumList`
+- `BlockSpace`
+
+without introducing the actual `conjugate<T>` type yet.
+
+### Space-level helpers
+
+Likely next convenience helpers on spaces:
+
+- `find_block(q)` / `index_of(q)` on `BlockSpace`
+- `dim(q)` on `BlockSpace`
+- space-level coercion for `QNumList` and `BlockSpace`
+- space-level shift helpers in the old `delta_shift` spirit
+
+These are expected to become useful as soon as the MPO and AMatrix compiler code
+is written.
+
+### Space conjugation and dualization
+
+Once `conjugate<T>` exists, Uni20 should define the corresponding space-level
+operations for:
+
+- `QNumList`
+- `BlockSpace`
+
+This must remain distinct from value-level `dual(QNum)`.
+
+### Inverse regularization metadata
+
+The current regularization helpers provide the forward block/index mapping
+needed to coalesce sparse spaces explicitly. Later work may also want:
+
+- explicit inverse mapping helpers
+- tensor-reshape metadata derived from the regularization
+- eventually actual transform operators where needed
+
+The first U(1) DMRG path does not require those operators yet.
+
 ## Keeping Code and Docs in Sync
 
 The symmetry headers reference this document directly so that API changes are
