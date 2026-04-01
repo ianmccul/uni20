@@ -11,7 +11,7 @@ This note describes:
 
 - the `QNum` value type
 - the `QNumList` container type
-- the future `BlockSpace` type
+- the `BlockSpace` type
 - the `Symmetry` / `SymmetryImpl` runtime model
 - directionality wrappers such as `conjugate<T>`
 - how future fusion support constrains the design
@@ -187,7 +187,7 @@ order, so `QNumList` should preserve or recover that ordering cheaply.
 
 ## `BlockSpace`
 
-`BlockSpace` is the planned coalesced counterpart to `QNumList`.
+`BlockSpace` is the coalesced counterpart to `QNumList`.
 
 Conceptually:
 
@@ -215,6 +215,14 @@ So the intended split is:
 
 Both are valid tensor-space types. They simply carry different structural
 information and different execution hints.
+
+The first implementation should also provide explicit regularization helpers:
+
+- `regularize(QNumList)` to coalesce a sparse list into a `BlockSpace`
+- `regularize(BlockSpace)` to coalesce repeated blocks
+
+These helpers should return index/range metadata so later tensor code can
+invert the regularization without guessing.
 
 ## Future Fusion API
 
