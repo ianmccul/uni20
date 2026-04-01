@@ -20,11 +20,12 @@ target_include_directories(uni20_deps INTERFACE ${PROJECT_SOURCE_DIR}/src)
 add_library(uni20 STATIC uni20.cpp)
 
 # Link external libraries (for example, fmt)
-target_link_libraries(uni20 PUBLIC uni20_deps uni20_core uni20_common uni20_linalg)
+target_link_libraries(uni20 PUBLIC uni20_deps uni20_core uni20_common uni20_linalg uni20_symmetry)
 enable_ipo_if_supported(uni20)
 
 add_subdirectory(core)
 add_subdirectory(common)
+add_subdirectory(symmetry)
 add_subdirectory(backend)
 add_subdirectory(level1)
 add_subdirectory(mdspan)
