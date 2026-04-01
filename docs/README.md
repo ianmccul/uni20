@@ -8,6 +8,7 @@
 - [Quantum Numbers and Symmetry](qnum.md)
 - [Sparse Matrices](matrix.md)
 - [Local Operators](operators.md)
+- [Models](models.md)
 - [Trace Macros](trace_macros.md)
 - [Presentation Formatting](presentation.md)
 - [Testing Infrastructure](testing.md)
