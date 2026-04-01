@@ -85,6 +85,20 @@ hardcoded directly into `Symmetry`, `SymmetryImpl`, or `QNum`.
 That keeps the public `Symmetry` handle independent of specific factor types and
 allows new symmetry factors to be added without modifying the `Symmetry` class.
 
+The virtual machinery itself should remain an implementation detail. The public
+factor-facing API should live on value types such as `U1`, while internal
+adapters (for example `SymmetryFactorBase` and `SymmetryFactor<T>`) translate
+between packed `QNum` codes and those value types.
+
+## `U1`
+
+`U1` should be a real value type representing one U(1) irrep, not a runtime
+descriptor object.
+
+Its natural payload is a `half_int`, and the usual factor-local operations such as
+`dual(U1)`, `qdim(U1)`, `degree(U1)`, and formatting should be defined directly
+on `U1`.
+
 ## `QNumList`
 
 `QNumList` is a container of `QNum` values that all share the same symmetry.
@@ -158,14 +172,17 @@ Requirements:
 For U(1), the intended order is:
 
 - `0`
+- `+1/2`
+- `-1/2`
 - `+1`
 - `-1`
-- `+2`
-- `-2`
+- `+3/2`
+- `-3/2`
 - ...
 
-That means U(1) should first apply a signed-to-unsigned bijection before any
-pairing or direct-product packing.
+So the first implementation should represent U(1) labels as `half_int` values
+and then apply a signed-to-unsigned bijection on the doubled integer
+representation before any pairing or direct-product packing.
 
 For direct products:
 
@@ -348,6 +365,7 @@ The first Uni20 version should implement:
 - `QNum`
 - `QNumList`
 - `Symmetry`
+- `half_int`
 - one concrete factor: `U1`
 - direct-product support sufficient for multiple U(1)-like factors
 - `dual`
