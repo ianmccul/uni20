@@ -278,11 +278,20 @@ redesigning placement at the same time as the driver integration.
 ### TensorContraction Convergence
 
 In its current form, TensorContraction should not become a separate Uni20
-backend. It is still a specialized DMRG contraction engine with its own
-`A/B/C/R + FTerms` interface and execution assumptions.
+backend. The `A/B/C/R + FTerms` representation is
+not just an implementation detail around a generic backend; it is the new
+algorithmic object that Uni20 wants to exploit, and implement as a key algorithm that back-ends will need to implement.
 
-Long term, though, the useful execution-side ideas in TensorContraction should
-converge into a more general Uni20 MPI+GPU backend:
+First, Uni20 should retain a specialized DMRG contraction path built around the
+same kind of compiled block-family / coefficient-term representation, even if
+the current API surface evolves:
+
+- the `A/B/C/R + FTerms` view of the effective Hamiltonian
+- the compilation of sparse operator and basis data into that form
+- the DMRG-specific contraction strategy itself
+
+Second, the useful execution-side ideas in TensorContraction should converge
+into a more general Uni20 MPI+GPU backend:
 
 - distributed block descriptors
 - host / device residency management
@@ -293,7 +302,8 @@ converge into a more general Uni20 MPI+GPU backend:
 So the long-term goal is not to preserve the current TensorContraction API as a
 public Uni20 backend surface. The goal is to absorb and generalize its runtime
 and placement machinery until Uni20 has a native distributed GPU backend of its
-own.
+own, while also preserving the DMRG-specific contraction ideas that motivated
+the integration in the first place.
 
 ### Broader Uni20 Tensor / Symmetry Work
 
