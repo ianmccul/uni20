@@ -42,7 +42,7 @@ Important `Arranger` operations:
 - `compileAddAccuForLinearAlgebra(...)`
 - `compileScalarMulForLinearAlgebra(...)`
 - `doLinearAlgebra()`
-- `fetchMatrixToHost(...)`
+- `collectiveExchangeMatrix(...)`
 - `broadcastRtoB(...)`
 
 This is enough to support:
@@ -58,8 +58,11 @@ Recent TensorContraction changes that matter:
 
 - `Matrix` is now a `shared_ptr`-backed pImpl descriptor
 - `R` and intermediate matrices are explicitly allocated on CPU memory
-- `fetchMatrixToHost(...)` can serve local CPU, local GPU, or remote rank data
+- `collectiveExchangeMatrix(...)` now handles collective readback from local CPU,
+  local GPU, or a remote rank
 - `broadcastRtoB(...)` was added for iterative DMRG execution
+- `example.cu` now demonstrates the full iterative contraction / linear-algebra /
+  broadcast / readback workflow that Uni20 should wrap
 
 ## Conceptual Split
 
@@ -174,7 +177,8 @@ raw TensorContraction types.
 
 ## First-Pass Execution Flow
 
-The current TensorContraction flow is roughly:
+The current TensorContraction flow, as shown in `../TensorContraction/cpp/src/example.cu`,
+is roughly:
 
 1. build matrix descriptors on rank 0
 2. distribute matrix ownership across MPI ranks
@@ -185,7 +189,9 @@ The current TensorContraction flow is roughly:
 7. compile contraction worklists
 8. execute contraction
 9. run linear-algebra worklists as needed
-10. fetch matrices to host or broadcast `R` back into `B`
+10. broadcast `R` back into `B` when iterative execution needs it
+11. collectively exchange selected matrices back to rank 0 when host-side code
+    needs them
 
 Uni20 should treat this as one opaque execution pipeline.
 
@@ -197,7 +203,7 @@ Implement a small Uni20 wrapper around TensorContraction matrices:
 
 - create / destroy block families
 - initialize from host data
-- fetch back to host data
+- collectively exchange back to host data
 - map to TensorContraction calls
 
 ### 2. Host-side MPO compiler
@@ -247,13 +253,19 @@ uniform lifetime model across the LA wrapper functions.
 
 ### Host fetch ownership
 
-`fetchMatrixToHost(...)` may return:
+`collectiveExchangeMatrix(...)` may return:
 
 - the matrix's existing host pointer
 - or a freshly allocated buffer
 
-So the adapter must track ownership on readback and free only when the returned
-pointer is not the matrix's own host pointer.
+On ranks that are not requesting a concrete matrix, the call may simply return
+`nullptr`.
+
+So the adapter must:
+
+- call the exchange collectively and in lockstep across ranks
+- track ownership on rank-0 readback
+- free only when the returned pointer is not the matrix's own host pointer
 
 ### Placement policy is still TensorContraction-owned
 
