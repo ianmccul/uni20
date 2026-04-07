@@ -15,8 +15,8 @@ For explanations, see:
 
 | Type | Purpose | Key methods |
 |---|---|---|
-| `Async<T>` | Async value + epoch queue | `read()`, `write()`, `get_wait()`, `move_from_wait()` |
-| `ReadBuffer<T>` | Read gate for one epoch | `co_await reader`, `transfer()`, `maybe()`, `or_cancel()`, `release()` |
+| `Async<T>` | Async value + epoch queue | `read()`, `write()`, `wait()`, `get_wait()`, `move_from_wait()` |
+| `ReadBuffer<T>` | Read gate for one epoch | `co_await reader`, `transfer()`, `maybe()`, `or_cancel()`, `wait()`, `release()` |
 | `WriteBuffer<T>` | Write gate for one epoch | `co_await writer`, `transfer()`, `storage()`, `take()`, `take_release()`, `release()` |
 | `AsyncTask` | Move-only coroutine handle owner | schedule via `schedule(...)` |
 | `IScheduler` | Scheduler interface | `schedule`, `pause`, `resume`, wait hooks |

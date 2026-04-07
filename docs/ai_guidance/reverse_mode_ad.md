@@ -102,6 +102,7 @@ This file is for questions about `Var<T>`, `ReverseValue<T>`, `backprop()`, grad
 - `backprop()` does not start a separate global backward phase.
 - `backprop()` does not replay a tape.
 - `x.backprop().get_wait()` is the canonical fully-async readout pattern.
+- Use `wait()` when you only need completion and not the gradient value itself.
 
 ### CAUSAL MODEL
 

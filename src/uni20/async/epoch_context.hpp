@@ -833,13 +833,13 @@ template <typename T> class EpochContextReader {
 
     /// \brief Check whether the reader is ready to resume.
     /// \return True if all prerequisites for this epoch are satisfied.
-    bool ready() const noexcept { return epoch_->reader_ready(); }
+    [[nodiscard]] bool ready() const noexcept { return epoch_->reader_ready(); }
 
     /// \brief Access the stored value inside the parent Async<T>.
     /// \return Reference to the T value.
     /// \pre The value must be ready. Should only be called after await_ready() returns true.
     /// \throws buffer_read_uninitialized if no value was constructed for this epoch.
-    T const& data() const
+    [[nodiscard]] T const& data() const
     {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       DEBUG_TRACE_MODULE(ASYNC, "EpochContextReader::data", epoch_.get(), epoch_->counter_);
@@ -870,7 +870,7 @@ template <typename T> class EpochContextReader {
     /// \return A pointer to the value, if it is written, otherwise returns nullptr.
     /// \throws Any exception stored in the writer, if the buffer is in an exception state.
     /// \pre The buffer must be ready for reading (i.e., the write gate is closed).
-    T const* data_maybe() const
+    [[nodiscard]] T const* data_maybe() const
     {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
@@ -883,7 +883,7 @@ template <typename T> class EpochContextReader {
     /// \throws Any exception stored in the writer, if the write failed exceptionally.
     /// \pre The buffer must be ready for reading (i.e., the write gate is closed).
     /// \post If a value is returned, it is a full copy and independent of the internal buffer.
-    std::optional<T> data_option() const
+    [[nodiscard]] std::optional<T> data_option() const
     {
       DEBUG_PRECONDITION(epoch_->reader_ready());
       if (auto e = epoch_->reader_exception(); e) std::rethrow_exception(e);
@@ -902,14 +902,21 @@ template <typename T> class EpochContextReader {
       }
     }
 
+    /// \brief Wait for the epoch to become available on the global scheduler.
+    void wait() const;
+
+    /// \brief Wait for the epoch to become available on the provided scheduler.
+    /// \param sched Scheduler used to drive readiness.
+    void wait(IScheduler& sched) const;
+
     /// \brief Wait for the epoch to become available on the global scheduler and return a reference to the value.
-    T const& get_wait() const;
+    [[nodiscard]] T const& get_wait() const;
 
     /// \brief Wait for the epoch to become available on the provided scheduler and return a reference to the value.
     /// \param sched Scheduler used to drive readiness.
-    T const& get_wait(IScheduler& sched) const;
+    [[nodiscard]] T const& get_wait(IScheduler& sched) const;
 
-    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return epoch_; }
+    [[nodiscard]] std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return epoch_; }
 
   private:
     shared_storage<T> storage_;

@@ -118,15 +118,22 @@ template <typename T> class ReverseValue {
 
     /// \brief Finalize and synchronously wait for the terminal gradient value.
     /// \return Final gradient value.
-    T final_wait()
+    [[nodiscard]] T final_wait()
     {
       this->finalize();
       return async_.get_wait();
     }
 
+    /// \brief Finalize and synchronously wait for the terminal gradient to complete.
+    void wait()
+    {
+      this->finalize();
+      async_.wait();
+    }
+
     /// \brief Wait for and return the final gradient value.
     /// \return Final gradient value copied from the finalized reverse channel.
-    T get_wait() { return this->final_wait(); }
+    [[nodiscard]] T get_wait() { return this->final_wait(); }
 
     /// \brief Get the input-gradient read buffer from the earliest reverse epoch.
     /// \return Read buffer used as input to upstream reverse operations.

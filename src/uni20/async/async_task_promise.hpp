@@ -84,8 +84,9 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter;
 template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter;
 
 /// \brief Promise type for AsyncTask.
-struct BasicAsyncTaskPromise
+class BasicAsyncTaskPromise
 {
+  public:
     using promise_type = BasicAsyncTaskPromise;
 
     /// \brief Intrusive node describing one exception propagation sink.
@@ -283,7 +284,7 @@ struct BasicAsyncTaskPromise
 
     /// \brief Reports whether cancellation-on-resume is currently set.
     /// \return `true` when cancellation is requested.
-    bool is_cancel_on_resume() const noexcept { return cancel_on_resume_.load(std::memory_order_acquire); }
+    [[nodiscard]] bool is_cancel_on_resume() const noexcept { return cancel_on_resume_.load(std::memory_order_acquire); }
 
     /// \brief Transform the awaiter to provide transfer of ownership of the AsyncTask
     template <AsyncTaskAwaitable A> auto await_transform(A& a);
@@ -330,7 +331,7 @@ struct BasicAsyncTaskPromise
 
     /// \brief Retrieve the preferred NUMA node for this coroutine.
     /// \return Optional containing the preferred node, if one was recorded.
-    std::optional<int> preferred_numa_node() const noexcept
+    [[nodiscard]] std::optional<int> preferred_numa_node() const noexcept
     {
       int node = preferred_numa_node_.load(std::memory_order_acquire);
       if (node == kNoPreferredNumaNode) return std::nullopt;
@@ -341,7 +342,7 @@ struct BasicAsyncTaskPromise
     void mark_started() noexcept { started_.store(true, std::memory_order_release); }
 
     /// \brief Query whether the coroutine has begun executing.
-    bool has_started() const noexcept { return started_.load(std::memory_order_acquire); }
+    [[nodiscard]] bool has_started() const noexcept { return started_.load(std::memory_order_acquire); }
 
     /// \brief Record that a coroutine has transitioned into a runnable/running state.
     static void note_running(std::coroutine_handle<promise_type> h) noexcept { TaskRegistry::mark_running(h); }
@@ -450,7 +451,7 @@ struct BasicAsyncTaskPromise
     {
       struct InitialAwaiter
       {
-          constexpr bool await_ready() noexcept { return false; }
+          [[nodiscard]] constexpr bool await_ready() noexcept { return false; }
           void await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
           {
             promise_type::note_suspended(h);
@@ -468,7 +469,7 @@ struct BasicAsyncTaskPromise
     {
       struct FinalAwaiter
       {
-          constexpr bool await_ready() noexcept { return false; }
+          [[nodiscard]] constexpr bool await_ready() noexcept { return false; }
 
           std::coroutine_handle<> await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
           {
@@ -681,7 +682,7 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
 
     /// \brief Checks whether the wrapped awaitable is ready.
     /// \return `true` when no suspension is needed.
-    bool await_ready() { return awaitable.await_ready(); }
+    [[nodiscard]] bool await_ready() { return awaitable.await_ready(); }
 
     /// \brief Suspend using AsyncTask ownership-transfer semantics.
     /// \param h Current coroutine handle.
@@ -693,7 +694,7 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
 
     /// \brief Resume wrapped awaitable and register explicit exception sinks if provided.
     /// \return Result produced by the wrapped awaitable.
-    decltype(auto) await_resume()
+    [[nodiscard]] decltype(auto) await_resume()
     {
       if constexpr (requires { awaitable.register_exception_sinks(promise); })
       {
@@ -745,7 +746,7 @@ template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public
 
     /// \brief Checks whether the wrapped awaitable is ready.
     /// \return `true` when no suspension is needed.
-    bool await_ready() { return awaitable.await_ready(); }
+    [[nodiscard]] bool await_ready() { return awaitable.await_ready(); }
 
     /// \brief Suspend using shared-ownership await-suspend semantics.
     /// \param h Current coroutine handle.
@@ -757,7 +758,7 @@ template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public
 
     /// \brief Resume wrapped awaitable and return its await result.
     /// \return Result produced by the wrapped awaitable.
-    decltype(auto) await_resume() { return awaitable.await_resume(); }
+    [[nodiscard]] decltype(auto) await_resume() { return awaitable.await_resume(); }
 
     // void set_cancel() override final { awaitable.set_cancel(); }
     //

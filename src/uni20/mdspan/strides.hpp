@@ -74,7 +74,7 @@ template <std::size_t N> struct extent_strides
     /// \param inner The inner dimension metadata to test.
     /// \return True when the two dimensions are mergeable.
     /// \ingroup mdspan_ext
-    constexpr bool can_merge_with_inner(extent_strides inner) const noexcept
+    [[nodiscard]] constexpr bool can_merge_with_inner(extent_strides inner) const noexcept
     {
       for (std::size_t i = 0; i < N; ++i)
       {

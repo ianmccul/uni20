@@ -4,6 +4,7 @@ CMakeFiles/
 CTestTestfile.cmake
 cmake_install.cmake
 Makefile
+/compile_commands.json
 
 # FetchContent and external dependencies cache
 .cmake/

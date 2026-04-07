@@ -27,7 +27,7 @@ class NodeInfo {
     NodeInfo() = delete;
 
     /// \brief Returns the raw address of the referenced value.
-    void const* address() const { return address_; }
+    [[nodiscard]] void const* address() const { return address_; }
 
     /// \brief Returns a human-readable, demangled type name.
     ///
@@ -35,7 +35,7 @@ class NodeInfo {
     /// The returned string_view is valid for the process lifetime.
     ///
     /// \note Thread-safe.
-    std::string_view type() const
+    [[nodiscard]] std::string_view type() const
     {
       std::lock_guard<std::mutex> lock(map_mutex_);
       auto [it, inserted] = map_.try_emplace(type_key_, uni20::demangle::demangle(type_key_));
@@ -45,7 +45,7 @@ class NodeInfo {
     /// \brief Returns the unique global index of this node.
     ///
     /// \return Monotonically increasing value, unique across all NodeInfo instances for this process.
-    uint64_t global_index() const { return global_index_; }
+    [[nodiscard]] uint64_t global_index() const { return global_index_; }
 
     /// \brief Returns the stacktrace of where the node was created
 #if 0 && UNI20_HAS_STACKTRACE

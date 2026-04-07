@@ -27,7 +27,7 @@ class EpochQueue {
     /// \tparam T Stored value type.
     /// \param storage Shared value storage.
     /// \return Reader handle for the current epoch.
-    template <typename T> EpochContextReader<T> create_read_context(shared_storage<T> storage) const
+    template <typename T> [[nodiscard]] EpochContextReader<T> create_read_context(shared_storage<T> storage) const
     {
       TRACE_MODULE(ASYNC, "EpochQueue::create_read_context", this);
       // if (!current_->has_writer() && storage.constructed()) current_->start();
@@ -52,11 +52,11 @@ class EpochQueue {
 
     /// \brief Returns the latest epoch context.
     /// \return Shared pointer to the current epoch.
-    std::shared_ptr<EpochContext> latest() const noexcept { return current_; }
+    [[nodiscard]] std::shared_ptr<EpochContext> latest() const noexcept { return current_; }
 
     /// \brief Reports whether the latest epoch already has a writer.
     /// \return `true` when a writer is pending in the current epoch.
-    bool has_pending_writers() const noexcept { return current_ && current_->has_writer(); }
+    [[nodiscard]] bool has_pending_writers() const noexcept { return current_ && current_->has_writer(); }
 
   private:
     std::shared_ptr<EpochContext> current_;
@@ -98,7 +98,7 @@ class ReverseEpochQueue {
     /// \tparam T Stored value type.
     /// \param storage Shared value storage.
     /// \return Reader handle for reverse traversal.
-    template <typename T> EpochContextReader<T> create_read_context(shared_storage<T> storage)
+    template <typename T> [[nodiscard]] EpochContextReader<T> create_read_context(shared_storage<T> storage)
     {
       TRACE_MODULE(ASYNC, "ReverseEpochQueue::create_read_context", this);
       DEBUG_CHECK(first_);
@@ -137,7 +137,7 @@ class ReverseEpochQueue {
 
     /// \brief Reports whether the reverse queue has already started.
     /// \return `true` once `start()` has consumed the initial epoch.
-    bool is_started() const { return !first_; }
+    [[nodiscard]] bool is_started() const { return !first_; }
 
   private:
     std::shared_ptr<EpochContext> first_;

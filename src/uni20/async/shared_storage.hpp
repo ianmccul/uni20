@@ -150,15 +150,18 @@ template <typename T> class shared_storage {
 
     /// \brief Reports whether a value is currently constructed.
     /// \return `true` if the control block exists and holds a constructed value.
-    bool constructed() const noexcept { return ctrl_ && ctrl_->constructed.load(std::memory_order_acquire); }
+    [[nodiscard]] bool constructed() const noexcept { return ctrl_ && ctrl_->constructed.load(std::memory_order_acquire); }
 
     /// \brief Reports whether a control block is present.
     /// \return `true` when this handle owns or shares storage metadata.
-    bool valid() const noexcept { return ctrl_ != nullptr; }
+    [[nodiscard]] bool valid() const noexcept { return ctrl_ != nullptr; }
 
     /// \brief Returns the current strong reference count.
     /// \return Number of `shared_storage` handles sharing this control block.
-    size_t use_count() const noexcept { return ctrl_ ? ctrl_->strong_count.load(std::memory_order_relaxed) : 0; }
+    [[nodiscard]] size_t use_count() const noexcept
+    {
+      return ctrl_ ? ctrl_->strong_count.load(std::memory_order_relaxed) : 0;
+    }
 
     /// \brief Destroy any existing value and construct a new one in place.
     /// \tparam Args Constructor argument types.
@@ -188,10 +191,10 @@ template <typename T> class shared_storage {
 
     /// \brief Returns a mutable pointer to the constructed value.
     /// \return `nullptr` when no constructed value is present.
-    T* get() noexcept { return constructed() ? ctrl_->ptr() : nullptr; }
+    [[nodiscard]] T* get() noexcept { return constructed() ? ctrl_->ptr() : nullptr; }
     /// \brief Returns a const pointer to the constructed value.
     /// \return `nullptr` when no constructed value is present.
-    const T* get() const noexcept { return this->constructed() ? ctrl_->ptr() : nullptr; }
+    [[nodiscard]] const T* get() const noexcept { return this->constructed() ? ctrl_->ptr() : nullptr; }
 
     /// \brief Dereference access to the constructed value.
     /// \return Reference to the contained value.

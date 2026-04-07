@@ -29,9 +29,9 @@ template <typename T> class Matrix {
 
     T const& operator()(std::size_t row, std::size_t col) const { return data_[row * cols_ + col]; }
 
-    T* data() noexcept { return data_.data(); }
+    [[nodiscard]] T* data() noexcept { return data_.data(); }
 
-    T const* data() const noexcept { return data_.data(); }
+    [[nodiscard]] T const* data() const noexcept { return data_.data(); }
 
     void swap(Matrix& other) noexcept
     {

@@ -59,7 +59,8 @@ struct TransformAccessor : private Func // EBO if Func is empty
     /// \param rel      Tuple of per‑child offsets.
     /// \return         New tuple of advanced handles.
     /// \ingroup internal
-    constexpr data_handle_type offset(data_handle_type const& handles, offset_type const& rel) const noexcept
+    [[nodiscard]] constexpr data_handle_type offset(data_handle_type const& handles,
+                                                    offset_type const& rel) const noexcept
     {
       return offset_impl(handles, rel, std::make_index_sequence<sizeof...(Spans)>{});
     }
@@ -69,7 +70,7 @@ struct TransformAccessor : private Func // EBO if Func is empty
     /// \param rel      Tuple of per‑child offsets.
     /// \return         Result of calling func_(child0, child1, ...).
     /// \ingroup internal
-    constexpr reference access(data_handle_type const& handles, offset_type const& rel) const noexcept
+    [[nodiscard]] constexpr reference access(data_handle_type const& handles, offset_type const& rel) const noexcept
     {
       return access_impl(handles, rel, std::make_index_sequence<sizeof...(Spans)>{});
     }
@@ -78,8 +79,8 @@ struct TransformAccessor : private Func // EBO if Func is empty
     /// \brief Helper: call each child.offset() and bundle new handles.
     /// \ingroup internal
     template <std::size_t... I>
-    constexpr data_handle_type offset_impl(data_handle_type const& handles, offset_type const& rel,
-                                           std::index_sequence<I...>) const noexcept
+    [[nodiscard]] constexpr data_handle_type offset_impl(data_handle_type const& handles, offset_type const& rel,
+                                                         std::index_sequence<I...>) const noexcept
     {
       return {std::get<I>(static_cast<accessor_tuple const&>(*this)).offset(std::get<I>(handles), std::get<I>(rel))...};
     }
@@ -87,8 +88,8 @@ struct TransformAccessor : private Func // EBO if Func is empty
     /// \brief Helper: call each child.access() then Func::operator()(...).
     /// \ingroup internal
     template <std::size_t... I>
-    constexpr reference access_impl(data_handle_type const& handles, offset_type const& rel,
-                                    std::index_sequence<I...>) const noexcept
+    [[nodiscard]] constexpr reference access_impl(data_handle_type const& handles, offset_type const& rel,
+                                                  std::index_sequence<I...>) const noexcept
     {
       return Func::operator()(
           std::get<I>(static_cast<accessor_tuple const&>(*this)).access(std::get<I>(handles), std::get<I>(rel))...);

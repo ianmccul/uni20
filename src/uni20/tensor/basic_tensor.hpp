@@ -84,15 +84,15 @@ class BasicTensor
 
     /// \brief Access the owned storage container.
     /// \return Mutable reference to the underlying storage.
-    storage_type& storage() noexcept { return data_; }
+    [[nodiscard]] storage_type& storage() noexcept { return data_; }
 
     /// \brief Access the owned storage container.
     /// \return Constant reference to the underlying storage.
-    storage_type const& storage() const noexcept { return data_; }
+    [[nodiscard]] storage_type const& storage() const noexcept { return data_; }
 
     /// \brief Create a mutable tensor view referencing the owned storage.
     /// \return TensorView exposing mutable element access with the current mapping and accessor.
-    auto view() noexcept -> TensorView<element_type, traits_type>
+    [[nodiscard]] auto view() noexcept -> TensorView<element_type, traits_type>
     {
       return TensorView<element_type, traits_type>(storage_policy::make_handle(data_), this->mapping(),
                                                    this->accessor());
@@ -100,7 +100,7 @@ class BasicTensor
 
     /// \brief Create a const tensor view referencing the owned storage.
     /// \return TensorView exposing read-only access with the current mapping and accessor.
-    auto view() const noexcept -> TensorView<element_type const, const_traits>
+    [[nodiscard]] auto view() const noexcept -> TensorView<element_type const, const_traits>
     {
       return TensorView<element_type const, const_traits>(storage_policy::make_handle(const_cast<storage_type&>(data_)),
                                                           this->mapping(), this->accessor());
@@ -108,7 +108,7 @@ class BasicTensor
 
     /// \brief Create a const tensor view alias for readability.
     /// \return TensorView exposing read-only access with the current mapping and accessor.
-    auto const_view() const noexcept -> TensorView<element_type const, const_traits> { return view(); }
+    [[nodiscard]] auto const_view() const noexcept -> TensorView<element_type const, const_traits> { return view(); }
 
   private:
     struct internal_tag

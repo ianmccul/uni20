@@ -44,7 +44,8 @@ Async<double> dx = x.backprop(); // dL/dx*
 fmt::print("dx = {}\n", dx.get_wait());
 ```
 
-`x.grad.get_wait()` and `x.grad.final_wait()` are convenience forms.
+`x.grad.wait()` waits for completion without materializing the value.
+`x.grad.get_wait()` and `x.grad.final_wait()` are convenience forms for waiting and reading the value.
 The explicit async forms are `x.backprop().get_wait()` and `x.grad.backprop().get_wait()`.
 
 ## Scheduler Behavior for AD

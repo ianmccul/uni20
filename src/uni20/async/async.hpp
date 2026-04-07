@@ -279,8 +279,16 @@ template <typename T> class Async {
     // }
 
     /// \brief Block the current thread until the value becomes available.
+    void wait() const;
+
+    /// \brief Block using an explicit scheduler until the value is ready.
+    /// The scheduler will be driven until all pending writers complete.
+    /// \param sched Scheduler instance used to make progress while waiting.
+    void wait(IScheduler& sched) const;
+
+    /// \brief Block the current thread until the value becomes available.
     /// \return Reference to the stored value once the pending writers have completed.
-    T const& get_wait() const;
+    [[nodiscard]] T const& get_wait() const;
 
     /// \brief Block using an explicit scheduler until the value is ready.
     /// The scheduler will be driven until all pending writers complete, then the
@@ -288,7 +296,7 @@ template <typename T> class Async {
     /// execution in tests where the scheduling context must be controlled.
     /// \param sched Scheduler instance used to make progress while waiting.
     /// \return Reference to the stored value once writes have finished.
-    T const& get_wait(IScheduler& sched) const;
+    [[nodiscard]] T const& get_wait(IScheduler& sched) const;
 
     // TODO: we could have a version that returns a ref-counted proxy, which enables reference rather than copy
 

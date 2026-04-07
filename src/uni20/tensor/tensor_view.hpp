@@ -39,7 +39,7 @@ struct DefaultAccessorFactory
     /// \param storage Storage container used to determine accessor customisation.
     /// \return Accessor that can interact with the supplied storage object.
     template <typename ElementType, typename Storage>
-    constexpr auto make_accessor(Storage const&) const noexcept -> accessor_t<ElementType>
+    [[nodiscard]] constexpr auto make_accessor(Storage const&) const noexcept -> accessor_t<ElementType>
     {
       return accessor_t<ElementType>{};
     }
@@ -192,7 +192,7 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
 
     /// \brief Retrieve the mdspan view (mapping plus accessor).
     /// \return Mdspan object describing the tensor view.
-    auto mdspan() const noexcept -> mdspan_type { return mdspan_type(handle(), mapping_, accessor()); }
+    [[nodiscard]] auto mdspan() const noexcept -> mdspan_type { return mdspan_type(handle(), mapping_, accessor()); }
 
     /// \brief Rank of the tensor.
     /// \return Static rank reported by the extents type.
@@ -200,11 +200,11 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
 
     /// \brief Number of elements, equivalent to required_span_size().
     /// \return Total number of elements addressable by the view.
-    size_type size() const noexcept { return mapping_.required_span_size(); }
+    [[nodiscard]] size_type size() const noexcept { return mapping_.required_span_size(); }
 
     /// \brief Handle to the buffer.
     /// \return Data handle supplied by the accessor, with const qualifications applied.
-    auto handle() const noexcept -> handle_type
+    [[nodiscard]] auto handle() const noexcept -> handle_type
     {
       static_assert(std::convertible_to<mutable_handle_type, handle_type>,
                     "Mutable handle must convert to const handle type.");
@@ -213,23 +213,23 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
 
     /// \brief The extents (shape).
     /// \return Extents that describe the tensor dimensions.
-    auto extents() const noexcept -> extents_type const& { return extents_; }
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return extents_; }
 
     /// \brief Number of matrix rows for rank-2 tensor views.
     /// \return Count of the first extent when the tensor models a matrix.
-    auto rows() const noexcept requires(extents_type::rank() == 2) { return extents().extent(0); }
+    [[nodiscard]] auto rows() const noexcept requires(extents_type::rank() == 2) { return extents().extent(0); }
 
     /// \brief Number of matrix columns for rank-2 tensor views.
     /// \return Count of the second extent when the tensor models a matrix.
-    auto cols() const noexcept requires(extents_type::rank() == 2) { return extents().extent(1); }
+    [[nodiscard]] auto cols() const noexcept requires(extents_type::rank() == 2) { return extents().extent(1); }
 
     /// \brief The layout mapping (holds strides plus extents).
     /// \return Mapping instance that translates coordinates to offsets.
-    auto mapping() const noexcept -> mapping_type const& { return mapping_; }
+    [[nodiscard]] auto mapping() const noexcept -> mapping_type const& { return mapping_; }
 
     /// \brief The accessor object with const semantics applied.
     /// \return Accessor associated with the tensor view.
-    auto accessor() const noexcept -> accessor_type
+    [[nodiscard]] auto accessor() const noexcept -> accessor_type
     {
       if constexpr (std::is_same_v<mutable_accessor_type, accessor_type>)
       {
@@ -268,14 +268,14 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     }
 
     /// \brief Mutable handle storage accessible to derived classes.
-    auto mutable_handle_ref() noexcept -> mutable_handle_type& { return handle_; }
+    [[nodiscard]] auto mutable_handle_ref() noexcept -> mutable_handle_type& { return handle_; }
     /// \brief Mutable handle storage accessible in const contexts for derived classes.
-    auto mutable_handle_ref() const noexcept -> mutable_handle_type const& { return handle_; }
+    [[nodiscard]] auto mutable_handle_ref() const noexcept -> mutable_handle_type const& { return handle_; }
 
     /// \brief Mutable accessor storage accessible to derived classes.
-    auto mutable_accessor_ref() noexcept -> mutable_accessor_type& { return accessor_; }
+    [[nodiscard]] auto mutable_accessor_ref() noexcept -> mutable_accessor_type& { return accessor_; }
     /// \brief Mutable accessor storage accessible in const contexts for derived classes.
-    auto mutable_accessor_ref() const noexcept -> mutable_accessor_type const& { return accessor_; }
+    [[nodiscard]] auto mutable_accessor_ref() const noexcept -> mutable_accessor_type const& { return accessor_; }
 
     [[no_unique_address]] mutable_handle_type handle_{};
     [[no_unique_address]] mapping_type mapping_{};
@@ -388,15 +388,15 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
 
     /// \brief Provide mutable access to the underlying handle.
     /// \return Mutable data handle supplied by the accessor.
-    auto mutable_handle() noexcept -> mutable_handle_type { return this->mutable_handle_ref(); }
+    [[nodiscard]] auto mutable_handle() noexcept -> mutable_handle_type { return this->mutable_handle_ref(); }
 
     /// \brief Retrieve the mutable accessor in use by the tensor view.
     /// \return Accessor that provides mutable access semantics.
-    auto accessor() noexcept -> accessor_type& { return this->mutable_accessor_ref(); }
+    [[nodiscard]] auto accessor() noexcept -> accessor_type& { return this->mutable_accessor_ref(); }
 
     /// \brief Retrieve the mutable accessor in const contexts.
     /// \return Accessor providing mutable semantics, exposed as a const reference.
-    auto accessor() const noexcept -> accessor_type const& { return this->mutable_accessor_ref(); }
+    [[nodiscard]] auto accessor() const noexcept -> accessor_type const& { return this->mutable_accessor_ref(); }
 
     using base_type::cols;
     using base_type::rows;

@@ -281,7 +281,7 @@ class TerminalStyle {
     }
 
     // Convert this TerminalStyle into an ANSI escape sequence.
-    std::string to_string() const;
+    [[nodiscard]] std::string to_string() const;
 };
 
 // parseTerminalStyle expects a style string made up of one or more style components,

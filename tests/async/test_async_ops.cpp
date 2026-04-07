@@ -24,7 +24,7 @@ struct IntWriteProxy
       return *this;
     }
 
-    int get() const { return *target; }
+    [[nodiscard]] int get() const { return *target; }
 
     int* target = nullptr;
 };

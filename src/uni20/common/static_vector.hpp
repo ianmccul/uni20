@@ -140,13 +140,13 @@ template <typename T, std::size_t MaxSize> class static_vector {
     }
 
     /// \brief Bounds-checked element access.
-    reference at(size_type pos)
+    [[nodiscard]] reference at(size_type pos)
     {
       if (pos >= size_) throw std::out_of_range("static_vector::at");
       return data()[pos];
     }
 
-    const_reference at(size_type pos) const
+    [[nodiscard]] const_reference at(size_type pos) const
     {
       if (pos >= size_) throw std::out_of_range("static_vector::at");
       return data()[pos];
@@ -164,51 +164,51 @@ template <typename T, std::size_t MaxSize> class static_vector {
       return data()[pos];
     }
 
-    reference front()
+    [[nodiscard]] reference front()
     {
       DEBUG_PRECONDITION(size_ > 0);
       return data()[0];
     }
 
-    const_reference front() const
+    [[nodiscard]] const_reference front() const
     {
       DEBUG_PRECONDITION(size_ > 0);
       return data()[0];
     }
 
-    reference back()
+    [[nodiscard]] reference back()
     {
       DEBUG_PRECONDITION(size_ > 0);
       return data()[size_ - 1];
     }
 
-    const_reference back() const
+    [[nodiscard]] const_reference back() const
     {
       DEBUG_PRECONDITION(size_ > 0);
       return data()[size_ - 1];
     }
 
-    pointer data() noexcept { return reinterpret_cast<T*>(storage_.buf); }
-    const_pointer data() const noexcept { return reinterpret_cast<T const*>(storage_.buf); }
+    [[nodiscard]] pointer data() noexcept { return reinterpret_cast<T*>(storage_.buf); }
+    [[nodiscard]] const_pointer data() const noexcept { return reinterpret_cast<T const*>(storage_.buf); }
 
-    iterator begin() noexcept { return data(); }
-    const_iterator begin() const noexcept { return data(); }
-    const_iterator cbegin() const noexcept { return data(); }
+    [[nodiscard]] iterator begin() noexcept { return data(); }
+    [[nodiscard]] const_iterator begin() const noexcept { return data(); }
+    [[nodiscard]] const_iterator cbegin() const noexcept { return data(); }
 
-    iterator end() noexcept { return data() + size_; }
-    const_iterator end() const noexcept { return data() + size_; }
-    const_iterator cend() const noexcept { return data() + size_; }
+    [[nodiscard]] iterator end() noexcept { return data() + size_; }
+    [[nodiscard]] const_iterator end() const noexcept { return data() + size_; }
+    [[nodiscard]] const_iterator cend() const noexcept { return data() + size_; }
 
-    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
-    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
-    const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(end()); }
+    [[nodiscard]] reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    [[nodiscard]] const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    [[nodiscard]] const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(end()); }
 
-    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
-    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
-    const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
+    [[nodiscard]] reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    [[nodiscard]] const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    [[nodiscard]] const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
 
-    bool empty() const noexcept { return size_ == 0; }
-    size_type size() const noexcept { return size_; }
+    [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+    [[nodiscard]] size_type size() const noexcept { return size_; }
     static constexpr size_type max_size() noexcept { return MaxSize; }
     static constexpr size_type capacity() noexcept { return MaxSize; }
 
@@ -342,8 +342,8 @@ template <typename T> class static_vector<T, 0> {
       return *this;
     }
 
-    constexpr bool empty() const noexcept { return true; }
-    constexpr size_type size() const noexcept { return 0; }
+    [[nodiscard]] constexpr bool empty() const noexcept { return true; }
+    [[nodiscard]] constexpr size_type size() const noexcept { return 0; }
     static constexpr size_type max_size() noexcept { return 0; }
     static constexpr size_type capacity() noexcept { return 0; }
 
@@ -358,48 +358,48 @@ template <typename T> class static_vector<T, 0> {
     }
     void pop_back() { PANIC("unexpected: pop_back() on a static_vector of size 0"); }
 
-    reference at(size_type) { throw std::out_of_range("static_vector<..., 0>::at"); }
-    const_reference at(size_type) const { throw std::out_of_range("static_vector<..., 0>::at"); }
+    [[nodiscard]] reference at(size_type) { throw std::out_of_range("static_vector<..., 0>::at"); }
+    [[nodiscard]] const_reference at(size_type) const { throw std::out_of_range("static_vector<..., 0>::at"); }
 
     reference operator[](size_type) { PANIC("unexpected: operator[] on a static_vector of size 0"); }
     const_reference operator[](size_type) const { PANIC("unexpected: operator[] on a static_vector of size 0"); }
 
-    reference front() { PANIC("unexpected: front() on a static_vector of size 0"); }
-    const_reference front() const
+    [[nodiscard]] reference front() { PANIC("unexpected: front() on a static_vector of size 0"); }
+    [[nodiscard]] const_reference front() const
     {
       PANIC("unexpected: front() on a static_vector of size 0");
       std::abort();
     }
 
-    reference back()
+    [[nodiscard]] reference back()
     {
       PANIC("unexpected: back() on a static_vector of size 0");
       std::abort();
     }
-    const_reference back() const
+    [[nodiscard]] const_reference back() const
     {
       PANIC("unexpected: back() on a static_vector of size 0");
       std::abort();
     }
 
-    pointer data() noexcept { return nullptr; }
-    const_pointer data() const noexcept { return nullptr; }
+    [[nodiscard]] pointer data() noexcept { return nullptr; }
+    [[nodiscard]] const_pointer data() const noexcept { return nullptr; }
 
-    iterator begin() noexcept { return nullptr; }
-    const_iterator begin() const noexcept { return nullptr; }
-    const_iterator cbegin() const noexcept { return nullptr; }
+    [[nodiscard]] iterator begin() noexcept { return nullptr; }
+    [[nodiscard]] const_iterator begin() const noexcept { return nullptr; }
+    [[nodiscard]] const_iterator cbegin() const noexcept { return nullptr; }
 
-    iterator end() noexcept { return nullptr; }
-    const_iterator end() const noexcept { return nullptr; }
-    const_iterator cend() const noexcept { return nullptr; }
+    [[nodiscard]] iterator end() noexcept { return nullptr; }
+    [[nodiscard]] const_iterator end() const noexcept { return nullptr; }
+    [[nodiscard]] const_iterator cend() const noexcept { return nullptr; }
 
-    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
-    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
-    const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(end()); }
+    [[nodiscard]] reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    [[nodiscard]] const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    [[nodiscard]] const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(end()); }
 
-    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
-    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
-    const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
+    [[nodiscard]] reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    [[nodiscard]] const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    [[nodiscard]] const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
 
     void swap(static_vector&) noexcept {}
 

@@ -44,7 +44,7 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
 
   // schedule a task that modifies the data again
   sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b) static->AsyncTask {
-    co_await ready;
+    (void)co_await ready;
     std::vector<int>& writer = co_await b;
     writer.resize(1024);
     writer[0] = 5;
@@ -77,7 +77,7 @@ struct TrackingView
 
     ~TrackingView() { log_->push_back("destroy " + std::to_string(id_)); }
 
-    int value() const { return *ptr_; }
+    [[nodiscard]] int value() const { return *ptr_; }
 
   private:
     std::shared_ptr<std::vector<std::string>> log_;
@@ -101,7 +101,7 @@ struct MutableTrackingView
       *ptr_ = value;
     }
 
-    int value() const { return *ptr_; }
+    [[nodiscard]] int value() const { return *ptr_; }
 
   private:
     std::shared_ptr<std::vector<std::string>> log_;
@@ -152,7 +152,7 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
 
     sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b,
                       std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
-      co_await ready;
+      (void)co_await ready;
       log->push_back("post-write start");
       std::vector<int>& writer = co_await b;
       writer[1] = 9;
@@ -204,7 +204,7 @@ TEST(AsyncDeferredTest, MutableViewCanModifyUnderlyingData)
 
     sched.schedule([](ReadBuffer<bool> ready, ReadBuffer<std::vector<int>> data_view,
                       std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
-      co_await ready;
+      (void)co_await ready;
       auto const& vec = co_await data_view;
       log->push_back("post-read");
       EXPECT_EQ(vec[0], 11);

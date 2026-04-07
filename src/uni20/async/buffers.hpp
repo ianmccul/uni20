@@ -112,7 +112,7 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
 
     /// \brief Check if the value is already ready to be read.
     /// \return True if the epoch is ready and no suspension is needed.
-    bool await_ready() const noexcept { return reader_.ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return reader_.ready(); }
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
@@ -124,10 +124,10 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
 
     /// \brief Resume execution and return the stored value.
     /// \return Reference to the stored T inside Async<T>.
-    T const& await_resume() const& { return reader_.data(); }
+    [[nodiscard]] T const& await_resume() const& { return reader_.data(); }
 
     /// \brief Resume execution and return an owning read proxy.
-    OwningReadAccessProxy<T> await_resume() &&;
+    [[nodiscard]] OwningReadAccessProxy<T> await_resume() &&;
 
     /// \brief Manually release the epoch reader before awaitable destruction.
     ///
@@ -146,15 +146,22 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     /// \return Rvalue reference to `*this`.
     ReadBuffer&& transfer() && noexcept { return std::move(*this); }
 
+    /// \brief Block until the read value is available.
+    void wait() const { this->reader_.wait(); }
+
+    /// \brief Block using an explicit scheduler until the read value is available.
+    /// \param sched Scheduler used to drive progress.
+    void wait(IScheduler& sched) const { this->reader_.wait(sched); }
+
     // T get_wait() && { return T(reader_.get_wait()); } // TODO: can this use move semantics?
     /// \brief Block until the read value is available.
     /// \return Const reference to the available value.
-    T const& get_wait() const { return reader_.get_wait(); }
+    [[nodiscard]] T const& get_wait() const { return reader_.get_wait(); }
 
     /// \brief Block using an explicit scheduler until the read value is available.
     /// \param sched Scheduler used to drive progress.
     /// \return Const reference to the available value.
-    T const& get_wait(IScheduler& sched) const { return reader_.get_wait(sched); }
+    [[nodiscard]] T const& get_wait(IScheduler& sched) const { return reader_.get_wait(sched); }
 
     /// \brief Enable co_await on lvalue ReadBuffer and return a borrowed reference.
     auto operator co_await() & noexcept -> ReadBuffer& { return *this; }
@@ -233,7 +240,7 @@ template <typename T> class OwningReadAccessProxy {
 
     /// \brief Access the referenced value.
     /// \return Const reference to the buffered value.
-    T const& get() const { return this->reader_.data(); }
+    [[nodiscard]] T const& get() const { return this->reader_.data(); }
 
     operator T const&() const { return this->get(); }
 
@@ -275,7 +282,7 @@ template <typename T> class OwningReadAwaiter {
 
     /// \brief Reports whether the read epoch is immediately ready.
     /// \return `true` when no suspension is needed.
-    bool await_ready() const noexcept { return this->reader_.ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return this->reader_.ready(); }
 
     /// \brief Suspend until the read epoch becomes available.
     /// \param t Owning task to suspend and enqueue.
@@ -287,13 +294,13 @@ template <typename T> class OwningReadAwaiter {
 
     /// \brief Resume and transfer reader ownership to an owning read proxy.
     /// \return Owning read proxy.
-    OwningReadAccessProxy<T> await_resume() { return OwningReadAccessProxy<T>(std::move(this->reader_)); }
+    [[nodiscard]] OwningReadAccessProxy<T> await_resume() { return OwningReadAccessProxy<T>(std::move(this->reader_)); }
 
   private:
     EpochContextReader<T> reader_;
 };
 
-template <typename T> OwningReadAccessProxy<T> ReadBuffer<T>::await_resume() &&
+template <typename T> [[nodiscard]] OwningReadAccessProxy<T> ReadBuffer<T>::await_resume() &&
 {
   return OwningReadAccessProxy<T>(std::move(reader_));
 }
@@ -309,7 +316,7 @@ template <typename T> class ReadMaybeAwaiter {
 
     /// \brief Check if the value is already ready to be read.
     /// \return True if the epoch is ready and no suspension is needed.
-    bool await_ready() const noexcept { return reader_.ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return reader_.ready(); }
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
@@ -320,7 +327,7 @@ template <typename T> class ReadMaybeAwaiter {
     }
 
     /// \brief Resume execution and return an optional owning read proxy.
-    value_type await_resume()
+    [[nodiscard]] value_type await_resume()
     {
       if (this->reader_.data_maybe() == nullptr)
       {
@@ -354,7 +361,7 @@ template <typename T> class ReadMaybeAwaiter<T const&> {
 
     /// \brief Check if the value is already ready to be read.
     /// \return True if the epoch is ready and no suspension is needed.
-    bool await_ready() const noexcept { return reader_.ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return reader_.ready(); }
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
@@ -365,7 +372,7 @@ template <typename T> class ReadMaybeAwaiter<T const&> {
     }
 
     /// \brief Resume execution and return a pointer to stored value, or nullptr
-    value_type await_resume() { return reader_.data_maybe(); }
+    [[nodiscard]] value_type await_resume() { return reader_.data_maybe(); }
 
   private:
     ReadMaybeAwaiter() = delete;
@@ -391,7 +398,7 @@ template <typename T> class ReadOrCancelAwaiter {
 
     /// \brief Check if the value is already ready to be read.
     /// \return true if the epoch is ready and no suspension is needed.
-    bool await_ready() const noexcept
+    [[nodiscard]] bool await_ready() const noexcept
     {
       // we must suspend here, because it is a possible cancellation point
       return false;
@@ -403,7 +410,7 @@ template <typename T> class ReadOrCancelAwaiter {
 
     /// \brief Resume execution and return an owning read proxy.
     /// \throws task_cancelled when the read source was cancelled.
-    value_type await_resume()
+    [[nodiscard]] value_type await_resume()
     {
       T const* ptr = this->reader_.data_maybe();
       if (ptr == nullptr)
@@ -438,7 +445,7 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
 
     /// \brief Check if the value is already ready to be read.
     /// \return true if the epoch is ready and no suspension is needed.
-    bool await_ready() const noexcept
+    [[nodiscard]] bool await_ready() const noexcept
     {
       // we must suspend here, because it is a possible cancellation point
       return false;
@@ -449,7 +456,7 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
     void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
 
     /// \brief Resume execution and return a borrowed reference to the stored value.
-    T const& await_resume()
+    [[nodiscard]] T const& await_resume()
     {
       T const* ptr = reader_.data_maybe();
       if (!ptr) throw task_cancelled();
@@ -516,7 +523,7 @@ template <typename T> class StorageAwaiter {
 
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
-    bool await_ready() const noexcept { return writer_->ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return writer_->ready(); }
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -528,7 +535,7 @@ template <typename T> class StorageAwaiter {
 
     /// \brief Resume and return mutable access to shared storage.
     /// \return Reference to the writer storage.
-    shared_storage<T>& await_resume()
+    [[nodiscard]] shared_storage<T>& await_resume()
     {
       writer_->resume();
       return writer_->storage();
@@ -536,7 +543,10 @@ template <typename T> class StorageAwaiter {
 
     /// \brief Returns the epoch context used for exception propagation.
     /// \return Shared pointer to the epoch context.
-    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_->epoch_context_shared(); }
+    [[nodiscard]] std::shared_ptr<EpochContext> epoch_context_shared() const noexcept
+    {
+      return writer_->epoch_context_shared();
+    }
 
   private:
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
@@ -552,7 +562,7 @@ template <typename T> class TakeAwaiter {
 
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
-    bool await_ready() const noexcept { return writer_->ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return writer_->ready(); }
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -564,7 +574,7 @@ template <typename T> class TakeAwaiter {
 
     /// \brief Resume and move the stored value out of writer storage.
     /// \return Moved value.
-    T await_resume()
+    [[nodiscard]] T await_resume()
     {
       writer_->resume();
       return writer_->storage().take();
@@ -572,7 +582,10 @@ template <typename T> class TakeAwaiter {
 
     /// \brief Returns the epoch context used for exception propagation.
     /// \return Shared pointer to the epoch context.
-    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_->epoch_context_shared(); }
+    [[nodiscard]] std::shared_ptr<EpochContext> epoch_context_shared() const noexcept
+    {
+      return writer_->epoch_context_shared();
+    }
 
   private:
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
@@ -588,7 +601,7 @@ template <typename T> class TakeReleaseAwaiter {
 
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
-    bool await_ready() const noexcept { return writer_->ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return writer_->ready(); }
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -600,7 +613,7 @@ template <typename T> class TakeReleaseAwaiter {
 
     /// \brief Resume, move out the value, and release the writer epoch.
     /// \return Moved value.
-    T await_resume()
+    [[nodiscard]] T await_resume()
     {
       writer_->resume();
       T value = writer_->storage().take();
@@ -610,7 +623,10 @@ template <typename T> class TakeReleaseAwaiter {
 
     /// \brief Returns the epoch context used for exception propagation.
     /// \return Shared pointer to the epoch context.
-    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_->epoch_context_shared(); }
+    [[nodiscard]] std::shared_ptr<EpochContext> epoch_context_shared() const noexcept
+    {
+      return writer_->epoch_context_shared();
+    }
 
   private:
     EpochContextWriter<T>* writer_; // by pointer, since we don't want to take ownership
@@ -679,7 +695,7 @@ template <typename T> class OwningStorageAwaiter {
 
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
-    bool await_ready() const noexcept { return writer_.ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return writer_.ready(); }
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -691,7 +707,7 @@ template <typename T> class OwningStorageAwaiter {
 
     /// \brief Resume and transfer writer ownership to a storage proxy.
     /// \return Owning storage access proxy.
-    OwningStorageAccessProxy<T> await_resume()
+    [[nodiscard]] OwningStorageAccessProxy<T> await_resume()
     {
       writer_.resume();
       return OwningStorageAccessProxy<T>(std::move(writer_));
@@ -699,7 +715,10 @@ template <typename T> class OwningStorageAwaiter {
 
     /// \brief Returns the epoch context used for exception propagation.
     /// \return Shared pointer to the epoch context.
-    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
+    [[nodiscard]] std::shared_ptr<EpochContext> epoch_context_shared() const noexcept
+    {
+      return writer_.epoch_context_shared();
+    }
 
   private:
     EpochContextWriter<T> writer_;
@@ -715,7 +734,7 @@ template <typename T> class OwningTakeAwaiter {
 
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
-    bool await_ready() const noexcept { return writer_.ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return writer_.ready(); }
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -727,7 +746,7 @@ template <typename T> class OwningTakeAwaiter {
 
     /// \brief Resume, move out the value, and release the writer epoch.
     /// \return Moved value.
-    T await_resume()
+    [[nodiscard]] T await_resume()
     {
       writer_.resume();
       T value = writer_.storage().take();
@@ -737,7 +756,10 @@ template <typename T> class OwningTakeAwaiter {
 
     /// \brief Returns the epoch context used for exception propagation.
     /// \return Shared pointer to the epoch context.
-    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
+    [[nodiscard]] std::shared_ptr<EpochContext> epoch_context_shared() const noexcept
+    {
+      return writer_.epoch_context_shared();
+    }
 
   private:
     EpochContextWriter<T> writer_;
@@ -797,7 +819,7 @@ template <typename T> class WriteBuffer {
 
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
-    bool await_ready() const noexcept { return writer_.ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return writer_.ready(); }
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -809,7 +831,7 @@ template <typename T> class WriteBuffer {
 
     /// \brief Resume and return a non-owning mutable write proxy.
     /// \return Non-owning write proxy.
-    WriteAccessProxy<T> await_resume() &
+    [[nodiscard]] WriteAccessProxy<T> await_resume() &
     {
       writer_.resume();
       return WriteAccessProxy<T>(
@@ -823,7 +845,7 @@ template <typename T> class WriteBuffer {
 
     /// \brief Resume and return a non-owning mutable write proxy.
     /// \return Non-owning write proxy.
-    WriteAccessProxy<T> await_resume() const&
+    [[nodiscard]] WriteAccessProxy<T> await_resume() const&
     {
       auto* writer = const_cast<EpochContextWriter<T>*>(&writer_);
       writer->resume();
@@ -838,7 +860,7 @@ template <typename T> class WriteBuffer {
 
     /// \brief Resume and return an owning mutable write proxy.
     /// \return Owning write proxy.
-    OwningWriteAccessProxy<T> await_resume() &&
+    [[nodiscard]] OwningWriteAccessProxy<T> await_resume() &&
     {
       writer_.resume();
       return OwningWriteAccessProxy<T>(std::move(writer_));
@@ -1073,7 +1095,7 @@ template <exception_sink_buffer... Buffers> class PropagateExceptionsAwaiter {
 
     /// \brief Always ready; no suspension required.
     /// \return Always `true`.
-    bool await_ready() const noexcept { return true; }
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
 
     /// \brief Pass through the currently-running task unchanged.
     /// \param task Current owning task.
@@ -1286,7 +1308,7 @@ template <typename T> class WriteAccessProxy {
 
     /// \brief Access the mutable stored value.
     /// \return Reference to the stored value.
-    T& get() const { return this->writer().data(); }
+    [[nodiscard]] T& get() const { return this->writer().data(); }
 
     operator T&() const { return this->get(); }
 
@@ -1313,7 +1335,7 @@ template <typename T> class WriteAccessProxy {
 
     /// \brief Internal writer accessor with optional debug lifetime checks.
     /// \return Reference to the underlying writer.
-    EpochContextWriter<T>& writer() const
+    [[nodiscard]] EpochContextWriter<T>& writer() const
     {
 #if UNI20_DEBUG_ASYNC_TASKS
       auto state = proxy_state_.lock();
@@ -1516,7 +1538,7 @@ template <typename T> class OwningWriteAwaiter {
 
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
-    bool await_ready() const noexcept { return writer_.ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return writer_.ready(); }
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param task Owning task to suspend and enqueue.
@@ -1528,7 +1550,7 @@ template <typename T> class OwningWriteAwaiter {
 
     /// \brief Resume and transfer writer ownership to an owning write proxy.
     /// \return Owning write proxy.
-    OwningWriteAccessProxy<T> await_resume()
+    [[nodiscard]] OwningWriteAccessProxy<T> await_resume()
     {
       writer_.resume();
       return OwningWriteAccessProxy<T>(std::move(writer_));
@@ -1536,7 +1558,10 @@ template <typename T> class OwningWriteAwaiter {
 
     /// \brief Returns the epoch context used for exception propagation.
     /// \return Shared pointer to the epoch context.
-    std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return writer_.epoch_context_shared(); }
+    [[nodiscard]] std::shared_ptr<EpochContext> epoch_context_shared() const noexcept
+    {
+      return writer_.epoch_context_shared();
+    }
 
   private:
     EpochContextWriter<T> writer_;

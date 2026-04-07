@@ -123,7 +123,8 @@ This is deliberate: copying does not clone dependency graph internals.
 
 ## Waiting and Blocking
 
-`get_wait()` blocks until value is readable.
+`wait()` blocks until value is readable.
+`get_wait()` blocks until value is readable and returns the materialized value.
 
 - under `DebugScheduler`, waiting helps drive runnable tasks and can emit deadlock diagnostics
 - under TBB schedulers, waiting cooperates with TBB execution model

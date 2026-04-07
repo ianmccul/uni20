@@ -50,8 +50,8 @@ template <typename Traits> class NamedEnumeration : public Traits {
     explicit NamedEnumeration(std::string_view Name);
 
     // Enable iteration (including range-based for loop) over the available algorithms
-    NamedEnumeration begin() const { return BEGIN; }
-    NamedEnumeration end() const { return END; }
+    [[nodiscard]] NamedEnumeration begin() const { return BEGIN; }
+    [[nodiscard]] NamedEnumeration end() const { return END; }
 
     static constexpr std::size_t size() { return N; }
 
@@ -77,7 +77,7 @@ template <typename Traits> class NamedEnumeration : public Traits {
     // returns an array of the enumeration items
     static std::vector<std::string> EnumerateAll();
 
-    std::string Name() const { return Traits::Names[e]; }
+    [[nodiscard]] std::string Name() const { return Traits::Names[e]; }
 
   private:
     Enum e;

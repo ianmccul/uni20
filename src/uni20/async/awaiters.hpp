@@ -34,11 +34,11 @@ requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> &&
 
     /// \brief Check if all awaiters are ready.
     /// \return true if no suspension is required.
-    bool await_ready() noexcept { return await_ready_impl(std::make_index_sequence<sizeof...(Aw)>{}); }
+    [[nodiscard]] bool await_ready() noexcept { return await_ready_impl(std::make_index_sequence<sizeof...(Aw)>{}); }
 
     /// \brief Return the number of awaiters, needed by the AsyncTaskFactory model.
     /// \note It is safe to over-allocate: unused AsyncTasks will be returned in the factory destructor.
-    int num_awaiters() const noexcept { return pending_; }
+    [[nodiscard]] int num_awaiters() const noexcept { return pending_; }
 
     /// \brief Suspend the coroutine on awaiters not yet ready.
     /// \tparam Promise The coroutine’s promise type.
@@ -51,7 +51,7 @@ requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> &&
     /// \brief Resume all awaiters and collect their results.
     /// \return Tuple of each await_resume() value. Make sure we preserve the exact type
     /// returned by the client awaiters, so references are preserved.
-    auto await_resume()
+    [[nodiscard]] auto await_resume()
     {
       return std::apply([](auto&&... w) -> decltype(auto) { return std::forward_as_tuple(w.await_resume()...); },
                         bufs_);
@@ -152,11 +152,11 @@ template <typename Awt> struct TryAwaiter
 
     constexpr explicit TryAwaiter(Awt aw) noexcept : awaiter_(store(std::forward<Awt>(aw))) {}
 
-    bool await_ready() const noexcept { return true; }
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
 
     void await_suspend(AsyncTask t) noexcept { access().await_suspend(std::move(t)); }
 
-    auto await_resume() noexcept
+    [[nodiscard]] auto await_resume() noexcept
     {
       auto& inner = access();
       using R = decltype(inner.await_resume());
@@ -191,7 +191,7 @@ template <typename Awt> struct TryAwaiter
       }
     }
 
-    constexpr Awaiter& access() noexcept
+    [[nodiscard]] constexpr Awaiter& access() noexcept
     {
       if constexpr (std::is_lvalue_reference_v<Awt>)
       {
@@ -203,7 +203,7 @@ template <typename Awt> struct TryAwaiter
       }
     }
 
-    constexpr Awaiter const& access() const noexcept
+    [[nodiscard]] constexpr Awaiter const& access() const noexcept
     {
       if constexpr (std::is_lvalue_reference_v<Awt>)
       {
@@ -272,7 +272,7 @@ template <typename T, typename Value> class WriteToAwaiter {
       static_assert(std::constructible_from<T, Value&&>, "Value must be constructible as T for WriteBuffer<T>");
     }
 
-    bool await_ready() const noexcept { return buffer_.await_ready(); }
+    [[nodiscard]] bool await_ready() const noexcept { return buffer_.await_ready(); }
 
     auto await_suspend(AsyncTask&& t) noexcept { return buffer_.await_suspend(std::move(t)); }
 

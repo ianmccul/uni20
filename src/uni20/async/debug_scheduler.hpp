@@ -47,7 +47,7 @@ class DebugScheduler final : public IScheduler {
 
     /// \brief Reports whether at least one runnable task exists.
     /// \return `true` when the scheduler is not paused and has queued tasks.
-    bool can_run() const noexcept { return !Blocked_ && !Handles_.empty(); }
+    [[nodiscard]] bool can_run() const noexcept { return !Blocked_ && !Handles_.empty(); }
 
     /// \brief Run one batch of scheduled coroutines (in LIFO order).
     void run();
@@ -81,7 +81,7 @@ class DebugScheduler final : public IScheduler {
 
     /// \brief Check if there are no pending tasks.
     /// \return true if the scheduler queue is empty.
-    bool done() const noexcept { return Handles_.empty(); }
+    [[nodiscard]] bool done() const noexcept { return Handles_.empty(); }
 
   private:
     // Internal resubmission
@@ -140,8 +140,7 @@ inline void schedule(AsyncTask&& task) { get_global_scheduler()->schedule(std::m
 
 /// \brief Wait for a reader context using the global scheduler.
 /// \tparam T Stored value type.
-/// \return Reference to the ready value.
-template <typename T> T const& EpochContextReader<T>::get_wait() const
+template <typename T> void EpochContextReader<T>::wait() const
 {
   auto* sched = get_global_scheduler();
   if (!this->ready())
@@ -149,6 +148,25 @@ template <typename T> T const& EpochContextReader<T>::get_wait() const
     CHECK(sched);
     sched->wait_for([this] { return this->ready(); });
   }
+}
+
+/// \brief Wait for a reader context using an explicit scheduler.
+/// \tparam T Stored value type.
+/// \param sched Scheduler used to drive progress.
+template <typename T> void EpochContextReader<T>::wait(IScheduler& sched) const
+{
+  if (!this->ready())
+  {
+    sched.wait_for([this] { return this->ready(); });
+  }
+}
+
+/// \brief Wait for a reader context using the global scheduler.
+/// \tparam T Stored value type.
+/// \return Reference to the ready value.
+template <typename T> T const& EpochContextReader<T>::get_wait() const
+{
+  this->wait();
   return this->data();
 }
 
@@ -158,10 +176,7 @@ template <typename T> T const& EpochContextReader<T>::get_wait() const
 /// \return Reference to the ready value.
 template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched) const
 {
-  if (!this->ready())
-  {
-    sched.wait_for([this] { return this->ready(); });
-  }
+  this->wait(sched);
   return this->data();
 }
 

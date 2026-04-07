@@ -45,7 +45,7 @@ template <StridedMdspan... Spans> struct SumAccessor
     /// \param rel     Per-child relative offsets produced by the mapping.
     /// \return Tuple of advanced data handles.
     /// \ingroup internal
-    constexpr data_handle_type offset(data_handle_type const& handles, offset_type rel) const noexcept
+    [[nodiscard]] constexpr data_handle_type offset(data_handle_type const& handles, offset_type rel) const noexcept
     {
       return offset_impl(handles, rel, std::make_index_sequence<NumSpans>{});
     }
@@ -55,7 +55,7 @@ template <StridedMdspan... Spans> struct SumAccessor
     /// \param rel Per-child offsets relative to the common origin.
     /// \return    Sum of the referenced elements.
     /// \ingroup internal
-    constexpr reference access(data_handle_type const& h, offset_type rel) const noexcept
+    [[nodiscard]] constexpr reference access(data_handle_type const& h, offset_type rel) const noexcept
     {
       return access_impl(h, rel, std::make_index_sequence<NumSpans>{});
     }
@@ -63,21 +63,21 @@ template <StridedMdspan... Spans> struct SumAccessor
     /// \brief Access the stored accessor tuple.
     /// \return Tuple containing the original accessors.
     /// \ingroup internal
-    accessor_tuple const& get_accessors() const noexcept { return accessors_; }
+    [[nodiscard]] accessor_tuple const& get_accessors() const noexcept { return accessors_; }
 
   private:
     // Helper that grabs each accessor from the tuple by index and forward to the .offset() method
     template <std::size_t... Is>
-    constexpr data_handle_type offset_impl(data_handle_type const& handles, offset_type const& rel,
-                                           std::index_sequence<Is...>) const noexcept
+    [[nodiscard]] constexpr data_handle_type offset_impl(data_handle_type const& handles, offset_type const& rel,
+                                                         std::index_sequence<Is...>) const noexcept
     {
       return {std::get<Is>(accessors_).offset(std::get<Is>(handles), std::get<Is>(rel))...};
     }
 
     // Helper that grabs each accessor from the tuple by index and forward to the .access() method
     template <std::size_t... Is>
-    constexpr reference access_impl(data_handle_type const& h, offset_type rel,
-                                    std::index_sequence<Is...>) const noexcept
+    [[nodiscard]] constexpr reference access_impl(data_handle_type const& h, offset_type rel,
+                                                  std::index_sequence<Is...>) const noexcept
     {
       return (std::get<Is>(accessors_).access(std::get<Is>(h), std::get<Is>(rel)) + ...);
     }

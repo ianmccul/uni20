@@ -49,7 +49,7 @@ TEST(AsyncDefaultInit, InitializesOnceAcrossThreads)
   {
     threads.emplace_back([&value]() {
       auto reader = value.read();
-      reader.get_wait();
+      reader.wait();
     });
   }
 

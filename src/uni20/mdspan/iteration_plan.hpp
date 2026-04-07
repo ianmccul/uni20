@@ -37,7 +37,7 @@ template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> str
     /// \brief Returns true when two adjacent dimensions can be merged.
     /// \param inner Metadata describing the inner dimension.
     /// \ingroup internal
-    constexpr bool can_merge_with_inner(extent_stride inner) const noexcept
+    [[nodiscard]] constexpr bool can_merge_with_inner(extent_stride inner) const noexcept
     {
       return stride == inner.stride * static_cast<StrideT>(inner.extent);
     }

@@ -249,17 +249,17 @@ template <std::size_t NumSpans> struct StridedZipLayout
 
         /// \brief Always unique at runtime.
         /// \ingroup mdspan_ext
-        constexpr bool is_unique() const noexcept { return true; }
+        [[nodiscard]] constexpr bool is_unique() const noexcept { return true; }
         /// \brief Never exhaustive at runtime.
         /// \ingroup mdspan_ext
-        constexpr bool is_exhaustive() const noexcept { return false; }
+        [[nodiscard]] constexpr bool is_exhaustive() const noexcept { return false; }
 
         // std::size_t required_span_size() const does not make sense for a StridedZipLayout
 
         /// \brief True if every dimension uses the same stride across all spans.
         /// \return True when each span shares identical strides per dimension.
         /// \ingroup mdspan_ext
-        constexpr bool is_strided() const noexcept
+        [[nodiscard]] constexpr bool is_strided() const noexcept
         {
           for (std::size_t d = 0; d < Ext::rank(); ++d)
           {
@@ -275,7 +275,7 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \brief Return the common strides for each dimension.
         /// \return Array of strides indexed by dimension.
         /// \ingroup mdspan_ext
-        constexpr std::array<index_type, Ext::rank()> strides() const noexcept
+        [[nodiscard]] constexpr std::array<index_type, Ext::rank()> strides() const noexcept
         {
           DEBUG_PRECONDITION(this->is_strided());
           return all_strides_[0];
@@ -286,7 +286,7 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \param r Dimension index, 0 ≤ r < rank().
         /// \return The stride (step) in the flattened data for dim \p r.
         /// \ingroup mdspan_ext
-        constexpr index_type stride(rank_type r) const noexcept
+        [[nodiscard]] constexpr index_type stride(rank_type r) const noexcept
         {
           DEBUG_PRECONDITION(this->is_strided());
           return all_strides_[0][r];
@@ -295,7 +295,7 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \brief Retrieve the 2-D array of all per-span strides.
         /// \return An array [span][dim] of strides.
         /// \ingroup mdspan_ext
-        std::array<std::array<index_type, Ext::rank()>, num_spans> const& all_strides() const noexcept
+        [[nodiscard]] std::array<std::array<index_type, Ext::rank()>, num_spans> const& all_strides() const noexcept
         {
           return all_strides_;
         }
@@ -349,7 +349,7 @@ template <std::size_t NumSpans> struct StridedZipLayout
         /// \brief Return the extents of the layout.
         /// \return The common extents of all child layouts.
         /// \ingroup mdspan_ext
-        constexpr extents_type const& extents() const noexcept { return extents_; }
+        [[nodiscard]] constexpr extents_type const& extents() const noexcept { return extents_; }
 
         /// \brief Compute per-span linear offsets for a multi-index.
         /// \tparam Idx  Types of each index argument.
@@ -368,8 +368,8 @@ template <std::size_t NumSpans> struct StridedZipLayout
       private:
         // For a given span S, compute its offset by folding over all dims D:
         template <std::size_t S, std::size_t... D>
-        constexpr index_type span_offset(std::array<index_type, Ext::rank()> const& ix,
-                                         std::index_sequence<D...>) const noexcept
+        [[nodiscard]] constexpr index_type span_offset(std::array<index_type, Ext::rank()> const& ix,
+                                                       std::index_sequence<D...>) const noexcept
         {
           // fold: 0 + (stride[S][0]*ix[0]) + (stride[S][1]*ix[1]) + …
           return ((all_strides_[S][D] * ix[D]) + ... + index_type(0));
@@ -377,8 +377,8 @@ template <std::size_t NumSpans> struct StridedZipLayout
 
         // Build the tuple of all span-offsets in one go:
         template <std::size_t... S>
-        constexpr offset_type offset_impl(std::array<index_type, Ext::rank()> const& ix,
-                                          std::index_sequence<S...>) const noexcept
+        [[nodiscard]] constexpr offset_type offset_impl(std::array<index_type, Ext::rank()> const& ix,
+                                                        std::index_sequence<S...>) const noexcept
         {
           // pack-expand: span_offset<0>(ix), span_offset<1>(ix), …
           return offset_type{span_offset<S>(ix, std::make_index_sequence<Ext::rank()>{})...};
@@ -427,12 +427,12 @@ template <typename... Layouts> struct GeneralZipLayout
         /// \brief Access the common extents.
         /// \return Shared extents across all child mappings.
         /// \ingroup mdspan_ext
-        constexpr extents_type const& extents() const noexcept { return extents_; }
+        [[nodiscard]] constexpr extents_type const& extents() const noexcept { return extents_; }
 
         /// \brief Return the maximum required span size among the child mappings.
         /// \return Maximum number of elements any child mapping may touch.
         /// \ingroup mdspan_ext
-        constexpr std::size_t required_span_size() const noexcept
+        [[nodiscard]] constexpr std::size_t required_span_size() const noexcept
         {
           std::size_t max_sz = 0;
           std::apply(

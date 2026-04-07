@@ -14,11 +14,11 @@ struct OperatorCoAwaitRead
     {
         using value_type = int;
 
-        bool await_ready() const noexcept { return true; }
+        [[nodiscard]] bool await_ready() const noexcept { return true; }
 
         template <typename T> void await_suspend(T) const noexcept {}
 
-        int await_resume() const noexcept { return 0; }
+        [[nodiscard]] int await_resume() const noexcept { return 0; }
     };
 
     Awaiter operator co_await() const noexcept { return {}; }
@@ -30,11 +30,11 @@ struct OperatorCoAwaitWrite
     {
         using value_type = int;
 
-        bool await_ready() const noexcept { return true; }
+        [[nodiscard]] bool await_ready() const noexcept { return true; }
 
         template <typename T> void await_suspend(T) const noexcept {}
 
-        int& await_resume() const noexcept
+        [[nodiscard]] int& await_resume() const noexcept
         {
           static int value = 0;
           return value;

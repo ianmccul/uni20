@@ -53,6 +53,7 @@ int b_value = b.get_wait(); // blocks until the scheduled work completes
 
 Operator kernels schedule work onto the global scheduler.
 If you need a non-default scheduler, use `ScopedScheduler` or `set_global_scheduler(...)`.
+If you only need completion and do not need the value, use `b.wait()` instead.
 
 ## First Complete Example
 

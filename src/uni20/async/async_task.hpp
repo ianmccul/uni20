@@ -60,7 +60,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
 
     /// \brief Get the raw coroutine handle for debug/introspection.
     /// \return Generic coroutine handle, or null handle when this task is empty.
-    std::coroutine_handle<> coroutine_handle() const noexcept
+    [[nodiscard]] std::coroutine_handle<> coroutine_handle() const noexcept
     {
       if (!h_) return {};
       return std::coroutine_handle<>::from_address(h_.address());
@@ -102,7 +102,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
 
     /// \brief Retrieve the preferred NUMA node associated with the coroutine, if any.
     /// \return Optional containing the preferred NUMA node.
-    std::optional<int> preferred_numa_node() const noexcept;
+    [[nodiscard]] std::optional<int> preferred_numa_node() const noexcept;
 
     /// \brief Update the preferred NUMA node associated with the coroutine.
     /// \param node Preferred node index, or empty to clear the preference.
@@ -151,7 +151,7 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
 
     /// \brief Check whether the coroutine has already completed.
     /// \return true if no suspension is required.
-    bool await_ready() const noexcept { return !h_ || h_.done(); }
+    [[nodiscard]] bool await_ready() const noexcept { return !h_ || h_.done(); }
 
     /// \brief Transfer execution to the managed coroutine.
     /// \param Outer Handle to the awaiting coroutine.

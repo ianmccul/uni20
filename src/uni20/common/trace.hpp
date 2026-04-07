@@ -699,13 +699,13 @@ template <typename Derived> struct TracingBaseClass
     Derived* This() noexcept { return static_cast<Derived*>(this); }
 
     /// \brief Get demangled class name of the CRTP derived class.
-    std::string DerivedName() const { return uni20::demangle::demangle(typeid(Derived).name()); }
+    [[nodiscard]] std::string DerivedName() const { return uni20::demangle::demangle(typeid(Derived).name()); }
 
     template <typename T> detail::TraceNameValue OtherPointer(T* x) const
     {
       return detail::TraceNameValue("other", fmt::format("{:p}", fmt::ptr(x)));
     }
-    detail::TraceNameValue ThisPointer() const
+    [[nodiscard]] detail::TraceNameValue ThisPointer() const
     {
       return detail::TraceNameValue("this", fmt::format("{:p}", fmt::ptr(this)));
     }

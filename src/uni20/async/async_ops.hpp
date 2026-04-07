@@ -157,14 +157,14 @@ template <typename T> struct ValueAwaiter
     T value;
 
     /// \brief Always ready — never suspends.
-    bool await_ready() const noexcept { return true; }
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
 
     /// \brief No-op suspension hook.
     void await_suspend(AsyncTask) const noexcept {}
 
     /// \brief Return the value.
-    T const& await_resume() const& noexcept { return value; }
-    T await_resume() && noexcept { return std::move(value); }
+    [[nodiscard]] T const& await_resume() const& noexcept { return value; }
+    [[nodiscard]] T await_resume() && noexcept { return std::move(value); }
 
     // no-op, simulating a ReadBuffer
     void release() const noexcept {};
