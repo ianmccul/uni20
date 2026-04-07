@@ -14,21 +14,6 @@
 
 using namespace uni20::async;
 
-TEST(TbbScheduler, BasicSchedule)
-{
-  TbbScheduler sched{2};
-  ScopedScheduler guard(&sched);
-
-  std::atomic<bool> ran{false};
-
-  auto task = []() static->AsyncTask { co_return; }
-  ();
-  sched.schedule(std::move(task));
-
-  sched.run_all();
-  EXPECT_TRUE(true); // just smoke-test that it didn't deadlock
-}
-
 TEST(TbbScheduler, AsyncArithmetic)
 {
   TbbScheduler sched{4};

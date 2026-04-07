@@ -74,7 +74,6 @@ int main()
     sched.schedule(square(inputs[i].read(), result[i].write()));
 
   // Reduction stage: build a binary tree of sums
-  int step = 1;
   while (result.size() > 1)
   {
     std::vector<Async<int>> next;
@@ -87,7 +86,6 @@ int main()
     if (result.size() % 2 == 1) // odd tail
       next.push_back(std::move(result.back()));
     result = std::move(next);
-    step *= 2;
   }
 
   // start the scheduler

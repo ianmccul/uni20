@@ -137,7 +137,14 @@ TEST(TraceMacro, TraceSquareBrackets)
 }
 
 // in consteval context, we cannot write to the screen but instead the TRACE() macros are a no-op
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wredundant-consteval-if"
+#endif
 template <typename T> consteval void TraceConsteval(T const& x) { TRACE(x); }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 TEST(TraceMacro, TraceConsteval)
 {

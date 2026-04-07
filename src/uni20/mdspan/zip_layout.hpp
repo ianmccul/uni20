@@ -93,7 +93,7 @@ template <typename FirstSpan, typename... OtherSpans> struct common_extents
     static type make_impl(std::index_sequence<Is...>, FirstSpan const& first, OtherSpans const&... otherspans)
     {
       // Construct the extents object. All of the extents of each span must agree.
-      type ext{first.template extent(Is)...};
+      type ext{first.extent(Is)...};
 
       auto do_check = [&](auto const& sp) { CHECK_EQUAL(ext, sp.extents()); };
 
