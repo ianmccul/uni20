@@ -3,6 +3,7 @@
 ## Core Docs
 
 - [Getting Started](getting_started.md)
+- [GPU Landscape for Tensor Networks (2026-04)](gpu_landscape.md)
 - [Trace Macros](trace_macros.md)
 - [Testing Infrastructure](testing.md)
 - [Architecture Diagram](architecture_diagram.md)
