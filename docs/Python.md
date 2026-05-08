@@ -1,82 +1,68 @@
 # Uni20 Python Bindings
 
-The `uni20` extension exposes a subset of the Uni20 C++ API to Python via [nanobind](https://github.com/wjakob/nanobind). This guide explains the prerequisites, build steps, and example usage for the module.
+The `uni20` extension exposes a subset of the Uni20 C++ API to Python via [nanobind](https://github.com/wjakob/nanobind). This guide covers the prerequisites, build steps, and the current smoke-test workflow.
 
 ## Prerequisites
 
-Uni20 relies on CMake to orchestrate the build and reuses the same system dependencies as the C++ library. Before configuring the project ensure the following packages are available:
+Before configuring the project ensure the following are available:
 
-- A C++23-capable compiler (GCC 13+, Clang 16+, or MSVC 19.36+).
+- A C++23-capable compiler such as GCC 13+, Clang 16+, or MSVC 19.36+.
 - CMake 3.24 or newer.
-- Python 3.8 or newer with the development headers and libraries. On Debian-based systems install them via:
+- Python 3.8 or newer with interpreter and development headers. On Debian-based systems:
   ```bash
   sudo apt-get install python3-dev python3-venv
   ```
 
-## Configure the build
+Uni20 reuses the same BLAS/LAPACK dependencies as the core C++ library. The configuration step discovers Python first and then resolves `nanobind` from a system installation or via CMake `FetchContent`.
 
-Enable the Python bindings when running `cmake`. You only need to configure once unless you change toolchains or cache variables.
+## Configure and build
+
+Enable the bindings when configuring:
 
 ```bash
 cmake -S . -B build -DUNI20_BUILD_PYTHON=ON
 ```
 
-The configuration step locates your Python interpreter and development headers. If a system-wide nanobind installation exists it will be reused; otherwise Uni20 fetches a copy automatically.
-
-## Build the module
-
-Compile both the C++ library and the Python extension:
+Build the extension target directly, or build the default target graph:
 
 ```bash
-cmake --build build --target uni20
+cmake --build build --target uni20_python
 ```
 
-CMake emits the loadable extension to `build/bindings/python/`. On Linux and macOS the file is named `uni20.cpython-<abi>.so`; on Windows it is `uni20.cp<abi>.pyd`.
-
-To rebuild after making source changes rerun the same build command. Ninja and other generators only recompile files that changed.
+The compiled module is written under `build/bindings/python/`. On Linux and macOS the filename follows the normal ABI-tagged extension naming convention such as `uni20.cpython-312-x86_64-linux-gnu.so`.
 
 ## Run the sample bindings
 
-The sample module currently exports a single `greet()` function. Add the build output directory to `PYTHONPATH` and import it directly:
+The sample module currently exports a `greet()` helper together with build metadata. Add the build output directory to `PYTHONPATH` and import it directly:
 
 ```bash
 export PYTHONPATH="$(pwd)/build/bindings/python:${PYTHONPATH}"
 python -c "import uni20; print(uni20.greet())"
 ```
 
-The script should print:
+Expected output:
 
-```
+```text
 Hello from uni20!
-```
-
-Alternatively, you can install the extension into a virtual environment using `pip`:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install build
-python -m build --wheel --outdir dist bindings/python
-pip install dist/uni20-*.whl
-python -c "import uni20; print(uni20.greet())"
 ```
 
 ## Running tests
 
-After building you can run the test suite via CTest. The Python bindings currently ship with a lightweight smoke test that imports the extension and verifies the `greet()` helper returns the expected string:
+The Python bindings ship with lightweight smoke tests that import the compiled extension and validate both `greet()` and the generated build information:
 
 ```bash
-cmake --build build
-cd build/tests
-ctest --output-on-failure -R python.bindings
+cmake --build build --target uni20_python
+ctest --test-dir build --output-on-failure -R "python.bindings"
 ```
 
-Running `ctest --output-on-failure` from the same directory executes the Python smoke test alongside the native GoogleTest suites.
-
-If you prefer to run the Python smoke test directly, invoke the test module and pass the directory containing the compiled extension so it can be added to `sys.path`:
+If you prefer to run a smoke test directly, pass the directory containing the compiled extension so the test can add it to `sys.path`:
 
 ```bash
 python tests/python/test_greet.py build/bindings/python
 ```
 
-Adjust the second argument if your build directory differs; for example, pass `out/bindings/python` when using `-B out` during configuration.
+Adjust the second argument if your build directory differs.
+
+## Packaging status
+
+The repository currently builds the extension through CMake only. It does not yet ship a `pyproject.toml` or wheel-building backend, so `pip install .` style packaging is not documented here.

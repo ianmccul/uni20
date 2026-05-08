@@ -1,6 +1,6 @@
-# uni20 - A C++20 Tensor-Network Library
+# uni20 - A C++23 Tensor-Network Library
 
-Welcome to **uni20**! This repository contains a high-performance tensor-network library written in C++20. The library is designed with multiple backends, GPU/MPI support, and Python bindings (via pybind11) to ease user interaction. This guide is intended to help new developers quickly set up the project, run tests, and execute benchmarks.
+Welcome to **uni20**. This repository contains an early-stage tensor-network library written in C++23 with optional BLAS, CUDA, benchmark, documentation, and Python binding support. This guide covers the current CMake-based workflow for configuring, building, testing, benchmarking, and generating documentation.
 
 ## Table of Contents
 
@@ -61,7 +61,7 @@ uni20/                              # Project root
 │   ├── mdspan_example.cpp
 │   ├── async_example.cpp
 │   └── trace_example.cpp
-├── bindings/                       # Language bindings (e.g. Python via pybind11)
+├── bindings/                       # Language bindings (currently Python via nanobind)
 │   └── python/
 └── asm/                            # Contains sample code for testing generated assembly output
 ```
@@ -70,13 +70,13 @@ uni20/                              # Project root
 
 Before building the project, ensure you have the following installed:
 
-- **CMake 3.18+** (or newer; see the [CMake documentation](https://cmake.org))
+- **CMake 3.24+**.
 - A C++23-compliant compiler (e.g., GCC 13+, Clang 16+, MSVC 2022)
 - Git (for cloning the repository and fetching dependencies)
 - BLAS and LAPACK libraries are essential; any library that implements the standard Fortran interface will work.
-- (Optional) Python 3.x and pybind11 dependencies for building the Python bindings
+- Python 3 with development headers if you want to build the Python bindings.
 
-> **Note:** The project uses CMake’s FetchContent module to automatically download external libraries (like fmt, mdspan, GoogleTest, and Google Benchmark). If you prefer to manage these dependencies differently, adjust the CMake configurations accordingly.
+> **Note:** Uni20 prefers system installations of `fmt`, `TBB`, Google Benchmark, and other optional dependencies when compatible versions are available. Otherwise CMake can fetch missing dependencies from source during configuration.
 
 ## Dependencies
 
@@ -84,22 +84,34 @@ Before building the project, ensure you have the following installed:
 apt-get install libopenblas-dev liblapack-dev
 ```
 
+Optional developer packages such as `libtbb-dev`, `libbenchmark-dev`, `libfmt-dev`, and `libgtest-dev` can also be installed from the system, but Uni20 can fetch them automatically when needed.
+
 ## Building the Project
 
-It is recommended to use an out-of-source build. From the project root, run:
+Use an out-of-source build. From the project root, run:
 
 ```bash
-# Create and configure the build directory:
 cmake -S . -B build
 
-# Build all targets (library, tests, benchmarks, and Python module):
+# Build the default target graph:
 cmake --build build
 ```
 
-If you need to disable CUDA (default is OFF) or adjust other build options, you can pass flags:
+If you prefer Ninja and have it installed:
 
 ```bash
-cmake -S . -B build -DUNI20_ENABLE_CUDA=OFF -DUNI20_BUILD_TESTS=ON -DUNI20_BUILD_BENCH=ON
+cmake -S . -B build -G Ninja
+cmake --build build
+```
+
+Common configuration toggles include:
+
+```bash
+cmake -S . -B build \
+  -DUNI20_BUILD_TESTS=ON \
+  -DUNI20_BUILD_BENCH=ON \
+  -DUNI20_BUILD_PYTHON=ON \
+  -DUNI20_ENABLE_CUDA=OFF
 ```
 
 ### BLAS/LAPACK Detection
@@ -120,7 +132,7 @@ For Uni20's async runtime, prefer `UNI20_BACKEND_MKL_SEQUENTIAL=ON` unless you e
 
 ## Running Tests
 
-The `uni20` library includes a comprehensive suite of unit tests, written using [Google Test](https://github.com/google/googletest) and managed via [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html).
+Uni20 ships a large GoogleTest-based suite and registers the per-module tests with [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html).
 
 You can run tests using either **CTest** or by executing test binaries directly. The test system supports both **separate** (per-module) test executables and an optional **combined** test binary.
 
@@ -131,17 +143,16 @@ See [docs/testing.md](testing.md) for detailed configuration options, test archi
 Tests are enabled by default. After building:
 
 ```bash
-cd build
-ctest --output-on-failure
+ctest --test-dir build --output-on-failure
 ```
 
-This will run all tests registered with CTest, including both per-module and combined executables (if enabled).
+This runs all tests registered with CTest. The optional combined `uni20_tests` executable is built for manual runs, but it is not registered with CTest by default.
 
 To filter tests by name or suite:
 
 ```bash
-ctest -R IterationPlan        # Run all tests matching the regex "IterationPlan"
-ctest -V                      # Verbose output for debugging
+ctest --test-dir build --output-on-failure -R IterationPlan
+ctest --test-dir build -N
 ```
 
 ### Run Tests Directly
@@ -149,8 +160,8 @@ ctest -V                      # Verbose output for debugging
 You may also run test executables manually. For example:
 
 ```bash
-./tests/uni20_tests --gtest_filter=TraitsTest.*
-./tests/common/uni20_common_tests
+./build/tests/uni20_tests --gtest_filter=TraitsTest.*
+./build/tests/common/uni20_common_tests
 ```
 
 The Google Test interface supports additional flags (e.g., `--gtest_list_tests`) for exploring and selecting tests interactively.
@@ -164,7 +175,7 @@ cmake -S . -B build -DUNI20_BUILD_TESTS=OFF
 cmake -S . -B build -DUNI20_BUILD_COMBINED_TESTS=OFF
 ```
 
-See [docs/testing.md](testing.md) for a full explanation of these options and how they affect the build.
+See [testing.md](testing.md) for a full explanation of these options and how they affect the build.
 
 ## Running Benchmarks
 
@@ -172,7 +183,7 @@ The project uses Google Benchmark for performance measurement.
 
 ### Option 1: Using a Custom Target
 
-If your `benchmarks/CMakeLists.txt` defines a custom target (e.g., `run_benchmarks`), run:
+Uni20 provides a `run_benchmarks` helper target:
 
 ```bash
 cmake --build build --target run_benchmarks
@@ -183,33 +194,27 @@ cmake --build build --target run_benchmarks
 Or run the benchmark executable directly:
 
 ```bash
-cd build/benchmarks
-./uni20_benchmarks
+./build/benchmarks/uni20_benchmarks
 ```
 
 Benchmarks will output performance metrics (execution time, iterations, etc.) to the console.
 
 ## Python Bindings
 
-A simple Python binding is provided via pybind11. After building:
+The Python extension is built with [nanobind](https://github.com/wjakob/nanobind). Configure with `-DUNI20_BUILD_PYTHON=ON` and either build the default target graph or the extension target directly:
 
-1. Locate the Python module in the build directory (typically under `build/bindings/python`).
-2. Add that directory to your `PYTHONPATH`:
+```bash
+cmake --build build --target uni20_python
+```
 
-   ```bash
-   export PYTHONPATH=~/path/to/uni20/build/bindings/python:$PYTHONPATH
-   ```
+The compiled extension is written under `build/bindings/python/`. To try the sample binding:
 
-3. Test the module in a Python shell:
+```bash
+export PYTHONPATH="$(pwd)/build/bindings/python:${PYTHONPATH}"
+python3 -c "import uni20; print(uni20.greet())"
+```
 
-   ```bash
-   python3 -c "import uni20; print(uni20.greet())"
-   ```
-
-   You should see the output:
-   ```
-   Hello from uni20!
-   ```
+For more detail see [Python.md](Python.md).
 
 ## Coding Style and Formatting
 
@@ -242,10 +247,10 @@ This will invoke clang-format in-place on all matching files. Many editors have 
   Use project-specific CMake options (prefixed with `UNI20_`) to enable/disable features like CUDA, MPI, testing, and benchmarking.
 
 - **Dependency Management:**  
-  External dependencies are managed via CMake’s FetchContent. `UNI20_FETCHCONTENT_BASE_DIR` controls build/stamp files. `UNI20_FETCHCONTENT_SOURCE` controls where source trees are stored: `OFF` keeps them under `UNI20_FETCHCONTENT_BASE_DIR`, and `ON` uses `UNI20_FETCHCONTENT_SOURCE_BASE_DIR` (default: `<source_dir>/.cmake/third_party`).
+  External dependencies are managed via CMake `FetchContent`. `UNI20_FETCHCONTENT_BASE_DIR` controls build and stamp files. `UNI20_FETCHCONTENT_SOURCE` controls whether fetched sources live under the build directory or a shared cache rooted at `UNI20_FETCHCONTENT_SOURCE_BASE_DIR`.
 
 - **Directory Structure & CTest:**  
-  If you run CTest from the top-level build directory and no tests are found, use the `--recursive` flag, or run tests from the appropriate subdirectory (e.g., `build/tests`).
+  Prefer `ctest --test-dir build`. The top-level build tree already includes the discovered tests; no extra `--recursive` flag is required.
 
 ## Contributing
 

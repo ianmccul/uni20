@@ -92,7 +92,7 @@ uni20 supports both modes:
 - Per-module executables like `uni20_common_tests`, `uni20_async_tests`
 - Combined executable `uni20_tests`
 
-When both modes are enabled, CTest intentionally registers both.
+When both modes are enabled, CTest registers the per-module executables discovered via `gtest_discover_tests(...)`. The combined `uni20_tests` binary is built for manual runs, but it is not registered with CTest by default.
 
 ## Adding New Tests
 
