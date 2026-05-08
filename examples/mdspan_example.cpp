@@ -1,5 +1,6 @@
 
 #include <uni20/common/mdspan.hpp>
+#include <uni20/common/presentation_mdspan.hpp>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <vector>
@@ -17,16 +18,9 @@ int main()
   // Here we use a dynamic extents type with fixed dimensions.
   stdex::mdspan<int, stdex::extents<size_t, 3, 3>> matrix(data.data());
 
-  // Print the matrix using fmt.
-  fmt::print("Matrix (3x3):\n");
-  for (size_t i = 0; i < matrix.extents().extent(0); ++i)
-  {
-    for (size_t j = 0; j < matrix.extents().extent(1); ++j)
-    {
-      fmt::print("{:3d} ", matrix[i, j]);
-    }
-    fmt::print("\n");
-  }
+  // Print the matrix using Uni20 presentation formatting.
+  auto policy = uni20::presentation::terminal_policy(stdout);
+  fmt::print("Matrix (3x3):\n{}\n", uni20::presentation::format_mdspan(matrix, policy));
 
   // Also demonstrate fmt::format
   auto formatted_str = fmt::format("The first element is: {}\n", matrix[0, 0]);

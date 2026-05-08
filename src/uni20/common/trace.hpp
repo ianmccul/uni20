@@ -5,6 +5,8 @@
 #include "demangle.hpp"
 #include "floating_eq.hpp"
 #include "namedenum.hpp"
+#include "presentation.hpp"
+#include "presentation_mdspan.hpp"
 #include "terminal.hpp"
 
 #include <algorithm>

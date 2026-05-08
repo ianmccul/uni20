@@ -15,6 +15,7 @@ endif()
 
 
 add_library(uni20_common STATIC
+    presentation.cpp
     terminal.cpp
 )
 target_link_libraries(uni20_common PUBLIC mdspan uni20_deps)

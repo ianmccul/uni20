@@ -336,6 +336,7 @@ Module-specific overrides:
 When set to `auto`, color output is used if `NO_COLOR` is unset or empty and the output stream is a terminal.
 Set `NO_COLOR` to any non-empty value to disable automatic color output by default.
 Explicit `UNI20_TRACE_COLOR=yes` or `UNI20_TRACE_COLOR=no` overrides `NO_COLOR`.
+Trace diagnostics are rendered through the common [presentation formatting](presentation.md) layer. Plain/file output suppresses ANSI escapes, semantic glyph fallback follows the shared output policy, strict ASCII modes apply to whole trace lines, and container-style trace output aligns by display cells. Mdspan-like values and tensor/view-like objects render as presentation tensor art: vectors use a row form, matrices use aligned bracket art, and higher-rank tensors use labeled matrix slices.
 
 Module-specific override:
 
@@ -448,6 +449,8 @@ Global:
 
 - `UNI20_FP_PRECISION_FLOAT32`
 - `UNI20_FP_PRECISION_FLOAT64`
+
+These control the number of digits after the decimal point for trace real values. Complex values use the same precision for real and imaginary components, and tensor/mdspan trace output applies the same scalar precision inside the presentation tensor-art renderer.
 
 Module-specific:
 

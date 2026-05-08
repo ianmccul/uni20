@@ -1,5 +1,6 @@
 #include <uni20/tensor/basic_tensor.hpp>
 #include <uni20/tensor/layout.hpp>
+#include <uni20/common/trace.hpp>
 
 #include <gtest/gtest.h>
 
@@ -174,6 +175,22 @@ TEST(BasicTensorTest, ViewsShareStorageAndRespectConstness)
   EXPECT_EQ(view.handle(), tensor.handle());
   EXPECT_EQ(cview.handle(), static_cast<int const*>(tensor.handle()));
   EXPECT_EQ(const_view_from_const.handle(), static_cast<int const*>(tensor.handle()));
+}
+
+TEST(BasicTensorTest, TraceFormattingUsesPresentationTensorArt)
+{
+  tensor_type tensor(extents_2d{2, 2});
+  tensor[0, 0] = 1;
+  tensor[0, 1] = 20;
+  tensor[1, 0] = 300;
+  tensor[1, 1] = 4;
+
+  auto opts = trace::get_formatting_options("tensor-format-test");
+  opts.set_color_output(trace::FormattingOptions::ColorOptions::no);
+
+  EXPECT_EQ(trace::formatValue(tensor, opts), "shape=(2, 2)\n"
+                                             "\xE2\x8E\xA1   1 20 \xE2\x8E\xA4\n"
+                                             "\xE2\x8E\xA3 300  4 \xE2\x8E\xA6");
 }
 
 } // namespace
