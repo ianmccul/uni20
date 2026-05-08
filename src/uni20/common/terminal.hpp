@@ -3,6 +3,7 @@
 #include "string_util.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -25,6 +26,17 @@ int columns();
 
 // returns true if the given stream is a terminal, false otherwise
 bool is_a_terminal(std::FILE* stream);
+
+/// \brief Return whether `NO_COLOR` requests suppressing default ANSI color output.
+/// \return True when `NO_COLOR` is present and not empty.
+inline bool no_color_requested()
+{
+  if (char const* no_color = std::getenv("NO_COLOR"))
+  {
+    return no_color[0] != '\0';
+  }
+  return false;
+}
 
 inline std::string quote_shell(std::string_view s)
 {

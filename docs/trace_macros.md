@@ -333,7 +333,9 @@ Module-specific overrides:
 |---|---|---|
 | `UNI20_TRACE_COLOR` | `auto` | `yes`, `no`, `auto` |
 
-When set to `auto`, color output is used if writing to a terminal that supports color, otherwise no color is used.
+When set to `auto`, color output is used if `NO_COLOR` is unset or empty and the output stream is a terminal.
+Set `NO_COLOR` to any non-empty value to disable automatic color output by default.
+Explicit `UNI20_TRACE_COLOR=yes` or `UNI20_TRACE_COLOR=no` overrides `NO_COLOR`.
 
 Module-specific override:
 

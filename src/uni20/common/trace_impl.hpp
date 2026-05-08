@@ -374,7 +374,7 @@ struct FormattingOptions
       else if (color == CO::no)
         showColor = false;
       else /* auto */
-        showColor = terminal::is_a_terminal(outputStream);
+        showColor = !terminal::no_color_requested() && terminal::is_a_terminal(outputStream);
     }
 
     friend FormattingOptions& get_formatting_options(const std::string& module);

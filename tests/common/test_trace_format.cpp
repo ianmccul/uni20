@@ -2,16 +2,76 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdio>
+#include <cstdlib>
+#include <fcntl.h>
+#include <memory>
+#include <optional>
 #include <regex>
+#include <string>
+#include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace
 {
+class EnvVarGuard {
+  public:
+    explicit EnvVarGuard(std::string name) : name_(std::move(name))
+    {
+      if (char const* value = std::getenv(name_.c_str()))
+      {
+        original_ = value;
+      }
+    }
+
+    EnvVarGuard(EnvVarGuard const&) = delete;
+    EnvVarGuard& operator=(EnvVarGuard const&) = delete;
+
+    ~EnvVarGuard()
+    {
+      if (original_)
+      {
+        ::setenv(name_.c_str(), original_->c_str(), 1);
+      }
+      else
+      {
+        ::unsetenv(name_.c_str());
+      }
+    }
+
+    void set(std::string const& value) const { ::setenv(name_.c_str(), value.c_str(), 1); }
+
+    void unset() const { ::unsetenv(name_.c_str()); }
+
+  private:
+    std::string name_;
+    std::optional<std::string> original_;
+};
+
 trace::FormattingOptions make_test_options()
 {
   auto opts = trace::get_formatting_options("trace-format-test");
   opts.set_color_output(trace::FormattingOptions::ColorOptions::no);
   return opts;
+}
+
+std::unique_ptr<std::FILE, decltype(&std::fclose)> make_terminal_stream()
+{
+  int const fd = ::open("/dev/ptmx", O_RDWR | O_NOCTTY);
+  if (fd < 0)
+  {
+    return {nullptr, &std::fclose};
+  }
+
+  std::FILE* stream = ::fdopen(fd, "w");
+  if (stream == nullptr)
+  {
+    ::close(fd);
+    return {nullptr, &std::fclose};
+  }
+
+  return {stream, &std::fclose};
 }
 } // namespace
 
@@ -58,4 +118,51 @@ TEST(TraceFormatting, TimestampMatchesPattern)
   auto timestamp = trace::format_timestamp();
   std::regex timestamp_pattern(R"((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{9}))");
   EXPECT_TRUE(std::regex_match(timestamp, timestamp_pattern)) << timestamp;
+}
+
+TEST(TraceFormatting, NoColorSuppressesAutoColorOnTerminal)
+{
+  EnvVarGuard no_color("NO_COLOR");
+  no_color.set("1");
+
+  auto stream = make_terminal_stream();
+  if (stream == nullptr)
+  {
+    GTEST_SKIP() << "pseudo-terminal stream is unavailable";
+  }
+
+  auto opts = trace::get_formatting_options("trace-format-no-color-auto");
+  opts.set_output_stream(stream.get());
+  opts.set_color_output(trace::FormattingOptions::ColorOptions::autocolor);
+
+  EXPECT_FALSE(opts.should_show_color());
+}
+
+TEST(TraceFormatting, EmptyNoColorDoesNotSuppressAutoColorOnTerminal)
+{
+  EnvVarGuard no_color("NO_COLOR");
+  no_color.set("");
+
+  auto stream = make_terminal_stream();
+  if (stream == nullptr)
+  {
+    GTEST_SKIP() << "pseudo-terminal stream is unavailable";
+  }
+
+  auto opts = trace::get_formatting_options("trace-format-empty-no-color-auto");
+  opts.set_output_stream(stream.get());
+  opts.set_color_output(trace::FormattingOptions::ColorOptions::autocolor);
+
+  EXPECT_TRUE(opts.should_show_color());
+}
+
+TEST(TraceFormatting, NoColorDoesNotOverrideExplicitColorYes)
+{
+  EnvVarGuard no_color("NO_COLOR");
+  no_color.set("1");
+
+  auto opts = trace::get_formatting_options("trace-format-no-color-explicit-yes");
+  opts.set_color_output(trace::FormattingOptions::ColorOptions::yes);
+
+  EXPECT_TRUE(opts.should_show_color());
 }
