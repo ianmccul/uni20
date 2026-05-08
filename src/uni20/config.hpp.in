@@ -28,8 +28,11 @@
 // Backend configurations
 #cmakedefine01 UNI20_BACKEND_BLAS
 #cmakedefine01 UNI20_BACKEND_MKL
+#cmakedefine01 UNI20_BACKEND_MKL_SEQUENTIAL
+#cmakedefine01 UNI20_BACKEND_MKL_THREADED
 #cmakedefine01 UNI20_BACKEND_CUDA
 #cmakedefine01 UNI20_BACKEND_CUSOLVER
+#cmakedefine01 UNI20_BACKEND_OPENBLAS
 
 #cmakedefine01 UNI20_ILP64
 

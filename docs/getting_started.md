@@ -102,14 +102,21 @@ If you need to disable CUDA (default is OFF) or adjust other build options, you 
 cmake -S . -B build -DUNI20_ENABLE_CUDA=OFF -DUNI20_BUILD_TESTS=ON -DUNI20_BUILD_BENCH=ON
 ```
 
-### BLAS/LAPACK Detection and Vendor-Specific Features
+### BLAS/LAPACK Detection
 
-(this is a work in progress!)
+Uni20 uses CMake's `FindBLAS` and `FindLAPACK` modules to locate a compatible BLAS/LAPACK implementation. Use `-DUNI20_BLAS_VENDOR=<vendor>` to forward a vendor hint to `BLA_VENDOR` when you want to prefer a specific implementation such as `OpenBLAS` or an Intel MKL variant.
 
-The project leverages CMake’s built-in modules (`FindBLAS.cmake` and `FindLAPACK.cmake`) to automatically detect available BLAS and LAPACK libraries. This means:
-- If a standard BLAS/LAPACK implementation is present, the project will link against it.
-- If vendor-specific libraries such as Intel MKL or OpenBLAS are installed, CMake will resolve `BLAS_LIBRARIES`, and Uni20 normalizes the vendor from those resolved libraries. Use `-DUNI20_BLAS_VENDOR=<vendor>` to select a preferred vendor; Uni20 forwards it to `BLA_VENDOR` for `FindBLAS`.  
-- In the case of MKL, if the environment variable `MKLROOT` is defined, the project will add MKL’s include directory (e.g., `$MKLROOT/include`) to the target’s include paths, allowing vendor-specific extensions to be used.
+Vendor extension APIs are opt-in:
+
+```bash
+cmake -S . -B build -DUNI20_BLAS_VENDOR=OpenBLAS -DUNI20_BACKEND_OPENBLAS=ON
+cmake -S . -B build -DUNI20_BLAS_VENDOR=Intel10_64lp_seq -DUNI20_BACKEND_MKL_SEQUENTIAL=ON
+cmake -S . -B build -DUNI20_BLAS_VENDOR=Intel10_64_dyn -DUNI20_BACKEND_MKL_THREADED=ON
+```
+
+The generic BLAS wrappers remain available through `uni20::blas`. When enabled, vendor utility functions are exposed under `uni20::blas::openblas` and `uni20::blas::mkl`.
+For Uni20's async runtime, prefer `UNI20_BACKEND_MKL_SEQUENTIAL=ON` unless you explicitly want MKL to run its own internal worker threads.
+`UNI20_BACKEND_MKL=ON` remains as a compatibility option and selects the sequential MKL backend unless a specific MKL variant is enabled.
 
 ## Running Tests
 

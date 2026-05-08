@@ -1,0 +1,2 @@
+add_library(uni20_backend_openblas INTERFACE)
+target_link_libraries(uni20_backend_openblas INTERFACE uni20_interface_blas)

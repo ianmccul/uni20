@@ -37,6 +37,7 @@
  *
  * \par Submodules
  * - \ref backend_blas_mkl — Intel MKL-backed BLAS shims.
+ * - \ref backend_blas_openblas — OpenBLAS-specific BLAS extension shims.
  * - \ref backend_blas_reference — Reference BLAS wrappers used for testing and fallbacks.
  */
 

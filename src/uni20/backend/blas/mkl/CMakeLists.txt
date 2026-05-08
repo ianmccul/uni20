@@ -1,9 +1,35 @@
+if(NOT DEFINED MKL_INTERFACE_FULL)
+  if(UNI20_ILP64)
+    set(MKL_INTERFACE_FULL intel_ilp64)
+  else()
+    set(MKL_INTERFACE_FULL intel_lp64)
+  endif()
+endif()
+
+if(UNI20_BACKEND_MKL_SEQUENTIAL)
+  set(MKL_THREADING sequential)
+elseif(UNI20_BACKEND_MKL_THREADED AND NOT DEFINED MKL_THREADING)
+  set(MKL_THREADING intel_thread)
+endif()
+
 find_package(MKL REQUIRED)
 
-add_library(uni20_backend_mkl STATIC
-    mkl_backend.cpp
-)
-# Assume MKL uses the BLAS routines from uni20_backend_blas.
-target_link_libraries(uni20_backend_mkl PRIVATE uni20_backend_blas)
-#target_include_directories(uni20_backend_mkl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(uni20_backend_mkl PRIVATE MKL::MKL)
+if(UNI20_BACKEND_MKL_SEQUENTIAL)
+  add_library(uni20_backend_mkl_sequential INTERFACE)
+  target_link_libraries(uni20_backend_mkl_sequential INTERFACE MKL::MKL)
+
+  add_library(uni20_backend_mkl INTERFACE)
+  target_link_libraries(uni20_backend_mkl INTERFACE uni20_backend_mkl_sequential)
+elseif(UNI20_BACKEND_MKL_THREADED)
+  add_library(uni20_backend_mkl_threaded INTERFACE)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(uni20_backend_mkl_threaded INTERFACE -Wl,--no-as-needed MKL::MKL -Wl,--as-needed)
+  else()
+    target_link_libraries(uni20_backend_mkl_threaded INTERFACE MKL::MKL)
+  endif()
+
+  add_library(uni20_backend_mkl INTERFACE)
+  target_link_libraries(uni20_backend_mkl INTERFACE uni20_backend_mkl_threaded)
+else()
+  message(FATAL_ERROR "MKL backend requested without a selected MKL backend variant.")
+endif()

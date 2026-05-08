@@ -278,14 +278,32 @@ endfunction()
 option(UNI20_BACKEND_BLAS     "Enable the BLAS backend" ON)
 option(UNI20_BACKEND_CUDA     "Enable the CUDA backend" ${UNI20_BACKEND_CUDA_DEFAULT})
 option(UNI20_BACKEND_CUSOLVER "Enable the cuSOLVER backend" OFF)
-option(UNI20_BACKEND_MKL      "Enable the MKL backend" OFF)
-set(UNI20_BLAS_VENDOR "All" CACHE STRING "BLAS vendor hint passed to FindBLAS as BLA_VENDOR (for example: All, OpenBLAS, Generic, Intel10_64lp)")
+option(UNI20_BACKEND_MKL      "Enable the compatibility MKL backend extension API selector" OFF)
+option(UNI20_BACKEND_MKL_SEQUENTIAL "Enable the sequential MKL backend extension API" OFF)
+option(UNI20_BACKEND_MKL_THREADED "Enable the threaded MKL backend extension API" OFF)
+option(UNI20_BACKEND_OPENBLAS "Enable the OpenBLAS backend extension API" OFF)
+set(UNI20_BLAS_VENDOR "All" CACHE STRING "BLAS vendor hint passed to FindBLAS as BLA_VENDOR (for example: All, OpenBLAS, Generic, Intel10_64lp_seq, Intel10_64_dyn)")
 
 if(UNI20_DOCS_WEB)
   set(UNI20_BACKEND_BLAS OFF CACHE BOOL "Enable the BLAS backend" FORCE)
   set(UNI20_BACKEND_CUDA OFF CACHE BOOL "Enable the CUDA backend" FORCE)
   set(UNI20_BACKEND_CUSOLVER OFF CACHE BOOL "Enable the cuSOLVER backend" FORCE)
-  set(UNI20_BACKEND_MKL OFF CACHE BOOL "Enable the MKL backend" FORCE)
+  set(UNI20_BACKEND_MKL OFF CACHE BOOL "Enable the compatibility MKL backend extension API selector" FORCE)
+  set(UNI20_BACKEND_MKL_SEQUENTIAL OFF CACHE BOOL "Enable the sequential MKL backend extension API" FORCE)
+  set(UNI20_BACKEND_MKL_THREADED OFF CACHE BOOL "Enable the threaded MKL backend extension API" FORCE)
+  set(UNI20_BACKEND_OPENBLAS OFF CACHE BOOL "Enable the OpenBLAS backend extension API" FORCE)
+endif()
+
+if(UNI20_BACKEND_MKL AND NOT UNI20_BACKEND_MKL_SEQUENTIAL AND NOT UNI20_BACKEND_MKL_THREADED)
+  set(UNI20_BACKEND_MKL_SEQUENTIAL ON CACHE BOOL "Enable the sequential MKL backend extension API" FORCE)
+endif()
+
+if(UNI20_BACKEND_MKL_SEQUENTIAL AND UNI20_BACKEND_MKL_THREADED)
+  message(FATAL_ERROR "Enable only one of UNI20_BACKEND_MKL_SEQUENTIAL or UNI20_BACKEND_MKL_THREADED.")
+endif()
+
+if(UNI20_BACKEND_MKL_SEQUENTIAL OR UNI20_BACKEND_MKL_THREADED)
+  set(UNI20_BACKEND_MKL ON CACHE BOOL "Enable the compatibility MKL backend extension API selector" FORCE)
 endif()
 
 # Dependency: MKL requires BLAS
@@ -294,6 +312,14 @@ if(UNI20_BACKEND_MKL)
     message(FATAL_ERROR "UNI20_BACKEND_MKL requires UNI20_BACKEND_BLAS to be enabled.")
   endif()
   set(UNI20_BACKEND_BLAS ON CACHE BOOL "Enable the BLAS backend (required by MKL)" FORCE)
+endif()
+
+# Dependency: OpenBLAS extensions require BLAS
+if(UNI20_BACKEND_OPENBLAS)
+  if(DEFINED UNI20_BACKEND_BLAS AND NOT UNI20_BACKEND_BLAS)
+    message(FATAL_ERROR "UNI20_BACKEND_OPENBLAS requires UNI20_BACKEND_BLAS to be enabled.")
+  endif()
+  set(UNI20_BACKEND_BLAS ON CACHE BOOL "Enable the BLAS backend (required by OpenBLAS extensions)" FORCE)
 endif()
 
 # Dependency: cuSOLVER requires CUDA
