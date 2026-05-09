@@ -7,6 +7,7 @@
 #include <complex>
 #include <cstddef>
 #include <initializer_list>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -195,6 +196,11 @@ template <typename Scalar> int compute_scaling_exponent(Matrix<Scalar> const& A4
 {
   double const norm4 = matrix_one_norm(A4);
   double const norm6 = matrix_one_norm(A6);
+  if (!std::isfinite(norm4) || !std::isfinite(norm6))
+  {
+    throw std::overflow_error("matrix powers overflowed while computing expm scaling");
+  }
+
   double const d4 = std::pow(norm4, 0.25);
   double const d6 = std::pow(norm6, 1.0 / 6.0);
   double const eta = std::max(d4, d6);
@@ -210,6 +216,30 @@ template <typename Scalar> int compute_scaling_exponent(Matrix<Scalar> const& A4
   }
 
   double const exponent = std::log2(ratio);
+  if (exponent <= 0.0)
+  {
+    return 0;
+  }
+  return static_cast<int>(std::ceil(exponent));
+}
+
+template <typename Real> int compute_prescaling_exponent(double normA, std::size_t size)
+{
+  if (!std::isfinite(normA))
+  {
+    throw std::overflow_error("expm requires a finite matrix norm");
+  }
+
+  double const dimension = std::max(1.0, static_cast<double>(size));
+  double const safe_power_norm =
+      0.5 * std::pow(static_cast<double>(std::numeric_limits<Real>::max()), 1.0 / 6.0) /
+      std::pow(dimension, 5.0 / 6.0);
+  if (normA <= safe_power_norm)
+  {
+    return 0;
+  }
+
+  double const exponent = std::log2(normA / safe_power_norm);
   if (exponent <= 0.0)
   {
     return 0;
@@ -267,18 +297,23 @@ Matrix<Scalar> expm(Matrix<Scalar> const& matrix, uni20::make_real_t<Scalar> t, 
     return detail::pade9(A);
   }
 
-  Matrix<Scalar> const A2 = multiply(A, A);
+  int const prescaling = detail::compute_prescaling_exponent<Real>(normA, n);
+  Real const prescale = static_cast<Real>(std::ldexp(1.0, -prescaling));
+  Matrix<Scalar> const power_A = prescaling == 0 ? A : scale(A, prescale);
+
+  Matrix<Scalar> const A2 = multiply(power_A, power_A);
   Matrix<Scalar> const A4 = multiply(A2, A2);
   Matrix<Scalar> const A6 = multiply(A4, A2);
 
-  int const s = detail::compute_scaling_exponent(A4, A6);
-  Real const scale_real = static_cast<Real>(std::ldexp(1.0, -s));
-  Matrix<Scalar> const scaled_A = scale(A, scale_real);
+  int const additional_scaling = detail::compute_scaling_exponent(A4, A6);
+  int const s = prescaling + additional_scaling;
+  Real const scale_real = static_cast<Real>(std::ldexp(1.0, -additional_scaling));
+  Matrix<Scalar> const scaled_A = additional_scaling == 0 ? power_A : scale(power_A, scale_real);
 
   Matrix<Scalar> A2_scaled;
   Matrix<Scalar> A4_scaled;
   Matrix<Scalar> A6_scaled;
-  if (s == 0)
+  if (additional_scaling == 0)
   {
     A2_scaled = A2;
     A4_scaled = A4;

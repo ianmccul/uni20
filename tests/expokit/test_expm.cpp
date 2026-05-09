@@ -56,6 +56,21 @@ void ExpectMatrixNear(Matrix<Scalar> const& actual, Matrix<Scalar> const& expect
   }
 }
 
+template <typename Scalar> void ExpectFiniteBounded(Scalar const& value, double bound)
+{
+  if constexpr (uni20::Complex<Scalar>)
+  {
+    EXPECT_TRUE(std::isfinite(static_cast<double>(value.real()))) << "value=" << value;
+    EXPECT_TRUE(std::isfinite(static_cast<double>(value.imag()))) << "value=" << value;
+  }
+  else
+  {
+    EXPECT_TRUE(std::isfinite(static_cast<double>(value))) << "value=" << value;
+  }
+
+  EXPECT_LT(static_cast<double>(std::abs(value)), bound) << "value=" << value;
+}
+
 template <typename Scalar> Matrix<Scalar> MakeIdentity(std::size_t order)
 {
   using Real = uni20::make_real_t<Scalar>;
@@ -117,6 +132,19 @@ template <typename Scalar> Scalar MakeLargeNilpotent()
   return Scalar(Real{1.0e3});
 }
 
+template <typename Scalar> uni20::make_real_t<Scalar> MakeHugeSkewTheta()
+{
+  using Real = uni20::make_real_t<Scalar>;
+  if constexpr (std::is_same_v<Real, float>)
+  {
+    return Real{1.0e20F};
+  }
+  else
+  {
+    return Real{1.0e80};
+  }
+}
+
 } // namespace
 
 template <typename Scalar> class ExpmTypedTest : public ::testing::Test {};
@@ -175,6 +203,25 @@ TYPED_TEST(ExpmTypedTest, SkewSymmetricGeneratesRotation)
   expected(1, 1) = Scalar(cosine);
 
   ExpectMatrixNear(result, expected, RelaxedTolerance<Scalar>());
+}
+
+TYPED_TEST(ExpmTypedTest, HugeSkewSymmetricGeneratorStaysFinite)
+{
+  using Scalar = TypeParam;
+  using Real = uni20::make_real_t<Scalar>;
+  Matrix<Scalar> matrix(2, 2);
+  Real const theta = MakeHugeSkewTheta<Scalar>();
+  matrix(0, 0) = MakeZero<Scalar>();
+  matrix(0, 1) = Scalar(-theta);
+  matrix(1, 0) = Scalar(theta);
+  matrix(1, 1) = MakeZero<Scalar>();
+
+  Matrix<Scalar> const result = EXPOKIT::expm(matrix, Real{1});
+
+  ExpectFiniteBounded(result(0, 0), 2.0);
+  ExpectFiniteBounded(result(0, 1), 2.0);
+  ExpectFiniteBounded(result(1, 0), 2.0);
+  ExpectFiniteBounded(result(1, 1), 2.0);
 }
 
 TYPED_TEST(ExpmTypedTest, HighNormJordanBlockMatchesAnalyticSolution)
