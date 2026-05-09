@@ -153,6 +153,12 @@ current task/epoch/value graph. With `UNI20_DEBUG_DAG=ON`, coroutine
 `ReadBuffer`/`WriteBuffer` parameters become coarse dependency edges before the task
 runs, and concrete buffer `co_await` sites add finer dependency edges.
 
+DOT snapshots also annotate common debug cases:
+
+- blocked readers/writers
+- missing writers for currently blocked reads
+- dependency cycles inferred from blocked-read and producer edges
+
 Optional diagnostic labels:
 
 ```cpp

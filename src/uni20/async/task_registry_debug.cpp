@@ -24,6 +24,7 @@
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #if defined(__unix__) || defined(__APPLE__)
@@ -301,6 +302,223 @@ struct TaskEpochAssociation
     std::size_t epoch_id{0};
     EpochTaskRole role{EpochTaskRole::Reader};
 };
+
+struct EpochDotRecord
+{
+    EpochContext const* epoch{nullptr};
+    EpochDebugInfo info{};
+    EpochContext::DebugSnapshot snapshot{};
+    bool snapshot_available{true};
+};
+
+struct GraphDiagnostics
+{
+    std::vector<std::string> notes{};
+    std::unordered_set<std::size_t> blocked_read_tasks{};
+    std::unordered_set<std::size_t> blocked_write_tasks{};
+    std::unordered_set<std::size_t> cycle_tasks{};
+    std::unordered_set<NodeInfo const*> cycle_nodes{};
+    std::unordered_set<NodeInfo const*> missing_writer_nodes{};
+    std::unordered_set<std::size_t> missing_writer_epochs{};
+};
+
+std::string join_lines(std::vector<std::string> const& lines)
+{
+  std::string out;
+  for (auto const& line : lines)
+  {
+    if (!out.empty()) out += "\n";
+    out += line;
+  }
+  return out;
+}
+
+GraphDiagnostics diagnose_graph(std::vector<std::pair<void*, TaskDebugInfo const*>> const& sorted_tasks,
+                                std::vector<EpochDotRecord> const& epochs)
+{
+  GraphDiagnostics diagnostics;
+
+  std::unordered_map<void*, std::size_t> task_id_by_addr;
+  task_id_by_addr.reserve(sorted_tasks.size());
+  for (auto const& [addr, info] : sorted_tasks)
+    task_id_by_addr.emplace(addr, info->id);
+
+  std::unordered_map<NodeInfo const*, std::vector<std::size_t>> producers_by_node;
+  std::unordered_map<std::string, std::vector<std::string>> wait_graph_edges;
+  std::unordered_map<std::string, std::size_t> task_id_by_key;
+  std::unordered_map<std::string, NodeInfo const*> node_by_key;
+  std::unordered_set<std::string> graph_keys;
+  std::unordered_set<std::string> graph_edge_keys;
+
+  auto task_key = [](std::size_t task_id) { return fmt::format("task:{}", task_id); };
+  auto node_key = [](NodeInfo const* node) { return fmt::format("data:{}", node ? node->global_index() : 0); };
+
+  auto register_task_key = [&](std::size_t task_id) {
+    auto key = task_key(task_id);
+    task_id_by_key.emplace(key, task_id);
+    graph_keys.insert(key);
+    return key;
+  };
+
+  auto register_node_key = [&](NodeInfo const* node) {
+    auto key = node_key(node);
+    node_by_key.emplace(key, node);
+    graph_keys.insert(key);
+    return key;
+  };
+
+  auto add_wait_graph_edge = [&](std::string const& from, std::string const& to) {
+    auto edge_key = from + "->" + to;
+    if (!graph_edge_keys.insert(edge_key).second) return;
+    wait_graph_edges[from].push_back(to);
+    graph_keys.insert(from);
+    graph_keys.insert(to);
+  };
+
+  for (auto const& [addr, info] : sorted_tasks)
+  {
+    (void)addr;
+    auto const task = register_task_key(info->id);
+    for (auto* node : info->read_dependencies)
+    {
+      if (!node) continue;
+      register_node_key(node);
+    }
+    for (auto* node : info->write_dependencies)
+    {
+      if (!node) continue;
+      producers_by_node[node].push_back(info->id);
+      add_wait_graph_edge(task, register_node_key(node));
+    }
+    for (auto const& dependency : info->await_dependencies)
+    {
+      if (!dependency.node) continue;
+      if (dependency.role == EpochTaskRole::Reader)
+      {
+        register_node_key(dependency.node);
+      }
+      else
+      {
+        producers_by_node[dependency.node].push_back(info->id);
+        add_wait_graph_edge(task, register_node_key(dependency.node));
+      }
+    }
+  }
+
+  for (auto const& epoch : epochs)
+  {
+    if (!epoch.snapshot_available) continue;
+    for (auto const& reader : epoch.snapshot.reader_tasks)
+    {
+      if (!reader) continue;
+      auto const task_it = task_id_by_addr.find(reader.address());
+      if (task_it != task_id_by_addr.end())
+      {
+        diagnostics.blocked_read_tasks.insert(task_it->second);
+#if UNI20_DEBUG_DAG
+        if (epoch.snapshot.node)
+        {
+          add_wait_graph_edge(register_node_key(epoch.snapshot.node), register_task_key(task_it->second));
+        }
+#endif
+      }
+    }
+    for (auto const& writer : epoch.snapshot.writer_tasks)
+    {
+      if (!writer) continue;
+      auto const task_it = task_id_by_addr.find(writer.address());
+      if (task_it != task_id_by_addr.end()) diagnostics.blocked_write_tasks.insert(task_it->second);
+    }
+
+    if (!epoch.snapshot.reader_tasks.empty() && epoch.snapshot.phase != EpochContext::Phase::Reading &&
+        epoch.snapshot.phase != EpochContext::Phase::Finished)
+    {
+      bool writer_known = epoch.snapshot.num_writers > 0 || epoch.snapshot.writer_active ||
+                          !epoch.snapshot.writer_tasks.empty();
+#if UNI20_DEBUG_DAG
+      if (epoch.snapshot.node)
+      {
+        auto const producer_it = producers_by_node.find(epoch.snapshot.node);
+        writer_known = writer_known || (producer_it != producers_by_node.end() && !producer_it->second.empty());
+      }
+#endif
+      if (!writer_known)
+      {
+        diagnostics.missing_writer_epochs.insert(epoch.info.id);
+#if UNI20_DEBUG_DAG
+        if (epoch.snapshot.node) diagnostics.missing_writer_nodes.insert(epoch.snapshot.node);
+#endif
+      }
+    }
+  }
+
+  std::unordered_map<std::string, int> color;
+  std::vector<std::string> stack;
+  std::unordered_set<std::string> cycle_keys;
+
+  auto mark_cycle = [&](std::string const& repeated_key) {
+    auto const it = std::find(stack.begin(), stack.end(), repeated_key);
+    if (it == stack.end()) return;
+    for (auto pos = it; pos != stack.end(); ++pos)
+      cycle_keys.insert(*pos);
+    cycle_keys.insert(repeated_key);
+  };
+
+  auto dfs = [&](auto&& self, std::string const& key) -> void {
+    color[key] = 1;
+    stack.push_back(key);
+    auto const edge_it = wait_graph_edges.find(key);
+    if (edge_it != wait_graph_edges.end())
+    {
+      for (auto const& next : edge_it->second)
+      {
+        auto const next_color = color.find(next);
+        if (next_color == color.end() || next_color->second == 0)
+        {
+          self(self, next);
+        }
+        else if (next_color->second == 1)
+        {
+          mark_cycle(next);
+        }
+      }
+    }
+    stack.pop_back();
+    color[key] = 2;
+  };
+
+  for (auto const& key : graph_keys)
+  {
+    auto const it = color.find(key);
+    if (it == color.end() || it->second == 0) dfs(dfs, key);
+  }
+
+  for (auto const& key : cycle_keys)
+  {
+    if (auto const task_it = task_id_by_key.find(key); task_it != task_id_by_key.end())
+    {
+      diagnostics.cycle_tasks.insert(task_it->second);
+    }
+    if (auto const node_it = node_by_key.find(key); node_it != node_by_key.end())
+    {
+      diagnostics.cycle_nodes.insert(node_it->second);
+    }
+  }
+
+  auto const blocked_tasks = diagnostics.blocked_read_tasks.size() + diagnostics.blocked_write_tasks.size();
+  if (blocked_tasks > 0) diagnostics.notes.push_back(fmt::format("blocked tasks: {}", blocked_tasks));
+  if (!diagnostics.missing_writer_epochs.empty())
+  {
+    diagnostics.notes.push_back(fmt::format("missing writers: {}", diagnostics.missing_writer_epochs.size()));
+  }
+  if (!diagnostics.cycle_tasks.empty() || !diagnostics.cycle_nodes.empty())
+  {
+    diagnostics.notes.push_back(fmt::format("dependency cycle: {} task(s), {} data node(s)",
+                                            diagnostics.cycle_tasks.size(), diagnostics.cycle_nodes.size()));
+  }
+
+  return diagnostics;
+}
 
 class TaskRegistryImpl {
   public:
@@ -591,14 +809,6 @@ class TaskRegistryImpl {
 
     std::string graphviz_dot(bool best_effort)
     {
-      struct EpochDotRecord
-      {
-          EpochContext const* epoch{nullptr};
-          EpochDebugInfo info{};
-          EpochContext::DebugSnapshot snapshot{};
-          bool snapshot_available{true};
-      };
-
       std::unordered_map<void*, TaskDebugInfo> tasks_copy;
       std::unordered_map<NodeInfo const*, std::string> node_names_copy;
       std::vector<std::pair<EpochContext const*, EpochDebugInfo>> epoch_records;
@@ -670,6 +880,8 @@ class TaskRegistryImpl {
       std::sort(data_nodes.begin(), data_nodes.end(),
                 [](NodeInfo const* lhs, NodeInfo const* rhs) { return lhs->global_index() < rhs->global_index(); });
 
+      auto const diagnostics = diagnose_graph(sorted_tasks, epochs);
+
       std::vector<std::string> edges;
       auto add_edge = [&](std::string edge) { append_unique_edge(edges, std::move(edge)); };
 
@@ -680,30 +892,55 @@ class TaskRegistryImpl {
       fmt::format_to(std::back_inserter(dot), "  node [fontname=\"monospace\"];\n");
       fmt::format_to(std::back_inserter(dot), "  edge [fontname=\"monospace\"];\n\n");
 
+      if (!diagnostics.notes.empty())
+      {
+        auto const label = "DAG diagnostics\n" + join_lines(diagnostics.notes);
+        fmt::format_to(std::back_inserter(dot),
+                       "  diagnostics [shape=note, style=filled, fillcolor=\"#fff0f0\", color=\"#d62728\", "
+                       "label=\"{}\"];\n\n",
+                       dot_escape(label));
+      }
+
       for (auto* node : data_nodes)
       {
         auto const name_it = node_names_copy.find(node);
-        auto const label =
+        auto label =
             name_it == node_names_copy.end()
                 ? fmt::format("data {}\n{}\naddr={}", node->global_index(), node->type(), node->address())
                 : fmt::format("{}\ndata {}\n{}\naddr={}", name_it->second, node->global_index(), node->type(),
                               node->address());
+        if (diagnostics.missing_writer_nodes.contains(node)) label += "\ndiagnostic: missing writer";
+        if (diagnostics.cycle_nodes.contains(node)) label += "\ndiagnostic: dependency cycle";
+        auto const fillcolor = diagnostics.missing_writer_nodes.contains(node)
+                                   ? "#ffd6d6"
+                                   : (diagnostics.cycle_nodes.contains(node) ? "#ffe1e1" : "#eef7ff");
+        auto const color =
+            (diagnostics.missing_writer_nodes.contains(node) || diagnostics.cycle_nodes.contains(node)) ? "#d62728"
+                                                                                                        : "#7aa6c2";
+        auto const penwidth =
+            (diagnostics.missing_writer_nodes.contains(node) || diagnostics.cycle_nodes.contains(node)) ? "2" : "1";
         fmt::format_to(std::back_inserter(dot),
-                       "  data_{} [shape=cylinder, style=filled, fillcolor=\"#eef7ff\", label=\"{}\"];\n",
-                       node->global_index(), dot_escape(label));
+                       "  data_{} [shape=cylinder, style=filled, fillcolor=\"{}\", color=\"{}\", penwidth={}, "
+                       "label=\"{}\"];\n",
+                       node->global_index(), fillcolor, color, penwidth, dot_escape(label));
       }
 
       if (!data_nodes.empty()) dot += "\n";
 
       for (auto const& epoch : epochs)
       {
-        auto const label = epoch.snapshot_available
-                               ? fmt::format("epoch {}\ngen={}\nphase={}", epoch.info.id, epoch.snapshot.generation,
-                                             to_string(epoch.snapshot.phase))
-                               : fmt::format("epoch {}\nsnapshot unavailable\nlock busy", epoch.info.id);
+        auto label = epoch.snapshot_available
+                         ? fmt::format("epoch {}\ngen={}\nphase={}", epoch.info.id, epoch.snapshot.generation,
+                                       to_string(epoch.snapshot.phase))
+                         : fmt::format("epoch {}\nsnapshot unavailable\nlock busy", epoch.info.id);
+        if (diagnostics.missing_writer_epochs.contains(epoch.info.id)) label += "\ndiagnostic: missing writer";
+        auto const fillcolor = diagnostics.missing_writer_epochs.contains(epoch.info.id) ? "#ffd6d6" : "#f7f7f7";
+        auto const color = diagnostics.missing_writer_epochs.contains(epoch.info.id) ? "#d62728" : "#999999";
+        auto const penwidth = diagnostics.missing_writer_epochs.contains(epoch.info.id) ? "2" : "1";
         fmt::format_to(std::back_inserter(dot),
-                       "  epoch_{} [shape=oval, style=filled, fillcolor=\"#f7f7f7\", label=\"{}\"];\n", epoch.info.id,
-                       dot_escape(label));
+                       "  epoch_{} [shape=oval, style=filled, fillcolor=\"{}\", color=\"{}\", penwidth={}, "
+                       "label=\"{}\"];\n",
+                       epoch.info.id, fillcolor, color, penwidth, dot_escape(label));
       }
 
       if (!epochs.empty()) dot += "\n";
@@ -711,15 +948,32 @@ class TaskRegistryImpl {
       for (auto const& [addr, info_ptr] : sorted_tasks)
       {
         auto const& info = *info_ptr;
-        auto const label =
+        auto label =
             info.display_name.empty()
                 ? fmt::format("task {}\n{}\ntransitions={}\nptr={}", info.id, to_string(info.state),
                               info.transition_count, addr)
                 : fmt::format("{}\ntask {}\n{}\ntransitions={}\nptr={}", info.display_name, info.id,
                               to_string(info.state), info.transition_count, addr);
+        if (diagnostics.blocked_read_tasks.contains(info.id)) label += "\nblocked: read";
+        if (diagnostics.blocked_write_tasks.contains(info.id)) label += "\nblocked: write";
+        if (diagnostics.cycle_tasks.contains(info.id)) label += "\ndiagnostic: dependency cycle";
+        auto const fillcolor =
+            diagnostics.cycle_tasks.contains(info.id)
+                ? "#ffe1e1"
+                : ((diagnostics.blocked_read_tasks.contains(info.id) ||
+                    diagnostics.blocked_write_tasks.contains(info.id))
+                       ? "#fff0cc"
+                       : "#fff7e8");
+        auto const color = diagnostics.cycle_tasks.contains(info.id) ? "#d62728" : "#c48b33";
+        auto const penwidth =
+            (diagnostics.cycle_tasks.contains(info.id) || diagnostics.blocked_read_tasks.contains(info.id) ||
+             diagnostics.blocked_write_tasks.contains(info.id))
+                ? "2"
+                : "1";
         fmt::format_to(std::back_inserter(dot),
-                       "  task_{} [shape=box, style=\"rounded,filled\", fillcolor=\"#fff7e8\", label=\"{}\"];\n",
-                       info.id, dot_escape(label));
+                       "  task_{} [shape=box, style=\"rounded,filled\", fillcolor=\"{}\", color=\"{}\", "
+                       "penwidth={}, label=\"{}\"];\n",
+                       info.id, fillcolor, color, penwidth, dot_escape(label));
       }
 
       if (!sorted_tasks.empty()) dot += "\n";
@@ -731,27 +985,35 @@ class TaskRegistryImpl {
         for (auto* node : info.read_dependencies)
         {
           if (!node) continue;
-          add_edge(fmt::format("  data_{} -> task_{} [label=\"arg read\", style=dashed, color=\"#4c78a8\"];\n",
-                               node->global_index(), info.id));
+          auto const cycle_edge = diagnostics.cycle_nodes.contains(node) && diagnostics.cycle_tasks.contains(info.id);
+          add_edge(fmt::format("  data_{} -> task_{} [label=\"arg read\", style=\"{}\", color=\"{}\"{}];\n",
+                               node->global_index(), info.id, cycle_edge ? "dashed,bold" : "dashed",
+                               cycle_edge ? "#d62728" : "#4c78a8", cycle_edge ? ", penwidth=2" : ""));
         }
         for (auto* node : info.write_dependencies)
         {
           if (!node) continue;
-          add_edge(fmt::format("  task_{} -> data_{} [label=\"arg write\", style=dashed, color=\"#f58518\"];\n",
-                               info.id, node->global_index()));
+          auto const cycle_edge = diagnostics.cycle_nodes.contains(node) && diagnostics.cycle_tasks.contains(info.id);
+          add_edge(fmt::format("  task_{} -> data_{} [label=\"arg write\", style=\"{}\", color=\"{}\"{}];\n",
+                               info.id, node->global_index(), cycle_edge ? "dashed,bold" : "dashed",
+                               cycle_edge ? "#d62728" : "#f58518", cycle_edge ? ", penwidth=2" : ""));
         }
         for (auto const& dependency : info.await_dependencies)
         {
           if (!dependency.node) continue;
+          auto const cycle_edge =
+              diagnostics.cycle_nodes.contains(dependency.node) && diagnostics.cycle_tasks.contains(info.id);
           if (dependency.role == EpochTaskRole::Reader)
           {
-            add_edge(fmt::format("  data_{} -> task_{} [label=\"co_await read\", color=\"#4c78a8\"];\n",
-                                 dependency.node->global_index(), info.id));
+            add_edge(fmt::format("  data_{} -> task_{} [label=\"co_await read\", color=\"{}\"{}];\n",
+                                 dependency.node->global_index(), info.id, cycle_edge ? "#d62728" : "#4c78a8",
+                                 cycle_edge ? ", penwidth=2" : ""));
           }
           else
           {
-            add_edge(fmt::format("  task_{} -> data_{} [label=\"co_await write\", color=\"#f58518\"];\n", info.id,
-                                 dependency.node->global_index()));
+            add_edge(fmt::format("  task_{} -> data_{} [label=\"co_await write\", color=\"{}\"{}];\n", info.id,
+                                 dependency.node->global_index(), cycle_edge ? "#d62728" : "#f58518",
+                                 cycle_edge ? ", penwidth=2" : ""));
           }
         }
       }

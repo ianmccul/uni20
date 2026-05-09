@@ -77,6 +77,7 @@ runtime context. The graph includes:
   parameters
 - concrete `co_await` edges for awaitables that expose async value metadata
 - live epoch wait edges for currently suspended readers and writers
+- best-effort diagnostics for blocked tasks, missing writers, and dependency cycles
 
 Async values and coroutine tasks can be labelled explicitly for diagnostic output:
 
@@ -92,6 +93,13 @@ scheduler.schedule(std::move(task));
 These labels are optional. Unlabelled nodes keep the generic `data N` and `task N`
 labels, and labels do not affect scheduling, dependency tracking, or coroutine
 lifetime.
+
+Diagnostic annotations are intentionally conservative. A missing-writer annotation
+means a task is currently blocked reading an epoch with no visible writer task or
+writer activity in the registry snapshot. A dependency-cycle annotation is inferred
+from current blocked-read wait edges plus tracked producer edges; it identifies a
+likely cycle to inspect, not a proof of terminal font- or scheduler-dependent
+behavior.
 
 Use `TaskRegistry::graphviz_dot_best_effort()` or
 `TaskRegistry::dump_graphviz_file_best_effort(path)` for deadlock/debugger paths.

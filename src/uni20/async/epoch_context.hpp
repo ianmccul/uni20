@@ -194,6 +194,10 @@ class EpochContext {
         int generation{0};
         Phase phase{Phase::Pending};
         EpochContext const* next_epoch{nullptr};
+        int total_writers{0};
+        int num_writers{0};
+        int num_readers{0};
+        bool writer_active{false};
         std::vector<std::coroutine_handle<>> reader_tasks{};
         std::vector<std::coroutine_handle<>> writer_tasks{};
 #if UNI20_DEBUG_DAG
@@ -283,6 +287,10 @@ class EpochContext {
       snapshot.generation = counter_;
       snapshot.phase = phase_;
       snapshot.next_epoch = next_epoch_.get();
+      snapshot.total_writers = total_writers_;
+      snapshot.num_writers = num_writers_;
+      snapshot.num_readers = num_readers_;
+      snapshot.writer_active = writer_active_;
 #if UNI20_DEBUG_DAG
       snapshot.node = node_;
 #endif
@@ -313,6 +321,10 @@ class EpochContext {
       snapshot.generation = counter_;
       snapshot.phase = phase_;
       snapshot.next_epoch = next_epoch_.get();
+      snapshot.total_writers = total_writers_;
+      snapshot.num_writers = num_writers_;
+      snapshot.num_readers = num_readers_;
+      snapshot.writer_active = writer_active_;
 #if UNI20_DEBUG_DAG
       snapshot.node = node_;
 #endif

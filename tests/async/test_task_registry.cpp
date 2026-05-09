@@ -126,6 +126,35 @@ int dump_mode_probe(char const* value)
   return 99;
 }
 
+#if UNI20_DEBUG_DAG
+int dependency_cycle_probe()
+{
+  DebugScheduler sched;
+  Async<int> a;
+  Async<int> b;
+  a.debug_name("cycle a");
+  b.debug_name("cycle b");
+
+  auto task1 = copy_value(b.read(), a.write());
+  auto task2 = copy_value(a.read(), b.write());
+  task1.debug_name("cycle task 1");
+  task2.debug_name("cycle task 2");
+
+  sched.schedule(std::move(task1));
+  sched.schedule(std::move(task2));
+  sched.run();
+
+  auto const dot = TaskRegistry::graphviz_dot();
+  bool const ok = dot.find("DAG diagnostics") != std::string::npos &&
+                  dot.find("dependency cycle") != std::string::npos &&
+                  dot.find("diagnostic: dependency cycle") != std::string::npos &&
+                  dot.find("cycle task 1") != std::string::npos &&
+                  dot.find("cycle task 2") != std::string::npos && dot.find("cycle a") != std::string::npos &&
+                  dot.find("cycle b") != std::string::npos;
+  return ok ? 0 : 1;
+}
+#endif
+
 } // namespace
 #endif
 
@@ -161,6 +190,14 @@ TEST(TaskRegistryDebugDeathTest, DumpModeFallsBackToBasicForUnknownValue)
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_EXIT({ std::_Exit(dump_mode_probe("not-a-mode")); }, ::testing::ExitedWithCode(1), "");
 }
+
+#if UNI20_DEBUG_DAG
+TEST(TaskRegistryDebugDeathTest, GraphvizDotHighlightsDependencyCycle)
+{
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_EXIT({ std::_Exit(dependency_cycle_probe()); }, ::testing::ExitedWithCode(0), "");
+}
+#endif
 
 TEST(TaskRegistryDebugTest, DumpShowsTaskStateAndTransitions)
 {
@@ -311,6 +348,31 @@ TEST(TaskRegistryDebugTest, GraphvizDotShowsOptionalDebugLabels)
 
   EXPECT_EQ(output.read().get_wait(sched), 3);
 }
+
+TEST(TaskRegistryDebugTest, GraphvizDotDiagnosesMissingWriter)
+{
+  DebugScheduler sched;
+  Async<int> value;
+  value.debug_name("unwritten value");
+
+  auto task = wait_for_reader(value.read());
+  task.debug_name("blocked reader");
+  sched.schedule(std::move(task));
+  sched.run();
+
+  auto const dot = TaskRegistry::graphviz_dot();
+  EXPECT_NE(dot.find("DAG diagnostics"), std::string::npos);
+  EXPECT_NE(dot.find("blocked tasks: 1"), std::string::npos);
+  EXPECT_NE(dot.find("missing writer"), std::string::npos);
+  EXPECT_NE(dot.find("blocked: read"), std::string::npos);
+  EXPECT_NE(dot.find("unwritten value"), std::string::npos);
+  EXPECT_NE(dot.find("blocked reader"), std::string::npos);
+
+  sched.schedule(write_value(value.write(), 5));
+  sched.run_all();
+  EXPECT_EQ(value.read().get_wait(sched), 5);
+}
+
 #endif
 
 TEST(TaskRegistryDebugTest, GraphvizDumpFileWritesDot)

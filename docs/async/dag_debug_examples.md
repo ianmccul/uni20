@@ -65,7 +65,8 @@ dot -Tsvg /tmp/uni20-dag-example/async-dag-02-suspended.dot \
 The `02-suspended` graph is the most useful one to inspect: it contains the
 scheduled tasks, async value nodes when `UNI20_DEBUG_DAG=ON`, constructor-captured
 `arg read`/`arg write` edges, concrete `co_await read` edges, and the blocked
-reader waiting for `late_input`.
+reader waiting for `late_input`. The diagnostic note and highlighted nodes mark
+this as a missing-writer case until the later writer is scheduled.
 
 In the gallery output, `reduction-01-constructed` is the best first graph to view.
 It shows the full binary tree before execution. `kernel-shapes-01-constructed`
