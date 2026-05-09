@@ -81,6 +81,17 @@ inspect the same data model without parsing DOT. The graph includes:
 - live epoch wait edges for currently suspended readers and writers
 - best-effort diagnostics for blocked tasks, missing writers, and dependency cycles
 
+Async value node labels show storage identity and current construction state.
+`storage=0x...` is the `shared_storage<T>` control-block identity;
+`state=constructed` means a `T` object exists at snapshot time,
+`state=unconstructed` means the storage exists but does not currently hold a
+constructed `T`, and `state=invalid` means no storage control block was available.
+Shape-like objects that expose `mdspan().extents()` or `extents()` may also show
+`value=shape=(...)`; built-in scalar values show their value. Other constructed
+objects omit the `value=...` line by default. Custom types can provide a one-line
+`uni20_async_debug_value(T const&)` overload in their own namespace to override
+the default.
+
 Async values and coroutine tasks can be labelled explicitly for diagnostic output:
 
 ```cpp

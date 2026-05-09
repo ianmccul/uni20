@@ -70,6 +70,34 @@ AsyncTask copy_value(ReadBuffer<int> reader, WriteBuffer<int> writer)
   co_return;
 }
 
+struct ShapeLikeExtents
+{
+    static constexpr std::size_t rank() noexcept { return 3; }
+
+    [[nodiscard]] std::size_t extent(std::size_t axis) const noexcept
+    {
+      return axis == 0 ? 2U : axis == 1 ? 3U : 4U;
+    }
+};
+
+struct ShapeLikeValue
+{
+    [[nodiscard]] ShapeLikeExtents extents() const noexcept { return {}; }
+};
+
+struct CustomDebugValue
+{
+    int id{0};
+};
+
+struct OpaqueValue
+{};
+
+std::string uni20_async_debug_value(CustomDebugValue const& value)
+{
+  return "custom id=" + std::to_string(value.id);
+}
+
 std::filesystem::path make_temp_dir(std::string_view name)
 {
   auto const stamp = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -363,31 +391,124 @@ TEST(TaskRegistryDebugTest, GraphSnapshotExposesStructuredRecords)
 
   auto const snapshot = TaskRegistry::snapshot();
   auto const diagnostics = TaskRegistry::diagnose_snapshot(snapshot);
-  auto const has_named_data = [&](std::string_view label) {
-    return std::any_of(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [&](auto const& node) {
-      return node.label == label && !node.type.empty() && !node.address.empty();
+  auto const find_named_data = [&](std::string_view label) {
+    return std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [&](auto const& node) {
+      return node.label == label;
     });
   };
   auto const has_named_task = std::any_of(snapshot.tasks.begin(), snapshot.tasks.end(), [](auto const& record) {
     return record.label == "structured copy" && record.state == "suspended" &&
            !record.read_dependencies.empty() && !record.write_dependencies.empty();
   });
+  auto const input_node = find_named_data("structured input");
+  auto const output_node = find_named_data("structured output");
 
   EXPECT_TRUE(snapshot.snapshot_available);
   EXPECT_TRUE(diagnostics.notes.empty());
-  EXPECT_TRUE(has_named_data("structured input"));
-  EXPECT_TRUE(has_named_data("structured output"));
+  ASSERT_NE(input_node, snapshot.data_nodes.end());
+  ASSERT_NE(output_node, snapshot.data_nodes.end());
+  EXPECT_FALSE(input_node->type.empty());
+  EXPECT_FALSE(input_node->storage_address.empty());
+  EXPECT_FALSE(input_node->address.empty());
+  EXPECT_EQ(input_node->state, "constructed");
+  EXPECT_EQ(input_node->value, "3");
+  EXPECT_TRUE(input_node->value_constructed);
+  EXPECT_FALSE(output_node->type.empty());
+  EXPECT_FALSE(output_node->storage_address.empty());
+  EXPECT_EQ(output_node->address, "(unconstructed)");
+  EXPECT_EQ(output_node->state, "unconstructed");
+  EXPECT_TRUE(output_node->value.empty());
+  EXPECT_FALSE(output_node->value_constructed);
   EXPECT_TRUE(has_named_task);
 
   auto const dot = TaskRegistry::graphviz_dot(snapshot, diagnostics);
   EXPECT_NE(dot.find("structured input"), std::string::npos);
   EXPECT_NE(dot.find("structured output"), std::string::npos);
   EXPECT_NE(dot.find("structured copy"), std::string::npos);
+  EXPECT_NE(dot.find("storage=0x"), std::string::npos);
+  EXPECT_NE(dot.find("state=unconstructed"), std::string::npos);
+  EXPECT_NE(dot.find("value=3"), std::string::npos);
+  EXPECT_EQ(dot.find("value=unconstructed"), std::string::npos);
+  EXPECT_EQ(dot.find("value=0x"), std::string::npos);
+  EXPECT_EQ(dot.find("addr=0x0"), std::string::npos);
 
   sched.schedule(std::move(task));
   sched.run_all();
 
+  auto const after_snapshot = TaskRegistry::snapshot();
+  auto const after_output_node =
+      std::find_if(after_snapshot.data_nodes.begin(), after_snapshot.data_nodes.end(), [](auto const& node) {
+        return node.label == "structured output";
+      });
+  ASSERT_NE(after_output_node, after_snapshot.data_nodes.end());
+  EXPECT_TRUE(after_output_node->value_constructed);
+  EXPECT_NE(after_output_node->address, "(unconstructed)");
+  EXPECT_EQ(after_output_node->state, "constructed");
+  EXPECT_EQ(after_output_node->value, "3");
+
   EXPECT_EQ(output.read().get_wait(sched), 3);
+}
+
+TEST(TaskRegistryDebugTest, GraphSnapshotSummarizesShapeLikeValues)
+{
+  Async<ShapeLikeValue> tensor(ShapeLikeValue{});
+  tensor.debug_name("shape-like value");
+
+  auto const snapshot = TaskRegistry::snapshot();
+  auto const tensor_node =
+      std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [](auto const& node) {
+        return node.label == "shape-like value";
+      });
+
+  ASSERT_NE(tensor_node, snapshot.data_nodes.end());
+  EXPECT_EQ(tensor_node->state, "constructed");
+  EXPECT_EQ(tensor_node->value, "shape=(2, 3, 4)");
+
+  auto const dot = TaskRegistry::graphviz_dot(snapshot);
+  EXPECT_NE(dot.find("shape-like value"), std::string::npos);
+  EXPECT_NE(dot.find("state=constructed"), std::string::npos);
+  EXPECT_NE(dot.find("value=shape=(2, 3, 4)"), std::string::npos);
+}
+
+TEST(TaskRegistryDebugTest, GraphSnapshotUsesCustomDebugValueHook)
+{
+  Async<CustomDebugValue> value(CustomDebugValue{7});
+  value.debug_name("custom value");
+
+  auto const snapshot = TaskRegistry::snapshot();
+  auto const value_node =
+      std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [](auto const& node) {
+        return node.label == "custom value";
+      });
+
+  ASSERT_NE(value_node, snapshot.data_nodes.end());
+  EXPECT_EQ(value_node->state, "constructed");
+  EXPECT_EQ(value_node->value, "custom id=7");
+
+  auto const dot = TaskRegistry::graphviz_dot(snapshot);
+  EXPECT_NE(dot.find("custom value"), std::string::npos);
+  EXPECT_NE(dot.find("value=custom id=7"), std::string::npos);
+}
+
+TEST(TaskRegistryDebugTest, GraphSnapshotOmitsValueForOpaqueConstructedTypes)
+{
+  Async<OpaqueValue> value(OpaqueValue{});
+  value.debug_name("opaque value");
+
+  auto const snapshot = TaskRegistry::snapshot();
+  auto const value_node =
+      std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [](auto const& node) {
+        return node.label == "opaque value";
+      });
+
+  ASSERT_NE(value_node, snapshot.data_nodes.end());
+  EXPECT_EQ(value_node->state, "constructed");
+  EXPECT_TRUE(value_node->value.empty());
+
+  auto const dot = TaskRegistry::graphviz_dot(snapshot);
+  EXPECT_NE(dot.find("opaque value"), std::string::npos);
+  EXPECT_NE(dot.find("state=constructed"), std::string::npos);
+  EXPECT_EQ(dot.find("value=constructed"), std::string::npos);
 }
 
 TEST(TaskRegistryDebugTest, GraphvizDotDiagnosesMissingWriter)

@@ -557,9 +557,10 @@ std::string render_graphviz(GraphSnapshot const& snapshot, GraphDiagnostics cons
 
   for (auto const& node : snapshot.data_nodes)
   {
-    auto label = node.label.empty() ? fmt::format("data {}\n{}\naddr={}", node.id, node.type, node.address)
-                                    : fmt::format("{}\ndata {}\n{}\naddr={}", node.label, node.id, node.type,
-                                                  node.address);
+    auto detail = fmt::format("storage={}\nstate={}", node.storage_address, node.state);
+    if (!node.value.empty()) detail += fmt::format("\nvalue={}", node.value);
+    auto label = node.label.empty() ? fmt::format("data {}\n{}\n{}", node.id, node.type, detail)
+                                    : fmt::format("{}\ndata {}\n{}\n{}", node.label, node.id, node.type, detail);
     if (contains_value(diagnostics.missing_writer_node_ids, node.id)) label += "\ndiagnostic: missing writer";
     if (contains_value(diagnostics.cycle_node_ids, node.id)) label += "\ndiagnostic: dependency cycle";
     auto const fillcolor = contains_value(diagnostics.missing_writer_node_ids, node.id)
@@ -1069,7 +1070,11 @@ class TaskRegistryImpl {
           record.label = name_it->second;
         }
         record.type = std::string(node->type());
-        record.address = fmt::format("{}", node->address());
+        record.storage_address = node->storage_address() ? fmt::format("{}", node->storage_address()) : "(unknown)";
+        record.value_constructed = node->value_constructed();
+        record.state = std::string(node->value_state_label());
+        record.address = node->address() ? fmt::format("{}", node->address()) : "(unconstructed)";
+        record.value = node->value_text();
         graph.data_nodes.push_back(std::move(record));
       }
 

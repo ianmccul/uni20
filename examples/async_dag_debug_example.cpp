@@ -70,19 +70,64 @@ void print_build_mode()
   fmt::print("UNI20_DEBUG_DAG=ON: DOT includes async value nodes plus coarse and concrete buffer edges.\n");
 #elif UNI20_DEBUG_ASYNC_TASKS
   fmt::print("UNI20_DEBUG_ASYNC_TASKS=ON, UNI20_DEBUG_DAG=OFF: DOT includes task/epoch state but no value edges.\n");
+  fmt::print("Rebuild with -DUNI20_DEBUG_DAG=ON to include async value nodes and dependency edges.\n");
 #else
-  fmt::print("UNI20_DEBUG_ASYNC_TASKS=OFF: TaskRegistry is a dummy; rebuild with -DUNI20_DEBUG_DAG=ON for useful DOT.\n");
+  fmt::print("UNI20_DEBUG_ASYNC_TASKS=OFF: TaskRegistry is a dummy and Graphviz DOT output would be empty.\n");
 #endif
+}
+
+bool task_registry_enabled() noexcept
+{
+#if UNI20_DEBUG_ASYNC_TASKS
+  return true;
+#else
+  return false;
+#endif
+}
+
+void print_rebuild_hint()
+{
+  fmt::print("No DOT files were written.\n");
+  fmt::print("Configure and build a DAG-instrumented example with:\n\n");
+  fmt::print("  cmake -S . -B ./build_codex/build_gcc13_debug_dag \\\n");
+  fmt::print("    -DCMAKE_BUILD_TYPE=Debug \\\n");
+  fmt::print("    -DUNI20_DEBUG_DAG=ON\n");
+  fmt::print("  cmake --build ./build_codex/build_gcc13_debug_dag --target async_dag_debug_example\n\n");
+  fmt::print("Then run:\n");
+  fmt::print("  ./build_codex/build_gcc13_debug_dag/examples/async_dag_debug_example /tmp/uni20-dag-example\n");
+}
+
+void print_graph_legend(std::filesystem::path const& output_dir)
+{
+  fmt::print("\nHow to read the DAG snapshots:\n");
+  fmt::print("  data_N  : Async<T> value node; labels show storage identity, state, and optional value.\n");
+  fmt::print("            state=unconstructed means shared_storage has no current T object.\n");
+  fmt::print("  task_N  : coroutine task; state is constructed/running/suspended/leaked.\n");
+  fmt::print("  epoch_N : read/write ordering generation for one async value.\n");
+  fmt::print("  arg read/write     : coarse constructor-time ReadBuffer/WriteBuffer dependency.\n");
+  fmt::print("  co_await read/write: dependency observed when the coroutine actually awaited.\n");
+  fmt::print("  await read/write   : task currently queued on an epoch.\n");
+  fmt::print("  red or pink        : diagnostic highlight, such as missing writer or dependency cycle.\n");
+  fmt::print("  later snapshots may be sparse after completed tasks and epochs are destroyed.\n");
+  fmt::print("Start with: {}\n", dot_path(output_dir, "02-suspended").string());
+  fmt::print("For more detail see docs/async/dag_debug_examples.md\n");
 }
 
 } // namespace
 
 int main(int argc, char** argv)
 {
+  print_build_mode();
+
+  if (!task_registry_enabled())
+  {
+    print_rebuild_hint();
+    return 1;
+  }
+
   auto output_dir = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::path("async-dag-example-output");
   std::filesystem::create_directories(output_dir);
 
-  print_build_mode();
   fmt::print("Graphviz DOT output directory: {}\n", output_dir.string());
 
   DebugScheduler scheduler;
@@ -149,5 +194,6 @@ int main(int argc, char** argv)
 
   fmt::print("Final value: {}\n", late_scaled.get_wait(scheduler));
   fmt::print("Render one DOT file with: dot -Tsvg {} -o async-dag.svg\n", dot_path(output_dir, "02-suspended").string());
+  print_graph_legend(output_dir);
   return 0;
 }

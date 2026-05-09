@@ -26,7 +26,11 @@ struct TaskRegistryGraphDataNode
     std::uint64_t id{0};
     std::string label{};
     std::string type{};
+    std::string storage_address{};
     std::string address{};
+    std::string state{};
+    std::string value{};
+    bool value_constructed{true};
 };
 
 /// \brief Concrete awaited dependency captured for a task.

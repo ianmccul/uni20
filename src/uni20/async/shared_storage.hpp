@@ -12,6 +12,8 @@
 namespace uni20::async
 {
 
+class NodeInfo;
+
 /// \brief A lightweight, thread-safe, reference-counted storage for a single object.
 /// \details
 /// Unlike `std::shared_ptr<T>`, `shared_storage<T>` can exist in an *unconstructed* state,
@@ -41,6 +43,8 @@ namespace uni20::async
 /// (eg for tensor views)
 template <typename T> class shared_storage {
   private:
+    friend class NodeInfo;
+
     /// \brief Control block holding storage, construction flag, and reference count.
     struct control_block
     {
@@ -90,6 +94,25 @@ template <typename T> class shared_storage {
     /// \brief Construct from a raw control block pointer.
     /// \param c Control block pointer.
     explicit shared_storage(control_block* c) noexcept : ctrl_(c) {}
+
+    /// \brief Reports construction state for diagnostic observers.
+    /// \param control Raw control-block pointer.
+    /// \return `true` when the control block currently contains a constructed value.
+    [[nodiscard]] static bool diagnostic_constructed_from_control(void const* control) noexcept
+    {
+      auto const* block = static_cast<control_block const*>(control);
+      return block && block->constructed.load(std::memory_order_acquire);
+    }
+
+    /// \brief Returns the current value address for diagnostic observers.
+    /// \param control Raw control-block pointer.
+    /// \return Constructed value address, or `nullptr` when unconstructed.
+    [[nodiscard]] static void const* diagnostic_value_address_from_control(void const* control) noexcept
+    {
+      auto* block = const_cast<control_block*>(static_cast<control_block const*>(control));
+      return block && block->constructed.load(std::memory_order_acquire) ? static_cast<void const*>(block->ptr())
+                                                                         : nullptr;
+    }
 
   public:
     using element_type = T;
@@ -155,6 +178,10 @@ template <typename T> class shared_storage {
     /// \brief Reports whether a control block is present.
     /// \return `true` when this handle owns or shares storage metadata.
     [[nodiscard]] bool valid() const noexcept { return ctrl_ != nullptr; }
+
+    /// \brief Returns the storage control-block address for diagnostics.
+    /// \return Raw control-block address, or `nullptr` when no control block is present.
+    [[nodiscard]] void const* control_address() const noexcept { return static_cast<void const*>(ctrl_); }
 
     /// \brief Returns the current strong reference count.
     /// \return Number of `shared_storage` handles sharing this control block.

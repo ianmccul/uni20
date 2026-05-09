@@ -61,10 +61,10 @@ class EpochQueue {
 #if UNI20_DEBUG_DAG
     /// \brief Initializes the debug DAG node shared by all epochs in this queue.
     /// \tparam T Async value type represented by the queue.
-    /// \param value Pointer to the current value, possibly null when the storage is unconstructed.
-    template <typename T> void initialize_node(T const* value)
+    /// \param storage Storage represented by the DAG node.
+    template <typename T> void initialize_node(shared_storage<T> const& storage)
     {
-      if (current_) current_->set_node(NodeInfo::create(value));
+      if (current_) current_->set_node(NodeInfo::create(storage));
     }
 
     /// \brief Returns the debug DAG node for the latest epoch.

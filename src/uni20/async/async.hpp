@@ -69,7 +69,7 @@ template <typename T> class Async {
     {
       queue_.latest()->start();
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_.get());
+      queue_.initialize_node(storage_);
 #endif
     }
 
@@ -79,7 +79,7 @@ template <typename T> class Async {
     {
       (void)tag;
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_.get());
+      queue_.initialize_node(storage_);
 #endif
     }
 
@@ -93,7 +93,7 @@ template <typename T> class Async {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_.get());
+      queue_.initialize_node(storage_);
 #endif
     }
 
@@ -107,7 +107,7 @@ template <typename T> class Async {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_.get());
+      queue_.initialize_node(storage_);
 #endif
     }
 
@@ -121,7 +121,7 @@ template <typename T> class Async {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_.get());
+      queue_.initialize_node(storage_);
 #endif
     }
 
@@ -139,7 +139,7 @@ template <typename T> class Async {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_.get());
+      queue_.initialize_node(storage_);
 #endif
     }
 
@@ -205,7 +205,7 @@ template <typename T> class Async {
     //       storage_->reset_external_pointer(ptr, control);
     //       queue_.initialize(initial_value_initialized());
     // #if UNI20_DEBUG_DAG
-    //       queue_.initialize_node(storage_->get());
+    //       queue_.initialize_node(storage_);
     // #endif
     //     }
 
@@ -221,7 +221,7 @@ template <typename T> class Async {
       if (!control) throw std::invalid_argument("Async deferred control block cannot be null");
       storage_.emplace(*control);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_.get());
+      queue_.initialize_node(storage_);
 #endif
     }
 
@@ -243,7 +243,7 @@ template <typename T> class Async {
       (void)tag;
       (void)parent;
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_.get());
+      queue_.initialize_node(storage_);
 #endif
     }
 
