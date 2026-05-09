@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -349,6 +350,46 @@ TEST(TaskRegistryDebugTest, GraphvizDotShowsOptionalDebugLabels)
   EXPECT_EQ(output.read().get_wait(sched), 3);
 }
 
+TEST(TaskRegistryDebugTest, GraphSnapshotExposesStructuredRecords)
+{
+  DebugScheduler sched;
+  Async<int> input(3);
+  Async<int> output;
+  input.debug_name("structured input");
+  output.debug_name("structured output");
+
+  auto task = copy_value(input.read(), output.write());
+  task.debug_name("structured copy");
+
+  auto const snapshot = TaskRegistry::snapshot();
+  auto const diagnostics = TaskRegistry::diagnose_snapshot(snapshot);
+  auto const has_named_data = [&](std::string_view label) {
+    return std::any_of(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [&](auto const& node) {
+      return node.label == label && !node.type.empty() && !node.address.empty();
+    });
+  };
+  auto const has_named_task = std::any_of(snapshot.tasks.begin(), snapshot.tasks.end(), [](auto const& record) {
+    return record.label == "structured copy" && record.state == "suspended" &&
+           !record.read_dependencies.empty() && !record.write_dependencies.empty();
+  });
+
+  EXPECT_TRUE(snapshot.snapshot_available);
+  EXPECT_TRUE(diagnostics.notes.empty());
+  EXPECT_TRUE(has_named_data("structured input"));
+  EXPECT_TRUE(has_named_data("structured output"));
+  EXPECT_TRUE(has_named_task);
+
+  auto const dot = TaskRegistry::graphviz_dot(snapshot, diagnostics);
+  EXPECT_NE(dot.find("structured input"), std::string::npos);
+  EXPECT_NE(dot.find("structured output"), std::string::npos);
+  EXPECT_NE(dot.find("structured copy"), std::string::npos);
+
+  sched.schedule(std::move(task));
+  sched.run_all();
+
+  EXPECT_EQ(output.read().get_wait(sched), 3);
+}
+
 TEST(TaskRegistryDebugTest, GraphvizDotDiagnosesMissingWriter)
 {
   DebugScheduler sched;
@@ -359,6 +400,16 @@ TEST(TaskRegistryDebugTest, GraphvizDotDiagnosesMissingWriter)
   task.debug_name("blocked reader");
   sched.schedule(std::move(task));
   sched.run();
+
+  auto const snapshot = TaskRegistry::snapshot();
+  auto const diagnostics = TaskRegistry::diagnose_snapshot(snapshot);
+  EXPECT_EQ(diagnostics.blocked_read_task_ids.size(), 1U);
+  EXPECT_EQ(diagnostics.missing_writer_epoch_ids.size(), 1U);
+  EXPECT_EQ(diagnostics.missing_writer_node_ids.size(), 1U);
+
+  auto const dot_from_snapshot = TaskRegistry::graphviz_dot(snapshot, diagnostics);
+  EXPECT_NE(dot_from_snapshot.find("DAG diagnostics"), std::string::npos);
+  EXPECT_NE(dot_from_snapshot.find("missing writer"), std::string::npos);
 
   auto const dot = TaskRegistry::graphviz_dot();
   EXPECT_NE(dot.find("DAG diagnostics"), std::string::npos);

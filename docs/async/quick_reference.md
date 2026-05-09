@@ -153,6 +153,11 @@ current task/epoch/value graph. With `UNI20_DEBUG_DAG=ON`, coroutine
 `ReadBuffer`/`WriteBuffer` parameters become coarse dependency edges before the task
 runs, and concrete buffer `co_await` sites add finer dependency edges.
 
+Use `TaskRegistry::snapshot()` for structured records, then
+`TaskRegistry::diagnose_snapshot(snapshot)` for blocked-task, missing-writer, and
+cycle annotations. `TaskRegistry::graphviz_dot(snapshot, diagnostics)` renders the
+same captured point in time as DOT without recapturing runtime state.
+
 DOT snapshots also annotate common debug cases:
 
 - blocked readers/writers

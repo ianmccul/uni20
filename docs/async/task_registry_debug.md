@@ -68,7 +68,9 @@ This gives useful suspension context without requiring high-overhead always-on e
 ### Graphviz DAG snapshots
 
 `TaskRegistry::graphviz_dot()` returns a Graphviz DOT document for the current async
-runtime context. The graph includes:
+runtime context. Internally this is a renderer over a structured
+`TaskRegistry::GraphSnapshot` plus `TaskRegistry::GraphDiagnostics`, so callers can
+inspect the same data model without parsing DOT. The graph includes:
 
 - task nodes with lifecycle state
 - epoch nodes with phase/generation
@@ -105,6 +107,13 @@ Use `TaskRegistry::graphviz_dot_best_effort()` or
 `TaskRegistry::dump_graphviz_file_best_effort(path)` for deadlock/debugger paths.
 The best-effort path avoids indefinite waits on registry and epoch locks; if a lock
 is busy, the DOT output marks that part of the snapshot as unavailable.
+
+Use `TaskRegistry::snapshot()` when program code wants structured task, epoch, and
+async-value records. `TaskRegistry::diagnose_snapshot(snapshot)` derives blocked
+task, missing-writer, and dependency-cycle annotations from that immutable snapshot.
+`TaskRegistry::graphviz_dot(snapshot, diagnostics)` renders a pre-captured snapshot,
+which is useful when another subsystem needs both structured diagnostics and a DOT
+artifact from the same point in time.
 
 The snapshot APIs are intended for diagnostics at normal program checkpoints,
 deadlock handlers, debugger calls, or controlled interruption paths. They are not
@@ -167,8 +176,12 @@ Default output and service settings can be configured with environment variables
 |---|---|
 | `TaskRegistry::dump()` | full global dump (deadlock triage path) |
 | `TaskRegistry::dump_epoch_context(epoch, reason)` | focused dump for one epoch |
+| `TaskRegistry::snapshot()` | captures the current task/epoch/value graph as structured records |
+| `TaskRegistry::snapshot_best_effort()` | captures a structured snapshot without indefinite lock waits |
+| `TaskRegistry::diagnose_snapshot(snapshot)` | derives blocked-task, missing-writer, and cycle annotations |
 | `TaskRegistry::graphviz_dot()` | returns current task/epoch/value DAG as Graphviz DOT |
 | `TaskRegistry::graphviz_dot_best_effort()` | returns a partial DOT snapshot without indefinite lock waits |
+| `TaskRegistry::graphviz_dot(snapshot, diagnostics)` | renders a captured snapshot and annotations as DOT |
 | `TaskRegistry::dump_graphviz(stream)` | writes DOT to a C stream, stderr by default |
 | `TaskRegistry::dump_graphviz_file(path)` | writes DOT to a file |
 | `TaskRegistry::dump_graphviz_file_best_effort(path)` | writes a best-effort DOT snapshot to a file |

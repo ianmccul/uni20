@@ -5,6 +5,8 @@
  * \brief Provides a no-op task registry used when async debug tracking is disabled.
  */
 
+#include "task_registry_snapshot.hpp"
+
 #include <coroutine>
 #include <cstdio>
 #include <string>
@@ -62,6 +64,12 @@ class TaskRegistry {
         int poll_interval_ms{250};
         bool block_signal_in_calling_thread{true};
     };
+
+    /// \brief Structured async DAG snapshot type mirrored from the debug registry.
+    using GraphSnapshot = TaskRegistryGraphSnapshot;
+
+    /// \brief Structured async DAG diagnostic result type mirrored from the debug registry.
+    using GraphDiagnostics = TaskRegistryGraphDiagnostics;
 
     /// \brief No-op task registration hook.
     /// \param h Coroutine handle ignored in dummy mode.
@@ -181,12 +189,44 @@ class TaskRegistry {
     }
     /// \brief No-op global dump hook.
     static constexpr void dump() noexcept {}
+    /// \brief Returns an empty structured graph snapshot in dummy mode.
+    /// \return Empty graph snapshot.
+    static GraphSnapshot snapshot() { return GraphSnapshot{}; }
+    /// \brief Returns an empty best-effort structured graph snapshot in dummy mode.
+    /// \return Empty graph snapshot.
+    static GraphSnapshot snapshot_best_effort() { return snapshot(); }
+    /// \brief Returns empty diagnostics for a graph snapshot in dummy mode.
+    /// \param snapshot Graph snapshot ignored in dummy mode.
+    /// \return Empty diagnostics.
+    static GraphDiagnostics diagnose_snapshot(GraphSnapshot const& snapshot)
+    {
+      static_cast<void>(snapshot);
+      return GraphDiagnostics{};
+    }
     /// \brief Returns an empty Graphviz DOT document in dummy mode.
     /// \return Empty async DAG graph.
     static std::string graphviz_dot() { return "digraph uni20_async_dag {\n  rankdir=LR;\n}\n"; }
     /// \brief Returns an empty best-effort Graphviz DOT document in dummy mode.
     /// \return Empty async DAG graph.
     static std::string graphviz_dot_best_effort() { return graphviz_dot(); }
+    /// \brief Renders a graph snapshot as Graphviz DOT in dummy mode.
+    /// \param snapshot Graph snapshot ignored in dummy mode.
+    /// \return Empty async DAG graph.
+    static std::string graphviz_dot(GraphSnapshot const& snapshot)
+    {
+      static_cast<void>(snapshot);
+      return graphviz_dot();
+    }
+    /// \brief Renders a graph snapshot and diagnostics as Graphviz DOT in dummy mode.
+    /// \param snapshot Graph snapshot ignored in dummy mode.
+    /// \param diagnostics Diagnostics ignored in dummy mode.
+    /// \return Empty async DAG graph.
+    static std::string graphviz_dot(GraphSnapshot const& snapshot, GraphDiagnostics const& diagnostics)
+    {
+      static_cast<void>(snapshot);
+      static_cast<void>(diagnostics);
+      return graphviz_dot();
+    }
     /// \brief Prints an empty Graphviz DOT document in dummy mode.
     /// \param stream Destination stream.
     static void dump_graphviz(std::FILE* stream = stderr)

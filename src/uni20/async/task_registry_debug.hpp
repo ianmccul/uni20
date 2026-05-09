@@ -5,6 +5,8 @@
  * \brief Declares the debug task registry used for async coroutine diagnostics.
  */
 
+#include "task_registry_snapshot.hpp"
+
 #include <coroutine>
 #include <cstdio>
 #include <string>
@@ -68,6 +70,12 @@ class TaskRegistryDebug {
         int poll_interval_ms{250};
         bool block_signal_in_calling_thread{true};
     };
+
+    /// \brief Structured async DAG snapshot type.
+    using GraphSnapshot = TaskRegistryGraphSnapshot;
+
+    /// \brief Structured async DAG diagnostic result type.
+    using GraphDiagnostics = TaskRegistryGraphDiagnostics;
 
     /// \brief Registers a newly-created coroutine handle.
     /// \param h Coroutine handle to register.
@@ -137,12 +145,31 @@ class TaskRegistryDebug {
     /// \param epoch_context Epoch context to print.
     /// \param reason Optional label for the dump trigger.
     static void dump_epoch_context(async::EpochContext const* epoch_context, char const* reason = nullptr);
+    /// \brief Captures the current task/epoch/value DAG as structured data.
+    /// \return Structured graph snapshot.
+    static GraphSnapshot snapshot();
+    /// \brief Captures a best-effort task/epoch/value DAG snapshot without indefinite lock waits.
+    /// \return Structured graph snapshot, possibly marked unavailable or partial.
+    static GraphSnapshot snapshot_best_effort();
+    /// \brief Diagnoses blocked tasks, missing writers, and dependency cycles in a graph snapshot.
+    /// \param snapshot Structured graph snapshot to inspect.
+    /// \return Diagnostic annotations for the snapshot.
+    static GraphDiagnostics diagnose_snapshot(GraphSnapshot const& snapshot);
     /// \brief Returns a Graphviz DOT snapshot of the currently tracked async DAG.
     /// \return Graphviz DOT document describing tasks, epochs, and tracked dependencies.
     static std::string graphviz_dot();
     /// \brief Returns a best-effort Graphviz DOT snapshot without waiting indefinitely for locks.
     /// \return Graphviz DOT document, possibly partial if debug locks are currently held.
     static std::string graphviz_dot_best_effort();
+    /// \brief Renders a graph snapshot as Graphviz DOT.
+    /// \param snapshot Structured graph snapshot to render.
+    /// \return Graphviz DOT document.
+    static std::string graphviz_dot(GraphSnapshot const& snapshot);
+    /// \brief Renders a graph snapshot and diagnostics as Graphviz DOT.
+    /// \param snapshot Structured graph snapshot to render.
+    /// \param diagnostics Diagnostic annotations for the snapshot.
+    /// \return Graphviz DOT document.
+    static std::string graphviz_dot(GraphSnapshot const& snapshot, GraphDiagnostics const& diagnostics);
     /// \brief Prints a Graphviz DOT snapshot to a C stream.
     /// \param stream Destination stream. Defaults to stderr.
     static void dump_graphviz(std::FILE* stream = stderr);
