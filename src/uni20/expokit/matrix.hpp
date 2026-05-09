@@ -1,5 +1,7 @@
 #pragma once
 
+#include <uni20/core/scalar_traits.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -153,12 +155,14 @@ template <typename T, typename Scalar> Matrix<T> scale(Matrix<T> const& mat, Sca
 /// \tparam T Element type of the matrix.
 /// \param mat Input matrix.
 /// \return The induced matrix 1-norm of \p mat.
-template <typename T> double matrix_one_norm(Matrix<T> const& mat)
+template <typename T> uni20::accumulation_real_t<T> matrix_one_norm(Matrix<T> const& mat)
 {
-  double result = 0.0;
+  using Real = uni20::accumulation_real_t<T>;
+
+  Real result = Real{};
   for (std::size_t j = 0; j < mat.cols(); ++j)
   {
-    double column_sum = 0.0;
+    Real column_sum = Real{};
     for (std::size_t i = 0; i < mat.rows(); ++i)
     {
       column_sum += std::abs(mat(i, j));
@@ -210,7 +214,7 @@ template <typename T> Matrix<T> matrix_power(Matrix<T> const& mat, unsigned int 
 /// \param mat Input matrix.
 /// \param power Non-negative integer exponent.
 /// \return The 1-norm of \f$mat^{\text{power}}\f$.
-template <typename T> double matrix_one_norm_power(Matrix<T> const& mat, unsigned int power)
+template <typename T> uni20::accumulation_real_t<T> matrix_one_norm_power(Matrix<T> const& mat, unsigned int power)
 {
   Matrix<T> powered = matrix_power(mat, power);
   return matrix_one_norm(powered);
@@ -248,14 +252,15 @@ template <typename T> Matrix<T> solve_linear_system(Matrix<T> A, Matrix<T> B)
 
   std::size_t n = A.rows();
   std::size_t nrhs = B.cols();
+  using Real = uni20::accumulation_real_t<T>;
 
   for (std::size_t k = 0; k < n; ++k)
   {
     std::size_t pivot_row = k;
-    double pivot_value = std::abs(A(k, k));
+    Real pivot_value = std::abs(A(k, k));
     for (std::size_t i = k + 1; i < n; ++i)
     {
-      double candidate = std::abs(A(i, k));
+      Real candidate = std::abs(A(i, k));
       if (candidate > pivot_value)
       {
         pivot_value = candidate;

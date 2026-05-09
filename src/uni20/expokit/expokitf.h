@@ -38,7 +38,7 @@ namespace EXPOKIT
 ///          Al-Mohy & Higham (2011) while maintaining compatibility with the classical
 ///          EXPOKIT interfaces derived from Sidje (1998). The routine automatically selects
 ///          between Pad\'e degrees {3, 5, 7, 9, 13} based on matrix norms.
-/// \tparam Scalar Matrix element type; may be real or complex in single or double precision.
+/// \tparam Scalar Matrix element type; may be real or complex in single, double, or extended precision.
 /// \param matrix Matrix whose exponential will be evaluated.
 /// \param t Scalar multiplier applied to \p matrix before exponentiation.
 /// \param ideg Legacy Pad\'e degree hint retained for compatibility.

@@ -149,7 +149,8 @@ template <typename Scalar> uni20::make_real_t<Scalar> MakeHugeSkewTheta()
 
 template <typename Scalar> class ExpmTypedTest : public ::testing::Test {};
 
-using ExpmTypes = ::testing::Types<float, double, std::complex<float>, std::complex<double>>;
+using ExpmTypes = ::testing::Types<float, double, long double, std::complex<float>, std::complex<double>,
+                                   std::complex<long double>>;
 TYPED_TEST_SUITE(ExpmTypedTest, ExpmTypes);
 
 TYPED_TEST(ExpmTypedTest, ZeroMatrixReturnsIdentity)
@@ -191,7 +192,7 @@ TYPED_TEST(ExpmTypedTest, SkewSymmetricGeneratesRotation)
   matrix(1, 0) = MakeOne<Scalar>();
   matrix(1, 1) = MakeZero<Scalar>();
 
-  Real const angle = static_cast<Real>(std::numbers::pi / 2.0);
+  Real const angle = std::numbers::pi_v<Real> / Real{2};
   Matrix<Scalar> const result = EXPOKIT::expm(matrix, angle);
 
   Matrix<Scalar> expected(2, 2);
@@ -222,6 +223,38 @@ TYPED_TEST(ExpmTypedTest, HugeSkewSymmetricGeneratorStaysFinite)
   ExpectFiniteBounded(result(0, 1), 2.0);
   ExpectFiniteBounded(result(1, 0), 2.0);
   ExpectFiniteBounded(result(1, 1), 2.0);
+}
+
+template <typename Scalar> void RunOverflowedOneNormSkewSymmetricGeneratorStaysFinite()
+{
+  using Real = uni20::make_real_t<Scalar>;
+  Real const theta = Real{1.0e308};
+  Matrix<Scalar> matrix(3, 3);
+  matrix(0, 0) = MakeZero<Scalar>();
+  matrix(0, 1) = Scalar(-theta);
+  matrix(0, 2) = Scalar(theta);
+  matrix(1, 0) = Scalar(theta);
+  matrix(1, 1) = MakeZero<Scalar>();
+  matrix(1, 2) = Scalar(-theta);
+  matrix(2, 0) = Scalar(-theta);
+  matrix(2, 1) = Scalar(theta);
+  matrix(2, 2) = MakeZero<Scalar>();
+
+  Matrix<Scalar> const result = EXPOKIT::expm(matrix, Real{1});
+
+  for (std::size_t i = 0; i < result.rows(); ++i)
+  {
+    for (std::size_t j = 0; j < result.cols(); ++j)
+    {
+      ExpectFiniteBounded(result(i, j), 2.0);
+    }
+  }
+}
+
+TEST(ExpmTest, OverflowedOneNormSkewSymmetricGeneratorStaysFinite)
+{
+  RunOverflowedOneNormSkewSymmetricGeneratorStaysFinite<double>();
+  RunOverflowedOneNormSkewSymmetricGeneratorStaysFinite<std::complex<double>>();
 }
 
 TYPED_TEST(ExpmTypedTest, HighNormJordanBlockMatchesAnalyticSolution)

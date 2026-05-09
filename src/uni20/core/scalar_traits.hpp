@@ -151,6 +151,23 @@ struct make_real<T>
 /// \ingroup core_math
 template <typename T> using make_real_t = typename make_real<T>::type;
 
+/// \brief Metafunction selecting a wider real type for accumulation.
+/// \details Maps `float` to `double`, `double` to `long double`, and leaves
+///          wider/custom real types unchanged. Complex inputs use their underlying real type.
+/// \tparam T Real or complex scalar type to promote for accumulation.
+/// \ingroup core_math
+template <typename T> struct accumulation_real
+{
+    using real_type = make_real_t<std::remove_cvref_t<T>>;
+    using type = std::conditional_t<std::same_as<real_type, float>, double,
+                                    std::conditional_t<std::same_as<real_type, double>, long double, real_type>>;
+};
+
+/// \brief Alias for the wider real accumulation type associated with `T`.
+/// \tparam T Real or complex scalar type to promote for accumulation.
+/// \ingroup core_math
+template <typename T> using accumulation_real_t = typename accumulation_real<T>::type;
+
 /// \brief Metafunction to convert a type to its complexified analog.
 /// \details For real scalar types (e.g., `float`, `double`), returns `std::complex<T>`.
 ///          For types that already have a complex scalar (including containers), returns `T` unchanged.
