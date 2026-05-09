@@ -6,6 +6,7 @@
 
 #include <array>
 #include <complex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -251,6 +252,23 @@ TEST(PresentationMdspan, CjkCellsAlignByDisplayWidth)
                       "\xE2\x8E\xA3 long  y \xE2\x8E\xA6");
 }
 
+TEST(PresentationMdspan, MatrixAxesCanTransposeRankTwoViews)
+{
+  auto policy = base_policy();
+  std::array<int, 6> data{1, 20, 300, 4, 5, 6};
+  stdex::mdspan<int, stdex::extents<std::size_t, 2, 3>> matrix(data.data());
+
+  presentation::mdspan_format_options options;
+  options.matrix_axes = presentation::mdspan_matrix_axes{1, 0};
+
+  auto rendered = presentation::format_mdspan(matrix, policy, options);
+
+  EXPECT_EQ(rendered, "shape=(2, 3)\n"
+                      "\xE2\x8E\xA1   1 4 \xE2\x8E\xA4\n"
+                      "\xE2\x8E\xA2  20 5 \xE2\x8E\xA5\n"
+                      "\xE2\x8E\xA3 300 6 \xE2\x8E\xA6");
+}
+
 TEST(PresentationMdspan, HigherRankTensorsRenderLabeledMatrixSlices)
 {
   auto policy = base_policy();
@@ -267,6 +285,34 @@ TEST(PresentationMdspan, HigherRankTensorsRenderLabeledMatrixSlices)
                       "slice [1, :, :]\n"
                       "\xE2\x8E\xA1 5 6 \xE2\x8E\xA4\n"
                       "\xE2\x8E\xA3 7 8 \xE2\x8E\xA6");
+}
+
+TEST(PresentationMdspan, MatrixAxesCanSelectRankThreeView)
+{
+  auto policy = base_policy();
+  std::array<int, 12> data{};
+  for (std::size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<int>(i);
+
+  stdex::mdspan<int, stdex::extents<std::size_t, 2, 3, 2>> tensor(data.data());
+
+  presentation::mdspan_format_options options;
+  options.matrix_axes = presentation::mdspan_matrix_axes{0, 2};
+
+  auto rendered = presentation::format_mdspan(tensor, policy, options);
+
+  EXPECT_EQ(rendered, "shape=(2, 3, 2)\n"
+                      "slice [:, 0, :]\n"
+                      "\xE2\x8E\xA1 0 1 \xE2\x8E\xA4\n"
+                      "\xE2\x8E\xA3 6 7 \xE2\x8E\xA6\n"
+                      "\n"
+                      "slice [:, 1, :]\n"
+                      "\xE2\x8E\xA1 2 3 \xE2\x8E\xA4\n"
+                      "\xE2\x8E\xA3 8 9 \xE2\x8E\xA6\n"
+                      "\n"
+                      "slice [:, 2, :]\n"
+                      "\xE2\x8E\xA1  4  5 \xE2\x8E\xA4\n"
+                      "\xE2\x8E\xA3 10 11 \xE2\x8E\xA6");
 }
 
 TEST(PresentationMdspan, RankFourTensorRenderingIsExhaustive)
@@ -296,6 +342,20 @@ TEST(PresentationMdspan, RankFourTensorRenderingIsExhaustive)
                       "slice [1, 1, :, :]\n"
                       "\xE2\x8E\xA1 12 13 \xE2\x8E\xA4\n"
                       "\xE2\x8E\xA3 14 15 \xE2\x8E\xA6");
+}
+
+TEST(PresentationMdspan, MatrixAxesRejectInvalidChoices)
+{
+  auto policy = base_policy();
+  std::array<int, 4> data{1, 2, 3, 4};
+  stdex::mdspan<int, stdex::extents<std::size_t, 2, 2>> matrix(data.data());
+
+  presentation::mdspan_format_options options;
+  options.matrix_axes = presentation::mdspan_matrix_axes{0, 0};
+  EXPECT_THROW((void)presentation::format_mdspan(matrix, policy, options), std::invalid_argument);
+
+  options.matrix_axes = presentation::mdspan_matrix_axes{0, 2};
+  EXPECT_THROW((void)presentation::format_mdspan(matrix, policy, options), std::invalid_argument);
 }
 
 TEST(PresentationInvalidUtf8, InvalidBytesAreEscapedOrReplacedByPolicy)

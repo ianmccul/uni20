@@ -482,6 +482,11 @@ Useful field for thread-id mode:
 
 - `threadId = trace::FormattingOptions::ThreadIdOptions::yes|no|auto_detect`
 
+Useful presentation policies:
+
+- `presentation_policy()` controls glyph, charset, width, and color rendering.
+- `mdspan_format_policy()` controls tensor-art shape labels, slice labels, and matrix axes for mdspan/tensor trace values.
+
 ## Expression Parsing Notes
 
 Macro arguments are parsed by the preprocessor first. Commas that are not grouped by parentheses/brackets/braces split arguments. If needed, wrap expressions:

@@ -23,6 +23,11 @@ int main()
   stdex::mdspan<int, stdex::extents<std::size_t, 2, 3, 2>> rank3(rank3_data.data());
   fmt::print("Rank-3 tensor (2x3x2):\n{}\n\n", uni20::presentation::format_mdspan(rank3, policy));
 
+  uni20::presentation::mdspan_format_options axis_options;
+  axis_options.matrix_axes = uni20::presentation::mdspan_matrix_axes{0, 2};
+  fmt::print("Rank-3 tensor with axes 0 and 2 as matrix axes:\n{}\n\n",
+             uni20::presentation::format_mdspan(rank3, policy, axis_options));
+
   uni20::presentation::mdspan_format_options real_options;
   real_options.numeric.notation = uni20::presentation::real_notation::fixed;
   real_options.numeric.float64_precision = 3;

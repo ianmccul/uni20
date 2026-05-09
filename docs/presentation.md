@@ -78,3 +78,14 @@ auto text = uni20::presentation::format_mdspan(matrix, policy, [](auto const& va
 Rank-1 values render as a row vector, rank-2 values render as aligned matrix art, and higher-rank values render as labeled rank-2 slices over every leading-axis coordinate. The default formatter is exhaustive: printing an actual tensor emits every element. Any future preview, clipping, or elision mode should be an explicit separate policy. Trace uses the same formatter for mdspan-like values and tensor/view-like objects, while still applying trace scalar formatting such as floating-point precision.
 
 Real and complex tensor elements use `numeric_format_options` when no custom element formatter is supplied. The defaults use general notation with 6 significant digits for `float`, 15 significant digits for `double`, normalized negative zero, and algebraic complex form such as `1.25-3.5i`. `mdspan_format_options::numeric` can switch to fixed or scientific notation and adjust the digit counts.
+
+For rank-2-or-higher tensors, `mdspan_format_options::matrix_axes` can choose which axes form the displayed row and column dimensions:
+
+```cpp
+uni20::presentation::mdspan_format_options options;
+options.matrix_axes = uni20::presentation::mdspan_matrix_axes{0, 2};
+
+auto text = uni20::presentation::format_mdspan(tensor, policy, options);
+```
+
+Any remaining axes become exhaustive slice labels. With shape `(2, 3, 2)` and matrix axes `{0, 2}`, labels are `slice [:, 0, :]`, `slice [:, 1, :]`, and `slice [:, 2, :]`.

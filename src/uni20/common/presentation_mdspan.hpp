@@ -7,6 +7,8 @@
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -23,6 +25,13 @@ enum class mdspan_shape_mode
   prefix
 };
 
+/// \brief Matrix axes used when rendering rank-2-or-higher tensors.
+struct mdspan_matrix_axes
+{
+    std::size_t row = 0;
+    std::size_t column = 1;
+};
+
 /// \brief Formatting controls for mdspan and tensor display art.
 ///
 /// Full tensor rendering is intentionally exhaustive. Preview, clipping, or
@@ -32,6 +41,7 @@ struct mdspan_format_options
 {
     mdspan_shape_mode shape = mdspan_shape_mode::prefix;
     bool label_slices = true;
+    std::optional<mdspan_matrix_axes> matrix_axes = std::nullopt;
     numeric_format_options numeric;
 };
 
@@ -113,19 +123,52 @@ template <typename MDS, typename ElementFormatter, std::size_t Rank>
   return out;
 }
 
-[[nodiscard]] inline std::string slice_label(std::vector<std::size_t> const& prefix, std::size_t rank)
+struct resolved_matrix_axes
+{
+    std::size_t row = 0;
+    std::size_t column = 1;
+    std::vector<std::size_t> slice_axes;
+};
+
+[[nodiscard]] inline resolved_matrix_axes resolve_matrix_axes(std::size_t rank, mdspan_format_options const& options)
+{
+  auto axes = options.matrix_axes.value_or(mdspan_matrix_axes{rank - 2, rank - 1});
+  if (axes.row >= rank || axes.column >= rank)
+  {
+    throw std::invalid_argument("mdspan matrix axes must be valid tensor axes");
+  }
+  if (axes.row == axes.column)
+  {
+    throw std::invalid_argument("mdspan matrix row and column axes must be distinct");
+  }
+
+  resolved_matrix_axes result{axes.row, axes.column, {}};
+  result.slice_axes.reserve(rank - 2);
+  for (std::size_t axis = 0; axis < rank; ++axis)
+  {
+    if (axis != axes.row && axis != axes.column)
+    {
+      result.slice_axes.push_back(axis);
+    }
+  }
+  return result;
+}
+
+template <typename MDS, std::size_t Rank>
+[[nodiscard]] std::string slice_label(std::array<mdspan_index_type<MDS>, Rank> const& indices,
+                                      resolved_matrix_axes const& axes)
 {
   std::string out = "slice [";
-  for (std::size_t i = 0; i < rank; ++i)
+  for (std::size_t i = 0; i < Rank; ++i)
   {
     if (i > 0) out += ", ";
-    if (i < prefix.size())
+    if (i == axes.row || i == axes.column)
     {
-      out += std::to_string(prefix[i]);
+      out += ":";
     }
     else
     {
-      out += ":";
+      out += std::to_string(static_cast<std::size_t>(indices[i]));
     }
   }
   out += "]";
@@ -202,14 +245,15 @@ template <typename MDS, typename ElementFormatter, std::size_t Rank>
 template <typename MDS, typename ElementFormatter, std::size_t Rank>
 [[nodiscard]] std::vector<std::string> collect_vector(MDS const& mds,
                                                       std::array<mdspan_index_type<MDS>, Rank>& indices,
-                                                      output_policy const& policy, ElementFormatter& formatter)
+                                                      output_policy const& policy, ElementFormatter& formatter,
+                                                      std::size_t column_axis)
 {
   std::vector<std::string> row;
-  auto const cols = static_cast<std::size_t>(mds.extent(Rank - 1));
+  auto const cols = static_cast<std::size_t>(mds.extent(column_axis));
   row.reserve(cols);
   for (std::size_t col = 0; col < cols; ++col)
   {
-    indices[Rank - 1] = static_cast<mdspan_index_type<MDS>>(col);
+    indices[column_axis] = static_cast<mdspan_index_type<MDS>>(col);
     row.push_back(format_element(mds, indices, policy, formatter));
   }
   return row;
@@ -219,43 +263,43 @@ template <typename MDS, typename ElementFormatter, std::size_t Rank>
 [[nodiscard]] std::vector<std::vector<std::string>> collect_matrix(MDS const& mds,
                                                                    std::array<mdspan_index_type<MDS>, Rank>& indices,
                                                                    output_policy const& policy,
-                                                                   ElementFormatter& formatter)
+                                                                   ElementFormatter& formatter,
+                                                                   resolved_matrix_axes const& axes)
 {
   std::vector<std::vector<std::string>> rows;
-  auto const row_count = static_cast<std::size_t>(mds.extent(Rank - 2));
+  auto const row_count = static_cast<std::size_t>(mds.extent(axes.row));
   rows.reserve(row_count);
   for (std::size_t row = 0; row < row_count; ++row)
   {
-    indices[Rank - 2] = static_cast<mdspan_index_type<MDS>>(row);
-    rows.push_back(collect_vector(mds, indices, policy, formatter));
+    indices[axes.row] = static_cast<mdspan_index_type<MDS>>(row);
+    rows.push_back(collect_vector(mds, indices, policy, formatter, axes.column));
   }
   return rows;
 }
 
 template <typename MDS, typename ElementFormatter, std::size_t Rank>
 void append_slices(std::string& out, MDS const& mds, std::array<mdspan_index_type<MDS>, Rank>& indices,
-                   std::vector<std::size_t>& prefix, output_policy const& policy, ElementFormatter& formatter,
-                   mdspan_format_options const& options, std::size_t dim)
+                   output_policy const& policy, ElementFormatter& formatter, mdspan_format_options const& options,
+                   resolved_matrix_axes const& axes, std::size_t slice_pos)
 {
-  if (dim + 2 == Rank)
+  if (slice_pos == axes.slice_axes.size())
   {
     if (!out.empty()) out += "\n\n";
     if (options.label_slices)
     {
-      out += render_piece(slice_label(prefix, Rank), policy);
+      out += render_piece(slice_label<MDS>(indices, axes), policy);
       out.push_back('\n');
     }
-    out += format_matrix_rows(collect_matrix(mds, indices, policy, formatter), policy);
+    out += format_matrix_rows(collect_matrix(mds, indices, policy, formatter, axes), policy);
     return;
   }
 
-  auto const extent = static_cast<std::size_t>(mds.extent(dim));
+  auto const axis = axes.slice_axes[slice_pos];
+  auto const extent = static_cast<std::size_t>(mds.extent(axis));
   for (std::size_t i = 0; i < extent; ++i)
   {
-    indices[dim] = static_cast<mdspan_index_type<MDS>>(i);
-    prefix.push_back(i);
-    append_slices(out, mds, indices, prefix, policy, formatter, options, dim + 1);
-    prefix.pop_back();
+    indices[axis] = static_cast<mdspan_index_type<MDS>>(i);
+    append_slices(out, mds, indices, policy, formatter, options, axes, slice_pos + 1);
   }
 }
 
@@ -291,17 +335,20 @@ std::string format_mdspan(MDS const& mds, output_policy const& policy, ElementFo
   else if constexpr (rank == 1)
   {
     std::vector<std::vector<std::string>> rows;
-    rows.push_back(detail::collect_vector(mds, indices, policy, element_formatter));
+    rows.push_back(detail::collect_vector(mds, indices, policy, element_formatter, 0));
     body = detail::format_matrix_rows(rows, policy);
-  }
-  else if constexpr (rank == 2)
-  {
-    body = detail::format_matrix_rows(detail::collect_matrix(mds, indices, policy, element_formatter), policy);
   }
   else
   {
-    std::vector<std::size_t> prefix;
-    detail::append_slices(body, mds, indices, prefix, policy, element_formatter, options, 0);
+    auto const axes = detail::resolve_matrix_axes(rank, options);
+    if (axes.slice_axes.empty())
+    {
+      body = detail::format_matrix_rows(detail::collect_matrix(mds, indices, policy, element_formatter, axes), policy);
+    }
+    else
+    {
+      detail::append_slices(body, mds, indices, policy, element_formatter, options, axes, 0);
+    }
     if (body.empty()) body = "[]";
   }
 

@@ -278,3 +278,28 @@ TEST(TraceFormatting, MdspanRealAndComplexValuesUseTracePrecision)
 
   EXPECT_EQ(trace::formatValue(complex_vector, opts), "shape=(2)\n[ 1.0-2.5i 0.0+3.0i ]");
 }
+
+TEST(TraceFormatting, MdspanValuesCanSelectPresentationMatrixAxes)
+{
+  auto opts = make_test_options();
+  opts.mdspan_format_policy().matrix_axes = uni20::presentation::mdspan_matrix_axes{0, 2};
+
+  std::array<int, 12> data{};
+  for (std::size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<int>(i);
+
+  stdex::mdspan<int, stdex::extents<std::size_t, 2, 3, 2>> tensor(data.data());
+
+  EXPECT_EQ(trace::formatValue(tensor, opts), "shape=(2, 3, 2)\n"
+                                             "slice [:, 0, :]\n"
+                                             "\xE2\x8E\xA1 0 1 \xE2\x8E\xA4\n"
+                                             "\xE2\x8E\xA3 6 7 \xE2\x8E\xA6\n"
+                                             "\n"
+                                             "slice [:, 1, :]\n"
+                                             "\xE2\x8E\xA1 2 3 \xE2\x8E\xA4\n"
+                                             "\xE2\x8E\xA3 8 9 \xE2\x8E\xA6\n"
+                                             "\n"
+                                             "slice [:, 2, :]\n"
+                                             "\xE2\x8E\xA1  4  5 \xE2\x8E\xA4\n"
+                                             "\xE2\x8E\xA3 10 11 \xE2\x8E\xA6");
+}

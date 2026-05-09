@@ -118,6 +118,9 @@ struct FormattingOptions
     /// Shared presentation rendering policy used by trace formatting.
     uni20::presentation::output_policy renderPolicy = uni20::presentation::terminal_policy(outputStream);
 
+    /// Presentation tensor-art policy used for mdspan and tensor-like values.
+    uni20::presentation::mdspan_format_options mdspanFormatPolicy;
+
     //--- Style map -------------------------------------------------------------
 
     /// Holds per-kind styles (keys like "TRACE", "TRACE_LINE", etc).
@@ -314,11 +317,19 @@ struct FormattingOptions
     /// \return Immutable presentation policy.
     uni20::presentation::output_policy const& presentation_policy() const { return renderPolicy; }
 
+    /// \brief Return the shared mdspan/tensor presentation policy used by this trace module.
+    /// \return Mutable mdspan formatting policy.
+    uni20::presentation::mdspan_format_options& mdspan_format_policy() { return mdspanFormatPolicy; }
+
+    /// \brief Return the shared mdspan/tensor presentation policy used by this trace module.
+    /// \return Immutable mdspan formatting policy.
+    uni20::presentation::mdspan_format_options const& mdspan_format_policy() const { return mdspanFormatPolicy; }
+
     /// \brief Build numeric formatting controls from trace precision settings.
     /// \return Numeric presentation options preserving trace fixed-point behavior.
     uni20::presentation::numeric_format_options numeric_format_policy() const
     {
-      uni20::presentation::numeric_format_options policy;
+      auto policy = mdspanFormatPolicy.numeric;
       policy.float32_precision = fp_precision_float32;
       policy.float64_precision = fp_precision_float64;
       policy.notation = uni20::presentation::real_notation::fixed;
@@ -651,7 +662,9 @@ template <uni20::presentation::mdspan_like MDS>
 inline std::string formatValue(MDS const& mds, FormattingOptions const& opts)
 {
   auto formatter = [&opts](auto const& value) { return formatValue(value, opts); };
-  return uni20::presentation::format_mdspan(mds, opts.presentation_policy(), formatter);
+  auto mdspan_options = opts.mdspan_format_policy();
+  mdspan_options.numeric = opts.numeric_format_policy();
+  return uni20::presentation::format_mdspan(mds, opts.presentation_policy(), formatter, mdspan_options);
 }
 
 /// \brief Format tensor/view-like values through their mdspan view.
