@@ -71,6 +71,9 @@ class TaskRegistryDebug {
         bool block_signal_in_calling_thread{true};
     };
 
+    /// \brief Runtime controls for stacktrace formatting in debug output.
+    using StacktraceOptions = TaskRegistryStacktraceOptions;
+
     /// \brief Structured async DAG snapshot type.
     using GraphSnapshot = TaskRegistryGraphSnapshot;
 
@@ -92,6 +95,9 @@ class TaskRegistryDebug {
     /// \brief Marks a coroutine handle as suspended.
     /// \param h Coroutine handle that suspended execution.
     static void mark_suspended(std::coroutine_handle<> h);
+    /// \brief Records the call stack where a coroutine was submitted to a scheduler.
+    /// \param h Coroutine handle being scheduled.
+    static void record_task_scheduled(std::coroutine_handle<> h);
     /// \brief Records constructor-discovered coarse DAG dependencies for a coroutine.
     /// \param h Coroutine handle whose promise collected the dependencies.
     /// \param read_dependencies Async value nodes read by the coroutine.
@@ -187,6 +193,17 @@ class TaskRegistryDebug {
     /// \brief Returns default diagnostics-service options.
     /// \return Service options derived from environment variables when present.
     static DiagnosticsServiceOptions default_diagnostics_service_options();
+    /// \brief Returns default stacktrace formatting options.
+    /// \return Stacktrace options derived from environment variables when present.
+    static StacktraceOptions default_stacktrace_options();
+    /// \brief Returns active stacktrace formatting options.
+    /// \return Active stacktrace formatting options.
+    static StacktraceOptions stacktrace_options();
+    /// \brief Replaces active stacktrace formatting options.
+    /// \param options New stacktrace formatting options.
+    static void set_stacktrace_options(StacktraceOptions const& options);
+    /// \brief Resets active stacktrace formatting options from environment defaults.
+    static void reset_stacktrace_options();
     /// \brief Creates a default DOT output path for the current process.
     /// \return Path containing output directory, prefix, process id, and sequence number.
     static std::string default_graphviz_dump_path();

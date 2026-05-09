@@ -52,6 +52,7 @@ class TbbNumaScheduler final : public IScheduler {
     /// \brief Schedule a coroutine, choosing an arena based on NUMA preference.
     void schedule(AsyncTask&& task) override
     {
+      TaskRegistry::record_task_scheduled(task.coroutine_handle());
       int target = task.preferred_numa_node().value_or(this->select_next_numa_node());
       this->schedule_on_node(std::move(task), target);
     }
@@ -59,7 +60,11 @@ class TbbNumaScheduler final : public IScheduler {
     /// \brief Schedule a coroutine on a specific NUMA node.
     /// \param task Coroutine to dispatch.
     /// \param numa_node Requested NUMA node identifier.
-    void schedule(AsyncTask&& task, int numa_node) { this->schedule_on_node(std::move(task), numa_node); }
+    void schedule(AsyncTask&& task, int numa_node)
+    {
+      TaskRegistry::record_task_scheduled(task.coroutine_handle());
+      this->schedule_on_node(std::move(task), numa_node);
+    }
 
     /// \brief Pause all managed arenas.
     void pause() override

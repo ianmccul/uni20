@@ -25,8 +25,8 @@ namespace uni20::async
 /// \todo We currently don't allow nested waiting on AsyncTaskFactoryAwaitable children. This could be supported, if it
 /// was useful.
 template <AsyncTaskAwaitable... Aw>
-requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> &&
-          ...)) struct AllAwaiter //: public AsyncAwaiter
+  requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
+struct AllAwaiter //: public AsyncAwaiter
 {
     std::tuple<Aw...> bufs_;                  ///< Underlying awaiters
     std::array<bool, sizeof...(Aw)> ready_{}; ///< Readiness flags
@@ -39,6 +39,16 @@ requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> &&
     /// \brief Return the number of awaiters, needed by the AsyncTaskFactory model.
     /// \note It is safe to over-allocate: unused AsyncTasks will be returned in the factory destructor.
     [[nodiscard]] int num_awaiters() const noexcept { return pending_; }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Visits child awaiter dependencies exposed to the debug DAG layer.
+    /// \tparam F Callable accepting `(NodeInfo const*, TaskRegistry::EpochTaskRole)`.
+    /// \param visit Callback invoked for each child dependency.
+    template <typename F> void debug_each_dependency(F&& visit) const
+    {
+      std::apply([&](auto const&... awaiters) { (debug_visit_dependency(awaiters, visit), ...); }, bufs_);
+    }
+#endif
 
     /// \brief Suspend the coroutine on awaiters not yet ready.
     /// \tparam Promise The coroutine’s promise type.
@@ -58,6 +68,19 @@ requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> &&
     }
 
   private:
+#if UNI20_DEBUG_DAG
+    template <typename A, typename F> static void debug_visit_dependency(A const& awaiter, F& visit)
+    {
+      if constexpr (requires {
+                      awaiter.node();
+                      awaiter.debug_task_role();
+                    })
+      {
+        visit(awaiter.node(), awaiter.debug_task_role());
+      }
+    }
+#endif
+
     template <std::size_t... I> bool await_ready_impl(std::index_sequence<I...>) noexcept
     {
       pending_ = 0;
@@ -97,7 +120,8 @@ template <typename T> struct MapToRefOrValue<T&>
 /// \param aw Awaitable arguments.
 /// \return An object supporting `co_await`.
 template <AsyncTaskAwaitable... Aw>
-requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...)) auto all(Aw&&... aw) noexcept
+  requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
+auto all(Aw&&... aw) noexcept
 {
   return AllAwaiter<typename detail::MapToRefOrValue<Aw>::type...>(
       std::tuple<typename detail::MapToRefOrValue<Aw>::type...>(std::forward<Aw>(aw)...));
@@ -109,10 +133,7 @@ requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...)) 
 
 /// \brief Detects if `T` has a member `operator co_await()`.
 template <typename T>
-concept HasMemberCoAwait = requires(T t)
-{
-  t.operator co_await();
-};
+concept HasMemberCoAwait = requires(T t) { t.operator co_await(); };
 
 /// \brief Detects if a free `operator co_await(t)` exists.
 /// \note Excludes types that already have a member operator.

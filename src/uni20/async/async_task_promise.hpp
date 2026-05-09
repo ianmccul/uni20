@@ -351,10 +351,17 @@ class BasicAsyncTaskPromise {
     /// \param awaitable Awaitable being awaited.
     template <typename A> static void note_await_dependency(std::coroutine_handle<promise_type> h, A const& awaitable)
     {
-      if constexpr (requires {
-                      awaitable.node();
-                      awaitable.debug_task_role();
-                    })
+      auto record = [h](NodeInfo const* node, TaskRegistry::EpochTaskRole role) {
+        TaskRegistry::record_await_dependency(h, node, role);
+      };
+      if constexpr (requires { awaitable.debug_each_dependency(record); })
+      {
+        awaitable.debug_each_dependency(record);
+      }
+      else if constexpr (requires {
+                           awaitable.node();
+                           awaitable.debug_task_role();
+                         })
       {
         TaskRegistry::record_await_dependency(h, awaitable.node(), awaitable.debug_task_role());
       }

@@ -17,6 +17,7 @@
 #include <iterator>
 #include <limits>
 #include <mutex>
+#include <optional>
 #if UNI20_HAS_STACKTRACE
 #include <stacktrace>
 #endif
@@ -50,7 +51,9 @@ using GraphDataNode = uni20::TaskRegistryGraphDataNode;
 using GraphTask = uni20::TaskRegistryGraphTask;
 using GraphEpoch = uni20::TaskRegistryGraphEpoch;
 using GraphAwaitDependency = uni20::TaskRegistryGraphAwaitDependency;
+using GraphProvenance = uni20::TaskRegistryGraphProvenance;
 using GraphRole = uni20::TaskRegistryGraphRole;
+using StacktraceOptions = uni20::TaskRegistry::StacktraceOptions;
 
 char const* to_string(TaskState state) noexcept
 {
@@ -118,6 +121,31 @@ std::string dot_escape(std::string_view text)
     }
   }
   return escaped;
+}
+
+bool has_provenance(GraphProvenance const& provenance) noexcept
+{
+  return !provenance.location.empty() || !provenance.function.empty() || !provenance.stacktrace.empty();
+}
+
+void append_label_provenance(std::string& label, std::string_view name, GraphProvenance const& provenance)
+{
+  if (!provenance.location.empty()) label += fmt::format("\n{}={}", name, provenance.location);
+}
+
+void append_tooltip_provenance(std::string& tooltip, std::string_view name, GraphProvenance const& provenance)
+{
+  if (!has_provenance(provenance)) return;
+  if (!tooltip.empty()) tooltip += "\n\n";
+  tooltip += fmt::format("{}:", name);
+  if (!provenance.location.empty()) tooltip += fmt::format("\nlocation: {}", provenance.location);
+  if (!provenance.function.empty()) tooltip += fmt::format("\nfunction: {}", provenance.function);
+  if (!provenance.stacktrace.empty()) tooltip += fmt::format("\nstacktrace:\n{}", provenance.stacktrace);
+}
+
+std::string tooltip_attribute(std::string_view tooltip)
+{
+  return tooltip.empty() ? std::string{} : fmt::format(", tooltip=\"{}\"", dot_escape(tooltip));
 }
 
 void append_unique_node(std::vector<NodeInfo const*>& nodes, NodeInfo const* node)
@@ -217,6 +245,43 @@ int parse_positive_int(char const* value, int fallback) noexcept
   return static_cast<int>(parsed);
 }
 
+std::string normalized_env_value(char const* raw_value)
+{
+  if (!raw_value || raw_value[0] == '\0') return {};
+  std::string value(raw_value);
+  auto const is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+  value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), is_space));
+  value.erase(std::find_if_not(value.rbegin(), value.rend(), is_space).base(), value.end());
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return value;
+}
+
+bool parse_bool_env(char const* raw_value, bool fallback)
+{
+  auto const value = normalized_env_value(raw_value);
+  if (value.empty()) return fallback;
+  if (value == "1" || value == "on" || value == "true" || value == "yes") return true;
+  if (value == "0" || value == "off" || value == "false" || value == "no") return false;
+  return fallback;
+}
+
+std::size_t parse_stacktrace_frame_count(char const* raw_value, std::size_t fallback)
+{
+  auto const value = normalized_env_value(raw_value);
+  if (value.empty()) return fallback;
+  if (value == "all" || value == "full" || value == "unlimited" || value == "max")
+    return std::numeric_limits<std::size_t>::max();
+  if (value.front() == '-') return fallback;
+
+  char* end = nullptr;
+  errno = 0;
+  auto const parsed = std::strtoull(value.c_str(), &end, 10);
+  if (errno != 0 || end == value.c_str() || *end != '\0') return fallback;
+  if (parsed > static_cast<unsigned long long>(std::numeric_limits<std::size_t>::max())) return fallback;
+  return static_cast<std::size_t>(parsed);
+}
+
 int parse_signal_number(char const* value) noexcept
 {
   if (!value || value[0] == '\0') return 0;
@@ -252,6 +317,16 @@ DiagnosticsServiceOptions default_diagnostics_service_options()
   return options;
 }
 
+StacktraceOptions default_stacktrace_options()
+{
+  StacktraceOptions options;
+  if (auto const* frames = nonempty_env("UNI20_DEBUG_DAG_STACKTRACE_FRAMES"))
+    options.max_frames = parse_stacktrace_frame_count(frames, options.max_frames);
+  if (auto const* internal = nonempty_env("UNI20_DEBUG_DAG_STACKTRACE_INTERNAL_FRAMES"))
+    options.include_internal_frames = parse_bool_env(internal, options.include_internal_frames);
+  return options;
+}
+
 DumpMode parse_dump_mode(char const* raw_value) noexcept
 {
   if (!raw_value || *raw_value == '\0') return DumpMode::Basic;
@@ -277,14 +352,170 @@ DumpMode runtime_dump_mode() noexcept
 }
 
 #if UNI20_HAS_STACKTRACE
-void print_stacktrace(std::stacktrace const& trace)
+bool contains_text(std::string_view text, std::string_view needle) noexcept
+{
+  return text.find(needle) != std::string_view::npos;
+}
+
+bool is_internal_source_file(std::string_view file) noexcept
+{
+  return contains_text(file, "/src/uni20/async/") || contains_text(file, "/src/uni20/common/") ||
+         contains_text(file, "/usr/include/") || contains_text(file, "/opt/gcc-") ||
+         contains_text(file, "/include/c++/");
+}
+
+bool is_internal_description(std::string_view description) noexcept
+{
+  return contains_text(description, "uni20::TaskRegistry") || contains_text(description, "TaskRegistryImpl") ||
+         contains_text(description, "BasicAsyncTaskPromise") || contains_text(description, "BasicAsyncTask<") ||
+         contains_text(description, "AsyncTaskAwaiter") || contains_text(description, "AsyncTaskFactoryAwaiter") ||
+         contains_text(description, "AllAwaiter") || contains_text(description, "ReadBuffer<") ||
+         contains_text(description, "WriteBuffer<") || contains_text(description, "ReadMaybeAwaiter") ||
+         contains_text(description, "ReadOrCancelAwaiter") || contains_text(description, "StorageAwaiter") ||
+         contains_text(description, "TakeAwaiter") || contains_text(description, "OwningReadAwaiter") ||
+         contains_text(description, "OwningWriteAwaiter") || contains_text(description, "DebugScheduler::") ||
+         contains_text(description, "TbbScheduler::") || contains_text(description, "TbbNumaScheduler::") ||
+         contains_text(description, "uni20::async::schedule") || contains_text(description, "std::") ||
+         contains_text(description, "__gnu_cxx::");
+}
+
+std::string shorten_source_file(std::string file)
+{
+  for (std::string_view marker : {"/examples/", "/tests/", "/src/"})
+  {
+    auto const pos = file.find(marker);
+    if (pos != std::string::npos) return file.substr(pos + 1);
+  }
+  return file;
+}
+
+std::optional<std::stacktrace_entry> source_frame(std::stacktrace const& trace, bool skip_internal,
+                                                  std::size_t skip_user_frames)
 {
   for (auto const& frame : trace)
   {
-    if (frame.source_line() > 0)
-      fmt::print(stderr, "    {} ({}:{})\n", frame.description(), frame.source_file(), frame.source_line());
+    auto const file = frame.source_file();
+    if (file.empty() || frame.source_line() == 0) continue;
+    auto const description = frame.description();
+    if (skip_internal && (is_internal_source_file(file) || is_internal_description(description))) continue;
+    if (skip_user_frames > 0)
+    {
+      --skip_user_frames;
+      continue;
+    }
+    return frame;
+  }
+  return std::nullopt;
+}
+
+std::optional<std::stacktrace_entry> named_frame(std::stacktrace const& trace, bool skip_internal,
+                                                 std::size_t skip_user_frames)
+{
+  for (auto const& frame : trace)
+  {
+    auto const description = frame.description();
+    if (description.empty()) continue;
+    auto const file = frame.source_file();
+    if (skip_internal && (is_internal_source_file(file) || is_internal_description(description))) continue;
+    if (skip_user_frames > 0)
+    {
+      --skip_user_frames;
+      continue;
+    }
+    return frame;
+  }
+  return std::nullopt;
+}
+
+bool stacktrace_frame_enabled(std::stacktrace_entry const& frame, StacktraceOptions const& options)
+{
+  if (options.include_internal_frames) return true;
+  return !is_internal_source_file(frame.source_file()) && !is_internal_description(frame.description());
+}
+
+std::string format_stacktrace_frame(std::stacktrace_entry const& frame)
+{
+  if (frame.source_line() > 0) return fmt::format("{} ({}:{})", frame.description(), frame.source_file(),
+                                                  frame.source_line());
+  return frame.description();
+}
+
+std::string format_stacktrace(std::stacktrace const& trace, StacktraceOptions const& options)
+{
+  std::string out;
+  if (options.max_frames == 0) return out;
+
+  std::size_t emitted = 0;
+  std::size_t skipped_by_limit = 0;
+  for (auto const& frame : trace)
+  {
+    if (!stacktrace_frame_enabled(frame, options)) continue;
+    if (emitted >= options.max_frames)
+    {
+      ++skipped_by_limit;
+      continue;
+    }
+    if (!out.empty()) out += "\n";
+    out += format_stacktrace_frame(frame);
+    ++emitted;
+  }
+  if (skipped_by_limit > 0)
+  {
+    if (!out.empty()) out += "\n";
+    out += fmt::format("... {} more stack frame{}", skipped_by_limit, skipped_by_limit == 1 ? "" : "s");
+  }
+  return out;
+}
+
+GraphProvenance summarize_stacktrace(std::stacktrace const& trace, StacktraceOptions const& options,
+                                     std::size_t skip_user_frames = 0)
+{
+  GraphProvenance provenance;
+  if (trace.empty()) return provenance;
+
+  auto frame = source_frame(trace, true, skip_user_frames);
+  if (!frame && skip_user_frames > 0) frame = source_frame(trace, true, 0);
+  if (!frame) frame = source_frame(trace, false, skip_user_frames);
+  if (!frame && skip_user_frames > 0) frame = source_frame(trace, false, 0);
+  if (!frame) frame = named_frame(trace, true, skip_user_frames);
+  if (!frame && skip_user_frames > 0) frame = named_frame(trace, true, 0);
+  if (!frame) frame = named_frame(trace, false, skip_user_frames);
+  if (!frame && skip_user_frames > 0) frame = named_frame(trace, false, 0);
+
+  if (frame)
+  {
+    auto const file = frame->source_file();
+    if (!file.empty() && frame->source_line() > 0)
+      provenance.location = fmt::format("{}:{}", shorten_source_file(file), frame->source_line());
+    else if (!file.empty())
+      provenance.location = shorten_source_file(file);
     else
-      fmt::print(stderr, "    {}\n", frame.description());
+      provenance.location = frame->description();
+    provenance.function = frame->description();
+  }
+  provenance.stacktrace = format_stacktrace(trace, options);
+  return provenance;
+}
+
+void print_stacktrace(std::stacktrace const& trace, StacktraceOptions const& options)
+{
+  auto formatted = format_stacktrace(trace, options);
+  if (formatted.empty())
+  {
+    fmt::print(stderr, "    (stacktrace hidden by options)\n");
+    return;
+  }
+
+  std::size_t line_start = 0;
+  while (line_start <= formatted.size())
+  {
+    auto const line_end = formatted.find('\n', line_start);
+    auto const line = line_end == std::string::npos
+                          ? std::string_view(formatted).substr(line_start)
+                          : std::string_view(formatted).substr(line_start, line_end - line_start);
+    fmt::print(stderr, "    {}\n", line);
+    if (line_end == std::string::npos) break;
+    line_start = line_end + 1;
   }
 }
 #endif
@@ -293,6 +524,9 @@ struct TaskNodeDependency
 {
     NodeInfo const* node{nullptr};
     EpochTaskRole role{EpochTaskRole::Reader};
+#if UNI20_HAS_STACKTRACE
+    std::stacktrace await_trace{};
+#endif
 };
 
 struct TaskDebugInfo
@@ -309,7 +543,9 @@ struct TaskDebugInfo
     std::vector<TaskNodeDependency> await_dependencies{};
 #if UNI20_HAS_STACKTRACE
     std::stacktrace creation_trace{};
+    std::stacktrace schedule_trace{};
     std::stacktrace last_state_change_trace{};
+    std::stacktrace last_await_trace{};
 #endif
 };
 
@@ -510,8 +746,8 @@ GraphDiagnostics diagnose_snapshot(GraphSnapshot const& snapshot)
   }
   if (!cycle_tasks.empty() || !cycle_nodes.empty())
   {
-    diagnostics.notes.push_back(fmt::format("dependency cycle: {} task(s), {} data node(s)",
-                                            cycle_tasks.size(), cycle_nodes.size()));
+    diagnostics.notes.push_back(
+        fmt::format("dependency cycle: {} task(s), {} data node(s)", cycle_tasks.size(), cycle_nodes.size()));
   }
 
   diagnostics.blocked_read_task_ids = sorted_values(blocked_read_tasks);
@@ -584,49 +820,60 @@ std::string render_graphviz(GraphSnapshot const& snapshot, GraphDiagnostics cons
 
   for (auto const& epoch : snapshot.epochs)
   {
-    auto label = epoch.snapshot_available ? fmt::format("epoch {}\ngen={}\nphase={}", epoch.id, epoch.generation,
-                                                        epoch.phase)
-                                          : fmt::format("epoch {}\nsnapshot unavailable\nlock busy", epoch.id);
+    auto label = epoch.snapshot_available
+                     ? fmt::format("epoch {}\ngen={}\nphase={}", epoch.id, epoch.generation, epoch.phase)
+                     : fmt::format("epoch {}\nsnapshot unavailable\nlock busy", epoch.id);
+    append_label_provenance(label, "created_at", epoch.creation_site);
     if (contains_value(diagnostics.missing_writer_epoch_ids, epoch.id)) label += "\ndiagnostic: missing writer";
+    std::string tooltip;
+    append_tooltip_provenance(tooltip, "epoch creation", epoch.creation_site);
     auto const fillcolor = contains_value(diagnostics.missing_writer_epoch_ids, epoch.id) ? "#ffd6d6" : "#f7f7f7";
     auto const color = contains_value(diagnostics.missing_writer_epoch_ids, epoch.id) ? "#d62728" : "#999999";
     auto const penwidth = contains_value(diagnostics.missing_writer_epoch_ids, epoch.id) ? "2" : "1";
     fmt::format_to(std::back_inserter(dot),
                    "  epoch_{} [shape=oval, style=filled, fillcolor=\"{}\", color=\"{}\", penwidth={}, "
-                   "label=\"{}\"];\n",
-                   epoch.id, fillcolor, color, penwidth, dot_escape(label));
+                   "label=\"{}\"{}];\n",
+                   epoch.id, fillcolor, color, penwidth, dot_escape(label), tooltip_attribute(tooltip));
   }
 
   if (!snapshot.epochs.empty()) dot += "\n";
 
   for (auto const& task : snapshot.tasks)
   {
-    auto label = task.label.empty()
-                     ? fmt::format("task {}\n{}\ntransitions={}\nptr={}", task.id, task.state, task.transition_count,
-                                   task.address)
-                     : fmt::format("{}\ntask {}\n{}\ntransitions={}\nptr={}", task.label, task.id, task.state,
-                                   task.transition_count, task.address);
+    auto label = task.label.empty() ? fmt::format("task {}\n{}\ntransitions={}\nptr={}", task.id, task.state,
+                                                  task.transition_count, task.address)
+                                    : fmt::format("{}\ntask {}\n{}\ntransitions={}\nptr={}", task.label, task.id,
+                                                  task.state, task.transition_count, task.address);
+    append_label_provenance(label, "created_at", task.creation_site);
+    append_label_provenance(label, "scheduled_at", task.schedule_site);
+    if (task.state == "suspended")
+      append_label_provenance(label, "awaiting_at", task.last_await_site);
+    else
+      append_label_provenance(label, "last_await_at", task.last_await_site);
     if (contains_value(diagnostics.blocked_read_task_ids, task.id)) label += "\nblocked: read";
     if (contains_value(diagnostics.blocked_write_task_ids, task.id)) label += "\nblocked: write";
     if (contains_value(diagnostics.cycle_task_ids, task.id)) label += "\ndiagnostic: dependency cycle";
-    auto const fillcolor =
-        contains_value(diagnostics.cycle_task_ids, task.id)
-            ? "#ffe1e1"
-            : ((contains_value(diagnostics.blocked_read_task_ids, task.id) ||
-                contains_value(diagnostics.blocked_write_task_ids, task.id))
-                   ? "#fff0cc"
-                   : "#fff7e8");
+    std::string tooltip;
+    append_tooltip_provenance(tooltip, "task creation", task.creation_site);
+    append_tooltip_provenance(tooltip, "task schedule", task.schedule_site);
+    append_tooltip_provenance(tooltip, "last transition", task.last_transition_site);
+    append_tooltip_provenance(tooltip, "last await", task.last_await_site);
+    auto const fillcolor = contains_value(diagnostics.cycle_task_ids, task.id)
+                               ? "#ffe1e1"
+                               : ((contains_value(diagnostics.blocked_read_task_ids, task.id) ||
+                                   contains_value(diagnostics.blocked_write_task_ids, task.id))
+                                      ? "#fff0cc"
+                                      : "#fff7e8");
     auto const color = contains_value(diagnostics.cycle_task_ids, task.id) ? "#d62728" : "#c48b33";
-    auto const penwidth =
-        (contains_value(diagnostics.cycle_task_ids, task.id) ||
-         contains_value(diagnostics.blocked_read_task_ids, task.id) ||
-         contains_value(diagnostics.blocked_write_task_ids, task.id))
-            ? "2"
-            : "1";
+    auto const penwidth = (contains_value(diagnostics.cycle_task_ids, task.id) ||
+                           contains_value(diagnostics.blocked_read_task_ids, task.id) ||
+                           contains_value(diagnostics.blocked_write_task_ids, task.id))
+                              ? "2"
+                              : "1";
     fmt::format_to(std::back_inserter(dot),
                    "  task_{} [shape=box, style=\"rounded,filled\", fillcolor=\"{}\", color=\"{}\", "
-                   "penwidth={}, label=\"{}\"];\n",
-                   task.id, fillcolor, color, penwidth, dot_escape(label));
+                   "penwidth={}, label=\"{}\"{}];\n",
+                   task.id, fillcolor, color, penwidth, dot_escape(label), tooltip_attribute(tooltip));
   }
 
   if (!snapshot.tasks.empty()) dot += "\n";
@@ -635,16 +882,16 @@ std::string render_graphviz(GraphSnapshot const& snapshot, GraphDiagnostics cons
   {
     for (auto const node_id : task.read_dependencies)
     {
-      auto const cycle_edge = contains_value(diagnostics.cycle_node_ids, node_id) &&
-                              contains_value(diagnostics.cycle_task_ids, task.id);
+      auto const cycle_edge =
+          contains_value(diagnostics.cycle_node_ids, node_id) && contains_value(diagnostics.cycle_task_ids, task.id);
       add_edge(fmt::format("  data_{} -> task_{} [label=\"arg read\", style=\"{}\", color=\"{}\"{}];\n", node_id,
                            task.id, cycle_edge ? "dashed,bold" : "dashed", cycle_edge ? "#d62728" : "#4c78a8",
                            cycle_edge ? ", penwidth=2" : ""));
     }
     for (auto const node_id : task.write_dependencies)
     {
-      auto const cycle_edge = contains_value(diagnostics.cycle_node_ids, node_id) &&
-                              contains_value(diagnostics.cycle_task_ids, task.id);
+      auto const cycle_edge =
+          contains_value(diagnostics.cycle_node_ids, node_id) && contains_value(diagnostics.cycle_task_ids, task.id);
       add_edge(fmt::format("  task_{} -> data_{} [label=\"arg write\", style=\"{}\", color=\"{}\"{}];\n", task.id,
                            node_id, cycle_edge ? "dashed,bold" : "dashed", cycle_edge ? "#d62728" : "#f58518",
                            cycle_edge ? ", penwidth=2" : ""));
@@ -653,17 +900,23 @@ std::string render_graphviz(GraphSnapshot const& snapshot, GraphDiagnostics cons
     {
       auto const cycle_edge = contains_value(diagnostics.cycle_node_ids, dependency.node_id) &&
                               contains_value(diagnostics.cycle_task_ids, task.id);
+      auto edge_label =
+          dependency.role == GraphRole::Reader ? std::string("co_await read") : std::string("co_await write");
+      if (!dependency.await_site.location.empty()) edge_label += "\nat " + dependency.await_site.location;
+      std::string tooltip;
+      append_tooltip_provenance(tooltip, "await dependency", dependency.await_site);
+      auto const extra_attrs = tooltip_attribute(tooltip);
       if (dependency.role == GraphRole::Reader)
       {
-        add_edge(fmt::format("  data_{} -> task_{} [label=\"co_await read\", color=\"{}\"{}];\n",
-                             dependency.node_id, task.id, cycle_edge ? "#d62728" : "#4c78a8",
-                             cycle_edge ? ", penwidth=2" : ""));
+        add_edge(fmt::format("  data_{} -> task_{} [label=\"{}\", color=\"{}\"{}{}];\n", dependency.node_id, task.id,
+                             dot_escape(edge_label), cycle_edge ? "#d62728" : "#4c78a8",
+                             cycle_edge ? ", penwidth=2" : "", extra_attrs));
       }
       else
       {
-        add_edge(fmt::format("  task_{} -> data_{} [label=\"co_await write\", color=\"{}\"{}];\n", task.id,
-                             dependency.node_id, cycle_edge ? "#d62728" : "#f58518",
-                             cycle_edge ? ", penwidth=2" : ""));
+        add_edge(fmt::format("  task_{} -> data_{} [label=\"{}\", color=\"{}\"{}{}];\n", task.id, dependency.node_id,
+                             dot_escape(edge_label), cycle_edge ? "#d62728" : "#f58518",
+                             cycle_edge ? ", penwidth=2" : "", extra_attrs));
       }
     }
   }
@@ -678,8 +931,8 @@ std::string render_graphviz(GraphSnapshot const& snapshot, GraphDiagnostics cons
     }
     if (epoch.has_next_epoch)
     {
-      add_edge(fmt::format("  epoch_{} -> epoch_{} [label=\"next\", color=\"#888888\"];\n", epoch.id,
-                           epoch.next_epoch_id));
+      add_edge(
+          fmt::format("  epoch_{} -> epoch_{} [label=\"next\", color=\"#888888\"];\n", epoch.id, epoch.next_epoch_id));
     }
     for (auto const task_id : epoch.reader_task_ids)
     {
@@ -733,6 +986,20 @@ class TaskRegistryImpl {
 
     void mark_suspended(std::coroutine_handle<> h) { this->set_state(h, TaskState::Suspended); }
 
+    void record_task_scheduled(std::coroutine_handle<> h)
+    {
+      if (!h) return;
+#if UNI20_HAS_STACKTRACE
+      auto const trace = std::stacktrace::current(1);
+#endif
+      std::lock_guard lock(mutex_);
+      auto it = tasks_.find(h.address());
+      if (it == tasks_.end()) return;
+#if UNI20_HAS_STACKTRACE
+      if (it->second.schedule_trace.empty()) it->second.schedule_trace = trace;
+#endif
+    }
+
     void record_task_dependencies(std::coroutine_handle<> h, std::vector<NodeInfo const*> const& read_dependencies,
                                   std::vector<NodeInfo const*> const& write_dependencies)
     {
@@ -749,6 +1016,9 @@ class TaskRegistryImpl {
     void record_await_dependency(std::coroutine_handle<> h, NodeInfo const* node, EpochTaskRole role)
     {
       if (!h || !node) return;
+#if UNI20_HAS_STACKTRACE
+      auto const trace = std::stacktrace::current(1);
+#endif
       std::lock_guard lock(mutex_);
       auto it = tasks_.find(h.address());
       if (it == tasks_.end()) return;
@@ -756,7 +1026,20 @@ class TaskRegistryImpl {
       auto const found = std::find_if(dependencies.begin(), dependencies.end(), [&](TaskNodeDependency const& dep) {
         return dep.node == node && dep.role == role;
       });
-      if (found == dependencies.end()) dependencies.push_back(TaskNodeDependency{node, role});
+      if (found == dependencies.end())
+      {
+        dependencies.push_back(TaskNodeDependency{node, role});
+#if UNI20_HAS_STACKTRACE
+        dependencies.back().await_trace = trace;
+#endif
+      }
+#if UNI20_HAS_STACKTRACE
+      else
+      {
+        found->await_trace = trace;
+      }
+      it->second.last_await_trace = trace;
+#endif
     }
 
     void name_task(std::coroutine_handle<> h, std::string const& label)
@@ -827,9 +1110,11 @@ class TaskRegistryImpl {
 
       std::unordered_map<void*, TaskDebugInfo> tasks_copy;
       std::vector<EpochDumpRecord> epochs;
+      StacktraceOptions stacktrace_options;
       {
         std::lock_guard lock(mutex_);
         tasks_copy = tasks_;
+        stacktrace_options = stacktrace_options_;
         epochs.reserve(epoch_contexts_.size());
         for (auto const& [epoch, info] : epoch_contexts_)
         {
@@ -922,7 +1207,7 @@ class TaskRegistryImpl {
           }
 #if UNI20_HAS_STACKTRACE
           fmt::print(stderr, "  creation stacktrace:\n");
-          print_stacktrace(epoch.info.creation_trace);
+          print_stacktrace(epoch.info.creation_trace, stacktrace_options);
 #else
           fmt::print(stderr, "  creation stacktrace: unavailable\n");
 #endif
@@ -966,11 +1251,11 @@ class TaskRegistryImpl {
 
 #if UNI20_HAS_STACKTRACE
           fmt::print(stderr, "  creation stacktrace:\n");
-          print_stacktrace(info.creation_trace);
+          print_stacktrace(info.creation_trace, stacktrace_options);
           fmt::print(stderr, "  last state-change: {}\n", to_string(info.state));
           fmt::print(stderr, "  last state-change timestamp: {}\n", format_timestamp(info.last_state_change_timestamp));
           fmt::print(stderr, "  last state-change stacktrace:\n");
-          print_stacktrace(info.last_state_change_trace);
+          print_stacktrace(info.last_state_change_trace, stacktrace_options);
 #else
           fmt::print(stderr, "  creation stacktrace: unavailable\n");
           fmt::print(stderr, "  last state-change: {}\n", to_string(info.state));
@@ -990,6 +1275,7 @@ class TaskRegistryImpl {
       std::unordered_map<void*, TaskDebugInfo> tasks_copy;
       std::unordered_map<NodeInfo const*, std::string> node_names_copy;
       std::vector<std::pair<EpochContext const*, EpochDebugInfo>> epoch_records;
+      StacktraceOptions stacktrace_options;
       {
         std::unique_lock<std::mutex> lock;
         if (best_effort)
@@ -1005,6 +1291,7 @@ class TaskRegistryImpl {
         }
         tasks_copy = tasks_;
         node_names_copy = node_names_;
+        stacktrace_options = stacktrace_options_;
         epoch_records.reserve(epoch_contexts_.size());
         for (auto const& [epoch, info] : epoch_contexts_)
         {
@@ -1088,6 +1375,12 @@ class TaskRegistryImpl {
         task.label = info.display_name;
         task.state = to_string(info.state);
         task.transition_count = info.transition_count;
+#if UNI20_HAS_STACKTRACE
+        task.creation_site = summarize_stacktrace(info.creation_trace, stacktrace_options, 1);
+        task.schedule_site = summarize_stacktrace(info.schedule_trace, stacktrace_options);
+        task.last_transition_site = summarize_stacktrace(info.last_state_change_trace, stacktrace_options);
+        task.last_await_site = summarize_stacktrace(info.last_await_trace, stacktrace_options);
+#endif
         for (auto* node : info.read_dependencies)
         {
           if (!node) continue;
@@ -1101,8 +1394,13 @@ class TaskRegistryImpl {
         for (auto const& dependency : info.await_dependencies)
         {
           if (!dependency.node) continue;
-          task.await_dependencies.push_back(
-              GraphAwaitDependency{dependency.node->global_index(), to_graph_role(dependency.role)});
+          GraphAwaitDependency record;
+          record.node_id = dependency.node->global_index();
+          record.role = to_graph_role(dependency.role);
+#if UNI20_HAS_STACKTRACE
+          record.await_site = summarize_stacktrace(dependency.await_trace, stacktrace_options);
+#endif
+          task.await_dependencies.push_back(std::move(record));
         }
         graph.tasks.push_back(std::move(task));
       }
@@ -1119,6 +1417,9 @@ class TaskRegistryImpl {
         record.id = epoch.info.id;
         record.address = fmt::format("{}", static_cast<void const*>(epoch.epoch));
         record.snapshot_available = epoch.snapshot_available;
+#if UNI20_HAS_STACKTRACE
+        record.creation_site = summarize_stacktrace(epoch.info.creation_trace, stacktrace_options);
+#endif
         if (!epoch.snapshot_available)
         {
           graph.epochs.push_back(std::move(record));
@@ -1208,6 +1509,24 @@ class TaskRegistryImpl {
 
     DumpMode dump_mode() const noexcept { return runtime_dump_mode(); }
 
+    StacktraceOptions stacktrace_options()
+    {
+      std::lock_guard lock(mutex_);
+      return stacktrace_options_;
+    }
+
+    void set_stacktrace_options(StacktraceOptions const& options)
+    {
+      std::lock_guard lock(mutex_);
+      stacktrace_options_ = options;
+    }
+
+    void reset_stacktrace_options()
+    {
+      std::lock_guard lock(mutex_);
+      stacktrace_options_ = default_stacktrace_options();
+    }
+
     void dump_epoch_context(EpochContext const* epoch_context, char const* reason)
     {
       fmt::print(stderr, "\n========== Async Task Registry Diagnostic ==========\n");
@@ -1224,9 +1543,11 @@ class TaskRegistryImpl {
       TaskDebugInfoMap tasks_copy;
       bool found_epoch = false;
       EpochDebugInfo epoch_info{};
+      StacktraceOptions stacktrace_options;
       {
         std::lock_guard lock(mutex_);
         tasks_copy = tasks_;
+        stacktrace_options = stacktrace_options_;
         auto const epoch_it = epoch_contexts_.find(epoch_context);
         if (epoch_it != epoch_contexts_.end())
         {
@@ -1280,7 +1601,7 @@ class TaskRegistryImpl {
       {
 #if UNI20_HAS_STACKTRACE
         fmt::print(stderr, "epoch creation stacktrace:\n");
-        print_stacktrace(epoch_info.creation_trace);
+        print_stacktrace(epoch_info.creation_trace, stacktrace_options);
 #else
         fmt::print(stderr, "epoch creation stacktrace: unavailable\n");
 #endif
@@ -1336,6 +1657,7 @@ class TaskRegistryImpl {
     TaskDebugInfoMap tasks_;
     std::unordered_map<NodeInfo const*, std::string> node_names_;
     std::unordered_map<EpochContext const*, EpochDebugInfo> epoch_contexts_;
+    StacktraceOptions stacktrace_options_{default_stacktrace_options()};
     std::size_t next_task_id_{1};
     std::size_t next_epoch_id_{1};
 };
@@ -1455,6 +1777,11 @@ void TaskRegistry::mark_running(std::coroutine_handle<> h) { TaskRegistryImpl::i
 
 void TaskRegistry::mark_suspended(std::coroutine_handle<> h) { TaskRegistryImpl::instance().mark_suspended(h); }
 
+void TaskRegistry::record_task_scheduled(std::coroutine_handle<> h)
+{
+  TaskRegistryImpl::instance().record_task_scheduled(h);
+}
+
 void TaskRegistry::record_task_dependencies(std::coroutine_handle<> h,
                                             std::vector<async::NodeInfo const*> const& read_dependencies,
                                             std::vector<async::NodeInfo const*> const& write_dependencies)
@@ -1563,6 +1890,20 @@ TaskRegistry::DiagnosticsServiceOptions TaskRegistry::default_diagnostics_servic
 {
   return ::default_diagnostics_service_options();
 }
+
+TaskRegistry::StacktraceOptions TaskRegistry::default_stacktrace_options() { return ::default_stacktrace_options(); }
+
+TaskRegistry::StacktraceOptions TaskRegistry::stacktrace_options()
+{
+  return TaskRegistryImpl::instance().stacktrace_options();
+}
+
+void TaskRegistry::set_stacktrace_options(StacktraceOptions const& options)
+{
+  TaskRegistryImpl::instance().set_stacktrace_options(options);
+}
+
+void TaskRegistry::reset_stacktrace_options() { TaskRegistryImpl::instance().reset_stacktrace_options(); }
 
 std::string TaskRegistry::default_graphviz_dump_path() { return default_dump_path(default_graphviz_dump_options()); }
 

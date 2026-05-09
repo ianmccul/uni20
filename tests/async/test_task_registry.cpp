@@ -5,12 +5,14 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_task.hpp>
+#include <uni20/async/awaiters.hpp>
 #include <uni20/async/buffers.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/task_registry.hpp>
@@ -49,6 +51,16 @@ class EnvVarGuard {
     std::optional<std::string> old_value_;
 };
 
+class StacktraceOptionsGuard {
+  public:
+    StacktraceOptionsGuard() : old_(TaskRegistry::stacktrace_options()) {}
+
+    ~StacktraceOptionsGuard() { TaskRegistry::set_stacktrace_options(old_); }
+
+  private:
+    TaskRegistry::StacktraceOptions old_;
+};
+
 AsyncTask make_suspended_task() { co_return; }
 
 AsyncTask wait_for_reader(ReadBuffer<int> reader)
@@ -67,6 +79,13 @@ AsyncTask copy_value(ReadBuffer<int> reader, WriteBuffer<int> writer)
 {
   auto const& value = co_await reader;
   co_await writer = value;
+  co_return;
+}
+
+AsyncTask sum_all_values(ReadBuffer<int> lhs, ReadBuffer<int> rhs, WriteBuffer<int> writer)
+{
+  auto [left, right] = co_await all(lhs, rhs);
+  co_await writer = left + right;
   co_return;
 }
 
@@ -378,6 +397,132 @@ TEST(TaskRegistryDebugTest, GraphvizDotShowsOptionalDebugLabels)
   EXPECT_EQ(output.read().get_wait(sched), 3);
 }
 
+TEST(TaskRegistryDebugTest, GraphSnapshotCarriesOptionalStacktraceProvenance)
+{
+  DebugScheduler sched;
+  Async<int> value;
+
+  auto task = wait_for_reader(value.read());
+  task.debug_name("provenance reader");
+  sched.schedule(std::move(task));
+  sched.run();
+
+  auto const snapshot = TaskRegistry::snapshot();
+  auto const task_it = std::find_if(snapshot.tasks.begin(), snapshot.tasks.end(),
+                                    [](auto const& record) { return record.label == "provenance reader"; });
+
+  ASSERT_NE(task_it, snapshot.tasks.end());
+  EXPECT_EQ(task_it->state, "suspended");
+  ASSERT_FALSE(task_it->await_dependencies.empty());
+
+  auto const dot = TaskRegistry::graphviz_dot(snapshot);
+  EXPECT_NE(dot.find("provenance reader"), std::string::npos);
+  EXPECT_NE(dot.find("co_await read"), std::string::npos);
+
+#if UNI20_HAS_STACKTRACE
+  EXPECT_FALSE(task_it->creation_site.stacktrace.empty());
+  EXPECT_FALSE(task_it->schedule_site.stacktrace.empty());
+  EXPECT_FALSE(task_it->last_transition_site.stacktrace.empty());
+  EXPECT_FALSE(task_it->last_await_site.stacktrace.empty());
+  EXPECT_FALSE(task_it->await_dependencies.front().await_site.stacktrace.empty());
+  EXPECT_NE(dot.find("tooltip=\""), std::string::npos);
+  if (!task_it->creation_site.location.empty())
+  {
+    EXPECT_NE(dot.find("created_at="), std::string::npos);
+  }
+  if (!task_it->schedule_site.location.empty())
+  {
+    EXPECT_NE(dot.find("scheduled_at="), std::string::npos);
+  }
+  if (!task_it->last_await_site.location.empty())
+  {
+    EXPECT_NE(dot.find("awaiting_at="), std::string::npos);
+  }
+#else
+  EXPECT_TRUE(task_it->creation_site.stacktrace.empty());
+  EXPECT_TRUE(task_it->schedule_site.stacktrace.empty());
+  EXPECT_TRUE(task_it->last_transition_site.stacktrace.empty());
+  EXPECT_TRUE(task_it->last_await_site.stacktrace.empty());
+  EXPECT_TRUE(task_it->await_dependencies.front().await_site.stacktrace.empty());
+  EXPECT_EQ(dot.find("created_at="), std::string::npos);
+  EXPECT_EQ(dot.find("scheduled_at="), std::string::npos);
+  EXPECT_EQ(dot.find("awaiting_at="), std::string::npos);
+#endif
+
+  sched.schedule(write_value(value.write(), 7));
+  sched.run_all();
+}
+
+#if UNI20_HAS_STACKTRACE
+TEST(TaskRegistryDebugTest, StacktraceOptionsSuppressSnapshotStacktraceText)
+{
+  StacktraceOptionsGuard guard;
+  auto options = TaskRegistry::stacktrace_options();
+  options.max_frames = 0;
+  TaskRegistry::set_stacktrace_options(options);
+
+  DebugScheduler sched;
+  Async<int> value;
+
+  auto task = wait_for_reader(value.read());
+  task.debug_name("hidden stacktrace reader");
+  sched.schedule(std::move(task));
+  sched.run();
+
+  auto const snapshot = TaskRegistry::snapshot();
+  auto const task_it = std::find_if(snapshot.tasks.begin(), snapshot.tasks.end(), [](auto const& record) {
+    return record.label == "hidden stacktrace reader";
+  });
+
+  ASSERT_NE(task_it, snapshot.tasks.end());
+  EXPECT_TRUE(task_it->creation_site.stacktrace.empty());
+  EXPECT_TRUE(task_it->schedule_site.stacktrace.empty());
+  EXPECT_TRUE(task_it->last_transition_site.stacktrace.empty());
+  EXPECT_TRUE(task_it->last_await_site.stacktrace.empty());
+  ASSERT_FALSE(task_it->await_dependencies.empty());
+  EXPECT_TRUE(task_it->await_dependencies.front().await_site.stacktrace.empty());
+
+  auto const dot = TaskRegistry::graphviz_dot(snapshot);
+  EXPECT_EQ(dot.find("stacktrace:"), std::string::npos);
+
+  sched.schedule(write_value(value.write(), 8));
+  sched.run_all();
+}
+#endif
+
+TEST(TaskRegistryDebugTest, GraphSnapshotCapturesAllAwaiterDependencies)
+{
+  DebugScheduler sched;
+  Async<int> lhs;
+  Async<int> rhs(6);
+  Async<int> output;
+
+  auto task = sum_all_values(lhs.read(), rhs.read(), output.write());
+  task.debug_name("all awaiter kernel");
+  sched.schedule(std::move(task));
+  sched.run();
+
+  auto const snapshot = TaskRegistry::snapshot();
+  auto const task_it = std::find_if(snapshot.tasks.begin(), snapshot.tasks.end(), [](auto const& record) {
+    return record.label == "all awaiter kernel";
+  });
+
+  ASSERT_NE(task_it, snapshot.tasks.end());
+  auto const read_await_count =
+      std::count_if(task_it->await_dependencies.begin(), task_it->await_dependencies.end(), [](auto const& dependency) {
+        return dependency.role == TaskRegistryGraphRole::Reader;
+      });
+  EXPECT_GE(read_await_count, 2);
+
+  auto const dot = TaskRegistry::graphviz_dot(snapshot);
+  EXPECT_NE(dot.find("all awaiter kernel"), std::string::npos);
+  EXPECT_NE(dot.find("co_await read"), std::string::npos);
+
+  sched.schedule(write_value(lhs.write(), 4));
+  sched.run_all();
+  EXPECT_EQ(output.read().get_wait(sched), 10);
+}
+
 TEST(TaskRegistryDebugTest, GraphSnapshotExposesStructuredRecords)
 {
   DebugScheduler sched;
@@ -574,6 +719,33 @@ TEST(TaskRegistryDebugTest, DefaultGraphvizDumpOptionsReadEnvironment)
   EXPECT_NE(path.find(dir.string()), std::string::npos);
   EXPECT_NE(path.find("env-default"), std::string::npos);
   std::filesystem::remove_all(dir);
+}
+
+TEST(TaskRegistryDebugTest, DefaultStacktraceOptionsReadEnvironment)
+{
+  EnvVarGuard frames("UNI20_DEBUG_DAG_STACKTRACE_FRAMES", "3");
+  EnvVarGuard internal_frames("UNI20_DEBUG_DAG_STACKTRACE_INTERNAL_FRAMES", "false");
+
+  auto const options = TaskRegistry::default_stacktrace_options();
+  EXPECT_EQ(options.max_frames, 3U);
+  EXPECT_FALSE(options.include_internal_frames);
+}
+
+TEST(TaskRegistryDebugTest, DefaultStacktraceOptionsAcceptUnlimitedFrames)
+{
+  EnvVarGuard frames("UNI20_DEBUG_DAG_STACKTRACE_FRAMES", "all");
+
+  auto const options = TaskRegistry::default_stacktrace_options();
+  EXPECT_EQ(options.max_frames, std::numeric_limits<std::size_t>::max());
+}
+
+TEST(TaskRegistryDebugTest, ResetStacktraceOptionsReadsEnvironment)
+{
+  StacktraceOptionsGuard guard;
+  EnvVarGuard frames("UNI20_DEBUG_DAG_STACKTRACE_FRAMES", "0");
+
+  TaskRegistry::reset_stacktrace_options();
+  EXPECT_EQ(TaskRegistry::stacktrace_options().max_frames, 0U);
 }
 
 TEST(TaskRegistryDebugTest, RequestedGraphvizDumpIsServicedByCaller)

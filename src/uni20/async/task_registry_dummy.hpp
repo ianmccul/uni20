@@ -65,6 +65,9 @@ class TaskRegistry {
         bool block_signal_in_calling_thread{true};
     };
 
+    /// \brief Runtime controls for stacktrace formatting mirrored from the debug registry.
+    using StacktraceOptions = TaskRegistryStacktraceOptions;
+
     /// \brief Structured async DAG snapshot type mirrored from the debug registry.
     using GraphSnapshot = TaskRegistryGraphSnapshot;
 
@@ -86,6 +89,9 @@ class TaskRegistry {
     /// \brief No-op suspended-state hook.
     /// \param h Coroutine handle ignored in dummy mode.
     static constexpr void mark_suspended(std::coroutine_handle<> h) noexcept { static_cast<void>(h); }
+    /// \brief No-op scheduler submission provenance hook.
+    /// \param h Coroutine handle ignored in dummy mode.
+    static constexpr void record_task_scheduled(std::coroutine_handle<> h) noexcept { static_cast<void>(h); }
     /// \brief No-op coarse DAG dependency hook.
     /// \param h Coroutine handle ignored in dummy mode.
     /// \param read_dependencies Read dependency nodes ignored in dummy mode.
@@ -258,6 +264,17 @@ class TaskRegistry {
     /// \brief Builds default diagnostics-service options in dummy mode.
     /// \return Default diagnostics-service options.
     static DiagnosticsServiceOptions default_diagnostics_service_options() { return DiagnosticsServiceOptions{}; }
+    /// \brief Builds default stacktrace formatting options in dummy mode.
+    /// \return Default stacktrace formatting options.
+    static StacktraceOptions default_stacktrace_options() { return StacktraceOptions{}; }
+    /// \brief Returns stacktrace formatting options in dummy mode.
+    /// \return Default stacktrace formatting options.
+    static StacktraceOptions stacktrace_options() { return default_stacktrace_options(); }
+    /// \brief Ignores stacktrace formatting options in dummy mode.
+    /// \param options Stacktrace options ignored in dummy mode.
+    static void set_stacktrace_options(StacktraceOptions const& options) noexcept { static_cast<void>(options); }
+    /// \brief Resets stacktrace formatting options in dummy mode.
+    static constexpr void reset_stacktrace_options() noexcept {}
     /// \brief Builds a dummy default Graphviz dump path.
     /// \return Path using the default directory and prefix.
     static std::string default_graphviz_dump_path() { return default_graphviz_dump_path(default_graphviz_dump_options()); }

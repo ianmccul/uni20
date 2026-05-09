@@ -46,6 +46,7 @@ class DebugScheduler final : public IScheduler {
     void schedule(AsyncTask&& task) override
     {
       TRACE_MODULE(ASYNC, "Scheduling a task", &task, task.h_);
+      TaskRegistry::record_task_scheduled(task.coroutine_handle());
       if (task.set_scheduler(this))
       {
         Handles_.push_back(std::move(task));

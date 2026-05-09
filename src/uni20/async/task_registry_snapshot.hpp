@@ -20,6 +20,21 @@ enum class TaskRegistryGraphRole
   Writer,
 };
 
+/// \brief Optional source provenance attached to a task, epoch, or dependency edge.
+struct TaskRegistryGraphProvenance
+{
+    std::string location{};
+    std::string function{};
+    std::string stacktrace{};
+};
+
+/// \brief Runtime controls for formatting captured task-registry stacktraces.
+struct TaskRegistryStacktraceOptions
+{
+    std::size_t max_frames{32};
+    bool include_internal_frames{true};
+};
+
 /// \brief Async value node captured in a task-registry graph snapshot.
 struct TaskRegistryGraphDataNode
 {
@@ -38,6 +53,7 @@ struct TaskRegistryGraphAwaitDependency
 {
     std::uint64_t node_id{0};
     TaskRegistryGraphRole role{TaskRegistryGraphRole::Reader};
+    TaskRegistryGraphProvenance await_site{};
 };
 
 /// \brief Coroutine task captured in a task-registry graph snapshot.
@@ -48,6 +64,10 @@ struct TaskRegistryGraphTask
     std::string label{};
     std::string state{};
     std::size_t transition_count{0};
+    TaskRegistryGraphProvenance creation_site{};
+    TaskRegistryGraphProvenance schedule_site{};
+    TaskRegistryGraphProvenance last_transition_site{};
+    TaskRegistryGraphProvenance last_await_site{};
     std::vector<std::uint64_t> read_dependencies{};
     std::vector<std::uint64_t> write_dependencies{};
     std::vector<TaskRegistryGraphAwaitDependency> await_dependencies{};
@@ -69,6 +89,7 @@ struct TaskRegistryGraphEpoch
     int num_writers{0};
     int num_readers{0};
     bool writer_active{false};
+    TaskRegistryGraphProvenance creation_site{};
     std::vector<std::size_t> reader_task_ids{};
     std::vector<std::size_t> writer_task_ids{};
 };

@@ -73,6 +73,7 @@ class TbbScheduler final : public IScheduler {
     /// \brief Schedule a coroutine for initial execution.
     void schedule(AsyncTask&& t) override
     {
+      TaskRegistry::record_task_scheduled(t.coroutine_handle());
       if (t.set_scheduler(this)) this->enqueue_task(std::move(t));
     }
 

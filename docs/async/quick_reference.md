@@ -152,6 +152,11 @@ Use `TaskRegistry::graphviz_dot()` or `TaskRegistry::dump_graphviz()` to capture
 current task/epoch/value graph. With `UNI20_DEBUG_DAG=ON`, coroutine
 `ReadBuffer`/`WriteBuffer` parameters become coarse dependency edges before the task
 runs, and concrete buffer `co_await` sites add finer dependency edges.
+With stacktrace support, DOT labels also include best-effort `created_at`,
+`scheduled_at`, and `awaiting_at` source locations, with full traces in tooltips.
+Without stacktrace support, the same DAG structure is emitted without provenance.
+Use `TaskRegistry::set_stacktrace_options(...)` to control how many frames are
+serialized; `max_frames=0` keeps source-location labels but omits full trace text.
 
 Use `TaskRegistry::snapshot()` for structured records, then
 `TaskRegistry::diagnose_snapshot(snapshot)` for blocked-task, missing-writer, and
@@ -203,6 +208,8 @@ Useful environment defaults:
 - `UNI20_DEBUG_DAG_REQUEST_FILE`
 - `UNI20_DEBUG_DAG_SIGNAL`
 - `UNI20_DEBUG_DAG_POLL_MS`
+- `UNI20_DEBUG_DAG_STACKTRACE_FRAMES`
+- `UNI20_DEBUG_DAG_STACKTRACE_INTERNAL_FRAMES`
 
 ## Fast Troubleshooting
 

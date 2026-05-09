@@ -50,6 +50,7 @@ The docs are split into two groups:
 | [`schedulers.md`](schedulers.md) | `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler` behavior | Performance and integration work |
 | [`reverse_mode_ad.md`](reverse_mode_ad.md) | Dataflow reverse-mode concepts and `Var<T>` behavior | AD contributors |
 | [`task_registry_debug.md`](task_registry_debug.md) | Debug dumps, stacktraces, runtime controls | Debugging and test triage |
+| [`dag_debug_examples.md`](dag_debug_examples.md) | Graphviz DAG examples, including deadlock snapshots | Runtime debugging |
 | [`quick_reference.md`](quick_reference.md) | Condensed API/error/env reference | Experienced developers and AI agents |
 | [`audit_legacy_docs.md`](audit_legacy_docs.md) | Divergence report vs older docs | Migration and cleanup |
 
@@ -61,6 +62,7 @@ Runnable examples in `examples/` that pair well with this docs set:
 - `examples/async_example.cpp`: basic read/write and `try_await(...)`
 - `examples/async_ops_example.cpp`: expression DAG composition and `all(...)`
 - `examples/async_tbb_reduction_example.cpp`: parallel scheduling with `TbbScheduler`
+- `examples/async_dag_deadlock_tbb_example.cpp`: Graphviz snapshot of a deliberate TBB dataflow deadlock
 
 ## Related Top-Level Docs
 

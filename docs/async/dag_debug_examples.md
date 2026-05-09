@@ -16,6 +16,10 @@ the existing async examples:
 - compact expression versus explicit-kernel graphs from `async_kernel_shapes_example.cpp`
 - a small map/reduce tree from `async_tbb_reduction_example.cpp`
 
+`examples/async_dag_deadlock_tbb_example.cpp` builds a deliberate two-task TBB
+dataflow cycle, lets the worker threads block, then has the main thread sleep and
+capture a best-effort DOT snapshot of the deadlocked DAG.
+
 Build with DAG instrumentation:
 
 ```bash
@@ -24,6 +28,7 @@ cmake -S . -B ./build_codex/build_gcc13_debug_dag \
   -DUNI20_DEBUG_DAG=ON
 cmake --build ./build_codex/build_gcc13_debug_dag --target async_dag_debug_example
 cmake --build ./build_codex/build_gcc13_debug_dag --target async_dag_gallery_example
+cmake --build ./build_codex/build_gcc13_debug_dag --target async_dag_deadlock_tbb_example
 ```
 
 `UNI20_DEBUG_DAG=ON` implies `UNI20_DEBUG_ASYNC_TASKS=ON`. New `Debug` build
@@ -36,6 +41,7 @@ Run the example:
 ```bash
 ./build_codex/build_gcc13_debug_dag/examples/async_dag_debug_example /tmp/uni20-dag-example
 ./build_codex/build_gcc13_debug_dag/examples/async_dag_gallery_example /tmp/uni20-dag-gallery
+./build_codex/build_gcc13_debug_dag/examples/async_dag_deadlock_tbb_example /tmp/uni20-dag-deadlock 2
 ```
 
 The example writes DOT files similar to:
@@ -59,6 +65,13 @@ The gallery example writes DOT files similar to:
 /tmp/uni20-dag-gallery/async-dag-gallery-reduction-03-complete.dot
 ```
 
+The deadlock example writes DOT files similar to:
+
+```text
+/tmp/uni20-dag-deadlock/async-dag-deadlock-tbb-01-scheduled.dot
+/tmp/uni20-dag-deadlock/async-dag-deadlock-tbb-02-after-sleep.dot
+```
+
 Render a snapshot with Graphviz:
 
 ```bash
@@ -79,6 +92,9 @@ The graph is a point-in-time scheduler and dependency snapshot:
 | `arg write` | Coarse constructor-time dependency from a `WriteBuffer` parameter. |
 | `co_await read` | Fine-grained read dependency observed when the coroutine actually awaited the buffer. |
 | `co_await write` | Fine-grained write dependency observed when the coroutine awaited/acquired a writer. |
+| `created_at` | Best-effort source line where a task or epoch was created, shown only when stacktrace support is available. |
+| `scheduled_at` | Best-effort source line where a task was first submitted to a scheduler. |
+| `awaiting_at` | Best-effort source line for the most recent concrete `co_await` site on a suspended task. |
 | `epochs` | Association between a value node and an epoch context. |
 | `next` | Link from one epoch generation to the next generation of the same async value. |
 | `await read` | A reader task is currently queued on that epoch. |
@@ -113,12 +129,27 @@ scheduled tasks, async value nodes when `UNI20_DEBUG_DAG=ON`, constructor-captur
 reader waiting for `late_input`. The diagnostic note and highlighted nodes mark
 this as a missing-writer case until the later writer is scheduled.
 
+When built with `UNI20_ENABLE_STACKTRACE=ON` and compiler/library support, visible
+labels include compact source locations. Full stacktraces are emitted as Graphviz
+tooltips on task, epoch, and concrete `co_await` edges. Use
+`UNI20_DEBUG_DAG_STACKTRACE_FRAMES` or `TaskRegistry::set_stacktrace_options(...)`
+to cap the tooltip trace length; `0` keeps visible source labels but hides full
+trace text, and `all`/`full`/`unlimited`/`max` removes the cap. Without stacktrace
+support, the same graph structure is emitted without those provenance labels.
+
 In the gallery output, `reduction-01-constructed` is the best first graph to view.
 It shows the full binary tree before execution. `kernel-shapes-01-constructed`
 is useful for comparing how expression helpers and explicit coroutine kernels
 appear in the same task registry snapshot. The labels in these graphs are examples
 of how call sites can name meaningful values and kernels without changing the DAG
 semantics.
+
+In the TBB deadlock output, `02-after-sleep` is the useful snapshot. It should show
+two suspended tasks: `left = right + 1` waits to read `right`, while
+`right = left + 1` waits to read `left`. The diagnostic note should report blocked
+tasks and a dependency cycle, and the cycle participants are highlighted in red.
+The example intentionally exits after writing the DOT instead of calling
+`get_wait()` or `run_all()`, since the dataflow cycle cannot complete.
 
 The same example also demonstrates:
 
