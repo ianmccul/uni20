@@ -25,6 +25,12 @@ target_link_libraries(bug PRIVATE fmt::fmt uni20_common uni20_async TBB::tbb)
 add_executable(async_example async_example.cpp)
 target_link_libraries(async_example PRIVATE fmt::fmt uni20_common uni20_async)
 
+add_executable(async_dag_debug_example async_dag_debug_example.cpp)
+target_link_libraries(async_dag_debug_example PRIVATE fmt::fmt uni20_common uni20_async)
+
+add_executable(async_dag_gallery_example async_dag_gallery_example.cpp)
+target_link_libraries(async_dag_gallery_example PRIVATE fmt::fmt uni20_common uni20_async)
+
 add_executable(async_example2 async_example2.cpp)
 target_link_libraries(async_example2 PRIVATE fmt::fmt uni20_common uni20_async)
 

@@ -9,6 +9,7 @@
 #include <coroutine>
 #include <exception>
 #include <optional>
+#include <string>
 
 namespace uni20::async
 {
@@ -64,6 +65,15 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     {
       if (!h_) return {};
       return std::coroutine_handle<>::from_address(h_.address());
+    }
+
+    /// \brief Assign an optional debug label for task-registry graph output.
+    /// \param label Human-readable label used only by debug diagnostics.
+    /// \return Reference to this task for call chaining.
+    BasicAsyncTask& debug_name(std::string const& label)
+    {
+      TaskRegistry::name_task(this->coroutine_handle(), label);
+      return *this;
     }
 
     /// \brief Resume the coroutine.

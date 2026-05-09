@@ -6,9 +6,9 @@
 #include "assignment_semantics.hpp"
 #include "async_task.hpp"
 #include "async_task_promise.hpp"
-#include <uni20/common/trace.hpp>
 #include "epoch_context.hpp"
 #include "shared_storage.hpp"
+#include <uni20/common/trace.hpp>
 
 #include <atomic>
 #include <concepts>
@@ -92,6 +92,8 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
 #if UNI20_DEBUG_DAG
     /// \brief Get the debug node pointer of the object
     NodeInfo const* node() const { return reader_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Reader; }
 #endif
 
     /// \brief Returns a `ReadMaybeAwaiter`.
@@ -284,6 +286,13 @@ template <typename T> class OwningReadAwaiter {
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return this->reader_.ready(); }
 
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return reader_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Reader; }
+#endif
+
     /// \brief Suspend until the read epoch becomes available.
     /// \param t Owning task to suspend and enqueue.
     void await_suspend(AsyncTask&& t) noexcept
@@ -317,6 +326,13 @@ template <typename T> class ReadMaybeAwaiter {
     /// \brief Check if the value is already ready to be read.
     /// \return True if the epoch is ready and no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return reader_.ready(); }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return reader_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Reader; }
+#endif
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
@@ -363,6 +379,13 @@ template <typename T> class ReadMaybeAwaiter<T const&> {
     /// \return True if the epoch is ready and no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return reader_.ready(); }
 
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return reader_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Reader; }
+#endif
+
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
     void await_suspend(AsyncTask&& t) noexcept
@@ -403,6 +426,13 @@ template <typename T> class ReadOrCancelAwaiter {
       // we must suspend here, because it is a possible cancellation point
       return false;
     }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return reader_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Reader; }
+#endif
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
@@ -451,6 +481,13 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
       return false;
     }
 
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return reader_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Reader; }
+#endif
+
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
     void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
@@ -494,7 +531,10 @@ template <typename T> ReadOrCancelAwaiter<T const&> ReadBuffer<T>::or_cancel() &
 /// \brief Build an or-cancel awaiter from an rvalue read buffer.
 /// \tparam T Stored value type.
 /// \return Awaiter yielding owning read access or throwing on cancellation.
-template <typename T> ReadOrCancelAwaiter<T> ReadBuffer<T>::or_cancel() && { return ReadOrCancelAwaiter<T>(std::move(reader_)); }
+template <typename T> ReadOrCancelAwaiter<T> ReadBuffer<T>::or_cancel() &&
+{
+  return ReadOrCancelAwaiter<T>(std::move(reader_));
+}
 
 // Forward declaration of the proxy used for deferred writes
 template <typename T> class WriteAccessProxy;
@@ -524,6 +564,13 @@ template <typename T> class StorageAwaiter {
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return writer_->ready(); }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return writer_ ? writer_->node() : nullptr; }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Writer; }
+#endif
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -564,6 +611,13 @@ template <typename T> class TakeAwaiter {
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return writer_->ready(); }
 
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return writer_ ? writer_->node() : nullptr; }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Writer; }
+#endif
+
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
     void await_suspend(AsyncTask&& t) noexcept
@@ -602,6 +656,13 @@ template <typename T> class TakeReleaseAwaiter {
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return writer_->ready(); }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return writer_ ? writer_->node() : nullptr; }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Writer; }
+#endif
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -697,6 +758,13 @@ template <typename T> class OwningStorageAwaiter {
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return writer_.ready(); }
 
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return writer_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Writer; }
+#endif
+
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
     void await_suspend(AsyncTask&& t) noexcept
@@ -735,6 +803,13 @@ template <typename T> class OwningTakeAwaiter {
     /// \brief Reports whether the writer epoch is immediately writable.
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return writer_.ready(); }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return writer_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Writer; }
+#endif
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
@@ -815,6 +890,8 @@ template <typename T> class WriteBuffer {
 
 #if UNI20_DEBUG_DAG
     NodeInfo const* node() const { return writer_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Writer; }
 #endif
 
     /// \brief Reports whether the writer epoch is immediately writable.
@@ -834,11 +911,10 @@ template <typename T> class WriteBuffer {
     [[nodiscard]] WriteAccessProxy<T> await_resume() &
     {
       writer_.resume();
-      return WriteAccessProxy<T>(
-          &writer_
+      return WriteAccessProxy<T>(&writer_
 #if UNI20_DEBUG_ASYNC_TASKS
-          ,
-          proxy_state_
+                                 ,
+                                 proxy_state_
 #endif
       );
     }
@@ -849,11 +925,10 @@ template <typename T> class WriteBuffer {
     {
       auto* writer = const_cast<EpochContextWriter<T>*>(&writer_);
       writer->resume();
-      return WriteAccessProxy<T>(
-          writer
+      return WriteAccessProxy<T>(writer
 #if UNI20_DEBUG_ASYNC_TASKS
-          ,
-          proxy_state_
+                                 ,
+                                 proxy_state_
 #endif
       );
     }
@@ -894,7 +969,8 @@ template <typename T> class WriteBuffer {
     /// \param args Constructor arguments.
     /// \return Reference to the constructed value.
     template <typename... Args>
-    requires std::constructible_from<T, Args...> T& emplace_assert(Args&&... args)
+      requires std::constructible_from<T, Args...>
+    T& emplace_assert(Args&&... args)
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
       writer_.emplace(std::forward<Args>(args)...);
@@ -965,7 +1041,9 @@ template <typename T> class WriteBuffer {
     /// \brief Assign immediately when the writer is known to be ready.
     /// \tparam U Source type assignable to `T&`.
     /// \param val Source value.
-    template <typename U> void write_assert(U&& val) requires std::assignable_from<T&, U&&>
+    template <typename U>
+    void write_assert(U&& val)
+      requires std::assignable_from<T&, U&&>
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
       writer_.data() = std::forward<U>(val);
@@ -974,7 +1052,9 @@ template <typename T> class WriteBuffer {
     /// \brief Move-assign immediately when the writer is known to be ready.
     /// \tparam U Source type assignable to `T&`.
     /// \param val Source value.
-    template <typename U> void write_move_assert(U&& val) requires std::assignable_from<T&, U&&>
+    template <typename U>
+    void write_move_assert(U&& val)
+      requires std::assignable_from<T&, U&&>
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
       writer_.data() = std::move(val);
@@ -1080,10 +1160,8 @@ template <typename T> class Defer;
 
 /// \brief Concept for buffers that can register explicit exception sinks.
 template <typename B>
-concept exception_sink_buffer = requires(B& buffer, BasicAsyncTaskPromise& promise)
-{
-  buffer.register_exception_sink(promise, true);
-};
+concept exception_sink_buffer =
+    requires(B& buffer, BasicAsyncTaskPromise& promise) { buffer.register_exception_sink(promise, true); };
 
 /// \brief Awaiter that registers explicit exception sinks and then resumes immediately.
 /// \tparam Buffers Buffer types that implement `register_exception_sink`.
@@ -1128,8 +1206,7 @@ template <exception_sink_buffer... Buffers> auto propagate_exceptions_to(Buffers
 /// \tparam T Destination value type held by async storage.
 /// \tparam U Source assignment type.
 template <typename T, typename U>
-concept write_through_assignable_source = requires(T& value, U&& source)
-{
+concept write_through_assignable_source = requires(T& value, U&& source) {
   { value = std::forward<U>(source) } -> std::same_as<T&>;
 };
 
@@ -1137,9 +1214,8 @@ concept write_through_assignable_source = requires(T& value, U&& source)
 /// \tparam T Destination value type held by async storage.
 /// \tparam U Source assignment type.
 template <typename T, typename U>
-concept write_proxy_assignable_source =
-    (write_through_assignment_v<T> && write_through_assignable_source<T, U>) ||
-    (!write_through_assignment_v<T> && std::constructible_from<T, U&&>);
+concept write_proxy_assignable_source = (write_through_assignment_v<T> && write_through_assignable_source<T, U>) ||
+                                        (!write_through_assignment_v<T> && std::constructible_from<T, U&&>);
 
 /// \brief Non-owning proxy returned by `co_await` on an lvalue `WriteBuffer<T>`.
 /// \details This proxy references the underlying writer held by the buffer.
@@ -1158,8 +1234,8 @@ template <typename T> class WriteAccessProxy {
     /// \param u Source value.
     /// \return Reference to `*this`.
     template <typename U>
-    requires(!std::same_as<std::remove_cvref_t<U>, WriteAccessProxy>) &&
-        write_proxy_assignable_source<T, U> WriteAccessProxy& operator=(U&& u)
+      requires(!std::same_as<std::remove_cvref_t<U>, WriteAccessProxy>) && write_proxy_assignable_source<T, U>
+    WriteAccessProxy& operator=(U&& u)
     {
       if constexpr (write_through_assignment_v<T>)
       {
@@ -1180,7 +1256,8 @@ template <typename T> class WriteAccessProxy {
     /// \param args Constructor arguments.
     /// \return Reference to the underlying value.
     template <typename... Args>
-    requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
+      requires std::constructible_from<T, Args...>
+    T& emplace(Args&&... args)
     {
       return this->writer().emplace(std::forward<Args>(args)...);
     }
@@ -1190,7 +1267,8 @@ template <typename T> class WriteAccessProxy {
     /// \param args Constructor arguments.
     /// \return Reference to the reconstructed value.
     template <typename... Args>
-    requires std::constructible_from<T, Args...> T& rebind(Args&&... args)
+      requires std::constructible_from<T, Args...>
+    T& rebind(Args&&... args)
     {
       return this->emplace(std::forward<Args>(args)...);
     }
@@ -1200,10 +1278,8 @@ template <typename T> class WriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-    requires requires(T& value, U&& x)
-    {
-      value += std::forward<U>(x);
-    } WriteAccessProxy& operator+=(U&& x)
+      requires requires(T& value, U&& x) { value += std::forward<U>(x); }
+    WriteAccessProxy& operator+=(U&& x)
     {
       auto& storage = this->writer().storage();
       if (storage.constructed())
@@ -1226,10 +1302,8 @@ template <typename T> class WriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-    requires requires(T& value, U&& x)
-    {
-      value -= std::forward<U>(x);
-    } WriteAccessProxy& operator-=(U&& x)
+      requires requires(T& value, U&& x) { value -= std::forward<U>(x); }
+    WriteAccessProxy& operator-=(U&& x)
     {
       auto& storage = this->writer().storage();
       if (storage.constructed())
@@ -1254,10 +1328,8 @@ template <typename T> class WriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-    requires requires(T& value, U&& x)
-    {
-      value *= std::forward<U>(x);
-    } WriteAccessProxy& operator*=(U&& x)
+      requires requires(T& value, U&& x) { value *= std::forward<U>(x); }
+    WriteAccessProxy& operator*=(U&& x)
     {
       this->get() *= std::forward<U>(x);
       return *this;
@@ -1268,10 +1340,8 @@ template <typename T> class WriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-    requires requires(T& value, U&& x)
-    {
-      value /= std::forward<U>(x);
-    } WriteAccessProxy& operator/=(U&& x)
+      requires requires(T& value, U&& x) { value /= std::forward<U>(x); }
+    WriteAccessProxy& operator/=(U&& x)
     {
       this->get() /= std::forward<U>(x);
       return *this;
@@ -1320,16 +1390,16 @@ template <typename T> class WriteAccessProxy {
 #if UNI20_DEBUG_ASYNC_TASKS
     /// \param proxy_state Shared debug lifetime state for use-after-release checks.
 #endif
-    explicit WriteAccessProxy(
-        EpochContextWriter<T>* writer
+    explicit WriteAccessProxy(EpochContextWriter<T>* writer
 #if UNI20_DEBUG_ASYNC_TASKS
-        ,
-        std::shared_ptr<WriteProxyLifetimeState> proxy_state
+                              ,
+                              std::shared_ptr<WriteProxyLifetimeState> proxy_state
 #endif
-        ) noexcept
+                              ) noexcept
         : writer_(writer)
 #if UNI20_DEBUG_ASYNC_TASKS
-        , proxy_state_(std::move(proxy_state))
+          ,
+          proxy_state_(std::move(proxy_state))
 #endif
     {}
 
@@ -1371,8 +1441,8 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param u Source value.
     /// \return Reference to `*this`.
     template <typename U>
-    requires(!std::same_as<std::remove_cvref_t<U>, OwningWriteAccessProxy>) &&
-        write_proxy_assignable_source<T, U> OwningWriteAccessProxy& operator=(U&& u)
+      requires(!std::same_as<std::remove_cvref_t<U>, OwningWriteAccessProxy>) && write_proxy_assignable_source<T, U>
+    OwningWriteAccessProxy& operator=(U&& u)
     {
       if constexpr (write_through_assignment_v<T>)
       {
@@ -1392,7 +1462,8 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param args Constructor arguments.
     /// \return Reference to the underlying value.
     template <typename... Args>
-    requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
+      requires std::constructible_from<T, Args...>
+    T& emplace(Args&&... args)
     {
       return writer_.emplace(std::forward<Args>(args)...);
     }
@@ -1402,7 +1473,8 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param args Constructor arguments.
     /// \return Reference to the reconstructed value.
     template <typename... Args>
-    requires std::constructible_from<T, Args...> T& rebind(Args&&... args)
+      requires std::constructible_from<T, Args...>
+    T& rebind(Args&&... args)
     {
       return this->emplace(std::forward<Args>(args)...);
     }
@@ -1412,10 +1484,8 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-    requires requires(T& value, U&& x)
-    {
-      value += std::forward<U>(x);
-    } OwningWriteAccessProxy& operator+=(U&& x)
+      requires requires(T& value, U&& x) { value += std::forward<U>(x); }
+    OwningWriteAccessProxy& operator+=(U&& x)
     {
       auto& storage = writer_.storage();
       if (storage.constructed())
@@ -1438,10 +1508,8 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-    requires requires(T& value, U&& x)
-    {
-      value -= std::forward<U>(x);
-    } OwningWriteAccessProxy& operator-=(U&& x)
+      requires requires(T& value, U&& x) { value -= std::forward<U>(x); }
+    OwningWriteAccessProxy& operator-=(U&& x)
     {
       auto& storage = writer_.storage();
       if (storage.constructed())
@@ -1466,10 +1534,8 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-    requires requires(T& value, U&& x)
-    {
-      value *= std::forward<U>(x);
-    } OwningWriteAccessProxy& operator*=(U&& x)
+      requires requires(T& value, U&& x) { value *= std::forward<U>(x); }
+    OwningWriteAccessProxy& operator*=(U&& x)
     {
       this->get() *= std::forward<U>(x);
       return *this;
@@ -1480,10 +1546,8 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-    requires requires(T& value, U&& x)
-    {
-      value /= std::forward<U>(x);
-    } OwningWriteAccessProxy& operator/=(U&& x)
+      requires requires(T& value, U&& x) { value /= std::forward<U>(x); }
+    OwningWriteAccessProxy& operator/=(U&& x)
     {
       this->get() /= std::forward<U>(x);
       return *this;
@@ -1540,6 +1604,13 @@ template <typename T> class OwningWriteAwaiter {
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() const noexcept { return writer_.ready(); }
 
+#if UNI20_DEBUG_DAG
+    /// \brief Get the debug node pointer of the object.
+    NodeInfo const* node() const { return writer_.node(); }
+    /// \brief Returns the DAG dependency role represented by this awaitable.
+    static constexpr auto debug_task_role() noexcept { return uni20::TaskRegistry::EpochTaskRole::Writer; }
+#endif
+
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param task Owning task to suspend and enqueue.
     void await_suspend(AsyncTask&& task) noexcept
@@ -1587,7 +1658,8 @@ template <typename T> class WriteAssignProxy {
     /// \tparam U Source type.
     /// \param u Source expression to assign.
     template <typename U>
-    requires(!std::same_as<std::remove_cvref_t<U>, WriteAssignProxy>) void operator=(U&& u)
+      requires(!std::same_as<std::remove_cvref_t<U>, WriteAssignProxy>)
+    void operator=(U&& u)
     {
       async_assign(std::forward<U>(u), WriteBuffer<T>(std::move(writer_)));
     }
@@ -1608,9 +1680,6 @@ template <typename T> using WriteProxy = WriteAssignProxy<T>;
 /// \brief Build an assignment-only proxy from a write buffer.
 /// \tparam T Stored value type.
 /// \return Assignment-only writer proxy.
-template <typename T> WriteAssignProxy<T> WriteBuffer<T>::write()
-{
-  return WriteAssignProxy<T>(std::move(writer_));
-}
+template <typename T> WriteAssignProxy<T> WriteBuffer<T>::write() { return WriteAssignProxy<T>(std::move(writer_)); }
 
 } // namespace uni20::async

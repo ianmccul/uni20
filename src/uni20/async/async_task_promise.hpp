@@ -49,11 +49,8 @@ concept AwaitSuspendResult = std::same_as<Ret, void> || std::same_as<Ret, AsyncT
 /// \note This concept disallows await_suspend() from returning a coroutine_handle,
 ///       to ensure that ownership and resumption are managed solely by the scheduler.
 template <typename T>
-concept AsyncTaskAwaitable = requires(T a, AsyncTask t)
-{
-  {
-    a.await_suspend(std::move(t))
-    } -> AwaitSuspendResult;
+concept AsyncTaskAwaitable = requires(T a, AsyncTask t) {
+  { a.await_suspend(std::move(t)) } -> AwaitSuspendResult;
 };
 
 /// \brief Concept for awaitables that support shared ownership via AsyncTaskFactory.
@@ -66,14 +63,9 @@ concept AsyncTaskAwaitable = requires(T a, AsyncTask t)
 /// \note This is used by composite awaiters like `all(...)` that must split
 ///       ownership across multiple sub-awaitables.
 template <typename T>
-concept AsyncTaskFactoryAwaitable = requires(T a, AsyncTaskFactory t)
-{
-  {
-    a.await_suspend(std::move(t))
-    } -> AwaitSuspendResult;
-  {
-    a.num_awaiters()
-    } -> std::convertible_to<int>;
+concept AsyncTaskFactoryAwaitable = requires(T a, AsyncTaskFactory t) {
+  { a.await_suspend(std::move(t)) } -> AwaitSuspendResult;
+  { a.num_awaiters() } -> std::convertible_to<int>;
 };
 
 /// \brief Forwarding awaiter that takes ownership of a std::coroutine_handle and forwards to an awaiter as an AsyncTask
@@ -84,8 +76,7 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter;
 template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter;
 
 /// \brief Promise type for AsyncTask.
-class BasicAsyncTaskPromise
-{
+class BasicAsyncTaskPromise {
   public:
     using promise_type = BasicAsyncTaskPromise;
 
@@ -284,7 +275,10 @@ class BasicAsyncTaskPromise
 
     /// \brief Reports whether cancellation-on-resume is currently set.
     /// \return `true` when cancellation is requested.
-    [[nodiscard]] bool is_cancel_on_resume() const noexcept { return cancel_on_resume_.load(std::memory_order_acquire); }
+    [[nodiscard]] bool is_cancel_on_resume() const noexcept
+    {
+      return cancel_on_resume_.load(std::memory_order_acquire);
+    }
 
     /// \brief Transform the awaiter to provide transfer of ownership of the AsyncTask
     template <AsyncTaskAwaitable A> auto await_transform(A& a);
@@ -349,6 +343,23 @@ class BasicAsyncTaskPromise
 
     /// \brief Record that a coroutine has suspended and is waiting for resumption.
     static void note_suspended(std::coroutine_handle<promise_type> h) noexcept { TaskRegistry::mark_suspended(h); }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Records a DAG edge for awaitables that expose debug node metadata.
+    /// \tparam A Awaitable type being observed.
+    /// \param h Coroutine handle that is awaiting.
+    /// \param awaitable Awaitable being awaited.
+    template <typename A> static void note_await_dependency(std::coroutine_handle<promise_type> h, A const& awaitable)
+    {
+      if constexpr (requires {
+                      awaitable.node();
+                      awaitable.debug_task_role();
+                    })
+      {
+        TaskRegistry::record_await_dependency(h, awaitable.node(), awaitable.debug_task_role());
+      }
+    }
+#endif
 
     /// \brief Record that a coroutine has been intentionally leaked.
     static void note_leaked(std::coroutine_handle<promise_type> h) noexcept { TaskRegistry::leak_task(h); }
@@ -443,6 +454,9 @@ class BasicAsyncTaskPromise
       auto h = std::coroutine_handle<promise_type>::from_promise(*this);
       this->add_awaiter();
       TaskRegistry::register_task(h);
+#if UNI20_DEBUG_DAG
+      TaskRegistry::record_task_dependencies(h, ReadDependencies, WriteDependencies);
+#endif
       return AsyncTask(h);
     }
 
@@ -628,6 +642,9 @@ inline AsyncTaskFactory BasicAsyncTaskPromise::take_shared_ownership(int count)
 template <AsyncTaskAwaitable A>
 auto BasicAsyncTaskPromise::suspend_task_awaitable(std::coroutine_handle<promise_type> h, A& a)
 {
+#if UNI20_DEBUG_DAG
+  promise_type::note_await_dependency(h, a);
+#endif
   using await_return_type = decltype(a.await_suspend(std::declval<AsyncTask>()));
   if constexpr (std::is_void_v<await_return_type>)
   {
@@ -652,6 +669,9 @@ auto BasicAsyncTaskPromise::suspend_task_awaitable(std::coroutine_handle<promise
 template <AsyncTaskFactoryAwaitable A>
 auto BasicAsyncTaskPromise::suspend_factory_awaitable(std::coroutine_handle<promise_type> h, A& a)
 {
+#if UNI20_DEBUG_DAG
+  promise_type::note_await_dependency(h, a);
+#endif
   using await_return_type = decltype(a.await_suspend(std::declval<AsyncTaskFactory>()));
   if constexpr (std::is_void_v<await_return_type>)
   {
@@ -696,6 +716,10 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
     /// \return Result produced by the wrapped awaitable.
     [[nodiscard]] decltype(auto) await_resume()
     {
+#if UNI20_DEBUG_DAG
+      AsyncTask::promise_type::note_await_dependency(
+          std::coroutine_handle<AsyncTask::promise_type>::from_promise(promise), awaitable);
+#endif
       if constexpr (requires { awaitable.register_exception_sinks(promise); })
       {
         awaitable.register_exception_sinks(promise);
@@ -758,7 +782,14 @@ template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public
 
     /// \brief Resume wrapped awaitable and return its await result.
     /// \return Result produced by the wrapped awaitable.
-    [[nodiscard]] decltype(auto) await_resume() { return awaitable.await_resume(); }
+    [[nodiscard]] decltype(auto) await_resume()
+    {
+#if UNI20_DEBUG_DAG
+      AsyncTask::promise_type::note_await_dependency(
+          std::coroutine_handle<AsyncTask::promise_type>::from_promise(promise), awaitable);
+#endif
+      return awaitable.await_resume();
+    }
 
     // void set_cancel() override final { awaitable.set_cancel(); }
     //

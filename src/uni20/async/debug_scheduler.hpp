@@ -7,11 +7,33 @@
 #include "scheduler.hpp"
 #include "task_registry.hpp"
 #include <algorithm>
+#include <fmt/core.h>
 #include <utility>
 #include <vector>
 
 namespace uni20::async
 {
+
+namespace detail
+{
+inline void service_task_registry_debug_requests()
+{
+#if UNI20_DEBUG_ASYNC_TASKS
+  TaskRegistry::service_debug_requests();
+#endif
+}
+
+inline void dump_deadlock_graphviz_snapshot()
+{
+#if UNI20_DEBUG_ASYNC_TASKS
+  auto const path = TaskRegistry::default_graphviz_dump_path();
+  if (TaskRegistry::dump_graphviz_file_best_effort(path))
+  {
+    fmt::print(stderr, "Async Graphviz DAG snapshot written to {}\n", path);
+  }
+#endif
+}
+} // namespace detail
 
 /// \brief Simple FIFO scheduler
 class DebugScheduler final : public IScheduler {
@@ -73,6 +95,7 @@ class DebugScheduler final : public IScheduler {
 
       if (Blocked_ || Handles_.empty())
       {
+        detail::dump_deadlock_graphviz_snapshot();
         TaskRegistry::dump();
         PANIC("**DEADLOCK** get_wait object is not available but there are no runnable tasks!");
       }
@@ -201,6 +224,7 @@ template <typename T> T&& EpochContextWriter<T>::move_from_wait()
 inline void DebugScheduler::run()
 {
   DEBUG_TRACE_MODULE(ASYNC, "DebugScheduler::run");
+  detail::service_task_registry_debug_requests();
   if (Blocked_)
   {
     DEBUG_TRACE_MODULE(ASYNC, "run() on a blocked DebugQueue: doing nothing");
@@ -218,11 +242,13 @@ inline void DebugScheduler::run()
     CHECK(!h);
     TRACE_MODULE(ASYNC, "here", &h, Handles_.size());
   }
+  detail::service_task_registry_debug_requests();
 }
 
 inline void DebugScheduler::run_all()
 {
   DEBUG_TRACE_MODULE(ASYNC, "DebugScheduler::run_all");
+  detail::service_task_registry_debug_requests();
   if (Blocked_)
   {
     DEBUG_TRACE_MODULE(ASYNC, "run() on a blocked DebugQueue: doing nothing");
@@ -232,6 +258,7 @@ inline void DebugScheduler::run_all()
   {
     run();
   }
+  detail::service_task_registry_debug_requests();
 }
 
 } // namespace uni20::async

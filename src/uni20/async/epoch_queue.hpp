@@ -3,12 +3,12 @@
 
 #pragma once
 
-#include <uni20/common/trace.hpp>
 #include "epoch_context.hpp"
 #include <atomic>
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <uni20/common/trace.hpp>
 #include <utility>
 
 namespace uni20::async
@@ -57,6 +57,20 @@ class EpochQueue {
     /// \brief Reports whether the latest epoch already has a writer.
     /// \return `true` when a writer is pending in the current epoch.
     [[nodiscard]] bool has_pending_writers() const noexcept { return current_ && current_->has_writer(); }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Initializes the debug DAG node shared by all epochs in this queue.
+    /// \tparam T Async value type represented by the queue.
+    /// \param value Pointer to the current value, possibly null when the storage is unconstructed.
+    template <typename T> void initialize_node(T const* value)
+    {
+      if (current_) current_->set_node(NodeInfo::create(value));
+    }
+
+    /// \brief Returns the debug DAG node for the latest epoch.
+    /// \return Debug node for the owning async value, or nullptr if unavailable.
+    [[nodiscard]] NodeInfo const* debug_node() const { return current_ ? current_->node() : nullptr; }
+#endif
 
   private:
     std::shared_ptr<EpochContext> current_;

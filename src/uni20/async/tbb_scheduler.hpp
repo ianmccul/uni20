@@ -3,16 +3,29 @@
 /// \brief Scheduler implementation using oneAPI oneTBB task_arena + task_group.
 
 #include "scheduler.hpp"
+#include "task_registry.hpp"
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <oneapi/tbb/concurrent_queue.h>
 #include <oneapi/tbb/task_arena.h>
 #include <oneapi/tbb/task_group.h>
+#include <uni20/config.hpp>
 #include <utility>
 #include <vector>
 
 namespace uni20::async
 {
+
+namespace detail
+{
+inline void service_tbb_task_registry_debug_requests()
+{
+#if UNI20_DEBUG_ASYNC_TASKS
+  TaskRegistry::service_debug_requests();
+#endif
+}
+} // namespace detail
 
 /// \brief Scheduler backend that uses Intel oneTBB to resume coroutines.
 ///
@@ -72,7 +85,9 @@ class TbbScheduler final : public IScheduler {
     void run_all()
     {
       this->resume();
+      detail::service_tbb_task_registry_debug_requests();
       arena_.execute([&] { tg_.wait(); });
+      detail::service_tbb_task_registry_debug_requests();
     }
 
     /// \brief Pause the scheduler. Don't execute scheduled tasks, but instead add them to a queue.
@@ -116,13 +131,22 @@ class TbbScheduler final : public IScheduler {
       {
         while (!is_ready())
         {
+          detail::service_tbb_task_registry_debug_requests();
           std::this_thread::yield();
         }
         return;
       }
 
       std::unique_lock<std::mutex> lock(wait_mutex_);
+#if UNI20_DEBUG_ASYNC_TASKS
+      while (!is_ready())
+      {
+        detail::service_tbb_task_registry_debug_requests();
+        wait_cv_.wait_for(lock, std::chrono::milliseconds(250));
+      }
+#else
       wait_cv_.wait(lock, [&] { return is_ready(); });
+#endif
     }
 
   protected:
@@ -170,6 +194,7 @@ class TbbScheduler final : public IScheduler {
             wait_cv_.notify_all();
             throw;
           }
+          detail::service_tbb_task_registry_debug_requests();
           wait_cv_.notify_all();
         });
       });

@@ -130,9 +130,11 @@ Sink registration:
 ### Build-time
 
 - `-DUNI20_DEBUG_ASYNC_TASKS=ON`
+- `-DUNI20_DEBUG_DAG=ON`
 - `-DUNI20_ENABLE_STACKTRACE=ON`
 
 If `<stacktrace>` is unavailable, build continues with degraded stacktrace output.
+`UNI20_DEBUG_DAG` adds Graphviz DOT snapshots and enables task-registry instrumentation.
 
 ### Runtime verbosity
 
@@ -144,6 +146,53 @@ Environment variable: `UNI20_DEBUG_ASYNC_TASKS`
 
 Unknown/unset currently defaults to `basic`.
 
+### DAG snapshots
+
+Use `TaskRegistry::graphviz_dot()` or `TaskRegistry::dump_graphviz()` to capture the
+current task/epoch/value graph. With `UNI20_DEBUG_DAG=ON`, coroutine
+`ReadBuffer`/`WriteBuffer` parameters become coarse dependency edges before the task
+runs, and concrete buffer `co_await` sites add finer dependency edges.
+
+Optional diagnostic labels:
+
+```cpp
+value.debug_name("x");
+task.debug_name("update x");
+```
+
+Labels only affect debug output; they do not affect scheduling or dependencies.
+
+For deadlock or external-debug paths, prefer
+`TaskRegistry::graphviz_dot_best_effort()` or
+`TaskRegistry::dump_graphviz_file_best_effort(path)`. These avoid waiting forever
+if a debug lock is held and mark unavailable parts of the graph in the DOT output.
+
+Queued dump request flow:
+
+```cpp
+uni20::TaskRegistry::request_graphviz_dump();
+uni20::TaskRegistry::service_debug_requests();
+```
+
+Schedulers service queued requests at progress points. For out-of-band requests,
+start the optional diagnostics service and trigger it with a request file or Linux
+signal:
+
+```cpp
+uni20::TaskRegistry::DiagnosticsServiceOptions options;
+options.request_file = "/tmp/uni20-dag/request";
+options.signal_number = SIGUSR1;
+uni20::TaskRegistry::start_diagnostics_service(options);
+```
+
+Useful environment defaults:
+
+- `UNI20_DEBUG_DAG_OUTPUT_DIR`
+- `UNI20_DEBUG_DAG_FILE_PREFIX`
+- `UNI20_DEBUG_DAG_REQUEST_FILE`
+- `UNI20_DEBUG_DAG_SIGNAL`
+- `UNI20_DEBUG_DAG_POLL_MS`
+
 ## Fast Troubleshooting
 
 | Symptom | Likely cause | First check |
@@ -152,6 +201,7 @@ Unknown/unset currently defaults to `basic`.
 | reader blocks forever | read/write dependency cycle or missing release | verify epoch ordering and `reader.release()` placement |
 | cancellation unexpectedly propagates | `or_cancel()` path used and no value present | inspect upstream writer and exception sink routing |
 | deadlock dump at shutdown | unresolved suspended tasks | inspect `TaskRegistry::dump()` task/epoch links |
+| async DAG is unclear | hidden read/write ordering | inspect `TaskRegistry::graphviz_dot()` |
 
 ## Where to Look (Code and Tests)
 

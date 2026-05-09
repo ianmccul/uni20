@@ -10,10 +10,14 @@ This document explains what it tracks, how to enable it, and how to interpret du
 ### Build-time switches
 
 - `-DUNI20_DEBUG_ASYNC_TASKS=ON`
+- `-DUNI20_DEBUG_DAG=ON`
 - `-DUNI20_ENABLE_STACKTRACE=ON`
 
 `UNI20_ENABLE_STACKTRACE` probes for `<stacktrace>`. If unavailable, build continues
 with degraded output and explicit warning.
+
+`UNI20_DEBUG_DAG` enables async value nodes and coroutine argument dependency capture.
+It requires the task registry and therefore enables `UNI20_DEBUG_ASYNC_TASKS`.
 
 ### Runtime verbosity switch
 
@@ -61,6 +65,88 @@ Dump output correlates tasks with epochs at dump time by scanning epoch snapshot
 
 This gives useful suspension context without requiring high-overhead always-on edge tracking.
 
+### Graphviz DAG snapshots
+
+`TaskRegistry::graphviz_dot()` returns a Graphviz DOT document for the current async
+runtime context. The graph includes:
+
+- task nodes with lifecycle state
+- epoch nodes with phase/generation
+- async value nodes when `UNI20_DEBUG_DAG=ON`
+- dashed coarse argument edges captured from coroutine `ReadBuffer`/`WriteBuffer`
+  parameters
+- concrete `co_await` edges for awaitables that expose async value metadata
+- live epoch wait edges for currently suspended readers and writers
+
+Async values and coroutine tasks can be labelled explicitly for diagnostic output:
+
+```cpp
+Async<double> value;
+value.debug_name("residual block");
+
+auto task = kernel(value.read(), output.write());
+task.debug_name("apply preconditioner");
+scheduler.schedule(std::move(task));
+```
+
+These labels are optional. Unlabelled nodes keep the generic `data N` and `task N`
+labels, and labels do not affect scheduling, dependency tracking, or coroutine
+lifetime.
+
+Use `TaskRegistry::graphviz_dot_best_effort()` or
+`TaskRegistry::dump_graphviz_file_best_effort(path)` for deadlock/debugger paths.
+The best-effort path avoids indefinite waits on registry and epoch locks; if a lock
+is busy, the DOT output marks that part of the snapshot as unavailable.
+
+The snapshot APIs are intended for diagnostics at normal program checkpoints,
+deadlock handlers, debugger calls, or controlled interruption paths. They are not
+async-signal-safe signal handlers.
+
+## Programmatic and External Dump Requests
+
+For normal program control, call one of:
+
+- `TaskRegistry::graphviz_dot()`
+- `TaskRegistry::dump_graphviz_file(path)`
+- `TaskRegistry::request_graphviz_dump()` followed by
+  `TaskRegistry::service_debug_requests()`
+
+`DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler` service queued dump requests
+at scheduler progress points. This lets instrumentation request a dump without
+performing file I/O on the requesting path. A caller can still service explicitly
+when it needs a specific output directory or deterministic timing.
+
+For external triggers, start the optional diagnostics service:
+
+```cpp
+uni20::TaskRegistry::DiagnosticsServiceOptions options;
+options.dump_options.output_dir = "/tmp/uni20-dag";
+options.dump_options.file_prefix = "run";
+options.request_file = "/tmp/uni20-dag/request";
+options.signal_number = SIGUSR1; // Linux/POSIX use only
+uni20::TaskRegistry::start_diagnostics_service(options);
+```
+
+The service owns a background thread. It writes best-effort DOT files when a request
+file appears, when the configured signal is received, or when program code calls
+`request_graphviz_dump()`. A signal is consumed with `sigtimedwait` on Linux rather
+than by doing work inside a signal handler. For reliable process-directed signals,
+start the service early enough that the signal can be blocked in the calling thread
+before worker threads are created.
+
+Default output and service settings can be configured with environment variables:
+
+| Variable | Meaning |
+|---|---|
+| `UNI20_DEBUG_DAG_OUTPUT_DIR` | Default DOT output directory; defaults to `/tmp` |
+| `UNI20_DEBUG_DAG_FILE_PREFIX` | Default DOT filename prefix; defaults to `uni20-dag` |
+| `UNI20_DEBUG_DAG_REQUEST_FILE` | Control file consumed by `start_diagnostics_service()` |
+| `UNI20_DEBUG_DAG_SIGNAL` | Signal for the service, e.g. `SIGUSR1`, `USR2`, or a number |
+| `UNI20_DEBUG_DAG_POLL_MS` | Diagnostics-service poll interval in milliseconds |
+
+`TaskRegistry::default_graphviz_dump_path()` produces paths of the form
+`<dir>/<prefix>.<pid>.<sequence>.dot`.
+
 ## Output Conventions
 
 - timestamps are local time with timezone offset
@@ -73,6 +159,17 @@ This gives useful suspension context without requiring high-overhead always-on e
 |---|---|
 | `TaskRegistry::dump()` | full global dump (deadlock triage path) |
 | `TaskRegistry::dump_epoch_context(epoch, reason)` | focused dump for one epoch |
+| `TaskRegistry::graphviz_dot()` | returns current task/epoch/value DAG as Graphviz DOT |
+| `TaskRegistry::graphviz_dot_best_effort()` | returns a partial DOT snapshot without indefinite lock waits |
+| `TaskRegistry::dump_graphviz(stream)` | writes DOT to a C stream, stderr by default |
+| `TaskRegistry::dump_graphviz_file(path)` | writes DOT to a file |
+| `TaskRegistry::dump_graphviz_file_best_effort(path)` | writes a best-effort DOT snapshot to a file |
+| `TaskRegistry::name_task(handle, label)` | assigns an optional diagnostic label to a task node |
+| `TaskRegistry::name_async_value(node, label)` | assigns an optional diagnostic label to an async value node |
+| `TaskRegistry::request_graphviz_dump()` | queues a dump request for scheduler/service processing |
+| `TaskRegistry::service_debug_requests(options)` | writes queued requests on the calling thread |
+| `TaskRegistry::start_diagnostics_service(options)` | starts background signal/control-file servicing |
+| `TaskRegistry::stop_diagnostics_service()` | stops the background diagnostics service |
 | `TaskRegistry::dump_mode()` | current runtime mode |
 
 State hooks are invoked from promise/task runtime paths, so transitions are tied to
@@ -90,6 +187,7 @@ If output volume is too large during exception handling paths, use focused epoch
 
 ## Related References
 
+- DAG debug example: `dag_debug_examples.md`
 - Runtime semantics: `runtime_model.md`
 - Exception routing: `exceptions_and_cancellation.md`
 - Scheduler deadlock behavior: `schedulers.md`

@@ -11,8 +11,6 @@
 #include "async_errors.hpp"
 #include "async_node.hpp"
 #include "buffers.hpp"
-#include <uni20/common/demangle.hpp>
-#include <uni20/config.hpp>
 #include "epoch_queue.hpp"
 #include <atomic>
 #include <concepts>
@@ -21,7 +19,10 @@
 #include <mutex>
 #include <new>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
+#include <uni20/common/demangle.hpp>
+#include <uni20/config.hpp>
 #include <utility>
 
 namespace uni20::async
@@ -68,24 +69,31 @@ template <typename T> class Async {
     {
       queue_.latest()->start();
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_->get());
+      queue_.initialize_node(storage_.get());
 #endif
     }
 
     /// \brief Initializes async state without constructing the stored value or starting the queue.
     /// \param tag Sentinel tag selecting non-starting construction.
-    Async(async_do_not_start_t tag) : storage_(make_unconstructed_shared_storage<T>()), queue_() {}
+    Async(async_do_not_start_t tag) : storage_(make_unconstructed_shared_storage<T>()), queue_()
+    {
+      (void)tag;
+#if UNI20_DEBUG_DAG
+      queue_.initialize_node(storage_.get());
+#endif
+    }
 
     /// \brief Construct from a value convertible to T.
     /// \tparam U Value type convertible to T.
     /// \param val Initial value forwarded into the Async storage.
     template <typename U>
-    requires std::convertible_to<U, T> Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_()
+      requires std::convertible_to<U, T>
+    Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_()
     {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_->get());
+      queue_.initialize_node(storage_.get());
 #endif
     }
 
@@ -93,13 +101,13 @@ template <typename T> class Async {
     /// \tparam U Source type that can explicitly construct T.
     /// \param u Value forwarded to construct the stored T instance.
     template <typename U>
-    requires std::constructible_from<T, U> &&(!std::convertible_to<U, T>)explicit Async(U&& u)
-        : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_()
+      requires std::constructible_from<T, U> && (!std::convertible_to<U, T>)
+    explicit Async(U&& u) : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_()
     {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_->get());
+      queue_.initialize_node(storage_.get());
 #endif
     }
 
@@ -107,13 +115,13 @@ template <typename T> class Async {
     /// \tparam Args Argument types forwarded to `T`'s constructor.
     /// \param args Arguments used to initialize the contained value.
     template <typename... Args>
-    requires std::constructible_from<T, Args...> Async(Args&&... args)
-        : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_()
+      requires std::constructible_from<T, Args...>
+    Async(Args&&... args) : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_()
     {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_->get());
+      queue_.initialize_node(storage_.get());
 #endif
     }
 
@@ -124,16 +132,14 @@ template <typename T> class Async {
     /// \param args Additional arguments forwarded to `T`.
     /// \note This mirrors similar constructors where std::in_place is used.
     template <typename U, typename... Args>
-    requires std::constructible_from < T, std::initializer_list<U>
-    &,
-        Args... > Async(std::initializer_list<U> init, Args&&... args)
-        : storage_(make_shared_storage<T>(init, std::forward<Args>(args)...)),
-    queue_()
+      requires std::constructible_from<T, std::initializer_list<U>&, Args...>
+    Async(std::initializer_list<U> init, Args&&... args)
+        : storage_(make_shared_storage<T>(init, std::forward<Args>(args)...)), queue_()
     {
       queue_.latest()->start_reading();
       // queue_.initialize(true);
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_->get());
+      queue_.initialize_node(storage_.get());
 #endif
     }
 
@@ -147,6 +153,32 @@ template <typename T> class Async {
     ///
     /// \see `async_assign` for explicit value-level copy scheduling.
     Async(const Async& rhs) : Async() { async_assign(rhs, *this); }
+
+    /// \brief Assign an optional debug label for task-registry graph output.
+    /// \param label Human-readable label used only by debug diagnostics.
+    /// \return Reference to this async value for call chaining.
+    Async& debug_name(std::string const& label)
+    {
+#if UNI20_DEBUG_DAG
+      TaskRegistry::name_async_value(queue_.debug_node(), label);
+#else
+      static_cast<void>(label);
+#endif
+      return *this;
+    }
+
+    /// \brief Assign an optional debug label for task-registry graph output.
+    /// \param label Human-readable label used only by debug diagnostics.
+    /// \return Constant reference to this async value for call chaining.
+    Async const& debug_name(std::string const& label) const
+    {
+#if UNI20_DEBUG_DAG
+      TaskRegistry::name_async_value(queue_.debug_node(), label);
+#else
+      static_cast<void>(label);
+#endif
+      return *this;
+    }
 
     /// \brief Construct an Async that defers pointer initialization while sharing ownership.
     ///
@@ -182,12 +214,15 @@ template <typename T> class Async {
     /// \param tag `async::deferred` tag to select deferred construction.
     /// \param control Shared pointer whose control block should be reused for this Async value.
     template <typename Control>
-    requires std::convertible_to<Control*, T*> Async(deferred_t tag, std::shared_ptr<Control> control)
-        : storage_(make_unconstructed_shared_storage<T>()), queue_()
+      requires std::convertible_to<Control*, T*>
+    Async(deferred_t tag, std::shared_ptr<Control> control) : storage_(make_unconstructed_shared_storage<T>()), queue_()
     {
       (void)tag;
       if (!control) throw std::invalid_argument("Async deferred control block cannot be null");
       storage_.emplace(*control);
+#if UNI20_DEBUG_DAG
+      queue_.initialize_node(storage_.get());
+#endif
     }
 
     /// \brief Construct a deferred Async that aliases another Async's storage while keeping a separate queue.
@@ -202,10 +237,14 @@ template <typename T> class Async {
     /// \param tag `async::deferred` tag to select deferred construction.
     /// \param parent Async whose storage and queue lifetimes should be preserved.
     template <typename U>
-    requires std::convertible_to<U*, T*> Async(deferred_t tag, Async<U>& parent) : storage_(parent.storage()), queue_()
+      requires std::convertible_to<U*, T*>
+    Async(deferred_t tag, Async<U>& parent) : storage_(parent.storage()), queue_()
     {
       (void)tag;
       (void)parent;
+#if UNI20_DEBUG_DAG
+      queue_.initialize_node(storage_.get());
+#endif
     }
 
     /// \brief Copy-assign from another Async<T>, overwriting this instance's value timeline.

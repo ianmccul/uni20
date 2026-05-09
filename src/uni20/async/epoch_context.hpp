@@ -196,6 +196,9 @@ class EpochContext {
         EpochContext const* next_epoch{nullptr};
         std::vector<std::coroutine_handle<>> reader_tasks{};
         std::vector<std::coroutine_handle<>> writer_tasks{};
+#if UNI20_DEBUG_DAG
+        NodeInfo const* node{nullptr};
+#endif
     };
 
     EpochContext() { TaskRegistry::register_epoch_context(this); }
@@ -204,6 +207,9 @@ class EpochContext {
     /// \note this is backwards propogation, the counter is initialized to next->counter_ - 1
     explicit EpochContext(std::shared_ptr<EpochContext> next) : counter_(next->counter_ - 1), next_epoch_(next)
     {
+#if UNI20_DEBUG_DAG
+      node_ = next ? next->node() : nullptr;
+#endif
       TaskRegistry::register_epoch_context(this);
     }
 
@@ -232,6 +238,9 @@ class EpochContext {
       DEBUG_CHECK(phase_ <= Phase::Reading);
 
       next->counter_ = counter_ + 1; // increment the epoch counter
+#if UNI20_DEBUG_DAG
+      next->node_ = node_;
+#endif
       next_epoch_ = std::move(next);
       if (phase_ == Phase::Reading && num_readers_ == 0) this->advance_finished_locked(std::move(lock));
     }
@@ -274,6 +283,9 @@ class EpochContext {
       snapshot.generation = counter_;
       snapshot.phase = phase_;
       snapshot.next_epoch = next_epoch_.get();
+#if UNI20_DEBUG_DAG
+      snapshot.node = node_;
+#endif
 
       snapshot.reader_tasks.reserve(reader_tasks_.size());
       for (auto const& task_state : reader_tasks_)
@@ -290,6 +302,36 @@ class EpochContext {
       return snapshot;
     }
 
+    /// \brief Try to return a point-in-time snapshot without blocking.
+    /// \param snapshot Destination for the snapshot when the lock is acquired.
+    /// \return true if the snapshot was acquired; false if the epoch lock was busy.
+    bool try_debug_snapshot(DebugSnapshot& snapshot) const
+    {
+      if (!mtx_.try_lock()) return false;
+      std::lock_guard lock(mtx_, std::adopt_lock);
+      snapshot = DebugSnapshot{};
+      snapshot.generation = counter_;
+      snapshot.phase = phase_;
+      snapshot.next_epoch = next_epoch_.get();
+#if UNI20_DEBUG_DAG
+      snapshot.node = node_;
+#endif
+
+      snapshot.reader_tasks.reserve(reader_tasks_.size());
+      for (auto const& task_state : reader_tasks_)
+      {
+        if (auto h = task_state.task.coroutine_handle()) snapshot.reader_tasks.push_back(h);
+      }
+
+      snapshot.writer_tasks.reserve(writer_tasks_.size());
+      for (auto const& task_state : writer_tasks_)
+      {
+        if (auto h = task_state.task.coroutine_handle()) snapshot.writer_tasks.push_back(h);
+      }
+
+      return true;
+    }
+
     /// \brief Return coroutine handles currently queued as readers in this epoch context.
     std::vector<std::coroutine_handle<>> reader_task_handles() const
     {
@@ -303,6 +345,24 @@ class EpochContext {
       auto snapshot = this->debug_snapshot();
       return std::move(snapshot.writer_tasks);
     }
+
+#if UNI20_DEBUG_DAG
+    /// \brief Returns the async value node associated with this epoch.
+    /// \return Debug DAG node for the owning async value, or nullptr if not initialized.
+    NodeInfo const* node() const
+    {
+      std::lock_guard lock(mtx_);
+      return node_;
+    }
+
+    /// \brief Assigns the async value node associated with this epoch.
+    /// \param node Debug DAG node for the owning async value.
+    void set_node(NodeInfo const* node)
+    {
+      std::lock_guard lock(mtx_);
+      node_ = node;
+    }
+#endif
 
   private:
     // Writer interface
@@ -660,6 +720,10 @@ class EpochContext {
     int num_readers_{0};
     std::vector<TaskState> reader_tasks_;
 
+#if UNI20_DEBUG_DAG
+    NodeInfo const* node_{nullptr};
+#endif
+
     // NOTE: we should be able to use atomic operations for most data.
     // Data that is only written once in some phase, and read only in a later phase,
     // do not need any protection at all because it is sequenced by the phase change.
@@ -820,7 +884,7 @@ template <typename T> class EpochContextReader {
 
 #if UNI20_DEBUG_DAG
     /// \brief Get the debug node pointer of the object
-    NodeInfo const* node() const;
+    NodeInfo const* node() const { return epoch_ ? epoch_->node() : nullptr; }
 #endif
 
     /// \brief Suspend a coroutine task as a reader of this epoch.
@@ -983,7 +1047,7 @@ template <typename T> class EpochContextWriter {
 
 #if UNI20_DEBUG_DAG
     /// \brief Get the debug node pointer of the object
-    NodeInfo const* node() const;
+    NodeInfo const* node() const { return epoch_ ? epoch_->node() : nullptr; }
 #endif
 
     /// \brief Check whether the writer may proceed immediately.
@@ -1032,7 +1096,8 @@ template <typename T> class EpochContextWriter {
     }
 
     template <typename... Args>
-    requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
+      requires std::constructible_from<T, Args...>
+    T& emplace(Args&&... args)
     {
       try
       {

@@ -4,15 +4,86 @@
 #include <uni20/async/var.hpp>
 #include <uni20/async/var_toys.hpp>
 #include <uni20/async/reverse_value.hpp>
+#include <uni20/async/task_registry.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
+#include <uni20/config.hpp>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
+#include <iterator>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 using namespace uni20::async;
+
+#if UNI20_DEBUG_ASYNC_TASKS
+namespace
+{
+
+class EnvVarGuard {
+  public:
+    EnvVarGuard(char const* name, std::string value) : name_(name)
+    {
+      if (auto const* old_value = std::getenv(name_.c_str())) old_value_ = old_value;
+      ::setenv(name_.c_str(), value.c_str(), 1);
+    }
+
+    ~EnvVarGuard()
+    {
+      if (old_value_)
+        ::setenv(name_.c_str(), old_value_->c_str(), 1);
+      else
+        ::unsetenv(name_.c_str());
+    }
+
+  private:
+    std::string name_;
+    std::optional<std::string> old_value_;
+};
+
+std::filesystem::path make_temp_dir(std::string_view name)
+{
+  auto const stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+  auto path = std::filesystem::temp_directory_path() / (std::string(name) + "-" + std::to_string(stamp));
+  std::filesystem::remove_all(path);
+  std::filesystem::create_directories(path);
+  return path;
+}
+
+std::string read_file(std::filesystem::path const& path)
+{
+  std::ifstream input(path);
+  return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+}
+
+bool wait_for_dot_file(std::filesystem::path const& dir, std::chrono::milliseconds timeout)
+{
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline)
+  {
+    if (std::filesystem::exists(dir))
+    {
+      for (auto const& entry : std::filesystem::directory_iterator(dir))
+      {
+        if (entry.path().extension() == ".dot" &&
+            read_file(entry.path()).find("digraph uni20_async_dag") != std::string::npos)
+          return true;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return false;
+}
+
+} // namespace
+#endif
 
 TEST(TbbScheduler, AsyncArithmetic)
 {
@@ -25,6 +96,22 @@ TEST(TbbScheduler, AsyncArithmetic)
 
   EXPECT_EQ(c.get_wait(), 3);
 }
+
+#if UNI20_DEBUG_ASYNC_TASKS
+TEST(TbbScheduler, ServicesQueuedGraphvizDumpRequests)
+{
+  auto dir = make_temp_dir("uni20-dag-tbb-request-test");
+  EnvVarGuard output_dir("UNI20_DEBUG_DAG_OUTPUT_DIR", dir.string());
+  EnvVarGuard prefix("UNI20_DEBUG_DAG_FILE_PREFIX", "tbb");
+
+  uni20::TaskRegistry::request_graphviz_dump();
+  TbbScheduler sched{2};
+  sched.run_all();
+
+  EXPECT_TRUE(wait_for_dot_file(dir, std::chrono::milliseconds(200)));
+  std::filesystem::remove_all(dir);
+}
+#endif
 
 TEST(TbbScheduler, AsyncAccumulationGetWait)
 {
