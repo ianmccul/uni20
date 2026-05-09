@@ -78,14 +78,17 @@ template <typename T> Matrix<T> multiply(Matrix<T> const& lhs, Matrix<T> const& 
   Matrix<T> result(lhs.rows(), rhs.cols());
   for (std::size_t i = 0; i < lhs.rows(); ++i)
   {
-    for (std::size_t j = 0; j < rhs.cols(); ++j)
+    for (std::size_t k = 0; k < lhs.cols(); ++k)
     {
-      T value{};
-      for (std::size_t k = 0; k < lhs.cols(); ++k)
+      T const factor = lhs(i, k);
+      if (factor == T{})
       {
-        value += lhs(i, k) * rhs(k, j);
+        continue;
       }
-      result(i, j) = value;
+      for (std::size_t j = 0; j < rhs.cols(); ++j)
+      {
+        result(i, j) += factor * rhs(k, j);
+      }
     }
   }
   return result;
@@ -232,8 +235,8 @@ template <typename T> void swap_rows(Matrix<T>& mat, std::size_t lhs, std::size_
 
 /// \brief Solve the linear system A * X = B using Gaussian elimination with partial pivoting.
 /// \tparam T Element type.
-/// \param A Coefficient matrix (will be copied internally).
-/// \param B Right-hand side matrix (will be copied internally).
+/// \param A Coefficient matrix copied or moved into the solver and overwritten during elimination.
+/// \param B Right-hand side matrix copied or moved into the solver and overwritten during elimination.
 /// \return Solution matrix X satisfying A * X = B.
 /// \throws std::runtime_error if the system is singular.
 template <typename T> Matrix<T> solve_linear_system(Matrix<T> A, Matrix<T> B)

@@ -53,7 +53,7 @@ template <typename Scalar> Matrix<Scalar> solve_pade(Matrix<Scalar> const& U, Ma
 {
   Matrix<Scalar> numerator = add(V, U);
   Matrix<Scalar> denominator = subtract(V, U);
-  return solve_linear_system(denominator, numerator);
+  return solve_linear_system(std::move(denominator), std::move(numerator));
 }
 
 template <typename Scalar> Matrix<Scalar> pade3(Matrix<Scalar> const& A)
