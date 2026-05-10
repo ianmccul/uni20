@@ -43,7 +43,7 @@ auto policy = presentation::terminal_policy(stderr);
 auto rendered = presentation::render(text, policy);
 ```
 
-Central mappings cover status symbols, arrows, ellipsis, box/table drawing, and tree drawing. ASCII output uses these mappings automatically.
+Central mappings cover status symbols, arrows, ellipsis, square and rounded box/table drawing, diagonal connector glyphs, and tree drawing. ASCII output uses these mappings automatically.
 
 ## Text Fallback
 
@@ -58,9 +58,21 @@ auto cells = presentation::display_width(text, policy);
 auto padded = presentation::pad_right("label", 12, policy);
 auto clipped = presentation::clip_to_width("value", 8, policy);
 auto lines = presentation::wrap_text("long value", 10, policy);
+auto indented = presentation::indent_text("line 1\nline 2", 4, policy);
 ```
 
 Display-cell width is best effort and deterministic. It treats ASCII printable characters as width 1, style spans as width 0, combining marks as width 0, common CJK wide characters as width 2, emoji conservatively as width 2, and tabs relative to the current column.
+
+`prefix_lines(...)` and `indent_text(...)` are deliberately simple block-layout helpers. They are intended for diagnostics, nested trace sections, and text-art blocks where callers want fixed indentation after wrapping or clipping has already chosen visible content.
+
+Use `truncate_to_width(...)` when preserving the beginning of a long value, and `truncate_left_to_width(...)` when preserving the end. The latter is useful for diagnostics that need to show the tail of a long prefix before a highlighted token:
+
+```cpp
+auto prefix = presentation::truncate_left_to_width(before_error, 24, policy, "…");
+auto suffix = presentation::truncate_to_width(error_and_after, 40, policy, "…");
+```
+
+See `examples/presentation_example.cpp` for semantic Unicode/emoji output, display-cell table alignment, fixed indentation after wrapping, tensor-network-style connector art, the default rounded tensor-box style, and a parser-style range diagnostic that adapts to different terminal widths.
 
 ## Mdspan And Tensor Art
 

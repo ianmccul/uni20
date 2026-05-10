@@ -291,7 +291,17 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case 0x2566:
     case 0x2569:
     case 0x256C:
+    case 0x256D:
+    case 0x256E:
+    case 0x256F:
+    case 0x2570:
       return "+";
+    case 0x2571:
+      return "/";
+    case 0x2572:
+      return "\\";
+    case 0x2573:
+      return "x";
     case 0xFE0E:
     case 0xFE0F:
       return "";
@@ -310,11 +320,18 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case semantic_glyph::box_top_right:
     case semantic_glyph::box_bottom_left:
     case semantic_glyph::box_bottom_right:
+    case semantic_glyph::box_round_top_left:
+    case semantic_glyph::box_round_top_right:
+    case semantic_glyph::box_round_bottom_left:
+    case semantic_glyph::box_round_bottom_right:
     case semantic_glyph::box_tee_left:
     case semantic_glyph::box_tee_right:
     case semantic_glyph::box_tee_up:
     case semantic_glyph::box_tee_down:
     case semantic_glyph::box_cross:
+    case semantic_glyph::box_diagonal_forward:
+    case semantic_glyph::box_diagonal_back:
+    case semantic_glyph::box_diagonal_cross:
     case semantic_glyph::tree_branch:
     case semantic_glyph::tree_last:
     case semantic_glyph::tree_vertical:
@@ -364,12 +381,22 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case semantic_glyph::box_top_right:
     case semantic_glyph::box_bottom_left:
     case semantic_glyph::box_bottom_right:
+    case semantic_glyph::box_round_top_left:
+    case semantic_glyph::box_round_top_right:
+    case semantic_glyph::box_round_bottom_left:
+    case semantic_glyph::box_round_bottom_right:
     case semantic_glyph::box_tee_left:
     case semantic_glyph::box_tee_right:
     case semantic_glyph::box_tee_up:
     case semantic_glyph::box_tee_down:
     case semantic_glyph::box_cross:
       return "+";
+    case semantic_glyph::box_diagonal_forward:
+      return "/";
+    case semantic_glyph::box_diagonal_back:
+      return "\\";
+    case semantic_glyph::box_diagonal_cross:
+      return "x";
     case semantic_glyph::tree_branch:
       return "|-";
     case semantic_glyph::tree_last:
@@ -429,6 +456,14 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "\xE2\x94\x94";
     case semantic_glyph::box_bottom_right:
       return "\xE2\x94\x98";
+    case semantic_glyph::box_round_top_left:
+      return "\xE2\x95\xAD";
+    case semantic_glyph::box_round_top_right:
+      return "\xE2\x95\xAE";
+    case semantic_glyph::box_round_bottom_left:
+      return "\xE2\x95\xB0";
+    case semantic_glyph::box_round_bottom_right:
+      return "\xE2\x95\xAF";
     case semantic_glyph::box_tee_left:
       return "\xE2\x94\xA4";
     case semantic_glyph::box_tee_right:
@@ -439,6 +474,12 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "\xE2\x94\xAC";
     case semantic_glyph::box_cross:
       return "\xE2\x94\xBC";
+    case semantic_glyph::box_diagonal_forward:
+      return "\xE2\x95\xB1";
+    case semantic_glyph::box_diagonal_back:
+      return "\xE2\x95\xB2";
+    case semantic_glyph::box_diagonal_cross:
+      return "\xE2\x95\xB3";
     case semantic_glyph::tree_branch:
       return "\xE2\x94\x9C\xE2\x94\x80";
     case semantic_glyph::tree_last:
@@ -696,6 +737,54 @@ void append_codepoint_escape(std::string& out, char32_t value)
   return out;
 }
 
+[[nodiscard]] std::vector<std::size_t> rendered_unit_offsets(std::string_view rendered)
+{
+  std::vector<std::size_t> offsets;
+  offsets.reserve(rendered.size() + 1);
+  for (std::size_t offset = 0; offset < rendered.size();)
+  {
+    offsets.push_back(offset);
+
+    std::size_t ansi_length = 0;
+    if (ansi_sequence_at(rendered, offset, ansi_length))
+    {
+      offset += ansi_length;
+      continue;
+    }
+
+    auto const decoded = decode_next(rendered, offset);
+    offset += decoded.bytes;
+  }
+
+  offsets.push_back(rendered.size());
+  return offsets;
+}
+
+[[nodiscard]] std::string truncate_rendered_left_to_width(std::string_view rendered, std::size_t max_width,
+                                                          output_policy const& policy, std::string_view rendered_marker,
+                                                          std::size_t initial_column)
+{
+  if (width_of_rendered(rendered, policy, initial_column) <= max_width) return std::string(rendered);
+
+  auto const marker_width = width_of_rendered(rendered_marker, policy, initial_column);
+  if (!rendered_marker.empty() && marker_width >= max_width)
+  {
+    return clip_rendered_to_width(rendered_marker, max_width, policy, initial_column);
+  }
+
+  auto const offsets = rendered_unit_offsets(rendered);
+  for (auto const start : offsets)
+  {
+    std::string candidate;
+    candidate.reserve(rendered_marker.size() + rendered.size() - start);
+    candidate += rendered_marker;
+    candidate += rendered.substr(start);
+    if (width_of_rendered(candidate, policy, initial_column) <= max_width) return candidate;
+  }
+
+  return std::string(rendered_marker);
+}
+
 } // namespace
 
 styled_text& styled_text::append(std::string_view text, terminal::TerminalStyle style)
@@ -929,6 +1018,52 @@ std::string truncate_to_width(std::string_view text, std::size_t max_width, outp
   if (marker_width >= max_width) return clip_rendered_to_width(rendered_marker, max_width, policy, initial_column);
 
   return clip_rendered_to_width(rendered, max_width - marker_width, policy, initial_column) + rendered_marker;
+}
+
+std::string truncate_left_to_width(std::string_view text, std::size_t max_width, output_policy const& policy,
+                                   std::string_view marker, std::size_t initial_column)
+{
+  auto const rendered = render_text(text, policy);
+  auto const rendered_marker = render_text(marker, policy);
+  return truncate_rendered_left_to_width(rendered, max_width, policy, rendered_marker, initial_column);
+}
+
+std::string prefix_lines(std::string_view text, std::string_view prefix, output_policy const& policy, bool prefix_first)
+{
+  auto const rendered = render_text(text, policy);
+  auto const rendered_prefix = render_text(prefix, policy);
+  if (rendered.empty()) return prefix_first ? rendered_prefix : std::string{};
+
+  std::string out;
+  out.reserve(rendered.size() + rendered_prefix.size());
+
+  std::size_t start = 0;
+  bool first_line = true;
+  while (start < rendered.size())
+  {
+    if (prefix_first || !first_line)
+    {
+      out += rendered_prefix;
+    }
+
+    auto const newline = rendered.find('\n', start);
+    if (newline == std::string::npos)
+    {
+      out += rendered.substr(start);
+      break;
+    }
+
+    out += rendered.substr(start, newline - start + 1);
+    start = newline + 1;
+    first_line = false;
+  }
+
+  return out;
+}
+
+std::string indent_text(std::string_view text, std::size_t spaces, output_policy const& policy, bool indent_first)
+{
+  return prefix_lines(text, std::string(spaces, ' '), policy, indent_first);
 }
 
 std::vector<std::string> wrap_text(std::string_view text, std::size_t max_width, output_policy const& policy)

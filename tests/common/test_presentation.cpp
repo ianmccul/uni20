@@ -1,6 +1,6 @@
+#include <uni20/common/mdspan.hpp>
 #include <uni20/common/presentation.hpp>
 #include <uni20/common/presentation_mdspan.hpp>
-#include <uni20/common/mdspan.hpp>
 
 #include <gtest/gtest.h>
 
@@ -40,9 +40,18 @@ TEST(PresentationGlyphs, UnicodePolicyUsesSemanticUnicodeGlyphs)
       .append(" ")
       .append(presentation::semantic_glyph::box_top_left)
       .append(presentation::semantic_glyph::box_horizontal)
-      .append(presentation::semantic_glyph::box_top_right);
+      .append(presentation::semantic_glyph::box_top_right)
+      .append(" ")
+      .append(presentation::semantic_glyph::box_round_top_left)
+      .append(presentation::semantic_glyph::box_horizontal)
+      .append(presentation::semantic_glyph::box_round_top_right)
+      .append(" ")
+      .append(presentation::semantic_glyph::box_diagonal_forward)
+      .append(presentation::semantic_glyph::box_diagonal_back);
 
-  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x93 \xE2\x86\x92 \xE2\x94\x8C\xE2\x94\x80\xE2\x94\x90");
+  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x93 \xE2\x86\x92 \xE2\x94\x8C\xE2\x94\x80\xE2\x94\x90 "
+                                                "\xE2\x95\xAD\xE2\x94\x80\xE2\x95\xAE "
+                                                "\xE2\x95\xB1\xE2\x95\xB2");
 }
 
 TEST(PresentationGlyphs, EmojiPolicyUsesEmojiOnlyForSemanticMappings)
@@ -72,9 +81,13 @@ TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
       .append(" ")
       .append(presentation::semantic_glyph::arrow_right)
       .append(" ")
-      .append(presentation::semantic_glyph::tree_branch);
+      .append(presentation::semantic_glyph::tree_branch)
+      .append(" ")
+      .append(presentation::semantic_glyph::box_round_top_left)
+      .append(presentation::semantic_glyph::box_diagonal_forward)
+      .append(presentation::semantic_glyph::box_diagonal_back);
 
-  EXPECT_EQ(presentation::render(text, policy), "[OK] [WARN] -> |-");
+  EXPECT_EQ(presentation::render(text, policy), "[OK] [WARN] -> |- +/\\");
 }
 
 TEST(PresentationTextFallback, RawSymbolFallbackCoversCommonNonLanguageSymbols)
@@ -83,9 +96,10 @@ TEST(PresentationTextFallback, RawSymbolFallbackCoversCommonNonLanguageSymbols)
   policy.charset = presentation::text_charset::ascii_escape;
 
   auto const text = std::string("quote \xE2\x80\x9Cword\xE2\x80\x9D \xE2\x80\x94 "
-                                "\xE2\x80\xA6 \xE2\x86\x92 \xE2\x89\xA4");
+                                "\xE2\x80\xA6 \xE2\x86\x92 \xE2\x89\xA4 "
+                                "\xE2\x95\xAD\xE2\x95\xB1\xE2\x95\xB2");
 
-  EXPECT_EQ(presentation::render_text(text, policy), "quote \"word\" - ... -> <=");
+  EXPECT_EQ(presentation::render_text(text, policy), "quote \"word\" - ... -> <= +/\\");
 }
 
 TEST(PresentationTextFallback, HumanUtf8TextIsPreservedEscapedOrReplaced)
@@ -160,11 +174,47 @@ TEST(PresentationLayout, PadsClipsTruncatesAndWrapsByDisplayCells)
                                         3, policy),
             "a->");
   EXPECT_EQ(presentation::truncate_to_width("abcdef", 4, policy, "\xE2\x80\xA6"), "a...");
+  EXPECT_EQ(presentation::truncate_left_to_width("abcdef", 4, policy, "\xE2\x80\xA6"), "...f");
 
   auto lines = presentation::wrap_text("abcd", 2, policy);
   ASSERT_EQ(lines.size(), 2U);
   EXPECT_EQ(lines[0], "ab");
   EXPECT_EQ(lines[1], "cd");
+}
+
+TEST(PresentationLayout, LeftTruncationPreservesDisplayCellSuffix)
+{
+  auto policy = base_policy();
+
+  EXPECT_EQ(presentation::truncate_left_to_width("abcdef", 4, policy, "\xE2\x80\xA6"), "\xE2\x80\xA6"
+                                                                                       "def");
+  EXPECT_EQ(presentation::truncate_left_to_width("abc\xE4\xB8\xAD"
+                                                 "def",
+                                                 5, policy, "\xE2\x80\xA6"),
+            "\xE2\x80\xA6"
+            "def");
+
+  policy.charset = presentation::text_charset::ascii_replace;
+  EXPECT_EQ(presentation::truncate_left_to_width("abc\xE4\xB8\xAD"
+                                                 "def",
+                                                 5, policy, "..."),
+            "...ef");
+}
+
+TEST(PresentationLayout, PrefixesAndIndentsRenderedLines)
+{
+  auto policy = base_policy();
+
+  EXPECT_EQ(presentation::prefix_lines("alpha\n\xE4\xB8\xAD"
+                                       "beta",
+                                       "| ", policy),
+            "| alpha\n| \xE4\xB8\xAD"
+            "beta");
+  EXPECT_EQ(presentation::prefix_lines("alpha\nbeta\n", "| ", policy, false), "alpha\n| beta\n");
+  EXPECT_EQ(presentation::indent_text("alpha\nbeta", 3, policy), "   alpha\n   beta");
+
+  policy.charset = presentation::text_charset::ascii_escape;
+  EXPECT_EQ(presentation::prefix_lines("\xE4\xB8\xAD\n\xE2\x86\x92", "\xE2\x94\x82 ", policy), "| \\u4E2D\n| ->");
 }
 
 TEST(PresentationNumeric, RealAndComplexFormattingUsesConfiguredDigits)
@@ -203,12 +253,10 @@ TEST(PresentationMdspan, DefaultFormatterHandlesRealAndComplexScalars)
 
   options.numeric.notation = presentation::real_notation::fixed;
   options.numeric.float64_precision = 2;
-  std::array<std::complex<double>, 2> complex_data{std::complex<double>{1.0, -2.5},
-                                                  std::complex<double>{3.125, 0.0}};
+  std::array<std::complex<double>, 2> complex_data{std::complex<double>{1.0, -2.5}, std::complex<double>{3.125, 0.0}};
   stdex::mdspan<std::complex<double>, stdex::extents<std::size_t, 2>> complex_vector(complex_data.data());
 
-  EXPECT_EQ(presentation::format_mdspan(complex_vector, policy, options),
-            "shape=(2)\n[ 1.00-2.50i 3.12+0.00i ]");
+  EXPECT_EQ(presentation::format_mdspan(complex_vector, policy, options), "shape=(2)\n[ 1.00-2.50i 3.12+0.00i ]");
 }
 
 TEST(PresentationMdspan, UnicodeMatrixUsesDisplayCellAlignedBrackets)

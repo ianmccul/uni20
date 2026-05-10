@@ -109,11 +109,18 @@ enum class semantic_glyph
   box_top_right,
   box_bottom_left,
   box_bottom_right,
+  box_round_top_left,
+  box_round_top_right,
+  box_round_bottom_left,
+  box_round_bottom_right,
   box_tee_left,
   box_tee_right,
   box_tee_up,
   box_tee_down,
   box_cross,
+  box_diagonal_forward,
+  box_diagonal_back,
+  box_diagonal_cross,
   tree_branch,
   tree_last,
   tree_vertical,
@@ -305,6 +312,35 @@ class styled_text {
 [[nodiscard]] std::string truncate_to_width(std::string_view text, std::size_t max_width, output_policy const& policy,
                                             std::string_view marker = "", std::size_t initial_column = 0);
 
+/// \brief Truncate rendered text from the left to a target width and optionally prepend a marker.
+/// \param text Input text.
+/// \param max_width Maximum width in the selected width mode.
+/// \param policy Output policy controlling fallback and width mode.
+/// \param marker Marker prepended when truncation occurs and space permits.
+/// \param initial_column Starting display column used for tab expansion.
+/// \return Rendered text truncated from the left to the requested width.
+[[nodiscard]] std::string truncate_left_to_width(std::string_view text, std::size_t max_width,
+                                                 output_policy const& policy, std::string_view marker = "",
+                                                 std::size_t initial_column = 0);
+
+/// \brief Prefix each rendered line with fixed text.
+/// \param text Input text.
+/// \param prefix Prefix inserted before each selected line.
+/// \param policy Output policy controlling fallback and width mode.
+/// \param prefix_first Whether to prefix the first line as well as following lines.
+/// \return Rendered text with line prefixes inserted.
+[[nodiscard]] std::string prefix_lines(std::string_view text, std::string_view prefix, output_policy const& policy,
+                                       bool prefix_first = true);
+
+/// \brief Indent each rendered line by a fixed number of spaces.
+/// \param text Input text.
+/// \param spaces Number of spaces to insert before each selected line.
+/// \param policy Output policy controlling fallback and width mode.
+/// \param indent_first Whether to indent the first line as well as following lines.
+/// \return Rendered text with fixed indentation inserted.
+[[nodiscard]] std::string indent_text(std::string_view text, std::size_t spaces, output_policy const& policy,
+                                      bool indent_first = true);
+
 /// \brief Wrap rendered text by display cells or bytes.
 /// \param text Input text.
 /// \param max_width Maximum width per line.
@@ -393,11 +429,12 @@ template <typename T> [[nodiscard]] std::string format_scalar(T const& value, nu
   {
     return format_real(value, options);
   }
-  else if constexpr (requires { typename value_type::value_type; } &&
-                     requires(value_type const& z) {
-                       { z.real() } -> std::floating_point;
-                       { z.imag() } -> std::floating_point;
-                     })
+  else if constexpr (
+      requires { typename value_type::value_type; } &&
+      requires(value_type const& z) {
+        { z.real() } -> std::floating_point;
+        { z.imag() } -> std::floating_point;
+      })
   {
     return format_complex(value, options);
   }
