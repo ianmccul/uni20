@@ -126,16 +126,99 @@ struct FormattingOptions
     /// Holds per-kind styles (keys like "TRACE", "TRACE_LINE", etc).
     mutable std::map<std::string, terminal::TerminalStyle> Styles;
 
+  private:
+    /// \brief Parse a trace glyph-set environment value.
+    /// \param value Text value to parse.
+    /// \param fallback Value returned when parsing fails.
+    /// \return Parsed glyph set or the fallback.
+    static uni20::presentation::glyph_set parse_glyph_set_from_string(
+        std::string_view value, uni20::presentation::glyph_set fallback)
+    {
+      if (iequals(value, "unicode")) return uni20::presentation::glyph_set::unicode;
+      if (iequals(value, "emoji")) return uni20::presentation::glyph_set::emoji;
+      if (iequals(value, "ascii")) return uni20::presentation::glyph_set::ascii;
+      return fallback;
+    }
+
+    /// \brief Parse a trace glyph-set environment variable.
+    /// \param var Environment variable name.
+    /// \param fallback Value returned when the variable is unset or invalid.
+    /// \return Parsed glyph set or the fallback.
+    static uni20::presentation::glyph_set parse_glyph_set_from_env(std::string const& var,
+                                                                   uni20::presentation::glyph_set fallback)
+    {
+      if (auto const* raw = std::getenv(var.c_str()))
+      {
+        return parse_glyph_set_from_string(raw, fallback);
+      }
+      return fallback;
+    }
+
+    /// \brief Parse a trace text-charset environment value.
+    /// \param value Text value to parse.
+    /// \param fallback Value returned when parsing fails.
+    /// \return Parsed charset or the fallback.
+    static uni20::presentation::text_charset parse_text_charset_from_string(
+        std::string_view value, uni20::presentation::text_charset fallback)
+    {
+      if (iequals(value, "utf8") || iequals(value, "utf-8")) return uni20::presentation::text_charset::utf8;
+      if (iequals(value, "ascii_escape") || iequals(value, "ascii-escape") || iequals(value, "escape"))
+        return uni20::presentation::text_charset::ascii_escape;
+      if (iequals(value, "ascii_replace") || iequals(value, "ascii-replace") || iequals(value, "replace"))
+        return uni20::presentation::text_charset::ascii_replace;
+      return fallback;
+    }
+
+    /// \brief Parse a trace text-charset environment variable.
+    /// \param var Environment variable name.
+    /// \param fallback Value returned when the variable is unset or invalid.
+    /// \return Parsed charset or the fallback.
+    static uni20::presentation::text_charset parse_text_charset_from_env(
+        std::string const& var, uni20::presentation::text_charset fallback)
+    {
+      if (auto const* raw = std::getenv(var.c_str()))
+      {
+        return parse_text_charset_from_string(raw, fallback);
+      }
+      return fallback;
+    }
+
+    /// \brief Parse a non-negative trace width environment variable.
+    /// \param var Environment variable name.
+    /// \param fallback Value returned when the variable is unset, invalid, or negative.
+    /// \return Parsed width or the fallback.
+    static int parse_terminal_width_from_env(std::string const& var, int fallback)
+    {
+      if (auto const* raw = std::getenv(var.c_str()))
+      {
+        try
+        {
+          int const width = from_string<int>(raw);
+          if (width >= 0) return width;
+        }
+        catch (...)
+        {
+        }
+      }
+      return fallback;
+    }
+
+    /// \brief Apply presentation-related trace environment variables.
+    /// \param glyphs_var Environment variable controlling semantic glyph rendering.
+    /// \param charset_var Environment variable controlling non-ASCII text fallback.
+    /// \param width_var Environment variable controlling trace layout width.
+    void apply_presentation_environment(std::string const& glyphs_var, std::string const& charset_var,
+                                        std::string const& width_var)
+    {
+      renderPolicy.glyphs = parse_glyph_set_from_env(glyphs_var, renderPolicy.glyphs);
+      renderPolicy.charset = parse_text_charset_from_env(charset_var, renderPolicy.charset);
+      terminal_width = parse_terminal_width_from_env(width_var, terminal_width);
+    }
+
     //--- Constructors ---------------------------------------------------------
 
-    /// \brief Default constructor
-    ///
-    /// Seeds all built-in style keys, reads:
-    ///   - UNI20_TRACEFILE for global sink
-    ///   - UNI20_TRACE_TIMESTAMP
-    ///   - UNI20_TRACE_THREAD_ID
-    ///   - UNI20_TRACE_COLOR
-  private:
+    /// \brief Default constructor.
+    /// \details Seeds all built-in style keys and reads the global trace environment.
     FormattingOptions()
     {
       // Default style definitions
@@ -195,6 +278,7 @@ struct FormattingOptions
       // Precision
       fp_precision_float32 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT32", 6);
       fp_precision_float64 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT64", 15);
+      apply_presentation_environment("UNI20_TRACE_GLYPHS", "UNI20_TRACE_CHARSET", "UNI20_TRACE_WIDTH");
 
       // Global flags
       timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP", true);
@@ -268,6 +352,8 @@ struct FormattingOptions
           terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT32_MODULE_" + mod, fp_precision_float32);
       fp_precision_float64 =
           terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT64_MODULE_" + mod, fp_precision_float64);
+      apply_presentation_environment("UNI20_TRACE_GLYPHS_MODULE_" + mod, "UNI20_TRACE_CHARSET_MODULE_" + mod,
+                                     "UNI20_TRACE_WIDTH_MODULE_" + mod);
 
       // flags overrides
       timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP_MODULE_" + mod, timestamp);
@@ -862,23 +948,6 @@ inline int getMaxLineWidth(const std::string& str)
   return static_cast<int>(getMaxLineWidth(str, uni20::presentation::plain_policy()));
 }
 
-// Indent the second and subsequent lines of a multi-line string
-inline std::string indentMultiline(const std::string& str, std::size_t indentSpaces)
-{
-  std::string result;
-  result.reserve(str.size());
-
-  for (auto ch : str)
-  {
-    result.push_back(ch);
-    if (ch == '\n')
-    {
-      result.append(std::string(indentSpaces, ' '));
-    }
-  }
-  return result;
-}
-
 // recursively get the maximum width of a string or nested vectors of strings.
 inline size_t maxWidth(const std::string& str, uni20::presentation::output_policy const& policy)
 {
@@ -900,19 +969,11 @@ template <typename T> size_t maxWidth(const std::vector<T>& elems)
   return maxWidth(elems, uni20::presentation::plain_policy());
 }
 
-inline std::string padLeftRaw(std::string const& text, std::size_t target_width,
-                              uni20::presentation::output_policy const& policy)
-{
-  auto const width = displayWidth(text, policy);
-  if (width >= target_width) return text;
-  return std::string(target_width - width, ' ') + text;
-}
-
 inline std::string formatContainerToStringImpl(const std::string& elem,
                                                uni20::presentation::output_policy const& policy,
                                                size_t max_width = 0)
 {
-  return padLeftRaw(elem, max_width, policy);
+  return uni20::presentation::pad_left(elem, max_width, policy);
 }
 
 inline std::string formatContainerToString(const std::string& elem, size_t max_width = 0)
@@ -939,7 +1000,7 @@ inline std::string formatContainerToStringImpl(const std::vector<std::string>& e
     for (int i = 0; i < std::ssize(elems); ++i)
     {
       if (i > 0) inlineStr += ",\n  ";
-      inlineStr += indentMultiline(elems[i], 2);
+      inlineStr += uni20::presentation::indent_text(elems[i], 2, policy, false);
     }
     inlineStr += "\n]";
   }
@@ -980,7 +1041,7 @@ inline std::string formatContainerToStringImpl(const std::vector<std::vector<std
     for (int i = 0; i < std::ssize(elems); ++i)
     {
       if (i > 0) inlineStr += ",\n  ";
-      inlineStr += indentMultiline(formatContainerToStringImpl(elems[i], policy), 2);
+      inlineStr += uni20::presentation::indent_text(formatContainerToStringImpl(elems[i], policy), 2, policy, false);
     }
     inlineStr += "\n]";
   }
@@ -1031,7 +1092,8 @@ inline uni20::presentation::styled_text formatItemText(const std::pair<std::stri
     text.append("\n");
     opts.append_style(text, name.first, "TRACE_EXPR");
     text.append(" = ");
-    opts.append_style(text, indentMultiline(value, indent), "TRACE_VALUE");
+    opts.append_style(text, uni20::presentation::indent_text(value, indent, opts.presentation_policy(), false),
+                      "TRACE_VALUE");
     return text;
   }
   opts.append_style(text, name.first, "TRACE_EXPR");
@@ -1060,7 +1122,8 @@ inline uni20::presentation::styled_text formatItemText(const std::pair<std::stri
     text.append("\n");
     opts.append_style(text, value.name, "TRACE_EXPR");
     text.append(" = ");
-    opts.append_style(text, indentMultiline(value.value, indent), "TRACE_VALUE");
+    opts.append_style(text, uni20::presentation::indent_text(value.value, indent, opts.presentation_policy(), false),
+                      "TRACE_VALUE");
     return text;
   }
   opts.append_style(text, value.name, "TRACE_EXPR");
@@ -1222,11 +1285,27 @@ inline void append_trace_module_location(uni20::presentation::styled_text& text,
   opts.append_style(text, fmt::format(":{}", line), "TRACE_LINE");
 }
 
-inline void append_optional_parameters(uni20::presentation::styled_text& text,
-                                       uni20::presentation::styled_text const& parameters, std::string_view separator)
+inline void append_parameter_separator(uni20::presentation::styled_text& text, FormattingOptions const& opts,
+                                       std::string_view style_kind, bool start_newline)
+{
+  if (start_newline)
+  {
+    text.append("\n ");
+  }
+  else
+  {
+    text.append(" ");
+  }
+  opts.append_glyph(text, uni20::presentation::semantic_glyph::arrow_right, std::string(style_kind));
+  text.append(" ");
+}
+
+inline void append_optional_parameters(uni20::presentation::styled_text& text, FormattingOptions const& opts,
+                                       uni20::presentation::styled_text const& parameters, std::string_view style_kind,
+                                       bool start_newline = false)
 {
   if (parameters.empty()) return;
-  text.append(separator);
+  append_parameter_separator(text, opts, style_kind, start_newline);
   text.append(parameters);
 }
 
@@ -1240,7 +1319,7 @@ template <typename... Args> void TraceCall(const char* exprList, const char* fil
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = format_trace_prefix_text(opts);
   append_trace_location(text, opts, "TRACE", "TRACE", file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "TRACE");
   text.append("\n");
   opts.sink(opts.render(text));
 }
@@ -1255,7 +1334,7 @@ template <typename... Args> void TraceOnceCall(const char* exprList, const char*
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = format_trace_prefix_text(opts);
   append_trace_location(text, opts, "TRACE_ONCE", "TRACE", file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "TRACE");
   text.append("\n");
   opts.sink(opts.render(text));
 }
@@ -1271,7 +1350,7 @@ void TraceModuleCall(const char* module, const char* exprList, const char* file,
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = format_trace_prefix_text(opts);
   append_trace_module_location(text, opts, "TRACE", "TRACE", module, file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "TRACE");
   text.append("\n");
   opts.sink(opts.render(text));
 }
@@ -1286,7 +1365,7 @@ template <typename... Args> void DebugTraceCall(const char* exprList, const char
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = format_trace_prefix_text(opts);
   append_trace_location(text, opts, "DEBUG_TRACE", "DEBUG_TRACE", file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "DEBUG_TRACE");
   text.append("\n");
   opts.sink(opts.render(text));
 }
@@ -1302,7 +1381,7 @@ void DebugTraceOnceCall(const char* exprList, const char* file, int line, const 
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = format_trace_prefix_text(opts);
   append_trace_location(text, opts, "DEBUG_TRACE_ONCE", "DEBUG_TRACE", file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "DEBUG_TRACE");
   text.append("\n");
   opts.sink(opts.render(text));
 }
@@ -1318,7 +1397,7 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = format_trace_prefix_text(opts);
   append_trace_module_location(text, opts, "DEBUG_TRACE", "DEBUG_TRACE", module, file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "DEBUG_TRACE");
   text.append("\n");
   opts.sink(opts.render(text));
 }
@@ -1331,9 +1410,10 @@ inline std::string format_stacktrace(FormattingOptions& opts, std::stacktrace co
   uni20::presentation::styled_text out;
   std::size_t frame_index = 0;
 
+  auto const frame_count = stacktrace.size();
   for (auto const& frame : stacktrace)
   {
-    std::string index_str = fmt::format("{:>3}", frame_index);
+    std::string index_str = fmt::format("#{}", frame_index);
     std::string description = frame.description();
     if (description.empty()) description = "(unknown)";
 
@@ -1341,8 +1421,13 @@ inline std::string format_stacktrace(FormattingOptions& opts, std::stacktrace co
     auto source_line = frame.source_line();
 
     out.append("  ");
+    opts.append_glyph(out,
+                      frame_index + 1 == frame_count ? uni20::presentation::semantic_glyph::tree_last
+                                                     : uni20::presentation::semantic_glyph::tree_branch,
+                      "TRACE_LINE");
+    out.append(" ");
     opts.append_style(out, index_str, "TRACE_LINE");
-    out.append("# ");
+    out.append(" ");
     opts.append_style(out, description, "TRACE");
     if (!source_file.empty())
     {
@@ -1410,7 +1495,7 @@ inline void emit_trace_line(FormattingOptions& opts, std::string_view label, std
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = format_trace_prefix_text(opts);
   append_trace_location(text, opts, label, style_kind, file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, style_kind);
   text.append("\n");
   opts.sink(opts.render(text));
 }
@@ -1423,7 +1508,7 @@ inline void emit_trace_line_module(FormattingOptions& opts, std::string_view lab
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = format_trace_prefix_text(opts);
   append_trace_module_location(text, opts, label, style_kind, module, file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, style_kind);
   text.append("\n");
   opts.sink(opts.render(text));
 }
@@ -1432,6 +1517,11 @@ inline uni20::presentation::styled_text make_diagnostic_header(FormattingOptions
                                                                std::string_view style_kind, const char* file, int line)
 {
   uni20::presentation::styled_text text;
+  auto const glyph = style_kind == "CHECK" || style_kind == "DEBUG_CHECK" || style_kind == "ERROR"
+                         ? uni20::presentation::semantic_glyph::failure
+                         : uni20::presentation::semantic_glyph::warning;
+  opts.append_glyph(text, glyph, std::string(style_kind));
+  text.append(" ");
   append_trace_location(text, opts, label, style_kind, file, line);
   return text;
 }
@@ -1468,10 +1558,11 @@ inline void append_not_approx_equal(uni20::presentation::styled_text& text, Form
   text.append(" ULP)!");
 }
 
-inline void append_diagnostic_parameters(uni20::presentation::styled_text& text,
-                                         uni20::presentation::styled_text const& parameters)
+inline void append_diagnostic_parameters(uni20::presentation::styled_text& text, FormattingOptions const& opts,
+                                         uni20::presentation::styled_text const& parameters,
+                                         std::string_view style_kind)
 {
-  append_optional_parameters(text, parameters, "\n : ");
+  append_optional_parameters(text, opts, parameters, style_kind, true);
   text.append("\n");
 }
 } // namespace detail
@@ -1533,7 +1624,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "CHECK", "CHECK", file, line);
   detail::append_condition_false(text, opts, cond);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "CHECK");
   detail::abort_with_stacktrace(opts, text, "CHECK", 2);
 }
 
@@ -1549,7 +1640,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_CHECK", "DEBUG_CHECK", file, line);
   detail::append_condition_false(text, opts, cond);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_CHECK");
   detail::abort_with_stacktrace(opts, text, "DEBUG_CHECK", 2);
 }
 
@@ -1565,7 +1656,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "CHECK_EQUAL", "CHECK", file, line);
   detail::append_not_equal(text, opts, a, b);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "CHECK");
   detail::abort_with_stacktrace(opts, text, "CHECK", 2);
 }
 
@@ -1581,7 +1672,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_CHECK_EQUAL", "DEBUG_CHECK", file, line);
   detail::append_not_equal(text, opts, a, b);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_CHECK");
   detail::abort_with_stacktrace(opts, text, "DEBUG_CHECK", 2);
 }
 
@@ -1597,7 +1688,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "CHECK_FLOATING_EQ", "CHECK", file, line);
   detail::append_not_approx_equal(text, opts, a, b, ulps);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "CHECK");
   detail::abort_with_stacktrace(opts, text, "CHECK", 2);
 }
 
@@ -1613,7 +1704,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_CHECK_FLOATING_EQ", "DEBUG_CHECK", file, line);
   detail::append_not_approx_equal(text, opts, a, b, ulps);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_CHECK");
   detail::abort_with_stacktrace(opts, text, "DEBUG_CHECK", 2);
 }
 
@@ -1629,7 +1720,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "PRECONDITION", "PRECONDITION", file, line);
   detail::append_condition_false(text, opts, cond);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "PRECONDITION");
   detail::abort_with_stacktrace(opts, text, "PRECONDITION", 2);
 }
 
@@ -1645,7 +1736,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_PRECONDITION", "DEBUG_PRECONDITION", file, line);
   detail::append_condition_false(text, opts, cond);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_PRECONDITION");
   detail::abort_with_stacktrace(opts, text, "DEBUG_PRECONDITION", 2);
 }
 
@@ -1661,7 +1752,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "PRECONDITION_EQUAL", "PRECONDITION", file, line);
   detail::append_not_equal(text, opts, a, b);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "PRECONDITION");
   detail::abort_with_stacktrace(opts, text, "PRECONDITION", 2);
 }
 
@@ -1677,7 +1768,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_PRECONDITION_EQUAL", "DEBUG_PRECONDITION", file, line);
   detail::append_not_equal(text, opts, a, b);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_PRECONDITION");
   detail::abort_with_stacktrace(opts, text, "DEBUG_PRECONDITION", 2);
 }
 
@@ -1693,7 +1784,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "PRECONDITION_FLOATING_EQ", "PRECONDITION", file, line);
   detail::append_not_approx_equal(text, opts, a, b, ulps);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "PRECONDITION");
   detail::abort_with_stacktrace(opts, text, "PRECONDITION", 2);
 }
 
@@ -1709,7 +1800,7 @@ template <typename... Args>
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_PRECONDITION_FLOATING_EQ", "DEBUG_PRECONDITION", file, line);
   detail::append_not_approx_equal(text, opts, a, b, ulps);
-  detail::append_diagnostic_parameters(text, parameters);
+  detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_PRECONDITION");
   detail::abort_with_stacktrace(opts, text, "DEBUG_PRECONDITION", 2);
 }
 
@@ -1723,7 +1814,7 @@ template <typename... Args>
 
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "PANIC", "PANIC", file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "PANIC");
   text.append("\n");
   detail::abort_with_stacktrace(opts, text, "PANIC", 2);
 }
@@ -1738,7 +1829,7 @@ template <typename... Args>
 
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "ERROR", "ERROR", file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "ERROR");
   text.append("\n");
 
   std::string msg = opts.render(text);
@@ -1762,7 +1853,7 @@ template <typename... Args>
 
   auto parameters = formatParameterListText(exprList, opts, args...);
   auto text = detail::make_diagnostic_header(opts, "ERROR", "ERROR", file, line);
-  append_optional_parameters(text, parameters, " : ");
+  append_optional_parameters(text, opts, parameters, "ERROR");
   detail::append_condition_false(text, opts, cond);
   text.append("\n");
 

@@ -28,6 +28,18 @@ namespace presentation = uni20::presentation;
 
 } // namespace
 
+TEST(PresentationPolicies, DefaultPoliciesPreferEmojiGlyphs)
+{
+  EXPECT_EQ(presentation::output_policy{}.glyphs, presentation::glyph_set::emoji);
+  EXPECT_EQ(presentation::terminal_policy(stdout).glyphs, presentation::glyph_set::emoji);
+  EXPECT_EQ(presentation::plain_policy().glyphs, presentation::glyph_set::emoji);
+  EXPECT_EQ(presentation::strict_ascii_policy().glyphs, presentation::glyph_set::ascii);
+
+  presentation::styled_text text;
+  text.append(presentation::semantic_glyph::warning);
+  EXPECT_EQ(presentation::render(text, presentation::plain_policy()), "\xF0\x9F\x9A\xA8");
+}
+
 TEST(PresentationGlyphs, UnicodePolicyUsesSemanticUnicodeGlyphs)
 {
   auto policy = base_policy();
@@ -37,6 +49,8 @@ TEST(PresentationGlyphs, UnicodePolicyUsesSemanticUnicodeGlyphs)
   text.append(presentation::semantic_glyph::success)
       .append(" ")
       .append(presentation::semantic_glyph::arrow_right)
+      .append(" ")
+      .append(presentation::semantic_glyph::warning)
       .append(" ")
       .append(presentation::semantic_glyph::box_top_left)
       .append(presentation::semantic_glyph::box_horizontal)
@@ -49,7 +63,8 @@ TEST(PresentationGlyphs, UnicodePolicyUsesSemanticUnicodeGlyphs)
       .append(presentation::semantic_glyph::box_diagonal_forward)
       .append(presentation::semantic_glyph::box_diagonal_back);
 
-  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x93 \xE2\x86\x92 \xE2\x94\x8C\xE2\x94\x80\xE2\x94\x90 "
+  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x93 \xE2\x86\x92 \xE2\x96\xB2 "
+                                                "\xE2\x94\x8C\xE2\x94\x80\xE2\x94\x90 "
                                                 "\xE2\x95\xAD\xE2\x94\x80\xE2\x95\xAE "
                                                 "\xE2\x95\xB1\xE2\x95\xB2");
 }
@@ -64,9 +79,12 @@ TEST(PresentationGlyphs, EmojiPolicyUsesEmojiOnlyForSemanticMappings)
       .append(" ")
       .append(presentation::semantic_glyph::failure)
       .append(" ")
+      .append(presentation::semantic_glyph::warning)
+      .append(" ")
       .append(presentation::semantic_glyph::arrow_right);
 
-  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x85 \xE2\x9D\x8C \xE2\x9E\xA1\xEF\xB8\x8F");
+  EXPECT_EQ(presentation::render(text, policy),
+            "\xE2\x9C\x85 \xE2\x9D\x8C \xF0\x9F\x9A\xA8 \xE2\x9E\xA1\xEF\xB8\x8F");
 }
 
 TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
@@ -97,9 +115,9 @@ TEST(PresentationTextFallback, RawSymbolFallbackCoversCommonNonLanguageSymbols)
 
   auto const text = std::string("quote \xE2\x80\x9Cword\xE2\x80\x9D \xE2\x80\x94 "
                                 "\xE2\x80\xA6 \xE2\x86\x92 \xE2\x89\xA4 "
-                                "\xE2\x95\xAD\xE2\x95\xB1\xE2\x95\xB2");
+                                "\xE2\x96\xB2 \xE2\x95\xAD\xE2\x95\xB1\xE2\x95\xB2");
 
-  EXPECT_EQ(presentation::render_text(text, policy), "quote \"word\" - ... -> <= +/\\");
+  EXPECT_EQ(presentation::render_text(text, policy), "quote \"word\" - ... -> <= ! +/\\");
 }
 
 TEST(PresentationTextFallback, HumanUtf8TextIsPreservedEscapedOrReplaced)
@@ -130,6 +148,7 @@ TEST(PresentationWidth, CoversAsciiStyledCombiningCjkAmbiguousEmojiAndTabs)
   EXPECT_EQ(presentation::display_width("e\xCC\x81", policy), 1U);
   EXPECT_EQ(presentation::display_width("\xE4\xB8\xAD", policy), 2U);
   EXPECT_EQ(presentation::display_width("\xF0\x9F\x98\x80", policy), 2U);
+  EXPECT_EQ(presentation::display_width("\xE2\x9A\xA0\xEF\xB8\x8F", policy), 2U);
   EXPECT_EQ(presentation::display_width("a\tb", policy), 5U);
   EXPECT_EQ(presentation::display_width("a\tb", policy, 2), 3U);
 

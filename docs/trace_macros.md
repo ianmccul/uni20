@@ -34,11 +34,12 @@ void f(int n)
 Typical output:
 
 ```text
-2026-02-22 08:37:10.692231374 TRACE at /path/file.cpp:6 : begin, n = 3
-2026-02-22 08:37:10.692235001 TRACE at /path/file.cpp:7 : n = 3
-2026-02-22 08:37:10.692238442 TRACE_STACK at /path/file.cpp:8 : debug point, n = 3
+2026-02-22 08:37:10.692231374 TRACE at /path/file.cpp:6 → begin, n = 3
+2026-02-22 08:37:10.692235001 TRACE at /path/file.cpp:7 → n = 3
+2026-02-22 08:37:10.692238442 TRACE_STACK at /path/file.cpp:8 → debug point, n = 3
 Stacktrace:
-  ...
+  ├─ #0 ...
+  └─ #1 ...
 ```
 
 By default, if the call is from a non-main thread, a `[TID ...]` prefix is inserted before `TRACE`, showing the thread ID of the caller. This can be customized - see section Output and Formatting Controls below.
@@ -99,6 +100,7 @@ These print diagnostics and abort:
 - `PANIC(...)`
 
 `CHECK*`, `PRECONDITION*`, and `PANIC` also print a stacktrace block before abort.
+Diagnostic headers use the same semantic glyph policy as trace output: emoji mode renders headers such as `❌ CHECK` and `🚨 PANIC`, Unicode mode renders `✗ CHECK` and `▲ PANIC`, and ASCII mode renders `[FAIL] CHECK` and `[WARN] PANIC`.
 
 Debug-only assertion forms:
 
@@ -214,7 +216,7 @@ cmake -DUNI20_ENABLE_STACKTRACE=ON ...
 
 If either is missing, trace code still compiles. `_STACK` macros and abort diagnostics print:
 
-`WARNING: std::stacktrace is unavailable in this build; stacktrace omitted.`
+`🚨 WARNING: std::stacktrace is unavailable in this build; stacktrace omitted.`
 
 ## Basic Usage
 
@@ -228,9 +230,10 @@ TRACE_STACK("creating epoch", epoch_ptr, generation);
 Example line format:
 
 ```text
-2026-02-21 20:35:55.374552123 [TID ...] TRACE_STACK at /path/file.cpp:123 : creating epoch, ...
+2026-02-21 20:35:55.374552123 [TID ...] TRACE_STACK at /path/file.cpp:123 → creating epoch, ...
 Stacktrace:
-  ...
+  ├─ #0 ...
+  └─ #1 ...
 ```
 
 The timestamp is local time and uses nanosecond precision (`.NNNNNNNNN`).
@@ -336,11 +339,26 @@ Module-specific overrides:
 When set to `auto`, color output is used if `NO_COLOR` is unset or empty and the output stream is a terminal.
 Set `NO_COLOR` to any non-empty value to disable automatic color output by default.
 Explicit `UNI20_TRACE_COLOR=yes` or `UNI20_TRACE_COLOR=no` overrides `NO_COLOR`.
-Trace diagnostics are rendered through the common [presentation formatting](presentation.md) layer. Plain/file output suppresses ANSI escapes, semantic glyph fallback follows the shared output policy, strict ASCII modes apply to whole trace lines, and container-style trace output aligns by display cells. Mdspan-like values and tensor/view-like objects render as presentation tensor art: vectors use a row form, matrices use aligned bracket art, and higher-rank tensors use labeled matrix slices.
 
 Module-specific override:
 
 - `UNI20_TRACE_COLOR_MODULE_<MODULE>`
+
+### Presentation Controls
+
+Trace diagnostics are rendered through the common [presentation formatting](presentation.md) layer. Plain/file output suppresses ANSI escapes, semantic glyph fallback follows the shared output policy, strict ASCII modes apply to whole trace lines, and container-style trace output aligns by display cells. Mdspan-like values and tensor/view-like objects render as presentation tensor art: vectors use a row form, matrices use aligned bracket art, and higher-rank tensors use labeled matrix slices.
+
+| Variable | Default | Values | Effect |
+|---|---|---|---|
+| `UNI20_TRACE_GLYPHS` | `emoji` | `unicode`, `emoji`, `ascii` | Select semantic glyph spelling for trace output. |
+| `UNI20_TRACE_CHARSET` | `utf8` | `utf8`, `ascii_escape`, `ascii_replace` | Select fallback for non-ASCII text in whole trace lines. |
+| `UNI20_TRACE_WIDTH` | terminal columns | non-negative integer | Select the display width where long trace items switch to multiline layout. `0` disables width-triggered splitting. |
+
+Module-specific overrides:
+
+- `UNI20_TRACE_GLYPHS_MODULE_<MODULE>`
+- `UNI20_TRACE_CHARSET_MODULE_<MODULE>`
+- `UNI20_TRACE_WIDTH_MODULE_<MODULE>`
 
 ### Color Style Keys
 

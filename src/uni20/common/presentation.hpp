@@ -138,7 +138,7 @@ enum class semantic_glyph
 struct output_policy
 {
     color_mode color = color_mode::automatic;
-    glyph_set glyphs = glyph_set::unicode;
+    glyph_set glyphs = glyph_set::emoji;
     text_charset charset = text_charset::utf8;
     width_mode width = width_mode::display_cells;
     ambiguous_width ambiguous = ambiguous_width::narrow;

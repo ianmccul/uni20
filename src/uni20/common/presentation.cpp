@@ -218,6 +218,8 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "<=>";
     case 0x2139:
       return "i";
+    case 0x25B2:
+    case 0x25B3:
     case 0x26A0:
       return "!";
     case 0x2705:
@@ -429,7 +431,7 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case semantic_glyph::failure:
       return "\xE2\x9C\x97";
     case semantic_glyph::warning:
-      return "\xE2\x9A\xA0";
+      return "\xE2\x96\xB2";
     case semantic_glyph::info:
       return "\xE2\x84\xB9";
     case semantic_glyph::arrow_right:
@@ -515,7 +517,7 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case semantic_glyph::failure:
       return "\xE2\x9D\x8C";
     case semantic_glyph::warning:
-      return "\xE2\x9A\xA0\xEF\xB8\x8F";
+      return "\xF0\x9F\x9A\xA8";
     case semantic_glyph::info:
       return "\xE2\x84\xB9\xEF\xB8\x8F";
     case semantic_glyph::arrow_right:
@@ -1105,7 +1107,9 @@ std::vector<std::string> wrap_text(std::string_view text, std::size_t max_width,
       else if (decoded.value == U'\t')
         unit_width = tab_advance(column, policy.tab_width);
       else
+      {
         unit_width = codepoint_width(decoded.value, policy);
+      }
     }
 
     if (used > 0 && used + unit_width > max_width)

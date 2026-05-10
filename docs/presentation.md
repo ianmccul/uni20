@@ -15,7 +15,7 @@ The layer is intentionally independent of trace, async, tensor, AD, and schedule
 | Field | Purpose |
 |---|---|
 | `color` | `never`, `automatic`, or `always` ANSI style emission. |
-| `glyphs` | `unicode`, `emoji`, or `ascii` semantic glyph rendering. |
+| `glyphs` | `emoji` by default; select `unicode` or `ascii` for semantic glyph rendering when needed. |
 | `charset` | Preserve UTF-8, escape non-ASCII text, or replace it. |
 | `width` | Measure by bytes or display cells. |
 | `ambiguous` | Treat ambiguous-width code points as narrow or wide. |
@@ -43,7 +43,7 @@ auto policy = presentation::terminal_policy(stderr);
 auto rendered = presentation::render(text, policy);
 ```
 
-Central mappings cover status symbols, arrows, ellipsis, square and rounded box/table drawing, diagonal connector glyphs, and tree drawing. ASCII output uses these mappings automatically.
+The default terminal and plain policies prefer emoji for semantic status glyphs. Use `glyph_set::unicode` for symbol-only output, or `glyph_set::ascii` when fixed-width terminal behavior matters more than rich status symbols. Central mappings cover status symbols, arrows, ellipsis, square and rounded box/table drawing, diagonal connector glyphs, and tree drawing. ASCII output uses these mappings automatically.
 
 ## Text Fallback
 

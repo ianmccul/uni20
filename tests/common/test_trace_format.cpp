@@ -238,14 +238,97 @@ TEST(TraceFormatting, SemanticGlyphsUseFormatterPolicy)
   auto opts = make_test_options();
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::unicode;
 
-  EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::warning, "ERROR"), "\xE2\x9A\xA0");
+  EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::warning, "ERROR"), "\xE2\x96\xB2");
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::arrow_right, "TRACE"), "\xE2\x86\x92");
+
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::emoji;
+  EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::warning, "ERROR"), "\xF0\x9F\x9A\xA8");
 
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::success, "TRACE"), "[OK]");
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::failure, "ERROR"), "[FAIL]");
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::arrow_right, "TRACE"), "->");
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::tree_branch, "TRACE"), "|-");
+}
+
+TEST(TraceFormatting, TracePayloadSeparatorUsesGlyphPolicy)
+{
+  static constexpr char const* module = "TRACE_FORMAT_SEPARATOR";
+  auto& opts = trace::get_formatting_options(module);
+  std::ostringstream oss;
+
+  opts.set_sink([&oss](std::string msg) { oss << msg; });
+  opts.set_color_output(trace::FormattingOptions::ColorOptions::no);
+  opts.timestamp = false;
+  opts.threadId = trace::FormattingOptions::ThreadIdOptions::no;
+
+  int value = 42;
+
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::unicode;
+  trace::TraceModuleCall(module, "value", __FILE__, __LINE__, value);
+  EXPECT_NE(oss.str().find(" \xE2\x86\x92 value = 42"), std::string::npos) << oss.str();
+
+  oss.str("");
+  oss.clear();
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
+  value = 43;
+  trace::TraceModuleCall(module, "value", __FILE__, __LINE__, value);
+  EXPECT_NE(oss.str().find(" -> value = 43"), std::string::npos) << oss.str();
+
+  oss.str("");
+  oss.clear();
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::emoji;
+  value = 44;
+  trace::TraceModuleCall(module, "value", __FILE__, __LINE__, value);
+  EXPECT_NE(oss.str().find(" \xE2\x9E\xA1\xEF\xB8\x8F value = 44"), std::string::npos) << oss.str();
+
+  opts.set_output_stream(stderr);
+}
+
+TEST(TraceFormatting, DiagnosticHeadersUseSemanticGlyphPolicy)
+{
+  auto opts = make_test_options();
+
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::emoji;
+  auto check = trace::detail::make_diagnostic_header(opts, "CHECK", "CHECK", __FILE__, __LINE__);
+  auto panic = trace::detail::make_diagnostic_header(opts, "PANIC", "PANIC", __FILE__, __LINE__);
+  EXPECT_NE(opts.render(check).find("\xE2\x9D\x8C CHECK at "), std::string::npos);
+  EXPECT_NE(opts.render(panic).find("\xF0\x9F\x9A\xA8 PANIC at "), std::string::npos);
+
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::unicode;
+  check = trace::detail::make_diagnostic_header(opts, "CHECK", "CHECK", __FILE__, __LINE__);
+  panic = trace::detail::make_diagnostic_header(opts, "PANIC", "PANIC", __FILE__, __LINE__);
+  EXPECT_NE(opts.render(check).find("\xE2\x9C\x97 CHECK at "), std::string::npos);
+  EXPECT_NE(opts.render(panic).find("\xE2\x96\xB2 PANIC at "), std::string::npos);
+
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
+  auto error = trace::detail::make_diagnostic_header(opts, "ERROR", "ERROR", __FILE__, __LINE__);
+  auto precondition =
+      trace::detail::make_diagnostic_header(opts, "PRECONDITION", "PRECONDITION", __FILE__, __LINE__);
+  EXPECT_NE(opts.render(error).find("[FAIL] ERROR at "), std::string::npos);
+  EXPECT_NE(opts.render(precondition).find("[WARN] PRECONDITION at "), std::string::npos);
+}
+
+TEST(TraceFormatting, EnvironmentConfiguresPresentationPolicy)
+{
+  static constexpr char const* module = "TRACE_FORMAT_PRESENTATION_ENV";
+  EnvVarGuard glyphs("UNI20_TRACE_GLYPHS_MODULE_TRACE_FORMAT_PRESENTATION_ENV");
+  EnvVarGuard charset("UNI20_TRACE_CHARSET_MODULE_TRACE_FORMAT_PRESENTATION_ENV");
+  EnvVarGuard width("UNI20_TRACE_WIDTH_MODULE_TRACE_FORMAT_PRESENTATION_ENV");
+
+  glyphs.set("ascii");
+  charset.set("ascii_escape");
+  width.set("12");
+
+  auto& opts = trace::get_formatting_options(module);
+  opts.set_color_output(trace::FormattingOptions::ColorOptions::no);
+
+  EXPECT_EQ(opts.presentation_policy().glyphs, uni20::presentation::glyph_set::ascii);
+  EXPECT_EQ(opts.presentation_policy().charset, uni20::presentation::text_charset::ascii_escape);
+  EXPECT_EQ(opts.terminal_width, 12);
+  EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::arrow_right, "TRACE"), "->");
+  EXPECT_EQ(trace::formatItemString({"value", false}, "\xE4\xB8\xAD", opts, 80), "value = \\u4E2D");
+  EXPECT_EQ(trace::formatItemString({"long_name", false}, "value", opts, opts.terminal_width), "\nlong_name = value");
 }
 
 TEST(TraceFormatting, MdspanValuesUsePresentationTensorArt)
