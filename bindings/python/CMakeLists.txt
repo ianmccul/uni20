@@ -148,6 +148,7 @@ target_compile_options(
 
 foreach(nb_target IN ITEMS nanobind nanobind-static nanobind-abi3)
   if(TARGET ${nb_target})
+    relax_warnings(${nb_target})
     target_compile_options(
       ${nb_target} PRIVATE
         ${NB_WARNING_FLAGS}
