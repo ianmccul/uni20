@@ -9,6 +9,7 @@
 - [Testing Infrastructure](testing.md)
 - [Architecture Diagram](architecture_diagram.md)
 - [Architecture and Roadmap](roadmap.md)
+- [Backend Dispatch Design](backend_dispatch.md)
 - [Async Storage and Assignment Semantics](async_storage.md)
 
 ## AI Guidance

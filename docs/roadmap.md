@@ -35,6 +35,8 @@ Current code shape:
 - BLAS backend wrappers under `src/uni20/backend/blas/`.
 - CPU linalg backend under `src/uni20/linalg/backends/cpu/`.
 - CUDA/cuSOLVER directories exist but are partial/stub-oriented.
+- Future backend work should follow the compile-time capability, runtime `try_*`,
+  and fallback pattern described in `docs/backend_dispatch.md`.
 
 ### 1.4 Python bindings
 
@@ -127,10 +129,13 @@ Goals:
 
 - Improve CUDA/cuSOLVER path maturity.
 - Keep backend dispatch behavior transparent and testable.
+- Keep public operations generic while backend adapters decide whether a call can
+  be lowered to a specific vendor implementation.
 
 Deliverables:
 
 - Backend capability matrix in docs.
+- Backend dispatch traits and `try_*` adapters for selected vertical slices.
 - Backend-specific correctness tests and representative performance benchmarks.
 
 ## 5. Guardrails
@@ -143,6 +148,7 @@ Deliverables:
 ## 6. Related Docs
 
 - `docs/architecture_diagram.md`
+- `docs/backend_dispatch.md`
 - `docs/async/README.md`
 - `docs/async/reverse_mode_ad.md`
 - `docs/async/buffers_and_awaiters.md`
