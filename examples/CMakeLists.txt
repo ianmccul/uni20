@@ -13,6 +13,9 @@ target_link_libraries(trace_example PRIVATE fmt::fmt mdspan uni20_common)
 add_executable(presentation_example presentation_example.cpp)
 target_link_libraries(presentation_example PRIVATE fmt::fmt uni20_common)
 
+add_executable(buildinfo_example buildinfo_example.cpp)
+target_link_libraries(buildinfo_example PRIVATE fmt::fmt uni20_core uni20_common)
+
 if(TARGET uni20_backend_blas)
   add_executable(blas_example blas_example.cpp)
   target_link_libraries(blas_example PRIVATE fmt::fmt uni20_backend_blas)

@@ -1,10 +1,12 @@
-#include "buildinfo.hpp"
 #include "registry.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 
+#include <uni20/buildinfo.hpp>
+
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace nb = nanobind;
@@ -15,38 +17,40 @@ namespace
 /// \brief Returns a dictionary with details about the current CMake build.
 nb::dict buildinfo()
 {
-  using namespace uni20::python::build_info;
+  auto const build_info = uni20::build_info::current();
+
+  auto to_python_string = [](std::string_view text) { return nb::str(text.data(), text.size()); };
 
   nb::dict info;
-  info["generator"] = nb::str(kGenerator.data(), kGenerator.size());
-  info["build_type"] = nb::str(kBuildType.data(), kBuildType.size());
-  info["system_name"] = nb::str(kSystemName.data(), kSystemName.size());
-  info["system_version"] = nb::str(kSystemVersion.data(), kSystemVersion.size());
-  info["system_processor"] = nb::str(kSystemProcessor.data(), kSystemProcessor.size());
-  info["cxx_compiler_id"] = nb::str(kCompilerId.data(), kCompilerId.size());
-  info["cxx_compiler_version"] = nb::str(kCompilerVersion.data(), kCompilerVersion.size());
-  info["cxx_compiler_path"] = nb::str(kCompilerPath.data(), kCompilerPath.size());
+  info["generator"] = to_python_string(build_info.generator);
+  info["build_type"] = to_python_string(build_info.build_type);
+  info["system_name"] = to_python_string(build_info.system_name);
+  info["system_version"] = to_python_string(build_info.system_version);
+  info["system_processor"] = to_python_string(build_info.system_processor);
+  info["cxx_compiler_id"] = to_python_string(build_info.cxx_compiler_id);
+  info["cxx_compiler_version"] = to_python_string(build_info.cxx_compiler_version);
+  info["cxx_compiler_path"] = to_python_string(build_info.cxx_compiler_path);
 
-  auto populate_entries = [](nb::dict& target, auto const& entries) {
+  auto populate_entries = [&to_python_string](nb::dict& target, auto const& entries) {
     for (auto const& entry : entries)
     {
       nb::dict metadata;
-      metadata["value"] = nb::str(entry.value.data(), entry.value.size());
+      metadata["value"] = to_python_string(entry.value);
       if (!entry.help.empty())
       {
-        metadata["help"] = nb::str(entry.help.data(), entry.help.size());
+        metadata["help"] = to_python_string(entry.help);
       }
 
-      target[nb::str(entry.key.data(), entry.key.size())] = std::move(metadata);
+      target[to_python_string(entry.key)] = std::move(metadata);
     }
   };
 
   nb::dict build_options;
-  populate_entries(build_options, kBuildOptions);
+  populate_entries(build_options, build_info.build_options);
   info["build_options"] = std::move(build_options);
 
   nb::dict detected_environment;
-  populate_entries(detected_environment, kDetectedEnvironment);
+  populate_entries(detected_environment, build_info.detected_environment);
   info["detected_environment"] = std::move(detected_environment);
   return info;
 }

@@ -1,0 +1,61 @@
+#pragma once
+
+#include <array>
+#include <span>
+#include <string_view>
+
+namespace uni20::build_info {
+
+struct Entry {
+  std::string_view key;
+  std::string_view value;
+  std::string_view help;
+};
+
+struct Info {
+  std::string_view generator;
+  std::string_view build_type;
+  std::string_view system_name;
+  std::string_view system_version;
+  std::string_view system_processor;
+  std::string_view cxx_compiler_id;
+  std::string_view cxx_compiler_version;
+  std::string_view cxx_compiler_path;
+  std::span<Entry const> build_options;
+  std::span<Entry const> detected_environment;
+};
+
+inline constexpr std::string_view kGenerator{"@UNI20_BUILDINFO_GENERATOR_ESCAPED@"};
+inline constexpr std::string_view kBuildType{"@UNI20_BUILDINFO_BUILD_TYPE_ESCAPED@"};
+inline constexpr std::string_view kSystemName{"@UNI20_BUILDINFO_SYSTEM_NAME_ESCAPED@"};
+inline constexpr std::string_view kSystemVersion{"@UNI20_BUILDINFO_SYSTEM_VERSION_ESCAPED@"};
+inline constexpr std::string_view kSystemProcessor{"@UNI20_BUILDINFO_SYSTEM_PROCESSOR_ESCAPED@"};
+inline constexpr std::string_view kCompilerId{"@UNI20_BUILDINFO_COMPILER_ID_ESCAPED@"};
+inline constexpr std::string_view kCompilerVersion{"@UNI20_BUILDINFO_COMPILER_VERSION_ESCAPED@"};
+inline constexpr std::string_view kCompilerPath{"@UNI20_BUILDINFO_COMPILER_PATH_ESCAPED@"};
+
+inline constexpr std::array<Entry, @UNI20_BUILDINFO_BUILD_OPTIONS_COUNT@> kBuildOptions{{
+@UNI20_BUILDINFO_BUILD_OPTIONS_INITS@
+}};
+
+inline constexpr std::array<Entry, @UNI20_BUILDINFO_DETECTED_ENV_COUNT@> kDetectedEnvironment{{
+@UNI20_BUILDINFO_DETECTED_ENV_INITS@
+}};
+
+inline constexpr Info current() noexcept
+{
+  return Info{
+      kGenerator,
+      kBuildType,
+      kSystemName,
+      kSystemVersion,
+      kSystemProcessor,
+      kCompilerId,
+      kCompilerVersion,
+      kCompilerPath,
+      kBuildOptions,
+      kDetectedEnvironment,
+  };
+}
+
+} // namespace uni20::build_info
