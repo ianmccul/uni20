@@ -1,56 +1,23 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/common/mdspan.hpp>
 
+#include "env_var_guard.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cstdio>
-#include <cstdlib>
 #include <fcntl.h>
 #include <memory>
-#include <optional>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <unistd.h>
-#include <utility>
 #include <vector>
 
 namespace
 {
-class EnvVarGuard {
-  public:
-    explicit EnvVarGuard(std::string name) : name_(std::move(name))
-    {
-      if (char const* value = std::getenv(name_.c_str()))
-      {
-        original_ = value;
-      }
-    }
-
-    EnvVarGuard(EnvVarGuard const&) = delete;
-    EnvVarGuard& operator=(EnvVarGuard const&) = delete;
-
-    ~EnvVarGuard()
-    {
-      if (original_)
-      {
-        ::setenv(name_.c_str(), original_->c_str(), 1);
-      }
-      else
-      {
-        ::unsetenv(name_.c_str());
-      }
-    }
-
-    void set(std::string const& value) const { ::setenv(name_.c_str(), value.c_str(), 1); }
-
-    void unset() const { ::unsetenv(name_.c_str()); }
-
-  private:
-    std::string name_;
-    std::optional<std::string> original_;
-};
+using uni20::test::EnvVarGuard;
 
 trace::FormattingOptions make_test_options()
 {
@@ -193,10 +160,10 @@ TEST(TraceFormatting, FormatStyleUsesPresentationRendererForColor)
 {
   auto opts = trace::get_formatting_options("trace-format-renderer-color");
 
-  opts.set_color_output(trace::FormattingOptions::ColorOptions::yes);
+  opts.set_color_output(uni20::presentation::color_mode::always);
   EXPECT_TRUE(contains_ansi(opts.format_style("TRACE", "TRACE")));
 
-  opts.set_color_output(trace::FormattingOptions::ColorOptions::no);
+  opts.set_color_output(uni20::presentation::color_mode::never);
   EXPECT_FALSE(contains_ansi(opts.format_style("TRACE", "TRACE")));
 }
 

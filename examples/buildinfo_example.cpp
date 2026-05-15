@@ -45,16 +45,117 @@ void append_rule(presentation::styled_text& text,
   text.append("\n");
 }
 
-[[nodiscard]] std::string clipped(std::string_view value, std::size_t width, presentation::output_policy const& policy)
+[[nodiscard]] std::size_t glyph_width(presentation::semantic_glyph glyph, presentation::output_policy const& policy)
 {
+  return presentation::display_width(presentation::render_glyph(glyph, policy), policy);
+}
+
+[[nodiscard]] std::size_t field_prefix_width(std::size_t key_width, presentation::output_policy const& policy)
+{
+  return 2 + key_width + 1 + glyph_width(presentation::semantic_glyph::arrow_right, policy) + 1;
+}
+
+[[nodiscard]] std::string clipped_key(std::string_view value,
+                                      std::size_t width,
+                                      presentation::output_policy const& policy)
+{
+  if (presentation::display_width(value, policy) <= width)
+  {
+    return std::string(value);
+  }
+
+  if (value.starts_with("UNI20_"))
+  {
+    return presentation::truncate_left_to_width(value, width, policy, "...");
+  }
+
   return presentation::truncate_to_width(value, width, policy, "...");
+}
+
+[[nodiscard]] bool is_preferred_wrap_boundary(char ch)
+{
+  switch (ch)
+  {
+  case ' ':
+  case '/':
+  case '\\':
+  case '-':
+  case '_':
+  case ',':
+  case ';':
+  case ':':
+    return true;
+  default:
+    return false;
+  }
+}
+
+[[nodiscard]] std::string_view trim_right_spaces(std::string_view text)
+{
+  while (!text.empty() && text.back() == ' ')
+  {
+    text.remove_suffix(1);
+  }
+  return text;
+}
+
+[[nodiscard]] std::size_t preferred_break_position(std::string_view value,
+                                                   std::size_t width,
+                                                   presentation::output_policy const& policy)
+{
+  std::size_t best = 0;
+  for (std::size_t i = 0; i < value.size(); ++i)
+  {
+    if (presentation::display_width(value.substr(0, i + 1), policy) > width)
+    {
+      break;
+    }
+    if (is_preferred_wrap_boundary(value[i]))
+    {
+      best = i + 1;
+    }
+  }
+
+  std::size_t const minimum_preferred_break = std::min<std::size_t>(8, width);
+  return best >= minimum_preferred_break ? best : 0;
 }
 
 [[nodiscard]] std::vector<std::string> wrapped(std::string_view value,
                                                std::size_t width,
                                                presentation::output_policy const& policy)
 {
-  auto lines = presentation::wrap_text(value, width, policy);
+  std::vector<std::string> lines;
+  if (width == 0)
+  {
+    lines.emplace_back(value);
+    return lines;
+  }
+
+  std::string_view remaining = value;
+  while (!remaining.empty())
+  {
+    if (presentation::display_width(remaining, policy) <= width)
+    {
+      lines.emplace_back(remaining);
+      break;
+    }
+
+    std::size_t const break_pos = preferred_break_position(remaining, width, policy);
+    if (break_pos == 0)
+    {
+      auto hard_lines = presentation::wrap_text(remaining, width, policy);
+      lines.insert(lines.end(), hard_lines.begin(), hard_lines.end());
+      break;
+    }
+
+    lines.emplace_back(trim_right_spaces(remaining.substr(0, break_pos)));
+    remaining.remove_prefix(break_pos);
+    while (!remaining.empty() && remaining.front() == ' ')
+    {
+      remaining.remove_prefix(1);
+    }
+  }
+
   if (lines.empty())
   {
     lines.emplace_back();
@@ -71,10 +172,10 @@ void append_field(presentation::styled_text& text,
                   terminal::TerminalStyle value_style = style("White"))
 {
   auto const lines = wrapped(value, value_width, policy);
-  auto const continuation_prefix = std::string(6, ' ');
+  auto const continuation_prefix = std::string(field_prefix_width(key_width, policy), ' ');
 
   text.append("  ")
-      .append(presentation::pad_right(clipped(key, key_width, policy), key_width, policy), style("Cyan;Bold"))
+      .append(presentation::pad_right(clipped_key(key, key_width, policy), key_width, policy), style("Cyan;Bold"))
       .append(" ")
       .append(presentation::semantic_glyph::arrow_right, style("LightBlue"))
       .append(" ")
@@ -107,10 +208,11 @@ void append_entries(presentation::styled_text& text,
                     std::size_t width,
                     presentation::output_policy const& policy)
 {
-  std::size_t constexpr minimum_value_width = 24;
+  std::size_t constexpr minimum_value_width = 16;
   std::size_t const key_width = key_width_for(entries, width, policy);
+  std::size_t const prefix_width = field_prefix_width(key_width, policy);
   std::size_t const value_width =
-      width > key_width + 12 ? std::max<std::size_t>(minimum_value_width, width - key_width - 12) : minimum_value_width;
+      width > prefix_width + minimum_value_width ? width - prefix_width : minimum_value_width;
 
   text.append("\n")
       .append(title, style("Yellow;Bold"))
@@ -131,7 +233,7 @@ void append_entries(presentation::styled_text& text,
     append_field(text, entry.key, entry.value, key_width, value_width, policy);
     if (!entry.help.empty())
     {
-      std::size_t constexpr detail_indent = 6;
+      std::size_t const detail_indent = width > prefix_width + minimum_value_width ? prefix_width : 6;
       std::size_t const help_width = width > detail_indent + 2 ? width - detail_indent - 2 : minimum_value_width;
       auto const help_lines = wrapped(entry.help, help_width, policy);
       auto const help_prefix = std::string(detail_indent, ' ');
@@ -146,14 +248,17 @@ void append_entries(presentation::styled_text& text,
 [[nodiscard]] presentation::styled_text buildinfo_report(presentation::output_policy const& policy)
 {
   auto const info = uni20::build_info::current();
-  std::size_t const width = std::max<std::size_t>(terminal_width(), 72);
+  std::size_t const width = std::max<std::size_t>(terminal_width(), 40);
 
   presentation::styled_text text;
   text.append("Uni20 build information\n", style("Green;Bold"));
   append_rule(text, width, presentation::semantic_glyph::box_horizontal, style("LightBlue"));
 
   std::size_t constexpr key_width = 22;
-  std::size_t const value_width = width > key_width + 8 ? width - key_width - 8 : 40;
+  std::size_t constexpr minimum_value_width = 16;
+  std::size_t const prefix_width = field_prefix_width(key_width, policy);
+  std::size_t const value_width =
+      width > prefix_width + minimum_value_width ? width - prefix_width : minimum_value_width;
 
   append_field(text, "generator", info.generator, key_width, value_width, policy);
   append_field(text, "build type", info.build_type, key_width, value_width, policy);

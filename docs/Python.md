@@ -54,6 +54,12 @@ The Python `buildinfo()` function exposes the same generated metadata as the C++
 python -c "import pprint, uni20; pprint.pp(uni20.buildinfo())"
 ```
 
+For a formatted string:
+
+```bash
+python -c "import uni20; print(uni20.buildinfo_pretty())"
+```
+
 For the C++ API and pretty-print example, see [buildinfo.md](buildinfo.md).
 
 ## Running tests

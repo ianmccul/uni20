@@ -310,6 +310,13 @@ struct FormattingOptions
       updateShowColor();
     }
 
+    /// Enable, disable, or auto-detect color output using the shared presentation color mode.
+    void set_color_output(uni20::presentation::color_mode c)
+    {
+      color = color_option_from_policy(c);
+      updateShowColor();
+    }
+
     /// Query whether color should be used in this module.
     bool should_show_color() const { return showColor; }
 

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Minimal example that prints the Uni20 Python buildinfo dictionary."""
+"""Minimal example that prints Uni20 Python build information."""
 
 from __future__ import annotations
 
-import pprint
 import sys
 from pathlib import Path
 
@@ -19,7 +18,7 @@ or supply the path as a parameter."""
 
     import uni20
 
-    pprint.pp(uni20.buildinfo())
+    print(uni20.buildinfo_pretty())
 
 
 if __name__ == "__main__":

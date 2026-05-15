@@ -61,6 +61,14 @@ class BuildInfoTests(unittest.TestCase):
                 if "help" in metadata:
                     self.assertIsInstance(metadata["help"], str)
 
+    def test_buildinfo_pretty_returns_formatted_text(self) -> None:
+        text = _UNI20_MODULE.buildinfo_pretty()
+
+        self.assertIsInstance(text, str)
+        self.assertIn("'generator':", text)
+        self.assertIn("'build_options':", text)
+        self.assertIn("'detected_environment':", text)
+
 
 if __name__ == "__main__":
     unittest.main()

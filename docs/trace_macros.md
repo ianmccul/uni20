@@ -479,6 +479,7 @@ Useful methods:
 - `set_output_stream(FILE*)`
 - `set_sink(std::function<void(std::string)>)`
 - `set_color_output(trace::FormattingOptions::ColorOptions::yes/no/autocolor)`
+- `set_color_output(uni20::presentation::color_mode::always/never/automatic)`
 - `set_errors_abort(bool)` (static setting; callable through the object)
 
 Useful field for thread-id mode:

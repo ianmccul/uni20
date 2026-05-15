@@ -36,6 +36,12 @@ python3 -c "import pprint, uni20; pprint.pp(uni20.buildinfo())"
 
 The dictionary has scalar fields such as `generator`, `build_type`, and `cxx_compiler_id`, plus `build_options` and `detected_environment` sub-dictionaries. Each sub-dictionary entry has a `value` field and, when available, a `help` field.
 
+Use `buildinfo_pretty()` when a formatted string is more convenient than the raw dictionary:
+
+```bash
+python3 -c "import uni20; print(uni20.buildinfo_pretty())"
+```
+
 ## Pretty-Print Example
 
 Build and run the C++ example:

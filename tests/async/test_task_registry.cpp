@@ -6,7 +6,6 @@
 #include <gtest/gtest.h>
 #include <iterator>
 #include <limits>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -17,6 +16,8 @@
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/task_registry.hpp>
 #include <uni20/config.hpp>
+
+#include "../common/env_var_guard.hpp"
 
 #if defined(__linux__)
 #include <signal.h>
@@ -29,27 +30,7 @@ using namespace uni20::async;
 #if UNI20_DEBUG_ASYNC_TASKS
 namespace
 {
-
-class EnvVarGuard {
-  public:
-    EnvVarGuard(char const* name, std::string value) : name_(name)
-    {
-      if (auto const* old_value = std::getenv(name_.c_str())) old_value_ = old_value;
-      ::setenv(name_.c_str(), value.c_str(), 1);
-    }
-
-    ~EnvVarGuard()
-    {
-      if (old_value_)
-        ::setenv(name_.c_str(), old_value_->c_str(), 1);
-      else
-        ::unsetenv(name_.c_str());
-    }
-
-  private:
-    std::string name_;
-    std::optional<std::string> old_value_;
-};
+using uni20::test::EnvVarGuard;
 
 class StacktraceOptionsGuard {
   public:
