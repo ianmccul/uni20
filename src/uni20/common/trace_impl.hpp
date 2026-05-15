@@ -54,7 +54,7 @@ struct FormattingOptions
 
     //--- Color configuration --------------------------------------------------
 
-    /// Enables/disables/auto color for this module (from UNI20_TRACE_COLOR or module override).
+    /// Enables/disables/auto color for this module (from UNI20_COLOR or programmatic override).
     struct ColorOptionTraits
     {
         enum Enum
@@ -69,7 +69,7 @@ struct FormattingOptions
     };
 
     using ColorOptions = NamedEnumeration<ColorOptionTraits>;
-    ColorOptions color = terminal::getenv_or_default<ColorOptions>("UNI20_TRACE_COLOR", ColorOptions());
+    ColorOptions color;
 
     /// Whether to actually emit color sequences.
     bool showColor = terminal::is_a_terminal(stderr);
@@ -127,100 +127,31 @@ struct FormattingOptions
     mutable std::map<std::string, terminal::TerminalStyle> Styles;
 
   private:
-    /// \brief Parse a trace glyph-set environment value.
-    /// \param value Text value to parse.
-    /// \param fallback Value returned when parsing fails.
-    /// \return Parsed glyph set or the fallback.
-    static uni20::presentation::glyph_set parse_glyph_set_from_string(
-        std::string_view value, uni20::presentation::glyph_set fallback)
+    static ColorOptions color_option_from_policy(uni20::presentation::color_mode mode)
     {
-      if (iequals(value, "unicode")) return uni20::presentation::glyph_set::unicode;
-      if (iequals(value, "emoji")) return uni20::presentation::glyph_set::emoji;
-      if (iequals(value, "ascii")) return uni20::presentation::glyph_set::ascii;
-      return fallback;
-    }
-
-    /// \brief Parse a trace glyph-set environment variable.
-    /// \param var Environment variable name.
-    /// \param fallback Value returned when the variable is unset or invalid.
-    /// \return Parsed glyph set or the fallback.
-    static uni20::presentation::glyph_set parse_glyph_set_from_env(std::string const& var,
-                                                                   uni20::presentation::glyph_set fallback)
-    {
-      if (auto const* raw = std::getenv(var.c_str()))
+      using CO = ColorOptions::Enum;
+      switch (mode)
       {
-        return parse_glyph_set_from_string(raw, fallback);
+      case uni20::presentation::color_mode::always:
+        return CO::yes;
+      case uni20::presentation::color_mode::never:
+        return CO::no;
+      case uni20::presentation::color_mode::automatic:
+        return CO::autocolor;
       }
-      return fallback;
+      return CO::autocolor;
     }
 
-    /// \brief Parse a trace text-charset environment value.
-    /// \param value Text value to parse.
-    /// \param fallback Value returned when parsing fails.
-    /// \return Parsed charset or the fallback.
-    static uni20::presentation::text_charset parse_text_charset_from_string(
-        std::string_view value, uni20::presentation::text_charset fallback)
-    {
-      if (iequals(value, "utf8") || iequals(value, "utf-8")) return uni20::presentation::text_charset::utf8;
-      if (iequals(value, "ascii_escape") || iequals(value, "ascii-escape") || iequals(value, "escape"))
-        return uni20::presentation::text_charset::ascii_escape;
-      if (iequals(value, "ascii_replace") || iequals(value, "ascii-replace") || iequals(value, "replace"))
-        return uni20::presentation::text_charset::ascii_replace;
-      return fallback;
-    }
-
-    /// \brief Parse a trace text-charset environment variable.
-    /// \param var Environment variable name.
-    /// \param fallback Value returned when the variable is unset or invalid.
-    /// \return Parsed charset or the fallback.
-    static uni20::presentation::text_charset parse_text_charset_from_env(
-        std::string const& var, uni20::presentation::text_charset fallback)
-    {
-      if (auto const* raw = std::getenv(var.c_str()))
-      {
-        return parse_text_charset_from_string(raw, fallback);
-      }
-      return fallback;
-    }
-
-    /// \brief Parse a non-negative trace width environment variable.
-    /// \param var Environment variable name.
-    /// \param fallback Value returned when the variable is unset, invalid, or negative.
-    /// \return Parsed width or the fallback.
-    static int parse_terminal_width_from_env(std::string const& var, int fallback)
-    {
-      if (auto const* raw = std::getenv(var.c_str()))
-      {
-        try
-        {
-          int const width = from_string<int>(raw);
-          if (width >= 0) return width;
-        }
-        catch (...)
-        {
-        }
-      }
-      return fallback;
-    }
-
-    /// \brief Apply presentation-related trace environment variables.
-    /// \param glyphs_var Environment variable controlling semantic glyph rendering.
-    /// \param charset_var Environment variable controlling non-ASCII text fallback.
-    /// \param width_var Environment variable controlling trace layout width.
-    void apply_presentation_environment(std::string const& glyphs_var, std::string const& charset_var,
-                                        std::string const& width_var)
-    {
-      renderPolicy.glyphs = parse_glyph_set_from_env(glyphs_var, renderPolicy.glyphs);
-      renderPolicy.charset = parse_text_charset_from_env(charset_var, renderPolicy.charset);
-      terminal_width = parse_terminal_width_from_env(width_var, terminal_width);
-    }
-
+  public:
     //--- Constructors ---------------------------------------------------------
 
     /// \brief Default constructor.
     /// \details Seeds all built-in style keys and reads the global trace environment.
     FormattingOptions()
     {
+      color = color_option_from_policy(renderPolicy.color);
+      updateShowColor();
+
       // Default style definitions
       static constexpr std::pair<std::string_view, std::string_view> kDefaults[] = {{"TRACE", "Cyan"},
                                                                                     {"DEBUG_TRACE", "Green"},
@@ -278,23 +209,16 @@ struct FormattingOptions
       // Precision
       fp_precision_float32 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT32", 6);
       fp_precision_float64 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT64", 15);
-      apply_presentation_environment("UNI20_TRACE_GLYPHS", "UNI20_TRACE_CHARSET", "UNI20_TRACE_WIDTH");
 
       // Global flags
       timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP", true);
       threadId = parse_thread_id_option_from_env("UNI20_TRACE_THREAD_ID", threadId);
-
-      // Global color control
-      color = terminal::getenv_or_default<ColorOptions>("UNI20_TRACE_COLOR", color);
-      updateShowColor();
     }
 
-  public:
     /// \brief Module‐specific constructor
     ///
-    /// Delegates to the default ctor then applies only module overrides:
-    ///   - UNI20_TRACEFILE_<MODULE>
-    ///   - UNI20_TRACE_COLOR_MODULE_<MODULE>
+    /// Delegates to the default ctor then applies only trace module overrides:
+    ///   - UNI20_TRACEFILE_MODULE_<MODULE>
     ///   - UNI20_TRACE_TIMESTAMP_MODULE_<MODULE>
     ///   - UNI20_TRACE_THREAD_ID_MODULE_<MODULE>
     FormattingOptions(std::string_view module)
@@ -317,7 +241,7 @@ struct FormattingOptions
         Styles[std::string(kind)] = terminal::getenv_or_default<terminal::TerminalStyle>(env, def);
       }
 
-      // Module sink override via UNI20_TRACEFILE_<MODULE>
+      // Module sink override via UNI20_TRACEFILE_MODULE_<MODULE>
       if (auto* path = std::getenv(("UNI20_TRACEFILE_MODULE_" + mod).c_str()))
       {
         FILE* out = nullptr;
@@ -352,16 +276,10 @@ struct FormattingOptions
           terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT32_MODULE_" + mod, fp_precision_float32);
       fp_precision_float64 =
           terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT64_MODULE_" + mod, fp_precision_float64);
-      apply_presentation_environment("UNI20_TRACE_GLYPHS_MODULE_" + mod, "UNI20_TRACE_CHARSET_MODULE_" + mod,
-                                     "UNI20_TRACE_WIDTH_MODULE_" + mod);
 
       // flags overrides
       timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP_MODULE_" + mod, timestamp);
       threadId = parse_thread_id_option_from_env("UNI20_TRACE_THREAD_ID_MODULE_" + mod, threadId);
-
-      // color override
-      color = terminal::getenv_or_default<ColorOptions>("UNI20_TRACE_COLOR_MODULE_" + mod, color);
-      this->updateShowColor();
     }
 
     //--- Public Interface ------------------------------------------------------

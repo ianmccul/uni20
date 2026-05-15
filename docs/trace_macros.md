@@ -330,35 +330,20 @@ Module-specific overrides:
 
 `UNI20_TRACE_THREAD_ID=auto` shows the thread-id only for non-main threads.
 
-### Color Enable/Disable
-
-| Variable | Default | Values |
-|---|---|---|
-| `UNI20_TRACE_COLOR` | `auto` | `yes`, `no`, `auto` |
-
-When set to `auto`, color output is used if `NO_COLOR` is unset or empty and the output stream is a terminal.
-Set `NO_COLOR` to any non-empty value to disable automatic color output by default.
-Explicit `UNI20_TRACE_COLOR=yes` or `UNI20_TRACE_COLOR=no` overrides `NO_COLOR`.
-
-Module-specific override:
-
-- `UNI20_TRACE_COLOR_MODULE_<MODULE>`
-
 ### Presentation Controls
 
 Trace diagnostics are rendered through the common [presentation formatting](presentation.md) layer. Plain/file output suppresses ANSI escapes, semantic glyph fallback follows the shared output policy, strict ASCII modes apply to whole trace lines, and container-style trace output aligns by display cells. Mdspan-like values and tensor/view-like objects render as presentation tensor art: vectors use a row form, matrices use aligned bracket art, and higher-rank tensors use labeled matrix slices.
 
 | Variable | Default | Values | Effect |
 |---|---|---|---|
-| `UNI20_TRACE_GLYPHS` | `emoji` | `unicode`, `emoji`, `ascii` | Select semantic glyph spelling for trace output. |
-| `UNI20_TRACE_CHARSET` | `utf8` | `utf8`, `ascii_escape`, `ascii_replace` | Select fallback for non-ASCII text in whole trace lines. |
-| `UNI20_TRACE_WIDTH` | terminal columns | non-negative integer | Select the display width where long trace items switch to multiline layout. `0` disables width-triggered splitting. |
+| `UNI20_GLYPHS` | `emoji` | `unicode`, `emoji`, `ascii` | Select semantic glyph spelling for all presentation output, including trace. |
+| `UNI20_CHARSET` | `utf8` | `utf8`, `ascii_escape`, `ascii_replace` | Select fallback for non-ASCII text in all presentation output, including trace. |
+| `UNI20_COLOR` | `auto` | `auto`, `yes`, `always`, `no`, `never`, plus boolean aliases | Control ANSI style emission globally. |
+| `COLUMNS` | terminal columns | positive integer | Override detected terminal width for trace layout and wrapping. |
 
-Module-specific overrides:
-
-- `UNI20_TRACE_GLYPHS_MODULE_<MODULE>`
-- `UNI20_TRACE_CHARSET_MODULE_<MODULE>`
-- `UNI20_TRACE_WIDTH_MODULE_<MODULE>`
+When `UNI20_COLOR=auto`, color output is used if `NO_COLOR` is unset or empty and the output stream is a terminal.
+Set `NO_COLOR` to any non-empty value to disable automatic color output by default. Explicit `UNI20_COLOR=yes`
+or `UNI20_COLOR=no` overrides `NO_COLOR`.
 
 ### Color Style Keys
 

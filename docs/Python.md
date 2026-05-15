@@ -46,6 +46,16 @@ Expected output:
 Hello from uni20!
 ```
 
+## Build metadata
+
+The Python `buildinfo()` function exposes the same generated metadata as the C++ `<uni20/buildinfo.hpp>` API:
+
+```bash
+python -c "import pprint, uni20; pprint.pp(uni20.buildinfo())"
+```
+
+For the C++ API and pretty-print example, see [buildinfo.md](buildinfo.md).
+
 ## Running tests
 
 The Python bindings ship with lightweight smoke tests that import the compiled extension and validate both `greet()` and the generated build information:

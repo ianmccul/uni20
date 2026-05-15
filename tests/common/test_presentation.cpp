@@ -6,13 +6,50 @@
 
 #include <array>
 #include <complex>
+#include <cstdlib>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
 {
 namespace presentation = uni20::presentation;
+
+class EnvVarGuard {
+  public:
+    explicit EnvVarGuard(std::string name) : name_(std::move(name))
+    {
+      if (char const* value = std::getenv(name_.c_str()))
+      {
+        original_ = value;
+      }
+    }
+
+    EnvVarGuard(EnvVarGuard const&) = delete;
+    EnvVarGuard& operator=(EnvVarGuard const&) = delete;
+
+    ~EnvVarGuard()
+    {
+      if (original_)
+      {
+        ::setenv(name_.c_str(), original_->c_str(), 1);
+      }
+      else
+      {
+        ::unsetenv(name_.c_str());
+      }
+    }
+
+    void set(std::string const& value) const { ::setenv(name_.c_str(), value.c_str(), 1); }
+
+    void unset() const { ::unsetenv(name_.c_str()); }
+
+  private:
+    std::string name_;
+    std::optional<std::string> original_;
+};
 
 [[nodiscard]] presentation::output_policy base_policy()
 {
@@ -30,6 +67,13 @@ namespace presentation = uni20::presentation;
 
 TEST(PresentationPolicies, DefaultPoliciesPreferEmojiGlyphs)
 {
+  EnvVarGuard glyphs("UNI20_GLYPHS");
+  EnvVarGuard charset("UNI20_CHARSET");
+  EnvVarGuard color("UNI20_COLOR");
+  glyphs.unset();
+  charset.unset();
+  color.unset();
+
   EXPECT_EQ(presentation::output_policy{}.glyphs, presentation::glyph_set::emoji);
   EXPECT_EQ(presentation::terminal_policy(stdout).glyphs, presentation::glyph_set::emoji);
   EXPECT_EQ(presentation::plain_policy().glyphs, presentation::glyph_set::emoji);
@@ -38,6 +82,62 @@ TEST(PresentationPolicies, DefaultPoliciesPreferEmojiGlyphs)
   presentation::styled_text text;
   text.append(presentation::semantic_glyph::warning);
   EXPECT_EQ(presentation::render(text, presentation::plain_policy()), "\xF0\x9F\x9A\xA8");
+}
+
+TEST(PresentationPolicies, TerminalPolicyUsesGlobalEnvironment)
+{
+  EnvVarGuard glyphs("UNI20_GLYPHS");
+  EnvVarGuard charset("UNI20_CHARSET");
+  EnvVarGuard color("UNI20_COLOR");
+  glyphs.set("ascii");
+  charset.set("ascii-escape");
+  color.set("never");
+
+  auto const policy = presentation::terminal_policy(stdout);
+
+  EXPECT_EQ(policy.glyphs, presentation::glyph_set::ascii);
+  EXPECT_EQ(policy.charset, presentation::text_charset::ascii_escape);
+  EXPECT_EQ(policy.color, presentation::color_mode::never);
+}
+
+TEST(PresentationPolicies, TerminalPolicyAcceptsColorAliases)
+{
+  EnvVarGuard color("UNI20_COLOR");
+
+  color.set("on");
+  EXPECT_EQ(presentation::terminal_policy(stdout).color, presentation::color_mode::always);
+
+  color.set("0");
+  EXPECT_EQ(presentation::terminal_policy(stdout).color, presentation::color_mode::never);
+
+  color.set("automatic");
+  EXPECT_EQ(presentation::terminal_policy(stdout).color, presentation::color_mode::automatic);
+}
+
+TEST(PresentationPolicies, TerminalPolicyIgnoresInvalidGlobalEnvironment)
+{
+  EnvVarGuard glyphs("UNI20_GLYPHS");
+  EnvVarGuard charset("UNI20_CHARSET");
+  EnvVarGuard color("UNI20_COLOR");
+  glyphs.set("unknown");
+  charset.set("unknown");
+  color.set("unknown");
+
+  auto const policy = presentation::terminal_policy(stdout);
+
+  EXPECT_EQ(policy.glyphs, presentation::glyph_set::emoji);
+  EXPECT_EQ(policy.charset, presentation::text_charset::utf8);
+  EXPECT_EQ(policy.color, presentation::color_mode::automatic);
+}
+
+TEST(PresentationPolicies, GlobalColorAlwaysOverridesNoColor)
+{
+  EnvVarGuard color("UNI20_COLOR");
+  EnvVarGuard no_color("NO_COLOR");
+  color.set("always");
+  no_color.set("1");
+
+  EXPECT_TRUE(presentation::should_emit_color(presentation::terminal_policy(stdout)));
 }
 
 TEST(PresentationGlyphs, UnicodePolicyUsesSemanticUnicodeGlyphs)

@@ -24,7 +24,17 @@ The layer is intentionally independent of trace, async, tensor, AD, and schedule
 | `wrap_width` | Optional wrapping width. |
 | `ornaments` | Disable, minimize, or enrich decorative glyphs. |
 
-Automatic color follows terminal detection and honors `NO_COLOR`. Explicit `color_mode::always` still forces color.
+`terminal_policy()` reads the global presentation environment:
+
+| Variable | Default | Values | Effect |
+|---|---|---|---|
+| `UNI20_GLYPHS` | `emoji` | `emoji`, `unicode`, `ascii` | Select semantic glyph spelling. |
+| `UNI20_CHARSET` | `utf8` | `utf8`, `ascii_escape`, `ascii_replace` | Preserve UTF-8, escape non-ASCII text, or replace it. Hyphen aliases are accepted. |
+| `UNI20_COLOR` | `auto` | `auto`, `yes`, `always`, `no`, `never`, plus boolean aliases | Control ANSI style emission globally. |
+
+Automatic color follows terminal detection and honors `NO_COLOR`. Explicit `color_mode::always`, including
+`UNI20_COLOR=yes` or `UNI20_COLOR=always`, still forces color. Terminal width comes from
+`terminal::columns()`, which uses `COLUMNS` when it is set to a positive integer.
 
 ## Semantic Glyphs
 

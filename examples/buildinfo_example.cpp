@@ -18,8 +18,6 @@ namespace presentation = uni20::presentation;
 [[nodiscard]] presentation::output_policy output_policy()
 {
   auto policy = presentation::terminal_policy(stdout);
-  policy.glyphs = presentation::glyph_set::unicode;
-  policy.charset = presentation::text_charset::utf8;
   policy.width = presentation::width_mode::display_cells;
   policy.tab_width = 4;
   return policy;

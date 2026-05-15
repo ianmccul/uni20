@@ -130,6 +130,25 @@ The generic BLAS wrappers remain available through `uni20::blas`. When enabled, 
 For Uni20's async runtime, prefer `UNI20_BACKEND_MKL_SEQUENTIAL=ON` unless you explicitly want MKL to run its own internal worker threads.
 `UNI20_BACKEND_MKL=ON` remains as a compatibility option and selects the sequential MKL backend unless a specific MKL variant is enabled.
 
+### Build Information
+
+Uni20 generates build metadata for both C++ and Python. In C++:
+
+```cpp
+#include <uni20/buildinfo.hpp>
+
+auto const info = uni20::build_info::current();
+```
+
+For a terminal report:
+
+```bash
+cmake --build build --target buildinfo_example
+./build/examples/buildinfo_example
+```
+
+See [buildinfo.md](buildinfo.md) for the full C++ and Python API shape.
+
 ## Running Tests
 
 Uni20 ships a large GoogleTest-based suite and registers the per-module tests with [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html).

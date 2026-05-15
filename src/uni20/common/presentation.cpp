@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <utility>
 
 namespace uni20::presentation
@@ -787,6 +788,54 @@ void append_codepoint_escape(std::string& out, char32_t value)
   return std::string(rendered_marker);
 }
 
+[[nodiscard]] glyph_set parse_glyph_set(std::string_view value, glyph_set fallback)
+{
+  if (iequals(value, "unicode")) return glyph_set::unicode;
+  if (iequals(value, "emoji")) return glyph_set::emoji;
+  if (iequals(value, "ascii")) return glyph_set::ascii;
+  return fallback;
+}
+
+[[nodiscard]] text_charset parse_text_charset(std::string_view value, text_charset fallback)
+{
+  if (iequals(value, "utf8") || iequals(value, "utf-8")) return text_charset::utf8;
+  if (iequals(value, "ascii_escape") || iequals(value, "ascii-escape") || iequals(value, "escape"))
+    return text_charset::ascii_escape;
+  if (iequals(value, "ascii_replace") || iequals(value, "ascii-replace") || iequals(value, "replace"))
+    return text_charset::ascii_replace;
+  return fallback;
+}
+
+[[nodiscard]] color_mode parse_color_mode(std::string_view value, color_mode fallback)
+{
+  if (iequals(value, "auto") || iequals(value, "automatic")) return color_mode::automatic;
+  if (iequals(value, "yes") || iequals(value, "always") || iequals(value, "true") || iequals(value, "on") ||
+      iequals(value, "1"))
+    return color_mode::always;
+  if (iequals(value, "no") || iequals(value, "never") || iequals(value, "false") || iequals(value, "off") ||
+      iequals(value, "0"))
+    return color_mode::never;
+  return fallback;
+}
+
+void apply_global_environment(output_policy& policy)
+{
+  if (auto const* raw = std::getenv("UNI20_GLYPHS"))
+  {
+    policy.glyphs = parse_glyph_set(raw, policy.glyphs);
+  }
+
+  if (auto const* raw = std::getenv("UNI20_CHARSET"))
+  {
+    policy.charset = parse_text_charset(raw, policy.charset);
+  }
+
+  if (auto const* raw = std::getenv("UNI20_COLOR"))
+  {
+    policy.color = parse_color_mode(raw, policy.color);
+  }
+}
+
 } // namespace
 
 styled_text& styled_text::append(std::string_view text, terminal::TerminalStyle style)
@@ -816,6 +865,7 @@ output_policy terminal_policy(std::FILE* stream)
   output_policy policy;
   policy.color = color_mode::automatic;
   policy.output_stream = stream;
+  apply_global_environment(policy);
   return policy;
 }
 

@@ -309,18 +309,17 @@ TEST(TraceFormatting, DiagnosticHeadersUseSemanticGlyphPolicy)
   EXPECT_NE(opts.render(precondition).find("[WARN] PRECONDITION at "), std::string::npos);
 }
 
-TEST(TraceFormatting, EnvironmentConfiguresPresentationPolicy)
+TEST(TraceFormatting, GlobalEnvironmentConfiguresPresentationPolicy)
 {
-  static constexpr char const* module = "TRACE_FORMAT_PRESENTATION_ENV";
-  EnvVarGuard glyphs("UNI20_TRACE_GLYPHS_MODULE_TRACE_FORMAT_PRESENTATION_ENV");
-  EnvVarGuard charset("UNI20_TRACE_CHARSET_MODULE_TRACE_FORMAT_PRESENTATION_ENV");
-  EnvVarGuard width("UNI20_TRACE_WIDTH_MODULE_TRACE_FORMAT_PRESENTATION_ENV");
+  EnvVarGuard glyphs("UNI20_GLYPHS");
+  EnvVarGuard charset("UNI20_CHARSET");
+  EnvVarGuard columns("COLUMNS");
 
   glyphs.set("ascii");
   charset.set("ascii_escape");
-  width.set("12");
+  columns.set("12");
 
-  auto& opts = trace::get_formatting_options(module);
+  trace::FormattingOptions opts;
   opts.set_color_output(trace::FormattingOptions::ColorOptions::no);
 
   EXPECT_EQ(opts.presentation_policy().glyphs, uni20::presentation::glyph_set::ascii);
@@ -329,6 +328,23 @@ TEST(TraceFormatting, EnvironmentConfiguresPresentationPolicy)
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::arrow_right, "TRACE"), "->");
   EXPECT_EQ(trace::formatItemString({"value", false}, "\xE4\xB8\xAD", opts, 80), "value = \\u4E2D");
   EXPECT_EQ(trace::formatItemString({"long_name", false}, "value", opts, opts.terminal_width), "\nlong_name = value");
+}
+
+TEST(TraceFormatting, GlobalColorEnvironmentConfiguresPresentationPolicy)
+{
+  EnvVarGuard color("UNI20_COLOR");
+  EnvVarGuard no_color("NO_COLOR");
+  no_color.set("1");
+
+  color.set("no");
+  trace::FormattingOptions disabled;
+  EXPECT_EQ(disabled.presentation_policy().color, uni20::presentation::color_mode::never);
+  EXPECT_FALSE(disabled.should_show_color());
+
+  color.set("yes");
+  trace::FormattingOptions enabled;
+  EXPECT_EQ(enabled.presentation_policy().color, uni20::presentation::color_mode::always);
+  EXPECT_TRUE(enabled.should_show_color());
 }
 
 TEST(TraceFormatting, MdspanValuesUsePresentationTensorArt)
