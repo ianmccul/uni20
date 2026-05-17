@@ -74,6 +74,7 @@ Not every file uses every field. Use the fields that improve retrieval.
 - `async_runtime.md`: `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `WriteBuffer<T>`, `assignment_semantics_of<T>`, release rules, aliasing limits
 - `reverse_mode_ad.md`: `Var<T>`, `ReverseValue<T>`, `backprop()`, gradient materialization, Wirtinger convention, reverse-kernel rules
 - `architecture_status.md`: mature areas, partial areas, design seams, and build-system cautions
+- `presentation_and_python.md`: presentation formatting, Python display, Jupyter display, tensor preview policy, and renderer boundaries
 - `glossary.md`: compact retrieval-first definitions for repeated Uni20 terms
 
 ## Recommended use
@@ -91,4 +92,6 @@ Not every file uses every field. Use the fields that improve retrieval.
 - `../async/runtime_model.md`
 - `../async/buffers_and_awaiters.md`
 - `../async/reverse_mode_ad.md`
+- `../presentation.md`
+- `../Python.md`
 - `../roadmap.md`

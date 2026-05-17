@@ -38,6 +38,7 @@ Recommended uploaded files:
 - `docs/ai_guidance/async_runtime.md`
 - `docs/ai_guidance/reverse_mode_ad.md`
 - `docs/ai_guidance/architecture_status.md`
+- `docs/ai_guidance/presentation_and_python.md`
 - `docs/ai_guidance/glossary.md`
 
 ## Ground truth and visibility

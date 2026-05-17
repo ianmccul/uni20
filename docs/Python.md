@@ -62,6 +62,20 @@ python -c "import uni20; print(uni20.buildinfo_pretty())"
 
 For the C++ API and pretty-print example, see [buildinfo.md](buildinfo.md).
 
+## Presentation and notebook display roadmap
+
+Current Python bindings expose only lightweight smoke-test functionality and build metadata. Future tensor bindings should use the common C++ presentation layer for human-facing text, but they should keep terminal rendering, plain text rendering, and notebook HTML rendering as separate adapters.
+
+Design rules for future Python display:
+
+- `repr(obj)` should be stable, plain, and safe for large tensors.
+- `str(obj)` and `print(obj)` may use presentation defaults, but should avoid surprising exhaustive output.
+- `_repr_html_()` or `_repr_mimebundle_()` should be used for rich Jupyter display when available.
+- `obj.pretty(...)` should expose explicit controls such as `width`, `glyphs`, `charset`, `color`, selected axes, precision, and preview limits.
+- Environment variables such as `UNI20_GLYPHS`, `UNI20_CHARSET`, `UNI20_COLOR`, `NO_COLOR`, and `COLUMNS` should provide defaults, but per-call Python overrides should win.
+
+Tensor and mdspan display in Python must be preview-first. Do not bind a tensor `repr` to the current exhaustive mdspan formatter by default. Add an explicit preview policy first, with limits such as maximum elements, edge items, maximum rows/columns, maximum slices, and an opt-in full-output mode.
+
 ## Running tests
 
 The Python bindings ship with lightweight smoke tests that import the compiled extension and validate both `greet()` and the generated build information:

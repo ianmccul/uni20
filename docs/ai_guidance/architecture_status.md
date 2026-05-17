@@ -114,6 +114,31 @@ This file is for questions about project maturity, active design seams, and what
 
 - Do not claim that fusion or lazy expression lowering is already a mature subsystem.
 
+## presentation / Python display
+
+### STATUS
+
+- C++ presentation formatting exists and is used by trace.
+- Python tensor display and Jupyter rich display are roadmap material.
+
+### SAFE CLAIMS
+
+- Presentation is a semantic formatting layer, not a compute subsystem.
+- Future Python tensor display should be preview-first.
+- Future Jupyter display should be a renderer adapter over presentation data.
+
+### DO NOT CLAIM
+
+- Do not claim that HTML or Jupyter rendering is currently implemented.
+- Do not claim that Python tensor `repr` is currently safe for large tensors.
+- Do not claim that exhaustive mdspan formatting is appropriate as a default Python tensor display.
+
+### RELATED
+
+- `presentation_and_python.md`
+- `../presentation.md`
+- `../Python.md`
+
 ## GPU / heterogeneous execution
 
 ### STATUS

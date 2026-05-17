@@ -84,6 +84,19 @@ auto suffix = presentation::truncate_to_width(error_and_after, 40, policy, "…"
 
 See `examples/presentation_example.cpp` for semantic Unicode/emoji output, display-cell table alignment, fixed indentation after wrapping, tensor-network-style connector art, the default rounded tensor-box style, and a parser-style range diagnostic that adapts to different terminal widths.
 
+## Python And Notebook Display
+
+The presentation layer is intended to be the shared formatting backend for future Python bindings and Jupyter display, but Python should not expose the C++ terminal model directly. Treat the current renderers as separate adapters over the same semantic presentation data:
+
+- terminal text: ANSI color, semantic glyphs, and display-cell width handling;
+- plain text: stable output for `repr(...)`, logs, tests, and redirected streams;
+- strict ASCII: deterministic fallback for non-Unicode environments;
+- future HTML/Jupyter: rich display from the same semantic spans, without ANSI escapes or terminal-width assumptions.
+
+Python bindings should keep `repr(obj)` conservative: plain, stable, and safe to call on large objects. Rich notebook output should use `_repr_html_()` or `_repr_mimebundle_()` and may use color, CSS, and richer layout. User-facing helpers such as `obj.pretty(...)` can expose explicit per-call controls for glyphs, charset, color, width, selected axes, and preview limits.
+
+Do not let notebook display depend on terminal-only facts. A Python policy should derive automatic color and stream behavior from Python streams such as `sys.stdout.isatty()` or notebook display detection, not only from C `FILE*` handles. Environment variables such as `UNI20_GLYPHS`, `UNI20_CHARSET`, `UNI20_COLOR`, `NO_COLOR`, and `COLUMNS` are useful defaults, but Python APIs should allow explicit overrides.
+
 ## Mdspan And Tensor Art
 
 Mdspan-like objects can be rendered through the presentation layer:
@@ -98,6 +111,8 @@ auto text = uni20::presentation::format_mdspan(matrix, policy, [](auto const& va
 ```
 
 Rank-1 values render as a row vector, rank-2 values render as aligned matrix art, and higher-rank values render as labeled rank-2 slices over every leading-axis coordinate. The default formatter is exhaustive: printing an actual tensor emits every element. Any future preview, clipping, or elision mode should be an explicit separate policy. Trace uses the same formatter for mdspan-like values and tensor/view-like objects, while still applying trace scalar formatting such as floating-point precision.
+
+Python and Jupyter tensor display must be preview-first rather than exhaustive by default. Before binding tensor `repr`, add a preview policy with explicit limits such as maximum elements, edge items, maximum rows/columns, maximum slices, selected matrix axes, and `full=true` opt-in behavior. This protects notebooks from accidentally rendering very large tensors while preserving an explicit path to exhaustive output when the user requests it.
 
 Real and complex tensor elements use `numeric_format_options` when no custom element formatter is supplied. The defaults use general notation with 6 significant digits for `float`, 15 significant digits for `double`, normalized negative zero, and algebraic complex form such as `1.25-3.5i`. `mdspan_format_options::numeric` can switch to fixed or scientific notation and adjust the digit counts.
 

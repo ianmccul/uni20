@@ -19,6 +19,7 @@
 - [AI Guidance Index](ai_guidance/README.md)
 - [AI Guidance: Async Runtime](ai_guidance/async_runtime.md)
 - [AI Guidance: Reverse-Mode AD](ai_guidance/reverse_mode_ad.md)
+- [AI Guidance: Presentation and Python Display](ai_guidance/presentation_and_python.md)
 - [AI Guidance: Architecture Status](ai_guidance/architecture_status.md)
 - [AI Guidance: Glossary](ai_guidance/glossary.md)
 
