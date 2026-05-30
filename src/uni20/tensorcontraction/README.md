@@ -38,3 +38,9 @@ the first Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
 onto `MatrixFamily` block vectors.  The implementation intentionally avoids
 restart and full reorthogonalization so it remains comparable to MPTK for local
 DMRG benchmarking.
+
+`svd.hpp` adds the first two-site split primitive: a single-block host SVD with
+max-rank and singular-value cutoff truncation.  It is intentionally narrow and
+self-contained for DMRG prototyping; the long-term replacement should be a
+native block-sparse SVD implementation that can distribute independent sectors
+over the available CUDA/MPI resources.

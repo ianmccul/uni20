@@ -7,6 +7,7 @@ add_executable(uni20_tensorcontraction_tests
   test_effective_hamiltonian_plan.cpp
   test_lanczos.cpp
   test_matrix_family.cpp
+  test_svd.cpp
   test_vector_algebra.cpp
 )
 
