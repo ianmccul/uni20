@@ -19,6 +19,19 @@ namespace
 {
 using uni20::test::EnvVarGuard;
 
+struct FileCloser
+{
+  void operator()(std::FILE* file) const
+  {
+    if (file != nullptr)
+    {
+      std::fclose(file);
+    }
+  }
+};
+
+using FilePtr = std::unique_ptr<std::FILE, FileCloser>;
+
 trace::FormattingOptions make_test_options()
 {
   auto opts = trace::get_formatting_options("trace-format-test");
@@ -26,22 +39,22 @@ trace::FormattingOptions make_test_options()
   return opts;
 }
 
-std::unique_ptr<std::FILE, decltype(&std::fclose)> make_terminal_stream()
+FilePtr make_terminal_stream()
 {
   int const fd = ::open("/dev/ptmx", O_RDWR | O_NOCTTY);
   if (fd < 0)
   {
-    return {nullptr, &std::fclose};
+    return {};
   }
 
   std::FILE* stream = ::fdopen(fd, "w");
   if (stream == nullptr)
   {
     ::close(fd);
-    return {nullptr, &std::fclose};
+    return {};
   }
 
-  return {stream, &std::fclose};
+  return FilePtr{stream};
 }
 
 bool contains_ansi(std::string const& text) { return text.find("\033[") != std::string::npos; }
@@ -169,7 +182,7 @@ TEST(TraceFormatting, FormatStyleUsesPresentationRendererForColor)
 
 TEST(TraceFormatting, PlainFileModeSuppressesAutoColor)
 {
-  auto file = std::unique_ptr<std::FILE, decltype(&std::fclose)>(std::tmpfile(), &std::fclose);
+  auto file = FilePtr{std::tmpfile()};
   ASSERT_NE(file, nullptr);
 
   auto opts = trace::get_formatting_options("trace-format-plain-file");
