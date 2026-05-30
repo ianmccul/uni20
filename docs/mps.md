@@ -27,6 +27,10 @@ wavefunction storage infrastructure.
   singular values into the right tensor for a left-to-right move, or into the
   left tensor for a right-to-left move. `FiniteMPS::replace_adjacent` installs
   the resulting pair back into the in-memory chain.
+- `sweep_two_site_left_to_right` and `sweep_two_site_right_to_left` perform the
+  first directional dense DMRG sweep pass by rebuilding CPU environment chains,
+  solving each two-site problem, splitting the optimized center, replacing the
+  MPS tensors, and updating the environment on the swept side.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
