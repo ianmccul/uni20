@@ -31,8 +31,10 @@ class EffectiveHamiltonianPlan {
 
     [[nodiscard]] std::size_t term_count() const noexcept;
     [[nodiscard]] bool compiled() const noexcept;
+    [[nodiscard]] std::span<double const> r_values(std::size_t index) const;
 
     void compile();
+    void apply();
 
   private:
     struct Impl;

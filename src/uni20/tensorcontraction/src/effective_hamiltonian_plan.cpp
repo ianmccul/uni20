@@ -111,6 +111,11 @@ std::size_t EffectiveHamiltonianPlan::term_count() const noexcept { return impl_
 
 bool EffectiveHamiltonianPlan::compiled() const noexcept { return impl_->is_compiled; }
 
+std::span<double const> EffectiveHamiltonianPlan::r_values(std::size_t index) const
+{
+  return impl_->r_mats.values(index);
+}
+
 void EffectiveHamiltonianPlan::compile()
 {
   if (impl_->is_compiled)
@@ -129,6 +134,17 @@ void EffectiveHamiltonianPlan::compile()
   impl_->arranger.analyzeComputation(r, a, b, c, terms);
   impl_->arranger.compileWorklists(r, a, b, c);
   impl_->is_compiled = true;
+}
+
+void EffectiveHamiltonianPlan::apply()
+{
+  if (!impl_->is_compiled)
+  {
+    compile();
+  }
+
+  impl_->arranger.doContraction(raw_matrices(impl_->r_mats), raw_matrices(impl_->a_mats), raw_matrices(impl_->b_mats),
+                                raw_matrices(impl_->c_mats));
 }
 
 } // namespace uni20::tensorcontraction

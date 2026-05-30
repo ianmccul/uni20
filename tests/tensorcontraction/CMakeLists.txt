@@ -44,6 +44,16 @@ if(MPIEXEC_EXECUTABLE)
       "$<TARGET_FILE:uni20_tensorcontraction_tests>"
       "--gtest_filter=TensorContractionDataFilePlanTest.CompilesOriginalFormatFixture"
   )
+  add_test(
+    NAME TensorContractionMPI.EffectiveHamiltonianPlanApply
+    COMMAND
+      "${MPIEXEC_EXECUTABLE}" "${MPIEXEC_NUMPROC_FLAG}" "2"
+      "bash" "-lc"
+      "export CUDA_VISIBLE_DEVICES=$OMPI_COMM_WORLD_LOCAL_RANK; exec \"$@\""
+      "uni20-tensorcontraction-mpi"
+      "$<TARGET_FILE:uni20_tensorcontraction_tests>"
+      "--gtest_filter=TensorContractionEffectiveHamiltonianPlanTest.AppliesSingleTermPlan"
+  )
 endif()
 
 add_executable(uni20_tensorcontraction_no_mpi_tests
