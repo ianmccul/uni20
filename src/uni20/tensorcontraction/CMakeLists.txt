@@ -49,6 +49,7 @@ if(NOT TARGET NCCL::NCCL)
 endif()
 
 add_library(uni20_tensorcontraction_runtime STATIC
+  src/matrix_family.cpp
   src/Arranger.cpp
   src/Calculator.cpp
   src/Matrix.cpp
@@ -63,13 +64,15 @@ target_include_directories(uni20_tensorcontraction_runtime
 
 target_link_libraries(uni20_tensorcontraction_runtime
   PUBLIC
+    uni20_common
+    uni20_core
     CUDA::cudart
     CUDA::cublas
     MPI::MPI_CXX
     NCCL::NCCL
 )
 
-target_compile_features(uni20_tensorcontraction_runtime PUBLIC cxx_std_17)
+target_compile_features(uni20_tensorcontraction_runtime PUBLIC cxx_std_20)
 relax_warnings(uni20_tensorcontraction_runtime)
 
 add_library(uni20::tensorcontraction_runtime ALIAS uni20_tensorcontraction_runtime)
