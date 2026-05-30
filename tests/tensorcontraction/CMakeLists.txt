@@ -3,6 +3,7 @@
 add_executable(uni20_tensorcontraction_tests
   test_main.cpp
   test_data_file_plan.cpp
+  test_effective_hamiltonian_operator.cpp
   test_effective_hamiltonian_plan.cpp
   test_matrix_family.cpp
 )
@@ -53,6 +54,16 @@ if(MPIEXEC_EXECUTABLE)
       "uni20-tensorcontraction-mpi"
       "$<TARGET_FILE:uni20_tensorcontraction_tests>"
       "--gtest_filter=TensorContractionEffectiveHamiltonianPlanTest.AppliesSingleTermPlan"
+  )
+  add_test(
+    NAME TensorContractionMPI.EffectiveHamiltonianOperatorApply
+    COMMAND
+      "${MPIEXEC_EXECUTABLE}" "${MPIEXEC_NUMPROC_FLAG}" "2"
+      "bash" "-lc"
+      "export CUDA_VISIBLE_DEVICES=$OMPI_COMM_WORLD_LOCAL_RANK; exec \"$@\""
+      "uni20-tensorcontraction-mpi"
+      "$<TARGET_FILE:uni20_tensorcontraction_tests>"
+      "--gtest_filter=TensorContractionEffectiveHamiltonianOperatorTest.AppliesSingleTermMatvec"
   )
 endif()
 

@@ -45,3 +45,33 @@ TEST(TensorContractionMatrixFamilyTest, RejectsWrongSizedAssignment)
 
   EXPECT_THROW(family.assign(0, values), std::invalid_argument);
 }
+
+TEST(TensorContractionMatrixFamilyTest, CopiesCompatibleFamilyValues)
+{
+  std::array blocks{utc::MatrixFamily::Block{2, 2}, utc::MatrixFamily::Block{1, 3}};
+  utc::MatrixFamily source(blocks);
+  utc::MatrixFamily target(blocks);
+
+  source.assign(0, std::array{1.0, 2.0, 3.0, 4.0});
+  source.assign(1, std::array{5.0, 6.0, 7.0});
+  target.fill(-1.0);
+  target.assign(source);
+
+  EXPECT_EQ(target.blocks().size(), blocks.size());
+  EXPECT_EQ(target.block(0), blocks[0]);
+  EXPECT_EQ(target.block(1), blocks[1]);
+  EXPECT_EQ(target.values(0)[0], 1.0);
+  EXPECT_EQ(target.values(0)[3], 4.0);
+  EXPECT_EQ(target.values(1)[0], 5.0);
+  EXPECT_EQ(target.values(1)[2], 7.0);
+}
+
+TEST(TensorContractionMatrixFamilyTest, RejectsIncompatibleFamilyCopy)
+{
+  std::array source_blocks{utc::MatrixFamily::Block{2, 2}};
+  std::array target_blocks{utc::MatrixFamily::Block{4, 1}};
+  utc::MatrixFamily source(source_blocks);
+  utc::MatrixFamily target(target_blocks);
+
+  EXPECT_THROW(target.assign(source), std::invalid_argument);
+}

@@ -22,3 +22,10 @@ cmake --build build_codex/tensorcontraction
 ```
 
 The vendored runtime requires CUDA Toolkit, cuBLAS, MPI, and NCCL.
+
+`EffectiveHamiltonianOperator` is the first DMRG-facing boundary over this
+runtime.  It owns fixed TensorContraction `A` and `B` block families and exposes
+`apply(x, y)` over `MatrixFamily` block vectors, treating `x` as the
+TensorContraction `C` family and `y` as the `R` family.  This mirrors the local
+effective-Hamiltonian matvec needed by Krylov solvers without committing the
+main uni20 tensor or MPS APIs to the temporary TensorContraction layout.

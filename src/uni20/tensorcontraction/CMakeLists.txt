@@ -49,6 +49,7 @@ if(NOT TARGET NCCL::NCCL)
 endif()
 
 add_library(uni20_tensorcontraction_runtime STATIC
+  src/effective_hamiltonian_operator.cpp
   src/effective_hamiltonian_plan.cpp
   src/matrix_family.cpp
   src/Arranger.cpp
