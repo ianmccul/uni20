@@ -13,6 +13,10 @@ wavefunction storage infrastructure.
 - `TwoSiteWavefunction` packs two adjacent sites into one TensorContraction
   `MatrixFamily` block with rows `(left bond, left physical)` and columns
   `(right physical, right bond)`.
+- `MpoEnvironment` builds first-pass left/right environments as one dense
+  bond-bond matrix per MPO virtual index, while iterating sparse
+  `OperatorComponent` and `LocalOperator` entries over the explicit local
+  physical space.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
