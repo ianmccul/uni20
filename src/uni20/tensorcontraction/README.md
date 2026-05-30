@@ -29,3 +29,7 @@ runtime.  It owns fixed TensorContraction `A` and `B` block families and exposes
 TensorContraction `C` family and `y` as the `R` family.  This mirrors the local
 effective-Hamiltonian matvec needed by Krylov solvers without committing the
 main uni20 tensor or MPS APIs to the temporary TensorContraction layout.
+
+`vector_algebra.hpp` provides the host-side block-vector operations needed by
+the first Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
+`normalize`.

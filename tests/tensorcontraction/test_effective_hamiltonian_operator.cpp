@@ -1,5 +1,6 @@
 #include <uni20/tensorcontraction/effective_hamiltonian_operator.hpp>
 #include <uni20/tensorcontraction/matrix_family.hpp>
+#include <uni20/tensorcontraction/vector_algebra.hpp>
 
 #include <gtest/gtest.h>
 
@@ -116,6 +117,33 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, RepeatedApplyOverwritesO
   op.apply(x, y);
 
   expect_near(y.values(0), expected);
+}
+
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, OutputWorksWithVectorAlgebra)
+{
+  auto a = make_family({{2, 3}});
+  auto b = make_family({{3, 5}});
+  std::array input_blocks{utc::MatrixFamily::Block{5, 4}};
+  std::array output_blocks{utc::MatrixFamily::Block{2, 4}};
+
+  a.assign(0, std::array{1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  b.assign(0, std::array{1.0, 0.5, -1.0, 2.0, 1.5, 0.0, -0.5, 3.0, 1.0, 2.5, 2.0, 1.0, 0.0, -1.5, 0.25});
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.25}};
+
+  utc::EffectiveHamiltonianOperator op(std::move(a), std::move(b), input_blocks, output_blocks, terms);
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{1.0,  2.0,  0.5, -1.0, 0.0,  1.5, 2.5, 3.0, -2.0, 1.0,
+                         0.75, 0.25, 4.0, -0.5, 1.25, 2.0, 3.5, 0.0, -1.0, 1.0});
+
+  op.apply(x, y);
+  auto z = utc::make_like(y);
+  utc::copy(y, z);
+  EXPECT_DOUBLE_EQ(utc::dot(y, z), utc::norm2(y));
+
+  double const original_norm = utc::normalize(z);
+  EXPECT_GT(original_norm, 0.0);
+  EXPECT_NEAR(utc::norm(z), 1.0, 1.0e-14);
 }
 
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, RejectsMismatchedInputOutputVectors)

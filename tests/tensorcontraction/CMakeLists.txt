@@ -6,6 +6,7 @@ add_executable(uni20_tensorcontraction_tests
   test_effective_hamiltonian_operator.cpp
   test_effective_hamiltonian_plan.cpp
   test_matrix_family.cpp
+  test_vector_algebra.cpp
 )
 
 target_link_libraries(uni20_tensorcontraction_tests
