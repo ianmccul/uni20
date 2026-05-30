@@ -2,17 +2,21 @@
 #include <uni20/mps/dmrg.hpp>
 
 #include <fmt/core.h>
+#include <fmt/ostream.h>
 
 #include <mpi.h>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <fstream>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 using namespace uni20;
@@ -208,17 +212,86 @@ auto mps_expectation_value(FiniteMPS const& psi, FiniteTriangularMPO const& mpo)
   return final_env.values(final_env.virtual_dim() - 1)[0];
 }
 
+auto sweep_options(std::size_t max_rank, TwoSiteSweepObserver observer = {}) -> TwoSiteSweepOptions
+{
+  return TwoSiteSweepOptions{
+      .lanczos = tensorcontraction::LanczosOptions{.max_iterations = 24, .min_iterations = 2, .tolerance = 1.0e-12},
+      .svd = tensorcontraction::SvdOptions{.max_rank = max_rank},
+      .observer = std::move(observer),
+  };
+}
+
 auto dmrg_options(std::size_t sweeps, std::size_t max_rank) -> TwoSiteDmrgOptions
 {
   return TwoSiteDmrgOptions{
       .sweeps = sweeps,
-      .sweep =
-          TwoSiteSweepOptions{
-              .lanczos =
-                  tensorcontraction::LanczosOptions{.max_iterations = 24, .min_iterations = 2, .tolerance = 1.0e-12},
-              .svd = tensorcontraction::SvdOptions{.max_rank = max_rank},
-          },
+      .sweep = sweep_options(max_rank),
   };
+}
+
+class BenchFile {
+  public:
+    BenchFile()
+    {
+      char const* path = std::getenv("MP_BENCHFILE");
+      if (path == nullptr || *path == '\0')
+      {
+        return;
+      }
+
+      file_.open(path);
+      if (file_)
+      {
+        fmt::print(file_, "#Time #SweepNum #Site #States #Energy #Trunc #Residual #Iter #Tol #GlobalEnergy\n");
+      }
+    }
+
+    [[nodiscard]] auto enabled() const noexcept -> bool { return file_.good(); }
+
+    void write(std::size_t half_sweep, std::size_t site, TwoSiteBondUpdate const& update, double global_energy)
+    {
+      if (!enabled())
+      {
+        return;
+      }
+
+      using seconds = std::chrono::duration<double>;
+      auto const elapsed = seconds(std::chrono::steady_clock::now() - start_).count();
+      fmt::print(file_, "{:.9g} {} {} {} {:.16g} {:.16g} {:.9g} {} {:.9g} {:.16g}\n", elapsed, half_sweep, site,
+                 update.kept_rank, update.energy, update.discarded_weight, update.lanczos.residual_norm,
+                 update.lanczos.iterations, update.lanczos.tolerance, global_energy);
+    }
+
+    void flush()
+    {
+      if (enabled())
+      {
+        file_.flush();
+      }
+    }
+
+  private:
+    std::chrono::steady_clock::time_point start_ = std::chrono::steady_clock::now();
+    std::ofstream file_;
+};
+
+auto reported_site(TwoSiteSweepDirection direction, TwoSiteBondUpdate const& update) -> std::size_t
+{
+  if (direction == TwoSiteSweepDirection::LeftToRight)
+  {
+    return update.left_site;
+  }
+  return update.left_site + 1;
+}
+
+auto truncation_sum(TwoSiteSweepResult const& result) -> double
+{
+  double total = 0.0;
+  for (auto const& update : result.updates)
+  {
+    total += update.discarded_weight;
+  }
+  return total;
 }
 
 void run_exact_small_chain_check()
@@ -266,7 +339,18 @@ void run_large_chain_sweep_check()
   auto const spin = make_spin_half_dense_site();
   auto psi = alternating_product_state(spin, length);
   auto mpo = make_spin_half_heisenberg_mpo(length, spin, 1.0, 0.0);
-  auto options = dmrg_options(1, max_rank);
+  BenchFile bench;
+  std::size_t half_sweep = 0;
+  auto observer = [&](TwoSiteSweepDirection direction, TwoSiteBondUpdate const& update) {
+    auto const site = reported_site(direction, update);
+    auto const global_energy = mps_expectation_value(psi, mpo);
+    fmt::print("Sweep={} Site={} Energy={:.16g} States={} TruncError={:.16g} Residual={:.9g} Iter={} Tol={:.9g} "
+               "GlobalEnergy={:.16g}\n",
+               half_sweep, site, update.energy, update.kept_rank, update.discarded_weight, update.lanczos.residual_norm,
+               update.lanczos.iterations, update.lanczos.tolerance, global_energy);
+    bench.write(half_sweep, site, update, global_energy);
+  };
+  auto options = sweep_options(max_rank, observer);
 
   fmt::print("\nlength-20 sweep check\n");
   fmt::print("max rank: {}\n", max_rank);
@@ -275,10 +359,19 @@ void run_large_chain_sweep_check()
   std::fflush(stdout);
   for (std::size_t sweep = 0; sweep < sweep_count; ++sweep)
   {
-    auto result = run_two_site_dmrg(psi, mpo, options);
+    half_sweep = 2 * sweep;
+    auto left_to_right = sweep_two_site_left_to_right(psi, mpo, options);
+    fmt::print("Cumulative truncation error for sweep: {:.16g}\n", truncation_sum(left_to_right));
+    bench.flush();
+
+    half_sweep = 2 * sweep + 1;
+    auto right_to_left = sweep_two_site_right_to_left(psi, mpo, options);
+    fmt::print("Cumulative truncation error for sweep: {:.16g}\n", truncation_sum(right_to_left));
+    bench.flush();
+
     auto const energy = mps_expectation_value(psi, mpo);
-    auto const& lr = result.sweeps.front().left_to_right.updates.back();
-    auto const& rl = result.sweeps.front().right_to_left.updates.back();
+    auto const& lr = left_to_right.updates.back();
+    auto const& rl = right_to_left.updates.back();
     fmt::print("sweep {} <H>: {:.16g}; delta {:.16g}; edge local energies L->R {:.16g}, R->L {:.16g}; kept ranks {}, "
                "{}\n",
                sweep, energy, energy - previous_energy, lr.energy, rl.energy, lr.kept_rank, rl.kept_rank);

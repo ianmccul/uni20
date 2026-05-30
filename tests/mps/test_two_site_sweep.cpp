@@ -118,6 +118,31 @@ TEST(TwoSiteSweepTest, SweepsThreeSiteChainInBothDirections)
   EXPECT_EQ(psi[1].right_bond_space(), psi[2].left_bond_space());
 }
 
+TEST(TwoSiteSweepTest, NotifiesObserverAfterBondReplacement)
+{
+  ensure_mpi_initialized();
+
+  auto const spin = make_spin_half_u1_site();
+  auto psi = alternating_product_state(spin, 2);
+  auto mpo = make_spin_half_heisenberg_mpo(2, spin, 1.0, 0.0);
+  auto options = sweep_options();
+
+  bool observed = false;
+  options.observer = [&](TwoSiteSweepDirection direction, TwoSiteBondUpdate const& update) {
+    observed = true;
+    EXPECT_EQ(direction, TwoSiteSweepDirection::LeftToRight);
+    EXPECT_EQ(update.left_site, 0);
+    EXPECT_EQ(psi[0].right_dim(), update.kept_rank);
+    EXPECT_EQ(psi[1].left_dim(), update.kept_rank);
+  };
+
+  auto result = sweep_two_site_left_to_right(psi, mpo, options);
+
+  EXPECT_TRUE(observed);
+  ASSERT_EQ(result.updates.size(), 1);
+  EXPECT_EQ(result.updates[0].left_site, 0);
+}
+
 TEST(TwoSiteSweepTest, RejectsInvalidInputs)
 {
   auto const spin = make_spin_half_u1_site();

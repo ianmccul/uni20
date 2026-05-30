@@ -8,6 +8,7 @@
 #include <uni20/mps/two_site_split.hpp>
 
 #include <cstddef>
+#include <functional>
 #include <stdexcept>
 #include <vector>
 
@@ -20,10 +21,15 @@ enum class TwoSiteSweepDirection
   RightToLeft,
 };
 
+struct TwoSiteBondUpdate;
+
+using TwoSiteSweepObserver = std::function<void(TwoSiteSweepDirection, TwoSiteBondUpdate const&)>;
+
 struct TwoSiteSweepOptions
 {
-    tensorcontraction::LanczosOptions lanczos;
-    tensorcontraction::SvdOptions svd;
+    tensorcontraction::LanczosOptions lanczos{};
+    tensorcontraction::SvdOptions svd{};
+    TwoSiteSweepObserver observer{};
 };
 
 struct TwoSiteBondUpdate
@@ -81,8 +87,13 @@ inline auto sweep_two_site_left_to_right(FiniteMPS& psi, FiniteTriangularMPO con
     auto solution =
         solve_two_site(psi, mpo, left_site, left_envs[left_site], right_envs[left_site + 2], options.lanczos);
     auto split = split_two_site_solution(solution, psi, left_site, TwoSiteSplitDirection::LeftToRight, options.svd);
-    result.updates.push_back(make_bond_update(left_site, solution, split));
+    auto update = make_bond_update(left_site, solution, split);
     replace_two_site_solution(psi, left_site, std::move(split));
+    if (options.observer)
+    {
+      options.observer(TwoSiteSweepDirection::LeftToRight, update);
+    }
+    result.updates.push_back(update);
     left_envs[left_site + 1] = extend_left_environment(left_envs[left_site], psi[left_site], mpo[left_site]);
   }
 
@@ -106,8 +117,13 @@ inline auto sweep_two_site_right_to_left(FiniteMPS& psi, FiniteTriangularMPO con
     auto solution =
         solve_two_site(psi, mpo, left_site, left_envs[left_site], right_envs[left_site + 2], options.lanczos);
     auto split = split_two_site_solution(solution, psi, left_site, TwoSiteSplitDirection::RightToLeft, options.svd);
-    result.updates.push_back(make_bond_update(left_site, solution, split));
+    auto update = make_bond_update(left_site, solution, split);
     replace_two_site_solution(psi, left_site, std::move(split));
+    if (options.observer)
+    {
+      options.observer(TwoSiteSweepDirection::RightToLeft, update);
+    }
+    result.updates.push_back(update);
     right_envs[left_site + 1] =
         extend_right_environment(right_envs[left_site + 2], psi[left_site + 1], mpo[left_site + 1]);
   }
