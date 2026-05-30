@@ -69,6 +69,8 @@ Arranger::Arranger(Swapper &swapper) : swapper(swapper) {
   DEBUG_NCCL_COMM_CREATE_END(mpi_rank, total_ranks);
 }
 
+Arranger::~Arranger() { releaseResources(); }
+
 void Arranger::preprocess(
     const std::vector<Matrix> &rMats, const std::vector<Matrix> &aMats,
     const std::vector<Matrix> &bMats, const std::vector<Matrix> &cMats,
@@ -1276,16 +1278,39 @@ double *Arranger::collectiveExchangeMatrix(Matrix m) {
   return ptr;
 }
 
-void Arranger::clear() {
+void Arranger::resetWork() {
   interMats.clear();
   interMatsIdx.clear();
   combineMats.clear();
+  shouldReuseInter.clear();
+  shouldCombineInter.clear();
+  shouldFinalizeInter.clear();
+  sortedFTerms.clear();
+  matToSyncFinishEventMap.clear();
+  localMats.clear();
+  rFlops.clear();
+  for (auto &wl : worklistsForInterMat) wl.clear();
+  for (auto &wl : worklistsForTheRest) wl.clear();
   for (auto &wl : linearAlgebraWorklists) wl.clear();
+  liveIntervalsForInterMat.clear();
+  liveIntervalsForTheRest.clear();
   liveIntervalsForLinearAlgebra.clear();
   std::fill(linearAlgebraFlopsPerDevice.begin(),
             linearAlgebraFlopsPerDevice.end(), 0.0);
+}
 
+void Arranger::releaseResources() {
+  resetWork();
+  for (auto event : syncFinishEvents) {
+    CUDA_CALL(cudaEventDestroy(event));
+  }
+  syncFinishEvents.clear();
+  for (auto comm : allDeviceComms) {
+    NCCL_CALL(ncclCommDestroy(comm));
+  }
+  allDeviceComms.clear();
   for (auto &streamManager : streamManagers) streamManager.clear();
+  streamManagers.clear();
 }
 
 void Arranger::distributeMatricesToNodes(std::vector<Matrix> &mats,

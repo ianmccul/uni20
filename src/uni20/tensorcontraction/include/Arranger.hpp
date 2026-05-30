@@ -86,6 +86,7 @@ class Arranger {
 
  public:
   Arranger(Swapper& swapper);
+  ~Arranger();
   std::vector<Matrix>& getInterMats();
   void doContraction(const std::vector<Matrix>& rMats,
                      const std::vector<Matrix>& aMats,
@@ -140,7 +141,8 @@ class Arranger {
                            const std::vector<Matrix>& bMats,
                            const std::vector<Matrix>& cMats);
 #endif
-  void clear();
+  void resetWork();
+  void releaseResources();
 };
 
 }  // namespace tensor

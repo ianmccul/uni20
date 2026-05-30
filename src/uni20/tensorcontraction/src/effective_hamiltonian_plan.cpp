@@ -28,11 +28,7 @@ struct EffectiveHamiltonianPlan::Impl
           terms(input_terms.begin(), input_terms.end()), swapper(), arranger(swapper)
     {}
 
-    ~Impl()
-    {
-      arranger.clear();
-      swapper.clear();
-    }
+    ~Impl() { swapper.clear(); }
 };
 
 namespace
@@ -129,6 +125,7 @@ void EffectiveHamiltonianPlan::compile()
   auto const& b = raw_matrices(impl_->b_mats);
   auto const& c = raw_matrices(impl_->c_mats);
 
+  impl_->arranger.resetWork();
   impl_->arranger.analyzeComputation(r, a, b, c, terms);
   impl_->arranger.compileWorklists(r, a, b, c);
   impl_->is_compiled = true;

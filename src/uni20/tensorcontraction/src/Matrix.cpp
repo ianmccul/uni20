@@ -1,28 +1,25 @@
 #include "Matrix.hpp"
 
-#include <mpi.h>
-
+#include <atomic>
 #include <cassert>
-#include <mutex>
 
 #define MATRIX_COUNT_PER_NODE 10000
 
-namespace tensor {
+namespace tensor
+{
 
-static int currentId = 0;
-static std::mutex lock;
+static std::atomic_int currentId = 0;
 
-Matrix::Matrix(void *ptr, int dim1, int dim2) {
-  std::lock_guard<std::mutex> guard(lock);
-  int mpi_rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+Matrix::Matrix(void* ptr, int dim1, int dim2)
+{
+  int const id = currentId.fetch_add(1);
+  assert(id < MATRIX_COUNT_PER_NODE);
+
   impl = std::make_shared<MatrixImpl>();
-  impl->id = currentId + mpi_rank * MATRIX_COUNT_PER_NODE;
+  impl->id = id;
   impl->dim1 = dim1;
   impl->dim2 = dim2;
   impl->ptr = ptr;
-  currentId++;
-  assert(currentId < MATRIX_COUNT_PER_NODE);
 }
 
-}  // namespace tensor
+} // namespace tensor
