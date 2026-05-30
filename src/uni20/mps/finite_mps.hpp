@@ -88,6 +88,34 @@ class FiniteMPS {
     [[nodiscard]] auto begin() const { return sites_.begin(); }
     [[nodiscard]] auto end() const { return sites_.end(); }
 
+    void replace_adjacent(size_type left_site, MpsSiteTensor left, MpsSiteTensor right)
+    {
+      if (left_site + 1 >= sites_.size())
+      {
+        throw std::out_of_range("FiniteMPS::replace_adjacent requires two adjacent sites");
+      }
+      if (left.physical_space().symmetry() != right.physical_space().symmetry())
+      {
+        throw std::invalid_argument("FiniteMPS replacement sites do not share one symmetry");
+      }
+      if (left.right_bond_space() != right.left_bond_space())
+      {
+        throw std::invalid_argument("FiniteMPS replacement sites have mismatched shared bond spaces");
+      }
+      if (left_site > 0 && sites_[left_site - 1].right_bond_space() != left.left_bond_space())
+      {
+        throw std::invalid_argument("FiniteMPS replacement left boundary bond space does not match");
+      }
+      if (left_site + 2 < sites_.size() && right.right_bond_space() != sites_[left_site + 2].left_bond_space())
+      {
+        throw std::invalid_argument("FiniteMPS replacement right boundary bond space does not match");
+      }
+
+      sites_[left_site] = std::move(left);
+      sites_[left_site + 1] = std::move(right);
+      this->check_structure();
+    }
+
     void check_structure() const
     {
       for (size_type i = 1; i < sites_.size(); ++i)

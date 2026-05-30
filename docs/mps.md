@@ -23,6 +23,10 @@ wavefunction storage infrastructure.
 - `solve_two_site` packs the current two-site MPS center, compiles the local
   effective Hamiltonian, runs the TensorContraction Lanczos wrapper, and returns
   both vectorized and matrix-shaped optimized center data.
+- `split_two_site_solution` runs the current single-block SVD split and absorbs
+  singular values into the right tensor for a left-to-right move, or into the
+  left tensor for a right-to-left move. `FiniteMPS::replace_adjacent` installs
+  the resulting pair back into the in-memory chain.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.

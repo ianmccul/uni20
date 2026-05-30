@@ -48,6 +48,27 @@ TEST(FiniteMPSTest, ValidatesAdjacentBondSpaces)
   EXPECT_THROW(FiniteMPS(FiniteMPS::container_type{std::move(bad_left), std::move(bad_right)}), std::invalid_argument);
 }
 
+TEST(FiniteMPSTest, ReplacesAdjacentSites)
+{
+  auto const spin = make_spin_half_u1_site();
+  MpsSiteTensor left(spin.space, bond_space(spin.symmetry, 1), bond_space(spin.symmetry, 2));
+  MpsSiteTensor middle(spin.space, bond_space(spin.symmetry, 2), bond_space(spin.symmetry, 3));
+  MpsSiteTensor right(spin.space, bond_space(spin.symmetry, 3), bond_space(spin.symmetry, 1));
+  FiniteMPS psi({std::move(left), std::move(middle), std::move(right)});
+
+  MpsSiteTensor new_left(spin.space, bond_space(spin.symmetry, 1), bond_space(spin.symmetry, 4));
+  MpsSiteTensor new_middle(spin.space, bond_space(spin.symmetry, 4), bond_space(spin.symmetry, 3));
+  psi.replace_adjacent(0, std::move(new_left), std::move(new_middle));
+
+  EXPECT_EQ(psi[0].right_dim(), 4);
+  EXPECT_EQ(psi[1].left_dim(), 4);
+  EXPECT_EQ(psi[1].right_dim(), 3);
+
+  MpsSiteTensor bad_new_left(spin.space, bond_space(spin.symmetry, 4), bond_space(spin.symmetry, 2));
+  MpsSiteTensor bad_new_right(spin.space, bond_space(spin.symmetry, 2), bond_space(spin.symmetry, 1));
+  EXPECT_THROW(psi.replace_adjacent(0, std::move(bad_new_left), std::move(bad_new_right)), std::invalid_argument);
+}
+
 TEST(TwoSiteWavefunctionTest, PacksAdjacentSitesIntoSingleMatrixBlock)
 {
   auto const spin = make_spin_half_u1_site();
