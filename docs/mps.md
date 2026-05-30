@@ -31,6 +31,10 @@ wavefunction storage infrastructure.
   first directional dense DMRG sweep pass by rebuilding CPU environment chains,
   solving each two-site problem, splitting the optimized center, replacing the
   MPS tensors, and updating the environment on the swept side.
+- `run_two_site_dmrg` is the first front-end wrapper. It alternates
+  left-to-right and right-to-left passes for a fixed number of full sweeps and
+  returns the per-bond sweep diagnostics without adding persistence or global
+  energy bookkeeping.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
