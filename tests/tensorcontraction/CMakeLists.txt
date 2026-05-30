@@ -2,6 +2,7 @@
 
 add_executable(uni20_tensorcontraction_tests
   test_main.cpp
+  test_effective_hamiltonian_plan.cpp
   test_matrix_family.cpp
 )
 
