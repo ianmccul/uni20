@@ -20,6 +20,9 @@ wavefunction storage infrastructure.
 - `make_two_site_effective_hamiltonian` compiles two adjacent MPO components
   plus their left/right environments into a vectorized single-block
   TensorContraction `EffectiveHamiltonianOperator`.
+- `solve_two_site` packs the current two-site MPS center, compiles the local
+  effective Hamiltonian, runs the TensorContraction Lanczos wrapper, and returns
+  both vectorized and matrix-shaped optimized center data.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
