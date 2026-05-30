@@ -17,6 +17,9 @@ wavefunction storage infrastructure.
   bond-bond matrix per MPO virtual index, while iterating sparse
   `OperatorComponent` and `LocalOperator` entries over the explicit local
   physical space.
+- `make_two_site_effective_hamiltonian` compiles two adjacent MPO components
+  plus their left/right environments into a vectorized single-block
+  TensorContraction `EffectiveHamiltonianOperator`.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
