@@ -5,6 +5,7 @@ add_executable(uni20_tensorcontraction_tests
   test_data_file_plan.cpp
   test_effective_hamiltonian_operator.cpp
   test_effective_hamiltonian_plan.cpp
+  test_lanczos.cpp
   test_matrix_family.cpp
   test_vector_algebra.cpp
 )

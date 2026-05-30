@@ -33,3 +33,8 @@ main uni20 tensor or MPS APIs to the temporary TensorContraction layout.
 `vector_algebra.hpp` provides the host-side block-vector operations needed by
 the first Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
 `normalize`.
+
+`lanczos.hpp` ports the small-iteration Lanczos shape used by MPTK's DMRG path
+onto `MatrixFamily` block vectors.  The implementation intentionally avoids
+restart and full reorthogonalization so it remains comparable to MPTK for local
+DMRG benchmarking.
