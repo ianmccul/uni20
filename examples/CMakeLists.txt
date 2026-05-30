@@ -1,5 +1,7 @@
 # examples/CMakeLists.txt
 
+enable_testing()
+
 # Add an executable target for the dependencies example.
 add_executable(mdspan_example mdspan_example.cpp)
 
@@ -63,7 +65,11 @@ target_link_libraries(ad_example PRIVATE fmt::fmt uni20_common uni20_async)
 add_executable(gradient_solver gradient_solver.cpp)
 target_link_libraries(gradient_solver PRIVATE fmt::fmt uni20_common uni20_async)
 
-enable_testing()
+if(UNI20_ENABLE_TENSORCONTRACTION)
+  add_executable(spin_half_heisenberg_dmrg spin_half_heisenberg_dmrg.cpp)
+  target_link_libraries(spin_half_heisenberg_dmrg PRIVATE fmt::fmt uni20)
+endif()
+
 include(GoogleTest)
 
 add_executable(gtest_floating_eq_example gtest_floating_eq_example.cpp)
