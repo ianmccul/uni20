@@ -12,6 +12,20 @@ Instead:
   Hamiltonian matrix-vector multiply and a small amount of related linear
   algebra.
 
+The TensorContraction runtime is now vendored under:
+
+- `src/uni20/tensorcontraction/include`
+- `src/uni20/tensorcontraction/src`
+
+This copy is temporary and intentionally quarantined. It is a playground for
+getting a DMRG Hamiltonian-apply path working and for identifying which
+functions, kernels, and runtime ideas should later be rewritten natively in
+Uni20. It should not be treated as a precedent for the final Uni20 backend
+architecture.
+
+Build integration is controlled by `UNI20_ENABLE_TENSORCONTRACTION`, which is
+`OFF` by default. Enabling it requires CUDA Toolkit, cuBLAS, MPI, and NCCL.
+
 ## Scope
 
 The near-term target is:

@@ -32,12 +32,18 @@ add_subdirectory(async)
 add_subdirectory(kernel)
 add_subdirectory(linalg)
 add_subdirectory(expokit)
+if(UNI20_ENABLE_TENSORCONTRACTION)
+  add_subdirectory(tensorcontraction)
+endif()
 
 # Link external libraries (for example, fmt)
 target_link_libraries(uni20 PUBLIC uni20_deps uni20_core uni20_common uni20_matrix uni20_linalg uni20_models uni20_operator uni20_symmetry)
 enable_ipo_if_supported(uni20)
 
 target_link_libraries(uni20 PUBLIC uni20_expokit)
+if(UNI20_ENABLE_TENSORCONTRACTION)
+  target_link_libraries(uni20 PUBLIC uni20_tensorcontraction_runtime)
+endif()
 
 # Configure the header file. We need to do this last, because subdirectories may set their own variables.
 file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/src/uni20")
