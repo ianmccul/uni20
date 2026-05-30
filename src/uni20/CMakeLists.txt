@@ -34,6 +34,7 @@ add_subdirectory(linalg)
 add_subdirectory(expokit)
 if(UNI20_ENABLE_TENSORCONTRACTION)
   add_subdirectory(tensorcontraction)
+  add_subdirectory(mps)
 endif()
 
 # Link external libraries (for example, fmt)
@@ -42,6 +43,7 @@ enable_ipo_if_supported(uni20)
 
 target_link_libraries(uni20 PUBLIC uni20_expokit)
 if(UNI20_ENABLE_TENSORCONTRACTION)
+  target_link_libraries(uni20 PUBLIC uni20_mps)
   target_link_libraries(uni20 PUBLIC uni20_tensorcontraction_runtime)
 endif()
 

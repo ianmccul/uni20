@@ -20,6 +20,7 @@ add_subdirectory(expokit)
 add_subdirectory(linalg)
 if(UNI20_ENABLE_TENSORCONTRACTION)
   add_subdirectory(tensorcontraction)
+  add_subdirectory(mps)
 endif()
 
 if(UNI20_BUILD_PYTHON)
