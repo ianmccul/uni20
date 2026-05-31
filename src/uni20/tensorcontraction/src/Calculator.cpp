@@ -304,6 +304,10 @@ void StreamManager::clear() { syncAllStreams(); }
 
 cudaStream_t StreamManager::getStream()
 {
+  if (fixedStreamActive)
+  {
+    return currentStream;
+  }
   auto& slot = deviceContext.nextWorkSlot();
   currentStream = slot.stream;
   currentHandle = slot.handle;
@@ -312,6 +316,10 @@ cudaStream_t StreamManager::getStream()
 
 cudaStream_t StreamManager::getStream(cudaStream_t preferredStream)
 {
+  if (fixedStreamActive)
+  {
+    return currentStream;
+  }
   auto& slot = deviceContext.nextWorkSlot(preferredStream);
   currentStream = slot.stream;
   currentHandle = slot.handle;
@@ -331,6 +339,17 @@ cudaStream_t StreamManager::setEnv(cudaStream_t preferredStream)
   cudaStream_t stream = getStream(preferredStream);
   return stream;
 }
+
+cudaStream_t StreamManager::beginFixedStream(cudaStream_t preferredStream)
+{
+  CUDA_CALL(cudaSetDevice(deviceId));
+  fixedStreamActive = false;
+  cudaStream_t stream = getStream(preferredStream);
+  fixedStreamActive = true;
+  return stream;
+}
+
+void StreamManager::endFixedStream() { fixedStreamActive = false; }
 
 void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams(); }
 

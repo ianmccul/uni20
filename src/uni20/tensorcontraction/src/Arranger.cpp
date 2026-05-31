@@ -1089,7 +1089,8 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
   }
 }
 
-void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals)
+void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals,
+                                bool coalesceBatchEvents)
 {
   std::vector<size_t> freeMems(deviceCount);
 
@@ -1128,6 +1129,99 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
   auto execute = [&](WorklistTy& worklist, int deviceId, int startIdx, int endIdx) {
     CUDA_CALL(cudaSetDevice(deviceId));
     auto& streamManager = streamManagers[deviceId];
+    if (startIdx == endIdx)
+    {
+      return;
+    }
+    if (coalesceBatchEvents)
+    {
+      std::vector<std::shared_ptr<GpuBuffer>> readBuffers;
+      std::vector<std::shared_ptr<GpuBuffer>> writeBuffers;
+      std::unordered_map<int, std::pair<Matrix, bool>> finalAccess;
+      std::unordered_set<int> firstAccessSeen;
+
+      for (int idx = startIdx; idx < endIdx; idx++)
+      {
+        auto const& work = worklist[idx];
+        auto reads = work->readMatrices();
+        auto writes = work->writeMatrices();
+        std::unordered_map<int, std::pair<Matrix, bool>> firstAccessInWork;
+
+        for (auto mat : reads)
+        {
+          auto [it, inserted] = firstAccessInWork.try_emplace(mat.getId(), mat, false);
+          if (!inserted)
+          {
+            it->second.second = false;
+          }
+          finalAccess.try_emplace(mat.getId(), mat, false);
+        }
+        for (auto mat : writes)
+        {
+          auto [it, inserted] = firstAccessInWork.try_emplace(mat.getId(), mat, true);
+          if (!inserted)
+          {
+            it->second.second = true;
+          }
+          finalAccess[mat.getId()] = {mat, true};
+        }
+
+        for (auto const& [matId, access] : firstAccessInWork)
+        {
+          if (!firstAccessSeen.insert(matId).second)
+          {
+            continue;
+          }
+          auto const& [mat, writesOnFirstAccess] = access;
+          auto buffer = swapper.getGpuBufferOrNone(mat, deviceId);
+          if (buffer == nullptr)
+          {
+            continue;
+          }
+          if (writesOnFirstAccess)
+          {
+            writeBuffers.push_back(buffer);
+          }
+          else
+          {
+            readBuffers.push_back(buffer);
+          }
+        }
+      }
+
+      // Contraction batches are a local DAG.  Wait once for external
+      // dependencies, then use one stream so internal edges are ordered by
+      // CUDA stream semantics rather than per-kernel dependency events.
+      auto stream = streamManager.beginFixedStream(swapper.preferredStreamForAccess(readBuffers, writeBuffers));
+      swapper.waitForAccessDependencies(readBuffers, writeBuffers, stream);
+      {
+        Swapper::ScopedAccessDependencyWaitSuppression suppressInternalDependencyWaits;
+        for (int idx = startIdx; idx < endIdx; idx++)
+        {
+          worklist[idx]->execute();
+        }
+      }
+      streamManager.endFixedStream();
+
+      if (!finalAccess.empty() && swapper.dependencyEventsActive())
+      {
+        auto event = streamManager.recordCompletionEvent();
+        for (auto const& [_, access] : finalAccess)
+        {
+          auto const& [mat, wrote] = access;
+          if (wrote)
+          {
+            swapper.notifyMatrixWrite(mat, deviceId, stream, event);
+          }
+          else
+          {
+            swapper.notifyMatrixRead(mat, deviceId, stream, event);
+          }
+        }
+      }
+      return;
+    }
+
     for (int idx = startIdx; idx < endIdx; idx++)
     {
       auto& work = worklist[idx];
@@ -1371,8 +1465,8 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
 void Arranger::doContraction(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
                              const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats)
 {
-  executeWorklists(worklistsForInterMat, liveIntervalsForInterMat);
-  executeWorklists(worklistsForTheRest, liveIntervalsForTheRest);
+  executeWorklists(worklistsForInterMat, liveIntervalsForInterMat, true);
+  executeWorklists(worklistsForTheRest, liveIntervalsForTheRest, true);
 }
 
 void Arranger::compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double* result)

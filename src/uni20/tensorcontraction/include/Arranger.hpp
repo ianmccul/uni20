@@ -71,7 +71,8 @@ class Arranger {
 
     void buildLiveInterval(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals);
 
-    void executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals);
+    void executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals,
+                          bool coalesceBatchEvents = false);
     void ensureNcclCommsInitialized();
 
     void mpiExchangeCopies(const std::vector<std::vector<int>>& tokensNeededFromRank,

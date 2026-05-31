@@ -81,6 +81,17 @@ class Swapper {
     void destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer);
 
   public:
+    class ScopedAccessDependencyWaitSuppression {
+      public:
+        ScopedAccessDependencyWaitSuppression();
+        ScopedAccessDependencyWaitSuppression(const ScopedAccessDependencyWaitSuppression&) = delete;
+        ScopedAccessDependencyWaitSuppression& operator=(const ScopedAccessDependencyWaitSuppression&) = delete;
+        ~ScopedAccessDependencyWaitSuppression();
+
+      private:
+        bool previous = false;
+    };
+
     Swapper();
     Swapper(const Swapper&) = delete;
     Swapper& operator=(const Swapper&) = delete;

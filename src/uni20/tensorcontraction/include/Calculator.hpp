@@ -220,6 +220,7 @@ class StreamManager {
     CudaDeviceContext& deviceContext;
     cudaStream_t currentStream = nullptr;
     cublasHandle_t currentHandle = nullptr;
+    bool fixedStreamActive = false;
 
   public:
     StreamManager(Swapper& swapper, int deviceId, int deviceCount);
@@ -234,6 +235,8 @@ class StreamManager {
     cudaStream_t setEnv(cudaStream_t preferredStream);
     cudaStream_t getStream();
     cudaStream_t getStream(cudaStream_t preferredStream);
+    cudaStream_t beginFixedStream(cudaStream_t preferredStream);
+    void endFixedStream();
     cudaStream_t currentStreamHandle() const { return currentStream; }
     CudaDeviceContext::ScratchLease acquireScratch(std::size_t bytes)
     {
