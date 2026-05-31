@@ -167,7 +167,7 @@ inline std::vector<double> submatrix(std::vector<double> const& matrix, std::siz
   return result;
 }
 
-inline MatrixFamily linear_combination(std::vector<MatrixFamily> const& vectors,
+inline MatrixFamily linear_combination(VectorAlgebraEngine& algebra, std::vector<MatrixFamily> const& vectors,
                                        std::vector<double> const& coefficients)
 {
   if (vectors.empty() || vectors.size() != coefficients.size())
@@ -176,10 +176,10 @@ inline MatrixFamily linear_combination(std::vector<MatrixFamily> const& vectors,
   }
 
   auto result = make_like(vectors.front());
-  zero(result);
+  algebra.zero(result);
   for (std::size_t i = 0; i < vectors.size(); ++i)
   {
-    axpy(coefficients[i], vectors[i], result);
+    algebra.axpy(coefficients[i], vectors[i], result);
   }
   return result;
 }
@@ -214,37 +214,38 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
 
   std::vector<MatrixFamily> v;
   std::vector<MatrixFamily> hv;
+  VectorAlgebraEngine algebra;
   std::vector<double> sub_h(
       static_cast<std::size_t>(options.max_iterations + 1) * static_cast<std::size_t>(options.max_iterations + 1), 0.0);
   auto const stride = static_cast<std::size_t>(options.max_iterations + 1);
 
-  double beta = norm(guess);
+  double beta = algebra.norm(guess);
   if (!(beta > 0.0) || std::isnan(beta))
   {
     throw std::invalid_argument("Lanczos initial guess must have finite non-zero norm");
   }
 
   auto w = make_like(guess);
-  copy(guess, w);
-  scale(w, 1.0 / beta);
+  algebra.copy(guess, w);
+  algebra.scale(w, 1.0 / beta);
   v.push_back(std::move(w));
 
   w = make_like(guess);
   matvec(v[0], w);
   hv.push_back(make_like(w));
-  copy(w, hv.back());
-  double alpha = dot(v[0], w);
+  algebra.copy(w, hv.back());
+  double alpha = algebra.dot(v[0], w);
   sub_h[detail::dense_index(stride, 0, 0)] = alpha;
-  axpy(-alpha, v[0], w);
+  algebra.axpy(-alpha, v[0], w);
 
-  alpha = dot(v[0], w);
+  alpha = algebra.dot(v[0], w);
   sub_h[detail::dense_index(stride, 0, 0)] += alpha;
-  axpy(-alpha, v[0], w);
+  algebra.axpy(-alpha, v[0], w);
 
-  beta = norm(w);
+  beta = algebra.norm(w);
   if (beta < options.beta_tolerance)
   {
-    copy(v[0], guess);
+    algebra.copy(v[0], guess);
     return LanczosResult{.eigenvalue = sub_h[detail::dense_index(stride, 0, 0)],
                          .iterations = 1,
                          .tolerance = beta,
@@ -264,29 +265,29 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
     sub_h[detail::dense_index(stride, idx, idx - 1)] = beta;
     sub_h[detail::dense_index(stride, idx - 1, idx)] = beta;
 
-    scale(w, 1.0 / beta);
+    algebra.scale(w, 1.0 / beta);
     v.push_back(std::move(w));
 
     w = make_like(guess);
     matvec(v[idx], w);
     hv.push_back(make_like(w));
-    copy(w, hv.back());
-    axpy(-beta, v[idx - 1], w);
-    axpy(-dot(v[idx - 1], w), v[idx - 1], w);
+    algebra.copy(w, hv.back());
+    algebra.axpy(-beta, v[idx - 1], w);
+    algebra.axpy(-algebra.dot(v[idx - 1], w), v[idx - 1], w);
 
-    alpha = dot(v[idx], w);
+    alpha = algebra.dot(v[idx], w);
     sub_h[detail::dense_index(stride, idx, idx)] = alpha;
-    axpy(-alpha, v[idx], w);
-    alpha = dot(v[idx], w);
+    algebra.axpy(-alpha, v[idx], w);
+    alpha = algebra.dot(v[idx], w);
     sub_h[detail::dense_index(stride, idx, idx)] += alpha;
-    axpy(-alpha, v[idx], w);
+    algebra.axpy(-alpha, v[idx], w);
 
-    beta = norm(w);
+    beta = algebra.norm(w);
     if (beta < options.beta_tolerance)
     {
       auto eig = detail::lowest_eigenpair(detail::submatrix(sub_h, stride, idx + 1), idx + 1);
-      auto y = detail::linear_combination(v, eig.eigenvector);
-      copy(y, guess);
+      auto y = detail::linear_combination(algebra, v, eig.eigenvector);
+      algebra.copy(y, guess);
       return LanczosResult{.eigenvalue = eig.eigenvalue,
                            .iterations = i + 1,
                            .tolerance = detail::scaled_tolerance(beta, eig.spectral_diameter),
@@ -295,7 +296,7 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
                            .stop_reason = LanczosStopReason::InvariantSubspace};
     }
 
-    double const overlap = std::abs(dot(v[0], v[idx]));
+    double const overlap = std::abs(algebra.dot(v[0], v[idx]));
     if (overlap > options.orthogonality_tolerance)
     {
       auto eig = detail::lowest_eigenpair(detail::submatrix(sub_h, stride, idx), idx);
@@ -305,18 +306,18 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
       for (std::size_t j = 0; j < idx; ++j)
       {
         active_v.push_back(make_like(v[j]));
-        copy(v[j], active_v.back());
+        algebra.copy(v[j], active_v.back());
       }
-      auto y = detail::linear_combination(active_v, coefficients);
+      auto y = detail::linear_combination(algebra, active_v, coefficients);
       auto r = make_like(y);
-      copy(y, r);
-      scale(r, -eig.eigenvalue);
+      algebra.copy(y, r);
+      algebra.scale(r, -eig.eigenvalue);
       for (std::size_t j = 0; j < idx; ++j)
       {
-        axpy(coefficients[j], hv[j], r);
+        algebra.axpy(coefficients[j], hv[j], r);
       }
-      double const residual_norm = norm(r);
-      copy(y, guess);
+      double const residual_norm = algebra.norm(r);
+      algebra.copy(y, guess);
       return LanczosResult{.eigenvalue = eig.eigenvalue,
                            .iterations = i + 1,
                            .tolerance = detail::scaled_tolerance(residual_norm, eig.spectral_diameter),
@@ -326,20 +327,20 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
     }
 
     auto eig = detail::lowest_eigenpair(detail::submatrix(sub_h, stride, idx + 1), idx + 1);
-    auto y = detail::linear_combination(v, eig.eigenvector);
+    auto y = detail::linear_combination(algebra, v, eig.eigenvector);
     auto r = make_like(y);
-    copy(y, r);
-    scale(r, -eig.eigenvalue);
+    algebra.copy(y, r);
+    algebra.scale(r, -eig.eigenvalue);
     for (std::size_t j = 0; j <= idx; ++j)
     {
-      axpy(eig.eigenvector[j], hv[j], r);
+      algebra.axpy(eig.eigenvector[j], hv[j], r);
     }
-    double const residual_norm = norm(r);
+    double const residual_norm = algebra.norm(r);
     double const denominator = eig.spectral_diameter == 0.0 ? 1.0 : eig.spectral_diameter;
 
     if (residual_norm < std::abs(options.tolerance * eig.spectral_diameter) && i + 1 >= options.min_iterations)
     {
-      copy(y, guess);
+      algebra.copy(y, guess);
       return LanczosResult{.eigenvalue = eig.eigenvalue,
                            .iterations = i + 1,
                            .tolerance = residual_norm / denominator,
@@ -350,7 +351,7 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
 
     if (i == options.max_iterations - 1)
     {
-      copy(y, guess);
+      algebra.copy(y, guess);
       return LanczosResult{.eigenvalue = eig.eigenvalue,
                            .iterations = i + 1,
                            .tolerance = -residual_norm / denominator,

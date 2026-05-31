@@ -17,12 +17,15 @@
 #include "MatrixAllocator.hpp"
 #include "Swapper.hpp"
 
-static int getLeastBusyDevice(const std::vector<double> &flopsPerDevice) {
+static int getLeastBusyDevice(const std::vector<double>& flopsPerDevice)
+{
   int result = -1;
   double flops = std::numeric_limits<double>::max();
 
-  for (int deviceId = 0; deviceId < flopsPerDevice.size(); deviceId++) {
-    if (flopsPerDevice[deviceId] < flops) {
+  for (int deviceId = 0; deviceId < flopsPerDevice.size(); deviceId++)
+  {
+    if (flopsPerDevice[deviceId] < flops)
+    {
       flops = flopsPerDevice[deviceId];
       result = deviceId;
     }
@@ -31,11 +34,14 @@ static int getLeastBusyDevice(const std::vector<double> &flopsPerDevice) {
   return result;
 }
 
-namespace tensor {
+namespace tensor
+{
 
-Arranger::Arranger(Swapper &swapper) : swapper(swapper) {
+Arranger::Arranger(Swapper& swapper) : swapper(swapper)
+{
   CUDA_CALL(cudaGetDeviceCount(&deviceCount));
-  for (int i = 0; i < deviceCount; i++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
     streamManagers.emplace_back(swapper, i, deviceCount);
     worklistsForInterMat.emplace_back();
     worklistsForTheRest.emplace_back();
@@ -46,23 +52,22 @@ Arranger::Arranger(Swapper &swapper) : swapper(swapper) {
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
 
-  if (mpi_rank == 0) {
+  if (mpi_rank == 0)
+  {
     NCCL_CALL(ncclGetUniqueId(&ncclAllDeviceId));
   }
 
-  MPI_Bcast(&ncclAllDeviceId, sizeof(ncclUniqueId), MPI_BYTE, 0,
-            MPI_COMM_WORLD);
+  MPI_Bcast(&ncclAllDeviceId, sizeof(ncclUniqueId), MPI_BYTE, 0, MPI_COMM_WORLD);
   int total_ranks = deviceCount * mpi_size;
   DEBUG_NCCL_COMM_CREATE_START(mpi_rank, total_ranks, &ncclAllDeviceId);
   NCCL_CALL(ncclGroupStart());
-  for (int i = 0; i < deviceCount; i++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
     ncclComm_t comm;
     cudaSetDevice(i);
     int global_nccl_rank = mpi_rank * deviceCount + i;
-    NCCL_CALL(ncclCommInitRank(&comm, total_ranks, ncclAllDeviceId,
-                               global_nccl_rank));
-    DEBUG_NCCL_COMM_INIT(mpi_rank, i, global_nccl_rank, total_ranks, comm,
-                         &ncclAllDeviceId);
+    NCCL_CALL(ncclCommInitRank(&comm, total_ranks, ncclAllDeviceId, global_nccl_rank));
+    DEBUG_NCCL_COMM_INIT(mpi_rank, i, global_nccl_rank, total_ranks, comm, &ncclAllDeviceId);
     allDeviceComms.push_back(comm);
   }
   NCCL_CALL(ncclGroupEnd());
@@ -71,25 +76,37 @@ Arranger::Arranger(Swapper &swapper) : swapper(swapper) {
 
 Arranger::~Arranger() { releaseResources(); }
 
-void Arranger::preprocess(
-    const std::vector<Matrix> &rMats, const std::vector<Matrix> &aMats,
-    const std::vector<Matrix> &bMats, const std::vector<Matrix> &cMats,
-    const std::vector<TermTy> &fTerms, std::vector<bool> &shouldReuseInter,
-    std::vector<bool> &shouldCombineInter,
-    std::vector<bool> &shouldFinalizeInter, bool shouldAlloc) {
+void Arranger::ensureMemoryPoolsInitialized()
+{
+  if (memoryPoolsInitialized)
+  {
+    return;
+  }
+  swapper.initMemPools();
+  memoryPoolsInitialized = true;
+}
+
+void Arranger::preprocess(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
+                          const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
+                          const std::vector<TermTy>& fTerms, std::vector<bool>& shouldReuseInter,
+                          std::vector<bool>& shouldCombineInter, std::vector<bool>& shouldFinalizeInter,
+                          bool shouldAlloc)
+{
   shouldReuseInter.assign(fTerms.size(), false);
   shouldCombineInter.assign(fTerms.size(), false);
   shouldFinalizeInter.assign(fTerms.size(), false);
 
   // First pass: identify which matrices need to be allocated
-  std::vector<std::pair<int, int>> interDims;    // dimensions for interMats
-  std::vector<int> interIndices;                 // indices in interMats vector
-  std::vector<std::pair<int, int>> combineDims;  // dimensions for combineMats
-  std::vector<int> combineIndices;  // indices in combineMats vector
+  std::vector<std::pair<int, int>> interDims;   // dimensions for interMats
+  std::vector<int> interIndices;                // indices in interMats vector
+  std::vector<std::pair<int, int>> combineDims; // dimensions for combineMats
+  std::vector<int> combineIndices;              // indices in combineMats vector
 
   // Collect interMat dimensions
-  for (int i = 0; i < fTerms.size(); i++) {
-    if (shouldReuseInter[i]) {
+  for (int i = 0; i < fTerms.size(); i++)
+  {
+    if (shouldReuseInter[i])
+    {
       continue;
     }
 
@@ -99,39 +116,46 @@ void Arranger::preprocess(
     Matrix bMat = bMats[bIdx1];
     Matrix cMat = cMats[cIdx1];
 
-    for (int j = i + 1; j < fTerms.size(); j++) {
+    for (int j = i + 1; j < fTerms.size(); j++)
+    {
       int bIdx2 = std::get<2>(fTerms[j]);
       int cIdx2 = std::get<3>(fTerms[j]);
-      if (bIdx1 == bIdx2 && cIdx1 == cIdx2) {
+      if (bIdx1 == bIdx2 && cIdx1 == cIdx2)
+      {
         shouldReuseInter[i] = shouldReuseInter[j] = true;
       }
     }
 
-    if (shouldReuseInter[i]) {
+    if (shouldReuseInter[i])
+    {
       interDims.push_back({bMat.getFirstDim(), cMat.getSecondDim()});
       interIndices.push_back(i);
     }
   }
 
   // Collect combineMat dimensions
-  for (int i = fTerms.size() - 1; i >= 0; i--) {
-    if (shouldCombineInter[i]) {
+  for (int i = fTerms.size() - 1; i >= 0; i--)
+  {
+    if (shouldCombineInter[i])
+    {
       continue;
     }
 
     auto [rIdx1, aIdx1, bIdx, cIdx, fval] = fTerms[i];
 
-    for (int j = i - 1; j >= 0; j--) {
+    for (int j = i - 1; j >= 0; j--)
+    {
       int rIdx2 = std::get<0>(fTerms[j]);
       int aIdx2 = std::get<1>(fTerms[j]);
 
-      if (rIdx1 == rIdx2 && aIdx1 == aIdx2) {
-        shouldCombineInter[j] = shouldCombineInter[i] = shouldFinalizeInter[i] =
-            true;
+      if (rIdx1 == rIdx2 && aIdx1 == aIdx2)
+      {
+        shouldCombineInter[j] = shouldCombineInter[i] = shouldFinalizeInter[i] = true;
       }
     }
 
-    if (shouldFinalizeInter[i]) {
+    if (shouldFinalizeInter[i])
+    {
       Matrix bMat = bMats[bIdx];
       Matrix cMat = cMats[cIdx];
       combineDims.push_back({bMat.getFirstDim(), cMat.getSecondDim()});
@@ -140,15 +164,17 @@ void Arranger::preprocess(
   }
 
   // Second pass: allocate matrices in chunks if needed
-  if (shouldAlloc) {
+  if (shouldAlloc)
+  {
     // Allocate and initialize interMats
-    if (!interDims.empty()) {
-      for (size_t idx = 0; idx < interIndices.size(); ++idx) {
+    if (!interDims.empty())
+    {
+      for (size_t idx = 0; idx < interIndices.size(); ++idx)
+      {
         int termIdx = interIndices[idx];
         int bIdx = std::get<2>(fTerms[termIdx]);
         int cIdx = std::get<3>(fTerms[termIdx]);
-        Matrix mat(nullptr, bMats[bIdx].getFirstDim(),
-                   cMats[cIdx].getSecondDim());
+        Matrix mat(nullptr, bMats[bIdx].getFirstDim(), cMats[cIdx].getSecondDim());
         mat.setNodeId(mpi_rank);
         interMats.push_back(mat);
         interMatsIdx.push_back({bIdx, cIdx});
@@ -156,27 +182,28 @@ void Arranger::preprocess(
     }
 
     // Allocate and initialize combineMats
-    if (!combineDims.empty()) {
-      for (size_t idx = 0; idx < combineIndices.size(); ++idx) {
+    if (!combineDims.empty())
+    {
+      for (size_t idx = 0; idx < combineIndices.size(); ++idx)
+      {
         int termIdx = combineIndices[idx];
         auto [rIdx, aIdx, bIdx, cIdx, fval] = fTerms[termIdx];
         combineMats.push_back(
-            std::make_tuple(rIdx, aIdx,
-                            Matrix(nullptr, bMats[bIdx].getFirstDim(),
-                                   cMats[cIdx].getSecondDim())));
+            std::make_tuple(rIdx, aIdx, Matrix(nullptr, bMats[bIdx].getFirstDim(), cMats[cIdx].getSecondDim())));
       }
     }
   }
 }
 
-std::vector<Matrix> &Arranger::getInterMats() { return interMats; }
+std::vector<Matrix>& Arranger::getInterMats() { return interMats; }
 
-void Arranger::preStoreToDevice(const std::vector<Matrix> &aMats,
-                                const std::vector<Matrix> &bMats,
-                                const std::vector<Matrix> &cMats) {
+void Arranger::preStoreToDevice(const std::vector<Matrix>& aMats, const std::vector<Matrix>& bMats,
+                                const std::vector<Matrix>& cMats)
+{
   // Get available GPU memory for each device
   std::vector<size_t> availableMemory(deviceCount);
-  for (int i = 0; i < deviceCount; i++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
     CUDA_CALL(cudaSetDevice(i));
     size_t freeMemory;
     size_t totalMemory;
@@ -195,15 +222,18 @@ void Arranger::preStoreToDevice(const std::vector<Matrix> &aMats,
   // Simple policy: Round-robin assignment across devices
   int currentDeviceIdx = 0;
 
-  auto assignMatrixToDevice = [&](const std::vector<Matrix> &mats) {
-    for (auto mat : mats) {
+  auto assignMatrixToDevice = [&](const std::vector<Matrix>& mats) {
+    for (auto mat : mats)
+    {
       size_t matSize = mat.sizeInByte();
 
       // Find a device with enough available memory
       int assignedDevice = -1;
-      for (int attempt = 0; attempt < deviceCount; attempt++) {
+      for (int attempt = 0; attempt < deviceCount; attempt++)
+      {
         int deviceId = (currentDeviceIdx + attempt) % deviceCount;
-        if (usedMemory[deviceId] + matSize <= availableMemory[deviceId]) {
+        if (usedMemory[deviceId] + matSize <= availableMemory[deviceId])
+        {
           assignedDevice = deviceId;
           currentDeviceIdx = (deviceId + 1) % deviceCount;
           break;
@@ -211,9 +241,12 @@ void Arranger::preStoreToDevice(const std::vector<Matrix> &aMats,
       }
 
       // If no device has space, don't assign this matrix to GPU
-      if (assignedDevice == -1) {
+      if (assignedDevice == -1)
+      {
         matrixToDevice[mat.getId()] = -1;
-      } else {
+      }
+      else
+      {
         matrixToDevice[mat.getId()] = assignedDevice;
         usedMemory[assignedDevice] += matSize;
       }
@@ -226,9 +259,11 @@ void Arranger::preStoreToDevice(const std::vector<Matrix> &aMats,
   assignMatrixToDevice(bMats);
   assignMatrixToDevice(cMats);
 
-  auto copyMatrix = [&](const std::vector<Matrix> &mats) {
-    for (auto &mat : mats) {
-      if (int deviceId = matrixToDevice[mat.getId()]; deviceId != -1) {
+  auto copyMatrix = [&](const std::vector<Matrix>& mats) {
+    for (auto& mat : mats)
+    {
+      if (int deviceId = matrixToDevice[mat.getId()]; deviceId != -1)
+      {
         cudaSetDevice(deviceId);
         swapper.preStoreMatrix(mat, deviceId);
       }
@@ -240,23 +275,23 @@ void Arranger::preStoreToDevice(const std::vector<Matrix> &aMats,
   copyMatrix(bMats);
   copyMatrix(cMats);
 
-  for (int i = 0; i < deviceCount; i++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
     swapper.syncMemStream(i);
   }
-  CUDA_CALL(cudaSetDevice(0));  // Reset to device 0
+  CUDA_CALL(cudaSetDevice(0)); // Reset to device 0
 }
 
-void Arranger::calculateRFlops(const std::vector<TermTy> &fTerms,
-                               const std::vector<Matrix> &rMats,
-                               const std::vector<Matrix> &aMats,
-                               const std::vector<Matrix> &bMats,
-                               const std::vector<Matrix> &cMats,
-                               const std::vector<bool> &shouldReuseInter,
-                               const std::vector<bool> &shouldCombineInter,
-                               const std::vector<bool> &shouldFinalizeInter) {
+void Arranger::calculateRFlops(const std::vector<TermTy>& fTerms, const std::vector<Matrix>& rMats,
+                               const std::vector<Matrix>& aMats, const std::vector<Matrix>& bMats,
+                               const std::vector<Matrix>& cMats, const std::vector<bool>& shouldReuseInter,
+                               const std::vector<bool>& shouldCombineInter,
+                               const std::vector<bool>& shouldFinalizeInter)
+{
   rFlops.assign(rMats.size(), 0.0);
 
-  for (int i = 0; i < fTerms.size(); i++) {
+  for (int i = 0; i < fTerms.size(); i++)
+  {
     double flops = 0.0;
     auto [rIdx, aIdx, bIdx, cIdx, fval] = fTerms[i];
     bool shouldReuse = shouldReuseInter[i];
@@ -268,111 +303,117 @@ void Arranger::calculateRFlops(const std::vector<TermTy> &fTerms,
     auto bMat = bMats[bIdx];
     auto cMat = cMats[cIdx];
 
-    if (!shouldReuse) {
+    if (!shouldReuse)
+    {
       flops += bMat.getFirstDim() * cMat.getSecondDim() * bMat.getSecondDim();
     }
 
-    if (shouldCombine) {
+    if (shouldCombine)
+    {
       flops += 2.0 * bMat.getFirstDim() * cMat.getSecondDim();
 
-      if (shouldFinalize) {
-        flops += rMat.size() +
-                 aMat.getFirstDim() * cMat.getSecondDim() * aMat.getSecondDim();
+      if (shouldFinalize)
+      {
+        flops += rMat.size() + aMat.getFirstDim() * cMat.getSecondDim() * aMat.getSecondDim();
       }
-    } else {
-      flops += 2.0 * rMat.size() +
-               aMat.getFirstDim() * cMat.getSecondDim() * aMat.getSecondDim();
+    }
+    else
+    {
+      flops += 2.0 * rMat.size() + aMat.getFirstDim() * cMat.getSecondDim() * aMat.getSecondDim();
     }
 
     rFlops[rIdx] += flops;
   }
 }
 
-void Arranger::enableP2PPeerAccess() {
+void Arranger::enableP2PPeerAccess()
+{
   // Enable P2P access between all device pairs for direct GPU-to-GPU
   // communication
-  for (int i = 0; i < deviceCount; i++) {
-    for (int j = 0; j < deviceCount; j++) {
-      if (i != j) {
+  for (int i = 0; i < deviceCount; i++)
+  {
+    for (int j = 0; j < deviceCount; j++)
+    {
+      if (i != j)
+      {
         int canAccess;
         CUDA_CALL(cudaDeviceCanAccessPeer(&canAccess, i, j));
         DEBUG_P2P_AVAILABLE(i, j, canAccess);
-        if (canAccess) {
+        if (canAccess)
+        {
           CUDA_CALL(cudaSetDevice(i));
           // Ignore error if P2P is already enabled
           cudaError_t err = cudaDeviceEnablePeerAccess(j, 0);
-          DEBUG_P2P_ENABLED(
-              i, j,
-              (err == cudaSuccess || err == cudaErrorPeerAccessAlreadyEnabled));
-          cudaGetLastError();  // Clear any error state
+          DEBUG_P2P_ENABLED(i, j, (err == cudaSuccess || err == cudaErrorPeerAccessAlreadyEnabled));
+          cudaGetLastError(); // Clear any error state
         }
       }
     }
   }
 
   // Configure memory pool access for P2P transfers
-  for (int i = 0; i < deviceCount; i++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
     cudaSetDevice(i);
 
     // Get the default memory pool for this device
     cudaMemPool_t pool;
     CUDA_CALL(cudaDeviceGetDefaultMemPool(&pool, i));
 
-    for (int j = 0; j < deviceCount; j++) {
-      if (i == j) continue;  // Skip self
+    for (int j = 0; j < deviceCount; j++)
+    {
+      if (i == j) continue; // Skip self
 
       int canAccess;
       CUDA_CALL(cudaDeviceCanAccessPeer(&canAccess, i, j));
 
-      if (canAccess) {
+      if (canAccess)
+      {
         DEBUG_P2P_AVAILABLE(i, j, canAccess);
         cudaMemAccessDesc desc = {};
         desc.location.type = cudaMemLocationTypeDevice;
         desc.location.id = j;
         desc.flags = cudaMemAccessFlagsProtReadWrite;
         cudaError_t err = cudaMemPoolSetAccess(pool, &desc, 1);
-        DEBUG_P2P_ENABLED(
-            i, j,
-            (err == cudaSuccess || err == cudaErrorPeerAccessAlreadyEnabled));
+        DEBUG_P2P_ENABLED(i, j, (err == cudaSuccess || err == cudaErrorPeerAccessAlreadyEnabled));
       }
     }
   }
 }
 
-void Arranger::analyzeComputation(const std::vector<Matrix> &rMats,
-                                  const std::vector<Matrix> &aMats,
-                                  const std::vector<Matrix> &bMats,
-                                  const std::vector<Matrix> &cMats,
-                                  const std::vector<TermTy> &fTerms) {
-  CUDA_CALL(cudaSetDevice(0));  // Reset to device 0
+void Arranger::analyzeComputation(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
+                                  const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
+                                  const std::vector<TermTy>& fTerms)
+{
+  CUDA_CALL(cudaSetDevice(0)); // Reset to device 0
 
   sortedFTerms = fTerms;
 
-  preprocess(rMats, aMats, bMats, cMats, fTerms, shouldReuseInter,
-             shouldCombineInter, shouldFinalizeInter, /*shouldAlloc=*/false);
+  preprocess(rMats, aMats, bMats, cMats, fTerms, shouldReuseInter, shouldCombineInter, shouldFinalizeInter,
+             /*shouldAlloc=*/false);
 
-  calculateRFlops(fTerms, rMats, aMats, bMats, cMats, shouldReuseInter,
-                  shouldCombineInter, shouldFinalizeInter);
+  calculateRFlops(fTerms, rMats, aMats, bMats, cMats, shouldReuseInter, shouldCombineInter, shouldFinalizeInter);
 
-  std::sort(sortedFTerms.begin(), sortedFTerms.end(),
-            [&](const TermTy &term1, const TermTy &term2) {
-              int rIdx1 = std::get<0>(term1);
-              int aIdx1 = std::get<1>(term1);
-              int rIdx2 = std::get<0>(term2);
-              int aIdx2 = std::get<1>(term2);
-              if (rFlops[rIdx1] != rFlops[rIdx2]) {
-                return rFlops[rIdx1] > rFlops[rIdx2];
-              }
+  std::sort(sortedFTerms.begin(), sortedFTerms.end(), [&](const TermTy& term1, const TermTy& term2) {
+    int rIdx1 = std::get<0>(term1);
+    int aIdx1 = std::get<1>(term1);
+    int rIdx2 = std::get<0>(term2);
+    int aIdx2 = std::get<1>(term2);
+    if (rFlops[rIdx1] != rFlops[rIdx2])
+    {
+      return rFlops[rIdx1] > rFlops[rIdx2];
+    }
 
-              if (rIdx1 != rIdx2) {
-                return rIdx1 < rIdx2;
-              }
+    if (rIdx1 != rIdx2)
+    {
+      return rIdx1 < rIdx2;
+    }
 
-              return aIdx1 < aIdx2;
-            });
+    return aIdx1 < aIdx2;
+  });
 
-  preprocess(rMats, aMats, bMats, cMats, sortedFTerms, shouldReuseInter,
-             shouldCombineInter, shouldFinalizeInter, /*shouldAlloc=*/true);
+  preprocess(rMats, aMats, bMats, cMats, sortedFTerms, shouldReuseInter, shouldCombineInter, shouldFinalizeInter,
+             /*shouldAlloc=*/true);
 
   // Sort interMats and interMatsIdx together by flops (descending)
   std::vector<int> sortOrder(interMats.size());
@@ -381,17 +422,16 @@ void Arranger::analyzeComputation(const std::vector<Matrix> &rMats,
     auto [bIdx1, cIdx1] = interMatsIdx[i];
     auto [bIdx2, cIdx2] = interMatsIdx[j];
 
-    double flops1 = (double)bMats[bIdx1].getFirstDim() *
-                    bMats[bIdx1].getSecondDim() * cMats[cIdx1].getSecondDim();
+    double flops1 = (double)bMats[bIdx1].getFirstDim() * bMats[bIdx1].getSecondDim() * cMats[cIdx1].getSecondDim();
 
-    double flops2 = (double)bMats[bIdx2].getFirstDim() *
-                    bMats[bIdx2].getSecondDim() * cMats[cIdx2].getSecondDim();
+    double flops2 = (double)bMats[bIdx2].getFirstDim() * bMats[bIdx2].getSecondDim() * cMats[cIdx2].getSecondDim();
     return flops1 > flops2;
   });
   {
     std::vector<Matrix> sortedMats(interMats.size());
     std::vector<std::pair<int, int>> sortedIdx(interMatsIdx.size());
-    for (int i = 0; i < sortOrder.size(); i++) {
+    for (int i = 0; i < sortOrder.size(); i++)
+    {
       sortedMats[i] = interMats[sortOrder[i]];
       sortedIdx[i] = interMatsIdx[sortOrder[i]];
     }
@@ -402,13 +442,12 @@ void Arranger::analyzeComputation(const std::vector<Matrix> &rMats,
 #if DEBUG_LOG
   initializeDebugInfo(rMats, aMats, bMats, cMats);
 #endif
-  swapper.initMemPools();
+  ensureMemoryPoolsInitialized();
 }
 
-void Arranger::compileWorklists(const std::vector<Matrix> &rMats,
-                                const std::vector<Matrix> &aMats,
-                                const std::vector<Matrix> &bMats,
-                                const std::vector<Matrix> &cMats) {
+void Arranger::compileWorklists(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
+                                const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats)
+{
   std::vector<double> flopsPerDevice(deviceCount, 0.0);
 
   // The contraction is split into two parts:
@@ -420,29 +459,36 @@ void Arranger::compileWorklists(const std::vector<Matrix> &rMats,
   buildLiveInterval(worklistsForTheRest, liveIntervalsForTheRest);
 }
 
-void Arranger::buildLiveInterval(std::vector<WorklistTy> &worklists,
-                                 std::vector<LiveIntervalMap> &liveIntervals) {
+void Arranger::buildLiveInterval(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals)
+{
   liveIntervals.resize(worklists.size());
 
-  for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+  {
     std::unordered_map<Matrix, std::pair<int, int>> matToIntervalMap;
-    auto &worklist = worklists[deviceId];
-    auto &intervals = liveIntervals[deviceId];
+    auto& worklist = worklists[deviceId];
+    auto& intervals = liveIntervals[deviceId];
     intervals.clear();
-    for (int i = 0; i < (int)worklist.size(); i++) {
+    for (int i = 0; i < (int)worklist.size(); i++)
+    {
       auto matWork = std::dynamic_pointer_cast<MatWorkBase>(worklist[i]);
       if (!matWork) continue;
-      for (const auto &mat : matWork->getMatrices()) {
+      for (const auto& mat : matWork->getMatrices())
+      {
         auto it = matToIntervalMap.find(mat);
-        if (it == matToIntervalMap.end()) {
+        if (it == matToIntervalMap.end())
+        {
           matToIntervalMap[mat] = {i, i};
-        } else {
+        }
+        else
+        {
           it->second.second = i;
         }
       }
     }
 
-    for (auto [mat, interval] : matToIntervalMap) {
+    for (auto [mat, interval] : matToIntervalMap)
+    {
       intervals.push_back({interval.first, interval.second, mat});
     }
 
@@ -450,11 +496,12 @@ void Arranger::buildLiveInterval(std::vector<WorklistTy> &worklists,
   }
 }
 
-void Arranger::compileWorklistsForInterMat(
-    const std::vector<Matrix> &rMats, const std::vector<Matrix> &aMats,
-    const std::vector<Matrix> &bMats, const std::vector<Matrix> &cMats,
-    std::vector<double> &flopsPerDevice) {
-  for (int i = 0; i < interMats.size(); i++) {
+void Arranger::compileWorklistsForInterMat(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
+                                           const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
+                                           std::vector<double>& flopsPerDevice)
+{
+  for (int i = 0; i < interMats.size(); i++)
+  {
     auto [bIdx, cIdx] = interMatsIdx[i];
     Matrix interMat = interMats[i];
     Matrix bMat = bMats[bIdx];
@@ -462,62 +509,61 @@ void Arranger::compileWorklistsForInterMat(
 
     int leastBusyDeviceId = getLeastBusyDevice(flopsPerDevice);
     cudaSetDevice(leastBusyDeviceId);
-    auto &worklist = worklistsForInterMat[leastBusyDeviceId];
-    auto &streamManager = streamManagers[leastBusyDeviceId];
+    auto& worklist = worklistsForInterMat[leastBusyDeviceId];
+    auto& streamManager = streamManagers[leastBusyDeviceId];
 
     cudaEvent_t syncFinishEvent = createSyncFinishEvent();
     matToSyncFinishEventMap[interMat.getId()] = syncFinishEvent;
 
+    worklist.push_back(createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0, streamManager, swapper));
     worklist.push_back(
-        createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0,
-                               streamManager, swapper));
-    worklist.push_back(createWork<SyncWork>(std::vector<Matrix>{interMat}, 0.0,
-                                            streamManager, swapper,
-                                            syncFinishEvent));
-    flopsPerDevice[leastBusyDeviceId] += (double)bMat.getFirstDim() *
-                                         (double)cMat.getSecondDim() *
-                                         (double)bMat.getSecondDim();
+        createWork<SyncWork>(std::vector<Matrix>{interMat}, 0.0, streamManager, swapper, syncFinishEvent));
+    flopsPerDevice[leastBusyDeviceId] +=
+        (double)bMat.getFirstDim() * (double)cMat.getSecondDim() * (double)bMat.getSecondDim();
   }
 }
 
 #if DEBUG_LOG
-void Arranger::initializeDebugInfo(const std::vector<Matrix> &rMats,
-                                   const std::vector<Matrix> &aMats,
-                                   const std::vector<Matrix> &bMats,
-                                   const std::vector<Matrix> &cMats) {
-  for (int i = 0; i < rMats.size(); i++) {
+void Arranger::initializeDebugInfo(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
+                                   const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats)
+{
+  for (int i = 0; i < rMats.size(); i++)
+  {
     swapper.setMatrixName(rMats[i], "R" + std::to_string(i));
   }
-  for (int i = 0; i < aMats.size(); i++) {
+  for (int i = 0; i < aMats.size(); i++)
+  {
     swapper.setMatrixName(aMats[i], "A" + std::to_string(i));
   }
-  for (int i = 0; i < bMats.size(); i++) {
+  for (int i = 0; i < bMats.size(); i++)
+  {
     swapper.setMatrixName(bMats[i], "B" + std::to_string(i));
   }
-  for (int i = 0; i < cMats.size(); i++) {
+  for (int i = 0; i < cMats.size(); i++)
+  {
     swapper.setMatrixName(cMats[i], "C" + std::to_string(i));
   }
-  for (int i = 0; i < interMats.size(); i++) {
+  for (int i = 0; i < interMats.size(); i++)
+  {
     swapper.setMatrixName(interMats[i], "inter" + std::to_string(i));
   }
 }
 #endif
 
-void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd,
-                                 const Matrix rMat,
-                                 const std::vector<Matrix> &aMats,
-                                 const std::vector<Matrix> &bMats,
-                                 const std::vector<Matrix> &cMats,
-                                 std::vector<double> &flopsPerDevice) {
+void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rMat, const std::vector<Matrix>& aMats,
+                                 const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
+                                 std::vector<double>& flopsPerDevice)
+{
   Matrix combineMat;
   bool shouldMemsetCombineMat = true;
   bool shouldAddAccuRMat = false;
 
   int currentDeviceId = getLeastBusyDevice(flopsPerDevice);
-  StreamManager &streamManager = streamManagers[currentDeviceId];
-  WorklistTy &worklist = worklistsForTheRest[currentDeviceId];
+  StreamManager& streamManager = streamManagers[currentDeviceId];
+  WorklistTy& worklist = worklistsForTheRest[currentDeviceId];
 
-  for (int i = fTermsStart; i < fTermsEnd; i++) {
+  for (int i = fTermsStart; i < fTermsEnd; i++)
+  {
     double flops = 0.0;
     int rIdx = std::get<0>(sortedFTerms[i]);
     int aIdx = std::get<1>(sortedFTerms[i]);
@@ -536,34 +582,36 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd,
     Matrix interMat(nullptr, bMat.getFirstDim(), cMat.getSecondDim());
     cudaEvent_t syncFinishEvent = nullptr;
 
-    if (shouldReuse) {
-      auto it = std::find_if(interMatsIdx.begin(), interMatsIdx.end(),
-                             [bIdx, cIdx](const std::pair<int, int> &elem) {
-                               return elem.first == bIdx && elem.second == cIdx;
-                             });
+    if (shouldReuse)
+    {
+      auto it = std::find_if(interMatsIdx.begin(), interMatsIdx.end(), [bIdx, cIdx](const std::pair<int, int>& elem) {
+        return elem.first == bIdx && elem.second == cIdx;
+      });
       assert(it != interMatsIdx.end() && "No intermediate result found");
       interMat = interMats[it - interMatsIdx.begin()];
       syncFinishEvent = matToSyncFinishEventMap.find(interMat.getId())->second;
-    } else {
+    }
+    else
+    {
       flops += bMat.getFirstDim() * cMat.getSecondDim() * bMat.getSecondDim();
       worklist.push_back(
-          createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0,
-                                 streamManager, swapper));
+          createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0, streamManager, swapper));
     }
 
-    if (shouldCombine) {
-      if (shouldMemsetCombineMat) {
+    if (shouldCombine)
+    {
+      if (shouldMemsetCombineMat)
+      {
         combineMat = Matrix(nullptr, bMat.getFirstDim(), cMat.getSecondDim());
-        worklist.push_back(createWork<MemsetWork>(
-            std::vector<Matrix>{combineMat}, 0.0, streamManager, swapper));
+        worklist.push_back(createWork<MemsetWork>(std::vector<Matrix>{combineMat}, 0.0, streamManager, swapper));
         shouldMemsetCombineMat = false;
       }
       flops += 2 * interMat.size();
-      worklist.push_back(createWork<AddAccuWork>(
-          std::vector<Matrix>{combineMat, interMat}, fval, streamManager,
-          swapper, syncFinishEvent));
+      worklist.push_back(createWork<AddAccuWork>(std::vector<Matrix>{combineMat, interMat}, fval, streamManager,
+                                                 swapper, syncFinishEvent));
 
-      if (!shouldFinalize) {
+      if (!shouldFinalize)
+      {
         // Not finalizing yet, skip R accumulation
         flopsPerDevice[currentDeviceId] += flops;
         continue;
@@ -573,78 +621,84 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd,
       fval = 1.0;
     }
 
-    if (shouldAddAccuRMat) {
-      flops +=
-          aMat.getFirstDim() * interMat.getSecondDim() * aMat.getSecondDim() +
-          2 * rMat.size();
-      worklist.push_back(createWork<MatMulAccuWork>(
-          std::vector<Matrix>{rMat, aMat, interMat}, fval, streamManager,
-          swapper, syncFinishEvent));
-    } else {
-      flops +=
-          aMat.getFirstDim() * interMat.getSecondDim() * aMat.getSecondDim();
-      worklist.push_back(createWork<MatMulWork>(
-          std::vector<Matrix>{rMat, aMat, interMat}, fval, streamManager,
-          swapper, syncFinishEvent));
+    if (shouldAddAccuRMat)
+    {
+      flops += aMat.getFirstDim() * interMat.getSecondDim() * aMat.getSecondDim() + 2 * rMat.size();
+      worklist.push_back(createWork<MatMulAccuWork>(std::vector<Matrix>{rMat, aMat, interMat}, fval, streamManager,
+                                                    swapper, syncFinishEvent));
+    }
+    else
+    {
+      flops += aMat.getFirstDim() * interMat.getSecondDim() * aMat.getSecondDim();
+      worklist.push_back(createWork<MatMulWork>(std::vector<Matrix>{rMat, aMat, interMat}, fval, streamManager, swapper,
+                                                syncFinishEvent));
       shouldAddAccuRMat = true;
     }
 
     flopsPerDevice[currentDeviceId] += flops;
   }
 
-  worklistsForTheRest[currentDeviceId].push_back(createWork<SyncWork>(
-      std::vector<Matrix>{rMat}, 0.0, streamManager, swapper));
+  worklistsForTheRest[currentDeviceId].push_back(
+      createWork<SyncWork>(std::vector<Matrix>{rMat}, 0.0, streamManager, swapper));
 }
 
-void Arranger::compileWorklistsForTheRest(const std::vector<Matrix> &rMats,
-                                          const std::vector<Matrix> &aMats,
-                                          const std::vector<Matrix> &bMats,
-                                          const std::vector<Matrix> &cMats,
-                                          std::vector<double> &flopsPerDevice) {
-  for (int i = 0; i < sortedFTerms.size();) {
+void Arranger::compileWorklistsForTheRest(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
+                                          const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
+                                          std::vector<double>& flopsPerDevice)
+{
+  for (int i = 0; i < sortedFTerms.size();)
+  {
     int fTermsStart = i;
     int fTermsEnd = i;
 
     while (fTermsEnd < sortedFTerms.size() &&
-           std::get<0>(sortedFTerms[fTermsEnd]) ==
-               std::get<0>(sortedFTerms[fTermsStart])) {
+           std::get<0>(sortedFTerms[fTermsEnd]) == std::get<0>(sortedFTerms[fTermsStart]))
+    {
       fTermsEnd++;
     }
 
     int rIdx = std::get<0>(sortedFTerms[fTermsStart]);
-    compileForSingleR(fTermsStart, fTermsEnd, rMats[rIdx], aMats, bMats, cMats,
-                      flopsPerDevice);
+    compileForSingleR(fTermsStart, fTermsEnd, rMats[rIdx], aMats, bMats, cMats, flopsPerDevice);
     i = fTermsEnd;
   }
 }
 
-cudaEvent_t Arranger::createSyncFinishEvent() {
+cudaEvent_t Arranger::createSyncFinishEvent()
+{
   cudaEvent_t event;
   CUDA_CALL(cudaEventCreate(&event));
   syncFinishEvents.push_back(event);
   return event;
 }
 
-static std::unordered_set<Matrix> estimateAllocateableMatrices(
-    const Arranger::WorklistTy &worklist, size_t freeMem, int currentIdx) {
+static std::unordered_set<Matrix> estimateAllocateableMatrices(const Arranger::WorklistTy& worklist, size_t freeMem,
+                                                               int currentIdx)
+{
   std::unordered_set<Matrix> allocateableMatrices;
   size_t accuSize = 0;
 
   // estimate which matrices could possibly be allocated.
-  for (int i = currentIdx; i < worklist.size(); i++) {
+  for (int i = currentIdx; i < worklist.size(); i++)
+  {
     auto matWork = std::dynamic_pointer_cast<MatWorkBase>(worklist[i]);
-    if (!matWork) {
+    if (!matWork)
+    {
       continue;
     }
 
-    for (auto mat : matWork->getMatrices()) {
-      if (allocateableMatrices.find(mat) != allocateableMatrices.end()) {
+    for (auto mat : matWork->getMatrices())
+    {
+      if (allocateableMatrices.find(mat) != allocateableMatrices.end())
+      {
         continue;
       }
-      if (accuSize + mat.sizeInByte() < freeMem) {
+      if (accuSize + mat.sizeInByte() < freeMem)
+      {
         allocateableMatrices.insert(mat);
         accuSize += mat.sizeInByte();
-      } else {
+      }
+      else
+      {
         return allocateableMatrices;
       }
     }
@@ -653,16 +707,15 @@ static std::unordered_set<Matrix> estimateAllocateableMatrices(
   return allocateableMatrices;
 }
 
-void Arranger::mpiExchangeCopies(
-    const std::vector<std::vector<int>> &tokensNeededFromRank,
-    const std::unordered_map<int, Matrix> &neededMatMap) {
+void Arranger::mpiExchangeCopies(const std::vector<std::vector<int>>& tokensNeededFromRank,
+                                 const std::unordered_map<int, Matrix>& neededMatMap)
+{
   std::vector<int> requestCounts(mpi_size, 0);
   for (int r = 0; r < mpi_size; r++)
     requestCounts[r] = tokensNeededFromRank[r].size();
 
   std::vector<int> supplyToOther(mpi_size, 0);
-  MPI_Alltoall(requestCounts.data(), 1, MPI_INT, supplyToOther.data(), 1,
-               MPI_INT, MPI_COMM_WORLD);
+  MPI_Alltoall(requestCounts.data(), 1, MPI_INT, supplyToOther.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
   std::vector<int> sendDispls(mpi_size, 0);
   for (int i = 1; i < mpi_size; i++)
@@ -670,7 +723,8 @@ void Arranger::mpiExchangeCopies(
   int totalRequest = sendDispls.back() + requestCounts.back();
 
   std::vector<int> sendTokens(totalRequest);
-  for (int r = 0; r < mpi_size; r++) {
+  for (int r = 0; r < mpi_size; r++)
+  {
     int offset = sendDispls[r];
     for (int k = 0; k < (int)tokensNeededFromRank[r].size(); k++)
       sendTokens[offset + k] = tokensNeededFromRank[r][k];
@@ -682,30 +736,31 @@ void Arranger::mpiExchangeCopies(
   int totalSupply = recvDispls.back() + supplyToOther.back();
 
   std::vector<int> recvTokens(totalSupply);
-  MPI_Alltoallv(sendTokens.data(), requestCounts.data(), sendDispls.data(),
-                MPI_INT, recvTokens.data(), supplyToOther.data(),
-                recvDispls.data(), MPI_INT, MPI_COMM_WORLD);
+  MPI_Alltoallv(sendTokens.data(), requestCounts.data(), sendDispls.data(), MPI_INT, recvTokens.data(),
+                supplyToOther.data(), recvDispls.data(), MPI_INT, MPI_COMM_WORLD);
 
   std::vector<MPI_Request> requests;
 
-  for (int r = 0; r < mpi_size; r++) {
+  for (int r = 0; r < mpi_size; r++)
+  {
     int base = recvDispls[r];
-    for (int k = 0; k < supplyToOther[r]; k++) {
+    for (int k = 0; k < supplyToOther[r]; k++)
+    {
       int token = recvTokens[base + k];
       auto m = localMats.at(token);
       MPI_Request req;
-      MPI_Isend(m.getPtr(), m.size(), MPI_DOUBLE, r, token, MPI_COMM_WORLD,
-                &req);
+      MPI_Isend(m.getPtr(), m.size(), MPI_DOUBLE, r, token, MPI_COMM_WORLD, &req);
       requests.push_back(req);
     }
   }
 
-  for (int r = 0; r < mpi_size; r++) {
-    for (int token : tokensNeededFromRank[r]) {
+  for (int r = 0; r < mpi_size; r++)
+  {
+    for (int token : tokensNeededFromRank[r])
+    {
       auto m = neededMatMap.at(token);
       MPI_Request req;
-      MPI_Irecv(m.getPtr(), m.size(), MPI_DOUBLE, r, token, MPI_COMM_WORLD,
-                &req);
+      MPI_Irecv(m.getPtr(), m.size(), MPI_DOUBLE, r, token, MPI_COMM_WORLD, &req);
       requests.push_back(req);
     }
   }
@@ -713,15 +768,15 @@ void Arranger::mpiExchangeCopies(
   MPI_Waitall(requests.size(), requests.data(), MPI_STATUSES_IGNORE);
 }
 
-void Arranger::preCopyMatrices(std::vector<Matrix> &aMats,
-                               std::vector<Matrix> &bMats,
-                               std::vector<Matrix> &cMats,
-                               MatrixAllocator &allocator) {
+void Arranger::preCopyMatrices(std::vector<Matrix>& aMats, std::vector<Matrix>& bMats, std::vector<Matrix>& cMats,
+                               MatrixAllocator& allocator)
+{
   if (mpi_size <= 1) return;
 
   // 1. Analyze sortedFTerms to know which matrices are needed.
   std::set<int> neededAIdx, neededBIdx, neededCIdx;
-  for (const auto &term : sortedFTerms) {
+  for (const auto& term : sortedFTerms)
+  {
     neededAIdx.insert(std::get<1>(term));
     neededBIdx.insert(std::get<2>(term));
     neededCIdx.insert(std::get<3>(term));
@@ -733,10 +788,10 @@ void Arranger::preCopyMatrices(std::vector<Matrix> &aMats,
   //   c. locate on other node's CPU ===> We need to copy it to this node!
   std::vector<std::vector<Matrix>> matsFromRank(mpi_size);
 
-  auto collectRemoteCpuMats = [&](std::vector<Matrix> &mats,
-                                  const std::set<int> &needed) {
-    for (int idx : needed) {
-      Matrix &mat = mats[idx];
+  auto collectRemoteCpuMats = [&](std::vector<Matrix>& mats, const std::set<int>& needed) {
+    for (int idx : needed)
+    {
+      Matrix& mat = mats[idx];
       int owner = mat.getNodeId();
       if (owner == mpi_rank) continue;
       if (swapper.isOnRemoteGpu(mat.getId())) continue;
@@ -752,13 +807,15 @@ void Arranger::preCopyMatrices(std::vector<Matrix> &aMats,
   // setPtr propagates to originals in aMats/bMats/cMats via shared impl
   std::vector<Matrix> incomingMats;
   for (int r = 0; r < mpi_size; r++)
-    for (Matrix mat : matsFromRank[r]) incomingMats.push_back(mat);
+    for (Matrix mat : matsFromRank[r])
+      incomingMats.push_back(mat);
   if (!incomingMats.empty()) allocator.allocateMatrices(incomingMats);
 
   std::vector<std::vector<int>> tokensNeededFromRank(mpi_size);
   std::unordered_map<int, Matrix> neededMatMap;
   for (int r = 0; r < mpi_size; r++)
-    for (Matrix mat : matsFromRank[r]) {
+    for (Matrix mat : matsFromRank[r])
+    {
       tokensNeededFromRank[r].push_back(mat.getId());
       neededMatMap[mat.getId()] = mat;
     }
@@ -766,37 +823,42 @@ void Arranger::preCopyMatrices(std::vector<Matrix> &aMats,
   mpiExchangeCopies(tokensNeededFromRank, neededMatMap);
 }
 
-static std::vector<Matrix> allocateMatrices(
-    const Arranger::WorklistTy &worklist, int &endIdx, int deviceId,
-    Swapper &swapper) {
+static std::vector<Matrix> allocateMatrices(const Arranger::WorklistTy& worklist, int& endIdx, int deviceId,
+                                            Swapper& swapper)
+{
   std::vector<Matrix> matricesToCopy;
 
-  for (; endIdx < worklist.size(); endIdx++) {
+  for (; endIdx < worklist.size(); endIdx++)
+  {
     auto matWork = std::dynamic_pointer_cast<MatWorkBase>(worklist[endIdx]);
-    if (!matWork) {
+    if (!matWork)
+    {
       continue;
     }
 
-    for (auto mat : matWork->getMatrices()) {
-      if (!swapper.getGpuBufferOrNone(mat, deviceId)) {
+    for (auto mat : matWork->getMatrices())
+    {
+      if (!swapper.getGpuBufferOrNone(mat, deviceId))
+      {
         auto buffer = swapper.allocate(mat, deviceId);
-        if (buffer == nullptr) {
+        if (buffer == nullptr)
+        {
           return matricesToCopy;
         }
 
-        bool isResultOfMatMul =
-            std::dynamic_pointer_cast<MatMulWork>(matWork) &&
-            mat == matWork->getMatrices()[0];
-        bool isResultOfMemset =
-            std::dynamic_pointer_cast<MemsetWork>(matWork) &&
-            mat == matWork->getMatrices()[0];
+        bool isResultOfMatMul = std::dynamic_pointer_cast<MatMulWork>(matWork) && mat == matWork->getMatrices()[0];
+        bool isResultOfMemset = std::dynamic_pointer_cast<MemsetWork>(matWork) && mat == matWork->getMatrices()[0];
 
-        if (!isResultOfMatMul && !isResultOfMemset) {
+        if (!isResultOfMatMul && !isResultOfMemset)
+        {
           matricesToCopy.push_back(mat);
         }
-      } else {
+      }
+      else
+      {
         auto [id, buffer] = swapper.getPreStoreBufferOrNone(mat);
-        if (buffer != nullptr && id == deviceId) {
+        if (buffer != nullptr && id == deviceId)
+        {
           DEBUG_HIT(swapper, mat.getId(), deviceId, mat.sizeInByte());
         }
       }
@@ -806,12 +868,14 @@ static std::vector<Matrix> allocateMatrices(
   return matricesToCopy;
 }
 
-static void analyzeLiveMatrices(
-    Arranger::WorklistTy &worklist, int currentIdx,
-    std::unordered_set<Matrix> &unfreeableMatrices,
-    const Arranger::LiveIntervalMap &liveIntervalMap) {
-  for (const auto &[firstUse, lastUse, mat] : liveIntervalMap) {
-    if (firstUse < currentIdx && lastUse >= currentIdx) {
+static void analyzeLiveMatrices(Arranger::WorklistTy& worklist, int currentIdx,
+                                std::unordered_set<Matrix>& unfreeableMatrices,
+                                const Arranger::LiveIntervalMap& liveIntervalMap)
+{
+  for (const auto& [firstUse, lastUse, mat] : liveIntervalMap)
+  {
+    if (firstUse < currentIdx && lastUse >= currentIdx)
+    {
       unfreeableMatrices.insert(mat);
     }
   }
@@ -819,22 +883,23 @@ static void analyzeLiveMatrices(
 
 // Free unused matrices and allocate buffers for the next batch of work.
 // Returns the list of matrices that need to be copied to this device.
-static std::vector<Matrix> freeAndAllocate(
-    int deviceId, Arranger::WorklistTy &worklist, int &endIdx, size_t freeMem,
-    Swapper &swapper, const Arranger::LiveIntervalMap &liveIntervalMap) {
+static std::vector<Matrix> freeAndAllocate(int deviceId, Arranger::WorklistTy& worklist, int& endIdx, size_t freeMem,
+                                           Swapper& swapper, const Arranger::LiveIntervalMap& liveIntervalMap)
+{
   CUDA_CALL(cudaSetDevice(deviceId));
-  std::unordered_set<Matrix> unfreeableMatrices =
-      estimateAllocateableMatrices(worklist, freeMem, endIdx);
+  std::unordered_set<Matrix> unfreeableMatrices = estimateAllocateableMatrices(worklist, freeMem, endIdx);
   // analyze which matrices cannot be free'd
   // Matrices who are still alive at endIdx cannot be free'd
   analyzeLiveMatrices(worklist, endIdx, unfreeableMatrices, liveIntervalMap);
 
-  for (auto mat : unfreeableMatrices) {
+  for (auto mat : unfreeableMatrices)
+  {
     swapper.pinMatrix(mat, deviceId);
   }
   // free unused matrices
   swapper.freeAllUnpinMatrices(deviceId);
-  for (auto mat : unfreeableMatrices) {
+  for (auto mat : unfreeableMatrices)
+  {
     swapper.unpinMatrix(mat, deviceId);
   }
 
@@ -845,19 +910,18 @@ static std::vector<Matrix> freeAndAllocate(
 // Copy matrices to this device's GPU. Matrices in CPU memory are copied
 // directly; matrices on other GPUs are collected into dstMatPairs for
 // NCCL send/recv.
-static void copyMatrices(
-    int deviceId, int deviceCount, const std::vector<Matrix> &matricesToCopy,
-    std::vector<std::tuple<int, Matrix, cudaEvent_t>> &dstMatPairs,
-    std::atomic_int &counter, ncclComm_t comm, StreamManager &streamManager,
-    Swapper &swapper,
-    const std::unordered_map<int, cudaEvent_t> &matToSyncFinishEventMap) {
+static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix>& matricesToCopy,
+                         std::vector<std::tuple<int, Matrix, cudaEvent_t>>& dstMatPairs, std::atomic_int& counter,
+                         ncclComm_t comm, StreamManager& streamManager, Swapper& swapper,
+                         const std::unordered_map<int, cudaEvent_t>& matToSyncFinishEventMap)
+{
   CUDA_CALL(cudaSetDevice(deviceId));
 
   // `dstMatPairs` records which GPU needs which matrices.
   // It is shared across multiple threads that control other GPUs.
   // So we need synchronization here to prevent race condition.
-  while (counter < deviceId) {
-  }
+  while (counter < deviceId)
+  {}
 
   int device_count;
   int mpi_rank;
@@ -865,42 +929,47 @@ static void copyMatrices(
   CUDA_CALL(cudaGetDeviceCount(&device_count));
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
-  for (auto mat : matricesToCopy) {
+  for (auto mat : matricesToCopy)
+  {
     // Trying to figure out where does this matrix reside..
     auto [srcDeviceId, srcBuffer] = swapper.getPreStoreBufferOrNone(mat);
     const auto it = matToSyncFinishEventMap.find(mat.getId());
-    cudaEvent_t syncFinishEvent =
-        it == matToSyncFinishEventMap.end() ? nullptr : it->second;
-    if (srcBuffer) {
+    cudaEvent_t syncFinishEvent = it == matToSyncFinishEventMap.end() ? nullptr : it->second;
+    if (srcBuffer)
+    {
       // This matrix resides in this node's GPU memory.
       int nccl_comm_id = mpi_rank * device_count + deviceId;
       dstMatPairs.push_back({nccl_comm_id, mat, syncFinishEvent});
-      DEBUG_SECOND_HIT(swapper, mat.getId(), srcDeviceId, deviceId,
-                       mat.sizeInByte());
-    } else if (mat.getPtr()) {
+      DEBUG_SECOND_HIT(swapper, mat.getId(), srcDeviceId, deviceId, mat.sizeInByte());
+    }
+    else if (mat.getPtr())
+    {
       // This matrix sits in CPU memory.
       auto stream = streamManager.getStream();
       auto buffer = swapper.getForWrite(mat, deviceId, stream);
-      if (syncFinishEvent) {
+      if (syncFinishEvent)
+      {
         CUDA_CALL(cudaStreamWaitEvent(stream, syncFinishEvent));
       }
       // Just copy it from CPU memory.
       swapper.copyMatrix(mat, buffer, deviceId, stream, streamManager);
-    } else {
+    }
+    else
+    {
       // This matrix resides in another node's GPU...
       assert(swapper.isOnRemoteGpu(mat.getId()));
       int nccl_comm_id = mpi_rank * device_count + deviceId;
       dstMatPairs.push_back({nccl_comm_id, mat, nullptr});
-      DEBUG_THIRD_HIT(swapper, mat.getId(), nccl_comm_id, deviceId,
-                      mat.sizeInByte());
+      DEBUG_THIRD_HIT(swapper, mat.getId(), nccl_comm_id, deviceId, mat.sizeInByte());
     }
   }
   counter++;
 
-  while (counter != deviceCount) {
-  }
+  while (counter != deviceCount)
+  {}
 
-  if (deviceId == 0) {
+  if (deviceId == 0)
+  {
     // Use MPI_Allgatherv to share dstMatPairs across all nodes.
     // After this, every thread on every node sees the complete set of pairs.
     int mpi_size;
@@ -910,41 +979,41 @@ static void copyMatrices(
     int local_count = dstMatPairs.size();
 
     std::vector<int> all_counts(mpi_size);
-    MPI_Allgather(&local_count, 1, MPI_INT, all_counts.data(), 1, MPI_INT,
-                  MPI_COMM_WORLD);
+    MPI_Allgather(&local_count, 1, MPI_INT, all_counts.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
     std::vector<int> recvcounts(mpi_size);
     std::vector<int> displs(mpi_size);
     int total_entries = 0;
-    for (int i = 0; i < mpi_size; i++) {
+    for (int i = 0; i < mpi_size; i++)
+    {
       recvcounts[i] = all_counts[i] * entry_size;
       displs[i] = total_entries * entry_size;
       total_entries += all_counts[i];
     }
 
     std::vector<char> sendbuf(local_count * entry_size);
-    for (int i = 0; i < local_count; i++) {
-      auto &[nccl_id, mat, _] = dstMatPairs[i];
+    for (int i = 0; i < local_count; i++)
+    {
+      auto& [nccl_id, mat, _] = dstMatPairs[i];
       Matrix::Header h = mat.toHeader();
       memcpy(sendbuf.data() + i * entry_size, &nccl_id, sizeof(int));
-      memcpy(sendbuf.data() + i * entry_size + sizeof(int), &h,
-             sizeof(Matrix::Header));
+      memcpy(sendbuf.data() + i * entry_size + sizeof(int), &h, sizeof(Matrix::Header));
     }
 
     std::vector<char> recvbuf(total_entries * entry_size);
-    MPI_Allgatherv(sendbuf.data(), local_count * entry_size, MPI_BYTE,
-                   recvbuf.data(), recvcounts.data(), displs.data(), MPI_BYTE,
-                   MPI_COMM_WORLD);
+    MPI_Allgatherv(sendbuf.data(), local_count * entry_size, MPI_BYTE, recvbuf.data(), recvcounts.data(), displs.data(),
+                   MPI_BYTE, MPI_COMM_WORLD);
 
-    for (int rank = 0; rank < mpi_size; rank++) {
+    for (int rank = 0; rank < mpi_size; rank++)
+    {
       if (rank == mpi_rank) continue;
       int base = displs[rank];
-      for (int i = 0; i < all_counts[rank]; i++) {
+      for (int i = 0; i < all_counts[rank]; i++)
+      {
         int nccl_id;
         Matrix::Header h;
         memcpy(&nccl_id, recvbuf.data() + base + i * entry_size, sizeof(int));
-        memcpy(&h, recvbuf.data() + base + i * entry_size + sizeof(int),
-               sizeof(Matrix::Header));
+        memcpy(&h, recvbuf.data() + base + i * entry_size + sizeof(int), sizeof(Matrix::Header));
         Matrix mat(h);
         dstMatPairs.push_back({nccl_id, mat, nullptr});
       }
@@ -953,22 +1022,23 @@ static void copyMatrices(
     counter++;
   }
 
-  while (counter != deviceCount + 1) {
-  }
+  while (counter != deviceCount + 1)
+  {}
 
   // Let NCCL do the real matrices copy work.
-  if (!dstMatPairs.empty()) {
-    createWork<NCCLSendRecvWork>(dstMatPairs, comm, streamManager, swapper)
-        ->execute();
+  if (!dstMatPairs.empty())
+  {
+    createWork<NCCLSendRecvWork>(dstMatPairs, comm, streamManager, swapper)->execute();
   }
   streamManager.syncAllStreams();
 }
 
-void Arranger::executeWorklists(std::vector<WorklistTy> &worklists,
-                                std::vector<LiveIntervalMap> &liveIntervals) {
+void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals)
+{
   std::vector<size_t> freeMems(deviceCount);
 
-  for (int i = 0; i < deviceCount; i++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
     CUDA_CALL(cudaSetDevice(i));
 
     cudaMemPool_t pool = swapper.getMemPool(i);
@@ -977,12 +1047,14 @@ void Arranger::executeWorklists(std::vector<WorklistTy> &worklists,
     cudaMemPoolGetAttribute(pool, cudaMemPoolAttrReservedMemHigh, &maxSize);
 
     uint64_t usedMem = 0;
-    CUDA_CALL(
-        cudaMemPoolGetAttribute(pool, cudaMemPoolAttrUsedMemCurrent, &usedMem));
+    CUDA_CALL(cudaMemPoolGetAttribute(pool, cudaMemPoolAttrUsedMemCurrent, &usedMem));
 
-    if (maxSize > 0) {
+    if (maxSize > 0)
+    {
       freeMems[i] = (maxSize > usedMem) ? (maxSize - usedMem) : 0;
-    } else {
+    }
+    else
+    {
       size_t freeMemory;
       size_t totalMemory;
       CUDA_CALL(cudaMemGetInfo(&freeMemory, &totalMemory));
@@ -990,16 +1062,17 @@ void Arranger::executeWorklists(std::vector<WorklistTy> &worklists,
     }
   }
 
-  for (int i = 0; i < deviceCount; i++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
     DEBUG_ARRANGER_FREE_MEM(i, freeMems[i]);
   }
 
   CUDA_CALL(cudaSetDevice(0));
 
-  auto execute = [](WorklistTy &worklist, int deviceId, int startIdx,
-                    int endIdx) {
+  auto execute = [](WorklistTy& worklist, int deviceId, int startIdx, int endIdx) {
     CUDA_CALL(cudaSetDevice(deviceId));
-    for (int idx = startIdx; idx < endIdx; idx++) {
+    for (int idx = startIdx; idx < endIdx; idx++)
+    {
       worklist[idx]->execute();
     }
   };
@@ -1007,8 +1080,10 @@ void Arranger::executeWorklists(std::vector<WorklistTy> &worklists,
   std::vector<std::thread> threads(deviceCount);
 
 #if DEBUG_LOG
-  for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
-    for (int idx = 0; idx < worklists[deviceId].size(); idx++) {
+  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+  {
+    for (int idx = 0; idx < worklists[deviceId].size(); idx++)
+    {
       fprintf(stderr, "%d: ", idx);
       worklists[deviceId][idx]->dump();
     }
@@ -1018,18 +1093,20 @@ void Arranger::executeWorklists(std::vector<WorklistTy> &worklists,
   std::vector<int> startIdxes(deviceCount);
   std::vector<int> endIdxes(deviceCount);
 
-  while (true) {
+  while (true)
+  {
     // Step 1: Free unused matrices and allocate buffers.
     std::vector<std::vector<Matrix>> matricesToCopy(deviceCount);
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
       threads[deviceId] = std::thread([&, deviceId] {
-        matricesToCopy[deviceId] = freeAndAllocate(
-            deviceId, worklists[deviceId], endIdxes[deviceId],
-            freeMems[deviceId], swapper, liveIntervals[deviceId]);
+        matricesToCopy[deviceId] = freeAndAllocate(deviceId, worklists[deviceId], endIdxes[deviceId],
+                                                   freeMems[deviceId], swapper, liveIntervals[deviceId]);
       });
     }
 
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
       threads[deviceId].join();
     }
 
@@ -1037,106 +1114,108 @@ void Arranger::executeWorklists(std::vector<WorklistTy> &worklists,
     const int batch_size = std::max(1, 500 / (mpi_size * deviceCount));
 
     size_t maxMatrices = 0;
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
       maxMatrices = std::max(maxMatrices, matricesToCopy[deviceId].size());
     }
     size_t globalMaxMatrices = 0;
-    MPI_Allreduce(&maxMatrices, &globalMaxMatrices, 1, MPI_UNSIGNED_LONG,
-                  MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&maxMatrices, &globalMaxMatrices, 1, MPI_UNSIGNED_LONG, MPI_MAX, MPI_COMM_WORLD);
     maxMatrices = globalMaxMatrices;
 
-    for (size_t batchStart = 0; batchStart < maxMatrices;
-         batchStart += batch_size) {
+    for (size_t batchStart = 0; batchStart < maxMatrices; batchStart += batch_size)
+    {
       std::vector<std::tuple<int, Matrix, cudaEvent_t>> dstMatPairs;
       std::atomic_int batchCounter(0);
 
       std::vector<std::vector<Matrix>> batchSlices(deviceCount);
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
-        auto &src = matricesToCopy[deviceId];
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
+        auto& src = matricesToCopy[deviceId];
         size_t start = std::min(batchStart, src.size());
         size_t end = std::min(batchStart + batch_size, src.size());
         batchSlices[deviceId].assign(src.begin() + start, src.begin() + end);
       }
 
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
         threads[deviceId] =
-            std::thread(copyMatrices, deviceId, deviceCount,
-                        std::cref(batchSlices[deviceId]), std::ref(dstMatPairs),
-                        std::ref(batchCounter), allDeviceComms[deviceId],
-                        std::ref(streamManagers[deviceId]), std::ref(swapper),
-                        std::cref(matToSyncFinishEventMap));
+            std::thread(copyMatrices, deviceId, deviceCount, std::cref(batchSlices[deviceId]), std::ref(dstMatPairs),
+                        std::ref(batchCounter), allDeviceComms[deviceId], std::ref(streamManagers[deviceId]),
+                        std::ref(swapper), std::cref(matToSyncFinishEventMap));
       }
 
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
         threads[deviceId].join();
       }
     }
 
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
-      DEBUG_ARRANGER_BATCH_RANGE(deviceId, startIdxes[deviceId],
-                                 endIdxes[deviceId],
-                                 (int)worklists[deviceId].size());
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
+      DEBUG_ARRANGER_BATCH_RANGE(deviceId, startIdxes[deviceId], endIdxes[deviceId], (int)worklists[deviceId].size());
     }
 
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
-      if (startIdxes[deviceId] == endIdxes[deviceId] &&
-          endIdxes[deviceId] < worklists[deviceId].size()) {
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
+      if (startIdxes[deviceId] == endIdxes[deviceId] && endIdxes[deviceId] < worklists[deviceId].size())
+      {
         fprintf(stderr,
                 "[ARRANGER][ERROR] Device %d: Unable to allocate enough "
                 "memory.\n",
                 deviceId);
-        fprintf(stderr,
-                "[ARRANGER][ERROR] Current position: %d/%zu in worklist\n",
-                endIdxes[deviceId], worklists[deviceId].size());
+        fprintf(stderr, "[ARRANGER][ERROR] Current position: %d/%zu in worklist\n", endIdxes[deviceId],
+                worklists[deviceId].size());
         fprintf(stderr, "[ARRANGER][ERROR] Available memory: %.2f GB\n",
                 freeMems[deviceId] / (1024.0 * 1024.0 * 1024.0));
 
         auto work = worklists[deviceId][startIdxes[deviceId]];
         auto matWork = std::dynamic_pointer_cast<MatWorkBase>(work);
-        if (matWork) {
+        if (matWork)
+        {
           size_t totalSize = 0;
-          for (const auto &mat : matWork->getMatrices()) {
+          for (const auto& mat : matWork->getMatrices())
+          {
             totalSize += mat.sizeInByte();
           }
-          fprintf(stderr,
-                  "[ARRANGER][ERROR] Work at index %d requires: %.2f GB\n",
-                  startIdxes[deviceId], totalSize / (1024.0 * 1024.0 * 1024.0));
+          fprintf(stderr, "[ARRANGER][ERROR] Work at index %d requires: %.2f GB\n", startIdxes[deviceId],
+                  totalSize / (1024.0 * 1024.0 * 1024.0));
         }
 
         exit(1);
       }
     }
 
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
       threads[deviceId] =
-          std::thread(execute, std::ref(worklists[deviceId]), deviceId,
-                      startIdxes[deviceId], endIdxes[deviceId]);
+          std::thread(execute, std::ref(worklists[deviceId]), deviceId, startIdxes[deviceId], endIdxes[deviceId]);
       startIdxes[deviceId] = endIdxes[deviceId];
     }
 
     char areAllFinished = 1;
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
       threads[deviceId].join();
-      if (endIdxes[deviceId] < worklists[deviceId].size()) {
+      if (endIdxes[deviceId] < worklists[deviceId].size())
+      {
         areAllFinished = 0;
       }
     }
 
     std::vector<char> areRemoteFinished(mpi_size, 0);
-    MPI_Allgather(&areAllFinished, 1, MPI_BYTE, areRemoteFinished.data(), 1,
-                  MPI_BYTE, MPI_COMM_WORLD);
-    areAllFinished &=
-        std::all_of(areRemoteFinished.begin(), areRemoteFinished.end(),
-                    [](char v) { return v == 1; });
+    MPI_Allgather(&areAllFinished, 1, MPI_BYTE, areRemoteFinished.data(), 1, MPI_BYTE, MPI_COMM_WORLD);
+    areAllFinished &= std::all_of(areRemoteFinished.begin(), areRemoteFinished.end(), [](char v) { return v == 1; });
 
     DEBUG_ARRANGER_ALL_FINISHED(areAllFinished);
 
-    if (areAllFinished) {
+    if (areAllFinished)
+    {
       break;
     }
   }
 
-  for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+  {
     threads[deviceId] = std::thread([&, deviceId] {
       CUDA_CALL(cudaSetDevice(deviceId));
       swapper.freeAllBuffer(deviceId);
@@ -1146,81 +1225,100 @@ void Arranger::executeWorklists(std::vector<WorklistTy> &worklists,
     });
   }
 
-  for (int deviceId = 0; deviceId < deviceCount; deviceId++) {
+  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+  {
     threads[deviceId].join();
   }
 }
 
-void Arranger::doContraction(const std::vector<Matrix> &rMats,
-                             const std::vector<Matrix> &aMats,
-                             const std::vector<Matrix> &bMats,
-                             const std::vector<Matrix> &cMats) {
+void Arranger::doContraction(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
+                             const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats)
+{
   executeWorklists(worklistsForInterMat, liveIntervalsForInterMat);
   executeWorklists(worklistsForTheRest, liveIntervalsForTheRest);
 }
 
-void Arranger::compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2,
-                                                   double *result) {
+void Arranger::compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double* result)
+{
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(m1);
-  if (deviceId == -1) {
+  if (deviceId == -1)
+  {
     deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
   }
   linearAlgebraWorklists[deviceId].push_back(
-      createWork<InnerProductWork>(std::vector<Matrix>{m1, m2}, 1.0,
-                                   streamManagers[deviceId], swapper, result));
+      createWork<InnerProductWork>(std::vector<Matrix>{m1, m2}, 1.0, streamManagers[deviceId], swapper, result));
   linearAlgebraFlopsPerDevice[deviceId] += m1.size() * 2;
 }
 
-void Arranger::compileAddAccuForLinearAlgebra(Matrix result, Matrix m1,
-                                              double *coff) {
+void Arranger::compileZeroForLinearAlgebra(Matrix result)
+{
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
-  if (deviceId == -1) {
+  if (deviceId == -1)
+  {
     deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
   }
   linearAlgebraWorklists[deviceId].push_back(
-      createWork<AddAccuWork>(std::vector<Matrix>{result, m1}, *coff,
-                              streamManagers[deviceId], swapper));
-  linearAlgebraWorklists[deviceId].push_back(createWork<SyncWork>(
-      std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+      createWork<MemsetWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+  linearAlgebraWorklists[deviceId].push_back(
+      createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
 }
 
-void Arranger::compileScalarMulForLinearAlgebra(Matrix result, double *coff) {
+void Arranger::compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff)
+{
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
-  if (deviceId == -1) {
+  if (deviceId == -1)
+  {
     deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
   }
   linearAlgebraWorklists[deviceId].push_back(
-      createWork<ScalarMulWork>(std::vector<Matrix>{result}, 1.0,
-                                streamManagers[deviceId], swapper, coff));
-  linearAlgebraWorklists[deviceId].push_back(createWork<SyncWork>(
-      std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+      createWork<AddAccuWork>(std::vector<Matrix>{result, m1}, *coff, streamManagers[deviceId], swapper));
+  linearAlgebraWorklists[deviceId].push_back(
+      createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
 }
 
-void Arranger::doLinearAlgebra() {
+void Arranger::compileScalarMulForLinearAlgebra(Matrix result, double* coff)
+{
+  auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
+  if (deviceId == -1)
+  {
+    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+  }
+  linearAlgebraWorklists[deviceId].push_back(
+      createWork<ScalarMulWork>(std::vector<Matrix>{result}, 1.0, streamManagers[deviceId], swapper, coff));
+  linearAlgebraWorklists[deviceId].push_back(
+      createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+}
+
+void Arranger::doLinearAlgebra()
+{
+  ensureMemoryPoolsInitialized();
   buildLiveInterval(linearAlgebraWorklists, liveIntervalsForLinearAlgebra);
   executeWorklists(linearAlgebraWorklists, liveIntervalsForLinearAlgebra);
-  for (auto &wl : linearAlgebraWorklists) wl.clear();
+  for (auto& wl : linearAlgebraWorklists)
+    wl.clear();
   liveIntervalsForLinearAlgebra.clear();
-  std::fill(linearAlgebraFlopsPerDevice.begin(),
-            linearAlgebraFlopsPerDevice.end(), 0.0);
+  std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
 }
 
-double *Arranger::collectiveExchangeMatrix(Matrix m) {
-  double *ptr = nullptr;
+double* Arranger::collectiveExchangeMatrix(Matrix m)
+{
+  double* ptr = nullptr;
 
   // Case 1: matrix is in local host memory.
-  if (m.getPtr()) {
+  if (m.getPtr())
+  {
     ptr = m.getPtr();
   }
 
   // Case 2: matrix is pre-stored in a local GPU. Copy it to a host buffer.
-  if (ptr == nullptr) {
+  if (ptr == nullptr)
+  {
     auto [local_device_id, local_buffer] = swapper.getPreStoreBufferOrNone(m);
-    if (local_buffer) {
-      ptr = (double *)malloc(m.sizeInByte());
+    if (local_buffer)
+    {
+      ptr = (double*)malloc(m.sizeInByte());
       CUDA_CALL(cudaSetDevice(local_device_id));
-      CUDA_CALL(cudaMemcpy(ptr, local_buffer->getPtr(), m.sizeInByte(),
-                           cudaMemcpyDeviceToHost));
+      CUDA_CALL(cudaMemcpy(ptr, local_buffer->getPtr(), m.sizeInByte(), cudaMemcpyDeviceToHost));
       CUDA_CALL(cudaSetDevice(0));
     }
   }
@@ -1229,21 +1327,20 @@ double *Arranger::collectiveExchangeMatrix(Matrix m) {
   // Ranks that resolved ptr above broadcast an empty Header{} as a no-op.
   Matrix::Header myHeader = (ptr == nullptr) ? m.toHeader() : Matrix::Header{};
   std::vector<Matrix::Header> recvHeaders(mpi_size);
-  MPI_Allgather(&myHeader, sizeof(Matrix::Header), MPI_BYTE, recvHeaders.data(),
-                sizeof(Matrix::Header), MPI_BYTE, MPI_COMM_WORLD);
+  MPI_Allgather(&myHeader, sizeof(Matrix::Header), MPI_BYTE, recvHeaders.data(), sizeof(Matrix::Header), MPI_BYTE,
+                MPI_COMM_WORLD);
 
   std::vector<MPI_Request> requests(mpi_size, MPI_REQUEST_NULL);
-  std::vector<double *> tmp_ptrs;
-  for (int rank = 0; rank < mpi_size; rank++) {
-    if (rank == mpi_rank && myHeader.id != -1) {
+  std::vector<double*> tmp_ptrs;
+  for (int rank = 0; rank < mpi_size; rank++)
+  {
+    if (rank == mpi_rank && myHeader.id != -1)
+    {
       // Case 3 (self): matrix is on a remote node. If it's on a remote GPU,
       // decode the MPI rank from the NCCL ID; otherwise use node_id directly.
-      int src = swapper.isOnRemoteGpu(m.getId())
-                    ? swapper.getRemoteNCCLId(m.getId()) / deviceCount
-                    : m.getNodeId();
-      ptr = (double *)malloc(m.sizeInByte());
-      MPI_Irecv(ptr, m.size(), MPI_DOUBLE, src, 0, MPI_COMM_WORLD,
-                &requests[rank]);
+      int src = swapper.isOnRemoteGpu(m.getId()) ? swapper.getRemoteNCCLId(m.getId()) / deviceCount : m.getNodeId();
+      ptr = (double*)malloc(m.sizeInByte());
+      MPI_Irecv(ptr, m.size(), MPI_DOUBLE, src, 0, MPI_COMM_WORLD, &requests[rank]);
       continue;
     }
 
@@ -1252,33 +1349,36 @@ double *Arranger::collectiveExchangeMatrix(Matrix m) {
     if (requested.getId() == -1) continue;
 
     auto [dev_id, buf] = swapper.getPreStoreBufferOrNone(requested);
-    if (buf) {
+    if (buf)
+    {
       // Serve from local GPU pre-store buffer.
-      double *tmp = (double *)malloc(requested.sizeInByte());
+      double* tmp = (double*)malloc(requested.sizeInByte());
       tmp_ptrs.push_back(tmp);
       CUDA_CALL(cudaSetDevice(dev_id));
-      CUDA_CALL(cudaMemcpy(tmp, buf->getPtr(), requested.sizeInByte(),
-                           cudaMemcpyDeviceToHost));
+      CUDA_CALL(cudaMemcpy(tmp, buf->getPtr(), requested.sizeInByte(), cudaMemcpyDeviceToHost));
       CUDA_CALL(cudaSetDevice(0));
-      MPI_Isend(tmp, requested.size(), MPI_DOUBLE, rank, 0, MPI_COMM_WORLD,
-                &requests[rank]);
-    } else if (requested.getNodeId() == mpi_rank) {
+      MPI_Isend(tmp, requested.size(), MPI_DOUBLE, rank, 0, MPI_COMM_WORLD, &requests[rank]);
+    }
+    else if (requested.getNodeId() == mpi_rank)
+    {
       // Serve from local CPU memory.
       auto it = localMats.find(requested.getId());
-      if (it != localMats.end() && it->second.getPtr()) {
-        MPI_Isend(it->second.getPtr(), requested.size(), MPI_DOUBLE, rank, 0,
-                  MPI_COMM_WORLD, &requests[rank]);
+      if (it != localMats.end() && it->second.getPtr())
+      {
+        MPI_Isend(it->second.getPtr(), requested.size(), MPI_DOUBLE, rank, 0, MPI_COMM_WORLD, &requests[rank]);
       }
     }
   }
 
   MPI_Waitall(requests.size(), requests.data(), MPI_STATUSES_IGNORE);
-  for (auto *tmp : tmp_ptrs) free(tmp);
+  for (auto* tmp : tmp_ptrs)
+    free(tmp);
 
   return ptr;
 }
 
-void Arranger::resetWork() {
+void Arranger::resetWork()
+{
   interMats.clear();
   interMatsIdx.clear();
   combineMats.clear();
@@ -1289,51 +1389,60 @@ void Arranger::resetWork() {
   matToSyncFinishEventMap.clear();
   localMats.clear();
   rFlops.clear();
-  for (auto &wl : worklistsForInterMat) wl.clear();
-  for (auto &wl : worklistsForTheRest) wl.clear();
-  for (auto &wl : linearAlgebraWorklists) wl.clear();
+  for (auto& wl : worklistsForInterMat)
+    wl.clear();
+  for (auto& wl : worklistsForTheRest)
+    wl.clear();
+  for (auto& wl : linearAlgebraWorklists)
+    wl.clear();
   liveIntervalsForInterMat.clear();
   liveIntervalsForTheRest.clear();
   liveIntervalsForLinearAlgebra.clear();
-  std::fill(linearAlgebraFlopsPerDevice.begin(),
-            linearAlgebraFlopsPerDevice.end(), 0.0);
+  std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
 }
 
-void Arranger::releaseResources() {
+void Arranger::releaseResources()
+{
   resetWork();
-  for (auto event : syncFinishEvents) {
+  for (auto event : syncFinishEvents)
+  {
     CUDA_CALL(cudaEventDestroy(event));
   }
   syncFinishEvents.clear();
-  for (auto comm : allDeviceComms) {
+  for (auto comm : allDeviceComms)
+  {
     NCCL_CALL(ncclCommDestroy(comm));
   }
   allDeviceComms.clear();
-  for (auto &streamManager : streamManagers) streamManager.clear();
+  for (auto& streamManager : streamManagers)
+    streamManager.clear();
   streamManagers.clear();
 }
 
-void Arranger::distributeMatricesToNodes(std::vector<Matrix> &mats,
-                                         std::string prefix) {
+void Arranger::distributeMatricesToNodes(std::vector<Matrix>& mats, std::string prefix)
+{
   int mat_size = mats.size();
   MPI_Bcast(&mat_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
-  if (mpi_rank != 0) {
+  if (mpi_rank != 0)
+  {
     mats.resize(mat_size);
   }
 
-  if (mpi_rank == 0) {
+  if (mpi_rank == 0)
+  {
     // Greedy size-balanced distribution
     std::vector<int> order(mat_size);
     std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(), [&](int a, int b) {
-      return mats[a].sizeInByte() > mats[b].sizeInByte();
-    });
+    std::sort(order.begin(), order.end(), [&](int a, int b) { return mats[a].sizeInByte() > mats[b].sizeInByte(); });
 
     std::vector<size_t> totalPerRank(mpi_size, 0);
-    for (int idx : order) {
+    for (int idx : order)
+    {
       int minRank = 0;
-      for (int r = 1; r < mpi_size; r++) {
-        if (totalPerRank[r] < totalPerRank[minRank]) {
+      for (int r = 1; r < mpi_size; r++)
+      {
+        if (totalPerRank[r] < totalPerRank[minRank])
+        {
           minRank = r;
         }
       }
@@ -1342,14 +1451,17 @@ void Arranger::distributeMatricesToNodes(std::vector<Matrix> &mats,
     }
   }
 
-  for (int i = 0; i < mat_size; i++) {
+  for (int i = 0; i < mat_size; i++)
+  {
     Matrix::Header h = mats[i].toHeader();
     MPI_Bcast(&h, sizeof(Matrix::Header), MPI_BYTE, 0, MPI_COMM_WORLD);
     mats[i] = Matrix(h);
   }
 
-  for (int i = 0; i < (int)mats.size(); i++) {
-    if (mats[i].getNodeId() == mpi_rank) {
+  for (int i = 0; i < (int)mats.size(); i++)
+  {
+    if (mats[i].getNodeId() == mpi_rank)
+    {
       localMats[mats[i].getId()] = mats[i];
 #if DEBUG_LOG
       swapper.setMatrixName(mats[i], prefix + std::to_string(i));
@@ -1359,86 +1471,95 @@ void Arranger::distributeMatricesToNodes(std::vector<Matrix> &mats,
   }
 }
 
-void Arranger::distributeFTermsToNodes(std::vector<TermTy> &terms,
-                                       const std::vector<Matrix> &rMats) {
+void Arranger::distributeFTermsToNodes(std::vector<TermTy>& terms, const std::vector<Matrix>& rMats)
+{
   // distribute terms to each node as evenly as possible so that
   // each node calculates a complete R.
 
   // Map each R index to a rank using actual nodeIds from R matrices.
   std::vector<int> rIdxToRank(rMats.size());
-  for (size_t i = 0; i < rMats.size(); i++) {
+  for (size_t i = 0; i < rMats.size(); i++)
+  {
     rIdxToRank[i] = rMats[i].getNodeId();
   }
 
-  if (mpi_rank == 0) {
+  if (mpi_rank == 0)
+  {
     // Group terms by destination rank
     std::vector<std::vector<TermTy>> termsPerRank(mpi_size);
-    for (const auto &term : terms) {
+    for (const auto& term : terms)
+    {
       int destRank = rIdxToRank[std::get<0>(term)];
       termsPerRank[destRank].push_back(term);
     }
 
     // Send terms to each non-zero rank
-    for (int rank = 1; rank < mpi_size; rank++) {
+    for (int rank = 1; rank < mpi_size; rank++)
+    {
       int count = termsPerRank[rank].size();
       MPI_Send(&count, 1, MPI_INT, rank, 0, MPI_COMM_WORLD);
-      if (count > 0) {
-        MPI_Send(termsPerRank[rank].data(), count * sizeof(TermTy), MPI_BYTE,
-                 rank, 1, MPI_COMM_WORLD);
+      if (count > 0)
+      {
+        MPI_Send(termsPerRank[rank].data(), count * sizeof(TermTy), MPI_BYTE, rank, 1, MPI_COMM_WORLD);
       }
     }
 
     // Keep rank 0's terms
     terms = std::move(termsPerRank[0]);
-  } else {
+  }
+  else
+  {
     // Receive terms from rank 0
     int count;
     MPI_Recv(&count, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     terms.resize(count);
-    if (count > 0) {
-      MPI_Recv(terms.data(), count * sizeof(TermTy), MPI_BYTE, 0, 1,
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    if (count > 0)
+    {
+      MPI_Recv(terms.data(), count * sizeof(TermTy), MPI_BYTE, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
   }
 
-  for (auto [r, a, b, c, f] : terms) {
+  for (auto [r, a, b, c, f] : terms)
+  {
     DEBUG_TERM_DISTRIBUTION(mpi_rank, r, a, b, c, f);
   }
 }
 
-void Arranger::broadcastRtoB(const std::vector<Matrix> &rMats,
-                             std::vector<Matrix> &bMats) {
+void Arranger::broadcastRtoB(const std::vector<Matrix>& rMats, std::vector<Matrix>& bMats)
+{
   assert(rMats.size() == bMats.size());
 
   std::vector<MPI_Request> requests;
   // (index, temp CPU buf) for GPU-resident B matrices receiving via MPI
-  std::vector<std::pair<int, double *>> gpuRecvPending;
+  std::vector<std::pair<int, double*>> gpuRecvPending;
 
   // Phase 1: R on this node, B on another node — post Isend
-  for (int i = 0; i < (int)rMats.size(); i++) {
+  for (int i = 0; i < (int)rMats.size(); i++)
+  {
     if (rMats[i].getNodeId() != mpi_rank) continue;
     if (bMats[i].getNodeId() == mpi_rank) continue;
     MPI_Request req;
-    MPI_Isend(rMats[i].getPtr(), rMats[i].size(), MPI_DOUBLE,
-              bMats[i].getNodeId(), i, MPI_COMM_WORLD, &req);
+    MPI_Isend(rMats[i].getPtr(), rMats[i].size(), MPI_DOUBLE, bMats[i].getNodeId(), i, MPI_COMM_WORLD, &req);
     requests.push_back(req);
   }
 
   // Phase 2: B on this node, R on another node — post Irecv
-  for (int i = 0; i < (int)rMats.size(); i++) {
+  for (int i = 0; i < (int)rMats.size(); i++)
+  {
     if (bMats[i].getNodeId() != mpi_rank) continue;
     if (rMats[i].getNodeId() == mpi_rank) continue;
     MPI_Request req;
-    if (bMats[i].getPtr() != nullptr) {
-      MPI_Irecv(bMats[i].getPtr(), bMats[i].size(), MPI_DOUBLE,
-                rMats[i].getNodeId(), i, MPI_COMM_WORLD, &req);
+    if (bMats[i].getPtr() != nullptr)
+    {
+      MPI_Irecv(bMats[i].getPtr(), bMats[i].size(), MPI_DOUBLE, rMats[i].getNodeId(), i, MPI_COMM_WORLD, &req);
       requests.push_back(req);
-    } else {
+    }
+    else
+    {
       // B is GPU-only: receive into a temporary pinned CPU buffer
-      double *tmp;
+      double* tmp;
       cudaMallocHost(&tmp, bMats[i].sizeInByte());
-      MPI_Irecv(tmp, bMats[i].size(), MPI_DOUBLE, rMats[i].getNodeId(), i,
-                MPI_COMM_WORLD, &req);
+      MPI_Irecv(tmp, bMats[i].size(), MPI_DOUBLE, rMats[i].getNodeId(), i, MPI_COMM_WORLD, &req);
       requests.push_back(req);
       gpuRecvPending.push_back({i, tmp});
     }
@@ -1447,25 +1568,28 @@ void Arranger::broadcastRtoB(const std::vector<Matrix> &rMats,
   MPI_Waitall(requests.size(), requests.data(), MPI_STATUSES_IGNORE);
 
   // Phase 3: same node — direct copy, no MPI
-  for (int i = 0; i < (int)rMats.size(); i++) {
+  for (int i = 0; i < (int)rMats.size(); i++)
+  {
     if (rMats[i].getNodeId() != mpi_rank) continue;
     if (bMats[i].getNodeId() != mpi_rank) continue;
-    if (bMats[i].getPtr() != nullptr) {
+    if (bMats[i].getPtr() != nullptr)
+    {
       memcpy(bMats[i].getPtr(), rMats[i].getPtr(), bMats[i].sizeInByte());
-    } else {
+    }
+    else
+    {
       auto [deviceId, buf] = swapper.getPreStoreBufferOrNone(bMats[i]);
       cudaSetDevice(deviceId);
-      cudaMemcpy(buf->getPtr(), rMats[i].getPtr(), bMats[i].sizeInByte(),
-                 cudaMemcpyHostToDevice);
+      cudaMemcpy(buf->getPtr(), rMats[i].getPtr(), bMats[i].sizeInByte(), cudaMemcpyHostToDevice);
     }
   }
 
   // Copy received data into GPU-resident B matrices
-  for (auto [i, tmp] : gpuRecvPending) {
+  for (auto [i, tmp] : gpuRecvPending)
+  {
     auto [deviceId, buf] = swapper.getPreStoreBufferOrNone(bMats[i]);
     cudaSetDevice(deviceId);
-    cudaMemcpy(buf->getPtr(), tmp, bMats[i].sizeInByte(),
-               cudaMemcpyHostToDevice);
+    cudaMemcpy(buf->getPtr(), tmp, bMats[i].sizeInByte(), cudaMemcpyHostToDevice);
     cudaFreeHost(tmp);
   }
 
@@ -1475,8 +1599,10 @@ void Arranger::broadcastRtoB(const std::vector<Matrix> &rMats,
 
   std::vector<std::vector<int>> tokensNeededFromRank(mpi_size);
   std::unordered_map<int, Matrix> neededMatMap;
-  for (auto &bm : bMats) {
-    if (bm.getNodeId() != mpi_rank && bm.getPtr() != nullptr) {
+  for (auto& bm : bMats)
+  {
+    if (bm.getNodeId() != mpi_rank && bm.getPtr() != nullptr)
+    {
       tokensNeededFromRank[bm.getNodeId()].push_back(bm.getId());
       neededMatMap[bm.getId()] = bm;
     }
@@ -1485,4 +1611,4 @@ void Arranger::broadcastRtoB(const std::vector<Matrix> &rMats,
   mpiExchangeCopies(tokensNeededFromRank, neededMatMap);
 }
 
-}  // namespace tensor
+} // namespace tensor

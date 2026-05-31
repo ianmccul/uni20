@@ -41,14 +41,20 @@ TensorContraction `C` family and `y` as the `R` family.  This mirrors the local
 effective-Hamiltonian matvec needed by Krylov solvers without committing the
 main uni20 tensor or MPS APIs to the temporary TensorContraction layout.
 
-`vector_algebra.hpp` provides the host-side block-vector operations needed by
-the first Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
-`normalize`.
+`vector_algebra.hpp` provides block-vector operations needed by the first
+Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
+`normalize`.  The free functions are the host fallback.  `VectorAlgebraEngine`
+routes the same operations through TensorContraction's CUDA worklists so the
+DMRG local solver does not bake in CPU vector algebra.  This is an interim
+bridge: the current engine still synchronizes host-visible `MatrixFamily`
+storage after each operation, so batching and GPU-resident vector lifetimes are
+the next performance step.
 
 `lanczos.hpp` ports the small-iteration Lanczos shape used by MPTK's DMRG path
-onto `MatrixFamily` block vectors.  The implementation intentionally avoids
-restart and full reorthogonalization so it remains comparable to MPTK for local
-DMRG benchmarking.
+onto `MatrixFamily` block vectors and uses `VectorAlgebraEngine` for its vector
+operations.  The implementation intentionally avoids restart and full
+reorthogonalization so it remains comparable to MPTK for local DMRG
+benchmarking.
 
 `svd.hpp` adds the first two-site split primitive: a single-block host SVD with
 max-rank and singular-value cutoff truncation.  It is intentionally narrow and

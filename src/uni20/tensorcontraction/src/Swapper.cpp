@@ -9,24 +9,23 @@
 #include "Swapper.hpp"
 #include "Utils.h"
 
-namespace tensor {
+namespace tensor
+{
 
 GpuBuffer::GpuBuffer(GpuBuffer&& other)
-    : ptr(other.ptr),
-      id(other.id),
-      dim1(other.dim1),
-      dim2(other.dim2),
-      hostPtr(other.hostPtr),
-      readFinishEvent(std::move(other.readFinishEvent)),
-      writeFinishEvent(std::move(other.writeFinishEvent)) {
+    : ptr(other.ptr), id(other.id), dim1(other.dim1), dim2(other.dim2), hostPtr(other.hostPtr),
+      readFinishEvent(std::move(other.readFinishEvent)), writeFinishEvent(std::move(other.writeFinishEvent))
+{
   other.ptr = nullptr;
   other.dim1 = 0;
   other.dim2 = 0;
   other.hostPtr = nullptr;
 }
 
-GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other) {
-  if (this != &other) {
+GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
+{
+  if (this != &other)
+  {
     ptr = other.ptr;
     id = other.id;
     dim1 = other.dim1;
@@ -45,44 +44,47 @@ GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other) {
 }
 
 GpuBuffer::GpuBuffer(void* ptr, Matrix mat)
-    : ptr(ptr),
-      id(mat.getId()),
-      dim1(mat.getFirstDim()),
-      dim2(mat.getSecondDim()),
-      hostPtr(mat.getPtr()) {
+    : ptr(ptr), id(mat.getId()), dim1(mat.getFirstDim()), dim2(mat.getSecondDim()), hostPtr(mat.getPtr())
+{
   // writeFinishEvent vector starts empty, events created on-demand
 }
 
 double* GpuBuffer::getPtr() { return static_cast<double*>(ptr); }
 int GpuBuffer::getId() const { return id; }
 
-void GpuBuffer::waitForReadFinish(cudaStream_t stream) {
+void GpuBuffer::waitForReadFinish(cudaStream_t stream)
+{
   for (auto event : readFinishEvent)
     CUDA_CALL(cudaStreamWaitEvent(stream, event));
 }
 
-void GpuBuffer::notifyReadFinish(cudaStream_t stream) {
+void GpuBuffer::notifyReadFinish(cudaStream_t stream)
+{
   cudaEvent_t event;
   CUDA_CALL(cudaEventCreate(&event));
   CUDA_CALL(cudaEventRecord(event, stream));
   readFinishEvent.push_back(event);
 }
 
-void GpuBuffer::waitForWriteFinish(cudaStream_t stream) {
+void GpuBuffer::waitForWriteFinish(cudaStream_t stream)
+{
   for (auto event : writeFinishEvent)
     CUDA_CALL(cudaStreamWaitEvent(stream, event));
 }
 
-void GpuBuffer::notifyWriteFinish(cudaStream_t stream) {
+void GpuBuffer::notifyWriteFinish(cudaStream_t stream)
+{
   cudaEvent_t event;
   CUDA_CALL(cudaEventCreate(&event));
   CUDA_CALL(cudaEventRecord(event, stream));
   writeFinishEvent.push_back(event);
 }
 
-Swapper::Swapper() {
+Swapper::Swapper()
+{
   cudaGetDeviceCount(&deviceCount);
-  for (int i = 0; i < deviceCount; i++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
     CUDA_CALL(cudaSetDevice(i));
     hostToGpuMaps.emplace_back();
     pinnedMatrix.emplace_back();
@@ -94,42 +96,37 @@ Swapper::Swapper() {
   CUDA_CALL(cudaSetDevice(0));
 }
 
-void Swapper::pinMatrix(Matrix mat, int deviceId) {
-  pinnedMatrix[deviceId].insert(mat.getId());
-}
+void Swapper::pinMatrix(Matrix mat, int deviceId) { pinnedMatrix[deviceId].insert(mat.getId()); }
 
-void Swapper::unpinMatrix(Matrix mat, int deviceId) {
-  pinnedMatrix[deviceId].erase(mat.getId());
-}
+void Swapper::unpinMatrix(Matrix mat, int deviceId) { pinnedMatrix[deviceId].erase(mat.getId()); }
 
-bool Swapper::isPinned(int id, int deviceId) {
-  return pinnedMatrix[deviceId].find(id) != pinnedMatrix[deviceId].end();
-}
+bool Swapper::isPinned(int id, int deviceId) { return pinnedMatrix[deviceId].find(id) != pinnedMatrix[deviceId].end(); }
 
 #if DEBUG_LOG
-void Swapper::setMatrixName(Matrix mat, const std::string& name) {
-  matrixNames[mat.getId()] = name;
-}
+void Swapper::setMatrixName(Matrix mat, const std::string& name) { matrixNames[mat.getId()] = name; }
 
-std::string Swapper::getMatrixName(int matId) const {
+std::string Swapper::getMatrixName(int matId) const
+{
   auto it = matrixNames.find(matId);
-  if (it != matrixNames.end()) {
+  if (it != matrixNames.end())
+  {
     return it->second;
   }
-  return std::to_string(matId);  // Fall back to ID if no name set
+  return std::to_string(matId); // Fall back to ID if no name set
 }
 
 #endif
 
-std::pair<int, std::shared_ptr<GpuBuffer>> Swapper::getPreStoreBufferOrNone(
-    Matrix mat) {
+std::pair<int, std::shared_ptr<GpuBuffer>> Swapper::getPreStoreBufferOrNone(Matrix mat)
+{
   const auto it = preStoreMap.find(mat.getId());
   if (it == preStoreMap.end()) return {-1, nullptr};
 
   return it->second;
 }
 
-void Swapper::exchangePreStoreMap() {
+void Swapper::exchangePreStoreMap()
+{
   int mpi_rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   int mpi_size = 0;
@@ -140,7 +137,8 @@ void Swapper::exchangePreStoreMap() {
 
   std::vector<std::pair<int, int>> nccl_mat_id_pair;
 
-  for (const auto& item : preStoreMap) {
+  for (const auto& item : preStoreMap)
+  {
     const int mat_id = item.first;
     const int device_id = item.second.first;
     const int nccl_comm_id = mpi_rank * device_count + device_id;
@@ -151,34 +149,37 @@ void Swapper::exchangePreStoreMap() {
   int local_count = nccl_mat_id_pair.size();
 
   std::vector<int> all_counts(mpi_size);
-  MPI_Allgather(&local_count, 1, MPI_INT, all_counts.data(), 1, MPI_INT,
-                MPI_COMM_WORLD);
+  MPI_Allgather(&local_count, 1, MPI_INT, all_counts.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
   std::vector<int> recvcounts(mpi_size);
   std::vector<int> displs(mpi_size);
   int total_pairs = 0;
-  for (int i = 0; i < mpi_size; i++) {
+  for (int i = 0; i < mpi_size; i++)
+  {
     recvcounts[i] = all_counts[i] * 2;
     displs[i] = total_pairs * 2;
     total_pairs += all_counts[i];
   }
 
   std::vector<int> sendbuf(local_count * 2);
-  for (int i = 0; i < local_count; i++) {
+  for (int i = 0; i < local_count; i++)
+  {
     sendbuf[i * 2] = nccl_mat_id_pair[i].first;
     sendbuf[i * 2 + 1] = nccl_mat_id_pair[i].second;
   }
 
   std::vector<int> recvbuf(total_pairs * 2);
-  MPI_Allgatherv(sendbuf.data(), local_count * 2, MPI_INT, recvbuf.data(),
-                 recvcounts.data(), displs.data(), MPI_INT, MPI_COMM_WORLD);
+  MPI_Allgatherv(sendbuf.data(), local_count * 2, MPI_INT, recvbuf.data(), recvcounts.data(), displs.data(), MPI_INT,
+                 MPI_COMM_WORLD);
 
   // 2. Update Swapper::matToNCCLIdMap. Note: only update with mat on the other
   // nodes.
-  for (int rank = 0; rank < mpi_size; rank++) {
+  for (int rank = 0; rank < mpi_size; rank++)
+  {
     if (rank == mpi_rank) continue;
     int base = displs[rank];
-    for (int i = 0; i < all_counts[rank]; i++) {
+    for (int i = 0; i < all_counts[rank]; i++)
+    {
       int nccl_comm_id = recvbuf[base + i * 2];
       int mat_id = recvbuf[base + i * 2 + 1];
       matToNCCLIdMap[mat_id] = nccl_comm_id;
@@ -186,19 +187,19 @@ void Swapper::exchangePreStoreMap() {
   }
 }
 
-bool Swapper::isOnRemoteGpu(int matId) const {
-  return matToNCCLIdMap.find(matId) != matToNCCLIdMap.end();
-}
+bool Swapper::isOnRemoteGpu(int matId) const { return matToNCCLIdMap.find(matId) != matToNCCLIdMap.end(); }
 
-int Swapper::getRemoteNCCLId(int matId) const {
+int Swapper::getRemoteNCCLId(int matId) const
+{
   assert(isOnRemoteGpu(matId));
   return matToNCCLIdMap.at(matId);
 }
 
-std::shared_ptr<GpuBuffer> Swapper::getGpuBufferOrNone(Matrix mat,
-                                                       int deviceId) {
+std::shared_ptr<GpuBuffer> Swapper::getGpuBufferOrNone(Matrix mat, int deviceId)
+{
   auto [id, buffer] = getPreStoreBufferOrNone(mat);
-  if (buffer != nullptr && id == deviceId) {
+  if (buffer != nullptr && id == deviceId)
+  {
     return buffer;
   }
 
@@ -209,36 +210,44 @@ std::shared_ptr<GpuBuffer> Swapper::getGpuBufferOrNone(Matrix mat,
   return it->second;
 }
 
-void Swapper::freeAllUnpinMatrices(int deviceId) {
+void Swapper::freeAllUnpinMatrices(int deviceId)
+{
   std::vector<std::shared_ptr<GpuBuffer>> buffers;
 
-  for (auto [id, buffer] : hostToGpuMaps[deviceId]) {
-    if (!isPinned(id, deviceId)) {
+  for (auto [id, buffer] : hostToGpuMaps[deviceId])
+  {
+    if (!isPinned(id, deviceId))
+    {
       buffers.push_back(buffer);
     }
   }
 
-  for (auto buffer : buffers) {
+  for (auto buffer : buffers)
+  {
     hostToGpuMaps[deviceId].erase(buffer->getId());
     freeBuffer(buffer, deviceId);
   }
 }
 
-void Swapper::release() {
-  for (auto memPool : memPools) {
+void Swapper::release()
+{
+  for (auto memPool : memPools)
+  {
     CUDA_CALL(cudaMemPoolTrimTo(memPool, 0));
   }
 }
-std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId) {
+std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
+{
   void* ptr;
   auto memStream = memStreams[deviceId];
   auto memPool = memPools[deviceId];
 
-  cudaError_t errCode =
-      cudaMallocFromPoolAsync(&ptr, mat.sizeInByte(), memPool, memStream);
+  cudaError_t errCode = cudaMallocFromPoolAsync(&ptr, mat.sizeInByte(), memPool, memStream);
 
-  if (errCode != cudaSuccess) {
-    if (errCode != cudaErrorMemoryAllocation) {
+  if (errCode != cudaSuccess)
+  {
+    if (errCode != cudaErrorMemoryAllocation)
+    {
       fprintf(stderr, "Unexpected CUDA Error at %s:%d\n", __FILE__, __LINE__);
       fprintf(stderr, "  Error code: %d\n", errCode);
       fprintf(stderr, "  Error text: %s\n", cudaGetErrorString(errCode));
@@ -257,47 +266,46 @@ std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId) {
   return buffer;
 }
 
-void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer,
-                         int deviceId, cudaStream_t stream,
-                         StreamManager& streamManager) {
+void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream,
+                         StreamManager& streamManager)
+{
   assert(mat.getPtr() != nullptr);
   DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream, mat.sizeInByte());
-  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(),
-                            cudaMemcpyHostToDevice, stream));
+  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream));
   buffer->notifyWriteFinish(stream);
 }
 
-void Swapper::preStoreMatrix(Matrix mat, int deviceId) {
+void Swapper::preStoreMatrix(Matrix mat, int deviceId)
+{
   DEBUG_PRESTORE(*this, mat.getId(), 0, deviceId);
   auto memStream = memStreams[deviceId];
   double* gpuPtr;
-  CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(),
-                                    memPools[deviceId], memStream));
-  CUDA_CALL(cudaMemcpyAsync(gpuPtr, mat.getPtr(), mat.sizeInByte(),
-                            cudaMemcpyHostToDevice, memStream));
+  CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
+  CUDA_CALL(cudaMemcpyAsync(gpuPtr, mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, memStream));
   auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat);
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
 
-void Swapper::registerGpuAllocation(Matrix mat, int deviceId) {
+void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
+{
   CUDA_CALL(cudaSetDevice(deviceId));
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   DEBUG_PRESTORE(*this, mat.getId(), mpi_rank, deviceId);
   auto memStream = memStreams[deviceId];
   double* gpuPtr;
-  CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(),
-                                    memPools[deviceId], memStream));
+  CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
   auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat);
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
 
-std::shared_ptr<GpuBuffer> Swapper::getForRead(Matrix mat, int deviceId,
-                                               cudaStream_t stream) {
+std::shared_ptr<GpuBuffer> Swapper::getForRead(Matrix mat, int deviceId, cudaStream_t stream)
+{
   auto bufferPtr = getGpuBufferOrNone(mat, deviceId);
-  if (bufferPtr != nullptr) {
+  if (bufferPtr != nullptr)
+  {
     bufferPtr->waitForWriteFinish(stream);
     return bufferPtr;
   }
@@ -305,10 +313,11 @@ std::shared_ptr<GpuBuffer> Swapper::getForRead(Matrix mat, int deviceId,
   return nullptr;
 }
 
-std::shared_ptr<GpuBuffer> Swapper::getForWrite(Matrix mat, int deviceId,
-                                                cudaStream_t stream) {
+std::shared_ptr<GpuBuffer> Swapper::getForWrite(Matrix mat, int deviceId, cudaStream_t stream)
+{
   auto bufferPtr = getGpuBufferOrNone(mat, deviceId);
-  if (bufferPtr != nullptr) {
+  if (bufferPtr != nullptr)
+  {
     bufferPtr->waitForWriteFinish(stream);
     bufferPtr->waitForReadFinish(stream);
     return bufferPtr;
@@ -317,59 +326,62 @@ std::shared_ptr<GpuBuffer> Swapper::getForWrite(Matrix mat, int deviceId,
   return nullptr;
 }
 
-void Swapper::freeAllBuffer(int deviceId) {
+void Swapper::freeAllBuffer(int deviceId)
+{
   auto& map = hostToGpuMaps[deviceId];
-  for (auto [id, buffer] : map) {
+  for (auto [id, buffer] : map)
+  {
     freeBuffer(buffer, deviceId);
   }
   map.clear();
 }
 
-void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId) {
+void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
+{
   auto memStream = memStreams[deviceId];
   buffer->waitForReadFinish(memStream);
   buffer->waitForWriteFinish(memStream);
-  deprecatedEvents[deviceId].insert(deprecatedEvents[deviceId].end(),
-                                    buffer->readFinishEvent.begin(),
+  deprecatedEvents[deviceId].insert(deprecatedEvents[deviceId].end(), buffer->readFinishEvent.begin(),
                                     buffer->readFinishEvent.end());
-  deprecatedEvents[deviceId].insert(deprecatedEvents[deviceId].end(),
-                                    buffer->writeFinishEvent.begin(),
+  deprecatedEvents[deviceId].insert(deprecatedEvents[deviceId].end(), buffer->writeFinishEvent.begin(),
                                     buffer->writeFinishEvent.end());
   DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, memStream);
   CUDA_CALL(cudaFreeAsync(buffer->getPtr(), memStream));
 }
 
-void Swapper::freeAllEvents(int deviceId) {
-  for (auto event : deprecatedEvents[deviceId]) {
+void Swapper::freeAllEvents(int deviceId)
+{
+  for (auto event : deprecatedEvents[deviceId])
+  {
     CUDA_CALL(cudaEventDestroy(event));
   }
   deprecatedEvents[deviceId].clear();
 }
 
-void Swapper::syncMemStream(int deviceId) {
-  CUDA_CALL(cudaStreamSynchronize(memStreams[deviceId]));
-}
+void Swapper::syncMemStream(int deviceId) { CUDA_CALL(cudaStreamSynchronize(memStreams[deviceId])); }
 
-void Swapper::initMemPools() {
+void Swapper::initMemPools()
+{
   // Use CUDA's default pool unless the legacy custom-pool path is explicitly
   // requested. The custom path preallocates most free GPU memory, which is too
   // expensive for repeated small DMRG local solves.
   const char* useDefaultPoolEnv = std::getenv("USE_DEFAULT_POOL");
-  bool useDefaultPool =
-      (useDefaultPoolEnv == nullptr || std::string(useDefaultPoolEnv) != "OFF");
+  bool useDefaultPool = (useDefaultPoolEnv == nullptr || std::string(useDefaultPoolEnv) != "OFF");
   const bool memoryLog = std::getenv("TENSORCONTRACTION_MEMORY_LOG") != nullptr;
 
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
-  if (memoryLog) {
-    fprintf(stderr, "[MEMORY][POOL_MODE] Node=%d Mode=%s\n", mpi_rank,
-            useDefaultPool ? "DEFAULT" : "CUSTOM");
+  if (memoryLog)
+  {
+    fprintf(stderr, "[MEMORY][POOL_MODE] Node=%d Mode=%s\n", mpi_rank, useDefaultPool ? "DEFAULT" : "CUSTOM");
   }
 
-  if (useDefaultPool) {
+  if (useDefaultPool)
+  {
     // Use default memory pool for each device
-    for (int i = 0; i < deviceCount; i++) {
+    for (int i = 0; i < deviceCount; i++)
+    {
       CUDA_CALL(cudaSetDevice(i));
       cudaMemPool_t pool;
       CUDA_CALL(cudaDeviceGetDefaultMemPool(&pool, i));
@@ -377,30 +389,37 @@ void Swapper::initMemPools() {
     }
     // Note: When using default pool, we don't set release threshold or maxSize
     // NCCL_HEADROOM is ignored in this mode
-  } else {
+  }
+  else
+  {
     // Use custom memory pools with NCCL_HEADROOM
     // Parse NCCL_HEADROOM (format: "0" or "[0-9]+G", default: 3GB)
-    size_t ncclHeadroom = 3ULL * 1024 * 1024 * 1024;  // Default 3GB
+    size_t ncclHeadroom = 3ULL * 1024 * 1024 * 1024; // Default 3GB
     const char* ncclHeadroomEnv = std::getenv("NCCL_HEADROOM");
-    if (ncclHeadroomEnv != nullptr) {
+    if (ncclHeadroomEnv != nullptr)
+    {
       std::string headroomStr(ncclHeadroomEnv);
-      if (headroomStr == "0") {
+      if (headroomStr == "0")
+      {
         ncclHeadroom = 0;
-      } else if (headroomStr.back() == 'G') {
+      }
+      else if (headroomStr.back() == 'G')
+      {
         // Parse number before 'G'
-        size_t gbValue =
-            std::stoull(headroomStr.substr(0, headroomStr.size() - 1));
+        size_t gbValue = std::stoull(headroomStr.substr(0, headroomStr.size() - 1));
         ncclHeadroom = gbValue * 1024ULL * 1024 * 1024;
       }
     }
 
-    if (memoryLog) {
+    if (memoryLog)
+    {
       fprintf(stderr, "[MEMORY][NCCL_HEADROOM] Node=%d Size=%.2fGB\n", mpi_rank,
               ncclHeadroom / (1024.0 * 1024.0 * 1024.0));
     }
 
     // Step 1: Create memory pool for each device with maxSize limit
-    for (int i = 0; i < deviceCount; i++) {
+    for (int i = 0; i < deviceCount; i++)
+    {
       CUDA_CALL(cudaSetDevice(i));
 
       size_t freeMem, totalMem;
@@ -417,30 +436,32 @@ void Swapper::initMemPools() {
       cudaMemPool_t pool;
       CUDA_CALL(cudaMemPoolCreate(&pool, &poolProps));
       uint64_t threshold = UINT64_MAX;
-      cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold,
-                              &threshold);
+      cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold);
       memPools.push_back(pool);
 
       // pre-allocate maxSize memory and free it to prevent memory frag.
       // if failed then let it fail.
       void* preAllocPtr;
-      cudaError_t preAllocErr =
-          cudaMallocFromPoolAsync(&preAllocPtr, maxSize, pool, memStreams[i]);
-      if (preAllocErr == cudaSuccess) {
+      cudaError_t preAllocErr = cudaMallocFromPoolAsync(&preAllocPtr, maxSize, pool, memStreams[i]);
+      if (preAllocErr == cudaSuccess)
+      {
         cudaFreeAsync(preAllocPtr, memStreams[i]);
       }
       CUDA_CALL(cudaStreamSynchronize(memStreams[i]));
     }
   }
 
-  for (int i = 0; i < deviceCount; i++) {
-    for (int j = 0; j < deviceCount; j++) {
+  for (int i = 0; i < deviceCount; i++)
+  {
+    for (int j = 0; j < deviceCount; j++)
+    {
       if (i == j) continue;
 
       int canAccess;
       CUDA_CALL(cudaDeviceCanAccessPeer(&canAccess, i, j));
 
-      if (canAccess) {
+      if (canAccess)
+      {
         cudaMemAccessDesc accessDesc = {};
         accessDesc.location.type = cudaMemLocationTypeDevice;
         accessDesc.location.id = j;
@@ -453,19 +474,17 @@ void Swapper::initMemPools() {
   CUDA_CALL(cudaSetDevice(0));
 }
 
-void Swapper::dumpMemPoolStatus(int deviceId) {
+void Swapper::dumpMemPoolStatus(int deviceId)
+{
   CUDA_CALL(cudaSetDevice(deviceId));
 
   uint64_t highestReserved = 0;
   uint64_t currentReserved = 0;
   uint64_t currentUsed = 0;
 
-  CUDA_CALL(cudaMemPoolGetAttribute(
-      memPools[deviceId], cudaMemPoolAttrReservedMemHigh, &highestReserved));
-  CUDA_CALL(cudaMemPoolGetAttribute(
-      memPools[deviceId], cudaMemPoolAttrReservedMemCurrent, &currentReserved));
-  CUDA_CALL(cudaMemPoolGetAttribute(
-      memPools[deviceId], cudaMemPoolAttrUsedMemCurrent, &currentUsed));
+  CUDA_CALL(cudaMemPoolGetAttribute(memPools[deviceId], cudaMemPoolAttrReservedMemHigh, &highestReserved));
+  CUDA_CALL(cudaMemPoolGetAttribute(memPools[deviceId], cudaMemPoolAttrReservedMemCurrent, &currentReserved));
+  CUDA_CALL(cudaMemPoolGetAttribute(memPools[deviceId], cudaMemPoolAttrUsedMemCurrent, &currentUsed));
 
   size_t freeMem, totalMem;
   CUDA_CALL(cudaMemGetInfo(&freeMem, &totalMem));
@@ -473,26 +492,27 @@ void Swapper::dumpMemPoolStatus(int deviceId) {
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
-  printf("Node=%d Device=%d: total memory: %.3fGB\n", mpi_rank, deviceId,
-         totalMem / (1024.0 * 1024.0 * 1024.0));
-  printf("Node=%d Device=%d: highest reserved memory: %.3fGB\n", mpi_rank,
-         deviceId, highestReserved / (1024.0 * 1024.0 * 1024.0));
-  printf("Node=%d Device=%d: current reserved memory: %.3fGB\n", mpi_rank,
-         deviceId, currentReserved / (1024.0 * 1024.0 * 1024.0));
+  printf("Node=%d Device=%d: total memory: %.3fGB\n", mpi_rank, deviceId, totalMem / (1024.0 * 1024.0 * 1024.0));
+  printf("Node=%d Device=%d: highest reserved memory: %.3fGB\n", mpi_rank, deviceId,
+         highestReserved / (1024.0 * 1024.0 * 1024.0));
+  printf("Node=%d Device=%d: current reserved memory: %.3fGB\n", mpi_rank, deviceId,
+         currentReserved / (1024.0 * 1024.0 * 1024.0));
   printf("Node=%d Device=%d: current used memory: %.3fGB\n", mpi_rank, deviceId,
          currentUsed / (1024.0 * 1024.0 * 1024.0));
-  printf("Node=%d Device=%d: free memory: %.3fGB\n", mpi_rank, deviceId,
-         freeMem / (1024.0 * 1024.0 * 1024.0));
+  printf("Node=%d Device=%d: free memory: %.3fGB\n", mpi_rank, deviceId, freeMem / (1024.0 * 1024.0 * 1024.0));
 }
 
-void Swapper::freeBuffer(Matrix mat, int deviceId, cudaStream_t stream) {
-  if (isPinned(mat.getId(), deviceId)) {
+void Swapper::freeBuffer(Matrix mat, int deviceId, cudaStream_t stream)
+{
+  if (isPinned(mat.getId(), deviceId))
+  {
     return;
   }
 
   auto& hostToGpuMap = hostToGpuMaps[deviceId];
   auto it = hostToGpuMap.find(mat.getId());
-  if (it == hostToGpuMap.end()) {
+  if (it == hostToGpuMap.end())
+  {
     return;
   }
 
@@ -501,7 +521,8 @@ void Swapper::freeBuffer(Matrix mat, int deviceId, cudaStream_t stream) {
   freeBuffer(buffer, deviceId);
 }
 
-void Swapper::syncBuffer(Matrix mat, int deviceId, cudaStream_t stream) {
+void Swapper::syncBuffer(Matrix mat, int deviceId, cudaStream_t stream)
+{
   auto& hostToGpuMap = hostToGpuMaps[deviceId];
   auto it = hostToGpuMap.find(mat.getId());
   assert(it != hostToGpuMap.end());
@@ -509,35 +530,37 @@ void Swapper::syncBuffer(Matrix mat, int deviceId, cudaStream_t stream) {
 
   buffer->waitForWriteFinish(stream);
 
-  if (const auto it = preStoreMap.find(mat.getId()); it != preStoreMap.end()) {
+  if (const auto it = preStoreMap.find(mat.getId()); it != preStoreMap.end())
+  {
     auto [dstDeviceId, dstBuffer] = it->second;
     assert(dstDeviceId != deviceId);
-    DEBUG_GPU_COPY_D2D(*this, mat.getId(), deviceId, buffer->getPtr(),
-                       dstDeviceId, dstBuffer->getPtr(), stream,
+    DEBUG_GPU_COPY_D2D(*this, mat.getId(), deviceId, buffer->getPtr(), dstDeviceId, dstBuffer->getPtr(), stream,
                        mat.sizeInByte());
-    CUDA_CALL(cudaMemcpyPeerAsync(dstBuffer->getPtr(), dstDeviceId,
-                                  buffer->getPtr(), deviceId, mat.sizeInByte(),
-                                  stream));
-  } else {
-    DEBUG_GPU_COPY_D2H(*this, buffer->getId(), deviceId, stream,
-                       buffer->sizeInByte());
-    CUDA_CALL(cudaMemcpyAsync(buffer->hostPtr, buffer->getPtr(),
-                              buffer->sizeInByte(), cudaMemcpyDeviceToHost,
-                              stream));
+    CUDA_CALL(
+        cudaMemcpyPeerAsync(dstBuffer->getPtr(), dstDeviceId, buffer->getPtr(), deviceId, mat.sizeInByte(), stream));
+  }
+  else
+  {
+    DEBUG_GPU_COPY_D2H(*this, buffer->getId(), deviceId, stream, buffer->sizeInByte());
+    CUDA_CALL(cudaMemcpyAsync(buffer->hostPtr, buffer->getPtr(), buffer->sizeInByte(), cudaMemcpyDeviceToHost, stream));
   }
   buffer->notifyReadFinish(stream);
 }
 
-void Swapper::clear() {
-  for (auto& hostToGpuMap : hostToGpuMaps) {
-    for (auto& [id, buffer] : hostToGpuMap) {
+void Swapper::clear()
+{
+  for (auto& hostToGpuMap : hostToGpuMaps)
+  {
+    for (auto& [id, buffer] : hostToGpuMap)
+    {
       cudaFree(buffer->getPtr());
     }
 
     hostToGpuMap.clear();
   }
 
-  for (auto [id, pair] : preStoreMap) {
+  for (auto [id, pair] : preStoreMap)
+  {
     auto buffer = pair.second;
     CUDA_CALL(cudaFree(buffer->getPtr()));
   }
@@ -545,10 +568,13 @@ void Swapper::clear() {
   preStoreMap.clear();
 }
 
-void Swapper::clear(Matrix mat) {
-  for (auto& hostToGpuMap : hostToGpuMaps) {
+void Swapper::clear(Matrix mat)
+{
+  for (auto& hostToGpuMap : hostToGpuMaps)
+  {
     auto it = hostToGpuMap.find(mat.getId());
-    if (it == hostToGpuMap.end()) {
+    if (it == hostToGpuMap.end())
+    {
       continue;
     }
     CUDA_CALL(cudaFree(it->second->getPtr()));
@@ -556,4 +582,4 @@ void Swapper::clear(Matrix mat) {
   }
 }
 
-}  // namespace tensor
+} // namespace tensor

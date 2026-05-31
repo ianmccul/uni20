@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <span>
 #include <stdexcept>
 
@@ -91,5 +92,28 @@ inline double normalize(MatrixFamily& x)
   scale(x, 1.0 / x_norm);
   return x_norm;
 }
+
+class VectorAlgebraEngine {
+  public:
+    VectorAlgebraEngine();
+    VectorAlgebraEngine(VectorAlgebraEngine const&) = delete;
+    VectorAlgebraEngine& operator=(VectorAlgebraEngine const&) = delete;
+    VectorAlgebraEngine(VectorAlgebraEngine&&) noexcept;
+    VectorAlgebraEngine& operator=(VectorAlgebraEngine&&) noexcept;
+    ~VectorAlgebraEngine();
+
+    [[nodiscard]] double dot(MatrixFamily const& lhs, MatrixFamily const& rhs);
+    [[nodiscard]] double norm2(MatrixFamily const& x);
+    [[nodiscard]] double norm(MatrixFamily const& x);
+    void zero(MatrixFamily& x);
+    void copy(MatrixFamily const& source, MatrixFamily& target);
+    void scale(MatrixFamily& x, double alpha);
+    void axpy(double alpha, MatrixFamily const& x, MatrixFamily& y);
+    [[nodiscard]] double normalize(MatrixFamily& x);
+
+  private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 } // namespace uni20::tensorcontraction

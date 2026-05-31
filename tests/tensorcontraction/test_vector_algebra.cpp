@@ -84,6 +84,51 @@ TEST(TensorContractionVectorAlgebraTest, NormalizesAndReturnsOriginalNorm)
   EXPECT_NEAR(utc::norm(x), 1.0, 1.0e-14);
 }
 
+TEST(TensorContractionVectorAlgebraTest, EngineRunsOperationsThroughTensorContraction)
+{
+  utc::VectorAlgebraEngine engine;
+  auto x = make_vector();
+  auto y = make_vector();
+  y.assign(0, std::array{2.0, 3.0, -1.0, 0.5});
+  y.assign(1, std::array{4.0, -2.0, 1.0});
+
+  EXPECT_DOUBLE_EQ(engine.dot(x, y), 30.0);
+  EXPECT_DOUBLE_EQ(engine.norm2(x), 140.0);
+  EXPECT_DOUBLE_EQ(engine.norm(x), std::sqrt(140.0));
+
+  engine.scale(x, 0.5);
+  EXPECT_DOUBLE_EQ(x.values(0)[0], 0.5);
+  EXPECT_DOUBLE_EQ(x.values(0)[3], -2.0);
+  EXPECT_DOUBLE_EQ(x.values(1)[2], 3.5);
+
+  engine.zero(y);
+  for (std::size_t block = 0; block < y.blocks().size(); ++block)
+  {
+    for (double value : y.values(block))
+    {
+      EXPECT_DOUBLE_EQ(value, 0.0);
+    }
+  }
+
+  engine.axpy(2.0, x, y);
+  EXPECT_DOUBLE_EQ(y.values(0)[0], 1.0);
+  EXPECT_DOUBLE_EQ(y.values(0)[1], -2.0);
+  EXPECT_DOUBLE_EQ(y.values(0)[2], 3.0);
+  EXPECT_DOUBLE_EQ(y.values(0)[3], -4.0);
+  EXPECT_DOUBLE_EQ(y.values(1)[0], 5.0);
+  EXPECT_DOUBLE_EQ(y.values(1)[1], -6.0);
+  EXPECT_DOUBLE_EQ(y.values(1)[2], 7.0);
+
+  auto z = utc::make_like(y);
+  engine.copy(y, z);
+  EXPECT_DOUBLE_EQ(z.values(0)[2], 3.0);
+  EXPECT_DOUBLE_EQ(z.values(1)[1], -6.0);
+
+  double const original_norm = engine.normalize(z);
+  EXPECT_DOUBLE_EQ(original_norm, std::sqrt(140.0));
+  EXPECT_NEAR(engine.norm(z), 1.0, 1.0e-14);
+}
+
 TEST(TensorContractionVectorAlgebraTest, RejectsZeroNormalizeAndShapeMismatches)
 {
   auto x = make_vector();
