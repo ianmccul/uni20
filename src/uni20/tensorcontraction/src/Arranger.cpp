@@ -39,7 +39,7 @@ namespace tensor
 
 Arranger::Arranger(Swapper& swapper) : swapper(swapper)
 {
-  CUDA_CALL(cudaGetDeviceCount(&deviceCount));
+  deviceCount = swapper.getDeviceCount();
   for (int i = 0; i < deviceCount; i++)
   {
     streamManagers.emplace_back(swapper, i, deviceCount);
@@ -59,6 +59,11 @@ Arranger::Arranger(Swapper& swapper) : swapper(swapper)
 
   MPI_Bcast(&ncclAllDeviceId, sizeof(ncclUniqueId), MPI_BYTE, 0, MPI_COMM_WORLD);
   int total_ranks = deviceCount * mpi_size;
+  if (total_ranks == 1)
+  {
+    return;
+  }
+
   DEBUG_NCCL_COMM_CREATE_START(mpi_rank, total_ranks, &ncclAllDeviceId);
   NCCL_CALL(ncclGroupStart());
   for (int i = 0; i < deviceCount; i++)
@@ -1028,6 +1033,7 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
   // Let NCCL do the real matrices copy work.
   if (!dstMatPairs.empty())
   {
+    assert(comm != nullptr);
     createWork<NCCLSendRecvWork>(dstMatPairs, comm, streamManager, swapper)->execute();
   }
   streamManager.syncAllStreams();
@@ -1138,10 +1144,11 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
 
       for (int deviceId = 0; deviceId < deviceCount; deviceId++)
       {
+        ncclComm_t comm = allDeviceComms.empty() ? nullptr : allDeviceComms[deviceId];
         threads[deviceId] =
             std::thread(copyMatrices, deviceId, deviceCount, std::cref(batchSlices[deviceId]), std::ref(dstMatPairs),
-                        std::ref(batchCounter), allDeviceComms[deviceId], std::ref(streamManagers[deviceId]),
-                        std::ref(swapper), std::cref(matToSyncFinishEventMap));
+                        std::ref(batchCounter), comm, std::ref(streamManagers[deviceId]), std::ref(swapper),
+                        std::cref(matToSyncFinishEventMap));
       }
 
       for (int deviceId = 0; deviceId < deviceCount; deviceId++)

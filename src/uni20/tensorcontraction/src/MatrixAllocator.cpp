@@ -134,8 +134,7 @@ void MatrixAllocator::allocateMatrices(std::vector<Matrix>& r_mats, std::vector<
                                        std::vector<Matrix>& inter_mats, Swapper& swapper)
 {
   // Query 50% of available memory pool for each device
-  int device_count;
-  CUDA_CALL(cudaGetDeviceCount(&device_count));
+  int device_count = swapper.getDeviceCount();
   std::vector<size_t> availableMemory(device_count);
   std::vector<size_t> initialAvailableMemory(device_count);
 

@@ -90,6 +90,7 @@ class Swapper {
     void initMemPools();
     void dumpMemPoolStatus(int deviceId);
     cudaMemPool_t getMemPool(int deviceId) const { return memPools[deviceId]; }
+    int getDeviceCount() const { return deviceCount; }
 
     void freeAllUnpinMatrices(int deviceId);
     void pinMatrix(Matrix mat, int deviceId);

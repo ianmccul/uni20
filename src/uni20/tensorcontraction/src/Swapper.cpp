@@ -82,7 +82,9 @@ void GpuBuffer::notifyWriteFinish(cudaStream_t stream)
 
 Swapper::Swapper()
 {
-  cudaGetDeviceCount(&deviceCount);
+  int visibleDeviceCount = 0;
+  cudaGetDeviceCount(&visibleDeviceCount);
+  deviceCount = resolveActiveCudaDeviceCount(visibleDeviceCount);
   for (int i = 0; i < deviceCount; i++)
   {
     CUDA_CALL(cudaSetDevice(i));

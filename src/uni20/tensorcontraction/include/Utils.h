@@ -3,7 +3,10 @@
 #include <cublas_v2.h>
 #include <nccl.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <iostream>
+#include <string>
 #include <tuple>
 
 namespace tensor
@@ -11,7 +14,43 @@ namespace tensor
 
 using TermTy = std::tuple<int, int, int, int, double>;
 
+inline int resolveActiveCudaDeviceCount(int visibleDeviceCount)
+{
+  if (visibleDeviceCount <= 0)
+  {
+    return 0;
+  }
+
+  auto const* devices = std::getenv("UNI20_TENSORCONTRACTION_DEVICES");
+  if (devices == nullptr)
+  {
+    devices = std::getenv("TENSORCONTRACTION_DEVICES");
+  }
+  if (devices == nullptr)
+  {
+    // TensorContraction's CUDA/MPI path is intended to run one CUDA device per
+    // MPI process.  The vendored default used every visible GPU in every
+    // process, which creates large CUDA/NCCL virtual-address reservations.
+    return 1;
+  }
+
+  std::string value(devices);
+  if (value == "all" || value == "ALL")
+  {
+    return visibleDeviceCount;
+  }
+
+  try
+  {
+    return std::clamp(std::stoi(value), 1, visibleDeviceCount);
+  }
+  catch (...)
+  {
+    return 1;
+  }
 }
+
+} // namespace tensor
 
 #define CUDA_CALL(func)                                                                                                \
   do                                                                                                                   \

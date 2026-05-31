@@ -45,6 +45,18 @@ this matvec and the host vector-algebra fallback.  The MPS unit-test binary uses
 that mode by default so small algorithm tests do not reserve the large CUDA
 virtual-address ranges associated with initializing the temporary CUDA/NCCL
 runtime.
+The vendored TensorContraction CUDA/MPI path defaults to one active visible GPU
+per process.  Set
+`UNI20_TENSORCONTRACTION_DEVICES=all` to restore the vendored TensorContraction
+behavior of using every visible GPU in each process, or set it to an integer to
+use the first `N` visible devices.  For multi-process runs, prefer launching one
+rank per GPU with `CUDA_VISIBLE_DEVICES` set per rank.  This matches the
+TensorContraction execution model and avoids per-process all-device CUDA/NCCL
+initialization; it is not intended to limit the eventual uni20 CUDA/MPI runtime
+design.  The all-visible-GPU mode is still available for TensorContraction
+experiments that need one process to drive multiple local GPUs; multi-GPU plus
+multi-node execution is not covered by the current single-node GV100 test
+environment.
 
 `vector_algebra.hpp` provides block-vector operations needed by the first
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
