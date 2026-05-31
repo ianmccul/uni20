@@ -129,6 +129,23 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsOperationsThroughTensorContra
   EXPECT_NEAR(engine.norm(z), 1.0, 1.0e-14);
 }
 
+TEST(TensorContractionVectorAlgebraTest, EngineCanKeepMutationsResidentUntilExplicitSync)
+{
+  utc::VectorAlgebraEngine engine;
+  auto x = make_vector();
+
+  engine.upload(x);
+  engine.set_host_synchronization(false);
+  engine.scale(x, 2.0);
+
+  EXPECT_DOUBLE_EQ(x.values(0)[0], 1.0);
+  EXPECT_DOUBLE_EQ(x.values(1)[2], 7.0);
+
+  engine.synchronize(x);
+  EXPECT_DOUBLE_EQ(x.values(0)[0], 2.0);
+  EXPECT_DOUBLE_EQ(x.values(1)[2], 14.0);
+}
+
 TEST(TensorContractionVectorAlgebraTest, RejectsZeroNormalizeAndShapeMismatches)
 {
   auto x = make_vector();

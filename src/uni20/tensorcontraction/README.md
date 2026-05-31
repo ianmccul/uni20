@@ -45,15 +45,21 @@ main uni20 tensor or MPS APIs to the temporary TensorContraction layout.
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
 `normalize`.  The free functions are the host fallback.  `VectorAlgebraEngine`
 routes the same operations through TensorContraction's CUDA worklists so the
-DMRG local solver does not bake in CPU vector algebra.  This is an interim
-bridge: the current engine still synchronizes host-visible `MatrixFamily`
-storage after each operation, so batching and GPU-resident vector lifetimes are
-the next performance step.
+DMRG local solver does not bake in CPU vector algebra.  The engine can also run
+in an explicit resident mode: `upload` makes host `MatrixFamily` storage the
+authority, `set_host_synchronization(false)` keeps subsequent mutations in
+TensorContraction pre-store buffers, and `synchronize` materializes values back
+to host storage at known algorithm boundaries.  This is still an interim bridge:
+the effective-Hamiltonian adapter currently owns a separate TensorContraction
+runtime, so Lanczos must synchronize the matvec input to host and upload the
+matvec output again until those runtimes are unified.
 
 `lanczos.hpp` ports the small-iteration Lanczos shape used by MPTK's DMRG path
 onto `MatrixFamily` block vectors and uses `VectorAlgebraEngine` for its vector
-operations.  The implementation intentionally avoids restart and full
-reorthogonalization so it remains comparable to MPTK for local DMRG
+operations.  Pure Krylov vector algebra is kept resident where possible; scalar
+inner-product results are broadcast across the lockstep MPI ranks so convergence
+decisions remain identical.  The implementation intentionally avoids restart and
+full reorthogonalization so it remains comparable to MPTK for local DMRG
 benchmarking.
 
 `svd.hpp` adds the first two-site split primitive: a single-block host SVD with

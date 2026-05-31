@@ -3,6 +3,8 @@
 #include "Arranger.hpp"
 #include "Swapper.hpp"
 
+#include <mpi.h>
+
 #include <cmath>
 #include <stdexcept>
 #include <utility>
@@ -15,9 +17,44 @@ struct VectorAlgebraEngine::Impl
 {
     tensor::Swapper swapper;
     tensor::Arranger arranger;
+    bool sync_host = true;
 
     Impl() : swapper(), arranger(swapper) {}
+
+    void localize(MatrixFamily& x, bool upload_from_host)
+    {
+      // MatrixFamily remains the public host-visible container.  The
+      // TensorContraction runtime uses pre-store buffers as the current GPU
+      // resident representation for Lanczos-local vector algebra.
+      arranger.localizeForLinearAlgebra(raw_matrices(x), upload_from_host);
+    }
 };
+
+namespace
+{
+
+double broadcast_from_rank_zero(double value)
+{
+  // The current TensorContraction runtime is lockstep MPI.  Scalar Krylov
+  // decisions must be identical on every rank, so rank 0 is the authority for
+  // reductions exposed back to the algorithm layer.
+  int initialized = 0;
+  MPI_Initialized(&initialized);
+  if (initialized == 0)
+  {
+    return value;
+  }
+
+  int size = 1;
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  if (size > 1)
+  {
+    MPI_Bcast(&value, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  }
+  return value;
+}
+
+} // namespace
 
 VectorAlgebraEngine::VectorAlgebraEngine() : impl_(std::make_unique<Impl>()) {}
 
@@ -28,6 +65,15 @@ VectorAlgebraEngine::~VectorAlgebraEngine() = default;
 double VectorAlgebraEngine::dot(MatrixFamily const& lhs, MatrixFamily const& rhs)
 {
   validate_compatible_vector_shapes(lhs, rhs);
+
+  if (!impl_->sync_host)
+  {
+    // Resident mode assumes the latest vector data is already in pre-store
+    // buffers.  localize(..., false) only guarantees GPU allocation; it does
+    // not overwrite resident data from stale host storage.
+    impl_->arranger.localizeForLinearAlgebra(raw_matrices(lhs), false);
+    impl_->arranger.localizeForLinearAlgebra(raw_matrices(rhs), false);
+  }
 
   auto const& lhs_matrices = raw_matrices(lhs);
   auto const& rhs_matrices = raw_matrices(rhs);
@@ -44,18 +90,35 @@ double VectorAlgebraEngine::dot(MatrixFamily const& lhs, MatrixFamily const& rhs
   {
     result += value;
   }
-  return result;
+  return broadcast_from_rank_zero(result);
 }
 
 double VectorAlgebraEngine::norm2(MatrixFamily const& x) { return this->dot(x, x); }
 
 double VectorAlgebraEngine::norm(MatrixFamily const& x) { return std::sqrt(this->norm2(x)); }
 
+void VectorAlgebraEngine::set_host_synchronization(bool enabled) { impl_->sync_host = enabled; }
+
+void VectorAlgebraEngine::localize(MatrixFamily& x) { impl_->localize(x, false); }
+
+void VectorAlgebraEngine::upload(MatrixFamily& x) { impl_->localize(x, true); }
+
+void VectorAlgebraEngine::synchronize(MatrixFamily& x)
+{
+  // Explicit escape hatch for boundaries that still consume host storage, such
+  // as the current EffectiveHamiltonianOperator adapter.
+  impl_->arranger.synchronizeLinearAlgebraToHost(raw_matrices(x));
+}
+
 void VectorAlgebraEngine::zero(MatrixFamily& x)
 {
+  if (!impl_->sync_host)
+  {
+    impl_->localize(x, false);
+  }
   for (auto const& matrix : raw_matrices(x))
   {
-    impl_->arranger.compileZeroForLinearAlgebra(matrix);
+    impl_->arranger.compileZeroForLinearAlgebra(matrix, impl_->sync_host);
   }
   impl_->arranger.doLinearAlgebra();
 }
@@ -64,22 +127,33 @@ void VectorAlgebraEngine::copy(MatrixFamily const& source, MatrixFamily& target)
 {
   validate_compatible_vector_shapes(source, target);
 
+  if (!impl_->sync_host)
+  {
+    impl_->arranger.localizeForLinearAlgebra(raw_matrices(source), false);
+    impl_->localize(target, false);
+  }
+
   double one = 1.0;
   auto const& source_matrices = raw_matrices(source);
   auto const& target_matrices = raw_matrices(target);
   for (std::size_t block = 0; block < source_matrices.size(); ++block)
   {
-    impl_->arranger.compileZeroForLinearAlgebra(target_matrices[block]);
-    impl_->arranger.compileAddAccuForLinearAlgebra(target_matrices[block], source_matrices[block], &one);
+    impl_->arranger.compileZeroForLinearAlgebra(target_matrices[block], impl_->sync_host);
+    impl_->arranger.compileAddAccuForLinearAlgebra(target_matrices[block], source_matrices[block], &one,
+                                                   impl_->sync_host);
   }
   impl_->arranger.doLinearAlgebra();
 }
 
 void VectorAlgebraEngine::scale(MatrixFamily& x, double alpha)
 {
+  if (!impl_->sync_host)
+  {
+    impl_->localize(x, false);
+  }
   for (auto const& matrix : raw_matrices(x))
   {
-    impl_->arranger.compileScalarMulForLinearAlgebra(matrix, &alpha);
+    impl_->arranger.compileScalarMulForLinearAlgebra(matrix, &alpha, impl_->sync_host);
   }
   impl_->arranger.doLinearAlgebra();
 }
@@ -88,11 +162,17 @@ void VectorAlgebraEngine::axpy(double alpha, MatrixFamily const& x, MatrixFamily
 {
   validate_compatible_vector_shapes(x, y);
 
+  if (!impl_->sync_host)
+  {
+    impl_->arranger.localizeForLinearAlgebra(raw_matrices(x), false);
+    impl_->localize(y, false);
+  }
+
   auto const& x_matrices = raw_matrices(x);
   auto const& y_matrices = raw_matrices(y);
   for (std::size_t block = 0; block < x_matrices.size(); ++block)
   {
-    impl_->arranger.compileAddAccuForLinearAlgebra(y_matrices[block], x_matrices[block], &alpha);
+    impl_->arranger.compileAddAccuForLinearAlgebra(y_matrices[block], x_matrices[block], &alpha, impl_->sync_host);
   }
   impl_->arranger.doLinearAlgebra();
 }

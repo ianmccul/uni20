@@ -1250,7 +1250,7 @@ void Arranger::compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double*
   linearAlgebraFlopsPerDevice[deviceId] += m1.size() * 2;
 }
 
-void Arranger::compileZeroForLinearAlgebra(Matrix result)
+void Arranger::compileZeroForLinearAlgebra(Matrix result, bool syncHost)
 {
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
   if (deviceId == -1)
@@ -1259,11 +1259,14 @@ void Arranger::compileZeroForLinearAlgebra(Matrix result)
   }
   linearAlgebraWorklists[deviceId].push_back(
       createWork<MemsetWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
-  linearAlgebraWorklists[deviceId].push_back(
-      createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+  if (syncHost)
+  {
+    linearAlgebraWorklists[deviceId].push_back(
+        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+  }
 }
 
-void Arranger::compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff)
+void Arranger::compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff, bool syncHost)
 {
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
   if (deviceId == -1)
@@ -1272,11 +1275,14 @@ void Arranger::compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* 
   }
   linearAlgebraWorklists[deviceId].push_back(
       createWork<AddAccuWork>(std::vector<Matrix>{result, m1}, *coff, streamManagers[deviceId], swapper));
-  linearAlgebraWorklists[deviceId].push_back(
-      createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+  if (syncHost)
+  {
+    linearAlgebraWorklists[deviceId].push_back(
+        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+  }
 }
 
-void Arranger::compileScalarMulForLinearAlgebra(Matrix result, double* coff)
+void Arranger::compileScalarMulForLinearAlgebra(Matrix result, double* coff, bool syncHost)
 {
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
   if (deviceId == -1)
@@ -1285,8 +1291,11 @@ void Arranger::compileScalarMulForLinearAlgebra(Matrix result, double* coff)
   }
   linearAlgebraWorklists[deviceId].push_back(
       createWork<ScalarMulWork>(std::vector<Matrix>{result}, 1.0, streamManagers[deviceId], swapper, coff));
-  linearAlgebraWorklists[deviceId].push_back(
-      createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+  if (syncHost)
+  {
+    linearAlgebraWorklists[deviceId].push_back(
+        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+  }
 }
 
 void Arranger::doLinearAlgebra()
@@ -1298,6 +1307,80 @@ void Arranger::doLinearAlgebra()
     wl.clear();
   liveIntervalsForLinearAlgebra.clear();
   std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+}
+
+void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost)
+{
+  ensureMemoryPoolsInitialized();
+
+  // Localize MatrixFamily blocks into TensorContraction pre-store buffers.
+  // With uploadFromHost=false this is allocation-only and preserves the current
+  // GPU-resident value; with uploadFromHost=true host storage is the authority.
+  std::vector<size_t> bytesPerDevice(deviceCount, 0);
+  for (auto mat : mats)
+  {
+    auto [deviceId, buffer] = swapper.getPreStoreBufferOrNone(mat);
+    if (buffer != nullptr)
+    {
+      if (uploadFromHost)
+      {
+        swapper.copyHostToPreStoreMatrix(mat);
+      }
+      continue;
+    }
+
+    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+    CUDA_CALL(cudaSetDevice(deviceId));
+    if (uploadFromHost)
+    {
+      swapper.preStoreMatrix(mat, deviceId);
+    }
+    else
+    {
+      swapper.registerGpuAllocation(mat, deviceId);
+    }
+    linearAlgebraFlopsPerDevice[deviceId] += static_cast<double>(mat.size());
+    bytesPerDevice[deviceId] += mat.sizeInByte();
+  }
+
+  for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
+  {
+    if (bytesPerDevice[deviceId] != 0 || uploadFromHost)
+    {
+      swapper.syncMemStream(deviceId);
+    }
+  }
+  std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+  CUDA_CALL(cudaSetDevice(0));
+}
+
+void Arranger::synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats)
+{
+  ensureMemoryPoolsInitialized();
+
+  // Host synchronization is intentionally explicit for resident Lanczos mode:
+  // most vector operations should not force D2H copies, but the current
+  // operator adapter still needs host-visible MatrixFamily storage.
+  std::vector<bool> touched(deviceCount, false);
+  for (auto mat : mats)
+  {
+    auto [deviceId, buffer] = swapper.getPreStoreBufferOrNone(mat);
+    if (buffer == nullptr)
+    {
+      continue;
+    }
+    swapper.copyPreStoreMatrixToHost(mat);
+    touched[deviceId] = true;
+  }
+
+  for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
+  {
+    if (touched[deviceId])
+    {
+      swapper.syncMemStream(deviceId);
+    }
+  }
+  CUDA_CALL(cudaSetDevice(0));
 }
 
 double* Arranger::collectiveExchangeMatrix(Matrix m)

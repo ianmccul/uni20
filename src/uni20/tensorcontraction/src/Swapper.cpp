@@ -287,6 +287,38 @@ void Swapper::preStoreMatrix(Matrix mat, int deviceId)
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
 
+void Swapper::copyHostToPreStoreMatrix(Matrix mat)
+{
+  // Refresh an existing resident buffer from the host-side MatrixFamily block.
+  // This is used only at explicit host/GPU authority boundaries.
+  auto [deviceId, buffer] = getPreStoreBufferOrNone(mat);
+  assert(buffer != nullptr);
+  assert(mat.getPtr() != nullptr);
+
+  CUDA_CALL(cudaSetDevice(deviceId));
+  auto memStream = memStreams[deviceId];
+  buffer->waitForReadFinish(memStream);
+  DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, memStream));
+  buffer->notifyWriteFinish(memStream);
+}
+
+void Swapper::copyPreStoreMatrixToHost(Matrix mat)
+{
+  // Materialize resident GPU data back into the MatrixFamily host block without
+  // going through a worklist SyncWork for every vector operation.
+  auto [deviceId, buffer] = getPreStoreBufferOrNone(mat);
+  assert(buffer != nullptr);
+  assert(mat.getPtr() != nullptr);
+
+  CUDA_CALL(cudaSetDevice(deviceId));
+  auto memStream = memStreams[deviceId];
+  buffer->waitForWriteFinish(memStream);
+  DEBUG_GPU_COPY_D2H(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(mat.getPtr(), buffer->getPtr(), mat.sizeInByte(), cudaMemcpyDeviceToHost, memStream));
+  buffer->notifyReadFinish(memStream);
+}
+
 void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
 {
   CUDA_CALL(cudaSetDevice(deviceId));

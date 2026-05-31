@@ -84,10 +84,12 @@ class Arranger {
                        const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats);
 
     void compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double* result);
-    void compileZeroForLinearAlgebra(Matrix result);
-    void compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff);
-    void compileScalarMulForLinearAlgebra(Matrix result, double* coff);
+    void compileZeroForLinearAlgebra(Matrix result, bool syncHost = true);
+    void compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff, bool syncHost = true);
+    void compileScalarMulForLinearAlgebra(Matrix result, double* coff, bool syncHost = true);
     void doLinearAlgebra();
+    void localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost);
+    void synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats);
     double* collectiveExchangeMatrix(Matrix m = Matrix());
 
     void analyzeComputation(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,

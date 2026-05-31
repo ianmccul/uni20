@@ -105,6 +105,10 @@ class VectorAlgebraEngine {
     [[nodiscard]] double dot(MatrixFamily const& lhs, MatrixFamily const& rhs);
     [[nodiscard]] double norm2(MatrixFamily const& x);
     [[nodiscard]] double norm(MatrixFamily const& x);
+    void set_host_synchronization(bool enabled);
+    void localize(MatrixFamily& x);
+    void upload(MatrixFamily& x);
+    void synchronize(MatrixFamily& x);
     void zero(MatrixFamily& x);
     void copy(MatrixFamily const& source, MatrixFamily& target);
     void scale(MatrixFamily& x, double alpha);

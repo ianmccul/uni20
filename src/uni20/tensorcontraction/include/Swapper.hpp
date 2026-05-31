@@ -92,6 +92,8 @@ class Swapper {
     void unpinMatrix(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> allocate(Matrix mat, int deviceId);
     void preStoreMatrix(Matrix mat, int deviceId);
+    void copyHostToPreStoreMatrix(Matrix mat);
+    void copyPreStoreMatrixToHost(Matrix mat);
     void registerGpuAllocation(Matrix mat, int deviceId);
     std::pair<int, std::shared_ptr<GpuBuffer>> getPreStoreBufferOrNone(Matrix mat);
     void copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream,

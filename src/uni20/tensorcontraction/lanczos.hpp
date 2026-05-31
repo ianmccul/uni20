@@ -225,13 +225,28 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
     throw std::invalid_argument("Lanczos initial guess must have finite non-zero norm");
   }
 
+  // Keep pure Krylov vector algebra resident in the TensorContraction runtime.
+  // The current matvec adapter still uses host MatrixFamily storage, so the
+  // helper below is the only intended host/GPU crossing inside the iteration.
+  algebra.upload(guess);
+  algebra.set_host_synchronization(false);
+  auto apply_matvec = [&](MatrixFamily& x, MatrixFamily& y) {
+    algebra.synchronize(x);
+    matvec(x, y);
+    algebra.upload(y);
+  };
+  auto finish_with = [&](MatrixFamily& x) {
+    algebra.copy(x, guess);
+    algebra.synchronize(guess);
+  };
+
   auto w = make_like(guess);
   algebra.copy(guess, w);
   algebra.scale(w, 1.0 / beta);
   v.push_back(std::move(w));
 
   w = make_like(guess);
-  matvec(v[0], w);
+  apply_matvec(v[0], w);
   hv.push_back(make_like(w));
   algebra.copy(w, hv.back());
   double alpha = algebra.dot(v[0], w);
@@ -245,7 +260,7 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
   beta = algebra.norm(w);
   if (beta < options.beta_tolerance)
   {
-    algebra.copy(v[0], guess);
+    finish_with(v[0]);
     return LanczosResult{.eigenvalue = sub_h[detail::dense_index(stride, 0, 0)],
                          .iterations = 1,
                          .tolerance = beta,
@@ -269,7 +284,7 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
     v.push_back(std::move(w));
 
     w = make_like(guess);
-    matvec(v[idx], w);
+    apply_matvec(v[idx], w);
     hv.push_back(make_like(w));
     algebra.copy(w, hv.back());
     algebra.axpy(-beta, v[idx - 1], w);
@@ -287,7 +302,7 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
     {
       auto eig = detail::lowest_eigenpair(detail::submatrix(sub_h, stride, idx + 1), idx + 1);
       auto y = detail::linear_combination(algebra, v, eig.eigenvector);
-      algebra.copy(y, guess);
+      finish_with(y);
       return LanczosResult{.eigenvalue = eig.eigenvalue,
                            .iterations = i + 1,
                            .tolerance = detail::scaled_tolerance(beta, eig.spectral_diameter),
@@ -317,7 +332,7 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
         algebra.axpy(coefficients[j], hv[j], r);
       }
       double const residual_norm = algebra.norm(r);
-      algebra.copy(y, guess);
+      finish_with(y);
       return LanczosResult{.eigenvalue = eig.eigenvalue,
                            .iterations = i + 1,
                            .tolerance = detail::scaled_tolerance(residual_norm, eig.spectral_diameter),
@@ -340,7 +355,7 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
 
     if (residual_norm < std::abs(options.tolerance * eig.spectral_diameter) && i + 1 >= options.min_iterations)
     {
-      algebra.copy(y, guess);
+      finish_with(y);
       return LanczosResult{.eigenvalue = eig.eigenvalue,
                            .iterations = i + 1,
                            .tolerance = residual_norm / denominator,
@@ -351,7 +366,7 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
 
     if (i == options.max_iterations - 1)
     {
-      algebra.copy(y, guess);
+      finish_with(y);
       return LanczosResult{.eigenvalue = eig.eigenvalue,
                            .iterations = i + 1,
                            .tolerance = -residual_norm / denominator,
