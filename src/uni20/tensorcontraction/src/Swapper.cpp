@@ -79,20 +79,19 @@ void GpuBuffer::waitBeforeWrite(cudaStream_t stream)
   {
     return;
   }
-  if (accessState.readers.event != nullptr && accessState.readers.stream != stream)
+  if (accessState.readers.completion != nullptr)
   {
-    deviceContext->waitEvent(stream, accessState.readers.event->event);
+    accessState.readers.completion->waitOn(stream);
   }
 }
 
-void GpuBuffer::publishRead(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event)
+void GpuBuffer::publishRead(CudaDeviceContext::VirtualStreamRef completion)
 {
   if (!dependencyEventsEnabled)
   {
     return;
   }
-  accessState.readers.event = event;
-  accessState.readers.stream = stream;
+  accessState.readers.completion = std::move(completion);
 }
 
 void GpuBuffer::publishRead(cudaStream_t stream)
@@ -101,7 +100,7 @@ void GpuBuffer::publishRead(cudaStream_t stream)
   {
     return;
   }
-  publishRead(stream, deviceContext->recordDependencyEvent(stream));
+  publishRead(deviceContext->createExternalVirtualStream(stream));
 }
 
 void GpuBuffer::waitBeforeRead(cudaStream_t stream)
@@ -110,22 +109,20 @@ void GpuBuffer::waitBeforeRead(cudaStream_t stream)
   {
     return;
   }
-  if (accessState.writer.event != nullptr && accessState.writer.stream != stream)
+  if (accessState.writer.completion != nullptr)
   {
-    deviceContext->waitEvent(stream, accessState.writer.event->event);
+    accessState.writer.completion->waitOn(stream);
   }
 }
 
-void GpuBuffer::publishWrite(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event)
+void GpuBuffer::publishWrite(CudaDeviceContext::VirtualStreamRef completion)
 {
   if (!dependencyEventsEnabled)
   {
     return;
   }
-  accessState.writer.event = event;
-  accessState.writer.stream = stream;
-  accessState.readers.event = event;
-  accessState.readers.stream = stream;
+  accessState.writer.completion = completion;
+  accessState.readers.completion = std::move(completion);
 }
 
 void GpuBuffer::publishWrite(cudaStream_t stream)
@@ -134,7 +131,7 @@ void GpuBuffer::publishWrite(cudaStream_t stream)
   {
     return;
   }
-  publishWrite(stream, deviceContext->recordDependencyEvent(stream));
+  publishWrite(deviceContext->createExternalVirtualStream(stream));
 }
 
 Swapper::Swapper()
@@ -186,23 +183,21 @@ std::pair<int, std::shared_ptr<GpuBuffer>> Swapper::getPreStoreBufferOrNone(Matr
   return it->second;
 }
 
-void Swapper::notifyMatrixRead(Matrix mat, int deviceId, cudaStream_t stream,
-                               CudaDeviceContext::EventDependencyRef event)
+void Swapper::notifyMatrixRead(Matrix mat, int deviceId, CudaDeviceContext::VirtualStreamRef completion)
 {
   auto buffer = getGpuBufferOrNone(mat, deviceId);
   if (buffer != nullptr)
   {
-    buffer->publishRead(stream, event);
+    buffer->publishRead(completion);
   }
 }
 
-void Swapper::notifyMatrixWrite(Matrix mat, int deviceId, cudaStream_t stream,
-                                CudaDeviceContext::EventDependencyRef event)
+void Swapper::notifyMatrixWrite(Matrix mat, int deviceId, CudaDeviceContext::VirtualStreamRef completion)
 {
   auto buffer = getGpuBufferOrNone(mat, deviceId);
   if (buffer != nullptr)
   {
-    buffer->publishWrite(stream, event);
+    buffer->publishWrite(completion);
   }
 }
 
@@ -483,14 +478,14 @@ Swapper::GpuAccessPlan::GpuAccessPlan(Swapper& swapper, StreamManager& streamMan
 
 cublasHandle_t Swapper::GpuAccessPlan::handle() const { return streamManager.getHandle(); }
 
-CudaDeviceContext::EventDependencyRef Swapper::GpuAccessPlan::recordCompletionEvent() const
+CudaDeviceContext::VirtualStreamRef Swapper::GpuAccessPlan::recordCompletion() const
 {
-  return streamManager.recordCompletionEvent();
+  return streamManager.recordCompletion();
 }
 
-void Swapper::GpuAccessPlan::publishCompletion(CudaDeviceContext::EventDependencyRef event) const
+void Swapper::GpuAccessPlan::publishCompletion(CudaDeviceContext::VirtualStreamRef completion) const
 {
-  swapper.publishAccessCompletion(readBuffers, writeBuffers, selectedStream, event);
+  swapper.publishAccessCompletion(readBuffers, writeBuffers, selectedStream, std::move(completion));
 }
 
 auto Swapper::createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
@@ -514,21 +509,22 @@ cudaStream_t Swapper::preferredStreamForAccess(const std::vector<std::shared_ptr
     {
       continue;
     }
-    if (buffer->accessState.writer.stream != nullptr)
+    if (buffer->accessState.writer.completion != nullptr && buffer->accessState.writer.completion->stream() != nullptr)
     {
-      return buffer->accessState.writer.stream;
+      return buffer->accessState.writer.completion->stream();
     }
-    if (buffer->accessState.readers.stream != nullptr)
+    if (buffer->accessState.readers.completion != nullptr &&
+        buffer->accessState.readers.completion->stream() != nullptr)
     {
-      return buffer->accessState.readers.stream;
+      return buffer->accessState.readers.completion->stream();
     }
   }
 
   std::unordered_map<cudaStream_t, int> scores;
-  auto addDependencyStream = [&scores](CudaDeviceContext::EventDependencyRef const& event, cudaStream_t stream) {
-    if (event != nullptr && stream != nullptr)
+  auto addDependencyStream = [&scores](CudaDeviceContext::VirtualStreamRef const& completion) {
+    if (completion != nullptr && completion->stream() != nullptr)
     {
-      ++scores[stream];
+      ++scores[completion->stream()];
     }
   };
 
@@ -536,7 +532,7 @@ cudaStream_t Swapper::preferredStreamForAccess(const std::vector<std::shared_ptr
   {
     if (buffer != nullptr)
     {
-      addDependencyStream(buffer->accessState.writer.event, buffer->accessState.writer.stream);
+      addDependencyStream(buffer->accessState.writer.completion);
     }
   }
 
@@ -544,8 +540,8 @@ cudaStream_t Swapper::preferredStreamForAccess(const std::vector<std::shared_ptr
   {
     if (buffer != nullptr)
     {
-      addDependencyStream(buffer->accessState.writer.event, buffer->accessState.writer.stream);
-      addDependencyStream(buffer->accessState.readers.event, buffer->accessState.readers.stream);
+      addDependencyStream(buffer->accessState.writer.completion);
+      addDependencyStream(buffer->accessState.readers.completion);
     }
   }
 
@@ -573,30 +569,31 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
 
   struct ProducerDependency
   {
-      CudaDeviceContext* context = nullptr;
       cudaStream_t stream = nullptr;
-      CudaDeviceContext::EventDependencyRef event;
+      CudaDeviceContext::VirtualStreamRef completion;
   };
 
   std::vector<ProducerDependency> dependencies;
-  auto addDependency = [&](CudaDeviceContext* context, CudaDeviceContext::EventDependencyRef event,
-                           cudaStream_t producerStream) {
-    if (event == nullptr || event->event == nullptr || context == nullptr || producerStream == stream)
+  auto addDependency = [&](CudaDeviceContext::VirtualStreamRef completion) {
+    if (completion == nullptr || completion->stream() == stream)
     {
       return;
     }
+    auto producerStream = completion->stream();
     for (auto& dependency : dependencies)
     {
-      if (dependency.context == context && dependency.stream == producerStream)
+      if (dependency.stream == producerStream)
       {
-        if (event->sequence > dependency.event->sequence)
+        // One wait on the newest completion from a producer stream covers
+        // earlier completions by CUDA stream order.
+        if (completion->sequence() > dependency.completion->sequence())
         {
-          dependency.event = std::move(event);
+          dependency.completion = std::move(completion);
         }
         return;
       }
     }
-    dependencies.push_back(ProducerDependency{context, producerStream, std::move(event)});
+    dependencies.push_back(ProducerDependency{producerStream, std::move(completion)});
   };
 
   for (auto const& buffer : readBuffers)
@@ -605,10 +602,7 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
     {
       continue;
     }
-    if (buffer->accessState.writer.event != nullptr)
-    {
-      addDependency(buffer->deviceContext, buffer->accessState.writer.event, buffer->accessState.writer.stream);
-    }
+    addDependency(buffer->accessState.writer.completion);
   }
 
   for (auto const& buffer : writeBuffers)
@@ -617,47 +611,42 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
     {
       continue;
     }
-    if (buffer->accessState.writer.event != nullptr)
-    {
-      addDependency(buffer->deviceContext, buffer->accessState.writer.event, buffer->accessState.writer.stream);
-    }
-    if (buffer->accessState.readers.event != nullptr)
-    {
-      addDependency(buffer->deviceContext, buffer->accessState.readers.event, buffer->accessState.readers.stream);
-    }
+    addDependency(buffer->accessState.writer.completion);
+    addDependency(buffer->accessState.readers.completion);
   }
 
   std::unordered_set<cudaEvent_t> waitedEvents;
   for (auto const& dependency : dependencies)
   {
-    auto event = dependency.event->event;
-    if (waitedEvents.insert(event).second)
+    auto event = dependency.completion->dependencyEvent();
+    if (event != nullptr && waitedEvents.insert(event->event).second)
     {
-      dependency.context->waitEvent(stream, event);
+      event->context->waitEvent(stream, event->event);
     }
   }
 }
 
 void Swapper::publishAccessCompletion(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                       const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream,
-                                      CudaDeviceContext::EventDependencyRef event)
+                                      CudaDeviceContext::VirtualStreamRef completion)
 {
   if (!dependencyEventsEnabled)
   {
     return;
   }
+  (void)stream;
   for (auto const& buffer : readBuffers)
   {
     if (buffer != nullptr)
     {
-      buffer->publishRead(stream, event);
+      buffer->publishRead(completion);
     }
   }
   for (auto const& buffer : writeBuffers)
   {
     if (buffer != nullptr)
     {
-      buffer->publishWrite(stream, event);
+      buffer->publishWrite(completion);
     }
   }
 }
@@ -677,14 +666,14 @@ void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
   auto memStream = deviceContexts[deviceId]->memoryStream();
   std::vector<CudaDeviceContext::EventDependencyRef> dependencies;
   dependencies.reserve(2);
-  if (buffer->accessState.writer.event != nullptr)
+  if (buffer->accessState.writer.completion != nullptr)
   {
-    dependencies.push_back(buffer->accessState.writer.event);
+    dependencies.push_back(buffer->accessState.writer.completion->dependencyEvent());
   }
-  if (buffer->accessState.readers.event != nullptr &&
-      buffer->accessState.readers.event != buffer->accessState.writer.event)
+  if (buffer->accessState.readers.completion != nullptr &&
+      buffer->accessState.readers.completion != buffer->accessState.writer.completion)
   {
-    dependencies.push_back(buffer->accessState.readers.event);
+    dependencies.push_back(buffer->accessState.readers.completion->dependencyEvent());
   }
   destroyBufferEvents(buffer);
   DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, memStream);

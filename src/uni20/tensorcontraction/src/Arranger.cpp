@@ -1076,15 +1076,14 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
     {
       return;
     }
-    auto stream = streamManager.currentStreamHandle();
-    auto event = streamManager.recordCompletionEvent();
+    auto completion = streamManager.recordCompletion();
     for (auto mat : work->readMatrices())
     {
-      swapper.notifyMatrixRead(mat, deviceId, stream, event);
+      swapper.notifyMatrixRead(mat, deviceId, completion);
     }
     for (auto mat : work->writeMatrices())
     {
-      swapper.notifyMatrixWrite(mat, deviceId, stream, event);
+      swapper.notifyMatrixWrite(mat, deviceId, completion);
     }
   }
 }
@@ -1227,8 +1226,8 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
             finalReadBuffers.push_back(buffer);
           }
         }
-        auto event = batchAccess.recordCompletionEvent();
-        swapper.publishAccessCompletion(finalReadBuffers, finalWriteBuffers, stream, event);
+        auto completion = batchAccess.recordCompletion();
+        swapper.publishAccessCompletion(finalReadBuffers, finalWriteBuffers, stream, completion);
       }
       return;
     }
@@ -1253,7 +1252,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       // Individual kernels should not record per-buffer events; that creates
       // excessive event churn for tiny-block DMRG contractions.
       auto stream = streamManager.currentStreamHandle();
-      auto event = streamManager.recordCompletionEvent();
+      auto completion = streamManager.recordCompletion();
       std::vector<std::shared_ptr<GpuBuffer>> readBuffers;
       std::vector<std::shared_ptr<GpuBuffer>> writeBuffers;
       readBuffers.reserve(reads.size());
@@ -1266,7 +1265,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       {
         writeBuffers.push_back(swapper.getGpuBufferOrNone(mat, deviceId));
       }
-      swapper.publishAccessCompletion(readBuffers, writeBuffers, stream, event);
+      swapper.publishAccessCompletion(readBuffers, writeBuffers, stream, completion);
     }
   };
 

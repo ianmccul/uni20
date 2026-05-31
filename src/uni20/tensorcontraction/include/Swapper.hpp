@@ -22,8 +22,7 @@ class GpuBuffer {
     friend class Swapper;
     struct AccessGeneration
     {
-        CudaDeviceContext::EventDependencyRef event;
-        cudaStream_t stream = nullptr;
+        CudaDeviceContext::VirtualStreamRef completion;
     };
 
     struct AccessState
@@ -58,9 +57,9 @@ class GpuBuffer {
     void waitBeforeRead(cudaStream_t stream);
     void waitBeforeWrite(cudaStream_t stream);
     void publishRead(cudaStream_t stream);
-    void publishRead(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
+    void publishRead(CudaDeviceContext::VirtualStreamRef completion);
     void publishWrite(cudaStream_t stream);
-    void publishWrite(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
+    void publishWrite(CudaDeviceContext::VirtualStreamRef completion);
 };
 
 class Swapper {
@@ -105,8 +104,8 @@ class Swapper {
 
         cudaStream_t stream() const { return selectedStream; }
         cublasHandle_t handle() const;
-        CudaDeviceContext::EventDependencyRef recordCompletionEvent() const;
-        void publishCompletion(CudaDeviceContext::EventDependencyRef event) const;
+        CudaDeviceContext::VirtualStreamRef recordCompletion() const;
+        void publishCompletion(CudaDeviceContext::VirtualStreamRef completion) const;
     };
 
     class ScopedAccessDependencyWaitSuppression {
@@ -138,7 +137,7 @@ class Swapper {
                                    const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream);
     void publishAccessCompletion(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                  const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream,
-                                 CudaDeviceContext::EventDependencyRef event);
+                                 CudaDeviceContext::VirtualStreamRef completion);
     void syncBuffer(Matrix mat, int deviceId, cudaStream_t stream);
     void freeBuffer(Matrix mat, int deviceId, cudaStream_t stream);
 
@@ -162,8 +161,8 @@ class Swapper {
     void copyPreStoreMatrixToHost(Matrix mat);
     void registerGpuAllocation(Matrix mat, int deviceId);
     std::pair<int, std::shared_ptr<GpuBuffer>> getPreStoreBufferOrNone(Matrix mat);
-    void notifyMatrixRead(Matrix mat, int deviceId, cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
-    void notifyMatrixWrite(Matrix mat, int deviceId, cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
+    void notifyMatrixRead(Matrix mat, int deviceId, CudaDeviceContext::VirtualStreamRef completion);
+    void notifyMatrixWrite(Matrix mat, int deviceId, CudaDeviceContext::VirtualStreamRef completion);
     void copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream,
                     StreamManager& streamManager);
     void exchangePreStoreMap();

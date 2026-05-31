@@ -298,7 +298,11 @@ StreamManager::StreamManager(Swapper& swapper, int deviceId, int deviceCount)
 void StreamManager::clear()
 {
   currentLease.release();
-  currentVirtualStream.close();
+  if (currentVirtualStream != nullptr)
+  {
+    currentVirtualStream->close();
+  }
+  currentVirtualStream.reset();
   currentStream = nullptr;
   currentHandle = nullptr;
   syncAllStreams();
@@ -353,10 +357,17 @@ void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams("stre
 
 void StreamManager::activateStream(cudaStream_t preferredStream)
 {
+  if (preferredStream != nullptr && currentVirtualStream != nullptr && currentLease && currentStream == preferredStream)
+  {
+    return;
+  }
   currentLease.release();
-  currentVirtualStream.close();
+  if (currentVirtualStream != nullptr)
+  {
+    currentVirtualStream->close();
+  }
   currentVirtualStream = deviceContext.createVirtualStream(preferredStream);
-  currentLease = currentVirtualStream.lease();
+  currentLease = currentVirtualStream->lease();
   currentStream = currentLease.stream();
   currentHandle = deviceContext.cublasHandleForCurrentThread(currentStream);
 }

@@ -95,10 +95,15 @@ void CudaDeviceContext::ConcreteStreamLease::release()
 }
 
 CudaDeviceContext::VirtualStream::VirtualStream(VirtualStream&& other) noexcept
-    : context_(other.context_), slot_(other.slot_), closed_(other.closed_)
+    : context_(other.context_), slot_(other.slot_), event_(std::move(other.event_)),
+      producerStream_(other.producerStream_), publishSequence_(other.publishSequence_), published_(other.published_),
+      closed_(other.closed_)
 {
   other.context_ = nullptr;
   other.slot_ = nullptr;
+  other.producerStream_ = nullptr;
+  other.publishSequence_ = 0;
+  other.published_ = false;
   other.closed_ = true;
 }
 
@@ -109,9 +114,16 @@ CudaDeviceContext::VirtualStream& CudaDeviceContext::VirtualStream::operator=(Vi
     close();
     context_ = other.context_;
     slot_ = other.slot_;
+    event_ = std::move(other.event_);
+    producerStream_ = other.producerStream_;
+    publishSequence_ = other.publishSequence_;
+    published_ = other.published_;
     closed_ = other.closed_;
     other.context_ = nullptr;
     other.slot_ = nullptr;
+    other.producerStream_ = nullptr;
+    other.publishSequence_ = 0;
+    other.published_ = false;
     other.closed_ = true;
   }
   return *this;
@@ -123,19 +135,68 @@ CudaDeviceContext::ConcreteStreamLease CudaDeviceContext::VirtualStream::lease()
 {
   assert(context_ != nullptr);
   assert(slot_ != nullptr);
-  auto* slot = slot_;
-  slot_ = nullptr;
-  return ConcreteStreamLease(*context_, *this, *slot);
+  return ConcreteStreamLease(*context_, *this, *slot_);
 }
 
 bool CudaDeviceContext::VirtualStream::tryReturn(WorkSlot& slot)
 {
-  if (closed_ || context_ == nullptr || slot_ != nullptr)
+  if (closed_ || context_ == nullptr || slot_ != &slot)
   {
     return false;
   }
-  slot_ = &slot;
   return true;
+}
+
+cudaStream_t CudaDeviceContext::VirtualStream::stream() const noexcept
+{
+  if (slot_ != nullptr)
+  {
+    return slot_->stream;
+  }
+  return producerStream_;
+}
+
+void CudaDeviceContext::VirtualStream::markPublished() noexcept
+{
+  published_ = true;
+  if (context_ != nullptr)
+  {
+    publishSequence_ = ++context_->dependencySequence_;
+  }
+}
+
+void CudaDeviceContext::VirtualStream::materializeEvent()
+{
+  if (event_ != nullptr)
+  {
+    return;
+  }
+  assert(context_ != nullptr);
+  auto producerStream = stream();
+  assert(producerStream != nullptr);
+  event_ = context_->recordDependencyEvent(producerStream);
+  producerStream_ = producerStream;
+}
+
+void CudaDeviceContext::VirtualStream::waitOn(cudaStream_t consumerStream)
+{
+  if (consumerStream == nullptr)
+  {
+    return;
+  }
+  auto producerStream = stream();
+  if (event_ == nullptr && producerStream == consumerStream)
+  {
+    return;
+  }
+  materializeEvent();
+  context_->waitEvent(consumerStream, event_->event);
+}
+
+CudaDeviceContext::EventDependencyRef CudaDeviceContext::VirtualStream::dependencyEvent()
+{
+  materializeEvent();
+  return event_;
 }
 
 void CudaDeviceContext::VirtualStream::close()
@@ -143,10 +204,18 @@ void CudaDeviceContext::VirtualStream::close()
   closed_ = true;
   if (context_ != nullptr && slot_ != nullptr)
   {
+    if (published_)
+    {
+      materializeEvent();
+    }
     context_->returnWorkSlot(*slot_);
+    producerStream_ = slot_->stream;
+    slot_ = nullptr;
   }
-  context_ = nullptr;
-  slot_ = nullptr;
+  if (event_ == nullptr)
+  {
+    context_ = nullptr;
+  }
 }
 
 CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda)
@@ -208,9 +277,16 @@ auto CudaDeviceContext::nextWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
   return acquireWorkSlot(preferredStream);
 }
 
-CudaDeviceContext::VirtualStream CudaDeviceContext::createVirtualStream(cudaStream_t preferredStream)
+CudaDeviceContext::VirtualStreamRef CudaDeviceContext::createVirtualStream(cudaStream_t preferredStream)
 {
-  return VirtualStream(*this, acquireWorkSlot(preferredStream));
+  return std::make_shared<VirtualStream>(*this, acquireWorkSlot(preferredStream));
+}
+
+CudaDeviceContext::VirtualStreamRef CudaDeviceContext::createExternalVirtualStream(cudaStream_t producerStream)
+{
+  auto stream = std::make_shared<VirtualStream>(*this, producerStream);
+  stream->markPublished();
+  return stream;
 }
 
 auto CudaDeviceContext::acquireWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
