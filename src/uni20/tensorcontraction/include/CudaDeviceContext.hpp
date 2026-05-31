@@ -67,14 +67,12 @@ class CudaDeviceContext {
         void release();
     };
 
-    // The current TensorContraction executor borrows slots from one host thread
-    // per active device.  Each slot owns its cuBLAS handle so stream selection
-    // is fixed at construction instead of mutating a shared handle.
+    // Stream slots are scheduling resources only.  Device-library handles such
+    // as cuBLAS are managed separately as thread-local per-device resources.
     struct WorkSlot
     {
         int deviceId = 0;
         cudaStream_t stream = nullptr;
-        cublasHandle_t handle = nullptr;
         std::uint64_t lastUse = 0;
         bool leased = false;
     };
@@ -91,7 +89,6 @@ class CudaDeviceContext {
         ~ConcreteStreamLease();
 
         cudaStream_t stream() const noexcept { return slot_ == nullptr ? nullptr : slot_->stream; }
-        cublasHandle_t handle() const noexcept { return slot_ == nullptr ? nullptr : slot_->handle; }
         explicit operator bool() const noexcept { return slot_ != nullptr; }
         void release();
 
@@ -148,6 +145,7 @@ class CudaDeviceContext {
     void waitEvent(cudaStream_t stream, cudaEvent_t event);
     void enqueueAsyncFree(void* ptr, cudaStream_t stream, std::vector<EventDependencyRef> dependencies);
     ScratchLease acquireScratch(std::size_t bytes, cudaStream_t stream);
+    cublasHandle_t cublasHandleForCurrentThread(cudaStream_t stream);
     void syncWorkStreams(const char* reason = "work_unspecified");
     void syncMemoryStream(const char* reason = "memory_unspecified");
     void release();

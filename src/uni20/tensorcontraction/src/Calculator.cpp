@@ -358,7 +358,7 @@ void StreamManager::activateStream(cudaStream_t preferredStream)
   currentVirtualStream = deviceContext.createVirtualStream(preferredStream);
   currentLease = currentVirtualStream.lease();
   currentStream = currentLease.stream();
-  currentHandle = currentLease.handle();
+  currentHandle = deviceContext.cublasHandleForCurrentThread(currentStream);
 }
 
 #if DEBUG_LOG

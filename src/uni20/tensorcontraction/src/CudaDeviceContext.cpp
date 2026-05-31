@@ -8,6 +8,7 @@
 #include <map>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace tensor
 {
@@ -176,8 +177,6 @@ CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool ser
     {
       CUDA_CALL(cudaStreamCreate(&slot.stream));
     }
-    CUBLAS_CALL(cublasCreate(&slot.handle));
-    CUBLAS_CALL(cublasSetStream(slot.handle, slot.stream));
     workSlots_.push_back(slot);
   }
 }
@@ -377,6 +376,67 @@ CudaDeviceContext::ScratchLease CudaDeviceContext::acquireScratch(std::size_t by
   return ScratchLease(*this, std::move(buffer), stream);
 }
 
+cublasHandle_t CudaDeviceContext::cublasHandleForCurrentThread(cudaStream_t stream)
+{
+  struct ThreadLocalHandle
+  {
+      int deviceId = -1;
+      cublasHandle_t handle = nullptr;
+
+      ThreadLocalHandle() = default;
+      ThreadLocalHandle(ThreadLocalHandle const&) = delete;
+      ThreadLocalHandle& operator=(ThreadLocalHandle const&) = delete;
+      ThreadLocalHandle(ThreadLocalHandle&& other) noexcept : deviceId(other.deviceId), handle(other.handle)
+      {
+        other.deviceId = -1;
+        other.handle = nullptr;
+      }
+      ThreadLocalHandle& operator=(ThreadLocalHandle&& other) noexcept
+      {
+        if (this != &other)
+        {
+          destroy();
+          deviceId = other.deviceId;
+          handle = other.handle;
+          other.deviceId = -1;
+          other.handle = nullptr;
+        }
+        return *this;
+      }
+      ~ThreadLocalHandle() { destroy(); }
+
+      void destroy()
+      {
+        if (handle != nullptr)
+        {
+          CUDA_CALL(cudaSetDevice(deviceId));
+          CUBLAS_CALL(cublasDestroy(handle));
+          handle = nullptr;
+        }
+      }
+  };
+
+  thread_local std::vector<ThreadLocalHandle> handles;
+  auto const index = static_cast<std::size_t>(deviceId_);
+  if (handles.size() <= index)
+  {
+    handles.resize(index + 1);
+  }
+  auto& cached = handles[index];
+  if (cached.handle == nullptr)
+  {
+    CUDA_CALL(cudaSetDevice(deviceId_));
+    cached.deviceId = deviceId_;
+    CUBLAS_CALL(cublasCreate(&cached.handle));
+  }
+  else
+  {
+    CUDA_CALL(cudaSetDevice(deviceId_));
+  }
+  CUBLAS_CALL(cublasSetStream(cached.handle, stream));
+  return cached.handle;
+}
+
 void CudaDeviceContext::syncWorkStreams(const char* reason)
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
@@ -419,11 +479,6 @@ void CudaDeviceContext::release()
 
   for (auto& slot : workSlots_)
   {
-    if (slot.handle != nullptr)
-    {
-      CUBLAS_CALL(cublasDestroy(slot.handle));
-      slot.handle = nullptr;
-    }
     if (!serialCuda_ && slot.stream != nullptr)
     {
       CUDA_CALL(cudaStreamDestroy(slot.stream));
