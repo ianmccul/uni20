@@ -571,13 +571,32 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
     return;
   }
 
-  std::unordered_set<cudaEvent_t> waitedEvents;
-  auto waitEvent = [&](CudaDeviceContext* context, cudaEvent_t event, cudaStream_t producerStream) {
-    if (event == nullptr || context == nullptr || producerStream == stream || !waitedEvents.insert(event).second)
+  struct ProducerDependency
+  {
+      CudaDeviceContext* context = nullptr;
+      cudaStream_t stream = nullptr;
+      CudaDeviceContext::EventDependencyRef event;
+  };
+
+  std::vector<ProducerDependency> dependencies;
+  auto addDependency = [&](CudaDeviceContext* context, CudaDeviceContext::EventDependencyRef event,
+                           cudaStream_t producerStream) {
+    if (event == nullptr || event->event == nullptr || context == nullptr || producerStream == stream)
     {
       return;
     }
-    context->waitEvent(stream, event);
+    for (auto& dependency : dependencies)
+    {
+      if (dependency.context == context && dependency.stream == producerStream)
+      {
+        if (event->sequence > dependency.event->sequence)
+        {
+          dependency.event = std::move(event);
+        }
+        return;
+      }
+    }
+    dependencies.push_back(ProducerDependency{context, producerStream, std::move(event)});
   };
 
   for (auto const& buffer : readBuffers)
@@ -588,7 +607,7 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
     }
     if (buffer->accessState.writer.event != nullptr)
     {
-      waitEvent(buffer->deviceContext, buffer->accessState.writer.event->event, buffer->accessState.writer.stream);
+      addDependency(buffer->deviceContext, buffer->accessState.writer.event, buffer->accessState.writer.stream);
     }
   }
 
@@ -600,11 +619,21 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
     }
     if (buffer->accessState.writer.event != nullptr)
     {
-      waitEvent(buffer->deviceContext, buffer->accessState.writer.event->event, buffer->accessState.writer.stream);
+      addDependency(buffer->deviceContext, buffer->accessState.writer.event, buffer->accessState.writer.stream);
     }
     if (buffer->accessState.readers.event != nullptr)
     {
-      waitEvent(buffer->deviceContext, buffer->accessState.readers.event->event, buffer->accessState.readers.stream);
+      addDependency(buffer->deviceContext, buffer->accessState.readers.event, buffer->accessState.readers.stream);
+    }
+  }
+
+  std::unordered_set<cudaEvent_t> waitedEvents;
+  for (auto const& dependency : dependencies)
+  {
+    auto event = dependency.event->event;
+    if (waitedEvents.insert(event).second)
+    {
+      dependency.context->waitEvent(stream, event);
     }
   }
 }

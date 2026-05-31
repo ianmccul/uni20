@@ -20,8 +20,11 @@ class CudaDeviceContext {
     {
         CudaDeviceContext* context = nullptr;
         cudaEvent_t event = nullptr;
+        std::uint64_t sequence = 0;
 
-        EventDependency(CudaDeviceContext& context, cudaEvent_t event) : context(&context), event(event) {}
+        EventDependency(CudaDeviceContext& context, cudaEvent_t event, std::uint64_t sequence)
+            : context(&context), event(event), sequence(sequence)
+        {}
         EventDependency(EventDependency const&) = delete;
         EventDependency& operator=(EventDependency const&) = delete;
         ~EventDependency();
@@ -134,6 +137,7 @@ class CudaDeviceContext {
     Counters counters_;
     std::size_t nextWorkSlot_ = 0;
     std::uint64_t workSlotUseCounter_ = 0;
+    std::uint64_t dependencySequence_ = 0;
 
     void reclaimRetiredEvents();
     void reclaimCompletedAsyncFrees();

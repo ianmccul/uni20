@@ -175,7 +175,7 @@ cudaEvent_t CudaDeviceContext::recordEvent(cudaStream_t stream)
 
 CudaDeviceContext::EventDependencyRef CudaDeviceContext::recordDependencyEvent(cudaStream_t stream)
 {
-  return std::make_shared<EventDependency>(*this, recordEvent(stream));
+  return std::make_shared<EventDependency>(*this, recordEvent(stream), ++dependencySequence_);
 }
 
 void CudaDeviceContext::waitEvent(cudaStream_t stream, cudaEvent_t event)
