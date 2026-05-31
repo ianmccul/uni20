@@ -1103,17 +1103,27 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
   {
     // Step 1: Free unused matrices and allocate buffers.
     std::vector<std::vector<Matrix>> matricesToCopy(deviceCount);
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    if (deviceCount == 1)
     {
-      threads[deviceId] = std::thread([&, deviceId] {
-        matricesToCopy[deviceId] = freeAndAllocate(deviceId, worklists[deviceId], endIdxes[deviceId],
-                                                   freeMems[deviceId], swapper, liveIntervals[deviceId]);
-      });
+      // The common TensorContraction/MPI launch shape is one CUDA device per
+      // process.  Avoid creating a worker thread only to join it immediately;
+      // Nsight showed this dominating tiny-block DMRG benchmarks.
+      matricesToCopy[0] = freeAndAllocate(0, worklists[0], endIdxes[0], freeMems[0], swapper, liveIntervals[0]);
     }
-
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    else
     {
-      threads[deviceId].join();
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
+        threads[deviceId] = std::thread([&, deviceId] {
+          matricesToCopy[deviceId] = freeAndAllocate(deviceId, worklists[deviceId], endIdxes[deviceId],
+                                                     freeMems[deviceId], swapper, liveIntervals[deviceId]);
+        });
+      }
+
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
+        threads[deviceId].join();
+      }
     }
 
     // Step 2: Copy matrices to their assigned buffers.
@@ -1142,18 +1152,27 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
         batchSlices[deviceId].assign(src.begin() + start, src.begin() + end);
       }
 
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      if (deviceCount == 1)
       {
-        ncclComm_t comm = allDeviceComms.empty() ? nullptr : allDeviceComms[deviceId];
-        threads[deviceId] =
-            std::thread(copyMatrices, deviceId, deviceCount, std::cref(batchSlices[deviceId]), std::ref(dstMatPairs),
-                        std::ref(batchCounter), comm, std::ref(streamManagers[deviceId]), std::ref(swapper),
-                        std::cref(matToSyncFinishEventMap));
+        ncclComm_t comm = allDeviceComms.empty() ? nullptr : allDeviceComms[0];
+        copyMatrices(0, deviceCount, batchSlices[0], dstMatPairs, batchCounter, comm, streamManagers[0], swapper,
+                     matToSyncFinishEventMap);
       }
-
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      else
       {
-        threads[deviceId].join();
+        for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+        {
+          ncclComm_t comm = allDeviceComms.empty() ? nullptr : allDeviceComms[deviceId];
+          threads[deviceId] =
+              std::thread(copyMatrices, deviceId, deviceCount, std::cref(batchSlices[deviceId]), std::ref(dstMatPairs),
+                          std::ref(batchCounter), comm, std::ref(streamManagers[deviceId]), std::ref(swapper),
+                          std::cref(matToSyncFinishEventMap));
+        }
+
+        for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+        {
+          threads[deviceId].join();
+        }
       }
     }
 
@@ -1192,20 +1211,38 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       }
     }
 
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    if (deviceCount == 1)
     {
-      threads[deviceId] =
-          std::thread(execute, std::ref(worklists[deviceId]), deviceId, startIdxes[deviceId], endIdxes[deviceId]);
-      startIdxes[deviceId] = endIdxes[deviceId];
+      execute(worklists[0], 0, startIdxes[0], endIdxes[0]);
+      startIdxes[0] = endIdxes[0];
+    }
+    else
+    {
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
+        threads[deviceId] =
+            std::thread(execute, std::ref(worklists[deviceId]), deviceId, startIdxes[deviceId], endIdxes[deviceId]);
+        startIdxes[deviceId] = endIdxes[deviceId];
+      }
     }
 
     char areAllFinished = 1;
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    if (deviceCount == 1)
     {
-      threads[deviceId].join();
-      if (endIdxes[deviceId] < worklists[deviceId].size())
+      if (endIdxes[0] < worklists[0].size())
       {
         areAllFinished = 0;
+      }
+    }
+    else
+    {
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
+        threads[deviceId].join();
+        if (endIdxes[deviceId] < worklists[deviceId].size())
+        {
+          areAllFinished = 0;
+        }
       }
     }
 
@@ -1221,20 +1258,31 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
     }
   }
 
-  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+  if (deviceCount == 1)
   {
-    threads[deviceId] = std::thread([&, deviceId] {
-      CUDA_CALL(cudaSetDevice(deviceId));
-      swapper.freeAllBuffer(deviceId);
-      swapper.syncMemStream(deviceId);
-      streamManagers[deviceId].syncAllStreams();
-      swapper.freeAllEvents(deviceId);
-    });
+    CUDA_CALL(cudaSetDevice(0));
+    swapper.freeAllBuffer(0);
+    swapper.syncMemStream(0);
+    streamManagers[0].syncAllStreams();
+    swapper.freeAllEvents(0);
   }
-
-  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+  else
   {
-    threads[deviceId].join();
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
+      threads[deviceId] = std::thread([&, deviceId] {
+        CUDA_CALL(cudaSetDevice(deviceId));
+        swapper.freeAllBuffer(deviceId);
+        swapper.syncMemStream(deviceId);
+        streamManagers[deviceId].syncAllStreams();
+        swapper.freeAllEvents(deviceId);
+      });
+    }
+
+    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    {
+      threads[deviceId].join();
+    }
   }
 }
 
