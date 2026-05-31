@@ -55,3 +55,10 @@ max-rank and singular-value cutoff truncation.  It is intentionally narrow and
 self-contained for DMRG prototyping; the long-term replacement should be a
 native block-sparse SVD implementation that can distribute independent sectors
 over the available CUDA/MPI resources.
+
+The current SVD code is also a prototype for backend-capability dispatch.  A
+small operation-specific dispatch layer tries the most specialized available
+single-block implementation first: LAPACK `dgesdd` when the build finds LAPACK,
+then the built-in reference SVD as a guaranteed fallback.  This is deliberately
+local to the TensorContraction bridge for now, but is intended to inform the
+eventual uni20-wide dispatch design for block-sparse and distributed SVD.

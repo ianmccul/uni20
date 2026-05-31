@@ -2,6 +2,7 @@
 
 find_package(CUDAToolkit REQUIRED)
 find_package(MPI REQUIRED COMPONENTS CXX)
+find_package(LAPACK QUIET)
 find_package(PkgConfig QUIET)
 
 if(NOT TARGET NCCL::NCCL)
@@ -73,6 +74,11 @@ target_link_libraries(uni20_tensorcontraction_runtime
     MPI::MPI_CXX
     NCCL::NCCL
 )
+
+if(LAPACK_FOUND)
+  target_link_libraries(uni20_tensorcontraction_runtime PUBLIC ${LAPACK_LIBRARIES})
+  target_compile_definitions(uni20_tensorcontraction_runtime PUBLIC UNI20_TENSORCONTRACTION_HAS_LAPACK=1)
+endif()
 
 target_compile_features(uni20_tensorcontraction_runtime PUBLIC cxx_std_20)
 relax_warnings(uni20_tensorcontraction_runtime)

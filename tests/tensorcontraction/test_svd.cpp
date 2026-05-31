@@ -79,6 +79,21 @@ TEST(TensorContractionSvdTest, ReconstructsFullRankSingleBlock)
   }
 }
 
+TEST(TensorContractionSvdTest, ReferenceFallbackReconstructsFullRankSingleBlock)
+{
+  auto matrix = make_matrix(3, 2, {3.0, 1.0, 0.0, 2.0, 0.0, 0.0});
+
+  auto svd = utc::single_block_svd_reference(matrix);
+  auto reconstructed = reconstruct(svd);
+
+  EXPECT_EQ(svd.singular_values.size(), 2);
+  EXPECT_NEAR(svd.discarded_weight, 0.0, 1.0e-12);
+  for (std::size_t i = 0; i < reconstructed.size(); ++i)
+  {
+    EXPECT_NEAR(reconstructed[i], matrix.values(0)[i], 1.0e-12);
+  }
+}
+
 TEST(TensorContractionSvdTest, ProducesOrthonormalKeptLeftVectors)
 {
   auto matrix = make_matrix(3, 2, {1.0, 2.0, 3.0, 4.0, 5.0, 7.0});
