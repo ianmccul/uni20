@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
+#include <functional>
 #include <numeric>
 #include <random>
 #include <unordered_map>
@@ -52,17 +53,34 @@ Arranger::Arranger(Swapper& swapper) : swapper(swapper)
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
 
+  if (deviceCount > 1)
+  {
+    ensureNcclCommsInitialized();
+  }
+}
+
+Arranger::~Arranger() { releaseResources(); }
+
+void Arranger::ensureNcclCommsInitialized()
+{
+  if (ncclCommsInitialized)
+  {
+    return;
+  }
+
+  int total_ranks = deviceCount * mpi_size;
+  if (total_ranks == 1)
+  {
+    ncclCommsInitialized = true;
+    return;
+  }
+
   if (mpi_rank == 0)
   {
     NCCL_CALL(ncclGetUniqueId(&ncclAllDeviceId));
   }
 
   MPI_Bcast(&ncclAllDeviceId, sizeof(ncclUniqueId), MPI_BYTE, 0, MPI_COMM_WORLD);
-  int total_ranks = deviceCount * mpi_size;
-  if (total_ranks == 1)
-  {
-    return;
-  }
 
   DEBUG_NCCL_COMM_CREATE_START(mpi_rank, total_ranks, &ncclAllDeviceId);
   NCCL_CALL(ncclGroupStart());
@@ -77,9 +95,8 @@ Arranger::Arranger(Swapper& swapper) : swapper(swapper)
   }
   NCCL_CALL(ncclGroupEnd());
   DEBUG_NCCL_COMM_CREATE_END(mpi_rank, total_ranks);
+  ncclCommsInitialized = true;
 }
-
-Arranger::~Arranger() { releaseResources(); }
 
 void Arranger::ensureMemoryPoolsInitialized()
 {
@@ -917,8 +934,8 @@ static std::vector<Matrix> freeAndAllocate(int deviceId, Arranger::WorklistTy& w
 // NCCL send/recv.
 static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix>& matricesToCopy,
                          std::vector<std::tuple<int, Matrix, cudaEvent_t>>& dstMatPairs, std::atomic_int& counter,
-                         ncclComm_t comm, StreamManager& streamManager, Swapper& swapper,
-                         const std::unordered_map<int, cudaEvent_t>& matToSyncFinishEventMap)
+                         const std::function<ncclComm_t()>& commProvider, StreamManager& streamManager,
+                         Swapper& swapper, const std::unordered_map<int, cudaEvent_t>& matToSyncFinishEventMap)
 {
   CUDA_CALL(cudaSetDevice(deviceId));
 
@@ -942,7 +959,16 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
     cudaEvent_t syncFinishEvent = it == matToSyncFinishEventMap.end() ? nullptr : it->second;
     if (srcBuffer)
     {
-      // This matrix resides in this node's GPU memory.
+      if (srcDeviceId == deviceId)
+      {
+        // The matrix is already resident on the requesting device.  Do not add
+        // it to the NCCL metadata path: for the one-device-per-MPI-rank launch
+        // shape this local reuse was triggering global collectives with no data
+        // movement.
+        continue;
+      }
+
+      // This matrix resides in another GPU on this node.
       int nccl_comm_id = mpi_rank * device_count + deviceId;
       dstMatPairs.push_back({nccl_comm_id, mat, syncFinishEvent});
       DEBUG_SECOND_HIT(swapper, mat.getId(), srcDeviceId, deviceId, mat.sizeInByte());
@@ -970,7 +996,7 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
   }
   counter++;
 
-  while (counter != deviceCount)
+  while (counter < deviceCount)
   {}
 
   if (deviceId == 0)
@@ -986,9 +1012,19 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
     std::vector<int> all_counts(mpi_size);
     MPI_Allgather(&local_count, 1, MPI_INT, all_counts.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
+    int total_entries = std::accumulate(all_counts.begin(), all_counts.end(), 0);
+    if (total_entries == 0)
+    {
+      counter++;
+      while (counter < deviceCount + 1)
+      {}
+      streamManager.syncAllStreams();
+      return;
+    }
+
     std::vector<int> recvcounts(mpi_size);
     std::vector<int> displs(mpi_size);
-    int total_entries = 0;
+    total_entries = 0;
     for (int i = 0; i < mpi_size; i++)
     {
       recvcounts[i] = all_counts[i] * entry_size;
@@ -1027,12 +1063,13 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
     counter++;
   }
 
-  while (counter != deviceCount + 1)
+  while (counter < deviceCount + 1)
   {}
 
   // Let NCCL do the real matrices copy work.
   if (!dstMatPairs.empty())
   {
+    ncclComm_t comm = commProvider();
     assert(comm != nullptr);
     createWork<NCCLSendRecvWork>(dstMatPairs, comm, streamManager, swapper)->execute();
   }
@@ -1154,18 +1191,24 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
 
       if (deviceCount == 1)
       {
-        ncclComm_t comm = allDeviceComms.empty() ? nullptr : allDeviceComms[0];
-        copyMatrices(0, deviceCount, batchSlices[0], dstMatPairs, batchCounter, comm, streamManagers[0], swapper,
-                     matToSyncFinishEventMap);
+        auto commProvider = [&]() -> ncclComm_t {
+          ensureNcclCommsInitialized();
+          return allDeviceComms.empty() ? nullptr : allDeviceComms[0];
+        };
+        copyMatrices(0, deviceCount, batchSlices[0], dstMatPairs, batchCounter, commProvider, streamManagers[0],
+                     swapper, matToSyncFinishEventMap);
       }
       else
       {
         for (int deviceId = 0; deviceId < deviceCount; deviceId++)
         {
-          ncclComm_t comm = allDeviceComms.empty() ? nullptr : allDeviceComms[deviceId];
+          auto commProvider = [&, deviceId]() -> ncclComm_t {
+            ensureNcclCommsInitialized();
+            return allDeviceComms.empty() ? nullptr : allDeviceComms[deviceId];
+          };
           threads[deviceId] =
               std::thread(copyMatrices, deviceId, deviceCount, std::cref(batchSlices[deviceId]), std::ref(dstMatPairs),
-                          std::ref(batchCounter), comm, std::ref(streamManagers[deviceId]), std::ref(swapper),
+                          std::ref(batchCounter), commProvider, std::ref(streamManagers[deviceId]), std::ref(swapper),
                           std::cref(matToSyncFinishEventMap));
         }
 
@@ -1552,6 +1595,7 @@ void Arranger::releaseResources()
     NCCL_CALL(ncclCommDestroy(comm));
   }
   allDeviceComms.clear();
+  ncclCommsInitialized = false;
   for (auto& streamManager : streamManagers)
     streamManager.clear();
   streamManagers.clear();

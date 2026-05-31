@@ -52,6 +52,7 @@ class Arranger {
     std::vector<double> linearAlgebraFlopsPerDevice;
     std::vector<cudaEvent_t> syncFinishEvents;
     bool memoryPoolsInitialized = false;
+    bool ncclCommsInitialized = false;
 
     void preprocess(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
                     const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
@@ -71,6 +72,7 @@ class Arranger {
     void buildLiveInterval(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals);
 
     void executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals);
+    void ensureNcclCommsInitialized();
 
     void mpiExchangeCopies(const std::vector<std::vector<int>>& tokensNeededFromRank,
                            const std::unordered_map<int, Matrix>& neededMatMap);
