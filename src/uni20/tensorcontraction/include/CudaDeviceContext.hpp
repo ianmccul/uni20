@@ -72,9 +72,59 @@ class CudaDeviceContext {
     // is fixed at construction instead of mutating a shared handle.
     struct WorkSlot
     {
+        int deviceId = 0;
         cudaStream_t stream = nullptr;
         cublasHandle_t handle = nullptr;
         std::uint64_t lastUse = 0;
+        bool leased = false;
+    };
+
+    class VirtualStream;
+
+    class ConcreteStreamLease {
+      public:
+        ConcreteStreamLease() = default;
+        ConcreteStreamLease(ConcreteStreamLease const&) = delete;
+        ConcreteStreamLease& operator=(ConcreteStreamLease const&) = delete;
+        ConcreteStreamLease(ConcreteStreamLease&& other) noexcept;
+        ConcreteStreamLease& operator=(ConcreteStreamLease&& other) noexcept;
+        ~ConcreteStreamLease();
+
+        cudaStream_t stream() const noexcept { return slot_ == nullptr ? nullptr : slot_->stream; }
+        cublasHandle_t handle() const noexcept { return slot_ == nullptr ? nullptr : slot_->handle; }
+        explicit operator bool() const noexcept { return slot_ != nullptr; }
+        void release();
+
+      private:
+        ConcreteStreamLease(CudaDeviceContext& context, VirtualStream& owner, WorkSlot& slot)
+            : context_(&context), owner_(&owner), slot_(&slot)
+        {}
+
+        CudaDeviceContext* context_ = nullptr;
+        VirtualStream* owner_ = nullptr;
+        WorkSlot* slot_ = nullptr;
+
+        friend class VirtualStream;
+    };
+
+    class VirtualStream {
+      public:
+        VirtualStream() = default;
+        VirtualStream(CudaDeviceContext& context, WorkSlot& slot) : context_(&context), slot_(&slot) {}
+        VirtualStream(VirtualStream const&) = delete;
+        VirtualStream& operator=(VirtualStream const&) = delete;
+        VirtualStream(VirtualStream&& other) noexcept;
+        VirtualStream& operator=(VirtualStream&& other) noexcept;
+        ~VirtualStream();
+
+        ConcreteStreamLease lease();
+        bool tryReturn(WorkSlot& slot);
+        void close();
+
+      private:
+        CudaDeviceContext* context_ = nullptr;
+        WorkSlot* slot_ = nullptr;
+        bool closed_ = false;
     };
 
     CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda);
@@ -90,6 +140,7 @@ class CudaDeviceContext {
 
     WorkSlot& nextWorkSlot();
     WorkSlot& nextWorkSlot(cudaStream_t preferredStream);
+    VirtualStream createVirtualStream(cudaStream_t preferredStream = nullptr);
     cudaEvent_t acquireEvent();
     void retireEvent(cudaEvent_t event);
     cudaEvent_t recordEvent(cudaStream_t stream);
@@ -143,6 +194,8 @@ class CudaDeviceContext {
     void reclaimCompletedAsyncFrees();
     void countStreamSync(const char* reason);
     WorkSlot& markWorkSlotUsed(WorkSlot& slot);
+    WorkSlot& acquireWorkSlot(cudaStream_t preferredStream = nullptr);
+    void returnWorkSlot(WorkSlot& slot);
     void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);
     void printCounters() const;
 

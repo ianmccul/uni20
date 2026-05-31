@@ -3,6 +3,7 @@
 #include "Utils.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdio>
 #include <map>
 #include <tuple>
@@ -52,6 +53,101 @@ void CudaDeviceContext::ScratchLease::release()
   stream_ = nullptr;
 }
 
+CudaDeviceContext::ConcreteStreamLease::ConcreteStreamLease(ConcreteStreamLease&& other) noexcept
+    : context_(other.context_), owner_(other.owner_), slot_(other.slot_)
+{
+  other.context_ = nullptr;
+  other.owner_ = nullptr;
+  other.slot_ = nullptr;
+}
+
+CudaDeviceContext::ConcreteStreamLease&
+CudaDeviceContext::ConcreteStreamLease::operator=(ConcreteStreamLease&& other) noexcept
+{
+  if (this != &other)
+  {
+    release();
+    context_ = other.context_;
+    owner_ = other.owner_;
+    slot_ = other.slot_;
+    other.context_ = nullptr;
+    other.owner_ = nullptr;
+    other.slot_ = nullptr;
+  }
+  return *this;
+}
+
+CudaDeviceContext::ConcreteStreamLease::~ConcreteStreamLease() { release(); }
+
+void CudaDeviceContext::ConcreteStreamLease::release()
+{
+  if (context_ != nullptr && slot_ != nullptr)
+  {
+    if (owner_ == nullptr || !owner_->tryReturn(*slot_))
+    {
+      context_->returnWorkSlot(*slot_);
+    }
+  }
+  context_ = nullptr;
+  owner_ = nullptr;
+  slot_ = nullptr;
+}
+
+CudaDeviceContext::VirtualStream::VirtualStream(VirtualStream&& other) noexcept
+    : context_(other.context_), slot_(other.slot_), closed_(other.closed_)
+{
+  other.context_ = nullptr;
+  other.slot_ = nullptr;
+  other.closed_ = true;
+}
+
+CudaDeviceContext::VirtualStream& CudaDeviceContext::VirtualStream::operator=(VirtualStream&& other) noexcept
+{
+  if (this != &other)
+  {
+    close();
+    context_ = other.context_;
+    slot_ = other.slot_;
+    closed_ = other.closed_;
+    other.context_ = nullptr;
+    other.slot_ = nullptr;
+    other.closed_ = true;
+  }
+  return *this;
+}
+
+CudaDeviceContext::VirtualStream::~VirtualStream() { close(); }
+
+CudaDeviceContext::ConcreteStreamLease CudaDeviceContext::VirtualStream::lease()
+{
+  assert(context_ != nullptr);
+  assert(slot_ != nullptr);
+  auto* slot = slot_;
+  slot_ = nullptr;
+  return ConcreteStreamLease(*context_, *this, *slot);
+}
+
+bool CudaDeviceContext::VirtualStream::tryReturn(WorkSlot& slot)
+{
+  if (closed_ || context_ == nullptr || slot_ != nullptr)
+  {
+    return false;
+  }
+  slot_ = &slot;
+  return true;
+}
+
+void CudaDeviceContext::VirtualStream::close()
+{
+  closed_ = true;
+  if (context_ != nullptr && slot_ != nullptr)
+  {
+    context_->returnWorkSlot(*slot_);
+  }
+  context_ = nullptr;
+  slot_ = nullptr;
+}
+
 CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda)
     : deviceId_(deviceId), serialCuda_(serialCuda),
       logCounters_(envFlagEnabled("UNI20_TENSORCONTRACTION_CUDA_COUNTERS") ||
@@ -74,6 +170,7 @@ CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool ser
   for (int i = 0; i < workStreamCount; ++i)
   {
     WorkSlot slot;
+    slot.deviceId = deviceId_;
     slot.stream = serialCuda_ ? cudaStreamLegacy : nullptr;
     if (!serialCuda_)
     {
@@ -105,40 +202,66 @@ std::shared_ptr<CudaDeviceContext> CudaDeviceContext::shared(int deviceId, int w
 
 CudaDeviceContext::~CudaDeviceContext() { release(); }
 
-auto CudaDeviceContext::nextWorkSlot() -> WorkSlot&
-{
-  CUDA_CALL(cudaSetDevice(deviceId_));
-  auto leastRecentlyUsed = std::min_element(workSlots_.begin(), workSlots_.end(),
-                                            [](auto const& lhs, auto const& rhs) { return lhs.lastUse < rhs.lastUse; });
-  if (leastRecentlyUsed == workSlots_.end())
-  {
-    auto& slot = workSlots_[nextWorkSlot_];
-    nextWorkSlot_ = (nextWorkSlot_ + 1) % workSlots_.size();
-    return markWorkSlotUsed(slot);
-  }
-  return markWorkSlotUsed(*leastRecentlyUsed);
-}
+auto CudaDeviceContext::nextWorkSlot() -> WorkSlot& { return acquireWorkSlot(); }
 
 auto CudaDeviceContext::nextWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
 {
+  return acquireWorkSlot(preferredStream);
+}
+
+CudaDeviceContext::VirtualStream CudaDeviceContext::createVirtualStream(cudaStream_t preferredStream)
+{
+  return VirtualStream(*this, acquireWorkSlot(preferredStream));
+}
+
+auto CudaDeviceContext::acquireWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
+{
+  CUDA_CALL(cudaSetDevice(deviceId_));
+
   if (preferredStream != nullptr)
   {
     for (auto& slot : workSlots_)
     {
-      if (slot.stream == preferredStream)
+      if (!slot.leased && slot.stream == preferredStream)
       {
-        CUDA_CALL(cudaSetDevice(deviceId_));
+        slot.leased = true;
         return markWorkSlotUsed(slot);
       }
     }
   }
-  return nextWorkSlot();
+
+  auto leastRecentlyUsed = std::min_element(workSlots_.begin(), workSlots_.end(), [](auto const& lhs, auto const& rhs) {
+    if (lhs.leased != rhs.leased)
+    {
+      return !lhs.leased;
+    }
+    return lhs.lastUse < rhs.lastUse;
+  });
+  if (leastRecentlyUsed != workSlots_.end() && !leastRecentlyUsed->leased)
+  {
+    leastRecentlyUsed->leased = true;
+    return markWorkSlotUsed(*leastRecentlyUsed);
+  }
+
+  // This first prototype does not repossess active leases.  A future
+  // implementation will finalize parked virtual streams before stealing a slot.
+  assert(false && "no unleased CUDA work stream available");
+  auto& slot = workSlots_[nextWorkSlot_];
+  slot.leased = true;
+  nextWorkSlot_ = (nextWorkSlot_ + 1) % workSlots_.size();
+  return markWorkSlotUsed(slot);
 }
 
 auto CudaDeviceContext::markWorkSlotUsed(WorkSlot& slot) -> WorkSlot&
 {
   slot.lastUse = ++workSlotUseCounter_;
   return slot;
+}
+
+void CudaDeviceContext::returnWorkSlot(WorkSlot& slot)
+{
+  assert(slot.deviceId == deviceId_);
+  slot.leased = false;
 }
 
 cudaEvent_t CudaDeviceContext::acquireEvent()

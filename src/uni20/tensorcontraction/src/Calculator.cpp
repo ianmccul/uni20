@@ -292,12 +292,17 @@ StreamManager::StreamManager(Swapper& swapper, int deviceId, int deviceCount)
 {
   (void)deviceCount;
   CUDA_CALL(cudaSetDevice(deviceId));
-  auto& slot = deviceContext.nextWorkSlot();
-  currentStream = slot.stream;
-  currentHandle = slot.handle;
+  activateStream();
 }
 
-void StreamManager::clear() { syncAllStreams(); }
+void StreamManager::clear()
+{
+  currentLease.release();
+  currentVirtualStream.close();
+  currentStream = nullptr;
+  currentHandle = nullptr;
+  syncAllStreams();
+}
 
 cudaStream_t StreamManager::getStream()
 {
@@ -305,9 +310,7 @@ cudaStream_t StreamManager::getStream()
   {
     return currentStream;
   }
-  auto& slot = deviceContext.nextWorkSlot();
-  currentStream = slot.stream;
-  currentHandle = slot.handle;
+  activateStream();
   return currentStream;
 }
 
@@ -317,9 +320,7 @@ cudaStream_t StreamManager::getStream(cudaStream_t preferredStream)
   {
     return currentStream;
   }
-  auto& slot = deviceContext.nextWorkSlot(preferredStream);
-  currentStream = slot.stream;
-  currentHandle = slot.handle;
+  activateStream(preferredStream);
   return currentStream;
 }
 
@@ -349,6 +350,16 @@ cudaStream_t StreamManager::beginFixedStream(cudaStream_t preferredStream)
 void StreamManager::endFixedStream() { fixedStreamActive = false; }
 
 void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams("stream_manager_clear"); }
+
+void StreamManager::activateStream(cudaStream_t preferredStream)
+{
+  currentLease.release();
+  currentVirtualStream.close();
+  currentVirtualStream = deviceContext.createVirtualStream(preferredStream);
+  currentLease = currentVirtualStream.lease();
+  currentStream = currentLease.stream();
+  currentHandle = currentLease.handle();
+}
 
 #if DEBUG_LOG
 // Base implementation of dump()

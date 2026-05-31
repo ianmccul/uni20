@@ -220,6 +220,8 @@ class StreamManager {
     CudaDeviceContext& deviceContext;
     cudaStream_t currentStream = nullptr;
     cublasHandle_t currentHandle = nullptr;
+    CudaDeviceContext::VirtualStream currentVirtualStream;
+    CudaDeviceContext::ConcreteStreamLease currentLease;
     bool fixedStreamActive = false;
 
   public:
@@ -246,6 +248,9 @@ class StreamManager {
     {
       return deviceContext.recordDependencyEvent(currentStream);
     }
+
+  private:
+    void activateStream(cudaStream_t preferredStream = nullptr);
 };
 
 // Generic template factory for creating Work objects
