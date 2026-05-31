@@ -13,6 +13,12 @@
 namespace uni20::tensorcontraction
 {
 
+enum class VariableFamily
+{
+  Middle,
+  Right,
+};
+
 struct EffectiveHamiltonianOperator::Impl
 {
     MatrixFamily r_mats;
@@ -22,6 +28,7 @@ struct EffectiveHamiltonianOperator::Impl
     std::vector<MatrixFamily::Block> input_blocks;
     std::vector<MatrixFamily::Block> output_blocks;
     std::vector<Term> terms;
+    VariableFamily variable_family = VariableFamily::Right;
     tensor::Swapper swapper;
     tensor::Arranger arranger;
     bool is_compiled = false;
@@ -30,7 +37,15 @@ struct EffectiveHamiltonianOperator::Impl
          std::span<MatrixFamily::Block const> output, std::span<Term const> input_terms)
         : r_mats(output), a_mats(std::move(a)), b_mats(std::move(b)), c_mats(input),
           input_blocks(input.begin(), input.end()), output_blocks(output.begin(), output.end()),
-          terms(input_terms.begin(), input_terms.end()), swapper(), arranger(swapper)
+          terms(input_terms.begin(), input_terms.end()), variable_family(VariableFamily::Right), swapper(),
+          arranger(swapper)
+    {}
+
+    Impl(VariableFamily variable, MatrixFamily a, MatrixFamily c, std::span<MatrixFamily::Block const> input,
+         std::span<MatrixFamily::Block const> output, std::span<Term const> input_terms)
+        : r_mats(output), a_mats(std::move(a)), b_mats(input), c_mats(std::move(c)),
+          input_blocks(input.begin(), input.end()), output_blocks(output.begin(), output.end()),
+          terms(input_terms.begin(), input_terms.end()), variable_family(variable), swapper(), arranger(swapper)
     {}
 
     ~Impl() { swapper.clear(); }
@@ -129,6 +144,20 @@ EffectiveHamiltonianOperator::EffectiveHamiltonianOperator(MatrixFamily a_mats, 
   impl_ = std::make_unique<Impl>(std::move(a_mats), std::move(b_mats), input_blocks, output_blocks, terms);
 }
 
+EffectiveHamiltonianOperator::EffectiveHamiltonianOperator(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+
+auto EffectiveHamiltonianOperator::variable_middle(MatrixFamily a_mats, MatrixFamily c_mats,
+                                                   std::span<MatrixFamily::Block const> input_blocks,
+                                                   std::span<MatrixFamily::Block const> output_blocks,
+                                                   std::span<Term const> terms) -> EffectiveHamiltonianOperator
+{
+  MatrixFamily r_mats(output_blocks);
+  MatrixFamily b_mats(input_blocks);
+  validate_term_shapes(r_mats, a_mats, b_mats, c_mats, terms);
+  return EffectiveHamiltonianOperator(std::make_unique<Impl>(VariableFamily::Middle, std::move(a_mats),
+                                                             std::move(c_mats), input_blocks, output_blocks, terms));
+}
+
 EffectiveHamiltonianOperator::EffectiveHamiltonianOperator(EffectiveHamiltonianOperator&&) noexcept = default;
 EffectiveHamiltonianOperator&
 EffectiveHamiltonianOperator::operator=(EffectiveHamiltonianOperator&&) noexcept = default;
@@ -172,7 +201,14 @@ void EffectiveHamiltonianOperator::apply(MatrixFamily const& x, MatrixFamily& y)
     compile();
   }
 
-  impl_->c_mats.assign(x);
+  if (impl_->variable_family == VariableFamily::Middle)
+  {
+    impl_->b_mats.assign(x);
+  }
+  else
+  {
+    impl_->c_mats.assign(x);
+  }
   impl_->r_mats.fill(0.0);
   impl_->arranger.doContraction(raw_matrices(impl_->r_mats), raw_matrices(impl_->a_mats), raw_matrices(impl_->b_mats),
                                 raw_matrices(impl_->c_mats));

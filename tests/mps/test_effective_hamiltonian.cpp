@@ -35,6 +35,26 @@ auto one_entry_component(SpinHalfSite const& site, LocalOperator op) -> Operator
   return component;
 }
 
+void assign_two_site_blocks(tensorcontraction::MatrixFamily& vector, std::array<double, 4> const& values)
+{
+  ASSERT_EQ(vector.size(), 4);
+  for (std::size_t i = 0; i < values.size(); ++i)
+  {
+    ASSERT_EQ(vector.block(i), (tensorcontraction::MatrixFamily::Block{1, 1}));
+    vector.assign(i, std::array{values[i]});
+  }
+}
+
+void expect_two_site_blocks_near(tensorcontraction::MatrixFamily const& vector, std::array<double, 4> const& expected)
+{
+  ASSERT_EQ(vector.size(), 4);
+  for (std::size_t i = 0; i < expected.size(); ++i)
+  {
+    ASSERT_EQ(vector.block(i), (tensorcontraction::MatrixFamily::Block{1, 1}));
+    EXPECT_NEAR(vector.values(i)[0], expected[i], 1.0e-12);
+  }
+}
+
 void ensure_mpi_initialized()
 {
   int initialized = 0;
@@ -70,16 +90,11 @@ TEST(TwoSiteEffectiveHamiltonianTest, AppliesProductOperatorFromScalarEnvironmen
   auto local_h = make_two_site_effective_hamiltonian(left_env, left_component, right_component, right_env);
   auto x = local_h.op.make_input_vector();
   auto y = local_h.op.make_output_vector();
-  x.assign(0, std::array{1.0, 2.0, 3.0, 4.0});
+  assign_two_site_blocks(x, std::array{1.0, 2.0, 3.0, 4.0});
 
   local_h.op.apply(x, y);
 
-  std::array expected{0.5, 1.0, -1.5, -2.0};
-  ASSERT_EQ(y.values(0).size(), expected.size());
-  for (std::size_t i = 0; i < expected.size(); ++i)
-  {
-    EXPECT_NEAR(y.values(0)[i], expected[i], 1.0e-12);
-  }
+  expect_two_site_blocks_near(y, std::array{0.5, 1.0, -1.5, -2.0});
 }
 
 TEST(TwoSiteEffectiveHamiltonianTest, AppliesTwoSiteHeisenbergBulkPath)
@@ -95,16 +110,11 @@ TEST(TwoSiteEffectiveHamiltonianTest, AppliesTwoSiteHeisenbergBulkPath)
   auto local_h = make_two_site_effective_hamiltonian(left_env, left_component, right_component, right_env);
   auto x = local_h.op.make_input_vector();
   auto y = local_h.op.make_output_vector();
-  x.assign(0, std::array{1.0, 2.0, 3.0, 4.0});
+  assign_two_site_blocks(x, std::array{1.0, 2.0, 3.0, 4.0});
 
   local_h.op.apply(x, y);
 
-  std::array expected{0.25, 1.0, 0.25, 1.0};
-  ASSERT_EQ(y.values(0).size(), expected.size());
-  for (std::size_t i = 0; i < expected.size(); ++i)
-  {
-    EXPECT_NEAR(y.values(0)[i], expected[i], 1.0e-12);
-  }
+  expect_two_site_blocks_near(y, std::array{0.25, 1.0, 0.25, 1.0});
 }
 
 TEST(TwoSiteEffectiveHamiltonianTest, VectorizesTwoSiteWavefunction)
@@ -124,10 +134,11 @@ TEST(TwoSiteEffectiveHamiltonianTest, VectorizesTwoSiteWavefunction)
   auto vector = make_two_site_vector(theta, layout);
 
   std::array expected{10.0, 14.0, 15.0, 21.0};
-  ASSERT_EQ(vector.values(0).size(), expected.size());
+  ASSERT_EQ(vector.size(), expected.size());
   for (std::size_t i = 0; i < expected.size(); ++i)
   {
-    EXPECT_DOUBLE_EQ(vector.values(0)[i], expected[i]);
+    ASSERT_EQ(vector.block(i), (tensorcontraction::MatrixFamily::Block{1, 1}));
+    EXPECT_DOUBLE_EQ(vector.values(i)[0], expected[i]);
   }
 }
 

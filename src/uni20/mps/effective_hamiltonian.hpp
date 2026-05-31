@@ -30,6 +30,13 @@ struct TwoSiteEffectiveHamiltonianLayout
       return left_bond_dim * left_physical_dim * right_physical_dim * right_bond_dim;
     }
 
+    [[nodiscard]] std::size_t block_count() const { return left_physical_dim * right_physical_dim; }
+
+    [[nodiscard]] std::size_t block_index(std::size_t left_phys, std::size_t right_phys) const
+    {
+      return left_phys * right_physical_dim + right_phys;
+    }
+
     [[nodiscard]] std::size_t index(std::size_t left_bond, std::size_t left_phys, std::size_t right_phys,
                                     std::size_t right_bond) const
     {
@@ -93,9 +100,19 @@ inline auto make_two_site_effective_hamiltonian(MpoEnvironment const& left_env, 
     throw std::invalid_argument("two-site effective Hamiltonian requires a non-empty vector space");
   }
 
-  std::array dense_block{tensorcontraction::MatrixFamily::Block{size, size}};
-  tensorcontraction::MatrixFamily hamiltonian(dense_block);
-  auto h_values = hamiltonian.values(0);
+  std::vector<tensorcontraction::MatrixFamily::Block> center_blocks(input_layout.block_count());
+  std::fill(center_blocks.begin(), center_blocks.end(),
+            tensorcontraction::MatrixFamily::Block{left_env.bond_dim(), right_env.bond_dim()});
+
+  struct BlockData
+  {
+      tensorcontraction::MatrixFamily::Block block;
+      std::vector<double> values;
+  };
+
+  std::vector<BlockData> a_blocks;
+  std::vector<BlockData> c_blocks;
+  std::vector<tensorcontraction::EffectiveHamiltonianOperator::Term> terms;
 
   for (std::size_t mpo_left = 0; mpo_left < left_component.rows(); ++mpo_left)
   {
@@ -110,43 +127,49 @@ inline auto make_two_site_effective_hamiltonian(MpoEnvironment const& left_env, 
         auto const right_env_values = right_env.values(mpo_right);
         auto const& right_op = right_mpo_entry.value;
 
-        for (std::size_t left_bra = 0; left_bra < left_env.bond_dim(); ++left_bra)
+        for (std::size_t left_phys_bra = 0; left_phys_bra < left_op.rows(); ++left_phys_bra)
         {
-          for (std::size_t left_ket = 0; left_ket < left_env.bond_dim(); ++left_ket)
+          for (auto const& left_op_entry : left_op.coefficients().row(left_phys_bra))
           {
-            double const left_env_value = left_env_values[left_bra * left_env.bond_dim() + left_ket];
-            if (left_env_value == 0.0)
+            auto const left_phys_ket = left_op_entry.column;
+
+            BlockData a_data{.block = tensorcontraction::MatrixFamily::Block{left_env.bond_dim(), left_env.bond_dim()},
+                             .values = std::vector<double>(left_env.bond_dim() * left_env.bond_dim(), 0.0)};
+            for (std::size_t left_bra = 0; left_bra < left_env.bond_dim(); ++left_bra)
             {
-              continue;
-            }
-            for (std::size_t left_phys_bra = 0; left_phys_bra < left_op.rows(); ++left_phys_bra)
-            {
-              for (auto const& left_op_entry : left_op.coefficients().row(left_phys_bra))
+              for (std::size_t left_ket = 0; left_ket < left_env.bond_dim(); ++left_ket)
               {
-                auto const left_phys_ket = left_op_entry.column;
-                double const left_weight = left_env_value * left_op_entry.value;
-                for (std::size_t right_phys_bra = 0; right_phys_bra < right_op.rows(); ++right_phys_bra)
+                a_data.values[left_bra * left_env.bond_dim() + left_ket] =
+                    left_env_values[left_bra * left_env.bond_dim() + left_ket] * left_op_entry.value;
+              }
+            }
+            auto const a_index = a_blocks.size();
+            a_blocks.push_back(std::move(a_data));
+
+            for (std::size_t right_phys_bra = 0; right_phys_bra < right_op.rows(); ++right_phys_bra)
+            {
+              for (auto const& right_op_entry : right_op.coefficients().row(right_phys_bra))
+              {
+                auto const right_phys_ket = right_op_entry.column;
+                BlockData c_data{.block =
+                                     tensorcontraction::MatrixFamily::Block{right_env.bond_dim(), right_env.bond_dim()},
+                                 .values = std::vector<double>(right_env.bond_dim() * right_env.bond_dim(), 0.0)};
+                for (std::size_t right_ket = 0; right_ket < right_env.bond_dim(); ++right_ket)
                 {
-                  for (auto const& right_op_entry : right_op.coefficients().row(right_phys_bra))
+                  for (std::size_t right_bra = 0; right_bra < right_env.bond_dim(); ++right_bra)
                   {
-                    auto const right_phys_ket = right_op_entry.column;
-                    double const operator_weight = left_weight * right_op_entry.value;
-                    for (std::size_t right_bra = 0; right_bra < right_env.bond_dim(); ++right_bra)
-                    {
-                      for (std::size_t right_ket = 0; right_ket < right_env.bond_dim(); ++right_ket)
-                      {
-                        double const right_env_value = right_env_values[right_bra * right_env.bond_dim() + right_ket];
-                        if (right_env_value == 0.0)
-                        {
-                          continue;
-                        }
-                        auto const row = output_layout.index(left_bra, left_phys_bra, right_phys_bra, right_bra);
-                        auto const col = input_layout.index(left_ket, left_phys_ket, right_phys_ket, right_ket);
-                        h_values[row * size + col] += operator_weight * right_env_value;
-                      }
-                    }
+                    c_data.values[right_ket * right_env.bond_dim() + right_bra] =
+                        right_op_entry.value * right_env_values[right_bra * right_env.bond_dim() + right_ket];
                   }
                 }
+                auto const c_index = c_blocks.size();
+                c_blocks.push_back(std::move(c_data));
+                terms.push_back(tensorcontraction::EffectiveHamiltonianOperator::Term{
+                    .r = output_layout.block_index(left_phys_bra, right_phys_bra),
+                    .a = a_index,
+                    .b = input_layout.block_index(left_phys_ket, right_phys_ket),
+                    .c = c_index,
+                    .coefficient = 1.0});
               }
             }
           }
@@ -155,18 +178,32 @@ inline auto make_two_site_effective_hamiltonian(MpoEnvironment const& left_env, 
     }
   }
 
-  tensorcontraction::MatrixFamily identity(dense_block);
-  auto id_values = identity.values(0);
-  for (std::size_t i = 0; i < size; ++i)
+  std::vector<tensorcontraction::MatrixFamily::Block> a_family_blocks;
+  std::vector<tensorcontraction::MatrixFamily::Block> c_family_blocks;
+  a_family_blocks.reserve(a_blocks.size());
+  c_family_blocks.reserve(c_blocks.size());
+  for (auto const& block : a_blocks)
   {
-    id_values[i * size + i] = 1.0;
+    a_family_blocks.push_back(block.block);
+  }
+  for (auto const& block : c_blocks)
+  {
+    c_family_blocks.push_back(block.block);
+  }
+  tensorcontraction::MatrixFamily a_mats(a_family_blocks);
+  tensorcontraction::MatrixFamily c_mats(c_family_blocks);
+  for (std::size_t i = 0; i < a_blocks.size(); ++i)
+  {
+    a_mats.assign(i, a_blocks[i].values);
+  }
+  for (std::size_t i = 0; i < c_blocks.size(); ++i)
+  {
+    c_mats.assign(i, c_blocks[i].values);
   }
 
-  std::array vector_blocks{tensorcontraction::MatrixFamily::Block{size, 1}};
-  std::array terms{tensorcontraction::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0}};
   return TwoSiteEffectiveHamiltonian{
-      .op = tensorcontraction::EffectiveHamiltonianOperator(std::move(identity), std::move(hamiltonian), vector_blocks,
-                                                            vector_blocks, terms),
+      .op = tensorcontraction::EffectiveHamiltonianOperator::variable_middle(std::move(a_mats), std::move(c_mats),
+                                                                             center_blocks, center_blocks, terms),
       .input_layout = input_layout,
       .output_layout = output_layout,
   };
@@ -176,9 +213,9 @@ inline void assign_two_site_matrix_to_vector(tensorcontraction::MatrixFamily con
                                              tensorcontraction::MatrixFamily& target,
                                              TwoSiteEffectiveHamiltonianLayout const& layout)
 {
-  if (source.size() != 1 || target.size() != 1)
+  if (source.size() != 1)
   {
-    throw std::invalid_argument("two-site vector assignment requires single-block MatrixFamily values");
+    throw std::invalid_argument("two-site vector assignment requires a single-block source MatrixFamily");
   }
   auto const source_block = source.block(0);
   if (source_block.rows != layout.left_bond_dim * layout.left_physical_dim ||
@@ -186,18 +223,43 @@ inline void assign_two_site_matrix_to_vector(tensorcontraction::MatrixFamily con
   {
     throw std::invalid_argument("two-site source matrix shape does not match the vector layout");
   }
-  if (target.block(0) != tensorcontraction::MatrixFamily::Block{layout.vector_size(), 1})
+  if (target.size() != layout.block_count())
   {
-    throw std::invalid_argument("two-site target vector shape does not match the vector layout");
+    throw std::invalid_argument("two-site target vector block count does not match the vector layout");
   }
-  std::copy(source.values(0).begin(), source.values(0).end(), target.values(0).begin());
+  auto const source_values = source.values(0);
+  for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
+  {
+    for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+    {
+      auto const block_index = layout.block_index(left_phys, right_phys);
+      if (target.block(block_index) !=
+          tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim})
+      {
+        throw std::invalid_argument("two-site target vector block shape does not match the vector layout");
+      }
+      auto target_values = target.values(block_index);
+      for (std::size_t left_bond = 0; left_bond < layout.left_bond_dim; ++left_bond)
+      {
+        auto const source_row = left_bond * layout.left_physical_dim + left_phys;
+        for (std::size_t right_bond = 0; right_bond < layout.right_bond_dim; ++right_bond)
+        {
+          auto const source_col = right_phys * layout.right_bond_dim + right_bond;
+          target_values[left_bond * layout.right_bond_dim + right_bond] =
+              source_values[source_row * source_block.cols + source_col];
+        }
+      }
+    }
+  }
 }
 
 inline auto make_two_site_vector(TwoSiteWavefunction const& theta,
                                  TwoSiteEffectiveHamiltonianLayout const& layout) -> tensorcontraction::MatrixFamily
 {
-  std::array block{tensorcontraction::MatrixFamily::Block{layout.vector_size(), 1}};
-  tensorcontraction::MatrixFamily result(block);
+  std::vector<tensorcontraction::MatrixFamily::Block> blocks(layout.block_count());
+  std::fill(blocks.begin(), blocks.end(),
+            tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim});
+  tensorcontraction::MatrixFamily result(blocks);
   assign_two_site_matrix_to_vector(theta.matrix_family(), result, layout);
   return result;
 }

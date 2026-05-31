@@ -89,6 +89,33 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, AppliesSingleTermMatvec)
   expect_near(y.values(0), expected);
 }
 
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, AppliesSingleTermWithVariableMiddle)
+{
+  auto a = make_family({{2, 3}});
+  auto c = make_family({{5, 4}});
+  std::array input_blocks{utc::MatrixFamily::Block{3, 5}};
+  std::array output_blocks{utc::MatrixFamily::Block{2, 4}};
+
+  a.assign(0, std::array{1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  c.assign(0, std::array{1.0,  2.0,  0.5, -1.0, 0.0,  1.5, 2.5, 3.0, -2.0, 1.0,
+                         0.75, 0.25, 4.0, -0.5, 1.25, 2.0, 3.5, 0.0, -1.0, 1.0});
+  auto const a_values = a.values(0);
+  auto const c_values = c.values(0);
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.25}};
+
+  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
+                                                               terms);
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{1.0, 0.5, -1.0, 2.0, 1.5, 0.0, -0.5, 3.0, 1.0, 2.5, 2.0, 1.0, 0.0, -1.5, 0.25});
+
+  auto const expected = expected_single_term(a_values, x.values(0), c_values, 1.25);
+  op.apply(x, y);
+
+  EXPECT_TRUE(op.compiled());
+  expect_near(y.values(0), expected);
+}
+
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, RepeatedApplyOverwritesOutput)
 {
   auto a = make_family({{2, 3}});

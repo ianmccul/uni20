@@ -17,6 +17,10 @@ class EffectiveHamiltonianOperator {
     EffectiveHamiltonianOperator(MatrixFamily a_mats, MatrixFamily b_mats,
                                  std::span<MatrixFamily::Block const> input_blocks,
                                  std::span<MatrixFamily::Block const> output_blocks, std::span<Term const> terms);
+    static auto variable_middle(MatrixFamily a_mats, MatrixFamily c_mats,
+                                std::span<MatrixFamily::Block const> input_blocks,
+                                std::span<MatrixFamily::Block const> output_blocks,
+                                std::span<Term const> terms) -> EffectiveHamiltonianOperator;
     EffectiveHamiltonianOperator(EffectiveHamiltonianOperator&&) noexcept;
     EffectiveHamiltonianOperator& operator=(EffectiveHamiltonianOperator&&) noexcept;
     EffectiveHamiltonianOperator(EffectiveHamiltonianOperator const&) = delete;
@@ -34,6 +38,7 @@ class EffectiveHamiltonianOperator {
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    explicit EffectiveHamiltonianOperator(std::unique_ptr<Impl> impl);
 };
 
 } // namespace uni20::tensorcontraction

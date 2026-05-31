@@ -28,20 +28,44 @@ inline void assign_two_site_vector_to_matrix(tensorcontraction::MatrixFamily con
                                              tensorcontraction::MatrixFamily& target,
                                              TwoSiteEffectiveHamiltonianLayout const& layout)
 {
-  if (source.size() != 1 || target.size() != 1)
+  if (target.size() != 1)
   {
-    throw std::invalid_argument("two-site matrix assignment requires single-block MatrixFamily values");
+    throw std::invalid_argument("two-site matrix assignment requires a single-block target MatrixFamily");
   }
-  if (source.block(0) != tensorcontraction::MatrixFamily::Block{layout.vector_size(), 1})
+  if (source.size() != layout.block_count())
   {
-    throw std::invalid_argument("two-site source vector shape does not match the layout");
+    throw std::invalid_argument("two-site source vector block count does not match the layout");
   }
   if (target.block(0) != tensorcontraction::MatrixFamily::Block{layout.left_bond_dim * layout.left_physical_dim,
                                                                 layout.right_physical_dim * layout.right_bond_dim})
   {
     throw std::invalid_argument("two-site target matrix shape does not match the layout");
   }
-  std::copy(source.values(0).begin(), source.values(0).end(), target.values(0).begin());
+  auto target_values = target.values(0);
+  auto const target_cols = layout.right_physical_dim * layout.right_bond_dim;
+  for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
+  {
+    for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+    {
+      auto const block_index = layout.block_index(left_phys, right_phys);
+      if (source.block(block_index) !=
+          tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim})
+      {
+        throw std::invalid_argument("two-site source vector block shape does not match the layout");
+      }
+      auto const source_values = source.values(block_index);
+      for (std::size_t left_bond = 0; left_bond < layout.left_bond_dim; ++left_bond)
+      {
+        auto const target_row = left_bond * layout.left_physical_dim + left_phys;
+        for (std::size_t right_bond = 0; right_bond < layout.right_bond_dim; ++right_bond)
+        {
+          auto const target_col = right_phys * layout.right_bond_dim + right_bond;
+          target_values[target_row * target_cols + target_col] =
+              source_values[left_bond * layout.right_bond_dim + right_bond];
+        }
+      }
+    }
+  }
 }
 
 inline auto make_two_site_matrix(tensorcontraction::MatrixFamily const& vector,

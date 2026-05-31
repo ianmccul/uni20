@@ -18,8 +18,11 @@ wavefunction storage infrastructure.
   `OperatorComponent` and `LocalOperator` entries over the explicit local
   physical space.
 - `make_two_site_effective_hamiltonian` compiles two adjacent MPO components
-  plus their left/right environments into a vectorized single-block
-  TensorContraction `EffectiveHamiltonianOperator`.
+  plus their left/right environments into a matrix-free TensorContraction
+  `EffectiveHamiltonianOperator`.  The two-site center is represented as one
+  block per local two-site physical basis state, and TensorContraction applies
+  each term as `left_environment * center_block * right_environment` rather
+  than materializing the full effective Hamiltonian.
 - `solve_two_site` packs the current two-site MPS center, compiles the local
   effective Hamiltonian, runs the TensorContraction Lanczos wrapper, and returns
   both vectorized and matrix-shaped optimized center data.
