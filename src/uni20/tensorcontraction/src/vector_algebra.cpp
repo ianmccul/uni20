@@ -106,6 +106,11 @@ double VectorAlgebraEngine::dot(MatrixFamily const& lhs, MatrixFamily const& rhs
     impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), false);
     impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), false);
   }
+  else
+  {
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true);
+  }
 
   auto const& lhs_matrices = raw_matrices(lhs);
   auto const& rhs_matrices = raw_matrices(rhs);
@@ -178,6 +183,10 @@ void VectorAlgebraEngine::copy(MatrixFamily const& source, MatrixFamily& target)
     impl_->arranger->localizeForLinearAlgebra(raw_matrices(source), false);
     impl_->localize(target, false);
   }
+  else
+  {
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(source), true);
+  }
 
   double one = 1.0;
   auto const& source_matrices = raw_matrices(source);
@@ -202,6 +211,10 @@ void VectorAlgebraEngine::scale(MatrixFamily& x, double alpha)
   {
     impl_->localize(x, false);
   }
+  else
+  {
+    impl_->localize(x, true);
+  }
   for (auto const& matrix : raw_matrices(x))
   {
     impl_->arranger->compileScalarMulForLinearAlgebra(matrix, &alpha, impl_->sync_host);
@@ -222,6 +235,11 @@ void VectorAlgebraEngine::axpy(double alpha, MatrixFamily const& x, MatrixFamily
   {
     impl_->arranger->localizeForLinearAlgebra(raw_matrices(x), false);
     impl_->localize(y, false);
+  }
+  else
+  {
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(x), true);
+    impl_->localize(y, true);
   }
 
   auto const& x_matrices = raw_matrices(x);

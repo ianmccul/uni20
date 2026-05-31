@@ -655,6 +655,12 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
                                                 syncFinishEvent));
       shouldAddAccuRMat = true;
     }
+    if (shouldFinalize)
+    {
+      // Combined intermediates represent sum_i f_i * B_i*C_i for a single
+      // (R,A) group.  The next A group for the same R must start from zero.
+      shouldMemsetCombineMat = true;
+    }
 
     flopsPerDevice[currentDeviceId] += flops;
   }
@@ -987,8 +993,13 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
     }
     else
     {
-      // This matrix resides in another node's GPU...
-      assert(swapper.isOnRemoteGpu(mat.getId()));
+      // Hostless matrices are TensorContraction intermediates.  If they reach
+      // this path without a remote owner, the scheduler has lost their producer
+      // buffer and must not continue with a newly allocated zero-filled buffer.
+      if (!swapper.isOnRemoteGpu(mat.getId()))
+      {
+        throw std::logic_error("TensorContraction tried to copy a hostless matrix with no GPU source");
+      }
       int nccl_comm_id = mpi_rank * device_count + deviceId;
       dstMatPairs.push_back({nccl_comm_id, mat, nullptr});
       DEBUG_THIRD_HIT(swapper, mat.getId(), nccl_comm_id, deviceId, mat.sizeInByte());
@@ -1089,7 +1100,7 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
 }
 
 void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals,
-                                bool coalesceBatchEvents)
+                                bool coalesceBatchEvents, bool freeBuffersAtEnd)
 {
   std::vector<size_t> freeMems(deviceCount);
 
@@ -1451,6 +1462,17 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
     }
   }
 
+  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+  {
+    streamManagers[deviceId].syncAllStreams();
+  }
+
+  if (!freeBuffersAtEnd)
+  {
+    CUDA_CALL(cudaSetDevice(0));
+    return;
+  }
+
   if (deviceCount == 1)
   {
     CUDA_CALL(cudaSetDevice(0));
@@ -1478,7 +1500,9 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
 void Arranger::doContraction(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
                              const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats)
 {
-  executeWorklists(worklistsForInterMat, liveIntervalsForInterMat, true);
+  // B*C intermediates are ordinary hostless buffers consumed by the second
+  // phase.  Keep them resident until A*(B*C) has finished.
+  executeWorklists(worklistsForInterMat, liveIntervalsForInterMat, true, false);
   executeWorklists(worklistsForTheRest, liveIntervalsForTheRest, true);
 }
 

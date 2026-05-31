@@ -116,6 +116,147 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, AppliesSingleTermWithVar
   expect_near(y.values(0), expected);
 }
 
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, AppliesEnvironmentStyleMultiTermContraction)
+{
+  auto a = make_family({{3, 2}, {3, 2}});
+  auto b = make_family({{2, 2}});
+  std::array input_blocks{utc::MatrixFamily::Block{2, 3}, utc::MatrixFamily::Block{2, 3}};
+  std::array output_blocks{utc::MatrixFamily::Block{3, 3}};
+
+  // A blocks are transposed MPS site tensors, B is a left identity
+  // environment, and C blocks are the original site tensors.
+  a.assign(0, std::array{1.0, 4.0, 2.0, 5.0, 3.0, 6.0});
+  a.assign(1, std::array{7.0, 10.0, 8.0, 11.0, 9.0, 12.0});
+  b.assign(0, std::array{1.0, 0.0, 0.0, 1.0});
+
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{0, 1, 0, 1, 1.0}};
+  utc::EffectiveHamiltonianOperator op(std::move(a), std::move(b), input_blocks, output_blocks, terms);
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  x.assign(1, std::array{7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+
+  std::array expected{166.0, 188.0, 210.0, 188.0, 214.0, 240.0, 210.0, 240.0, 270.0};
+  op.apply(x, y);
+
+  expect_near(y.values(0), expected);
+}
+
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, AppliesVariableMiddleMultiTermContraction)
+{
+  auto a = make_family({{3, 2}, {3, 2}});
+  auto c = make_family({{2, 3}, {2, 3}});
+  std::array input_blocks{utc::MatrixFamily::Block{2, 2}};
+  std::array output_blocks{utc::MatrixFamily::Block{3, 3}};
+
+  a.assign(0, std::array{1.0, 4.0, 2.0, 5.0, 3.0, 6.0});
+  a.assign(1, std::array{7.0, 10.0, 8.0, 11.0, 9.0, 12.0});
+  c.assign(0, std::array{1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  c.assign(1, std::array{7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{0, 1, 0, 1, 1.0}};
+  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
+                                                               terms);
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{1.0, 0.0, 0.0, 1.0});
+
+  std::array expected{166.0, 188.0, 210.0, 188.0, 214.0, 240.0, 210.0, 240.0, 270.0};
+  op.apply(x, y);
+
+  expect_near(y.values(0), expected);
+}
+
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, AppliesMultiOutputEnvironmentContraction)
+{
+  auto a = make_family({{1, 1}, {1, 1}});
+  auto b = make_family({{1, 1}, {1, 1}});
+  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+
+  a.assign(0, std::array{2.0});
+  a.assign(1, std::array{3.0});
+  b.assign(0, std::array{5.0});
+  b.assign(1, std::array{7.0});
+
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{1, 1, 1, 1, 1.0}};
+  utc::EffectiveHamiltonianOperator op(std::move(a), std::move(b), input_blocks, output_blocks, terms);
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{11.0});
+  x.assign(1, std::array{13.0});
+
+  op.apply(x, y);
+
+  EXPECT_DOUBLE_EQ(y.values(0)[0], 110.0);
+  EXPECT_DOUBLE_EQ(y.values(1)[0], 273.0);
+}
+
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, AppliesMultiOutputDenseEnvironmentContraction)
+{
+  auto a = make_family({{3, 2}, {3, 2}});
+  auto b = make_family({{2, 2}});
+  std::array input_blocks{utc::MatrixFamily::Block{2, 3}, utc::MatrixFamily::Block{2, 3}};
+  std::array output_blocks{utc::MatrixFamily::Block{3, 3}, utc::MatrixFamily::Block{3, 3}};
+
+  a.assign(0, std::array{1.0, 4.0, 2.0, 5.0, 3.0, 6.0});
+  a.assign(1, std::array{7.0, 10.0, 8.0, 11.0, 9.0, 12.0});
+  b.assign(0, std::array{1.0, 0.0, 0.0, 1.0});
+
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{1, 1, 0, 1, 1.0}};
+  utc::EffectiveHamiltonianOperator op(std::move(a), std::move(b), input_blocks, output_blocks, terms);
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  x.assign(1, std::array{7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+
+  op.apply(x, y);
+
+  std::array expected0{17.0, 22.0, 27.0, 22.0, 29.0, 36.0, 27.0, 36.0, 45.0};
+  std::array expected1{149.0, 166.0, 183.0, 166.0, 185.0, 204.0, 183.0, 204.0, 225.0};
+  expect_near(y.values(0), expected0);
+  expect_near(y.values(1), expected1);
+}
+
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, AppliesSparseHeisenbergLikeEnvironmentContraction)
+{
+  auto a = make_family({{3, 2}, {3, 2}});
+  auto b = make_family({{2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}});
+  std::array input_blocks{utc::MatrixFamily::Block{2, 3}, utc::MatrixFamily::Block{2, 3}};
+  std::array output_blocks{utc::MatrixFamily::Block{3, 3}, utc::MatrixFamily::Block{3, 3},
+                           utc::MatrixFamily::Block{3, 3}, utc::MatrixFamily::Block{3, 3},
+                           utc::MatrixFamily::Block{3, 3}};
+
+  a.assign(0, std::array{1.0, 4.0, 2.0, 5.0, 3.0, 6.0});
+  a.assign(1, std::array{7.0, 10.0, 8.0, 11.0, 9.0, 12.0});
+  b.assign(0, std::array{1.0, 0.0, 0.0, 1.0});
+  for (std::size_t block = 1; block < b.size(); ++block)
+  {
+    b.assign(block, std::array{0.0, 0.0, 0.0, 0.0});
+  }
+
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{0, 1, 0, 1, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{1, 0, 0, 1, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{2, 1, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{3, 0, 0, 0, 0.5},
+                   utc::EffectiveHamiltonianOperator::Term{3, 1, 0, 1, -0.5}};
+  utc::EffectiveHamiltonianOperator op(std::move(a), std::move(b), input_blocks, output_blocks, terms);
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  x.assign(1, std::array{7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+
+  op.apply(x, y);
+
+  std::array expected0{166.0, 188.0, 210.0, 188.0, 214.0, 240.0, 210.0, 240.0, 270.0};
+  expect_near(y.values(0), expected0);
+}
+
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, RepeatedApplyOverwritesOutput)
 {
   auto a = make_family({{2, 3}});

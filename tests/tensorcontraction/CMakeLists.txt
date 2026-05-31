@@ -7,6 +7,7 @@ add_executable(uni20_tensorcontraction_tests
   test_effective_hamiltonian_plan.cpp
   test_lanczos.cpp
   test_matrix_family.cpp
+  test_mps_environment_tensorcontraction.cpp
   test_svd.cpp
   test_vector_algebra.cpp
 )
@@ -15,6 +16,9 @@ target_link_libraries(uni20_tensorcontraction_tests
   PRIVATE
     uni20_common
     uni20_core
+    uni20_mps
+    uni20_operator
+    uni20_symmetry
     uni20_tensorcontraction_runtime
     GTest::gtest
 )
