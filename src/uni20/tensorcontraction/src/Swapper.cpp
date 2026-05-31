@@ -14,12 +14,14 @@ namespace tensor
 
 GpuBuffer::GpuBuffer(GpuBuffer&& other)
     : ptr(other.ptr), id(other.id), dim1(other.dim1), dim2(other.dim2), hostPtr(other.hostPtr),
-      readFinishEvent(std::move(other.readFinishEvent)), writeFinishEvent(std::move(other.writeFinishEvent))
+      dependencyEventsEnabled(other.dependencyEventsEnabled), readFinishEvent(std::move(other.readFinishEvent)),
+      writeFinishEvent(std::move(other.writeFinishEvent))
 {
   other.ptr = nullptr;
   other.dim1 = 0;
   other.dim2 = 0;
   other.hostPtr = nullptr;
+  other.dependencyEventsEnabled = false;
 }
 
 GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
@@ -31,6 +33,7 @@ GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
     dim1 = other.dim1;
     dim2 = other.dim2;
     hostPtr = other.hostPtr;
+    dependencyEventsEnabled = other.dependencyEventsEnabled;
     readFinishEvent = std::move(other.readFinishEvent);
     writeFinishEvent = std::move(other.writeFinishEvent);
 
@@ -39,12 +42,14 @@ GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
     other.dim1 = 0;
     other.dim2 = 0;
     other.hostPtr = nullptr;
+    other.dependencyEventsEnabled = false;
   }
   return *this;
 }
 
-GpuBuffer::GpuBuffer(void* ptr, Matrix mat)
-    : ptr(ptr), id(mat.getId()), dim1(mat.getFirstDim()), dim2(mat.getSecondDim()), hostPtr(mat.getPtr())
+GpuBuffer::GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled)
+    : ptr(ptr), id(mat.getId()), dim1(mat.getFirstDim()), dim2(mat.getSecondDim()), hostPtr(mat.getPtr()),
+      dependencyEventsEnabled(dependencyEventsEnabled)
 {
   // writeFinishEvent vector starts empty, events created on-demand
 }
@@ -54,12 +59,20 @@ int GpuBuffer::getId() const { return id; }
 
 void GpuBuffer::waitForReadFinish(cudaStream_t stream)
 {
+  if (!dependencyEventsEnabled)
+  {
+    return;
+  }
   for (auto event : readFinishEvent)
     CUDA_CALL(cudaStreamWaitEvent(stream, event));
 }
 
 void GpuBuffer::notifyReadFinish(cudaStream_t stream)
 {
+  if (!dependencyEventsEnabled)
+  {
+    return;
+  }
   cudaEvent_t event;
   CUDA_CALL(cudaEventCreate(&event));
   CUDA_CALL(cudaEventRecord(event, stream));
@@ -68,12 +81,20 @@ void GpuBuffer::notifyReadFinish(cudaStream_t stream)
 
 void GpuBuffer::waitForWriteFinish(cudaStream_t stream)
 {
+  if (!dependencyEventsEnabled)
+  {
+    return;
+  }
   for (auto event : writeFinishEvent)
     CUDA_CALL(cudaStreamWaitEvent(stream, event));
 }
 
 void GpuBuffer::notifyWriteFinish(cudaStream_t stream)
 {
+  if (!dependencyEventsEnabled)
+  {
+    return;
+  }
   cudaEvent_t event;
   CUDA_CALL(cudaEventCreate(&event));
   CUDA_CALL(cudaEventRecord(event, stream));
@@ -85,15 +106,26 @@ Swapper::Swapper()
   int visibleDeviceCount = 0;
   cudaGetDeviceCount(&visibleDeviceCount);
   deviceCount = resolveActiveCudaDeviceCount(visibleDeviceCount);
+  serialCuda = envFlagEnabled("UNI20_TENSORCONTRACTION_SERIAL_CUDA");
+  dependencyEventsEnabled = !serialCuda;
   for (int i = 0; i < deviceCount; i++)
   {
     CUDA_CALL(cudaSetDevice(i));
     hostToGpuMaps.emplace_back();
     pinnedMatrix.emplace_back();
     deprecatedEvents.emplace_back();
-    cudaStream_t stream;
-    CUDA_CALL(cudaStreamCreate(&stream));
-    memStreams.push_back(stream);
+    if (serialCuda)
+    {
+      // Diagnostic mode: memory operations share CUDA's legacy default stream
+      // with work operations, so stream ordering replaces per-buffer events.
+      memStreams.push_back(cudaStreamLegacy);
+    }
+    else
+    {
+      cudaStream_t stream;
+      CUDA_CALL(cudaStreamCreate(&stream));
+      memStreams.push_back(stream);
+    }
   }
   CUDA_CALL(cudaSetDevice(0));
 }
@@ -257,7 +289,10 @@ void Swapper::release()
     if (deviceId < static_cast<int>(memStreams.size()))
     {
       CUDA_CALL(cudaStreamSynchronize(memStreams[deviceId]));
-      CUDA_CALL(cudaStreamDestroy(memStreams[deviceId]));
+      if (memStreams[deviceId] != cudaStreamLegacy)
+      {
+        CUDA_CALL(cudaStreamDestroy(memStreams[deviceId]));
+      }
     }
   }
   memPools.clear();
@@ -288,7 +323,7 @@ std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
   }
 
   DEBUG_GPU_ALLOC(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
-  auto buffer = std::make_shared<GpuBuffer>(ptr, mat);
+  auto buffer = std::make_shared<GpuBuffer>(ptr, mat, dependencyEventsEnabled);
   auto& hostToGpuMap = hostToGpuMaps[deviceId];
   hostToGpuMap[buffer->getId()] = buffer;
 
@@ -312,7 +347,7 @@ void Swapper::preStoreMatrix(Matrix mat, int deviceId)
   double* gpuPtr;
   CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
   CUDA_CALL(cudaMemcpyAsync(gpuPtr, mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, memStream));
-  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat);
+  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled);
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
@@ -358,7 +393,7 @@ void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
   auto memStream = memStreams[deviceId];
   double* gpuPtr;
   CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
-  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat);
+  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled);
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }

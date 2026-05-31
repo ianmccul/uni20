@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <mutex>
 
 #include "Calculator.hpp"
@@ -293,10 +294,24 @@ void MemsetWork::execute()
 }
 
 StreamManager::StreamManager(Swapper& swapper, int deviceId, int deviceCount)
-    : swapper(swapper), deviceId(deviceId), streamIdx(0)
+    : deviceId(deviceId), streamIdx(0), swapper(swapper)
 {
+  (void)deviceCount;
   CUDA_CALL(cudaSetDevice(deviceId));
   CUBLAS_CALL(cublasCreate(&handle));
+  serialCuda = envFlagEnabled("UNI20_TENSORCONTRACTION_SERIAL_CUDA");
+  if (auto const* env = std::getenv("UNI20_TENSORCONTRACTION_STREAMS"))
+  {
+    streamCount = std::max(1, std::atoi(env));
+  }
+  if (serialCuda)
+  {
+    // Diagnostic mode: route all work through CUDA's legacy default stream.
+    // Swapper uses the same stream in this mode, so per-buffer dependency
+    // events are unnecessary and can be disabled there.
+    streamCount = 1;
+    return;
+  }
   for (int i = 0; i < streamCount; i++)
   {
     cudaStream_t stream;
@@ -308,6 +323,12 @@ StreamManager::StreamManager(Swapper& swapper, int deviceId, int deviceCount)
 void StreamManager::clear()
 {
   cudaSetDevice(deviceId);
+  if (serialCuda)
+  {
+    CUDA_CALL(cudaStreamSynchronize(cudaStreamLegacy));
+    CUBLAS_CALL(cublasDestroy(handle));
+    return;
+  }
   for (auto stream : streams)
   {
     CUDA_CALL(cudaStreamSynchronize(stream));
@@ -319,6 +340,10 @@ void StreamManager::clear()
 
 cudaStream_t StreamManager::getStream()
 {
+  if (serialCuda)
+  {
+    return cudaStreamLegacy;
+  }
   cudaStream_t stream = streams[streamIdx];
   streamIdx = (streamIdx + 1) % streamCount;
   return stream;
@@ -335,6 +360,11 @@ cudaStream_t StreamManager::setEnv()
 void StreamManager::syncAllStreams() const
 {
   cudaSetDevice(deviceId);
+  if (serialCuda)
+  {
+    CUDA_CALL(cudaStreamSynchronize(cudaStreamLegacy));
+    return;
+  }
   for (auto stream : streams)
   {
     CUDA_CALL(cudaStreamSynchronize(stream));

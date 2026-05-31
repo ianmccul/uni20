@@ -58,6 +58,14 @@ experiments that need one process to drive multiple local GPUs; multi-GPU plus
 multi-node execution is not covered by the current single-node GV100 test
 environment.
 
+The CUDA work stream pool defaults to four streams per active device.  Set
+`UNI20_TENSORCONTRACTION_STREAMS=N` to change that pool size.  For CUDA-overhead
+diagnostics, set `UNI20_TENSORCONTRACTION_SERIAL_CUDA=1` to route both work and
+memory operations through CUDA's legacy default stream (`cudaStreamLegacy`).
+That mode intentionally serializes the temporary TensorContraction runtime and
+disables its per-buffer dependency events; it is a profiling/debugging tool, not
+the intended production execution model for uni20.
+
 `vector_algebra.hpp` provides block-vector operations needed by the first
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
 `normalize`.  The free functions are the host fallback.  `VectorAlgebraEngine`

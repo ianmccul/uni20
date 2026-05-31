@@ -24,13 +24,14 @@ class GpuBuffer {
     size_t dim1;
     size_t dim2;
     void* hostPtr;
+    bool dependencyEventsEnabled = true;
 
     std::vector<cudaEvent_t> readFinishEvent;
     std::vector<cudaEvent_t> writeFinishEvent;
 
   public:
     GpuBuffer() = delete;
-    GpuBuffer(void* ptr, Matrix mat);
+    GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled);
     GpuBuffer(const GpuBuffer&) = delete;
     GpuBuffer& operator=(const GpuBuffer&) = delete;
     GpuBuffer(GpuBuffer&& other);
@@ -66,6 +67,8 @@ class Swapper {
 #endif
 
     int deviceCount;
+    bool serialCuda = false;
+    bool dependencyEventsEnabled = true;
     bool released = false;
 
     bool isPinned(int id, int deviceId);

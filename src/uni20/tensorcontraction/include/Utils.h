@@ -50,6 +50,18 @@ inline int resolveActiveCudaDeviceCount(int visibleDeviceCount)
   }
 }
 
+inline bool envFlagEnabled(const char* name)
+{
+  auto const* value = std::getenv(name);
+  if (value == nullptr)
+  {
+    return false;
+  }
+
+  std::string text(value);
+  return !(text.empty() || text == "0" || text == "OFF" || text == "off" || text == "false" || text == "FALSE");
+}
+
 } // namespace tensor
 
 #define CUDA_CALL(func)                                                                                                \

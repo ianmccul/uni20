@@ -27,6 +27,15 @@ target_compile_definitions(uni20_tensorcontraction_tests
 
 gtest_discover_tests(uni20_tensorcontraction_tests)
 
+add_test(
+  NAME TensorContractionCUDA.SerialDefaultStreamApply
+  COMMAND
+    "${CMAKE_COMMAND}" -E env
+    "UNI20_TENSORCONTRACTION_SERIAL_CUDA=1"
+    "$<TARGET_FILE:uni20_tensorcontraction_tests>"
+    "--gtest_filter=TensorContractionEffectiveHamiltonianOperatorTest.AppliesSingleTermMatvec"
+)
+
 if(MPIEXEC_EXECUTABLE)
   add_test(
     NAME TensorContractionMPI.EffectiveHamiltonianPlanCompile

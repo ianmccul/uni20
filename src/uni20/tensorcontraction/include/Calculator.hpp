@@ -202,7 +202,8 @@ class BarrierWork : public WorkBase {
 
 class StreamManager {
     int deviceId;
-    const int streamCount = 4;
+    int streamCount = 4;
+    bool serialCuda = false;
     int streamIdx;
     Swapper& swapper;
     std::vector<cudaStream_t> streams;
