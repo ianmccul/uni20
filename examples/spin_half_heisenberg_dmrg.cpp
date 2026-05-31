@@ -6,6 +6,8 @@
 
 #include <mpi.h>
 
+#include <uni20/common/terminal.hpp>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -347,8 +349,8 @@ void run_exact_small_chain_check()
 void run_large_chain_sweep_check()
 {
   auto const length = std::size_t{20};
-  auto const sweep_count = std::size_t{3};
-  auto const max_rank = std::size_t{16};
+  auto const sweep_count = terminal::getenv_or_default<std::size_t>("UNI20_HEISENBERG_SWEEPS", 3);
+  auto const max_rank = terminal::getenv_or_default<std::size_t>("UNI20_HEISENBERG_MAX_RANK", 16);
   auto const spin = make_spin_half_dense_site();
   auto psi = alternating_product_state(spin, length);
   auto mpo = make_spin_half_heisenberg_mpo(length, spin, 1.0, 0.0);
@@ -376,6 +378,7 @@ void run_large_chain_sweep_check()
 
   fmt::print("\nlength-20 sweep check\n");
   fmt::print("max rank: {}\n", max_rank);
+  fmt::print("sweeps: {}\n", sweep_count);
   double previous_energy = mps_expectation_value(psi, mpo);
   fmt::print("initial <H>: {:.16g}\n", previous_energy);
   std::fflush(stdout);

@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstddef>
 #include <stdexcept>
 #include <vector>
 
@@ -74,4 +75,19 @@ TEST(TensorContractionMatrixFamilyTest, RejectsIncompatibleFamilyCopy)
   utc::MatrixFamily target(target_blocks);
 
   EXPECT_THROW(target.assign(source), std::invalid_argument);
+}
+
+TEST(TensorContractionMatrixFamilyTest, MatrixIdsDoNotHitLegacyTenThousandLimit)
+{
+  std::vector<utc::MatrixFamily::Block> blocks(10001, utc::MatrixFamily::Block{1, 1});
+
+  utc::MatrixFamily family(blocks);
+
+  ASSERT_EQ(family.size(), blocks.size());
+  auto const& matrices = utc::raw_matrices(family);
+  ASSERT_EQ(matrices.size(), blocks.size());
+  for (std::size_t i = 1; i < matrices.size(); ++i)
+  {
+    EXPECT_NE(matrices[i - 1].getId(), matrices[i].getId());
+  }
 }
