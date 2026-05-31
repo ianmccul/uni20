@@ -120,6 +120,42 @@ section over the relevant `GpuEpochContext`s and stream-slot state:
 The single-threaded TensorContraction implementation can perform these steps
 without locks, but it should keep this transaction boundary in the API.
 
+## Correctness Baseline
+
+The conceptual correctness baseline is a fully synchronized GPU execution mode:
+
+```text
+enqueue one CUDA operation
+synchronize all affected devices
+publish CPU-visible completion
+enqueue the next operation
+```
+
+If every CUDA call were followed by synchronization of all relevant devices, then
+all GPU side effects would be complete before the next operation was submitted.
+In that degenerate mode, no CUDA events, stream waits, stream-tail tokens, or GPU
+epoch machinery would be required for correctness.
+
+The GPU epoch system is an optimization over that baseline.  It replaces global
+barriers with precise dependency tokens:
+
+- writer completion tokens instead of synchronizing after writes;
+- reader completion tokens instead of synchronizing after reads;
+- stream-tail tokens instead of eagerly recording events;
+- `cudaStreamWaitEvent` only where cross-stream or cross-device ordering is
+  actually required.
+
+The invariant is:
+
+- For every legal CPU async schedule, asynchronous GPU execution must be
+  observationally equivalent to the fully synchronized execution.
+
+This also suggests a useful debugging mode.  A strict synchronous backend can
+force a device-wide or all-device synchronization after each submitted GPU
+operation and disable most epoch-token optimization.  Such a mode would be slow,
+but it provides a reference execution path for distinguishing logical bugs from
+CUDA scheduling bugs.
+
 ## CPU/GPU Boundary
 
 The CPU async scheduler owns logical causality.  The GPU epoch scheduler owns
