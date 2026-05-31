@@ -120,6 +120,82 @@ section over the relevant `GpuEpochContext`s and stream-slot state:
 The single-threaded TensorContraction implementation can perform these steps
 without locks, but it should keep this transaction boundary in the API.
 
+## CPU/GPU Boundary
+
+The CPU async scheduler owns logical causality.  The GPU epoch scheduler owns
+device-side memory hazards for work that is already causally ready to submit.
+
+For `Tensor<T, GpuStorage>`, CPU-side validity means:
+
+- the tensor object is logically constructed;
+- metadata such as shape, layout, and index structure is valid on the CPU;
+- the `GpuStorage` object exists and owns a valid device allocation or deferred
+  allocation handle;
+- the storage can accept dependency-aware GPU access requests.
+
+It does not mean:
+
+- all prior kernels touching the storage have completed;
+- the device data is idle;
+- CPU code may dereference or randomly access the elements.
+
+`GpuStorage` is opaque to ordinary CPU code.  A CPU async task may `co_await`
+logical tensor dependencies and then submit GPU work once the tensor object and
+its metadata are valid.  At that point, the producing GPU work for each input has
+already been submitted and has a fixed GPU dependency token: either an event, a
+same-stream ordering relationship, or a stream tail that can be finalized before
+the new work is enqueued.
+
+This gives the launch protocol:
+
+```text
+CPU async task:
+  co_await logical Tensor dependencies
+  acquire GpuStorage read/write epochs
+  enqueue CUDA kernels/copies with required waits
+  publish output GPU epoch tokens
+  return or suspend according to the host-side API
+```
+
+The CUDA layer should not accept dependencies on future producer events that have
+not yet been submitted or fixed.  Arbitrary task ordering, reverse submission,
+and backprop causality belong in the CPU async scheduler.  CUDA streams and
+events should only order already-submitted GPU work and memory hazards between
+causally ready operations.
+
+This boundary avoids making the CUDA scheduler a general DAG executor.  It also
+avoids artificial CUDA deadlocks from stream reuse: a GPU operation is submitted
+only after every dependency it may wait on has a fixed producer position in the
+GPU execution graph.  Stream-slot reuse must still preserve the stream-tail
+invariants in this document, but it does not need to solve arbitrary logical DAG
+cycles.
+
+Host access to GPU-resident data is always an explicit scheduled operation.  A
+readback is modeled as a GPU read followed by an asynchronous transfer or
+conversion into CPU storage:
+
+```text
+Tensor<T, GpuStorage>
+  -> acquire GPU read epoch
+  -> enqueue cudaMemcpyAsync D2H or conversion kernel
+  -> co_await host completion
+  -> Tensor<T, CpuStorage>
+```
+
+Likewise, CPU-to-GPU materialization is an explicit upload/write operation:
+
+```text
+Tensor<T, CpuStorage>
+  -> allocate/acquire Tensor<T, GpuStorage>
+  -> enqueue cudaMemcpyAsync H2D or conversion kernel
+  -> publish GPU write epoch
+```
+
+Unified memory should not be implicit in `GpuStorage`.  If uni20 supports it
+later, it should be a distinct storage type such as `Tensor<T, UnifiedStorage>`
+with its own coherence and ownership rules.  Randomly accessing the same storage
+from CPU and GPU is not part of the `GpuStorage` model.
+
 ## Stream-Tail Tokens
 
 The central optimization is that a completion token does not need to be a CUDA
