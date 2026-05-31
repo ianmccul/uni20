@@ -89,6 +89,10 @@ class Swapper {
     std::shared_ptr<GpuBuffer> getGpuBufferOrNone(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> getForRead(Matrix mat, int deviceId, cudaStream_t stream);
     std::shared_ptr<GpuBuffer> getForWrite(Matrix mat, int deviceId, cudaStream_t stream);
+    std::shared_ptr<GpuBuffer> getForReadNoWait(Matrix mat, int deviceId);
+    std::shared_ptr<GpuBuffer> getForWriteNoWait(Matrix mat, int deviceId);
+    void waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
+                                   const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream);
     void syncBuffer(Matrix mat, int deviceId, cudaStream_t stream);
     void freeBuffer(Matrix mat, int deviceId, cudaStream_t stream);
 

@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <functional>
+#include <unordered_set>
 
 #include "Calculator.hpp"
 #include "Debug.hpp"
@@ -426,7 +427,7 @@ void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
 
 std::shared_ptr<GpuBuffer> Swapper::getForRead(Matrix mat, int deviceId, cudaStream_t stream)
 {
-  auto bufferPtr = getGpuBufferOrNone(mat, deviceId);
+  auto bufferPtr = getForReadNoWait(mat, deviceId);
   if (bufferPtr != nullptr)
   {
     bufferPtr->waitForWriteFinish(stream);
@@ -438,7 +439,7 @@ std::shared_ptr<GpuBuffer> Swapper::getForRead(Matrix mat, int deviceId, cudaStr
 
 std::shared_ptr<GpuBuffer> Swapper::getForWrite(Matrix mat, int deviceId, cudaStream_t stream)
 {
-  auto bufferPtr = getGpuBufferOrNone(mat, deviceId);
+  auto bufferPtr = getForWriteNoWait(mat, deviceId);
   if (bufferPtr != nullptr)
   {
     bufferPtr->waitForWriteFinish(stream);
@@ -447,6 +448,63 @@ std::shared_ptr<GpuBuffer> Swapper::getForWrite(Matrix mat, int deviceId, cudaSt
   }
 
   return nullptr;
+}
+
+std::shared_ptr<GpuBuffer> Swapper::getForReadNoWait(Matrix mat, int deviceId)
+{
+  return getGpuBufferOrNone(mat, deviceId);
+}
+
+std::shared_ptr<GpuBuffer> Swapper::getForWriteNoWait(Matrix mat, int deviceId)
+{
+  return getGpuBufferOrNone(mat, deviceId);
+}
+
+void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
+                                        const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers,
+                                        cudaStream_t stream)
+{
+  if (!dependencyEventsEnabled)
+  {
+    return;
+  }
+
+  std::unordered_set<cudaEvent_t> waitedEvents;
+  auto waitEvent = [&](CudaDeviceContext* context, cudaEvent_t event, cudaStream_t producerStream) {
+    if (event == nullptr || context == nullptr || producerStream == stream || !waitedEvents.insert(event).second)
+    {
+      return;
+    }
+    context->waitEvent(stream, event);
+  };
+
+  for (auto const& buffer : readBuffers)
+  {
+    if (buffer == nullptr)
+    {
+      continue;
+    }
+    if (buffer->writeFinishEvent != nullptr)
+    {
+      waitEvent(buffer->deviceContext, buffer->writeFinishEvent->event, buffer->writeFinishStream);
+    }
+  }
+
+  for (auto const& buffer : writeBuffers)
+  {
+    if (buffer == nullptr)
+    {
+      continue;
+    }
+    if (buffer->writeFinishEvent != nullptr)
+    {
+      waitEvent(buffer->deviceContext, buffer->writeFinishEvent->event, buffer->writeFinishStream);
+    }
+    if (buffer->useFinishEvent != nullptr)
+    {
+      waitEvent(buffer->deviceContext, buffer->useFinishEvent->event, buffer->useFinishStream);
+    }
+  }
 }
 
 void Swapper::freeAllBuffer(int deviceId)

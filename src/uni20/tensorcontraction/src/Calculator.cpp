@@ -28,9 +28,9 @@ void MatMulWork::execute()
 
   cudaStream_t stream = streamManager.setEnv();
 
-  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForRead(m1, deviceId, stream);
-  std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForRead(m2, deviceId, stream);
-  std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWrite(result, deviceId, stream);
+  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(m1, deviceId);
+  std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(m2, deviceId);
+  std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(result, deviceId);
 
   double alpha = getAlpha();
   double beta = 0.0;
@@ -40,6 +40,7 @@ void MatMulWork::execute()
   assert(m1OnGPU);
   assert(m2OnGPU);
   assert(resultOnGPU);
+  swapper.waitForAccessDependencies({m1OnGPU, m2OnGPU}, {resultOnGPU}, stream);
 
   CUBLAS_CALL(cublasDgemm(streamManager.getHandle(), CUBLAS_OP_N, CUBLAS_OP_N, m2.getSecondDim(), m1.getFirstDim(),
                           m1.getSecondDim(), &alpha, m2OnGPU->getPtr(), m2.getSecondDim(), m1OnGPU->getPtr(),
@@ -52,9 +53,9 @@ void MatMulAccuWork::execute()
   // matrices: [result, m1, m2]
   cudaStream_t stream = streamManager.setEnv();
 
-  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForRead(mats[1], streamManager.getDeviceId(), stream);
-  std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForRead(mats[2], streamManager.getDeviceId(), stream);
-  std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWrite(mats[0], streamManager.getDeviceId(), stream);
+  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[1], streamManager.getDeviceId());
+  std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(mats[2], streamManager.getDeviceId());
+  std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(mats[0], streamManager.getDeviceId());
 
   double alpha = getAlpha();
   double beta = 1.0;
@@ -64,6 +65,7 @@ void MatMulAccuWork::execute()
   assert(m1OnGPU);
   assert(m2OnGPU);
   assert(resultOnGPU);
+  swapper.waitForAccessDependencies({m1OnGPU, m2OnGPU}, {resultOnGPU}, stream);
 
   CUBLAS_CALL(cublasDgemm(streamManager.getHandle(), CUBLAS_OP_N, CUBLAS_OP_N, mats[2].getSecondDim(),
                           mats[1].getFirstDim(), mats[1].getSecondDim(), &alpha, m2OnGPU->getPtr(),
@@ -77,14 +79,15 @@ void AddAccuWork::execute()
   // matrices: [result, m1]
   cudaStream_t stream = streamManager.setEnv();
 
-  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForRead(mats[1], streamManager.getDeviceId(), stream);
-  std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWrite(mats[0], streamManager.getDeviceId(), stream);
+  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[1], streamManager.getDeviceId());
+  std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(mats[0], streamManager.getDeviceId());
 
   double alpha = getAlpha();
   DEBUG_ADD_ACCU(swapper, mats[0].getId(), mats[1].getId(), alpha, streamManager.getDeviceId(), stream);
 
   assert(m1OnGPU);
   assert(resultOnGPU);
+  swapper.waitForAccessDependencies({m1OnGPU}, {resultOnGPU}, stream);
 
   CUBLAS_CALL(
       cublasDaxpy(streamManager.getHandle(), mats[1].size(), &alpha, m1OnGPU->getPtr(), 1, resultOnGPU->getPtr(), 1));
@@ -97,11 +100,12 @@ void InnerProductWork::execute()
   int deviceId = streamManager.getDeviceId();
   cudaStream_t stream = streamManager.setEnv();
 
-  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForRead(mats[0], deviceId, stream);
-  std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForRead(mats[1], deviceId, stream);
+  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[0], deviceId);
+  std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(mats[1], deviceId);
 
   assert(m1OnGPU);
   assert(m2OnGPU);
+  swapper.waitForAccessDependencies({m1OnGPU, m2OnGPU}, {}, stream);
 
   auto deviceDotResult = streamManager.acquireScratch(sizeof(double));
 
@@ -120,9 +124,10 @@ void ScalarMulWork::execute()
   int deviceId = streamManager.getDeviceId();
   cudaStream_t stream = streamManager.setEnv();
 
-  std::shared_ptr<GpuBuffer> buffer = swapper.getForWrite(mats[0], deviceId, stream);
+  std::shared_ptr<GpuBuffer> buffer = swapper.getForWriteNoWait(mats[0], deviceId);
 
   assert(buffer);
+  swapper.waitForAccessDependencies({}, {buffer}, stream);
 
   double alpha = *coff;
   CUBLAS_CALL(cublasDscal(streamManager.getHandle(), mats[0].size(), &alpha, buffer->getPtr(), 1));
@@ -206,8 +211,9 @@ void NCCLSendRecvWork::execute()
     if (dst_nccl_id == this_nccl_id)
     {
       // This matrix is requested by this device. Allocate a buffer for it.
-      auto buffer = swapper.getForWrite(mat, thisDeviceId, stream);
+      auto buffer = swapper.getForWriteNoWait(mat, thisDeviceId);
       assert(buffer);
+      swapper.waitForAccessDependencies({}, {buffer}, stream);
       dstBufferMatTuple.push_back({dst_nccl_id, buffer, mat});
     }
     else
@@ -281,8 +287,9 @@ std::vector<Matrix> NCCLSendRecvWork::writeMatrices() const
 void MemsetWork::execute()
 {
   auto stream = streamManager.setEnv();
-  auto buffer = swapper.getForWrite(getMatrices()[0], streamManager.getDeviceId(), stream);
+  auto buffer = swapper.getForWriteNoWait(getMatrices()[0], streamManager.getDeviceId());
   DEBUG_MEMSET(swapper, getMatrices()[0].getId(), streamManager.getDeviceId(), buffer->sizeInByte(), stream);
+  swapper.waitForAccessDependencies({}, {buffer}, stream);
   CUDA_CALL(cudaMemsetAsync(buffer->getPtr(), 0, buffer->sizeInByte(), stream));
 }
 
