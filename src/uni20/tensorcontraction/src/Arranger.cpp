@@ -1108,25 +1108,14 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
   {
     CUDA_CALL(cudaSetDevice(i));
 
-    cudaMemPool_t pool = swapper.getMemPool(i);
-
-    uint64_t maxSize = 0;
-    cudaMemPoolGetAttribute(pool, cudaMemPoolAttrReservedMemHigh, &maxSize);
-
-    uint64_t usedMem = 0;
-    CUDA_CALL(cudaMemPoolGetAttribute(pool, cudaMemPoolAttrUsedMemCurrent, &usedMem));
-
-    if (maxSize > 0)
-    {
-      freeMems[i] = (maxSize > usedMem) ? (maxSize - usedMem) : 0;
-    }
-    else
-    {
-      size_t freeMemory;
-      size_t totalMemory;
-      CUDA_CALL(cudaMemGetInfo(&freeMemory, &totalMemory));
-      freeMems[i] = freeMemory;
-    }
+    // cudaMemPoolAttrReservedMemHigh is a high-water mark, not a capacity.
+    // Using it as free capacity made a second contraction phase think no memory
+    // was available after keeping B*C intermediates resident, so it freed them
+    // before the A*(B*C) phase consumed them.
+    size_t freeMemory;
+    size_t totalMemory;
+    CUDA_CALL(cudaMemGetInfo(&freeMemory, &totalMemory));
+    freeMems[i] = freeMemory;
   }
 
   for (int i = 0; i < deviceCount; i++)
