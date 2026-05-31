@@ -646,11 +646,21 @@ void Swapper::freeAllBuffer(int deviceId)
 void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
 {
   auto memStream = deviceContexts[deviceId]->memoryStream();
-  buffer->waitBeforeWrite(memStream);
-  buffer->waitBeforeRead(memStream);
+  std::vector<CudaDeviceContext::EventDependencyRef> dependencies;
+  dependencies.reserve(2);
+  if (buffer->accessState.writer.event != nullptr)
+  {
+    dependencies.push_back(buffer->accessState.writer.event);
+  }
+  if (buffer->accessState.readers.event != nullptr &&
+      buffer->accessState.readers.event != buffer->accessState.writer.event)
+  {
+    dependencies.push_back(buffer->accessState.readers.event);
+  }
   destroyBufferEvents(buffer);
   DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, memStream);
-  CUDA_CALL(cudaFreeAsync(buffer->getPtr(), memStream));
+  deviceContexts[deviceId]->enqueueAsyncFree(buffer->getPtr(), memStream, std::move(dependencies));
+  buffer->ptr = nullptr;
 }
 
 void Swapper::destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer)

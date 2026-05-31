@@ -1456,7 +1456,6 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
   {
     CUDA_CALL(cudaSetDevice(0));
     swapper.freeAllBuffer(0);
-    swapper.syncMemStream(0, "execute_worklists_cleanup");
     swapper.freeAllEvents(0);
   }
   else
@@ -1466,7 +1465,6 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       threads[deviceId] = std::thread([&, deviceId] {
         CUDA_CALL(cudaSetDevice(deviceId));
         swapper.freeAllBuffer(deviceId);
-        swapper.syncMemStream(deviceId, "execute_worklists_cleanup");
         swapper.freeAllEvents(deviceId);
       });
     }

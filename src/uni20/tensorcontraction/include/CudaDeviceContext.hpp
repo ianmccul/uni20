@@ -92,6 +92,7 @@ class CudaDeviceContext {
     cudaEvent_t recordEvent(cudaStream_t stream);
     EventDependencyRef recordDependencyEvent(cudaStream_t stream);
     void waitEvent(cudaStream_t stream, cudaEvent_t event);
+    void enqueueAsyncFree(void* ptr, cudaStream_t stream, std::vector<EventDependencyRef> dependencies);
     ScratchLease acquireScratch(std::size_t bytes, cudaStream_t stream);
     void syncWorkStreams(const char* reason = "work_unspecified");
     void syncMemoryStream(const char* reason = "memory_unspecified");
@@ -105,7 +106,17 @@ class CudaDeviceContext {
         std::uint64_t eventWait = 0;
         std::uint64_t eventDestroy = 0;
         std::uint64_t streamSync = 0;
+        std::uint64_t asyncFree = 0;
+        std::uint64_t asyncFreeReclaim = 0;
+        std::uint64_t asyncFreePoll = 0;
         std::unordered_map<std::string, std::uint64_t> streamSyncByReason;
+    };
+
+    struct PendingFree
+    {
+        void* ptr = nullptr;
+        cudaEvent_t completeEvent = nullptr;
+        std::vector<EventDependencyRef> dependencies;
     };
 
     int deviceId_ = 0;
@@ -116,6 +127,7 @@ class CudaDeviceContext {
     std::vector<WorkSlot> workSlots_;
     std::vector<cudaEvent_t> freeEvents_;
     std::vector<cudaEvent_t> retiredEvents_;
+    std::vector<PendingFree> pendingFrees_;
     std::vector<std::shared_ptr<ScratchBuffer>> freeScratchBuffers_;
     std::vector<std::shared_ptr<ScratchBuffer>> allScratchBuffers_;
     std::mutex scratchMutex_;
@@ -124,6 +136,7 @@ class CudaDeviceContext {
     std::uint64_t workSlotUseCounter_ = 0;
 
     void reclaimRetiredEvents();
+    void reclaimCompletedAsyncFrees();
     void countStreamSync(const char* reason);
     WorkSlot& markWorkSlotUsed(WorkSlot& slot);
     void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);

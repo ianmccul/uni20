@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <map>
 #include <tuple>
+#include <utility>
 
 namespace tensor
 {
@@ -187,6 +188,31 @@ void CudaDeviceContext::waitEvent(cudaStream_t stream, cudaEvent_t event)
   ++counters_.eventWait;
 }
 
+void CudaDeviceContext::enqueueAsyncFree(void* ptr, cudaStream_t stream, std::vector<EventDependencyRef> dependencies)
+{
+  if (ptr == nullptr)
+  {
+    return;
+  }
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  for (auto const& dependency : dependencies)
+  {
+    if (dependency != nullptr)
+    {
+      waitEvent(stream, dependency->event);
+    }
+  }
+  CUDA_CALL(cudaFreeAsync(ptr, stream));
+  ++counters_.asyncFree;
+  if (dependencies.empty())
+  {
+    return;
+  }
+  auto completeEvent = recordEvent(stream);
+  pendingFrees_.push_back(PendingFree{ptr, completeEvent, std::move(dependencies)});
+  reclaimCompletedAsyncFrees();
+}
+
 CudaDeviceContext::ScratchLease CudaDeviceContext::acquireScratch(std::size_t bytes, cudaStream_t stream)
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
@@ -243,6 +269,7 @@ void CudaDeviceContext::syncWorkStreams(const char* reason)
     CUDA_CALL(cudaStreamSynchronize(slot.stream));
     countStreamSync(reason);
   }
+  reclaimCompletedAsyncFrees();
   reclaimRetiredEvents();
 }
 
@@ -251,6 +278,7 @@ void CudaDeviceContext::syncMemoryStream(const char* reason)
   CUDA_CALL(cudaSetDevice(deviceId_));
   CUDA_CALL(cudaStreamSynchronize(memoryStream_));
   countStreamSync(reason);
+  reclaimCompletedAsyncFrees();
   reclaimRetiredEvents();
 }
 
@@ -326,6 +354,34 @@ void CudaDeviceContext::reclaimRetiredEvents()
   retiredEvents_.clear();
 }
 
+void CudaDeviceContext::reclaimCompletedAsyncFrees()
+{
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  std::vector<PendingFree> stillPending;
+  stillPending.reserve(pendingFrees_.size());
+  for (auto& pending : pendingFrees_)
+  {
+    cudaError_t status = cudaEventQuery(pending.completeEvent);
+    if (status == cudaSuccess)
+    {
+      retireEvent(pending.completeEvent);
+      pending.completeEvent = nullptr;
+      pending.dependencies.clear();
+      ++counters_.asyncFreeReclaim;
+    }
+    else if (status == cudaErrorNotReady)
+    {
+      stillPending.push_back(std::move(pending));
+      ++counters_.asyncFreePoll;
+    }
+    else
+    {
+      CUDA_CALL(status);
+    }
+  }
+  pendingFrees_ = std::move(stillPending);
+}
+
 void CudaDeviceContext::countStreamSync(const char* reason)
 {
   ++counters_.streamSync;
@@ -358,14 +414,17 @@ void CudaDeviceContext::printCounters() const
   {
     return;
   }
-  std::fprintf(stderr,
-               "[TENSORCONTRACTION][CUDA_COUNTERS] Device=%d EventCreate=%llu EventRecord=%llu EventWait=%llu "
-               "EventDestroy=%llu StreamSync=%llu EventPoolFree=%zu\n",
-               deviceId_, static_cast<unsigned long long>(counters_.eventCreate),
-               static_cast<unsigned long long>(counters_.eventRecord),
-               static_cast<unsigned long long>(counters_.eventWait),
-               static_cast<unsigned long long>(counters_.eventDestroy),
-               static_cast<unsigned long long>(counters_.streamSync), freeEvents_.size());
+  std::fprintf(
+      stderr,
+      "[TENSORCONTRACTION][CUDA_COUNTERS] Device=%d EventCreate=%llu EventRecord=%llu EventWait=%llu "
+      "EventDestroy=%llu StreamSync=%llu EventPoolFree=%zu AsyncFree=%llu AsyncFreeReclaim=%llu "
+      "AsyncFreePoll=%llu\n",
+      deviceId_, static_cast<unsigned long long>(counters_.eventCreate),
+      static_cast<unsigned long long>(counters_.eventRecord), static_cast<unsigned long long>(counters_.eventWait),
+      static_cast<unsigned long long>(counters_.eventDestroy), static_cast<unsigned long long>(counters_.streamSync),
+      freeEvents_.size(), static_cast<unsigned long long>(counters_.asyncFree),
+      static_cast<unsigned long long>(counters_.asyncFreeReclaim),
+      static_cast<unsigned long long>(counters_.asyncFreePoll));
   for (auto const& [reason, count] : counters_.streamSyncByReason)
   {
     std::fprintf(stderr, "[TENSORCONTRACTION][CUDA_SYNC_REASON] Device=%d Reason=%s Count=%llu\n", deviceId_,
