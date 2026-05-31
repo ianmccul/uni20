@@ -57,10 +57,17 @@ of the variational principle: each two-site local solve is variational in the
 current mixed-canonical environment, while the subsequent SVD truncation and
 canonical-center shift changes the state used by the next local problem.
 
-In the observed run, continuing for a few more sweeps brought the reported
-edge/global energy back into agreement with the MPTK converged value at roughly
-roundoff scale.  For benchmarking, compare converged sweeps or matching sweep
-positions rather than the minimum local energy seen during an unconverged sweep.
+In the observed length-20, bond-dimension-16 run, continuing for a few more
+sweeps brought the reported edge/global energy back into agreement with the MPTK
+converged final-sweep value at roughly roundoff scale: uni20 reported
+`-8.682468365409264`, while MPTK reported `-8.682468365409258` at the same
+sweep-end position.  A lower value, `-8.682468366629129`, was observed as a
+mid-sweep local variational minimum in MPTK.  That number is useful for tracing
+the sweep trajectory, but it is not the same benchmark point as the canonical
+state at the end of the sweep.
+
+For benchmarking, compare converged sweeps or matching sweep positions rather
+than the minimum local energy seen during an unconverged sweep.
 
 ## Deferred
 
