@@ -15,6 +15,7 @@
 - [Architecture Diagram](architecture_diagram.md)
 - [Architecture and Roadmap](roadmap.md)
 - [Backend Dispatch Design](backend_dispatch.md)
+- [GPU Epoch Design Draft](gpu_epoch_design_draft.md)
 - [Async Storage and Assignment Semantics](async_storage.md)
 
 ## AI Guidance
