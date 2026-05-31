@@ -106,10 +106,16 @@ CudaDeviceContext::~CudaDeviceContext() { release(); }
 
 auto CudaDeviceContext::nextWorkSlot() -> WorkSlot&
 {
-  auto& slot = workSlots_[nextWorkSlot_];
-  nextWorkSlot_ = (nextWorkSlot_ + 1) % workSlots_.size();
   CUDA_CALL(cudaSetDevice(deviceId_));
-  return slot;
+  auto leastRecentlyUsed = std::min_element(workSlots_.begin(), workSlots_.end(),
+                                            [](auto const& lhs, auto const& rhs) { return lhs.lastUse < rhs.lastUse; });
+  if (leastRecentlyUsed == workSlots_.end())
+  {
+    auto& slot = workSlots_[nextWorkSlot_];
+    nextWorkSlot_ = (nextWorkSlot_ + 1) % workSlots_.size();
+    return markWorkSlotUsed(slot);
+  }
+  return markWorkSlotUsed(*leastRecentlyUsed);
 }
 
 auto CudaDeviceContext::nextWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
@@ -121,11 +127,17 @@ auto CudaDeviceContext::nextWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
       if (slot.stream == preferredStream)
       {
         CUDA_CALL(cudaSetDevice(deviceId_));
-        return slot;
+        return markWorkSlotUsed(slot);
       }
     }
   }
   return nextWorkSlot();
+}
+
+auto CudaDeviceContext::markWorkSlotUsed(WorkSlot& slot) -> WorkSlot&
+{
+  slot.lastUse = ++workSlotUseCounter_;
+  return slot;
 }
 
 cudaEvent_t CudaDeviceContext::acquireEvent()

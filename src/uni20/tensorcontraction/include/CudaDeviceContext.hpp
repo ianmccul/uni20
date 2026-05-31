@@ -71,6 +71,7 @@ class CudaDeviceContext {
     {
         cudaStream_t stream = nullptr;
         cublasHandle_t handle = nullptr;
+        std::uint64_t lastUse = 0;
     };
 
     CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda);
@@ -120,9 +121,11 @@ class CudaDeviceContext {
     std::mutex scratchMutex_;
     Counters counters_;
     std::size_t nextWorkSlot_ = 0;
+    std::uint64_t workSlotUseCounter_ = 0;
 
     void reclaimRetiredEvents();
     void countStreamSync(const char* reason);
+    WorkSlot& markWorkSlotUsed(WorkSlot& slot);
     void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);
     void printCounters() const;
 

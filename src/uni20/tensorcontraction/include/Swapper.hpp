@@ -91,6 +91,24 @@ class Swapper {
     void destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer);
 
   public:
+    class GpuAccessPlan {
+        Swapper& swapper;
+        StreamManager& streamManager;
+        std::vector<std::shared_ptr<GpuBuffer>> readBuffers;
+        std::vector<std::shared_ptr<GpuBuffer>> writeBuffers;
+        cudaStream_t selectedStream = nullptr;
+
+      public:
+        GpuAccessPlan(Swapper& swapper, StreamManager& streamManager,
+                      std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
+                      std::vector<std::shared_ptr<GpuBuffer>> writeBuffers);
+
+        cudaStream_t stream() const { return selectedStream; }
+        cublasHandle_t handle() const;
+        CudaDeviceContext::EventDependencyRef recordCompletionEvent() const;
+        void publishCompletion(CudaDeviceContext::EventDependencyRef event) const;
+    };
+
     class ScopedAccessDependencyWaitSuppression {
       public:
         ScopedAccessDependencyWaitSuppression();
@@ -112,10 +130,15 @@ class Swapper {
     std::shared_ptr<GpuBuffer> getForWrite(Matrix mat, int deviceId, cudaStream_t stream);
     std::shared_ptr<GpuBuffer> getForReadNoWait(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> getForWriteNoWait(Matrix mat, int deviceId);
+    GpuAccessPlan createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
+                                   std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, StreamManager& streamManager);
     cudaStream_t preferredStreamForAccess(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                           const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers) const;
     void waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                    const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream);
+    void publishAccessCompletion(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
+                                 const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream,
+                                 CudaDeviceContext::EventDependencyRef event);
     void syncBuffer(Matrix mat, int deviceId, cudaStream_t stream);
     void freeBuffer(Matrix mat, int deviceId, cudaStream_t stream);
 
