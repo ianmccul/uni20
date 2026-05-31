@@ -29,9 +29,11 @@ same model can later be made thread-safe without changing semantics.
 The CPU async runtime has an `EpochQueue`/`EpochContext` model.  A logical value
 has an ordered chain of epochs.  Readers attach to the readable epoch, writers
 advance the value to a later epoch, and RAII handles release their participation.
-In this document, the "head" of an `EpochQueue` means the newest/current epoch:
-new work advances the head.  This is separate from CUDA's "stream tail", which
-means the latest enqueued position in a CUDA stream.
+In the current CPU implementation, new epochs are appended through
+`next_epoch_`; `EpochQueue::current_`/`latest()` is therefore the newest epoch at
+the tail of the epoch chain.  Earlier epochs closer to the head are the ones
+that can currently be running or finishing.  CUDA's "stream tail" is separate
+terminology, but it has the same "newest enqueued position" sense.
 
 The GPU model is similar, but CUDA changes the mechanics:
 
@@ -58,7 +60,7 @@ stream-tail/event handle rather than a CPU coroutine latch.
 `GpuEpochContext`
 
 The synchronization state for one GPU buffer.  Using the convention above, it is
-closest in spirit to the current head of an `EpochQueue`: it tracks the latest
+closest in spirit to the current tail of an `EpochQueue`: it tracks the latest
 writer generation and outstanding reader generations for that buffer.
 
 State:
