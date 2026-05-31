@@ -15,6 +15,7 @@
 #include <exception>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -231,7 +232,7 @@ auto dmrg_options(std::size_t sweeps, std::size_t max_rank) -> TwoSiteDmrgOption
 
 class BenchFile {
   public:
-    BenchFile()
+    explicit BenchFile(bool include_debug_global_energy) : include_debug_global_energy_(include_debug_global_energy)
     {
       char const* path = std::getenv("MP_BENCHFILE");
       if (path == nullptr || *path == '\0')
@@ -242,13 +243,19 @@ class BenchFile {
       file_.open(path);
       if (file_)
       {
-        fmt::print(file_, "#Time #SweepNum #Site #States #Energy #Trunc #Residual #Iter #Tol #GlobalEnergy\n");
+        fmt::print(file_, "#Time #SweepNum #Site #States #Energy #Trunc #Residual #Iter #Tol");
+        if (include_debug_global_energy_)
+        {
+          fmt::print(file_, " #DebugGlobalEnergy");
+        }
+        fmt::print(file_, "\n");
       }
     }
 
     [[nodiscard]] auto enabled() const noexcept -> bool { return file_.good(); }
 
-    void write(std::size_t half_sweep, std::size_t site, TwoSiteBondUpdate const& update, double global_energy)
+    void write(std::size_t half_sweep, std::size_t site, TwoSiteBondUpdate const& update,
+               std::optional<double> global_energy)
     {
       if (!enabled())
       {
@@ -257,9 +264,14 @@ class BenchFile {
 
       using seconds = std::chrono::duration<double>;
       auto const elapsed = seconds(std::chrono::steady_clock::now() - start_).count();
-      fmt::print(file_, "{:.9g} {} {} {} {:.16g} {:.16g} {:.9g} {} {:.9g} {:.16g}\n", elapsed, half_sweep, site,
-                 update.kept_rank, update.energy, update.discarded_weight, update.lanczos.residual_norm,
-                 update.lanczos.iterations, update.lanczos.tolerance, global_energy);
+      fmt::print(file_, "{:.9g} {} {} {} {:.16g} {:.16g} {:.9g} {} {:.9g}", elapsed, half_sweep, site, update.kept_rank,
+                 update.energy, update.discarded_weight, update.lanczos.residual_norm, update.lanczos.iterations,
+                 update.lanczos.tolerance);
+      if (include_debug_global_energy_ && global_energy.has_value())
+      {
+        fmt::print(file_, " {:.16g}", *global_energy);
+      }
+      fmt::print(file_, "\n");
     }
 
     void flush()
@@ -273,6 +285,7 @@ class BenchFile {
   private:
     std::chrono::steady_clock::time_point start_ = std::chrono::steady_clock::now();
     std::ofstream file_;
+    bool include_debug_global_energy_ = false;
 };
 
 auto reported_site(TwoSiteSweepDirection direction, TwoSiteBondUpdate const& update) -> std::size_t
@@ -339,15 +352,24 @@ void run_large_chain_sweep_check()
   auto const spin = make_spin_half_dense_site();
   auto psi = alternating_product_state(spin, length);
   auto mpo = make_spin_half_heisenberg_mpo(length, spin, 1.0, 0.0);
-  BenchFile bench;
+  bool const debug_global_energy = std::getenv("UNI20_DMRG_DEBUG_GLOBAL_ENERGY") != nullptr;
+  BenchFile bench(debug_global_energy);
   std::size_t half_sweep = 0;
   auto observer = [&](TwoSiteSweepDirection direction, TwoSiteBondUpdate const& update) {
     auto const site = reported_site(direction, update);
-    auto const global_energy = mps_expectation_value(psi, mpo);
-    fmt::print("Sweep={} Site={} Energy={:.16g} States={} TruncError={:.16g} Residual={:.9g} Iter={} Tol={:.9g} "
-               "GlobalEnergy={:.16g}\n",
+    std::optional<double> global_energy;
+    if (debug_global_energy)
+    {
+      global_energy = mps_expectation_value(psi, mpo);
+    }
+    fmt::print("Sweep={} Site={} Energy={:.16g} States={} TruncError={:.16g} Residual={:.9g} Iter={} Tol={:.9g}",
                half_sweep, site, update.energy, update.kept_rank, update.discarded_weight, update.lanczos.residual_norm,
-               update.lanczos.iterations, update.lanczos.tolerance, global_energy);
+               update.lanczos.iterations, update.lanczos.tolerance);
+    if (global_energy.has_value())
+    {
+      fmt::print(" DebugGlobalEnergy={:.16g}", *global_energy);
+    }
+    fmt::print("\n");
     bench.write(half_sweep, site, update, global_energy);
   };
   auto options = sweep_options(max_rank, observer);

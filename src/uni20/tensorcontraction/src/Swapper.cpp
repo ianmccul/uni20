@@ -351,16 +351,21 @@ void Swapper::syncMemStream(int deviceId) {
 }
 
 void Swapper::initMemPools() {
-  // Check if USE_DEFAULT_POOL is set to "OFF"
+  // Use CUDA's default pool unless the legacy custom-pool path is explicitly
+  // requested. The custom path preallocates most free GPU memory, which is too
+  // expensive for repeated small DMRG local solves.
   const char* useDefaultPoolEnv = std::getenv("USE_DEFAULT_POOL");
   bool useDefaultPool =
-      (useDefaultPoolEnv != nullptr && std::string(useDefaultPoolEnv) != "OFF");
+      (useDefaultPoolEnv == nullptr || std::string(useDefaultPoolEnv) != "OFF");
+  const bool memoryLog = std::getenv("TENSORCONTRACTION_MEMORY_LOG") != nullptr;
 
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
-  fprintf(stderr, "[MEMORY][POOL_MODE] Node=%d Mode=%s\n", mpi_rank,
-          useDefaultPool ? "DEFAULT" : "CUSTOM");
+  if (memoryLog) {
+    fprintf(stderr, "[MEMORY][POOL_MODE] Node=%d Mode=%s\n", mpi_rank,
+            useDefaultPool ? "DEFAULT" : "CUSTOM");
+  }
 
   if (useDefaultPool) {
     // Use default memory pool for each device
@@ -389,8 +394,10 @@ void Swapper::initMemPools() {
       }
     }
 
-    fprintf(stderr, "[MEMORY][NCCL_HEADROOM] Node=%d Size=%.2fGB\n", mpi_rank,
-            ncclHeadroom / (1024.0 * 1024.0 * 1024.0));
+    if (memoryLog) {
+      fprintf(stderr, "[MEMORY][NCCL_HEADROOM] Node=%d Size=%.2fGB\n", mpi_rank,
+              ncclHeadroom / (1024.0 * 1024.0 * 1024.0));
+    }
 
     // Step 1: Create memory pool for each device with maxSize limit
     for (int i = 0; i < deviceCount; i++) {

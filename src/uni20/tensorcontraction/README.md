@@ -23,6 +23,17 @@ cmake --build build_codex/tensorcontraction
 
 The vendored runtime requires CUDA Toolkit, cuBLAS, MPI, and NCCL.
 
+By default the bridge uses CUDA's default memory pool.  The original
+TensorContraction custom-pool path is still available with
+`USE_DEFAULT_POOL=OFF`, in which case `NCCL_HEADROOM` reserves GPU memory for
+NCCL before the custom pool preallocates the remaining free memory.  Set
+`TENSORCONTRACTION_MEMORY_LOG=1` to print the selected pool mode and NCCL
+headroom diagnostics.
+
+Some Open MPI builds print `hwloc` PCI-domain warnings before program startup on
+systems with large PCI domain identifiers.  These warnings are harmless for the
+current DMRG examples; run with `HWLOC_HIDE_ERRORS=2` to suppress them.
+
 `EffectiveHamiltonianOperator` is the first DMRG-facing boundary over this
 runtime.  It owns fixed TensorContraction `A` and `B` block families and exposes
 `apply(x, y)` over `MatrixFamily` block vectors, treating `x` as the
