@@ -305,7 +305,6 @@ void StreamManager::clear()
   currentVirtualStream.reset();
   currentStream = nullptr;
   currentHandle = nullptr;
-  syncAllStreams();
 }
 
 cudaStream_t StreamManager::getStream()
