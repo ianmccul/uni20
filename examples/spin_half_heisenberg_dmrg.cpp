@@ -250,7 +250,7 @@ class BenchFile {
         {
           fmt::print(file_, " #DebugGlobalEnergy");
         }
-        fmt::print(file_, "\n");
+        fmt::print(file_, " #SolveS #SplitS #ReplaceS #EnvS\n");
       }
     }
 
@@ -273,6 +273,8 @@ class BenchFile {
       {
         fmt::print(file_, " {:.16g}", *global_energy);
       }
+      fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g}", update.solve_seconds, update.split_seconds,
+                 update.replace_seconds, update.environment_seconds);
       fmt::print(file_, "\n");
     }
 
@@ -371,6 +373,8 @@ void run_large_chain_sweep_check()
     {
       fmt::print(" DebugGlobalEnergy={:.16g}", *global_energy);
     }
+    fmt::print(" SolveS={:.6g} SplitS={:.6g} ReplaceS={:.6g} EnvS={:.6g}", update.solve_seconds, update.split_seconds,
+               update.replace_seconds, update.environment_seconds);
     fmt::print("\n");
     bench.write(half_sweep, site, update, global_energy);
   };
