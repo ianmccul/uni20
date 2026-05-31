@@ -26,11 +26,10 @@ void MatMulWork::execute()
   const Matrix& m1 = mats[1];
   const Matrix& m2 = mats[2];
 
-  cudaStream_t stream = streamManager.setEnv();
-
   std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(m1, deviceId);
   std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(m2, deviceId);
   std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(result, deviceId);
+  cudaStream_t stream = streamManager.setEnv(swapper.preferredStreamForAccess({m1OnGPU, m2OnGPU}, {resultOnGPU}));
 
   double alpha = getAlpha();
   double beta = 0.0;
@@ -51,11 +50,10 @@ void MatMulAccuWork::execute()
 {
   const auto& mats = getMatrices();
   // matrices: [result, m1, m2]
-  cudaStream_t stream = streamManager.setEnv();
-
   std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[1], streamManager.getDeviceId());
   std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(mats[2], streamManager.getDeviceId());
   std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(mats[0], streamManager.getDeviceId());
+  cudaStream_t stream = streamManager.setEnv(swapper.preferredStreamForAccess({m1OnGPU, m2OnGPU}, {resultOnGPU}));
 
   double alpha = getAlpha();
   double beta = 1.0;
@@ -77,10 +75,9 @@ void AddAccuWork::execute()
 {
   const auto& mats = getMatrices();
   // matrices: [result, m1]
-  cudaStream_t stream = streamManager.setEnv();
-
   std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[1], streamManager.getDeviceId());
   std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(mats[0], streamManager.getDeviceId());
+  cudaStream_t stream = streamManager.setEnv(swapper.preferredStreamForAccess({m1OnGPU}, {resultOnGPU}));
 
   double alpha = getAlpha();
   DEBUG_ADD_ACCU(swapper, mats[0].getId(), mats[1].getId(), alpha, streamManager.getDeviceId(), stream);
@@ -98,10 +95,10 @@ void InnerProductWork::execute()
   const auto& mats = getMatrices();
   // matrices: [m1, m2]
   int deviceId = streamManager.getDeviceId();
-  cudaStream_t stream = streamManager.setEnv();
 
   std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[0], deviceId);
   std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(mats[1], deviceId);
+  cudaStream_t stream = streamManager.setEnv(swapper.preferredStreamForAccess({m1OnGPU, m2OnGPU}, {}));
 
   assert(m1OnGPU);
   assert(m2OnGPU);
@@ -122,9 +119,9 @@ void ScalarMulWork::execute()
   const auto& mats = getMatrices();
   // matrices: [mat]
   int deviceId = streamManager.getDeviceId();
-  cudaStream_t stream = streamManager.setEnv();
 
   std::shared_ptr<GpuBuffer> buffer = swapper.getForWriteNoWait(mats[0], deviceId);
+  cudaStream_t stream = streamManager.setEnv(swapper.preferredStreamForAccess({}, {buffer}));
 
   assert(buffer);
   swapper.waitForAccessDependencies({}, {buffer}, stream);
@@ -286,8 +283,8 @@ std::vector<Matrix> NCCLSendRecvWork::writeMatrices() const
 
 void MemsetWork::execute()
 {
-  auto stream = streamManager.setEnv();
   auto buffer = swapper.getForWriteNoWait(getMatrices()[0], streamManager.getDeviceId());
+  auto stream = streamManager.setEnv(swapper.preferredStreamForAccess({}, {buffer}));
   DEBUG_MEMSET(swapper, getMatrices()[0].getId(), streamManager.getDeviceId(), buffer->sizeInByte(), stream);
   swapper.waitForAccessDependencies({}, {buffer}, stream);
   CUDA_CALL(cudaMemsetAsync(buffer->getPtr(), 0, buffer->sizeInByte(), stream));
@@ -313,10 +310,25 @@ cudaStream_t StreamManager::getStream()
   return currentStream;
 }
 
+cudaStream_t StreamManager::getStream(cudaStream_t preferredStream)
+{
+  auto& slot = deviceContext.nextWorkSlot(preferredStream);
+  currentStream = slot.stream;
+  currentHandle = slot.handle;
+  return currentStream;
+}
+
 cudaStream_t StreamManager::setEnv()
 {
   CUDA_CALL(cudaSetDevice(deviceId));
   cudaStream_t stream = getStream();
+  return stream;
+}
+
+cudaStream_t StreamManager::setEnv(cudaStream_t preferredStream)
+{
+  CUDA_CALL(cudaSetDevice(deviceId));
+  cudaStream_t stream = getStream(preferredStream);
   return stream;
 }
 

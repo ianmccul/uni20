@@ -81,6 +81,7 @@ class CudaDeviceContext {
     cudaStream_t memoryStream() const noexcept { return memoryStream_; }
 
     WorkSlot& nextWorkSlot();
+    WorkSlot& nextWorkSlot(cudaStream_t preferredStream);
     cudaEvent_t acquireEvent();
     void retireEvent(cudaEvent_t event);
     cudaEvent_t recordEvent(cudaStream_t stream);

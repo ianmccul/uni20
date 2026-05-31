@@ -92,6 +92,22 @@ auto CudaDeviceContext::nextWorkSlot() -> WorkSlot&
   return slot;
 }
 
+auto CudaDeviceContext::nextWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
+{
+  if (preferredStream != nullptr)
+  {
+    for (auto& slot : workSlots_)
+    {
+      if (slot.stream == preferredStream)
+      {
+        CUDA_CALL(cudaSetDevice(deviceId_));
+        return slot;
+      }
+    }
+  }
+  return nextWorkSlot();
+}
+
 cudaEvent_t CudaDeviceContext::acquireEvent()
 {
   CUDA_CALL(cudaSetDevice(deviceId_));

@@ -460,6 +460,52 @@ std::shared_ptr<GpuBuffer> Swapper::getForWriteNoWait(Matrix mat, int deviceId)
   return getGpuBufferOrNone(mat, deviceId);
 }
 
+cudaStream_t Swapper::preferredStreamForAccess(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
+                                               const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers) const
+{
+  if (!dependencyEventsEnabled)
+  {
+    return nullptr;
+  }
+
+  std::unordered_map<cudaStream_t, int> scores;
+  auto addDependencyStream = [&scores](CudaDeviceContext::EventDependencyRef const& event, cudaStream_t stream) {
+    if (event != nullptr && stream != nullptr)
+    {
+      ++scores[stream];
+    }
+  };
+
+  for (auto const& buffer : readBuffers)
+  {
+    if (buffer != nullptr)
+    {
+      addDependencyStream(buffer->writeFinishEvent, buffer->writeFinishStream);
+    }
+  }
+
+  for (auto const& buffer : writeBuffers)
+  {
+    if (buffer != nullptr)
+    {
+      addDependencyStream(buffer->writeFinishEvent, buffer->writeFinishStream);
+      addDependencyStream(buffer->useFinishEvent, buffer->useFinishStream);
+    }
+  }
+
+  cudaStream_t bestStream = nullptr;
+  int bestScore = 0;
+  for (auto const& [stream, score] : scores)
+  {
+    if (score > bestScore)
+    {
+      bestStream = stream;
+      bestScore = score;
+    }
+  }
+  return bestStream;
+}
+
 void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                         const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers,
                                         cudaStream_t stream)
