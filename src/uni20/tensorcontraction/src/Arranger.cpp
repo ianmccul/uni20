@@ -534,7 +534,7 @@ void Arranger::compileWorklistsForInterMat(const std::vector<Matrix>& rMats, con
     auto& worklist = worklistsForInterMat[leastBusyDeviceId];
     auto& streamManager = streamManagers[leastBusyDeviceId];
 
-    cudaEvent_t syncFinishEvent = createSyncFinishEvent();
+    cudaEvent_t syncFinishEvent = swapper.dependencyEventsActive() ? createSyncFinishEvent() : nullptr;
     matToSyncFinishEventMap[interMat.getId()] = syncFinishEvent;
 
     worklist.push_back(createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0, streamManager, swapper));

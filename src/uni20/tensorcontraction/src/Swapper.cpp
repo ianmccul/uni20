@@ -103,6 +103,10 @@ void GpuBuffer::notifyReadFinish(cudaStream_t stream, CudaDeviceContext::EventDe
 
 void GpuBuffer::notifyReadFinish(cudaStream_t stream)
 {
+  if (!dependencyEventsEnabled)
+  {
+    return;
+  }
   notifyReadFinish(stream, deviceContext->recordDependencyEvent(stream));
 }
 
@@ -132,6 +136,10 @@ void GpuBuffer::notifyWriteFinish(cudaStream_t stream, CudaDeviceContext::EventD
 
 void GpuBuffer::notifyWriteFinish(cudaStream_t stream)
 {
+  if (!dependencyEventsEnabled)
+  {
+    return;
+  }
   notifyWriteFinish(stream, deviceContext->recordDependencyEvent(stream));
 }
 

@@ -74,6 +74,16 @@ Set `UNI20_TENSORCONTRACTION_CUDA_COUNTERS=1` to print per-device diagnostic
 counters for event creation, event records, event waits, event destruction, and
 stream synchronizations when each temporary device context is released.
 
+The current CUDA event tracking is provisional.  The intended design, following
+the existing async `EpochContext` model, is per-memory-block dependency
+tracking: each `GpuBuffer` should own the written generation and outstanding
+reader generations for that memory block, and operations should acquire/publish
+read or write access through that state.  Same-stream ordering should use CUDA
+stream semantics without recording events; cross-stream ordering should record
+events only at real generation boundaries.  Batch-level or raw-event
+synchronization should be treated as temporary bridge code unless it protects a
+non-matrix resource such as scratch storage.
+
 `vector_algebra.hpp` provides block-vector operations needed by the first
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
 `normalize`.  The free functions are the host fallback.  `VectorAlgebraEngine`
