@@ -20,6 +20,20 @@ class StreamManager;
 
 class GpuBuffer {
     friend class Swapper;
+    struct AccessGeneration
+    {
+        CudaDeviceContext::EventDependencyRef event;
+        cudaStream_t stream = nullptr;
+    };
+
+    struct AccessState
+    {
+        // One memory block owns its CUDA dependency generations.  The writer
+        // generation gates future reads/writes; reader generation gates writes.
+        AccessGeneration readers;
+        AccessGeneration writer;
+    };
+
     void* ptr;
     int id;
     size_t dim1;
@@ -27,11 +41,7 @@ class GpuBuffer {
     void* hostPtr;
     bool dependencyEventsEnabled = true;
     CudaDeviceContext* deviceContext = nullptr;
-
-    CudaDeviceContext::EventDependencyRef useFinishEvent;
-    cudaStream_t useFinishStream = nullptr;
-    CudaDeviceContext::EventDependencyRef writeFinishEvent;
-    cudaStream_t writeFinishStream = nullptr;
+    AccessState accessState;
 
   public:
     GpuBuffer() = delete;
@@ -45,12 +55,12 @@ class GpuBuffer {
     int getId() const;
     size_t size() const { return dim1 * dim2; }
     size_t sizeInByte() const { return size() * sizeof(double); }
-    void waitForWriteFinish(cudaStream_t stream);
-    void notifyWriteFinish(cudaStream_t stream);
-    void notifyWriteFinish(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
-    void waitForReadFinish(cudaStream_t stream);
-    void notifyReadFinish(cudaStream_t stream);
-    void notifyReadFinish(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
+    void waitBeforeRead(cudaStream_t stream);
+    void waitBeforeWrite(cudaStream_t stream);
+    void publishRead(cudaStream_t stream);
+    void publishRead(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
+    void publishWrite(cudaStream_t stream);
+    void publishWrite(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
 };
 
 class Swapper {

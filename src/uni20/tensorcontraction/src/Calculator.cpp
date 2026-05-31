@@ -155,7 +155,7 @@ void SyncWork::execute()
   }
   else if (event)
   {
-    buffer->waitForWriteFinish(stream);
+    buffer->waitBeforeRead(stream);
   }
 
   if (event)
