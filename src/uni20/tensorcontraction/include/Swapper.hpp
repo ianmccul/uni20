@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "CudaDeviceContext.hpp"
 #include "Matrix.hpp"
 
 namespace tensor
@@ -56,7 +57,7 @@ class Swapper {
 
     std::unordered_map<int, int> matToNCCLIdMap;
 
-    std::vector<cudaStream_t> memStreams;
+    std::vector<std::unique_ptr<CudaDeviceContext>> deviceContexts;
     std::vector<cudaMemPool_t> memPools;
     std::vector<bool> ownsMemPool;
     std::vector<std::vector<cudaEvent_t>> deprecatedEvents;
@@ -94,6 +95,8 @@ class Swapper {
     void dumpMemPoolStatus(int deviceId);
     cudaMemPool_t getMemPool(int deviceId) const { return memPools[deviceId]; }
     int getDeviceCount() const { return deviceCount; }
+    CudaDeviceContext& deviceContext(int deviceId) { return *deviceContexts[deviceId]; }
+    CudaDeviceContext const& deviceContext(int deviceId) const { return *deviceContexts[deviceId]; }
 
     void freeAllUnpinMatrices(int deviceId);
     void pinMatrix(Matrix mat, int deviceId);

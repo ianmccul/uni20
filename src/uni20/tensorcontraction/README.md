@@ -65,6 +65,11 @@ memory operations through CUDA's legacy default stream (`cudaStreamLegacy`).
 That mode intentionally serializes the temporary TensorContraction runtime and
 disables its per-buffer dependency events; it is a profiling/debugging tool, not
 the intended production execution model for uni20.
+Internally, the bridge models each active device with a small
+`CudaDeviceContext`: one memory stream plus a pool of work-stream slots, each
+with its own cuBLAS handle.  This mirrors the resource shape expected for the
+future uni20 CUDA scheduler without implementing that scheduler in the vendored
+runtime.
 
 `vector_algebra.hpp` provides block-vector operations needed by the first
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and

@@ -202,12 +202,9 @@ class BarrierWork : public WorkBase {
 
 class StreamManager {
     int deviceId;
-    int streamCount = 4;
-    bool serialCuda = false;
-    int streamIdx;
-    Swapper& swapper;
-    std::vector<cudaStream_t> streams;
-    cublasHandle_t handle;
+    CudaDeviceContext& deviceContext;
+    cudaStream_t currentStream = nullptr;
+    cublasHandle_t currentHandle = nullptr;
 
   public:
     StreamManager(Swapper& swapper, int deviceId, int deviceCount);
@@ -217,7 +214,7 @@ class StreamManager {
 
     // Accessors for WorkBase subclasses
     int getDeviceId() const { return deviceId; }
-    cublasHandle_t getHandle() const { return handle; }
+    cublasHandle_t getHandle() const { return currentHandle; }
     cudaStream_t setEnv();
     cudaStream_t getStream();
 };

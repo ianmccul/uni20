@@ -56,6 +56,7 @@ add_library(uni20_tensorcontraction_runtime STATIC
   src/vector_algebra.cpp
   src/Arranger.cpp
   src/Calculator.cpp
+  src/CudaDeviceContext.cpp
   src/Matrix.cpp
   src/MatrixAllocator.cpp
   src/Swapper.cpp

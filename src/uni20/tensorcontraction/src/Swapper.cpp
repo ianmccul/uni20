@@ -108,24 +108,14 @@ Swapper::Swapper()
   deviceCount = resolveActiveCudaDeviceCount(visibleDeviceCount);
   serialCuda = envFlagEnabled("UNI20_TENSORCONTRACTION_SERIAL_CUDA");
   dependencyEventsEnabled = !serialCuda;
+  const int workStreamCount = resolveTensorContractionStreamCount();
+  deviceContexts.reserve(deviceCount);
   for (int i = 0; i < deviceCount; i++)
   {
-    CUDA_CALL(cudaSetDevice(i));
+    deviceContexts.push_back(std::make_unique<CudaDeviceContext>(i, workStreamCount, serialCuda));
     hostToGpuMaps.emplace_back();
     pinnedMatrix.emplace_back();
     deprecatedEvents.emplace_back();
-    if (serialCuda)
-    {
-      // Diagnostic mode: memory operations share CUDA's legacy default stream
-      // with work operations, so stream ordering replaces per-buffer events.
-      memStreams.push_back(cudaStreamLegacy);
-    }
-    else
-    {
-      cudaStream_t stream;
-      CUDA_CALL(cudaStreamCreate(&stream));
-      memStreams.push_back(stream);
-    }
   }
   CUDA_CALL(cudaSetDevice(0));
 }
@@ -280,31 +270,28 @@ void Swapper::release()
     CUDA_CALL(cudaSetDevice(deviceId));
     if (deviceId < static_cast<int>(memPools.size()))
     {
+      deviceContexts[deviceId]->syncMemoryStream();
       CUDA_CALL(cudaMemPoolTrimTo(memPools[deviceId], 0));
       if (ownsMemPool[deviceId])
       {
         CUDA_CALL(cudaMemPoolDestroy(memPools[deviceId]));
       }
     }
-    if (deviceId < static_cast<int>(memStreams.size()))
+    if (deviceId < static_cast<int>(deviceContexts.size()))
     {
-      CUDA_CALL(cudaStreamSynchronize(memStreams[deviceId]));
-      if (memStreams[deviceId] != cudaStreamLegacy)
-      {
-        CUDA_CALL(cudaStreamDestroy(memStreams[deviceId]));
-      }
+      deviceContexts[deviceId]->release();
     }
   }
   memPools.clear();
   ownsMemPool.clear();
-  memStreams.clear();
+  deviceContexts.clear();
   CUDA_CALL(cudaSetDevice(0));
 }
 
 std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
 {
   void* ptr;
-  auto memStream = memStreams[deviceId];
+  auto memStream = deviceContexts[deviceId]->memoryStream();
   auto memPool = memPools[deviceId];
 
   cudaError_t errCode = cudaMallocFromPoolAsync(&ptr, mat.sizeInByte(), memPool, memStream);
@@ -343,7 +330,7 @@ void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int devi
 void Swapper::preStoreMatrix(Matrix mat, int deviceId)
 {
   DEBUG_PRESTORE(*this, mat.getId(), 0, deviceId);
-  auto memStream = memStreams[deviceId];
+  auto memStream = deviceContexts[deviceId]->memoryStream();
   double* gpuPtr;
   CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
   CUDA_CALL(cudaMemcpyAsync(gpuPtr, mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, memStream));
@@ -361,7 +348,7 @@ void Swapper::copyHostToPreStoreMatrix(Matrix mat)
   assert(mat.getPtr() != nullptr);
 
   CUDA_CALL(cudaSetDevice(deviceId));
-  auto memStream = memStreams[deviceId];
+  auto memStream = deviceContexts[deviceId]->memoryStream();
   buffer->waitForReadFinish(memStream);
   DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, memStream));
@@ -377,7 +364,7 @@ void Swapper::copyPreStoreMatrixToHost(Matrix mat)
   assert(mat.getPtr() != nullptr);
 
   CUDA_CALL(cudaSetDevice(deviceId));
-  auto memStream = memStreams[deviceId];
+  auto memStream = deviceContexts[deviceId]->memoryStream();
   buffer->waitForWriteFinish(memStream);
   DEBUG_GPU_COPY_D2H(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(mat.getPtr(), buffer->getPtr(), mat.sizeInByte(), cudaMemcpyDeviceToHost, memStream));
@@ -390,7 +377,7 @@ void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   DEBUG_PRESTORE(*this, mat.getId(), mpi_rank, deviceId);
-  auto memStream = memStreams[deviceId];
+  auto memStream = deviceContexts[deviceId]->memoryStream();
   double* gpuPtr;
   CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
   auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled);
@@ -435,7 +422,7 @@ void Swapper::freeAllBuffer(int deviceId)
 
 void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
 {
-  auto memStream = memStreams[deviceId];
+  auto memStream = deviceContexts[deviceId]->memoryStream();
   buffer->waitForReadFinish(memStream);
   buffer->waitForWriteFinish(memStream);
   deprecatedEvents[deviceId].insert(deprecatedEvents[deviceId].end(), buffer->readFinishEvent.begin(),
@@ -469,7 +456,7 @@ void Swapper::freeAllEvents(int deviceId)
   deprecatedEvents[deviceId].clear();
 }
 
-void Swapper::syncMemStream(int deviceId) { CUDA_CALL(cudaStreamSynchronize(memStreams[deviceId])); }
+void Swapper::syncMemStream(int deviceId) { deviceContexts[deviceId]->syncMemoryStream(); }
 
 void Swapper::initMemPools()
 {
@@ -555,12 +542,13 @@ void Swapper::initMemPools()
       // pre-allocate maxSize memory and free it to prevent memory frag.
       // if failed then let it fail.
       void* preAllocPtr;
-      cudaError_t preAllocErr = cudaMallocFromPoolAsync(&preAllocPtr, maxSize, pool, memStreams[i]);
+      auto memStream = deviceContexts[i]->memoryStream();
+      cudaError_t preAllocErr = cudaMallocFromPoolAsync(&preAllocPtr, maxSize, pool, memStream);
       if (preAllocErr == cudaSuccess)
       {
-        cudaFreeAsync(preAllocPtr, memStreams[i]);
+        cudaFreeAsync(preAllocPtr, memStream);
       }
-      CUDA_CALL(cudaStreamSynchronize(memStreams[i]));
+      CUDA_CALL(cudaStreamSynchronize(memStream));
     }
   }
 

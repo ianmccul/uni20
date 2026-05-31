@@ -1,9 +1,7 @@
 #include <mpi.h>
 #include <nccl.h>
 
-#include <algorithm>
 #include <cassert>
-#include <cstdlib>
 #include <mutex>
 
 #include "Calculator.hpp"
@@ -294,82 +292,33 @@ void MemsetWork::execute()
 }
 
 StreamManager::StreamManager(Swapper& swapper, int deviceId, int deviceCount)
-    : deviceId(deviceId), streamIdx(0), swapper(swapper)
+    : deviceId(deviceId), deviceContext(swapper.deviceContext(deviceId))
 {
   (void)deviceCount;
   CUDA_CALL(cudaSetDevice(deviceId));
-  CUBLAS_CALL(cublasCreate(&handle));
-  serialCuda = envFlagEnabled("UNI20_TENSORCONTRACTION_SERIAL_CUDA");
-  if (auto const* env = std::getenv("UNI20_TENSORCONTRACTION_STREAMS"))
-  {
-    streamCount = std::max(1, std::atoi(env));
-  }
-  if (serialCuda)
-  {
-    // Diagnostic mode: route all work through CUDA's legacy default stream.
-    // Swapper uses the same stream in this mode, so per-buffer dependency
-    // events are unnecessary and can be disabled there.
-    streamCount = 1;
-    return;
-  }
-  for (int i = 0; i < streamCount; i++)
-  {
-    cudaStream_t stream;
-    CUDA_CALL(cudaStreamCreate(&stream));
-    streams.push_back(stream);
-  }
+  auto& slot = deviceContext.nextWorkSlot();
+  currentStream = slot.stream;
+  currentHandle = slot.handle;
 }
 
-void StreamManager::clear()
-{
-  cudaSetDevice(deviceId);
-  if (serialCuda)
-  {
-    CUDA_CALL(cudaStreamSynchronize(cudaStreamLegacy));
-    CUBLAS_CALL(cublasDestroy(handle));
-    return;
-  }
-  for (auto stream : streams)
-  {
-    CUDA_CALL(cudaStreamSynchronize(stream));
-    CUDA_CALL(cudaStreamDestroy(stream));
-  }
-
-  CUBLAS_CALL(cublasDestroy(handle));
-}
+void StreamManager::clear() { syncAllStreams(); }
 
 cudaStream_t StreamManager::getStream()
 {
-  if (serialCuda)
-  {
-    return cudaStreamLegacy;
-  }
-  cudaStream_t stream = streams[streamIdx];
-  streamIdx = (streamIdx + 1) % streamCount;
-  return stream;
+  auto& slot = deviceContext.nextWorkSlot();
+  currentStream = slot.stream;
+  currentHandle = slot.handle;
+  return currentStream;
 }
 
 cudaStream_t StreamManager::setEnv()
 {
   CUDA_CALL(cudaSetDevice(deviceId));
   cudaStream_t stream = getStream();
-  CUBLAS_CALL(cublasSetStream(handle, stream));
   return stream;
 }
 
-void StreamManager::syncAllStreams() const
-{
-  cudaSetDevice(deviceId);
-  if (serialCuda)
-  {
-    CUDA_CALL(cudaStreamSynchronize(cudaStreamLegacy));
-    return;
-  }
-  for (auto stream : streams)
-  {
-    CUDA_CALL(cudaStreamSynchronize(stream));
-  }
-}
+void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams(); }
 
 #if DEBUG_LOG
 // Base implementation of dump()

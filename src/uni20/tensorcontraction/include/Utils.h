@@ -62,6 +62,24 @@ inline bool envFlagEnabled(const char* name)
   return !(text.empty() || text == "0" || text == "OFF" || text == "off" || text == "false" || text == "FALSE");
 }
 
+inline int resolveTensorContractionStreamCount()
+{
+  auto const* env = std::getenv("UNI20_TENSORCONTRACTION_STREAMS");
+  if (env == nullptr)
+  {
+    return 4;
+  }
+
+  try
+  {
+    return std::max(1, std::stoi(env));
+  }
+  catch (...)
+  {
+    return 4;
+  }
+}
+
 } // namespace tensor
 
 #define CUDA_CALL(func)                                                                                                \
