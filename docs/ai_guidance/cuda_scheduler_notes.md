@@ -69,14 +69,84 @@ that touches matrix memory should express synchronization through the owning
 are acceptable only as temporary bridge code, or for non-matrix resources such
 as reusable scratch buffers.
 
+## Stream-Tail Epoch Contexts
+
+The next design step is to make CUDA events lazy without losing the exact stream
+position they represent.  A naive lazy event is unsafe: if an event is recorded
+only when a later consumer asks for it, the producing stream may already have
+been reused for unrelated work.  The event would then describe a later stream
+tail than the buffer generation that needs synchronization.
+
+The proposed solution is a shared `GpuEpochContext`.  A context is the completion
+token for one produced generation or coalesced batch.  It stores either:
+
+- an implicit stream tail, meaning "all work currently enqueued before this
+  point in stream `S`"; or
+- an explicit CUDA event, recorded when that stream tail has to be materialized.
+
+Multiple output buffers from one kernel or batch should share the same
+`GpuEpochContext`.  This is intentionally different from the CPU coroutine
+epoch model, where multiple outputs can release independently.  On the GPU, if
+one kernel writes several buffers, those writes complete at the same stream
+position and should share one ordering token.
+
+The essential operations are:
+
+- `waitOn(consumer_stream)`: if the context is still an implicit tail on the same
+  stream, do nothing; otherwise materialize the context to an event if needed and
+  issue `cudaStreamWaitEvent` on the consumer stream.
+- `finalize()`: record one event at the current stream tail and replace the
+  implicit stream-tail state with the explicit event state.
+- `publishWrite(buffer, context)`: make `context` the latest writer generation
+  for `buffer` and clear or supersede prior reader generations.
+- `publishRead(buffer, context)`: add or coalesce `context` as an outstanding
+  reader generation for `buffer`.
+
+A stream slot may have one or more active `GpuEpochContext`s parked on its tail.
+This is the GPU analogue of a work-stealing thread pool: while a buffer
+generation still owns the stream tail, same-stream continuation is free.  If the
+scheduler wants to reuse that stream slot for unrelated work, it must first
+repossess the stream by finalizing all parked epoch contexts on that slot.  This
+records events even if no future consumer ultimately waits on them; that is the
+unavoidable work-stealing overhead required to preserve the correct stream
+position.
+
+The core invariant is:
+
+- A stream slot must not accept unrelated work until every active epoch parked on
+  that stream has either been continued compatibly or finalized to an event.
+
+Read/write behavior under this model is:
+
+- Reading a buffer waits on the latest writer context, then publishes a read
+  context representing the read's completion at the consumer stream tail.
+- Writing a buffer waits on the latest writer context and all outstanding reader
+  contexts, then publishes a new writer context and clears the old readers.
+- Same-stream read-after-write, write-after-read, and write-after-write
+  dependencies require no event and no wait; CUDA stream order is the dependency.
+- Cross-stream handoff records at most one event for the producer epoch context
+  and waits on that event from the consumer stream.
+- Multi-output kernels and coalesced contraction batches share one epoch context,
+  so stream repossession or cross-stream handoff records one event for the whole
+  batch rather than one event per buffer.
+
+For the single-threaded TensorContraction bridge, this can be implemented without
+host-side locking: `CudaDeviceContext` owns stream slots, each slot owns the set
+of parked epoch contexts, and `GpuBuffer` generations store shared pointers to
+writer/reader contexts.  A later multi-threaded uni20 scheduler would add locking
+or worker affinity around stream-slot repossession and epoch-state mutation, but
+the dependency model should remain the same.
+
 ## TensorContraction Access-Plan Refactor
 
 The temporary TensorContraction CUDA path should converge on a small
 `GpuAccessPlan` abstraction rather than a full scheduler.  The intended split is:
 
 - `CudaDeviceContext` owns permanent stream/handle slots.  Streams are reusable
-  execution lanes; they are not owned by buffers and do not need idle polling or
-  return-to-pool logic.
+  execution lanes.  The current bridge borrows them with a lightweight LRU
+  policy; the longer-term design above lets stream-tail epoch contexts park on
+  those slots until compatible continuation, cross-stream handoff, or stream
+  repossession.
 - `GpuBuffer` owns memory dependency state: the latest writer generation, the
   latest/coalesced reader generation, and enough stream affinity information to
   choose same-stream fast paths when they are profitable.
