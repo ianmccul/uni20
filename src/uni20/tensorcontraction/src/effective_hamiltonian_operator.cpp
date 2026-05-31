@@ -4,7 +4,9 @@
 #include "Swapper.hpp"
 #include "Utils.h"
 
+#include <cstdlib>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -29,26 +31,30 @@ struct EffectiveHamiltonianOperator::Impl
     std::vector<MatrixFamily::Block> output_blocks;
     std::vector<Term> terms;
     VariableFamily variable_family = VariableFamily::Right;
-    tensor::Swapper swapper;
-    tensor::Arranger arranger;
+    std::unique_ptr<tensor::Swapper> swapper;
+    std::unique_ptr<tensor::Arranger> arranger;
     bool is_compiled = false;
 
     Impl(MatrixFamily a, MatrixFamily b, std::span<MatrixFamily::Block const> input,
          std::span<MatrixFamily::Block const> output, std::span<Term const> input_terms)
         : r_mats(output), a_mats(std::move(a)), b_mats(std::move(b)), c_mats(input),
           input_blocks(input.begin(), input.end()), output_blocks(output.begin(), output.end()),
-          terms(input_terms.begin(), input_terms.end()), variable_family(VariableFamily::Right), swapper(),
-          arranger(swapper)
-    {}
+          terms(input_terms.begin(), input_terms.end()), variable_family(VariableFamily::Right)
+    {
+      initialize_runtime();
+    }
 
     Impl(VariableFamily variable, MatrixFamily a, MatrixFamily c, std::span<MatrixFamily::Block const> input,
          std::span<MatrixFamily::Block const> output, std::span<Term const> input_terms)
         : r_mats(output), a_mats(std::move(a)), b_mats(input), c_mats(std::move(c)),
           input_blocks(input.begin(), input.end()), output_blocks(output.begin(), output.end()),
-          terms(input_terms.begin(), input_terms.end()), variable_family(variable), swapper(), arranger(swapper)
-    {}
+          terms(input_terms.begin(), input_terms.end()), variable_family(variable)
+    {
+      initialize_runtime();
+    }
 
-    ~Impl() { swapper.clear(); }
+    void initialize_runtime();
+    [[nodiscard]] bool host_backend() const { return arranger == nullptr; }
 };
 
 namespace
@@ -130,7 +136,73 @@ void validate_family_shape(MatrixFamily const& actual, std::span<MatrixFamily::B
   }
 }
 
+bool use_host_effective_hamiltonian_backend()
+{
+  auto const* backend = std::getenv("UNI20_TENSORCONTRACTION_BACKEND");
+  if (backend == nullptr)
+  {
+    return false;
+  }
+  return std::string(backend) == "host" || std::string(backend) == "cpu";
+}
+
+void host_apply(MatrixFamily const& r_mats, MatrixFamily const& a_mats, MatrixFamily const& b_mats,
+                MatrixFamily const& c_mats, std::span<EffectiveHamiltonianOperator::Term const> terms,
+                MatrixFamily& out)
+{
+  out.fill(0.0);
+  for (auto const& term : terms)
+  {
+    auto const r_block = r_mats.block(term.r);
+    auto const a_block = a_mats.block(term.a);
+    auto const b_block = b_mats.block(term.b);
+    auto const c_block = c_mats.block(term.c);
+    auto const a = a_mats.values(term.a);
+    auto const b = b_mats.values(term.b);
+    auto const c = c_mats.values(term.c);
+    auto r = out.values(term.r);
+
+    // This is the host mirror of TensorContraction's A * B * C path.  It is
+    // intentionally simple and exists so small MPS unit tests do not need to
+    // construct CUDA/NCCL runtimes and their large virtual-address mappings.
+    std::vector<double> bc(b_block.rows * c_block.cols, 0.0);
+    for (std::size_t row = 0; row < b_block.rows; ++row)
+    {
+      for (std::size_t inner = 0; inner < b_block.cols; ++inner)
+      {
+        auto const b_value = b[row * b_block.cols + inner];
+        for (std::size_t col = 0; col < c_block.cols; ++col)
+        {
+          bc[row * c_block.cols + col] += b_value * c[inner * c_block.cols + col];
+        }
+      }
+    }
+
+    for (std::size_t row = 0; row < r_block.rows; ++row)
+    {
+      for (std::size_t inner = 0; inner < a_block.cols; ++inner)
+      {
+        auto const a_value = a[row * a_block.cols + inner];
+        for (std::size_t col = 0; col < r_block.cols; ++col)
+        {
+          r[row * r_block.cols + col] += term.coefficient * a_value * bc[inner * c_block.cols + col];
+        }
+      }
+    }
+  }
+}
+
 } // namespace
+
+void EffectiveHamiltonianOperator::Impl::initialize_runtime()
+{
+  if (use_host_effective_hamiltonian_backend())
+  {
+    return;
+  }
+  swapper = std::make_unique<tensor::Swapper>();
+  arranger = std::make_unique<tensor::Arranger>(*swapper);
+}
 
 EffectiveHamiltonianOperator::EffectiveHamiltonianOperator(MatrixFamily a_mats, MatrixFamily b_mats,
                                                            std::span<MatrixFamily::Block const> input_blocks,
@@ -179,15 +251,21 @@ void EffectiveHamiltonianOperator::compile()
   }
 
   validate_term_shapes(impl_->r_mats, impl_->a_mats, impl_->b_mats, impl_->c_mats, impl_->terms);
+  if (impl_->host_backend())
+  {
+    impl_->is_compiled = true;
+    return;
+  }
+
   auto terms = convert_terms(impl_->terms);
   auto const& r = raw_matrices(impl_->r_mats);
   auto const& a = raw_matrices(impl_->a_mats);
   auto const& b = raw_matrices(impl_->b_mats);
   auto const& c = raw_matrices(impl_->c_mats);
 
-  impl_->arranger.resetWork();
-  impl_->arranger.analyzeComputation(r, a, b, c, terms);
-  impl_->arranger.compileWorklists(r, a, b, c);
+  impl_->arranger->resetWork();
+  impl_->arranger->analyzeComputation(r, a, b, c, terms);
+  impl_->arranger->compileWorklists(r, a, b, c);
   impl_->is_compiled = true;
 }
 
@@ -210,8 +288,15 @@ void EffectiveHamiltonianOperator::apply(MatrixFamily const& x, MatrixFamily& y)
     impl_->c_mats.assign(x);
   }
   impl_->r_mats.fill(0.0);
-  impl_->arranger.doContraction(raw_matrices(impl_->r_mats), raw_matrices(impl_->a_mats), raw_matrices(impl_->b_mats),
-                                raw_matrices(impl_->c_mats));
+  if (impl_->host_backend())
+  {
+    host_apply(impl_->r_mats, impl_->a_mats, impl_->b_mats, impl_->c_mats, impl_->terms, impl_->r_mats);
+  }
+  else
+  {
+    impl_->arranger->doContraction(raw_matrices(impl_->r_mats), raw_matrices(impl_->a_mats),
+                                   raw_matrices(impl_->b_mats), raw_matrices(impl_->c_mats));
+  }
   y.assign(impl_->r_mats);
 }
 

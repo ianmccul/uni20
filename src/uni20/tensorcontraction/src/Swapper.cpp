@@ -96,6 +96,8 @@ Swapper::Swapper()
   CUDA_CALL(cudaSetDevice(0));
 }
 
+Swapper::~Swapper() { release(); }
+
 void Swapper::pinMatrix(Matrix mat, int deviceId) { pinnedMatrix[deviceId].insert(mat.getId()); }
 
 void Swapper::unpinMatrix(Matrix mat, int deviceId) { pinnedMatrix[deviceId].erase(mat.getId()); }
@@ -231,11 +233,37 @@ void Swapper::freeAllUnpinMatrices(int deviceId)
 
 void Swapper::release()
 {
-  for (auto memPool : memPools)
+  if (released)
   {
-    CUDA_CALL(cudaMemPoolTrimTo(memPool, 0));
+    return;
   }
+  released = true;
+
+  clear();
+
+  for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
+  {
+    CUDA_CALL(cudaSetDevice(deviceId));
+    if (deviceId < static_cast<int>(memPools.size()))
+    {
+      CUDA_CALL(cudaMemPoolTrimTo(memPools[deviceId], 0));
+      if (ownsMemPool[deviceId])
+      {
+        CUDA_CALL(cudaMemPoolDestroy(memPools[deviceId]));
+      }
+    }
+    if (deviceId < static_cast<int>(memStreams.size()))
+    {
+      CUDA_CALL(cudaStreamSynchronize(memStreams[deviceId]));
+      CUDA_CALL(cudaStreamDestroy(memStreams[deviceId]));
+    }
+  }
+  memPools.clear();
+  ownsMemPool.clear();
+  memStreams.clear();
+  CUDA_CALL(cudaSetDevice(0));
 }
+
 std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
 {
   void* ptr;
@@ -381,6 +409,20 @@ void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
   CUDA_CALL(cudaFreeAsync(buffer->getPtr(), memStream));
 }
 
+void Swapper::destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer)
+{
+  for (auto event : buffer->readFinishEvent)
+  {
+    CUDA_CALL(cudaEventDestroy(event));
+  }
+  for (auto event : buffer->writeFinishEvent)
+  {
+    CUDA_CALL(cudaEventDestroy(event));
+  }
+  buffer->readFinishEvent.clear();
+  buffer->writeFinishEvent.clear();
+}
+
 void Swapper::freeAllEvents(int deviceId)
 {
   for (auto event : deprecatedEvents[deviceId])
@@ -418,6 +460,7 @@ void Swapper::initMemPools()
       cudaMemPool_t pool;
       CUDA_CALL(cudaDeviceGetDefaultMemPool(&pool, i));
       memPools.push_back(pool);
+      ownsMemPool.push_back(false);
     }
     // Note: When using default pool, we don't set release threshold or maxSize
     // NCCL_HEADROOM is ignored in this mode
@@ -470,6 +513,7 @@ void Swapper::initMemPools()
       uint64_t threshold = UINT64_MAX;
       cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold);
       memPools.push_back(pool);
+      ownsMemPool.push_back(true);
 
       // pre-allocate maxSize memory and free it to prevent memory frag.
       // if failed then let it fail.
@@ -585,6 +629,7 @@ void Swapper::clear()
   {
     for (auto& [id, buffer] : hostToGpuMap)
     {
+      destroyBufferEvents(buffer);
       cudaFree(buffer->getPtr());
     }
 
@@ -594,6 +639,7 @@ void Swapper::clear()
   for (auto [id, pair] : preStoreMap)
   {
     auto buffer = pair.second;
+    destroyBufferEvents(buffer);
     CUDA_CALL(cudaFree(buffer->getPtr()));
   }
 

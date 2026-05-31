@@ -40,6 +40,11 @@ runtime.  It owns fixed TensorContraction `A` and `B` block families and exposes
 TensorContraction `C` family and `y` as the `R` family.  This mirrors the local
 effective-Hamiltonian matvec needed by Krylov solvers without committing the
 main uni20 tensor or MPS APIs to the temporary TensorContraction layout.
+Set `UNI20_TENSORCONTRACTION_BACKEND=host` or `cpu` to use the host mirror of
+this matvec and the host vector-algebra fallback.  The MPS unit-test binary uses
+that mode by default so small algorithm tests do not reserve the large CUDA
+virtual-address ranges associated with initializing the temporary CUDA/NCCL
+runtime.
 
 `vector_algebra.hpp` provides block-vector operations needed by the first
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and

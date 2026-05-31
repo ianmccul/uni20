@@ -57,6 +57,7 @@ class Swapper {
 
     std::vector<cudaStream_t> memStreams;
     std::vector<cudaMemPool_t> memPools;
+    std::vector<bool> ownsMemPool;
     std::vector<std::vector<cudaEvent_t>> deprecatedEvents;
     std::vector<std::set<int>> pinnedMatrix;
 
@@ -65,14 +66,17 @@ class Swapper {
 #endif
 
     int deviceCount;
+    bool released = false;
 
     bool isPinned(int id, int deviceId);
     void freeBuffer(std::shared_ptr<GpuBuffer>, int deviceId);
+    void destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer);
 
   public:
     Swapper();
     Swapper(const Swapper&) = delete;
     Swapper& operator=(const Swapper&) = delete;
+    ~Swapper();
 
     std::shared_ptr<GpuBuffer> getGpuBufferOrNone(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> getForRead(Matrix mat, int deviceId, cudaStream_t stream);
