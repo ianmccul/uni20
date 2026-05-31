@@ -103,16 +103,14 @@ void InnerProductWork::execute()
   assert(m1OnGPU);
   assert(m2OnGPU);
 
-  double* deviceDotResult;
-  CUDA_CALL(cudaMalloc(&deviceDotResult, sizeof(double)));
+  auto deviceDotResult = streamManager.acquireScratch(sizeof(double));
 
   CUBLAS_CALL(cublasSetPointerMode(streamManager.getHandle(), CUBLAS_POINTER_MODE_DEVICE));
   CUBLAS_CALL(cublasDdot(streamManager.getHandle(), mats[0].size(), m1OnGPU->getPtr(), 1, m2OnGPU->getPtr(), 1,
-                         deviceDotResult));
+                         deviceDotResult.as<double>()));
   CUBLAS_CALL(cublasSetPointerMode(streamManager.getHandle(), CUBLAS_POINTER_MODE_HOST));
 
-  CUDA_CALL(cudaMemcpyAsync(result, deviceDotResult, sizeof(double), cudaMemcpyDeviceToHost, stream));
-  CUDA_CALL(cudaFreeAsync(deviceDotResult, stream));
+  CUDA_CALL(cudaMemcpyAsync(result, deviceDotResult.as<double>(), sizeof(double), cudaMemcpyDeviceToHost, stream));
 }
 
 void ScalarMulWork::execute()

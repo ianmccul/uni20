@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace tensor
@@ -25,6 +26,41 @@ class CudaDeviceContext {
     };
 
     using EventDependencyRef = std::shared_ptr<EventDependency>;
+
+    struct ScratchBuffer
+    {
+        void* ptr = nullptr;
+        std::size_t bytes = 0;
+        cudaEvent_t readyEvent = nullptr;
+        cudaStream_t readyStream = nullptr;
+        bool readyEventRecorded = false;
+    };
+
+    // Small leased device buffers for scalar scratch and future block-wise
+    // reductions.  The cache permits multiple in-flight users and protects
+    // reuse across streams with the buffer-local ready event.
+    class ScratchLease {
+      public:
+        ScratchLease() = default;
+        ScratchLease(CudaDeviceContext& context, std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream)
+            : context_(&context), buffer_(std::move(buffer)), stream_(stream)
+        {}
+        ScratchLease(ScratchLease const&) = delete;
+        ScratchLease& operator=(ScratchLease const&) = delete;
+        ScratchLease(ScratchLease&& other) noexcept;
+        ScratchLease& operator=(ScratchLease&& other) noexcept;
+        ~ScratchLease();
+
+        void* get() const noexcept { return buffer_ == nullptr ? nullptr : buffer_->ptr; }
+        template <typename T> T* as() const noexcept { return static_cast<T*>(get()); }
+
+      private:
+        CudaDeviceContext* context_ = nullptr;
+        std::shared_ptr<ScratchBuffer> buffer_;
+        cudaStream_t stream_ = nullptr;
+
+        void release();
+    };
 
     // The current TensorContraction executor borrows slots from one host thread
     // per active device.  Each slot owns its cuBLAS handle so stream selection
@@ -50,6 +86,7 @@ class CudaDeviceContext {
     cudaEvent_t recordEvent(cudaStream_t stream);
     EventDependencyRef recordDependencyEvent(cudaStream_t stream);
     void waitEvent(cudaStream_t stream, cudaEvent_t event);
+    ScratchLease acquireScratch(std::size_t bytes, cudaStream_t stream);
     void syncWorkStreams();
     void syncMemoryStream();
     void release();
@@ -72,11 +109,17 @@ class CudaDeviceContext {
     std::vector<WorkSlot> workSlots_;
     std::vector<cudaEvent_t> freeEvents_;
     std::vector<cudaEvent_t> retiredEvents_;
+    std::vector<std::shared_ptr<ScratchBuffer>> freeScratchBuffers_;
+    std::vector<std::shared_ptr<ScratchBuffer>> allScratchBuffers_;
+    std::mutex scratchMutex_;
     Counters counters_;
     std::size_t nextWorkSlot_ = 0;
 
     void reclaimRetiredEvents();
+    void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);
     void printCounters() const;
+
+    friend class ScratchLease;
 };
 
 } // namespace tensor

@@ -16,6 +16,39 @@ CudaDeviceContext::EventDependency::~EventDependency()
   }
 }
 
+CudaDeviceContext::ScratchLease::ScratchLease(ScratchLease&& other) noexcept
+    : context_(other.context_), buffer_(std::move(other.buffer_)), stream_(other.stream_)
+{
+  other.context_ = nullptr;
+  other.stream_ = nullptr;
+}
+
+CudaDeviceContext::ScratchLease& CudaDeviceContext::ScratchLease::operator=(ScratchLease&& other) noexcept
+{
+  if (this != &other)
+  {
+    release();
+    context_ = other.context_;
+    buffer_ = std::move(other.buffer_);
+    stream_ = other.stream_;
+    other.context_ = nullptr;
+    other.stream_ = nullptr;
+  }
+  return *this;
+}
+
+CudaDeviceContext::ScratchLease::~ScratchLease() { release(); }
+
+void CudaDeviceContext::ScratchLease::release()
+{
+  if (context_ != nullptr && buffer_ != nullptr)
+  {
+    context_->releaseScratch(std::move(buffer_), stream_);
+  }
+  context_ = nullptr;
+  stream_ = nullptr;
+}
+
 CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda)
     : deviceId_(deviceId), serialCuda_(serialCuda),
       logCounters_(envFlagEnabled("UNI20_TENSORCONTRACTION_CUDA_COUNTERS") ||
@@ -106,6 +139,47 @@ void CudaDeviceContext::waitEvent(cudaStream_t stream, cudaEvent_t event)
   ++counters_.eventWait;
 }
 
+CudaDeviceContext::ScratchLease CudaDeviceContext::acquireScratch(std::size_t bytes, cudaStream_t stream)
+{
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  std::shared_ptr<ScratchBuffer> buffer;
+  {
+    std::lock_guard<std::mutex> lock(scratchMutex_);
+    auto candidate =
+        std::find_if(freeScratchBuffers_.begin(), freeScratchBuffers_.end(), [bytes, stream](auto const& item) {
+          return item->bytes >= bytes && (!item->readyEventRecorded || item->readyStream == stream);
+        });
+    if (candidate == freeScratchBuffers_.end())
+    {
+      candidate = std::find_if(freeScratchBuffers_.begin(), freeScratchBuffers_.end(),
+                               [bytes](auto const& item) { return item->bytes >= bytes; });
+    }
+    if (candidate != freeScratchBuffers_.end())
+    {
+      buffer = std::move(*candidate);
+      freeScratchBuffers_.erase(candidate);
+    }
+  }
+
+  if (buffer == nullptr)
+  {
+    buffer = std::make_shared<ScratchBuffer>();
+    buffer->bytes = bytes;
+    CUDA_CALL(cudaMalloc(&buffer->ptr, bytes));
+    CUDA_CALL(cudaEventCreateWithFlags(&buffer->readyEvent, cudaEventDisableTiming));
+    std::lock_guard<std::mutex> lock(scratchMutex_);
+    allScratchBuffers_.push_back(buffer);
+  }
+
+  if (buffer->readyEventRecorded && buffer->readyStream != stream)
+  {
+    waitEvent(stream, buffer->readyEvent);
+  }
+  buffer->readyEventRecorded = false;
+  buffer->readyStream = nullptr;
+  return ScratchLease(*this, std::move(buffer), stream);
+}
+
 void CudaDeviceContext::syncWorkStreams()
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
@@ -175,6 +249,22 @@ void CudaDeviceContext::release()
   }
   freeEvents_.clear();
 
+  for (auto& buffer : allScratchBuffers_)
+  {
+    if (buffer->readyEvent != nullptr)
+    {
+      CUDA_CALL(cudaEventDestroy(buffer->readyEvent));
+      buffer->readyEvent = nullptr;
+    }
+    if (buffer->ptr != nullptr)
+    {
+      CUDA_CALL(cudaFree(buffer->ptr));
+      buffer->ptr = nullptr;
+    }
+  }
+  freeScratchBuffers_.clear();
+  allScratchBuffers_.clear();
+
   if (!serialCuda_ && memoryStream_ != nullptr)
   {
     CUDA_CALL(cudaStreamDestroy(memoryStream_));
@@ -186,6 +276,23 @@ void CudaDeviceContext::reclaimRetiredEvents()
 {
   freeEvents_.insert(freeEvents_.end(), retiredEvents_.begin(), retiredEvents_.end());
   retiredEvents_.clear();
+}
+
+void CudaDeviceContext::releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream)
+{
+  if (buffer == nullptr)
+  {
+    return;
+  }
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  if (!serialCuda_)
+  {
+    CUDA_CALL(cudaEventRecord(buffer->readyEvent, stream));
+    buffer->readyEventRecorded = true;
+    buffer->readyStream = stream;
+  }
+  std::lock_guard<std::mutex> lock(scratchMutex_);
+  freeScratchBuffers_.push_back(std::move(buffer));
 }
 
 void CudaDeviceContext::printCounters() const

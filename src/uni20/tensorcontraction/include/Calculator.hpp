@@ -233,6 +233,10 @@ class StreamManager {
     cudaStream_t setEnv();
     cudaStream_t getStream();
     cudaStream_t currentStreamHandle() const { return currentStream; }
+    CudaDeviceContext::ScratchLease acquireScratch(std::size_t bytes)
+    {
+      return deviceContext.acquireScratch(bytes, currentStream);
+    }
     CudaDeviceContext::EventDependencyRef recordCompletionEvent()
     {
       return deviceContext.recordDependencyEvent(currentStream);
