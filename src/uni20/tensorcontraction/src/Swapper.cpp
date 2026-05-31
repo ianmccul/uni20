@@ -14,14 +14,18 @@ namespace tensor
 
 GpuBuffer::GpuBuffer(GpuBuffer&& other)
     : ptr(other.ptr), id(other.id), dim1(other.dim1), dim2(other.dim2), hostPtr(other.hostPtr),
-      dependencyEventsEnabled(other.dependencyEventsEnabled), readFinishEvent(std::move(other.readFinishEvent)),
-      writeFinishEvent(std::move(other.writeFinishEvent))
+      dependencyEventsEnabled(other.dependencyEventsEnabled), deviceContext(other.deviceContext),
+      readFinishEvents(std::move(other.readFinishEvents)), writeFinishEvent(other.writeFinishEvent),
+      writeFinishStream(other.writeFinishStream)
 {
   other.ptr = nullptr;
   other.dim1 = 0;
   other.dim2 = 0;
   other.hostPtr = nullptr;
   other.dependencyEventsEnabled = false;
+  other.deviceContext = nullptr;
+  other.writeFinishEvent = nullptr;
+  other.writeFinishStream = nullptr;
 }
 
 GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
@@ -34,8 +38,10 @@ GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
     dim2 = other.dim2;
     hostPtr = other.hostPtr;
     dependencyEventsEnabled = other.dependencyEventsEnabled;
-    readFinishEvent = std::move(other.readFinishEvent);
-    writeFinishEvent = std::move(other.writeFinishEvent);
+    deviceContext = other.deviceContext;
+    readFinishEvents = std::move(other.readFinishEvents);
+    writeFinishEvent = other.writeFinishEvent;
+    writeFinishStream = other.writeFinishStream;
 
     // Reset the moved-from object to a safe state
     other.ptr = nullptr;
@@ -43,16 +49,17 @@ GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
     other.dim2 = 0;
     other.hostPtr = nullptr;
     other.dependencyEventsEnabled = false;
+    other.deviceContext = nullptr;
+    other.writeFinishEvent = nullptr;
+    other.writeFinishStream = nullptr;
   }
   return *this;
 }
 
-GpuBuffer::GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled)
+GpuBuffer::GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled, CudaDeviceContext& deviceContext)
     : ptr(ptr), id(mat.getId()), dim1(mat.getFirstDim()), dim2(mat.getSecondDim()), hostPtr(mat.getPtr()),
-      dependencyEventsEnabled(dependencyEventsEnabled)
-{
-  // writeFinishEvent vector starts empty, events created on-demand
-}
+      dependencyEventsEnabled(dependencyEventsEnabled), deviceContext(&deviceContext)
+{}
 
 double* GpuBuffer::getPtr() { return static_cast<double*>(ptr); }
 int GpuBuffer::getId() const { return id; }
@@ -63,8 +70,14 @@ void GpuBuffer::waitForReadFinish(cudaStream_t stream)
   {
     return;
   }
-  for (auto event : readFinishEvent)
-    CUDA_CALL(cudaStreamWaitEvent(stream, event));
+  for (auto const& [_, event] : readFinishEvents)
+  {
+    if (_ == stream)
+    {
+      continue;
+    }
+    deviceContext->waitEvent(stream, event);
+  }
 }
 
 void GpuBuffer::notifyReadFinish(cudaStream_t stream)
@@ -73,10 +86,12 @@ void GpuBuffer::notifyReadFinish(cudaStream_t stream)
   {
     return;
   }
-  cudaEvent_t event;
-  CUDA_CALL(cudaEventCreate(&event));
-  CUDA_CALL(cudaEventRecord(event, stream));
-  readFinishEvent.push_back(event);
+  auto& event = readFinishEvents[stream];
+  if (event != nullptr)
+  {
+    deviceContext->retireEvent(event);
+  }
+  event = deviceContext->recordEvent(stream);
 }
 
 void GpuBuffer::waitForWriteFinish(cudaStream_t stream)
@@ -85,8 +100,10 @@ void GpuBuffer::waitForWriteFinish(cudaStream_t stream)
   {
     return;
   }
-  for (auto event : writeFinishEvent)
-    CUDA_CALL(cudaStreamWaitEvent(stream, event));
+  if (writeFinishStream != stream)
+  {
+    deviceContext->waitEvent(stream, writeFinishEvent);
+  }
 }
 
 void GpuBuffer::notifyWriteFinish(cudaStream_t stream)
@@ -95,10 +112,12 @@ void GpuBuffer::notifyWriteFinish(cudaStream_t stream)
   {
     return;
   }
-  cudaEvent_t event;
-  CUDA_CALL(cudaEventCreate(&event));
-  CUDA_CALL(cudaEventRecord(event, stream));
-  writeFinishEvent.push_back(event);
+  if (writeFinishEvent != nullptr)
+  {
+    deviceContext->retireEvent(writeFinishEvent);
+  }
+  writeFinishEvent = deviceContext->recordEvent(stream);
+  writeFinishStream = stream;
 }
 
 Swapper::Swapper()
@@ -115,7 +134,6 @@ Swapper::Swapper()
     deviceContexts.push_back(std::make_unique<CudaDeviceContext>(i, workStreamCount, serialCuda));
     hostToGpuMaps.emplace_back();
     pinnedMatrix.emplace_back();
-    deprecatedEvents.emplace_back();
   }
   CUDA_CALL(cudaSetDevice(0));
 }
@@ -310,7 +328,7 @@ std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
   }
 
   DEBUG_GPU_ALLOC(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
-  auto buffer = std::make_shared<GpuBuffer>(ptr, mat, dependencyEventsEnabled);
+  auto buffer = std::make_shared<GpuBuffer>(ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
   auto& hostToGpuMap = hostToGpuMaps[deviceId];
   hostToGpuMap[buffer->getId()] = buffer;
 
@@ -334,7 +352,7 @@ void Swapper::preStoreMatrix(Matrix mat, int deviceId)
   double* gpuPtr;
   CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
   CUDA_CALL(cudaMemcpyAsync(gpuPtr, mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, memStream));
-  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled);
+  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
@@ -380,7 +398,7 @@ void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
   auto memStream = deviceContexts[deviceId]->memoryStream();
   double* gpuPtr;
   CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
-  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled);
+  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
@@ -425,36 +443,28 @@ void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
   auto memStream = deviceContexts[deviceId]->memoryStream();
   buffer->waitForReadFinish(memStream);
   buffer->waitForWriteFinish(memStream);
-  deprecatedEvents[deviceId].insert(deprecatedEvents[deviceId].end(), buffer->readFinishEvent.begin(),
-                                    buffer->readFinishEvent.end());
-  deprecatedEvents[deviceId].insert(deprecatedEvents[deviceId].end(), buffer->writeFinishEvent.begin(),
-                                    buffer->writeFinishEvent.end());
+  destroyBufferEvents(buffer);
   DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, memStream);
   CUDA_CALL(cudaFreeAsync(buffer->getPtr(), memStream));
 }
 
 void Swapper::destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer)
 {
-  for (auto event : buffer->readFinishEvent)
+  if (buffer->deviceContext == nullptr)
   {
-    CUDA_CALL(cudaEventDestroy(event));
+    return;
   }
-  for (auto event : buffer->writeFinishEvent)
+  for (auto& [_, event] : buffer->readFinishEvents)
   {
-    CUDA_CALL(cudaEventDestroy(event));
+    buffer->deviceContext->retireEvent(event);
   }
-  buffer->readFinishEvent.clear();
-  buffer->writeFinishEvent.clear();
+  buffer->readFinishEvents.clear();
+  buffer->deviceContext->retireEvent(buffer->writeFinishEvent);
+  buffer->writeFinishEvent = nullptr;
+  buffer->writeFinishStream = nullptr;
 }
 
-void Swapper::freeAllEvents(int deviceId)
-{
-  for (auto event : deprecatedEvents[deviceId])
-  {
-    CUDA_CALL(cudaEventDestroy(event));
-  }
-  deprecatedEvents[deviceId].clear();
-}
+void Swapper::freeAllEvents(int deviceId) { (void)deviceId; }
 
 void Swapper::syncMemStream(int deviceId) { deviceContexts[deviceId]->syncMemoryStream(); }
 

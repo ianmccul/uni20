@@ -70,6 +70,9 @@ Internally, the bridge models each active device with a small
 with its own cuBLAS handle.  This mirrors the resource shape expected for the
 future uni20 CUDA scheduler without implementing that scheduler in the vendored
 runtime.
+Set `UNI20_TENSORCONTRACTION_CUDA_COUNTERS=1` to print per-device diagnostic
+counters for event creation, event records, event waits, event destruction, and
+stream synchronizations when each temporary device context is released.
 
 `vector_algebra.hpp` provides block-vector operations needed by the first
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and

@@ -1018,7 +1018,6 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
       counter++;
       while (counter < deviceCount + 1)
       {}
-      streamManager.syncAllStreams();
       return;
     }
 
@@ -1073,7 +1072,6 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
     assert(comm != nullptr);
     createWork<NCCLSendRecvWork>(dstMatPairs, comm, streamManager, swapper)->execute();
   }
-  streamManager.syncAllStreams();
 }
 
 void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals)
@@ -1306,7 +1304,6 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
     CUDA_CALL(cudaSetDevice(0));
     swapper.freeAllBuffer(0);
     swapper.syncMemStream(0);
-    streamManagers[0].syncAllStreams();
     swapper.freeAllEvents(0);
   }
   else
@@ -1317,7 +1314,6 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
         CUDA_CALL(cudaSetDevice(deviceId));
         swapper.freeAllBuffer(deviceId);
         swapper.syncMemStream(deviceId);
-        streamManagers[deviceId].syncAllStreams();
         swapper.freeAllEvents(deviceId);
       });
     }

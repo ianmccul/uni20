@@ -4,6 +4,7 @@
 #include <cuda_runtime_api.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace tensor
@@ -30,17 +31,37 @@ class CudaDeviceContext {
     cudaStream_t memoryStream() const noexcept { return memoryStream_; }
 
     WorkSlot& nextWorkSlot();
-    void syncWorkStreams() const;
-    void syncMemoryStream() const;
+    cudaEvent_t acquireEvent();
+    void retireEvent(cudaEvent_t event);
+    cudaEvent_t recordEvent(cudaStream_t stream);
+    void waitEvent(cudaStream_t stream, cudaEvent_t event);
+    void syncWorkStreams();
+    void syncMemoryStream();
     void release();
 
   private:
+    struct Counters
+    {
+        std::uint64_t eventCreate = 0;
+        std::uint64_t eventRecord = 0;
+        std::uint64_t eventWait = 0;
+        std::uint64_t eventDestroy = 0;
+        std::uint64_t streamSync = 0;
+    };
+
     int deviceId_ = 0;
     bool serialCuda_ = false;
+    bool logCounters_ = false;
     bool released_ = false;
     cudaStream_t memoryStream_ = nullptr;
     std::vector<WorkSlot> workSlots_;
+    std::vector<cudaEvent_t> freeEvents_;
+    std::vector<cudaEvent_t> retiredEvents_;
+    Counters counters_;
     std::size_t nextWorkSlot_ = 0;
+
+    void reclaimRetiredEvents();
+    void printCounters() const;
 };
 
 } // namespace tensor

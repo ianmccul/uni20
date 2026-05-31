@@ -26,13 +26,15 @@ class GpuBuffer {
     size_t dim2;
     void* hostPtr;
     bool dependencyEventsEnabled = true;
+    CudaDeviceContext* deviceContext = nullptr;
 
-    std::vector<cudaEvent_t> readFinishEvent;
-    std::vector<cudaEvent_t> writeFinishEvent;
+    std::unordered_map<cudaStream_t, cudaEvent_t> readFinishEvents;
+    cudaEvent_t writeFinishEvent = nullptr;
+    cudaStream_t writeFinishStream = nullptr;
 
   public:
     GpuBuffer() = delete;
-    GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled);
+    GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled, CudaDeviceContext& deviceContext);
     GpuBuffer(const GpuBuffer&) = delete;
     GpuBuffer& operator=(const GpuBuffer&) = delete;
     GpuBuffer(GpuBuffer&& other);
@@ -60,7 +62,6 @@ class Swapper {
     std::vector<std::unique_ptr<CudaDeviceContext>> deviceContexts;
     std::vector<cudaMemPool_t> memPools;
     std::vector<bool> ownsMemPool;
-    std::vector<std::vector<cudaEvent_t>> deprecatedEvents;
     std::vector<std::set<int>> pinnedMatrix;
 
 #if DEBUG_LOG
