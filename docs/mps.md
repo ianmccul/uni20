@@ -44,6 +44,21 @@ wavefunction storage infrastructure.
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
 
+## Observed sweep behaviour
+
+When comparing the length-20 open spin-1/2 Heisenberg example against an
+already-converged MPTK two-site DMRG run at bond dimension 16, the lowest local
+energy observed partway through a uni20 sweep can be slightly below the final
+converged sweep energy before the state has settled.  This is not a violation
+of the variational principle: each two-site local solve is variational in the
+current mixed-canonical environment, while the subsequent SVD truncation and
+canonical-center shift changes the state used by the next local problem.
+
+In the observed run, continuing for a few more sweeps brought the reported
+edge/global energy back into agreement with the MPTK converged value at roughly
+roundoff scale.  For benchmarking, compare converged sweeps or matching sweep
+positions rather than the minimum local energy seen during an unconverged sweep.
+
 ## Deferred
 
 Wavefunction save/load is intentionally deferred.  If checkpointing becomes
