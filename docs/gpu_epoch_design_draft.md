@@ -150,11 +150,20 @@ The invariant is:
 - For every legal CPU async schedule, asynchronous GPU execution must be
   observationally equivalent to the fully synchronized execution.
 
-This also suggests a useful debugging mode.  A strict synchronous backend can
-force a device-wide or all-device synchronization after each submitted GPU
-operation and disable most epoch-token optimization.  Such a mode would be slow,
-but it provides a reference execution path for distinguishing logical bugs from
-CUDA scheduling bugs.
+This suggests two debugging modes.
+
+`LegacyDefaultStreamDebug` should be the preferred first-line debug path.  It
+submits all GPU work to the CUDA legacy default stream, disables dependency
+event record/wait where possible, and relies on default-stream ordering to
+serialize device work.  It is deterministic, much less intrusive than explicit
+device synchronization after every operation, and close to the existing
+TensorContraction serial CUDA diagnostic mode.
+
+`SynchronousDeviceDebug` is the stricter reference path.  It forces a device-wide
+or all-device synchronization after each submitted GPU operation and disables
+most epoch-token optimization.  This mode should be slow and should be used as a
+debugging hammer for memory lifetime bugs, host/device transfer bugs, or cases
+where default-stream serialization is not strong enough to isolate the issue.
 
 ## CPU/GPU Boundary
 
