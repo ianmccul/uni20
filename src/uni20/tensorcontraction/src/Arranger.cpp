@@ -299,7 +299,7 @@ void Arranger::preStoreToDevice(const std::vector<Matrix>& aMats, const std::vec
 
   for (int i = 0; i < deviceCount; i++)
   {
-    swapper.syncMemStream(i);
+    swapper.syncMemStream(i, "preprocess_upload_inputs");
   }
   CUDA_CALL(cudaSetDevice(0)); // Reset to device 0
 }
@@ -1440,7 +1440,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
   {
     CUDA_CALL(cudaSetDevice(0));
     swapper.freeAllBuffer(0);
-    swapper.syncMemStream(0);
+    swapper.syncMemStream(0, "execute_worklists_cleanup");
     swapper.freeAllEvents(0);
   }
   else
@@ -1450,7 +1450,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       threads[deviceId] = std::thread([&, deviceId] {
         CUDA_CALL(cudaSetDevice(deviceId));
         swapper.freeAllBuffer(deviceId);
-        swapper.syncMemStream(deviceId);
+        swapper.syncMemStream(deviceId, "execute_worklists_cleanup");
         swapper.freeAllEvents(deviceId);
       });
     }
@@ -1578,7 +1578,7 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
   {
     if (bytesPerDevice[deviceId] != 0 || uploadFromHost)
     {
-      swapper.syncMemStream(deviceId);
+      swapper.syncMemStream(deviceId, "linear_algebra_localize");
     }
   }
   std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
@@ -1608,7 +1608,7 @@ void Arranger::synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats)
   {
     if (touched[deviceId])
     {
-      swapper.syncMemStream(deviceId);
+      swapper.syncMemStream(deviceId, "linear_algebra_sync_to_host");
     }
   }
   CUDA_CALL(cudaSetDevice(0));

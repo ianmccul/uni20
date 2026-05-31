@@ -351,7 +351,7 @@ cudaStream_t StreamManager::beginFixedStream(cudaStream_t preferredStream)
 
 void StreamManager::endFixedStream() { fixedStreamActive = false; }
 
-void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams(); }
+void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams("stream_manager_clear"); }
 
 #if DEBUG_LOG
 // Base implementation of dump()

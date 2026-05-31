@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <map>
+#include <tuple>
 
 namespace tensor
 {
@@ -80,6 +82,24 @@ CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool ser
     CUBLAS_CALL(cublasSetStream(slot.handle, slot.stream));
     workSlots_.push_back(slot);
   }
+}
+
+std::shared_ptr<CudaDeviceContext> CudaDeviceContext::shared(int deviceId, int workStreamCount, bool serialCuda)
+{
+  using Key = std::tuple<int, int, bool>;
+  static std::mutex mutex;
+  static std::map<Key, std::shared_ptr<CudaDeviceContext>> contexts;
+
+  Key key{deviceId, serialCuda ? 1 : std::max(1, workStreamCount), serialCuda};
+  std::lock_guard<std::mutex> lock(mutex);
+  if (auto const it = contexts.find(key); it != contexts.end())
+  {
+    return it->second;
+  }
+
+  auto created = std::make_shared<CudaDeviceContext>(std::get<0>(key), std::get<1>(key), std::get<2>(key));
+  contexts[key] = created;
+  return created;
 }
 
 CudaDeviceContext::~CudaDeviceContext() { release(); }
@@ -196,29 +216,29 @@ CudaDeviceContext::ScratchLease CudaDeviceContext::acquireScratch(std::size_t by
   return ScratchLease(*this, std::move(buffer), stream);
 }
 
-void CudaDeviceContext::syncWorkStreams()
+void CudaDeviceContext::syncWorkStreams(const char* reason)
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
   if (serialCuda_)
   {
     CUDA_CALL(cudaStreamSynchronize(cudaStreamLegacy));
-    ++counters_.streamSync;
+    countStreamSync(reason);
     reclaimRetiredEvents();
     return;
   }
   for (auto const& slot : workSlots_)
   {
     CUDA_CALL(cudaStreamSynchronize(slot.stream));
-    ++counters_.streamSync;
+    countStreamSync(reason);
   }
   reclaimRetiredEvents();
 }
 
-void CudaDeviceContext::syncMemoryStream()
+void CudaDeviceContext::syncMemoryStream(const char* reason)
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
   CUDA_CALL(cudaStreamSynchronize(memoryStream_));
-  ++counters_.streamSync;
+  countStreamSync(reason);
   reclaimRetiredEvents();
 }
 
@@ -231,8 +251,8 @@ void CudaDeviceContext::release()
   released_ = true;
 
   CUDA_CALL(cudaSetDevice(deviceId_));
-  syncWorkStreams();
-  syncMemoryStream();
+  syncWorkStreams("device_context_release_work_streams");
+  syncMemoryStream("device_context_release_memory_stream");
 
   for (auto& slot : workSlots_)
   {
@@ -294,6 +314,15 @@ void CudaDeviceContext::reclaimRetiredEvents()
   retiredEvents_.clear();
 }
 
+void CudaDeviceContext::countStreamSync(const char* reason)
+{
+  ++counters_.streamSync;
+  if (reason != nullptr)
+  {
+    ++counters_.streamSyncByReason[reason];
+  }
+}
+
 void CudaDeviceContext::releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream)
 {
   if (buffer == nullptr)
@@ -325,6 +354,11 @@ void CudaDeviceContext::printCounters() const
                static_cast<unsigned long long>(counters_.eventWait),
                static_cast<unsigned long long>(counters_.eventDestroy),
                static_cast<unsigned long long>(counters_.streamSync), freeEvents_.size());
+  for (auto const& [reason, count] : counters_.streamSyncByReason)
+  {
+    std::fprintf(stderr, "[TENSORCONTRACTION][CUDA_SYNC_REASON] Device=%d Reason=%s Count=%llu\n", deviceId_,
+                 reason.c_str(), static_cast<unsigned long long>(count));
+  }
 }
 
 } // namespace tensor

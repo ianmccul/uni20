@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace tensor
@@ -76,6 +78,8 @@ class CudaDeviceContext {
     CudaDeviceContext& operator=(CudaDeviceContext const&) = delete;
     ~CudaDeviceContext();
 
+    static std::shared_ptr<CudaDeviceContext> shared(int deviceId, int workStreamCount, bool serialCuda);
+
     int deviceId() const noexcept { return deviceId_; }
     bool serialCuda() const noexcept { return serialCuda_; }
     cudaStream_t memoryStream() const noexcept { return memoryStream_; }
@@ -88,8 +92,8 @@ class CudaDeviceContext {
     EventDependencyRef recordDependencyEvent(cudaStream_t stream);
     void waitEvent(cudaStream_t stream, cudaEvent_t event);
     ScratchLease acquireScratch(std::size_t bytes, cudaStream_t stream);
-    void syncWorkStreams();
-    void syncMemoryStream();
+    void syncWorkStreams(const char* reason = "work_unspecified");
+    void syncMemoryStream(const char* reason = "memory_unspecified");
     void release();
 
   private:
@@ -100,6 +104,7 @@ class CudaDeviceContext {
         std::uint64_t eventWait = 0;
         std::uint64_t eventDestroy = 0;
         std::uint64_t streamSync = 0;
+        std::unordered_map<std::string, std::uint64_t> streamSyncByReason;
     };
 
     int deviceId_ = 0;
@@ -117,6 +122,7 @@ class CudaDeviceContext {
     std::size_t nextWorkSlot_ = 0;
 
     void reclaimRetiredEvents();
+    void countStreamSync(const char* reason);
     void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);
     void printCounters() const;
 

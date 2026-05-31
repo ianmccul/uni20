@@ -296,7 +296,7 @@ void MatrixAllocator::allocateMatrices(std::vector<Matrix>& r_mats, std::vector<
   // Sync all memory streams
   for (int i = 0; i < device_count; i++)
   {
-    swapper.syncMemStream(i);
+    swapper.syncMemStream(i, "matrix_allocator_sync");
   }
 
   // CPU allocations

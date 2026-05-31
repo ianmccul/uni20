@@ -62,7 +62,7 @@ class Swapper {
 
     std::unordered_map<int, int> matToNCCLIdMap;
 
-    std::vector<std::unique_ptr<CudaDeviceContext>> deviceContexts;
+    std::vector<std::shared_ptr<CudaDeviceContext>> deviceContexts;
     std::vector<cudaMemPool_t> memPools;
     std::vector<bool> ownsMemPool;
     std::vector<std::set<int>> pinnedMatrix;
@@ -111,7 +111,7 @@ class Swapper {
 
     void freeAllBuffer(int deviceId);
     void freeAllEvents(int deviceId);
-    void syncMemStream(int deviceId);
+    void syncMemStream(int deviceId, const char* reason = "swapper_sync_mem_stream");
     void initMemPools();
     void dumpMemPoolStatus(int deviceId);
     cudaMemPool_t getMemPool(int deviceId) const { return memPools[deviceId]; }

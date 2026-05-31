@@ -146,7 +146,7 @@ Swapper::Swapper()
   deviceContexts.reserve(deviceCount);
   for (int i = 0; i < deviceCount; i++)
   {
-    deviceContexts.push_back(std::make_unique<CudaDeviceContext>(i, workStreamCount, serialCuda));
+    deviceContexts.push_back(CudaDeviceContext::shared(i, workStreamCount, serialCuda));
     hostToGpuMaps.emplace_back();
     pinnedMatrix.emplace_back();
   }
@@ -323,16 +323,12 @@ void Swapper::release()
     CUDA_CALL(cudaSetDevice(deviceId));
     if (deviceId < static_cast<int>(memPools.size()))
     {
-      deviceContexts[deviceId]->syncMemoryStream();
+      deviceContexts[deviceId]->syncMemoryStream("swapper_release_before_mempool_trim");
       CUDA_CALL(cudaMemPoolTrimTo(memPools[deviceId], 0));
       if (ownsMemPool[deviceId])
       {
         CUDA_CALL(cudaMemPoolDestroy(memPools[deviceId]));
       }
-    }
-    if (deviceId < static_cast<int>(deviceContexts.size()))
-    {
-      deviceContexts[deviceId]->release();
     }
   }
   memPools.clear();
@@ -600,7 +596,7 @@ void Swapper::destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer)
 
 void Swapper::freeAllEvents(int deviceId) { (void)deviceId; }
 
-void Swapper::syncMemStream(int deviceId) { deviceContexts[deviceId]->syncMemoryStream(); }
+void Swapper::syncMemStream(int deviceId, const char* reason) { deviceContexts[deviceId]->syncMemoryStream(reason); }
 
 void Swapper::initMemPools()
 {
