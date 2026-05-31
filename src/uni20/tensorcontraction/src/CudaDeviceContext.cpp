@@ -8,6 +8,14 @@
 namespace tensor
 {
 
+CudaDeviceContext::EventDependency::~EventDependency()
+{
+  if (context != nullptr)
+  {
+    context->retireEvent(event);
+  }
+}
+
 CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda)
     : deviceId_(deviceId), serialCuda_(serialCuda),
       logCounters_(envFlagEnabled("UNI20_TENSORCONTRACTION_CUDA_COUNTERS") ||
@@ -81,6 +89,11 @@ cudaEvent_t CudaDeviceContext::recordEvent(cudaStream_t stream)
   CUDA_CALL(cudaEventRecord(event, stream));
   ++counters_.eventRecord;
   return event;
+}
+
+CudaDeviceContext::EventDependencyRef CudaDeviceContext::recordDependencyEvent(cudaStream_t stream)
+{
+  return std::make_shared<EventDependency>(*this, recordEvent(stream));
 }
 
 void CudaDeviceContext::waitEvent(cudaStream_t stream, cudaEvent_t event)

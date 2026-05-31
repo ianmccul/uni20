@@ -1070,7 +1070,22 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
   {
     ncclComm_t comm = commProvider();
     assert(comm != nullptr);
-    createWork<NCCLSendRecvWork>(dstMatPairs, comm, streamManager, swapper)->execute();
+    auto work = createWork<NCCLSendRecvWork>(dstMatPairs, comm, streamManager, swapper);
+    work->execute();
+    if (!swapper.dependencyEventsActive())
+    {
+      return;
+    }
+    auto stream = streamManager.currentStreamHandle();
+    auto event = streamManager.recordCompletionEvent();
+    for (auto mat : work->readMatrices())
+    {
+      swapper.notifyMatrixRead(mat, deviceId, stream, event);
+    }
+    for (auto mat : work->writeMatrices())
+    {
+      swapper.notifyMatrixWrite(mat, deviceId, stream, event);
+    }
   }
 }
 
@@ -1110,11 +1125,39 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
 
   CUDA_CALL(cudaSetDevice(0));
 
-  auto execute = [](WorklistTy& worklist, int deviceId, int startIdx, int endIdx) {
+  auto execute = [&](WorklistTy& worklist, int deviceId, int startIdx, int endIdx) {
     CUDA_CALL(cudaSetDevice(deviceId));
+    auto& streamManager = streamManagers[deviceId];
     for (int idx = startIdx; idx < endIdx; idx++)
     {
-      worklist[idx]->execute();
+      auto& work = worklist[idx];
+      work->execute();
+
+      auto reads = work->readMatrices();
+      auto writes = work->writeMatrices();
+      if (reads.empty() && writes.empty())
+      {
+        continue;
+      }
+      if (!swapper.dependencyEventsActive())
+      {
+        continue;
+      }
+
+      // Scheduled CUDA work records one completion dependency event here.
+      // Individual kernels should not record per-buffer events; that creates
+      // excessive event churn for tiny-block DMRG contractions.
+      auto stream = streamManager.currentStreamHandle();
+      auto event = streamManager.recordCompletionEvent();
+
+      for (auto mat : reads)
+      {
+        swapper.notifyMatrixRead(mat, deviceId, stream, event);
+      }
+      for (auto mat : writes)
+      {
+        swapper.notifyMatrixWrite(mat, deviceId, stream, event);
+      }
     }
   };
 

@@ -27,6 +27,8 @@ class WorkBase {
   public:
     WorkBase(StreamManager& streamManager, Swapper& swapper) : streamManager(streamManager), swapper(swapper) {}
     virtual void execute();
+    virtual std::vector<Matrix> readMatrices() const { return {}; }
+    virtual std::vector<Matrix> writeMatrices() const { return {}; }
 #if DEBUG_LOG
     virtual void dump();
     virtual const char* getTypeName() const { return "UNKNOWN"; }
@@ -62,6 +64,8 @@ class MatMulWork : public MatWorkBase {
 
   public:
     void execute() override;
+    std::vector<Matrix> readMatrices() const override { return {matrices[1], matrices[2]}; }
+    std::vector<Matrix> writeMatrices() const override { return {matrices[0]}; }
 #if DEBUG_LOG
     const char* getTypeName() const override { return "MATMUL"; }
 #endif
@@ -72,6 +76,8 @@ class MatMulAccuWork : public MatWorkBase {
 
   public:
     void execute() override;
+    std::vector<Matrix> readMatrices() const override { return {matrices[0], matrices[1], matrices[2]}; }
+    std::vector<Matrix> writeMatrices() const override { return {matrices[0]}; }
 #if DEBUG_LOG
     const char* getTypeName() const override { return "MATMUL_ACCU"; }
     std::string getTypeSpecificInfo() const override;
@@ -83,6 +89,8 @@ class AddAccuWork : public MatWorkBase {
 
   public:
     void execute() override;
+    std::vector<Matrix> readMatrices() const override { return {matrices[0], matrices[1]}; }
+    std::vector<Matrix> writeMatrices() const override { return {matrices[0]}; }
 #if DEBUG_LOG
     const char* getTypeName() const override { return "ADD_ACCU"; }
     std::string getTypeSpecificInfo() const override;
@@ -94,6 +102,7 @@ class SyncWork : public MatWorkBase {
 
   public:
     void execute() override;
+    std::vector<Matrix> readMatrices() const override { return {matrices[0]}; }
 #if DEBUG_LOG
     const char* getTypeName() const override { return "SYNC"; }
 #endif
@@ -134,6 +143,7 @@ class MemsetWork : public MatWorkBase {
 
   public:
     void execute() override;
+    std::vector<Matrix> writeMatrices() const override { return {matrices[0]}; }
 #if DEBUG_LOG
     const char* getTypeName() const override { return "MEMSET"; }
 #endif
@@ -150,6 +160,8 @@ class NCCLSendRecvWork : public WorkBase {
     {}
 
     void execute() override;
+    std::vector<Matrix> readMatrices() const override;
+    std::vector<Matrix> writeMatrices() const override;
 #if DEBUG_LOG
     const char* getTypeName() const override { return "NCCL_SENDRECV"; }
     std::string getMatrixInfo() const override;
@@ -165,6 +177,7 @@ class InnerProductWork : public MatWorkBase {
         : MatWorkBase(mats, alpha, streamManager, swapper), result(result)
     {}
     void execute() override;
+    std::vector<Matrix> readMatrices() const override { return {matrices[0], matrices[1]}; }
 #if DEBUG_LOG
     const char* getTypeName() const override { return "INNER_PRODUCT"; }
 #endif
@@ -179,6 +192,8 @@ class ScalarMulWork : public MatWorkBase {
         : MatWorkBase(mats, alpha, streamManager, swapper), coff(coff)
     {}
     void execute() override;
+    std::vector<Matrix> readMatrices() const override { return {matrices[0]}; }
+    std::vector<Matrix> writeMatrices() const override { return {matrices[0]}; }
 #if DEBUG_LOG
     const char* getTypeName() const override { return "SCALAR_MUL"; }
 #endif
@@ -217,6 +232,11 @@ class StreamManager {
     cublasHandle_t getHandle() const { return currentHandle; }
     cudaStream_t setEnv();
     cudaStream_t getStream();
+    cudaStream_t currentStreamHandle() const { return currentStream; }
+    CudaDeviceContext::EventDependencyRef recordCompletionEvent()
+    {
+      return deviceContext.recordDependencyEvent(currentStream);
+    }
 };
 
 // Generic template factory for creating Work objects

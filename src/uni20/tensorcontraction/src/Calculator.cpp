@@ -44,10 +44,6 @@ void MatMulWork::execute()
   CUBLAS_CALL(cublasDgemm(streamManager.getHandle(), CUBLAS_OP_N, CUBLAS_OP_N, m2.getSecondDim(), m1.getFirstDim(),
                           m1.getSecondDim(), &alpha, m2OnGPU->getPtr(), m2.getSecondDim(), m1OnGPU->getPtr(),
                           m1.getSecondDim(), &beta, resultOnGPU->getPtr(), result.getSecondDim()));
-
-  resultOnGPU->notifyWriteFinish(stream);
-  m1OnGPU->notifyReadFinish(stream);
-  m2OnGPU->notifyReadFinish(stream);
 }
 
 void MatMulAccuWork::execute()
@@ -73,10 +69,6 @@ void MatMulAccuWork::execute()
                           mats[1].getFirstDim(), mats[1].getSecondDim(), &alpha, m2OnGPU->getPtr(),
                           mats[2].getSecondDim(), m1OnGPU->getPtr(), mats[1].getSecondDim(), &beta,
                           resultOnGPU->getPtr(), mats[0].getSecondDim()));
-
-  resultOnGPU->notifyWriteFinish(stream);
-  m1OnGPU->notifyReadFinish(stream);
-  m2OnGPU->notifyReadFinish(stream);
 }
 
 void AddAccuWork::execute()
@@ -96,9 +88,6 @@ void AddAccuWork::execute()
 
   CUBLAS_CALL(
       cublasDaxpy(streamManager.getHandle(), mats[1].size(), &alpha, m1OnGPU->getPtr(), 1, resultOnGPU->getPtr(), 1));
-
-  resultOnGPU->notifyWriteFinish(stream);
-  m1OnGPU->notifyReadFinish(stream);
 }
 
 void InnerProductWork::execute()
@@ -124,9 +113,6 @@ void InnerProductWork::execute()
 
   CUDA_CALL(cudaMemcpyAsync(result, deviceDotResult, sizeof(double), cudaMemcpyDeviceToHost, stream));
   CUDA_CALL(cudaFreeAsync(deviceDotResult, stream));
-
-  m1OnGPU->notifyReadFinish(stream);
-  m2OnGPU->notifyReadFinish(stream);
 }
 
 void ScalarMulWork::execute()
@@ -142,8 +128,6 @@ void ScalarMulWork::execute()
 
   double alpha = *coff;
   CUBLAS_CALL(cublasDscal(streamManager.getHandle(), mats[0].size(), &alpha, buffer->getPtr(), 1));
-
-  buffer->notifyWriteFinish(stream);
 }
 
 void BarrierWork::execute()
@@ -272,14 +256,28 @@ void NCCLSendRecvWork::execute()
   }
   NCCL_CALL(ncclGroupEnd());
   DEBUG_NCCL_GROUP_END(thisDeviceId);
+}
 
-  for (auto [_, buffer, __] : dstBufferMatTuple)
+std::vector<Matrix> NCCLSendRecvWork::readMatrices() const
+{
+  std::vector<Matrix> result;
+  result.reserve(dstMatPair.size());
+  for (auto const& [_, mat, __] : dstMatPair)
   {
-    if (buffer)
-    {
-      buffer->notifyWriteFinish(stream);
-    }
+    result.push_back(mat);
   }
+  return result;
+}
+
+std::vector<Matrix> NCCLSendRecvWork::writeMatrices() const
+{
+  std::vector<Matrix> result;
+  result.reserve(dstMatPair.size());
+  for (auto const& [_, mat, __] : dstMatPair)
+  {
+    result.push_back(mat);
+  }
+  return result;
 }
 
 void MemsetWork::execute()
@@ -288,7 +286,6 @@ void MemsetWork::execute()
   auto buffer = swapper.getForWrite(getMatrices()[0], streamManager.getDeviceId(), stream);
   DEBUG_MEMSET(swapper, getMatrices()[0].getId(), streamManager.getDeviceId(), buffer->sizeInByte(), stream);
   CUDA_CALL(cudaMemsetAsync(buffer->getPtr(), 0, buffer->sizeInByte(), stream));
-  buffer->notifyWriteFinish(stream);
 }
 
 StreamManager::StreamManager(Swapper& swapper, int deviceId, int deviceCount)

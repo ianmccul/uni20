@@ -28,8 +28,9 @@ class GpuBuffer {
     bool dependencyEventsEnabled = true;
     CudaDeviceContext* deviceContext = nullptr;
 
-    std::unordered_map<cudaStream_t, cudaEvent_t> readFinishEvents;
-    cudaEvent_t writeFinishEvent = nullptr;
+    CudaDeviceContext::EventDependencyRef useFinishEvent;
+    cudaStream_t useFinishStream = nullptr;
+    CudaDeviceContext::EventDependencyRef writeFinishEvent;
     cudaStream_t writeFinishStream = nullptr;
 
   public:
@@ -46,8 +47,10 @@ class GpuBuffer {
     size_t sizeInByte() const { return size() * sizeof(double); }
     void waitForWriteFinish(cudaStream_t stream);
     void notifyWriteFinish(cudaStream_t stream);
+    void notifyWriteFinish(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
     void waitForReadFinish(cudaStream_t stream);
     void notifyReadFinish(cudaStream_t stream);
+    void notifyReadFinish(cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
 };
 
 class Swapper {
@@ -96,6 +99,7 @@ class Swapper {
     void dumpMemPoolStatus(int deviceId);
     cudaMemPool_t getMemPool(int deviceId) const { return memPools[deviceId]; }
     int getDeviceCount() const { return deviceCount; }
+    bool dependencyEventsActive() const { return dependencyEventsEnabled; }
     CudaDeviceContext& deviceContext(int deviceId) { return *deviceContexts[deviceId]; }
     CudaDeviceContext const& deviceContext(int deviceId) const { return *deviceContexts[deviceId]; }
 
@@ -108,6 +112,8 @@ class Swapper {
     void copyPreStoreMatrixToHost(Matrix mat);
     void registerGpuAllocation(Matrix mat, int deviceId);
     std::pair<int, std::shared_ptr<GpuBuffer>> getPreStoreBufferOrNone(Matrix mat);
+    void notifyMatrixRead(Matrix mat, int deviceId, cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
+    void notifyMatrixWrite(Matrix mat, int deviceId, cudaStream_t stream, CudaDeviceContext::EventDependencyRef event);
     void copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream,
                     StreamManager& streamManager);
     void exchangePreStoreMap();

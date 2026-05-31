@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace tensor
@@ -12,6 +13,19 @@ namespace tensor
 
 class CudaDeviceContext {
   public:
+    struct EventDependency
+    {
+        CudaDeviceContext* context = nullptr;
+        cudaEvent_t event = nullptr;
+
+        EventDependency(CudaDeviceContext& context, cudaEvent_t event) : context(&context), event(event) {}
+        EventDependency(EventDependency const&) = delete;
+        EventDependency& operator=(EventDependency const&) = delete;
+        ~EventDependency();
+    };
+
+    using EventDependencyRef = std::shared_ptr<EventDependency>;
+
     // The current TensorContraction executor borrows slots from one host thread
     // per active device.  Each slot owns its cuBLAS handle so stream selection
     // is fixed at construction instead of mutating a shared handle.
@@ -34,6 +48,7 @@ class CudaDeviceContext {
     cudaEvent_t acquireEvent();
     void retireEvent(cudaEvent_t event);
     cudaEvent_t recordEvent(cudaStream_t stream);
+    EventDependencyRef recordDependencyEvent(cudaStream_t stream);
     void waitEvent(cudaStream_t stream, cudaEvent_t event);
     void syncWorkStreams();
     void syncMemoryStream();
