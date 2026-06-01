@@ -43,7 +43,6 @@ Arranger::Arranger(Swapper& swapper) : swapper(swapper)
   deviceCount = swapper.getDeviceCount();
   for (int i = 0; i < deviceCount; i++)
   {
-    streamManagers.emplace_back(swapper, i, deviceCount);
     worklistsForInterMat.emplace_back();
     worklistsForTheRest.emplace_back();
     linearAlgebraWorklists.emplace_back();
@@ -532,14 +531,14 @@ void Arranger::compileWorklistsForInterMat(const std::vector<Matrix>& rMats, con
     int leastBusyDeviceId = getLeastBusyDevice(flopsPerDevice);
     cudaSetDevice(leastBusyDeviceId);
     auto& worklist = worklistsForInterMat[leastBusyDeviceId];
-    auto& streamManager = streamManagers[leastBusyDeviceId];
 
     cudaEvent_t syncFinishEvent = swapper.dependencyEventsActive() ? createSyncFinishEvent() : nullptr;
     matToSyncFinishEventMap[interMat.getId()] = syncFinishEvent;
 
-    worklist.push_back(createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0, streamManager, swapper));
     worklist.push_back(
-        createWork<SyncWork>(std::vector<Matrix>{interMat}, 0.0, streamManager, swapper, syncFinishEvent));
+        createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0, leastBusyDeviceId, swapper));
+    worklist.push_back(
+        createWork<SyncWork>(std::vector<Matrix>{interMat}, 0.0, leastBusyDeviceId, swapper, syncFinishEvent));
     flopsPerDevice[leastBusyDeviceId] +=
         (double)bMat.getFirstDim() * (double)cMat.getSecondDim() * (double)bMat.getSecondDim();
   }
@@ -581,7 +580,6 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
   bool shouldAddAccuRMat = false;
 
   int currentDeviceId = getLeastBusyDevice(flopsPerDevice);
-  StreamManager& streamManager = streamManagers[currentDeviceId];
   WorklistTy& worklist = worklistsForTheRest[currentDeviceId];
 
   for (int i = fTermsStart; i < fTermsEnd; i++)
@@ -616,7 +614,7 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
     {
       flops += bMat.getFirstDim() * cMat.getSecondDim() * bMat.getSecondDim();
       worklist.push_back(
-          createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0, streamManager, swapper));
+          createWork<MatMulWork>(std::vector<Matrix>{interMat, bMat, cMat}, 1.0, currentDeviceId, swapper));
     }
 
     if (shouldCombine)
@@ -624,11 +622,11 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
       if (shouldMemsetCombineMat)
       {
         combineMat = Matrix(nullptr, bMat.getFirstDim(), cMat.getSecondDim());
-        worklist.push_back(createWork<MemsetWork>(std::vector<Matrix>{combineMat}, 0.0, streamManager, swapper));
+        worklist.push_back(createWork<MemsetWork>(std::vector<Matrix>{combineMat}, 0.0, currentDeviceId, swapper));
         shouldMemsetCombineMat = false;
       }
       flops += 2 * interMat.size();
-      worklist.push_back(createWork<AddAccuWork>(std::vector<Matrix>{combineMat, interMat}, fval, streamManager,
+      worklist.push_back(createWork<AddAccuWork>(std::vector<Matrix>{combineMat, interMat}, fval, currentDeviceId,
                                                  swapper, syncFinishEvent));
 
       if (!shouldFinalize)
@@ -645,14 +643,14 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
     if (shouldAddAccuRMat)
     {
       flops += aMat.getFirstDim() * interMat.getSecondDim() * aMat.getSecondDim() + 2 * rMat.size();
-      worklist.push_back(createWork<MatMulAccuWork>(std::vector<Matrix>{rMat, aMat, interMat}, fval, streamManager,
+      worklist.push_back(createWork<MatMulAccuWork>(std::vector<Matrix>{rMat, aMat, interMat}, fval, currentDeviceId,
                                                     swapper, syncFinishEvent));
     }
     else
     {
       flops += aMat.getFirstDim() * interMat.getSecondDim() * aMat.getSecondDim();
-      worklist.push_back(createWork<MatMulWork>(std::vector<Matrix>{rMat, aMat, interMat}, fval, streamManager, swapper,
-                                                syncFinishEvent));
+      worklist.push_back(createWork<MatMulWork>(std::vector<Matrix>{rMat, aMat, interMat}, fval, currentDeviceId,
+                                                swapper, syncFinishEvent));
       shouldAddAccuRMat = true;
     }
     if (shouldFinalize)
@@ -666,7 +664,7 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
   }
 
   worklistsForTheRest[currentDeviceId].push_back(
-      createWork<SyncWork>(std::vector<Matrix>{rMat}, 0.0, streamManager, swapper));
+      createWork<SyncWork>(std::vector<Matrix>{rMat}, 0.0, currentDeviceId, swapper));
 }
 
 void Arranger::compileWorklistsForTheRest(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
@@ -940,8 +938,8 @@ static std::vector<Matrix> freeAndAllocate(int deviceId, Arranger::WorklistTy& w
 // NCCL send/recv.
 static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix>& matricesToCopy,
                          std::vector<std::tuple<int, Matrix, cudaEvent_t>>& dstMatPairs, std::atomic_int& counter,
-                         const std::function<ncclComm_t()>& commProvider, StreamManager& streamManager,
-                         Swapper& swapper, const std::unordered_map<int, cudaEvent_t>& matToSyncFinishEventMap)
+                         const std::function<ncclComm_t()>& commProvider, Swapper& swapper,
+                         const std::unordered_map<int, cudaEvent_t>& matToSyncFinishEventMap)
 {
   CUDA_CALL(cudaSetDevice(deviceId));
 
@@ -982,14 +980,15 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
     else if (mat.getPtr())
     {
       // This matrix sits in CPU memory.
-      auto stream = streamManager.getStream();
+      auto streamOwner = swapper.deviceContext(deviceId).leaseWorkStream();
+      cudaStream_t stream = streamOwner.stream();
       auto buffer = swapper.getForWrite(mat, deviceId, stream);
       if (syncFinishEvent)
       {
         CUDA_CALL(cudaStreamWaitEvent(stream, syncFinishEvent));
       }
       // Just copy it from CPU memory.
-      swapper.copyMatrix(mat, buffer, deviceId, stream, streamManager);
+      swapper.copyMatrix(mat, buffer, deviceId, stream);
     }
     else
     {
@@ -1081,13 +1080,13 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
   {
     ncclComm_t comm = commProvider();
     assert(comm != nullptr);
-    auto work = createWork<NCCLSendRecvWork>(dstMatPairs, comm, streamManager, swapper);
+    auto work = createWork<NCCLSendRecvWork>(dstMatPairs, comm, deviceId, swapper);
     work->execute();
     if (!swapper.dependencyEventsActive())
     {
       return;
     }
-    auto completion = streamManager.recordCompletion();
+    auto completion = work->completion();
     for (auto mat : work->readMatrices())
     {
       swapper.notifyMatrixRead(mat, deviceId, completion);
@@ -1127,7 +1126,6 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
 
   auto execute = [&](WorklistTy& worklist, int deviceId, int startIdx, int endIdx) {
     CUDA_CALL(cudaSetDevice(deviceId));
-    auto& streamManager = streamManagers[deviceId];
     if (startIdx == endIdx)
     {
       return;
@@ -1148,11 +1146,11 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
         continue;
       }
 
-      // Scheduled CUDA work records one completion dependency event here.
-      // Individual kernels should not record per-buffer events; that creates
-      // excessive event churn for tiny-block DMRG contractions.
-      auto stream = streamManager.currentStreamHandle();
-      auto completion = streamManager.recordCompletion();
+      auto completion = work->completion();
+      if (completion == nullptr)
+      {
+        continue;
+      }
       std::vector<std::shared_ptr<GpuBuffer>> readBuffers;
       std::vector<std::shared_ptr<GpuBuffer>> writeBuffers;
       readBuffers.reserve(reads.size());
@@ -1165,7 +1163,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       {
         writeBuffers.push_back(swapper.getGpuBufferOrNone(mat, deviceId));
       }
-      swapper.publishAccessCompletion(readBuffers, writeBuffers, stream, completion);
+      swapper.publishAccessCompletion(readBuffers, writeBuffers, completion->stream(), completion);
     }
   };
 
@@ -1244,8 +1242,8 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
           ensureNcclCommsInitialized();
           return allDeviceComms.empty() ? nullptr : allDeviceComms[0];
         };
-        copyMatrices(0, deviceCount, batchSlices[0], dstMatPairs, batchCounter, commProvider, streamManagers[0],
-                     swapper, matToSyncFinishEventMap);
+        copyMatrices(0, deviceCount, batchSlices[0], dstMatPairs, batchCounter, commProvider, swapper,
+                     matToSyncFinishEventMap);
       }
       else
       {
@@ -1257,8 +1255,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
           };
           threads[deviceId] =
               std::thread(copyMatrices, deviceId, deviceCount, std::cref(batchSlices[deviceId]), std::ref(dstMatPairs),
-                          std::ref(batchCounter), commProvider, std::ref(streamManagers[deviceId]), std::ref(swapper),
-                          std::cref(matToSyncFinishEventMap));
+                          std::ref(batchCounter), commProvider, std::ref(swapper), std::cref(matToSyncFinishEventMap));
         }
 
         for (int deviceId = 0; deviceId < deviceCount; deviceId++)
@@ -1353,7 +1350,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
 
   for (int deviceId = 0; deviceId < deviceCount; deviceId++)
   {
-    streamManagers[deviceId].syncAllStreams();
+    swapper.deviceContext(deviceId).syncWorkStreams("arranger_execute_worklists");
   }
 
   if (!freeBuffersAtEnd)
@@ -1403,7 +1400,7 @@ void Arranger::compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double*
     deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
   }
   linearAlgebraWorklists[deviceId].push_back(
-      createWork<InnerProductWork>(std::vector<Matrix>{m1, m2}, 1.0, streamManagers[deviceId], swapper, result));
+      createWork<InnerProductWork>(std::vector<Matrix>{m1, m2}, 1.0, deviceId, swapper, result));
   linearAlgebraFlopsPerDevice[deviceId] += m1.size() * 2;
 }
 
@@ -1415,11 +1412,11 @@ void Arranger::compileZeroForLinearAlgebra(Matrix result, bool syncHost)
     deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
   }
   linearAlgebraWorklists[deviceId].push_back(
-      createWork<MemsetWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+      createWork<MemsetWork>(std::vector<Matrix>{result}, 0.0, deviceId, swapper));
   if (syncHost)
   {
     linearAlgebraWorklists[deviceId].push_back(
-        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, deviceId, swapper));
   }
 }
 
@@ -1431,12 +1428,12 @@ void Arranger::compileMatMulForLinearAlgebra(Matrix result, Matrix m1, Matrix m2
     deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
   }
   linearAlgebraWorklists[deviceId].push_back(
-      createWork<MatMulWork>(std::vector<Matrix>{result, m1, m2}, 1.0, streamManagers[deviceId], swapper));
+      createWork<MatMulWork>(std::vector<Matrix>{result, m1, m2}, 1.0, deviceId, swapper));
   linearAlgebraFlopsPerDevice[deviceId] += m1.getFirstDim() * m1.getSecondDim() * m2.getSecondDim() * 2;
   if (syncHost)
   {
     linearAlgebraWorklists[deviceId].push_back(
-        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, deviceId, swapper));
   }
 }
 
@@ -1448,11 +1445,11 @@ void Arranger::compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* 
     deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
   }
   linearAlgebraWorklists[deviceId].push_back(
-      createWork<AddAccuWork>(std::vector<Matrix>{result, m1}, *coff, streamManagers[deviceId], swapper));
+      createWork<AddAccuWork>(std::vector<Matrix>{result, m1}, *coff, deviceId, swapper));
   if (syncHost)
   {
     linearAlgebraWorklists[deviceId].push_back(
-        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, deviceId, swapper));
   }
 }
 
@@ -1464,11 +1461,11 @@ void Arranger::compileScalarMulForLinearAlgebra(Matrix result, double* coff, boo
     deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
   }
   linearAlgebraWorklists[deviceId].push_back(
-      createWork<ScalarMulWork>(std::vector<Matrix>{result}, 1.0, streamManagers[deviceId], swapper, coff));
+      createWork<ScalarMulWork>(std::vector<Matrix>{result}, 1.0, deviceId, swapper, coff));
   if (syncHost)
   {
     linearAlgebraWorklists[deviceId].push_back(
-        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, deviceId, swapper));
   }
 }
 
@@ -1672,9 +1669,6 @@ void Arranger::releaseResources()
   }
   allDeviceComms.clear();
   ncclCommsInitialized = false;
-  for (auto& streamManager : streamManagers)
-    streamManager.clear();
-  streamManagers.clear();
 }
 
 void Arranger::distributeMatricesToNodes(std::vector<Matrix>& mats, std::string prefix)

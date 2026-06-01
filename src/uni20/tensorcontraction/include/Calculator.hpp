@@ -17,18 +17,18 @@
 namespace tensor
 {
 
-class StreamManager;
-
 class WorkBase {
   protected:
-    StreamManager& streamManager;
+    int deviceId;
     Swapper& swapper;
+    cuda::CompletionRef completion_;
 
   public:
-    WorkBase(StreamManager& streamManager, Swapper& swapper) : streamManager(streamManager), swapper(swapper) {}
+    WorkBase(int deviceId, Swapper& swapper) : deviceId(deviceId), swapper(swapper) {}
     virtual void execute();
     virtual std::vector<Matrix> readMatrices() const { return {}; }
     virtual std::vector<Matrix> writeMatrices() const { return {}; }
+    cuda::CompletionRef completion() const { return completion_; }
 #if DEBUG_LOG
     virtual void dump();
     virtual const char* getTypeName() const { return "UNKNOWN"; }
@@ -45,9 +45,9 @@ class MatWorkBase : public WorkBase {
     cudaEvent_t syncFinishEvent;
 
   public:
-    MatWorkBase(const std::vector<Matrix>& mats, double alpha, StreamManager& streamManager, Swapper& swapper,
+    MatWorkBase(const std::vector<Matrix>& mats, double alpha, int deviceId, Swapper& swapper,
                 cudaEvent_t syncFinishEvent = nullptr)
-        : WorkBase(streamManager, swapper), matrices(mats), alpha(alpha), syncFinishEvent(syncFinishEvent)
+        : WorkBase(deviceId, swapper), matrices(mats), alpha(alpha), syncFinishEvent(syncFinishEvent)
     {}
 
     const std::vector<Matrix>& getMatrices() const { return matrices; }
@@ -154,9 +154,9 @@ class NCCLSendRecvWork : public WorkBase {
     ncclComm_t comm;
 
   public:
-    NCCLSendRecvWork(std::vector<std::tuple<int, Matrix, cudaEvent_t>> dstMatPair, ncclComm_t comm,
-                     StreamManager& streamManager, Swapper& swapper)
-        : WorkBase(streamManager, swapper), dstMatPair(std::move(dstMatPair)), comm(comm)
+    NCCLSendRecvWork(std::vector<std::tuple<int, Matrix, cudaEvent_t>> dstMatPair, ncclComm_t comm, int deviceId,
+                     Swapper& swapper)
+        : WorkBase(deviceId, swapper), dstMatPair(std::move(dstMatPair)), comm(comm)
     {}
 
     void execute() override;
@@ -172,9 +172,8 @@ class InnerProductWork : public MatWorkBase {
     double* result;
 
   public:
-    InnerProductWork(const std::vector<Matrix>& mats, double alpha, StreamManager& streamManager, Swapper& swapper,
-                     double* result)
-        : MatWorkBase(mats, alpha, streamManager, swapper), result(result)
+    InnerProductWork(const std::vector<Matrix>& mats, double alpha, int deviceId, Swapper& swapper, double* result)
+        : MatWorkBase(mats, alpha, deviceId, swapper), result(result)
     {}
     void execute() override;
     std::vector<Matrix> readMatrices() const override { return {matrices[0], matrices[1]}; }
@@ -187,9 +186,8 @@ class ScalarMulWork : public MatWorkBase {
     double* coff;
 
   public:
-    ScalarMulWork(const std::vector<Matrix>& mats, double alpha, StreamManager& streamManager, Swapper& swapper,
-                  double* coff)
-        : MatWorkBase(mats, alpha, streamManager, swapper), coff(coff)
+    ScalarMulWork(const std::vector<Matrix>& mats, double alpha, int deviceId, Swapper& swapper, double* coff)
+        : MatWorkBase(mats, alpha, deviceId, swapper), coff(coff)
     {}
     void execute() override;
     std::vector<Matrix> readMatrices() const override { return {matrices[0]}; }
@@ -204,8 +202,8 @@ class BarrierWork : public WorkBase {
     int target;
 
   public:
-    BarrierWork(int target, std::shared_ptr<std::atomic_int> count, StreamManager& streamManager, Swapper& swapper)
-        : WorkBase(streamManager, swapper), count(count), target(target)
+    BarrierWork(int target, std::shared_ptr<std::atomic_int> count, int deviceId, Swapper& swapper)
+        : WorkBase(deviceId, swapper), count(count), target(target)
     {}
     void execute() override;
 
@@ -213,35 +211,6 @@ class BarrierWork : public WorkBase {
     const char* getTypeName() const override { return "BARRIER"; }
     std::string getTypeSpecificInfo() const override;
 #endif
-};
-
-class StreamManager {
-    int deviceId;
-    CudaDeviceContext& deviceContext;
-    cudaStream_t currentStream = nullptr;
-    cublasHandle_t currentHandle = nullptr;
-    cuda::Stream currentStreamOwner;
-
-  public:
-    StreamManager(Swapper& swapper, int deviceId, int deviceCount);
-
-    void syncAllStreams() const;
-    void clear();
-
-    // Accessors for WorkBase subclasses
-    int getDeviceId() const { return deviceId; }
-    cublasHandle_t getHandle() const { return currentHandle; }
-    cudaStream_t setEnv();
-    cudaStream_t getStream();
-    cudaStream_t currentStreamHandle() const { return currentStream; }
-    CudaDeviceContext::ScratchLease acquireScratch(std::size_t bytes)
-    {
-      return deviceContext.acquireScratch(bytes, currentStream);
-    }
-    cuda::CompletionRef recordCompletion() { return deviceContext.recordCompletionEvent(currentStream); }
-
-  private:
-    void activateStream();
 };
 
 // Generic template factory for creating Work objects

@@ -16,7 +16,6 @@ namespace tensor
 {
 
 class Swapper;
-class StreamManager;
 
 class GpuBuffer {
     friend class Swapper;
@@ -92,17 +91,21 @@ class Swapper {
   public:
     class GpuAccessPlan {
         Swapper& swapper;
-        StreamManager& streamManager;
+        int deviceId = 0;
+        cuda::Stream streamOwner;
         std::vector<std::shared_ptr<GpuBuffer>> readBuffers;
         std::vector<std::shared_ptr<GpuBuffer>> writeBuffers;
-        cudaStream_t selectedStream = nullptr;
 
       public:
-        GpuAccessPlan(Swapper& swapper, StreamManager& streamManager,
-                      std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
+        GpuAccessPlan(Swapper& swapper, int deviceId, std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
                       std::vector<std::shared_ptr<GpuBuffer>> writeBuffers);
+        GpuAccessPlan(GpuAccessPlan const&) = delete;
+        GpuAccessPlan& operator=(GpuAccessPlan const&) = delete;
+        GpuAccessPlan(GpuAccessPlan&&) = delete;
+        GpuAccessPlan& operator=(GpuAccessPlan&&) = delete;
+        ~GpuAccessPlan();
 
-        cudaStream_t stream() const { return selectedStream; }
+        cudaStream_t stream() const { return streamOwner.stream(); }
         cublasHandle_t handle() const;
         cuda::CompletionRef recordCompletion() const;
         void publishCompletion(cuda::CompletionRef completion) const;
@@ -119,7 +122,7 @@ class Swapper {
     std::shared_ptr<GpuBuffer> getForReadNoWait(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> getForWriteNoWait(Matrix mat, int deviceId);
     GpuAccessPlan createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
-                                   std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, StreamManager& streamManager);
+                                   std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId);
     void waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                    const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream);
     void publishAccessCompletion(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
@@ -150,8 +153,7 @@ class Swapper {
     std::pair<int, std::shared_ptr<GpuBuffer>> getPreStoreBufferOrNone(Matrix mat);
     void notifyMatrixRead(Matrix mat, int deviceId, cuda::CompletionRef completion);
     void notifyMatrixWrite(Matrix mat, int deviceId, cuda::CompletionRef completion);
-    void copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream,
-                    StreamManager& streamManager);
+    void copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream);
     void exchangePreStoreMap();
     bool isOnRemoteGpu(int matId) const;
     int getRemoteNCCLId(int matId) const;

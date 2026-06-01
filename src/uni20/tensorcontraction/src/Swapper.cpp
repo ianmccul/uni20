@@ -351,8 +351,7 @@ std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
   return buffer;
 }
 
-void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream,
-                         StreamManager& streamManager)
+void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream)
 {
   assert(mat.getPtr() != nullptr);
   DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream, mat.sizeInByte());
@@ -453,30 +452,36 @@ std::shared_ptr<GpuBuffer> Swapper::getForWriteNoWait(Matrix mat, int deviceId)
   return getGpuBufferOrNone(mat, deviceId);
 }
 
-Swapper::GpuAccessPlan::GpuAccessPlan(Swapper& swapper, StreamManager& streamManager,
+Swapper::GpuAccessPlan::GpuAccessPlan(Swapper& swapper, int deviceId,
                                       std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
                                       std::vector<std::shared_ptr<GpuBuffer>> writeBuffers)
-    : swapper(swapper), streamManager(streamManager), readBuffers(std::move(readBuffers)),
-      writeBuffers(std::move(writeBuffers))
+    : swapper(swapper), deviceId(deviceId), streamOwner(swapper.deviceContext(deviceId).leaseWorkStream()),
+      readBuffers(std::move(readBuffers)), writeBuffers(std::move(writeBuffers))
 {
-  selectedStream = this->streamManager.setEnv();
-  swapper.waitForAccessDependencies(this->readBuffers, this->writeBuffers, selectedStream);
+  swapper.waitForAccessDependencies(this->readBuffers, this->writeBuffers, this->stream());
 }
 
-cublasHandle_t Swapper::GpuAccessPlan::handle() const { return streamManager.getHandle(); }
+Swapper::GpuAccessPlan::~GpuAccessPlan()
+{
+  if (swapper.dependencyEventsActive())
+  {
+    this->publishCompletion(this->recordCompletion());
+  }
+}
 
-cuda::CompletionRef Swapper::GpuAccessPlan::recordCompletion() const { return streamManager.recordCompletion(); }
+cublasHandle_t Swapper::GpuAccessPlan::handle() const { return streamOwner.prepare_handle(); }
+
+cuda::CompletionRef Swapper::GpuAccessPlan::recordCompletion() const { return streamOwner.recordCompletion(); }
 
 void Swapper::GpuAccessPlan::publishCompletion(cuda::CompletionRef completion) const
 {
-  swapper.publishAccessCompletion(readBuffers, writeBuffers, selectedStream, std::move(completion));
+  swapper.publishAccessCompletion(readBuffers, writeBuffers, this->stream(), std::move(completion));
 }
 
 auto Swapper::createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
-                               std::vector<std::shared_ptr<GpuBuffer>> writeBuffers,
-                               StreamManager& streamManager) -> GpuAccessPlan
+                               std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId) -> GpuAccessPlan
 {
-  return GpuAccessPlan(*this, streamManager, std::move(readBuffers), std::move(writeBuffers));
+  return GpuAccessPlan(*this, deviceId, std::move(readBuffers), std::move(writeBuffers));
 }
 
 void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,

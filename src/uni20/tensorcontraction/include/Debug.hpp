@@ -100,7 +100,7 @@ class Swapper;
   }                                                                                                                    \
   while (0)
 
-// StreamManager operation debug macros
+// CUDA work operation debug macros
 #define DEBUG_MATMUL(swapper, result, m1, m2, alpha, deviceId, stream)                                                 \
   do                                                                                                                   \
   {                                                                                                                    \

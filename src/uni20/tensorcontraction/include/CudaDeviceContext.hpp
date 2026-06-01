@@ -190,6 +190,9 @@ class Stream {
     cudaStream_t stream() const noexcept { return stream_; }
     explicit operator bool() const noexcept { return stream_ != nullptr; }
     void setDevice() const;
+    cublasHandle_t prepare_handle() const;
+    CudaDeviceContext::ScratchLease acquireScratch(std::size_t bytes) const;
+    CompletionRef recordCompletion() const;
     void release();
 
   private:

@@ -97,6 +97,28 @@ void cuda::Stream::setDevice() const
   CUDA_CALL(cudaSetDevice(context_->deviceId()));
 }
 
+cublasHandle_t cuda::Stream::prepare_handle() const
+{
+  assert(context_ != nullptr);
+  assert(stream_ != nullptr);
+  this->setDevice();
+  return context_->cublasHandleForCurrentThread(stream_);
+}
+
+CudaDeviceContext::ScratchLease cuda::Stream::acquireScratch(std::size_t bytes) const
+{
+  assert(context_ != nullptr);
+  assert(stream_ != nullptr);
+  return context_->acquireScratch(bytes, stream_);
+}
+
+cuda::CompletionRef cuda::Stream::recordCompletion() const
+{
+  assert(context_ != nullptr);
+  assert(stream_ != nullptr);
+  return context_->recordCompletionEvent(stream_);
+}
+
 cuda::Completion::Completion(CudaDeviceContext& context, cudaStream_t producerStream)
     : context_(&context), event_(context.recordDependencyEvent(producerStream)), producerStream_(producerStream),
       publishSequence_(event_->sequence)

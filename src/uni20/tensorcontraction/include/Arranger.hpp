@@ -17,7 +17,6 @@ namespace tensor
 class Swapper;
 
 class Arranger {
-    std::vector<StreamManager> streamManagers;
     Swapper& swapper;
     int deviceCount;
     ncclUniqueId ncclAllDeviceId;
