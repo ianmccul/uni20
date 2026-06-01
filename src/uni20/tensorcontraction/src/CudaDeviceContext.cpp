@@ -60,10 +60,11 @@ void CudaDeviceContext::ScratchLease::release()
   stream_ = nullptr;
 }
 
-CudaDeviceContext::StreamLease::StreamLease(StreamLease&& other) noexcept : context_(other.context_), slot_(other.slot_)
+CudaDeviceContext::StreamLease::StreamLease(StreamLease&& other) noexcept
+    : context_(other.context_), stream_(other.stream_)
 {
   other.context_ = nullptr;
-  other.slot_ = nullptr;
+  other.stream_ = nullptr;
 }
 
 CudaDeviceContext::StreamLease& CudaDeviceContext::StreamLease::operator=(StreamLease&& other) noexcept
@@ -72,9 +73,9 @@ CudaDeviceContext::StreamLease& CudaDeviceContext::StreamLease::operator=(Stream
   {
     release();
     context_ = other.context_;
-    slot_ = other.slot_;
+    stream_ = other.stream_;
     other.context_ = nullptr;
-    other.slot_ = nullptr;
+    other.stream_ = nullptr;
   }
   return *this;
 }
@@ -83,12 +84,12 @@ CudaDeviceContext::StreamLease::~StreamLease() { release(); }
 
 void CudaDeviceContext::StreamLease::release()
 {
-  if (context_ != nullptr && slot_ != nullptr)
+  if (context_ != nullptr && stream_ != nullptr)
   {
-    context_->returnWorkSlot(*slot_);
+    context_->returnWorkStream(stream_);
   }
   context_ = nullptr;
-  slot_ = nullptr;
+  stream_ = nullptr;
 }
 
 CudaDeviceContext::GpuEvent::GpuEvent(CudaDeviceContext& context, cudaStream_t producerStream)
@@ -147,17 +148,15 @@ CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool ser
     workStreamCount = std::max(1, workStreamCount);
   }
 
-  workSlots_.reserve(static_cast<std::size_t>(workStreamCount));
   for (int i = 0; i < workStreamCount; ++i)
   {
-    WorkSlot slot;
-    slot.deviceId = deviceId_;
-    slot.stream = serialCuda_ ? cudaStreamLegacy : nullptr;
+    cudaStream_t stream = serialCuda_ ? cudaStreamLegacy : nullptr;
     if (!serialCuda_)
     {
-      CUDA_CALL(cudaStreamCreate(&slot.stream));
+      CUDA_CALL(cudaStreamCreate(&stream));
+      ++createdWorkStreamCount_;
     }
-    workSlots_.push_back(slot);
+    availableWorkStreams_.push_back(stream);
   }
 }
 
@@ -181,16 +180,9 @@ std::shared_ptr<CudaDeviceContext> CudaDeviceContext::shared(int deviceId, int w
 
 CudaDeviceContext::~CudaDeviceContext() { release(); }
 
-auto CudaDeviceContext::nextWorkSlot() -> WorkSlot& { return acquireWorkSlot(); }
-
-auto CudaDeviceContext::nextWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
-{
-  return acquireWorkSlot(preferredStream);
-}
-
 CudaDeviceContext::StreamLease CudaDeviceContext::leaseWorkStream(cudaStream_t preferredStream)
 {
-  return StreamLease(*this, acquireWorkSlot(preferredStream));
+  return StreamLease(*this, acquireWorkStream(preferredStream));
 }
 
 CudaDeviceContext::GpuEventRef CudaDeviceContext::recordCompletionEvent(cudaStream_t producerStream)
@@ -199,54 +191,45 @@ CudaDeviceContext::GpuEventRef CudaDeviceContext::recordCompletionEvent(cudaStre
   return std::make_shared<GpuEvent>(*this, producerStream);
 }
 
-auto CudaDeviceContext::acquireWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
+cudaStream_t CudaDeviceContext::acquireWorkStream(cudaStream_t preferredStream)
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
 
+  if (preferredStream == cudaStreamLegacy)
+  {
+    return cudaStreamLegacy;
+  }
+
   if (preferredStream != nullptr)
   {
-    for (auto& slot : workSlots_)
+    auto it = std::find(availableWorkStreams_.begin(), availableWorkStreams_.end(), preferredStream);
+    if (it != availableWorkStreams_.end())
     {
-      if (!slot.leased && slot.stream == preferredStream)
-      {
-        slot.leased = true;
-        return markWorkSlotUsed(slot);
-      }
+      auto stream = *it;
+      availableWorkStreams_.erase(it);
+      return stream;
     }
   }
 
-  auto leastRecentlyUsed = std::min_element(workSlots_.begin(), workSlots_.end(), [](auto const& lhs, auto const& rhs) {
-    if (lhs.leased != rhs.leased)
-    {
-      return !lhs.leased;
-    }
-    return lhs.lastUse < rhs.lastUse;
-  });
-  if (leastRecentlyUsed != workSlots_.end() && !leastRecentlyUsed->leased)
+  if (!availableWorkStreams_.empty())
   {
-    leastRecentlyUsed->leased = true;
-    return markWorkSlotUsed(*leastRecentlyUsed);
+    auto stream = availableWorkStreams_.front();
+    availableWorkStreams_.pop_front();
+    return stream;
   }
 
   // This first prototype does not repossess active leases. A future
   // idle-aware scheduler should wait for or co_await an idle stream slot.
   assert(false && "no unleased CUDA work stream available");
-  auto& slot = workSlots_[nextWorkSlot_];
-  slot.leased = true;
-  nextWorkSlot_ = (nextWorkSlot_ + 1) % workSlots_.size();
-  return markWorkSlotUsed(slot);
+  return cudaStreamLegacy;
 }
 
-auto CudaDeviceContext::markWorkSlotUsed(WorkSlot& slot) -> WorkSlot&
+void CudaDeviceContext::returnWorkStream(cudaStream_t stream)
 {
-  slot.lastUse = ++workSlotUseCounter_;
-  return slot;
-}
-
-void CudaDeviceContext::returnWorkSlot(WorkSlot& slot)
-{
-  assert(slot.deviceId == deviceId_);
-  slot.leased = false;
+  if (stream != nullptr && stream != cudaStreamLegacy)
+  {
+    availableWorkStreams_.push_back(stream);
+  }
 }
 
 cudaEvent_t CudaDeviceContext::acquireEvent()
@@ -433,9 +416,9 @@ void CudaDeviceContext::syncWorkStreams(const char* reason)
     reclaimRetiredEvents();
     return;
   }
-  for (auto const& slot : workSlots_)
+  for (auto const stream : availableWorkStreams_)
   {
-    CUDA_CALL(cudaStreamSynchronize(slot.stream));
+    CUDA_CALL(cudaStreamSynchronize(stream));
     countStreamSync(reason);
   }
   reclaimCompletedAsyncFrees();
@@ -463,15 +446,17 @@ void CudaDeviceContext::release()
   syncWorkStreams("device_context_release_work_streams");
   syncMemoryStream("device_context_release_memory_stream");
 
-  for (auto& slot : workSlots_)
+  assert(serialCuda_ || availableWorkStreams_.size() == createdWorkStreamCount_);
+  while (!availableWorkStreams_.empty())
   {
-    if (!serialCuda_ && slot.stream != nullptr)
+    auto stream = availableWorkStreams_.front();
+    availableWorkStreams_.pop_front();
+    if (!serialCuda_ && stream != nullptr)
     {
-      CUDA_CALL(cudaStreamDestroy(slot.stream));
-      slot.stream = nullptr;
+      CUDA_CALL(cudaStreamDestroy(stream));
     }
   }
-  workSlots_.clear();
+  createdWorkStreamCount_ = 0;
 
   printCounters();
 

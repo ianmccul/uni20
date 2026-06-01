@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -67,16 +68,6 @@ class CudaDeviceContext {
         void release();
     };
 
-    // Stream slots are scheduling resources only.  Device-library handles such
-    // as cuBLAS are managed separately as thread-local per-device resources.
-    struct WorkSlot
-    {
-        int deviceId = 0;
-        cudaStream_t stream = nullptr;
-        std::uint64_t lastUse = 0;
-        bool leased = false;
-    };
-
     class GpuEvent;
     using GpuEventRef = std::shared_ptr<GpuEvent>;
 
@@ -89,15 +80,15 @@ class CudaDeviceContext {
         StreamLease& operator=(StreamLease&& other) noexcept;
         ~StreamLease();
 
-        cudaStream_t stream() const noexcept { return slot_ == nullptr ? nullptr : slot_->stream; }
-        explicit operator bool() const noexcept { return slot_ != nullptr; }
+        cudaStream_t stream() const noexcept { return stream_; }
+        explicit operator bool() const noexcept { return stream_ != nullptr; }
         void release();
 
       private:
-        StreamLease(CudaDeviceContext& context, WorkSlot& slot) : context_(&context), slot_(&slot) {}
+        StreamLease(CudaDeviceContext& context, cudaStream_t stream) : context_(&context), stream_(stream) {}
 
         CudaDeviceContext* context_ = nullptr;
-        WorkSlot* slot_ = nullptr;
+        cudaStream_t stream_ = nullptr;
 
         friend class CudaDeviceContext;
     };
@@ -135,8 +126,6 @@ class CudaDeviceContext {
     bool serialCuda() const noexcept { return serialCuda_; }
     cudaStream_t memoryStream() const noexcept { return memoryStream_; }
 
-    WorkSlot& nextWorkSlot();
-    WorkSlot& nextWorkSlot(cudaStream_t preferredStream);
     StreamLease leaseWorkStream(cudaStream_t preferredStream = nullptr);
     GpuEventRef recordCompletionEvent(cudaStream_t producerStream);
     cudaEvent_t acquireEvent();
@@ -177,7 +166,8 @@ class CudaDeviceContext {
     bool logCounters_ = false;
     bool released_ = false;
     cudaStream_t memoryStream_ = nullptr;
-    std::vector<WorkSlot> workSlots_;
+    std::deque<cudaStream_t> availableWorkStreams_;
+    std::size_t createdWorkStreamCount_ = 0;
     std::vector<cudaEvent_t> freeEvents_;
     std::vector<cudaEvent_t> retiredEvents_;
     std::vector<PendingFree> pendingFrees_;
@@ -185,16 +175,13 @@ class CudaDeviceContext {
     std::vector<std::shared_ptr<ScratchBuffer>> allScratchBuffers_;
     std::mutex scratchMutex_;
     Counters counters_;
-    std::size_t nextWorkSlot_ = 0;
-    std::uint64_t workSlotUseCounter_ = 0;
     std::uint64_t dependencySequence_ = 0;
 
     void reclaimRetiredEvents();
     void reclaimCompletedAsyncFrees();
     void countStreamSync(const char* reason);
-    WorkSlot& markWorkSlotUsed(WorkSlot& slot);
-    WorkSlot& acquireWorkSlot(cudaStream_t preferredStream = nullptr);
-    void returnWorkSlot(WorkSlot& slot);
+    cudaStream_t acquireWorkStream(cudaStream_t preferredStream = nullptr);
+    void returnWorkStream(cudaStream_t stream);
     void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);
     void printCounters() const;
 
