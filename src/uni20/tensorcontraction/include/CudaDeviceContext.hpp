@@ -40,6 +40,18 @@ class CudaDeviceContext {
 
     using EventDependencyRef = std::shared_ptr<EventDependency>;
 
+    struct DeviceAllocation
+    {
+        void* ptr = nullptr;
+        cuda::CompletionRef completion;
+        cudaError_t status = cudaSuccess;
+#if DEBUG_LOG
+        cudaStream_t stream = nullptr;
+#endif
+
+        explicit operator bool() const noexcept { return status == cudaSuccess && ptr != nullptr; }
+    };
+
     struct ScratchBuffer
     {
         void* ptr = nullptr;
@@ -84,16 +96,17 @@ class CudaDeviceContext {
 
     int deviceId() const noexcept { return deviceId_; }
     bool serialCuda() const noexcept { return serialCuda_; }
-    cudaStream_t memoryStream() const noexcept { return memoryStream_; }
 
     cuda::Stream leaseWorkStream();
+    DeviceAllocation allocateFromPool(cudaMemPool_t pool, std::size_t bytes);
+    void preallocatePool(cudaMemPool_t pool, std::size_t bytes);
     cuda::CompletionRef recordCompletionEvent(cudaStream_t producerStream);
     cudaEvent_t acquireEvent();
     void retireEvent(cudaEvent_t event);
     cudaEvent_t recordEvent(cudaStream_t stream);
     EventDependencyRef recordDependencyEvent(cudaStream_t stream);
     void waitEvent(cudaStream_t stream, cudaEvent_t event);
-    void enqueueAsyncFree(void* ptr, cudaStream_t stream, std::vector<EventDependencyRef> dependencies);
+    void enqueueAsyncFree(void* ptr, std::vector<EventDependencyRef> dependencies);
     ScratchLease acquireScratch(std::size_t bytes, cudaStream_t stream);
     cublasHandle_t cublasHandleForCurrentThread(cudaStream_t stream);
     void syncWorkStreams(const char* reason = "work_unspecified");

@@ -212,6 +212,33 @@ CudaDeviceContext::~CudaDeviceContext() { this->release(); }
 
 cuda::Stream CudaDeviceContext::leaseWorkStream() { return cuda::Stream(*this, this->acquireWorkStream()); }
 
+CudaDeviceContext::DeviceAllocation CudaDeviceContext::allocateFromPool(cudaMemPool_t pool, std::size_t bytes)
+{
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  DeviceAllocation allocation;
+  allocation.status = cudaMallocFromPoolAsync(&allocation.ptr, bytes, pool, memoryStream_);
+  if (allocation.status == cudaSuccess)
+  {
+    allocation.completion = this->recordCompletionEvent(memoryStream_);
+  }
+#if DEBUG_LOG
+  allocation.stream = memoryStream_;
+#endif
+  return allocation;
+}
+
+void CudaDeviceContext::preallocatePool(cudaMemPool_t pool, std::size_t bytes)
+{
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  void* ptr = nullptr;
+  cudaError_t err = cudaMallocFromPoolAsync(&ptr, bytes, pool, memoryStream_);
+  if (err == cudaSuccess)
+  {
+    CUDA_CALL(cudaFreeAsync(ptr, memoryStream_));
+  }
+  CUDA_CALL(cudaStreamSynchronize(memoryStream_));
+}
+
 cuda::CompletionRef CudaDeviceContext::recordCompletionEvent(cudaStream_t producerStream)
 {
   assert(producerStream != nullptr);
@@ -221,6 +248,10 @@ cuda::CompletionRef CudaDeviceContext::recordCompletionEvent(cudaStream_t produc
 cudaStream_t CudaDeviceContext::acquireWorkStream()
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
+  if (serialCuda_)
+  {
+    return cudaStreamLegacy;
+  }
   if (!availableWorkStreams_.empty())
   {
     auto stream = availableWorkStreams_.front();
@@ -289,13 +320,14 @@ void CudaDeviceContext::waitEvent(cudaStream_t stream, cudaEvent_t event)
   ++counters_.eventWait;
 }
 
-void CudaDeviceContext::enqueueAsyncFree(void* ptr, cudaStream_t stream, std::vector<EventDependencyRef> dependencies)
+void CudaDeviceContext::enqueueAsyncFree(void* ptr, std::vector<EventDependencyRef> dependencies)
 {
   if (ptr == nullptr)
   {
     return;
   }
   CUDA_CALL(cudaSetDevice(deviceId_));
+  auto stream = memoryStream_;
   for (auto const& dependency : dependencies)
   {
     if (dependency != nullptr)

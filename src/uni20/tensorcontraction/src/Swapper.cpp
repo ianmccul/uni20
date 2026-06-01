@@ -323,31 +323,29 @@ void Swapper::release()
 
 std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
 {
-  void* ptr;
-  auto memStream = deviceContexts[deviceId]->memoryStream();
   auto memPool = memPools[deviceId];
 
-  cudaError_t errCode = cudaMallocFromPoolAsync(&ptr, mat.sizeInByte(), memPool, memStream);
+  auto allocation = deviceContexts[deviceId]->allocateFromPool(memPool, mat.sizeInByte());
 
-  if (errCode != cudaSuccess)
+  if (allocation.status != cudaSuccess)
   {
-    if (errCode != cudaErrorMemoryAllocation)
+    if (allocation.status != cudaErrorMemoryAllocation)
     {
       fprintf(stderr, "Unexpected CUDA Error at %s:%d\n", __FILE__, __LINE__);
-      fprintf(stderr, "  Error code: %d\n", errCode);
-      fprintf(stderr, "  Error text: %s\n", cudaGetErrorString(errCode));
+      fprintf(stderr, "  Error code: %d\n", allocation.status);
+      fprintf(stderr, "  Error text: %s\n", cudaGetErrorString(allocation.status));
       assert(false);
     }
 
     return nullptr;
   }
 
-  DEBUG_GPU_ALLOC(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
-  auto buffer = std::make_shared<GpuBuffer>(ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
+  DEBUG_GPU_ALLOC(*this, mat.getId(), deviceId, allocation.stream, mat.sizeInByte());
+  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
   auto& hostToGpuMap = hostToGpuMaps[deviceId];
   hostToGpuMap[buffer->getId()] = buffer;
 
-  buffer->publishWrite(memStream);
+  buffer->publishWrite(std::move(allocation.completion));
   return buffer;
 }
 
@@ -362,11 +360,16 @@ void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int devi
 void Swapper::preStoreMatrix(Matrix mat, int deviceId)
 {
   DEBUG_PRESTORE(*this, mat.getId(), 0, deviceId);
-  auto memStream = deviceContexts[deviceId]->memoryStream();
-  double* gpuPtr;
-  CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
-  CUDA_CALL(cudaMemcpyAsync(gpuPtr, mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, memStream));
-  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
+  auto allocation = deviceContexts[deviceId]->allocateFromPool(memPools[deviceId], mat.sizeInByte());
+  CUDA_CALL(allocation.status);
+  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
+  buffer->publishWrite(std::move(allocation.completion));
+
+  auto stream = deviceContexts[deviceId]->leaseWorkStream();
+  buffer->waitBeforeWrite(stream.stream());
+  DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream.stream()));
+  buffer->publishWrite(stream.recordCompletion());
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
@@ -380,11 +383,11 @@ void Swapper::copyHostToPreStoreMatrix(Matrix mat)
   assert(mat.getPtr() != nullptr);
 
   CUDA_CALL(cudaSetDevice(deviceId));
-  auto memStream = deviceContexts[deviceId]->memoryStream();
-  buffer->waitBeforeWrite(memStream);
-  DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
-  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, memStream));
-  buffer->publishWrite(memStream);
+  auto stream = deviceContexts[deviceId]->leaseWorkStream();
+  buffer->waitBeforeWrite(stream.stream());
+  DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream.stream()));
+  buffer->publishWrite(stream.recordCompletion());
 }
 
 void Swapper::copyPreStoreMatrixToHost(Matrix mat)
@@ -396,11 +399,11 @@ void Swapper::copyPreStoreMatrixToHost(Matrix mat)
   assert(mat.getPtr() != nullptr);
 
   CUDA_CALL(cudaSetDevice(deviceId));
-  auto memStream = deviceContexts[deviceId]->memoryStream();
-  buffer->waitBeforeRead(memStream);
-  DEBUG_GPU_COPY_D2H(*this, mat.getId(), deviceId, memStream, mat.sizeInByte());
-  CUDA_CALL(cudaMemcpyAsync(mat.getPtr(), buffer->getPtr(), mat.sizeInByte(), cudaMemcpyDeviceToHost, memStream));
-  buffer->publishRead(memStream);
+  auto stream = deviceContexts[deviceId]->leaseWorkStream();
+  buffer->waitBeforeRead(stream.stream());
+  DEBUG_GPU_COPY_D2H(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(mat.getPtr(), buffer->getPtr(), mat.sizeInByte(), cudaMemcpyDeviceToHost, stream.stream()));
+  buffer->publishRead(stream.recordCompletion());
 }
 
 void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
@@ -409,10 +412,10 @@ void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
   int mpi_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   DEBUG_PRESTORE(*this, mat.getId(), mpi_rank, deviceId);
-  auto memStream = deviceContexts[deviceId]->memoryStream();
-  double* gpuPtr;
-  CUDA_CALL(cudaMallocFromPoolAsync(&gpuPtr, mat.sizeInByte(), memPools[deviceId], memStream));
-  auto buffer = std::make_shared<GpuBuffer>(gpuPtr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
+  auto allocation = deviceContexts[deviceId]->allocateFromPool(memPools[deviceId], mat.sizeInByte());
+  CUDA_CALL(allocation.status);
+  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
+  buffer->publishWrite(std::move(allocation.completion));
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
@@ -589,7 +592,6 @@ void Swapper::freeAllBuffer(int deviceId)
 
 void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
 {
-  auto memStream = deviceContexts[deviceId]->memoryStream();
   std::vector<CudaDeviceContext::EventDependencyRef> dependencies;
   dependencies.reserve(2);
   if (buffer->accessState.writer.completion != nullptr)
@@ -602,8 +604,8 @@ void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
     dependencies.push_back(buffer->accessState.readers.completion->dependencyEvent());
   }
   destroyBufferEvents(buffer);
-  DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, memStream);
-  deviceContexts[deviceId]->enqueueAsyncFree(buffer->getPtr(), memStream, std::move(dependencies));
+  DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, nullptr);
+  deviceContexts[deviceId]->enqueueAsyncFree(buffer->getPtr(), std::move(dependencies));
   buffer->ptr = nullptr;
 }
 
@@ -618,7 +620,11 @@ void Swapper::destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer)
 
 void Swapper::freeAllEvents(int deviceId) { (void)deviceId; }
 
-void Swapper::syncMemStream(int deviceId, const char* reason) { deviceContexts[deviceId]->syncMemoryStream(reason); }
+void Swapper::syncMemStream(int deviceId, const char* reason)
+{
+  deviceContexts[deviceId]->syncMemoryStream(reason);
+  deviceContexts[deviceId]->syncWorkStreams(reason);
+}
 
 void Swapper::initMemPools()
 {
@@ -703,14 +709,7 @@ void Swapper::initMemPools()
 
       // pre-allocate maxSize memory and free it to prevent memory frag.
       // if failed then let it fail.
-      void* preAllocPtr;
-      auto memStream = deviceContexts[i]->memoryStream();
-      cudaError_t preAllocErr = cudaMallocFromPoolAsync(&preAllocPtr, maxSize, pool, memStream);
-      if (preAllocErr == cudaSuccess)
-      {
-        cudaFreeAsync(preAllocPtr, memStream);
-      }
-      CUDA_CALL(cudaStreamSynchronize(memStream));
+      deviceContexts[i]->preallocatePool(pool, maxSize);
     }
   }
 
