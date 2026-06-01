@@ -145,12 +145,15 @@ void SyncWork::execute()
   auto [matDeviceId, buffer] = swapper.getPreStoreBufferOrNone(mat);
   auto event = getSyncFinishEvent();
 
-  if (event && mat.getPtr() == nullptr)
+  if (mat.getPtr() == nullptr)
   {
     auto localBuffer = swapper.getForReadNoWait(mat, streamManager.getDeviceId());
     assert(localBuffer);
     localBuffer->waitBeforeRead(stream);
-    CUDA_CALL(cudaEventRecord(event, stream));
+    if (event)
+    {
+      CUDA_CALL(cudaEventRecord(event, stream));
+    }
     return;
   }
 
