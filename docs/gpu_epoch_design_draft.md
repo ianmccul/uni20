@@ -2,6 +2,8 @@
 
 This is a draft design note.  It is intended to workshop the final uni20 GPU
 dependency model before replacing or rewriting the existing CUDA scheduler notes.
+Broader CUDA resource-management notes, including future idle-aware stream
+leasing, live in `cuda_runtime_design_notes.md`.
 
 The immediate implementation target is still single-threaded TensorContraction
 integration.  The API and invariants should nevertheless be shaped so that the
