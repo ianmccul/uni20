@@ -13,19 +13,6 @@
 namespace tensor
 {
 
-thread_local bool accessDependencyWaitsSuppressed = false;
-
-Swapper::ScopedAccessDependencyWaitSuppression::ScopedAccessDependencyWaitSuppression()
-    : previous(accessDependencyWaitsSuppressed)
-{
-  accessDependencyWaitsSuppressed = true;
-}
-
-Swapper::ScopedAccessDependencyWaitSuppression::~ScopedAccessDependencyWaitSuppression()
-{
-  accessDependencyWaitsSuppressed = previous;
-}
-
 GpuBuffer::GpuBuffer(GpuBuffer&& other)
     : ptr(other.ptr), id(other.id), dim1(other.dim1), dim2(other.dim2), hostPtr(other.hostPtr),
       dependencyEventsEnabled(other.dependencyEventsEnabled), deviceContext(other.deviceContext),
@@ -75,7 +62,7 @@ int GpuBuffer::getId() const { return id; }
 
 void GpuBuffer::waitBeforeWrite(cudaStream_t stream)
 {
-  if (!dependencyEventsEnabled || accessDependencyWaitsSuppressed)
+  if (!dependencyEventsEnabled)
   {
     return;
   }
@@ -105,7 +92,7 @@ void GpuBuffer::publishRead(cudaStream_t stream)
 
 void GpuBuffer::waitBeforeRead(cudaStream_t stream)
 {
-  if (!dependencyEventsEnabled || accessDependencyWaitsSuppressed)
+  if (!dependencyEventsEnabled)
   {
     return;
   }
@@ -504,7 +491,7 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
                                         const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers,
                                         cudaStream_t stream)
 {
-  if (!dependencyEventsEnabled || accessDependencyWaitsSuppressed)
+  if (!dependencyEventsEnabled)
   {
     return;
   }

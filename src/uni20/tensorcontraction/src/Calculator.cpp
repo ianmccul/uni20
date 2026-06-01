@@ -320,20 +320,12 @@ void StreamManager::clear()
 
 cudaStream_t StreamManager::getStream()
 {
-  if (fixedStreamActive)
-  {
-    return currentStream;
-  }
   activateStream();
   return currentStream;
 }
 
 cudaStream_t StreamManager::getStream(cudaStream_t preferredStream)
 {
-  if (fixedStreamActive)
-  {
-    return currentStream;
-  }
   activateStream(preferredStream);
   return currentStream;
 }
@@ -351,17 +343,6 @@ cudaStream_t StreamManager::setEnv(cudaStream_t preferredStream)
   cudaStream_t stream = getStream(preferredStream);
   return stream;
 }
-
-cudaStream_t StreamManager::beginFixedStream(cudaStream_t preferredStream)
-{
-  CUDA_CALL(cudaSetDevice(deviceId));
-  fixedStreamActive = false;
-  cudaStream_t stream = getStream(preferredStream);
-  fixedStreamActive = true;
-  return stream;
-}
-
-void StreamManager::endFixedStream() { fixedStreamActive = false; }
 
 void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams("stream_manager_clear"); }
 

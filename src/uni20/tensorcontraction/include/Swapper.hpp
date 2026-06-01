@@ -108,17 +108,6 @@ class Swapper {
         void publishCompletion(cuda::CompletionRef completion) const;
     };
 
-    class ScopedAccessDependencyWaitSuppression {
-      public:
-        ScopedAccessDependencyWaitSuppression();
-        ScopedAccessDependencyWaitSuppression(const ScopedAccessDependencyWaitSuppression&) = delete;
-        ScopedAccessDependencyWaitSuppression& operator=(const ScopedAccessDependencyWaitSuppression&) = delete;
-        ~ScopedAccessDependencyWaitSuppression();
-
-      private:
-        bool previous = false;
-    };
-
     Swapper();
     Swapper(const Swapper&) = delete;
     Swapper& operator=(const Swapper&) = delete;
