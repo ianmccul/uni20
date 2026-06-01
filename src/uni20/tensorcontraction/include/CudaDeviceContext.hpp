@@ -77,70 +77,51 @@ class CudaDeviceContext {
         bool leased = false;
     };
 
-    class VirtualStream;
-    using VirtualStreamRef = std::shared_ptr<VirtualStream>;
+    class GpuEvent;
+    using GpuEventRef = std::shared_ptr<GpuEvent>;
 
-    class ConcreteStreamLease {
+    class StreamLease {
       public:
-        ConcreteStreamLease() = default;
-        ConcreteStreamLease(ConcreteStreamLease const&) = delete;
-        ConcreteStreamLease& operator=(ConcreteStreamLease const&) = delete;
-        ConcreteStreamLease(ConcreteStreamLease&& other) noexcept;
-        ConcreteStreamLease& operator=(ConcreteStreamLease&& other) noexcept;
-        ~ConcreteStreamLease();
+        StreamLease() = default;
+        StreamLease(StreamLease const&) = delete;
+        StreamLease& operator=(StreamLease const&) = delete;
+        StreamLease(StreamLease&& other) noexcept;
+        StreamLease& operator=(StreamLease&& other) noexcept;
+        ~StreamLease();
 
         cudaStream_t stream() const noexcept { return slot_ == nullptr ? nullptr : slot_->stream; }
         explicit operator bool() const noexcept { return slot_ != nullptr; }
         void release();
 
       private:
-        ConcreteStreamLease(CudaDeviceContext& context, VirtualStream& owner, WorkSlot& slot)
-            : context_(&context), owner_(&owner), slot_(&slot)
-        {}
+        StreamLease(CudaDeviceContext& context, WorkSlot& slot) : context_(&context), slot_(&slot) {}
 
         CudaDeviceContext* context_ = nullptr;
-        VirtualStream* owner_ = nullptr;
         WorkSlot* slot_ = nullptr;
 
-        friend class VirtualStream;
+        friend class CudaDeviceContext;
     };
 
-    class VirtualStream {
+    class GpuEvent {
       public:
-        VirtualStream() = default;
-        VirtualStream(CudaDeviceContext& context, WorkSlot& slot) : context_(&context), slot_(&slot) {}
-        VirtualStream(CudaDeviceContext& context, cudaStream_t producerStream)
-            : context_(&context), producerStream_(producerStream)
-        {}
-        VirtualStream(VirtualStream const&) = delete;
-        VirtualStream& operator=(VirtualStream const&) = delete;
-        VirtualStream(VirtualStream&& other) noexcept;
-        VirtualStream& operator=(VirtualStream&& other) noexcept;
-        ~VirtualStream();
+        GpuEvent() = default;
+        GpuEvent(CudaDeviceContext& context, cudaStream_t producerStream);
+        GpuEvent(GpuEvent const&) = delete;
+        GpuEvent& operator=(GpuEvent const&) = delete;
+        GpuEvent(GpuEvent&& other) noexcept;
+        GpuEvent& operator=(GpuEvent&& other) noexcept;
+        ~GpuEvent() = default;
 
-        ConcreteStreamLease lease();
-        bool tryReturn(WorkSlot& slot);
         cudaStream_t stream() const noexcept;
-
-        // Mark that buffer state now depends on this stream tail.  The CUDA
-        // event is still lazy: it is recorded only for cross-stream waits,
-        // buffer-free dependencies, or stream-slot release.
-        void markPublished() noexcept;
         std::uint64_t sequence() const noexcept { return publishSequence_; }
         void waitOn(cudaStream_t consumerStream);
         EventDependencyRef dependencyEvent();
-        void close();
 
       private:
         CudaDeviceContext* context_ = nullptr;
-        WorkSlot* slot_ = nullptr;
         EventDependencyRef event_;
         cudaStream_t producerStream_ = nullptr;
         std::uint64_t publishSequence_ = 0;
-        bool published_ = false;
-        bool closed_ = false;
-
-        void materializeEvent();
     };
 
     CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda);
@@ -156,8 +137,8 @@ class CudaDeviceContext {
 
     WorkSlot& nextWorkSlot();
     WorkSlot& nextWorkSlot(cudaStream_t preferredStream);
-    VirtualStreamRef createVirtualStream(cudaStream_t preferredStream = nullptr);
-    VirtualStreamRef createExternalVirtualStream(cudaStream_t producerStream);
+    StreamLease leaseWorkStream(cudaStream_t preferredStream = nullptr);
+    GpuEventRef recordCompletionEvent(cudaStream_t producerStream);
     cudaEvent_t acquireEvent();
     void retireEvent(cudaEvent_t event);
     cudaEvent_t recordEvent(cudaStream_t stream);

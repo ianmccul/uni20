@@ -97,7 +97,7 @@ CUDA stream and pool bookkeeping only.  Device-library handles such as cuBLAS,
 cuSOLVER, or cuQuantum are separate thread-local/per-device resources.  A stream
 slot does not belong to a buffer epoch after an access plan has been published.
 
-`ConcreteStreamLease`
+`StreamLease`
 
 An RAII handle that leases a concrete `StreamSlot` from a `CudaDeviceContext` so
 CUDA work can be enqueued.  When the access handle publishes, it records the
@@ -109,7 +109,7 @@ operation.
 
 The transaction returned by atomically acquiring read/write access for one GPU
 operation.  In the first implementation it owns a scheduler-selected
-`ConcreteStreamLease` and publishes one completion event for the operation.
+`StreamLease` and publishes one completion event for the operation.
 External-stream mode can be added later with the same epoch rules, but should
 not be part of the initial TensorContraction prototype.
 

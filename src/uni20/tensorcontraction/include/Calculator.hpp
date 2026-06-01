@@ -220,8 +220,7 @@ class StreamManager {
     CudaDeviceContext& deviceContext;
     cudaStream_t currentStream = nullptr;
     cublasHandle_t currentHandle = nullptr;
-    CudaDeviceContext::VirtualStreamRef currentVirtualStream;
-    CudaDeviceContext::ConcreteStreamLease currentLease;
+    CudaDeviceContext::StreamLease currentLease;
     bool fixedStreamActive = false;
 
   public:
@@ -244,14 +243,7 @@ class StreamManager {
     {
       return deviceContext.acquireScratch(bytes, currentStream);
     }
-    CudaDeviceContext::VirtualStreamRef recordCompletion()
-    {
-      if (currentVirtualStream != nullptr)
-      {
-        currentVirtualStream->markPublished();
-      }
-      return currentVirtualStream;
-    }
+    CudaDeviceContext::GpuEventRef recordCompletion() { return deviceContext.recordCompletionEvent(currentStream); }
 
   private:
     void activateStream(cudaStream_t preferredStream = nullptr);

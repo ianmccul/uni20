@@ -7,11 +7,17 @@
 #include <cstdio>
 #include <map>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace tensor
 {
+
+static_assert(!std::is_copy_constructible_v<CudaDeviceContext::StreamLease>);
+static_assert(!std::is_copy_assignable_v<CudaDeviceContext::StreamLease>);
+static_assert(std::is_move_constructible_v<CudaDeviceContext::StreamLease>);
+static_assert(std::is_move_assignable_v<CudaDeviceContext::StreamLease>);
 
 CudaDeviceContext::EventDependency::~EventDependency()
 {
@@ -54,169 +60,74 @@ void CudaDeviceContext::ScratchLease::release()
   stream_ = nullptr;
 }
 
-CudaDeviceContext::ConcreteStreamLease::ConcreteStreamLease(ConcreteStreamLease&& other) noexcept
-    : context_(other.context_), owner_(other.owner_), slot_(other.slot_)
+CudaDeviceContext::StreamLease::StreamLease(StreamLease&& other) noexcept : context_(other.context_), slot_(other.slot_)
 {
   other.context_ = nullptr;
-  other.owner_ = nullptr;
   other.slot_ = nullptr;
 }
 
-CudaDeviceContext::ConcreteStreamLease&
-CudaDeviceContext::ConcreteStreamLease::operator=(ConcreteStreamLease&& other) noexcept
+CudaDeviceContext::StreamLease& CudaDeviceContext::StreamLease::operator=(StreamLease&& other) noexcept
 {
   if (this != &other)
   {
     release();
     context_ = other.context_;
-    owner_ = other.owner_;
     slot_ = other.slot_;
     other.context_ = nullptr;
-    other.owner_ = nullptr;
     other.slot_ = nullptr;
   }
   return *this;
 }
 
-CudaDeviceContext::ConcreteStreamLease::~ConcreteStreamLease() { release(); }
+CudaDeviceContext::StreamLease::~StreamLease() { release(); }
 
-void CudaDeviceContext::ConcreteStreamLease::release()
+void CudaDeviceContext::StreamLease::release()
 {
   if (context_ != nullptr && slot_ != nullptr)
   {
-    if (owner_ == nullptr || !owner_->tryReturn(*slot_))
-    {
-      context_->returnWorkSlot(*slot_);
-    }
+    context_->returnWorkSlot(*slot_);
   }
   context_ = nullptr;
-  owner_ = nullptr;
   slot_ = nullptr;
 }
 
-CudaDeviceContext::VirtualStream::VirtualStream(VirtualStream&& other) noexcept
-    : context_(other.context_), slot_(other.slot_), event_(std::move(other.event_)),
-      producerStream_(other.producerStream_), publishSequence_(other.publishSequence_), published_(other.published_),
-      closed_(other.closed_)
+CudaDeviceContext::GpuEvent::GpuEvent(CudaDeviceContext& context, cudaStream_t producerStream)
+    : context_(&context), event_(context.recordDependencyEvent(producerStream)), producerStream_(producerStream),
+      publishSequence_(event_->sequence)
+{}
+
+CudaDeviceContext::GpuEvent::GpuEvent(GpuEvent&& other) noexcept
+    : context_(other.context_), event_(std::move(other.event_)), producerStream_(other.producerStream_),
+      publishSequence_(other.publishSequence_)
 {
   other.context_ = nullptr;
-  other.slot_ = nullptr;
   other.producerStream_ = nullptr;
   other.publishSequence_ = 0;
-  other.published_ = false;
-  other.closed_ = true;
 }
 
-CudaDeviceContext::VirtualStream& CudaDeviceContext::VirtualStream::operator=(VirtualStream&& other) noexcept
+CudaDeviceContext::GpuEvent& CudaDeviceContext::GpuEvent::operator=(GpuEvent&& other) noexcept
 {
   if (this != &other)
   {
-    close();
     context_ = other.context_;
-    slot_ = other.slot_;
     event_ = std::move(other.event_);
     producerStream_ = other.producerStream_;
     publishSequence_ = other.publishSequence_;
-    published_ = other.published_;
-    closed_ = other.closed_;
     other.context_ = nullptr;
-    other.slot_ = nullptr;
     other.producerStream_ = nullptr;
     other.publishSequence_ = 0;
-    other.published_ = false;
-    other.closed_ = true;
   }
   return *this;
 }
 
-CudaDeviceContext::VirtualStream::~VirtualStream() { close(); }
+cudaStream_t CudaDeviceContext::GpuEvent::stream() const noexcept { return producerStream_; }
 
-CudaDeviceContext::ConcreteStreamLease CudaDeviceContext::VirtualStream::lease()
+void CudaDeviceContext::GpuEvent::waitOn(cudaStream_t consumerStream)
 {
-  assert(context_ != nullptr);
-  assert(slot_ != nullptr);
-  return ConcreteStreamLease(*context_, *this, *slot_);
+  if (context_ != nullptr && event_ != nullptr) context_->waitEvent(consumerStream, event_->event);
 }
 
-bool CudaDeviceContext::VirtualStream::tryReturn(WorkSlot& slot)
-{
-  if (closed_ || context_ == nullptr || slot_ != &slot)
-  {
-    return false;
-  }
-  return true;
-}
-
-cudaStream_t CudaDeviceContext::VirtualStream::stream() const noexcept
-{
-  if (slot_ != nullptr)
-  {
-    return slot_->stream;
-  }
-  return producerStream_;
-}
-
-void CudaDeviceContext::VirtualStream::markPublished() noexcept
-{
-  published_ = true;
-  if (context_ != nullptr)
-  {
-    publishSequence_ = ++context_->dependencySequence_;
-  }
-}
-
-void CudaDeviceContext::VirtualStream::materializeEvent()
-{
-  if (event_ != nullptr)
-  {
-    return;
-  }
-  assert(context_ != nullptr);
-  auto producerStream = stream();
-  assert(producerStream != nullptr);
-  event_ = context_->recordDependencyEvent(producerStream);
-  producerStream_ = producerStream;
-}
-
-void CudaDeviceContext::VirtualStream::waitOn(cudaStream_t consumerStream)
-{
-  if (consumerStream == nullptr)
-  {
-    return;
-  }
-  auto producerStream = stream();
-  if (event_ == nullptr && producerStream == consumerStream)
-  {
-    return;
-  }
-  materializeEvent();
-  context_->waitEvent(consumerStream, event_->event);
-}
-
-CudaDeviceContext::EventDependencyRef CudaDeviceContext::VirtualStream::dependencyEvent()
-{
-  materializeEvent();
-  return event_;
-}
-
-void CudaDeviceContext::VirtualStream::close()
-{
-  closed_ = true;
-  if (context_ != nullptr && slot_ != nullptr)
-  {
-    if (published_)
-    {
-      materializeEvent();
-    }
-    context_->returnWorkSlot(*slot_);
-    producerStream_ = slot_->stream;
-    slot_ = nullptr;
-  }
-  if (event_ == nullptr)
-  {
-    context_ = nullptr;
-  }
-}
+CudaDeviceContext::EventDependencyRef CudaDeviceContext::GpuEvent::dependencyEvent() { return event_; }
 
 CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda)
     : deviceId_(deviceId), serialCuda_(serialCuda),
@@ -277,16 +188,15 @@ auto CudaDeviceContext::nextWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
   return acquireWorkSlot(preferredStream);
 }
 
-CudaDeviceContext::VirtualStreamRef CudaDeviceContext::createVirtualStream(cudaStream_t preferredStream)
+CudaDeviceContext::StreamLease CudaDeviceContext::leaseWorkStream(cudaStream_t preferredStream)
 {
-  return std::make_shared<VirtualStream>(*this, acquireWorkSlot(preferredStream));
+  return StreamLease(*this, acquireWorkSlot(preferredStream));
 }
 
-CudaDeviceContext::VirtualStreamRef CudaDeviceContext::createExternalVirtualStream(cudaStream_t producerStream)
+CudaDeviceContext::GpuEventRef CudaDeviceContext::recordCompletionEvent(cudaStream_t producerStream)
 {
-  auto stream = std::make_shared<VirtualStream>(*this, producerStream);
-  stream->markPublished();
-  return stream;
+  assert(producerStream != nullptr);
+  return std::make_shared<GpuEvent>(*this, producerStream);
 }
 
 auto CudaDeviceContext::acquireWorkSlot(cudaStream_t preferredStream) -> WorkSlot&
@@ -318,8 +228,8 @@ auto CudaDeviceContext::acquireWorkSlot(cudaStream_t preferredStream) -> WorkSlo
     return markWorkSlotUsed(*leastRecentlyUsed);
   }
 
-  // This first prototype does not repossess active leases.  A future
-  // implementation will finalize parked virtual streams before stealing a slot.
+  // This first prototype does not repossess active leases. A future
+  // idle-aware scheduler should wait for or co_await an idle stream slot.
   assert(false && "no unleased CUDA work stream available");
   auto& slot = workSlots_[nextWorkSlot_];
   slot.leased = true;

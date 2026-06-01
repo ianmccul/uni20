@@ -67,9 +67,10 @@ disables its per-buffer dependency events; it is a profiling/debugging tool, not
 the intended production execution model for uni20.
 Internally, the bridge models each active device with a small
 `CudaDeviceContext`: one memory stream plus a pool of work-stream slots, each
-with its own cuBLAS handle.  This mirrors the resource shape expected for the
-future uni20 CUDA scheduler without implementing that scheduler in the vendored
-runtime.
+leased through move-only RAII stream handles.  Destroying or releasing a stream
+lease returns the real stream slot to the pool.  This mirrors the resource shape
+expected for the future uni20 CUDA scheduler without implementing that scheduler
+in the vendored runtime.
 Set `UNI20_TENSORCONTRACTION_CUDA_COUNTERS=1` to print per-device diagnostic
 counters for event creation, event records, event waits, event destruction, and
 stream synchronizations when each temporary device context is released.
@@ -78,11 +79,11 @@ The current CUDA event tracking is provisional.  The intended design, following
 the existing async `EpochContext` model, is per-memory-block dependency
 tracking: each `GpuBuffer` should own the written generation and outstanding
 reader generations for that memory block, and operations should acquire/publish
-read or write access through that state.  Same-stream ordering should use CUDA
-stream semantics without recording events; cross-stream ordering should record
-events only at real generation boundaries.  Batch-level or raw-event
-synchronization should be treated as temporary bridge code unless it protects a
-non-matrix resource such as scratch storage.
+read or write access through that state.  The temporary bridge now records
+non-timing CUDA events as durable completion tokens and does not keep virtual
+stream ownership in the buffer state.  Batch-level synchronization should be
+treated as temporary bridge code unless it protects a non-matrix resource such
+as scratch storage.
 
 `vector_algebra.hpp` provides block-vector operations needed by the first
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
