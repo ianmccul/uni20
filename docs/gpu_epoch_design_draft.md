@@ -9,14 +9,15 @@ same model can later be made thread-safe without changing semantics.
 
 ## Goals
 
-- Track GPU buffer read/write ordering without eager per-buffer CUDA events.
+- Track GPU buffer read/write ordering with explicit per-epoch CUDA events.
   Kernel launches are assumed to be causally ordered by the CPU async layer with
   respect to event and stream synchronization.
-- Let same-stream continuation use CUDA stream order with no event or wait when
-  possible.  This is a performance optimization to reduce scheduler overhead.
-- Materialize CUDA events only at real ordering boundaries: cross-stream handoff
-  or stream-slot repossession.  That is, we use virtual handles and only call the
-  CUDA API when unavoidable.
+- Treat CUDA streams as transient execution resources.  A stream is leased for
+  one access plan, used to enqueue work, and returned to the device stream pool
+  after a non-timing completion event has been recorded.
+- Make CUDA events the durable dependency contract between buffer epochs.  The
+  first implementation should not cache streams on buffers or try to preserve
+  stream affinity across operations.
 - Preserve a clean path to a multi-threaded scheduler by making buffer access
   acquisition conceptually atomic.  The path to a threaded implementation should
   be close to "add locking around critical sections", with minimal refactoring.
@@ -40,8 +41,7 @@ The GPU model is similar, but CUDA changes the mechanics:
 - A CUDA stream functions as an execution queue.
 - CUDA events are concrete cross-stream readiness tokens.  We do not need to
   encode event ordering ourselves; the CUDA API does that for us.  We still need
-  to track which buffer generation owns each virtual stream or materialized
-  event.
+  to track which buffer generation owns each writer or reader completion event.
 - Multiple kernels may concurrently read the same device buffer.
 - GPU writes must be ordered; we cannot model the CPU model's unordered
   multi-writer accumulation mode, as there is no such functionality in CUDA.
@@ -51,13 +51,18 @@ The GPU model is similar, but CUDA changes the mechanics:
 
 This simplifies the GPU version.  We do not need to track a full `EpochQueue`;
 we only need the current per-buffer epoch state.  Prior operations on a stream
-are handled by the CUDA runtime.  The GPU model should therefore keep a
-`GpuEpochContext` per buffer, whose internal completion handle is a virtual
-stream-tail/event handle rather than a CPU coroutine latch.
+are handled by the CUDA runtime while an operation is being enqueued.  Once the
+operation is published, the buffer's epoch state is represented by CUDA events,
+not by ownership of the stream used to create them.
+
+The object is called `GpuEpochQueue` in this document to emphasize the analogy
+with the CPU `EpochQueue`: the queue owns the current read/write epoch state for
+one GPU buffer, and access handles are the GPU analogues of CPU read/write
+buffers.
 
 ## Core Objects
 
-`GpuEpochContext`
+`GpuEpochQueue`
 
 The synchronization state for one GPU buffer.  Using the convention above, it is
 closest in spirit to the current tail of an `EpochQueue`: it tracks the latest
@@ -67,49 +72,44 @@ State:
 
 - `generation`: monotonically incremented for each write acquisition.  This is
   useful for debugging even if CUDA events/streams provide the real ordering.
-- `writer_done`: virtual stream for the latest writer generation.
-- `readers_done`: coalesced virtual streams for outstanding readers of the
-  current generation.
+- `writer_event`: non-timing CUDA event for the latest completed writer
+  generation, or null only for an initialized buffer whose contents are already
+  known to be valid without device work.
+- `reader_events`: non-timing CUDA events for readers of the current generation
+  that have been published and must complete before the next writer.
+- `active_readers`: count or debug set of read handles acquired but not yet
+  published.
+- `writer_active`: debug flag for an acquired but unpublished writer.
 
-`VirtualStream`
+`GpuEvent`
 
-A logical stream-tail owner and lazy completion handle.  It is shared by all
-buffer generations completed by the same operation or coalesced batch.  It owns
-either a concrete stream slot or a materialized CUDA event.
-
-States:
-
-- `OwnsSlot(slot)`: the epoch is complete at the current tail of a stream slot,
-  provided that stream slot has not been repossessed.
-- `Event(cudaEvent_t)`: the stream tail has been materialized into a CUDA event.
-- `Empty/leased`: the concrete stream is temporarily held by a
-  `ConcreteStreamLease` while new work is being enqueued.
-
-The role originally sketched for `GpuEpochToken` is now mostly absorbed by
-`VirtualStream`.  A separate wrapper may not be needed for the prototype:
-`std::shared_ptr<VirtualStream>` is the completion handle stored by
-`GpuEpochContext`.
+A small RAII wrapper around a non-timing `cudaEvent_t` acquired from the
+`CudaDeviceContext` event pool.  Dependency events should be created with
+`cudaEventDisableTiming`; timing-capable events belong only in explicit
+profiling or benchmarking APIs.
 
 `StreamSlot`
 
 A reusable CUDA execution lane owned by a `CudaDeviceContext`.  It contains a
 CUDA stream and pool bookkeeping only.  Device-library handles such as cuBLAS,
 cuSOLVER, or cuQuantum are separate thread-local/per-device resources.  A stream
-slot may have one or more `VirtualStream`s parked on its tail.
+slot does not belong to a buffer epoch after an access plan has been published.
 
 `ConcreteStreamLease`
 
-An RAII handle that temporarily transfers a concrete `StreamSlot` out of a
-`VirtualStream` so CUDA work can be enqueued.  While the lease is active, the
-stream slot cannot be repossessed.  When the lease is released, it attempts to
-return the slot to the originating `VirtualStream`; if that fails, it returns
-the slot directly to the `CudaDeviceContext` pool.
+An RAII handle that leases a concrete `StreamSlot` from a `CudaDeviceContext` so
+CUDA work can be enqueued.  When the access handle publishes, it records the
+completion event into this stream and returns the stream slot directly to the
+pool.  Correctness must not depend on receiving the same stream for a later
+operation.
 
 `GpuAccessPlan`
 
 The transaction returned by atomically acquiring read/write access for one GPU
-operation.  It owns either a scheduler-selected `ConcreteStreamLease` or an
-externally provided stream dependency contract.
+operation.  In the first implementation it owns a scheduler-selected
+`ConcreteStreamLease` and publishes one completion event for the operation.
+External-stream mode can be added later with the same epoch rules, but should
+not be part of the initial TensorContraction prototype.
 
 ## Access Rules
 
@@ -138,18 +138,16 @@ This gives the usual ordering table:
 
 ## Atomic Acquisition
 
-The operation that must be conceptually atomic is access acquisition, not
-`waitOn(event)`.
+The operation that must be conceptually atomic is access acquisition plus
+dependency installation, not a standalone `waitOn(event)`.
 
 For a future multi-threaded scheduler, acquisition should be one critical
-section over the relevant `GpuEpochContext`s and stream-slot state:
+section over the relevant `GpuEpochQueue`s and stream-pool state:
 
 1. Snapshot writer and reader generations for all input/output buffers.
 2. Select or accept a stream slot.
-3. Repossess/finalize stream tails if the selected stream slot must be used for
-   unrelated work.
-4. Emit any required `cudaStreamWaitEvent` dependencies on the selected stream.
-5. Reserve the new read/write intents and return an access handle.
+3. Emit any required `cudaStreamWaitEvent` dependencies on the selected stream.
+4. Reserve the new read/write intents and return an access handle.
 
 The single-threaded TensorContraction implementation can perform these steps
 without locks, but it should keep this transaction boundary in the API.
@@ -167,17 +165,16 @@ enqueue the next operation
 
 If every CUDA call were followed by synchronization of all relevant devices, then
 all GPU side effects would be complete before the next operation was submitted.
-In that degenerate mode, no CUDA events, stream waits, virtual streams, or GPU
-epoch machinery would be required for correctness.
+In that degenerate mode, no CUDA events, stream waits, or GPU epoch machinery
+would be required for correctness.
 
 The GPU epoch system is an optimization over that baseline.  It replaces global
 barriers with precise dependency handles:
 
 - writer completion handles instead of synchronizing after writes;
 - reader completion handles instead of synchronizing after reads;
-- virtual streams instead of eagerly recording events;
-- `cudaStreamWaitEvent` only where cross-stream or cross-device ordering is
-  actually required.
+- non-timing CUDA events instead of host-side synchronization;
+- `cudaStreamWaitEvent` for precise writer/readers ordering.
 
 The invariant is:
 
@@ -195,7 +192,7 @@ TensorContraction serial CUDA diagnostic mode.
 
 `SynchronousDeviceDebug` is the stricter reference path.  It forces a
 device-wide or all-device synchronization after each submitted GPU operation and
-disables most virtual-stream optimization.  This mode should be slow and should
+disables most event-based scheduling.  This mode should be slow and should
 be used as a debugging hammer for memory lifetime bugs, host/device transfer
 bugs, or cases where default-stream serialization is not strong enough to
 isolate the issue.
@@ -222,9 +219,8 @@ It does not mean:
 `GpuStorage` is opaque to ordinary CPU code.  A CPU async task may `co_await`
 logical tensor dependencies and then submit GPU work once the tensor object and
 its metadata are valid.  At that point, the producing GPU work for each input
-has already been submitted and has a fixed GPU dependency handle: either an
-event, a same-stream ordering relationship, or a virtual stream that can be
-finalized before the new work is enqueued.
+has already been submitted and has a fixed GPU dependency handle: a CUDA event
+or a known initialized state that requires no wait.
 
 This gives the launch protocol:
 
@@ -246,9 +242,9 @@ causally ready operations.
 This boundary avoids making the CUDA scheduler a general DAG executor.  It also
 avoids artificial CUDA deadlocks from stream reuse: a GPU operation is submitted
 only after every dependency it may wait on has a fixed producer position in the
-GPU execution graph.  Stream-slot reuse must still preserve the stream-tail
-invariants in this document, but it does not need to solve arbitrary logical DAG
-cycles.
+GPU execution graph.  Stream-slot reuse only has to preserve stream ordering
+while an access plan is active; after publication the durable dependency is the
+recorded event rather than the stream slot itself.
 
 Host access to GPU-resident data is always an explicit scheduled operation.  A
 readback is modeled as a GPU read followed by an asynchronous transfer or
@@ -276,48 +272,59 @@ later, it should be a distinct storage type such as `Tensor<T, UnifiedStorage>`
 with its own coherence and ownership rules.  Randomly accessing the same storage
 from CPU and GPU is not part of the `GpuStorage` model.
 
-## Virtual Streams
+## Writer Workflow
 
-The central optimization is that a `VirtualStream` does not need to materialize
-a CUDA event immediately.
+A writer is exclusive and advances the generation.
 
-If work completes at the tail of stream slot `S`, the produced generation can be
-represented by:
+1. Acquire write access from the `GpuEpochQueue`.
+2. Validate that no writer is already active.
+3. Validate that no readers are active.  If readers are still live, acquiring a
+   writer is a usage error; the queue should detect this rather than block.
+4. Lease a stream from `CudaDeviceContext`.
+5. Make that stream wait on the current queue readiness:
+   - the previous `writer_event`, if the previous phase was a writer;
+   - all published `reader_events`, if the previous phase was readers.
+6. Launch write kernels or copies into the leased stream.
+7. On publish, record one non-timing completion event into the stream.
+8. Store that event as the queue's new `writer_event`.
+9. Increment `generation`.
+10. Clear old reader events and return the stream lease to the pool.
+
+Conceptually:
 
 ```text
-VirtualStream::OwnsSlot(S)
+old epoch complete -> writer stream work -> writer_event
 ```
 
-If a later compatible operation also continues on `S`, no event and no wait are
-required.  CUDA stream order is sufficient.  This is the fast path we want for
-repeated local contractions and vector operations on the same dataflow chain.
+## Reader Workflow
 
-If a different stream must consume the result, or if `S` must be repossessed for
-unrelated work, the `VirtualStream` is finalized:
+A reader is shared and does not advance the generation.
+
+1. Acquire read access from the `GpuEpochQueue`.
+2. Validate that no writer is active.
+3. Lease a stream from `CudaDeviceContext`.
+4. Make that stream wait on the current `writer_event` for this generation.
+5. Launch read-only kernels or copies into the leased stream.
+6. On publish, record one non-timing completion event into the stream.
+7. Append that event to the queue's `reader_events`.
+8. Return the stream lease to the pool.
+
+Multiple readers of the same generation all wait on the same writer completion
+event and then run independently:
 
 ```text
-Event(E) where E = cudaEventRecord(S)
+writer_event -> reader_1 stream work -> reader_1_event
+             -> reader_2 stream work -> reader_2_event
+             -> reader_3 stream work -> reader_3_event
 ```
 
-All buffer generations sharing the same `VirtualStream` now share the same
-event.
+The next writer waits on all reader completion events:
 
-## Stream Repossession
-
-Stream repossession is the GPU analogue of work-stealing overhead.
-
-A stream slot may be parked at the tail of one or more active `VirtualStream`s.
-If the scheduler wants to reuse that stream slot for unrelated work, it must
-first finalize all parked virtual streams for that slot.  This records CUDA
-events even if no future consumer eventually waits on them.  That cost is
-required because, after unrelated work is enqueued, the original stream tail
-position can no longer be recovered.
-
-Invariant:
-
-- A stream slot must not accept unrelated work until every active
-  `VirtualStream` parked on that stream slot has either been continued
-  compatibly or finalized to an event.
+```text
+reader_1_event \
+reader_2_event  -> next writer stream work -> next_writer_event
+reader_3_event /
+```
 
 ## RAII Access Handles
 
@@ -330,15 +337,16 @@ Stream-owned handles:
 
 These are returned when the scheduler selects and owns the stream slot.  They are
 RAII handles analogous to a mutex lock.  Destruction may publish completion and
-release the stream slot because the completion handle is well-defined: the
-`VirtualStream` tail of the owned stream slot.
+release the stream slot because the completion point is well-defined: an event
+recorded at the current tail of the owned stream slot.
 
 Example behavior:
 
 ```text
 GpuWriteStream::~GpuWriteStream():
   if active:
-    publish VirtualStream::OwnsSlot(slot)
+    record completion event on slot.stream
+    publish event to GpuEpochQueue
     release handle
 ```
 
@@ -376,7 +384,7 @@ GpuWriteStream acquireWriteStream(buffer)
 The context/scheduler selects a stream slot, synchronizes that stream with the
 buffer's existing writer/readers, increments the generation, and returns an RAII
 handle.  When the handle publishes, the new writer generation is represented by
-the resulting `VirtualStream`.
+the completion event recorded in the owned stream.
 
 External event mode:
 
@@ -420,24 +428,22 @@ For an operation with read buffers `R` and write buffers `W`:
 
 1. Acquire read access to all `R`.
 2. Acquire write access to all `W`.
-3. Select one stream slot, preferably one that allows same-stream continuation
-   for the most dependencies.
+3. Select one stream slot from the device pool.
 4. Enqueue all CUDA work for the operation.
-5. Publish one shared completion handle to all output writer generations.
-6. Publish reader completion handles for read buffers if a later writer must
-   wait for the reads.
+5. Record one shared completion event for the operation.
+6. Publish that event to all output writer generations.
+7. Publish that event as a reader completion for read buffers if the operation
+   read them.
 
 If the operation has multiple outputs, those outputs should usually share the
-same `VirtualStream`.
+same completion event.
 
 ## Open Questions
 
-- How should reader completion handles be coalesced: one handle per stream slot,
-  one handle per operation, or one shared handle per access plan?
-- Should `GpuReadStream` publish on destruction unconditionally, or only if a
-  later writer actually needs a reader dependency?
-- How should stream-slot compatibility be defined for continuing a parked stream
-  tail: same output buffer, same access plan, or explicit scheduler decision?
+- Should reader completion events be coalesced further in multi-buffer access
+  plans, or is one shared event per access plan sufficient?
+- Should `GpuReadStream` publish on destruction unconditionally, or should debug
+  builds require explicit publication to make scheduling boundaries visible?
 - How much of this should be prototyped inside TensorContraction before the real
   uni20 CUDA scheduler exists?
 - How should NCCL/MPI remote-storage dependencies map onto the same epoch model?

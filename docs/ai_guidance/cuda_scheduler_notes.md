@@ -3,6 +3,14 @@
 These notes record design direction only.  They are not implemented uni20 GPU
 runtime behavior.
 
+Status note: the detailed stream-affinity and virtual-stream ideas below have
+been superseded for the first TensorContraction implementation by the simpler
+`GpuEpochQueue` model in `docs/gpu_epoch_design_draft.md`.  In that model,
+streams are transient leases, dependency events are created with
+`cudaEventDisableTiming`, each published read or write records a completion
+event, and correctness does not depend on caching or reusing streams for a
+buffer.
+
 The intended uni20 CUDA runtime should model GPU resources explicitly.  A CUDA
 device context is expected to own the device-local execution resources: streams,
 cuBLAS handles, memory-pool state, and eventually event pools and library
