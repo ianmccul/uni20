@@ -74,6 +74,28 @@ TEST(TensorContractionVectorAlgebraTest, CopiesAndZeros)
   }
 }
 
+TEST(TensorContractionVectorAlgebraTest, MultipliesBlockPairs)
+{
+  std::array lhs_blocks{utc::MatrixFamily::Block{2, 3}, utc::MatrixFamily::Block{1, 2}};
+  std::array rhs_blocks{utc::MatrixFamily::Block{3, 2}, utc::MatrixFamily::Block{2, 1}};
+  std::array result_blocks{utc::MatrixFamily::Block{2, 2}, utc::MatrixFamily::Block{1, 1}};
+  utc::MatrixFamily lhs(lhs_blocks);
+  utc::MatrixFamily rhs(rhs_blocks);
+  utc::MatrixFamily result(result_blocks);
+  lhs.assign(0, std::array{1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  rhs.assign(0, std::array{7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+  lhs.assign(1, std::array{2.0, -3.0});
+  rhs.assign(1, std::array{5.0, 7.0});
+
+  utc::gemm_each(lhs, rhs, result);
+
+  EXPECT_DOUBLE_EQ(result.values(0)[0], 58.0);
+  EXPECT_DOUBLE_EQ(result.values(0)[1], 64.0);
+  EXPECT_DOUBLE_EQ(result.values(0)[2], 139.0);
+  EXPECT_DOUBLE_EQ(result.values(0)[3], 154.0);
+  EXPECT_DOUBLE_EQ(result.values(1)[0], -11.0);
+}
+
 TEST(TensorContractionVectorAlgebraTest, NormalizesAndReturnsOriginalNorm)
 {
   auto x = make_vector();
@@ -127,6 +149,20 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsOperationsThroughTensorContra
   double const original_norm = engine.normalize(z);
   EXPECT_DOUBLE_EQ(original_norm, std::sqrt(140.0));
   EXPECT_NEAR(engine.norm(z), 1.0, 1.0e-14);
+
+  std::array lhs_blocks{utc::MatrixFamily::Block{2, 2}};
+  std::array rhs_blocks{utc::MatrixFamily::Block{2, 1}};
+  std::array result_blocks{utc::MatrixFamily::Block{2, 1}};
+  utc::MatrixFamily lhs(lhs_blocks);
+  utc::MatrixFamily rhs(rhs_blocks);
+  utc::MatrixFamily result(result_blocks);
+  lhs.assign(0, std::array{1.0, 2.0, 3.0, 4.0});
+  rhs.assign(0, std::array{5.0, 6.0});
+
+  engine.gemm_each(lhs, rhs, result);
+
+  EXPECT_DOUBLE_EQ(result.values(0)[0], 17.0);
+  EXPECT_DOUBLE_EQ(result.values(0)[1], 39.0);
 }
 
 TEST(TensorContractionVectorAlgebraTest, EngineCanKeepMutationsResidentUntilExplicitSync)
@@ -157,4 +193,5 @@ TEST(TensorContractionVectorAlgebraTest, RejectsZeroNormalizeAndShapeMismatches)
   EXPECT_THROW(utc::dot(x, wrong), std::invalid_argument);
   EXPECT_THROW(utc::axpy(1.0, x, wrong), std::invalid_argument);
   EXPECT_THROW(utc::copy(x, wrong), std::invalid_argument);
+  EXPECT_THROW(utc::gemm_each(x, x, wrong), std::invalid_argument);
 }

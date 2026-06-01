@@ -87,10 +87,9 @@ inline auto solve_two_site(FiniteMPS const& psi, FiniteTriangularMPO const& mpo,
     throw std::out_of_range("solve_two_site requires two adjacent MPS and MPO sites");
   }
 
-  auto theta = make_two_site_wavefunction(psi, left_site);
   auto effective_hamiltonian =
       make_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env);
-  auto optimized_vector = make_two_site_vector(theta, effective_hamiltonian.input_layout);
+  auto optimized_vector = make_two_site_vector(psi, left_site, effective_hamiltonian.input_layout);
   auto lanczos = tensorcontraction::lanczos_lowest(
       optimized_vector, [&](auto const& x, auto& y) { effective_hamiltonian.op.apply(x, y); }, options);
   auto optimized_matrix = make_two_site_matrix(optimized_vector, effective_hamiltonian.output_layout);

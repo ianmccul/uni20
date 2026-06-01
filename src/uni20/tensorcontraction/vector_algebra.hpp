@@ -82,6 +82,54 @@ inline void axpy(double alpha, MatrixFamily const& x, MatrixFamily& y)
   }
 }
 
+inline void validate_compatible_gemm_shapes(MatrixFamily const& lhs, MatrixFamily const& rhs,
+                                            MatrixFamily const& result)
+{
+  if (lhs.size() != rhs.size() || lhs.size() != result.size())
+  {
+    throw std::invalid_argument("TensorContraction batched GEMM has mismatched block counts");
+  }
+
+  for (std::size_t block = 0; block < lhs.size(); ++block)
+  {
+    auto const lhs_block = lhs.block(block);
+    auto const rhs_block = rhs.block(block);
+    auto const result_block = result.block(block);
+    if (lhs_block.cols != rhs_block.rows || result_block.rows != lhs_block.rows || result_block.cols != rhs_block.cols)
+    {
+      throw std::invalid_argument("TensorContraction batched GEMM has incompatible block shapes");
+    }
+  }
+}
+
+inline void gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result)
+{
+  validate_compatible_gemm_shapes(lhs, rhs, result);
+
+  for (std::size_t block = 0; block < lhs.size(); ++block)
+  {
+    auto const lhs_block = lhs.block(block);
+    auto const rhs_block = rhs.block(block);
+    auto const result_block = result.block(block);
+    auto const lhs_values = lhs.values(block);
+    auto const rhs_values = rhs.values(block);
+    auto result_values = result.values(block);
+    std::fill(result_values.begin(), result_values.end(), 0.0);
+
+    for (std::size_t row = 0; row < lhs_block.rows; ++row)
+    {
+      for (std::size_t inner = 0; inner < lhs_block.cols; ++inner)
+      {
+        auto const lhs_value = lhs_values[row * lhs_block.cols + inner];
+        for (std::size_t col = 0; col < rhs_block.cols; ++col)
+        {
+          result_values[row * result_block.cols + col] += lhs_value * rhs_values[inner * rhs_block.cols + col];
+        }
+      }
+    }
+  }
+}
+
 inline double normalize(MatrixFamily& x)
 {
   double const x_norm = norm(x);
@@ -113,6 +161,7 @@ class VectorAlgebraEngine {
     void copy(MatrixFamily const& source, MatrixFamily& target);
     void scale(MatrixFamily& x, double alpha);
     void axpy(double alpha, MatrixFamily const& x, MatrixFamily& y);
+    void gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result);
     [[nodiscard]] double normalize(MatrixFamily& x);
 
   private:

@@ -88,6 +88,7 @@ class Arranger {
 
     void compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double* result);
     void compileZeroForLinearAlgebra(Matrix result, bool syncHost = true);
+    void compileMatMulForLinearAlgebra(Matrix result, Matrix m1, Matrix m2, bool syncHost = true);
     void compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff, bool syncHost = true);
     void compileScalarMulForLinearAlgebra(Matrix result, double* coff, bool syncHost = true);
     void doLinearAlgebra();

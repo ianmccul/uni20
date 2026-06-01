@@ -119,6 +119,8 @@ TEST(TwoSiteEffectiveHamiltonianTest, AppliesTwoSiteHeisenbergBulkPath)
 
 TEST(TwoSiteEffectiveHamiltonianTest, VectorizesTwoSiteWavefunction)
 {
+  ensure_mpi_initialized();
+
   auto const spin = make_spin_half_u1_site();
   MpsSiteTensor left(spin.space, bond_space(spin.symmetry, 1), bond_space(spin.symmetry, 1));
   MpsSiteTensor right(spin.space, bond_space(spin.symmetry, 1), bond_space(spin.symmetry, 1));
@@ -139,6 +141,37 @@ TEST(TwoSiteEffectiveHamiltonianTest, VectorizesTwoSiteWavefunction)
   {
     ASSERT_EQ(vector.block(i), (tensorcontraction::MatrixFamily::Block{1, 1}));
     EXPECT_DOUBLE_EQ(vector.values(i)[0], expected[i]);
+  }
+}
+
+TEST(TwoSiteEffectiveHamiltonianTest, BuildsTwoSiteVectorDirectlyFromMpsBlocks)
+{
+  ensure_mpi_initialized();
+
+  auto const spin = make_spin_half_u1_site();
+  MpsSiteTensor left(spin.space, bond_space(spin.symmetry, 2), bond_space(spin.symmetry, 3));
+  MpsSiteTensor right(spin.space, bond_space(spin.symmetry, 3), bond_space(spin.symmetry, 2));
+  left.assign(0, std::array{1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  left.assign(1, std::array{7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+  right.assign(0, std::array{13.0, 14.0, 15.0, 16.0, 17.0, 18.0});
+  right.assign(1, std::array{19.0, 20.0, 21.0, 22.0, 23.0, 24.0});
+  FiniteMPS psi({std::move(left), std::move(right)});
+  auto theta = make_two_site_wavefunction(psi, 0);
+  TwoSiteEffectiveHamiltonianLayout layout{
+      .left_bond_dim = 2, .left_physical_dim = 2, .right_physical_dim = 2, .right_bond_dim = 2};
+
+  auto sliced = make_two_site_vector(theta, layout);
+  auto direct = make_two_site_vector(psi, 0, layout);
+
+  ASSERT_EQ(direct.size(), sliced.size());
+  for (std::size_t block = 0; block < direct.size(); ++block)
+  {
+    ASSERT_EQ(direct.block(block), (tensorcontraction::MatrixFamily::Block{2, 2}));
+    ASSERT_EQ(direct.values(block).size(), sliced.values(block).size());
+    for (std::size_t i = 0; i < direct.values(block).size(); ++i)
+    {
+      EXPECT_DOUBLE_EQ(direct.values(block)[i], sliced.values(block)[i]);
+    }
   }
 }
 

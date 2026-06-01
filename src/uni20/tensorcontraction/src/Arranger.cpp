@@ -1523,6 +1523,23 @@ void Arranger::compileZeroForLinearAlgebra(Matrix result, bool syncHost)
   }
 }
 
+void Arranger::compileMatMulForLinearAlgebra(Matrix result, Matrix m1, Matrix m2, bool syncHost)
+{
+  auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
+  if (deviceId == -1)
+  {
+    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+  }
+  linearAlgebraWorklists[deviceId].push_back(
+      createWork<MatMulWork>(std::vector<Matrix>{result, m1, m2}, 1.0, streamManagers[deviceId], swapper));
+  linearAlgebraFlopsPerDevice[deviceId] += m1.getFirstDim() * m1.getSecondDim() * m2.getSecondDim() * 2;
+  if (syncHost)
+  {
+    linearAlgebraWorklists[deviceId].push_back(
+        createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, streamManagers[deviceId], swapper));
+  }
+}
+
 void Arranger::compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff, bool syncHost)
 {
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);

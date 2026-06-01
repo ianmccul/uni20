@@ -251,6 +251,38 @@ void VectorAlgebraEngine::axpy(double alpha, MatrixFamily const& x, MatrixFamily
   impl_->arranger->doLinearAlgebra();
 }
 
+void VectorAlgebraEngine::gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result)
+{
+  validate_compatible_gemm_shapes(lhs, rhs, result);
+  if (impl_->host_backend())
+  {
+    uni20::tensorcontraction::gemm_each(lhs, rhs, result);
+    return;
+  }
+
+  if (!impl_->sync_host)
+  {
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), false);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), false);
+    impl_->localize(result, false);
+  }
+  else
+  {
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true);
+  }
+
+  auto const& lhs_matrices = raw_matrices(lhs);
+  auto const& rhs_matrices = raw_matrices(rhs);
+  auto const& result_matrices = raw_matrices(result);
+  for (std::size_t block = 0; block < lhs_matrices.size(); ++block)
+  {
+    impl_->arranger->compileMatMulForLinearAlgebra(result_matrices[block], lhs_matrices[block], rhs_matrices[block],
+                                                   impl_->sync_host);
+  }
+  impl_->arranger->doLinearAlgebra();
+}
+
 double VectorAlgebraEngine::normalize(MatrixFamily& x)
 {
   double const x_norm = this->norm(x);

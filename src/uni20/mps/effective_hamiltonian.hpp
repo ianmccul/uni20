@@ -7,6 +7,7 @@
 
 #include <uni20/mps/environment.hpp>
 #include <uni20/tensorcontraction/effective_hamiltonian_operator.hpp>
+#include <uni20/tensorcontraction/vector_algebra.hpp>
 
 #include <algorithm>
 #include <array>
@@ -261,6 +262,63 @@ inline auto make_two_site_vector(TwoSiteWavefunction const& theta,
             tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim});
   tensorcontraction::MatrixFamily result(blocks);
   assign_two_site_matrix_to_vector(theta.matrix_family(), result, layout);
+  return result;
+}
+
+inline auto make_two_site_vector(FiniteMPS const& psi, std::size_t left_site,
+                                 TwoSiteEffectiveHamiltonianLayout const& layout) -> tensorcontraction::MatrixFamily
+{
+  if (left_site + 1 >= psi.size())
+  {
+    throw std::out_of_range("make_two_site_vector requires two adjacent MPS sites");
+  }
+
+  auto const& left = psi[left_site];
+  auto const& right = psi[left_site + 1];
+  if (left.right_bond_space() != right.left_bond_space())
+  {
+    throw std::invalid_argument("make_two_site_vector adjacent bond spaces do not match");
+  }
+  if (layout.left_bond_dim != left.left_dim() || layout.left_physical_dim != left.physical_dim() ||
+      layout.right_physical_dim != right.physical_dim() || layout.right_bond_dim != right.right_dim())
+  {
+    throw std::invalid_argument("make_two_site_vector layout does not match the MPS sites");
+  }
+
+  auto const shared_bond_dim = left.right_dim();
+  std::vector<tensorcontraction::MatrixFamily::Block> left_blocks(layout.block_count());
+  std::vector<tensorcontraction::MatrixFamily::Block> right_blocks(layout.block_count());
+  std::vector<tensorcontraction::MatrixFamily::Block> result_blocks(layout.block_count());
+  for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
+  {
+    for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+    {
+      auto const block = layout.block_index(left_phys, right_phys);
+      left_blocks[block] = tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, shared_bond_dim};
+      right_blocks[block] = tensorcontraction::MatrixFamily::Block{shared_bond_dim, layout.right_bond_dim};
+      result_blocks[block] = tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim};
+    }
+  }
+
+  tensorcontraction::MatrixFamily left_operands(left_blocks);
+  tensorcontraction::MatrixFamily right_operands(right_blocks);
+  tensorcontraction::MatrixFamily result(result_blocks);
+  for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
+  {
+    auto const left_values = left.values(left_phys);
+    for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+    {
+      auto const block = layout.block_index(left_phys, right_phys);
+      left_operands.assign(block, left_values);
+      right_operands.assign(block, right.values(right_phys));
+    }
+  }
+
+  // The first dense prototype has one block per physical-pair sector.  Future
+  // symmetry-aware code should replace these block GEMMs with the same
+  // operation over only the allowed fusion/F-move output sectors.
+  tensorcontraction::VectorAlgebraEngine algebra;
+  algebra.gemm_each(left_operands, right_operands, result);
   return result;
 }
 
