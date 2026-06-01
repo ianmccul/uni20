@@ -85,7 +85,7 @@ void GpuBuffer::waitBeforeWrite(cudaStream_t stream)
   }
 }
 
-void GpuBuffer::publishRead(CudaDeviceContext::GpuEventRef completion)
+void GpuBuffer::publishRead(cuda::CompletionRef completion)
 {
   if (!dependencyEventsEnabled)
   {
@@ -115,7 +115,7 @@ void GpuBuffer::waitBeforeRead(cudaStream_t stream)
   }
 }
 
-void GpuBuffer::publishWrite(CudaDeviceContext::GpuEventRef completion)
+void GpuBuffer::publishWrite(cuda::CompletionRef completion)
 {
   if (!dependencyEventsEnabled)
   {
@@ -183,7 +183,7 @@ std::pair<int, std::shared_ptr<GpuBuffer>> Swapper::getPreStoreBufferOrNone(Matr
   return it->second;
 }
 
-void Swapper::notifyMatrixRead(Matrix mat, int deviceId, CudaDeviceContext::GpuEventRef completion)
+void Swapper::notifyMatrixRead(Matrix mat, int deviceId, cuda::CompletionRef completion)
 {
   auto buffer = getGpuBufferOrNone(mat, deviceId);
   if (buffer != nullptr)
@@ -192,7 +192,7 @@ void Swapper::notifyMatrixRead(Matrix mat, int deviceId, CudaDeviceContext::GpuE
   }
 }
 
-void Swapper::notifyMatrixWrite(Matrix mat, int deviceId, CudaDeviceContext::GpuEventRef completion)
+void Swapper::notifyMatrixWrite(Matrix mat, int deviceId, cuda::CompletionRef completion)
 {
   auto buffer = getGpuBufferOrNone(mat, deviceId);
   if (buffer != nullptr)
@@ -478,12 +478,9 @@ Swapper::GpuAccessPlan::GpuAccessPlan(Swapper& swapper, StreamManager& streamMan
 
 cublasHandle_t Swapper::GpuAccessPlan::handle() const { return streamManager.getHandle(); }
 
-CudaDeviceContext::GpuEventRef Swapper::GpuAccessPlan::recordCompletion() const
-{
-  return streamManager.recordCompletion();
-}
+cuda::CompletionRef Swapper::GpuAccessPlan::recordCompletion() const { return streamManager.recordCompletion(); }
 
-void Swapper::GpuAccessPlan::publishCompletion(CudaDeviceContext::GpuEventRef completion) const
+void Swapper::GpuAccessPlan::publishCompletion(cuda::CompletionRef completion) const
 {
   swapper.publishAccessCompletion(readBuffers, writeBuffers, selectedStream, std::move(completion));
 }
@@ -515,11 +512,11 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
   struct ProducerDependency
   {
       cudaStream_t stream = nullptr;
-      CudaDeviceContext::GpuEventRef completion;
+      cuda::CompletionRef completion;
   };
 
   std::vector<ProducerDependency> dependencies;
-  auto addDependency = [&](CudaDeviceContext::GpuEventRef completion) {
+  auto addDependency = [&](cuda::CompletionRef completion) {
     if (completion == nullptr || completion->stream() == stream)
     {
       return;
@@ -573,7 +570,7 @@ void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuf
 
 void Swapper::publishAccessCompletion(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                       const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream,
-                                      CudaDeviceContext::GpuEventRef completion)
+                                      cuda::CompletionRef completion)
 {
   if (!dependencyEventsEnabled)
   {

@@ -83,12 +83,12 @@ State:
   published.
 - `writer_active`: debug flag for an acquired but unpublished writer.
 
-`GpuEvent`
+`tensor::cuda::Completion`
 
-A small RAII wrapper around a non-timing `cudaEvent_t` acquired from the
-`CudaDeviceContext` event pool.  Dependency events should be created with
-`cudaEventDisableTiming`; timing-capable events belong only in explicit
-profiling or benchmarking APIs.
+A small opaque completion token for device work.  The concrete CUDA event is
+recorded through `CudaDeviceContext` and kept hidden behind the completion API.
+Dependency events should be created with `cudaEventDisableTiming`;
+timing-capable events belong only in explicit profiling or benchmarking APIs.
 
 `StreamSlot`
 
@@ -97,9 +97,9 @@ CUDA stream and pool bookkeeping only.  Device-library handles such as cuBLAS,
 cuSOLVER, or cuQuantum are separate thread-local/per-device resources.  A stream
 slot does not belong to a buffer epoch after an access plan has been published.
 
-`StreamLease`
+`tensor::cuda::Stream`
 
-An RAII handle that leases a concrete `StreamSlot` from a `CudaDeviceContext` so
+A move-only RAII handle for a concrete CUDA stream from a `CudaDeviceContext` so
 CUDA work can be enqueued.  When the access handle publishes, it records the
 completion event into this stream and returns the stream slot directly to the
 pool.  Correctness must not depend on receiving the same stream for a later
@@ -109,7 +109,7 @@ operation.
 
 The transaction returned by atomically acquiring read/write access for one GPU
 operation.  In the first implementation it owns a scheduler-selected
-`StreamLease` and publishes one completion event for the operation.
+`tensor::cuda::Stream` and publishes one completion event for the operation.
 External-stream mode can be added later with the same epoch rules, but should
 not be part of the initial TensorContraction prototype.
 

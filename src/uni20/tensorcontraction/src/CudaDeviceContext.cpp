@@ -14,10 +14,10 @@
 namespace tensor
 {
 
-static_assert(!std::is_copy_constructible_v<CudaDeviceContext::StreamLease>);
-static_assert(!std::is_copy_assignable_v<CudaDeviceContext::StreamLease>);
-static_assert(std::is_move_constructible_v<CudaDeviceContext::StreamLease>);
-static_assert(std::is_move_assignable_v<CudaDeviceContext::StreamLease>);
+static_assert(!std::is_copy_constructible_v<cuda::Stream>);
+static_assert(!std::is_copy_assignable_v<cuda::Stream>);
+static_assert(std::is_move_constructible_v<cuda::Stream>);
+static_assert(std::is_move_assignable_v<cuda::Stream>);
 
 CudaDeviceContext::EventDependency::~EventDependency()
 {
@@ -38,7 +38,7 @@ CudaDeviceContext::ScratchLease& CudaDeviceContext::ScratchLease::operator=(Scra
 {
   if (this != &other)
   {
-    release();
+    this->release();
     context_ = other.context_;
     buffer_ = std::move(other.buffer_);
     stream_ = other.stream_;
@@ -48,7 +48,7 @@ CudaDeviceContext::ScratchLease& CudaDeviceContext::ScratchLease::operator=(Scra
   return *this;
 }
 
-CudaDeviceContext::ScratchLease::~ScratchLease() { release(); }
+CudaDeviceContext::ScratchLease::~ScratchLease() { this->release(); }
 
 void CudaDeviceContext::ScratchLease::release()
 {
@@ -60,18 +60,17 @@ void CudaDeviceContext::ScratchLease::release()
   stream_ = nullptr;
 }
 
-CudaDeviceContext::StreamLease::StreamLease(StreamLease&& other) noexcept
-    : context_(other.context_), stream_(other.stream_)
+cuda::Stream::Stream(Stream&& other) noexcept : context_(other.context_), stream_(other.stream_)
 {
   other.context_ = nullptr;
   other.stream_ = nullptr;
 }
 
-CudaDeviceContext::StreamLease& CudaDeviceContext::StreamLease::operator=(StreamLease&& other) noexcept
+cuda::Stream& cuda::Stream::operator=(Stream&& other) noexcept
 {
   if (this != &other)
   {
-    release();
+    this->release();
     context_ = other.context_;
     stream_ = other.stream_;
     other.context_ = nullptr;
@@ -80,9 +79,9 @@ CudaDeviceContext::StreamLease& CudaDeviceContext::StreamLease::operator=(Stream
   return *this;
 }
 
-CudaDeviceContext::StreamLease::~StreamLease() { release(); }
+cuda::Stream::~Stream() { this->release(); }
 
-void CudaDeviceContext::StreamLease::release()
+void cuda::Stream::release()
 {
   if (context_ != nullptr && stream_ != nullptr)
   {
@@ -92,12 +91,12 @@ void CudaDeviceContext::StreamLease::release()
   stream_ = nullptr;
 }
 
-CudaDeviceContext::GpuEvent::GpuEvent(CudaDeviceContext& context, cudaStream_t producerStream)
+cuda::Completion::Completion(CudaDeviceContext& context, cudaStream_t producerStream)
     : context_(&context), event_(context.recordDependencyEvent(producerStream)), producerStream_(producerStream),
       publishSequence_(event_->sequence)
 {}
 
-CudaDeviceContext::GpuEvent::GpuEvent(GpuEvent&& other) noexcept
+cuda::Completion::Completion(Completion&& other) noexcept
     : context_(other.context_), event_(std::move(other.event_)), producerStream_(other.producerStream_),
       publishSequence_(other.publishSequence_)
 {
@@ -106,7 +105,7 @@ CudaDeviceContext::GpuEvent::GpuEvent(GpuEvent&& other) noexcept
   other.publishSequence_ = 0;
 }
 
-CudaDeviceContext::GpuEvent& CudaDeviceContext::GpuEvent::operator=(GpuEvent&& other) noexcept
+cuda::Completion& cuda::Completion::operator=(Completion&& other) noexcept
 {
   if (this != &other)
   {
@@ -121,14 +120,17 @@ CudaDeviceContext::GpuEvent& CudaDeviceContext::GpuEvent::operator=(GpuEvent&& o
   return *this;
 }
 
-cudaStream_t CudaDeviceContext::GpuEvent::stream() const noexcept { return producerStream_; }
+cudaStream_t cuda::Completion::stream() const noexcept { return producerStream_; }
 
-void CudaDeviceContext::GpuEvent::waitOn(cudaStream_t consumerStream)
+void cuda::Completion::waitOn(cudaStream_t consumerStream)
 {
-  if (context_ != nullptr && event_ != nullptr) context_->waitEvent(consumerStream, event_->event);
+  if (context_ != nullptr && event_ != nullptr)
+  {
+    context_->waitEvent(consumerStream, event_->event);
+  }
 }
 
-CudaDeviceContext::EventDependencyRef CudaDeviceContext::GpuEvent::dependencyEvent() { return event_; }
+CudaDeviceContext::EventDependencyRef cuda::Completion::dependencyEvent() { return event_; }
 
 CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda)
     : deviceId_(deviceId), serialCuda_(serialCuda),
@@ -178,17 +180,17 @@ std::shared_ptr<CudaDeviceContext> CudaDeviceContext::shared(int deviceId, int w
   return created;
 }
 
-CudaDeviceContext::~CudaDeviceContext() { release(); }
+CudaDeviceContext::~CudaDeviceContext() { this->release(); }
 
-CudaDeviceContext::StreamLease CudaDeviceContext::leaseWorkStream(cudaStream_t preferredStream)
+cuda::Stream CudaDeviceContext::leaseWorkStream(cudaStream_t preferredStream)
 {
-  return StreamLease(*this, acquireWorkStream(preferredStream));
+  return cuda::Stream(*this, this->acquireWorkStream(preferredStream));
 }
 
-CudaDeviceContext::GpuEventRef CudaDeviceContext::recordCompletionEvent(cudaStream_t producerStream)
+cuda::CompletionRef CudaDeviceContext::recordCompletionEvent(cudaStream_t producerStream)
 {
   assert(producerStream != nullptr);
-  return std::make_shared<GpuEvent>(*this, producerStream);
+  return cuda::CompletionRef(new cuda::Completion(*this, producerStream));
 }
 
 cudaStream_t CudaDeviceContext::acquireWorkStream(cudaStream_t preferredStream)

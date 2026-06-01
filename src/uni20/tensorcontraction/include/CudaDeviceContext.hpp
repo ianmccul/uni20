@@ -15,6 +15,13 @@
 namespace tensor
 {
 
+namespace cuda
+{
+class Stream;
+class Completion;
+using CompletionRef = std::shared_ptr<Completion>;
+} // namespace cuda
+
 class CudaDeviceContext {
   public:
     struct EventDependency
@@ -68,53 +75,6 @@ class CudaDeviceContext {
         void release();
     };
 
-    class GpuEvent;
-    using GpuEventRef = std::shared_ptr<GpuEvent>;
-
-    class StreamLease {
-      public:
-        StreamLease() = default;
-        StreamLease(StreamLease const&) = delete;
-        StreamLease& operator=(StreamLease const&) = delete;
-        StreamLease(StreamLease&& other) noexcept;
-        StreamLease& operator=(StreamLease&& other) noexcept;
-        ~StreamLease();
-
-        cudaStream_t stream() const noexcept { return stream_; }
-        explicit operator bool() const noexcept { return stream_ != nullptr; }
-        void release();
-
-      private:
-        StreamLease(CudaDeviceContext& context, cudaStream_t stream) : context_(&context), stream_(stream) {}
-
-        CudaDeviceContext* context_ = nullptr;
-        cudaStream_t stream_ = nullptr;
-
-        friend class CudaDeviceContext;
-    };
-
-    class GpuEvent {
-      public:
-        GpuEvent() = default;
-        GpuEvent(CudaDeviceContext& context, cudaStream_t producerStream);
-        GpuEvent(GpuEvent const&) = delete;
-        GpuEvent& operator=(GpuEvent const&) = delete;
-        GpuEvent(GpuEvent&& other) noexcept;
-        GpuEvent& operator=(GpuEvent&& other) noexcept;
-        ~GpuEvent() = default;
-
-        cudaStream_t stream() const noexcept;
-        std::uint64_t sequence() const noexcept { return publishSequence_; }
-        void waitOn(cudaStream_t consumerStream);
-        EventDependencyRef dependencyEvent();
-
-      private:
-        CudaDeviceContext* context_ = nullptr;
-        EventDependencyRef event_;
-        cudaStream_t producerStream_ = nullptr;
-        std::uint64_t publishSequence_ = 0;
-    };
-
     CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda);
     CudaDeviceContext(CudaDeviceContext const&) = delete;
     CudaDeviceContext& operator=(CudaDeviceContext const&) = delete;
@@ -126,8 +86,8 @@ class CudaDeviceContext {
     bool serialCuda() const noexcept { return serialCuda_; }
     cudaStream_t memoryStream() const noexcept { return memoryStream_; }
 
-    StreamLease leaseWorkStream(cudaStream_t preferredStream = nullptr);
-    GpuEventRef recordCompletionEvent(cudaStream_t producerStream);
+    cuda::Stream leaseWorkStream(cudaStream_t preferredStream = nullptr);
+    cuda::CompletionRef recordCompletionEvent(cudaStream_t producerStream);
     cudaEvent_t acquireEvent();
     void retireEvent(cudaEvent_t event);
     cudaEvent_t recordEvent(cudaStream_t stream);
@@ -186,6 +146,60 @@ class CudaDeviceContext {
     void printCounters() const;
 
     friend class ScratchLease;
+    friend class cuda::Stream;
+    friend class cuda::Completion;
 };
+
+namespace cuda
+{
+
+class Completion {
+  public:
+    Completion() = default;
+    Completion(Completion const&) = delete;
+    Completion& operator=(Completion const&) = delete;
+    Completion(Completion&& other) noexcept;
+    Completion& operator=(Completion&& other) noexcept;
+    ~Completion() = default;
+
+    cudaStream_t stream() const noexcept;
+    std::uint64_t sequence() const noexcept { return publishSequence_; }
+    void waitOn(cudaStream_t consumerStream);
+    CudaDeviceContext::EventDependencyRef dependencyEvent();
+
+  private:
+    Completion(CudaDeviceContext& context, cudaStream_t producerStream);
+
+    CudaDeviceContext* context_ = nullptr;
+    CudaDeviceContext::EventDependencyRef event_;
+    cudaStream_t producerStream_ = nullptr;
+    std::uint64_t publishSequence_ = 0;
+
+    friend class tensor::CudaDeviceContext;
+};
+
+class Stream {
+  public:
+    Stream() = default;
+    Stream(Stream const&) = delete;
+    Stream& operator=(Stream const&) = delete;
+    Stream(Stream&& other) noexcept;
+    Stream& operator=(Stream&& other) noexcept;
+    ~Stream();
+
+    cudaStream_t stream() const noexcept { return stream_; }
+    explicit operator bool() const noexcept { return stream_ != nullptr; }
+    void release();
+
+  private:
+    Stream(CudaDeviceContext& context, cudaStream_t stream) : context_(&context), stream_(stream) {}
+
+    CudaDeviceContext* context_ = nullptr;
+    cudaStream_t stream_ = nullptr;
+
+    friend class tensor::CudaDeviceContext;
+};
+
+} // namespace cuda
 
 } // namespace tensor

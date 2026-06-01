@@ -8,9 +8,9 @@ current implemented behavior.
 
 CUDA stream handles should be wrapped in move-only C++ ownership types.
 
-The basic stream lease invariant is:
+The basic stream ownership invariant is:
 
-- a `CudaStreamLease` owns one concrete CUDA stream slot;
+- a `tensor::cuda::Stream` owns one concrete CUDA stream slot;
 - copying is disabled;
 - moving transfers ownership;
 - destruction returns the stream slot to its owning `CudaDeviceContext`;
@@ -21,9 +21,10 @@ This is analogous to Rust-style affine ownership: there is one live owner of a
 borrowed stream slot, and the slot is returned automatically on all normal exit
 paths.  Correctness should not depend on users manually returning streams.
 
-The `GpuEpochQueue` design in `gpu_epoch_design_draft.md` uses stream leases only
-as transient enqueue resources.  Durable memory dependencies are CUDA events
-recorded at publication time.
+The `GpuEpochQueue` design in `gpu_epoch_design_draft.md` uses
+`tensor::cuda::Stream` only as a transient enqueue resource.  Durable memory
+dependencies are opaque `tensor::cuda::Completion` tokens recorded at
+publication time.
 
 ## Idle-Aware Stream Pool
 
@@ -36,8 +37,8 @@ For the full uni20 async runtime, an idle-aware stream pool may still be useful
 as a scheduling and backpressure mechanism:
 
 ```text
-CudaStreamLease lease = co_await device.acquire_idle_stream();
-enqueue kernels/copies into lease.stream();
+tensor::cuda::Stream stream = co_await device.acquire_idle_stream();
+enqueue kernels/copies into stream.stream();
 publish GpuEpochQueue events;
 arrange for the stream slot to be marked idle when queued work completes;
 ```

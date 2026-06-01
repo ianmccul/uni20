@@ -313,7 +313,7 @@ StreamManager::StreamManager(Swapper& swapper, int deviceId, int deviceCount)
 
 void StreamManager::clear()
 {
-  currentLease.release();
+  currentStreamOwner.release();
   currentStream = nullptr;
   currentHandle = nullptr;
 }
@@ -367,13 +367,13 @@ void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams("stre
 
 void StreamManager::activateStream(cudaStream_t preferredStream)
 {
-  if (preferredStream != nullptr && currentLease && currentStream == preferredStream)
+  if (preferredStream != nullptr && currentStreamOwner && currentStream == preferredStream)
   {
     return;
   }
-  currentLease.release();
-  currentLease = deviceContext.leaseWorkStream(preferredStream);
-  currentStream = currentLease.stream();
+  currentStreamOwner.release();
+  currentStreamOwner = deviceContext.leaseWorkStream(preferredStream);
+  currentStream = currentStreamOwner.stream();
   currentHandle = deviceContext.cublasHandleForCurrentThread(currentStream);
 }
 
