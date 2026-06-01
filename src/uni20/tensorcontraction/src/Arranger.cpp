@@ -694,7 +694,7 @@ void Arranger::compileWorklistsForTheRest(const std::vector<Matrix>& rMats, cons
 cudaEvent_t Arranger::createSyncFinishEvent()
 {
   cudaEvent_t event;
-  CUDA_CALL(cudaEventCreate(&event));
+  CUDA_CALL(cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
   syncFinishEvents.push_back(event);
   return event;
 }
