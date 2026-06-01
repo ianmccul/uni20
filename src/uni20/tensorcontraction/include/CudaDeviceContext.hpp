@@ -86,7 +86,7 @@ class CudaDeviceContext {
     bool serialCuda() const noexcept { return serialCuda_; }
     cudaStream_t memoryStream() const noexcept { return memoryStream_; }
 
-    cuda::Stream leaseWorkStream(cudaStream_t preferredStream = nullptr);
+    cuda::Stream leaseWorkStream();
     cuda::CompletionRef recordCompletionEvent(cudaStream_t producerStream);
     cudaEvent_t acquireEvent();
     void retireEvent(cudaEvent_t event);
@@ -140,7 +140,7 @@ class CudaDeviceContext {
     void reclaimRetiredEvents();
     void reclaimCompletedAsyncFrees();
     void countStreamSync(const char* reason);
-    cudaStream_t acquireWorkStream(cudaStream_t preferredStream = nullptr);
+    cudaStream_t acquireWorkStream();
     void returnWorkStream(cudaStream_t stream);
     void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);
     void printCounters() const;
@@ -189,6 +189,7 @@ class Stream {
 
     cudaStream_t stream() const noexcept { return stream_; }
     explicit operator bool() const noexcept { return stream_ != nullptr; }
+    void setDevice() const;
     void release();
 
   private:

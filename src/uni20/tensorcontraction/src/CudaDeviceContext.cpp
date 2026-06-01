@@ -91,6 +91,12 @@ void cuda::Stream::release()
   stream_ = nullptr;
 }
 
+void cuda::Stream::setDevice() const
+{
+  assert(context_ != nullptr);
+  CUDA_CALL(cudaSetDevice(context_->deviceId()));
+}
+
 cuda::Completion::Completion(CudaDeviceContext& context, cudaStream_t producerStream)
     : context_(&context), event_(context.recordDependencyEvent(producerStream)), producerStream_(producerStream),
       publishSequence_(event_->sequence)
@@ -182,10 +188,7 @@ std::shared_ptr<CudaDeviceContext> CudaDeviceContext::shared(int deviceId, int w
 
 CudaDeviceContext::~CudaDeviceContext() { this->release(); }
 
-cuda::Stream CudaDeviceContext::leaseWorkStream(cudaStream_t preferredStream)
-{
-  return cuda::Stream(*this, this->acquireWorkStream(preferredStream));
-}
+cuda::Stream CudaDeviceContext::leaseWorkStream() { return cuda::Stream(*this, this->acquireWorkStream()); }
 
 cuda::CompletionRef CudaDeviceContext::recordCompletionEvent(cudaStream_t producerStream)
 {
@@ -193,26 +196,9 @@ cuda::CompletionRef CudaDeviceContext::recordCompletionEvent(cudaStream_t produc
   return cuda::CompletionRef(new cuda::Completion(*this, producerStream));
 }
 
-cudaStream_t CudaDeviceContext::acquireWorkStream(cudaStream_t preferredStream)
+cudaStream_t CudaDeviceContext::acquireWorkStream()
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
-
-  if (preferredStream == cudaStreamLegacy)
-  {
-    return cudaStreamLegacy;
-  }
-
-  if (preferredStream != nullptr)
-  {
-    auto it = std::find(availableWorkStreams_.begin(), availableWorkStreams_.end(), preferredStream);
-    if (it != availableWorkStreams_.end())
-    {
-      auto stream = *it;
-      availableWorkStreams_.erase(it);
-      return stream;
-    }
-  }
-
   if (!availableWorkStreams_.empty())
   {
     auto stream = availableWorkStreams_.front();

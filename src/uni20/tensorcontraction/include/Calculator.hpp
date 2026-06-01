@@ -232,9 +232,7 @@ class StreamManager {
     int getDeviceId() const { return deviceId; }
     cublasHandle_t getHandle() const { return currentHandle; }
     cudaStream_t setEnv();
-    cudaStream_t setEnv(cudaStream_t preferredStream);
     cudaStream_t getStream();
-    cudaStream_t getStream(cudaStream_t preferredStream);
     cudaStream_t currentStreamHandle() const { return currentStream; }
     CudaDeviceContext::ScratchLease acquireScratch(std::size_t bytes)
     {
@@ -243,7 +241,7 @@ class StreamManager {
     cuda::CompletionRef recordCompletion() { return deviceContext.recordCompletionEvent(currentStream); }
 
   private:
-    void activateStream(cudaStream_t preferredStream = nullptr);
+    void activateStream();
 };
 
 // Generic template factory for creating Work objects

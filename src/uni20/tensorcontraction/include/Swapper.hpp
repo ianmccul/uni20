@@ -120,8 +120,6 @@ class Swapper {
     std::shared_ptr<GpuBuffer> getForWriteNoWait(Matrix mat, int deviceId);
     GpuAccessPlan createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
                                    std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, StreamManager& streamManager);
-    cudaStream_t preferredStreamForAccess(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
-                                          const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers) const;
     void waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                    const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream);
     void publishAccessCompletion(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,

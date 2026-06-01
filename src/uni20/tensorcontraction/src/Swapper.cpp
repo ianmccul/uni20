@@ -459,7 +459,7 @@ Swapper::GpuAccessPlan::GpuAccessPlan(Swapper& swapper, StreamManager& streamMan
     : swapper(swapper), streamManager(streamManager), readBuffers(std::move(readBuffers)),
       writeBuffers(std::move(writeBuffers))
 {
-  selectedStream = this->streamManager.setEnv(swapper.preferredStreamForAccess(this->readBuffers, this->writeBuffers));
+  selectedStream = this->streamManager.setEnv();
   swapper.waitForAccessDependencies(this->readBuffers, this->writeBuffers, selectedStream);
 }
 
@@ -477,14 +477,6 @@ auto Swapper::createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffe
                                StreamManager& streamManager) -> GpuAccessPlan
 {
   return GpuAccessPlan(*this, streamManager, std::move(readBuffers), std::move(writeBuffers));
-}
-
-cudaStream_t Swapper::preferredStreamForAccess(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
-                                               const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers) const
-{
-  (void)readBuffers;
-  (void)writeBuffers;
-  return nullptr;
 }
 
 void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,

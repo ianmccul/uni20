@@ -324,12 +324,6 @@ cudaStream_t StreamManager::getStream()
   return currentStream;
 }
 
-cudaStream_t StreamManager::getStream(cudaStream_t preferredStream)
-{
-  activateStream(preferredStream);
-  return currentStream;
-}
-
 cudaStream_t StreamManager::setEnv()
 {
   CUDA_CALL(cudaSetDevice(deviceId));
@@ -337,23 +331,13 @@ cudaStream_t StreamManager::setEnv()
   return stream;
 }
 
-cudaStream_t StreamManager::setEnv(cudaStream_t preferredStream)
-{
-  CUDA_CALL(cudaSetDevice(deviceId));
-  cudaStream_t stream = getStream(preferredStream);
-  return stream;
-}
-
 void StreamManager::syncAllStreams() const { deviceContext.syncWorkStreams("stream_manager_clear"); }
 
-void StreamManager::activateStream(cudaStream_t preferredStream)
+void StreamManager::activateStream()
 {
-  if (preferredStream != nullptr && currentStreamOwner && currentStream == preferredStream)
-  {
-    return;
-  }
   currentStreamOwner.release();
-  currentStreamOwner = deviceContext.leaseWorkStream(preferredStream);
+  currentStreamOwner = deviceContext.leaseWorkStream();
+  currentStreamOwner.setDevice();
   currentStream = currentStreamOwner.stream();
   currentHandle = deviceContext.cublasHandleForCurrentThread(currentStream);
 }
