@@ -37,6 +37,7 @@ class GpuBuffer {
     size_t dim1;
     size_t dim2;
     void* hostPtr;
+    bool hasValidContent = false;
     bool dependencyEventsEnabled = true;
     CudaDeviceContext* deviceContext = nullptr;
     AccessState accessState;
@@ -53,6 +54,8 @@ class GpuBuffer {
     int getId() const;
     size_t size() const { return dim1 * dim2; }
     size_t sizeInByte() const { return size() * sizeof(double); }
+    bool contentValid() const { return hasValidContent; }
+    void publishAllocation(cuda::CompletionRef completion);
     void waitBeforeRead(cudaStream_t stream);
     void waitBeforeWrite(cudaStream_t stream);
     void publishRead(cudaStream_t stream);
@@ -146,6 +149,7 @@ class Swapper {
     void pinMatrix(Matrix mat, int deviceId);
     void unpinMatrix(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> allocate(Matrix mat, int deviceId);
+    std::pair<int, std::shared_ptr<GpuBuffer>> findLocalSourceBuffer(Matrix mat, int requesterDeviceId);
     void preStoreMatrix(Matrix mat, int deviceId);
     void copyHostToPreStoreMatrix(Matrix mat);
     void copyPreStoreMatrixToHost(Matrix mat);

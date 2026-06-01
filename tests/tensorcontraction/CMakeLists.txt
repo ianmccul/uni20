@@ -40,6 +40,17 @@ add_test(
     "--gtest_filter=TensorContractionEffectiveHamiltonianOperatorTest.AppliesSingleTermMatvec"
 )
 
+add_test(
+  NAME TensorContractionCUDA.OneProcessTwoGpuApply
+  COMMAND
+    "bash" "-lc"
+    "gpu_count=$(nvidia-smi -L 2>/dev/null | wc -l); if [ \"$gpu_count\" -lt 2 ]; then exit 77; fi; export HWLOC_HIDE_ERRORS=2 UNI20_TENSORCONTRACTION_DEVICES=2; exec \"$@\""
+    "uni20-tensorcontraction-two-gpu"
+    "$<TARGET_FILE:uni20_tensorcontraction_tests>"
+    "--gtest_filter=TensorContractionEffectiveHamiltonianOperatorTest.AppliesMultiOutputDenseEnvironmentContraction:TensorContractionEffectiveHamiltonianOperatorTest.AppliesSparseHeisenbergLikeEnvironmentContraction:TensorContractionMpsEnvironmentTest.HeisenbergLeftAndRightUpdatesMatchHostReference"
+)
+set_tests_properties(TensorContractionCUDA.OneProcessTwoGpuApply PROPERTIES SKIP_RETURN_CODE 77)
+
 if(MPIEXEC_EXECUTABLE)
   add_test(
     NAME TensorContractionMPI.EffectiveHamiltonianPlanCompile

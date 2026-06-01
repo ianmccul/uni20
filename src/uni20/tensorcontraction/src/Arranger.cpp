@@ -51,11 +51,6 @@ Arranger::Arranger(Swapper& swapper) : swapper(swapper)
 
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-
-  if (deviceCount > 1)
-  {
-    ensureNcclCommsInitialized();
-  }
 }
 
 Arranger::~Arranger() { releaseResources(); }
@@ -922,8 +917,14 @@ static std::vector<Matrix> freeAndAllocate(int deviceId, Arranger::WorklistTy& w
   {
     swapper.pinMatrix(mat, deviceId);
   }
-  // free unused matrices
-  swapper.freeAllUnpinMatrices(deviceId);
+  // In single-process multi-GPU mode, a buffer can be dead in its producer
+  // device's local worklist while still being needed as the source for another
+  // device's copy.  Keep multi-GPU eviction conservative until the scheduler
+  // tracks cross-device source lifetimes explicitly.
+  if (swapper.getDeviceCount() == 1)
+  {
+    swapper.freeAllUnpinMatrices(deviceId);
+  }
   for (auto mat : unfreeableMatrices)
   {
     swapper.unpinMatrix(mat, deviceId);
@@ -936,6 +937,55 @@ static std::vector<Matrix> freeAndAllocate(int deviceId, Arranger::WorklistTy& w
 // Copy matrices to this device's GPU. Matrices in CPU memory are copied
 // directly; matrices on other GPUs are collected into dstMatPairs for
 // NCCL send/recv.
+static void copyLocalMatrices(int deviceId, const std::vector<Matrix>& matricesToCopy, Swapper& swapper,
+                              const std::unordered_map<int, cudaEvent_t>& matToSyncFinishEventMap)
+{
+  CUDA_CALL(cudaSetDevice(deviceId));
+
+  for (auto mat : matricesToCopy)
+  {
+    auto [srcDeviceId, srcBuffer] = swapper.findLocalSourceBuffer(mat, deviceId);
+    const auto it = matToSyncFinishEventMap.find(mat.getId());
+    cudaEvent_t syncFinishEvent = it == matToSyncFinishEventMap.end() ? nullptr : it->second;
+    if (srcBuffer)
+    {
+      if (srcDeviceId == deviceId)
+      {
+        continue;
+      }
+
+      auto streamOwner = swapper.deviceContext(deviceId).leaseWorkStream();
+      cudaStream_t stream = streamOwner.stream();
+      auto dstBuffer = swapper.getForWrite(mat, deviceId, stream);
+      swapper.waitForAccessDependencies({srcBuffer}, {dstBuffer}, stream);
+      if (syncFinishEvent)
+      {
+        CUDA_CALL(cudaStreamWaitEvent(stream, syncFinishEvent));
+      }
+      CUDA_CALL(cudaMemcpyPeerAsync(dstBuffer->getPtr(), deviceId, srcBuffer->getPtr(), srcDeviceId, mat.sizeInByte(),
+                                    stream));
+      auto completion = streamOwner.recordCompletion();
+      swapper.publishAccessCompletion({srcBuffer}, {dstBuffer}, stream, completion);
+      DEBUG_SECOND_HIT(swapper, mat.getId(), srcDeviceId, deviceId, mat.sizeInByte());
+    }
+    else if (mat.getPtr())
+    {
+      auto streamOwner = swapper.deviceContext(deviceId).leaseWorkStream();
+      cudaStream_t stream = streamOwner.stream();
+      auto buffer = swapper.getForWrite(mat, deviceId, stream);
+      if (syncFinishEvent)
+      {
+        CUDA_CALL(cudaStreamWaitEvent(stream, syncFinishEvent));
+      }
+      swapper.copyMatrix(mat, buffer, deviceId, stream);
+    }
+    else
+    {
+      throw std::logic_error("TensorContraction tried to copy a hostless matrix with no local GPU source");
+    }
+  }
+}
+
 static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix>& matricesToCopy,
                          std::vector<std::tuple<int, Matrix, cudaEvent_t>>& dstMatPairs, std::atomic_int& counter,
                          const std::function<ncclComm_t()>& commProvider, Swapper& swapper,
@@ -958,7 +1008,7 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
   for (auto mat : matricesToCopy)
   {
     // Trying to figure out where does this matrix reside..
-    auto [srcDeviceId, srcBuffer] = swapper.getPreStoreBufferOrNone(mat);
+    auto [srcDeviceId, srcBuffer] = swapper.findLocalSourceBuffer(mat, deviceId);
     const auto it = matToSyncFinishEventMap.find(mat.getId());
     cudaEvent_t syncFinishEvent = it == matToSyncFinishEventMap.end() ? nullptr : it->second;
     if (srcBuffer)
@@ -972,9 +1022,21 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
         continue;
       }
 
-      // This matrix resides in another GPU on this node.
-      int nccl_comm_id = mpi_rank * device_count + deviceId;
-      dstMatPairs.push_back({nccl_comm_id, mat, syncFinishEvent});
+      // This matrix resides on another GPU in this process.  Use a direct
+      // peer copy rather than routing local traffic through NCCL; the NCCL
+      // path is kept for inter-process transfers.
+      auto streamOwner = swapper.deviceContext(deviceId).leaseWorkStream();
+      cudaStream_t stream = streamOwner.stream();
+      auto dstBuffer = swapper.getForWrite(mat, deviceId, stream);
+      swapper.waitForAccessDependencies({srcBuffer}, {dstBuffer}, stream);
+      if (syncFinishEvent)
+      {
+        CUDA_CALL(cudaStreamWaitEvent(stream, syncFinishEvent));
+      }
+      CUDA_CALL(cudaMemcpyPeerAsync(dstBuffer->getPtr(), deviceId, srcBuffer->getPtr(), srcDeviceId, mat.sizeInByte(),
+                                    stream));
+      auto completion = streamOwner.recordCompletion();
+      swapper.publishAccessCompletion({srcBuffer}, {dstBuffer}, stream, completion);
       DEBUG_SECOND_HIT(swapper, mat.getId(), srcDeviceId, deviceId, mat.sizeInByte());
     }
     else if (mat.getPtr())
@@ -1194,6 +1256,17 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       // Nsight showed this dominating tiny-block DMRG benchmarks.
       matricesToCopy[0] = freeAndAllocate(0, worklists[0], endIdxes[0], freeMems[0], swapper, liveIntervals[0]);
     }
+    else if (mpi_size == 1)
+    {
+      // With one host process controlling local GPUs, CUDA work can be queued
+      // sequentially on each device without losing device-side overlap.  This
+      // avoids thousands of short-lived host threads in tiny-block workloads.
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
+        matricesToCopy[deviceId] = freeAndAllocate(deviceId, worklists[deviceId], endIdxes[deviceId],
+                                                   freeMems[deviceId], swapper, liveIntervals[deviceId]);
+      }
+    }
     else
     {
       for (int deviceId = 0; deviceId < deviceCount; deviceId++)
@@ -1244,6 +1317,17 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
         };
         copyMatrices(0, deviceCount, batchSlices[0], dstMatPairs, batchCounter, commProvider, swapper,
                      matToSyncFinishEventMap);
+      }
+      else if (mpi_size == 1)
+      {
+        // Local multi-GPU transfers do not need the NCCL/MPI metadata
+        // exchange, nor the spin-barriers used to build it.  The buffers for
+        // all devices have already been allocated, so a sequential host-side
+        // dispatch is enough; CUDA streams still carry the data dependencies.
+        for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+        {
+          copyLocalMatrices(deviceId, batchSlices[deviceId], swapper, matToSyncFinishEventMap);
+        }
       }
       else
       {
@@ -1306,6 +1390,14 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       execute(worklists[0], 0, startIdxes[0], endIdxes[0]);
       startIdxes[0] = endIdxes[0];
     }
+    else if (mpi_size == 1)
+    {
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
+        execute(worklists[deviceId], deviceId, startIdxes[deviceId], endIdxes[deviceId]);
+        startIdxes[deviceId] = endIdxes[deviceId];
+      }
+    }
     else
     {
       for (int deviceId = 0; deviceId < deviceCount; deviceId++)
@@ -1322,6 +1414,16 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       if (endIdxes[0] < static_cast<int>(worklists[0].size()))
       {
         areAllFinished = 0;
+      }
+    }
+    else if (mpi_size == 1)
+    {
+      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      {
+        if (endIdxes[deviceId] < static_cast<int>(worklists[deviceId].size()))
+        {
+          areAllFinished = 0;
+        }
       }
     }
     else

@@ -227,13 +227,12 @@ void NCCLSendRecvWork::execute()
     else
     {
       dstBufferMatTuple.push_back({dst_nccl_id, nullptr, mat});
-      auto [srcDeviceId, srcBuffer] = swapper.getPreStoreBufferOrNone(mat);
-      int src_nccl_id = srcDeviceId == -1 ? -1 : mpi_rank * device_count + srcDeviceId;
+      auto srcBuffer = swapper.getForReadNoWait(mat, thisDeviceId);
 
       // This matrix is requested by other device, and it sits in this device's
       // memory. We need to make sure it has been written completely before
       // doing the transfer.
-      if (src_nccl_id == this_nccl_id && syncFinishEvent)
+      if (srcBuffer != nullptr && syncFinishEvent)
       {
         CUDA_CALL(cudaStreamWaitEvent(stream, syncFinishEvent));
       }
@@ -244,23 +243,18 @@ void NCCLSendRecvWork::execute()
   DEBUG_NCCL_GROUP_START(thisDeviceId);
   for (auto [dst_nccl_id, dstBuffer, mat] : dstBufferMatTuple)
   {
-    auto [srcDeviceId, srcBuffer] = swapper.getPreStoreBufferOrNone(mat);
-    int src_nccl_id;
-    if (srcDeviceId != -1)
+    if (dst_nccl_id == this_nccl_id)
     {
-      src_nccl_id = mpi_rank * device_count + srcDeviceId;
+      auto [srcDeviceId, srcBuffer] = swapper.findLocalSourceBuffer(mat, thisDeviceId);
+      int src_nccl_id =
+          srcDeviceId == -1 ? swapper.getRemoteNCCLId(mat.getId()) : mpi_rank * device_count + srcDeviceId;
+      if (src_nccl_id != this_nccl_id)
+      {
+        DEBUG_NCCL_RECV(swapper, mat.getId(), src_nccl_id, this_nccl_id, mat.size(), stream);
+        NCCL_CALL(ncclRecv(dstBuffer->getPtr(), dstBuffer->size(), ncclDouble, src_nccl_id, comm, stream));
+      }
     }
-    else
-    {
-      src_nccl_id = swapper.getRemoteNCCLId(mat.getId());
-    }
-
-    if (dst_nccl_id == this_nccl_id && src_nccl_id != this_nccl_id)
-    {
-      DEBUG_NCCL_RECV(swapper, mat.getId(), src_nccl_id, this_nccl_id, mat.size(), stream);
-      NCCL_CALL(ncclRecv(dstBuffer->getPtr(), dstBuffer->size(), ncclDouble, src_nccl_id, comm, stream));
-    }
-    else if (dst_nccl_id != this_nccl_id && src_nccl_id == this_nccl_id)
+    else if (auto srcBuffer = swapper.getForReadNoWait(mat, thisDeviceId); srcBuffer != nullptr)
     {
       DEBUG_NCCL_SEND(swapper, mat.getId(), this_nccl_id, dst_nccl_id, mat.size(), stream);
       NCCL_CALL(ncclSend(srcBuffer->getPtr(), srcBuffer->size(), ncclDouble, dst_nccl_id, comm, stream));
