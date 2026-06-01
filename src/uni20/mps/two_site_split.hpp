@@ -8,8 +8,14 @@
 #include <uni20/mps/two_site_solve.hpp>
 #include <uni20/tensorcontraction/svd.hpp>
 
+#include <mpi.h>
+
+#include <algorithm>
 #include <cstddef>
+#include <limits>
+#include <span>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace uni20
@@ -27,6 +33,93 @@ struct TwoSiteSplitResult
     MpsSiteTensor right;
     tensorcontraction::SingleBlockSvd svd;
 };
+
+namespace detail
+{
+
+inline auto mpi_has_multiple_ranks() -> bool
+{
+  int initialized = 0;
+  MPI_Initialized(&initialized);
+  if (initialized == 0)
+  {
+    return false;
+  }
+
+  int finalized = 0;
+  MPI_Finalized(&finalized);
+  if (finalized != 0)
+  {
+    return false;
+  }
+
+  int size = 1;
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  return size > 1;
+}
+
+inline void broadcast_doubles_from_rank_zero(std::span<double> values)
+{
+  std::size_t offset = 0;
+  while (offset < values.size())
+  {
+    auto const remaining = values.size() - offset;
+    auto const count = std::min<std::size_t>(remaining, static_cast<std::size_t>(std::numeric_limits<int>::max()));
+    MPI_Bcast(values.data() + offset, static_cast<int>(count), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    offset += count;
+  }
+}
+
+inline void broadcast_size_from_rank_zero(std::size_t& value)
+{
+  auto wire_value = static_cast<unsigned long long>(value);
+  MPI_Bcast(&wire_value, 1, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
+  value = static_cast<std::size_t>(wire_value);
+}
+
+inline void require_matching_rank_zero_size(std::size_t local_value, char const* name)
+{
+  auto rank_zero_value = local_value;
+  broadcast_size_from_rank_zero(rank_zero_value);
+
+  int local_mismatch = local_value == rank_zero_value ? 0 : 1;
+  int global_mismatch = 0;
+  MPI_Allreduce(&local_mismatch, &global_mismatch, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+  if (global_mismatch != 0)
+  {
+    throw std::runtime_error(std::string("MPI ranks computed different two-site SVD ") + name);
+  }
+}
+
+inline void broadcast_svd_from_rank_zero(tensorcontraction::SingleBlockSvd& svd)
+{
+  if (!mpi_has_multiple_ranks())
+  {
+    return;
+  }
+
+  require_matching_rank_zero_size(svd.singular_values.size(), "kept rank");
+  broadcast_doubles_from_rank_zero(svd.singular_values);
+  MPI_Bcast(&svd.discarded_weight, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  broadcast_size_from_rank_zero(svd.full_rank);
+  tensorcontraction::broadcast_values_from_rank_zero(svd.u);
+  tensorcontraction::broadcast_values_from_rank_zero(svd.vt);
+}
+
+inline void broadcast_site_tensor_from_rank_zero(MpsSiteTensor& site)
+{
+  if (!mpi_has_multiple_ranks())
+  {
+    return;
+  }
+
+  for (std::size_t physical = 0; physical < site.physical_dim(); ++physical)
+  {
+    broadcast_doubles_from_rank_zero(site.values(physical));
+  }
+}
+
+} // namespace detail
 
 inline auto make_dense_shared_bond_space(Symmetry sym, std::size_t dim) -> BlockSpace
 {
@@ -65,6 +158,9 @@ inline auto split_two_site_center(tensorcontraction::MatrixFamily const& center,
   }
 
   auto svd = tensorcontraction::single_block_svd(center, options);
+  // Keep the prototype MPI ranks on one host-state trajectory.  This is also
+  // robust against valid rank-local SVD sign or degenerate-subspace choices.
+  detail::broadcast_svd_from_rank_zero(svd);
   auto const rank = svd.singular_values.size();
   auto shared_bond_space = make_dense_shared_bond_space(left_physical_space.symmetry(), rank);
   MpsSiteTensor left(left_physical_space, left_bond_space, shared_bond_space);
@@ -107,6 +203,9 @@ inline auto split_two_site_center(tensorcontraction::MatrixFamily const& center,
       }
     }
   }
+
+  detail::broadcast_site_tensor_from_rank_zero(left);
+  detail::broadcast_site_tensor_from_rank_zero(right);
 
   return TwoSiteSplitResult{.left = std::move(left), .right = std::move(right), .svd = std::move(svd)};
 }

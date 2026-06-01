@@ -2,9 +2,11 @@
 #include <uni20/mps/two_site_split.hpp>
 
 #include <gtest/gtest.h>
+#include <mpi.h>
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <vector>
 
 using namespace uni20;
@@ -15,6 +17,26 @@ namespace
 auto bond_space(Symmetry sym, std::size_t dim) -> BlockSpace
 {
   return BlockSpace(sym, {BlockSector{QNum::identity(sym), dim}});
+}
+
+void ensure_mpi_initialized()
+{
+  int initialized = 0;
+  MPI_Initialized(&initialized);
+  if (initialized != 0)
+  {
+    return;
+  }
+
+  MPI_Init(nullptr, nullptr);
+  std::atexit([] {
+    int finalized = 0;
+    MPI_Finalized(&finalized);
+    if (finalized == 0)
+    {
+      MPI_Finalize();
+    }
+  });
 }
 
 auto make_center(std::initializer_list<double> values) -> tensorcontraction::MatrixFamily
@@ -127,4 +149,23 @@ TEST(TwoSiteSplitTest, ReplacesMpsSitesAfterSplit)
 
   EXPECT_EQ(psi[0].right_dim(), 2);
   EXPECT_EQ(psi[1].left_dim(), 2);
+}
+
+TEST(TwoSiteSplitTest, UsesRankZeroSplitAuthorityInMpi)
+{
+  ensure_mpi_initialized();
+
+  int rank = 0;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  auto const spin = make_spin_half_u1_site();
+  auto center = rank == 0 ? make_center({2.0, 0.25, -0.5, 1.0}) : make_center({3.0, -0.75, 0.125, 0.5});
+  std::array<double, 4> rank_zero_center{2.0, 0.25, -0.5, 1.0};
+  TwoSiteEffectiveHamiltonianLayout layout{
+      .left_bond_dim = 1, .left_physical_dim = 2, .right_physical_dim = 2, .right_bond_dim = 1};
+
+  auto split = split_two_site_center(center, layout, spin.space, spin.space, bond_space(spin.symmetry, 1),
+                                     bond_space(spin.symmetry, 1), TwoSiteSplitDirection::LeftToRight);
+
+  expect_reconstructs(split.left, split.right, rank_zero_center);
 }

@@ -53,4 +53,6 @@ class MatrixFamily {
 std::vector<tensor::Matrix>& raw_matrices(MatrixFamily& family);
 std::vector<tensor::Matrix> const& raw_matrices(MatrixFamily const& family);
 
+void broadcast_values_from_rank_zero(MatrixFamily& family);
+
 } // namespace uni20::tensorcontraction

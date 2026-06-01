@@ -2,6 +2,8 @@
 
 #include "Matrix.hpp"
 
+#include <mpi.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <limits>
@@ -109,5 +111,42 @@ void MatrixFamily::fill(double value)
 std::vector<tensor::Matrix>& raw_matrices(MatrixFamily& family) { return family.impl_->matrices; }
 
 std::vector<tensor::Matrix> const& raw_matrices(MatrixFamily const& family) { return family.impl_->matrices; }
+
+void broadcast_values_from_rank_zero(MatrixFamily& family)
+{
+  int initialized = 0;
+  MPI_Initialized(&initialized);
+  if (initialized == 0)
+  {
+    return;
+  }
+
+  int finalized = 0;
+  MPI_Finalized(&finalized);
+  if (finalized != 0)
+  {
+    return;
+  }
+
+  int size = 1;
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  if (size <= 1)
+  {
+    return;
+  }
+
+  for (std::size_t block = 0; block < family.size(); ++block)
+  {
+    auto values = family.values(block);
+    std::size_t offset = 0;
+    while (offset < values.size())
+    {
+      auto const remaining = values.size() - offset;
+      auto const count = std::min<std::size_t>(remaining, static_cast<std::size_t>(std::numeric_limits<int>::max()));
+      MPI_Bcast(values.data() + offset, static_cast<int>(count), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+      offset += count;
+    }
+  }
+}
 
 } // namespace uni20::tensorcontraction

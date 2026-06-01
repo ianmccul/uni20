@@ -92,6 +92,11 @@ inline auto solve_two_site(FiniteMPS const& psi, FiniteTriangularMPO const& mpo,
   auto optimized_vector = make_two_site_vector(psi, left_site, effective_hamiltonian.input_layout);
   auto lanczos = tensorcontraction::lanczos_lowest(
       optimized_vector, [&](auto const& x, auto& y) { effective_hamiltonian.op.apply(x, y); }, options);
+  // The uni20 prototype currently uses MPI ranks as replicated host-state
+  // workers rather than TensorContraction's original distributed R-owner model.
+  // Rank-local contraction matvecs can drift at roundoff level, so treat rank 0
+  // as the authority until uni20 grows the intended client-server runtime.
+  tensorcontraction::broadcast_values_from_rank_zero(optimized_vector);
   auto optimized_matrix = make_two_site_matrix(optimized_vector, effective_hamiltonian.output_layout);
 
   return TwoSiteSolveResult{.lanczos = lanczos,
