@@ -197,7 +197,8 @@ inline double scaled_tolerance(double residual_norm, double spectral_diameter)
 } // namespace detail
 
 template <typename MatVec>
-LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOptions options = {})
+LanczosResult lanczos_lowest_with_engine(MatrixFamily& guess, MatVec&& matvec, VectorAlgebraEngine& algebra,
+                                         bool guess_already_resident, LanczosOptions options = {})
 {
   if (options.max_iterations < 1)
   {
@@ -214,10 +215,19 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
 
   std::vector<MatrixFamily> v;
   std::vector<MatrixFamily> hv;
-  VectorAlgebraEngine algebra;
   std::vector<double> sub_h(
       static_cast<std::size_t>(options.max_iterations + 1) * static_cast<std::size_t>(options.max_iterations + 1), 0.0);
   auto const stride = static_cast<std::size_t>(options.max_iterations + 1);
+
+  // Keep pure Krylov vector algebra resident in the TensorContraction runtime.
+  // Operators with apply_resident(x, y, algebra) can consume and produce those
+  // resident buffers directly.  Generic matvec callables still use the legacy
+  // host-visible MatrixFamily bridge.
+  if (!guess_already_resident)
+  {
+    algebra.upload(guess);
+  }
+  algebra.set_host_synchronization(false);
 
   double beta = algebra.norm(guess);
   if (!(beta > 0.0) || std::isnan(beta))
@@ -225,12 +235,6 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
     throw std::invalid_argument("Lanczos initial guess must have finite non-zero norm");
   }
 
-  // Keep pure Krylov vector algebra resident in the TensorContraction runtime.
-  // Operators with apply_resident(x, y, algebra) can consume and produce those
-  // resident buffers directly.  Generic matvec callables still use the legacy
-  // host-visible MatrixFamily bridge.
-  algebra.upload(guess);
-  algebra.set_host_synchronization(false);
   auto apply_matvec = [&](MatrixFamily& x, MatrixFamily& y) {
     if constexpr (requires { matvec.apply_resident(x, y, algebra); })
     {
@@ -385,6 +389,20 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
   }
 
   throw std::logic_error("Lanczos reached unreachable control path");
+}
+
+template <typename MatVec>
+LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOptions options = {})
+{
+  VectorAlgebraEngine algebra;
+  return lanczos_lowest_with_engine(guess, std::forward<MatVec>(matvec), algebra, false, options);
+}
+
+template <typename MatVec>
+LanczosResult lanczos_lowest_resident(MatrixFamily& guess, MatVec&& matvec, VectorAlgebraEngine& algebra,
+                                      LanczosOptions options = {})
+{
+  return lanczos_lowest_with_engine(guess, std::forward<MatVec>(matvec), algebra, true, options);
 }
 
 } // namespace uni20::tensorcontraction

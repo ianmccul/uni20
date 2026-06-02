@@ -182,6 +182,30 @@ TEST(TensorContractionVectorAlgebraTest, EngineCanKeepMutationsResidentUntilExpl
   EXPECT_DOUBLE_EQ(x.values(1)[2], 14.0);
 }
 
+TEST(TensorContractionVectorAlgebraTest, EngineCanBuildGemmOutputResidentFromHostInputs)
+{
+  utc::VectorAlgebraEngine engine;
+  std::array lhs_blocks{utc::MatrixFamily::Block{2, 2}};
+  std::array rhs_blocks{utc::MatrixFamily::Block{2, 1}};
+  std::array result_blocks{utc::MatrixFamily::Block{2, 1}};
+  utc::MatrixFamily lhs(lhs_blocks);
+  utc::MatrixFamily rhs(rhs_blocks);
+  utc::MatrixFamily result(result_blocks);
+  lhs.assign(0, std::array{1.0, 2.0, 3.0, 4.0});
+  rhs.assign(0, std::array{5.0, 6.0});
+
+  engine.gemm_each_to_resident(lhs, rhs, result);
+
+  if (!engine.uses_host_backend())
+  {
+    EXPECT_DOUBLE_EQ(result.values(0)[0], 0.0);
+    EXPECT_DOUBLE_EQ(result.values(0)[1], 0.0);
+  }
+  engine.synchronize(result);
+  EXPECT_DOUBLE_EQ(result.values(0)[0], 17.0);
+  EXPECT_DOUBLE_EQ(result.values(0)[1], 39.0);
+}
+
 TEST(TensorContractionVectorAlgebraTest, RejectsZeroNormalizeAndShapeMismatches)
 {
   auto x = make_vector();

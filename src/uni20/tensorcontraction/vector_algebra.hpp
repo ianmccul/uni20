@@ -167,6 +167,7 @@ class VectorAlgebraEngine {
     void scale(MatrixFamily& x, double alpha);
     void axpy(double alpha, MatrixFamily const& x, MatrixFamily& y);
     void gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result);
+    void gemm_each_to_resident(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result);
     [[nodiscard]] double normalize(MatrixFamily& x);
 
     [[nodiscard]] bool uses_host_backend() const;
