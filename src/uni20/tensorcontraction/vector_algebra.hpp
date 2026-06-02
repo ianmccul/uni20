@@ -107,6 +107,35 @@ inline void validate_compatible_gemm_shapes(MatrixFamily const& lhs, MatrixFamil
   }
 }
 
+inline void validate_compatible_selected_gemm_shapes(MatrixFamily const& lhs, MatrixFamily const& rhs,
+                                                     MatrixFamily const& result,
+                                                     std::span<std::size_t const> lhs_block_for_result,
+                                                     std::span<std::size_t const> rhs_block_for_result)
+{
+  if (lhs_block_for_result.size() != result.size() || rhs_block_for_result.size() != result.size())
+  {
+    throw std::invalid_argument("TensorContraction selected GEMM has mismatched selector counts");
+  }
+
+  for (std::size_t block = 0; block < result.size(); ++block)
+  {
+    auto const lhs_index = lhs_block_for_result[block];
+    auto const rhs_index = rhs_block_for_result[block];
+    if (lhs_index >= lhs.size() || rhs_index >= rhs.size())
+    {
+      throw std::invalid_argument("TensorContraction selected GEMM selector is out of range");
+    }
+
+    auto const lhs_block = lhs.block(lhs_index);
+    auto const rhs_block = rhs.block(rhs_index);
+    auto const result_block = result.block(block);
+    if (lhs_block.cols != rhs_block.rows || result_block.rows != lhs_block.rows || result_block.cols != rhs_block.cols)
+    {
+      throw std::invalid_argument("TensorContraction selected GEMM has incompatible block shapes");
+    }
+  }
+}
+
 inline void gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result)
 {
   validate_compatible_gemm_shapes(lhs, rhs, result);
@@ -118,6 +147,38 @@ inline void gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFa
     auto const result_block = result.block(block);
     auto const lhs_values = lhs.values(block);
     auto const rhs_values = rhs.values(block);
+    auto result_values = result.values(block);
+    std::fill(result_values.begin(), result_values.end(), 0.0);
+
+    for (std::size_t row = 0; row < lhs_block.rows; ++row)
+    {
+      for (std::size_t inner = 0; inner < lhs_block.cols; ++inner)
+      {
+        auto const lhs_value = lhs_values[row * lhs_block.cols + inner];
+        for (std::size_t col = 0; col < rhs_block.cols; ++col)
+        {
+          result_values[row * result_block.cols + col] += lhs_value * rhs_values[inner * rhs_block.cols + col];
+        }
+      }
+    }
+  }
+}
+
+inline void gemm_selected(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result,
+                          std::span<std::size_t const> lhs_block_for_result,
+                          std::span<std::size_t const> rhs_block_for_result)
+{
+  validate_compatible_selected_gemm_shapes(lhs, rhs, result, lhs_block_for_result, rhs_block_for_result);
+
+  for (std::size_t block = 0; block < result.size(); ++block)
+  {
+    auto const lhs_index = lhs_block_for_result[block];
+    auto const rhs_index = rhs_block_for_result[block];
+    auto const lhs_block = lhs.block(lhs_index);
+    auto const rhs_block = rhs.block(rhs_index);
+    auto const result_block = result.block(block);
+    auto const lhs_values = lhs.values(lhs_index);
+    auto const rhs_values = rhs.values(rhs_index);
     auto result_values = result.values(block);
     std::fill(result_values.begin(), result_values.end(), 0.0);
 
@@ -168,6 +229,9 @@ class VectorAlgebraEngine {
     void axpy(double alpha, MatrixFamily const& x, MatrixFamily& y);
     void gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result);
     void gemm_each_to_resident(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result);
+    void gemm_selected_to_resident(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result,
+                                   std::span<std::size_t const> lhs_block_for_result,
+                                   std::span<std::size_t const> rhs_block_for_result);
     [[nodiscard]] double normalize(MatrixFamily& x);
 
     [[nodiscard]] bool uses_host_backend() const;

@@ -248,17 +248,23 @@ inline auto make_two_site_vector(FiniteMPS const& psi, std::size_t left_site,
   }
 
   auto const shared_bond_dim = left.right_dim();
-  std::vector<tensorcontraction::MatrixFamily::Block> left_blocks(layout.block_count());
-  std::vector<tensorcontraction::MatrixFamily::Block> right_blocks(layout.block_count());
+  std::vector<tensorcontraction::MatrixFamily::Block> left_blocks(layout.left_physical_dim);
+  std::vector<tensorcontraction::MatrixFamily::Block> right_blocks(layout.right_physical_dim);
   std::vector<tensorcontraction::MatrixFamily::Block> result_blocks(layout.block_count());
+  std::vector<std::size_t> left_block_for_result(layout.block_count());
+  std::vector<std::size_t> right_block_for_result(layout.block_count());
+  std::fill(left_blocks.begin(), left_blocks.end(),
+            tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, shared_bond_dim});
+  std::fill(right_blocks.begin(), right_blocks.end(),
+            tensorcontraction::MatrixFamily::Block{shared_bond_dim, layout.right_bond_dim});
   for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
   {
     for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
     {
       auto const block = layout.block_index(left_phys, right_phys);
-      left_blocks[block] = tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, shared_bond_dim};
-      right_blocks[block] = tensorcontraction::MatrixFamily::Block{shared_bond_dim, layout.right_bond_dim};
       result_blocks[block] = tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim};
+      left_block_for_result[block] = left_phys;
+      right_block_for_result[block] = right_phys;
     }
   }
 
@@ -267,20 +273,18 @@ inline auto make_two_site_vector(FiniteMPS const& psi, std::size_t left_site,
   tensorcontraction::MatrixFamily result(result_blocks);
   for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
   {
-    auto const left_values = left.values(left_phys);
-    for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
-    {
-      auto const block = layout.block_index(left_phys, right_phys);
-      left_operands.assign(block, left_values);
-      right_operands.assign(block, right.values(right_phys));
-    }
+    left_operands.assign(left_phys, left.values(left_phys));
+  }
+  for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+  {
+    right_operands.assign(right_phys, right.values(right_phys));
   }
 
   // The first dense prototype has one block per physical-pair sector.  Future
   // symmetry-aware code should replace these block GEMMs with the same
   // operation over only the allowed fusion/F-move output sectors.
-  tensorcontraction::VectorAlgebraEngine algebra;
-  algebra.gemm_each(left_operands, right_operands, result);
+  tensorcontraction::gemm_selected(left_operands, right_operands, result, left_block_for_result,
+                                   right_block_for_result);
   return result;
 }
 
@@ -307,17 +311,23 @@ make_two_site_vector_resident(FiniteMPS const& psi, std::size_t left_site,
   }
 
   auto const shared_bond_dim = left.right_dim();
-  std::vector<tensorcontraction::MatrixFamily::Block> left_blocks(layout.block_count());
-  std::vector<tensorcontraction::MatrixFamily::Block> right_blocks(layout.block_count());
+  std::vector<tensorcontraction::MatrixFamily::Block> left_blocks(layout.left_physical_dim);
+  std::vector<tensorcontraction::MatrixFamily::Block> right_blocks(layout.right_physical_dim);
   std::vector<tensorcontraction::MatrixFamily::Block> result_blocks(layout.block_count());
+  std::vector<std::size_t> left_block_for_result(layout.block_count());
+  std::vector<std::size_t> right_block_for_result(layout.block_count());
+  std::fill(left_blocks.begin(), left_blocks.end(),
+            tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, shared_bond_dim});
+  std::fill(right_blocks.begin(), right_blocks.end(),
+            tensorcontraction::MatrixFamily::Block{shared_bond_dim, layout.right_bond_dim});
   for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
   {
     for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
     {
       auto const block = layout.block_index(left_phys, right_phys);
-      left_blocks[block] = tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, shared_bond_dim};
-      right_blocks[block] = tensorcontraction::MatrixFamily::Block{shared_bond_dim, layout.right_bond_dim};
       result_blocks[block] = tensorcontraction::MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim};
+      left_block_for_result[block] = left_phys;
+      right_block_for_result[block] = right_phys;
     }
   }
 
@@ -326,20 +336,19 @@ make_two_site_vector_resident(FiniteMPS const& psi, std::size_t left_site,
   tensorcontraction::MatrixFamily result(result_blocks);
   for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
   {
-    auto const left_values = left.values(left_phys);
-    for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
-    {
-      auto const block = layout.block_index(left_phys, right_phys);
-      left_operands.assign(block, left_values);
-      right_operands.assign(block, right.values(right_phys));
-    }
+    left_operands.assign(left_phys, left.values(left_phys));
+  }
+  for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+  {
+    right_operands.assign(right_phys, right.values(right_phys));
   }
 
   // Host MPS storage is still the authority for the site tensors, but the
   // resulting center is consumed immediately by Lanczos.  Keep that output in
   // the same TensorContraction runtime instead of materializing it to host and
   // uploading it again.
-  algebra.gemm_each_to_resident(left_operands, right_operands, result);
+  algebra.gemm_selected_to_resident(left_operands, right_operands, result, left_block_for_result,
+                                    right_block_for_result);
   return result;
 }
 

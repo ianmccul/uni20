@@ -90,8 +90,11 @@ treated as temporary bridge code unless it protects a non-matrix resource such
 as scratch storage.
 
 `vector_algebra.hpp` provides block-vector operations needed by the first
-Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, and
-`normalize`.  The free functions are the host fallback.  `VectorAlgebraEngine`
+Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, `normalize`,
+and small block-GEMM helpers.  `gemm_selected` maps many output blocks onto a
+smaller set of left/right input blocks, which avoids duplicating physical MPS
+blocks while building two-site DMRG vectors.  The free functions are the host
+fallback.  `VectorAlgebraEngine`
 routes the same operations through TensorContraction's CUDA worklists so the
 DMRG local solver does not bake in CPU vector algebra.  The engine can also run
 in an explicit resident mode: `upload` makes host `MatrixFamily` storage the
