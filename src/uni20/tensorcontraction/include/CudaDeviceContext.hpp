@@ -100,6 +100,7 @@ class CudaDeviceContext {
 
     cuda::Stream leaseWorkStream();
     cuda::CublasStream leaseBlasStream();
+    std::size_t freeMemorySnapshot();
     DeviceAllocation allocateFromPool(cudaMemPool_t pool, std::size_t bytes);
     void preallocatePool(cudaMemPool_t pool, std::size_t bytes);
     cuda::CompletionRef recordCompletionEvent(cudaStream_t producerStream);
@@ -147,6 +148,8 @@ class CudaDeviceContext {
     bool serialCuda_ = false;
     bool logCounters_ = false;
     bool released_ = false;
+    bool freeMemorySnapshotValid_ = false;
+    std::size_t freeMemorySnapshot_ = 0;
     cudaStream_t memoryStream_ = nullptr;
     std::deque<cudaStream_t> availableWorkStreams_;
     std::size_t createdWorkStreamCount_ = 0;

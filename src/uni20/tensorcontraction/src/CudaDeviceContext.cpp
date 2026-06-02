@@ -290,6 +290,20 @@ cuda::Stream CudaDeviceContext::leaseWorkStream() { return cuda::Stream(*this, t
 
 cuda::CublasStream CudaDeviceContext::leaseBlasStream() { return cuda::CublasStream(*this, this->acquireBlasLane()); }
 
+std::size_t CudaDeviceContext::freeMemorySnapshot()
+{
+  if (!freeMemorySnapshotValid_)
+  {
+    CUDA_CALL(cudaSetDevice(deviceId_));
+    size_t freeMemory = 0;
+    size_t totalMemory = 0;
+    CUDA_CALL(cudaMemGetInfo(&freeMemory, &totalMemory));
+    freeMemorySnapshot_ = freeMemory;
+    freeMemorySnapshotValid_ = true;
+  }
+  return freeMemorySnapshot_;
+}
+
 CudaDeviceContext::DeviceAllocation CudaDeviceContext::allocateFromPool(cudaMemPool_t pool, std::size_t bytes)
 {
   CUDA_CALL(cudaSetDevice(deviceId_));

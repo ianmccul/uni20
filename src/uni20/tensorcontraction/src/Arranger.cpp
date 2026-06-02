@@ -10,6 +10,7 @@
 #include <functional>
 #include <numeric>
 #include <random>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -18,17 +19,24 @@
 #include "MatrixAllocator.hpp"
 #include "Swapper.hpp"
 
-static int getLeastBusyDevice(const std::vector<double>& flopsPerDevice)
+static int getLeastBusyDevice(const std::vector<double>& flopsPerDevice, int scheduledDeviceCount)
 {
+  if (flopsPerDevice.empty())
+  {
+    throw std::logic_error("TensorContraction has no active CUDA devices for work scheduling");
+  }
+
   int result = -1;
   double flops = std::numeric_limits<double>::max();
+  int const deviceCount = static_cast<int>(flopsPerDevice.size());
+  int const activeDeviceCount = scheduledDeviceCount <= 0 ? deviceCount : std::min(scheduledDeviceCount, deviceCount);
 
-  for (std::size_t deviceId = 0; deviceId < flopsPerDevice.size(); deviceId++)
+  for (int deviceId = 0; deviceId < activeDeviceCount; deviceId++)
   {
-    if (flopsPerDevice[deviceId] < flops)
+    if (flopsPerDevice[static_cast<std::size_t>(deviceId)] < flops)
     {
-      flops = flopsPerDevice[deviceId];
-      result = static_cast<int>(deviceId);
+      flops = flopsPerDevice[static_cast<std::size_t>(deviceId)];
+      result = deviceId;
     }
   }
 
@@ -48,6 +56,8 @@ Arranger::Arranger(Swapper& swapper) : swapper(swapper)
     linearAlgebraWorklists.emplace_back();
   }
   linearAlgebraFlopsPerDevice.resize(deviceCount, 0.0);
+  contractionScheduledDeviceCount = std::max(1, deviceCount);
+  linearAlgebraScheduledDeviceCount = std::max(1, deviceCount);
 
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
@@ -216,16 +226,27 @@ std::vector<Matrix>& Arranger::getInterMats() { return interMats; }
 void Arranger::preStoreToDevice(const std::vector<Matrix>& aMats, const std::vector<Matrix>& bMats,
                                 const std::vector<Matrix>& cMats)
 {
+  std::size_t totalPreStoreBytes = 0;
+  auto accumulateBytes = [&](const std::vector<Matrix>& mats) {
+    for (auto mat : mats)
+    {
+      totalPreStoreBytes += mat.sizeInByte();
+    }
+  };
+  accumulateBytes(interMats);
+  accumulateBytes(aMats);
+  accumulateBytes(bMats);
+  accumulateBytes(cMats);
+
+  int const preStoreDeviceCount = this->scheduledDeviceCountForBytes(totalPreStoreBytes);
+
   // Get available GPU memory for each device
   std::vector<size_t> availableMemory(deviceCount);
-  for (int i = 0; i < deviceCount; i++)
+  for (int i = 0; i < preStoreDeviceCount; i++)
   {
-    CUDA_CALL(cudaSetDevice(i));
-    size_t freeMemory;
-    size_t totalMemory;
-    CUDA_CALL(cudaMemGetInfo(&freeMemory, &totalMemory));
-    // Use at most half of available memory per device
-    availableMemory[i] = freeMemory / 2;
+    // This is a planning budget only. The actual async allocation still
+    // reports failure if another process consumes memory later.
+    availableMemory[i] = swapper.deviceContext(i).freeMemorySnapshot() / 2;
   }
 
   // Track memory usage per device
@@ -245,13 +266,13 @@ void Arranger::preStoreToDevice(const std::vector<Matrix>& aMats, const std::vec
 
       // Find a device with enough available memory
       int assignedDevice = -1;
-      for (int attempt = 0; attempt < deviceCount; attempt++)
+      for (int attempt = 0; attempt < preStoreDeviceCount; attempt++)
       {
-        int deviceId = (currentDeviceIdx + attempt) % deviceCount;
+        int deviceId = (currentDeviceIdx + attempt) % preStoreDeviceCount;
         if (usedMemory[deviceId] + matSize <= availableMemory[deviceId])
         {
           assignedDevice = deviceId;
-          currentDeviceIdx = (deviceId + 1) % deviceCount;
+          currentDeviceIdx = (deviceId + 1) % preStoreDeviceCount;
           break;
         }
       }
@@ -291,7 +312,7 @@ void Arranger::preStoreToDevice(const std::vector<Matrix>& aMats, const std::vec
   copyMatrix(bMats);
   copyMatrix(cMats);
 
-  for (int i = 0; i < deviceCount; i++)
+  for (int i = 0; i < preStoreDeviceCount; i++)
   {
     swapper.syncMemStream(i, "preprocess_upload_inputs");
   }
@@ -466,6 +487,8 @@ void Arranger::compileWorklists(const std::vector<Matrix>& rMats, const std::vec
                                 bool syncResultsToHost)
 {
   std::vector<double> flopsPerDevice(deviceCount, 0.0);
+  double const totalFlops = std::accumulate(rFlops.begin(), rFlops.end(), 0.0);
+  contractionScheduledDeviceCount = this->scheduledDeviceCountForFlops(totalFlops);
 
   // The contraction is split into two parts:
   //   1. Calculate the repeated B*C result.
@@ -513,6 +536,38 @@ void Arranger::buildLiveInterval(std::vector<WorklistTy>& worklists, std::vector
   }
 }
 
+int Arranger::scheduledDeviceCountForFlops(double flops) const
+{
+  if (deviceCount <= 1)
+  {
+    return deviceCount;
+  }
+
+  double const minFlops = resolveTensorContractionMultiGpuMinFlops();
+  return (minFlops > 0.0 && flops < minFlops) ? 1 : deviceCount;
+}
+
+int Arranger::scheduledDeviceCountForBytes(std::size_t bytes) const
+{
+  if (deviceCount <= 1)
+  {
+    return deviceCount;
+  }
+
+  std::size_t const minBytes = resolveTensorContractionMultiGpuMinBytes();
+  return (minBytes > 0 && bytes < minBytes) ? 1 : deviceCount;
+}
+
+int Arranger::leastBusyContractionDevice(const std::vector<double>& flopsPerDevice) const
+{
+  return getLeastBusyDevice(flopsPerDevice, contractionScheduledDeviceCount);
+}
+
+int Arranger::leastBusyLinearAlgebraDevice() const
+{
+  return getLeastBusyDevice(linearAlgebraFlopsPerDevice, linearAlgebraScheduledDeviceCount);
+}
+
 void Arranger::compileWorklistsForInterMat(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
                                            const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
                                            std::vector<double>& flopsPerDevice)
@@ -524,7 +579,7 @@ void Arranger::compileWorklistsForInterMat(const std::vector<Matrix>& rMats, con
     Matrix bMat = bMats[bIdx];
     Matrix cMat = cMats[cIdx];
 
-    int leastBusyDeviceId = getLeastBusyDevice(flopsPerDevice);
+    int leastBusyDeviceId = this->leastBusyContractionDevice(flopsPerDevice);
     cudaSetDevice(leastBusyDeviceId);
     auto& worklist = worklistsForInterMat[leastBusyDeviceId];
 
@@ -578,7 +633,7 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
   // Resident no-host-sync outputs must be produced on their pre-store device;
   // otherwise the transient result is freed before the next vector operation.
   auto [residentDeviceId, _] = swapper.getPreStoreBufferOrNone(rMat);
-  int currentDeviceId = residentDeviceId == -1 ? getLeastBusyDevice(flopsPerDevice) : residentDeviceId;
+  int currentDeviceId = residentDeviceId == -1 ? this->leastBusyContractionDevice(flopsPerDevice) : residentDeviceId;
   WorklistTy& worklist = worklistsForTheRest[currentDeviceId];
 
   for (int i = fTermsStart; i < fTermsEnd; i++)
@@ -912,7 +967,8 @@ static void analyzeLiveMatrices(Arranger::WorklistTy& worklist, int currentIdx,
 // Free unused matrices and allocate buffers for the next batch of work.
 // Returns the list of matrices that need to be copied to this device.
 static std::vector<Matrix> freeAndAllocate(int deviceId, Arranger::WorklistTy& worklist, int& endIdx, size_t freeMem,
-                                           Swapper& swapper, const Arranger::LiveIntervalMap& liveIntervalMap)
+                                           Swapper& swapper, const Arranger::LiveIntervalMap& liveIntervalMap,
+                                           bool allowFreeUnpinned)
 {
   CUDA_CALL(cudaSetDevice(deviceId));
   std::unordered_set<Matrix> unfreeableMatrices = estimateAllocateableMatrices(worklist, freeMem, endIdx);
@@ -928,7 +984,7 @@ static std::vector<Matrix> freeAndAllocate(int deviceId, Arranger::WorklistTy& w
   // device's local worklist while still being needed as the source for another
   // device's copy.  Keep multi-GPU eviction conservative until the scheduler
   // tracks cross-device source lifetimes explicitly.
-  if (swapper.getDeviceCount() == 1)
+  if (allowFreeUnpinned)
   {
     swapper.freeAllUnpinMatrices(deviceId);
   }
@@ -1170,24 +1226,37 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
 void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals,
                                 bool freeBuffersAtEnd)
 {
+  std::vector<int> scheduledDevices;
+  scheduledDevices.reserve(static_cast<std::size_t>(deviceCount));
+  for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
+  {
+    if (mpi_size == 1 && deviceCount > 1 && worklists[deviceId].empty())
+    {
+      continue;
+    }
+    scheduledDevices.push_back(deviceId);
+  }
+  if (scheduledDevices.empty())
+  {
+    return;
+  }
+  bool const localSingleScheduledDevice = mpi_size == 1 && scheduledDevices.size() == 1;
+  int const effectiveDeviceCount = localSingleScheduledDevice ? 1 : deviceCount;
+
   std::vector<size_t> freeMems(deviceCount);
 
-  for (int i = 0; i < deviceCount; i++)
+  for (int i : scheduledDevices)
   {
-    CUDA_CALL(cudaSetDevice(i));
-
-    // cudaMemPoolAttrReservedMemHigh is a high-water mark, not a capacity.
-    // Using it as free capacity made a second contraction phase think no memory
-    // was available after keeping B*C intermediates resident, so it freed them
-    // before the A*(B*C) phase consumed them.
-    size_t freeMemory;
-    size_t totalMemory;
-    CUDA_CALL(cudaMemGetInfo(&freeMemory, &totalMemory));
-    freeMems[i] = freeMemory;
+    // Worklist batching only needs a conservative capacity estimate. Querying
+    // the driver for every tiny DMRG contraction phase dominated the CUDA API
+    // profile, so use the device-context snapshot and let allocation failures
+    // provide the exact backstop.
+    freeMems[i] = swapper.deviceContext(i).freeMemorySnapshot();
   }
 
-  for (int i = 0; i < deviceCount; i++)
+  for (int i : scheduledDevices)
   {
+    (void)i;
     DEBUG_ARRANGER_FREE_MEM(i, freeMems[i]);
   }
 
@@ -1261,17 +1330,18 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       // The common TensorContraction/MPI launch shape is one CUDA device per
       // process.  Avoid creating a worker thread only to join it immediately;
       // Nsight showed this dominating tiny-block DMRG benchmarks.
-      matricesToCopy[0] = freeAndAllocate(0, worklists[0], endIdxes[0], freeMems[0], swapper, liveIntervals[0]);
+      matricesToCopy[0] = freeAndAllocate(0, worklists[0], endIdxes[0], freeMems[0], swapper, liveIntervals[0], true);
     }
     else if (mpi_size == 1)
     {
       // With one host process controlling local GPUs, CUDA work can be queued
       // sequentially on each device without losing device-side overlap.  This
       // avoids thousands of short-lived host threads in tiny-block workloads.
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      for (int deviceId : scheduledDevices)
       {
-        matricesToCopy[deviceId] = freeAndAllocate(deviceId, worklists[deviceId], endIdxes[deviceId],
-                                                   freeMems[deviceId], swapper, liveIntervals[deviceId]);
+        matricesToCopy[deviceId] =
+            freeAndAllocate(deviceId, worklists[deviceId], endIdxes[deviceId], freeMems[deviceId], swapper,
+                            liveIntervals[deviceId], localSingleScheduledDevice);
       }
     }
     else
@@ -1280,7 +1350,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       {
         threads[deviceId] = std::thread([&, deviceId] {
           matricesToCopy[deviceId] = freeAndAllocate(deviceId, worklists[deviceId], endIdxes[deviceId],
-                                                     freeMems[deviceId], swapper, liveIntervals[deviceId]);
+                                                     freeMems[deviceId], swapper, liveIntervals[deviceId], false);
         });
       }
 
@@ -1291,10 +1361,10 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
     }
 
     // Step 2: Copy matrices to their assigned buffers.
-    const int batch_size = std::max(1, 500 / (mpi_size * deviceCount));
+    const int batch_size = std::max(1, 500 / (mpi_size * effectiveDeviceCount));
 
     size_t maxMatrices = 0;
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    for (int deviceId : scheduledDevices)
     {
       maxMatrices = std::max(maxMatrices, matricesToCopy[deviceId].size());
     }
@@ -1308,7 +1378,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       std::atomic_int batchCounter(0);
 
       std::vector<std::vector<Matrix>> batchSlices(deviceCount);
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      for (int deviceId : scheduledDevices)
       {
         auto& src = matricesToCopy[deviceId];
         size_t start = std::min(batchStart, src.size());
@@ -1331,7 +1401,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
         // exchange, nor the spin-barriers used to build it.  The buffers for
         // all devices have already been allocated, so a sequential host-side
         // dispatch is enough; CUDA streams still carry the data dependencies.
-        for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+        for (int deviceId : scheduledDevices)
         {
           copyLocalMatrices(deviceId, batchSlices[deviceId], swapper, matToSyncFinishEventMap);
         }
@@ -1356,12 +1426,13 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
       }
     }
 
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    for (int deviceId : scheduledDevices)
     {
+      (void)deviceId;
       DEBUG_ARRANGER_BATCH_RANGE(deviceId, startIdxes[deviceId], endIdxes[deviceId], (int)worklists[deviceId].size());
     }
 
-    for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+    for (int deviceId : scheduledDevices)
     {
       if (startIdxes[deviceId] == endIdxes[deviceId] &&
           endIdxes[deviceId] < static_cast<int>(worklists[deviceId].size()))
@@ -1399,7 +1470,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
     }
     else if (mpi_size == 1)
     {
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      for (int deviceId : scheduledDevices)
       {
         execute(worklists[deviceId], deviceId, startIdxes[deviceId], endIdxes[deviceId]);
         startIdxes[deviceId] = endIdxes[deviceId];
@@ -1425,7 +1496,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
     }
     else if (mpi_size == 1)
     {
-      for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+      for (int deviceId : scheduledDevices)
       {
         if (endIdxes[deviceId] < static_cast<int>(worklists[deviceId].size()))
         {
@@ -1457,7 +1528,7 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
     }
   }
 
-  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
+  for (int deviceId : scheduledDevices)
   {
     swapper.deviceContext(deviceId).syncWorkStreams("arranger_execute_worklists");
   }
@@ -1473,6 +1544,13 @@ void Arranger::executeWorklists(std::vector<WorklistTy>& worklists, std::vector<
     CUDA_CALL(cudaSetDevice(0));
     swapper.freeAllBuffer(0);
     swapper.freeAllEvents(0);
+  }
+  else if (localSingleScheduledDevice)
+  {
+    int const deviceId = scheduledDevices.front();
+    CUDA_CALL(cudaSetDevice(deviceId));
+    swapper.freeAllBuffer(deviceId);
+    swapper.freeAllEvents(deviceId);
   }
   else
   {
@@ -1506,7 +1584,7 @@ void Arranger::compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double*
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(m1);
   if (deviceId == -1)
   {
-    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+    deviceId = this->leastBusyLinearAlgebraDevice();
   }
   linearAlgebraWorklists[deviceId].push_back(
       createWork<InnerProductWork>(std::vector<Matrix>{m1, m2}, 1.0, deviceId, swapper, result));
@@ -1518,7 +1596,7 @@ void Arranger::compileZeroForLinearAlgebra(Matrix result, bool syncHost)
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
   if (deviceId == -1)
   {
-    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+    deviceId = this->leastBusyLinearAlgebraDevice();
   }
   linearAlgebraWorklists[deviceId].push_back(
       createWork<MemsetWork>(std::vector<Matrix>{result}, 0.0, deviceId, swapper));
@@ -1534,7 +1612,7 @@ void Arranger::compileMatMulForLinearAlgebra(Matrix result, Matrix m1, Matrix m2
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
   if (deviceId == -1)
   {
-    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+    deviceId = this->leastBusyLinearAlgebraDevice();
   }
   linearAlgebraWorklists[deviceId].push_back(
       createWork<MatMulWork>(std::vector<Matrix>{result, m1, m2}, 1.0, deviceId, swapper));
@@ -1551,7 +1629,7 @@ void Arranger::compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* 
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
   if (deviceId == -1)
   {
-    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+    deviceId = this->leastBusyLinearAlgebraDevice();
   }
   linearAlgebraWorklists[deviceId].push_back(
       createWork<AddAccuWork>(std::vector<Matrix>{result, m1}, *coff, deviceId, swapper));
@@ -1567,7 +1645,7 @@ void Arranger::compileScalarMulForLinearAlgebra(Matrix result, double* coff, boo
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);
   if (deviceId == -1)
   {
-    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+    deviceId = this->leastBusyLinearAlgebraDevice();
   }
   linearAlgebraWorklists[deviceId].push_back(
       createWork<ScalarMulWork>(std::vector<Matrix>{result}, 1.0, deviceId, swapper, coff));
@@ -1587,6 +1665,7 @@ void Arranger::doLinearAlgebra()
     wl.clear();
   liveIntervalsForLinearAlgebra.clear();
   std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+  linearAlgebraScheduledDeviceCount = std::max(1, deviceCount);
 }
 
 void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost, bool refreshExisting)
@@ -1596,6 +1675,13 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
   // Localize MatrixFamily blocks into TensorContraction pre-store buffers.
   // With uploadFromHost=false this is allocation-only and preserves the current
   // GPU-resident value; with uploadFromHost=true host storage is the authority.
+  std::size_t totalBytes = 0;
+  for (auto mat : mats)
+  {
+    totalBytes += mat.sizeInByte();
+  }
+  linearAlgebraScheduledDeviceCount = this->scheduledDeviceCountForBytes(totalBytes);
+
   std::vector<size_t> bytesPerDevice(deviceCount, 0);
   std::vector<bool> touchedDevice(deviceCount, false);
   for (auto mat : mats)
@@ -1611,7 +1697,7 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
       continue;
     }
 
-    deviceId = getLeastBusyDevice(linearAlgebraFlopsPerDevice);
+    deviceId = this->leastBusyLinearAlgebraDevice();
     CUDA_CALL(cudaSetDevice(deviceId));
     if (uploadFromHost)
     {

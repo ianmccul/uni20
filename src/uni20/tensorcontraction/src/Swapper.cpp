@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <stdexcept>
+#include <string>
 #include <unordered_set>
 
 #include "Calculator.hpp"
@@ -438,6 +440,12 @@ void Swapper::release()
 
 std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
 {
+  if (deviceId < 0 || deviceId >= static_cast<int>(memPools.size()) ||
+      deviceId >= static_cast<int>(deviceContexts.size()))
+  {
+    throw std::logic_error("TensorContraction attempted GPU allocation on an inactive device");
+  }
+
   auto memPool = memPools[deviceId];
 
   auto allocation = deviceContexts[deviceId]->allocateFromPool(memPool, mat.sizeInByte());

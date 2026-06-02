@@ -158,10 +158,9 @@ void MatrixAllocator::allocateMatrices(std::vector<Matrix>& r_mats, std::vector<
     }
     else
     {
-      // Default pool - use global free memory
-      size_t freeMemory, totalMemory;
-      CUDA_CALL(cudaMemGetInfo(&freeMemory, &totalMemory));
-      availableMemory[i] = freeMemory / 2;
+      // Default-pool allocation uses this only as a planning budget. The
+      // Swapper allocation path still observes exact CUDA allocation failures.
+      availableMemory[i] = swapper.deviceContext(i).freeMemorySnapshot() / 2;
     }
 
     initialAvailableMemory[i] = availableMemory[i];

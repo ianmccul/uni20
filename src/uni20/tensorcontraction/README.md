@@ -57,6 +57,14 @@ design.  The all-visible-GPU mode is still available for TensorContraction
 experiments that need one process to drive multiple local GPUs; multi-GPU plus
 multi-node execution is not covered by the current single-node GV100 test
 environment.
+When more than one GPU is active, tiny resident DMRG workloads keep their
+pre-stored matrices and scheduled work on one local GPU by default because
+scattering small blocks mostly measures CUDA event and peer-copy overhead.  Set
+`UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_FLOPS=0` and
+`UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES=0` to force all-active-GPU
+scheduling for diagnostics.  The defaults are `1e10` estimated contraction
+flops and `64MiB` of resident vector blocks before local multi-GPU scheduling is
+enabled.
 
 The CUDA work stream pool defaults to four streams per active device.  Set
 `UNI20_TENSORCONTRACTION_STREAMS=N` to change that pool size.  For CUDA-overhead
