@@ -294,4 +294,15 @@ double VectorAlgebraEngine::normalize(MatrixFamily& x)
   return x_norm;
 }
 
+bool VectorAlgebraEngine::uses_host_backend() const { return impl_->host_backend(); }
+
+tensor::Arranger& VectorAlgebraEngine::resident_arranger()
+{
+  if (impl_->arranger == nullptr)
+  {
+    throw std::logic_error("TensorContraction resident runtime is not available on the host backend");
+  }
+  return *impl_->arranger;
+}
+
 } // namespace uni20::tensorcontraction

@@ -1,4 +1,5 @@
 #include <uni20/tensorcontraction/effective_hamiltonian_operator.hpp>
+#include <uni20/tensorcontraction/vector_algebra.hpp>
 
 #include "Arranger.hpp"
 #include "Swapper.hpp"
@@ -298,6 +299,48 @@ void EffectiveHamiltonianOperator::apply(MatrixFamily const& x, MatrixFamily& y)
                                    raw_matrices(impl_->b_mats), raw_matrices(impl_->c_mats));
   }
   y.assign(impl_->r_mats);
+}
+
+void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixFamily& y, VectorAlgebraEngine& algebra)
+{
+  validate_family_shape(x, impl_->input_blocks, "input");
+  validate_family_shape(y, impl_->output_blocks, "output");
+
+  if (impl_->host_backend() || algebra.uses_host_backend())
+  {
+    this->apply(x, y);
+    return;
+  }
+
+  auto& arranger = algebra.resident_arranger();
+  auto terms = convert_terms(impl_->terms);
+  auto const& r = raw_matrices(y);
+  auto const& a = raw_matrices(impl_->a_mats);
+  auto const& b = impl_->variable_family == VariableFamily::Middle ? raw_matrices(x) : raw_matrices(impl_->b_mats);
+  auto const& c = impl_->variable_family == VariableFamily::Middle ? raw_matrices(impl_->c_mats) : raw_matrices(x);
+
+  validate_term_shapes(y, impl_->a_mats, impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
+                       impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x, impl_->terms);
+
+  // Static environments are host-authored but should not be refreshed during
+  // every Krylov matvec.  The active Lanczos input/output vectors are already
+  // resident in this same runtime.
+  arranger.localizeForLinearAlgebra(a, /*uploadFromHost=*/true, /*refreshExisting=*/false);
+  if (impl_->variable_family == VariableFamily::Middle)
+  {
+    arranger.localizeForLinearAlgebra(c, /*uploadFromHost=*/true, /*refreshExisting=*/false);
+  }
+  else
+  {
+    arranger.localizeForLinearAlgebra(b, /*uploadFromHost=*/true, /*refreshExisting=*/false);
+  }
+  arranger.localizeForLinearAlgebra(raw_matrices(x), /*uploadFromHost=*/false);
+  arranger.localizeForLinearAlgebra(raw_matrices(y), /*uploadFromHost=*/false);
+
+  arranger.resetWork();
+  arranger.analyzeComputation(r, a, b, c, terms);
+  arranger.compileWorklists(r, a, b, c, /*syncResultsToHost=*/false);
+  arranger.doContraction(r, a, b, c);
 }
 
 } // namespace uni20::tensorcontraction

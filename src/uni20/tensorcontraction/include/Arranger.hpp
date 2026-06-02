@@ -91,7 +91,7 @@ class Arranger {
     void compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff, bool syncHost = true);
     void compileScalarMulForLinearAlgebra(Matrix result, double* coff, bool syncHost = true);
     void doLinearAlgebra();
-    void localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost);
+    void localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost, bool refreshExisting = true);
     void synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats);
     double* collectiveExchangeMatrix(Matrix m = Matrix());
 
@@ -106,12 +106,13 @@ class Arranger {
 
     void compileWorklistsForTheRest(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
                                     const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
-                                    std::vector<double>& flopsPerDevice);
+                                    std::vector<double>& flopsPerDevice, bool syncResultsToHost);
     void compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rMats, const std::vector<Matrix>& aMats,
                            const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
-                           std::vector<double>& flopsPerDevice);
+                           std::vector<double>& flopsPerDevice, bool syncResultToHost);
     void compileWorklists(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
-                          const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats);
+                          const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
+                          bool syncResultsToHost = true);
     void distributeMatricesToNodes(std::vector<Matrix>& mats, std::string prefix);
     void distributeFTermsToNodes(std::vector<TermTy>& terms, const std::vector<Matrix>& rMats);
     void preCopyMatrices(std::vector<Matrix>& aMats, std::vector<Matrix>& bMats, std::vector<Matrix>& cMats,

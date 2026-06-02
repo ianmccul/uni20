@@ -226,14 +226,22 @@ LanczosResult lanczos_lowest(MatrixFamily& guess, MatVec&& matvec, LanczosOption
   }
 
   // Keep pure Krylov vector algebra resident in the TensorContraction runtime.
-  // The current matvec adapter still uses host MatrixFamily storage, so the
-  // helper below is the only intended host/GPU crossing inside the iteration.
+  // Operators with apply_resident(x, y, algebra) can consume and produce those
+  // resident buffers directly.  Generic matvec callables still use the legacy
+  // host-visible MatrixFamily bridge.
   algebra.upload(guess);
   algebra.set_host_synchronization(false);
   auto apply_matvec = [&](MatrixFamily& x, MatrixFamily& y) {
-    algebra.synchronize(x);
-    matvec(x, y);
-    algebra.upload(y);
+    if constexpr (requires { matvec.apply_resident(x, y, algebra); })
+    {
+      matvec.apply_resident(x, y, algebra);
+    }
+    else
+    {
+      algebra.synchronize(x);
+      matvec(x, y);
+      algebra.upload(y);
+    }
   };
   auto finish_with = [&](MatrixFamily& x) {
     algebra.copy(x, guess);

@@ -10,6 +10,8 @@
 namespace uni20::tensorcontraction
 {
 
+class VectorAlgebraEngine;
+
 class EffectiveHamiltonianOperator {
   public:
     using Term = EffectiveHamiltonianPlan::Term;
@@ -34,6 +36,7 @@ class EffectiveHamiltonianOperator {
 
     void compile();
     void apply(MatrixFamily const& x, MatrixFamily& y);
+    void apply_resident(MatrixFamily const& x, MatrixFamily& y, VectorAlgebraEngine& algebra);
 
   private:
     struct Impl;

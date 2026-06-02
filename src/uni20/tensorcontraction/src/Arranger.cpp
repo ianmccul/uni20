@@ -462,7 +462,8 @@ void Arranger::analyzeComputation(const std::vector<Matrix>& rMats, const std::v
 }
 
 void Arranger::compileWorklists(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
-                                const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats)
+                                const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
+                                bool syncResultsToHost)
 {
   std::vector<double> flopsPerDevice(deviceCount, 0.0);
 
@@ -470,7 +471,7 @@ void Arranger::compileWorklists(const std::vector<Matrix>& rMats, const std::vec
   //   1. Calculate the repeated B*C result.
   //   2. Calculate the rest of the contraction.
   compileWorklistsForInterMat(rMats, aMats, bMats, cMats, flopsPerDevice);
-  compileWorklistsForTheRest(rMats, aMats, bMats, cMats, flopsPerDevice);
+  compileWorklistsForTheRest(rMats, aMats, bMats, cMats, flopsPerDevice, syncResultsToHost);
   buildLiveInterval(worklistsForInterMat, liveIntervalsForInterMat);
   buildLiveInterval(worklistsForTheRest, liveIntervalsForTheRest);
 }
@@ -568,7 +569,7 @@ void Arranger::initializeDebugInfo(const std::vector<Matrix>& rMats, const std::
 
 void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rMat, const std::vector<Matrix>& aMats,
                                  const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
-                                 std::vector<double>& flopsPerDevice)
+                                 std::vector<double>& flopsPerDevice, bool syncResultToHost)
 {
   Matrix combineMat;
   bool shouldMemsetCombineMat = true;
@@ -658,13 +659,16 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
     flopsPerDevice[currentDeviceId] += flops;
   }
 
-  worklistsForTheRest[currentDeviceId].push_back(
-      createWork<SyncWork>(std::vector<Matrix>{rMat}, 0.0, currentDeviceId, swapper));
+  if (syncResultToHost)
+  {
+    worklistsForTheRest[currentDeviceId].push_back(
+        createWork<SyncWork>(std::vector<Matrix>{rMat}, 0.0, currentDeviceId, swapper));
+  }
 }
 
 void Arranger::compileWorklistsForTheRest(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
                                           const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
-                                          std::vector<double>& flopsPerDevice)
+                                          std::vector<double>& flopsPerDevice, bool syncResultsToHost)
 {
   const int sortedFTermCount = static_cast<int>(sortedFTerms.size());
   for (int i = 0; i < sortedFTermCount;)
@@ -679,7 +683,7 @@ void Arranger::compileWorklistsForTheRest(const std::vector<Matrix>& rMats, cons
     }
 
     int rIdx = std::get<0>(sortedFTerms[fTermsStart]);
-    compileForSingleR(fTermsStart, fTermsEnd, rMats[rIdx], aMats, bMats, cMats, flopsPerDevice);
+    compileForSingleR(fTermsStart, fTermsEnd, rMats[rIdx], aMats, bMats, cMats, flopsPerDevice, syncResultsToHost);
     i = fTermsEnd;
   }
 }
@@ -1582,7 +1586,7 @@ void Arranger::doLinearAlgebra()
   std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
 }
 
-void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost)
+void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost, bool refreshExisting)
 {
   ensureMemoryPoolsInitialized();
 
@@ -1590,14 +1594,16 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
   // With uploadFromHost=false this is allocation-only and preserves the current
   // GPU-resident value; with uploadFromHost=true host storage is the authority.
   std::vector<size_t> bytesPerDevice(deviceCount, 0);
+  std::vector<bool> touchedDevice(deviceCount, false);
   for (auto mat : mats)
   {
     auto [deviceId, buffer] = swapper.getPreStoreBufferOrNone(mat);
     if (buffer != nullptr)
     {
-      if (uploadFromHost)
+      if (uploadFromHost && refreshExisting)
       {
         swapper.copyHostToPreStoreMatrix(mat);
+        touchedDevice[deviceId] = true;
       }
       continue;
     }
@@ -1614,11 +1620,12 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
     }
     linearAlgebraFlopsPerDevice[deviceId] += static_cast<double>(mat.size());
     bytesPerDevice[deviceId] += mat.sizeInByte();
+    touchedDevice[deviceId] = true;
   }
 
   for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
   {
-    if (bytesPerDevice[deviceId] != 0 || uploadFromHost)
+    if (bytesPerDevice[deviceId] != 0 || touchedDevice[deviceId])
     {
       swapper.syncMemStream(deviceId, "linear_algebra_localize");
     }

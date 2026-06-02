@@ -117,3 +117,25 @@ TEST(TensorContractionLanczosTest, RunsAgainstEffectiveHamiltonianOperator)
   EXPECT_NEAR(utc::norm(guess), 1.0, 1.0e-12);
   EXPECT_LT(guess.values(0)[0] * guess.values(0)[1], 0.0);
 }
+
+TEST(TensorContractionLanczosTest, RunsResidentAgainstEffectiveHamiltonianOperator)
+{
+  auto a_blocks = std::array{utc::MatrixFamily::Block{2, 2}};
+  auto b_blocks = std::array{utc::MatrixFamily::Block{2, 2}};
+  auto input_blocks = std::array{utc::MatrixFamily::Block{2, 1}};
+  auto output_blocks = std::array{utc::MatrixFamily::Block{2, 1}};
+  utc::MatrixFamily a(a_blocks);
+  utc::MatrixFamily b(b_blocks);
+  a.assign(0, std::array{1.0, 0.0, 0.0, 1.0});
+  b.assign(0, std::array{2.0, 1.0, 1.0, 2.0});
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0}};
+  utc::EffectiveHamiltonianOperator op(std::move(a), std::move(b), input_blocks, output_blocks, terms);
+  auto guess = make_vector({0.25, 1.0});
+
+  auto result = utc::lanczos_lowest(
+      guess, op, utc::LanczosOptions{.max_iterations = 4, .min_iterations = 2, .tolerance = 1.0e-12});
+
+  EXPECT_NEAR(result.eigenvalue, 1.0, 1.0e-12);
+  EXPECT_NEAR(utc::norm(guess), 1.0, 1.0e-12);
+  EXPECT_LT(guess.values(0)[0] * guess.values(0)[1], 0.0);
+}

@@ -9,6 +9,11 @@
 #include <span>
 #include <stdexcept>
 
+namespace tensor
+{
+class Arranger;
+}
+
 namespace uni20::tensorcontraction
 {
 
@@ -163,6 +168,9 @@ class VectorAlgebraEngine {
     void axpy(double alpha, MatrixFamily const& x, MatrixFamily& y);
     void gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result);
     [[nodiscard]] double normalize(MatrixFamily& x);
+
+    [[nodiscard]] bool uses_host_backend() const;
+    [[nodiscard]] tensor::Arranger& resident_arranger();
 
   private:
     struct Impl;
