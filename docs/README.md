@@ -15,6 +15,7 @@
 - [Architecture Diagram](architecture_diagram.md)
 - [Architecture and Roadmap](roadmap.md)
 - [Backend Dispatch Design](backend_dispatch.md)
+- [CUDA Backend Library Compatibility](cuda_backend_libraries.md)
 - [CUDA/cuSOLVER Architecture Notes](cuda_cusolver_architecture.md)
 - [GPU Epoch Design Draft](gpu_epoch_design_draft.md)
 - [Async Storage and Assignment Semantics](async_storage.md)
