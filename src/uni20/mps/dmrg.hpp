@@ -52,10 +52,16 @@ inline auto run_two_site_dmrg(FiniteMPS& psi, FiniteTriangularMPO const& mpo,
 
   TwoSiteDmrgResult result;
   result.sweeps.reserve(options.sweeps);
+
+  std::vector<MpoEnvironment> left_envs;
+  left_envs.reserve(psi.size() + 1);
+  left_envs.push_back(make_left_boundary_environment(psi, mpo));
+  auto right_envs = build_right_environments(psi, mpo);
+
   for (std::size_t sweep = 0; sweep < options.sweeps; ++sweep)
   {
-    auto left_to_right = sweep_two_site_left_to_right(psi, mpo, options.sweep);
-    auto right_to_left = sweep_two_site_right_to_left(psi, mpo, options.sweep);
+    auto left_to_right = sweep_two_site_left_to_right(psi, mpo, left_envs, right_envs, options.sweep);
+    auto right_to_left = sweep_two_site_right_to_left(psi, mpo, left_envs, right_envs, options.sweep);
     result.sweeps.push_back(TwoSiteDmrgSweepPair{
         .sweep = sweep, .left_to_right = std::move(left_to_right), .right_to_left = std::move(right_to_left)});
   }

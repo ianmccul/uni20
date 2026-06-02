@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <functional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace uni20
@@ -87,13 +88,54 @@ inline auto two_site_elapsed_seconds(std::chrono::steady_clock::time_point start
   return std::chrono::duration<double>(stop - start).count();
 }
 
+inline void assign_environment(std::vector<MpoEnvironment>& environments, std::size_t index, MpoEnvironment environment)
+{
+  if (index < environments.size())
+  {
+    environments[index] = std::move(environment);
+    return;
+  }
+  if (index == environments.size())
+  {
+    environments.push_back(std::move(environment));
+    return;
+  }
+  throw std::logic_error("cannot assign an MPO environment past the next cache slot");
+}
+
+inline void validate_left_to_right_environment_cache(FiniteMPS const& psi, std::vector<MpoEnvironment> const& left_envs,
+                                                     std::vector<MpoEnvironment> const& right_envs)
+{
+  if (left_envs.empty())
+  {
+    throw std::invalid_argument("left-to-right sweep requires a left boundary environment");
+  }
+  if (right_envs.size() != psi.size() + 1)
+  {
+    throw std::invalid_argument("left-to-right sweep requires a complete right environment cache");
+  }
+}
+
+inline void validate_right_to_left_environment_cache(FiniteMPS const& psi, std::vector<MpoEnvironment> const& left_envs,
+                                                     std::vector<MpoEnvironment> const& right_envs)
+{
+  if (left_envs.size() < psi.size())
+  {
+    throw std::invalid_argument("right-to-left sweep requires left environments through the final updated bond");
+  }
+  if (right_envs.size() != psi.size() + 1)
+  {
+    throw std::invalid_argument("right-to-left sweep requires a complete right environment cache");
+  }
+}
+
 inline auto sweep_two_site_left_to_right(FiniteMPS& psi, FiniteTriangularMPO const& mpo,
+                                         std::vector<MpoEnvironment>& left_envs,
+                                         std::vector<MpoEnvironment> const& right_envs,
                                          TwoSiteSweepOptions options = {}) -> TwoSiteSweepResult
 {
   validate_two_site_sweep_inputs(psi, mpo);
-
-  auto left_envs = build_left_environments(psi, mpo);
-  auto right_envs = build_right_environments(psi, mpo);
+  validate_left_to_right_environment_cache(psi, left_envs, right_envs);
 
   TwoSiteSweepResult result{.direction = TwoSiteSweepDirection::LeftToRight, .updates = {}};
   result.updates.reserve(psi.size() - 1);
@@ -111,7 +153,8 @@ inline auto sweep_two_site_left_to_right(FiniteMPS& psi, FiniteTriangularMPO con
     replace_two_site_solution(psi, left_site, std::move(split));
     auto const env_start = std::chrono::steady_clock::now();
     update.replace_seconds = two_site_elapsed_seconds(replace_start, env_start);
-    left_envs[left_site + 1] = extend_left_environment(left_envs[left_site], psi[left_site], mpo[left_site]);
+    assign_environment(left_envs, left_site + 1,
+                       extend_left_environment(left_envs[left_site], psi[left_site], mpo[left_site]));
     update.environment_seconds = two_site_elapsed_seconds(env_start, std::chrono::steady_clock::now());
     if (options.observer)
     {
@@ -124,12 +167,12 @@ inline auto sweep_two_site_left_to_right(FiniteMPS& psi, FiniteTriangularMPO con
 }
 
 inline auto sweep_two_site_right_to_left(FiniteMPS& psi, FiniteTriangularMPO const& mpo,
+                                         std::vector<MpoEnvironment> const& left_envs,
+                                         std::vector<MpoEnvironment>& right_envs,
                                          TwoSiteSweepOptions options = {}) -> TwoSiteSweepResult
 {
   validate_two_site_sweep_inputs(psi, mpo);
-
-  auto left_envs = build_left_environments(psi, mpo);
-  auto right_envs = build_right_environments(psi, mpo);
+  validate_right_to_left_environment_cache(psi, left_envs, right_envs);
 
   TwoSiteSweepResult result{.direction = TwoSiteSweepDirection::RightToLeft, .updates = {}};
   result.updates.reserve(psi.size() - 1);
@@ -148,8 +191,8 @@ inline auto sweep_two_site_right_to_left(FiniteMPS& psi, FiniteTriangularMPO con
     replace_two_site_solution(psi, left_site, std::move(split));
     auto const env_start = std::chrono::steady_clock::now();
     update.replace_seconds = two_site_elapsed_seconds(replace_start, env_start);
-    right_envs[left_site + 1] =
-        extend_right_environment(right_envs[left_site + 2], psi[left_site + 1], mpo[left_site + 1]);
+    assign_environment(right_envs, left_site + 1,
+                       extend_right_environment(right_envs[left_site + 2], psi[left_site + 1], mpo[left_site + 1]));
     update.environment_seconds = two_site_elapsed_seconds(env_start, std::chrono::steady_clock::now());
     if (options.observer)
     {
@@ -159,6 +202,24 @@ inline auto sweep_two_site_right_to_left(FiniteMPS& psi, FiniteTriangularMPO con
   }
 
   return result;
+}
+
+inline auto sweep_two_site_left_to_right(FiniteMPS& psi, FiniteTriangularMPO const& mpo,
+                                         TwoSiteSweepOptions options = {}) -> TwoSiteSweepResult
+{
+  validate_two_site_sweep_inputs(psi, mpo);
+  auto left_envs = build_left_environments(psi, mpo);
+  auto right_envs = build_right_environments(psi, mpo);
+  return sweep_two_site_left_to_right(psi, mpo, left_envs, right_envs, std::move(options));
+}
+
+inline auto sweep_two_site_right_to_left(FiniteMPS& psi, FiniteTriangularMPO const& mpo,
+                                         TwoSiteSweepOptions options = {}) -> TwoSiteSweepResult
+{
+  validate_two_site_sweep_inputs(psi, mpo);
+  auto left_envs = build_left_environments(psi, mpo);
+  auto right_envs = build_right_environments(psi, mpo);
+  return sweep_two_site_right_to_left(psi, mpo, left_envs, right_envs, std::move(options));
 }
 
 inline auto sweep_two_site(FiniteMPS& psi, FiniteTriangularMPO const& mpo, TwoSiteSweepDirection direction,

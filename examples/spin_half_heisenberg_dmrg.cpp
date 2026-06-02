@@ -357,6 +357,21 @@ void run_large_chain_sweep_check()
   auto psi = alternating_product_state(spin, length);
   auto mpo = make_spin_half_heisenberg_mpo(length, spin, 1.0, 0.0);
   bool const debug_global_energy = std::getenv("UNI20_DMRG_DEBUG_GLOBAL_ENERGY") != nullptr;
+  bool const check_sweep_global_energy =
+      debug_global_energy || std::getenv("UNI20_HEISENBERG_CHECK_GLOBAL_ENERGY") != nullptr;
+
+  fmt::print("\nlength-20 sweep check\n");
+  fmt::print("max rank: {}\n", max_rank);
+  fmt::print("sweeps: {}\n", sweep_count);
+  double previous_energy = mps_expectation_value(psi, mpo);
+  fmt::print("initial <H>: {:.16g}\n", previous_energy);
+  std::fflush(stdout);
+
+  std::vector<MpoEnvironment> left_envs;
+  left_envs.reserve(length + 1);
+  left_envs.push_back(make_left_boundary_environment(psi, mpo));
+  auto right_envs = build_right_environments(psi, mpo);
+
   BenchFile bench(debug_global_energy);
   std::size_t half_sweep = 0;
   auto observer = [&](TwoSiteSweepDirection direction, TwoSiteBondUpdate const& update) {
@@ -380,30 +395,29 @@ void run_large_chain_sweep_check()
   };
   auto options = sweep_options(max_rank, observer);
 
-  fmt::print("\nlength-20 sweep check\n");
-  fmt::print("max rank: {}\n", max_rank);
-  fmt::print("sweeps: {}\n", sweep_count);
-  double previous_energy = mps_expectation_value(psi, mpo);
-  fmt::print("initial <H>: {:.16g}\n", previous_energy);
-  std::fflush(stdout);
   for (std::size_t sweep = 0; sweep < sweep_count; ++sweep)
   {
     half_sweep = 2 * sweep;
-    auto left_to_right = sweep_two_site_left_to_right(psi, mpo, options);
+    auto left_to_right = sweep_two_site_left_to_right(psi, mpo, left_envs, right_envs, options);
     fmt::print("Cumulative truncation error for sweep: {:.16g}\n", truncation_sum(left_to_right));
     bench.flush();
 
     half_sweep = 2 * sweep + 1;
-    auto right_to_left = sweep_two_site_right_to_left(psi, mpo, options);
+    auto right_to_left = sweep_two_site_right_to_left(psi, mpo, left_envs, right_envs, options);
     fmt::print("Cumulative truncation error for sweep: {:.16g}\n", truncation_sum(right_to_left));
     bench.flush();
 
-    auto const energy = mps_expectation_value(psi, mpo);
     auto const& lr = left_to_right.updates.back();
     auto const& rl = right_to_left.updates.back();
-    fmt::print("sweep {} <H>: {:.16g}; delta {:.16g}; edge local energies L->R {:.16g}, R->L {:.16g}; kept ranks {}, "
+    // In finite DMRG the edge local solve energy is the global energy when the
+    // surrounding MPS tensors are canonicalized.  Rebuilding a full expectation
+    // value is useful as a debug check, but distorts benchmark timings.
+    auto const edge_energy = rl.energy;
+    auto const energy = check_sweep_global_energy ? mps_expectation_value(psi, mpo) : edge_energy;
+    auto const label = check_sweep_global_energy ? "<H>" : "edge energy";
+    fmt::print("sweep {} {}: {:.16g}; delta {:.16g}; edge local energies L->R {:.16g}, R->L {:.16g}; kept ranks {}, "
                "{}\n",
-               sweep, energy, energy - previous_energy, lr.energy, rl.energy, lr.kept_rank, rl.kept_rank);
+               sweep, label, energy, energy - previous_energy, lr.energy, rl.energy, lr.kept_rank, rl.kept_rank);
     std::fflush(stdout);
     if (energy > previous_energy + 1.0e-8)
     {
