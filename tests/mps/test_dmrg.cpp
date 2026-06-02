@@ -18,6 +18,43 @@ auto bond_space(Symmetry sym, std::size_t dim) -> BlockSpace
   return BlockSpace(sym, {BlockSector{QNum::identity(sym), dim}});
 }
 
+auto make_spin_half_dense_site() -> SpinHalfSite
+{
+  Symmetry const symmetry{"Trivial:U(1)"};
+  QNum const scalar = QNum::identity(symmetry);
+  LocalSpace const space(symmetry, {scalar, scalar});
+
+  LocalOperator identity(space, space, scalar);
+  identity.insert_or_assign(0, 0, 1.0);
+  identity.insert_or_assign(1, 1, 1.0);
+
+  LocalOperator sz(space, space, scalar);
+  sz.insert_or_assign(0, 0, 0.5);
+  sz.insert_or_assign(1, 1, -0.5);
+
+  LocalOperator sp(space, space, scalar);
+  sp.insert_or_assign(0, 1, 1.0);
+
+  LocalOperator sm(space, space, scalar);
+  sm.insert_or_assign(1, 0, 1.0);
+
+  LocalOperator sigma_z(space, space, scalar);
+  sigma_z.insert_or_assign(0, 0, 1.0);
+  sigma_z.insert_or_assign(1, 1, -1.0);
+
+  return SpinHalfSite{
+      .symmetry = symmetry,
+      .space = space,
+      .up = scalar,
+      .down = scalar,
+      .identity = std::move(identity),
+      .sz = std::move(sz),
+      .sp = std::move(sp),
+      .sm = std::move(sm),
+      .sigma_z = std::move(sigma_z),
+  };
+}
+
 void ensure_mpi_initialized()
 {
   int initialized = 0;
@@ -125,6 +162,19 @@ TEST(TwoSiteDmrgTest, AlternatesFullSweepsAndPreservesDiagnostics)
   }
   EXPECT_EQ(psi[0].right_bond_space(), psi[1].left_bond_space());
   EXPECT_EQ(psi[1].right_bond_space(), psi[2].left_bond_space());
+}
+
+TEST(TwoSiteDmrgTest, DenseFourSiteChainConvergesToExactEnergy)
+{
+  ensure_mpi_initialized();
+
+  auto const spin = make_spin_half_dense_site();
+  auto psi = alternating_product_state(spin, 4);
+  auto mpo = make_spin_half_heisenberg_mpo(4, spin, 1.0, 0.0);
+
+  auto result = run_two_site_dmrg(psi, mpo, dmrg_options(4));
+
+  EXPECT_NEAR(final_two_site_energy(result), -1.616025403784438, 1.0e-12);
 }
 
 TEST(TwoSiteDmrgTest, RejectsInvalidInputs)

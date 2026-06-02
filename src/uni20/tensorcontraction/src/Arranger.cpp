@@ -575,7 +575,10 @@ void Arranger::compileForSingleR(int fTermsStart, int fTermsEnd, const Matrix rM
   bool shouldMemsetCombineMat = true;
   bool shouldAddAccuRMat = false;
 
-  int currentDeviceId = getLeastBusyDevice(flopsPerDevice);
+  // Resident no-host-sync outputs must be produced on their pre-store device;
+  // otherwise the transient result is freed before the next vector operation.
+  auto [residentDeviceId, _] = swapper.getPreStoreBufferOrNone(rMat);
+  int currentDeviceId = residentDeviceId == -1 ? getLeastBusyDevice(flopsPerDevice) : residentDeviceId;
   WorklistTy& worklist = worklistsForTheRest[currentDeviceId];
 
   for (int i = fTermsStart; i < fTermsEnd; i++)
