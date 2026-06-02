@@ -120,7 +120,9 @@ host-facing boundary: it copies the assembled dense center into cuSOLVER,
 returns host-visible `U`, singular values, and `Vt`, and leaves MPS replacement
 on the CPU side.  The next resident-GPU step is to assemble symmetry-sector
 block-diagonal SVD inputs directly from TensorContraction pre-store buffers and
-avoid materializing the two-site center on the host.
+avoid materializing the two-site center on the host.  Longer-term native uni20
+resource and scheduler direction is recorded in
+[`docs/cuda_cusolver_architecture.md`](../../../docs/cuda_cusolver_architecture.md).
 
 The current SVD code is also a prototype for backend-capability dispatch.  A
 small operation-specific dispatch layer tries the most specialized available
