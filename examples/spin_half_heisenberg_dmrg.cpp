@@ -350,9 +350,14 @@ void run_exact_small_chain_check()
 
 void run_large_chain_sweep_check()
 {
-  auto const length = std::size_t{20};
+  auto const length = terminal::getenv_or_default<std::size_t>("UNI20_HEISENBERG_LENGTH", 20);
   auto const sweep_count = terminal::getenv_or_default<std::size_t>("UNI20_HEISENBERG_SWEEPS", 3);
   auto const max_rank = terminal::getenv_or_default<std::size_t>("UNI20_HEISENBERG_MAX_RANK", 16);
+  if (length < 2)
+  {
+    throw std::invalid_argument("large-chain DMRG check requires at least two sites");
+  }
+
   auto const spin = make_spin_half_dense_site();
   auto psi = alternating_product_state(spin, length);
   auto mpo = make_spin_half_heisenberg_mpo(length, spin, 1.0, 0.0);
@@ -360,7 +365,7 @@ void run_large_chain_sweep_check()
   bool const check_sweep_global_energy =
       debug_global_energy || std::getenv("UNI20_HEISENBERG_CHECK_GLOBAL_ENERGY") != nullptr;
 
-  fmt::print("\nlength-20 sweep check\n");
+  fmt::print("\nlength-{} sweep check\n", length);
   fmt::print("max rank: {}\n", max_rank);
   fmt::print("sweeps: {}\n", sweep_count);
   double previous_energy = mps_expectation_value(psi, mpo);
@@ -421,7 +426,7 @@ void run_large_chain_sweep_check()
     std::fflush(stdout);
     if (energy > previous_energy + 1.0e-8)
     {
-      throw std::runtime_error("length-20 sweep increased the global MPS energy beyond tolerance");
+      throw std::runtime_error("large-chain DMRG sweep increased the global MPS energy beyond tolerance");
     }
     previous_energy = energy;
   }
@@ -433,7 +438,7 @@ void run_large_chain_sweep_check()
 
   if (previous_energy > -8.0)
   {
-    throw std::runtime_error("length-20 DMRG energy is too high for the open Heisenberg chain smoke threshold");
+    throw std::runtime_error("large-chain DMRG energy is too high for the open Heisenberg chain smoke threshold");
   }
 }
 

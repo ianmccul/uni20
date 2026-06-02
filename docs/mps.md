@@ -40,9 +40,11 @@ wavefunction storage infrastructure.
   energy bookkeeping.
 - `examples/spin_half_heisenberg_dmrg.cpp` is the current manual executable
   example. It checks a length-4 open spin-1/2 Heisenberg chain against an
-  internal dense exact-diagonalization reference, then runs a length-20 dense
-  placeholder-symmetry chain for several sweeps and reports the global MPS
-  energy after each sweep.
+  internal dense exact-diagonalization reference, then runs a configurable
+  dense placeholder-symmetry chain for several sweeps and reports the edge
+  local solve energy after each sweep.  The long-chain example accepts
+  `UNI20_HEISENBERG_LENGTH`, `UNI20_HEISENBERG_SWEEPS`, and
+  `UNI20_HEISENBERG_MAX_RANK`.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
