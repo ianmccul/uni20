@@ -121,7 +121,40 @@ ctest --test-dir build --output-on-failure
 
 ---
 
-## 5. Python Bindings
+## 5. CUDA Profiling
+
+When profiling TensorContraction CUDA benchmarks with Nsight Systems, always
+disable CUDA event tracing explicitly:
+
+```bash
+nsys profile \
+  --trace=cuda,nvtx,osrt,cublas,cusolver,mpi,openmp \
+  --mpi-impl=openmpi \
+  --sample=process-tree \
+  --cpuctxsw=process-tree \
+  --backtrace=fp \
+  --cuda-event-trace=false \
+  --cuda-memory-usage=true \
+  --cudabacktrace=memory,sync,other \
+  -o profiling/<report-name> \
+  <command>
+```
+
+**Why:** Nsight Systems defaults `--cuda-event-trace` to `auto`. On CUDA 12.8+
+drivers this may behave like enabled for TensorContraction workloads. These
+workloads create many `cudaEventRecord` and `cudaStreamWaitEvent` calls, so CUDA
+event tracing can add massive profiler-induced overhead and false dependencies.
+In local profiling on a single-GPU `L=20, m=512` DMRG run, event tracing caused a
+short two-sweep profile to time out after only 58 benchmark rows, while the same
+run with `--cuda-event-trace=false` completed all 77 rows.
+
+Use `--cuda-event-trace=true` only for a targeted CUDA event investigation, and
+then run a much smaller benchmark with an explicit timeout. Do not use Nsight's
+implicit `auto` setting for TensorContraction profiling.
+
+---
+
+## 6. Python Bindings
 
 * Source files live under `bindings/python/`.
 * Follow the same C++ style and coroutine safety rules.
@@ -129,7 +162,7 @@ ctest --test-dir build --output-on-failure
 
 ---
 
-## 6. Documentation
+## 7. Documentation
 
 * All developer docs reside in `docs/`.
 * Use Markdown tables and fenced code blocks for clarity.
@@ -137,11 +170,11 @@ ctest --test-dir build --output-on-failure
 
 ---
 
-## 7. Doxygen Documentation Policy
+## 8. Doxygen Documentation Policy
 
 **Purpose:** define how tools detect, modify, and validate documentation.
 
-### 7.1 Comment Types
+### 8.1 Comment Types
 * `///` is the **canonical Doxygen form** for function, class, and member documentation.
   Tools must treat contiguous `///` lines as a single documentation block immediately preceding a declaration.
 
@@ -155,7 +188,7 @@ ctest --test-dir build --output-on-failure
   They are free for agents to clean, rewrite, or insert to clarify logic, lifetime, or invariants.
   These comments do not appear in generated documentation.
 
-### 7.2 Formatting Rules
+### 8.2 Formatting Rules
 
 * Every Doxygen block must begin with `\brief`. Do *not* follow this with a blank line, unless readability demands it. Remove existing blank lines where where possible.
 * Always include `\param`, `\tparam`, and `\return` when applicable.
@@ -170,7 +203,7 @@ ctest --test-dir build --output-on-failure
   `\brief`, `\details`, `\pre`, `\post`, `\throws`, `\note`, `\warning`, `\tparam`, `\param`, `\return`, `\ingroup`.
 * Preserve indentation relative to the documented entity.
 
-### 7.3 Enforcement
+### 8.3 Enforcement
 
 When cleaning or generating documentation:
 
