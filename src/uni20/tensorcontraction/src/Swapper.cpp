@@ -1,6 +1,8 @@
 #include <mpi.h>
 
+#include <array>
 #include <cassert>
+#include <cstdio>
 #include <cstdlib>
 #include <functional>
 #include <unordered_set>
@@ -12,6 +14,81 @@
 
 namespace tensor
 {
+namespace
+{
+
+enum class CopyStatsSite : std::size_t
+{
+  CopyMatrixH2D = 0,
+  PreStoreH2D,
+  RefreshPreStoreH2D,
+  PreStoreD2H,
+  SyncBufferD2H,
+  Count,
+};
+
+struct CopyStatsEntry
+{
+    const char* label;
+    std::atomic<unsigned long long> calls = 0;
+    std::atomic<unsigned long long> bytes = 0;
+};
+
+class CopyStats {
+    bool enabled_ = std::getenv("UNI20_TENSORCONTRACTION_COPY_STATS") != nullptr;
+    std::array<CopyStatsEntry, static_cast<std::size_t>(CopyStatsSite::Count)> entries_ = {
+        CopyStatsEntry{"copyMatrix H2D"},
+        CopyStatsEntry{"preStoreMatrix H2D"},
+        CopyStatsEntry{"copyHostToPreStoreMatrix H2D"},
+        CopyStatsEntry{"copyPreStoreMatrixToHost D2H"},
+        CopyStatsEntry{"syncBuffer D2H"},
+    };
+
+  public:
+    ~CopyStats()
+    {
+      if (!enabled_)
+      {
+        return;
+      }
+
+      std::fprintf(stderr, "[TENSORCONTRACTION][COPY_STATS] Swapper CUDA copy summary\n");
+      for (auto const& entry : entries_)
+      {
+        auto const calls = entry.calls.load(std::memory_order_relaxed);
+        auto const bytes = entry.bytes.load(std::memory_order_relaxed);
+        if (calls == 0)
+        {
+          continue;
+        }
+        auto const gib = static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
+        std::fprintf(stderr, "[TENSORCONTRACTION][COPY_STATS] %-32s calls=%llu bytes=%llu gib=%.6g\n", entry.label,
+                     calls, bytes, gib);
+      }
+    }
+
+    void record(CopyStatsSite site, std::size_t bytes)
+    {
+      if (!enabled_)
+      {
+        return;
+      }
+
+      auto& entry = entries_[static_cast<std::size_t>(site)];
+      entry.calls.fetch_add(1, std::memory_order_relaxed);
+      entry.bytes.fetch_add(static_cast<unsigned long long>(bytes), std::memory_order_relaxed);
+    }
+};
+
+CopyStats& copyStats()
+{
+  static CopyStats stats;
+  return stats;
+}
+
+void recordCopy(CopyStatsSite site, std::size_t bytes) { copyStats().record(site, bytes); }
+
+} // namespace
 
 GpuBuffer::GpuBuffer(GpuBuffer&& other)
     : ptr(other.ptr), id(other.id), dim1(other.dim1), dim2(other.dim2), hostPtr(other.hostPtr),
@@ -391,6 +468,7 @@ void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int devi
 {
   assert(mat.getPtr() != nullptr);
   DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream, mat.sizeInByte());
+  recordCopy(CopyStatsSite::CopyMatrixH2D, mat.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream));
   buffer->publishWrite(stream);
 }
@@ -406,6 +484,7 @@ void Swapper::preStoreMatrix(Matrix mat, int deviceId)
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeWrite(stream.stream());
   DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
+  recordCopy(CopyStatsSite::PreStoreH2D, mat.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream.stream()));
   buffer->publishWrite(stream.recordCompletion());
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
@@ -424,6 +503,7 @@ void Swapper::copyHostToPreStoreMatrix(Matrix mat)
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeWrite(stream.stream());
   DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
+  recordCopy(CopyStatsSite::RefreshPreStoreH2D, mat.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream.stream()));
   buffer->publishWrite(stream.recordCompletion());
 }
@@ -440,6 +520,7 @@ void Swapper::copyPreStoreMatrixToHost(Matrix mat)
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeRead(stream.stream());
   DEBUG_GPU_COPY_D2H(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
+  recordCopy(CopyStatsSite::PreStoreD2H, mat.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(mat.getPtr(), buffer->getPtr(), mat.sizeInByte(), cudaMemcpyDeviceToHost, stream.stream()));
   buffer->publishRead(stream.recordCompletion());
 }
@@ -877,6 +958,7 @@ void Swapper::syncBuffer(Matrix mat, int deviceId, cudaStream_t stream)
   else
   {
     DEBUG_GPU_COPY_D2H(*this, buffer->getId(), deviceId, stream, buffer->sizeInByte());
+    recordCopy(CopyStatsSite::SyncBufferD2H, buffer->sizeInByte());
     CUDA_CALL(cudaMemcpyAsync(buffer->hostPtr, buffer->getPtr(), buffer->sizeInByte(), cudaMemcpyDeviceToHost, stream));
   }
   buffer->publishRead(stream);

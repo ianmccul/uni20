@@ -74,6 +74,10 @@ in the vendored runtime.
 Set `UNI20_TENSORCONTRACTION_CUDA_COUNTERS=1` to print per-device diagnostic
 counters for event creation, event records, event waits, event destruction, and
 stream synchronizations when each temporary device context is released.
+Set `UNI20_TENSORCONTRACTION_COPY_STATS=1` to print aggregate Swapper
+host/device copy counts and byte totals at process exit.  This is intended for
+separating resident Lanczos traffic from setup, environment-update, and result
+materialization traffic in Nsight Systems runs.
 
 The current CUDA event tracking is provisional.  The intended design, following
 the existing async `EpochContext` model, is per-memory-block dependency
@@ -93,10 +97,11 @@ DMRG local solver does not bake in CPU vector algebra.  The engine can also run
 in an explicit resident mode: `upload` makes host `MatrixFamily` storage the
 authority, `set_host_synchronization(false)` keeps subsequent mutations in
 TensorContraction pre-store buffers, and `synchronize` materializes values back
-to host storage at known algorithm boundaries.  This is still an interim bridge:
-the effective-Hamiltonian adapter currently owns a separate TensorContraction
-runtime, so Lanczos must synchronize the matvec input to host and upload the
-matvec output again until those runtimes are unified.
+to host storage at known algorithm boundaries.  When Lanczos is given an
+`EffectiveHamiltonianOperator` directly, the operator's `apply_resident` hook
+uses the same resident vector-algebra runtime for the local matvec and avoids
+host transfers between Hamiltonian applications.  Generic host-callable
+operators still fall back to explicit synchronization.
 
 `lanczos.hpp` ports the small-iteration Lanczos shape used by MPTK's DMRG path
 onto `MatrixFamily` block vectors and uses `VectorAlgebraEngine` for its vector
