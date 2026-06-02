@@ -28,7 +28,7 @@ void MatMulWork::execute()
   std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(m1, deviceId);
   std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(m2, deviceId);
   std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(result, deviceId);
-  auto access = swapper.createAccessPlan({m1OnGPU, m2OnGPU}, {resultOnGPU}, deviceId);
+  auto access = swapper.createBlasAccessPlan({m1OnGPU, m2OnGPU}, {resultOnGPU}, deviceId);
   [[maybe_unused]] cudaStream_t stream = access.stream();
 
   double alpha = getAlpha();
@@ -52,7 +52,7 @@ void MatMulAccuWork::execute()
   std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[1], deviceId);
   std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(mats[2], deviceId);
   std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(mats[0], deviceId);
-  auto access = swapper.createAccessPlan({m1OnGPU, m2OnGPU}, {resultOnGPU}, deviceId);
+  auto access = swapper.createBlasAccessPlan({m1OnGPU, m2OnGPU}, {resultOnGPU}, deviceId);
   [[maybe_unused]] cudaStream_t stream = access.stream();
 
   double alpha = getAlpha();
@@ -74,7 +74,7 @@ void AddAccuWork::execute()
   // matrices: [result, m1]
   std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[1], deviceId);
   std::shared_ptr<GpuBuffer> resultOnGPU = swapper.getForWriteNoWait(mats[0], deviceId);
-  auto access = swapper.createAccessPlan({m1OnGPU}, {resultOnGPU}, deviceId);
+  auto access = swapper.createBlasAccessPlan({m1OnGPU}, {resultOnGPU}, deviceId);
   [[maybe_unused]] cudaStream_t stream = access.stream();
 
   double alpha = getAlpha();
@@ -92,7 +92,7 @@ void InnerProductWork::execute()
   // matrices: [m1, m2]
   std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[0], deviceId);
   std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(mats[1], deviceId);
-  auto access = swapper.createAccessPlan({m1OnGPU, m2OnGPU}, {}, deviceId);
+  auto access = swapper.createBlasAccessPlan({m1OnGPU, m2OnGPU}, {}, deviceId);
   cudaStream_t stream = access.stream();
 
   assert(m1OnGPU);
@@ -113,7 +113,7 @@ void ScalarMulWork::execute()
   const auto& mats = getMatrices();
   // matrices: [mat]
   std::shared_ptr<GpuBuffer> buffer = swapper.getForWriteNoWait(mats[0], deviceId);
-  auto access = swapper.createAccessPlan({}, {buffer}, deviceId);
+  auto access = swapper.createBlasAccessPlan({}, {buffer}, deviceId);
 
   assert(buffer);
 

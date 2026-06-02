@@ -510,11 +510,35 @@ Swapper::GpuAccessPlan::~GpuAccessPlan()
   }
 }
 
-cublasHandle_t Swapper::GpuAccessPlan::handle() const { return streamOwner.prepare_handle(); }
-
 cuda::CompletionRef Swapper::GpuAccessPlan::recordCompletion() const { return streamOwner.recordCompletion(); }
 
 void Swapper::GpuAccessPlan::publishCompletion(cuda::CompletionRef completion) const
+{
+  swapper.publishAccessCompletion(readBuffers, writeBuffers, this->stream(), std::move(completion));
+}
+
+Swapper::BlasAccessPlan::BlasAccessPlan(Swapper& swapper, int deviceId,
+                                        std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
+                                        std::vector<std::shared_ptr<GpuBuffer>> writeBuffers)
+    : swapper(swapper), deviceId(deviceId), streamOwner(swapper.deviceContext(deviceId).leaseBlasStream()),
+      readBuffers(std::move(readBuffers)), writeBuffers(std::move(writeBuffers))
+{
+  swapper.waitForAccessDependencies(this->readBuffers, this->writeBuffers, this->stream());
+}
+
+Swapper::BlasAccessPlan::~BlasAccessPlan()
+{
+  if (swapper.dependencyEventsActive())
+  {
+    this->publishCompletion(this->recordCompletion());
+  }
+}
+
+cublasHandle_t Swapper::BlasAccessPlan::handle() const { return streamOwner.prepare_handle(); }
+
+cuda::CompletionRef Swapper::BlasAccessPlan::recordCompletion() const { return streamOwner.recordCompletion(); }
+
+void Swapper::BlasAccessPlan::publishCompletion(cuda::CompletionRef completion) const
 {
   swapper.publishAccessCompletion(readBuffers, writeBuffers, this->stream(), std::move(completion));
 }
@@ -523,6 +547,12 @@ auto Swapper::createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffe
                                std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId) -> GpuAccessPlan
 {
   return GpuAccessPlan(*this, deviceId, std::move(readBuffers), std::move(writeBuffers));
+}
+
+auto Swapper::createBlasAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
+                                   std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId) -> BlasAccessPlan
+{
+  return BlasAccessPlan(*this, deviceId, std::move(readBuffers), std::move(writeBuffers));
 }
 
 void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,

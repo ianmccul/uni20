@@ -18,6 +18,7 @@ namespace tensor
 namespace cuda
 {
 class Stream;
+class CublasStream;
 class Completion;
 using CompletionRef = std::shared_ptr<Completion>;
 } // namespace cuda
@@ -98,6 +99,7 @@ class CudaDeviceContext {
     bool serialCuda() const noexcept { return serialCuda_; }
 
     cuda::Stream leaseWorkStream();
+    cuda::CublasStream leaseBlasStream();
     DeviceAllocation allocateFromPool(cudaMemPool_t pool, std::size_t bytes);
     void preallocatePool(cudaMemPool_t pool, std::size_t bytes);
     cuda::CompletionRef recordCompletionEvent(cudaStream_t producerStream);
@@ -108,7 +110,6 @@ class CudaDeviceContext {
     void waitEvent(cudaStream_t stream, cudaEvent_t event);
     void enqueueAsyncFree(void* ptr, std::vector<EventDependencyRef> dependencies);
     ScratchLease acquireScratch(std::size_t bytes, cudaStream_t stream);
-    cublasHandle_t cublasHandleForCurrentThread(cudaStream_t stream);
     void syncWorkStreams(const char* reason = "work_unspecified");
     void syncMemoryStream(const char* reason = "memory_unspecified");
     void release();
@@ -134,6 +135,14 @@ class CudaDeviceContext {
         std::vector<EventDependencyRef> dependencies;
     };
 
+    struct BlasLane
+    {
+        cudaStream_t stream = nullptr;
+        cublasHandle_t handle = nullptr;
+        void* workspace = nullptr;
+        std::size_t workspaceBytes = 0;
+    };
+
     int deviceId_ = 0;
     bool serialCuda_ = false;
     bool logCounters_ = false;
@@ -141,6 +150,8 @@ class CudaDeviceContext {
     cudaStream_t memoryStream_ = nullptr;
     std::deque<cudaStream_t> availableWorkStreams_;
     std::size_t createdWorkStreamCount_ = 0;
+    std::vector<BlasLane> blasLanes_;
+    std::deque<std::size_t> availableBlasLanes_;
     std::vector<cudaEvent_t> freeEvents_;
     std::vector<cudaEvent_t> retiredEvents_;
     std::vector<PendingFree> pendingFrees_;
@@ -155,11 +166,15 @@ class CudaDeviceContext {
     void countStreamSync(const char* reason);
     cudaStream_t acquireWorkStream();
     void returnWorkStream(cudaStream_t stream);
+    std::size_t acquireBlasLane();
+    void returnBlasLane(std::size_t laneIndex);
+    cublasHandle_t prepareBlasHandle(std::size_t laneIndex);
     void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);
     void printCounters() const;
 
     friend class ScratchLease;
     friend class cuda::Stream;
+    friend class cuda::CublasStream;
     friend class cuda::Completion;
 };
 
@@ -203,7 +218,6 @@ class Stream {
     cudaStream_t stream() const noexcept { return stream_; }
     explicit operator bool() const noexcept { return stream_ != nullptr; }
     void setDevice() const;
-    cublasHandle_t prepare_handle() const;
     CudaDeviceContext::ScratchLease acquireScratch(std::size_t bytes) const;
     CompletionRef recordCompletion() const;
     void release();
@@ -213,6 +227,32 @@ class Stream {
 
     CudaDeviceContext* context_ = nullptr;
     cudaStream_t stream_ = nullptr;
+
+    friend class tensor::CudaDeviceContext;
+};
+
+class CublasStream {
+  public:
+    CublasStream() = default;
+    CublasStream(CublasStream const&) = delete;
+    CublasStream& operator=(CublasStream const&) = delete;
+    CublasStream(CublasStream&& other) noexcept;
+    CublasStream& operator=(CublasStream&& other) noexcept;
+    ~CublasStream();
+
+    cudaStream_t stream() const noexcept;
+    explicit operator bool() const noexcept { return context_ != nullptr; }
+    void setDevice() const;
+    cublasHandle_t prepare_handle() const;
+    CudaDeviceContext::ScratchLease acquireScratch(std::size_t bytes) const;
+    CompletionRef recordCompletion() const;
+    void release();
+
+  private:
+    CublasStream(CudaDeviceContext& context, std::size_t laneIndex) : context_(&context), laneIndex_(laneIndex) {}
+
+    CudaDeviceContext* context_ = nullptr;
+    std::size_t laneIndex_ = 0;
 
     friend class tensor::CudaDeviceContext;
 };

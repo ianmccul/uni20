@@ -109,6 +109,27 @@ class Swapper {
         ~GpuAccessPlan();
 
         cudaStream_t stream() const { return streamOwner.stream(); }
+        cuda::CompletionRef recordCompletion() const;
+        void publishCompletion(cuda::CompletionRef completion) const;
+    };
+
+    class BlasAccessPlan {
+        Swapper& swapper;
+        int deviceId = 0;
+        cuda::CublasStream streamOwner;
+        std::vector<std::shared_ptr<GpuBuffer>> readBuffers;
+        std::vector<std::shared_ptr<GpuBuffer>> writeBuffers;
+
+      public:
+        BlasAccessPlan(Swapper& swapper, int deviceId, std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
+                       std::vector<std::shared_ptr<GpuBuffer>> writeBuffers);
+        BlasAccessPlan(BlasAccessPlan const&) = delete;
+        BlasAccessPlan& operator=(BlasAccessPlan const&) = delete;
+        BlasAccessPlan(BlasAccessPlan&&) = delete;
+        BlasAccessPlan& operator=(BlasAccessPlan&&) = delete;
+        ~BlasAccessPlan();
+
+        cudaStream_t stream() const { return streamOwner.stream(); }
         cublasHandle_t handle() const;
         cuda::CompletionRef recordCompletion() const;
         void publishCompletion(cuda::CompletionRef completion) const;
@@ -126,6 +147,8 @@ class Swapper {
     std::shared_ptr<GpuBuffer> getForWriteNoWait(Matrix mat, int deviceId);
     GpuAccessPlan createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
                                    std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId);
+    BlasAccessPlan createBlasAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
+                                        std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId);
     void waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                    const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream);
     void publishAccessCompletion(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,

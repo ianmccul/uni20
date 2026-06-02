@@ -4,6 +4,7 @@
 #include <nccl.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -78,6 +79,40 @@ inline int resolveTensorContractionStreamCount()
   {
     return 4;
   }
+}
+
+inline int resolveTensorContractionCublasStreamCount(int workStreamCount)
+{
+  auto const* env = std::getenv("UNI20_TENSORCONTRACTION_CUBLAS_STREAMS");
+  if (env != nullptr)
+  {
+    try
+    {
+      return std::max(1, std::stoi(env));
+    }
+    catch (...)
+    {
+      return std::max(1, std::min(2, workStreamCount));
+    }
+  }
+
+  return std::max(1, std::min(2, workStreamCount));
+}
+
+inline std::size_t resolveTensorContractionCublasWorkspaceBytes()
+{
+  auto const* env = std::getenv("UNI20_TENSORCONTRACTION_CUBLAS_WORKSPACE_BYTES");
+  if (env != nullptr)
+  {
+    try
+    {
+      return std::max<std::size_t>(16 * 1024, static_cast<std::size_t>(std::stoull(env)));
+    }
+    catch (...)
+    {}
+  }
+
+  return 4ULL * 1024ULL * 1024ULL;
 }
 
 } // namespace tensor

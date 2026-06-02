@@ -18,6 +18,10 @@ static_assert(!std::is_copy_constructible_v<cuda::Stream>);
 static_assert(!std::is_copy_assignable_v<cuda::Stream>);
 static_assert(std::is_move_constructible_v<cuda::Stream>);
 static_assert(std::is_move_assignable_v<cuda::Stream>);
+static_assert(!std::is_copy_constructible_v<cuda::CublasStream>);
+static_assert(!std::is_copy_assignable_v<cuda::CublasStream>);
+static_assert(std::is_move_constructible_v<cuda::CublasStream>);
+static_assert(std::is_move_assignable_v<cuda::CublasStream>);
 
 CudaDeviceContext::EventDependency::~EventDependency()
 {
@@ -97,14 +101,6 @@ void cuda::Stream::setDevice() const
   CUDA_CALL(cudaSetDevice(context_->deviceId()));
 }
 
-cublasHandle_t cuda::Stream::prepare_handle() const
-{
-  assert(context_ != nullptr);
-  assert(stream_ != nullptr);
-  this->setDevice();
-  return context_->cublasHandleForCurrentThread(stream_);
-}
-
 CudaDeviceContext::ScratchLease cuda::Stream::acquireScratch(std::size_t bytes) const
 {
   assert(context_ != nullptr);
@@ -117,6 +113,66 @@ cuda::CompletionRef cuda::Stream::recordCompletion() const
   assert(context_ != nullptr);
   assert(stream_ != nullptr);
   return context_->recordCompletionEvent(stream_);
+}
+
+cuda::CublasStream::CublasStream(CublasStream&& other) noexcept : context_(other.context_), laneIndex_(other.laneIndex_)
+{
+  other.context_ = nullptr;
+  other.laneIndex_ = 0;
+}
+
+cuda::CublasStream& cuda::CublasStream::operator=(CublasStream&& other) noexcept
+{
+  if (this != &other)
+  {
+    this->release();
+    context_ = other.context_;
+    laneIndex_ = other.laneIndex_;
+    other.context_ = nullptr;
+    other.laneIndex_ = 0;
+  }
+  return *this;
+}
+
+cuda::CublasStream::~CublasStream() { this->release(); }
+
+cudaStream_t cuda::CublasStream::stream() const noexcept
+{
+  return context_ == nullptr ? nullptr : context_->blasLanes_[laneIndex_].stream;
+}
+
+void cuda::CublasStream::setDevice() const
+{
+  assert(context_ != nullptr);
+  CUDA_CALL(cudaSetDevice(context_->deviceId()));
+}
+
+cublasHandle_t cuda::CublasStream::prepare_handle() const
+{
+  assert(context_ != nullptr);
+  return context_->prepareBlasHandle(laneIndex_);
+}
+
+CudaDeviceContext::ScratchLease cuda::CublasStream::acquireScratch(std::size_t bytes) const
+{
+  assert(context_ != nullptr);
+  return context_->acquireScratch(bytes, this->stream());
+}
+
+cuda::CompletionRef cuda::CublasStream::recordCompletion() const
+{
+  assert(context_ != nullptr);
+  return context_->recordCompletionEvent(this->stream());
+}
+
+void cuda::CublasStream::release()
+{
+  if (context_ != nullptr)
+  {
+    context_->returnBlasLane(laneIndex_);
+  }
+  context_ = nullptr;
+  laneIndex_ = 0;
 }
 
 cuda::Completion::Completion(CudaDeviceContext& context, cudaStream_t producerStream)
@@ -188,6 +244,26 @@ CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool ser
     }
     availableWorkStreams_.push_back(stream);
   }
+
+  auto const blasStreamCount = serialCuda_ ? 1 : resolveTensorContractionCublasStreamCount(workStreamCount);
+  auto const blasWorkspaceBytes = resolveTensorContractionCublasWorkspaceBytes();
+  blasLanes_.reserve(static_cast<std::size_t>(blasStreamCount));
+  for (int i = 0; i < blasStreamCount; ++i)
+  {
+    BlasLane lane;
+    lane.stream = serialCuda_ ? cudaStreamLegacy : nullptr;
+    if (!serialCuda_)
+    {
+      CUDA_CALL(cudaStreamCreate(&lane.stream));
+    }
+    CUBLAS_CALL(cublasCreate(&lane.handle));
+    lane.workspaceBytes = blasWorkspaceBytes;
+    CUDA_CALL(cudaMalloc(&lane.workspace, lane.workspaceBytes));
+    CUBLAS_CALL(cublasSetStream(lane.handle, lane.stream));
+    CUBLAS_CALL(cublasSetWorkspace(lane.handle, lane.workspace, lane.workspaceBytes));
+    blasLanes_.push_back(lane);
+    availableBlasLanes_.push_back(blasLanes_.size() - 1);
+  }
 }
 
 std::shared_ptr<CudaDeviceContext> CudaDeviceContext::shared(int deviceId, int workStreamCount, bool serialCuda)
@@ -211,6 +287,8 @@ std::shared_ptr<CudaDeviceContext> CudaDeviceContext::shared(int deviceId, int w
 CudaDeviceContext::~CudaDeviceContext() { this->release(); }
 
 cuda::Stream CudaDeviceContext::leaseWorkStream() { return cuda::Stream(*this, this->acquireWorkStream()); }
+
+cuda::CublasStream CudaDeviceContext::leaseBlasStream() { return cuda::CublasStream(*this, this->acquireBlasLane()); }
 
 CudaDeviceContext::DeviceAllocation CudaDeviceContext::allocateFromPool(cudaMemPool_t pool, std::size_t bytes)
 {
@@ -270,6 +348,28 @@ void CudaDeviceContext::returnWorkStream(cudaStream_t stream)
   if (stream != nullptr && stream != cudaStreamLegacy)
   {
     availableWorkStreams_.push_back(stream);
+  }
+}
+
+std::size_t CudaDeviceContext::acquireBlasLane()
+{
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  if (!availableBlasLanes_.empty())
+  {
+    auto laneIndex = availableBlasLanes_.front();
+    availableBlasLanes_.pop_front();
+    return laneIndex;
+  }
+
+  assert(false && "no unleased CUDA BLAS stream available");
+  return 0;
+}
+
+void CudaDeviceContext::returnBlasLane(std::size_t laneIndex)
+{
+  if (laneIndex < blasLanes_.size())
+  {
+    availableBlasLanes_.push_back(laneIndex);
   }
 }
 
@@ -387,65 +487,16 @@ CudaDeviceContext::ScratchLease CudaDeviceContext::acquireScratch(std::size_t by
   return ScratchLease(*this, std::move(buffer), stream);
 }
 
-cublasHandle_t CudaDeviceContext::cublasHandleForCurrentThread(cudaStream_t stream)
+cublasHandle_t CudaDeviceContext::prepareBlasHandle(std::size_t laneIndex)
 {
-  struct ThreadLocalHandle
-  {
-      int deviceId = -1;
-      cublasHandle_t handle = nullptr;
-
-      ThreadLocalHandle() = default;
-      ThreadLocalHandle(ThreadLocalHandle const&) = delete;
-      ThreadLocalHandle& operator=(ThreadLocalHandle const&) = delete;
-      ThreadLocalHandle(ThreadLocalHandle&& other) noexcept : deviceId(other.deviceId), handle(other.handle)
-      {
-        other.deviceId = -1;
-        other.handle = nullptr;
-      }
-      ThreadLocalHandle& operator=(ThreadLocalHandle&& other) noexcept
-      {
-        if (this != &other)
-        {
-          destroy();
-          deviceId = other.deviceId;
-          handle = other.handle;
-          other.deviceId = -1;
-          other.handle = nullptr;
-        }
-        return *this;
-      }
-      ~ThreadLocalHandle() { destroy(); }
-
-      void destroy()
-      {
-        if (handle != nullptr)
-        {
-          CUDA_CALL(cudaSetDevice(deviceId));
-          CUBLAS_CALL(cublasDestroy(handle));
-          handle = nullptr;
-        }
-      }
-  };
-
-  thread_local std::vector<ThreadLocalHandle> handles;
-  auto const index = static_cast<std::size_t>(deviceId_);
-  if (handles.size() <= index)
-  {
-    handles.resize(index + 1);
-  }
-  auto& cached = handles[index];
-  if (cached.handle == nullptr)
-  {
-    CUDA_CALL(cudaSetDevice(deviceId_));
-    cached.deviceId = deviceId_;
-    CUBLAS_CALL(cublasCreate(&cached.handle));
-  }
-  else
-  {
-    CUDA_CALL(cudaSetDevice(deviceId_));
-  }
-  CUBLAS_CALL(cublasSetStream(cached.handle, stream));
-  return cached.handle;
+  assert(laneIndex < blasLanes_.size());
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  auto& lane = blasLanes_[laneIndex];
+  // cublasSetStream resets the user workspace, so keep these adjacent even
+  // though each BLAS lane currently has a fixed stream.
+  CUBLAS_CALL(cublasSetStream(lane.handle, lane.stream));
+  CUBLAS_CALL(cublasSetWorkspace(lane.handle, lane.workspace, lane.workspaceBytes));
+  return lane.handle;
 }
 
 void CudaDeviceContext::syncWorkStreams(const char* reason)
@@ -461,6 +512,11 @@ void CudaDeviceContext::syncWorkStreams(const char* reason)
   for (auto const stream : availableWorkStreams_)
   {
     CUDA_CALL(cudaStreamSynchronize(stream));
+    countStreamSync(reason);
+  }
+  for (auto const& lane : blasLanes_)
+  {
+    CUDA_CALL(cudaStreamSynchronize(lane.stream));
     countStreamSync(reason);
   }
   reclaimCompletedAsyncFrees();
@@ -489,6 +545,7 @@ void CudaDeviceContext::release()
   syncMemoryStream("device_context_release_memory_stream");
 
   assert(serialCuda_ || availableWorkStreams_.size() == createdWorkStreamCount_);
+  assert(availableBlasLanes_.size() == blasLanes_.size());
   while (!availableWorkStreams_.empty())
   {
     auto stream = availableWorkStreams_.front();
@@ -499,6 +556,30 @@ void CudaDeviceContext::release()
     }
   }
   createdWorkStreamCount_ = 0;
+
+  while (!availableBlasLanes_.empty())
+  {
+    availableBlasLanes_.pop_front();
+  }
+  for (auto& lane : blasLanes_)
+  {
+    if (lane.handle != nullptr)
+    {
+      CUBLAS_CALL(cublasDestroy(lane.handle));
+      lane.handle = nullptr;
+    }
+    if (lane.workspace != nullptr)
+    {
+      CUDA_CALL(cudaFree(lane.workspace));
+      lane.workspace = nullptr;
+    }
+    if (!serialCuda_ && lane.stream != nullptr)
+    {
+      CUDA_CALL(cudaStreamDestroy(lane.stream));
+      lane.stream = nullptr;
+    }
+  }
+  blasLanes_.clear();
 
   printCounters();
 
