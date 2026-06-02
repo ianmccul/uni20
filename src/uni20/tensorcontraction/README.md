@@ -111,15 +111,21 @@ decisions remain identical.  The implementation intentionally avoids restart and
 full reorthogonalization so it remains comparable to MPTK for local DMRG
 benchmarking.
 
-`svd.hpp` adds the first two-site split primitive: a single-block host SVD with
-max-rank and singular-value cutoff truncation.  It is intentionally narrow and
-self-contained for DMRG prototyping; the long-term replacement should be a
-native block-sparse SVD implementation that can distribute independent sectors
-over the available CUDA/MPI resources.
+`svd.hpp` adds the first two-site split primitive: a single-block SVD with
+max-rank and singular-value cutoff truncation.  CUDA builds try a cuSOLVER
+`dgesvd` implementation first, then fall back to LAPACK `dgesdd` and finally to
+the built-in reference SVD.  Set `UNI20_TENSORCONTRACTION_CUSOLVER_SVD=0` to
+force the non-cuSOLVER fallback path.  The current cuSOLVER path is still a
+host-facing boundary: it copies the assembled dense center into cuSOLVER,
+returns host-visible `U`, singular values, and `Vt`, and leaves MPS replacement
+on the CPU side.  The next resident-GPU step is to assemble symmetry-sector
+block-diagonal SVD inputs directly from TensorContraction pre-store buffers and
+avoid materializing the two-site center on the host.
 
 The current SVD code is also a prototype for backend-capability dispatch.  A
 small operation-specific dispatch layer tries the most specialized available
-single-block implementation first: LAPACK `dgesdd` when the build finds LAPACK,
-then the built-in reference SVD as a guaranteed fallback.  This is deliberately
-local to the TensorContraction bridge for now, but is intended to inform the
-eventual uni20-wide dispatch design for block-sparse and distributed SVD.
+single-block implementation first: cuSOLVER when CUDA has a usable device,
+LAPACK when the build finds LAPACK, then the built-in reference SVD as a
+guaranteed fallback.  This is deliberately local to the TensorContraction bridge
+for now, but is intended to inform the eventual uni20-wide dispatch design for
+block-sparse and distributed SVD.

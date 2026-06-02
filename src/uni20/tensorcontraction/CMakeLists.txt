@@ -53,6 +53,7 @@ add_library(uni20_tensorcontraction_runtime STATIC
   src/effective_hamiltonian_operator.cpp
   src/effective_hamiltonian_plan.cpp
   src/matrix_family.cpp
+  src/svd_cusolver.cpp
   src/vector_algebra.cpp
   src/Arranger.cpp
   src/Calculator.cpp
@@ -73,9 +74,12 @@ target_link_libraries(uni20_tensorcontraction_runtime
     uni20_core
     CUDA::cudart
     CUDA::cublas
+    CUDA::cusolver
     MPI::MPI_CXX
     NCCL::NCCL
 )
+
+target_compile_definitions(uni20_tensorcontraction_runtime PUBLIC UNI20_TENSORCONTRACTION_HAS_CUSOLVER=1)
 
 if(LAPACK_FOUND)
   target_link_libraries(uni20_tensorcontraction_runtime PUBLIC ${LAPACK_LIBRARIES})

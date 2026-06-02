@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -45,15 +46,26 @@ struct reference_svd_capability
 struct lapack_svd_capability
 {};
 
+struct cusolver_svd_capability
+{};
+
 template <typename... Capabilities> struct backend_stack
 {
     using capabilities = std::tuple<Capabilities...>;
 };
 
+#if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
+#if UNI20_TENSORCONTRACTION_HAS_LAPACK
+using default_svd_backend = backend_stack<cusolver_svd_capability, lapack_svd_capability, reference_svd_capability>;
+#else
+using default_svd_backend = backend_stack<cusolver_svd_capability, reference_svd_capability>;
+#endif
+#else
 #if UNI20_TENSORCONTRACTION_HAS_LAPACK
 using default_svd_backend = backend_stack<lapack_svd_capability, reference_svd_capability>;
 #else
 using default_svd_backend = backend_stack<reference_svd_capability>;
+#endif
 #endif
 
 struct SymmetricEigenSystem
@@ -293,6 +305,28 @@ inline SingleBlockSvd dispatch(svd_op, reference_svd_capability, MatrixFamily co
 {
   return single_block_svd_reference(matrix, options);
 }
+
+#if UNI20_TENSORCONTRACTION_HAS_LAPACK
+inline SingleBlockSvd dispatch(svd_op, lapack_svd_capability, MatrixFamily const& matrix, SvdOptions options);
+#endif
+
+#if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
+std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matrix, SvdOptions options);
+
+inline SingleBlockSvd dispatch(svd_op op, cusolver_svd_capability, MatrixFamily const& matrix, SvdOptions options)
+{
+  if (auto svd = single_block_svd_cusolver(matrix, options); svd.has_value())
+  {
+    return std::move(*svd);
+  }
+
+#if UNI20_TENSORCONTRACTION_HAS_LAPACK
+  return dispatch(op, lapack_svd_capability{}, matrix, options);
+#else
+  return dispatch(op, reference_svd_capability{}, matrix, options);
+#endif
+}
+#endif
 
 #if UNI20_TENSORCONTRACTION_HAS_LAPACK
 
