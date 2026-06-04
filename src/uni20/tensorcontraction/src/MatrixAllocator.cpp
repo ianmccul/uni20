@@ -59,9 +59,10 @@ std::vector<Matrix> MatrixAllocator::allocateMatrices(const std::vector<std::pai
     totalSize += (size_t)dim1 * dim2;
   }
 
-  // Allocate chunk
+  // Allocate one portable pinned chunk so async copies remain valid across all
+  // CUDA contexts in single-process multi-GPU runs.
   double* chunkPtr;
-  CUDA_CALL(cudaMallocHost((void**)&chunkPtr, totalSize * sizeof(double)));
+  CUDA_CALL(cudaHostAlloc((void**)&chunkPtr, totalSize * sizeof(double), cudaHostAllocPortable));
 
   // Track the chunk
   allocatedChunks.push_back(chunkPtr);
@@ -79,9 +80,10 @@ void MatrixAllocator::allocateMatrices(std::vector<Matrix>& mats, bool shouldIni
     totalSize += mat.size();
   }
 
-  // Allocate chunk
+  // Allocate one portable pinned chunk so async copies remain valid across all
+  // CUDA contexts in single-process multi-GPU runs.
   double* chunkPtr;
-  CUDA_CALL(cudaMallocHost((void**)&chunkPtr, totalSize * sizeof(double)));
+  CUDA_CALL(cudaHostAlloc((void**)&chunkPtr, totalSize * sizeof(double), cudaHostAllocPortable));
 
   // Track the chunk
   allocatedChunks.push_back(chunkPtr);

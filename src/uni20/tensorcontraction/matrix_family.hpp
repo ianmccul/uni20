@@ -37,6 +37,16 @@ class MatrixFamily {
     [[nodiscard]] Block block(std::size_t index) const;
     [[nodiscard]] std::span<double> values(std::size_t index);
     [[nodiscard]] std::span<double const> values(std::size_t index) const;
+    /// \brief Return the contiguous backing storage for every block payload.
+    /// \return Mutable span over all scalar values in block order.
+    [[nodiscard]] std::span<double> coalesced_values() noexcept;
+    /// \brief Return the contiguous backing storage for every block payload.
+    /// \return Read-only span over all scalar values in block order.
+    [[nodiscard]] std::span<double const> coalesced_values() const noexcept;
+    /// \brief Return the first scalar offset for one block inside the coalesced slab.
+    /// \param index Block index.
+    /// \return Offset into `coalesced_values()`.
+    [[nodiscard]] std::size_t value_offset(std::size_t index) const;
 
     void assign(std::size_t index, std::span<double const> values);
     void assign(MatrixFamily const& other);

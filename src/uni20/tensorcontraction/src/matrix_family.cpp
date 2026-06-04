@@ -2,20 +2,89 @@
 
 #include "Matrix.hpp"
 
+#include <cuda_runtime_api.h>
 #include <mpi.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <limits>
+#include <new>
 #include <stdexcept>
 
 namespace uni20::tensorcontraction
 {
 
+namespace
+{
+
+struct PinnedHostSlab
+{
+    double* data = nullptr;
+    std::size_t count = 0;
+
+    PinnedHostSlab() = default;
+    explicit PinnedHostSlab(std::size_t value_count) : count(value_count)
+    {
+      if (count == 0)
+      {
+        return;
+      }
+      if (count > std::numeric_limits<std::size_t>::max() / sizeof(double))
+      {
+        throw std::length_error("TensorContraction pinned host slab size overflows size_t");
+      }
+
+      void* raw = nullptr;
+      cudaError_t const status = cudaHostAlloc(&raw, count * sizeof(double), cudaHostAllocPortable);
+      if (status != cudaSuccess)
+      {
+        throw std::bad_alloc();
+      }
+      data = static_cast<double*>(raw);
+    }
+
+    PinnedHostSlab(PinnedHostSlab const&) = delete;
+    PinnedHostSlab& operator=(PinnedHostSlab const&) = delete;
+
+    PinnedHostSlab(PinnedHostSlab&& other) noexcept : data(other.data), count(other.count)
+    {
+      other.data = nullptr;
+      other.count = 0;
+    }
+
+    PinnedHostSlab& operator=(PinnedHostSlab&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->release();
+        data = other.data;
+        count = other.count;
+        other.data = nullptr;
+        other.count = 0;
+      }
+      return *this;
+    }
+
+    ~PinnedHostSlab() { this->release(); }
+
+    void release() noexcept
+    {
+      if (data != nullptr)
+      {
+        (void)cudaFreeHost(data);
+      }
+      data = nullptr;
+      count = 0;
+    }
+};
+
+} // namespace
+
 struct MatrixFamily::Impl
 {
     std::vector<Block> blocks;
-    std::vector<std::vector<double>> storage;
+    std::vector<std::size_t> offsets;
+    PinnedHostSlab storage;
     std::vector<tensor::Matrix> matrices;
 };
 
@@ -40,6 +109,21 @@ std::size_t checked_block_size(MatrixFamily::Block block)
   return block.rows * block.cols;
 }
 
+std::size_t checked_total_size(std::span<MatrixFamily::Block const> blocks)
+{
+  std::size_t total = 0;
+  for (MatrixFamily::Block const block : blocks)
+  {
+    std::size_t const block_size = checked_block_size(block);
+    if (block_size > std::numeric_limits<std::size_t>::max() - total)
+    {
+      throw std::length_error("TensorContraction matrix family storage size overflows size_t");
+    }
+    total += block_size;
+  }
+  return total;
+}
+
 } // namespace
 
 MatrixFamily::MatrixFamily() : impl_(std::make_unique<Impl>()) {}
@@ -47,13 +131,19 @@ MatrixFamily::MatrixFamily() : impl_(std::make_unique<Impl>()) {}
 MatrixFamily::MatrixFamily(std::span<Block const> blocks) : MatrixFamily()
 {
   impl_->blocks.assign(blocks.begin(), blocks.end());
-  impl_->storage.reserve(blocks.size());
+  impl_->offsets.reserve(blocks.size());
   impl_->matrices.reserve(blocks.size());
+  impl_->storage = PinnedHostSlab(checked_total_size(blocks));
 
+  std::size_t offset = 0;
   for (Block const block : blocks)
   {
-    auto& values = impl_->storage.emplace_back(checked_block_size(block));
-    impl_->matrices.emplace_back(values.data(), checked_extent(block.rows), checked_extent(block.cols));
+    std::size_t const block_size = checked_block_size(block);
+    impl_->offsets.push_back(offset);
+    double* const block_data = block_size == 0 ? nullptr : impl_->storage.data + offset;
+    auto& matrix = impl_->matrices.emplace_back(block_data, checked_extent(block.rows), checked_extent(block.cols));
+    matrix.setHostMemoryKind(tensor::HostMemoryKind::Pinned);
+    offset += block_size;
   }
 }
 
@@ -69,9 +159,36 @@ std::span<MatrixFamily::Block const> MatrixFamily::blocks() const noexcept { ret
 
 MatrixFamily::Block MatrixFamily::block(std::size_t index) const { return impl_->blocks.at(index); }
 
-std::span<double> MatrixFamily::values(std::size_t index) { return impl_->storage.at(index); }
+std::span<double> MatrixFamily::values(std::size_t index)
+{
+  std::size_t const offset = impl_->offsets.at(index);
+  std::size_t const block_size = checked_block_size(impl_->blocks.at(index));
+  if (block_size == 0)
+  {
+    return {};
+  }
+  return {impl_->storage.data + offset, block_size};
+}
 
-std::span<double const> MatrixFamily::values(std::size_t index) const { return impl_->storage.at(index); }
+std::span<double const> MatrixFamily::values(std::size_t index) const
+{
+  std::size_t const offset = impl_->offsets.at(index);
+  std::size_t const block_size = checked_block_size(impl_->blocks.at(index));
+  if (block_size == 0)
+  {
+    return {};
+  }
+  return {impl_->storage.data + offset, block_size};
+}
+
+std::span<double> MatrixFamily::coalesced_values() noexcept { return {impl_->storage.data, impl_->storage.count}; }
+
+std::span<double const> MatrixFamily::coalesced_values() const noexcept
+{
+  return {impl_->storage.data, impl_->storage.count};
+}
+
+std::size_t MatrixFamily::value_offset(std::size_t index) const { return impl_->offsets.at(index); }
 
 void MatrixFamily::assign(std::size_t index, std::span<double const> values)
 {
@@ -102,10 +219,11 @@ void MatrixFamily::assign(MatrixFamily const& other)
 
 void MatrixFamily::fill(double value)
 {
-  for (auto& block_storage : impl_->storage)
+  if (impl_->storage.count == 0)
   {
-    std::fill(block_storage.begin(), block_storage.end(), value);
+    return;
   }
+  std::fill(impl_->storage.data, impl_->storage.data + impl_->storage.count, value);
 }
 
 std::vector<tensor::Matrix>& raw_matrices(MatrixFamily& family) { return family.impl_->matrices; }

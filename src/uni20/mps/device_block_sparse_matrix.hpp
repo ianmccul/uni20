@@ -75,10 +75,13 @@ class DeviceThreeLegBlockMatrix {
       }
 
       tensorcontraction::MatrixFamily values(matrix_blocks);
-      for (std::size_t block = 0; block < host.block_count(); ++block)
+      auto source = host.coalesced_values();
+      auto target = values.coalesced_values();
+      if (source.size() != target.size())
       {
-        values.assign(block, host.values(block));
+        throw std::logic_error("DeviceThreeLegBlockMatrix upload encountered incompatible coalesced storage");
       }
+      std::copy(source.begin(), source.end(), target.begin());
       algebra->upload(values);
       return DeviceThreeLegBlockMatrix(host.row_space(), host.local_space(), host.col_space(), std::move(blocks),
                                        std::move(values), std::move(algebra));
@@ -174,14 +177,15 @@ class DeviceThreeLegBlockMatrix {
       ThreeLegBlockMatrix host(row_space_, local_space_, col_space_);
       for (std::size_t block = 0; block < blocks_.size(); ++block)
       {
-        auto values = host.insert_zero_block(blocks_[block].key);
-        auto const source = values_.values(block);
-        if (values.size() != source.size())
-        {
-          throw std::logic_error("device block materialization encountered incompatible block shapes");
-        }
-        std::copy(source.begin(), source.end(), values.begin());
+        static_cast<void>(host.insert_zero_block(blocks_[block].key));
       }
+      auto source = values_.coalesced_values();
+      auto target = host.coalesced_values();
+      if (source.size() != target.size())
+      {
+        throw std::logic_error("device block materialization encountered incompatible coalesced storage");
+      }
+      std::copy(source.begin(), source.end(), target.begin());
       return host;
     }
 

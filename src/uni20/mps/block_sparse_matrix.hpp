@@ -181,6 +181,14 @@ class ThreeLegBlockMatrix {
     /// \return Dense row-major coefficient span.
     auto values(key_type key) -> std::span<double> { return this->values(this->block_index(key)); }
 
+    /// \brief Return the contiguous backing storage for every dense block.
+    /// \return Read-only scalar payloads in block order.
+    auto coalesced_values() const -> std::span<double const> { return data_; }
+
+    /// \brief Return the contiguous backing storage for every dense block.
+    /// \return Mutable scalar payloads in block order.
+    auto coalesced_values() -> std::span<double> { return data_; }
+
     /// \brief Return whether one block exists.
     /// \param key Block coordinate.
     /// \return `true` if a block is stored at `key`.

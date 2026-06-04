@@ -87,6 +87,18 @@ host/device copy counts and byte totals at process exit.  This is intended for
 separating resident Lanczos traffic from setup, environment-update, and result
 materialization traffic in Nsight Systems runs.
 
+`MatrixFamily` stores its logical matrix blocks in one coalesced host slab and
+marks each block descriptor as portable pinned host memory.  This is the staging
+format for active MPS and environment block payloads in the bridge: the block
+descriptors still preserve TensorContraction's per-block identity, while
+`coalesced_values()` and `value_offset()` expose the contiguous backing store for
+future batch host/device transfer paths.  Host tensors that are only cold
+algorithm storage may remain pageable; the strict U(1) `ThreeLegBlockMatrix`
+containers also expose their contiguous payloads so identical-order staging can
+use one host-to-host copy before entering pinned `MatrixFamily` storage.  Any
+storage used as the source or destination of `cudaMemcpyAsync` should pass
+through pinned `MatrixFamily` storage first.
+
 The current CUDA event tracking is provisional.  The intended design, following
 the existing async `EpochContext` model, is per-memory-block dependency
 tracking: each `GpuBuffer` should own the written generation and outstanding

@@ -54,6 +54,10 @@ TEST(ThreeLegBlockMatrixTest, BuildsAllowedU1Blocks)
   tensor.assign_block(up_key, std::array{2.0, 3.0});
   EXPECT_DOUBLE_EQ(tensor.values(up_key)[0], 2.0);
   EXPECT_DOUBLE_EQ(tensor.values(up_key)[1], 3.0);
+  auto all_values = tensor.coalesced_values();
+  ASSERT_EQ(all_values.size(), 5);
+  EXPECT_EQ(tensor.values(up_key).data(), all_values.data());
+  EXPECT_EQ(tensor.values(down_key).data(), all_values.data() + tensor.block(up_key).size());
   EXPECT_THROW(tensor.insert_zero_block(forbidden_key), std::invalid_argument);
 }
 

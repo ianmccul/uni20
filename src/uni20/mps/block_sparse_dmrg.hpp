@@ -828,10 +828,13 @@ inline auto make_environment_matrix_family(BlockSparseEnvironment const& env) ->
   }
 
   tensorcontraction::MatrixFamily family(blocks);
-  for (std::size_t block = 0; block < env.block_count(); ++block)
+  auto source = env.coalesced_values();
+  auto target = family.coalesced_values();
+  if (source.size() != target.size())
   {
-    family.assign(block, env.values(block));
+    throw std::logic_error("environment MatrixFamily staging encountered incompatible coalesced storage");
   }
+  std::copy(source.begin(), source.end(), target.begin());
   return family;
 }
 

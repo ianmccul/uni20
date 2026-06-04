@@ -26,7 +26,11 @@ TEST(TensorContractionMatrixFamilyTest, OwnsHostStorageAndDescriptors)
   family.fill(4.0);
 
   auto values = family.values(0);
+  auto all_values = family.coalesced_values();
   ASSERT_EQ(values.size(), 6);
+  ASSERT_EQ(all_values.size(), 8);
+  EXPECT_EQ(family.value_offset(0), 0);
+  EXPECT_EQ(family.value_offset(1), 6);
   EXPECT_EQ(values[0], 4.0);
   EXPECT_EQ(values[5], 4.0);
 
@@ -35,8 +39,10 @@ TEST(TensorContractionMatrixFamilyTest, OwnsHostStorageAndDescriptors)
   EXPECT_EQ(matrices[0].getFirstDim(), 2);
   EXPECT_EQ(matrices[0].getSecondDim(), 3);
   EXPECT_EQ(matrices[0].getPtr(), values.data());
+  EXPECT_EQ(matrices[0].getPtr(), all_values.data());
   EXPECT_EQ(matrices[1].getFirstDim(), 1);
   EXPECT_EQ(matrices[1].getSecondDim(), 2);
+  EXPECT_EQ(matrices[1].getPtr(), all_values.data() + 6);
 }
 
 TEST(TensorContractionMatrixFamilyTest, ExposesLogicalHandleAndHostView)
@@ -57,7 +63,32 @@ TEST(TensorContractionMatrixFamilyTest, ExposesLogicalHandleAndHostView)
   EXPECT_TRUE(host.valid());
   EXPECT_EQ(host.handle().id(), handle.id());
   EXPECT_EQ(host.data(), matrix.getPtr());
-  EXPECT_EQ(host.memoryKind(), tensor::HostMemoryKind::Pageable);
+  EXPECT_EQ(host.memoryKind(), tensor::HostMemoryKind::Pinned);
+  EXPECT_TRUE(host.pinned());
+}
+
+TEST(TensorContractionMatrixFamilyTest, StoresBlocksInOnePinnedHostSlab)
+{
+  std::array blocks{utc::MatrixFamily::Block{2, 2}, utc::MatrixFamily::Block{3, 1}, utc::MatrixFamily::Block{1, 5}};
+
+  utc::MatrixFamily family(blocks);
+  auto const& matrices = utc::raw_matrices(family);
+  ASSERT_EQ(matrices.size(), blocks.size());
+  auto all_values = family.coalesced_values();
+  ASSERT_EQ(all_values.size(), 12);
+
+  EXPECT_EQ(matrices[0].getPtr(), all_values.data());
+  EXPECT_EQ(matrices[1].getPtr(), all_values.data() + 4);
+  EXPECT_EQ(matrices[2].getPtr(), all_values.data() + 7);
+  EXPECT_EQ(family.values(0).data(), all_values.data());
+  EXPECT_EQ(family.values(1).data(), all_values.data() + 4);
+  EXPECT_EQ(family.values(2).data(), all_values.data() + 7);
+
+  for (auto const& matrix : matrices)
+  {
+    EXPECT_EQ(matrix.hostMemoryKind(), tensor::HostMemoryKind::Pinned);
+    EXPECT_TRUE(matrix.hostView().pinned());
+  }
 }
 
 TEST(TensorContractionMatrixFamilyTest, MatrixAllocatorMarksPinnedHostStorage)
