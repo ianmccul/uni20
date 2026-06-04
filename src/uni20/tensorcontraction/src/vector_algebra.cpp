@@ -115,18 +115,47 @@ double VectorAlgebraEngine::dot(MatrixFamily const& lhs, MatrixFamily const& rhs
 
   auto const& lhs_matrices = raw_matrices(lhs);
   auto const& rhs_matrices = raw_matrices(rhs);
-  std::vector<double> block_results(lhs_matrices.size(), 0.0);
+  if (lhs_matrices.empty())
+  {
+    return broadcast_from_rank_zero(0.0);
+  }
+
+  auto& swapper = impl_->arranger->residentSwapper();
+  int const device_count = swapper.getDeviceCount();
+  std::vector<double> device_results(static_cast<std::size_t>(device_count), 0.0);
+  std::vector<tensor::Matrix> device_partials;
+  device_partials.reserve(static_cast<std::size_t>(device_count));
+  for (int device = 0; device < device_count; ++device)
+  {
+    device_partials.emplace_back(&device_results[static_cast<std::size_t>(device)], 1, 1);
+    swapper.registerGpuAllocation(device_partials.back(), device);
+    impl_->arranger->compileZeroForLinearAlgebra(device_partials.back(), false);
+  }
+
   for (std::size_t block = 0; block < lhs_matrices.size(); ++block)
   {
-    impl_->arranger->compileInnerProductForLinearAlgebra(lhs_matrices[block], rhs_matrices[block],
-                                                         &block_results[block]);
+    auto const [device, buffer] = swapper.getPreStoreBufferOrNone(lhs_matrices[block]);
+    if (buffer == nullptr)
+    {
+      throw std::logic_error("TensorContraction dot input block was not localized to a GPU device");
+    }
+    impl_->arranger->compileInnerProductAccumulateForLinearAlgebra(device_partials[static_cast<std::size_t>(device)],
+                                                                   lhs_matrices[block], rhs_matrices[block]);
+  }
+  for (auto partial : device_partials)
+  {
+    impl_->arranger->compileSyncForLinearAlgebra(partial);
   }
   impl_->arranger->doLinearAlgebra();
 
   double result = 0.0;
-  for (double value : block_results)
+  for (double value : device_results)
   {
     result += value;
+  }
+  for (auto partial : device_partials)
+  {
+    swapper.clear(partial);
   }
   return broadcast_from_rank_zero(result);
 }

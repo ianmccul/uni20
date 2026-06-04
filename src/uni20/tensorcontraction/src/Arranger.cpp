@@ -1592,6 +1592,33 @@ void Arranger::compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double*
   linearAlgebraFlopsPerDevice[deviceId] += m1.size() * 2;
 }
 
+void Arranger::compileInnerProductAccumulateForLinearAlgebra(Matrix partial, Matrix m1, Matrix m2)
+{
+  auto [deviceId, _] = swapper.getPreStoreBufferOrNone(m1);
+  if (deviceId == -1)
+  {
+    deviceId = this->leastBusyLinearAlgebraDevice();
+  }
+  auto [partialDeviceId, partialBuffer] = swapper.getPreStoreBufferOrNone(partial);
+  if (partialBuffer == nullptr || partialDeviceId != deviceId)
+  {
+    throw std::logic_error("TensorContraction inner-product partial must be resident on the input block device");
+  }
+  linearAlgebraWorklists[deviceId].push_back(
+      createWork<InnerProductAccumulateWork>(std::vector<Matrix>{partial, m1, m2}, 1.0, deviceId, swapper));
+  linearAlgebraFlopsPerDevice[deviceId] += m1.size() * 2;
+}
+
+void Arranger::compileSyncForLinearAlgebra(Matrix result)
+{
+  auto [deviceId, buffer] = swapper.getPreStoreBufferOrNone(result);
+  if (buffer == nullptr)
+  {
+    throw std::logic_error("TensorContraction cannot synchronize a matrix without a resident GPU buffer");
+  }
+  linearAlgebraWorklists[deviceId].push_back(createWork<SyncWork>(std::vector<Matrix>{result}, 0.0, deviceId, swapper));
+}
+
 void Arranger::compileZeroForLinearAlgebra(Matrix result, bool syncHost)
 {
   auto [deviceId, _] = swapper.getPreStoreBufferOrNone(result);

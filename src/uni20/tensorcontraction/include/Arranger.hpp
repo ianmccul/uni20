@@ -94,6 +94,8 @@ class Arranger {
                        const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats);
 
     void compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double* result);
+    void compileInnerProductAccumulateForLinearAlgebra(Matrix partial, Matrix m1, Matrix m2);
+    void compileSyncForLinearAlgebra(Matrix result);
     void compileZeroForLinearAlgebra(Matrix result, bool syncHost);
     void compileMatMulForLinearAlgebra(Matrix result, Matrix m1, Matrix m2, bool syncHost);
     void compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff, bool syncHost);

@@ -182,6 +182,18 @@ class InnerProductWork : public MatWorkBase {
 #endif
 };
 
+class InnerProductAccumulateWork : public MatWorkBase {
+    using MatWorkBase::MatWorkBase;
+
+  public:
+    void execute() override;
+    std::vector<Matrix> readMatrices() const override { return {matrices[0], matrices[1], matrices[2]}; }
+    std::vector<Matrix> writeMatrices() const override { return {matrices[0]}; }
+#if DEBUG_LOG
+    const char* getTypeName() const override { return "INNER_PRODUCT_ACCU"; }
+#endif
+};
+
 class ScalarMulWork : public MatWorkBase {
     double* coff;
 

@@ -108,6 +108,33 @@ void InnerProductWork::execute()
   CUDA_CALL(cudaMemcpyAsync(result, deviceDotResult.as<double>(), sizeof(double), cudaMemcpyDeviceToHost, stream));
 }
 
+void InnerProductAccumulateWork::execute()
+{
+  auto const& mats = getMatrices();
+  // matrices: [partial, m1, m2]
+  std::shared_ptr<GpuBuffer> partialOnGPU = swapper.getForWriteNoWait(mats[0], deviceId);
+  std::shared_ptr<GpuBuffer> m1OnGPU = swapper.getForReadNoWait(mats[1], deviceId);
+  std::shared_ptr<GpuBuffer> m2OnGPU = swapper.getForReadNoWait(mats[2], deviceId);
+  auto access = swapper.createBlasAccessPlan({partialOnGPU, m1OnGPU, m2OnGPU}, {partialOnGPU}, deviceId);
+  cudaStream_t stream = access.stream();
+
+  assert(partialOnGPU);
+  assert(m1OnGPU);
+  assert(m2OnGPU);
+
+  auto deviceDotResult = swapper.deviceContext(deviceId).acquireScratch(sizeof(double), stream);
+
+  CUBLAS_CALL(cublasSetPointerMode(access.handle(), CUBLAS_POINTER_MODE_DEVICE));
+  CUBLAS_CALL(cublasDdot(access.handle(), mats[1].size(), m1OnGPU->getPtr(), 1, m2OnGPU->getPtr(), 1,
+                         deviceDotResult.as<double>()));
+  CUBLAS_CALL(cublasSetPointerMode(access.handle(), CUBLAS_POINTER_MODE_HOST));
+
+  // Keep block-dot accumulation device-resident.  The caller synchronizes a
+  // single per-device scalar after all block contributions have been queued.
+  double const one = 1.0;
+  CUBLAS_CALL(cublasDaxpy(access.handle(), 1, &one, deviceDotResult.as<double>(), 1, partialOnGPU->getPtr(), 1));
+}
+
 void ScalarMulWork::execute()
 {
   const auto& mats = getMatrices();

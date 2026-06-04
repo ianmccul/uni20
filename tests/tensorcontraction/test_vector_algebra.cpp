@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <stdexcept>
+#include <vector>
 
 namespace utc = uni20::tensorcontraction;
 
@@ -196,6 +197,30 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsOperationsThroughTensorContra
 
   EXPECT_DOUBLE_EQ(result.values(0)[0], 17.0);
   EXPECT_DOUBLE_EQ(result.values(0)[1], 39.0);
+}
+
+TEST(TensorContractionVectorAlgebraTest, EngineDotAccumulatesManyBlocksIntoDevicePartials)
+{
+  std::vector<utc::MatrixFamily::Block> blocks(16, utc::MatrixFamily::Block{1, 1});
+  utc::MatrixFamily x(blocks);
+  utc::MatrixFamily y(blocks);
+  double expected = 0.0;
+  for (std::size_t block = 0; block < blocks.size(); ++block)
+  {
+    double const x_value = static_cast<double>(block + 1);
+    double const y_value = static_cast<double>(2 * block + 3);
+    x.assign(block, std::array{x_value});
+    y.assign(block, std::array{y_value});
+    expected += x_value * y_value;
+  }
+
+  utc::VectorAlgebraEngine engine;
+  EXPECT_DOUBLE_EQ(engine.dot(x, y), expected);
+  EXPECT_DOUBLE_EQ(engine.dot(x, y), expected);
+
+  y.fill(0.0);
+  engine.upload(y);
+  EXPECT_DOUBLE_EQ(engine.dot(x, y), 0.0);
 }
 
 TEST(TensorContractionVectorAlgebraTest, EngineCanKeepMutationsResidentUntilExplicitSync)
