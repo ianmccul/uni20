@@ -42,7 +42,8 @@ wavefunction storage infrastructure.
 - `solve_two_site` packs the current two-site MPS center, compiles the local
   effective Hamiltonian, runs the TensorContraction Lanczos wrapper, and keeps
   the optimized center resident when the CUDA backend is active.  The old dense
-  host matrix can still be materialized explicitly for fallback paths and tests.
+  host matrix can still be materialized explicitly only in the dense prototype
+  or in terminal diagnostic/reference helpers.
 - `split_two_site_solution` runs the current single-block SVD split and absorbs
   singular values into the right tensor for a left-to-right move, or into the
   left tensor for a right-to-left move.  On CUDA builds it first tries the
@@ -83,11 +84,17 @@ updates, two-site solves, SVD splits, TensorContraction worklist generation, and
 eventual CUDA/MPI placement.
 
 Implicit dense materialization is not allowed in symmetry-aware code because it
-erases the block coordinates that define the legal tensor state. Dense
-conversions must be explicit, named as debug/reference helpers, and tested at
-the boundary where symmetry metadata is restored or compared. If an operation
-cannot yet preserve block structure, the U(1) path should reject it rather than
-silently falling back to a dense implementation.
+erases the block coordinates that define the legal tensor state. There is no
+dense fallback for a U(1)-typed path. A dense calculation is a distinct
+no-symmetry path, for example the dense Heisenberg executable whose local states
+both carry the identity charge, or an explicit conversion that changes the
+symmetry group and exits the U(1) execution path.
+
+Dense debug/reference projections may exist only as terminal diagnostics. They
+must be explicitly named, documented as leaving the symmetry-aware path, and must
+not feed back into U(1) MPS/MPO/DMRG state. If an operation cannot yet preserve
+block structure, the U(1) path should reject it rather than silently using a
+dense implementation.
 
 The current selection-rule conventions are:
 

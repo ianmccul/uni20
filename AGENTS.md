@@ -119,10 +119,15 @@ These primitives enforce *causal consistency*: all reads and writes occur in dep
   the API name and documentation make the conversion explicit, for example a
   debug/reference helper named `to_dense_reference`, `materialize_dense_debug`,
   or similar.
-* Dense fallback paths are allowed only for tests, reference checks, legacy
-  bridge code, or explicitly documented debugging. Production U(1) DMRG paths
-  must reject unsupported block-sparse operations rather than silently using a
-  symmetry-erasing dense implementation.
+* There is no dense fallback for a symmetry-typed path. A dense calculation is
+  a distinct no-symmetry model/path, for example the dense Heisenberg executable
+  whose local states both carry the identity charge, or an explicit conversion
+  that changes the symmetry group and exits the U(1) path.
+* Dense debug/reference projections may exist only as terminal diagnostics:
+  they must be explicitly named, documented as leaving the symmetry-aware
+  execution path, and must not feed back into U(1) MPS/MPO/DMRG state.
+  Production U(1) DMRG paths must reject unsupported block-sparse operations
+  rather than silently using a symmetry-erasing dense implementation.
 * Every block-sparse operation must validate and/or construct blocks through
   the applicable selection rule. For the first U(1) MPS prototype:
   `ThreeLegBlockMatrix` uses `q_column = q_row + q_local`, local operator
