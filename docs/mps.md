@@ -10,6 +10,22 @@ wavefunction storage infrastructure.
   physical state.
 - `FiniteMPS` stores a finite sequence of site tensors and validates adjacent
   bond-space compatibility.
+- `ThreeLegBlockMatrix` is the first generic block-sparse storage primitive for
+  tensors with two `BlockSpace` legs and one `LocalSpace` leg. It stores dense
+  row-major blocks keyed by `(row sector, local state, column sector)` and
+  enforces the zero-flux rule `q_column = q_row + q_local`. This covers both
+  U(1) MPS site tensors and MPS-like environment tensors.
+- `SparseMpoSite` compiles an `OperatorComponent` into scalar four-leg entries
+  keyed by `(left virtual, bra physical, ket physical, right virtual)`. It
+  validates both the local-operator transform rule `q_bra = q_ket + q_operator`
+  and the MPO zero-flux rule `q_left_virtual + q_ket = q_right_virtual + q_bra`.
+- `BlockSparseFiniteMPS` and `make_block_sparse_product_state()` provide the
+  first U(1)-aware product-state representation. The helper builds cumulative
+  one-dimensional bond sectors, so an alternating spin-half product state
+  carries the expected running `S^z` charge on each bond.
+- `make_two_site_svd_sectors()` builds the fused row/column sectors needed for
+  a block SVD of a two-site center. Rows are `(left bond, left physical)` and
+  columns are `(right physical, right bond)`, grouped by the shared-bond charge.
 - `TwoSiteWavefunction` packs two adjacent sites into one TensorContraction
   `MatrixFamily` block with rows `(left bond, left physical)` and columns
   `(right physical, right bond)`.
@@ -49,8 +65,9 @@ wavefunction storage infrastructure.
   Heisenberg chain against an internal dense exact-diagonalization reference,
   then run a configurable chain for several sweeps and report the edge local
   solve energy after each sweep.  The U(1) executable currently validates the
-  symmetry-labelled model path; the MPS storage and SVD split still use dense
-  single-sector bond spaces until the block-sparse MPS path is implemented.
+  symmetry-labelled model path through the dense DMRG bridge; the new
+  block-sparse storage and SVD-sector metadata are staged separately until the
+  TensorContraction worklists are generated from block layouts.
   The long-chain examples accept `UNI20_HEISENBERG_LENGTH`,
   `UNI20_HEISENBERG_SWEEPS`, and `UNI20_HEISENBERG_MAX_RANK`.
 
