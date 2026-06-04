@@ -41,13 +41,18 @@ wavefunction storage infrastructure.
   left-to-right and right-to-left passes for a fixed number of full sweeps and
   returns the per-bond sweep diagnostics without adding persistence or global
   energy bookkeeping.
-- `examples/spin_half_heisenberg_dmrg.cpp` is the current manual executable
-  example. It checks a length-4 open spin-1/2 Heisenberg chain against an
-  internal dense exact-diagonalization reference, then runs a configurable
-  dense placeholder-symmetry chain for several sweeps and reports the edge
-  local solve energy after each sweep.  The long-chain example accepts
-  `UNI20_HEISENBERG_LENGTH`, `UNI20_HEISENBERG_SWEEPS`, and
-  `UNI20_HEISENBERG_MAX_RANK`.
+- `examples/spin_half_heisenberg_dmrg.cpp` is the shared source for the manual
+  Heisenberg DMRG executables. `spin_half_heisenberg_dmrg` uses the dense
+  placeholder symmetry where both local states carry the identity charge.
+  `spin_half_heisenberg_u1_dmrg` uses the U(1) spin labels from
+  `make_spin_half_u1_site()`. Both executables check a length-4 open spin-1/2
+  Heisenberg chain against an internal dense exact-diagonalization reference,
+  then run a configurable chain for several sweeps and report the edge local
+  solve energy after each sweep.  The U(1) executable currently validates the
+  symmetry-labelled model path; the MPS storage and SVD split still use dense
+  single-sector bond spaces until the block-sparse MPS path is implemented.
+  The long-chain examples accept `UNI20_HEISENBERG_LENGTH`,
+  `UNI20_HEISENBERG_SWEEPS`, and `UNI20_HEISENBERG_MAX_RANK`.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.

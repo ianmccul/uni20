@@ -32,6 +32,7 @@ auto bond_space(Symmetry sym, std::size_t dim) -> BlockSpace
   return BlockSpace(sym, {BlockSector{QNum::identity(sym), dim}});
 }
 
+#ifndef UNI20_HEISENBERG_USE_U1
 auto make_spin_half_dense_site() -> SpinHalfSite
 {
   Symmetry const symmetry{"Trivial:U(1)"};
@@ -67,6 +68,25 @@ auto make_spin_half_dense_site() -> SpinHalfSite
       .sm = std::move(sm),
       .sigma_z = std::move(sigma_z),
   };
+}
+#endif
+
+auto make_example_spin_half_site() -> SpinHalfSite
+{
+#ifdef UNI20_HEISENBERG_USE_U1
+  return make_spin_half_u1_site();
+#else
+  return make_spin_half_dense_site();
+#endif
+}
+
+auto example_symmetry_description() -> char const*
+{
+#ifdef UNI20_HEISENBERG_USE_U1
+  return "using U(1) spin symmetry labels";
+#else
+  return "using dense placeholder symmetry: all states carry the identity charge";
+#endif
 }
 
 void ensure_mpi_initialized()
@@ -315,7 +335,7 @@ void run_exact_small_chain_check()
 {
   auto const length = std::size_t{4};
   auto const sweep_count = std::size_t{4};
-  auto const spin = make_spin_half_dense_site();
+  auto const spin = make_example_spin_half_site();
   auto psi = alternating_product_state(spin, length);
   auto mpo = make_spin_half_heisenberg_mpo(length, spin, 1.0, 0.0);
 
@@ -358,7 +378,7 @@ void run_large_chain_sweep_check()
     throw std::invalid_argument("large-chain DMRG check requires at least two sites");
   }
 
-  auto const spin = make_spin_half_dense_site();
+  auto const spin = make_example_spin_half_site();
   auto psi = alternating_product_state(spin, length);
   auto mpo = make_spin_half_heisenberg_mpo(length, spin, 1.0, 0.0);
   bool const debug_global_energy = std::getenv("UNI20_DMRG_DEBUG_GLOBAL_ENERGY") != nullptr;
@@ -451,13 +471,13 @@ auto main() -> int
     ensure_mpi_initialized();
 
     fmt::print("spin-1/2 open Heisenberg DMRG smoke test\n");
-    fmt::print("using dense placeholder symmetry: all states carry the identity charge\n");
+    fmt::print("{}\n", example_symmetry_description());
     run_exact_small_chain_check();
     run_large_chain_sweep_check();
   }
   catch (std::exception const& ex)
   {
-    fmt::print(stderr, "spin_half_heisenberg_dmrg failed: {}\n", ex.what());
+    fmt::print(stderr, "spin-half Heisenberg DMRG example failed: {}\n", ex.what());
     return 1;
   }
 
