@@ -266,7 +266,7 @@ void EffectiveHamiltonianOperator::compile()
 
   impl_->arranger->resetWork();
   impl_->arranger->analyzeComputation(r, a, b, c, terms);
-  impl_->arranger->compileWorklists(r, a, b, c);
+  impl_->arranger->compileWorklists(r, a, b, c, /*syncResultsToHost=*/true);
   impl_->is_compiled = true;
 }
 

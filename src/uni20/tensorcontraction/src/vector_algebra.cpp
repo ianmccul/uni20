@@ -20,20 +20,21 @@ struct VectorAlgebraEngine::Impl
 {
     std::unique_ptr<tensor::Swapper> swapper;
     std::unique_ptr<tensor::Arranger> arranger;
-    bool sync_host = true;
+    bool upload_from_host = true;
+    bool sync_results_to_host = false;
 
     Impl();
 
     [[nodiscard]] bool host_backend() const { return arranger == nullptr; }
 
-    void localize(MatrixFamily& x, bool upload_from_host)
+    void localize(MatrixFamily& x, bool upload_from_host, bool refresh_existing)
     {
       // MatrixFamily remains the public host-visible container.  The
       // TensorContraction runtime uses pre-store buffers as the current GPU
       // resident representation for Lanczos-local vector algebra.
       if (arranger != nullptr)
       {
-        arranger->localizeForLinearAlgebra(raw_matrices(x), upload_from_host);
+        arranger->localizeForLinearAlgebra(raw_matrices(x), upload_from_host, refresh_existing);
       }
     }
 };
@@ -98,7 +99,7 @@ double VectorAlgebraEngine::dot(MatrixFamily const& lhs, MatrixFamily const& rhs
     return uni20::tensorcontraction::dot(lhs, rhs);
   }
 
-  if (!impl_->sync_host)
+  if (!impl_->upload_from_host)
   {
     // Resident mode assumes the latest vector data is already in pre-store
     // buffers.  localize(..., false) only guarantees GPU allocation; it does
@@ -108,8 +109,8 @@ double VectorAlgebraEngine::dot(MatrixFamily const& lhs, MatrixFamily const& rhs
   }
   else
   {
-    impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true);
-    impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true, false);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true, false);
   }
 
   auto const& lhs_matrices = raw_matrices(lhs);
@@ -134,11 +135,15 @@ double VectorAlgebraEngine::norm2(MatrixFamily const& x) { return this->dot(x, x
 
 double VectorAlgebraEngine::norm(MatrixFamily const& x) { return std::sqrt(this->norm2(x)); }
 
-void VectorAlgebraEngine::set_host_synchronization(bool enabled) { impl_->sync_host = enabled; }
+void VectorAlgebraEngine::set_host_synchronization(bool enabled)
+{
+  impl_->upload_from_host = enabled;
+  impl_->sync_results_to_host = enabled;
+}
 
-void VectorAlgebraEngine::localize(MatrixFamily& x) { impl_->localize(x, false); }
+void VectorAlgebraEngine::localize(MatrixFamily& x) { impl_->localize(x, false, false); }
 
-void VectorAlgebraEngine::upload(MatrixFamily& x) { impl_->localize(x, true); }
+void VectorAlgebraEngine::upload(MatrixFamily& x) { impl_->localize(x, true, true); }
 
 void VectorAlgebraEngine::synchronize(MatrixFamily& x)
 {
@@ -158,13 +163,10 @@ void VectorAlgebraEngine::zero(MatrixFamily& x)
     uni20::tensorcontraction::zero(x);
     return;
   }
-  if (!impl_->sync_host)
-  {
-    impl_->localize(x, false);
-  }
+  impl_->localize(x, false, false);
   for (auto const& matrix : raw_matrices(x))
   {
-    impl_->arranger->compileZeroForLinearAlgebra(matrix, impl_->sync_host);
+    impl_->arranger->compileZeroForLinearAlgebra(matrix, impl_->sync_results_to_host);
   }
   impl_->arranger->doLinearAlgebra();
 }
@@ -178,14 +180,15 @@ void VectorAlgebraEngine::copy(MatrixFamily const& source, MatrixFamily& target)
     return;
   }
 
-  if (!impl_->sync_host)
+  if (!impl_->upload_from_host)
   {
     impl_->arranger->localizeForLinearAlgebra(raw_matrices(source), false);
-    impl_->localize(target, false);
+    impl_->localize(target, false, false);
   }
   else
   {
-    impl_->arranger->localizeForLinearAlgebra(raw_matrices(source), true);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(source), true, false);
+    impl_->localize(target, false, false);
   }
 
   double one = 1.0;
@@ -193,9 +196,9 @@ void VectorAlgebraEngine::copy(MatrixFamily const& source, MatrixFamily& target)
   auto const& target_matrices = raw_matrices(target);
   for (std::size_t block = 0; block < source_matrices.size(); ++block)
   {
-    impl_->arranger->compileZeroForLinearAlgebra(target_matrices[block], impl_->sync_host);
+    impl_->arranger->compileZeroForLinearAlgebra(target_matrices[block], impl_->sync_results_to_host);
     impl_->arranger->compileAddAccuForLinearAlgebra(target_matrices[block], source_matrices[block], &one,
-                                                    impl_->sync_host);
+                                                    impl_->sync_results_to_host);
   }
   impl_->arranger->doLinearAlgebra();
 }
@@ -207,17 +210,17 @@ void VectorAlgebraEngine::scale(MatrixFamily& x, double alpha)
     uni20::tensorcontraction::scale(x, alpha);
     return;
   }
-  if (!impl_->sync_host)
+  if (!impl_->upload_from_host)
   {
-    impl_->localize(x, false);
+    impl_->localize(x, false, false);
   }
   else
   {
-    impl_->localize(x, true);
+    impl_->localize(x, true, false);
   }
   for (auto const& matrix : raw_matrices(x))
   {
-    impl_->arranger->compileScalarMulForLinearAlgebra(matrix, &alpha, impl_->sync_host);
+    impl_->arranger->compileScalarMulForLinearAlgebra(matrix, &alpha, impl_->sync_results_to_host);
   }
   impl_->arranger->doLinearAlgebra();
 }
@@ -231,22 +234,23 @@ void VectorAlgebraEngine::axpy(double alpha, MatrixFamily const& x, MatrixFamily
     return;
   }
 
-  if (!impl_->sync_host)
+  if (!impl_->upload_from_host)
   {
     impl_->arranger->localizeForLinearAlgebra(raw_matrices(x), false);
-    impl_->localize(y, false);
+    impl_->localize(y, false, false);
   }
   else
   {
-    impl_->arranger->localizeForLinearAlgebra(raw_matrices(x), true);
-    impl_->localize(y, true);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(x), true, false);
+    impl_->localize(y, true, false);
   }
 
   auto const& x_matrices = raw_matrices(x);
   auto const& y_matrices = raw_matrices(y);
   for (std::size_t block = 0; block < x_matrices.size(); ++block)
   {
-    impl_->arranger->compileAddAccuForLinearAlgebra(y_matrices[block], x_matrices[block], &alpha, impl_->sync_host);
+    impl_->arranger->compileAddAccuForLinearAlgebra(y_matrices[block], x_matrices[block], &alpha,
+                                                    impl_->sync_results_to_host);
   }
   impl_->arranger->doLinearAlgebra();
 }
@@ -260,16 +264,17 @@ void VectorAlgebraEngine::gemm_each(MatrixFamily const& lhs, MatrixFamily const&
     return;
   }
 
-  if (!impl_->sync_host)
+  if (!impl_->upload_from_host)
   {
     impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), false);
     impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), false);
-    impl_->localize(result, false);
+    impl_->localize(result, false, false);
   }
   else
   {
-    impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true);
-    impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true, false);
+    impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true, false);
+    impl_->localize(result, false, false);
   }
 
   auto const& lhs_matrices = raw_matrices(lhs);
@@ -278,7 +283,7 @@ void VectorAlgebraEngine::gemm_each(MatrixFamily const& lhs, MatrixFamily const&
   for (std::size_t block = 0; block < lhs_matrices.size(); ++block)
   {
     impl_->arranger->compileMatMulForLinearAlgebra(result_matrices[block], lhs_matrices[block], rhs_matrices[block],
-                                                   impl_->sync_host);
+                                                   impl_->sync_results_to_host);
   }
   impl_->arranger->doLinearAlgebra();
 }
@@ -294,7 +299,7 @@ void VectorAlgebraEngine::gemm_each_to_resident(MatrixFamily const& lhs, MatrixF
 
   impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true);
   impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true);
-  impl_->localize(result, false);
+  impl_->localize(result, false, false);
 
   auto const& lhs_matrices = raw_matrices(lhs);
   auto const& rhs_matrices = raw_matrices(rhs);
@@ -321,7 +326,7 @@ void VectorAlgebraEngine::gemm_selected_to_resident(MatrixFamily const& lhs, Mat
 
   impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true);
   impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true);
-  impl_->localize(result, false);
+  impl_->localize(result, false, false);
 
   auto const& lhs_matrices = raw_matrices(lhs);
   auto const& rhs_matrices = raw_matrices(rhs);

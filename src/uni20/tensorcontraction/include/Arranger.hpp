@@ -94,10 +94,10 @@ class Arranger {
                        const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats);
 
     void compileInnerProductForLinearAlgebra(Matrix m1, Matrix m2, double* result);
-    void compileZeroForLinearAlgebra(Matrix result, bool syncHost = true);
-    void compileMatMulForLinearAlgebra(Matrix result, Matrix m1, Matrix m2, bool syncHost = true);
-    void compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff, bool syncHost = true);
-    void compileScalarMulForLinearAlgebra(Matrix result, double* coff, bool syncHost = true);
+    void compileZeroForLinearAlgebra(Matrix result, bool syncHost);
+    void compileMatMulForLinearAlgebra(Matrix result, Matrix m1, Matrix m2, bool syncHost);
+    void compileAddAccuForLinearAlgebra(Matrix result, Matrix m1, double* coff, bool syncHost);
+    void compileScalarMulForLinearAlgebra(Matrix result, double* coff, bool syncHost);
     void doLinearAlgebra();
     void localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost, bool refreshExisting = true);
     void synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats);
@@ -119,8 +119,7 @@ class Arranger {
                            const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
                            std::vector<double>& flopsPerDevice, bool syncResultToHost);
     void compileWorklists(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
-                          const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
-                          bool syncResultsToHost = true);
+                          const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats, bool syncResultsToHost);
     void distributeMatricesToNodes(std::vector<Matrix>& mats, std::string prefix);
     void distributeFTermsToNodes(std::vector<TermTy>& terms, const std::vector<Matrix>& rMats);
     void preCopyMatrices(std::vector<Matrix>& aMats, std::vector<Matrix>& bMats, std::vector<Matrix>& cMats,

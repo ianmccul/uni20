@@ -58,7 +58,7 @@ TEST(TensorContractionEffectiveHamiltonianPlanTest, AppliesSingleTermPlan)
   std::array terms{utc::EffectiveHamiltonianPlan::Term{0, 0, 0, 0, 1.25}};
 
   utc::EffectiveHamiltonianPlan plan(std::move(r), std::move(a), std::move(b), std::move(c), terms);
-  plan.apply();
+  plan.apply_to_host();
 
   std::vector<double> bc(3 * 4, 0.0);
   for (std::size_t row = 0; row < 3; ++row)

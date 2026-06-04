@@ -93,9 +93,11 @@ inline auto solve_two_site(FiniteMPS const& psi, FiniteTriangularMPO const& mpo,
       make_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env);
   auto algebra = std::make_unique<tensorcontraction::VectorAlgebraEngine>();
   auto optimized_vector = make_two_site_vector_resident(psi, left_site, effective_hamiltonian.input_layout, *algebra);
-  options.synchronize_result_to_host = false;
+  auto apply_effective_hamiltonian = [&](tensorcontraction::MatrixFamily const& x, tensorcontraction::MatrixFamily& y) {
+    effective_hamiltonian.op.apply_resident(x, y, *algebra);
+  };
   auto lanczos =
-      tensorcontraction::lanczos_lowest_resident(optimized_vector, effective_hamiltonian.op, *algebra, options);
+      tensorcontraction::lanczos_lowest_with_engine(optimized_vector, apply_effective_hamiltonian, *algebra, options);
 
   return TwoSiteSolveResult{.lanczos = lanczos,
                             .layout = effective_hamiltonian.output_layout,

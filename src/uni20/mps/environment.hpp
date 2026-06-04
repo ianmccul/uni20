@@ -316,7 +316,7 @@ inline auto left_environment_tensorcontraction(MpoEnvironment const& left_env, M
 
   tensorcontraction::EffectiveHamiltonianPlan plan(std::move(r_mats), std::move(a_mats), std::move(b_mats),
                                                    std::move(c_mats), terms);
-  plan.apply();
+  plan.apply_to_host();
   for (std::size_t virtual_index = 0; virtual_index < next.virtual_dim(); ++virtual_index)
   {
     auto values = next.values(virtual_index);
@@ -372,7 +372,7 @@ inline auto right_environment_tensorcontraction(MpoEnvironment const& right_env,
 
   tensorcontraction::EffectiveHamiltonianPlan plan(std::move(r_mats), std::move(a_mats), std::move(b_mats),
                                                    std::move(c_mats), terms);
-  plan.apply();
+  plan.apply_to_host();
   for (std::size_t virtual_index = 0; virtual_index < previous.virtual_dim(); ++virtual_index)
   {
     auto values = previous.values(virtual_index);

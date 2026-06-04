@@ -104,15 +104,22 @@ smaller set of left/right input blocks, which avoids duplicating physical MPS
 blocks while building two-site DMRG vectors.  The free functions are the host
 fallback.  `VectorAlgebraEngine`
 routes the same operations through TensorContraction's CUDA worklists so the
-DMRG local solver does not bake in CPU vector algebra.  The engine can also run
-in an explicit resident mode: `upload` makes host `MatrixFamily` storage the
-authority, `set_host_synchronization(false)` keeps subsequent mutations in
-TensorContraction pre-store buffers, and `synchronize` materializes values back
-to host storage at known algorithm boundaries.  When Lanczos is given an
+DMRG local solver does not bake in CPU vector algebra.  Host `MatrixFamily`
+inputs are uploaded on first use, but matrix outputs stay resident by default;
+call `synchronize` at an explicit algorithm boundary to materialize values back
+to host storage.  If host data is deliberately changed after first use, call
+`upload` to refresh the resident buffer.  `set_host_synchronization(false)`
+switches to fully resident mode and disables implicit first-use host uploads for
+Lanczos-local Krylov vectors.  When Lanczos is given an
 `EffectiveHamiltonianOperator` directly, the operator's `apply_resident` hook
 uses the same resident vector-algebra runtime for the local matvec and avoids
 host transfers between Hamiltonian applications.  Generic host-callable
 operators still fall back to explicit synchronization.
+
+`EffectiveHamiltonianPlan::apply()` follows the same rule: it does not
+implicitly synchronize `R` matrices back to host storage.  Use
+`apply_to_host()` only at boundaries that genuinely require a host-owned
+`MatrixFamily`, such as the current dense CPU `MpoEnvironment` cache.
 
 `lanczos.hpp` ports the small-iteration Lanczos shape used by MPTK's DMRG path
 onto `MatrixFamily` block vectors and uses `VectorAlgebraEngine` for its vector
@@ -120,7 +127,10 @@ operations.  Pure Krylov vector algebra is kept resident where possible; scalar
 inner-product results are broadcast across the lockstep MPI ranks so convergence
 decisions remain identical.  The implementation intentionally avoids restart and
 full reorthogonalization so it remains comparable to MPTK for local DMRG
-benchmarking.
+benchmarking.  The final vector stays in the storage model of the supplied
+algebra object.  The host convenience overload uses host `MatrixFamily` algebra;
+GPU paths call `lanczos_lowest_with_engine` with a `VectorAlgebraEngine` and a
+matvec callable that understands that engine's resident storage.
 
 `svd.hpp` adds the first two-site split primitive: a single-block SVD with
 max-rank and singular-value cutoff truncation.  CUDA builds try a cuSOLVER

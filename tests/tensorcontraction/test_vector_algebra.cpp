@@ -147,11 +147,13 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsOperationsThroughTensorContra
   EXPECT_DOUBLE_EQ(engine.norm(x), std::sqrt(140.0));
 
   engine.scale(x, 0.5);
+  engine.synchronize(x);
   EXPECT_DOUBLE_EQ(x.values(0)[0], 0.5);
   EXPECT_DOUBLE_EQ(x.values(0)[3], -2.0);
   EXPECT_DOUBLE_EQ(x.values(1)[2], 3.5);
 
   engine.zero(y);
+  engine.synchronize(y);
   for (std::size_t block = 0; block < y.blocks().size(); ++block)
   {
     for (double value : y.values(block))
@@ -161,6 +163,7 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsOperationsThroughTensorContra
   }
 
   engine.axpy(2.0, x, y);
+  engine.synchronize(y);
   EXPECT_DOUBLE_EQ(y.values(0)[0], 1.0);
   EXPECT_DOUBLE_EQ(y.values(0)[1], -2.0);
   EXPECT_DOUBLE_EQ(y.values(0)[2], 3.0);
@@ -171,6 +174,7 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsOperationsThroughTensorContra
 
   auto z = utc::make_like(y);
   engine.copy(y, z);
+  engine.synchronize(z);
   EXPECT_DOUBLE_EQ(z.values(0)[2], 3.0);
   EXPECT_DOUBLE_EQ(z.values(1)[1], -6.0);
 
@@ -188,6 +192,7 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsOperationsThroughTensorContra
   rhs.assign(0, std::array{5.0, 6.0});
 
   engine.gemm_each(lhs, rhs, result);
+  engine.synchronize(result);
 
   EXPECT_DOUBLE_EQ(result.values(0)[0], 17.0);
   EXPECT_DOUBLE_EQ(result.values(0)[1], 39.0);

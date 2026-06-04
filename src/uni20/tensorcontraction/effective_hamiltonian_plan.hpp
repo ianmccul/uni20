@@ -34,10 +34,13 @@ class EffectiveHamiltonianPlan {
     [[nodiscard]] std::span<double const> r_values(std::size_t index) const;
 
     void compile();
+    void compile_to_host();
     void apply();
+    void apply_to_host();
 
   private:
     struct Impl;
+    void compile_with_host_sync(bool syncResultsToHost);
     std::unique_ptr<Impl> impl_;
 };
 

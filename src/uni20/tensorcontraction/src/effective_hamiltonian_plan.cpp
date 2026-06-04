@@ -22,6 +22,7 @@ struct EffectiveHamiltonianPlan::Impl
     tensor::Swapper swapper;
     tensor::Arranger arranger;
     bool is_compiled = false;
+    bool sync_results_to_host = false;
 
     Impl(MatrixFamily r, MatrixFamily a, MatrixFamily b, MatrixFamily c, std::span<Term const> input_terms)
         : r_mats(std::move(r)), a_mats(std::move(a)), b_mats(std::move(b)), c_mats(std::move(c)),
@@ -116,9 +117,9 @@ std::span<double const> EffectiveHamiltonianPlan::r_values(std::size_t index) co
   return impl_->r_mats.values(index);
 }
 
-void EffectiveHamiltonianPlan::compile()
+void EffectiveHamiltonianPlan::compile_with_host_sync(bool syncResultsToHost)
 {
-  if (impl_->is_compiled)
+  if (impl_->is_compiled && impl_->sync_results_to_host == syncResultsToHost)
   {
     return;
   }
@@ -132,17 +133,25 @@ void EffectiveHamiltonianPlan::compile()
 
   impl_->arranger.resetWork();
   impl_->arranger.analyzeComputation(r, a, b, c, terms);
-  impl_->arranger.compileWorklists(r, a, b, c);
+  impl_->arranger.compileWorklists(r, a, b, c, syncResultsToHost);
   impl_->is_compiled = true;
+  impl_->sync_results_to_host = syncResultsToHost;
 }
+
+void EffectiveHamiltonianPlan::compile() { this->compile_with_host_sync(false); }
+
+void EffectiveHamiltonianPlan::compile_to_host() { this->compile_with_host_sync(true); }
 
 void EffectiveHamiltonianPlan::apply()
 {
-  if (!impl_->is_compiled)
-  {
-    compile();
-  }
+  this->compile();
+  impl_->arranger.doContraction(raw_matrices(impl_->r_mats), raw_matrices(impl_->a_mats), raw_matrices(impl_->b_mats),
+                                raw_matrices(impl_->c_mats));
+}
 
+void EffectiveHamiltonianPlan::apply_to_host()
+{
+  this->compile_to_host();
   impl_->arranger.doContraction(raw_matrices(impl_->r_mats), raw_matrices(impl_->a_mats), raw_matrices(impl_->b_mats),
                                 raw_matrices(impl_->c_mats));
 }

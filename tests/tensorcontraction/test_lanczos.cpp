@@ -131,11 +131,14 @@ TEST(TensorContractionLanczosTest, RunsResidentAgainstEffectiveHamiltonianOperat
   std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0}};
   utc::EffectiveHamiltonianOperator op(std::move(a), std::move(b), input_blocks, output_blocks, terms);
   auto guess = make_vector({0.25, 1.0});
+  utc::VectorAlgebraEngine algebra;
 
-  auto result = utc::lanczos_lowest(
-      guess, op, utc::LanczosOptions{.max_iterations = 4, .min_iterations = 2, .tolerance = 1.0e-12});
+  auto apply = [&](utc::MatrixFamily const& x, utc::MatrixFamily& y) { op.apply_resident(x, y, algebra); };
+  auto result = utc::lanczos_lowest_with_engine(
+      guess, apply, algebra, utc::LanczosOptions{.max_iterations = 4, .min_iterations = 2, .tolerance = 1.0e-12});
 
   EXPECT_NEAR(result.eigenvalue, 1.0, 1.0e-12);
+  algebra.synchronize(guess);
   EXPECT_NEAR(utc::norm(guess), 1.0, 1.0e-12);
   EXPECT_LT(guess.values(0)[0] * guess.values(0)[1], 0.0);
 }
