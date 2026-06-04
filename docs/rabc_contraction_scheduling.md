@@ -22,9 +22,38 @@ It is deciding where each block lives, which intermediates are worth
 materializing, and whether communication should happen before or after a local
 contraction.
 
-## Current TensorContraction Behavior
+## Current Bridge Behavior
 
-The current `Arranger` does not compare left-first and right-first plans.
+The resident `EffectiveHamiltonianOperator` now bypasses the legacy
+`Arranger::analyzeComputation` / `compileWorklists` / `doContraction` path by
+default.
+
+The current deterministic bridge still uses a right-first strategy:
+
+```text
+Y = B * C
+R += A * Y
+```
+
+The executor:
+
+- uses each resident `R` block's current device as the owner for work that
+  contributes to that block;
+- zeros every `R` block before the apply;
+- stages `A`, `B`, and `C` blocks to the `R` owner device when needed;
+- reuses `B*C` intermediates keyed by `(device, B block, C block)`;
+- accumulates `A*(B*C)` into `R`;
+- frees temporary intermediates through the resident buffer dependency tracker.
+
+Set `UNI20_TENSORCONTRACTION_RABC_PLANNER=arranger` to use the old worklist
+planner for profiling or regression comparison.
+
+This is not the final Uni20 storage model. It still borrows TensorContraction
+buffer bookkeeping while replacing the R/A/B/C worklist scheduling seam.
+
+## Legacy TensorContraction Behavior
+
+The legacy `Arranger` does not compare left-first and right-first plans.
 
 It effectively implements a right-first strategy:
 
@@ -182,4 +211,3 @@ The important architectural constraint is that this planner should consume
 Uni20 device/block abstractions directly. It should not depend on
 TensorContraction `Arranger`/`Swapper`, and it should not rely on implicit host
 copies or late global rearrangement.
-

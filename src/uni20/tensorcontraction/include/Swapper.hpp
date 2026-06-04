@@ -173,6 +173,7 @@ class Swapper {
     void pinMatrix(Matrix mat, int deviceId);
     void unpinMatrix(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> allocate(Matrix mat, int deviceId);
+    std::shared_ptr<GpuBuffer> ensureLocalCopy(Matrix mat, int deviceId);
     std::pair<int, std::shared_ptr<GpuBuffer>> findLocalSourceBuffer(Matrix mat, int requesterDeviceId);
     void preStoreMatrix(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> uploadHostMatrix(HostMatrixView host, int deviceId);

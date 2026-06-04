@@ -477,6 +477,64 @@ std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
   return buffer;
 }
 
+std::shared_ptr<GpuBuffer> Swapper::ensureLocalCopy(Matrix mat, int deviceId)
+{
+  if (deviceId < 0 || deviceId >= deviceCount)
+  {
+    throw std::logic_error("TensorContraction requested a local matrix copy on an inactive device");
+  }
+
+  if (auto buffer = getGpuBufferOrNone(mat, deviceId); buffer != nullptr && buffer->contentValid())
+  {
+    return buffer;
+  }
+
+  auto destination = getGpuBufferOrNone(mat, deviceId);
+  if (destination == nullptr)
+  {
+    destination = allocate(mat, deviceId);
+  }
+  if (destination == nullptr)
+  {
+    throw std::runtime_error("TensorContraction failed to allocate a local matrix staging buffer");
+  }
+
+  auto [sourceDeviceId, sourceBuffer] = findLocalSourceBuffer(mat, deviceId);
+  if (sourceBuffer != nullptr)
+  {
+    if (sourceDeviceId == deviceId)
+    {
+      return sourceBuffer;
+    }
+
+    auto streamOwner = deviceContext(deviceId).leaseWorkStream();
+    auto stream = streamOwner.stream();
+    waitForAccessDependencies({sourceBuffer}, {destination}, stream);
+    CUDA_CALL(cudaMemcpyPeerAsync(destination->getPtr(), deviceId, sourceBuffer->getPtr(), sourceDeviceId,
+                                  mat.sizeInByte(), stream));
+    auto completion = streamOwner.recordCompletion();
+    publishAccessCompletion({sourceBuffer}, {destination}, stream, std::move(completion));
+    DEBUG_SECOND_HIT(*this, mat.getId(), sourceDeviceId, deviceId, mat.sizeInByte());
+    return destination;
+  }
+
+  if (mat.hasHostStorage())
+  {
+    auto streamOwner = deviceContext(deviceId).leaseWorkStream();
+    auto stream = streamOwner.stream();
+    waitForAccessDependencies({}, {destination}, stream);
+    copyHostToDevice(mat.hostView(), destination, deviceId, stream);
+    return destination;
+  }
+
+  if (isOnRemoteGpu(mat.getId()))
+  {
+    throw std::logic_error(
+        "TensorContraction deterministic RABC executor does not yet stage matrices from remote MPI ranks");
+  }
+  throw std::logic_error("TensorContraction tried to stage a hostless matrix with no local GPU source");
+}
+
 void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream)
 {
   this->copyHostToDevice(mat.hostView(), std::move(buffer), deviceId, stream);
@@ -1025,15 +1083,24 @@ void Swapper::clear()
 
 void Swapper::clear(Matrix mat)
 {
-  for (auto& hostToGpuMap : hostToGpuMaps)
+  for (int deviceId = 0; deviceId < static_cast<int>(hostToGpuMaps.size()); ++deviceId)
   {
+    auto& hostToGpuMap = hostToGpuMaps[deviceId];
     auto it = hostToGpuMap.find(mat.getId());
     if (it == hostToGpuMap.end())
     {
       continue;
     }
-    CUDA_CALL(cudaFree(it->second->getPtr()));
+    freeBuffer(it->second, deviceId);
     hostToGpuMap.erase(it);
+  }
+
+  auto preStoreIt = preStoreMap.find(mat.getId());
+  if (preStoreIt != preStoreMap.end())
+  {
+    auto [deviceId, buffer] = preStoreIt->second;
+    preStoreMap.erase(preStoreIt);
+    freeBuffer(std::move(buffer), deviceId);
   }
 }
 

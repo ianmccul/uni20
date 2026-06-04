@@ -5,8 +5,10 @@
 #include "Swapper.hpp"
 #include "Utils.h"
 
+#include <compare>
 #include <cstdlib>
 #include <limits>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -147,6 +149,17 @@ bool use_host_effective_hamiltonian_backend()
   return std::string(backend) == "host" || std::string(backend) == "cpu";
 }
 
+bool use_legacy_arranger_rabc_planner()
+{
+  auto const* planner = std::getenv("UNI20_TENSORCONTRACTION_RABC_PLANNER");
+  if (planner == nullptr)
+  {
+    return false;
+  }
+  auto const value = std::string(planner);
+  return value == "arranger" || value == "legacy";
+}
+
 void host_apply(MatrixFamily const& r_mats, MatrixFamily const& a_mats, MatrixFamily const& b_mats,
                 MatrixFamily const& c_mats, std::span<EffectiveHamiltonianOperator::Term const> terms,
                 MatrixFamily& out)
@@ -190,6 +203,112 @@ void host_apply(MatrixFamily const& r_mats, MatrixFamily const& a_mats, MatrixFa
         }
       }
     }
+  }
+}
+
+auto output_device_for(tensor::Swapper& swapper, tensor::Matrix r_mat) -> int
+{
+  auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(r_mat);
+  if (buffer != nullptr)
+  {
+    return device_id;
+  }
+  constexpr int fallback_device = 0;
+  swapper.registerGpuAllocation(r_mat, fallback_device);
+  return fallback_device;
+}
+
+auto require_buffer_on(tensor::Swapper& swapper, tensor::Matrix mat,
+                       int device_id) -> std::shared_ptr<tensor::GpuBuffer>
+{
+  auto buffer = swapper.getGpuBufferOrNone(mat, device_id);
+  if (buffer != nullptr)
+  {
+    return buffer;
+  }
+  swapper.registerGpuAllocation(mat, device_id);
+  buffer = swapper.getGpuBufferOrNone(mat, device_id);
+  if (buffer == nullptr)
+  {
+    throw std::logic_error("TensorContraction deterministic RABC executor failed to allocate an output buffer");
+  }
+  return buffer;
+}
+
+void zero_device_matrix(tensor::Swapper& swapper, tensor::Matrix mat, int device_id)
+{
+  auto buffer = require_buffer_on(swapper, mat, device_id);
+  auto access = swapper.createAccessPlan({}, {buffer}, device_id);
+  CUDA_CALL(cudaMemsetAsync(buffer->getPtr(), 0, mat.sizeInByte(), access.stream()));
+}
+
+void gemm_device_matrix(tensor::Swapper& swapper, tensor::Matrix result, tensor::Matrix lhs, tensor::Matrix rhs,
+                        double alpha, double beta, int device_id)
+{
+  auto lhs_buffer = swapper.ensureLocalCopy(lhs, device_id);
+  auto rhs_buffer = swapper.ensureLocalCopy(rhs, device_id);
+  auto result_buffer = require_buffer_on(swapper, result, device_id);
+  auto access = swapper.createBlasAccessPlan({lhs_buffer, rhs_buffer}, {result_buffer}, device_id);
+
+  CUBLAS_CALL(cublasDgemm(access.handle(), CUBLAS_OP_N, CUBLAS_OP_N, rhs.getSecondDim(), lhs.getFirstDim(),
+                          lhs.getSecondDim(), &alpha, rhs_buffer->getPtr(), rhs.getSecondDim(), lhs_buffer->getPtr(),
+                          lhs.getSecondDim(), &beta, result_buffer->getPtr(), result.getSecondDim()));
+}
+
+struct RightFirstIntermediateKey
+{
+    int device_id = 0;
+    int b = 0;
+    int c = 0;
+
+    auto operator<=>(RightFirstIntermediateKey const&) const = default;
+};
+
+struct RightFirstIntermediate
+{
+    tensor::Matrix matrix;
+};
+
+void deterministic_right_first_apply(std::span<tensor::Matrix const> r_mats, std::span<tensor::Matrix const> a_mats,
+                                     std::span<tensor::Matrix const> b_mats, std::span<tensor::Matrix const> c_mats,
+                                     std::span<EffectiveHamiltonianOperator::Term const> terms,
+                                     tensor::Swapper& swapper)
+{
+  std::vector<int> r_devices(r_mats.size(), 0);
+  for (std::size_t r = 0; r < r_mats.size(); ++r)
+  {
+    r_devices[r] = output_device_for(swapper, r_mats[r]);
+    zero_device_matrix(swapper, r_mats[r], r_devices[r]);
+  }
+
+  std::map<RightFirstIntermediateKey, RightFirstIntermediate> intermediates;
+  for (auto const& term : terms)
+  {
+    auto const target_device = r_devices.at(term.r);
+    auto const& b_mat = b_mats[term.b];
+    auto const& c_mat = c_mats[term.c];
+    RightFirstIntermediateKey const key{
+        .device_id = target_device, .b = checked_index(term.b), .c = checked_index(term.c)};
+    auto [intermediate_it, inserted] = intermediates.try_emplace(key);
+    if (inserted)
+    {
+      auto intermediate =
+          tensor::Matrix(nullptr, checked_index(b_mat.getFirstDim()), checked_index(c_mat.getSecondDim()));
+      swapper.registerGpuAllocation(intermediate, target_device);
+      gemm_device_matrix(swapper, intermediate, b_mat, c_mat, 1.0, 0.0, target_device);
+      intermediate_it->second.matrix = intermediate;
+    }
+
+    // This is the initial deterministic planner: right-first only.  The seam is
+    // deliberately narrow so a later cost model can choose left-first when the
+    // left basis is smaller or when communication costs favor it.
+    gemm_device_matrix(swapper, r_mats[term.r], a_mats[term.a], intermediate_it->second.matrix, term.coefficient, 1.0,
+                       target_device);
+  }
+
+  for (auto const& [_, intermediate] : intermediates)
+  {
+    swapper.clear(intermediate.matrix);
   }
 }
 
@@ -336,6 +455,13 @@ void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixF
   }
   arranger.localizeForLinearAlgebra(raw_matrices(x), /*uploadFromHost=*/false);
   arranger.localizeForLinearAlgebra(raw_matrices(y), /*uploadFromHost=*/false);
+
+  if (!use_legacy_arranger_rabc_planner())
+  {
+    auto& swapper = arranger.residentSwapper();
+    deterministic_right_first_apply(r, a, b, c, impl_->terms, swapper);
+    return;
+  }
 
   arranger.resetWork();
   arranger.analyzeComputation(r, a, b, c, terms);
