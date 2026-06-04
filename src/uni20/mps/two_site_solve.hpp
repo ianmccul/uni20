@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstddef>
+#include <memory>
 #include <span>
 #include <stdexcept>
 
@@ -21,6 +22,7 @@ struct TwoSiteSolveResult
     tensorcontraction::LanczosResult lanczos;
     TwoSiteEffectiveHamiltonianLayout layout;
     tensorcontraction::MatrixFamily optimized_vector;
+    std::unique_ptr<tensorcontraction::VectorAlgebraEngine> resident_algebra;
     tensorcontraction::MatrixFamily optimized_matrix;
 };
 
@@ -89,21 +91,35 @@ inline auto solve_two_site(FiniteMPS const& psi, FiniteTriangularMPO const& mpo,
 
   auto effective_hamiltonian =
       make_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env);
-  tensorcontraction::VectorAlgebraEngine algebra;
-  auto optimized_vector = make_two_site_vector_resident(psi, left_site, effective_hamiltonian.input_layout, algebra);
+  auto algebra = std::make_unique<tensorcontraction::VectorAlgebraEngine>();
+  auto optimized_vector = make_two_site_vector_resident(psi, left_site, effective_hamiltonian.input_layout, *algebra);
+  options.synchronize_result_to_host = false;
   auto lanczos =
-      tensorcontraction::lanczos_lowest_resident(optimized_vector, effective_hamiltonian.op, algebra, options);
-  // The uni20 prototype currently uses MPI ranks as replicated host-state
-  // workers rather than TensorContraction's original distributed R-owner model.
-  // Rank-local contraction matvecs can drift at roundoff level, so treat rank 0
-  // as the authority until uni20 grows the intended client-server runtime.
-  tensorcontraction::broadcast_values_from_rank_zero(optimized_vector);
-  auto optimized_matrix = make_two_site_matrix(optimized_vector, effective_hamiltonian.output_layout);
+      tensorcontraction::lanczos_lowest_resident(optimized_vector, effective_hamiltonian.op, *algebra, options);
 
   return TwoSiteSolveResult{.lanczos = lanczos,
                             .layout = effective_hamiltonian.output_layout,
                             .optimized_vector = std::move(optimized_vector),
-                            .optimized_matrix = std::move(optimized_matrix)};
+                            .resident_algebra = std::move(algebra),
+                            .optimized_matrix = tensorcontraction::MatrixFamily{}};
+}
+
+inline auto materialize_two_site_solution_matrix(TwoSiteSolveResult& solution) -> tensorcontraction::MatrixFamily&
+{
+  if (solution.optimized_matrix.empty())
+  {
+    if (solution.resident_algebra != nullptr && !solution.resident_algebra->uses_host_backend())
+    {
+      solution.resident_algebra->synchronize(solution.optimized_vector);
+    }
+    // The uni20 prototype currently uses MPI ranks as replicated host-state
+    // workers rather than TensorContraction's original distributed R-owner model.
+    // Rank-local contraction matvecs can drift at roundoff level, so treat rank 0
+    // as the authority when materializing host state.
+    tensorcontraction::broadcast_values_from_rank_zero(solution.optimized_vector);
+    solution.optimized_matrix = make_two_site_matrix(solution.optimized_vector, solution.layout);
+  }
+  return solution.optimized_matrix;
 }
 
 } // namespace uni20

@@ -72,13 +72,14 @@ TEST(TwoSiteSolveTest, FindsTwoSiteHeisenbergGroundState)
   {
     EXPECT_EQ(result.optimized_vector.block(i), (tensorcontraction::MatrixFamily::Block{1, 1}));
   }
-  EXPECT_EQ(result.optimized_matrix.block(0), (tensorcontraction::MatrixFamily::Block{2, 2}));
+  auto& optimized_matrix = materialize_two_site_solution_matrix(result);
+  EXPECT_EQ(optimized_matrix.block(0), (tensorcontraction::MatrixFamily::Block{2, 2}));
   EXPECT_NEAR(tensorcontraction::norm(result.optimized_vector), 1.0, 1.0e-12);
-  EXPECT_NEAR(result.optimized_matrix.values(0)[0], 0.0, 1.0e-12);
-  EXPECT_NEAR(result.optimized_matrix.values(0)[3], 0.0, 1.0e-12);
-  EXPECT_NEAR(std::abs(result.optimized_matrix.values(0)[1]), 1.0 / std::sqrt(2.0), 1.0e-12);
-  EXPECT_NEAR(std::abs(result.optimized_matrix.values(0)[2]), 1.0 / std::sqrt(2.0), 1.0e-12);
-  EXPECT_LT(result.optimized_matrix.values(0)[1] * result.optimized_matrix.values(0)[2], 0.0);
+  EXPECT_NEAR(optimized_matrix.values(0)[0], 0.0, 1.0e-12);
+  EXPECT_NEAR(optimized_matrix.values(0)[3], 0.0, 1.0e-12);
+  EXPECT_NEAR(std::abs(optimized_matrix.values(0)[1]), 1.0 / std::sqrt(2.0), 1.0e-12);
+  EXPECT_NEAR(std::abs(optimized_matrix.values(0)[2]), 1.0 / std::sqrt(2.0), 1.0e-12);
+  EXPECT_LT(optimized_matrix.values(0)[1] * optimized_matrix.values(0)[2], 0.0);
 }
 
 TEST(TwoSiteSolveTest, ConvertsVectorBackToMatrixLayout)

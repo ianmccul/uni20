@@ -55,6 +55,25 @@ __global__ void split_right_kernel(double const* u, double const* singular_value
   }
 }
 
+__global__ void pack_svd_input_block_kernel(double const* source_block, double* destination,
+                                            std::uint64_t left_bond_dim, std::uint64_t right_bond_dim,
+                                            std::uint64_t left_physical_dim, std::uint64_t right_physical_dim,
+                                            std::uint64_t left_physical, std::uint64_t right_physical, bool transposed)
+{
+  auto const total = left_bond_dim * right_bond_dim;
+  auto const rows = left_bond_dim * left_physical_dim;
+  auto const cols = right_physical_dim * right_bond_dim;
+  for (std::uint64_t index = blockIdx.x * blockDim.x + threadIdx.x; index < total; index += gridDim.x * blockDim.x)
+  {
+    auto const right_bond = index % right_bond_dim;
+    auto const left_bond = index / right_bond_dim;
+    auto const row = left_bond * left_physical_dim + left_physical;
+    auto const col = right_physical * right_bond_dim + right_bond;
+    auto const value = source_block[left_bond * right_bond_dim + right_bond];
+    destination[transposed ? row * cols + col : col * rows + row] = value;
+  }
+}
+
 auto block_count(std::size_t items) -> int
 {
   auto const blocks =
@@ -84,6 +103,17 @@ void launch_svd_split_kernels(double const* u, double const* singular_values, do
   split_right_kernel<<<block_count(right_items), threads_per_block, 0, stream>>>(
       u, singular_values, vt, right, right_physical_dim, right_bond_dim, kept_rank, cols, minmn, transposed,
       absorb_left);
+}
+
+void launch_pack_svd_input_block_kernel(double const* source_block, double* destination, std::size_t left_bond_dim,
+                                        std::size_t right_bond_dim, std::size_t left_physical_dim,
+                                        std::size_t right_physical_dim, std::size_t left_physical,
+                                        std::size_t right_physical, bool transposed, cudaStream_t stream)
+{
+  auto const items = left_bond_dim * right_bond_dim;
+  pack_svd_input_block_kernel<<<block_count(items), threads_per_block, 0, stream>>>(
+      source_block, destination, left_bond_dim, right_bond_dim, left_physical_dim, right_physical_dim, left_physical,
+      right_physical, transposed);
 }
 
 } // namespace uni20::tensorcontraction::detail

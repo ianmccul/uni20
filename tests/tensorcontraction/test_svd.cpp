@@ -1,4 +1,5 @@
 #include <uni20/tensorcontraction/svd.hpp>
+#include <uni20/tensorcontraction/vector_algebra.hpp>
 
 #include <gtest/gtest.h>
 
@@ -86,6 +87,32 @@ std::vector<double> reconstruct(utc::SingleBlockSvdSplit const& split, utc::Sing
     }
   }
   return result;
+}
+
+utc::MatrixFamily make_two_site_vector(utc::SingleBlockSvdSplitLayout layout, std::span<double const> dense)
+{
+  std::vector<utc::MatrixFamily::Block> blocks(layout.left_physical_dim * layout.right_physical_dim,
+                                               utc::MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim});
+  utc::MatrixFamily vector(blocks);
+  auto const cols = layout.right_physical_dim * layout.right_bond_dim;
+  for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
+  {
+    for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+    {
+      auto const block = left_phys * layout.right_physical_dim + right_phys;
+      auto values = vector.values(block);
+      for (std::size_t left_bond = 0; left_bond < layout.left_bond_dim; ++left_bond)
+      {
+        auto const row = left_bond * layout.left_physical_dim + left_phys;
+        for (std::size_t right_bond = 0; right_bond < layout.right_bond_dim; ++right_bond)
+        {
+          auto const col = right_phys * layout.right_bond_dim + right_bond;
+          values[left_bond * layout.right_bond_dim + right_bond] = dense[row * cols + col];
+        }
+      }
+    }
+  }
+  return vector;
 }
 
 } // namespace
@@ -204,6 +231,32 @@ TEST(TensorContractionSvdTest, SplitsPhysicalBlocksAndAbsorbsSingularValues)
     {
       EXPECT_NEAR(reconstructed[i], matrix.values(0)[i], 1.0e-10);
     }
+  }
+}
+
+TEST(TensorContractionSvdTest, ResidentSplitReconstructsPhysicalBlocks)
+{
+  utc::SingleBlockSvdSplitLayout layout{
+      .left_bond_dim = 2, .left_physical_dim = 2, .right_physical_dim = 2, .right_bond_dim = 3};
+  std::array dense{1.0, 0.2,  -0.4, 0.7, 0.3, 1.1, 0.5,  -0.2, -0.6, 0.8,  1.7, 0.4,
+                   0.9, -0.1, 0.2,  1.3, 0.4, 0.6, -1.2, 0.5,  1.5,  -0.7, 0.3, 0.9};
+  auto vector = make_two_site_vector(layout, dense);
+  utc::VectorAlgebraEngine algebra;
+  algebra.upload(vector);
+  algebra.set_host_synchronization(false);
+
+  auto split = utc::single_block_svd_split_resident(vector, layout, utc::SvdAbsorbSingularValues::Right,
+                                                    utc::SvdOptions{}, algebra);
+  if (!split.has_value())
+  {
+    GTEST_SKIP() << "resident cuSOLVER SVD split is not available";
+  }
+
+  auto reconstructed = reconstruct(*split, layout);
+  ASSERT_EQ(reconstructed.size(), dense.size());
+  for (std::size_t i = 0; i < reconstructed.size(); ++i)
+  {
+    EXPECT_NEAR(reconstructed[i], dense[i], 1.0e-10);
   }
 }
 

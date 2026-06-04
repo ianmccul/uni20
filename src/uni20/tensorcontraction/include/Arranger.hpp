@@ -87,6 +87,7 @@ class Arranger {
   public:
     Arranger(Swapper& swapper);
     ~Arranger();
+    Swapper& residentSwapper() { return swapper; }
     void ensureMemoryPoolsInitialized();
     std::vector<Matrix>& getInterMats();
     void doContraction(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,

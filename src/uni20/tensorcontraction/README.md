@@ -126,13 +126,14 @@ benchmarking.
 max-rank and singular-value cutoff truncation.  CUDA builds try a cuSOLVER
 `dgesvd` implementation first, then fall back to LAPACK `dgesdd` and finally to
 the built-in reference SVD.  Set `UNI20_TENSORCONTRACTION_CUSOLVER_SVD=0` to
-force the non-cuSOLVER fallback path.  The current cuSOLVER path is still a
-host-facing boundary: it copies the assembled dense center into cuSOLVER,
-returns host-visible `U`, singular values, and `Vt`, and leaves MPS replacement
-on the CPU side.  The next resident-GPU step is to assemble symmetry-sector
-block-diagonal SVD inputs directly from TensorContraction pre-store buffers and
-avoid materializing the two-site center on the host.  Longer-term native uni20
-resource and scheduler direction is recorded in
+force the non-cuSOLVER fallback path.  The host-facing split still accepts an
+assembled dense `MatrixFamily` center for fallback and tests.  The resident split
+path instead packs the optimized two-site vector blocks from TensorContraction
+pre-store buffers directly into cuSOLVER input memory, avoiding the final
+Lanczos-vector materialization on the host.  Singular values and split MPS site
+blocks are still copied back because the current dense `FiniteMPS` container is
+host-owned.  Longer-term native uni20 resource and scheduler direction is
+recorded in
 [`docs/cuda_cusolver_architecture.md`](../../../docs/cuda_cusolver_architecture.md).
 
 The current SVD code is also a prototype for backend-capability dispatch.  A

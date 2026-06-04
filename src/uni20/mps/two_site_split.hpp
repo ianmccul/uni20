@@ -128,22 +128,11 @@ inline auto make_dense_shared_bond_space(Symmetry sym, std::size_t dim) -> Block
   return BlockSpace(sym, {BlockSector{QNum::identity(sym), dim}});
 }
 
-inline auto split_two_site_center(tensorcontraction::MatrixFamily const& center,
-                                  TwoSiteEffectiveHamiltonianLayout const& layout,
-                                  LocalSpace const& left_physical_space, LocalSpace const& right_physical_space,
-                                  BlockSpace const& left_bond_space, BlockSpace const& right_bond_space,
-                                  TwoSiteSplitDirection direction,
-                                  tensorcontraction::SvdOptions options = {}) -> TwoSiteSplitResult
+inline void validate_two_site_split_metadata(TwoSiteEffectiveHamiltonianLayout const& layout,
+                                             LocalSpace const& left_physical_space,
+                                             LocalSpace const& right_physical_space, BlockSpace const& left_bond_space,
+                                             BlockSpace const& right_bond_space)
 {
-  if (center.size() != 1)
-  {
-    throw std::invalid_argument("two-site split requires a single-block center");
-  }
-  if (center.block(0) != tensorcontraction::MatrixFamily::Block{layout.left_bond_dim * layout.left_physical_dim,
-                                                                layout.right_physical_dim * layout.right_bond_dim})
-  {
-    throw std::invalid_argument("two-site split center shape does not match the layout");
-  }
   if (left_physical_space.size() != layout.left_physical_dim ||
       right_physical_space.size() != layout.right_physical_dim || left_bond_space.total_dim() != layout.left_bond_dim ||
       right_bond_space.total_dim() != layout.right_bond_dim)
@@ -154,17 +143,29 @@ inline auto split_two_site_center(tensorcontraction::MatrixFamily const& center,
   {
     throw std::invalid_argument("two-site split physical spaces must share one symmetry");
   }
+}
 
-  auto const absorb = direction == TwoSiteSplitDirection::RightToLeft
-                          ? tensorcontraction::SvdAbsorbSingularValues::Left
-                          : tensorcontraction::SvdAbsorbSingularValues::Right;
-  auto split_blocks = tensorcontraction::single_block_svd_split(
-      center,
-      tensorcontraction::SingleBlockSvdSplitLayout{.left_bond_dim = layout.left_bond_dim,
-                                                   .left_physical_dim = layout.left_physical_dim,
-                                                   .right_physical_dim = layout.right_physical_dim,
-                                                   .right_bond_dim = layout.right_bond_dim},
-      absorb, options);
+inline auto
+make_svd_split_layout(TwoSiteEffectiveHamiltonianLayout const& layout) -> tensorcontraction::SingleBlockSvdSplitLayout
+{
+  return tensorcontraction::SingleBlockSvdSplitLayout{.left_bond_dim = layout.left_bond_dim,
+                                                      .left_physical_dim = layout.left_physical_dim,
+                                                      .right_physical_dim = layout.right_physical_dim,
+                                                      .right_bond_dim = layout.right_bond_dim};
+}
+
+inline auto svd_absorb_for_direction(TwoSiteSplitDirection direction) -> tensorcontraction::SvdAbsorbSingularValues
+{
+  return direction == TwoSiteSplitDirection::RightToLeft ? tensorcontraction::SvdAbsorbSingularValues::Left
+                                                         : tensorcontraction::SvdAbsorbSingularValues::Right;
+}
+
+inline auto make_two_site_split_result(tensorcontraction::SingleBlockSvdSplit split_blocks,
+                                       TwoSiteEffectiveHamiltonianLayout const& layout,
+                                       LocalSpace const& left_physical_space, LocalSpace const& right_physical_space,
+                                       BlockSpace const& left_bond_space,
+                                       BlockSpace const& right_bond_space) -> TwoSiteSplitResult
+{
   // Keep the prototype MPI ranks on one host-state trajectory.  This is also
   // robust against valid rank-local SVD sign or degenerate-subspace choices.
   detail::broadcast_svd_spectrum_from_rank_zero(split_blocks.spectrum);
@@ -190,16 +191,57 @@ inline auto split_two_site_center(tensorcontraction::MatrixFamily const& center,
       .left = std::move(left), .right = std::move(right), .spectrum = std::move(split_blocks.spectrum)};
 }
 
-inline auto split_two_site_solution(TwoSiteSolveResult const& solution, LocalSpace const& left_physical_space,
+inline auto split_two_site_center(tensorcontraction::MatrixFamily const& center,
+                                  TwoSiteEffectiveHamiltonianLayout const& layout,
+                                  LocalSpace const& left_physical_space, LocalSpace const& right_physical_space,
+                                  BlockSpace const& left_bond_space, BlockSpace const& right_bond_space,
+                                  TwoSiteSplitDirection direction,
+                                  tensorcontraction::SvdOptions options = {}) -> TwoSiteSplitResult
+{
+  if (center.size() != 1)
+  {
+    throw std::invalid_argument("two-site split requires a single-block center");
+  }
+  if (center.block(0) != tensorcontraction::MatrixFamily::Block{layout.left_bond_dim * layout.left_physical_dim,
+                                                                layout.right_physical_dim * layout.right_bond_dim})
+  {
+    throw std::invalid_argument("two-site split center shape does not match the layout");
+  }
+  validate_two_site_split_metadata(layout, left_physical_space, right_physical_space, left_bond_space,
+                                   right_bond_space);
+
+  auto split_blocks = tensorcontraction::single_block_svd_split(center, make_svd_split_layout(layout),
+                                                                svd_absorb_for_direction(direction), options);
+  return make_two_site_split_result(std::move(split_blocks), layout, left_physical_space, right_physical_space,
+                                    left_bond_space, right_bond_space);
+}
+
+inline auto split_two_site_solution(TwoSiteSolveResult& solution, LocalSpace const& left_physical_space,
                                     LocalSpace const& right_physical_space, BlockSpace const& left_bond_space,
                                     BlockSpace const& right_bond_space, TwoSiteSplitDirection direction,
                                     tensorcontraction::SvdOptions options = {}) -> TwoSiteSplitResult
 {
-  return split_two_site_center(solution.optimized_matrix, solution.layout, left_physical_space, right_physical_space,
-                               left_bond_space, right_bond_space, direction, options);
+  validate_two_site_split_metadata(solution.layout, left_physical_space, right_physical_space, left_bond_space,
+                                   right_bond_space);
+
+  if (solution.resident_algebra != nullptr)
+  {
+    if (auto split_blocks = tensorcontraction::single_block_svd_split_resident(
+            solution.optimized_vector, make_svd_split_layout(solution.layout), svd_absorb_for_direction(direction),
+            options, *solution.resident_algebra);
+        split_blocks.has_value())
+    {
+      return make_two_site_split_result(std::move(*split_blocks), solution.layout, left_physical_space,
+                                        right_physical_space, left_bond_space, right_bond_space);
+    }
+  }
+
+  auto& center = materialize_two_site_solution_matrix(solution);
+  return split_two_site_center(center, solution.layout, left_physical_space, right_physical_space, left_bond_space,
+                               right_bond_space, direction, options);
 }
 
-inline auto split_two_site_solution(TwoSiteSolveResult const& solution, FiniteMPS const& psi, std::size_t left_site,
+inline auto split_two_site_solution(TwoSiteSolveResult& solution, FiniteMPS const& psi, std::size_t left_site,
                                     TwoSiteSplitDirection direction,
                                     tensorcontraction::SvdOptions options = {}) -> TwoSiteSplitResult
 {

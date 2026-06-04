@@ -1,7 +1,10 @@
 #include <uni20/tensorcontraction/svd.hpp>
+#include <uni20/tensorcontraction/vector_algebra.hpp>
 
 #if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
 
+#include "Arranger.hpp"
+#include "Swapper.hpp"
 #include "svd_split_kernels.hpp"
 
 #include <cuda_runtime_api.h>
@@ -10,9 +13,11 @@
 #include <algorithm>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace uni20::tensorcontraction::detail
@@ -194,6 +199,38 @@ int checked_cuda_int(std::size_t value, char const* name)
   return static_cast<int>(value);
 }
 
+struct SvdSolverShape
+{
+    std::size_t rows = 0;
+    std::size_t cols = 0;
+    bool transposed = false;
+    std::size_t solver_rows = 0;
+    std::size_t solver_cols = 0;
+    std::size_t minmn = 0;
+    int m = 0;
+    int n = 0;
+    int lda = 0;
+    int ldu = 0;
+    int ldvt = 0;
+};
+
+auto make_svd_solver_shape(std::size_t rows, std::size_t cols) -> SvdSolverShape
+{
+  SvdSolverShape shape;
+  shape.rows = rows;
+  shape.cols = cols;
+  shape.transposed = rows < cols;
+  shape.solver_rows = shape.transposed ? cols : rows;
+  shape.solver_cols = shape.transposed ? rows : cols;
+  shape.minmn = std::min(rows, cols);
+  shape.m = checked_cuda_int(shape.solver_rows, "SVD row count");
+  shape.n = checked_cuda_int(shape.solver_cols, "SVD column count");
+  shape.lda = std::max(1, shape.m);
+  shape.ldu = std::max(1, shape.m);
+  shape.ldvt = std::max(1, shape.n);
+  return shape;
+}
+
 auto make_column_major_copy(MatrixFamily const& matrix, bool transpose) -> std::vector<double>
 {
   auto const block = matrix.block(0);
@@ -291,134 +328,26 @@ auto make_block_major_matrix_family(std::span<double const> values, std::size_t 
   return family;
 }
 
-} // namespace
-
-std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matrix, SvdOptions options)
+auto run_split_cusolver_from_device_input(DeviceBuffer& device_a, SvdSolverShape const& shape,
+                                          SingleBlockSvdSplitLayout layout, SvdAbsorbSingularValues absorb,
+                                          SvdOptions options, cusolverDnHandle_t handle,
+                                          cudaStream_t stream) -> std::optional<SingleBlockSvdSplit>
 {
-  validate_single_block_svd_inputs(matrix, options);
-  if (cusolver_svd_disabled() || !cuda_device_available())
-  {
-    return std::nullopt;
-  }
-
-  auto const block = matrix.block(0);
-  auto const rows = block.rows;
-  auto const cols = block.cols;
-  auto const transposed = rows < cols;
-  auto const solver_rows = transposed ? cols : rows;
-  auto const solver_cols = transposed ? rows : cols;
-  auto const minmn = std::min(rows, cols);
-
-  auto m = checked_cuda_int(solver_rows, "SVD row count");
-  auto n = checked_cuda_int(solver_cols, "SVD column count");
-  auto lda = std::max(1, m);
-  auto ldu = std::max(1, m);
-  auto ldvt = std::max(1, n);
-
-  auto& context = cusolver_context_for_current_device();
-  auto const handle = context.handle.get();
-  auto const stream = context.stream.get();
-
-  auto host_a = make_column_major_copy(matrix, transposed);
-  std::vector<double> host_singular_values(minmn);
-  std::vector<double> host_u(solver_rows * minmn);
-  std::vector<double> host_vt(minmn * solver_cols);
+  std::vector<double> host_singular_values(shape.minmn);
   int lwork = 0;
-  check_cusolver(cusolverDnDgesvd_bufferSize(handle, m, n, &lwork), "cusolverDnDgesvd_bufferSize");
+  check_cusolver(cusolverDnDgesvd_bufferSize(handle, shape.m, shape.n, &lwork), "cusolverDnDgesvd_bufferSize");
 
-  DeviceBuffer device_a(host_a.size() * sizeof(double));
   DeviceBuffer device_singular_values(host_singular_values.size() * sizeof(double));
-  DeviceBuffer device_u(host_u.size() * sizeof(double));
-  DeviceBuffer device_vt(host_vt.size() * sizeof(double));
+  DeviceBuffer device_u(shape.solver_rows * shape.minmn * sizeof(double));
+  DeviceBuffer device_vt(shape.minmn * shape.solver_cols * sizeof(double));
   DeviceBuffer device_work(static_cast<std::size_t>(std::max(1, lwork)) * sizeof(double));
   DeviceBuffer device_info(sizeof(int));
 
-  check_cuda(cudaMemcpyAsync(device_a.as<double>(), host_a.data(), host_a.size() * sizeof(double),
-                             cudaMemcpyHostToDevice, stream),
-             "cudaMemcpyAsync host matrix to device");
-
   signed char jobu = 'S';
   signed char jobvt = 'S';
-  check_cusolver(cusolverDnDgesvd(handle, jobu, jobvt, m, n, device_a.as<double>(), lda,
-                                  device_singular_values.as<double>(), device_u.as<double>(), ldu,
-                                  device_vt.as<double>(), ldvt, device_work.as<double>(), lwork, nullptr,
-                                  device_info.as<int>()),
-                 "cusolverDnDgesvd");
-
-  int info = 0;
-  check_cuda(cudaMemcpyAsync(host_singular_values.data(), device_singular_values.as<double>(),
-                             host_singular_values.size() * sizeof(double), cudaMemcpyDeviceToHost, stream),
-             "cudaMemcpyAsync singular values to host");
-  check_cuda(cudaMemcpyAsync(host_u.data(), device_u.as<double>(), host_u.size() * sizeof(double),
-                             cudaMemcpyDeviceToHost, stream),
-             "cudaMemcpyAsync U to host");
-  check_cuda(cudaMemcpyAsync(host_vt.data(), device_vt.as<double>(), host_vt.size() * sizeof(double),
-                             cudaMemcpyDeviceToHost, stream),
-             "cudaMemcpyAsync Vt to host");
-  check_cuda(cudaMemcpyAsync(&info, device_info.as<int>(), sizeof(int), cudaMemcpyDeviceToHost, stream),
-             "cudaMemcpyAsync SVD info to host");
-  check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
-  if (info < 0)
-  {
-    throw std::invalid_argument("cuSOLVER dgesvd rejected argument " + std::to_string(-info));
-  }
-  if (info > 0)
-  {
-    return std::nullopt;
-  }
-
-  return copy_cusolver_result(host_singular_values, host_u, host_vt, rows, cols, transposed, options);
-}
-
-std::optional<SingleBlockSvdSplit> single_block_svd_split_cusolver(MatrixFamily const& matrix,
-                                                                   SingleBlockSvdSplitLayout layout,
-                                                                   SvdAbsorbSingularValues absorb, SvdOptions options)
-{
-  validate_single_block_svd_split_inputs(matrix, layout, options);
-  if (cusolver_svd_disabled() || !cuda_device_available())
-  {
-    return std::nullopt;
-  }
-
-  auto const block = matrix.block(0);
-  auto const rows = block.rows;
-  auto const cols = block.cols;
-  auto const transposed = rows < cols;
-  auto const solver_rows = transposed ? cols : rows;
-  auto const solver_cols = transposed ? rows : cols;
-  auto const minmn = std::min(rows, cols);
-
-  auto m = checked_cuda_int(solver_rows, "SVD row count");
-  auto n = checked_cuda_int(solver_cols, "SVD column count");
-  auto lda = std::max(1, m);
-  auto ldu = std::max(1, m);
-  auto ldvt = std::max(1, n);
-
-  auto& context = cusolver_context_for_current_device();
-  auto const handle = context.handle.get();
-  auto const stream = context.stream.get();
-
-  auto host_a = make_column_major_copy(matrix, transposed);
-  std::vector<double> host_singular_values(minmn);
-  int lwork = 0;
-  check_cusolver(cusolverDnDgesvd_bufferSize(handle, m, n, &lwork), "cusolverDnDgesvd_bufferSize");
-
-  DeviceBuffer device_a(host_a.size() * sizeof(double));
-  DeviceBuffer device_singular_values(host_singular_values.size() * sizeof(double));
-  DeviceBuffer device_u(solver_rows * minmn * sizeof(double));
-  DeviceBuffer device_vt(minmn * solver_cols * sizeof(double));
-  DeviceBuffer device_work(static_cast<std::size_t>(std::max(1, lwork)) * sizeof(double));
-  DeviceBuffer device_info(sizeof(int));
-
-  check_cuda(cudaMemcpyAsync(device_a.as<double>(), host_a.data(), host_a.size() * sizeof(double),
-                             cudaMemcpyHostToDevice, stream),
-             "cudaMemcpyAsync host matrix to device");
-
-  signed char jobu = 'S';
-  signed char jobvt = 'S';
-  check_cusolver(cusolverDnDgesvd(handle, jobu, jobvt, m, n, device_a.as<double>(), lda,
-                                  device_singular_values.as<double>(), device_u.as<double>(), ldu,
-                                  device_vt.as<double>(), ldvt, device_work.as<double>(), lwork, nullptr,
+  check_cusolver(cusolverDnDgesvd(handle, jobu, jobvt, shape.m, shape.n, device_a.as<double>(), shape.lda,
+                                  device_singular_values.as<double>(), device_u.as<double>(), shape.ldu,
+                                  device_vt.as<double>(), shape.ldvt, device_work.as<double>(), lwork, nullptr,
                                   device_info.as<int>()),
                  "cusolverDnDgesvd");
 
@@ -452,8 +381,8 @@ std::optional<SingleBlockSvdSplit> single_block_svd_split_cusolver(MatrixFamily 
     DeviceBuffer device_right(host_right.size() * sizeof(double));
     launch_svd_split_kernels(device_u.as<double>(), device_singular_values.as<double>(), device_vt.as<double>(),
                              device_left.as<double>(), device_right.as<double>(), layout.left_bond_dim,
-                             layout.left_physical_dim, layout.right_physical_dim, layout.right_bond_dim, kept, minmn,
-                             transposed, absorb == SvdAbsorbSingularValues::Left, stream);
+                             layout.left_physical_dim, layout.right_physical_dim, layout.right_bond_dim, kept,
+                             shape.minmn, shape.transposed, absorb == SvdAbsorbSingularValues::Left, stream);
     check_cuda(cudaGetLastError(), "launch_svd_split_kernels");
     check_cuda(cudaMemcpyAsync(host_left.data(), device_left.as<double>(), host_left.size() * sizeof(double),
                                cudaMemcpyDeviceToHost, stream),
@@ -472,6 +401,173 @@ std::optional<SingleBlockSvdSplit> single_block_svd_split_cusolver(MatrixFamily 
                              .spectrum = SvdSpectrum{.singular_values = std::move(kept_singular_values),
                                                      .discarded_weight = discarded_weight,
                                                      .full_rank = full_rank}};
+}
+
+} // namespace
+
+std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matrix, SvdOptions options)
+{
+  validate_single_block_svd_inputs(matrix, options);
+  if (cusolver_svd_disabled() || !cuda_device_available())
+  {
+    return std::nullopt;
+  }
+
+  auto const block = matrix.block(0);
+  auto const rows = block.rows;
+  auto const cols = block.cols;
+  auto const shape = make_svd_solver_shape(rows, cols);
+  auto const minmn = std::min(rows, cols);
+
+  auto& context = cusolver_context_for_current_device();
+  auto const handle = context.handle.get();
+  auto const stream = context.stream.get();
+
+  auto host_a = make_column_major_copy(matrix, shape.transposed);
+  std::vector<double> host_singular_values(minmn);
+  std::vector<double> host_u(shape.solver_rows * minmn);
+  std::vector<double> host_vt(minmn * shape.solver_cols);
+  int lwork = 0;
+  check_cusolver(cusolverDnDgesvd_bufferSize(handle, shape.m, shape.n, &lwork), "cusolverDnDgesvd_bufferSize");
+
+  DeviceBuffer device_a(host_a.size() * sizeof(double));
+  DeviceBuffer device_singular_values(host_singular_values.size() * sizeof(double));
+  DeviceBuffer device_u(host_u.size() * sizeof(double));
+  DeviceBuffer device_vt(host_vt.size() * sizeof(double));
+  DeviceBuffer device_work(static_cast<std::size_t>(std::max(1, lwork)) * sizeof(double));
+  DeviceBuffer device_info(sizeof(int));
+
+  check_cuda(cudaMemcpyAsync(device_a.as<double>(), host_a.data(), host_a.size() * sizeof(double),
+                             cudaMemcpyHostToDevice, stream),
+             "cudaMemcpyAsync host matrix to device");
+
+  signed char jobu = 'S';
+  signed char jobvt = 'S';
+  check_cusolver(cusolverDnDgesvd(handle, jobu, jobvt, shape.m, shape.n, device_a.as<double>(), shape.lda,
+                                  device_singular_values.as<double>(), device_u.as<double>(), shape.ldu,
+                                  device_vt.as<double>(), shape.ldvt, device_work.as<double>(), lwork, nullptr,
+                                  device_info.as<int>()),
+                 "cusolverDnDgesvd");
+
+  int info = 0;
+  check_cuda(cudaMemcpyAsync(host_singular_values.data(), device_singular_values.as<double>(),
+                             host_singular_values.size() * sizeof(double), cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync singular values to host");
+  check_cuda(cudaMemcpyAsync(host_u.data(), device_u.as<double>(), host_u.size() * sizeof(double),
+                             cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync U to host");
+  check_cuda(cudaMemcpyAsync(host_vt.data(), device_vt.as<double>(), host_vt.size() * sizeof(double),
+                             cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync Vt to host");
+  check_cuda(cudaMemcpyAsync(&info, device_info.as<int>(), sizeof(int), cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync SVD info to host");
+  check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+  if (info < 0)
+  {
+    throw std::invalid_argument("cuSOLVER dgesvd rejected argument " + std::to_string(-info));
+  }
+  if (info > 0)
+  {
+    return std::nullopt;
+  }
+
+  return copy_cusolver_result(host_singular_values, host_u, host_vt, rows, cols, shape.transposed, options);
+}
+
+std::optional<SingleBlockSvdSplit> single_block_svd_split_cusolver(MatrixFamily const& matrix,
+                                                                   SingleBlockSvdSplitLayout layout,
+                                                                   SvdAbsorbSingularValues absorb, SvdOptions options)
+{
+  validate_single_block_svd_split_inputs(matrix, layout, options);
+  if (cusolver_svd_disabled() || !cuda_device_available())
+  {
+    return std::nullopt;
+  }
+
+  auto const block = matrix.block(0);
+  auto const rows = block.rows;
+  auto const cols = block.cols;
+  auto const shape = make_svd_solver_shape(rows, cols);
+
+  auto& context = cusolver_context_for_current_device();
+  auto const handle = context.handle.get();
+  auto const stream = context.stream.get();
+
+  auto host_a = make_column_major_copy(matrix, shape.transposed);
+  DeviceBuffer device_a(host_a.size() * sizeof(double));
+
+  check_cuda(cudaMemcpyAsync(device_a.as<double>(), host_a.data(), host_a.size() * sizeof(double),
+                             cudaMemcpyHostToDevice, stream),
+             "cudaMemcpyAsync host matrix to device");
+
+  return run_split_cusolver_from_device_input(device_a, shape, layout, absorb, options, handle, stream);
+}
+
+std::optional<SingleBlockSvdSplit> single_block_svd_split_resident_cusolver(MatrixFamily const& vector,
+                                                                            SingleBlockSvdSplitLayout layout,
+                                                                            SvdAbsorbSingularValues absorb,
+                                                                            SvdOptions options,
+                                                                            VectorAlgebraEngine& algebra)
+{
+  validate_resident_svd_split_inputs(vector, layout, options);
+  if (cusolver_svd_disabled() || algebra.uses_host_backend() || !cuda_device_available())
+  {
+    return std::nullopt;
+  }
+
+  auto& arranger = algebra.resident_arranger();
+  auto& swapper = arranger.residentSwapper();
+  auto const& matrices = raw_matrices(vector);
+  std::vector<std::pair<int, std::shared_ptr<tensor::GpuBuffer>>> sources;
+  sources.reserve(matrices.size());
+  for (auto const& matrix : matrices)
+  {
+    auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(matrix);
+    if (buffer == nullptr || !buffer->contentValid())
+    {
+      return std::nullopt;
+    }
+    sources.emplace_back(device_id, std::move(buffer));
+  }
+
+  auto const target_device = sources.front().first;
+  check_cuda(cudaSetDevice(target_device), "cudaSetDevice");
+  auto& context = cusolver_context_for_current_device();
+  auto const handle = context.handle.get();
+  auto const stream = context.stream.get();
+
+  auto const rows = layout.left_bond_dim * layout.left_physical_dim;
+  auto const cols = layout.right_physical_dim * layout.right_bond_dim;
+  auto const shape = make_svd_solver_shape(rows, cols);
+  DeviceBuffer device_a(rows * cols * sizeof(double));
+  std::vector<DeviceBuffer> staging_buffers;
+  staging_buffers.reserve(sources.size());
+
+  for (std::size_t block = 0; block < matrices.size(); ++block)
+  {
+    auto const source_device = sources[block].first;
+    auto const& source_buffer = sources[block].second;
+    source_buffer->waitBeforeRead(stream);
+    double const* source_ptr = source_buffer->getPtr();
+    if (source_device != target_device)
+    {
+      staging_buffers.emplace_back(matrices[block].sizeInByte());
+      auto* staging = staging_buffers.back().as<double>();
+      check_cuda(cudaMemcpyPeerAsync(staging, target_device, source_buffer->getPtr(), source_device,
+                                     matrices[block].sizeInByte(), stream),
+                 "cudaMemcpyPeerAsync resident SVD block staging");
+      source_ptr = staging;
+    }
+
+    auto const left_physical = block / layout.right_physical_dim;
+    auto const right_physical = block % layout.right_physical_dim;
+    launch_pack_svd_input_block_kernel(source_ptr, device_a.as<double>(), layout.left_bond_dim, layout.right_bond_dim,
+                                       layout.left_physical_dim, layout.right_physical_dim, left_physical,
+                                       right_physical, shape.transposed, stream);
+  }
+  check_cuda(cudaGetLastError(), "launch_pack_svd_input_block_kernel");
+
+  return run_split_cusolver_from_device_input(device_a, shape, layout, absorb, options, handle, stream);
 }
 
 } // namespace uni20::tensorcontraction::detail

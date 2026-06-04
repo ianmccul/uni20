@@ -20,6 +20,8 @@
 namespace uni20::tensorcontraction
 {
 
+class VectorAlgebraEngine;
+
 struct SvdOptions
 {
     std::size_t max_rank = std::numeric_limits<std::size_t>::max();
@@ -257,6 +259,39 @@ inline void validate_single_block_svd_split_inputs(MatrixFamily const& matrix, S
   }
 }
 
+inline void validate_resident_svd_split_inputs(MatrixFamily const& vector, SingleBlockSvdSplitLayout layout,
+                                               SvdOptions options)
+{
+  if (options.max_rank == 0)
+  {
+    throw std::invalid_argument("single_block_svd_split_resident requires a positive max_rank");
+  }
+  if (options.cutoff < 0.0 || std::isnan(options.cutoff))
+  {
+    throw std::invalid_argument("single_block_svd_split_resident requires a finite non-negative cutoff");
+  }
+  if (layout.left_bond_dim == 0 || layout.left_physical_dim == 0 || layout.right_physical_dim == 0 ||
+      layout.right_bond_dim == 0)
+  {
+    throw std::invalid_argument("single_block_svd_split_resident requires non-empty layout dimensions");
+  }
+
+  auto const block_count = svd_checked_product(layout.left_physical_dim, layout.right_physical_dim,
+                                               "resident SVD split two-site block count");
+  if (vector.size() != block_count)
+  {
+    throw std::invalid_argument("single_block_svd_split_resident vector block count does not match the split layout");
+  }
+
+  for (std::size_t block = 0; block < vector.size(); ++block)
+  {
+    if (vector.block(block) != MatrixFamily::Block{layout.left_bond_dim, layout.right_bond_dim})
+    {
+      throw std::invalid_argument("single_block_svd_split_resident vector block shape does not match the split layout");
+    }
+  }
+}
+
 inline std::size_t singular_rank(std::span<double const> singular_values)
 {
   return static_cast<std::size_t>(
@@ -375,6 +410,11 @@ std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matr
 std::optional<SingleBlockSvdSplit> single_block_svd_split_cusolver(MatrixFamily const& matrix,
                                                                    SingleBlockSvdSplitLayout layout,
                                                                    SvdAbsorbSingularValues absorb, SvdOptions options);
+std::optional<SingleBlockSvdSplit> single_block_svd_split_resident_cusolver(MatrixFamily const& vector,
+                                                                            SingleBlockSvdSplitLayout layout,
+                                                                            SvdAbsorbSingularValues absorb,
+                                                                            SvdOptions options,
+                                                                            VectorAlgebraEngine& algebra);
 
 inline SingleBlockSvd dispatch(svd_op op, cusolver_svd_capability, MatrixFamily const& matrix, SvdOptions options)
 {
@@ -616,6 +656,31 @@ inline auto single_block_svd_split(MatrixFamily const& matrix, SingleBlockSvdSpl
 
   auto svd = single_block_svd(matrix, options);
   return detail::split_svd_factors_on_host(svd, layout, absorb);
+}
+
+/// \brief Split a resident two-site block vector without first materializing it on the host.
+/// \param vector Resident two-site vector blocks ordered by left/right physical index.
+/// \param layout Dense two-site split dimensions.
+/// \param absorb Side that receives the singular values.
+/// \param options SVD truncation options.
+/// \param algebra Resident vector algebra engine that owns the GPU buffers.
+/// \return Split factors and spectrum metadata when a resident backend is available.
+inline auto single_block_svd_split_resident(MatrixFamily const& vector, SingleBlockSvdSplitLayout layout,
+                                            SvdAbsorbSingularValues absorb, SvdOptions options,
+                                            VectorAlgebraEngine& algebra) -> std::optional<SingleBlockSvdSplit>
+{
+  detail::validate_resident_svd_split_inputs(vector, layout, options);
+
+#if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
+  return detail::single_block_svd_split_resident_cusolver(vector, layout, absorb, options, algebra);
+#else
+  (void)vector;
+  (void)layout;
+  (void)absorb;
+  (void)options;
+  (void)algebra;
+  return std::nullopt;
+#endif
 }
 
 } // namespace uni20::tensorcontraction

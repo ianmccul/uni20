@@ -102,7 +102,7 @@ asynchronously.
 
 ## SVD Boundary
 
-The TensorContraction bridge currently has this shape:
+The original TensorContraction bridge used this host-facing shape:
 
 ```text
 host MatrixFamily center
@@ -112,9 +112,19 @@ host MatrixFamily center
   -> split MPS tensors on CPU
 ```
 
-This is correct as an incremental step, but it is not the final uni20 target.
-The native path should instead assemble SVD inputs from resident GPU tensor
-blocks:
+The current bridge keeps this path as a fallback, but the CUDA DMRG path now
+packs resident two-site vector blocks directly into cuSOLVER input memory:
+
+```text
+resident two-site blocks
+  -> pack one dense placeholder-symmetry SVD input on GPU
+  -> run single-block cuSOLVER SVD
+  -> copy singular values and split site blocks to host-owned FiniteMPS
+```
+
+This removes the final Lanczos-vector host materialization, but it is still not
+the final uni20 target.  The native path should assemble SVD inputs from
+resident GPU tensor blocks and keep later consumers resident where possible:
 
 ```text
 resident two-site blocks

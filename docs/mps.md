@@ -24,12 +24,15 @@ wavefunction storage infrastructure.
   each term as `left_environment * center_block * right_environment` rather
   than materializing the full effective Hamiltonian.
 - `solve_two_site` packs the current two-site MPS center, compiles the local
-  effective Hamiltonian, runs the TensorContraction Lanczos wrapper, and returns
-  both vectorized and matrix-shaped optimized center data.
+  effective Hamiltonian, runs the TensorContraction Lanczos wrapper, and keeps
+  the optimized center resident when the CUDA backend is active.  The old dense
+  host matrix can still be materialized explicitly for fallback paths and tests.
 - `split_two_site_solution` runs the current single-block SVD split and absorbs
   singular values into the right tensor for a left-to-right move, or into the
-  left tensor for a right-to-left move. `FiniteMPS::replace_adjacent` installs
-  the resulting pair back into the in-memory chain.
+  left tensor for a right-to-left move.  On CUDA builds it first tries the
+  resident cuSOLVER split path, which packs the two-site vector blocks on the
+  GPU and avoids copying the Lanczos vector to the host. `FiniteMPS::replace_adjacent`
+  installs the resulting pair back into the in-memory chain.
 - `sweep_two_site_left_to_right` and `sweep_two_site_right_to_left` perform the
   first directional dense DMRG sweep pass by rebuilding CPU environment chains,
   solving each two-site problem, splitting the optimized center, replacing the

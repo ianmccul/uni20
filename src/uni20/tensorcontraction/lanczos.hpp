@@ -22,6 +22,7 @@ struct LanczosOptions
     double tolerance = 1.0e-10;
     double beta_tolerance = 1.0e-14;
     double orthogonality_tolerance = 1.0e-10;
+    bool synchronize_result_to_host = true;
 };
 
 enum class LanczosStopReason
@@ -249,7 +250,10 @@ LanczosResult lanczos_lowest_with_engine(MatrixFamily& guess, MatVec&& matvec, V
   };
   auto finish_with = [&](MatrixFamily& x) {
     algebra.copy(x, guess);
-    algebra.synchronize(guess);
+    if (options.synchronize_result_to_host)
+    {
+      algebra.synchronize(guess);
+    }
   };
 
   auto w = make_like(guess);
