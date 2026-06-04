@@ -6,6 +6,7 @@
 #pragma once
 
 #include <uni20/mps/block_sparse_mps.hpp>
+#include <uni20/mps/device_block_sparse_matrix.hpp>
 #include <uni20/mps/sparse_mpo_site.hpp>
 #include <uni20/mps/two_site_split.hpp>
 #include <uni20/operator/finite_triangular_mpo.hpp>
@@ -954,6 +955,25 @@ struct BlockSparseTwoSiteSplitResult
     std::vector<std::size_t> sector_ranks;
 };
 
+/// \brief Device-resident result of splitting a U(1)-block-sparse two-site center.
+struct DeviceBlockSparseTwoSiteSplitResult
+{
+    DeviceThreeLegBlockMatrix left;
+    DeviceThreeLegBlockMatrix right;
+    tensorcontraction::SvdSpectrum spectrum;
+    std::vector<std::size_t> sector_ranks;
+
+    /// \brief Explicitly materialize the split tensors into host storage.
+    /// \return Host split result with synchronized block payloads.
+    auto materialize_to_host() -> BlockSparseTwoSiteSplitResult
+    {
+      return BlockSparseTwoSiteSplitResult{.left = left.materialize_to_host(),
+                                           .right = right.materialize_to_host(),
+                                           .spectrum = spectrum,
+                                           .sector_ranks = sector_ranks};
+    }
+};
+
 namespace detail
 {
 
@@ -1094,6 +1114,103 @@ inline auto shared_sector_indexes(std::span<std::size_t const> ranks) -> std::ve
   return indexes;
 }
 
+inline auto make_resident_block_sparse_svd_plan(BlockSparseTwoSiteLayout const& layout,
+                                                std::span<TwoSiteSvdSector const> sectors)
+    -> tensorcontraction::ResidentBlockSparseSvdPlan
+{
+  tensorcontraction::ResidentBlockSparseSvdPlan plan;
+  plan.sectors.reserve(sectors.size());
+  for (auto const& sector : sectors)
+  {
+    tensorcontraction::ResidentBlockSvdSector resident_sector{
+        .row_dim = sector.row_dim,
+        .col_dim = sector.col_dim,
+        .source_terms = {},
+        .left_terms = {},
+        .right_terms = {},
+    };
+    resident_sector.left_terms.reserve(sector.rows.size());
+    for (auto const& row_term : sector.rows)
+    {
+      resident_sector.left_terms.push_back(
+          tensorcontraction::ResidentBlockSvdTerm{.offset = row_term.offset, .extent = row_term.dim});
+    }
+    resident_sector.right_terms.reserve(sector.cols.size());
+    for (auto const& col_term : sector.cols)
+    {
+      resident_sector.right_terms.push_back(
+          tensorcontraction::ResidentBlockSvdTerm{.offset = col_term.offset, .extent = col_term.dim});
+    }
+
+    for (auto const& row_term : sector.rows)
+    {
+      for (auto const& col_term : sector.cols)
+      {
+        auto const pair =
+            two_site_pair_index(layout.right_physical_space().size(), row_term.left_physical, col_term.right_physical);
+        ThreeLegBlockKey const key{
+            .row_sector = row_term.left_sector, .local = pair, .col_sector = col_term.right_sector};
+        if (!layout.contains(key))
+        {
+          continue;
+        }
+        resident_sector.source_terms.push_back(tensorcontraction::ResidentBlockSvdSourceTerm{
+            .source_block = layout.block_index(key),
+            .row_offset = row_term.offset,
+            .col_offset = col_term.offset,
+        });
+      }
+    }
+
+    plan.sectors.push_back(std::move(resident_sector));
+  }
+  return plan;
+}
+
+inline auto make_device_split_blocks(std::span<TwoSiteSvdSector const> sectors, std::span<std::size_t const> ranks,
+                                     std::span<std::size_t const> shared_indexes,
+                                     bool left_side) -> std::vector<ThreeLegBlock>
+{
+  std::vector<ThreeLegBlock> blocks;
+  for (std::size_t sector_index = 0; sector_index < sectors.size(); ++sector_index)
+  {
+    auto const rank = ranks[sector_index];
+    if (rank == 0)
+    {
+      continue;
+    }
+    auto const shared_index = shared_indexes[sector_index];
+    auto const& sector = sectors[sector_index];
+    if (left_side)
+    {
+      for (auto const& row_term : sector.rows)
+      {
+        blocks.push_back(ThreeLegBlock{
+            .key = ThreeLegBlockKey{.row_sector = row_term.left_sector,
+                                    .local = row_term.left_physical,
+                                    .col_sector = shared_index},
+            .rows = row_term.dim,
+            .cols = rank,
+            .offset = 0,
+        });
+      }
+      continue;
+    }
+    for (auto const& col_term : sector.cols)
+    {
+      blocks.push_back(ThreeLegBlock{
+          .key = ThreeLegBlockKey{.row_sector = shared_index,
+                                  .local = col_term.right_physical,
+                                  .col_sector = col_term.right_sector},
+          .rows = rank,
+          .cols = col_term.dim,
+          .offset = 0,
+      });
+    }
+  }
+  return blocks;
+}
+
 } // namespace detail
 
 /// \brief Split a legal U(1) two-site center back into neighboring MPS tensors.
@@ -1189,7 +1306,7 @@ struct BlockSparseTwoSiteSolveResult
     tensorcontraction::LanczosResult lanczos;
     BlockSparseTwoSiteLayout layout;
     tensorcontraction::MatrixFamily optimized_vector;
-    std::unique_ptr<tensorcontraction::VectorAlgebraEngine> resident_algebra;
+    std::shared_ptr<tensorcontraction::VectorAlgebraEngine> resident_algebra;
 };
 
 /// \brief Solve one strict U(1) two-site effective Hamiltonian.
@@ -1213,7 +1330,7 @@ inline auto solve_two_site(BlockSparseFiniteMPS const& psi, BlockSparseMpoChain 
                                   psi[left_site].row_space(), psi[left_site + 1].col_space());
   auto effective_hamiltonian =
       make_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env, std::move(layout));
-  auto algebra = std::make_unique<tensorcontraction::VectorAlgebraEngine>();
+  auto algebra = std::make_shared<tensorcontraction::VectorAlgebraEngine>();
   if (algebra->uses_host_backend())
   {
     throw std::runtime_error("block-sparse U(1) DMRG requires the TensorContraction resident CUDA/MPI backend");
@@ -1230,6 +1347,46 @@ inline auto solve_two_site(BlockSparseFiniteMPS const& psi, BlockSparseMpoChain 
                                        .resident_algebra = std::move(algebra)};
 }
 
+/// \brief Split a solved resident block-sparse center without copying SVD factors to host.
+/// \param solution Resident local solve result.
+/// \param direction Sweep direction determining singular-value absorption.
+/// \param options Truncation options.
+/// \return Device-resident split replacement sites.
+inline auto
+split_two_site_solution_resident(BlockSparseTwoSiteSolveResult& solution, TwoSiteSplitDirection direction,
+                                 tensorcontraction::SvdOptions options = {}) -> DeviceBlockSparseTwoSiteSplitResult
+{
+  if (solution.resident_algebra == nullptr)
+  {
+    throw std::invalid_argument("resident block-sparse split requires a resident algebra engine");
+  }
+  validate_matrix_family_layout(solution.optimized_vector, solution.layout);
+  auto const sectors =
+      make_two_site_svd_sectors(solution.layout.left_physical_space(), solution.layout.right_physical_space(),
+                                solution.layout.left_bond_space(), solution.layout.right_bond_space());
+  auto plan = detail::make_resident_block_sparse_svd_plan(solution.layout, sectors);
+  auto resident_split = tensorcontraction::block_sparse_svd_split_resident_required(
+      solution.optimized_vector, plan,
+      direction == TwoSiteSplitDirection::RightToLeft ? tensorcontraction::SvdAbsorbSingularValues::Left
+                                                      : tensorcontraction::SvdAbsorbSingularValues::Right,
+      options, *solution.resident_algebra);
+
+  auto shared_space = make_shared_bond_space_from_sector_ranks(sectors, resident_split.sector_ranks);
+  auto const shared_indexes = detail::shared_sector_indexes(resident_split.sector_ranks);
+  auto left_blocks = detail::make_device_split_blocks(sectors, resident_split.sector_ranks, shared_indexes, true);
+  auto right_blocks = detail::make_device_split_blocks(sectors, resident_split.sector_ranks, shared_indexes, false);
+
+  DeviceThreeLegBlockMatrix left(solution.layout.left_bond_space(), solution.layout.left_physical_space(), shared_space,
+                                 std::move(left_blocks), std::move(resident_split.left), solution.resident_algebra);
+  DeviceThreeLegBlockMatrix right(shared_space, solution.layout.right_physical_space(),
+                                  solution.layout.right_bond_space(), std::move(right_blocks),
+                                  std::move(resident_split.right), solution.resident_algebra);
+  return DeviceBlockSparseTwoSiteSplitResult{.left = std::move(left),
+                                             .right = std::move(right),
+                                             .spectrum = std::move(resident_split.spectrum),
+                                             .sector_ranks = std::move(resident_split.sector_ranks)};
+}
+
 /// \brief Split a solved resident block-sparse center after explicit host synchronization.
 /// \param solution Resident local solve result.
 /// \param direction Sweep direction determining singular-value absorption.
@@ -1238,12 +1395,8 @@ inline auto solve_two_site(BlockSparseFiniteMPS const& psi, BlockSparseMpoChain 
 inline auto split_two_site_solution(BlockSparseTwoSiteSolveResult& solution, TwoSiteSplitDirection direction,
                                     tensorcontraction::SvdOptions options = {}) -> BlockSparseTwoSiteSplitResult
 {
-  if (solution.resident_algebra != nullptr)
-  {
-    solution.resident_algebra->synchronize(solution.optimized_vector);
-  }
-  tensorcontraction::broadcast_values_from_rank_zero(solution.optimized_vector);
-  return split_two_site_center(solution.layout, solution.optimized_vector, direction, options);
+  auto resident_split = split_two_site_solution_resident(solution, direction, options);
+  return resident_split.materialize_to_host();
 }
 
 /// \brief Replace the optimized two-site center in a block-sparse MPS.

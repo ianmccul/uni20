@@ -74,6 +74,66 @@ __global__ void pack_svd_input_block_kernel(double const* source_block, double* 
   }
 }
 
+__global__ void pack_svd_input_subblock_kernel(double const* source_block, double* destination,
+                                               std::uint64_t source_rows, std::uint64_t source_cols,
+                                               std::uint64_t destination_rows, std::uint64_t destination_cols,
+                                               std::uint64_t row_offset, std::uint64_t col_offset, bool transposed)
+{
+  auto const total = source_rows * source_cols;
+  for (std::uint64_t index = blockIdx.x * blockDim.x + threadIdx.x; index < total; index += gridDim.x * blockDim.x)
+  {
+    auto const source_col = index % source_cols;
+    auto const source_row = index / source_cols;
+    auto const destination_row = row_offset + source_row;
+    auto const destination_col = col_offset + source_col;
+    auto const value = source_block[source_row * source_cols + source_col];
+    destination[transposed ? destination_row * destination_cols + destination_col
+                           : destination_col * destination_rows + destination_row] = value;
+  }
+}
+
+__global__ void scatter_svd_left_subblock_kernel(double const* u, double const* singular_values, double const* vt,
+                                                 double* destination, std::uint64_t destination_rows,
+                                                 std::uint64_t sector_rows, std::uint64_t minmn,
+                                                 std::uint64_t row_offset, std::uint64_t kept_rank, bool transposed,
+                                                 bool absorb_left)
+{
+  auto const total = destination_rows * kept_rank;
+  for (std::uint64_t index = blockIdx.x * blockDim.x + threadIdx.x; index < total; index += gridDim.x * blockDim.x)
+  {
+    auto const bond = index % kept_rank;
+    auto const destination_row = index / kept_rank;
+    auto const sector_row = row_offset + destination_row;
+    double value = transposed ? vt[sector_row * minmn + bond] : u[bond * sector_rows + sector_row];
+    if (absorb_left)
+    {
+      value *= singular_values[bond];
+    }
+    destination[destination_row * kept_rank + bond] = value;
+  }
+}
+
+__global__ void scatter_svd_right_subblock_kernel(double const* u, double const* singular_values, double const* vt,
+                                                  double* destination, std::uint64_t destination_cols,
+                                                  std::uint64_t sector_cols, std::uint64_t minmn,
+                                                  std::uint64_t col_offset, std::uint64_t kept_rank, bool transposed,
+                                                  bool absorb_left)
+{
+  auto const total = kept_rank * destination_cols;
+  for (std::uint64_t index = blockIdx.x * blockDim.x + threadIdx.x; index < total; index += gridDim.x * blockDim.x)
+  {
+    auto const destination_col = index % destination_cols;
+    auto const bond = index / destination_cols;
+    auto const sector_col = col_offset + destination_col;
+    double value = transposed ? u[bond * sector_cols + sector_col] : vt[sector_col * minmn + bond];
+    if (!absorb_left)
+    {
+      value *= singular_values[bond];
+    }
+    destination[bond * destination_cols + destination_col] = value;
+  }
+}
+
 auto block_count(std::size_t items) -> int
 {
   auto const blocks =
@@ -114,6 +174,52 @@ void launch_pack_svd_input_block_kernel(double const* source_block, double* dest
   pack_svd_input_block_kernel<<<block_count(items), threads_per_block, 0, stream>>>(
       source_block, destination, left_bond_dim, right_bond_dim, left_physical_dim, right_physical_dim, left_physical,
       right_physical, transposed);
+}
+
+void launch_pack_svd_input_subblock_kernel(double const* source_block, double* destination, std::size_t source_rows,
+                                           std::size_t source_cols, std::size_t destination_rows,
+                                           std::size_t destination_cols, std::size_t row_offset, std::size_t col_offset,
+                                           bool transposed, cudaStream_t stream)
+{
+  auto const items = source_rows * source_cols;
+  if (items == 0)
+  {
+    return;
+  }
+  pack_svd_input_subblock_kernel<<<block_count(items), threads_per_block, 0, stream>>>(
+      source_block, destination, source_rows, source_cols, destination_rows, destination_cols, row_offset, col_offset,
+      transposed);
+}
+
+void launch_scatter_svd_left_subblock_kernel(double const* u, double const* singular_values, double const* vt,
+                                             double* destination, std::size_t destination_rows, std::size_t sector_rows,
+                                             std::size_t minmn, std::size_t row_offset, std::size_t kept_rank,
+                                             bool transposed, bool absorb_left, cudaStream_t stream)
+{
+  auto const items = destination_rows * kept_rank;
+  if (items == 0)
+  {
+    return;
+  }
+  scatter_svd_left_subblock_kernel<<<block_count(items), threads_per_block, 0, stream>>>(
+      u, singular_values, vt, destination, destination_rows, sector_rows, minmn, row_offset, kept_rank, transposed,
+      absorb_left);
+}
+
+void launch_scatter_svd_right_subblock_kernel(double const* u, double const* singular_values, double const* vt,
+                                              double* destination, std::size_t destination_cols,
+                                              std::size_t sector_cols, std::size_t minmn, std::size_t col_offset,
+                                              std::size_t kept_rank, bool transposed, bool absorb_left,
+                                              cudaStream_t stream)
+{
+  auto const items = destination_cols * kept_rank;
+  if (items == 0)
+  {
+    return;
+  }
+  scatter_svd_right_subblock_kernel<<<block_count(items), threads_per_block, 0, stream>>>(
+      u, singular_values, vt, destination, destination_cols, sector_cols, minmn, col_offset, kept_rank, transposed,
+      absorb_left);
 }
 
 } // namespace uni20::tensorcontraction::detail

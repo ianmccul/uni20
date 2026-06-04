@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -403,6 +404,246 @@ auto run_split_cusolver_from_device_input(DeviceBuffer& device_a, SvdSolverShape
                                                      .full_rank = full_rank}};
 }
 
+struct SectorSingularValue
+{
+    std::size_t sector = 0;
+    std::size_t rank = 0;
+    double value = 0.0;
+};
+
+struct ResidentSectorSvd
+{
+    SvdSolverShape shape;
+    DeviceBuffer device_a;
+    DeviceBuffer device_singular_values;
+    DeviceBuffer device_u;
+    DeviceBuffer device_vt;
+    DeviceBuffer device_work;
+    DeviceBuffer device_info;
+    std::vector<double> singular_values;
+    int info = 0;
+};
+
+struct ResidentSourceBuffer
+{
+    int device_id = -1;
+    std::shared_ptr<tensor::GpuBuffer> buffer;
+};
+
+void validate_resident_block_sparse_svd_inputs(MatrixFamily const& vector, ResidentBlockSparseSvdPlan const& plan,
+                                               SvdOptions options)
+{
+  if (options.max_rank == 0)
+  {
+    throw std::invalid_argument("resident block-sparse SVD requires a positive max_rank");
+  }
+  if (options.cutoff < 0.0 || std::isnan(options.cutoff))
+  {
+    throw std::invalid_argument("resident block-sparse SVD requires a finite non-negative cutoff");
+  }
+  if (plan.sectors.empty())
+  {
+    throw std::invalid_argument("resident block-sparse SVD requires at least one sector");
+  }
+
+  for (std::size_t sector_index = 0; sector_index < plan.sectors.size(); ++sector_index)
+  {
+    auto const& sector = plan.sectors[sector_index];
+    if (sector.row_dim == 0 || sector.col_dim == 0)
+    {
+      throw std::invalid_argument("resident block-sparse SVD sector dimensions must be non-empty");
+    }
+    if (sector.source_terms.empty())
+    {
+      throw std::invalid_argument("resident block-sparse SVD sector has no source terms");
+    }
+    if (sector.left_terms.empty() || sector.right_terms.empty())
+    {
+      throw std::invalid_argument("resident block-sparse SVD sector has no output terms");
+    }
+
+    for (auto const& term : sector.source_terms)
+    {
+      if (term.source_block >= vector.size())
+      {
+        throw std::invalid_argument("resident block-sparse SVD source term block index is out of range");
+      }
+      auto const block = vector.block(term.source_block);
+      if (term.row_offset > sector.row_dim || block.rows > sector.row_dim - term.row_offset ||
+          term.col_offset > sector.col_dim || block.cols > sector.col_dim - term.col_offset)
+      {
+        throw std::invalid_argument("resident block-sparse SVD source term does not fit in its sector");
+      }
+    }
+
+    for (auto const& term : sector.left_terms)
+    {
+      if (term.extent == 0 || term.offset > sector.row_dim || term.extent > sector.row_dim - term.offset)
+      {
+        throw std::invalid_argument("resident block-sparse SVD left output term does not fit in its sector");
+      }
+    }
+    for (auto const& term : sector.right_terms)
+    {
+      if (term.extent == 0 || term.offset > sector.col_dim || term.extent > sector.col_dim - term.offset)
+      {
+        throw std::invalid_argument("resident block-sparse SVD right output term does not fit in its sector");
+      }
+    }
+  }
+}
+
+auto select_resident_sector_ranks(std::span<std::vector<double> const> singular_values,
+                                  SvdOptions options) -> std::pair<std::vector<std::size_t>, SvdSpectrum>
+{
+  std::vector<SectorSingularValue> candidates;
+  std::vector<SectorSingularValue> positive_values;
+  std::size_t full_rank = 0;
+  for (std::size_t sector = 0; sector < singular_values.size(); ++sector)
+  {
+    for (std::size_t rank = 0; rank < singular_values[sector].size(); ++rank)
+    {
+      double const value = singular_values[sector][rank];
+      if (value > 0.0)
+      {
+        ++full_rank;
+        positive_values.push_back(SectorSingularValue{.sector = sector, .rank = rank, .value = value});
+      }
+      if (value > options.cutoff)
+      {
+        candidates.push_back(SectorSingularValue{.sector = sector, .rank = rank, .value = value});
+      }
+    }
+  }
+  if (candidates.empty() && !positive_values.empty())
+  {
+    candidates.push_back(*std::max_element(positive_values.begin(), positive_values.end(),
+                                           [](auto const& lhs, auto const& rhs) { return lhs.value < rhs.value; }));
+  }
+  std::sort(candidates.begin(), candidates.end(), [](auto const& lhs, auto const& rhs) {
+    if (lhs.value != rhs.value)
+    {
+      return lhs.value > rhs.value;
+    }
+    if (lhs.sector != rhs.sector)
+    {
+      return lhs.sector < rhs.sector;
+    }
+    return lhs.rank < rhs.rank;
+  });
+  if (candidates.size() > options.max_rank)
+  {
+    candidates.resize(options.max_rank);
+  }
+
+  std::vector<std::size_t> ranks(singular_values.size(), 0);
+  for (auto const& singular : candidates)
+  {
+    ranks[singular.sector] = std::max(ranks[singular.sector], singular.rank + 1);
+  }
+
+  SvdSpectrum spectrum;
+  spectrum.full_rank = full_rank;
+  std::vector<double> kept_values;
+  for (std::size_t sector = 0; sector < singular_values.size(); ++sector)
+  {
+    for (std::size_t rank = 0; rank < ranks[sector]; ++rank)
+    {
+      kept_values.push_back(singular_values[sector][rank]);
+    }
+    for (std::size_t rank = ranks[sector]; rank < singular_values[sector].size(); ++rank)
+    {
+      double const value = singular_values[sector][rank];
+      spectrum.discarded_weight += value * value;
+    }
+  }
+  std::sort(kept_values.begin(), kept_values.end(), std::greater<>{});
+  spectrum.singular_values = std::move(kept_values);
+  return {std::move(ranks), std::move(spectrum)};
+}
+
+auto make_resident_sector_svd(DeviceBuffer device_a, SvdSolverShape shape, cusolverDnHandle_t handle,
+                              cudaStream_t stream) -> ResidentSectorSvd
+{
+  int lwork = 0;
+  check_cusolver(cusolverDnDgesvd_bufferSize(handle, shape.m, shape.n, &lwork), "cusolverDnDgesvd_bufferSize");
+
+  ResidentSectorSvd result;
+  result.shape = shape;
+  result.device_a = std::move(device_a);
+  result.singular_values.resize(shape.minmn);
+  result.device_singular_values = DeviceBuffer(result.singular_values.size() * sizeof(double));
+  result.device_u = DeviceBuffer(shape.solver_rows * shape.minmn * sizeof(double));
+  result.device_vt = DeviceBuffer(shape.minmn * shape.solver_cols * sizeof(double));
+  result.device_work = DeviceBuffer(static_cast<std::size_t>(std::max(1, lwork)) * sizeof(double));
+  result.device_info = DeviceBuffer(sizeof(int));
+
+  signed char jobu = 'S';
+  signed char jobvt = 'S';
+  check_cusolver(cusolverDnDgesvd(handle, jobu, jobvt, shape.m, shape.n, result.device_a.as<double>(), shape.lda,
+                                  result.device_singular_values.as<double>(), result.device_u.as<double>(), shape.ldu,
+                                  result.device_vt.as<double>(), shape.ldvt, result.device_work.as<double>(), lwork,
+                                  nullptr, result.device_info.as<int>()),
+                 "cusolverDnDgesvd");
+
+  check_cuda(cudaMemcpyAsync(result.singular_values.data(), result.device_singular_values.as<double>(),
+                             result.singular_values.size() * sizeof(double), cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync resident block-sparse SVD singular values to host");
+  check_cuda(cudaMemcpyAsync(&result.info, result.device_info.as<int>(), sizeof(int), cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync resident block-sparse SVD info to host");
+  return result;
+}
+
+auto make_resident_output_blocks(ResidentBlockSparseSvdPlan const& plan, std::span<std::size_t const> ranks)
+    -> std::pair<std::vector<MatrixFamily::Block>, std::vector<MatrixFamily::Block>>
+{
+  std::vector<MatrixFamily::Block> left_blocks;
+  std::vector<MatrixFamily::Block> right_blocks;
+  for (std::size_t sector_index = 0; sector_index < plan.sectors.size(); ++sector_index)
+  {
+    auto const rank = ranks[sector_index];
+    if (rank == 0)
+    {
+      continue;
+    }
+    auto const& sector = plan.sectors[sector_index];
+    for (auto const& term : sector.left_terms)
+    {
+      left_blocks.push_back(MatrixFamily::Block{.rows = term.extent, .cols = rank});
+    }
+    for (auto const& term : sector.right_terms)
+    {
+      right_blocks.push_back(MatrixFamily::Block{.rows = rank, .cols = term.extent});
+    }
+  }
+  return {std::move(left_blocks), std::move(right_blocks)};
+}
+
+void register_resident_output(MatrixFamily& family, int target_device, tensor::Swapper& swapper)
+{
+  for (auto const& matrix : raw_matrices(family))
+  {
+    swapper.registerGpuAllocation(matrix, target_device);
+  }
+}
+
+auto resident_output_buffers(MatrixFamily& family, int target_device,
+                             tensor::Swapper& swapper) -> std::vector<std::shared_ptr<tensor::GpuBuffer>>
+{
+  std::vector<std::shared_ptr<tensor::GpuBuffer>> result;
+  result.reserve(family.size());
+  for (auto const& matrix : raw_matrices(family))
+  {
+    auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(matrix);
+    if (device_id != target_device || buffer == nullptr)
+    {
+      throw std::logic_error("resident block-sparse SVD failed to allocate an output block on the target device");
+    }
+    result.push_back(std::move(buffer));
+  }
+  return result;
+}
+
 } // namespace
 
 std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matrix, SvdOptions options)
@@ -568,6 +809,173 @@ std::optional<SingleBlockSvdSplit> single_block_svd_split_resident_cusolver(Matr
   check_cuda(cudaGetLastError(), "launch_pack_svd_input_block_kernel");
 
   return run_split_cusolver_from_device_input(device_a, shape, layout, absorb, options, handle, stream);
+}
+
+std::optional<ResidentBlockSparseSvdSplit>
+block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlockSparseSvdPlan const& plan,
+                                         SvdAbsorbSingularValues absorb, SvdOptions options,
+                                         VectorAlgebraEngine& algebra)
+{
+  validate_resident_block_sparse_svd_inputs(vector, plan, options);
+  if (cusolver_svd_disabled() || algebra.uses_host_backend() || !cuda_device_available())
+  {
+    return std::nullopt;
+  }
+
+  auto& arranger = algebra.resident_arranger();
+  arranger.ensureMemoryPoolsInitialized();
+  auto& swapper = arranger.residentSwapper();
+  auto const& matrices = raw_matrices(vector);
+  std::vector<ResidentSourceBuffer> sources(matrices.size());
+  int target_device = -1;
+  for (std::size_t block = 0; block < matrices.size(); ++block)
+  {
+    auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(matrices[block]);
+    if (buffer == nullptr || !buffer->contentValid())
+    {
+      return std::nullopt;
+    }
+    if (target_device < 0)
+    {
+      target_device = device_id;
+    }
+    sources[block] = ResidentSourceBuffer{.device_id = device_id, .buffer = std::move(buffer)};
+  }
+  if (target_device < 0)
+  {
+    throw std::invalid_argument("resident block-sparse SVD requires at least one resident source block");
+  }
+
+  check_cuda(cudaSetDevice(target_device), "cudaSetDevice");
+  auto& context = cusolver_context_for_current_device();
+  auto const handle = context.handle.get();
+  auto const stream = context.stream.get();
+
+  std::vector<DeviceBuffer> staging_buffers;
+  std::vector<ResidentSectorSvd> sector_svds;
+  std::vector<std::shared_ptr<tensor::GpuBuffer>> read_buffers;
+  staging_buffers.reserve(vector.size());
+  sector_svds.reserve(plan.sectors.size());
+  read_buffers.reserve(vector.size());
+
+  for (auto const& sector : plan.sectors)
+  {
+    auto const shape = make_svd_solver_shape(sector.row_dim, sector.col_dim);
+    DeviceBuffer device_a(sector.row_dim * sector.col_dim * sizeof(double));
+    check_cuda(cudaMemsetAsync(device_a.as<double>(), 0, sector.row_dim * sector.col_dim * sizeof(double), stream),
+               "cudaMemsetAsync resident block-sparse SVD sector");
+
+    for (auto const& term : sector.source_terms)
+    {
+      auto const& source = sources[term.source_block];
+      auto const matrix = matrices[term.source_block];
+      source.buffer->waitBeforeRead(stream);
+      bool seen_source_buffer = false;
+      for (auto const& buffer : read_buffers)
+      {
+        seen_source_buffer = seen_source_buffer || buffer->getId() == source.buffer->getId();
+      }
+      if (!seen_source_buffer)
+      {
+        read_buffers.push_back(source.buffer);
+      }
+
+      double const* source_ptr = source.buffer->getPtr();
+      if (source.device_id != target_device)
+      {
+        staging_buffers.emplace_back(matrix.sizeInByte());
+        auto* staging = staging_buffers.back().as<double>();
+        check_cuda(cudaMemcpyPeerAsync(staging, target_device, source.buffer->getPtr(), source.device_id,
+                                       matrix.sizeInByte(), stream),
+                   "cudaMemcpyPeerAsync resident block-sparse SVD source staging");
+        source_ptr = staging;
+      }
+
+      auto const block = vector.block(term.source_block);
+      launch_pack_svd_input_subblock_kernel(source_ptr, device_a.as<double>(), block.rows, block.cols, sector.row_dim,
+                                            sector.col_dim, term.row_offset, term.col_offset, shape.transposed, stream);
+    }
+    check_cuda(cudaGetLastError(), "launch_pack_svd_input_subblock_kernel");
+    sector_svds.push_back(make_resident_sector_svd(std::move(device_a), shape, handle, stream));
+  }
+
+  check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize resident block-sparse SVD singular values");
+  std::vector<std::vector<double>> singular_values;
+  singular_values.reserve(sector_svds.size());
+  for (auto& svd : sector_svds)
+  {
+    if (svd.info < 0)
+    {
+      throw std::invalid_argument("cuSOLVER dgesvd rejected argument " + std::to_string(-svd.info));
+    }
+    if (svd.info > 0)
+    {
+      return std::nullopt;
+    }
+    singular_values.push_back(svd.singular_values);
+  }
+
+  auto [ranks, spectrum] = select_resident_sector_ranks(singular_values, options);
+  auto [left_blocks, right_blocks] = make_resident_output_blocks(plan, ranks);
+  MatrixFamily left(left_blocks);
+  MatrixFamily right(right_blocks);
+  register_resident_output(left, target_device, swapper);
+  register_resident_output(right, target_device, swapper);
+  auto left_buffers = resident_output_buffers(left, target_device, swapper);
+  auto right_buffers = resident_output_buffers(right, target_device, swapper);
+
+  std::size_t left_block = 0;
+  std::size_t right_block = 0;
+  bool const absorb_left = absorb == SvdAbsorbSingularValues::Left;
+  for (std::size_t sector_index = 0; sector_index < plan.sectors.size(); ++sector_index)
+  {
+    auto const rank = ranks[sector_index];
+    if (rank == 0)
+    {
+      continue;
+    }
+    auto const& sector = plan.sectors[sector_index];
+    auto const& svd = sector_svds[sector_index];
+    for (auto const& term : sector.left_terms)
+    {
+      auto& buffer = left_buffers.at(left_block++);
+      buffer->waitBeforeWrite(stream);
+      launch_scatter_svd_left_subblock_kernel(svd.device_u.as<double>(), svd.device_singular_values.as<double>(),
+                                              svd.device_vt.as<double>(), buffer->getPtr(), term.extent, sector.row_dim,
+                                              svd.shape.minmn, term.offset, rank, svd.shape.transposed, absorb_left,
+                                              stream);
+    }
+    for (auto const& term : sector.right_terms)
+    {
+      auto& buffer = right_buffers.at(right_block++);
+      buffer->waitBeforeWrite(stream);
+      launch_scatter_svd_right_subblock_kernel(svd.device_u.as<double>(), svd.device_singular_values.as<double>(),
+                                               svd.device_vt.as<double>(), buffer->getPtr(), term.extent,
+                                               sector.col_dim, svd.shape.minmn, term.offset, rank, svd.shape.transposed,
+                                               absorb_left, stream);
+    }
+  }
+  check_cuda(cudaGetLastError(), "resident block-sparse SVD scatter kernels");
+
+  auto completion = swapper.deviceContext(target_device).recordCompletionEvent(stream);
+  for (auto const& buffer : read_buffers)
+  {
+    buffer->publishRead(completion);
+  }
+  for (auto const& buffer : left_buffers)
+  {
+    buffer->publishWrite(completion);
+  }
+  for (auto const& buffer : right_buffers)
+  {
+    buffer->publishWrite(completion);
+  }
+  check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize resident block-sparse SVD scatter");
+
+  return ResidentBlockSparseSvdSplit{.left = std::move(left),
+                                     .right = std::move(right),
+                                     .spectrum = std::move(spectrum),
+                                     .sector_ranks = std::move(ranks)};
 }
 
 } // namespace uni20::tensorcontraction::detail

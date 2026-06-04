@@ -69,6 +69,53 @@ struct SingleBlockSvdSplit
     SvdSpectrum spectrum;
 };
 
+/// \brief Row or column subrange in one resident block-sparse SVD sector.
+struct ResidentBlockSvdTerm
+{
+    std::size_t offset = 0;
+    std::size_t extent = 0;
+};
+
+/// \brief Source block placement into one resident block-sparse SVD sector matrix.
+struct ResidentBlockSvdSourceTerm
+{
+    std::size_t source_block = 0;
+    std::size_t row_offset = 0;
+    std::size_t col_offset = 0;
+};
+
+/// \brief One dense sector assembled from resident block-sparse source blocks.
+/// \details `left_terms` and `right_terms` define the deterministic output block
+///          order after truncation: each kept sector emits all left terms, then
+///          all right terms, in sector order.
+struct ResidentBlockSvdSector
+{
+    std::size_t row_dim = 0;
+    std::size_t col_dim = 0;
+    std::vector<ResidentBlockSvdSourceTerm> source_terms;
+    std::vector<ResidentBlockSvdTerm> left_terms;
+    std::vector<ResidentBlockSvdTerm> right_terms;
+};
+
+/// \brief Resident block-sparse SVD assembly and scatter plan.
+struct ResidentBlockSparseSvdPlan
+{
+    std::vector<ResidentBlockSvdSector> sectors;
+};
+
+/// \brief Resident block-sparse SVD split result.
+/// \details The `left` and `right` `MatrixFamily` objects have device-resident
+///          authoritative storage. Their host buffers are cold storage and are
+///          not synchronized unless the caller explicitly asks the owning
+///          `VectorAlgebraEngine` to materialize them.
+struct ResidentBlockSparseSvdSplit
+{
+    MatrixFamily left;
+    MatrixFamily right;
+    SvdSpectrum spectrum;
+    std::vector<std::size_t> sector_ranks;
+};
+
 namespace detail
 {
 
@@ -415,6 +462,10 @@ std::optional<SingleBlockSvdSplit> single_block_svd_split_resident_cusolver(Matr
                                                                             SvdAbsorbSingularValues absorb,
                                                                             SvdOptions options,
                                                                             VectorAlgebraEngine& algebra);
+std::optional<ResidentBlockSparseSvdSplit>
+block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlockSparseSvdPlan const& plan,
+                                         SvdAbsorbSingularValues absorb, SvdOptions options,
+                                         VectorAlgebraEngine& algebra);
 
 inline SingleBlockSvd dispatch(svd_op op, cusolver_svd_capability, MatrixFamily const& matrix, SvdOptions options)
 {
@@ -560,6 +611,37 @@ inline SingleBlockSvd dispatch(svd_op op, Backend, MatrixFamily const& matrix, S
 inline SingleBlockSvd single_block_svd(MatrixFamily const& matrix, SvdOptions options = {})
 {
   return detail::dispatch(detail::svd_op{}, detail::default_svd_backend{}, matrix, options);
+}
+
+/// \brief Split a resident block-sparse center through cuSOLVER without host factor copies.
+/// \throws std::runtime_error If cuSOLVER support or resident CUDA storage is unavailable.
+/// \param vector Resident source blocks in plan source-block order.
+/// \param plan Sector assembly and scatter plan.
+/// \param absorb Side that receives singular values.
+/// \param options Global truncation options across all sectors.
+/// \param algebra Resident TensorContraction vector algebra engine.
+/// \return Device-resident split factors and global spectrum metadata.
+inline ResidentBlockSparseSvdSplit block_sparse_svd_split_resident_required(MatrixFamily const& vector,
+                                                                            ResidentBlockSparseSvdPlan const& plan,
+                                                                            SvdAbsorbSingularValues absorb,
+                                                                            SvdOptions options,
+                                                                            VectorAlgebraEngine& algebra)
+{
+#if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
+  if (auto split = detail::block_sparse_svd_split_resident_cusolver(vector, plan, absorb, options, algebra);
+      split.has_value())
+  {
+    return std::move(*split);
+  }
+  throw std::runtime_error("TensorContraction resident block-sparse cuSOLVER SVD is unavailable or failed");
+#else
+  (void)vector;
+  (void)plan;
+  (void)absorb;
+  (void)options;
+  (void)algebra;
+  throw std::runtime_error("TensorContraction was built without resident block-sparse cuSOLVER SVD support");
+#endif
 }
 
 /// \brief Compute a single-block SVD through cuSOLVER without CPU fallback.

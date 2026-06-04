@@ -112,8 +112,9 @@ host MatrixFamily center
   -> split MPS tensors on CPU
 ```
 
-The current bridge keeps this path as a fallback, but the CUDA DMRG path now
-packs resident two-site vector blocks directly into cuSOLVER input memory:
+The first CUDA DMRG bridge keeps this path as a fallback, but the dense
+placeholder-symmetry path can pack resident two-site vector blocks directly into
+cuSOLVER input memory:
 
 ```text
 resident two-site blocks
@@ -122,22 +123,22 @@ resident two-site blocks
   -> copy singular values and split site blocks to host-owned FiniteMPS
 ```
 
-This removes the final Lanczos-vector host materialization, but it is still not
-the final uni20 target.  The native path should assemble SVD inputs from
-resident GPU tensor blocks and keep later consumers resident where possible:
+The U(1) prototype has a stricter active-data boundary:
 
 ```text
 resident two-site blocks
-  -> assemble one or more block-diagonal SVD inputs on GPU
+  -> assemble one dense SVD input per charge sector on GPU
   -> run independent cuSOLVER SVDs by symmetry sector
-  -> keep U/S/Vt resident when the next operation can consume them on GPU
-  -> materialize to host only at explicit API boundaries
+  -> copy singular values and devInfo scalars to host for truncation decisions
+  -> scatter U/Vt directly into resident block-sparse MPS tensors
+  -> materialize those tensors to host only at an explicit cold-storage boundary
 ```
 
-For the dense placeholder-symmetry case this reduces to one block.  For U(1)
-and later symmetry support, each allowed charge sector is an independent SVD
-block.  Those blocks are the natural unit of distribution across CUDA devices
-and MPI workers.
+The current implementation centralizes those sector SVDs on one target GPU.
+That is enough to enforce the active-tensor residency model and remove U/Vt host
+copies.  Distributing sectors across CUDA devices and MPI workers is a placement
+policy problem and should be layered on top of the same resident block-sparse
+API rather than reintroducing implicit host tensors.
 
 ## Scheduler Boundary
 

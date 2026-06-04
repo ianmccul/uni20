@@ -172,6 +172,31 @@ TEST(BlockSparseTwoSiteSolveTest, FindsTwoSiteSingletAndSplitsByChargeSector)
   EXPECT_NEAR(mps_expectation_value(psi, mpo), -0.75, 1.0e-12);
 }
 
+TEST(BlockSparseTwoSiteSolveTest, ResidentSplitMaterializesOnlyAtExplicitBoundary)
+{
+  ensure_mpi_initialized();
+  ResidentTensorContractionBackendGuard const resident_backend;
+  auto psi = heisenberg_two_site_product_state();
+  auto const mpo = heisenberg_two_site_mpo();
+  auto const left_env = make_left_boundary_environment(psi, mpo);
+  auto const right_env = make_right_boundary_environment(psi, mpo);
+
+  auto solution =
+      solve_two_site(psi, mpo, 0, left_env, right_env,
+                     tensorcontraction::LanczosOptions{.max_iterations = 8, .min_iterations = 2, .tolerance = 1.0e-13});
+  auto device_split = split_two_site_solution_resident(solution, TwoSiteSplitDirection::LeftToRight,
+                                                       tensorcontraction::SvdOptions{.max_rank = 4});
+
+  ASSERT_EQ(device_split.sector_ranks.size(), 2);
+  EXPECT_EQ(device_split.spectrum.singular_values.size(), 2);
+  EXPECT_EQ(device_split.left.col_space().size(), 2);
+  EXPECT_EQ(device_split.right.row_space().size(), 2);
+
+  auto split = device_split.materialize_to_host();
+  replace_two_site_solution(psi, 0, std::move(split));
+  EXPECT_NEAR(mps_expectation_value(psi, mpo), -0.75, 1.0e-12);
+}
+
 TEST(BlockSparseTwoSiteDmrgTest, TwoSiteRunConvergesToSinglet)
 {
   ensure_mpi_initialized();
