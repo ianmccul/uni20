@@ -23,9 +23,25 @@ wavefunction storage infrastructure.
   first U(1)-aware product-state representation. The helper builds cumulative
   one-dimensional bond sectors, so an alternating spin-half product state
   carries the expected running `S^z` charge on each bond.
+- `BlockSparseMpoChain` stores compiled `SparseMpoSite` objects and validates
+  adjacent MPO virtual spaces. It is the strict U(1) MPO representation used by
+  the block-sparse Heisenberg front-end.
+- `BlockSparseEnvironment` is a `ThreeLegBlockMatrix` with convention
+  `(bra bond, MPO virtual, ket bond)`. The block-sparse left/right environment
+  updates iterate only legal MPS blocks and sparse MPO scalar entries.
+- `BlockSparseTwoSiteLayout` represents a two-site center as legal dense blocks
+  keyed by `(left bond sector, fused physical-pair state, right bond sector)`.
+  The fused physical-pair space carries charge `q_left_physical +
+  q_right_physical`, so Lanczos vectors remain block sparse.
 - `make_two_site_svd_sectors()` builds the fused row/column sectors needed for
   a block SVD of a two-site center. Rows are `(left bond, left physical)` and
   columns are `(right physical, right bond)`, grouped by the shared-bond charge.
+- The strict block-sparse `solve_two_site`, `split_two_site_center`,
+  directional sweep helpers, and `run_two_site_dmrg` overloads operate on
+  `BlockSparseFiniteMPS` and `BlockSparseMpoChain`. They reuse
+  TensorContraction `MatrixFamily` and Lanczos vector algebra as a dense-block
+  container, but every block carries a U(1) logical key and the code never
+  constructs the no-symmetry dense two-site center.
 - `TwoSiteWavefunction` packs two adjacent sites into one TensorContraction
   `MatrixFamily` block with rows `(left bond, left physical)` and columns
   `(right physical, right bond)`.
@@ -58,22 +74,22 @@ wavefunction storage infrastructure.
   left-to-right and right-to-left passes for a fixed number of full sweeps and
   returns the per-bond sweep diagnostics without adding persistence or global
   energy bookkeeping.
-- `examples/spin_half_heisenberg_dmrg.cpp` is the shared source for the manual
-  Heisenberg DMRG executables. `spin_half_heisenberg_dmrg` uses the dense
-  placeholder symmetry where both local states carry the identity charge.
-  `spin_half_heisenberg_u1_dmrg` uses the U(1) spin labels from
-  `make_spin_half_u1_site()`. Both executables check a length-4 open spin-1/2
-  Heisenberg chain against an internal dense exact-diagonalization reference,
-  then run a configurable chain for several sweeps and report the edge local
-  solve energy after each sweep.  The U(1) executable currently validates the
-  symmetry-labelled model path through the dense DMRG bridge; the new
-  block-sparse storage and SVD-sector metadata are staged separately until the
-  TensorContraction worklists are generated from block layouts.
+- `examples/spin_half_heisenberg_dmrg.cpp` is the dense/no-symmetry manual
+  Heisenberg DMRG executable. It uses the placeholder symmetry where both local
+  states carry the identity charge.
+- `examples/spin_half_heisenberg_u1_dmrg.cpp` is the strict U(1) block-sparse
+  Heisenberg executable. It builds `BlockSparseFiniteMPS` product states,
+  compiles a `BlockSparseMpoChain`, checks a length-4 open spin-1/2 chain
+  against the known exact energy, then runs a configurable chain for several
+  sweeps and reports the edge local solve energy after each sweep.
   The long-chain examples accept `UNI20_HEISENBERG_LENGTH`,
   `UNI20_HEISENBERG_SWEEPS`, and `UNI20_HEISENBERG_MAX_RANK`.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
+The U(1) implementation is currently a correctness-first host/block prototype:
+it uses dense linear algebra inside each legal symmetry block and does not yet
+generate CUDA/MPI TensorContraction worklists from those block layouts.
 
 ## Symmetry Invariants
 

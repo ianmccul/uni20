@@ -56,6 +56,40 @@ class BlockSparseFiniteMPS {
     /// \return End iterator.
     auto end() const { return sites_.end(); }
 
+    /// \brief Replace two adjacent site tensors.
+    /// \throws std::out_of_range If `left_site` does not have a right neighbor.
+    /// \throws std::invalid_argument If the replacement violates neighboring bond spaces.
+    /// \param left_site Index of the first replaced site.
+    /// \param left Replacement tensor for `left_site`.
+    /// \param right Replacement tensor for `left_site + 1`.
+    void replace_adjacent(size_type left_site, site_type left, site_type right)
+    {
+      if (left_site + 1 >= sites_.size())
+      {
+        throw std::out_of_range("BlockSparseFiniteMPS::replace_adjacent requires two adjacent sites");
+      }
+      if (left.local_space().symmetry() != right.local_space().symmetry())
+      {
+        throw std::invalid_argument("BlockSparseFiniteMPS replacement sites do not share one physical symmetry");
+      }
+      if (left.col_space() != right.row_space())
+      {
+        throw std::invalid_argument("BlockSparseFiniteMPS replacement sites have mismatched shared bond spaces");
+      }
+      if (left_site > 0 && sites_[left_site - 1].col_space() != left.row_space())
+      {
+        throw std::invalid_argument("BlockSparseFiniteMPS replacement left boundary bond space does not match");
+      }
+      if (left_site + 2 < sites_.size() && right.col_space() != sites_[left_site + 2].row_space())
+      {
+        throw std::invalid_argument("BlockSparseFiniteMPS replacement right boundary bond space does not match");
+      }
+
+      sites_[left_site] = std::move(left);
+      sites_[left_site + 1] = std::move(right);
+      this->check_structure();
+    }
+
     /// \brief Validate adjacent bond spaces and shared physical symmetry.
     /// \throws std::invalid_argument If the site sequence is inconsistent.
     void check_structure() const

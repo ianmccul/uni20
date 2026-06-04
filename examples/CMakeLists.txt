@@ -69,8 +69,7 @@ if(UNI20_ENABLE_TENSORCONTRACTION)
   add_executable(spin_half_heisenberg_dmrg spin_half_heisenberg_dmrg.cpp)
   target_link_libraries(spin_half_heisenberg_dmrg PRIVATE fmt::fmt uni20)
 
-  add_executable(spin_half_heisenberg_u1_dmrg spin_half_heisenberg_dmrg.cpp)
-  target_compile_definitions(spin_half_heisenberg_u1_dmrg PRIVATE UNI20_HEISENBERG_USE_U1=1)
+  add_executable(spin_half_heisenberg_u1_dmrg spin_half_heisenberg_u1_dmrg.cpp)
   target_link_libraries(spin_half_heisenberg_u1_dmrg PRIVATE fmt::fmt uni20)
 endif()
 
