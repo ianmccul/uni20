@@ -2,14 +2,18 @@
 
 #if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
 
+#include "svd_split_kernels.hpp"
+
 #include <cuda_runtime_api.h>
 #include <cusolverDn.h>
 
 #include <algorithm>
 #include <cstdlib>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace uni20::tensorcontraction::detail
 {
@@ -274,6 +278,19 @@ auto copy_cusolver_result(std::span<double const> singular_values, std::span<dou
                         .full_rank = full_rank};
 }
 
+auto make_block_major_matrix_family(std::span<double const> values, std::size_t block_count, std::size_t rows,
+                                    std::size_t cols) -> MatrixFamily
+{
+  std::vector<MatrixFamily::Block> blocks(block_count, MatrixFamily::Block{rows, cols});
+  MatrixFamily family(blocks);
+  auto const block_size = rows * cols;
+  for (std::size_t block = 0; block < block_count; ++block)
+  {
+    family.assign(block, values.subspan(block * block_size, block_size));
+  }
+  return family;
+}
+
 } // namespace
 
 std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matrix, SvdOptions options)
@@ -351,6 +368,110 @@ std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matr
   }
 
   return copy_cusolver_result(host_singular_values, host_u, host_vt, rows, cols, transposed, options);
+}
+
+std::optional<SingleBlockSvdSplit> single_block_svd_split_cusolver(MatrixFamily const& matrix,
+                                                                   SingleBlockSvdSplitLayout layout,
+                                                                   SvdAbsorbSingularValues absorb, SvdOptions options)
+{
+  validate_single_block_svd_split_inputs(matrix, layout, options);
+  if (cusolver_svd_disabled() || !cuda_device_available())
+  {
+    return std::nullopt;
+  }
+
+  auto const block = matrix.block(0);
+  auto const rows = block.rows;
+  auto const cols = block.cols;
+  auto const transposed = rows < cols;
+  auto const solver_rows = transposed ? cols : rows;
+  auto const solver_cols = transposed ? rows : cols;
+  auto const minmn = std::min(rows, cols);
+
+  auto m = checked_cuda_int(solver_rows, "SVD row count");
+  auto n = checked_cuda_int(solver_cols, "SVD column count");
+  auto lda = std::max(1, m);
+  auto ldu = std::max(1, m);
+  auto ldvt = std::max(1, n);
+
+  auto& context = cusolver_context_for_current_device();
+  auto const handle = context.handle.get();
+  auto const stream = context.stream.get();
+
+  auto host_a = make_column_major_copy(matrix, transposed);
+  std::vector<double> host_singular_values(minmn);
+  int lwork = 0;
+  check_cusolver(cusolverDnDgesvd_bufferSize(handle, m, n, &lwork), "cusolverDnDgesvd_bufferSize");
+
+  DeviceBuffer device_a(host_a.size() * sizeof(double));
+  DeviceBuffer device_singular_values(host_singular_values.size() * sizeof(double));
+  DeviceBuffer device_u(solver_rows * minmn * sizeof(double));
+  DeviceBuffer device_vt(minmn * solver_cols * sizeof(double));
+  DeviceBuffer device_work(static_cast<std::size_t>(std::max(1, lwork)) * sizeof(double));
+  DeviceBuffer device_info(sizeof(int));
+
+  check_cuda(cudaMemcpyAsync(device_a.as<double>(), host_a.data(), host_a.size() * sizeof(double),
+                             cudaMemcpyHostToDevice, stream),
+             "cudaMemcpyAsync host matrix to device");
+
+  signed char jobu = 'S';
+  signed char jobvt = 'S';
+  check_cusolver(cusolverDnDgesvd(handle, jobu, jobvt, m, n, device_a.as<double>(), lda,
+                                  device_singular_values.as<double>(), device_u.as<double>(), ldu,
+                                  device_vt.as<double>(), ldvt, device_work.as<double>(), lwork, nullptr,
+                                  device_info.as<int>()),
+                 "cusolverDnDgesvd");
+
+  int info = 0;
+  check_cuda(cudaMemcpyAsync(host_singular_values.data(), device_singular_values.as<double>(),
+                             host_singular_values.size() * sizeof(double), cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync singular values to host");
+  check_cuda(cudaMemcpyAsync(&info, device_info.as<int>(), sizeof(int), cudaMemcpyDeviceToHost, stream),
+             "cudaMemcpyAsync SVD info to host");
+  check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+  if (info < 0)
+  {
+    throw std::invalid_argument("cuSOLVER dgesvd rejected argument " + std::to_string(-info));
+  }
+  if (info > 0)
+  {
+    return std::nullopt;
+  }
+
+  auto const full_rank = singular_rank(host_singular_values);
+  auto const kept = kept_singular_count(host_singular_values, options);
+  auto const discarded_weight = discarded_singular_weight(host_singular_values, kept);
+  auto const left_size = layout.left_physical_dim * layout.left_bond_dim * kept;
+  auto const right_size = layout.right_physical_dim * kept * layout.right_bond_dim;
+  std::vector<double> host_left(left_size);
+  std::vector<double> host_right(right_size);
+
+  if (kept != 0)
+  {
+    DeviceBuffer device_left(host_left.size() * sizeof(double));
+    DeviceBuffer device_right(host_right.size() * sizeof(double));
+    launch_svd_split_kernels(device_u.as<double>(), device_singular_values.as<double>(), device_vt.as<double>(),
+                             device_left.as<double>(), device_right.as<double>(), layout.left_bond_dim,
+                             layout.left_physical_dim, layout.right_physical_dim, layout.right_bond_dim, kept, minmn,
+                             transposed, absorb == SvdAbsorbSingularValues::Left, stream);
+    check_cuda(cudaGetLastError(), "launch_svd_split_kernels");
+    check_cuda(cudaMemcpyAsync(host_left.data(), device_left.as<double>(), host_left.size() * sizeof(double),
+                               cudaMemcpyDeviceToHost, stream),
+               "cudaMemcpyAsync split left blocks to host");
+    check_cuda(cudaMemcpyAsync(host_right.data(), device_right.as<double>(), host_right.size() * sizeof(double),
+                               cudaMemcpyDeviceToHost, stream),
+               "cudaMemcpyAsync split right blocks to host");
+    check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+  }
+
+  std::vector<double> kept_singular_values(host_singular_values.begin(), host_singular_values.begin() + kept);
+  auto left = make_block_major_matrix_family(host_left, layout.left_physical_dim, layout.left_bond_dim, kept);
+  auto right = make_block_major_matrix_family(host_right, layout.right_physical_dim, kept, layout.right_bond_dim);
+  return SingleBlockSvdSplit{.left = std::move(left),
+                             .right = std::move(right),
+                             .spectrum = SvdSpectrum{.singular_values = std::move(kept_singular_values),
+                                                     .discarded_weight = discarded_weight,
+                                                     .full_rank = full_rank}};
 }
 
 } // namespace uni20::tensorcontraction::detail

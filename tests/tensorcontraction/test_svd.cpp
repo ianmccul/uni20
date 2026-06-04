@@ -58,6 +58,36 @@ double dot_columns(utc::MatrixFamily const& matrix, std::size_t lhs, std::size_t
   return result;
 }
 
+std::vector<double> reconstruct(utc::SingleBlockSvdSplit const& split, utc::SingleBlockSvdSplitLayout layout)
+{
+  auto const rank = split.spectrum.singular_values.size();
+  auto const rows = layout.left_bond_dim * layout.left_physical_dim;
+  auto const cols = layout.right_physical_dim * layout.right_bond_dim;
+  std::vector<double> result(rows * cols, 0.0);
+  for (std::size_t left_bond = 0; left_bond < layout.left_bond_dim; ++left_bond)
+  {
+    for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
+    {
+      auto const left_values = split.left.values(left_phys);
+      auto const row = left_bond * layout.left_physical_dim + left_phys;
+      for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+      {
+        auto const right_values = split.right.values(right_phys);
+        for (std::size_t right_bond = 0; right_bond < layout.right_bond_dim; ++right_bond)
+        {
+          auto const col = right_phys * layout.right_bond_dim + right_bond;
+          for (std::size_t bond = 0; bond < rank; ++bond)
+          {
+            result[row * cols + col] +=
+                left_values[left_bond * rank + bond] * right_values[bond * layout.right_bond_dim + right_bond];
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+
 } // namespace
 
 TEST(TensorContractionSvdTest, ReconstructsFullRankSingleBlock)
@@ -150,6 +180,31 @@ TEST(TensorContractionSvdTest, TruncatesByCutoff)
   EXPECT_NEAR(svd.singular_values[0], 5.0, 1.0e-12);
   EXPECT_NEAR(svd.singular_values[1], 0.25, 1.0e-12);
   EXPECT_NEAR(svd.discarded_weight, 0.125 * 0.125, 1.0e-12);
+}
+
+TEST(TensorContractionSvdTest, SplitsPhysicalBlocksAndAbsorbsSingularValues)
+{
+  utc::SingleBlockSvdSplitLayout layout{
+      .left_bond_dim = 2, .left_physical_dim = 3, .right_physical_dim = 2, .right_bond_dim = 2};
+  auto matrix = make_matrix(6, 4, {1.0, 0.2,  -0.4, 0.7, 0.3, 1.1, 0.5,  -0.2, -0.6, 0.8,  1.7, 0.4,
+                                   0.9, -0.1, 0.2,  1.3, 0.4, 0.6, -1.2, 0.5,  1.5,  -0.7, 0.3, 0.9});
+
+  for (auto absorb : {utc::SvdAbsorbSingularValues::Left, utc::SvdAbsorbSingularValues::Right})
+  {
+    auto split = utc::single_block_svd_split(matrix, layout, absorb);
+    auto reconstructed = reconstruct(split, layout);
+
+    ASSERT_EQ(split.left.size(), layout.left_physical_dim);
+    ASSERT_EQ(split.right.size(), layout.right_physical_dim);
+    ASSERT_EQ(split.spectrum.singular_values.size(), 4);
+    EXPECT_EQ(split.left.block(0), (utc::MatrixFamily::Block{layout.left_bond_dim, 4}));
+    EXPECT_EQ(split.right.block(0), (utc::MatrixFamily::Block{4, layout.right_bond_dim}));
+    EXPECT_NEAR(split.spectrum.discarded_weight, 0.0, 1.0e-12);
+    for (std::size_t i = 0; i < reconstructed.size(); ++i)
+    {
+      EXPECT_NEAR(reconstructed[i], matrix.values(0)[i], 1.0e-10);
+    }
+  }
 }
 
 TEST(TensorContractionSvdTest, RejectsUnsupportedShapesAndOptions)

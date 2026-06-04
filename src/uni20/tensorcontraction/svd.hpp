@@ -14,6 +14,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace uni20::tensorcontraction
@@ -25,6 +26,14 @@ struct SvdOptions
     double cutoff = 0.0;
 };
 
+/// \brief Singular-value spectrum and truncation metadata for an SVD-derived operation.
+struct SvdSpectrum
+{
+    std::vector<double> singular_values;
+    double discarded_weight = 0.0;
+    std::size_t full_rank = 0;
+};
+
 struct SingleBlockSvd
 {
     MatrixFamily u;
@@ -32,6 +41,30 @@ struct SingleBlockSvd
     MatrixFamily vt;
     double discarded_weight = 0.0;
     std::size_t full_rank = 0;
+};
+
+/// \brief Selects which split factor receives the singular values.
+enum class SvdAbsorbSingularValues
+{
+  Left,
+  Right,
+};
+
+/// \brief Dense two-site layout used to split a single matrix block into physical site blocks.
+struct SingleBlockSvdSplitLayout
+{
+    std::size_t left_bond_dim = 0;
+    std::size_t left_physical_dim = 0;
+    std::size_t right_physical_dim = 0;
+    std::size_t right_bond_dim = 0;
+};
+
+/// \brief Truncated two-site split result without host copies of full SVD factors.
+struct SingleBlockSvdSplit
+{
+    MatrixFamily left;
+    MatrixFamily right;
+    SvdSpectrum spectrum;
 };
 
 namespace detail
@@ -197,6 +230,33 @@ inline void validate_single_block_svd_inputs(MatrixFamily const& matrix, SvdOpti
   }
 }
 
+inline std::size_t svd_checked_product(std::size_t lhs, std::size_t rhs, char const* name)
+{
+  if (lhs != 0 && rhs > std::numeric_limits<std::size_t>::max() / lhs)
+  {
+    throw std::length_error(std::string(name) + " overflows size_t");
+  }
+  return lhs * rhs;
+}
+
+inline void validate_single_block_svd_split_inputs(MatrixFamily const& matrix, SingleBlockSvdSplitLayout layout,
+                                                   SvdOptions options)
+{
+  validate_single_block_svd_inputs(matrix, options);
+  if (layout.left_bond_dim == 0 || layout.left_physical_dim == 0 || layout.right_physical_dim == 0 ||
+      layout.right_bond_dim == 0)
+  {
+    throw std::invalid_argument("single_block_svd_split requires non-empty layout dimensions");
+  }
+
+  auto const rows = svd_checked_product(layout.left_bond_dim, layout.left_physical_dim, "SVD split row count");
+  auto const cols = svd_checked_product(layout.right_physical_dim, layout.right_bond_dim, "SVD split column count");
+  if (matrix.block(0) != MatrixFamily::Block{rows, cols})
+  {
+    throw std::invalid_argument("single_block_svd_split matrix shape does not match the split layout");
+  }
+}
+
 inline std::size_t singular_rank(std::span<double const> singular_values)
 {
   return static_cast<std::size_t>(
@@ -312,6 +372,9 @@ inline SingleBlockSvd dispatch(svd_op, lapack_svd_capability, MatrixFamily const
 
 #if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
 std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matrix, SvdOptions options);
+std::optional<SingleBlockSvdSplit> single_block_svd_split_cusolver(MatrixFamily const& matrix,
+                                                                   SingleBlockSvdSplitLayout layout,
+                                                                   SvdAbsorbSingularValues absorb, SvdOptions options);
 
 inline SingleBlockSvd dispatch(svd_op op, cusolver_svd_capability, MatrixFamily const& matrix, SvdOptions options)
 {
@@ -457,6 +520,102 @@ inline SingleBlockSvd dispatch(svd_op op, Backend, MatrixFamily const& matrix, S
 inline SingleBlockSvd single_block_svd(MatrixFamily const& matrix, SvdOptions options = {})
 {
   return detail::dispatch(detail::svd_op{}, detail::default_svd_backend{}, matrix, options);
+}
+
+/// \brief Extract spectrum and truncation metadata from a complete host SVD.
+/// \param svd Complete SVD result to summarize.
+/// \return Spectrum metadata without copying host factor matrices.
+inline auto svd_spectrum(SingleBlockSvd const& svd) -> SvdSpectrum
+{
+  return SvdSpectrum{
+      .singular_values = svd.singular_values, .discarded_weight = svd.discarded_weight, .full_rank = svd.full_rank};
+}
+
+namespace detail
+{
+
+inline auto split_svd_factors_on_host(SingleBlockSvd const& svd, SingleBlockSvdSplitLayout layout,
+                                      SvdAbsorbSingularValues absorb) -> SingleBlockSvdSplit
+{
+  auto const rank = svd.singular_values.size();
+  auto const rows = svd_checked_product(layout.left_bond_dim, layout.left_physical_dim, "SVD split row count");
+  auto const cols = svd_checked_product(layout.right_physical_dim, layout.right_bond_dim, "SVD split column count");
+  if (svd.u.size() != 1 || svd.vt.size() != 1 || svd.u.block(0) != MatrixFamily::Block{rows, rank} ||
+      svd.vt.block(0) != MatrixFamily::Block{rank, cols})
+  {
+    throw std::invalid_argument("single_block_svd_split received SVD factors with incompatible shapes");
+  }
+
+  std::vector<MatrixFamily::Block> left_blocks(layout.left_physical_dim,
+                                               MatrixFamily::Block{layout.left_bond_dim, rank});
+  std::vector<MatrixFamily::Block> right_blocks(layout.right_physical_dim,
+                                                MatrixFamily::Block{rank, layout.right_bond_dim});
+  MatrixFamily left(left_blocks);
+  MatrixFamily right(right_blocks);
+
+  auto const u_values = svd.u.values(0);
+  auto const vt_values = svd.vt.values(0);
+  for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
+  {
+    auto dst = left.values(left_phys);
+    for (std::size_t left_bond = 0; left_bond < layout.left_bond_dim; ++left_bond)
+    {
+      auto const row = left_bond * layout.left_physical_dim + left_phys;
+      for (std::size_t bond = 0; bond < rank; ++bond)
+      {
+        double value = u_values[row * rank + bond];
+        if (absorb == SvdAbsorbSingularValues::Left)
+        {
+          value *= svd.singular_values[bond];
+        }
+        dst[left_bond * rank + bond] = value;
+      }
+    }
+  }
+
+  for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
+  {
+    auto dst = right.values(right_phys);
+    for (std::size_t bond = 0; bond < rank; ++bond)
+    {
+      for (std::size_t right_bond = 0; right_bond < layout.right_bond_dim; ++right_bond)
+      {
+        auto const col = right_phys * layout.right_bond_dim + right_bond;
+        double value = vt_values[bond * cols + col];
+        if (absorb == SvdAbsorbSingularValues::Right)
+        {
+          value *= svd.singular_values[bond];
+        }
+        dst[bond * layout.right_bond_dim + right_bond] = value;
+      }
+    }
+  }
+
+  return SingleBlockSvdSplit{.left = std::move(left), .right = std::move(right), .spectrum = svd_spectrum(svd)};
+}
+
+} // namespace detail
+
+/// \brief Split one dense SVD block into physical left/right factors.
+/// \param matrix Single-block matrix with shape implied by `layout`.
+/// \param layout Dense two-site split dimensions.
+/// \param absorb Side that receives the singular values.
+/// \param options SVD truncation options.
+/// \return Split factors and spectrum metadata.
+inline auto single_block_svd_split(MatrixFamily const& matrix, SingleBlockSvdSplitLayout layout,
+                                   SvdAbsorbSingularValues absorb, SvdOptions options = {}) -> SingleBlockSvdSplit
+{
+  detail::validate_single_block_svd_split_inputs(matrix, layout, options);
+
+#if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
+  if (auto split = detail::single_block_svd_split_cusolver(matrix, layout, absorb, options); split.has_value())
+  {
+    return std::move(*split);
+  }
+#endif
+
+  auto svd = single_block_svd(matrix, options);
+  return detail::split_svd_factors_on_host(svd, layout, absorb);
 }
 
 } // namespace uni20::tensorcontraction

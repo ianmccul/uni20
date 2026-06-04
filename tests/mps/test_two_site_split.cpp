@@ -78,8 +78,8 @@ TEST(TwoSiteSplitTest, SplitsLeftToRightAndAbsorbsSingularValuesOnRight)
 
   EXPECT_EQ(split.left.right_dim(), 2);
   EXPECT_EQ(split.right.left_dim(), 2);
-  EXPECT_NEAR(split.svd.singular_values[0], 2.0, 1.0e-12);
-  EXPECT_NEAR(split.svd.singular_values[1], 1.0, 1.0e-12);
+  EXPECT_NEAR(split.spectrum.singular_values[0], 2.0, 1.0e-12);
+  EXPECT_NEAR(split.spectrum.singular_values[1], 1.0, 1.0e-12);
   expect_reconstructs(split.left, split.right, center.values(0));
 
   double left_col_norm_0 = 0.0;
@@ -127,8 +127,8 @@ TEST(TwoSiteSplitTest, TruncatesAndReportsDiscardedWeight)
                                      bond_space(spin.symmetry, 1), TwoSiteSplitDirection::LeftToRight,
                                      tensorcontraction::SvdOptions{.max_rank = 1});
 
-  EXPECT_EQ(split.svd.singular_values.size(), 1);
-  EXPECT_NEAR(split.svd.discarded_weight, 1.0, 1.0e-12);
+  EXPECT_EQ(split.spectrum.singular_values.size(), 1);
+  EXPECT_NEAR(split.spectrum.discarded_weight, 1.0, 1.0e-12);
   EXPECT_EQ(split.left.right_dim(), 1);
   EXPECT_EQ(split.right.left_dim(), 1);
 }

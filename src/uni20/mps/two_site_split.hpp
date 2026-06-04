@@ -31,7 +31,7 @@ struct TwoSiteSplitResult
 {
     MpsSiteTensor left;
     MpsSiteTensor right;
-    tensorcontraction::SingleBlockSvd svd;
+    tensorcontraction::SvdSpectrum spectrum;
 };
 
 namespace detail
@@ -91,19 +91,17 @@ inline void require_matching_rank_zero_size(std::size_t local_value, char const*
   }
 }
 
-inline void broadcast_svd_from_rank_zero(tensorcontraction::SingleBlockSvd& svd)
+inline void broadcast_svd_spectrum_from_rank_zero(tensorcontraction::SvdSpectrum& spectrum)
 {
   if (!mpi_has_multiple_ranks())
   {
     return;
   }
 
-  require_matching_rank_zero_size(svd.singular_values.size(), "kept rank");
-  broadcast_doubles_from_rank_zero(svd.singular_values);
-  MPI_Bcast(&svd.discarded_weight, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  broadcast_size_from_rank_zero(svd.full_rank);
-  tensorcontraction::broadcast_values_from_rank_zero(svd.u);
-  tensorcontraction::broadcast_values_from_rank_zero(svd.vt);
+  require_matching_rank_zero_size(spectrum.singular_values.size(), "kept rank");
+  broadcast_doubles_from_rank_zero(spectrum.singular_values);
+  MPI_Bcast(&spectrum.discarded_weight, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  broadcast_size_from_rank_zero(spectrum.full_rank);
 }
 
 inline void broadcast_site_tensor_from_rank_zero(MpsSiteTensor& site)
@@ -157,57 +155,39 @@ inline auto split_two_site_center(tensorcontraction::MatrixFamily const& center,
     throw std::invalid_argument("two-site split physical spaces must share one symmetry");
   }
 
-  auto svd = tensorcontraction::single_block_svd(center, options);
+  auto const absorb = direction == TwoSiteSplitDirection::RightToLeft
+                          ? tensorcontraction::SvdAbsorbSingularValues::Left
+                          : tensorcontraction::SvdAbsorbSingularValues::Right;
+  auto split_blocks = tensorcontraction::single_block_svd_split(
+      center,
+      tensorcontraction::SingleBlockSvdSplitLayout{.left_bond_dim = layout.left_bond_dim,
+                                                   .left_physical_dim = layout.left_physical_dim,
+                                                   .right_physical_dim = layout.right_physical_dim,
+                                                   .right_bond_dim = layout.right_bond_dim},
+      absorb, options);
   // Keep the prototype MPI ranks on one host-state trajectory.  This is also
   // robust against valid rank-local SVD sign or degenerate-subspace choices.
-  detail::broadcast_svd_from_rank_zero(svd);
-  auto const rank = svd.singular_values.size();
+  detail::broadcast_svd_spectrum_from_rank_zero(split_blocks.spectrum);
+  auto const rank = split_blocks.spectrum.singular_values.size();
   auto shared_bond_space = make_dense_shared_bond_space(left_physical_space.symmetry(), rank);
   MpsSiteTensor left(left_physical_space, left_bond_space, shared_bond_space);
   MpsSiteTensor right(right_physical_space, shared_bond_space, right_bond_space);
 
-  auto const u_values = svd.u.values(0);
-  auto const vt_values = svd.vt.values(0);
   for (std::size_t left_phys = 0; left_phys < layout.left_physical_dim; ++left_phys)
   {
-    auto dst = left.values(left_phys);
-    for (std::size_t left_bond = 0; left_bond < layout.left_bond_dim; ++left_bond)
-    {
-      auto const row = left_bond * layout.left_physical_dim + left_phys;
-      for (std::size_t bond = 0; bond < rank; ++bond)
-      {
-        double value = u_values[row * rank + bond];
-        if (direction == TwoSiteSplitDirection::RightToLeft)
-        {
-          value *= svd.singular_values[bond];
-        }
-        dst[left_bond * rank + bond] = value;
-      }
-    }
+    left.assign(left_phys, split_blocks.left.values(left_phys));
   }
 
   for (std::size_t right_phys = 0; right_phys < layout.right_physical_dim; ++right_phys)
   {
-    auto dst = right.values(right_phys);
-    for (std::size_t bond = 0; bond < rank; ++bond)
-    {
-      for (std::size_t right_bond = 0; right_bond < layout.right_bond_dim; ++right_bond)
-      {
-        auto const col = right_phys * layout.right_bond_dim + right_bond;
-        double value = vt_values[bond * (layout.right_physical_dim * layout.right_bond_dim) + col];
-        if (direction == TwoSiteSplitDirection::LeftToRight)
-        {
-          value *= svd.singular_values[bond];
-        }
-        dst[bond * layout.right_bond_dim + right_bond] = value;
-      }
-    }
+    right.assign(right_phys, split_blocks.right.values(right_phys));
   }
 
   detail::broadcast_site_tensor_from_rank_zero(left);
   detail::broadcast_site_tensor_from_rank_zero(right);
 
-  return TwoSiteSplitResult{.left = std::move(left), .right = std::move(right), .svd = std::move(svd)};
+  return TwoSiteSplitResult{
+      .left = std::move(left), .right = std::move(right), .spectrum = std::move(split_blocks.spectrum)};
 }
 
 inline auto split_two_site_solution(TwoSiteSolveResult const& solution, LocalSpace const& left_physical_space,

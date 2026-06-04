@@ -54,6 +54,7 @@ add_library(uni20_tensorcontraction_runtime STATIC
   src/effective_hamiltonian_plan.cpp
   src/matrix_family.cpp
   src/svd_cusolver.cpp
+  src/svd_split_kernels.cu
   src/vector_algebra.cpp
   src/Arranger.cpp
   src/Calculator.cpp
@@ -87,6 +88,11 @@ if(LAPACK_FOUND)
 endif()
 
 target_compile_features(uni20_tensorcontraction_runtime PUBLIC cxx_std_20)
+set_target_properties(uni20_tensorcontraction_runtime PROPERTIES
+  CUDA_RUNTIME_LIBRARY Shared
+  CUDA_STANDARD 17
+  CUDA_STANDARD_REQUIRED ON
+)
 relax_warnings(uni20_tensorcontraction_runtime)
 
 add_library(uni20::tensorcontraction_runtime ALIAS uni20_tensorcontraction_runtime)
