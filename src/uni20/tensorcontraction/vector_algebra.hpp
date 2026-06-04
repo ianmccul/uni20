@@ -136,6 +136,38 @@ inline void validate_compatible_selected_gemm_shapes(MatrixFamily const& lhs, Ma
   }
 }
 
+inline void validate_compatible_sparse_selected_gemm_shapes(MatrixFamily const& lhs, MatrixFamily const& rhs,
+                                                            MatrixFamily const& result,
+                                                            std::span<std::size_t const> lhs_block_for_product,
+                                                            std::span<std::size_t const> rhs_block_for_product,
+                                                            std::span<std::size_t const> result_block_for_product)
+{
+  if (lhs_block_for_product.size() != rhs_block_for_product.size() ||
+      lhs_block_for_product.size() != result_block_for_product.size())
+  {
+    throw std::invalid_argument("TensorContraction sparse selected GEMM has mismatched selector counts");
+  }
+
+  for (std::size_t product = 0; product < result_block_for_product.size(); ++product)
+  {
+    auto const lhs_index = lhs_block_for_product[product];
+    auto const rhs_index = rhs_block_for_product[product];
+    auto const result_index = result_block_for_product[product];
+    if (lhs_index >= lhs.size() || rhs_index >= rhs.size() || result_index >= result.size())
+    {
+      throw std::invalid_argument("TensorContraction sparse selected GEMM selector is out of range");
+    }
+
+    auto const lhs_block = lhs.block(lhs_index);
+    auto const rhs_block = rhs.block(rhs_index);
+    auto const result_block = result.block(result_index);
+    if (lhs_block.cols != rhs_block.rows || result_block.rows != lhs_block.rows || result_block.cols != rhs_block.cols)
+    {
+      throw std::invalid_argument("TensorContraction sparse selected GEMM has incompatible block shapes");
+    }
+  }
+}
+
 inline void gemm_each(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result)
 {
   validate_compatible_gemm_shapes(lhs, rhs, result);
@@ -232,6 +264,10 @@ class VectorAlgebraEngine {
     void gemm_selected_to_resident(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result,
                                    std::span<std::size_t const> lhs_block_for_result,
                                    std::span<std::size_t const> rhs_block_for_result);
+    void gemm_sparse_selected_to_resident(MatrixFamily const& lhs, MatrixFamily const& rhs, MatrixFamily& result,
+                                          std::span<std::size_t const> lhs_block_for_product,
+                                          std::span<std::size_t const> rhs_block_for_product,
+                                          std::span<std::size_t const> result_block_for_product);
     [[nodiscard]] double normalize(MatrixFamily& x);
 
     [[nodiscard]] bool uses_host_backend() const;

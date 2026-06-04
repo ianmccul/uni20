@@ -2,9 +2,12 @@
 #include <uni20/mps/block_sparse_dmrg.hpp>
 
 #include <gtest/gtest.h>
+#include <mpi.h>
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <string>
 #include <vector>
 
 using namespace uni20;
@@ -48,6 +51,56 @@ auto pair_key(std::size_t left_physical, std::size_t right_physical) -> ThreeLeg
   return ThreeLegBlockKey{
       .row_sector = 0, .local = two_site_pair_index(2, left_physical, right_physical), .col_sector = 0};
 }
+
+void ensure_mpi_initialized()
+{
+  int initialized = 0;
+  MPI_Initialized(&initialized);
+  if (initialized != 0)
+  {
+    return;
+  }
+
+  MPI_Init(nullptr, nullptr);
+  std::atexit([] {
+    int finalized = 0;
+    MPI_Finalized(&finalized);
+    if (finalized == 0)
+    {
+      MPI_Finalize();
+    }
+  });
+}
+
+class ResidentTensorContractionBackendGuard {
+  public:
+    ResidentTensorContractionBackendGuard()
+    {
+      if (auto const* value = std::getenv("UNI20_TENSORCONTRACTION_BACKEND"); value != nullptr)
+      {
+        previous_ = value;
+        had_previous_ = true;
+      }
+      unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+    }
+
+    ResidentTensorContractionBackendGuard(ResidentTensorContractionBackendGuard const&) = delete;
+    auto operator=(ResidentTensorContractionBackendGuard const&) -> ResidentTensorContractionBackendGuard& = delete;
+
+    ~ResidentTensorContractionBackendGuard()
+    {
+      if (had_previous_)
+      {
+        setenv("UNI20_TENSORCONTRACTION_BACKEND", previous_.c_str(), 1);
+        return;
+      }
+      unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+    }
+
+  private:
+    bool had_previous_ = false;
+    std::string previous_;
+};
 
 } // namespace
 
@@ -96,6 +149,8 @@ TEST(BlockSparseEffectiveHamiltonianTest, AppliesTwoSiteHeisenbergWithoutDenseFa
 
 TEST(BlockSparseTwoSiteSolveTest, FindsTwoSiteSingletAndSplitsByChargeSector)
 {
+  ensure_mpi_initialized();
+  ResidentTensorContractionBackendGuard const resident_backend;
   auto psi = heisenberg_two_site_product_state();
   auto const mpo = heisenberg_two_site_mpo();
   auto const left_env = make_left_boundary_environment(psi, mpo);
@@ -106,8 +161,8 @@ TEST(BlockSparseTwoSiteSolveTest, FindsTwoSiteSingletAndSplitsByChargeSector)
                      tensorcontraction::LanczosOptions{.max_iterations = 8, .min_iterations = 2, .tolerance = 1.0e-13});
   EXPECT_NEAR(solution.lanczos.eigenvalue, -0.75, 1.0e-12);
 
-  auto split = split_two_site_center(solution.layout, solution.optimized_vector, TwoSiteSplitDirection::LeftToRight,
-                                     tensorcontraction::SvdOptions{.max_rank = 4});
+  auto split = split_two_site_solution(solution, TwoSiteSplitDirection::LeftToRight,
+                                       tensorcontraction::SvdOptions{.max_rank = 4});
   ASSERT_EQ(split.sector_ranks.size(), 2);
   EXPECT_EQ(split.spectrum.singular_values.size(), 2);
   EXPECT_EQ(split.left.col_space().size(), 2);
@@ -119,6 +174,8 @@ TEST(BlockSparseTwoSiteSolveTest, FindsTwoSiteSingletAndSplitsByChargeSector)
 
 TEST(BlockSparseTwoSiteDmrgTest, TwoSiteRunConvergesToSinglet)
 {
+  ensure_mpi_initialized();
+  ResidentTensorContractionBackendGuard const resident_backend;
   auto psi = heisenberg_two_site_product_state();
   auto const mpo = heisenberg_two_site_mpo();
 
@@ -140,6 +197,8 @@ TEST(BlockSparseTwoSiteDmrgTest, TwoSiteRunConvergesToSinglet)
 
 TEST(BlockSparseTwoSiteDmrgTest, FourSiteRunMatchesExactOpenChainEnergy)
 {
+  ensure_mpi_initialized();
+  ResidentTensorContractionBackendGuard const resident_backend;
   auto psi = heisenberg_product_state(4);
   auto const mpo = heisenberg_mpo(4);
 

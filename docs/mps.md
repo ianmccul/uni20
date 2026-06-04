@@ -38,10 +38,10 @@ wavefunction storage infrastructure.
   columns are `(right physical, right bond)`, grouped by the shared-bond charge.
 - The strict block-sparse `solve_two_site`, `split_two_site_center`,
   directional sweep helpers, and `run_two_site_dmrg` overloads operate on
-  `BlockSparseFiniteMPS` and `BlockSparseMpoChain`. They reuse
-  TensorContraction `MatrixFamily` and Lanczos vector algebra as a dense-block
-  container, but every block carries a U(1) logical key and the code never
-  constructs the no-symmetry dense two-site center.
+  `BlockSparseFiniteMPS` and `BlockSparseMpoChain`. They use
+  TensorContraction `MatrixFamily` as the dense-block container, but every block
+  carries a U(1) logical key and the code never constructs the no-symmetry dense
+  two-site center.
 - `TwoSiteWavefunction` packs two adjacent sites into one TensorContraction
   `MatrixFamily` block with rows `(left bond, left physical)` and columns
   `(right physical, right bond)`.
@@ -60,12 +60,24 @@ wavefunction storage infrastructure.
   the optimized center resident when the CUDA backend is active.  The old dense
   host matrix can still be materialized explicitly only in the dense prototype
   or in terminal diagnostic/reference helpers.
+- The strict U(1) `solve_two_site` path is resident CUDA/MPI-only. It builds a
+  TensorContraction `EffectiveHamiltonianOperator` from the legal U(1)
+  environment, MPO, input, and output block keys, then calls
+  `lanczos_lowest_with_engine` with `VectorAlgebraEngine`. Setting
+  `UNI20_TENSORCONTRACTION_BACKEND=host` is a test/debug mode for reference
+  helpers, not a valid U(1) DMRG solve backend.
 - `split_two_site_solution` runs the current single-block SVD split and absorbs
   singular values into the right tensor for a left-to-right move, or into the
   left tensor for a right-to-left move.  On CUDA builds it first tries the
   resident cuSOLVER split path, which packs the two-site vector blocks on the
   GPU and avoids copying the Lanczos vector to the host. `FiniteMPS::replace_adjacent`
   installs the resulting pair back into the in-memory chain.
+- The strict U(1) split currently synchronizes the optimized center at the
+  replacement boundary, assembles one host-visible dense matrix per charge
+  sector, and requires the device cuSOLVER SVD path for each sector. It does not
+  fall back to LAPACK or the reference SVD. The remaining host materialization is
+  for writing the current host-owned `BlockSparseFiniteMPS` replacement tensors;
+  the linear algebra kernel is still cuSOLVER.
 - `sweep_two_site_left_to_right` and `sweep_two_site_right_to_left` perform the
   first directional dense DMRG sweep pass by rebuilding CPU environment chains,
   solving each two-site problem, splitting the optimized center, replacing the
@@ -87,9 +99,10 @@ wavefunction storage infrastructure.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
-The U(1) implementation is currently a correctness-first host/block prototype:
-it uses dense linear algebra inside each legal symmetry block and does not yet
-generate CUDA/MPI TensorContraction worklists from those block layouts.
+The U(1) local solve now generates CUDA/MPI TensorContraction worklists from the
+legal block layouts.  Environment construction and final MPS tensor replacement
+remain host-owned prototype boundaries; those are explicit storage boundaries,
+not silent dense fallbacks.
 
 ## Symmetry Invariants
 

@@ -9,8 +9,10 @@
 #include <uni20/mps/sparse_mpo_site.hpp>
 #include <uni20/mps/two_site_split.hpp>
 #include <uni20/operator/finite_triangular_mpo.hpp>
+#include <uni20/tensorcontraction/effective_hamiltonian_operator.hpp>
 #include <uni20/tensorcontraction/lanczos.hpp>
 #include <uni20/tensorcontraction/svd.hpp>
+#include <uni20/tensorcontraction/vector_algebra.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -18,6 +20,7 @@
 #include <cstddef>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -629,6 +632,86 @@ inline auto make_two_site_vector(BlockSparseFiniteMPS const& psi, std::size_t le
   return result;
 }
 
+/// \brief Build the block-sparse two-site center vector and keep it resident.
+/// \param psi Block-sparse MPS.
+/// \param left_site Left site index.
+/// \param layout Two-site layout.
+/// \param algebra Resident TensorContraction vector algebra engine.
+/// \return MatrixFamily whose current values live in the engine's resident buffers.
+inline auto
+make_two_site_vector_resident(BlockSparseFiniteMPS const& psi, std::size_t left_site,
+                              BlockSparseTwoSiteLayout const& layout,
+                              tensorcontraction::VectorAlgebraEngine& algebra) -> tensorcontraction::MatrixFamily
+{
+  if (left_site + 1 >= psi.size())
+  {
+    throw std::out_of_range("block-sparse two-site vector requires two adjacent MPS sites");
+  }
+  auto const& left = psi[left_site];
+  auto const& right = psi[left_site + 1];
+  if (left.col_space() != right.row_space())
+  {
+    throw std::invalid_argument("block-sparse two-site vector adjacent bond spaces do not match");
+  }
+  if (layout.left_physical_space() != left.local_space() || layout.right_physical_space() != right.local_space() ||
+      layout.left_bond_space() != left.row_space() || layout.right_bond_space() != right.col_space())
+  {
+    throw std::invalid_argument("block-sparse two-site vector layout does not match MPS sites");
+  }
+
+  std::vector<tensorcontraction::MatrixFamily::Block> left_blocks;
+  left_blocks.reserve(left.block_count());
+  for (auto const& block : left.blocks())
+  {
+    left_blocks.push_back(tensorcontraction::MatrixFamily::Block{block.rows, block.cols});
+  }
+
+  std::vector<tensorcontraction::MatrixFamily::Block> right_blocks;
+  right_blocks.reserve(right.block_count());
+  for (auto const& block : right.blocks())
+  {
+    right_blocks.push_back(tensorcontraction::MatrixFamily::Block{block.rows, block.cols});
+  }
+
+  tensorcontraction::MatrixFamily left_operands(left_blocks);
+  tensorcontraction::MatrixFamily right_operands(right_blocks);
+  for (std::size_t block = 0; block < left.block_count(); ++block)
+  {
+    left_operands.assign(block, left.values(block));
+  }
+  for (std::size_t block = 0; block < right.block_count(); ++block)
+  {
+    right_operands.assign(block, right.values(block));
+  }
+
+  std::vector<std::size_t> left_block_for_product;
+  std::vector<std::size_t> right_block_for_product;
+  std::vector<std::size_t> result_block_for_product;
+  for (std::size_t left_index = 0; left_index < left.block_count(); ++left_index)
+  {
+    auto const& left_block = left.blocks()[left_index];
+    for (auto right_index : right.blocks_from_row(left_block.key.col_sector))
+    {
+      auto const& right_block = right.blocks()[right_index];
+      auto const pair = two_site_pair_index(right.local_space().size(), left_block.key.local, right_block.key.local);
+      ThreeLegBlockKey const out_key{
+          .row_sector = left_block.key.row_sector, .local = pair, .col_sector = right_block.key.col_sector};
+      if (!layout.contains(out_key))
+      {
+        throw std::logic_error("MPS block product produced a forbidden two-site block");
+      }
+      left_block_for_product.push_back(left_index);
+      right_block_for_product.push_back(right_index);
+      result_block_for_product.push_back(layout.block_index(out_key));
+    }
+  }
+
+  auto result = make_zero_matrix_family(layout);
+  algebra.gemm_sparse_selected_to_resident(left_operands, right_operands, result, left_block_for_product,
+                                           right_block_for_product, result_block_for_product);
+  return result;
+}
+
 namespace detail
 {
 
@@ -722,6 +805,144 @@ inline void apply_two_site_effective_hamiltonian(BlockSparseEnvironment const& l
       }
     }
   }
+}
+
+/// \brief Resident TensorContraction representation of a strict U(1) two-site Hamiltonian.
+struct BlockSparseTwoSiteEffectiveHamiltonian
+{
+    tensorcontraction::EffectiveHamiltonianOperator op;
+    BlockSparseTwoSiteLayout layout;
+};
+
+namespace detail
+{
+
+inline auto make_environment_matrix_family(BlockSparseEnvironment const& env) -> tensorcontraction::MatrixFamily
+{
+  std::vector<tensorcontraction::MatrixFamily::Block> blocks;
+  blocks.reserve(env.block_count());
+  for (auto const& block : env.blocks())
+  {
+    blocks.push_back(tensorcontraction::MatrixFamily::Block{block.rows, block.cols});
+  }
+
+  tensorcontraction::MatrixFamily family(blocks);
+  for (std::size_t block = 0; block < env.block_count(); ++block)
+  {
+    family.assign(block, env.values(block));
+  }
+  return family;
+}
+
+inline auto
+make_transposed_environment_matrix_family(BlockSparseEnvironment const& env) -> tensorcontraction::MatrixFamily
+{
+  std::vector<tensorcontraction::MatrixFamily::Block> blocks;
+  blocks.reserve(env.block_count());
+  for (auto const& block : env.blocks())
+  {
+    blocks.push_back(tensorcontraction::MatrixFamily::Block{block.cols, block.rows});
+  }
+
+  tensorcontraction::MatrixFamily family(blocks);
+  for (std::size_t block = 0; block < env.block_count(); ++block)
+  {
+    auto const source_block = env.blocks()[block];
+    auto const source = env.values(block);
+    auto target = family.values(block);
+    for (std::size_t row = 0; row < source_block.rows; ++row)
+    {
+      for (std::size_t col = 0; col < source_block.cols; ++col)
+      {
+        target[col * source_block.rows + row] = source[row * source_block.cols + col];
+      }
+    }
+  }
+  return family;
+}
+
+inline void validate_block_sparse_effective_hamiltonian_inputs(BlockSparseEnvironment const& left_env,
+                                                               SparseMpoSite const& left_mpo,
+                                                               SparseMpoSite const& right_mpo,
+                                                               BlockSparseEnvironment const& right_env)
+{
+  if (left_env.local_space() != left_mpo.left_virtual_space() ||
+      left_mpo.right_virtual_space() != right_mpo.left_virtual_space() ||
+      right_env.local_space() != right_mpo.right_virtual_space())
+  {
+    throw std::invalid_argument("block-sparse effective Hamiltonian virtual spaces do not match");
+  }
+}
+
+} // namespace detail
+
+/// \brief Compile a strict U(1) two-site Hamiltonian into TensorContraction terms.
+/// \param left_env Environment left of the two-site center.
+/// \param left_mpo Sparse MPO site at the left center site.
+/// \param right_mpo Sparse MPO site at the right center site.
+/// \param right_env Environment right of the two-site center.
+/// \param layout Legal two-site input/output layout.
+/// \return Resident-capable TensorContraction operator and layout metadata.
+inline auto
+make_two_site_effective_hamiltonian(BlockSparseEnvironment const& left_env, SparseMpoSite const& left_mpo,
+                                    SparseMpoSite const& right_mpo, BlockSparseEnvironment const& right_env,
+                                    BlockSparseTwoSiteLayout layout) -> BlockSparseTwoSiteEffectiveHamiltonian
+{
+  detail::validate_block_sparse_effective_hamiltonian_inputs(left_env, left_mpo, right_mpo, right_env);
+
+  auto a_mats = detail::make_environment_matrix_family(left_env);
+  auto c_mats = detail::make_transposed_environment_matrix_family(right_env);
+  auto const input_blocks = layout.matrix_family_blocks();
+  auto const output_blocks = input_blocks;
+  std::vector<tensorcontraction::EffectiveHamiltonianOperator::Term> terms;
+
+  for (std::size_t left_env_index = 0; left_env_index < left_env.block_count(); ++left_env_index)
+  {
+    auto const& left_env_block = left_env.blocks()[left_env_index];
+    for (auto left_entry_index : left_mpo.entries_from_left_virtual(left_env_block.key.local))
+    {
+      auto const& left_entry = left_mpo.entries()[left_entry_index];
+      for (auto right_entry_index : right_mpo.entries_from_left_virtual(left_entry.key.right_virtual))
+      {
+        auto const& right_entry = right_mpo.entries()[right_entry_index];
+        for (auto right_env_index : right_env.blocks_for_local(right_entry.key.right_virtual))
+        {
+          auto const& right_env_block = right_env.blocks()[right_env_index];
+          auto const ket_pair =
+              two_site_pair_index(layout.right_physical_space().size(), left_entry.key.ket, right_entry.key.ket);
+          auto const bra_pair =
+              two_site_pair_index(layout.right_physical_space().size(), left_entry.key.bra, right_entry.key.bra);
+          ThreeLegBlockKey const input_key{.row_sector = left_env_block.key.col_sector,
+                                           .local = ket_pair,
+                                           .col_sector = right_env_block.key.col_sector};
+          ThreeLegBlockKey const output_key{.row_sector = left_env_block.key.row_sector,
+                                            .local = bra_pair,
+                                            .col_sector = right_env_block.key.row_sector};
+          if (!layout.contains(input_key) || !layout.contains(output_key))
+          {
+            continue;
+          }
+
+          terms.push_back(tensorcontraction::EffectiveHamiltonianOperator::Term{.r = layout.block_index(output_key),
+                                                                                .a = left_env_index,
+                                                                                .b = layout.block_index(input_key),
+                                                                                .c = right_env_index,
+                                                                                .coefficient = left_entry.value *
+                                                                                               right_entry.value});
+        }
+      }
+    }
+  }
+
+  if (terms.empty())
+  {
+    throw std::invalid_argument("block-sparse effective Hamiltonian has no legal TensorContraction terms");
+  }
+
+  return BlockSparseTwoSiteEffectiveHamiltonian{
+      .op = tensorcontraction::EffectiveHamiltonianOperator::variable_middle(std::move(a_mats), std::move(c_mats),
+                                                                             input_blocks, output_blocks, terms),
+      .layout = std::move(layout)};
 }
 
 /// \brief Result of splitting a U(1)-block-sparse two-site center.
@@ -893,7 +1114,7 @@ inline auto split_two_site_center(BlockSparseTwoSiteLayout const& layout, tensor
   for (auto const& sector : sectors)
   {
     auto matrix = detail::assemble_svd_sector_matrix(layout, center, sector);
-    svds.push_back(tensorcontraction::single_block_svd(matrix));
+    svds.push_back(tensorcontraction::single_block_svd_cusolver_required(matrix));
   }
 
   auto [ranks, spectrum] = detail::select_sector_ranks(svds, options);
@@ -968,6 +1189,7 @@ struct BlockSparseTwoSiteSolveResult
     tensorcontraction::LanczosResult lanczos;
     BlockSparseTwoSiteLayout layout;
     tensorcontraction::MatrixFamily optimized_vector;
+    std::unique_ptr<tensorcontraction::VectorAlgebraEngine> resident_algebra;
 };
 
 /// \brief Solve one strict U(1) two-site effective Hamiltonian.
@@ -989,13 +1211,39 @@ inline auto solve_two_site(BlockSparseFiniteMPS const& psi, BlockSparseMpoChain 
 
   BlockSparseTwoSiteLayout layout(psi[left_site].local_space(), psi[left_site + 1].local_space(),
                                   psi[left_site].row_space(), psi[left_site + 1].col_space());
-  auto optimized_vector = make_two_site_vector(psi, left_site, layout);
+  auto effective_hamiltonian =
+      make_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env, std::move(layout));
+  auto algebra = std::make_unique<tensorcontraction::VectorAlgebraEngine>();
+  if (algebra->uses_host_backend())
+  {
+    throw std::runtime_error("block-sparse U(1) DMRG requires the TensorContraction resident CUDA/MPI backend");
+  }
+  auto optimized_vector = make_two_site_vector_resident(psi, left_site, effective_hamiltonian.layout, *algebra);
+  algebra->set_host_synchronization(false);
   auto apply = [&](tensorcontraction::MatrixFamily const& x, tensorcontraction::MatrixFamily& y) {
-    apply_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env, layout, x, y);
+    effective_hamiltonian.op.apply_resident(x, y, *algebra);
   };
-  auto lanczos = tensorcontraction::lanczos_lowest(optimized_vector, apply, options);
-  return BlockSparseTwoSiteSolveResult{
-      .lanczos = lanczos, .layout = std::move(layout), .optimized_vector = std::move(optimized_vector)};
+  auto lanczos = tensorcontraction::lanczos_lowest_with_engine(optimized_vector, apply, *algebra, options);
+  return BlockSparseTwoSiteSolveResult{.lanczos = lanczos,
+                                       .layout = std::move(effective_hamiltonian.layout),
+                                       .optimized_vector = std::move(optimized_vector),
+                                       .resident_algebra = std::move(algebra)};
+}
+
+/// \brief Split a solved resident block-sparse center after explicit host synchronization.
+/// \param solution Resident local solve result.
+/// \param direction Sweep direction determining singular-value absorption.
+/// \param options Truncation options.
+/// \return Split replacement sites.
+inline auto split_two_site_solution(BlockSparseTwoSiteSolveResult& solution, TwoSiteSplitDirection direction,
+                                    tensorcontraction::SvdOptions options = {}) -> BlockSparseTwoSiteSplitResult
+{
+  if (solution.resident_algebra != nullptr)
+  {
+    solution.resident_algebra->synchronize(solution.optimized_vector);
+  }
+  tensorcontraction::broadcast_values_from_rank_zero(solution.optimized_vector);
+  return split_two_site_center(solution.layout, solution.optimized_vector, direction, options);
 }
 
 /// \brief Replace the optimized two-site center in a block-sparse MPS.
@@ -1196,8 +1444,7 @@ inline auto sweep_two_site_left_to_right(BlockSparseFiniteMPS& psi, BlockSparseM
     auto solution =
         solve_two_site(psi, mpo, left_site, left_envs[left_site], right_envs[left_site + 2], options.lanczos);
     auto const split_start = std::chrono::steady_clock::now();
-    auto split = split_two_site_center(solution.layout, solution.optimized_vector, TwoSiteSplitDirection::LeftToRight,
-                                       options.svd);
+    auto split = split_two_site_solution(solution, TwoSiteSplitDirection::LeftToRight, options.svd);
     auto const replace_start = std::chrono::steady_clock::now();
     auto update = detail::make_block_sparse_bond_update(left_site, solution, split,
                                                         detail::elapsed_seconds(solve_start, split_start),
@@ -1241,8 +1488,7 @@ inline auto sweep_two_site_right_to_left(BlockSparseFiniteMPS& psi, BlockSparseM
     auto solution =
         solve_two_site(psi, mpo, left_site, left_envs[left_site], right_envs[left_site + 2], options.lanczos);
     auto const split_start = std::chrono::steady_clock::now();
-    auto split = split_two_site_center(solution.layout, solution.optimized_vector, TwoSiteSplitDirection::RightToLeft,
-                                       options.svd);
+    auto split = split_two_site_solution(solution, TwoSiteSplitDirection::RightToLeft, options.svd);
     auto const replace_start = std::chrono::steady_clock::now();
     auto update = detail::make_block_sparse_bond_update(left_site, solution, split,
                                                         detail::elapsed_seconds(solve_start, split_start),

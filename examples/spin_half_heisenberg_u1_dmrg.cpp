@@ -6,6 +6,8 @@
 
 #include <uni20/common/terminal.hpp>
 
+#include <mpi.h>
+
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -55,6 +57,26 @@ auto truncation_sum(BlockSparseTwoSiteSweepResult const& result) -> double
     total += update.discarded_weight;
   }
   return total;
+}
+
+void ensure_mpi_initialized()
+{
+  int initialized = 0;
+  MPI_Initialized(&initialized);
+  if (initialized != 0)
+  {
+    return;
+  }
+
+  MPI_Init(nullptr, nullptr);
+  std::atexit([] {
+    int finalized = 0;
+    MPI_Finalized(&finalized);
+    if (finalized == 0)
+    {
+      MPI_Finalize();
+    }
+  });
 }
 
 class BenchFile {
@@ -243,6 +265,8 @@ auto main() -> int
 {
   try
   {
+    ensure_mpi_initialized();
+
     fmt::print("spin-1/2 open Heisenberg DMRG smoke test\n");
     fmt::print("using strict U(1) block-sparse path\n");
     run_exact_small_chain_check();

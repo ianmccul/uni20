@@ -339,6 +339,76 @@ void VectorAlgebraEngine::gemm_selected_to_resident(MatrixFamily const& lhs, Mat
   impl_->arranger->doLinearAlgebra();
 }
 
+void VectorAlgebraEngine::gemm_sparse_selected_to_resident(MatrixFamily const& lhs, MatrixFamily const& rhs,
+                                                           MatrixFamily& result,
+                                                           std::span<std::size_t const> lhs_block_for_product,
+                                                           std::span<std::size_t const> rhs_block_for_product,
+                                                           std::span<std::size_t const> result_block_for_product)
+{
+  validate_compatible_sparse_selected_gemm_shapes(lhs, rhs, result, lhs_block_for_product, rhs_block_for_product,
+                                                  result_block_for_product);
+
+  std::vector<bool> result_seen(result.size(), false);
+  for (std::size_t result_index : result_block_for_product)
+  {
+    if (result_seen[result_index])
+    {
+      throw std::invalid_argument(
+          "TensorContraction sparse selected GEMM does not yet support duplicate result blocks");
+    }
+    result_seen[result_index] = true;
+  }
+
+  if (impl_->host_backend())
+  {
+    uni20::tensorcontraction::zero(result);
+    for (std::size_t product = 0; product < result_block_for_product.size(); ++product)
+    {
+      auto const lhs_index = lhs_block_for_product[product];
+      auto const rhs_index = rhs_block_for_product[product];
+      auto const result_index = result_block_for_product[product];
+      auto const lhs_block = lhs.block(lhs_index);
+      auto const rhs_block = rhs.block(rhs_index);
+      auto const result_block = result.block(result_index);
+      auto const lhs_values = lhs.values(lhs_index);
+      auto const rhs_values = rhs.values(rhs_index);
+      auto result_values = result.values(result_index);
+      for (std::size_t row = 0; row < lhs_block.rows; ++row)
+      {
+        for (std::size_t inner = 0; inner < lhs_block.cols; ++inner)
+        {
+          auto const lhs_value = lhs_values[row * lhs_block.cols + inner];
+          for (std::size_t col = 0; col < rhs_block.cols; ++col)
+          {
+            result_values[row * result_block.cols + col] += lhs_value * rhs_values[inner * rhs_block.cols + col];
+          }
+        }
+      }
+    }
+    return;
+  }
+
+  impl_->arranger->localizeForLinearAlgebra(raw_matrices(lhs), true);
+  impl_->arranger->localizeForLinearAlgebra(raw_matrices(rhs), true);
+  impl_->localize(result, false, false);
+
+  auto const& result_matrices = raw_matrices(result);
+  for (auto const& matrix : result_matrices)
+  {
+    impl_->arranger->compileZeroForLinearAlgebra(matrix, false);
+  }
+
+  auto const& lhs_matrices = raw_matrices(lhs);
+  auto const& rhs_matrices = raw_matrices(rhs);
+  for (std::size_t product = 0; product < result_block_for_product.size(); ++product)
+  {
+    impl_->arranger->compileMatMulForLinearAlgebra(result_matrices[result_block_for_product[product]],
+                                                   lhs_matrices[lhs_block_for_product[product]],
+                                                   rhs_matrices[rhs_block_for_product[product]], false);
+  }
+  impl_->arranger->doLinearAlgebra();
+}
+
 double VectorAlgebraEngine::normalize(MatrixFamily& x)
 {
   double const x_norm = this->norm(x);

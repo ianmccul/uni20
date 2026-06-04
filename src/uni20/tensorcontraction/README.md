@@ -101,16 +101,20 @@ as scratch storage.
 Lanczos prototype: `dot`, `norm`, `scale`, `axpy`, `copy`, `zero`, `normalize`,
 and small block-GEMM helpers.  `gemm_selected` maps many output blocks onto a
 smaller set of left/right input blocks, which avoids duplicating physical MPS
-blocks while building two-site DMRG vectors.  The free functions are the host
-fallback.  `VectorAlgebraEngine`
-routes the same operations through TensorContraction's CUDA worklists so the
-DMRG local solver does not bake in CPU vector algebra.  Host `MatrixFamily`
-inputs are uploaded on first use, but matrix outputs stay resident by default;
-call `synchronize` at an explicit algorithm boundary to materialize values back
-to host storage.  If host data is deliberately changed after first use, call
-`upload` to refresh the resident buffer.  `set_host_synchronization(false)`
-switches to fully resident mode and disables implicit first-use host uploads for
-Lanczos-local Krylov vectors.  When Lanczos is given an
+blocks while building two-site DMRG vectors.  `gemm_sparse_selected_to_resident`
+is the resident-oriented shape used by the strict U(1) two-site center builder: it
+zeros all legal result blocks and fills only the currently present selected
+block products.  Duplicate contributions to one output block are rejected until
+the bridge has a true matmul-accumulate primitive.  The free functions are the
+host fallback.  `VectorAlgebraEngine` routes the same operations through
+TensorContraction's CUDA worklists so the DMRG local solver does not bake in CPU
+vector algebra.  Host `MatrixFamily` inputs are uploaded on first use, but
+matrix outputs stay resident by default; call `synchronize` at an explicit
+algorithm boundary to materialize values back to host storage.  If host data is
+deliberately changed after first use, call `upload` to refresh the resident
+buffer.  `set_host_synchronization(false)` switches to fully resident mode and
+disables implicit first-use host uploads for Lanczos-local Krylov vectors.  When
+Lanczos is given an
 `EffectiveHamiltonianOperator` directly, the operator's `apply_resident` hook
 uses the same resident vector-algebra runtime for the local matvec and avoids
 host transfers between Hamiltonian applications.  Generic host-callable
@@ -145,6 +149,9 @@ blocks are still copied back because the current dense `FiniteMPS` container is
 host-owned.  Longer-term native uni20 resource and scheduler direction is
 recorded in
 [`docs/cuda_cusolver_architecture.md`](../../../docs/cuda_cusolver_architecture.md).
+`single_block_svd_cusolver_required` is the stricter entry point used by the
+strict U(1) block-sparse split: it fails if cuSOLVER or a CUDA device is not
+available, instead of falling through to LAPACK or the reference SVD.
 
 The current SVD code is also a prototype for backend-capability dispatch.  A
 small operation-specific dispatch layer tries the most specialized available

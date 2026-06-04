@@ -274,6 +274,41 @@ TEST(TensorContractionVectorAlgebraTest, EngineCanBuildSelectedGemmOutputResiden
   EXPECT_DOUBLE_EQ(result.values(3)[1], 173.0);
 }
 
+TEST(TensorContractionVectorAlgebraTest, EngineCanBuildSparseSelectedGemmOutputResidentFromHostInputs)
+{
+  utc::VectorAlgebraEngine engine;
+  std::array lhs_blocks{utc::MatrixFamily::Block{2, 2}, utc::MatrixFamily::Block{2, 2}};
+  std::array rhs_blocks{utc::MatrixFamily::Block{2, 1}, utc::MatrixFamily::Block{2, 1}};
+  std::array result_blocks{utc::MatrixFamily::Block{2, 1}, utc::MatrixFamily::Block{2, 1},
+                           utc::MatrixFamily::Block{2, 1}};
+  std::array<std::size_t, 2> lhs_selector{0, 1};
+  std::array<std::size_t, 2> rhs_selector{1, 0};
+  std::array<std::size_t, 2> result_selector{0, 2};
+  utc::MatrixFamily lhs(lhs_blocks);
+  utc::MatrixFamily rhs(rhs_blocks);
+  utc::MatrixFamily result(result_blocks);
+  lhs.assign(0, std::array{1.0, 2.0, 3.0, 4.0});
+  lhs.assign(1, std::array{5.0, 6.0, 7.0, 8.0});
+  rhs.assign(0, std::array{9.0, 10.0});
+  rhs.assign(1, std::array{11.0, 12.0});
+  result.fill(-1.0);
+
+  engine.gemm_sparse_selected_to_resident(lhs, rhs, result, lhs_selector, rhs_selector, result_selector);
+
+  if (!engine.uses_host_backend())
+  {
+    EXPECT_DOUBLE_EQ(result.values(0)[0], -1.0);
+    EXPECT_DOUBLE_EQ(result.values(2)[1], -1.0);
+  }
+  engine.synchronize(result);
+  EXPECT_DOUBLE_EQ(result.values(0)[0], 35.0);
+  EXPECT_DOUBLE_EQ(result.values(0)[1], 81.0);
+  EXPECT_DOUBLE_EQ(result.values(1)[0], 0.0);
+  EXPECT_DOUBLE_EQ(result.values(1)[1], 0.0);
+  EXPECT_DOUBLE_EQ(result.values(2)[0], 105.0);
+  EXPECT_DOUBLE_EQ(result.values(2)[1], 143.0);
+}
+
 TEST(TensorContractionVectorAlgebraTest, RejectsZeroNormalizeAndShapeMismatches)
 {
   auto x = make_vector();

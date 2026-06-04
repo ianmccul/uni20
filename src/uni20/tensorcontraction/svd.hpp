@@ -562,6 +562,28 @@ inline SingleBlockSvd single_block_svd(MatrixFamily const& matrix, SvdOptions op
   return detail::dispatch(detail::svd_op{}, detail::default_svd_backend{}, matrix, options);
 }
 
+/// \brief Compute a single-block SVD through cuSOLVER without CPU fallback.
+/// \throws std::runtime_error If cuSOLVER support or a CUDA device is unavailable.
+/// \param matrix Single-block input matrix.
+/// \param options Truncation options applied after the device SVD.
+/// \return SVD factors materialized in host `MatrixFamily` storage.
+inline SingleBlockSvd single_block_svd_cusolver_required(MatrixFamily const& matrix, SvdOptions options = {})
+{
+  detail::validate_single_block_svd_inputs(matrix, options);
+
+#if UNI20_TENSORCONTRACTION_HAS_CUSOLVER
+  if (auto svd = detail::single_block_svd_cusolver(matrix, options); svd.has_value())
+  {
+    return std::move(*svd);
+  }
+  throw std::runtime_error("TensorContraction cuSOLVER SVD is unavailable or failed to converge");
+#else
+  (void)matrix;
+  (void)options;
+  throw std::runtime_error("TensorContraction was built without cuSOLVER SVD support");
+#endif
+}
+
 /// \brief Extract spectrum and truncation metadata from a complete host SVD.
 /// \param svd Complete SVD result to summarize.
 /// \return Spectrum metadata without copying host factor matrices.
