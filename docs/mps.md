@@ -74,6 +74,27 @@ wavefunction storage infrastructure.
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
 
+## Symmetry Invariants
+
+Quantum-number metadata is part of the tensor state, not auxiliary annotation.
+The U(1) DMRG path must keep `LocalSpace`, `BlockSpace`, `QNum`, and leg
+orientation information attached through MPS/MPO construction, environment
+updates, two-site solves, SVD splits, TensorContraction worklist generation, and
+eventual CUDA/MPI placement.
+
+Implicit dense materialization is not allowed in symmetry-aware code because it
+erases the block coordinates that define the legal tensor state. Dense
+conversions must be explicit, named as debug/reference helpers, and tested at
+the boundary where symmetry metadata is restored or compared. If an operation
+cannot yet preserve block structure, the U(1) path should reject it rather than
+silently falling back to a dense implementation.
+
+The current selection-rule conventions are:
+
+- `ThreeLegBlockMatrix`: `q_column = q_row + q_local`.
+- `LocalOperator` coefficients: `q_bra = q_ket + q_operator`.
+- `SparseMpoSite`: `q_left_virtual + q_ket = q_right_virtual + q_bra`.
+
 ## Observed sweep behaviour
 
 When comparing the length-20 open spin-1/2 Heisenberg example against an

@@ -109,6 +109,43 @@ These primitives enforce *causal consistency*: all reads and writes occur in dep
 
 ---
 
+### 3.5 Symmetry and Block-Sparse Tensor Invariants
+
+* Quantum-number metadata is part of the tensor type semantics. Do **not** drop
+  `LocalSpace`, `BlockSpace`, `QNum`, or leg-orientation metadata when moving
+  between MPS, MPO, environment, SVD, TensorContraction, CUDA, or MPI layers.
+* Symmetry-aware MPS/MPO/DMRG code must preserve explicit block structure. Do
+  **not** silently flatten a block-sparse tensor into one dense matrix unless
+  the API name and documentation make the conversion explicit, for example a
+  debug/reference helper named `to_dense_reference`, `materialize_dense_debug`,
+  or similar.
+* Dense fallback paths are allowed only for tests, reference checks, legacy
+  bridge code, or explicitly documented debugging. Production U(1) DMRG paths
+  must reject unsupported block-sparse operations rather than silently using a
+  symmetry-erasing dense implementation.
+* Every block-sparse operation must validate and/or construct blocks through
+  the applicable selection rule. For the first U(1) MPS prototype:
+  `ThreeLegBlockMatrix` uses `q_column = q_row + q_local`, local operator
+  coefficients use `q_bra = q_ket + q_operator`, and sparse MPO entries use
+  `q_left_virtual + q_ket = q_right_virtual + q_bra`.
+* TensorContraction worklists generated from symmetry-aware tensors must carry
+  logical block keys and placement metadata. If a temporary dense bridge is
+  still required, isolate it behind an explicitly named adapter and add tests
+  proving that quantum-number sector information is preserved at the adapter
+  boundary.
+* Agents must treat loss of symmetry metadata as a correctness bug, not an
+  optimization tradeoff. If maintaining symmetry metadata is impossible for a
+  requested change, stop and report the limitation instead of adding an
+  implicit dense path.
+
+**Why:**
+Symmetry sectors define which tensor blocks exist and which contractions are
+legal. Losing that metadata changes the mathematical problem, hides invalid
+states, and prevents the CUDA/MPI block distribution strategy needed for large
+DMRG calculations.
+
+---
+
 ## 4. Testing
 
 ```bash
