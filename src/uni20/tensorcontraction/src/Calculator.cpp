@@ -140,7 +140,7 @@ void SyncWork::execute()
   auto [matDeviceId, buffer] = swapper.getPreStoreBufferOrNone(mat);
   auto event = getSyncFinishEvent();
 
-  if (mat.getPtr() == nullptr)
+  if (!mat.hasHostStorage())
   {
     auto localBuffer = swapper.getForReadNoWait(mat, deviceId);
     assert(localBuffer);
@@ -158,7 +158,7 @@ void SyncWork::execute()
     DEBUG_SYNC(swapper, mat.getId(), deviceId, stream);
     swapper.syncBuffer(mat, deviceId, stream);
   }
-  else if (!event && mat.getPtr() != nullptr)
+  else if (!event && mat.hasHostStorage())
   {
     swapper.copyPreStoreMatrixToHost(mat);
   }

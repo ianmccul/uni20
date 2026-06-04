@@ -1,6 +1,7 @@
 #include <uni20/tensorcontraction/matrix_family.hpp>
 
 #include "Matrix.hpp"
+#include "MatrixAllocator.hpp"
 
 #include <gtest/gtest.h>
 
@@ -36,6 +37,40 @@ TEST(TensorContractionMatrixFamilyTest, OwnsHostStorageAndDescriptors)
   EXPECT_EQ(matrices[0].getPtr(), values.data());
   EXPECT_EQ(matrices[1].getFirstDim(), 1);
   EXPECT_EQ(matrices[1].getSecondDim(), 2);
+}
+
+TEST(TensorContractionMatrixFamilyTest, ExposesLogicalHandleAndHostView)
+{
+  std::array blocks{utc::MatrixFamily::Block{2, 3}};
+  utc::MatrixFamily family(blocks);
+  auto const& matrix = utc::raw_matrices(family).front();
+
+  auto handle = matrix.handle();
+  EXPECT_EQ(handle.id(), matrix.getId());
+  EXPECT_EQ(handle.rows(), 2);
+  EXPECT_EQ(handle.cols(), 3);
+  EXPECT_EQ(handle.nodeId(), matrix.getNodeId());
+  EXPECT_EQ(handle.size(), 6);
+  EXPECT_EQ(handle.sizeInByte(), 6 * sizeof(double));
+
+  auto host = matrix.hostView();
+  EXPECT_TRUE(host.valid());
+  EXPECT_EQ(host.handle().id(), handle.id());
+  EXPECT_EQ(host.data(), matrix.getPtr());
+  EXPECT_EQ(host.memoryKind(), tensor::HostMemoryKind::Pageable);
+}
+
+TEST(TensorContractionMatrixFamilyTest, MatrixAllocatorMarksPinnedHostStorage)
+{
+  tensor::MatrixAllocator allocator;
+  auto matrices = allocator.allocateMatrices(std::vector<std::pair<int, int>>{{2, 2}}, false, false);
+  ASSERT_EQ(matrices.size(), 1);
+
+  auto host = matrices.front().hostView();
+  EXPECT_TRUE(host.valid());
+  EXPECT_EQ(host.memoryKind(), tensor::HostMemoryKind::Pinned);
+  EXPECT_TRUE(host.pinned());
+  allocator.freeAll({}, {}, {});
 }
 
 TEST(TensorContractionMatrixFamilyTest, RejectsWrongSizedAssignment)

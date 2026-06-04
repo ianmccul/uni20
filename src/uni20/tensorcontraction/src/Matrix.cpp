@@ -12,10 +12,9 @@ Matrix::Matrix(void* ptr, int dim1, int dim2)
   int const id = currentId.fetch_add(1);
 
   impl = std::make_shared<MatrixImpl>();
-  impl->id = id;
-  impl->dim1 = dim1;
-  impl->dim2 = dim2;
+  impl->handle = MatrixHandle(id, static_cast<size_t>(dim1), static_cast<size_t>(dim2));
   impl->ptr = ptr;
+  impl->hostMemoryKind = HostMemoryKind::Pageable;
 }
 
 } // namespace tensor

@@ -55,6 +55,7 @@ class GpuBuffer {
     size_t size() const { return dim1 * dim2; }
     size_t sizeInByte() const { return size() * sizeof(double); }
     bool contentValid() const { return hasValidContent; }
+    DeviceMatrixView deviceView(int deviceId) const;
     void publishAllocation(cuda::CompletionRef completion);
     void waitBeforeRead(cudaStream_t stream);
     void waitBeforeWrite(cudaStream_t stream);
@@ -174,13 +175,17 @@ class Swapper {
     std::shared_ptr<GpuBuffer> allocate(Matrix mat, int deviceId);
     std::pair<int, std::shared_ptr<GpuBuffer>> findLocalSourceBuffer(Matrix mat, int requesterDeviceId);
     void preStoreMatrix(Matrix mat, int deviceId);
+    std::shared_ptr<GpuBuffer> uploadHostMatrix(HostMatrixView host, int deviceId);
     void copyHostToPreStoreMatrix(Matrix mat);
+    void refreshHostMatrixToDevice(HostMatrixView host);
     void copyPreStoreMatrixToHost(Matrix mat);
+    void downloadDeviceToHost(HostMatrixView host);
     void registerGpuAllocation(Matrix mat, int deviceId);
     std::pair<int, std::shared_ptr<GpuBuffer>> getPreStoreBufferOrNone(Matrix mat);
     void notifyMatrixRead(Matrix mat, int deviceId, cuda::CompletionRef completion);
     void notifyMatrixWrite(Matrix mat, int deviceId, cuda::CompletionRef completion);
     void copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream);
+    void copyHostToDevice(HostMatrixView host, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream);
     void exchangePreStoreMap();
     bool isOnRemoteGpu(int matId) const;
     int getRemoteNCCLId(int matId) const;

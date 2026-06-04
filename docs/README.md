@@ -18,6 +18,7 @@
 - [CUDA Backend Library Compatibility](cuda_backend_libraries.md)
 - [CUDA/cuSOLVER Architecture Notes](cuda_cusolver_architecture.md)
 - [GPU Epoch Design Draft](gpu_epoch_design_draft.md)
+- [TensorContraction Matrix Storage Prototype](tensorcontraction_matrix_storage_prototype.md)
 - [Async Storage and Assignment Semantics](async_storage.md)
 
 ## AI Guidance

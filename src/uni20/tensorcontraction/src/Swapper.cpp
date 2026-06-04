@@ -141,6 +141,11 @@ GpuBuffer::GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled, CudaDe
 
 double* GpuBuffer::getPtr() { return static_cast<double*>(ptr); }
 int GpuBuffer::getId() const { return id; }
+DeviceMatrixView GpuBuffer::deviceView(int deviceId) const
+{
+  return DeviceMatrixView(MatrixHandle(id, dim1, dim2), deviceId, static_cast<double*>(ptr), *deviceContext,
+                          hasValidContent);
+}
 
 void GpuBuffer::publishAllocation(cuda::CompletionRef completion)
 {
@@ -474,62 +479,84 @@ std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
 
 void Swapper::copyMatrix(Matrix mat, std::shared_ptr<GpuBuffer> buffer, int deviceId, cudaStream_t stream)
 {
-  assert(mat.getPtr() != nullptr);
-  DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream, mat.sizeInByte());
-  recordCopy(CopyStatsSite::CopyMatrixH2D, mat.sizeInByte());
-  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream));
+  this->copyHostToDevice(mat.hostView(), std::move(buffer), deviceId, stream);
+}
+
+void Swapper::copyHostToDevice(HostMatrixView host, std::shared_ptr<GpuBuffer> buffer, int deviceId,
+                               cudaStream_t stream)
+{
+  assert(host.valid());
+  DEBUG_GPU_COPY_H2D(*this, host.handle().id(), deviceId, stream, host.sizeInByte());
+  recordCopy(CopyStatsSite::CopyMatrixH2D, host.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), host.requireData(), host.sizeInByte(), cudaMemcpyHostToDevice, stream));
   buffer->publishWrite(stream);
 }
 
-void Swapper::preStoreMatrix(Matrix mat, int deviceId)
+void Swapper::preStoreMatrix(Matrix mat, int deviceId) { (void)this->uploadHostMatrix(mat.hostView(), deviceId); }
+
+std::shared_ptr<GpuBuffer> Swapper::uploadHostMatrix(HostMatrixView host, int deviceId)
 {
-  DEBUG_PRESTORE(*this, mat.getId(), 0, deviceId);
-  auto allocation = deviceContexts[deviceId]->allocateFromPool(memPools[deviceId], mat.sizeInByte());
+  assert(host.valid());
+  DEBUG_PRESTORE(*this, host.handle().id(), 0, deviceId);
+  auto allocation = deviceContexts[deviceId]->allocateFromPool(memPools[deviceId], host.sizeInByte());
   CUDA_CALL(allocation.status);
+  Matrix mat(host.handle().toHeader());
+  mat.setPtr(host.data());
+  mat.setHostMemoryKind(host.memoryKind());
   auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
   buffer->publishAllocation(std::move(allocation.completion));
 
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeWrite(stream.stream());
-  DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
-  recordCopy(CopyStatsSite::PreStoreH2D, mat.sizeInByte());
-  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream.stream()));
+  DEBUG_GPU_COPY_H2D(*this, host.handle().id(), deviceId, stream.stream(), host.sizeInByte());
+  recordCopy(CopyStatsSite::PreStoreH2D, host.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), host.requireData(), host.sizeInByte(), cudaMemcpyHostToDevice,
+                            stream.stream()));
   buffer->publishWrite(stream.recordCompletion());
-  assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
-  preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
+  assert(preStoreMap.find(host.handle().id()) == preStoreMap.end());
+  preStoreMap[host.handle().id()] = std::make_pair(deviceId, buffer);
+  return buffer;
 }
 
-void Swapper::copyHostToPreStoreMatrix(Matrix mat)
+void Swapper::copyHostToPreStoreMatrix(Matrix mat) { this->refreshHostMatrixToDevice(mat.hostView()); }
+
+void Swapper::refreshHostMatrixToDevice(HostMatrixView host)
 {
   // Refresh an existing resident buffer from the host-side MatrixFamily block.
   // This is used only at explicit host/GPU authority boundaries.
+  Matrix mat(host.handle().toHeader());
   auto [deviceId, buffer] = getPreStoreBufferOrNone(mat);
   assert(buffer != nullptr);
-  assert(mat.getPtr() != nullptr);
+  assert(host.valid());
 
   CUDA_CALL(cudaSetDevice(deviceId));
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeWrite(stream.stream());
-  DEBUG_GPU_COPY_H2D(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
-  recordCopy(CopyStatsSite::RefreshPreStoreH2D, mat.sizeInByte());
-  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), mat.getPtr(), mat.sizeInByte(), cudaMemcpyHostToDevice, stream.stream()));
+  DEBUG_GPU_COPY_H2D(*this, host.handle().id(), deviceId, stream.stream(), host.sizeInByte());
+  recordCopy(CopyStatsSite::RefreshPreStoreH2D, host.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), host.requireData(), host.sizeInByte(), cudaMemcpyHostToDevice,
+                            stream.stream()));
   buffer->publishWrite(stream.recordCompletion());
 }
 
-void Swapper::copyPreStoreMatrixToHost(Matrix mat)
+void Swapper::copyPreStoreMatrixToHost(Matrix mat) { this->downloadDeviceToHost(mat.hostView()); }
+
+void Swapper::downloadDeviceToHost(HostMatrixView host)
 {
   // Materialize resident GPU data back into the MatrixFamily host block without
   // going through a worklist SyncWork for every vector operation.
+  Matrix mat(host.handle().toHeader());
   auto [deviceId, buffer] = getPreStoreBufferOrNone(mat);
   assert(buffer != nullptr);
-  assert(mat.getPtr() != nullptr);
+  assert(host.valid());
 
   CUDA_CALL(cudaSetDevice(deviceId));
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeRead(stream.stream());
-  DEBUG_GPU_COPY_D2H(*this, mat.getId(), deviceId, stream.stream(), mat.sizeInByte());
-  recordCopy(CopyStatsSite::PreStoreD2H, mat.sizeInByte());
-  CUDA_CALL(cudaMemcpyAsync(mat.getPtr(), buffer->getPtr(), mat.sizeInByte(), cudaMemcpyDeviceToHost, stream.stream()));
+  DEBUG_GPU_COPY_D2H(*this, host.handle().id(), deviceId, stream.stream(), host.sizeInByte());
+  recordCopy(CopyStatsSite::PreStoreD2H, host.sizeInByte());
+  CUDA_CALL(cudaMemcpyAsync(host.requireData(), buffer->getPtr(), host.sizeInByte(), cudaMemcpyDeviceToHost,
+                            stream.stream()));
   buffer->publishRead(stream.recordCompletion());
 }
 
@@ -965,9 +992,10 @@ void Swapper::syncBuffer(Matrix mat, int deviceId, cudaStream_t stream)
   }
   else
   {
-    DEBUG_GPU_COPY_D2H(*this, buffer->getId(), deviceId, stream, buffer->sizeInByte());
-    recordCopy(CopyStatsSite::SyncBufferD2H, buffer->sizeInByte());
-    CUDA_CALL(cudaMemcpyAsync(buffer->hostPtr, buffer->getPtr(), buffer->sizeInByte(), cudaMemcpyDeviceToHost, stream));
+    auto host = mat.hostView();
+    DEBUG_GPU_COPY_D2H(*this, host.handle().id(), deviceId, stream, host.sizeInByte());
+    recordCopy(CopyStatsSite::SyncBufferD2H, host.sizeInByte());
+    CUDA_CALL(cudaMemcpyAsync(host.requireData(), buffer->getPtr(), host.sizeInByte(), cudaMemcpyDeviceToHost, stream));
   }
   buffer->publishRead(stream);
 }

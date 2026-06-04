@@ -39,7 +39,8 @@ std::vector<Matrix> MatrixAllocator::initializeMatricesFromChunk(const std::vect
         }
       }
     }
-    results.emplace_back(currentPtr, dim1, dim2);
+    auto& matrix = results.emplace_back(currentPtr, dim1, dim2);
+    matrix.setHostMemoryKind(HostMemoryKind::Pinned);
     currentPtr += matSize;
   }
 
@@ -111,6 +112,7 @@ void MatrixAllocator::allocateMatrices(std::vector<Matrix>& mats, bool shouldIni
 
     // Update the Matrix object's pointer in place
     mat.setPtr(currentPtr);
+    mat.setHostMemoryKind(HostMemoryKind::Pinned);
     currentPtr += matSize;
   }
 }

@@ -831,8 +831,9 @@ void Arranger::mpiExchangeCopies(const std::vector<std::vector<int>>& tokensNeed
     {
       int token = recvTokens[base + k];
       auto m = localMats.at(token);
+      auto host = m.hostView();
       MPI_Request req;
-      MPI_Isend(m.getPtr(), m.size(), MPI_DOUBLE, r, token, MPI_COMM_WORLD, &req);
+      MPI_Isend(host.requireData(), m.size(), MPI_DOUBLE, r, token, MPI_COMM_WORLD, &req);
       requests.push_back(req);
     }
   }
@@ -843,7 +844,7 @@ void Arranger::mpiExchangeCopies(const std::vector<std::vector<int>>& tokensNeed
     {
       auto m = neededMatMap.at(token);
       MPI_Request req;
-      MPI_Irecv(m.getPtr(), m.size(), MPI_DOUBLE, r, token, MPI_COMM_WORLD, &req);
+      MPI_Irecv(m.hostView().requireData(), m.size(), MPI_DOUBLE, r, token, MPI_COMM_WORLD, &req);
       requests.push_back(req);
     }
   }
@@ -1031,7 +1032,7 @@ static void copyLocalMatrices(int deviceId, const std::vector<Matrix>& matricesT
       swapper.publishAccessCompletion({srcBuffer}, {dstBuffer}, stream, completion);
       DEBUG_SECOND_HIT(swapper, mat.getId(), srcDeviceId, deviceId, mat.sizeInByte());
     }
-    else if (mat.getPtr())
+    else if (mat.hasHostStorage())
     {
       auto streamOwner = swapper.deviceContext(deviceId).leaseWorkStream();
       cudaStream_t stream = streamOwner.stream();
@@ -1040,7 +1041,7 @@ static void copyLocalMatrices(int deviceId, const std::vector<Matrix>& matricesT
       {
         CUDA_CALL(cudaStreamWaitEvent(stream, syncFinishEvent));
       }
-      swapper.copyMatrix(mat, buffer, deviceId, stream);
+      swapper.copyHostToDevice(mat.hostView(), buffer, deviceId, stream);
     }
     else
     {
@@ -1102,7 +1103,7 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
       swapper.publishAccessCompletion({srcBuffer}, {dstBuffer}, stream, completion);
       DEBUG_SECOND_HIT(swapper, mat.getId(), srcDeviceId, deviceId, mat.sizeInByte());
     }
-    else if (mat.getPtr())
+    else if (mat.hasHostStorage())
     {
       // This matrix sits in CPU memory.
       auto streamOwner = swapper.deviceContext(deviceId).leaseWorkStream();
@@ -1113,7 +1114,7 @@ static void copyMatrices(int deviceId, int deviceCount, const std::vector<Matrix
         CUDA_CALL(cudaStreamWaitEvent(stream, syncFinishEvent));
       }
       // Just copy it from CPU memory.
-      swapper.copyMatrix(mat, buffer, deviceId, stream);
+      swapper.copyHostToDevice(mat.hostView(), buffer, deviceId, stream);
     }
     else
     {
@@ -1691,7 +1692,7 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
     {
       if (uploadFromHost && refreshExisting)
       {
-        swapper.copyHostToPreStoreMatrix(mat);
+        swapper.refreshHostMatrixToDevice(mat.hostView());
         touchedDevice[deviceId] = true;
       }
       continue;
@@ -1701,7 +1702,7 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
     CUDA_CALL(cudaSetDevice(deviceId));
     if (uploadFromHost)
     {
-      swapper.preStoreMatrix(mat, deviceId);
+      swapper.uploadHostMatrix(mat.hostView(), deviceId);
     }
     else
     {
@@ -1738,7 +1739,7 @@ void Arranger::synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats)
     {
       continue;
     }
-    swapper.copyPreStoreMatrixToHost(mat);
+    swapper.downloadDeviceToHost(mat.hostView());
     touched[deviceId] = true;
   }
 
@@ -1757,9 +1758,9 @@ double* Arranger::collectiveExchangeMatrix(Matrix m)
   double* ptr = nullptr;
 
   // Case 1: matrix is in local host memory.
-  if (m.getPtr())
+  if (m.hasHostStorage())
   {
-    ptr = m.getPtr();
+    ptr = m.hostView().data();
   }
 
   // Case 2: matrix is pre-stored in a local GPU. Copy it to a host buffer.
@@ -1815,9 +1816,10 @@ double* Arranger::collectiveExchangeMatrix(Matrix m)
     {
       // Serve from local CPU memory.
       auto it = localMats.find(requested.getId());
-      if (it != localMats.end() && it->second.getPtr())
+      if (it != localMats.end() && it->second.hasHostStorage())
       {
-        MPI_Isend(it->second.getPtr(), requested.size(), MPI_DOUBLE, rank, 0, MPI_COMM_WORLD, &requests[rank]);
+        MPI_Isend(it->second.hostView().requireData(), requested.size(), MPI_DOUBLE, rank, 0, MPI_COMM_WORLD,
+                  &requests[rank]);
       }
     }
   }
@@ -1994,7 +1996,8 @@ void Arranger::broadcastRtoB(const std::vector<Matrix>& rMats, std::vector<Matri
     if (rMats[i].getNodeId() != mpi_rank) continue;
     if (bMats[i].getNodeId() == mpi_rank) continue;
     MPI_Request req;
-    MPI_Isend(rMats[i].getPtr(), rMats[i].size(), MPI_DOUBLE, bMats[i].getNodeId(), i, MPI_COMM_WORLD, &req);
+    MPI_Isend(rMats[i].hostView().requireData(), rMats[i].size(), MPI_DOUBLE, bMats[i].getNodeId(), i, MPI_COMM_WORLD,
+              &req);
     requests.push_back(req);
   }
 
@@ -2004,9 +2007,10 @@ void Arranger::broadcastRtoB(const std::vector<Matrix>& rMats, std::vector<Matri
     if (bMats[i].getNodeId() != mpi_rank) continue;
     if (rMats[i].getNodeId() == mpi_rank) continue;
     MPI_Request req;
-    if (bMats[i].getPtr() != nullptr)
+    if (bMats[i].hasHostStorage())
     {
-      MPI_Irecv(bMats[i].getPtr(), bMats[i].size(), MPI_DOUBLE, rMats[i].getNodeId(), i, MPI_COMM_WORLD, &req);
+      MPI_Irecv(bMats[i].hostView().requireData(), bMats[i].size(), MPI_DOUBLE, rMats[i].getNodeId(), i, MPI_COMM_WORLD,
+                &req);
       requests.push_back(req);
     }
     else
@@ -2027,15 +2031,15 @@ void Arranger::broadcastRtoB(const std::vector<Matrix>& rMats, std::vector<Matri
   {
     if (rMats[i].getNodeId() != mpi_rank) continue;
     if (bMats[i].getNodeId() != mpi_rank) continue;
-    if (bMats[i].getPtr() != nullptr)
+    if (bMats[i].hasHostStorage())
     {
-      memcpy(bMats[i].getPtr(), rMats[i].getPtr(), bMats[i].sizeInByte());
+      memcpy(bMats[i].hostView().requireData(), rMats[i].hostView().requireData(), bMats[i].sizeInByte());
     }
     else
     {
       auto [deviceId, buf] = swapper.getPreStoreBufferOrNone(bMats[i]);
       cudaSetDevice(deviceId);
-      cudaMemcpy(buf->getPtr(), rMats[i].getPtr(), bMats[i].sizeInByte(), cudaMemcpyHostToDevice);
+      cudaMemcpy(buf->getPtr(), rMats[i].hostView().requireData(), bMats[i].sizeInByte(), cudaMemcpyHostToDevice);
     }
   }
 
@@ -2056,7 +2060,7 @@ void Arranger::broadcastRtoB(const std::vector<Matrix>& rMats, std::vector<Matri
   std::unordered_map<int, Matrix> neededMatMap;
   for (auto& bm : bMats)
   {
-    if (bm.getNodeId() != mpi_rank && bm.getPtr() != nullptr)
+    if (bm.getNodeId() != mpi_rank && bm.hasHostStorage())
     {
       tokensNeededFromRank[bm.getNodeId()].push_back(bm.getId());
       neededMatMap[bm.getId()] = bm;
