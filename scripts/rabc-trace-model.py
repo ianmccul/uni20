@@ -73,6 +73,14 @@ def trace_records(args: argparse.Namespace) -> list[dict[str, Any]]:
     return records
 
 
+def group_by_layout(records: list[dict[str, Any]]) -> dict[tuple[int, ...], list[dict[str, Any]]]:
+    """Group trace records by output layout."""
+    grouped: dict[tuple[int, ...], list[dict[str, Any]]] = {}
+    for record in records:
+        grouped.setdefault(layout_key(record), []).append(record)
+    return grouped
+
+
 def layout_string(layout: list[int]) -> str:
     """Format a layout as the manual placement environment value."""
     return ",".join(str(device) for device in layout)
@@ -177,9 +185,7 @@ def summarize(records: list[dict[str, Any]]) -> None:
 
 def summarize_grouped(records: list[dict[str, Any]]) -> None:
     """Print per-layout timing aggregates."""
-    grouped: dict[tuple[int, ...], list[dict[str, Any]]] = {}
-    for record in records:
-        grouped.setdefault(layout_key(record), []).append(record)
+    grouped = group_by_layout(records)
 
     print("count mean_gpu_s min_gpu_s max_gpu_s first_line layout")
     best_key: tuple[int, ...] | None = None
@@ -198,6 +204,12 @@ def summarize_grouped(records: list[dict[str, Any]]) -> None:
         )
     if best_key is not None:
         print(f"best_mean_gpu_s={best_mean:.9g} layout={layout_string(list(best_key))}")
+
+
+def layout_mean_gpu_seconds(records: list[dict[str, Any]]) -> float:
+    """Return the mean max-device GPU time for one layout."""
+    timings = [float(record.get("gpu_s", float("nan"))) for record in records]
+    return sum(timings) / len(timings)
 
 
 def term_problem(record: dict[str, Any]) -> dict[str, Any]:
@@ -432,6 +444,69 @@ def print_fit(coefficients: dict[str, float], stats: dict[str, float]) -> None:
             print(f"# implied_{name}_gbps={1.0 / (coefficient * 1.0e9):.9g}")
 
 
+def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
+    """Return coefficients with negative values clamped to zero."""
+    return {name: max(0.0, value) for name, value in coefficients.items()}
+
+
+def leave_one_layout_out(
+    records: list[dict[str, Any]], ridge: float, clamp_negative: bool
+) -> list[dict[str, Any]]:
+    """Predict each layout from a model fitted on all other layouts."""
+    grouped = group_by_layout(records)
+    if len(grouped) < 2:
+        raise ValueError("leave-one-layout-out validation requires at least two layouts")
+
+    rows: list[dict[str, Any]] = []
+    for key, held_out in grouped.items():
+        train = [record for other_key, group in grouped.items() if other_key != key for record in group]
+        coefficients, _ = fit_coefficients(train, ridge)
+        if clamp_negative:
+            coefficients = clamp_negative_coefficients(coefficients)
+        problem = term_problem(held_out[0])
+        predicted, device_predictions = score_layout(problem, list(key), coefficients)
+        observed = layout_mean_gpu_seconds(held_out)
+        rows.append(
+            {
+                "layout": key,
+                "first_line": held_out[0]["_line"],
+                "count": len(held_out),
+                "observed": observed,
+                "predicted": predicted,
+                "error": predicted - observed,
+                "device_predictions": device_predictions,
+            }
+        )
+    rows.sort(key=lambda row: row["observed"])
+    return rows
+
+
+def print_validation(rows: list[dict[str, Any]]) -> None:
+    """Print leave-one-layout-out validation details and aggregate errors."""
+    errors = [float(row["error"]) for row in rows]
+    observed = [float(row["observed"]) for row in rows]
+    mean_observed = sum(observed) / len(observed)
+    residual_sum = sum(error * error for error in errors)
+    total_sum = sum((value - mean_observed) ** 2 for value in observed)
+    mae = sum(abs(error) for error in errors) / len(errors)
+    rmse = math.sqrt(residual_sum / len(errors))
+    r2 = 1.0 - residual_sum / total_sum if total_sum > 0.0 else 1.0
+    best_observed = min(rows, key=lambda row: row["observed"])
+    best_predicted = min(rows, key=lambda row: row["predicted"])
+
+    print(
+        f"layouts={len(rows)} mae_s={mae:.9g} rmse_s={rmse:.9g} r2={r2:.9g} "
+        f"best_observed_line={best_observed['first_line']} best_predicted_line={best_predicted['first_line']} "
+        f"top1_match={str(best_observed['layout'] == best_predicted['layout']).lower()}"
+    )
+    print("observed_gpu_s predicted_gpu_s error_s count first_line layout")
+    for row in rows:
+        print(
+            f"{row['observed']:.9g} {row['predicted']:.9g} {row['error']:.9g} "
+            f"{row['count']} {row['first_line']} {layout_string(list(row['layout']))}"
+        )
+
+
 def cmd_fit(args: argparse.Namespace) -> int:
     """Fit and print a model."""
     records = trace_records(args)
@@ -465,12 +540,19 @@ def cmd_layouts(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Run leave-one-layout-out validation."""
+    rows = leave_one_layout_out(trace_records(args), args.ridge, args.clamp_negative)
+    print_validation(rows)
+    return 0
+
+
 def cmd_suggest(args: argparse.Namespace) -> int:
     """Fit a model and suggest the best searched layout."""
     records = trace_records(args)
     coefficients, stats = fit_coefficients(records, args.ridge)
     if not args.allow_negative:
-        coefficients = {name: max(0.0, value) for name, value in coefficients.items()}
+        coefficients = clamp_negative_coefficients(coefficients)
     problem = term_problem(records[-1])
 
     best_layout: list[int] | None = None
@@ -519,6 +601,13 @@ def parser() -> argparse.ArgumentParser:
     suggest.add_argument("--drop-first-per-layout", type=int, default=0)
     suggest.add_argument("--allow-negative", action="store_true")
     suggest.set_defaults(func=cmd_suggest)
+
+    validate = subcommands.add_parser("validate", help="leave-one-layout-out model validation")
+    validate.add_argument("trace", type=Path)
+    validate.add_argument("--ridge", type=float, default=1.0e-9)
+    validate.add_argument("--drop-first-per-layout", type=int, default=0)
+    validate.add_argument("--clamp-negative", action="store_true")
+    validate.set_defaults(func=cmd_validate)
 
     layouts = subcommands.add_parser("layouts", help="generate manual placement layouts")
     layouts.add_argument("--block-count", type=int, required=True)

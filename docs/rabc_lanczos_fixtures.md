@@ -164,6 +164,16 @@ For longer sweeps, group repeated rows by layout before comparing timings:
 scripts/rabc-trace-model.py summary /tmp/uni20_rabc_trace.jsonl --drop-first-per-layout=1 --group-layouts
 ```
 
+Use leave-one-layout-out validation before trusting a fitted model for unseen layouts:
+
+```bash
+scripts/rabc-trace-model.py validate /tmp/uni20_rabc_trace.jsonl --drop-first-per-layout=1
+```
+
+The validation output reports held-out layout error and whether the predicted best layout matches the measured best
+layout.  A high in-sample `fit` score is not enough to justify `suggest`; the validation score is the relevant
+diagnostic for extrapolating to new layouts.
+
 To generate a few explicit layouts without fitting:
 
 ```bash
