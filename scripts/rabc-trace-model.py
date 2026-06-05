@@ -53,6 +53,15 @@ DEVICE_BENCHMARK_FEATURE_NAMES = [
     "output_bytes",
 ]
 
+DEVICE_BENCHMARK_GRAPH_FEATURE_NAMES = [
+    "b_cut_terms",
+    "b_peer_blocks",
+    "right_duplicate_groups",
+    "mixed_duplicate_groups",
+    "mixed_left_groups",
+    "mixed_right_groups",
+]
+
 BENCHMARK_REPEAT_RE = re.compile(
     r"repeat=(?P<repeat>\d+)\s+wall=(?P<wall>[0-9.eE+-]+)s\b.*\bmatvec=(?P<matvec>[0-9.eE+-]+)s\b"
 )
@@ -357,9 +366,20 @@ def benchmark_feature_names(problem: dict[str, Any], include_graph_features: boo
         names = ["intercept"]
         for device in range(int(problem["device_count"])):
             names.extend(f"d{device}_{name}" for name in DEVICE_BENCHMARK_FEATURE_NAMES)
+            if include_graph_features:
+                names.extend(f"d{device}_{name}" for name in DEVICE_BENCHMARK_GRAPH_FEATURE_NAMES)
         names.extend(BENCHMARK_LAYOUT_FEATURE_NAMES)
         return names
     raise ValueError(f"unsupported benchmark model: {model}")
+
+
+def runtime_empirical_feature_names() -> list[str]:
+    """Return the feature order supported by the C++ empirical-contiguous policy."""
+    names = ["intercept"]
+    for device in range(2):
+        names.extend(f"d{device}_{name}" for name in DEVICE_BENCHMARK_FEATURE_NAMES)
+    names.extend(BENCHMARK_LAYOUT_FEATURE_NAMES)
+    return names
 
 
 def include_environment_bytes(args: argparse.Namespace) -> bool:
@@ -831,7 +851,7 @@ def layout_device_aware_vector(
     validate_layout(problem, layout)
     device_count = int(problem["device_count"])
     features_by_device = {
-        int(row["device"]): row for row in features_for_layout(problem, layout, False, include_graph_features)
+        int(row["device"]): row for row in features_for_layout(problem, layout, False, False)
     }
     graph_by_device = {int(row["device"]): row for row in graph_metrics_for_layout(problem, layout)["devices"]}
 
@@ -848,6 +868,8 @@ def layout_device_aware_vector(
                 float(features["output_bytes"]),
             ]
         )
+        if include_graph_features:
+            values.extend(float(graph[name]) for name in DEVICE_BENCHMARK_GRAPH_FEATURE_NAMES)
     shape = layout_shape_features(problem, layout)
     values.extend(shape[name] for name in BENCHMARK_LAYOUT_FEATURE_NAMES)
     return values
@@ -861,11 +883,19 @@ def benchmark_layout_vector(
     model: str,
 ) -> list[float]:
     """Return the feature vector for a whole-layout replay benchmark model."""
+    cache = problem.setdefault("_benchmark_layout_vector_cache", {})
+    key = (tuple(layout), bool(include_env_bytes), bool(include_graph_features), model)
+    if key in cache:
+        return list(cache[key])
+
     if model == "critical":
-        return layout_critical_path_vector(problem, layout, include_env_bytes, include_graph_features)
-    if model == "device":
-        return layout_device_aware_vector(problem, layout, include_env_bytes, include_graph_features)
-    raise ValueError(f"unsupported benchmark model: {model}")
+        vector = layout_critical_path_vector(problem, layout, include_env_bytes, include_graph_features)
+    elif model == "device":
+        vector = layout_device_aware_vector(problem, layout, include_env_bytes, include_graph_features)
+    else:
+        raise ValueError(f"unsupported benchmark model: {model}")
+    cache[key] = tuple(vector)
+    return vector
 
 
 def fit_benchmark_coefficients(
@@ -1028,6 +1058,24 @@ def print_benchmark_validation(rows: list[dict[str, Any]], compact_layouts: bool
             f"{row['count']} {row['first_line']} {row['names']} "
             f"{maybe_compact_layout(layout, compact_layouts)}"
         )
+
+
+def print_tune_best_summaries(candidates: list[dict[str, Any]]) -> None:
+    """Print model-selection summaries from ranked validation candidates."""
+    if not candidates:
+        return
+
+    def print_candidate(label: str, item: dict[str, Any]) -> None:
+        stats = item["stats"]
+        print(
+            f"{label} ridge={item['ridge']:.9g} clamp_negative={str(item['clamp_negative']).lower()} "
+            f"r2={stats['r2']:.9g} rmse_s={stats['rmse']:.9g} "
+            f"top1_match={str(bool(stats['top1_match'])).lower()}"
+        )
+
+    print_candidate("best_top1_first", candidates[0])
+    print_candidate("best_rmse", min(candidates, key=lambda item: item["stats"]["rmse"]))
+    print_candidate("best_r2", max(candidates, key=lambda item: item["stats"]["r2"]))
 
 
 def term_left_first_flops(term: dict[str, Any]) -> tuple[float, float]:
@@ -1872,6 +1920,8 @@ def runtime_empirical_coefficients(coefficients: dict[str, float], names: list[s
     """Return the C++ empirical-contiguous runtime coefficient string."""
     if model != "device":
         return None
+    if names != runtime_empirical_feature_names():
+        return None
     return ",".join(f"{coefficients[name]:.17g}" for name in names)
 
 
@@ -1879,6 +1929,9 @@ def print_runtime_empirical_coefficients(coefficients: dict[str, float], names: 
     """Print runtime coefficient wiring for the C++ empirical-contiguous policy."""
     values = runtime_empirical_coefficients(coefficients, names, model)
     if values is None:
+        if model == "device":
+            print("runtime_coefficients_unavailable=non_runtime_feature_order")
+            print("runtime_coefficients_note=omit_graph_features_for_cpp_empirical_contiguous")
         return
     print("runtime_coefficients_order=" + ",".join(names))
     print("runtime_coefficients=" + values)
@@ -1892,7 +1945,7 @@ def write_runtime_empirical_coefficients(
     """Write runtime coefficients for `empirical-contiguous` to a text file."""
     values = runtime_empirical_coefficients(coefficients, names, model)
     if values is None:
-        raise ValueError("--output-runtime-coefficients requires --model device")
+        raise ValueError("--output-runtime-coefficients requires --model device without --graph-features")
     path.write_text(
         "# R/A/B/C empirical-contiguous runtime coefficients.\n"
         "# Use with UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE.\n"
@@ -2351,12 +2404,7 @@ def cmd_bench_tune(args: argparse.Namespace) -> int:
             f"{int(stats['best_predicted_line'])}"
         )
 
-    best = candidates[0]
-    print(
-        f"best ridge={best['ridge']:.9g} clamp_negative={str(best['clamp_negative']).lower()} "
-        f"r2={best['stats']['r2']:.9g} rmse_s={best['stats']['rmse']:.9g} "
-        f"top1_match={str(bool(best['stats']['top1_match'])).lower()}"
-    )
+    print_tune_best_summaries(candidates)
     return 0
 
 
@@ -2544,12 +2592,7 @@ def cmd_tune(args: argparse.Namespace) -> int:
             f"{int(stats['best_predicted_line'])}"
         )
 
-    best = candidates[0]
-    print(
-        f"best ridge={best['ridge']:.9g} clamp_negative={str(best['clamp_negative']).lower()} "
-        f"r2={best['stats']['r2']:.9g} rmse_s={best['stats']['rmse']:.9g} "
-        f"top1_match={str(bool(best['stats']['top1_match'])).lower()}"
-    )
+    print_tune_best_summaries(candidates)
     return 0
 
 
