@@ -104,15 +104,18 @@ class CudaDeviceContext {
     DeviceAllocation allocateFromPool(cudaMemPool_t pool, std::size_t bytes);
     void preallocatePool(cudaMemPool_t pool, std::size_t bytes);
     cuda::CompletionRef recordCompletionEvent(cudaStream_t producerStream);
+    cuda::CompletionRef recordCompletionEvent(cudaStream_t producerStream, std::vector<EventDependencyRef> antecedents);
     cudaEvent_t acquireEvent();
     void retireEvent(cudaEvent_t event);
     cudaEvent_t recordEvent(cudaStream_t stream);
     EventDependencyRef recordDependencyEvent(cudaStream_t stream);
     void waitEvent(cudaStream_t stream, cudaEvent_t event);
-    void enqueueAsyncFree(void* ptr, std::vector<EventDependencyRef> dependencies);
+    void enqueueAsyncFree(void* ptr, cudaMemPool_t pool, std::size_t bytes,
+                          std::vector<EventDependencyRef> dependencies);
     ScratchLease acquireScratch(std::size_t bytes, cudaStream_t stream);
     void syncWorkStreams(const char* reason = "work_unspecified");
     void syncMemoryStream(const char* reason = "memory_unspecified");
+    void flushPoolCache();
     void release();
 
   private:
@@ -126,6 +129,11 @@ class CudaDeviceContext {
         std::uint64_t asyncFree = 0;
         std::uint64_t asyncFreeReclaim = 0;
         std::uint64_t asyncFreePoll = 0;
+        std::uint64_t poolCacheHit = 0;
+        std::uint64_t poolCacheMiss = 0;
+        std::uint64_t poolCacheStore = 0;
+        std::uint64_t poolCacheBypass = 0;
+        std::uint64_t poolCacheRelease = 0;
         std::unordered_map<std::string, std::uint64_t> streamSyncByReason;
     };
 
@@ -144,12 +152,23 @@ class CudaDeviceContext {
         std::size_t workspaceBytes = 0;
     };
 
+    struct CachedPoolAllocation
+    {
+        void* ptr = nullptr;
+        cudaMemPool_t pool = nullptr;
+        std::size_t bytes = 0;
+        cuda::CompletionRef ready;
+    };
+
     int deviceId_ = 0;
     bool serialCuda_ = false;
     bool logCounters_ = false;
     bool released_ = false;
     bool freeMemorySnapshotValid_ = false;
     std::size_t freeMemorySnapshot_ = 0;
+    std::size_t maxCachedPoolBytes_ = 0;
+    std::size_t cachedPoolBytes_ = 0;
+    std::size_t peakCachedPoolBytes_ = 0;
     cudaStream_t memoryStream_ = nullptr;
     std::deque<cudaStream_t> availableWorkStreams_;
     std::size_t createdWorkStreamCount_ = 0;
@@ -158,6 +177,7 @@ class CudaDeviceContext {
     std::vector<cudaEvent_t> freeEvents_;
     std::vector<cudaEvent_t> retiredEvents_;
     std::vector<PendingFree> pendingFrees_;
+    std::vector<CachedPoolAllocation> cachedPoolAllocations_;
     std::vector<std::shared_ptr<ScratchBuffer>> freeScratchBuffers_;
     std::vector<std::shared_ptr<ScratchBuffer>> allScratchBuffers_;
     std::mutex scratchMutex_;
@@ -173,6 +193,9 @@ class CudaDeviceContext {
     void returnBlasLane(std::size_t laneIndex);
     cublasHandle_t prepareBlasHandle(std::size_t laneIndex);
     void releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cudaStream_t stream);
+    CachedPoolAllocation takeCachedPoolAllocation(cudaMemPool_t pool, std::size_t bytes);
+    bool cachePoolAllocation(void* ptr, cudaMemPool_t pool, std::size_t bytes,
+                             std::vector<EventDependencyRef>& dependencies);
     void printCounters() const;
 
     friend class ScratchLease;
@@ -199,10 +222,12 @@ class Completion {
     CudaDeviceContext::EventDependencyRef dependencyEvent();
 
   private:
-    Completion(CudaDeviceContext& context, cudaStream_t producerStream);
+    Completion(CudaDeviceContext& context, cudaStream_t producerStream,
+               std::vector<CudaDeviceContext::EventDependencyRef> antecedents = {});
 
     CudaDeviceContext* context_ = nullptr;
     CudaDeviceContext::EventDependencyRef event_;
+    std::vector<CudaDeviceContext::EventDependencyRef> antecedents_;
     cudaStream_t producerStream_ = nullptr;
     std::uint64_t publishSequence_ = 0;
 

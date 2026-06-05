@@ -81,7 +81,13 @@ expected for the future uni20 CUDA scheduler without implementing that scheduler
 in the vendored runtime.
 Set `UNI20_TENSORCONTRACTION_CUDA_COUNTERS=1` to print per-device diagnostic
 counters for event creation, event records, event waits, event destruction, and
-stream synchronizations when each temporary device context is released.
+stream synchronizations when each temporary device context is released.  The
+device context also keeps an exact-size cache for pool-backed device
+allocations, because the bridge repeatedly frees and reallocates many small
+same-sized temporary buffers.  Set
+`UNI20_TENSORCONTRACTION_POOL_CACHE_BYTES=N` to change the per-device cache
+limit, or `UNI20_TENSORCONTRACTION_POOL_CACHE_BYTES=0` to disable it.  The
+default is `256MiB`.
 Set `UNI20_TENSORCONTRACTION_COPY_STATS=1` to print aggregate Swapper
 host/device copy counts and byte totals at process exit.  This is intended for
 separating resident Lanczos traffic from setup, environment-update, and result

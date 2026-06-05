@@ -579,6 +579,7 @@ void Swapper::release()
     CUDA_CALL(cudaSetDevice(deviceId));
     if (deviceId < static_cast<int>(memPools.size()))
     {
+      deviceContexts[deviceId]->flushPoolCache();
       deviceContexts[deviceId]->syncMemoryStream("swapper_release_before_mempool_trim");
       CUDA_CALL(cudaMemPoolTrimTo(memPools[deviceId], 0));
       if (ownsMemPool[deviceId])
@@ -1234,7 +1235,8 @@ void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
     if (group->liveBuffers == 0 && !group->freeScheduled)
     {
       DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, nullptr);
-      deviceContexts[deviceId]->enqueueAsyncFree(group->basePtr, std::move(group->dependencies));
+      deviceContexts[deviceId]->enqueueAsyncFree(group->basePtr, memPools[deviceId], group->bytes,
+                                                 std::move(group->dependencies));
       group->freeScheduled = true;
       group->basePtr = nullptr;
       group->bytes = 0;
@@ -1243,7 +1245,8 @@ void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
   else
   {
     DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, nullptr);
-    deviceContexts[deviceId]->enqueueAsyncFree(buffer->getPtr(), std::move(dependencies));
+    deviceContexts[deviceId]->enqueueAsyncFree(buffer->getPtr(), memPools[deviceId], buffer->sizeInByte(),
+                                               std::move(dependencies));
   }
 
   buffer->ptr = nullptr;

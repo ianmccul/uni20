@@ -175,14 +175,15 @@ void cuda::CublasStream::release()
   laneIndex_ = 0;
 }
 
-cuda::Completion::Completion(CudaDeviceContext& context, cudaStream_t producerStream)
-    : context_(&context), event_(context.recordDependencyEvent(producerStream)), producerStream_(producerStream),
-      publishSequence_(event_->sequence)
+cuda::Completion::Completion(CudaDeviceContext& context, cudaStream_t producerStream,
+                             std::vector<CudaDeviceContext::EventDependencyRef> antecedents)
+    : context_(&context), event_(context.recordDependencyEvent(producerStream)), antecedents_(std::move(antecedents)),
+      producerStream_(producerStream), publishSequence_(event_->sequence)
 {}
 
 cuda::Completion::Completion(Completion&& other) noexcept
-    : context_(other.context_), event_(std::move(other.event_)), producerStream_(other.producerStream_),
-      publishSequence_(other.publishSequence_)
+    : context_(other.context_), event_(std::move(other.event_)), antecedents_(std::move(other.antecedents_)),
+      producerStream_(other.producerStream_), publishSequence_(other.publishSequence_)
 {
   other.context_ = nullptr;
   other.producerStream_ = nullptr;
@@ -195,6 +196,7 @@ cuda::Completion& cuda::Completion::operator=(Completion&& other) noexcept
   {
     context_ = other.context_;
     event_ = std::move(other.event_);
+    antecedents_ = std::move(other.antecedents_);
     producerStream_ = other.producerStream_;
     publishSequence_ = other.publishSequence_;
     other.context_ = nullptr;
@@ -208,6 +210,10 @@ cudaStream_t cuda::Completion::stream() const noexcept { return producerStream_;
 
 void cuda::Completion::waitOn(cudaStream_t consumerStream)
 {
+  if (consumerStream == producerStream_)
+  {
+    return;
+  }
   if (context_ != nullptr && event_ != nullptr)
   {
     context_->waitEvent(consumerStream, event_->event);
@@ -219,7 +225,8 @@ CudaDeviceContext::EventDependencyRef cuda::Completion::dependencyEvent() { retu
 CudaDeviceContext::CudaDeviceContext(int deviceId, int workStreamCount, bool serialCuda)
     : deviceId_(deviceId), serialCuda_(serialCuda),
       logCounters_(envFlagEnabled("UNI20_TENSORCONTRACTION_CUDA_COUNTERS") ||
-                   envFlagEnabled("TENSORCONTRACTION_CUDA_COUNTERS"))
+                   envFlagEnabled("TENSORCONTRACTION_CUDA_COUNTERS")),
+      maxCachedPoolBytes_(resolveTensorContractionPoolCacheBytes())
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
 
@@ -308,6 +315,20 @@ CudaDeviceContext::DeviceAllocation CudaDeviceContext::allocateFromPool(cudaMemP
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
   DeviceAllocation allocation;
+  auto cached = this->takeCachedPoolAllocation(pool, bytes);
+  if (cached.ptr != nullptr)
+  {
+    allocation.ptr = cached.ptr;
+    allocation.completion = std::move(cached.ready);
+    allocation.status = cudaSuccess;
+    ++counters_.poolCacheHit;
+#if DEBUG_LOG
+    allocation.stream = memoryStream_;
+#endif
+    return allocation;
+  }
+
+  ++counters_.poolCacheMiss;
   allocation.status = cudaMallocFromPoolAsync(&allocation.ptr, bytes, pool, memoryStream_);
   if (allocation.status == cudaSuccess)
   {
@@ -335,6 +356,13 @@ cuda::CompletionRef CudaDeviceContext::recordCompletionEvent(cudaStream_t produc
 {
   assert(producerStream != nullptr);
   return cuda::CompletionRef(new cuda::Completion(*this, producerStream));
+}
+
+cuda::CompletionRef CudaDeviceContext::recordCompletionEvent(cudaStream_t producerStream,
+                                                             std::vector<EventDependencyRef> antecedents)
+{
+  assert(producerStream != nullptr);
+  return cuda::CompletionRef(new cuda::Completion(*this, producerStream, std::move(antecedents)));
 }
 
 cudaStream_t CudaDeviceContext::acquireWorkStream()
@@ -438,9 +466,14 @@ void CudaDeviceContext::waitEvent(cudaStream_t stream, cudaEvent_t event)
   ++counters_.eventWait;
 }
 
-void CudaDeviceContext::enqueueAsyncFree(void* ptr, std::vector<EventDependencyRef> dependencies)
+void CudaDeviceContext::enqueueAsyncFree(void* ptr, cudaMemPool_t pool, std::size_t bytes,
+                                         std::vector<EventDependencyRef> dependencies)
 {
   if (ptr == nullptr)
+  {
+    return;
+  }
+  if (this->cachePoolAllocation(ptr, pool, bytes, dependencies))
   {
     return;
   }
@@ -450,7 +483,7 @@ void CudaDeviceContext::enqueueAsyncFree(void* ptr, std::vector<EventDependencyR
   {
     if (dependency != nullptr)
     {
-      waitEvent(stream, dependency->event);
+      this->waitEvent(stream, dependency->event);
     }
   }
   CUDA_CALL(cudaFreeAsync(ptr, stream));
@@ -459,9 +492,69 @@ void CudaDeviceContext::enqueueAsyncFree(void* ptr, std::vector<EventDependencyR
   {
     return;
   }
-  auto completeEvent = recordEvent(stream);
+  auto completeEvent = this->recordEvent(stream);
   pendingFrees_.push_back(PendingFree{ptr, completeEvent, std::move(dependencies)});
-  reclaimCompletedAsyncFrees();
+  this->reclaimCompletedAsyncFrees();
+}
+
+CudaDeviceContext::CachedPoolAllocation CudaDeviceContext::takeCachedPoolAllocation(cudaMemPool_t pool,
+                                                                                    std::size_t bytes)
+{
+  auto const it =
+      std::find_if(cachedPoolAllocations_.begin(), cachedPoolAllocations_.end(), [pool, bytes](auto const& allocation) {
+        return allocation.ptr != nullptr && allocation.pool == pool && allocation.bytes == bytes;
+      });
+  if (it == cachedPoolAllocations_.end())
+  {
+    return {};
+  }
+
+  auto allocation = std::move(*it);
+  cachedPoolBytes_ -= allocation.bytes;
+  cachedPoolAllocations_.erase(it);
+  return allocation;
+}
+
+bool CudaDeviceContext::cachePoolAllocation(void* ptr, cudaMemPool_t pool, std::size_t bytes,
+                                            std::vector<EventDependencyRef>& dependencies)
+{
+  if (ptr == nullptr)
+  {
+    return true;
+  }
+  if (pool == nullptr || bytes == 0 || maxCachedPoolBytes_ == 0 || bytes > maxCachedPoolBytes_ ||
+      cachedPoolBytes_ > maxCachedPoolBytes_ - bytes)
+  {
+    ++counters_.poolCacheBypass;
+    return false;
+  }
+
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  bool hasDependency = false;
+  for (auto const& dependency : dependencies)
+  {
+    if (dependency != nullptr)
+    {
+      this->waitEvent(memoryStream_, dependency->event);
+      hasDependency = true;
+    }
+  }
+
+  cuda::CompletionRef ready;
+  if (hasDependency)
+  {
+    ready = this->recordCompletionEvent(memoryStream_, std::move(dependencies));
+  }
+  else
+  {
+    dependencies.clear();
+  }
+
+  cachedPoolAllocations_.push_back(CachedPoolAllocation{ptr, pool, bytes, std::move(ready)});
+  cachedPoolBytes_ += bytes;
+  peakCachedPoolBytes_ = std::max(peakCachedPoolBytes_, cachedPoolBytes_);
+  ++counters_.poolCacheStore;
+  return true;
 }
 
 CudaDeviceContext::ScratchLease CudaDeviceContext::acquireScratch(std::size_t bytes, cudaStream_t stream)
@@ -551,6 +644,39 @@ void CudaDeviceContext::syncMemoryStream(const char* reason)
   reclaimRetiredEvents();
 }
 
+void CudaDeviceContext::flushPoolCache()
+{
+  if (cachedPoolAllocations_.empty())
+  {
+    return;
+  }
+
+  CUDA_CALL(cudaSetDevice(deviceId_));
+  auto const cachedCount = cachedPoolAllocations_.size();
+  std::vector<cuda::CompletionRef> completions;
+  completions.reserve(cachedPoolAllocations_.size());
+  for (auto& cached : cachedPoolAllocations_)
+  {
+    if (cached.ptr == nullptr)
+    {
+      continue;
+    }
+    if (cached.ready != nullptr)
+    {
+      cached.ready->waitOn(memoryStream_);
+      completions.push_back(std::move(cached.ready));
+    }
+    CUDA_CALL(cudaFreeAsync(cached.ptr, memoryStream_));
+    cached.ptr = nullptr;
+    ++counters_.asyncFree;
+  }
+  cachedPoolAllocations_.clear();
+  cachedPoolBytes_ = 0;
+  counters_.poolCacheRelease += static_cast<std::uint64_t>(cachedCount);
+  this->syncMemoryStream("pool_cache_flush");
+  completions.clear();
+}
+
 void CudaDeviceContext::release()
 {
   if (released_)
@@ -560,8 +686,9 @@ void CudaDeviceContext::release()
   released_ = true;
 
   CUDA_CALL(cudaSetDevice(deviceId_));
-  syncWorkStreams("device_context_release_work_streams");
-  syncMemoryStream("device_context_release_memory_stream");
+  this->syncWorkStreams("device_context_release_work_streams");
+  this->syncMemoryStream("device_context_release_memory_stream");
+  this->flushPoolCache();
 
   assert(serialCuda_ || availableWorkStreams_.size() == createdWorkStreamCount_);
   assert(availableBlasLanes_.size() == blasLanes_.size());
@@ -600,7 +727,7 @@ void CudaDeviceContext::release()
   }
   blasLanes_.clear();
 
-  printCounters();
+  this->printCounters();
 
   for (auto event : retiredEvents_)
   {
@@ -708,13 +835,19 @@ void CudaDeviceContext::printCounters() const
       stderr,
       "[TENSORCONTRACTION][CUDA_COUNTERS] Device=%d EventCreate=%llu EventRecord=%llu EventWait=%llu "
       "EventDestroy=%llu StreamSync=%llu EventPoolFree=%zu AsyncFree=%llu AsyncFreeReclaim=%llu "
-      "AsyncFreePoll=%llu\n",
+      "AsyncFreePoll=%llu PoolCacheHit=%llu PoolCacheMiss=%llu PoolCacheStore=%llu PoolCacheBypass=%llu "
+      "PoolCacheRelease=%llu PoolCacheBytes=%zu PoolCachePeakBytes=%zu PoolCacheLimitBytes=%zu\n",
       deviceId_, static_cast<unsigned long long>(counters_.eventCreate),
       static_cast<unsigned long long>(counters_.eventRecord), static_cast<unsigned long long>(counters_.eventWait),
       static_cast<unsigned long long>(counters_.eventDestroy), static_cast<unsigned long long>(counters_.streamSync),
       freeEvents_.size(), static_cast<unsigned long long>(counters_.asyncFree),
       static_cast<unsigned long long>(counters_.asyncFreeReclaim),
-      static_cast<unsigned long long>(counters_.asyncFreePoll));
+      static_cast<unsigned long long>(counters_.asyncFreePoll), static_cast<unsigned long long>(counters_.poolCacheHit),
+      static_cast<unsigned long long>(counters_.poolCacheMiss),
+      static_cast<unsigned long long>(counters_.poolCacheStore),
+      static_cast<unsigned long long>(counters_.poolCacheBypass),
+      static_cast<unsigned long long>(counters_.poolCacheRelease), cachedPoolBytes_, peakCachedPoolBytes_,
+      maxCachedPoolBytes_);
   for (auto const& [reason, count] : counters_.streamSyncByReason)
   {
     std::fprintf(stderr, "[TENSORCONTRACTION][CUDA_SYNC_REASON] Device=%d Reason=%s Count=%llu\n", deviceId_,

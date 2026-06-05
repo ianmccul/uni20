@@ -115,6 +115,22 @@ inline std::size_t resolveTensorContractionCublasWorkspaceBytes()
   return 4ULL * 1024ULL * 1024ULL;
 }
 
+inline std::size_t resolveTensorContractionPoolCacheBytes()
+{
+  auto const* env = std::getenv("UNI20_TENSORCONTRACTION_POOL_CACHE_BYTES");
+  if (env != nullptr)
+  {
+    try
+    {
+      return static_cast<std::size_t>(std::stoull(env));
+    }
+    catch (...)
+    {}
+  }
+
+  return 256ULL * 1024ULL * 1024ULL;
+}
+
 inline double resolveTensorContractionMultiGpuMinFlops()
 {
   auto const* env = std::getenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_FLOPS");
