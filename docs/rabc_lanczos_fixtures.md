@@ -245,7 +245,7 @@ must be confirmed by rerunning the fixture replay with
 `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` unset.
 
 To record final no-trace replay timings as a separate empirical dataset, save
-the benchmark stdout and convert it to JSONL:
+the benchmark stdout or `MP_BENCHFILE` table and convert it to JSONL:
 
 ```bash
 scripts/rabc-trace-model.py bench-record /tmp/uni20_rabc_default.out \
@@ -255,6 +255,12 @@ scripts/rabc-trace-model.py bench-record /tmp/uni20_rabc_default.out \
 scripts/rabc-trace-model.py bench-record /tmp/uni20_rabc_candidate.out \
   --name candidate \
   --layout <layout-used-by-run> \
+  --output /tmp/uni20_rabc_benchmark.jsonl \
+  --append
+scripts/rabc-trace-model.py bench-record /tmp/uni20_rabc_candidate.bench \
+  --name candidate \
+  --layout <layout-used-by-run> \
+  --input-format benchfile \
   --output /tmp/uni20_rabc_benchmark.jsonl \
   --append
 scripts/rabc-trace-model.py bench-summary /tmp/uni20_rabc_benchmark.jsonl
@@ -278,9 +284,14 @@ scripts/rabc-trace-model.py bench-fit /tmp/uni20_rabc_benchmark.jsonl \
 scripts/rabc-trace-model.py bench-validate /tmp/uni20_rabc_benchmark.jsonl \
   --term-trace /tmp/uni20_rabc_term_trace.jsonl \
   --graph-features
+scripts/rabc-trace-model.py bench-tune /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --graph-features \
+  --ridges 1e-9,1e-7,1e-5,1e-3,1e-2,1e-1
 scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
   --term-trace /tmp/uni20_rabc_term_trace.jsonl \
   --graph-features \
+  --ridge <selected-ridge> \
   --contiguous-only \
   --top 8
 ```
@@ -289,6 +300,13 @@ Treat `bench-validate` as meaningful only after measuring several distinct
 layouts.  With one default layout and one deliberately bad striped layout it is
 a smoke test for ranking and command wiring, not evidence that the fitted model
 generalizes.
+
+Unlike trace `suggest`, benchmark `bench-suggest` does not clamp negative
+coefficients by default.  The benchmark target is an end-to-end critical-path
+timing, and correlated graph features can legitimately need compensating
+coefficients in a small empirical fit.  Use `bench-tune --include-clamped` if
+you want to test clamping explicitly, and prefer a ridge selected by
+leave-one-layout-out validation before extrapolating to unmeasured layouts.
 
 For symmetry-local Hamiltonians, also test the constrained contiguous-range
 family.  The traced sparse `f` tensor remains the ground truth for connectivity:

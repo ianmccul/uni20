@@ -100,6 +100,63 @@ def parse_benchmark_stdout(path: Path, layout: str, name: str) -> list[dict[str,
     return records
 
 
+def parse_benchmark_benchfile(path: Path, layout: str, name: str) -> list[dict[str, Any]]:
+    """Parse an `MP_BENCHFILE` table into benchmark records."""
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        fields = stripped.split()
+        if len(fields) < 8:
+            continue
+        try:
+            repeat = int(fields[0])
+            wall_s = float(fields[1])
+            energy = float(fields[2])
+            residual = float(fields[3])
+            iterations = int(fields[4])
+            stop_reason = fields[5]
+            matvec_s = float(fields[6])
+            matvec_count = int(fields[7])
+        except ValueError:
+            continue
+        records.append(
+            {
+                "kind": "rabc_replay_benchmark",
+                "source": str(path),
+                "line": line_number,
+                "name": name,
+                "layout": layout,
+                "repeat": repeat,
+                "wall_s": wall_s,
+                "energy": energy,
+                "residual": residual,
+                "iterations": iterations,
+                "stop_reason": stop_reason,
+                "matvec_s": matvec_s,
+                "matvec_count": matvec_count,
+            }
+        )
+    if not records:
+        raise ValueError(f"{path} contains no R/A/B/C replay benchmark table rows")
+    return records
+
+
+def parse_benchmark_file(path: Path, layout: str, name: str, input_format: str) -> list[dict[str, Any]]:
+    """Parse replay benchmark rows from stdout or `MP_BENCHFILE` format."""
+    if input_format == "stdout":
+        return parse_benchmark_stdout(path, layout, name)
+    if input_format == "benchfile":
+        return parse_benchmark_benchfile(path, layout, name)
+    if input_format == "auto":
+        try:
+            return parse_benchmark_stdout(path, layout, name)
+        except ValueError:
+            return parse_benchmark_benchfile(path, layout, name)
+    raise ValueError(f"unsupported benchmark input format: {input_format}")
+
+
 def layout_key(record: dict[str, Any]) -> tuple[int, ...]:
     """Return the output-layout key for grouping repeated measurements."""
     return tuple(int(item) for item in record.get("output_layout", []))
@@ -1412,7 +1469,7 @@ def cmd_bench_record(args: argparse.Namespace) -> int:
     """Convert replay benchmark stdout into benchmark JSONL records."""
     records: list[dict[str, Any]] = []
     for path in args.stdout:
-        records.extend(parse_benchmark_stdout(path, args.layout, args.name))
+        records.extend(parse_benchmark_file(path, args.layout, args.name, args.input_format))
 
     output = sys.stdout if args.output is None else args.output.open("a" if args.append else "w")
     try:
@@ -1477,7 +1534,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     coefficients, stats = fit_benchmark_coefficients(
         records, problem, args.ridge, include_env_bytes, args.graph_features
     )
-    if not args.allow_negative:
+    if args.clamp_negative:
         coefficients = clamp_negative_coefficients(coefficients)
 
     observed_keys = {tuple(layout) for layout in observed_benchmark_layouts(records, problem)}
@@ -1557,6 +1614,50 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             )
     print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual \\")
     print("    UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=" + layout_string(best_layout))
+    return 0
+
+
+def cmd_bench_tune(args: argparse.Namespace) -> int:
+    """Scan ridge values with benchmark leave-one-layout-out validation."""
+    records = benchmark_records_from_paths(args.benchmark)
+    problem = trace_problem([], read_trace(args.term_trace))
+    ridges = parse_float_list(args.ridges)
+    clamp_modes = [False, True] if args.include_clamped else [False]
+    include_env_bytes = include_environment_bytes(args)
+
+    candidates: list[dict[str, Any]] = []
+    for ridge in ridges:
+        for clamp_negative in clamp_modes:
+            rows = leave_one_benchmark_layout_out(
+                records, problem, ridge, clamp_negative, include_env_bytes, args.graph_features
+            )
+            stats = validation_stats(rows)
+            candidates.append({"ridge": ridge, "clamp_negative": clamp_negative, "stats": stats})
+
+    candidates.sort(
+        key=lambda item: (item["stats"]["top1_match"], item["stats"]["r2"], -item["stats"]["rmse"]),
+        reverse=True,
+    )
+    print(f"timing_objective={args.timing_objective}")
+    print(f"target=matvec_s")
+    print(f"reduction=critical_path_max")
+    print(f"graph_features={str(args.graph_features).lower()}")
+    print("ridge clamp_negative layouts mae_s rmse_s r2 top1_match best_observed_line best_predicted_line")
+    for item in candidates:
+        stats = item["stats"]
+        print(
+            f"{item['ridge']:.9g} {str(item['clamp_negative']).lower()} {int(stats['layouts'])} "
+            f"{stats['mae']:.9g} {stats['rmse']:.9g} {stats['r2']:.9g} "
+            f"{str(bool(stats['top1_match'])).lower()} {int(stats['best_observed_line'])} "
+            f"{int(stats['best_predicted_line'])}"
+        )
+
+    best = candidates[0]
+    print(
+        f"best ridge={best['ridge']:.9g} clamp_negative={str(best['clamp_negative']).lower()} "
+        f"r2={best['stats']['r2']:.9g} rmse_s={best['stats']['rmse']:.9g} "
+        f"top1_match={str(bool(best['stats']['top1_match'])).lower()}"
+    )
     return 0
 
 
@@ -1882,6 +1983,12 @@ def parser() -> argparse.ArgumentParser:
     bench_record.add_argument("stdout", nargs="+", type=Path, help="benchmark stdout file(s) to parse")
     bench_record.add_argument("--name", required=True, help="short label for this measured layout")
     bench_record.add_argument("--layout", required=True, help="layout string associated with this benchmark run")
+    bench_record.add_argument(
+        "--input-format",
+        choices=("auto", "stdout", "benchfile"),
+        default="auto",
+        help="input file format; auto tries console stdout first, then MP_BENCHFILE table rows",
+    )
     bench_record.add_argument("--output", type=Path, help="write JSONL records to this file instead of stdout")
     bench_record.add_argument("--append", action="store_true", help="append to --output instead of replacing it")
     bench_record.set_defaults(func=cmd_bench_record)
@@ -1924,11 +2031,22 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="search only layouts that assign contiguous block-index ranges to ordered devices",
     )
-    bench_suggest.add_argument("--allow-negative", action="store_true")
+    bench_suggest.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before search")
     add_timing_objective(bench_suggest)
     add_graph_features(bench_suggest)
     add_required_term_trace(bench_suggest)
     bench_suggest.set_defaults(func=cmd_bench_suggest)
+
+    bench_tune = subcommands.add_parser(
+        "bench-tune", help="scan ridge values with replay benchmark leave-one-layout-out validation"
+    )
+    bench_tune.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    bench_tune.add_argument("--ridges", default="1e-9,1e-7,1e-5,1e-3,1e-2,1e-1")
+    bench_tune.add_argument("--include-clamped", action="store_true")
+    add_timing_objective(bench_tune)
+    add_graph_features(bench_tune)
+    add_required_term_trace(bench_tune)
+    bench_tune.set_defaults(func=cmd_bench_tune)
 
     order_summary = subcommands.add_parser(
         "order-summary", help="summarize left-first versus right-first term costs"
