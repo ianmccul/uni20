@@ -303,8 +303,13 @@ files.  Use `--trace-path auto --trace-terms` only for a companion term trace or
 other structural diagnostics; do not compare final performance from traced rows.
 Use `--policy cost-block --labels cost-block` or another non-manual policy name
 to benchmark an automatic placement path through the same wrapper.  Non-manual
-policy runs keep the raw bench table but do not create benchmark JSONL rows,
-because the manual layout string is not known from the command line.
+policy runs enable placement diagnostics automatically and infer the selected
+layout when the diagnostic line contains either a contiguous `cut=N` or explicit
+`deviceK={blocks=[begin,end)}` ranges.  Inferred layouts are written to the same
+`benchmarks.jsonl` dataset as manual layouts, so automatic policies such as
+`empirical-contiguous`, `cost`, and `stripe` can be compared with
+`bench-summary`.  If a future policy does not expose a parseable layout, the
+wrapper still keeps the raw bench table but reports `inferred_layout=unavailable`.
 
 For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
 dual-GPU sweep over all contiguous cuts found `cut6` as the current best

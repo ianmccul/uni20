@@ -34,6 +34,8 @@ Options:
                           for <output-dir>/trace.jsonl.
   --trace-terms           Include term metadata in trace records. Requires --trace-path.
   --placement-log         Print TensorContraction placement diagnostics to stderr.
+                          Enabled automatically for non-manual policies so the
+                          selected layout can be recorded when possible.
   --show-layouts          Print full manual placement lists to stdout. By default
                           large layouts are summarized compactly.
   --help                  Show this help.
@@ -257,6 +259,126 @@ record_bench() {
     "${append_flag[@]}"
 }
 
+layout_from_cut() {
+  local cut="$1"
+  local block
+  for ((block = 0; block < block_count; ++block)); do
+    if [[ "${block}" -gt 0 ]]; then
+      printf ','
+    fi
+    if [[ "${block}" -lt "${cut}" ]]; then
+      printf '0'
+    else
+      printf '1'
+    fi
+  done
+  printf '\n'
+}
+
+layout_from_ranges_line() {
+  local line="$1"
+  local remaining="${line}"
+  local pattern='device([0-9]+)=\{blocks=\[([0-9]+),([0-9]+)\)'
+  local -a inferred=()
+  local block
+  for ((block = 0; block < block_count; ++block)); do
+    inferred["${block}"]=""
+  done
+
+  while [[ "${remaining}" =~ ${pattern} ]]; do
+    local device="${BASH_REMATCH[1]}"
+    local begin="${BASH_REMATCH[2]}"
+    local end="${BASH_REMATCH[3]}"
+    if [[ "${device}" -ge "${device_count}" || "${begin}" -gt "${end}" || "${end}" -gt "${block_count}" ]]; then
+      return 1
+    fi
+    for ((block = begin; block < end; ++block)); do
+      inferred["${block}"]="${device}"
+    done
+    remaining="${remaining#*"${BASH_REMATCH[0]}"}"
+  done
+
+  for ((block = 0; block < block_count; ++block)); do
+    if [[ -z "${inferred[${block}]}" ]]; then
+      return 1
+    fi
+    if [[ "${block}" -gt 0 ]]; then
+      printf ','
+    fi
+    printf '%s' "${inferred[${block}]}"
+  done
+  printf '\n'
+}
+
+layout_from_policy_log() {
+  local stderr_file="$1"
+  local policy_name="$2"
+  local line=""
+
+  case "${policy_name}" in
+    stripe|striped|round-robin|alternating)
+      local block
+      for ((block = 0; block < block_count; ++block)); do
+        if [[ "${block}" -gt 0 ]]; then
+          printf ','
+        fi
+        printf '%d' $((block % device_count))
+      done
+      printf '\n'
+      return 0
+      ;;
+  esac
+
+  if [[ ! -s "${stderr_file}" ]]; then
+    return 1
+  fi
+
+  line="$(grep -E '\[TENSORCONTRACTION\]\[RABC_PLACEMENT\].*(cut=|blocks=\[)' "${stderr_file}" | tail -n 1 || true)"
+  if [[ -z "${line}" ]]; then
+    return 1
+  fi
+
+  if [[ "${line}" =~ (^|[[:space:]])cut=([0-9]+) ]]; then
+    layout_from_cut "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  if [[ "${line}" =~ fallback=default-byte-balanced && "${line}" =~ default_cut=([0-9]+) ]]; then
+    layout_from_cut "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  layout_from_ranges_line "${line}"
+}
+
+layout_summary_from_layout() {
+  local layout_value="$1"
+  awk -F',' -v device_count="${device_count}" '{
+    for (device = 0; device < device_count; ++device) {
+      counts[device] = 0
+    }
+    previous = ""
+    segments = 0
+    for (field = 1; field <= NF; ++field) {
+      ++counts[$field]
+      if (field == 1 || $field != previous) {
+        ++segments
+        previous = $field
+      }
+    }
+    printf "blocks=%d;counts=", NF
+    for (device = 0; device < device_count; ++device) {
+      if (device > 0) {
+        printf ","
+      }
+      printf "%d:%d", device, counts[device]
+    }
+    printf ";segments=%d", segments
+    if (segments > 1) {
+      printf ";transitions=%d", segments - 1
+    }
+    printf "\n"
+  }' <<< "${layout_value}"
+}
+
 echo "fixture=${fixture}"
 echo "exe=${exe}"
 echo "output_dir=${output_dir}"
@@ -331,7 +453,7 @@ for item in "${labels[@]}"; do
     if [[ "${trace_terms}" -eq 1 ]]; then
       env_args+=("UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1")
     fi
-    if [[ "${placement_log}" -eq 1 ]]; then
+    if [[ "${placement_log}" -eq 1 || "${manual_policy}" -eq 0 ]]; then
       env_args+=("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG=1")
     fi
     env "${env_args[@]}" /usr/bin/timeout "${timeout_seconds}" "${exe}" "${fixture}" > "${stdout_file}" 2> "${stderr_file}"
@@ -339,12 +461,24 @@ for item in "${labels[@]}"; do
 
   if [[ "${manual_policy}" -eq 1 ]]; then
     record_bench "${bench_file}" "${label}" "${layout}"
+  else
+    inferred_layout=""
+    if inferred_layout="$(layout_from_policy_log "${stderr_file}" "${policy}")" && [[ -n "${inferred_layout}" ]]; then
+      record_bench "${bench_file}" "${label}" "${inferred_layout}"
+      if [[ "${show_layouts}" -eq 1 ]]; then
+        echo "inferred_layout=${inferred_layout}"
+      else
+        echo "inferred_layout_summary=$(layout_summary_from_layout "${inferred_layout}")"
+      fi
+    else
+      echo "inferred_layout=unavailable"
+    fi
   fi
   tail -n "${repeats}" "${stdout_file}" || true
 done
 
 echo "=== summary ==="
-if [[ "${manual_policy}" -eq 1 ]]; then
+if [[ -s "${jsonl}" ]]; then
   summary_args=()
   if [[ "${show_layouts}" -eq 0 ]]; then
     summary_args+=(--compact-layouts)
