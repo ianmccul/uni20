@@ -39,7 +39,9 @@ The executor:
 
 - uses each resident `R` block's current device as the owner for work that
   contributes to that block;
-- zeros every `R` block before the apply;
+- initializes each `R` block with `beta = 0` on the first contributing GEMM and
+  uses `beta = 1` for later accumulation;
+- warns on `stderr` and zeros only `R` blocks that receive no contributions;
 - stages `A`, `B`, and `C` blocks to the `R` owner device when needed;
 - reuses `B*C` intermediates keyed by `(device, B block, C block)`;
 - accumulates `A*(B*C)` into `R`;

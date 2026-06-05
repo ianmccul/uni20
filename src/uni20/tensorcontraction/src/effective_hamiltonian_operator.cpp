@@ -5,6 +5,8 @@
 #include "Swapper.hpp"
 #include "Utils.h"
 
+#include <fmt/core.h>
+
 #include <compare>
 #include <cstdlib>
 #include <limits>
@@ -275,10 +277,10 @@ void deterministic_right_first_apply(std::span<tensor::Matrix const> r_mats, std
                                      tensor::Swapper& swapper)
 {
   std::vector<int> r_devices(r_mats.size(), 0);
+  std::vector<bool> r_written(r_mats.size(), false);
   for (std::size_t r = 0; r < r_mats.size(); ++r)
   {
     r_devices[r] = output_device_for(swapper, r_mats[r]);
-    zero_device_matrix(swapper, r_mats[r], r_devices[r]);
   }
 
   std::map<RightFirstIntermediateKey, RightFirstIntermediate> intermediates;
@@ -302,8 +304,22 @@ void deterministic_right_first_apply(std::span<tensor::Matrix const> r_mats, std
     // This is the initial deterministic planner: right-first only.  The seam is
     // deliberately narrow so a later cost model can choose left-first when the
     // left basis is smaller or when communication costs favor it.
-    gemm_device_matrix(swapper, r_mats[term.r], a_mats[term.a], intermediate_it->second.matrix, term.coefficient, 1.0,
+    double const beta = r_written[static_cast<std::size_t>(term.r)] ? 1.0 : 0.0;
+    gemm_device_matrix(swapper, r_mats[term.r], a_mats[term.a], intermediate_it->second.matrix, term.coefficient, beta,
                        target_device);
+    r_written[static_cast<std::size_t>(term.r)] = true;
+  }
+
+  for (std::size_t r = 0; r < r_mats.size(); ++r)
+  {
+    if (!r_written[r])
+    {
+      fmt::print(stderr,
+                 "[TENSORCONTRACTION][RABC_WARNING] Output R block id={} shape={}x{} device={} received no "
+                 "Hamiltonian terms; zeroing it explicitly.\n",
+                 r_mats[r].getId(), r_mats[r].getFirstDim(), r_mats[r].getSecondDim(), r_devices[r]);
+      zero_device_matrix(swapper, r_mats[r], r_devices[r]);
+    }
   }
 
   for (auto const& [_, intermediate] : intermediates)
