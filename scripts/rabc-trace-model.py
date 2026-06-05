@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import random
@@ -311,6 +312,41 @@ def layout_shape_features(problem: dict[str, Any], layout: list[int]) -> dict[st
         "max_output_block_fraction": (max(blocks_by_device) / block_count) if block_count != 0 else 0.0,
         "max_output_byte_fraction": (max(bytes_by_device) / total_bytes) if total_bytes != 0 else 0.0,
     }
+
+
+def observed_layout_shape_support(records: list[dict[str, Any]], problem: dict[str, Any]) -> dict[str, Any]:
+    """Return discrete and range support for shapes seen in benchmark rows."""
+    grouped = group_benchmarks_by_layout(records, problem)
+    if not grouped:
+        raise ValueError("benchmark rows contain no layouts for shape support")
+
+    features = [layout_shape_features(problem, list(layout)) for layout in grouped]
+    return {
+        "layout_transitions": {int(row["layout_transitions"]) for row in features},
+        "layout_segments": {int(row["layout_segments"]) for row in features},
+        "active_devices": {int(row["active_devices"]) for row in features},
+        "max_output_block_fraction": (
+            min(row["max_output_block_fraction"] for row in features),
+            max(row["max_output_block_fraction"] for row in features),
+        ),
+        "max_output_byte_fraction": (
+            min(row["max_output_byte_fraction"] for row in features),
+            max(row["max_output_byte_fraction"] for row in features),
+        ),
+    }
+
+
+def layout_shape_is_supported(problem: dict[str, Any], layout: list[int], support: dict[str, Any]) -> bool:
+    """Return whether a candidate stays inside observed benchmark shape support."""
+    features = layout_shape_features(problem, layout)
+    for name in ("layout_transitions", "layout_segments", "active_devices"):
+        if int(features[name]) not in support[name]:
+            return False
+    for name in ("max_output_block_fraction", "max_output_byte_fraction"):
+        low, high = support[name]
+        if not (low <= features[name] <= high):
+            return False
+    return True
 
 
 def benchmark_feature_names(problem: dict[str, Any], include_graph_features: bool, model: str) -> list[str]:
@@ -1674,6 +1710,48 @@ def contiguous_range_layouts(block_count: int, device_count: int) -> list[tuple[
     return layouts
 
 
+def segmented_alternating_layouts(
+    block_count: int, device_count: int, max_segments: int, cut_stride: int, max_layouts: int
+) -> list[tuple[str, list[int]]]:
+    """Generate alternating two-device segmented layouts with capped enumeration."""
+    if device_count != 2:
+        raise ValueError("segmented layout search currently supports exactly two devices")
+    if block_count <= 0:
+        raise ValueError("block_count must be positive")
+    if max_segments <= 0:
+        raise ValueError("max_segments must be positive")
+    if cut_stride <= 0:
+        raise ValueError("segment_cut_stride must be positive")
+    if max_layouts <= 0:
+        raise ValueError("max_segment_layouts must be positive")
+
+    cut_points = list(range(cut_stride, block_count, cut_stride))
+    total = 2
+    for segment_count in range(2, max_segments + 1):
+        total += 2 * math.comb(len(cut_points), segment_count - 1)
+    if total > max_layouts:
+        raise ValueError(
+            "segmented layout search would generate "
+            f"{total} layouts; increase --max-segment-layouts or increase --segment-cut-stride"
+        )
+
+    layouts: list[tuple[str, list[int]]] = []
+    for start_device in range(2):
+        layouts.append((f"seg1_start{start_device}", [start_device] * block_count))
+
+    for segment_count in range(2, max_segments + 1):
+        for cuts in itertools.combinations(cut_points, segment_count - 1):
+            bounds = (0, *cuts, block_count)
+            for start_device in range(2):
+                layout: list[int] = []
+                for segment in range(segment_count):
+                    device = (start_device + segment) % 2
+                    layout.extend([device] * (bounds[segment + 1] - bounds[segment]))
+                name = f"seg{segment_count}_start{start_device}_cuts" + "_".join(str(cut) for cut in cuts)
+                layouts.append((name, layout))
+    return layouts
+
+
 def observed_layouts(records: list[dict[str, Any]]) -> list[list[int]]:
     """Return unique output layouts observed in the trace."""
     layouts: list[list[int]] = []
@@ -2089,6 +2167,10 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     """Fit benchmark matvec timing and suggest a candidate layout."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
+    if args.contiguous_only and args.segmented_only:
+        raise ValueError("--contiguous-only and --segmented-only are mutually exclusive")
+    if args.observed_only and args.segmented_only:
+        raise ValueError("--observed-only and --segmented-only are mutually exclusive")
     records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     include_env_bytes = include_environment_bytes(args)
     coefficients, stats = fit_benchmark_coefficients(
@@ -2098,31 +2180,46 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
         coefficients = clamp_negative_coefficients(coefficients)
 
     observed_keys = {tuple(layout) for layout in observed_benchmark_layouts(records, problem)}
-    if int(problem["block_count"]) >= int(problem["device_count"]):
-        contiguous_keys = {
-            tuple(layout)
-            for _, layout in contiguous_range_layouts(int(problem["block_count"]), int(problem["device_count"]))
-        }
+    block_count = int(problem["block_count"])
+    device_count = int(problem["device_count"])
+    if block_count >= device_count:
+        contiguous_keys = {tuple(layout) for _, layout in contiguous_range_layouts(block_count, device_count)}
     else:
         contiguous_keys = set()
     byte_balanced_key = tuple(byte_balanced_layout(problem))
 
     if args.contiguous_only:
+        seeds = [layout for _, layout in contiguous_range_layouts(block_count, device_count)]
+        search_kind = "contiguous"
+    elif args.segmented_only:
         seeds = [
             layout
-            for _, layout in contiguous_range_layouts(int(problem["block_count"]), int(problem["device_count"]))
+            for _, layout in segmented_alternating_layouts(
+                block_count, device_count, args.max_segments, args.segment_cut_stride, args.max_segment_layouts
+            )
         ]
+        if not args.allow_shape_extrapolation:
+            shape_support = observed_layout_shape_support(records, problem)
+            seeds = [layout for layout in seeds if layout_shape_is_supported(problem, layout, shape_support)]
+            if not seeds:
+                raise ValueError(
+                    "segmented search produced no layouts inside observed benchmark shape support; "
+                    "benchmark at least one matching segmented layout or pass --allow-shape-extrapolation"
+                )
+        search_kind = "segmented"
     elif args.observed_only:
         seeds = observed_benchmark_layouts(records, problem)
+        search_kind = "observed"
     else:
         seeds = candidate_benchmark_layouts(problem, records, args.random)
+        search_kind = "local"
 
     ranked: list[dict[str, Any]] = []
     seen: set[tuple[int, ...]] = set()
     for seed in seeds:
         layout = (
             seed
-            if args.observed_only or args.contiguous_only
+            if args.observed_only or args.contiguous_only or args.segmented_only
             else benchmark_local_search(
                 problem, seed, coefficients, args.passes, include_env_bytes, args.graph_features, args.model
             )
@@ -2162,10 +2259,10 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     if args.output_runtime_coefficients is not None:
         write_runtime_empirical_coefficients(args.output_runtime_coefficients, coefficients, names, args.model)
         print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
-    if args.contiguous_only:
-        print("search=contiguous")
-    else:
-        print(f"search={'observed' if args.observed_only else 'local'}")
+    print(f"search={search_kind}")
+    print(f"candidate_layouts={len(ranked)}")
+    if args.segmented_only:
+        print(f"shape_extrapolation={str(bool(args.allow_shape_extrapolation)).lower()}")
     print(f"predicted_matvec_s={float(best['score']):.9g}")
     print(f"observed_layout={str(bool(best['observed'])).lower()}")
     print(f"contiguous_layout={str(bool(best['contiguous'])).lower()}")
@@ -2677,6 +2774,34 @@ def parser() -> argparse.ArgumentParser:
         "--contiguous-only",
         action="store_true",
         help="search only layouts that assign contiguous block-index ranges to ordered devices",
+    )
+    bench_suggest.add_argument(
+        "--segmented-only",
+        action="store_true",
+        help="search only alternating two-device segmented layouts with bounded cut enumeration",
+    )
+    bench_suggest.add_argument(
+        "--max-segments",
+        type=int,
+        default=2,
+        help="maximum number of alternating segments for --segmented-only",
+    )
+    bench_suggest.add_argument(
+        "--segment-cut-stride",
+        type=int,
+        default=1,
+        help="only consider segmented cuts at multiples of this block stride",
+    )
+    bench_suggest.add_argument(
+        "--max-segment-layouts",
+        type=int,
+        default=20000,
+        help="reject --segmented-only searches that would enumerate more layouts than this",
+    )
+    bench_suggest.add_argument(
+        "--allow-shape-extrapolation",
+        action="store_true",
+        help="allow segmented candidates whose shape features were not observed in benchmark rows",
     )
     bench_suggest.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before search")
     bench_suggest.add_argument(

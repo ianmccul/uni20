@@ -471,6 +471,28 @@ family.  The traced sparse `f` tensor remains the ground truth for connectivity:
 contiguous ranges are only a candidate restriction that is useful when the
 block ordering clusters neighboring quantum-number sectors.
 
+`bench-suggest --segmented-only` is a controlled next step between one
+contiguous cut and arbitrary per-block local search.  It enumerates alternating
+two-device segmented layouts with bounded cut positions:
+
+```bash
+scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --model device \
+  --segmented-only \
+  --max-segments 3 \
+  --segment-cut-stride 20 \
+  --top 8 \
+  --compact-layouts
+```
+
+By default, segmented search only keeps candidates whose layout-shape features
+were observed in the benchmark rows used for fitting.  This prevents a model
+trained only on contiguous cuts from assigning unsupported negative or otherwise
+nonsensical scores to three-segment layouts.  Use
+`--allow-shape-extrapolation` only as an explicit diagnostic, then benchmark any
+suggested segmented layout directly before drawing conclusions.
+
 ```bash
 scripts/rabc-trace-model.py layouts --block-count 42 --device-count 2 --contiguous-cuts
 scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl \
