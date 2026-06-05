@@ -8,6 +8,7 @@ add_executable(uni20_tensorcontraction_tests
   test_lanczos.cpp
   test_matrix_family.cpp
   test_mps_environment_tensorcontraction.cpp
+  test_rabc_lanczos_fixture.cpp
   test_svd.cpp
   test_vector_algebra.cpp
 )

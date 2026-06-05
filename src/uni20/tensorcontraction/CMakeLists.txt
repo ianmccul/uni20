@@ -53,6 +53,7 @@ add_library(uni20_tensorcontraction_runtime STATIC
   src/effective_hamiltonian_operator.cpp
   src/effective_hamiltonian_plan.cpp
   src/matrix_family.cpp
+  src/rabc_lanczos_fixture.cpp
   src/svd_cusolver.cpp
   src/svd_split_kernels.cu
   src/vector_algebra.cpp

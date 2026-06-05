@@ -11,6 +11,7 @@ namespace uni20::tensorcontraction
 {
 
 class VectorAlgebraEngine;
+struct RabcLanczosFixture;
 
 class EffectiveHamiltonianOperator {
   public:
@@ -42,6 +43,12 @@ class EffectiveHamiltonianOperator {
     struct Impl;
     std::unique_ptr<Impl> impl_;
     explicit EffectiveHamiltonianOperator(std::unique_ptr<Impl> impl);
+
+    friend auto capture_variable_middle_rabc_fixture(EffectiveHamiltonianOperator const& op,
+                                                     MatrixFamily const& input_vector) -> RabcLanczosFixture;
 };
+
+[[nodiscard]] auto capture_variable_middle_rabc_fixture(EffectiveHamiltonianOperator const& op,
+                                                        MatrixFamily const& input_vector) -> RabcLanczosFixture;
 
 } // namespace uni20::tensorcontraction

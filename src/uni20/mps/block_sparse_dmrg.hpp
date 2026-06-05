@@ -12,6 +12,7 @@
 #include <uni20/operator/finite_triangular_mpo.hpp>
 #include <uni20/tensorcontraction/effective_hamiltonian_operator.hpp>
 #include <uni20/tensorcontraction/lanczos.hpp>
+#include <uni20/tensorcontraction/rabc_lanczos_fixture.hpp>
 #include <uni20/tensorcontraction/svd.hpp>
 #include <uni20/tensorcontraction/vector_algebra.hpp>
 
@@ -25,6 +26,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <limits>
@@ -990,6 +993,69 @@ make_transposed_environment_matrix_family(BlockSparseEnvironment const& env) -> 
   return family;
 }
 
+inline auto optional_env_size(char const* name) -> std::optional<std::size_t>
+{
+  char const* raw = std::getenv(name);
+  if (raw == nullptr || *raw == '\0')
+  {
+    return std::nullopt;
+  }
+
+  std::string const text(raw);
+  std::size_t consumed = 0;
+  auto const value = std::stoull(text, &consumed);
+  if (consumed != text.size())
+  {
+    throw std::invalid_argument(std::string("invalid integer value for ") + name + ": " + text);
+  }
+  return static_cast<std::size_t>(value);
+}
+
+inline auto rabc_fixture_match_counter() -> std::size_t&
+{
+  static std::size_t counter = 0;
+  return counter;
+}
+
+inline void maybe_dump_rabc_fixture(BlockSparseFiniteMPS const& psi, std::size_t left_site,
+                                    BlockSparseTwoSiteLayout const& layout,
+                                    tensorcontraction::EffectiveHamiltonianOperator const& op)
+{
+  char const* path = std::getenv("UNI20_RABC_DUMP_PATH");
+  if (path == nullptr || *path == '\0')
+  {
+    return;
+  }
+
+  if (auto const target_left_site = optional_env_size("UNI20_RABC_DUMP_LEFT_SITE");
+      target_left_site.has_value() && left_site != *target_left_site)
+  {
+    return;
+  }
+
+  if (auto const min_bond_dim = optional_env_size("UNI20_RABC_DUMP_MIN_BOND_DIM"); min_bond_dim.has_value())
+  {
+    if (layout.left_bond_space().total_dim() < *min_bond_dim || layout.right_bond_space().total_dim() < *min_bond_dim)
+    {
+      return;
+    }
+  }
+
+  auto& match_counter = rabc_fixture_match_counter();
+  auto const match_index = match_counter++;
+  if (auto const target_match = optional_env_size("UNI20_RABC_DUMP_MATCH_INDEX");
+      target_match.has_value() && match_index != *target_match)
+  {
+    return;
+  }
+
+  auto host_input = make_two_site_vector(psi, left_site, layout);
+  tensorcontraction::write_variable_middle_rabc_fixture(path, op, host_input);
+  std::fprintf(stderr, "[UNI20][RABC_FIXTURE] wrote %s left_site=%zu match=%zu left_dim=%zu right_dim=%zu blocks=%zu\n",
+               path, left_site, match_index, layout.left_bond_space().total_dim(),
+               layout.right_bond_space().total_dim(), layout.block_count());
+}
+
 inline void validate_block_sparse_effective_hamiltonian_inputs(BlockSparseEnvironment const& left_env,
                                                                SparseMpoSite const& left_mpo,
                                                                SparseMpoSite const& right_mpo,
@@ -1469,6 +1535,7 @@ inline auto solve_two_site(BlockSparseFiniteMPS const& psi, BlockSparseMpoChain 
   stage_start = stage_stop;
   auto effective_hamiltonian =
       make_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env, std::move(layout));
+  detail::maybe_dump_rabc_fixture(psi, left_site, effective_hamiltonian.layout, effective_hamiltonian.op);
   stage_stop = detail::profile_checkpoint();
   timings.effective_hamiltonian = detail::profile_elapsed(stage_start, stage_stop);
 

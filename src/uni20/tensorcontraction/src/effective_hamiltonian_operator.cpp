@@ -1,4 +1,5 @@
 #include <uni20/tensorcontraction/effective_hamiltonian_operator.hpp>
+#include <uni20/tensorcontraction/rabc_lanczos_fixture.hpp>
 #include <uni20/tensorcontraction/vector_algebra.hpp>
 
 #include "Arranger.hpp"
@@ -139,6 +140,13 @@ void validate_family_shape(MatrixFamily const& actual, std::span<MatrixFamily::B
                                   " vector has incompatible block shapes");
     }
   }
+}
+
+auto clone_family(MatrixFamily const& source) -> MatrixFamily
+{
+  MatrixFamily clone(source.blocks());
+  clone.assign(source);
+  return clone;
 }
 
 bool use_host_effective_hamiltonian_backend()
@@ -486,6 +494,22 @@ void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixF
   arranger.analyzeComputation(r, a, b, c, terms);
   arranger.compileWorklists(r, a, b, c, /*syncResultsToHost=*/false);
   arranger.doContraction(r, a, b, c);
+}
+
+auto capture_variable_middle_rabc_fixture(EffectiveHamiltonianOperator const& op,
+                                          MatrixFamily const& input_vector) -> RabcLanczosFixture
+{
+  if (op.impl_->variable_family != VariableFamily::Middle)
+  {
+    throw std::invalid_argument("R/A/B/C Lanczos fixture capture requires a variable-middle operator");
+  }
+  validate_family_shape(input_vector, op.impl_->input_blocks, "input");
+
+  return RabcLanczosFixture{.a_mats = clone_family(op.impl_->a_mats),
+                            .c_mats = clone_family(op.impl_->c_mats),
+                            .input_vector = clone_family(input_vector),
+                            .output_blocks = op.impl_->output_blocks,
+                            .terms = op.impl_->terms};
 }
 
 } // namespace uni20::tensorcontraction
