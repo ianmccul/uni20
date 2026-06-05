@@ -326,11 +326,17 @@ def block_order_preferences(record: dict[str, Any]) -> list[dict[str, Any]]:
         raise ValueError("block order preferences require trace rows captured with term details")
 
     layout = [int(item) for item in record.get("output_layout", [])]
+    return block_order_preferences_for_layout(term_problem(record), layout)
+
+
+def block_order_preferences_for_layout(problem: dict[str, Any], layout: list[int]) -> list[dict[str, Any]]:
+    """Summarize left/right order preference for each `(device, B block)` group."""
+    validate_layout(problem, layout)
     groups: dict[tuple[int, int], dict[str, Any]] = {}
     staged_right: dict[tuple[int, int], set[int]] = {}
     staged_left: dict[tuple[int, int], set[int]] = {}
 
-    for term in record["terms"]:
+    for term in problem["terms"]:
         r = int(term["r"])
         b = int(term["b"])
         device = layout[r]
@@ -383,6 +389,141 @@ def block_order_preferences(record: dict[str, Any]) -> list[dict[str, Any]]:
         row["abs_delta_flops"] = abs(row["right_total_flops"] - row["left_total_flops"])
     rows.sort(key=lambda row: (row["device"], -row["abs_delta_flops"], row["b"]))
     return rows
+
+
+def duplicate_stats(groups_by_device: list[set[tuple[Any, ...]]]) -> dict[str, int]:
+    """Summarize duplicated logical first-stage groups across devices."""
+    owners: dict[tuple[Any, ...], set[int]] = {}
+    for device, groups in enumerate(groups_by_device):
+        for group in groups:
+            owners.setdefault(group, set()).add(device)
+    duplicate_groups = 0
+    duplicate_extra = 0
+    for devices in owners.values():
+        if len(devices) > 1:
+            duplicate_groups += 1
+            duplicate_extra += len(devices) - 1
+    return {
+        "unique_global": len(owners),
+        "uses": sum(len(groups) for groups in groups_by_device),
+        "duplicate_groups": duplicate_groups,
+        "duplicate_extra": duplicate_extra,
+    }
+
+
+def empty_graph_device(device: int) -> dict[str, Any]:
+    """Create a per-device graph partition summary row."""
+    return {
+        "device": device,
+        "terms": 0,
+        "b_cut_terms": 0,
+        "b_peer_blocks": 0,
+        "b_peer_bytes": 0,
+        "right_first_flops": 0.0,
+        "right_second_flops": 0.0,
+        "right_intermediate_bytes": 0,
+        "left_first_flops": 0.0,
+        "left_second_flops": 0.0,
+        "left_intermediate_bytes": 0,
+        "mixed_first_flops": 0.0,
+        "mixed_second_flops": 0.0,
+        "mixed_intermediate_bytes": 0,
+        "mixed_left_groups": 0,
+        "mixed_right_groups": 0,
+    }
+
+
+def graph_metrics_for_layout(problem: dict[str, Any], layout: list[int]) -> dict[str, Any]:
+    """Compute graph cut and first-stage reuse metrics for one center-block layout."""
+    validate_layout(problem, layout)
+    device_count = int(problem["device_count"])
+    devices = [empty_graph_device(device) for device in range(device_count)]
+    b_peer_blocks: list[set[int]] = [set() for _ in range(device_count)]
+    right_first_groups: list[set[tuple[Any, ...]]] = [set() for _ in range(device_count)]
+    left_first_groups: list[set[tuple[Any, ...]]] = [set() for _ in range(device_count)]
+    mixed_first_groups: list[set[tuple[Any, ...]]] = [set() for _ in range(device_count)]
+
+    order_rows = block_order_preferences_for_layout(problem, layout)
+    mixed_order = {
+        (int(row["device"]), int(row["b"])): "left" if row["preference"] == "left" else "right"
+        for row in order_rows
+    }
+
+    for row in order_rows:
+        if row["preference"] == "left":
+            devices[int(row["device"])]["mixed_left_groups"] += 1
+        else:
+            devices[int(row["device"])]["mixed_right_groups"] += 1
+
+    for term in problem["terms"]:
+        r = int(term["r"])
+        a = int(term["a"])
+        b = int(term["b"])
+        c = int(term["c"])
+        device = layout[r]
+        row = devices[device]
+        row["terms"] += 1
+        if layout[b] != device:
+            row["b_cut_terms"] += 1
+            b_peer_blocks[device].add(b)
+
+        right_key = ("right", b, c)
+        if right_key not in right_first_groups[device]:
+            right_first_groups[device].add(right_key)
+            row["right_first_flops"] += float(term["bc_flops"])
+            row["right_intermediate_bytes"] += int(term["intermediate_bytes"])
+        row["right_second_flops"] += float(term["accumulate_flops"])
+
+        left_key = ("left", a, b)
+        left_first, left_second = term_left_first_flops(term)
+        if left_key not in left_first_groups[device]:
+            left_first_groups[device].add(left_key)
+            row["left_first_flops"] += left_first
+            row["left_intermediate_bytes"] += term_left_first_intermediate_bytes(term)
+        row["left_second_flops"] += left_second
+
+        order = mixed_order[(device, b)]
+        if order == "left":
+            if left_key not in mixed_first_groups[device]:
+                mixed_first_groups[device].add(left_key)
+                row["mixed_first_flops"] += left_first
+                row["mixed_intermediate_bytes"] += term_left_first_intermediate_bytes(term)
+            row["mixed_second_flops"] += left_second
+        else:
+            if right_key not in mixed_first_groups[device]:
+                mixed_first_groups[device].add(right_key)
+                row["mixed_first_flops"] += float(term["bc_flops"])
+                row["mixed_intermediate_bytes"] += int(term["intermediate_bytes"])
+            row["mixed_second_flops"] += float(term["accumulate_flops"])
+
+    for device, blocks in enumerate(b_peer_blocks):
+        devices[device]["b_peer_blocks"] = len(blocks)
+        devices[device]["b_peer_bytes"] = sum(int(problem["input_bytes"][block]) for block in blocks)
+
+    for row in devices:
+        device = int(row["device"])
+        row["right_first_groups"] = len(right_first_groups[device])
+        row["left_first_groups"] = len(left_first_groups[device])
+        row["mixed_first_groups"] = len(mixed_first_groups[device])
+        row["right_total_flops"] = row["right_first_flops"] + row["right_second_flops"]
+        row["left_total_flops"] = row["left_first_flops"] + row["left_second_flops"]
+        row["mixed_total_flops"] = row["mixed_first_flops"] + row["mixed_second_flops"]
+
+    return {
+        "layout": layout,
+        "devices": devices,
+        "b_cut_terms": sum(int(row["b_cut_terms"]) for row in devices),
+        "b_peer_blocks": sum(int(row["b_peer_blocks"]) for row in devices),
+        "b_peer_bytes": sum(int(row["b_peer_bytes"]) for row in devices),
+        "right_first": duplicate_stats(right_first_groups),
+        "left_first": duplicate_stats(left_first_groups),
+        "mixed": duplicate_stats(mixed_first_groups),
+        "right_max_device_flops": max(float(row["right_total_flops"]) for row in devices),
+        "left_max_device_flops": max(float(row["left_total_flops"]) for row in devices),
+        "mixed_max_device_flops": max(float(row["mixed_total_flops"]) for row in devices),
+        "mixed_left_groups": sum(int(row["mixed_left_groups"]) for row in devices),
+        "mixed_right_groups": sum(int(row["mixed_right_groups"]) for row in devices),
+    }
 
 
 def term_problem(record: dict[str, Any]) -> dict[str, Any]:
@@ -751,6 +892,22 @@ def parse_float_list(text: str) -> list[float]:
     return values
 
 
+def parse_layout(text: str, block_count: int, device_count: int) -> list[int]:
+    """Parse and validate a comma-separated device layout."""
+    layout: list[int] = []
+    for item in text.split(","):
+        stripped = item.strip()
+        if not stripped:
+            continue
+        layout.append(int(stripped))
+    if len(layout) != block_count:
+        raise ValueError(f"layout has {len(layout)} blocks, expected {block_count}")
+    for device in layout:
+        if not 0 <= device < device_count:
+            raise ValueError(f"layout references device {device}, expected [0,{device_count})")
+    return layout
+
+
 def cmd_fit(args: argparse.Namespace) -> int:
     """Fit and print a model."""
     records = trace_records(args)
@@ -811,6 +968,65 @@ def cmd_order_summary(args: argparse.Namespace) -> int:
                     f"  {row['device']} {row['b']} {row['b_rows']} {row['b_cols']} {row['terms']} "
                     f"{row['right_total_flops']:.9g} {row['left_total_flops']:.9g} "
                     f"{row['preference']} {row['long_dim_heuristic']}"
+                )
+    return 0
+
+
+def cmd_graph_summary(args: argparse.Namespace) -> int:
+    """Summarize graph cuts and first-stage reuse for R/A/B/C term layouts."""
+    records = trace_records(args)
+    problem = term_problem(records[-1])
+    grouped = group_by_layout(records)
+
+    layouts: list[tuple[str, int, int | str, list[int]]] = []
+    if args.layout:
+        for index, text in enumerate(args.layout):
+            layouts.append(
+                (
+                    f"manual{index}",
+                    0,
+                    "manual",
+                    parse_layout(text, int(problem["block_count"]), int(problem["device_count"])),
+                )
+            )
+        if args.include_observed:
+            for key, rows in grouped.items():
+                layouts.append((layout_string(list(key)), len(rows), rows[0]["_line"], list(key)))
+    else:
+        for key, rows in grouped.items():
+            layouts.append((layout_string(list(key)), len(rows), rows[0]["_line"], list(key)))
+
+    print(
+        "first_line count b_cut_terms b_peer_blocks b_peer_bytes "
+        "right_first_uses right_dup_extra left_first_uses left_dup_extra "
+        "mixed_first_uses mixed_dup_extra mixed_left_groups mixed_right_groups "
+        "right_max_flops left_max_flops mixed_max_flops layout"
+    )
+    for layout_name, count, first_line, layout in layouts:
+        stats = graph_metrics_for_layout(problem, layout)
+        print(
+            f"{first_line} {count} {stats['b_cut_terms']} {stats['b_peer_blocks']} {stats['b_peer_bytes']} "
+            f"{stats['right_first']['uses']} {stats['right_first']['duplicate_extra']} "
+            f"{stats['left_first']['uses']} {stats['left_first']['duplicate_extra']} "
+            f"{stats['mixed']['uses']} {stats['mixed']['duplicate_extra']} "
+            f"{stats['mixed_left_groups']} {stats['mixed_right_groups']} "
+            f"{stats['right_max_device_flops']:.9g} {stats['left_max_device_flops']:.9g} "
+            f"{stats['mixed_max_device_flops']:.9g} {layout_name}"
+        )
+        if args.devices:
+            print(
+                "  device terms b_cut_terms b_peer_blocks b_peer_bytes "
+                "right_first_groups left_first_groups mixed_first_groups "
+                "right_total_flops left_total_flops mixed_total_flops "
+                "mixed_left_groups mixed_right_groups"
+            )
+            for row in stats["devices"]:
+                print(
+                    f"  {row['device']} {row['terms']} {row['b_cut_terms']} {row['b_peer_blocks']} "
+                    f"{row['b_peer_bytes']} {row['right_first_groups']} {row['left_first_groups']} "
+                    f"{row['mixed_first_groups']} {row['right_total_flops']:.9g} "
+                    f"{row['left_total_flops']:.9g} {row['mixed_total_flops']:.9g} "
+                    f"{row['mixed_left_groups']} {row['mixed_right_groups']}"
                 )
     return 0
 
@@ -955,6 +1171,25 @@ def parser() -> argparse.ArgumentParser:
     order_summary.add_argument("--blocks", action="store_true", help="print per-center-block order statistics")
     order_summary.add_argument("--top-blocks", type=int, default=0, help="limit per-layout block rows by delta")
     order_summary.set_defaults(func=cmd_order_summary)
+
+    graph_summary = subcommands.add_parser(
+        "graph-summary",
+        help="summarize B-owner cuts and first-stage hypergraph reuse for traced term layouts",
+    )
+    graph_summary.add_argument("trace", type=Path)
+    graph_summary.add_argument("--drop-first-per-layout", type=int, default=0)
+    graph_summary.add_argument(
+        "--layout",
+        action="append",
+        help="manual comma-separated output layout to summarize; may be supplied more than once",
+    )
+    graph_summary.add_argument(
+        "--include-observed",
+        action="store_true",
+        help="include observed trace layouts after any manual layouts",
+    )
+    graph_summary.add_argument("--devices", action="store_true", help="print per-device graph metrics")
+    graph_summary.set_defaults(func=cmd_graph_summary)
 
     fit = subcommands.add_parser("fit", help="fit per-device timing coefficients")
     fit.add_argument("trace", type=Path)

@@ -156,6 +156,18 @@ pressure from the sparse `f` hypergraph:
 scripts/rabc-trace-model.py order-summary /tmp/uni20_rabc_trace.jsonl --devices --blocks --top-blocks 12
 ```
 
+Use `graph-summary` on a term trace to inspect the layout-dependent graph cuts:
+unique peer `B` blocks implied by the canonical center-vector layout,
+duplicated first-stage `(B,C)` groups for right-first execution, duplicated
+`(A,B)` groups for left-first execution, and the corresponding metrics for a
+simple mixed per-`(device,B)` order choice:
+
+```bash
+scripts/rabc-trace-model.py graph-summary /tmp/uni20_rabc_trace.jsonl --devices
+scripts/rabc-trace-model.py graph-summary /tmp/uni20_rabc_trace.jsonl \
+  --layout 0,0,0,1,1,1
+```
+
 Use `scripts/rabc-trace-model.py` to inspect and fit these traces:
 
 ```bash
@@ -163,6 +175,7 @@ scripts/rabc-trace-model.py summary /tmp/uni20_rabc_trace.jsonl
 scripts/rabc-trace-model.py fit /tmp/uni20_rabc_trace.jsonl
 scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl
 scripts/rabc-trace-model.py order-summary /tmp/uni20_rabc_trace.jsonl --devices --blocks --top-blocks 12
+scripts/rabc-trace-model.py graph-summary /tmp/uni20_rabc_trace.jsonl --devices
 ```
 
 The `fit` subcommand performs a small ridge least-squares fit to per-device CUDA-event timings.  The `suggest`
