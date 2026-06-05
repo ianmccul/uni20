@@ -245,6 +245,18 @@ restricted candidate family over the current block ordering; it is not the
 general model, especially once multiple symmetries or less one-dimensional
 fusion structure are present.
 
+The U(1) Heisenberg chain is useful for low-overhead benchmarking, but it is a
+weak stress test for the placement model because the dominant sector
+connectivity is close to one-dimensional in the chosen block ordering.  The
+nearest-neighbor Fermi-Hubbard chain with U(1)xU(1) symmetry is the next
+reference benchmark: center blocks are labelled by two charges, hopping terms
+move through distinct up/down charge directions, and the sparse `f` tensor is a
+more faithful proxy for the multi-charge hypergraph that the final planner must
+partition.  The default byte-balanced or contiguous-cut layout may still win for
+small fixtures, but that should be interpreted as an empirical result for the
+measured `f` tensor, not as evidence that a one-dimensional cut is the general
+optimization model.
+
 In the final Uni20 model, decision variables should include:
 
 - block placement `p_F(i) = (rank, device)` for each block `i` in each family

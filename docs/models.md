@@ -12,6 +12,12 @@ This layer is intentionally narrow.
 - `make_spin_half_heisenberg_bulk_component()` and
   `make_spin_half_heisenberg_mpo()` provide the first hand-built triangular MPO
   path for DMRG.
+- `FermiHubbardSite` is the first U(1)xU(1) local model bundle.
+- `make_fermi_hubbard_u1u1_site()` constructs the spinful fermion local space,
+  parity operator, creation/annihilation operators, and parity-modified hopping
+  operators.
+- `make_fermi_hubbard_bulk_component()` and `make_fermi_hubbard_mpo()` provide a
+  nearest-neighbor Fermi-Hubbard triangular MPO path for block-sparse DMRG.
 
 This is not the final long-term model hierarchy.
 
@@ -53,6 +59,11 @@ fit naturally in the current U(1) layer.
 But operators such as `Sx`, `Sy`, `sigma_x`, and `sigma_y` do not transform as a
 single U(1) charge, so they are not represented as one `LocalOperator` here.
 
+The same rule applies to the Hubbard helpers. Each creation or annihilation
+operator carries one definite `(N,Sz)` transform charge. Fermion parity is a
+separate scalar local operator used to encode the nearest-neighbor
+Jordan-Wigner sign convention in the MPO.
+
 ## Spin-1/2 Heisenberg MPO
 
 `make_spin_half_heisenberg_bulk_component(site, j, hz)` builds one repeated
@@ -78,6 +89,49 @@ interpreted as:
 
 `make_spin_half_heisenberg_mpo(length, site, j, hz)` then constructs a finite
 triangular MPO by repeating this same bulk component at every site.
+
+## U(1)xU(1) Fermi-Hubbard MPO
+
+`make_fermi_hubbard_u1u1_site()` follows the Matrix Product Toolkit
+`FermionU1U1` convention:
+
+- symmetry factors are `N:U(1),Sz:U(1)` by default
+- local states are ordered as `|0>`, `|up down>`, `|down>`, `|up>`
+- charges are `(0,0)`, `(2,0)`, `(1,-1/2)`, `(1,+1/2)`
+- `P=(-1)^N` is stored as an explicit scalar local operator
+
+The down-spin creation convention includes the local fermion sign:
+
+```text
+CHdown |0>  = |down>
+CHdown |up> = -|up down>
+```
+
+`make_fermi_hubbard_bulk_component(site, t, U)` builds one repeated
+upper-triangular component for
+
+```text
+H = -t sum_i,sigma (c^dagger_i,sigma c_{i+1,sigma}
+                    + c^dagger_{i+1,sigma} c_{i,sigma})
+    + U sum_i n_i,up n_i,down
+```
+
+The virtual channel order is:
+
+- `0`
+- `Cup`
+- `CHup`
+- `Cdown`
+- `CHdown`
+- `0`
+
+The hopping channels store `O_i P_i` on the left site and the complementary
+fermion operator on the right site. This explicitly encodes the adjacent-site
+Jordan-Wigner sign and matches the Matrix Product Toolkit convention
+`-dot(CH(0), C(1)) + dot(C(0), CH(1))`.
+
+`make_fermi_hubbard_mpo(length, site, t, U)` constructs a finite triangular MPO
+by repeating this same bulk component at every site.
 
 ## Boundary Convention
 

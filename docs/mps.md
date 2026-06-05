@@ -96,6 +96,15 @@ wavefunction storage infrastructure.
   sweeps and reports the edge local solve energy after each sweep.
   The long-chain examples accept `UNI20_HEISENBERG_LENGTH`,
   `UNI20_HEISENBERG_SWEEPS`, and `UNI20_HEISENBERG_MAX_RANK`.
+- `examples/fermi_hubbard_u1u1_dmrg.cpp` is the strict U(1)xU(1) block-sparse
+  Fermi-Hubbard executable. It starts from an alternating half-filled product
+  state, compiles the nearest-neighbor Hubbard MPO, and emits the same
+  `MP_BENCHFILE` timing columns as the U(1) Heisenberg executable. The example
+  accepts `UNI20_HUBBARD_LENGTH`, `UNI20_HUBBARD_SWEEPS`,
+  `UNI20_HUBBARD_MAX_RANK`, `UNI20_HUBBARD_T`, and `UNI20_HUBBARD_U`.
+  By default it treats the edge local solve energy as a benchmark diagnostic;
+  set `UNI20_HUBBARD_CHECK_GLOBAL_ENERGY=1` for the slower global-energy
+  monotonicity check.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
