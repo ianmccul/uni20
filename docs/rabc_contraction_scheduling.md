@@ -326,14 +326,21 @@ load(d) =
   + launch/copy/allocation overheads
 ```
 
-The current `cost` policy restricts `p(i)` to contiguous block ranges.  The
-`cost-block` diagnostic allows arbitrary `p(i)` and therefore approximates the
-true graph partitioning problem.  Arbitrary placement still stores each device's
-chosen block set as one coalesced slab; contiguity is a storage property, not a
-requirement that logical block indices form intervals.  The operator applies one
-canonical center-vector layout to both Krylov input and output blocks; if a
-contraction produces a block away from that canonical owner, the generic planner
-must account for the relayout before the result becomes the next Lanczos input.
+The current `cost` policy restricts `p(i)` to contiguous block ranges.  It now
+compares the selected range split against the default byte-balanced split under
+the same reduced right-first model, and accepts the model-selected split only
+when it exceeds a configurable minimum predicted speedup.  This keeps the
+prototype conservative when the model sees only a marginal advantage that can be
+erased by vector-layout, locality, or launch effects.
+
+The `cost-block` diagnostic allows arbitrary `p(i)` and therefore approximates
+one slice of the true graph partitioning problem.  Arbitrary placement still
+stores each device's chosen block set as one coalesced slab; contiguity is a
+storage property, not a requirement that logical block indices form intervals.
+The operator applies one canonical center-vector layout to both Krylov input and
+output blocks; if a contraction produces a block away from that canonical owner,
+the generic planner must account for the relayout before the result becomes the
+next Lanczos input.
 
 For the current TensorContraction bridge, `cost-block` starts from the
 byte-balanced slab layout and applies local-search single-block moves.  Because
@@ -353,6 +360,16 @@ term t:
   inputs A_j, B_k, C_l
   coefficient alpha_t
 ```
+
+Equivalently, the sparse `f` tensor defines a finite-state hypergraph
+partitioning problem.  For two GPUs and a fixed canonical center-vector layout,
+the first split is the `B/R` owner, giving two parts.  Each part can then be
+subdivided by the first contraction choice, left-first `A * B` or right-first
+`B * C`.  Additional binary choices, such as whether to migrate the input
+center block first, whether to migrate an intermediate, and where to reduce a
+partial `R`, multiply the number of execution labels but keep it finite.  Once
+those labels have costs, the planner is a graph or hypergraph partitioner over
+the nonzero `f` entries with typed execution states.
 
 It should group terms by reusable pairs:
 

@@ -86,13 +86,16 @@ Useful controls:
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_CENTRAL_GBPS` | Assumed central-vector transfer bandwidth. Default: `32`. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES` | If set, include environment staging bytes in the model. Default: unset. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_GBPS` | Assumed environment transfer bandwidth when environment bytes are enabled. Default: central bandwidth. |
+| `UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP` | Minimum predicted speedup required before `cost` overrides byte-balanced contiguous ranges. Default: `1.05`. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ARBITRARY_MIN_SPEEDUP` | Minimum predicted speedup required before `cost-block` overrides byte-balanced slab layout. Default: `1.25`. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` | Appends one JSONL record per deterministic resident matvec with layout, feature, and timing data for empirical model fitting. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS` | If set, include the full term list and selected device for each term in each JSONL record. |
 
-The cost policies are intentionally opt-in.  Even the contiguous policy can choose a partition that is worse for the
-current executor than the default byte-balanced slabs; the arbitrary block policy can still lose to the default layout
-when the R/A/B/C model underestimates vector-layout or relayout costs.
+The cost policies are intentionally opt-in.  The contiguous policy compares its
+model-selected split with the default byte-balanced split and falls back unless
+the predicted speedup clears `UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP`.
+The arbitrary block policy can still lose to the default layout when the R/A/B/C
+model underestimates vector-layout or relayout costs.
 The `stripe` policy is also opt-in, but is deterministic rather than fitted.  It is useful as an empirical baseline
 because it exercises the measured alternating block layout directly, while avoiding local-search extrapolation outside
 measured layouts.  It is not a default: validate it against the byte-balanced layout with tracing disabled before using

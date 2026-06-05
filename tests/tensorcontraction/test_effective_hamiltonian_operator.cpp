@@ -490,6 +490,70 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentManualPlacementM
   EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
 }
 
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentCostPlacementFallsBackToDefaultForMarginalSpeedup)
+{
+  if (visible_cuda_devices() < 2)
+  {
+    GTEST_SKIP() << "requires at least two visible CUDA devices";
+  }
+
+  auto const trace_path = temporary_trace_path();
+  EnvGuard guard{
+      "UNI20_TENSORCONTRACTION_BACKEND",
+      "UNI20_TENSORCONTRACTION_DEVICES",
+      "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES",
+      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
+      "UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP",
+      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
+  };
+  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+  setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
+  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "0", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "cost", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP", "1000", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
+
+  auto a = make_family({{1, 1}, {1, 1}});
+  auto c = make_family({{1, 1}, {1, 1}});
+  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
+                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
+                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+
+  a.assign(0, std::array{2.0});
+  a.assign(1, std::array{3.0});
+  c.assign(0, std::array{5.0});
+  c.assign(1, std::array{7.0});
+
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{0, 1, 0, 1, 1.0}};
+  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
+                                                               terms);
+  utc::VectorAlgebraEngine algebra;
+  algebra.set_host_synchronization(false);
+
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{11.0});
+  x.assign(1, std::array{13.0});
+  x.assign(2, std::array{17.0});
+  x.assign(3, std::array{19.0});
+  algebra.upload(x);
+
+  op.apply_resident(x, y, algebra);
+  algebra.synchronize(y);
+
+  std::ifstream input(trace_path);
+  ASSERT_TRUE(input.good());
+  std::string line;
+  std::getline(input, line);
+  std::filesystem::remove(trace_path);
+
+  EXPECT_NE(line.find("\"policy\":\"cost\""), std::string::npos);
+  EXPECT_NE(line.find("\"input_layout\":[0,0,1,1]"), std::string::npos);
+  EXPECT_NE(line.find("\"output_layout\":[0,0,1,1]"), std::string::npos);
+}
+
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentStripedPlacementUsesAlternatingLayout)
 {
   if (visible_cuda_devices() < 2)

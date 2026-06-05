@@ -99,6 +99,9 @@ struct EffectiveHamiltonianOperator::Impl
 namespace
 {
 
+std::vector<ResidentOutputPlacementRange> default_byte_balanced_ranges(std::span<tensor::Matrix const> mats,
+                                                                       int device_count);
+
 int checked_index(std::size_t value)
 {
   if (value > static_cast<std::size_t>(std::numeric_limits<int>::max()))
@@ -328,6 +331,7 @@ struct RabcPlacementModel
     double central_gbps = 32.0;
     bool count_environment_bytes = false;
     double env_gbps = 32.0;
+    double contiguous_min_speedup = 1.05;
     double arbitrary_min_speedup = 1.25;
 };
 
@@ -354,6 +358,7 @@ RabcPlacementModel rabc_placement_model()
       .central_gbps = central_gbps,
       .count_environment_bytes = std::getenv("UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES") != nullptr,
       .env_gbps = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_GBPS", central_gbps),
+      .contiguous_min_speedup = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP", 1.05),
       .arbitrary_min_speedup = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_ARBITRARY_MIN_SPEEDUP", 1.25)};
 }
 
@@ -413,7 +418,7 @@ double rabc_range_model_seconds(MatrixFamily const& a_mats, MatrixFamily const& 
 
 std::vector<ResidentOutputPlacementRange>
 cost_based_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
-                              std::span<tensor::Matrix const> b_raw_mats,
+                              std::span<tensor::Matrix const> r_raw_mats, std::span<tensor::Matrix const> b_raw_mats,
                               std::span<EffectiveHamiltonianOperator::Term const> terms, std::size_t output_count,
                               tensor::Swapper& swapper)
 {
@@ -495,6 +500,32 @@ cost_based_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily const& b_
     end = begin;
   }
 
+  auto annotate_ranges = [&range_cost](std::vector<ResidentOutputPlacementRange>& placement_ranges) {
+    for (auto& range : placement_ranges)
+    {
+      range.model_seconds = range_cost[static_cast<std::size_t>(range.device)][range.begin][range.end];
+    }
+  };
+  auto max_model_seconds = [](std::span<ResidentOutputPlacementRange const> placement_ranges) {
+    double seconds = 0.0;
+    for (auto const range : placement_ranges)
+    {
+      seconds = std::max(seconds, range.model_seconds);
+    }
+    return seconds;
+  };
+
+  auto default_ranges = default_byte_balanced_ranges(r_raw_mats, device_count);
+  annotate_ranges(default_ranges);
+  double const selected_seconds = max_model_seconds(ranges);
+  double const default_seconds = max_model_seconds(default_ranges);
+  bool const fallback_to_default = selected_seconds > 0.0 && default_seconds > 0.0 &&
+                                   default_seconds / selected_seconds < model.contiguous_min_speedup;
+  if (fallback_to_default)
+  {
+    ranges = std::move(default_ranges);
+  }
+
   if (log_cost_based_rabc_placement())
   {
     fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy=cost-contiguous devices={} outputs={}", device_count,
@@ -503,6 +534,13 @@ cost_based_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily const& b_
     {
       fmt::print(stderr, " device{}={{blocks=[{},{}),model_s={:.6g}}}", range.device, range.begin, range.end,
                  range.model_seconds);
+    }
+    if (fallback_to_default)
+    {
+      fmt::print(stderr,
+                 " fallback=default-byte-balanced selected_model_s={:.6g} default_model_s={:.6g}"
+                 " min_speedup={:.6g}",
+                 selected_seconds, default_seconds, model.contiguous_min_speedup);
     }
     fmt::print(stderr, "\n");
   }
@@ -1127,7 +1165,8 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
   if (use_contiguous_cost)
   {
     next.coalesced_ranges = true;
-    next.ranges = cost_based_rabc_output_ranges(a_mats, b_mats, c_mats, b_raw_mats, terms, output_count, swapper);
+    next.ranges =
+        cost_based_rabc_output_ranges(a_mats, b_mats, c_mats, r_raw_mats, b_raw_mats, terms, output_count, swapper);
     next.use_default_localization = placement_ranges_match_default(next.ranges, r_raw_mats, device_count);
     if (next.use_default_localization && log_cost_based_rabc_placement())
     {
