@@ -133,7 +133,28 @@ R += A * Y
 Per-device fields include `bc_flops`, `accumulate_flops`, local versus peer `B` bytes, `A`/`C` environment bytes,
 output bytes, intermediate bytes, term count, and unique block counts.  These are intentionally aggregate features for
 the first empirical model.  Set `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1` when debugging individual block placement
-or when a later optimizer needs term-level training data.
+or when a later optimizer needs term-level training data.  Term tracing also records the matrix dimensions and per-term
+right-first flops, which allows offline scoring of candidate layouts that were not directly measured.
+
+Use `scripts/rabc-trace-model.py` to inspect and fit these traces:
+
+```bash
+scripts/rabc-trace-model.py summary /tmp/uni20_rabc_trace.jsonl
+scripts/rabc-trace-model.py fit /tmp/uni20_rabc_trace.jsonl
+scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl
+```
+
+The `fit` subcommand performs a small ridge least-squares fit to per-device CUDA-event timings.  The `suggest`
+subcommand fits the same model, clamps negative coefficients by default, and performs deterministic single-block
+local search over candidate center-vector layouts.  This is a first empirical optimizer, not a proof of global
+optimality.  It is intended to generate candidate manual layouts that should then be rerun through the fixture replay
+and compared against the measured `gpu_s` trace field.
+
+To generate a few explicit layouts without fitting:
+
+```bash
+scripts/rabc-trace-model.py layouts --block-count 40 --device-count 2 --random 8
+```
 
 The fixture preserves the exact TensorContraction block worklist emitted by the symmetry-aware DMRG path, but it does
 not store the higher-level `LocalSpace`, `BlockSpace`, or MPO metadata. Do not feed fixture data back into U(1) MPS

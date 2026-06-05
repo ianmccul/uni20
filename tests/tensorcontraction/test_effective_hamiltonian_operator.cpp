@@ -547,6 +547,10 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentTraceWritesCostF
   EXPECT_NE(line.find("\"bc_flops\":2"), std::string::npos);
   EXPECT_NE(line.find("\"accumulate_flops\":2"), std::string::npos);
   EXPECT_NE(line.find("\"terms\":[{\"r\":0,\"a\":0,\"b\":0,\"c\":0"), std::string::npos);
+  EXPECT_NE(line.find("\"r_rows\":1,\"r_cols\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"a_rows\":1,\"a_cols\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"b_rows\":1,\"b_cols\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"c_rows\":1,\"c_cols\":1"), std::string::npos);
 }
 
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, RejectsMismatchedInputOutputVectors)

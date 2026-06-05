@@ -944,6 +944,8 @@ std::string json_device_timings(std::span<RabcTraceDeviceTiming const> timings)
 }
 
 void write_rabc_trace(std::uint64_t index, std::string const& policy, RabcCostFeatures const& features,
+                      MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
+                      std::span<tensor::Matrix const> r_raw_mats,
                       std::span<EffectiveHamiltonianOperator::Term const> terms, double enqueue_seconds,
                       double sync_seconds, double wall_seconds, std::span<RabcTraceDeviceTiming const> timings)
 {
@@ -978,8 +980,19 @@ void write_rabc_trace(std::uint64_t index, std::string const& policy, RabcCostFe
       {
         fmt::print(file, ",");
       }
-      fmt::print(file, "{{\"r\":{},\"a\":{},\"b\":{},\"c\":{},\"coefficient\":{:.17g},\"device\":{}}}", term.r, term.a,
-                 term.b, term.c, term.coefficient, features.output_devices[term.r]);
+      auto const a = a_mats.block(term.a);
+      auto const b = b_mats.block(term.b);
+      auto const c = c_mats.block(term.c);
+      auto const r = r_raw_mats[term.r];
+      auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+      fmt::print(file,
+                 "{{\"r\":{},\"a\":{},\"b\":{},\"c\":{},\"coefficient\":{:.17g},\"device\":{},"
+                 "\"r_rows\":{},\"r_cols\":{},\"a_rows\":{},\"a_cols\":{},"
+                 "\"b_rows\":{},\"b_cols\":{},\"c_rows\":{},\"c_cols\":{},"
+                 "\"bc_flops\":{:.17g},\"accumulate_flops\":{:.17g},\"intermediate_bytes\":{}}}",
+                 term.r, term.a, term.b, term.c, term.coefficient, features.output_devices[term.r], r.getFirstDim(),
+                 r.getSecondDim(), a.rows, a.cols, b.rows, b.cols, c.rows, c.cols, gemm_flops(b, c),
+                 gemm_flops(a, intermediate), intermediate.rows * intermediate.cols * sizeof(double));
     }
     fmt::print(file, "]");
   }
@@ -1545,7 +1558,9 @@ void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixF
       auto const features = rabc_cost_features(
           impl_->a_mats, impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
           impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x, r, b, impl_->terms, swapper);
-      write_rabc_trace(trace_index, rabc_placement_policy(), features, impl_->terms,
+      write_rabc_trace(trace_index, rabc_placement_policy(), features, impl_->a_mats,
+                       impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
+                       impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x, r, impl_->terms,
                        std::chrono::duration<double>(enqueue_stop - enqueue_start).count(),
                        std::chrono::duration<double>(sync_stop - enqueue_stop).count(),
                        std::chrono::duration<double>(sync_stop - enqueue_start).count(), trace_timings);
