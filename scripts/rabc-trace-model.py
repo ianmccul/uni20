@@ -626,7 +626,9 @@ def print_benchmark_layout_rank(
             )
 
 
-def summarize_benchmark_structure(records: list[dict[str, Any]], problem: dict[str, Any], sort_key: str) -> None:
+def summarize_benchmark_structure(
+    records: list[dict[str, Any]], problem: dict[str, Any], sort_key: str, compact_layouts: bool
+) -> None:
     """Print no-trace timings with raw structural layout features."""
     grouped = group_benchmarks_by_layout(records, problem)
     rows: list[dict[str, Any]] = []
@@ -635,6 +637,7 @@ def summarize_benchmark_structure(records: list[dict[str, Any]], problem: dict[s
         matvec = [float(record["matvec_s"]) for record in layout_records]
         graph = graph_metrics_for_layout(problem, layout)
         device_features = features_for_layout(problem, layout, include_env_bytes=False, include_graph_features=True)
+        shape = layout_shape_features(problem, layout)
         names = ",".join(
             sorted({str(record.get("name", "")) for record in layout_records if str(record.get("name", ""))})
         )
@@ -645,12 +648,21 @@ def summarize_benchmark_structure(records: list[dict[str, Any]], problem: dict[s
                 "right_max_gflop": float(graph["right_max_device_flops"]) / 1.0e9,
                 "mixed_max_gflop": float(graph["mixed_max_device_flops"]) / 1.0e9,
                 "b_peer_mb": int(graph["b_peer_bytes"]) / 1.0e6,
+                "b_peer_blocks": int(graph["b_peer_blocks"]),
                 "b_cut_terms": int(graph["b_cut_terms"]),
                 "max_terms": max(int(row["terms"]) for row in device_features),
                 "max_unique_bc": max(int(row["unique_bc"]) for row in device_features),
                 "max_output_mb": max(int(row["output_bytes"]) for row in device_features) / 1.0e6,
+                "segments": int(shape["layout_segments"]),
+                "transitions": int(shape["layout_transitions"]),
+                "active_devices": int(shape["active_devices"]),
+                "max_output_byte_fraction": float(shape["max_output_byte_fraction"]),
+                "right_duplicate_groups": int(graph["right_first"]["duplicate_groups"]),
+                "mixed_duplicate_groups": int(graph["mixed"]["duplicate_groups"]),
+                "mixed_left_groups": int(graph["mixed_left_groups"]),
+                "mixed_right_groups": int(graph["mixed_right_groups"]),
                 "name": names,
-                "layout": layout_string(layout),
+                "layout": maybe_compact_layout(layout, compact_layouts),
             }
         )
 
@@ -659,6 +671,11 @@ def summarize_benchmark_structure(records: list[dict[str, Any]], problem: dict[s
         "right-flops": "right_max_gflop",
         "mixed-flops": "mixed_max_gflop",
         "peer-bytes": "b_peer_mb",
+        "peer-blocks": "b_peer_blocks",
+        "segments": "segments",
+        "transitions": "transitions",
+        "right-duplicates": "right_duplicate_groups",
+        "mixed-duplicates": "mixed_duplicate_groups",
         "terms": "max_terms",
         "name": "name",
     }
@@ -666,13 +683,18 @@ def summarize_benchmark_structure(records: list[dict[str, Any]], problem: dict[s
     rows.sort(key=lambda row: row[column])
     print(
         "count mean_matvec_s right_max_gflop mixed_max_gflop b_peer_mb "
-        "b_cut_terms max_terms max_unique_bc max_output_mb name layout"
+        "b_peer_blocks b_cut_terms max_terms max_unique_bc max_output_mb "
+        "segments transitions active_devices max_output_byte_fraction "
+        "right_duplicate_groups mixed_duplicate_groups mixed_left_groups mixed_right_groups name layout"
     )
     for row in rows:
         print(
             f"{row['count']} {row['mean_matvec_s']:.9g} {row['right_max_gflop']:.9g} "
-            f"{row['mixed_max_gflop']:.9g} {row['b_peer_mb']:.9g} {row['b_cut_terms']} "
-            f"{row['max_terms']} {row['max_unique_bc']} {row['max_output_mb']:.9g} "
+            f"{row['mixed_max_gflop']:.9g} {row['b_peer_mb']:.9g} {row['b_peer_blocks']} "
+            f"{row['b_cut_terms']} {row['max_terms']} {row['max_unique_bc']} {row['max_output_mb']:.9g} "
+            f"{row['segments']} {row['transitions']} {row['active_devices']} "
+            f"{row['max_output_byte_fraction']:.9g} {row['right_duplicate_groups']} "
+            f"{row['mixed_duplicate_groups']} {row['mixed_left_groups']} {row['mixed_right_groups']} "
             f"{row['name']} {row['layout']}"
         )
     if rows:
@@ -2109,7 +2131,7 @@ def cmd_bench_struct_summary(args: argparse.Namespace) -> int:
     """Summarize benchmark rows with static structural layout features."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
-    summarize_benchmark_structure(records, problem, args.sort)
+    summarize_benchmark_structure(records, problem, args.sort, args.compact_layouts)
     return 0
 
 
@@ -2732,9 +2754,24 @@ def parser() -> argparse.ArgumentParser:
     bench_struct_summary.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_struct_summary.add_argument(
         "--sort",
-        choices=("observed", "right-flops", "mixed-flops", "peer-bytes", "terms", "name"),
+        choices=(
+            "observed",
+            "right-flops",
+            "mixed-flops",
+            "peer-bytes",
+            "peer-blocks",
+            "segments",
+            "transitions",
+            "right-duplicates",
+            "mixed-duplicates",
+            "terms",
+            "name",
+        ),
         default="observed",
         help="summary sort order",
+    )
+    bench_struct_summary.add_argument(
+        "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )
     add_required_term_trace(bench_struct_summary)
     bench_struct_summary.set_defaults(func=cmd_bench_struct_summary)

@@ -351,7 +351,11 @@ in three segments and measured mean `#LanczosMatvecS = 0.923069940s` over
 three repeats.  This is slower than the best focused contiguous comparison
 around `cut326` at about `0.888s`, so the current useful automatic search space
 remains contiguous layouts unless a fixture supplies measured evidence for
-non-contiguous support.
+non-contiguous support.  Static structural diagnostics explain the failure
+modes: the `300/340` segmented candidate lowers peer-`B` bytes but skews
+maximum output bytes and terms onto one device, while the `160/520` segmented
+candidates lower critical-path flops but roughly double peer-block and
+duplicated first-stage-group pressure relative to the contiguous basin.
 
 For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
 dual-GPU sweep over all contiguous cuts found `cut6` as the current best
@@ -422,8 +426,16 @@ scripts/rabc-trace-model.py bench-struct-summary /tmp/uni20_rabc_benchmark.jsonl
   --term-trace /tmp/uni20_rabc_term_trace.jsonl
 scripts/rabc-trace-model.py bench-struct-summary /tmp/uni20_rabc_benchmark.jsonl \
   --term-trace /tmp/uni20_rabc_term_trace.jsonl \
-  --sort right-flops
+  --sort right-flops \
+  --compact-layouts
 ```
+
+The structural summary prints timing rows together with critical-path flops,
+peer-`B` traffic, cut terms, layout segments/transitions, output-byte skew, and
+duplicated first-stage groups.  Sort by `peer-bytes`, `peer-blocks`,
+`segments`, `transitions`, `right-duplicates`, or `mixed-duplicates` to inspect
+why a segmented or otherwise fragmented layout loses even when the fitted model
+predicts low flops.
 
 The same benchmark rows can be fitted against static term-trace features.  This
 uses the companion term trace for the fixed `f` hypergraph and reduces each
