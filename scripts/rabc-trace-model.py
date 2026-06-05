@@ -1768,15 +1768,32 @@ def print_fit(coefficients: dict[str, float], stats: dict[str, float], include_g
     print_fit_for_names(coefficients, stats, feature_names(include_graph_features))
 
 
+def runtime_empirical_coefficients(coefficients: dict[str, float], names: list[str], model: str) -> str | None:
+    """Return the C++ empirical-contiguous runtime coefficient string."""
+    if model != "device":
+        return None
+    return ",".join(f"{coefficients[name]:.17g}" for name in names)
+
+
 def print_runtime_empirical_coefficients(coefficients: dict[str, float], names: list[str], model: str) -> None:
     """Print runtime coefficient wiring for the C++ empirical-contiguous policy."""
-    if model != "device":
+    values = runtime_empirical_coefficients(coefficients, names, model)
+    if values is None:
         return
-    values = ",".join(f"{coefficients[name]:.17g}" for name in names)
     print("runtime_coefficients_order=" + ",".join(names))
     print("runtime_coefficients=" + values)
     print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous \\")
     print("    UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=" + values)
+
+
+def write_runtime_empirical_coefficients(
+    path: Path, coefficients: dict[str, float], names: list[str], model: str
+) -> None:
+    """Write runtime coefficients for `empirical-contiguous` to a text file."""
+    values = runtime_empirical_coefficients(coefficients, names, model)
+    if values is None:
+        raise ValueError("--output-runtime-coefficients requires --model device")
+    path.write_text(values + "\n")
 
 
 def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
@@ -2033,6 +2050,9 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
     print_runtime_empirical_coefficients(coefficients, names, args.model)
+    if args.output_runtime_coefficients is not None:
+        write_runtime_empirical_coefficients(args.output_runtime_coefficients, coefficients, names, args.model)
+        print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
     return 0
 
 
@@ -2134,6 +2154,9 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
     print_runtime_empirical_coefficients(coefficients, names, args.model)
+    if args.output_runtime_coefficients is not None:
+        write_runtime_empirical_coefficients(args.output_runtime_coefficients, coefficients, names, args.model)
+        print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
     if args.contiguous_only:
         print("search=contiguous")
     else:
@@ -2608,6 +2631,11 @@ def parser() -> argparse.ArgumentParser:
     bench_fit.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_fit.add_argument("--ridge", type=float, default=1.0e-9)
     bench_fit.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before printing")
+    bench_fit.add_argument(
+        "--output-runtime-coefficients",
+        type=Path,
+        help="write the device-aware empirical-contiguous runtime coefficient list to this file",
+    )
     add_benchmark_model(bench_fit)
     add_benchmark_layout_filter(bench_fit)
     add_timing_objective(bench_fit)
@@ -2646,6 +2674,11 @@ def parser() -> argparse.ArgumentParser:
         help="search only layouts that assign contiguous block-index ranges to ordered devices",
     )
     bench_suggest.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before search")
+    bench_suggest.add_argument(
+        "--output-runtime-coefficients",
+        type=Path,
+        help="write the device-aware empirical-contiguous runtime coefficient list to this file",
+    )
     bench_suggest.add_argument(
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )

@@ -33,6 +33,9 @@ Options:
   --trace-path PATH       Append R/A/B/C JSONL trace records to PATH. Use "auto"
                           for <output-dir>/trace.jsonl.
   --trace-terms           Include term metadata in trace records. Requires --trace-path.
+  --empirical-coefficients-file PATH
+                          Pass a fitted empirical-contiguous coefficient file
+                          to the benchmark runtime.
   --placement-log         Print TensorContraction placement diagnostics to stderr.
                           Enabled automatically for non-manual policies so the
                           selected layout can be recorded when possible.
@@ -68,6 +71,7 @@ warmup=1
 resume=0
 trace_path=""
 trace_terms=0
+empirical_coefficients_file=""
 placement_log=0
 show_layouts=0
 declare -A custom_layouts=()
@@ -147,6 +151,10 @@ while [[ $# -gt 0 ]]; do
       trace_terms=1
       shift
       ;;
+    --empirical-coefficients-file)
+      empirical_coefficients_file="$2"
+      shift 2
+      ;;
     --placement-log)
       placement_log=1
       shift
@@ -182,6 +190,10 @@ if [[ ! -x "${exe}" ]]; then
 fi
 if [[ "${trace_terms}" -eq 1 && -z "${trace_path}" ]]; then
   echo "--trace-terms requires --trace-path" >&2
+  exit 2
+fi
+if [[ -n "${empirical_coefficients_file}" && ! -f "${empirical_coefficients_file}" ]]; then
+  echo "empirical coefficient file does not exist: ${empirical_coefficients_file}" >&2
   exit 2
 fi
 
@@ -446,6 +458,9 @@ for item in "${labels[@]}"; do
     )
     if [[ "${manual_policy}" -eq 1 ]]; then
       env_args+=("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=${layout}")
+    fi
+    if [[ -n "${empirical_coefficients_file}" ]]; then
+      env_args+=("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE=${empirical_coefficients_file}")
     fi
     if [[ -n "${trace_path}" ]]; then
       env_args+=("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH=${trace_path}")

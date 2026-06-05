@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <compare>
@@ -17,6 +18,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <memory>
@@ -271,6 +273,72 @@ std::optional<std::string> optional_env_string(char const* name)
     return std::nullopt;
   }
   return std::string(raw);
+}
+
+std::string trim_ascii(std::string_view text)
+{
+  auto begin = text.begin();
+  auto end = text.end();
+  while (begin != end && std::isspace(static_cast<unsigned char>(*begin)) != 0)
+  {
+    ++begin;
+  }
+  while (begin != end && std::isspace(static_cast<unsigned char>(*(end - 1))) != 0)
+  {
+    --end;
+  }
+  return std::string(begin, end);
+}
+
+std::string empirical_coefficients_line_from_file(std::string const& path)
+{
+  std::ifstream input(path);
+  if (!input.good())
+  {
+    throw std::runtime_error("failed to open UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE: " + path);
+  }
+
+  std::string line;
+  while (std::getline(input, line))
+  {
+    auto trimmed = trim_ascii(line);
+    if (trimmed.empty() || trimmed.front() == '#')
+    {
+      continue;
+    }
+
+    constexpr std::string_view runtime_prefix = "runtime_coefficients=";
+    if (trimmed.starts_with(runtime_prefix))
+    {
+      return trim_ascii(std::string_view(trimmed).substr(runtime_prefix.size()));
+    }
+
+    constexpr std::string_view env_prefix = "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=";
+    auto const env_position = trimmed.find(env_prefix);
+    if (env_position != std::string::npos)
+    {
+      return trim_ascii(std::string_view(trimmed).substr(env_position + env_prefix.size()));
+    }
+
+    return trimmed;
+  }
+
+  throw std::invalid_argument("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE has no coefficient line: " +
+                              path);
+}
+
+std::optional<std::string> empirical_coefficients_text()
+{
+  if (auto const text = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS"); text.has_value())
+  {
+    return text;
+  }
+  if (auto const path = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
+      path.has_value())
+  {
+    return empirical_coefficients_line_from_file(*path);
+  }
+  return std::nullopt;
 }
 
 std::vector<int> parse_manual_rabc_layout(std::size_t block_count, int device_count)
@@ -805,19 +873,20 @@ struct RabcEmpiricalCoefficients
 
 RabcEmpiricalCoefficients empirical_rabc_coefficients()
 {
-  auto const text = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
+  auto const text = empirical_coefficients_text();
   if (!text.has_value())
   {
     throw std::invalid_argument("UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous requires "
-                                "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
+                                "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS or "
+                                "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
   }
-  auto const values = parse_double_list(*text, "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
+  auto const values = parse_double_list(*text, "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS(_FILE)");
   constexpr std::size_t expected_size = 1 + 2 * 5 + 5;
   if (values.size() != expected_size)
   {
     throw std::invalid_argument(
-        fmt::format("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS expected {} values, got {}", expected_size,
-                    values.size()));
+        fmt::format("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS(_FILE) expected {} values, got {}",
+                    expected_size, values.size()));
   }
 
   RabcEmpiricalCoefficients coefficients;
@@ -1402,7 +1471,16 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
   }
   else if (use_empirical_contiguous)
   {
-    layout_key = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS").value_or("");
+    if (auto coefficients = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
+        coefficients.has_value())
+    {
+      layout_key = "coefficients:" + *coefficients;
+    }
+    else
+    {
+      layout_key = "coefficients_file:" +
+                   optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE").value_or("");
+    }
     if (auto min_speedup = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_MIN_SPEEDUP");
         min_speedup.has_value())
     {

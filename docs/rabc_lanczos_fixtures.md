@@ -103,6 +103,7 @@ Useful controls:
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP` | Minimum predicted speedup required before `cost` overrides byte-balanced contiguous ranges. Default: `1.05`. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ARBITRARY_MIN_SPEEDUP` | Minimum predicted speedup required before `cost-block` overrides byte-balanced slab layout. Default: `1.25`. |
 | `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` | Comma-separated fitted coefficients for `empirical-contiguous`, in the `bench-fit --model device` runtime order. |
+| `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE` | Text file containing the same coefficient list. The runtime accepts a raw comma list, `runtime_coefficients=...`, or `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=...`. |
 | `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_MIN_SPEEDUP` | Minimum fitted-score improvement required before `empirical-contiguous` overrides byte-balanced contiguous ranges. Default: `1.0`. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` | Appends one JSONL record per deterministic resident matvec with layout, feature, and timing data for empirical model fitting. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS` | If set, include the full term list and selected device for each term in each JSONL record. |
@@ -131,7 +132,9 @@ max_output_block_fraction,max_output_byte_fraction
 
 Generate this coefficient vector with `bench-fit --model device` or
 `bench-suggest --model device`; both commands print the runtime
-`UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` value.  Do not use the
+`UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` value.  Use
+`--output-runtime-coefficients <path>` to write a reusable coefficient file for
+`UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE`.  Do not use the
 policy for cold-start/environment-staging fits: the device-aware runtime model
 targets steady-state resident Lanczos matvec timing only.
 The current cost model is a variable-middle prototype: the Krylov input blocks `B_i` and output blocks `R_i` are forced
@@ -314,7 +317,13 @@ Use `bench-rank` when comparing automatic policies with manual cuts, because it
 groups rows by the actual recovered layout rather than the run name:
 
 ```bash
-scripts/rabc-trace-model.py bench-rank /tmp/uni20_rabc_sweep/benchmarks.jsonl \
+scripts/run-rabc-layout-sweep.sh \
+  --fixture /home/ian/sync/fixtures/tensorcontraction/uni20_hubbard_l40_m5000_central.rabc \
+  --output-dir /tmp/uni20_rabc_empirical_replay \
+  --policy empirical-contiguous \
+  --labels empirical-contiguous \
+  --empirical-coefficients-file /tmp/uni20_rabc_empirical_coefficients.txt
+scripts/rabc-trace-model.py bench-rank /tmp/uni20_rabc_empirical_replay/benchmarks.jsonl \
   --compact-layouts \
   --selected-name empirical-contiguous
 ```
@@ -436,7 +445,8 @@ scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
   --model device \
   --layout-filter contiguous \
   --contiguous-only \
-  --top 8
+  --top 8 \
+  --output-runtime-coefficients /tmp/uni20_rabc_empirical_coefficients.txt
 ```
 
 Treat `bench-validate` as meaningful only after measuring several distinct
