@@ -444,17 +444,20 @@ void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixF
   // Static environments are host-authored but should not be refreshed during
   // every Krylov matvec.  The active Lanczos input/output vectors are already
   // resident in this same runtime.
-  arranger.localizeForLinearAlgebra(a, /*uploadFromHost=*/true, /*refreshExisting=*/false);
+  arranger.localizeCoalescedForLinearAlgebra(a, impl_->a_mats.coalesced_values(), /*uploadFromHost=*/true,
+                                             /*refreshExisting=*/false);
   if (impl_->variable_family == VariableFamily::Middle)
   {
-    arranger.localizeForLinearAlgebra(c, /*uploadFromHost=*/true, /*refreshExisting=*/false);
+    arranger.localizeCoalescedForLinearAlgebra(c, impl_->c_mats.coalesced_values(), /*uploadFromHost=*/true,
+                                               /*refreshExisting=*/false);
   }
   else
   {
-    arranger.localizeForLinearAlgebra(b, /*uploadFromHost=*/true, /*refreshExisting=*/false);
+    arranger.localizeCoalescedForLinearAlgebra(b, impl_->b_mats.coalesced_values(), /*uploadFromHost=*/true,
+                                               /*refreshExisting=*/false);
   }
-  arranger.localizeForLinearAlgebra(raw_matrices(x), /*uploadFromHost=*/false);
-  arranger.localizeForLinearAlgebra(raw_matrices(y), /*uploadFromHost=*/false);
+  arranger.localizeCoalescedForLinearAlgebra(raw_matrices(x), x.coalesced_values(), /*uploadFromHost=*/false);
+  arranger.localizeCoalescedForLinearAlgebra(raw_matrices(y), y.coalesced_values(), /*uploadFromHost=*/false);
 
   if (!use_legacy_arranger_rabc_planner())
   {

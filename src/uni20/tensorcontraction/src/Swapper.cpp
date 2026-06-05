@@ -2,9 +2,11 @@
 
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -90,12 +92,48 @@ CopyStats& copyStats()
 
 void recordCopy(CopyStatsSite site, std::size_t bytes) { copyStats().record(site, bytes); }
 
+std::size_t totalMatrixBytes(const std::vector<Matrix>& mats)
+{
+  std::size_t total = 0;
+  for (auto const& mat : mats)
+  {
+    if (mat.sizeInByte() > std::numeric_limits<std::size_t>::max() - total)
+    {
+      throw std::length_error("TensorContraction matrix batch size overflows size_t");
+    }
+    total += mat.sizeInByte();
+  }
+  return total;
+}
+
+void validateCoalescedHostStorage(const std::vector<Matrix>& mats, std::span<double const> values)
+{
+  std::size_t offset = 0;
+  for (auto const& mat : mats)
+  {
+    if (offset > values.size() || mat.size() > values.size() - offset)
+    {
+      throw std::invalid_argument("TensorContraction coalesced host span is too small for Matrix batch");
+    }
+    if (mat.size() != 0 && mat.hostView().data() != values.data() + offset)
+    {
+      throw std::invalid_argument("TensorContraction Matrix batch is not backed by the supplied coalesced host span");
+    }
+    offset += mat.size();
+  }
+  if (offset != values.size())
+  {
+    throw std::invalid_argument("TensorContraction coalesced host span has trailing values not covered by matrices");
+  }
+}
+
 } // namespace
 
 GpuBuffer::GpuBuffer(GpuBuffer&& other)
     : ptr(other.ptr), id(other.id), dim1(other.dim1), dim2(other.dim2), hostPtr(other.hostPtr),
       hasValidContent(other.hasValidContent), dependencyEventsEnabled(other.dependencyEventsEnabled),
-      deviceContext(other.deviceContext), accessState(std::move(other.accessState))
+      deviceContext(other.deviceContext), accessState(std::move(other.accessState)),
+      allocationGroup(std::move(other.allocationGroup))
 {
   other.ptr = nullptr;
   other.dim1 = 0;
@@ -105,6 +143,7 @@ GpuBuffer::GpuBuffer(GpuBuffer&& other)
   other.dependencyEventsEnabled = false;
   other.deviceContext = nullptr;
   other.accessState = {};
+  other.allocationGroup = nullptr;
 }
 
 GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
@@ -120,6 +159,7 @@ GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
     dependencyEventsEnabled = other.dependencyEventsEnabled;
     deviceContext = other.deviceContext;
     accessState = std::move(other.accessState);
+    allocationGroup = std::move(other.allocationGroup);
 
     // Reset the moved-from object to a safe state
     other.ptr = nullptr;
@@ -130,13 +170,16 @@ GpuBuffer& GpuBuffer::operator=(GpuBuffer&& other)
     other.dependencyEventsEnabled = false;
     other.deviceContext = nullptr;
     other.accessState = {};
+    other.allocationGroup = nullptr;
   }
   return *this;
 }
 
-GpuBuffer::GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled, CudaDeviceContext& deviceContext)
+GpuBuffer::GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled, CudaDeviceContext& deviceContext,
+                     std::shared_ptr<AllocationGroup> allocationGroup)
     : ptr(ptr), id(mat.getId()), dim1(mat.getFirstDim()), dim2(mat.getSecondDim()), hostPtr(mat.getPtr()),
-      dependencyEventsEnabled(dependencyEventsEnabled), deviceContext(&deviceContext)
+      dependencyEventsEnabled(dependencyEventsEnabled), deviceContext(&deviceContext),
+      allocationGroup(std::move(allocationGroup))
 {}
 
 double* GpuBuffer::getPtr() { return static_cast<double*>(ptr); }
@@ -265,6 +308,85 @@ std::pair<int, std::shared_ptr<GpuBuffer>> Swapper::getPreStoreBufferOrNone(Matr
   if (it == preStoreMap.end()) return {-1, nullptr};
 
   return it->second;
+}
+
+bool Swapper::anyPreStoreBuffer(const std::vector<Matrix>& mats) const
+{
+  for (auto const& mat : mats)
+  {
+    if (preStoreMap.find(mat.getId()) != preStoreMap.end())
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::optional<int> Swapper::commonPreStoreDevice(const std::vector<Matrix>& mats) const
+{
+  if (mats.empty())
+  {
+    return std::nullopt;
+  }
+
+  std::optional<int> deviceId;
+  for (auto const& mat : mats)
+  {
+    auto const it = preStoreMap.find(mat.getId());
+    if (it == preStoreMap.end())
+    {
+      return std::nullopt;
+    }
+    if (!deviceId.has_value())
+    {
+      deviceId = it->second.first;
+      continue;
+    }
+    if (*deviceId != it->second.first)
+    {
+      return std::nullopt;
+    }
+  }
+  return deviceId;
+}
+
+bool Swapper::preStoreBuffersAreCoalesced(const std::vector<Matrix>& mats, int deviceId) const
+{
+  if (mats.empty())
+  {
+    return true;
+  }
+
+  std::shared_ptr<GpuBuffer::AllocationGroup> group;
+  std::size_t offsetBytes = 0;
+  for (auto const& mat : mats)
+  {
+    auto const it = preStoreMap.find(mat.getId());
+    if (it == preStoreMap.end() || it->second.first != deviceId)
+    {
+      return false;
+    }
+    auto const& buffer = it->second.second;
+    if (buffer == nullptr || buffer->allocationGroup == nullptr || buffer->allocationGroup->basePtr == nullptr)
+    {
+      return false;
+    }
+    if (group == nullptr)
+    {
+      group = buffer->allocationGroup;
+    }
+    else if (group != buffer->allocationGroup)
+    {
+      return false;
+    }
+    auto* expected = static_cast<std::byte*>(group->basePtr) + offsetBytes;
+    if (buffer->ptr != expected)
+    {
+      return false;
+    }
+    offsetBytes += mat.sizeInByte();
+  }
+  return group != nullptr && offsetBytes == group->bytes;
 }
 
 void Swapper::notifyMatrixRead(Matrix mat, int deviceId, cuda::CompletionRef completion)
@@ -469,7 +591,12 @@ std::shared_ptr<GpuBuffer> Swapper::allocate(Matrix mat, int deviceId)
   }
 
   DEBUG_GPU_ALLOC(*this, mat.getId(), deviceId, allocation.stream, mat.sizeInByte());
-  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
+  auto allocationGroup = std::make_shared<GpuBuffer::AllocationGroup>();
+  allocationGroup->basePtr = allocation.ptr;
+  allocationGroup->bytes = mat.sizeInByte();
+  allocationGroup->liveBuffers = 1;
+  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId],
+                                            std::move(allocationGroup));
   auto& hostToGpuMap = hostToGpuMaps[deviceId];
   hostToGpuMap[buffer->getId()] = buffer;
 
@@ -561,7 +688,12 @@ std::shared_ptr<GpuBuffer> Swapper::uploadHostMatrix(HostMatrixView host, int de
   Matrix mat(host.handle().toHeader());
   mat.setPtr(host.data());
   mat.setHostMemoryKind(host.memoryKind());
-  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
+  auto allocationGroup = std::make_shared<GpuBuffer::AllocationGroup>();
+  allocationGroup->basePtr = allocation.ptr;
+  allocationGroup->bytes = host.sizeInByte();
+  allocationGroup->liveBuffers = 1;
+  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId],
+                                            std::move(allocationGroup));
   buffer->publishAllocation(std::move(allocation.completion));
 
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
@@ -574,6 +706,91 @@ std::shared_ptr<GpuBuffer> Swapper::uploadHostMatrix(HostMatrixView host, int de
   assert(preStoreMap.find(host.handle().id()) == preStoreMap.end());
   preStoreMap[host.handle().id()] = std::make_pair(deviceId, buffer);
   return buffer;
+}
+
+void Swapper::registerGpuAllocationsCoalesced(const std::vector<Matrix>& mats, int deviceId)
+{
+  if (mats.empty())
+  {
+    return;
+  }
+  std::size_t const totalBytes = totalMatrixBytes(mats);
+  if (totalBytes == 0)
+  {
+    throw std::invalid_argument("TensorContraction cannot coalesce an empty Matrix batch allocation");
+  }
+  std::unordered_set<int> ids;
+  ids.reserve(mats.size());
+  for (auto const& mat : mats)
+  {
+    if (!ids.insert(mat.getId()).second)
+    {
+      throw std::logic_error("TensorContraction cannot coalesce a Matrix batch with duplicate matrix ids");
+    }
+    if (preStoreMap.find(mat.getId()) != preStoreMap.end())
+    {
+      throw std::logic_error("TensorContraction cannot coalesce a Matrix batch with existing GPU buffers");
+    }
+  }
+
+  CUDA_CALL(cudaSetDevice(deviceId));
+  int mpi_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+  auto allocation = deviceContexts[deviceId]->allocateFromPool(memPools[deviceId], totalBytes);
+  CUDA_CALL(allocation.status);
+
+  auto allocationGroup = std::make_shared<GpuBuffer::AllocationGroup>();
+  allocationGroup->basePtr = allocation.ptr;
+  allocationGroup->bytes = totalBytes;
+  allocationGroup->liveBuffers = mats.size();
+
+  auto* base = static_cast<std::byte*>(allocation.ptr);
+  std::size_t offsetBytes = 0;
+  for (auto const& mat : mats)
+  {
+    DEBUG_PRESTORE(*this, mat.getId(), mpi_rank, deviceId);
+    auto* ptr = base + offsetBytes;
+    auto buffer =
+        std::make_shared<GpuBuffer>(ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId], allocationGroup);
+    buffer->publishAllocation(allocation.completion);
+    preStoreMap[mat.getId()] = std::make_pair(deviceId, std::move(buffer));
+    offsetBytes += mat.sizeInByte();
+  }
+}
+
+void Swapper::uploadHostMatricesCoalesced(const std::vector<Matrix>& mats, std::span<double const> values, int deviceId)
+{
+  if (mats.empty())
+  {
+    return;
+  }
+  validateCoalescedHostStorage(mats, values);
+  std::size_t const totalBytes = values.size_bytes();
+  if (totalBytes == 0)
+  {
+    throw std::invalid_argument("TensorContraction cannot coalesce an empty Matrix batch upload");
+  }
+
+  this->registerGpuAllocationsCoalesced(mats, deviceId);
+
+  std::vector<std::shared_ptr<GpuBuffer>> buffers;
+  buffers.reserve(mats.size());
+  for (auto const& mat : mats)
+  {
+    auto [storedDeviceId, buffer] = this->getPreStoreBufferOrNone(mat);
+    assert(storedDeviceId == deviceId);
+    assert(buffer != nullptr);
+    buffers.push_back(std::move(buffer));
+  }
+
+  auto stream = deviceContexts[deviceId]->leaseWorkStream();
+  this->waitForAccessDependencies({}, buffers, stream.stream());
+  DEBUG_GPU_COPY_H2D(*this, mats.front().getId(), deviceId, stream.stream(), totalBytes);
+  recordCopy(CopyStatsSite::PreStoreH2D, totalBytes);
+  CUDA_CALL(cudaMemcpyAsync(buffers.front()->allocationBasePtr(), values.data(), totalBytes, cudaMemcpyHostToDevice,
+                            stream.stream()));
+  auto completion = stream.recordCompletion();
+  this->publishAccessCompletion({}, buffers, stream.stream(), std::move(completion));
 }
 
 void Swapper::copyHostToPreStoreMatrix(Matrix mat) { this->refreshHostMatrixToDevice(mat.hostView()); }
@@ -597,6 +814,42 @@ void Swapper::refreshHostMatrixToDevice(HostMatrixView host)
   buffer->publishWrite(stream.recordCompletion());
 }
 
+bool Swapper::refreshHostMatricesToDeviceCoalesced(const std::vector<Matrix>& mats, std::span<double const> values,
+                                                   int deviceId)
+{
+  if (mats.empty())
+  {
+    return true;
+  }
+  validateCoalescedHostStorage(mats, values);
+  if (!this->preStoreBuffersAreCoalesced(mats, deviceId))
+  {
+    return false;
+  }
+
+  std::vector<std::shared_ptr<GpuBuffer>> buffers;
+  buffers.reserve(mats.size());
+  for (auto const& mat : mats)
+  {
+    auto [storedDeviceId, buffer] = this->getPreStoreBufferOrNone(mat);
+    if (storedDeviceId != deviceId || buffer == nullptr)
+    {
+      return false;
+    }
+    buffers.push_back(std::move(buffer));
+  }
+
+  auto stream = deviceContexts[deviceId]->leaseWorkStream();
+  this->waitForAccessDependencies({}, buffers, stream.stream());
+  DEBUG_GPU_COPY_H2D(*this, mats.front().getId(), deviceId, stream.stream(), values.size_bytes());
+  recordCopy(CopyStatsSite::RefreshPreStoreH2D, values.size_bytes());
+  CUDA_CALL(cudaMemcpyAsync(buffers.front()->allocationBasePtr(), values.data(), values.size_bytes(),
+                            cudaMemcpyHostToDevice, stream.stream()));
+  auto completion = stream.recordCompletion();
+  this->publishAccessCompletion({}, buffers, stream.stream(), std::move(completion));
+  return true;
+}
+
 void Swapper::copyPreStoreMatrixToHost(Matrix mat) { this->downloadDeviceToHost(mat.hostView()); }
 
 void Swapper::downloadDeviceToHost(HostMatrixView host)
@@ -618,6 +871,42 @@ void Swapper::downloadDeviceToHost(HostMatrixView host)
   buffer->publishRead(stream.recordCompletion());
 }
 
+bool Swapper::downloadDeviceMatricesToHostCoalesced(const std::vector<Matrix>& mats, std::span<double> values)
+{
+  if (mats.empty())
+  {
+    return true;
+  }
+  validateCoalescedHostStorage(mats, std::span<double const>{values.data(), values.size()});
+  auto const deviceId = this->commonPreStoreDevice(mats);
+  if (!deviceId.has_value() || !this->preStoreBuffersAreCoalesced(mats, *deviceId))
+  {
+    return false;
+  }
+
+  std::vector<std::shared_ptr<GpuBuffer>> buffers;
+  buffers.reserve(mats.size());
+  for (auto const& mat : mats)
+  {
+    auto [storedDeviceId, buffer] = this->getPreStoreBufferOrNone(mat);
+    if (storedDeviceId != *deviceId || buffer == nullptr)
+    {
+      return false;
+    }
+    buffers.push_back(std::move(buffer));
+  }
+
+  auto stream = deviceContexts[*deviceId]->leaseWorkStream();
+  this->waitForAccessDependencies(buffers, {}, stream.stream());
+  DEBUG_GPU_COPY_D2H(*this, mats.front().getId(), *deviceId, stream.stream(), values.size_bytes());
+  recordCopy(CopyStatsSite::PreStoreD2H, values.size_bytes());
+  CUDA_CALL(cudaMemcpyAsync(values.data(), buffers.front()->allocationBasePtr(), values.size_bytes(),
+                            cudaMemcpyDeviceToHost, stream.stream()));
+  auto completion = stream.recordCompletion();
+  this->publishAccessCompletion(buffers, {}, stream.stream(), std::move(completion));
+  return true;
+}
+
 void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
 {
   CUDA_CALL(cudaSetDevice(deviceId));
@@ -626,7 +915,12 @@ void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
   DEBUG_PRESTORE(*this, mat.getId(), mpi_rank, deviceId);
   auto allocation = deviceContexts[deviceId]->allocateFromPool(memPools[deviceId], mat.sizeInByte());
   CUDA_CALL(allocation.status);
-  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId]);
+  auto allocationGroup = std::make_shared<GpuBuffer::AllocationGroup>();
+  allocationGroup->basePtr = allocation.ptr;
+  allocationGroup->bytes = mat.sizeInByte();
+  allocationGroup->liveBuffers = 1;
+  auto buffer = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId],
+                                            std::move(allocationGroup));
   buffer->publishAllocation(std::move(allocation.completion));
   assert(preStoreMap.find(mat.getId()) == preStoreMap.end());
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
@@ -832,7 +1126,8 @@ void Swapper::freeAllBuffer(int deviceId)
   map.clear();
 }
 
-void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
+std::vector<CudaDeviceContext::EventDependencyRef>
+Swapper::collectBufferDependencies(std::shared_ptr<GpuBuffer> const& buffer) const
 {
   std::vector<CudaDeviceContext::EventDependencyRef> dependencies;
   dependencies.reserve(2);
@@ -845,10 +1140,45 @@ void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
   {
     dependencies.push_back(buffer->accessState.readers.completion->dependencyEvent());
   }
+  return dependencies;
+}
+
+void Swapper::freeBuffer(std::shared_ptr<GpuBuffer> buffer, int deviceId)
+{
+  if (buffer == nullptr || buffer->ptr == nullptr)
+  {
+    return;
+  }
+
+  auto dependencies = this->collectBufferDependencies(buffer);
   destroyBufferEvents(buffer);
-  DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, nullptr);
-  deviceContexts[deviceId]->enqueueAsyncFree(buffer->getPtr(), std::move(dependencies));
+
+  auto group = buffer->allocationGroup;
+  if (group != nullptr)
+  {
+    group->dependencies.insert(group->dependencies.end(), dependencies.begin(), dependencies.end());
+    if (group->liveBuffers == 0)
+    {
+      throw std::logic_error("TensorContraction GPU allocation group was released too many times");
+    }
+    --group->liveBuffers;
+    if (group->liveBuffers == 0 && !group->freeScheduled)
+    {
+      DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, nullptr);
+      deviceContexts[deviceId]->enqueueAsyncFree(group->basePtr, std::move(group->dependencies));
+      group->freeScheduled = true;
+      group->basePtr = nullptr;
+      group->bytes = 0;
+    }
+  }
+  else
+  {
+    DEBUG_GPU_FREE(*this, buffer->getId(), deviceId, nullptr);
+    deviceContexts[deviceId]->enqueueAsyncFree(buffer->getPtr(), std::move(dependencies));
+  }
+
   buffer->ptr = nullptr;
+  buffer->allocationGroup.reset();
 }
 
 void Swapper::destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer)
@@ -1060,12 +1390,12 @@ void Swapper::syncBuffer(Matrix mat, int deviceId, cudaStream_t stream)
 
 void Swapper::clear()
 {
-  for (auto& hostToGpuMap : hostToGpuMaps)
+  for (int deviceId = 0; deviceId < static_cast<int>(hostToGpuMaps.size()); ++deviceId)
   {
+    auto& hostToGpuMap = hostToGpuMaps[deviceId];
     for (auto& [id, buffer] : hostToGpuMap)
     {
-      destroyBufferEvents(buffer);
-      cudaFree(buffer->getPtr());
+      freeBuffer(buffer, deviceId);
     }
 
     hostToGpuMap.clear();
@@ -1073,9 +1403,9 @@ void Swapper::clear()
 
   for (auto [id, pair] : preStoreMap)
   {
+    auto deviceId = pair.first;
     auto buffer = pair.second;
-    destroyBufferEvents(buffer);
-    CUDA_CALL(cudaFree(buffer->getPtr()));
+    freeBuffer(buffer, deviceId);
   }
 
   preStoreMap.clear();

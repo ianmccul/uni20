@@ -1751,6 +1751,63 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
   CUDA_CALL(cudaSetDevice(0));
 }
 
+void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats, std::span<double const> values,
+                                                 bool uploadFromHost, bool refreshExisting)
+{
+  ensureMemoryPoolsInitialized();
+
+  std::size_t totalBytes = 0;
+  for (auto mat : mats)
+  {
+    totalBytes += mat.sizeInByte();
+  }
+  linearAlgebraScheduledDeviceCount = this->scheduledDeviceCountForBytes(totalBytes);
+
+  if (!mats.empty() && totalBytes == values.size_bytes() && linearAlgebraScheduledDeviceCount == 1)
+  {
+    bool const anyExisting = swapper.anyPreStoreBuffer(mats);
+    auto const existingDevice = swapper.commonPreStoreDevice(mats);
+    if (!anyExisting)
+    {
+      int const deviceId = this->leastBusyLinearAlgebraDevice();
+      if (uploadFromHost)
+      {
+        swapper.uploadHostMatricesCoalesced(mats, values, deviceId);
+      }
+      else
+      {
+        swapper.registerGpuAllocationsCoalesced(mats, deviceId);
+      }
+      swapper.syncMemStream(deviceId, "linear_algebra_localize_coalesced");
+      std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+      CUDA_CALL(cudaSetDevice(0));
+      return;
+    }
+
+    if (existingDevice.has_value())
+    {
+      if (uploadFromHost && refreshExisting)
+      {
+        if (swapper.refreshHostMatricesToDeviceCoalesced(mats, values, *existingDevice))
+        {
+          swapper.syncMemStream(*existingDevice, "linear_algebra_refresh_coalesced");
+          std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+          CUDA_CALL(cudaSetDevice(0));
+          return;
+        }
+      }
+      else
+      {
+        std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+        CUDA_CALL(cudaSetDevice(0));
+        return;
+      }
+    }
+  }
+
+  this->localizeForLinearAlgebra(mats, uploadFromHost, refreshExisting);
+}
+
 void Arranger::synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats)
 {
   ensureMemoryPoolsInitialized();
@@ -1778,6 +1835,23 @@ void Arranger::synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats)
     }
   }
   CUDA_CALL(cudaSetDevice(0));
+}
+
+void Arranger::synchronizeCoalescedLinearAlgebraToHost(const std::vector<Matrix>& mats, std::span<double> values)
+{
+  ensureMemoryPoolsInitialized();
+
+  if (!mats.empty() && swapper.downloadDeviceMatricesToHostCoalesced(mats, values))
+  {
+    if (auto deviceId = swapper.commonPreStoreDevice(mats); deviceId.has_value())
+    {
+      swapper.syncMemStream(*deviceId, "linear_algebra_sync_to_host_coalesced");
+    }
+    CUDA_CALL(cudaSetDevice(0));
+    return;
+  }
+
+  this->synchronizeLinearAlgebraToHost(mats);
 }
 
 double* Arranger::collectiveExchangeMatrix(Matrix m)

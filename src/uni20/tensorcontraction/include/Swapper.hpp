@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -32,6 +33,15 @@ class GpuBuffer {
         AccessGeneration writer;
     };
 
+    struct AllocationGroup
+    {
+        void* basePtr = nullptr;
+        size_t bytes = 0;
+        size_t liveBuffers = 0;
+        bool freeScheduled = false;
+        std::vector<CudaDeviceContext::EventDependencyRef> dependencies;
+    };
+
     void* ptr;
     int id;
     size_t dim1;
@@ -41,10 +51,12 @@ class GpuBuffer {
     bool dependencyEventsEnabled = true;
     CudaDeviceContext* deviceContext = nullptr;
     AccessState accessState;
+    std::shared_ptr<AllocationGroup> allocationGroup;
 
   public:
     GpuBuffer() = delete;
-    GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled, CudaDeviceContext& deviceContext);
+    GpuBuffer(void* ptr, Matrix mat, bool dependencyEventsEnabled, CudaDeviceContext& deviceContext,
+              std::shared_ptr<AllocationGroup> allocationGroup);
     GpuBuffer(const GpuBuffer&) = delete;
     GpuBuffer& operator=(const GpuBuffer&) = delete;
     GpuBuffer(GpuBuffer&& other);
@@ -55,6 +67,7 @@ class GpuBuffer {
     size_t size() const { return dim1 * dim2; }
     size_t sizeInByte() const { return size() * sizeof(double); }
     bool contentValid() const { return hasValidContent; }
+    void* allocationBasePtr() const { return allocationGroup == nullptr ? ptr : allocationGroup->basePtr; }
     DeviceMatrixView deviceView(int deviceId) const;
     void publishAllocation(cuda::CompletionRef completion);
     void waitBeforeRead(cudaStream_t stream);
@@ -91,6 +104,8 @@ class Swapper {
     bool isPinned(int id, int deviceId);
     void freeBuffer(std::shared_ptr<GpuBuffer>, int deviceId);
     void destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer);
+    std::vector<CudaDeviceContext::EventDependencyRef>
+    collectBufferDependencies(std::shared_ptr<GpuBuffer> const& buffer) const;
 
   public:
     class GpuAccessPlan {
@@ -177,11 +192,19 @@ class Swapper {
     std::pair<int, std::shared_ptr<GpuBuffer>> findLocalSourceBuffer(Matrix mat, int requesterDeviceId);
     void preStoreMatrix(Matrix mat, int deviceId);
     std::shared_ptr<GpuBuffer> uploadHostMatrix(HostMatrixView host, int deviceId);
+    void uploadHostMatricesCoalesced(const std::vector<Matrix>& mats, std::span<double const> values, int deviceId);
     void copyHostToPreStoreMatrix(Matrix mat);
     void refreshHostMatrixToDevice(HostMatrixView host);
+    bool refreshHostMatricesToDeviceCoalesced(const std::vector<Matrix>& mats, std::span<double const> values,
+                                              int deviceId);
     void copyPreStoreMatrixToHost(Matrix mat);
     void downloadDeviceToHost(HostMatrixView host);
+    bool downloadDeviceMatricesToHostCoalesced(const std::vector<Matrix>& mats, std::span<double> values);
     void registerGpuAllocation(Matrix mat, int deviceId);
+    void registerGpuAllocationsCoalesced(const std::vector<Matrix>& mats, int deviceId);
+    bool anyPreStoreBuffer(const std::vector<Matrix>& mats) const;
+    std::optional<int> commonPreStoreDevice(const std::vector<Matrix>& mats) const;
+    bool preStoreBuffersAreCoalesced(const std::vector<Matrix>& mats, int deviceId) const;
     std::pair<int, std::shared_ptr<GpuBuffer>> getPreStoreBufferOrNone(Matrix mat);
     void notifyMatrixRead(Matrix mat, int deviceId, cuda::CompletionRef completion);
     void notifyMatrixWrite(Matrix mat, int deviceId, cuda::CompletionRef completion);

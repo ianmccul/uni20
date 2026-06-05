@@ -621,10 +621,7 @@ auto make_resident_output_blocks(ResidentBlockSparseSvdPlan const& plan, std::sp
 
 void register_resident_output(MatrixFamily& family, int target_device, tensor::Swapper& swapper)
 {
-  for (auto const& matrix : raw_matrices(family))
-  {
-    swapper.registerGpuAllocation(matrix, target_device);
-  }
+  swapper.registerGpuAllocationsCoalesced(raw_matrices(family), target_device);
 }
 
 auto resident_output_buffers(MatrixFamily& family, int target_device,

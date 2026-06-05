@@ -2,7 +2,9 @@
 
 #include "Matrix.hpp"
 #include "MatrixAllocator.hpp"
+#include "Swapper.hpp"
 
+#include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -11,6 +13,23 @@
 #include <vector>
 
 namespace utc = uni20::tensorcontraction;
+
+namespace
+{
+
+bool has_cuda_device()
+{
+  int device_count = 0;
+  auto const status = cudaGetDeviceCount(&device_count);
+  if (status != cudaSuccess)
+  {
+    (void)cudaGetLastError();
+    return false;
+  }
+  return device_count > 0;
+}
+
+} // namespace
 
 TEST(TensorContractionMatrixFamilyTest, OwnsHostStorageAndDescriptors)
 {
@@ -102,6 +121,37 @@ TEST(TensorContractionMatrixFamilyTest, MatrixAllocatorMarksPinnedHostStorage)
   EXPECT_EQ(host.memoryKind(), tensor::HostMemoryKind::Pinned);
   EXPECT_TRUE(host.pinned());
   allocator.freeAll({}, {}, {});
+}
+
+TEST(TensorContractionMatrixFamilyTest, SwapperTracksCoalescedDeviceSubBlocks)
+{
+  if (!has_cuda_device())
+  {
+    GTEST_SKIP() << "requires a CUDA device";
+  }
+
+  std::array blocks{utc::MatrixFamily::Block{2, 2}, utc::MatrixFamily::Block{1, 3}, utc::MatrixFamily::Block{2, 1}};
+  utc::MatrixFamily family(blocks);
+  family.assign(0, std::array{1.0, 2.0, 3.0, 4.0});
+  family.assign(1, std::array{5.0, 6.0, 7.0});
+  family.assign(2, std::array{8.0, 9.0});
+
+  tensor::Swapper swapper;
+  swapper.initMemPools();
+  auto const& matrices = utc::raw_matrices(family);
+  swapper.uploadHostMatricesCoalesced(matrices, family.coalesced_values(), 0);
+  swapper.syncMemStream(0, "test_coalesced_upload");
+
+  EXPECT_TRUE(swapper.preStoreBuffersAreCoalesced(matrices, 0));
+
+  family.fill(0.0);
+  ASSERT_TRUE(swapper.downloadDeviceMatricesToHostCoalesced(matrices, family.coalesced_values()));
+  swapper.syncMemStream(0, "test_coalesced_download");
+
+  EXPECT_DOUBLE_EQ(family.values(0)[0], 1.0);
+  EXPECT_DOUBLE_EQ(family.values(0)[3], 4.0);
+  EXPECT_DOUBLE_EQ(family.values(1)[2], 7.0);
+  EXPECT_DOUBLE_EQ(family.values(2)[1], 9.0);
 }
 
 TEST(TensorContractionMatrixFamilyTest, RejectsWrongSizedAssignment)

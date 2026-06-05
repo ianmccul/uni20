@@ -39,6 +39,47 @@ chunks as `HostMemoryKind::Pinned`; ordinary `MatrixFamily` storage remains
 This lets benchmark paths request transfer-friendly host buffers without
 forcing every host matrix allocation to be pinned.
 
+## Coalesced Sub-Blocks
+
+`MatrixFamily` stores all host blocks in one contiguous slab, while each
+`tensor::Matrix` remains the logical sub-block descriptor.  The CUDA prototype
+mirrors that shape: `Swapper` can allocate one device slab for a whole
+`MatrixFamily`, then register one `GpuBuffer` per sub-block with a pointer into
+the parent slab.
+
+The parent slab is tracked by `GpuBuffer::AllocationGroup`:
+
+- `basePtr` and `bytes` describe the full device allocation.
+- `liveBuffers` counts sub-block buffers that still reference the allocation.
+- `dependencies` accumulates outstanding read/write completion events from each
+  sub-block before the allocation is released.
+
+Each sub-block still owns its own reader/writer generations.  This is important:
+coalescing should reduce allocation and memcpy overhead, but it must not collapse
+the dependency model into one global MatrixFamily epoch.  Different blocks may
+later be updated by different kernels, devices, or MPI ranks.
+
+The current fast path is deliberately conservative.  It is used only when the
+operation sees the complete MatrixFamily, the matrices exactly cover the host
+slab, and the scheduler chooses a single CUDA device.  Partial, already mixed,
+or multi-device layouts fall back to the existing per-block path.
+
+## Future Uni20 Shape
+
+The same design should generalize to Uni20 block-sparse tensors:
+
+- a tensor storage object owns one or more coalesced slabs;
+- block descriptors carry shape, quantum-number sector, offset, device, and MPI
+  rank metadata;
+- operations acquire reader/writer access at block granularity;
+- transfer code can coalesce adjacent blocks when their layout and dependencies
+  make that safe.
+
+This keeps the transfer and lifetime policy separate from the mathematical
+block structure.  Removing U(1) symmetry should mean constructing a different
+storage/block layout, not silently falling back to dense operations inside the
+U(1) path.
+
 ## Uni20 Differences
 
 This prototype is not the final Uni20 CUDA API.  In Uni20 proper:

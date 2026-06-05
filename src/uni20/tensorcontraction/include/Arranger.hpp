@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <set>
+#include <span>
 #include <unordered_set>
 #include <vector>
 
@@ -102,7 +103,10 @@ class Arranger {
     void compileScalarMulForLinearAlgebra(Matrix result, double* coff, bool syncHost);
     void doLinearAlgebra();
     void localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost, bool refreshExisting = true);
+    void localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats, std::span<double const> values,
+                                           bool uploadFromHost, bool refreshExisting = true);
     void synchronizeLinearAlgebraToHost(const std::vector<Matrix>& mats);
+    void synchronizeCoalescedLinearAlgebraToHost(const std::vector<Matrix>& mats, std::span<double> values);
     double* collectiveExchangeMatrix(Matrix m = Matrix());
 
     void analyzeComputation(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
