@@ -134,7 +134,14 @@ class BenchFile {
                             " #SplitSectorsS #SplitPlanS #SplitSvdS #SplitMetadataS #SplitMaterializeS"
                             " #SolveLayoutCpuS #SolveEffHCpuS #SolveEngineCpuS #SolveVectorCpuS #SolveLanczosCpuS"
                             " #SplitSectorsCpuS #SplitPlanCpuS #SplitSvdCpuS #SplitMetadataCpuS "
-                            "#SplitMaterializeCpuS");
+                            "#SplitMaterializeCpuS"
+                            " #LanczosWorkspaceS #LanczosBasisS #LanczosMatvecS #LanczosStoreHvS #LanczosOrthoS"
+                            " #LanczosReduceS #LanczosRitzDiagS #LanczosRitzVectorS #LanczosResidualVectorS"
+                            " #LanczosResidualNormS #LanczosFinishS"
+                            " #LanczosWorkspaceCpuS #LanczosBasisCpuS #LanczosMatvecCpuS #LanczosStoreHvCpuS"
+                            " #LanczosOrthoCpuS #LanczosReduceCpuS #LanczosRitzDiagCpuS #LanczosRitzVectorCpuS"
+                            " #LanczosResidualVectorCpuS #LanczosResidualNormCpuS #LanczosFinishCpuS"
+                            " #LanczosMatvecN #LanczosRitzDiagN #LanczosRitzVectorN #LanczosResidualVectorN");
         }
         fmt::print(file_, "\n");
       }
@@ -178,6 +185,21 @@ class BenchFile {
                    solve.lanczos.cpu_seconds);
         fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g} {:.9g}", split.sectors.cpu_seconds, split.plan.cpu_seconds,
                    split.svd.cpu_seconds, split.metadata.cpu_seconds, split.materialize.cpu_seconds);
+        auto const& lanczos = update.lanczos.timings;
+        fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g}",
+                   lanczos.workspace.wall_seconds, lanczos.basis_setup.wall_seconds, lanczos.matvec.wall_seconds,
+                   lanczos.store_hamiltonian_vector.wall_seconds, lanczos.orthogonalization.wall_seconds,
+                   lanczos.reductions.wall_seconds, lanczos.ritz_diagonalization.wall_seconds,
+                   lanczos.ritz_vector.wall_seconds, lanczos.residual_vector.wall_seconds,
+                   lanczos.residual_norm.wall_seconds, lanczos.finish.wall_seconds);
+        fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g} {:.9g}",
+                   lanczos.workspace.cpu_seconds, lanczos.basis_setup.cpu_seconds, lanczos.matvec.cpu_seconds,
+                   lanczos.store_hamiltonian_vector.cpu_seconds, lanczos.orthogonalization.cpu_seconds,
+                   lanczos.reductions.cpu_seconds, lanczos.ritz_diagonalization.cpu_seconds,
+                   lanczos.ritz_vector.cpu_seconds, lanczos.residual_vector.cpu_seconds,
+                   lanczos.residual_norm.cpu_seconds, lanczos.finish.cpu_seconds);
+        fmt::print(file_, " {} {} {} {}", lanczos.matvec_count, lanczos.ritz_diagonalization_count,
+                   lanczos.ritz_vector_count, lanczos.residual_vector_count);
       }
       fmt::print(file_, "\n");
     }
