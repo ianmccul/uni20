@@ -396,6 +396,63 @@ def summarize_benchmark_records(records: list[dict[str, Any]]) -> None:
         print(f"best_mean_matvec_s={best_mean:.9g} name={best_key[0]} layout={best_key[1]}")
 
 
+def summarize_benchmark_structure(records: list[dict[str, Any]], problem: dict[str, Any], sort_key: str) -> None:
+    """Print no-trace timings with raw structural layout features."""
+    grouped = group_benchmarks_by_layout(records, problem)
+    rows: list[dict[str, Any]] = []
+    for layout_key, layout_records in grouped.items():
+        layout = list(layout_key)
+        matvec = [float(record["matvec_s"]) for record in layout_records]
+        graph = graph_metrics_for_layout(problem, layout)
+        device_features = features_for_layout(problem, layout, include_env_bytes=False, include_graph_features=True)
+        names = ",".join(
+            sorted({str(record.get("name", "")) for record in layout_records if str(record.get("name", ""))})
+        )
+        rows.append(
+            {
+                "count": len(layout_records),
+                "mean_matvec_s": sum(matvec) / len(matvec),
+                "right_max_gflop": float(graph["right_max_device_flops"]) / 1.0e9,
+                "mixed_max_gflop": float(graph["mixed_max_device_flops"]) / 1.0e9,
+                "b_peer_mb": int(graph["b_peer_bytes"]) / 1.0e6,
+                "b_cut_terms": int(graph["b_cut_terms"]),
+                "max_terms": max(int(row["terms"]) for row in device_features),
+                "max_unique_bc": max(int(row["unique_bc"]) for row in device_features),
+                "max_output_mb": max(int(row["output_bytes"]) for row in device_features) / 1.0e6,
+                "name": names,
+                "layout": layout_string(layout),
+            }
+        )
+
+    sort_columns = {
+        "observed": "mean_matvec_s",
+        "right-flops": "right_max_gflop",
+        "mixed-flops": "mixed_max_gflop",
+        "peer-bytes": "b_peer_mb",
+        "terms": "max_terms",
+        "name": "name",
+    }
+    column = sort_columns[sort_key]
+    rows.sort(key=lambda row: row[column])
+    print(
+        "count mean_matvec_s right_max_gflop mixed_max_gflop b_peer_mb "
+        "b_cut_terms max_terms max_unique_bc max_output_mb name layout"
+    )
+    for row in rows:
+        print(
+            f"{row['count']} {row['mean_matvec_s']:.9g} {row['right_max_gflop']:.9g} "
+            f"{row['mixed_max_gflop']:.9g} {row['b_peer_mb']:.9g} {row['b_cut_terms']} "
+            f"{row['max_terms']} {row['max_unique_bc']} {row['max_output_mb']:.9g} "
+            f"{row['name']} {row['layout']}"
+        )
+    if rows:
+        best = min(rows, key=lambda row: row["mean_matvec_s"])
+        print(
+            f"best_mean_matvec_s={best['mean_matvec_s']:.9g} name={best['name']} "
+            f"right_max_gflop={best['right_max_gflop']:.9g} b_peer_mb={best['b_peer_mb']:.9g}"
+        )
+
+
 def layout_mean_gpu_seconds(records: list[dict[str, Any]]) -> float:
     """Return the mean max-device GPU time for one layout."""
     timings = [float(record.get("gpu_s", float("nan"))) for record in records]
@@ -1488,6 +1545,14 @@ def cmd_bench_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bench_struct_summary(args: argparse.Namespace) -> int:
+    """Summarize benchmark rows with static structural layout features."""
+    records = benchmark_records_from_paths(args.benchmark)
+    problem = trace_problem([], read_trace(args.term_trace))
+    summarize_benchmark_structure(records, problem, args.sort)
+    return 0
+
+
 def cmd_bench_fit(args: argparse.Namespace) -> int:
     """Fit replay benchmark matvec time from static layout features."""
     records = benchmark_records_from_paths(args.benchmark)
@@ -1996,6 +2061,19 @@ def parser() -> argparse.ArgumentParser:
     bench_summary = subcommands.add_parser("bench-summary", help="summarize replay benchmark JSONL records")
     bench_summary.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_summary.set_defaults(func=cmd_bench_summary)
+
+    bench_struct_summary = subcommands.add_parser(
+        "bench-struct-summary", help="summarize replay benchmark rows with static layout structure"
+    )
+    bench_struct_summary.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    bench_struct_summary.add_argument(
+        "--sort",
+        choices=("observed", "right-flops", "mixed-flops", "peer-bytes", "terms", "name"),
+        default="observed",
+        help="summary sort order",
+    )
+    add_required_term_trace(bench_struct_summary)
+    bench_struct_summary.set_defaults(func=cmd_bench_struct_summary)
 
     bench_fit = subcommands.add_parser("bench-fit", help="fit no-trace replay benchmark timing coefficients")
     bench_fit.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")

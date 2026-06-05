@@ -263,11 +263,12 @@ files.  Use `--trace-path auto --trace-terms` only for a companion term trace or
 other structural diagnostics; do not compare final performance from traced rows.
 
 For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
-dual-GPU sweep found `cut6` as the current best measured contiguous layout:
-mean `#LanczosMatvecS = 0.169051257s` over three repeats.  A follow-up sweep of
-model-suggested middle cuts `cut17` through `cut24` did not improve on this
-result; the best of that group was `cut19` at `0.195862604s`.  Treat this as a
-fixture-local reference point, not a portable placement rule.
+dual-GPU sweep over all contiguous cuts found `cut6` as the current best
+measured contiguous layout: mean `#LanczosMatvecS = 0.169051257s` over three
+repeats.  The best model-suggested middle cut was `cut15` at `0.185988945s`;
+the right-heavy tail was slower, with cuts beyond `cut23` generally above
+`0.21s`.  Treat this as a fixture-local reference point, not a portable
+placement rule.
 
 To record final no-trace replay timings as a separate empirical dataset, save
 the benchmark stdout or `MP_BENCHFILE` table and convert it to JSONL:
@@ -294,6 +295,19 @@ scripts/rabc-trace-model.py bench-summary /tmp/uni20_rabc_benchmark.jsonl
 These `rabc_replay_benchmark` rows use the benchmark's printed `matvec=` field
 and are deliberately separate from CUDA-event trace rows.  Use them for final
 layout comparisons; use trace rows to explain or propose candidates.
+
+Use `bench-struct-summary` to join no-trace benchmark rows with static
+term-trace features.  This is a diagnostic for correlated or misleading fitted
+coefficients: for example, a layout can have low critical-path flops but still
+be slow because peer `B` traffic, cut terms, or term imbalance dominate.
+
+```bash
+scripts/rabc-trace-model.py bench-struct-summary /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl
+scripts/rabc-trace-model.py bench-struct-summary /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --sort right-flops
+```
 
 The same benchmark rows can be fitted against static term-trace features.  This
 uses the companion term trace for the fixed `f` hypergraph and reduces each
