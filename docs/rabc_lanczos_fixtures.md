@@ -194,6 +194,26 @@ validate held-out layouts before using them for suggestions.  Do not assume that
 coefficient clamping remains valid for graph-feature fits; compare clamped and
 unclamped models with `tune --include-clamped`.
 
+When timing rows do not include repeated term dumps, pass a companion term trace
+to supply the static `f` hypergraph:
+
+```bash
+scripts/rabc-trace-model.py tune /tmp/uni20_rabc_timing_trace.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --graph-features \
+  --drop-first-per-layout=1
+scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_timing_trace.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --graph-features \
+  --observed-only
+```
+
+Even lightweight CUDA-event tracing can perturb the resident matvec path because
+it inserts timing events and synchronization boundaries.  The `gpu_s` trace
+target is useful for structural model development, but final placement decisions
+must be confirmed by rerunning the fixture replay with
+`UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` unset.
+
 For symmetry-local Hamiltonians, also test the constrained contiguous-range
 family.  The traced sparse `f` tensor remains the ground truth for connectivity:
 contiguous ranges are only a candidate restriction that is useful when the

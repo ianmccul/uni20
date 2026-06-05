@@ -86,6 +86,25 @@ def trace_records(args: argparse.Namespace) -> list[dict[str, Any]]:
     return records
 
 
+def term_records_for_args(args: argparse.Namespace, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return records that can supply term-level problem metadata."""
+    term_trace = getattr(args, "term_trace", None)
+    if term_trace is None:
+        return records
+    term_records = read_trace(term_trace)
+    if not term_records:
+        raise ValueError(f"{term_trace} contains no R/A/B/C trace records")
+    return term_records
+
+
+def trace_problem(records: list[dict[str, Any]], term_records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Find the static term problem in either timing records or a companion term trace."""
+    for record in term_records if term_records is not None else records:
+        if "terms" in record:
+            return term_problem(record)
+    raise ValueError("trace contains no term metadata; rerun with RABC_TRACE_TERMS=1 or pass --term-trace")
+
+
 def group_by_layout(records: list[dict[str, Any]]) -> dict[tuple[int, ...], list[dict[str, Any]]]:
     """Group trace records by output layout."""
     grouped: dict[tuple[int, ...], list[dict[str, Any]]] = {}
@@ -149,13 +168,17 @@ def gaussian_solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
 
 
 def fit_coefficients(
-    records: list[dict[str, Any]], ridge: float, include_env_bytes: bool, include_graph_features: bool
+    records: list[dict[str, Any]],
+    ridge: float,
+    include_env_bytes: bool,
+    include_graph_features: bool,
+    problem: dict[str, Any] | None = None,
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Fit per-device elapsed time as a linear function of aggregate features."""
     samples: list[tuple[list[float], float]] = []
     for record in records:
         timings = {int(item["device"]): float(item["gpu_s"]) for item in record.get("device_timings", [])}
-        for features in device_features_for_record(record, include_graph_features):
+        for features in device_features_for_record(record, include_graph_features, problem):
             device = int(features["device"])
             if device not in timings:
                 continue
@@ -261,7 +284,13 @@ def order_stats_for_record(record: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("order-summary requires trace rows captured with UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1")
 
     layout = [int(item) for item in record.get("output_layout", [])]
-    device_count = int(record["device_count"])
+    return order_stats_for_layout(term_problem(record), layout)
+
+
+def order_stats_for_layout(problem: dict[str, Any], layout: list[int]) -> dict[str, Any]:
+    """Compute flop-only left/right order diagnostics for one candidate layout."""
+    validate_layout(problem, layout)
+    device_count = int(problem["device_count"])
     devices: list[dict[str, Any]] = []
     staged_right: list[set[tuple[int, int]]] = [set() for _ in range(device_count)]
     staged_left: list[set[tuple[int, int]]] = [set() for _ in range(device_count)]
@@ -285,7 +314,7 @@ def order_stats_for_record(record: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    for term in record["terms"]:
+    for term in problem["terms"]:
         r = int(term["r"])
         device = layout[r]
         row = devices[device]
@@ -599,13 +628,16 @@ def term_problem(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def device_features_for_record(record: dict[str, Any], include_graph_features: bool) -> list[dict[str, Any]]:
+def device_features_for_record(
+    record: dict[str, Any], include_graph_features: bool, problem: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """Return per-device model features, optionally augmented from term graph metrics."""
     devices = [dict(features) for features in record.get("devices", [])]
     if not include_graph_features:
         return devices
 
-    problem = term_problem(record)
+    if problem is None:
+        problem = term_problem(record)
     layout = [int(item) for item in record.get("output_layout", [])]
     graph_by_device = {int(row["device"]): row for row in graph_metrics_for_layout(problem, layout)["devices"]}
     for features in devices:
@@ -946,6 +978,7 @@ def leave_one_layout_out(
     clamp_negative: bool,
     include_env_bytes: bool,
     include_graph_features: bool,
+    problem: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Predict each layout from a model fitted on all other layouts."""
     grouped = group_by_layout(records)
@@ -955,12 +988,12 @@ def leave_one_layout_out(
     rows: list[dict[str, Any]] = []
     for key, held_out in grouped.items():
         train = [record for other_key, group in grouped.items() if other_key != key for record in group]
-        coefficients, _ = fit_coefficients(train, ridge, include_env_bytes, include_graph_features)
+        coefficients, _ = fit_coefficients(train, ridge, include_env_bytes, include_graph_features, problem)
         if clamp_negative:
             coefficients = clamp_negative_coefficients(coefficients)
-        problem = term_problem(held_out[0])
+        layout_problem = problem if problem is not None else term_problem(held_out[0])
         predicted, device_predictions = score_layout(
-            problem, list(key), coefficients, include_env_bytes, include_graph_features
+            layout_problem, list(key), coefficients, include_env_bytes, include_graph_features
         )
         observed = layout_mean_gpu_seconds(held_out)
         rows.append(
@@ -1050,7 +1083,10 @@ def parse_layout(text: str, block_count: int, device_count: int) -> list[int]:
 def cmd_fit(args: argparse.Namespace) -> int:
     """Fit and print a model."""
     records = trace_records(args)
-    coefficients, stats = fit_coefficients(records, args.ridge, include_environment_bytes(args), args.graph_features)
+    problem = trace_problem(records, term_records_for_args(args, records)) if args.graph_features else None
+    coefficients, stats = fit_coefficients(
+        records, args.ridge, include_environment_bytes(args), args.graph_features, problem
+    )
     if args.clamp_negative:
         coefficients = clamp_negative_coefficients(coefficients)
     print(f"timing_objective={args.timing_objective}")
@@ -1083,13 +1119,14 @@ def cmd_summary(args: argparse.Namespace) -> int:
 def cmd_order_summary(args: argparse.Namespace) -> int:
     """Summarize left-first versus right-first costs for traced `f` terms."""
     records = trace_records(args)
+    problem = trace_problem(records, term_records_for_args(args, records))
     grouped = group_by_layout(records)
     print(
         "first_line count right_total_flops left_total_flops right_max_device_flops left_max_device_flops "
         "layout"
     )
     for key, rows in grouped.items():
-        stats = order_stats_for_record(rows[0])
+        stats = order_stats_for_layout(problem, list(key))
         print(
             f"{rows[0]['_line']} {len(rows)} {stats['right_total_flops']:.9g} {stats['left_total_flops']:.9g} "
             f"{stats['right_max_device_flops']:.9g} {stats['left_max_device_flops']:.9g} "
@@ -1113,7 +1150,7 @@ def cmd_order_summary(args: argparse.Namespace) -> int:
                 "  device b b_rows b_cols terms right_total_flops left_total_flops preference "
                 "long_dim_heuristic"
             )
-            block_rows = block_order_preferences(rows[0])
+            block_rows = block_order_preferences_for_layout(problem, list(key))
             if args.top_blocks > 0:
                 block_rows = block_rows[: args.top_blocks]
             for row in block_rows:
@@ -1128,7 +1165,7 @@ def cmd_order_summary(args: argparse.Namespace) -> int:
 def cmd_graph_summary(args: argparse.Namespace) -> int:
     """Summarize graph cuts and first-stage reuse for R/A/B/C term layouts."""
     records = trace_records(args)
-    problem = term_problem(records[-1])
+    problem = trace_problem(records, term_records_for_args(args, records))
     grouped = group_by_layout(records)
 
     layouts: list[tuple[str, int, int | str, list[int]]] = []
@@ -1205,8 +1242,10 @@ def cmd_layouts(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     """Run leave-one-layout-out validation."""
+    records = trace_records(args)
+    problem = trace_problem(records, term_records_for_args(args, records))
     rows = leave_one_layout_out(
-        trace_records(args), args.ridge, args.clamp_negative, include_environment_bytes(args), args.graph_features
+        records, args.ridge, args.clamp_negative, include_environment_bytes(args), args.graph_features, problem
     )
     print(f"timing_objective={args.timing_objective}")
     print(f"graph_features={str(args.graph_features).lower()}")
@@ -1217,6 +1256,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_tune(args: argparse.Namespace) -> int:
     """Scan ridge values using leave-one-layout-out validation."""
     records = trace_records(args)
+    problem = trace_problem(records, term_records_for_args(args, records))
     ridges = parse_float_list(args.ridges)
     clamp_modes = [False, True] if args.include_clamped else [False]
     include_env_bytes = include_environment_bytes(args)
@@ -1224,7 +1264,7 @@ def cmd_tune(args: argparse.Namespace) -> int:
     candidates: list[dict[str, Any]] = []
     for ridge in ridges:
         for clamp_negative in clamp_modes:
-            rows = leave_one_layout_out(records, ridge, clamp_negative, include_env_bytes, args.graph_features)
+            rows = leave_one_layout_out(records, ridge, clamp_negative, include_env_bytes, args.graph_features, problem)
             stats = validation_stats(rows)
             candidates.append({"ridge": ridge, "clamp_negative": clamp_negative, "stats": stats})
 
@@ -1254,12 +1294,13 @@ def cmd_tune(args: argparse.Namespace) -> int:
 def cmd_suggest(args: argparse.Namespace) -> int:
     """Fit a model and suggest the best searched layout."""
     records = trace_records(args)
+    problem = trace_problem(records, term_records_for_args(args, records))
     model: dict[str, Any] | None = read_model(args.model) if args.model is not None else None
     if model is None:
         timing_objective = args.timing_objective
         graph_features = args.graph_features
         include_env_bytes = include_environment_bytes(args)
-        coefficients, stats = fit_coefficients(records, args.ridge, include_env_bytes, graph_features)
+        coefficients, stats = fit_coefficients(records, args.ridge, include_env_bytes, graph_features, problem)
         if not args.allow_negative:
             coefficients = clamp_negative_coefficients(coefficients)
         model_source = "fit"
@@ -1270,7 +1311,6 @@ def cmd_suggest(args: argparse.Namespace) -> int:
         coefficients = dict(model["coefficients"])
         stats = {str(name): float(value) for name, value in model.get("stats", {}).items()}
         model_source = str(args.model)
-    problem = term_problem(records[-1])
     observed_keys = {tuple(layout) for layout in observed_layouts(records)}
     if int(problem["block_count"]) >= int(problem["device_count"]):
         contiguous_keys = {
@@ -1373,6 +1413,13 @@ def parser() -> argparse.ArgumentParser:
             help="augment fitting/scoring with graph cut and first-stage reuse counters from term traces",
         )
 
+    def add_term_trace(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--term-trace",
+            type=Path,
+            help="read term-level problem metadata from this companion trace when the timing trace omits terms",
+        )
+
     summary = subcommands.add_parser("summary", help="summarize observed trace rows")
     summary.add_argument("trace", type=Path)
     summary.add_argument("--drop-first-per-layout", type=int, default=0)
@@ -1387,6 +1434,7 @@ def parser() -> argparse.ArgumentParser:
     order_summary.add_argument("--devices", action="store_true", help="print per-device order statistics")
     order_summary.add_argument("--blocks", action="store_true", help="print per-center-block order statistics")
     order_summary.add_argument("--top-blocks", type=int, default=0, help="limit per-layout block rows by delta")
+    add_term_trace(order_summary)
     order_summary.set_defaults(func=cmd_order_summary)
 
     graph_summary = subcommands.add_parser(
@@ -1406,6 +1454,7 @@ def parser() -> argparse.ArgumentParser:
         help="include observed trace layouts after any manual layouts",
     )
     graph_summary.add_argument("--devices", action="store_true", help="print per-device graph metrics")
+    add_term_trace(graph_summary)
     graph_summary.set_defaults(func=cmd_graph_summary)
 
     fit = subcommands.add_parser("fit", help="fit per-device timing coefficients")
@@ -1416,6 +1465,7 @@ def parser() -> argparse.ArgumentParser:
     fit.add_argument("--output-model", type=Path, help="write fitted coefficients and metadata to this JSON file")
     add_timing_objective(fit)
     add_graph_features(fit)
+    add_term_trace(fit)
     fit.set_defaults(func=cmd_fit)
 
     suggest = subcommands.add_parser("suggest", help="fit a model and suggest a layout")
@@ -1435,6 +1485,7 @@ def parser() -> argparse.ArgumentParser:
     suggest.add_argument("--allow-negative", action="store_true")
     add_timing_objective(suggest)
     add_graph_features(suggest)
+    add_term_trace(suggest)
     suggest.set_defaults(func=cmd_suggest)
 
     validate = subcommands.add_parser("validate", help="leave-one-layout-out model validation")
@@ -1444,6 +1495,7 @@ def parser() -> argparse.ArgumentParser:
     validate.add_argument("--clamp-negative", action="store_true")
     add_timing_objective(validate)
     add_graph_features(validate)
+    add_term_trace(validate)
     validate.set_defaults(func=cmd_validate)
 
     tune = subcommands.add_parser("tune", help="scan ridge values with leave-one-layout-out validation")
@@ -1453,6 +1505,7 @@ def parser() -> argparse.ArgumentParser:
     tune.add_argument("--include-clamped", action="store_true")
     add_timing_objective(tune)
     add_graph_features(tune)
+    add_term_trace(tune)
     tune.set_defaults(func=cmd_tune)
 
     layouts = subcommands.add_parser("layouts", help="generate manual placement layouts")
