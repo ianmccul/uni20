@@ -104,6 +104,15 @@ def include_environment_bytes(args: argparse.Namespace) -> bool:
     return getattr(args, "timing_objective", "steady-state") == "cold-start"
 
 
+def include_environment_bytes_for_objective(timing_objective: str) -> bool:
+    """Return whether a serialized timing objective includes environment staging."""
+    if timing_objective == "steady-state":
+        return False
+    if timing_objective == "cold-start":
+        return True
+    raise ValueError(f"unsupported timing objective in model file: {timing_objective}")
+
+
 def feature_vector(features: dict[str, Any], include_env_bytes: bool, include_graph_features: bool) -> list[float]:
     """Convert one per-device feature dictionary into the model vector."""
     values = [1.0]
@@ -884,6 +893,53 @@ def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, flo
     return {name: max(0.0, value) for name, value in coefficients.items()}
 
 
+def write_model(
+    path: Path,
+    coefficients: dict[str, float],
+    stats: dict[str, float],
+    timing_objective: str,
+    graph_features: bool,
+    ridge: float,
+    clamp_negative: bool,
+) -> None:
+    """Write a fitted R/A/B/C layout model to a JSON file."""
+    model = {
+        "kind": "rabc_layout_model",
+        "version": 1,
+        "timing_objective": timing_objective,
+        "graph_features": graph_features,
+        "ridge": ridge,
+        "clamp_negative": clamp_negative,
+        "feature_names": feature_names(graph_features),
+        "coefficients": coefficients,
+        "stats": stats,
+    }
+    path.write_text(json.dumps(model, indent=2, sort_keys=True) + "\n")
+
+
+def read_model(path: Path) -> dict[str, Any]:
+    """Read and validate a fitted R/A/B/C layout model."""
+    model = json.loads(path.read_text())
+    if model.get("kind") != "rabc_layout_model":
+        raise ValueError(f"{path} is not an R/A/B/C layout model")
+    if int(model.get("version", 0)) != 1:
+        raise ValueError(f"{path} has unsupported R/A/B/C layout model version")
+    graph_features = bool(model.get("graph_features", False))
+    expected_names = feature_names(graph_features)
+    actual_names = [str(name) for name in model.get("feature_names", [])]
+    if actual_names != expected_names:
+        raise ValueError(f"{path} feature names do not match graph_features={str(graph_features).lower()}")
+    coefficients = {str(name): float(value) for name, value in model.get("coefficients", {}).items()}
+    missing = [name for name in expected_names if name not in coefficients]
+    if missing:
+        raise ValueError(f"{path} missing coefficients: {','.join(missing)}")
+    model["coefficients"] = coefficients
+    model["timing_objective"] = str(model.get("timing_objective", "steady-state"))
+    include_environment_bytes_for_objective(model["timing_objective"])
+    model["graph_features"] = graph_features
+    return model
+
+
 def leave_one_layout_out(
     records: list[dict[str, Any]],
     ridge: float,
@@ -995,9 +1051,22 @@ def cmd_fit(args: argparse.Namespace) -> int:
     """Fit and print a model."""
     records = trace_records(args)
     coefficients, stats = fit_coefficients(records, args.ridge, include_environment_bytes(args), args.graph_features)
+    if args.clamp_negative:
+        coefficients = clamp_negative_coefficients(coefficients)
     print(f"timing_objective={args.timing_objective}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print_fit(coefficients, stats, args.graph_features)
+    if args.output_model is not None:
+        write_model(
+            args.output_model,
+            coefficients,
+            stats,
+            args.timing_objective,
+            args.graph_features,
+            args.ridge,
+            args.clamp_negative,
+        )
+        print(f"model_path={args.output_model}")
     return 0
 
 
@@ -1185,10 +1254,22 @@ def cmd_tune(args: argparse.Namespace) -> int:
 def cmd_suggest(args: argparse.Namespace) -> int:
     """Fit a model and suggest the best searched layout."""
     records = trace_records(args)
-    include_env_bytes = include_environment_bytes(args)
-    coefficients, stats = fit_coefficients(records, args.ridge, include_env_bytes, args.graph_features)
-    if not args.allow_negative:
-        coefficients = clamp_negative_coefficients(coefficients)
+    model: dict[str, Any] | None = read_model(args.model) if args.model is not None else None
+    if model is None:
+        timing_objective = args.timing_objective
+        graph_features = args.graph_features
+        include_env_bytes = include_environment_bytes(args)
+        coefficients, stats = fit_coefficients(records, args.ridge, include_env_bytes, graph_features)
+        if not args.allow_negative:
+            coefficients = clamp_negative_coefficients(coefficients)
+        model_source = "fit"
+    else:
+        timing_objective = str(model["timing_objective"])
+        graph_features = bool(model["graph_features"])
+        include_env_bytes = include_environment_bytes_for_objective(timing_objective)
+        coefficients = dict(model["coefficients"])
+        stats = {str(name): float(value) for name, value in model.get("stats", {}).items()}
+        model_source = str(args.model)
     problem = term_problem(records[-1])
 
     best_layout: list[int] | None = None
@@ -1207,18 +1288,19 @@ def cmd_suggest(args: argparse.Namespace) -> int:
         layout = (
             seed
             if args.observed_only or args.contiguous_only
-            else local_search(problem, seed, coefficients, args.passes, include_env_bytes, args.graph_features)
+            else local_search(problem, seed, coefficients, args.passes, include_env_bytes, graph_features)
         )
-        score, device_predictions = score_layout(problem, layout, coefficients, include_env_bytes, args.graph_features)
+        score, device_predictions = score_layout(problem, layout, coefficients, include_env_bytes, graph_features)
         if score < best_score:
             best_score = score
             best_layout = layout
             best_devices = device_predictions
 
     assert best_layout is not None
-    print(f"timing_objective={args.timing_objective}")
-    print(f"graph_features={str(args.graph_features).lower()}")
-    print_fit(coefficients, stats, args.graph_features)
+    print(f"timing_objective={timing_objective}")
+    print(f"graph_features={str(graph_features).lower()}")
+    print(f"model_source={model_source}")
+    print_fit(coefficients, stats, graph_features)
     if args.contiguous_only:
         print("search=contiguous")
     else:
@@ -1293,12 +1375,15 @@ def parser() -> argparse.ArgumentParser:
     fit.add_argument("trace", type=Path)
     fit.add_argument("--ridge", type=float, default=1.0e-9)
     fit.add_argument("--drop-first-per-layout", type=int, default=0)
+    fit.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before printing/saving")
+    fit.add_argument("--output-model", type=Path, help="write fitted coefficients and metadata to this JSON file")
     add_timing_objective(fit)
     add_graph_features(fit)
     fit.set_defaults(func=cmd_fit)
 
     suggest = subcommands.add_parser("suggest", help="fit a model and suggest a layout")
     suggest.add_argument("trace", type=Path)
+    suggest.add_argument("--model", type=Path, help="use a previously saved model JSON instead of fitting this trace")
     suggest.add_argument("--ridge", type=float, default=1.0e-9)
     suggest.add_argument("--passes", type=int, default=4)
     suggest.add_argument("--random", type=int, default=16)

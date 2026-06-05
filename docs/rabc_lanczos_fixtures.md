@@ -244,6 +244,23 @@ scripts/rabc-trace-model.py tune /tmp/uni20_rabc_trace.jsonl --drop-first-per-la
 
 The `tune` subcommand ranks models by held-out top-1 layout match, then held-out `r2`, then held-out RMSE.  Use the
 reported ridge explicitly when running `fit`, `validate`, or `suggest`.
+To make a tuned model reproducible, export it and then use the saved JSON for
+layout suggestions:
+
+```bash
+scripts/rabc-trace-model.py fit /tmp/uni20_rabc_trace.jsonl \
+  --drop-first-per-layout=1 \
+  --graph-features \
+  --ridge <validated-ridge> \
+  --output-model /tmp/uni20_rabc_model.json
+scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl \
+  --model /tmp/uni20_rabc_model.json \
+  --contiguous-only
+```
+
+The model file records the timing objective, feature set, ridge, clamp policy,
+feature names, coefficients, and fit statistics.  `suggest --model` uses those
+coefficients directly; it does not refit the trace or apply `--allow-negative`.
 
 Until the held-out validation set is broad enough to trust extrapolated layouts, keep suggestions inside the measured
 layout set:
