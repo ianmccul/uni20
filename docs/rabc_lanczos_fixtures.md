@@ -165,7 +165,7 @@ simple mixed per-`(device,B)` order choice:
 ```bash
 scripts/rabc-trace-model.py graph-summary /tmp/uni20_rabc_trace.jsonl --devices
 scripts/rabc-trace-model.py graph-summary /tmp/uni20_rabc_trace.jsonl \
-  --layout 0,0,0,1,1,1
+  --layout <one-device-id-per-center-block>
 ```
 
 Use `scripts/rabc-trace-model.py` to inspect and fit these traces:
@@ -183,6 +183,16 @@ subcommand fits the same model, clamps negative coefficients by default, and per
 local search over candidate center-vector layouts.  This is a first empirical optimizer, not a proof of global
 optimality.  It is intended to generate candidate manual layouts that should then be rerun through the fixture replay
 and compared against the measured `gpu_s` trace field.
+
+For term traces, add `--graph-features` to `fit`, `validate`, `tune`, or `suggest`
+to include graph counters in the fitted empirical model.  The current graph
+features are peer-`B` term count, unique peer-`B` block count, and duplicated
+right-first `(B,C)` group count per device.  These target the observed
+small-block overheads that are not fully represented by byte and flop features.
+Graph counters are correlated with the base features, so tune the ridge and
+validate held-out layouts before using them for suggestions.  Do not assume that
+coefficient clamping remains valid for graph-feature fits; compare clamped and
+unclamped models with `tune --include-clamped`.
 
 For symmetry-local Hamiltonians, also test the constrained contiguous-range
 family.  The traced sparse `f` tensor remains the ground truth for connectivity:

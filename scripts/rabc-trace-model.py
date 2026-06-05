@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-FEATURE_NAMES = [
+BASE_FEATURE_NAMES = [
     "intercept",
     "bc_flops",
     "accumulate_flops",
@@ -28,6 +28,19 @@ FEATURE_NAMES = [
     "unique_b",
     "unique_c",
 ]
+
+GRAPH_FEATURE_NAMES = [
+    "b_cut_terms",
+    "b_peer_blocks",
+    "right_duplicate_groups",
+]
+
+
+def feature_names(include_graph_features: bool) -> list[str]:
+    """Return the active model feature names."""
+    if include_graph_features:
+        return BASE_FEATURE_NAMES + GRAPH_FEATURE_NAMES
+    return BASE_FEATURE_NAMES
 
 
 def read_trace(path: Path) -> list[dict[str, Any]]:
@@ -91,10 +104,10 @@ def include_environment_bytes(args: argparse.Namespace) -> bool:
     return getattr(args, "timing_objective", "steady-state") == "cold-start"
 
 
-def feature_vector(features: dict[str, Any], include_env_bytes: bool) -> list[float]:
+def feature_vector(features: dict[str, Any], include_env_bytes: bool, include_graph_features: bool) -> list[float]:
     """Convert one per-device feature dictionary into the model vector."""
     values = [1.0]
-    for name in FEATURE_NAMES[1:]:
+    for name in feature_names(include_graph_features)[1:]:
         if not include_env_bytes and name in ("a_bytes", "c_bytes"):
             values.append(0.0)
         else:
@@ -127,26 +140,27 @@ def gaussian_solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
 
 
 def fit_coefficients(
-    records: list[dict[str, Any]], ridge: float, include_env_bytes: bool
+    records: list[dict[str, Any]], ridge: float, include_env_bytes: bool, include_graph_features: bool
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Fit per-device elapsed time as a linear function of aggregate features."""
     samples: list[tuple[list[float], float]] = []
     for record in records:
         timings = {int(item["device"]): float(item["gpu_s"]) for item in record.get("device_timings", [])}
-        for features in record.get("devices", []):
+        for features in device_features_for_record(record, include_graph_features):
             device = int(features["device"])
             if device not in timings:
                 continue
-            samples.append((feature_vector(features, include_env_bytes), timings[device]))
+            samples.append((feature_vector(features, include_env_bytes, include_graph_features), timings[device]))
 
     if not samples:
         raise ValueError("trace contains no per-device timing samples")
 
-    scales = [1.0] * len(FEATURE_NAMES)
-    for column in range(1, len(FEATURE_NAMES)):
+    names = feature_names(include_graph_features)
+    scales = [1.0] * len(names)
+    for column in range(1, len(names)):
         scales[column] = max(abs(vector[column]) for vector, _ in samples) or 1.0
 
-    n = len(FEATURE_NAMES)
+    n = len(names)
     ata = [[0.0 for _ in range(n)] for _ in range(n)]
     aty = [0.0 for _ in range(n)]
     for raw_vector, target in samples:
@@ -159,12 +173,9 @@ def fit_coefficients(
         ata[diagonal][diagonal] += ridge
 
     scaled_coefficients = gaussian_solve(ata, aty)
-    coefficients = {
-        name: scaled_coefficients[index] / scales[index] for index, name in enumerate(FEATURE_NAMES)
-    }
+    coefficients = {name: scaled_coefficients[index] / scales[index] for index, name in enumerate(names)}
 
-    predictions = [sum(coefficients[name] * raw[index] for index, name in enumerate(FEATURE_NAMES))
-                   for raw, _ in samples]
+    predictions = [sum(coefficients[name] * raw[index] for index, name in enumerate(names)) for raw, _ in samples]
     targets = [target for _, target in samples]
     mean_target = sum(targets) / len(targets)
     residual_sum = sum((target - prediction) ** 2 for target, prediction in zip(targets, predictions))
@@ -411,6 +422,22 @@ def duplicate_stats(groups_by_device: list[set[tuple[Any, ...]]]) -> dict[str, i
     }
 
 
+def duplicate_counts_by_device(groups_by_device: list[set[tuple[Any, ...]]]) -> list[int]:
+    """Return per-device counts of groups also used by at least one peer device."""
+    owners: dict[tuple[Any, ...], set[int]] = {}
+    for device, groups in enumerate(groups_by_device):
+        for group in groups:
+            owners.setdefault(group, set()).add(device)
+
+    counts = [0] * len(groups_by_device)
+    for devices in owners.values():
+        if len(devices) <= 1:
+            continue
+        for device in devices:
+            counts[device] += 1
+    return counts
+
+
 def empty_graph_device(device: int) -> dict[str, Any]:
     """Create a per-device graph partition summary row."""
     return {
@@ -430,6 +457,9 @@ def empty_graph_device(device: int) -> dict[str, Any]:
         "mixed_intermediate_bytes": 0,
         "mixed_left_groups": 0,
         "mixed_right_groups": 0,
+        "right_duplicate_groups": 0,
+        "left_duplicate_groups": 0,
+        "mixed_duplicate_groups": 0,
     }
 
 
@@ -500,11 +530,18 @@ def graph_metrics_for_layout(problem: dict[str, Any], layout: list[int]) -> dict
         devices[device]["b_peer_blocks"] = len(blocks)
         devices[device]["b_peer_bytes"] = sum(int(problem["input_bytes"][block]) for block in blocks)
 
+    right_duplicate_groups = duplicate_counts_by_device(right_first_groups)
+    left_duplicate_groups = duplicate_counts_by_device(left_first_groups)
+    mixed_duplicate_groups = duplicate_counts_by_device(mixed_first_groups)
+
     for row in devices:
         device = int(row["device"])
         row["right_first_groups"] = len(right_first_groups[device])
         row["left_first_groups"] = len(left_first_groups[device])
         row["mixed_first_groups"] = len(mixed_first_groups[device])
+        row["right_duplicate_groups"] = right_duplicate_groups[device]
+        row["left_duplicate_groups"] = left_duplicate_groups[device]
+        row["mixed_duplicate_groups"] = mixed_duplicate_groups[device]
         row["right_total_flops"] = row["right_first_flops"] + row["right_second_flops"]
         row["left_total_flops"] = row["left_first_flops"] + row["left_second_flops"]
         row["mixed_total_flops"] = row["mixed_first_flops"] + row["mixed_second_flops"]
@@ -553,6 +590,22 @@ def term_problem(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def device_features_for_record(record: dict[str, Any], include_graph_features: bool) -> list[dict[str, Any]]:
+    """Return per-device model features, optionally augmented from term graph metrics."""
+    devices = [dict(features) for features in record.get("devices", [])]
+    if not include_graph_features:
+        return devices
+
+    problem = term_problem(record)
+    layout = [int(item) for item in record.get("output_layout", [])]
+    graph_by_device = {int(row["device"]): row for row in graph_metrics_for_layout(problem, layout)["devices"]}
+    for features in devices:
+        graph = graph_by_device.get(int(features["device"]), {})
+        for name in GRAPH_FEATURE_NAMES:
+            features[name] = graph.get(name, 0)
+    return devices
+
+
 def validate_layout(problem: dict[str, Any], layout: list[int]) -> None:
     """Validate that a candidate layout matches the traced problem."""
     block_count = int(problem["block_count"])
@@ -586,7 +639,9 @@ def empty_device_features(device: int) -> dict[str, Any]:
     }
 
 
-def features_for_layout(problem: dict[str, Any], layout: list[int], include_env_bytes: bool) -> list[dict[str, Any]]:
+def features_for_layout(
+    problem: dict[str, Any], layout: list[int], include_env_bytes: bool, include_graph_features: bool
+) -> list[dict[str, Any]]:
     """Compute right-first aggregate features for a candidate center layout."""
     validate_layout(problem, layout)
     device_count = int(problem["device_count"])
@@ -643,23 +698,40 @@ def features_for_layout(problem: dict[str, Any], layout: list[int], include_env_
         devices[device]["unique_a"] = len(staged_a[device])
         devices[device]["unique_b"] = len(staged_b[device])
         devices[device]["unique_c"] = len(staged_c[device])
+
+    if include_graph_features:
+        graph_by_device = {int(row["device"]): row for row in graph_metrics_for_layout(problem, layout)["devices"]}
+        for row in devices:
+            graph = graph_by_device[int(row["device"])]
+            for name in GRAPH_FEATURE_NAMES:
+                row[name] = graph[name]
     return devices
 
 
-def predict_device_seconds(features: dict[str, Any], coefficients: dict[str, float], include_env_bytes: bool) -> float:
+def predict_device_seconds(
+    features: dict[str, Any], coefficients: dict[str, float], include_env_bytes: bool, include_graph_features: bool
+) -> float:
     """Predict elapsed seconds for one device."""
     return sum(
-        coefficients[name] * value for name, value in zip(FEATURE_NAMES, feature_vector(features, include_env_bytes))
+        coefficients[name] * value
+        for name, value in zip(
+            feature_names(include_graph_features),
+            feature_vector(features, include_env_bytes, include_graph_features),
+        )
     )
 
 
 def score_layout(
-    problem: dict[str, Any], layout: list[int], coefficients: dict[str, float], include_env_bytes: bool
+    problem: dict[str, Any],
+    layout: list[int],
+    coefficients: dict[str, float],
+    include_env_bytes: bool,
+    include_graph_features: bool,
 ) -> tuple[float, list[float]]:
     """Score a layout by the predicted maximum per-device elapsed time."""
     predictions = [
-        predict_device_seconds(features, coefficients, include_env_bytes)
-        for features in features_for_layout(problem, layout, include_env_bytes)
+        predict_device_seconds(features, coefficients, include_env_bytes, include_graph_features)
+        for features in features_for_layout(problem, layout, include_env_bytes, include_graph_features)
     ]
     return max(predictions), predictions
 
@@ -759,12 +831,17 @@ def candidate_layouts(problem: dict[str, Any], records: list[dict[str, Any]], ra
 
 
 def local_search(
-    problem: dict[str, Any], start: list[int], coefficients: dict[str, float], passes: int, include_env_bytes: bool
+    problem: dict[str, Any],
+    start: list[int],
+    coefficients: dict[str, float],
+    passes: int,
+    include_env_bytes: bool,
+    include_graph_features: bool,
 ) -> list[int]:
     """Improve a layout with deterministic single-block moves."""
     device_count = int(problem["device_count"])
     layout = start[:]
-    best_score, _ = score_layout(problem, layout, coefficients, include_env_bytes)
+    best_score, _ = score_layout(problem, layout, coefficients, include_env_bytes, include_graph_features)
     for _ in range(passes):
         improved = False
         for block in range(len(layout)):
@@ -775,7 +852,7 @@ def local_search(
                     continue
                 trial = layout[:]
                 trial[block] = device
-                trial_score, _ = score_layout(problem, trial, coefficients, include_env_bytes)
+                trial_score, _ = score_layout(problem, trial, coefficients, include_env_bytes, include_graph_features)
                 if trial_score < best_score:
                     best_score = trial_score
                     best_device = device
@@ -787,10 +864,10 @@ def local_search(
     return layout
 
 
-def print_fit(coefficients: dict[str, float], stats: dict[str, float]) -> None:
+def print_fit(coefficients: dict[str, float], stats: dict[str, float], include_graph_features: bool) -> None:
     """Print fitted model coefficients."""
     print(f"samples={int(stats['samples'])} rmse_s={stats['rmse']:.9g} r2={stats['r2']:.9g}")
-    for name in FEATURE_NAMES:
+    for name in feature_names(include_graph_features):
         print(f"{name} {coefficients[name]:.17g}")
     for name in ("bc_flops", "accumulate_flops"):
         coefficient = coefficients[name]
@@ -808,7 +885,11 @@ def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, flo
 
 
 def leave_one_layout_out(
-    records: list[dict[str, Any]], ridge: float, clamp_negative: bool, include_env_bytes: bool
+    records: list[dict[str, Any]],
+    ridge: float,
+    clamp_negative: bool,
+    include_env_bytes: bool,
+    include_graph_features: bool,
 ) -> list[dict[str, Any]]:
     """Predict each layout from a model fitted on all other layouts."""
     grouped = group_by_layout(records)
@@ -818,11 +899,13 @@ def leave_one_layout_out(
     rows: list[dict[str, Any]] = []
     for key, held_out in grouped.items():
         train = [record for other_key, group in grouped.items() if other_key != key for record in group]
-        coefficients, _ = fit_coefficients(train, ridge, include_env_bytes)
+        coefficients, _ = fit_coefficients(train, ridge, include_env_bytes, include_graph_features)
         if clamp_negative:
             coefficients = clamp_negative_coefficients(coefficients)
         problem = term_problem(held_out[0])
-        predicted, device_predictions = score_layout(problem, list(key), coefficients, include_env_bytes)
+        predicted, device_predictions = score_layout(
+            problem, list(key), coefficients, include_env_bytes, include_graph_features
+        )
         observed = layout_mean_gpu_seconds(held_out)
         rows.append(
             {
@@ -911,9 +994,10 @@ def parse_layout(text: str, block_count: int, device_count: int) -> list[int]:
 def cmd_fit(args: argparse.Namespace) -> int:
     """Fit and print a model."""
     records = trace_records(args)
-    coefficients, stats = fit_coefficients(records, args.ridge, include_environment_bytes(args))
+    coefficients, stats = fit_coefficients(records, args.ridge, include_environment_bytes(args), args.graph_features)
     print(f"timing_objective={args.timing_objective}")
-    print_fit(coefficients, stats)
+    print(f"graph_features={str(args.graph_features).lower()}")
+    print_fit(coefficients, stats, args.graph_features)
     return 0
 
 
@@ -1017,6 +1101,7 @@ def cmd_graph_summary(args: argparse.Namespace) -> int:
             print(
                 "  device terms b_cut_terms b_peer_blocks b_peer_bytes "
                 "right_first_groups left_first_groups mixed_first_groups "
+                "right_duplicate_groups left_duplicate_groups mixed_duplicate_groups "
                 "right_total_flops left_total_flops mixed_total_flops "
                 "mixed_left_groups mixed_right_groups"
             )
@@ -1024,7 +1109,8 @@ def cmd_graph_summary(args: argparse.Namespace) -> int:
                 print(
                     f"  {row['device']} {row['terms']} {row['b_cut_terms']} {row['b_peer_blocks']} "
                     f"{row['b_peer_bytes']} {row['right_first_groups']} {row['left_first_groups']} "
-                    f"{row['mixed_first_groups']} {row['right_total_flops']:.9g} "
+                    f"{row['mixed_first_groups']} {row['right_duplicate_groups']} {row['left_duplicate_groups']} "
+                    f"{row['mixed_duplicate_groups']} {row['right_total_flops']:.9g} "
                     f"{row['left_total_flops']:.9g} {row['mixed_total_flops']:.9g} "
                     f"{row['mixed_left_groups']} {row['mixed_right_groups']}"
                 )
@@ -1050,8 +1136,11 @@ def cmd_layouts(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     """Run leave-one-layout-out validation."""
-    rows = leave_one_layout_out(trace_records(args), args.ridge, args.clamp_negative, include_environment_bytes(args))
+    rows = leave_one_layout_out(
+        trace_records(args), args.ridge, args.clamp_negative, include_environment_bytes(args), args.graph_features
+    )
     print(f"timing_objective={args.timing_objective}")
+    print(f"graph_features={str(args.graph_features).lower()}")
     print_validation(rows)
     return 0
 
@@ -1066,13 +1155,14 @@ def cmd_tune(args: argparse.Namespace) -> int:
     candidates: list[dict[str, Any]] = []
     for ridge in ridges:
         for clamp_negative in clamp_modes:
-            rows = leave_one_layout_out(records, ridge, clamp_negative, include_env_bytes)
+            rows = leave_one_layout_out(records, ridge, clamp_negative, include_env_bytes, args.graph_features)
             stats = validation_stats(rows)
             candidates.append({"ridge": ridge, "clamp_negative": clamp_negative, "stats": stats})
 
     candidates.sort(key=lambda item: (item["stats"]["top1_match"], item["stats"]["r2"], -item["stats"]["rmse"]),
                     reverse=True)
     print(f"timing_objective={args.timing_objective}")
+    print(f"graph_features={str(args.graph_features).lower()}")
     print("ridge clamp_negative layouts mae_s rmse_s r2 top1_match best_observed_line best_predicted_line")
     for item in candidates:
         stats = item["stats"]
@@ -1096,7 +1186,7 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     """Fit a model and suggest the best searched layout."""
     records = trace_records(args)
     include_env_bytes = include_environment_bytes(args)
-    coefficients, stats = fit_coefficients(records, args.ridge, include_env_bytes)
+    coefficients, stats = fit_coefficients(records, args.ridge, include_env_bytes, args.graph_features)
     if not args.allow_negative:
         coefficients = clamp_negative_coefficients(coefficients)
     problem = term_problem(records[-1])
@@ -1117,9 +1207,9 @@ def cmd_suggest(args: argparse.Namespace) -> int:
         layout = (
             seed
             if args.observed_only or args.contiguous_only
-            else local_search(problem, seed, coefficients, args.passes, include_env_bytes)
+            else local_search(problem, seed, coefficients, args.passes, include_env_bytes, args.graph_features)
         )
-        score, device_predictions = score_layout(problem, layout, coefficients, include_env_bytes)
+        score, device_predictions = score_layout(problem, layout, coefficients, include_env_bytes, args.graph_features)
         if score < best_score:
             best_score = score
             best_layout = layout
@@ -1127,7 +1217,8 @@ def cmd_suggest(args: argparse.Namespace) -> int:
 
     assert best_layout is not None
     print(f"timing_objective={args.timing_objective}")
-    print_fit(coefficients, stats)
+    print(f"graph_features={str(args.graph_features).lower()}")
+    print_fit(coefficients, stats, args.graph_features)
     if args.contiguous_only:
         print("search=contiguous")
     else:
@@ -1154,6 +1245,13 @@ def parser() -> argparse.ArgumentParser:
                 "model steady-state resident matvecs by ignoring A/C staging bytes, or cold-start setup by including "
                 "them"
             ),
+        )
+
+    def add_graph_features(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--graph-features",
+            action="store_true",
+            help="augment fitting/scoring with graph cut and first-stage reuse counters from term traces",
         )
 
     summary = subcommands.add_parser("summary", help="summarize observed trace rows")
@@ -1196,6 +1294,7 @@ def parser() -> argparse.ArgumentParser:
     fit.add_argument("--ridge", type=float, default=1.0e-9)
     fit.add_argument("--drop-first-per-layout", type=int, default=0)
     add_timing_objective(fit)
+    add_graph_features(fit)
     fit.set_defaults(func=cmd_fit)
 
     suggest = subcommands.add_parser("suggest", help="fit a model and suggest a layout")
@@ -1212,6 +1311,7 @@ def parser() -> argparse.ArgumentParser:
     )
     suggest.add_argument("--allow-negative", action="store_true")
     add_timing_objective(suggest)
+    add_graph_features(suggest)
     suggest.set_defaults(func=cmd_suggest)
 
     validate = subcommands.add_parser("validate", help="leave-one-layout-out model validation")
@@ -1220,6 +1320,7 @@ def parser() -> argparse.ArgumentParser:
     validate.add_argument("--drop-first-per-layout", type=int, default=0)
     validate.add_argument("--clamp-negative", action="store_true")
     add_timing_objective(validate)
+    add_graph_features(validate)
     validate.set_defaults(func=cmd_validate)
 
     tune = subcommands.add_parser("tune", help="scan ridge values with leave-one-layout-out validation")
@@ -1228,6 +1329,7 @@ def parser() -> argparse.ArgumentParser:
     tune.add_argument("--drop-first-per-layout", type=int, default=0)
     tune.add_argument("--include-clamped", action="store_true")
     add_timing_objective(tune)
+    add_graph_features(tune)
     tune.set_defaults(func=cmd_tune)
 
     layouts = subcommands.add_parser("layouts", help="generate manual placement layouts")
