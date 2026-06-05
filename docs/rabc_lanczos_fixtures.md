@@ -244,6 +244,31 @@ target is useful for structural model development, but final placement decisions
 must be confirmed by rerunning the fixture replay with
 `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` unset.
 
+Prefer the scripted sweep wrapper for repeated no-trace layout measurements:
+
+```bash
+scripts/run-rabc-layout-sweep.sh \
+  --fixture /home/ian/sync/fixtures/tensorcontraction/uni20_l40_m4608_central.rabc \
+  --output-dir /tmp/uni20_rabc_l40_m4608_sweep \
+  --labels cut3,cut4,cut5,cut6,cut7,cut8,cut9,cut10,cut12,cut14,cut16,cut21,cut36,alternating \
+  --repeats 3 \
+  --iters 24 \
+  --timeout 240
+```
+
+The script writes one `MP_BENCHFILE` table per layout and rebuilds a combined
+`benchmarks.jsonl` dataset with `bench-record`.  Use `--resume` to continue an
+interrupted sweep without rerunning layouts that already have nonempty bench
+files.  Use `--trace-path auto --trace-terms` only for a companion term trace or
+other structural diagnostics; do not compare final performance from traced rows.
+
+For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
+dual-GPU sweep found `cut6` as the current best measured contiguous layout:
+mean `#LanczosMatvecS = 0.169051257s` over three repeats.  A follow-up sweep of
+model-suggested middle cuts `cut17` through `cut24` did not improve on this
+result; the best of that group was `cut19` at `0.195862604s`.  Treat this as a
+fixture-local reference point, not a portable placement rule.
+
 To record final no-trace replay timings as a separate empirical dataset, save
 the benchmark stdout or `MP_BENCHFILE` table and convert it to JSONL:
 
