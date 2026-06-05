@@ -44,6 +44,35 @@ def read_trace(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def layout_key(record: dict[str, Any]) -> tuple[int, ...]:
+    """Return the output-layout key for grouping repeated measurements."""
+    return tuple(int(item) for item in record.get("output_layout", []))
+
+
+def drop_initial_per_layout(records: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
+    """Drop the first measured rows for each output layout."""
+    if count <= 0:
+        return records
+    seen: dict[tuple[int, ...], int] = {}
+    filtered: list[dict[str, Any]] = []
+    for record in records:
+        key = layout_key(record)
+        observed = seen.get(key, 0)
+        seen[key] = observed + 1
+        if observed >= count:
+            filtered.append(record)
+    return filtered
+
+
+def trace_records(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Load trace records and apply command-line filters."""
+    records = read_trace(args.trace)
+    records = drop_initial_per_layout(records, getattr(args, "drop_first_per_layout", 0))
+    if not records:
+        raise ValueError("trace filters removed all R/A/B/C records")
+    return records
+
+
 def layout_string(layout: list[int]) -> str:
     """Format a layout as the manual placement environment value."""
     return ",".join(str(device) for device in layout)
@@ -144,6 +173,31 @@ def summarize(records: list[dict[str, Any]]) -> None:
             best = record
     if best is not None:
         print(f"best_observed_line={best['_line']} gpu_s={float(best['gpu_s']):.9g}")
+
+
+def summarize_grouped(records: list[dict[str, Any]]) -> None:
+    """Print per-layout timing aggregates."""
+    grouped: dict[tuple[int, ...], list[dict[str, Any]]] = {}
+    for record in records:
+        grouped.setdefault(layout_key(record), []).append(record)
+
+    print("count mean_gpu_s min_gpu_s max_gpu_s first_line layout")
+    best_key: tuple[int, ...] | None = None
+    best_mean = float("inf")
+    for key, rows in grouped.items():
+        timings = [float(record.get("gpu_s", float("nan"))) for record in rows]
+        mean = sum(timings) / len(timings)
+        minimum = min(timings)
+        maximum = max(timings)
+        if mean < best_mean:
+            best_mean = mean
+            best_key = key
+        print(
+            f"{len(rows)} {mean:.9g} {minimum:.9g} {maximum:.9g} "
+            f"{rows[0]['_line']} {layout_string(list(key))}"
+        )
+    if best_key is not None:
+        print(f"best_mean_gpu_s={best_mean:.9g} layout={layout_string(list(best_key))}")
 
 
 def term_problem(record: dict[str, Any]) -> dict[str, Any]:
@@ -305,7 +359,7 @@ def observed_layouts(records: list[dict[str, Any]]) -> list[list[int]]:
     layouts: list[list[int]] = []
     seen: set[tuple[int, ...]] = set()
     for record in records:
-        layout = tuple(int(item) for item in record.get("output_layout", []))
+        layout = layout_key(record)
         if layout and layout not in seen:
             seen.add(layout)
             layouts.append(list(layout))
@@ -380,7 +434,7 @@ def print_fit(coefficients: dict[str, float], stats: dict[str, float]) -> None:
 
 def cmd_fit(args: argparse.Namespace) -> int:
     """Fit and print a model."""
-    records = read_trace(args.trace)
+    records = trace_records(args)
     coefficients, stats = fit_coefficients(records, args.ridge)
     print_fit(coefficients, stats)
     return 0
@@ -388,7 +442,11 @@ def cmd_fit(args: argparse.Namespace) -> int:
 
 def cmd_summary(args: argparse.Namespace) -> int:
     """Summarize trace rows."""
-    summarize(read_trace(args.trace))
+    records = trace_records(args)
+    if args.group_layouts:
+        summarize_grouped(records)
+    else:
+        summarize(records)
     return 0
 
 
@@ -409,7 +467,7 @@ def cmd_layouts(args: argparse.Namespace) -> int:
 
 def cmd_suggest(args: argparse.Namespace) -> int:
     """Fit a model and suggest the best searched layout."""
-    records = read_trace(args.trace)
+    records = trace_records(args)
     coefficients, stats = fit_coefficients(records, args.ridge)
     if not args.allow_negative:
         coefficients = {name: max(0.0, value) for name, value in coefficients.items()}
@@ -443,11 +501,14 @@ def parser() -> argparse.ArgumentParser:
 
     summary = subcommands.add_parser("summary", help="summarize observed trace rows")
     summary.add_argument("trace", type=Path)
+    summary.add_argument("--drop-first-per-layout", type=int, default=0)
+    summary.add_argument("--group-layouts", action="store_true")
     summary.set_defaults(func=cmd_summary)
 
     fit = subcommands.add_parser("fit", help="fit per-device timing coefficients")
     fit.add_argument("trace", type=Path)
     fit.add_argument("--ridge", type=float, default=1.0e-9)
+    fit.add_argument("--drop-first-per-layout", type=int, default=0)
     fit.set_defaults(func=cmd_fit)
 
     suggest = subcommands.add_parser("suggest", help="fit a model and suggest a layout")
@@ -455,6 +516,7 @@ def parser() -> argparse.ArgumentParser:
     suggest.add_argument("--ridge", type=float, default=1.0e-9)
     suggest.add_argument("--passes", type=int, default=4)
     suggest.add_argument("--random", type=int, default=16)
+    suggest.add_argument("--drop-first-per-layout", type=int, default=0)
     suggest.add_argument("--allow-negative", action="store_true")
     suggest.set_defaults(func=cmd_suggest)
 

@@ -150,6 +150,20 @@ local search over candidate center-vector layouts.  This is a first empirical op
 optimality.  It is intended to generate candidate manual layouts that should then be rerun through the fixture replay
 and compared against the measured `gpu_s` trace field.
 
+Short replay sweeps usually include one slow setup row per process/layout before the steady-state matvec timing.  Use
+`--drop-first-per-layout=1` for exploratory fits when each layout was measured with at least two trace rows:
+
+```bash
+scripts/rabc-trace-model.py fit /tmp/uni20_rabc_trace.jsonl --drop-first-per-layout=1
+scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl --drop-first-per-layout=1
+```
+
+For longer sweeps, group repeated rows by layout before comparing timings:
+
+```bash
+scripts/rabc-trace-model.py summary /tmp/uni20_rabc_trace.jsonl --drop-first-per-layout=1 --group-layouts
+```
+
 To generate a few explicit layouts without fitting:
 
 ```bash
