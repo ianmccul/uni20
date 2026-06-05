@@ -59,10 +59,19 @@ coalescing should reduce allocation and memcpy overhead, but it must not collaps
 the dependency model into one global MatrixFamily epoch.  Different blocks may
 later be updated by different kernels, devices, or MPI ranks.
 
-The current fast path is deliberately conservative.  It is used only when the
-operation sees the complete MatrixFamily, the matrices exactly cover the host
-slab, and the scheduler chooses a single CUDA device.  Partial, already mixed,
-or multi-device layouts fall back to the existing per-block path.
+The current fast path is deliberately conservative.  It is used only when an
+operation sees complete coalesced slabs with stable sub-block ordering.  If the
+scheduler chooses one CUDA device, the whole `MatrixFamily` is one device slab.
+If the scheduler chooses multiple local CUDA devices, the first placement policy
+splits the `MatrixFamily` into contiguous byte-balanced ranges and allocates one
+complete device slab per range.  Resident vector algebra can then run one slab
+operation per range instead of falling back to one worklist entry per sub-block.
+
+This is not yet the final Uni20 block-placement policy.  It intentionally avoids
+non-contiguous staging and round-robin block placement: a range is coalesced only
+if the selected matrices exactly cover a device allocation slab.  Partial,
+already mixed, or non-contiguous layouts still fall back to the existing
+per-block path.
 
 ## Slab Operations
 

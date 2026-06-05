@@ -68,6 +68,20 @@ class GpuBuffer {
     size_t sizeInByte() const { return size() * sizeof(double); }
     bool contentValid() const { return hasValidContent; }
     void* allocationBasePtr() const { return allocationGroup == nullptr ? ptr : allocationGroup->basePtr; }
+    size_t allocationSizeInByte() const
+    {
+      return allocationGroup == nullptr ? this->sizeInByte() : allocationGroup->bytes;
+    }
+    size_t allocationOffsetInByte() const
+    {
+      if (allocationGroup == nullptr || allocationGroup->basePtr == nullptr)
+      {
+        return 0;
+      }
+      auto const* base = static_cast<std::byte const*>(allocationGroup->basePtr);
+      auto const* current = static_cast<std::byte const*>(ptr);
+      return static_cast<size_t>(current - base);
+    }
     DeviceMatrixView deviceView(int deviceId) const;
     void publishAllocation(cuda::CompletionRef completion);
     void waitBeforeRead(cudaStream_t stream);

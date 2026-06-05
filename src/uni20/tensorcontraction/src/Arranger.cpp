@@ -45,6 +45,138 @@ static int getLeastBusyDevice(const std::vector<double>& flopsPerDevice, int sch
 
 namespace tensor
 {
+namespace
+{
+
+struct CoalescedMatrixRange
+{
+    int deviceId = 0;
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    std::size_t valueOffset = 0;
+    std::size_t valueCount = 0;
+};
+
+std::size_t matrixElementCount(std::vector<Matrix> const& mats, std::size_t begin, std::size_t end)
+{
+  std::size_t count = 0;
+  for (std::size_t index = begin; index < end; ++index)
+  {
+    count += mats[index].size();
+  }
+  return count;
+}
+
+std::vector<Matrix> matrixRange(std::vector<Matrix> const& mats, CoalescedMatrixRange range)
+{
+  return {mats.begin() + static_cast<std::ptrdiff_t>(range.begin),
+          mats.begin() + static_cast<std::ptrdiff_t>(range.end)};
+}
+
+std::span<double const> valueRange(std::span<double const> values, CoalescedMatrixRange range)
+{
+  return values.subspan(range.valueOffset, range.valueCount);
+}
+
+std::span<double> valueRange(std::span<double> values, CoalescedMatrixRange range)
+{
+  return values.subspan(range.valueOffset, range.valueCount);
+}
+
+std::vector<CoalescedMatrixRange> contiguousCoalescedPlacement(std::vector<Matrix> const& mats,
+                                                               int scheduledDeviceCount)
+{
+  if (mats.empty())
+  {
+    return {};
+  }
+
+  std::size_t totalBytes = 0;
+  for (auto mat : mats)
+  {
+    totalBytes += mat.sizeInByte();
+  }
+
+  int const rangeCount = std::max(1, std::min(scheduledDeviceCount, static_cast<int>(mats.size())));
+  std::vector<CoalescedMatrixRange> ranges;
+  ranges.reserve(static_cast<std::size_t>(rangeCount));
+
+  std::size_t begin = 0;
+  std::size_t valueOffset = 0;
+  for (int rangeIndex = 0; rangeIndex < rangeCount; ++rangeIndex)
+  {
+    std::size_t end = begin;
+    if (rangeIndex == rangeCount - 1)
+    {
+      end = mats.size();
+    }
+    else
+    {
+      std::size_t const targetBytes =
+          (totalBytes * static_cast<std::size_t>(rangeIndex + 1)) / static_cast<std::size_t>(rangeCount);
+      std::size_t prefixBytes = 0;
+      for (std::size_t index = 0; index < begin; ++index)
+      {
+        prefixBytes += mats[index].sizeInByte();
+      }
+      while (end < mats.size() && (end == begin || prefixBytes + mats[end].sizeInByte() <= targetBytes))
+      {
+        prefixBytes += mats[end].sizeInByte();
+        ++end;
+      }
+      std::size_t const remainingBlocks = mats.size() - end;
+      std::size_t const remainingRanges = static_cast<std::size_t>(rangeCount - rangeIndex - 1);
+      if (remainingBlocks < remainingRanges)
+      {
+        end -= remainingRanges - remainingBlocks;
+      }
+    }
+
+    auto const valueCount = matrixElementCount(mats, begin, end);
+    ranges.push_back(CoalescedMatrixRange{
+        .deviceId = rangeIndex, .begin = begin, .end = end, .valueOffset = valueOffset, .valueCount = valueCount});
+    begin = end;
+    valueOffset += valueCount;
+  }
+
+  return ranges;
+}
+
+bool localizeCoalescedRange(Swapper& swapper, CoalescedMatrixRange range, std::vector<Matrix> const& mats,
+                            std::span<double const> values, bool uploadFromHost, bool refreshExisting)
+{
+  auto const rangeMats = matrixRange(mats, range);
+  auto const rangeValues = valueRange(values, range);
+  bool const anyExisting = swapper.anyPreStoreBuffer(rangeMats);
+  auto const existingDevice = swapper.commonPreStoreDevice(rangeMats);
+
+  if (!anyExisting)
+  {
+    if (uploadFromHost)
+    {
+      swapper.uploadHostMatricesCoalesced(rangeMats, rangeValues, range.deviceId);
+    }
+    else
+    {
+      swapper.registerGpuAllocationsCoalesced(rangeMats, range.deviceId);
+    }
+    return true;
+  }
+
+  if (!existingDevice.has_value() || *existingDevice != range.deviceId ||
+      !swapper.preStoreBuffersAreCoalesced(rangeMats, range.deviceId))
+  {
+    return false;
+  }
+
+  if (uploadFromHost && refreshExisting)
+  {
+    return swapper.refreshHostMatricesToDeviceCoalesced(rangeMats, rangeValues, range.deviceId);
+  }
+  return true;
+}
+
+} // namespace
 
 Arranger::Arranger(Swapper& swapper) : swapper(swapper)
 {
@@ -1763,38 +1895,59 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
   }
   linearAlgebraScheduledDeviceCount = this->scheduledDeviceCountForBytes(totalBytes);
 
-  if (!mats.empty() && totalBytes == values.size_bytes() && linearAlgebraScheduledDeviceCount == 1)
+  if (!mats.empty() && totalBytes == values.size_bytes())
   {
-    bool const anyExisting = swapper.anyPreStoreBuffer(mats);
-    auto const existingDevice = swapper.commonPreStoreDevice(mats);
-    if (!anyExisting)
+    if (linearAlgebraScheduledDeviceCount == 1)
     {
-      int const deviceId = this->leastBusyLinearAlgebraDevice();
-      if (uploadFromHost)
+      bool const anyExisting = swapper.anyPreStoreBuffer(mats);
+      auto const existingDevice = swapper.commonPreStoreDevice(mats);
+      if (!anyExisting)
       {
-        swapper.uploadHostMatricesCoalesced(mats, values, deviceId);
+        int const deviceId = this->leastBusyLinearAlgebraDevice();
+        if (uploadFromHost)
+        {
+          swapper.uploadHostMatricesCoalesced(mats, values, deviceId);
+        }
+        else
+        {
+          swapper.registerGpuAllocationsCoalesced(mats, deviceId);
+        }
+        std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+        CUDA_CALL(cudaSetDevice(0));
+        return;
       }
-      else
-      {
-        swapper.registerGpuAllocationsCoalesced(mats, deviceId);
-      }
-      std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
-      CUDA_CALL(cudaSetDevice(0));
-      return;
-    }
 
-    if (existingDevice.has_value())
-    {
-      if (uploadFromHost && refreshExisting)
+      if (existingDevice.has_value())
       {
-        if (swapper.refreshHostMatricesToDeviceCoalesced(mats, values, *existingDevice))
+        if (uploadFromHost && refreshExisting)
+        {
+          if (swapper.refreshHostMatricesToDeviceCoalesced(mats, values, *existingDevice))
+          {
+            std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+            CUDA_CALL(cudaSetDevice(0));
+            return;
+          }
+        }
+        else
         {
           std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
           CUDA_CALL(cudaSetDevice(0));
           return;
         }
       }
-      else
+    }
+    else
+    {
+      bool localized = true;
+      for (auto const range : contiguousCoalescedPlacement(mats, linearAlgebraScheduledDeviceCount))
+      {
+        if (!localizeCoalescedRange(swapper, range, mats, values, uploadFromHost, refreshExisting))
+        {
+          localized = false;
+          break;
+        }
+      }
+      if (localized)
       {
         std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
         CUDA_CALL(cudaSetDevice(0));
@@ -1847,6 +2000,46 @@ void Arranger::synchronizeCoalescedLinearAlgebraToHost(const std::vector<Matrix>
     }
     CUDA_CALL(cudaSetDevice(0));
     return;
+  }
+
+  std::size_t totalBytes = 0;
+  for (auto mat : mats)
+  {
+    totalBytes += mat.sizeInByte();
+  }
+  if (!mats.empty() && totalBytes == values.size_bytes())
+  {
+    auto const scheduledDeviceCount = this->scheduledDeviceCountForBytes(totalBytes);
+    std::vector<bool> touched(deviceCount, false);
+    bool synchronized = true;
+    for (auto const range : contiguousCoalescedPlacement(mats, scheduledDeviceCount))
+    {
+      auto const rangeMats = matrixRange(mats, range);
+      if (swapper.downloadDeviceMatricesToHostCoalesced(rangeMats, valueRange(values, range)))
+      {
+        if (auto deviceId = swapper.commonPreStoreDevice(rangeMats); deviceId.has_value())
+        {
+          touched[*deviceId] = true;
+        }
+      }
+      else
+      {
+        synchronized = false;
+        break;
+      }
+    }
+    if (synchronized)
+    {
+      for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
+      {
+        if (touched[deviceId])
+        {
+          swapper.syncMemStream(deviceId, "linear_algebra_sync_to_host_coalesced");
+        }
+      }
+      CUDA_CALL(cudaSetDevice(0));
+      return;
+    }
   }
 
   this->synchronizeLinearAlgebraToHost(mats);

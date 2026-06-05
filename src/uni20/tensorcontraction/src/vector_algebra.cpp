@@ -48,6 +48,107 @@ struct VectorAlgebraEngine::Impl
       return device;
     }
 
+    struct CoalescedRange
+    {
+        int deviceId = 0;
+        std::size_t begin = 0;
+        std::size_t end = 0;
+        std::size_t valueOffset = 0;
+        std::size_t valueCount = 0;
+    };
+
+    [[nodiscard]] auto range_matrices(MatrixFamily const& x, CoalescedRange range) const -> std::vector<tensor::Matrix>
+    {
+      auto const& matrices = raw_matrices(x);
+      return {matrices.begin() + static_cast<std::ptrdiff_t>(range.begin),
+              matrices.begin() + static_cast<std::ptrdiff_t>(range.end)};
+    }
+
+    [[nodiscard]] auto coalesced_ranges(MatrixFamily const& x) const -> std::vector<CoalescedRange>
+    {
+      std::vector<CoalescedRange> ranges;
+      if (arranger == nullptr || x.empty())
+      {
+        return ranges;
+      }
+
+      auto& swapper = arranger->residentSwapper();
+      auto const& matrices = raw_matrices(x);
+      std::size_t begin = 0;
+      std::size_t valueOffset = 0;
+      while (begin < matrices.size())
+      {
+        auto [deviceId, firstBuffer] = swapper.getPreStoreBufferOrNone(matrices[begin]);
+        if (firstBuffer == nullptr || firstBuffer->allocationOffsetInByte() != 0)
+        {
+          return {};
+        }
+
+        void* const allocationBase = firstBuffer->allocationBasePtr();
+        std::size_t const allocationBytes = firstBuffer->allocationSizeInByte();
+        std::size_t offsetBytes = 0;
+        std::size_t end = begin;
+        std::size_t valueCount = 0;
+        while (end < matrices.size())
+        {
+          auto [currentDevice, currentBuffer] = swapper.getPreStoreBufferOrNone(matrices[end]);
+          if (currentBuffer == nullptr || currentDevice != deviceId ||
+              currentBuffer->allocationBasePtr() != allocationBase ||
+              currentBuffer->allocationOffsetInByte() != offsetBytes)
+          {
+            break;
+          }
+
+          offsetBytes += matrices[end].sizeInByte();
+          valueCount += matrices[end].size();
+          ++end;
+          if (offsetBytes == allocationBytes)
+          {
+            break;
+          }
+          if (offsetBytes > allocationBytes)
+          {
+            return {};
+          }
+        }
+
+        if (end == begin || offsetBytes != allocationBytes)
+        {
+          return {};
+        }
+
+        CoalescedRange const range{
+            .deviceId = deviceId, .begin = begin, .end = end, .valueOffset = valueOffset, .valueCount = valueCount};
+        if (!swapper.preStoreBuffersAreCoalesced(this->range_matrices(x, range), deviceId))
+        {
+          return {};
+        }
+        ranges.push_back(range);
+        begin = end;
+        valueOffset += valueCount;
+      }
+
+      return ranges;
+    }
+
+    [[nodiscard]] bool compatible_ranges(std::vector<CoalescedRange> const& lhs,
+                                         std::vector<CoalescedRange> const& rhs) const
+    {
+      if (lhs.size() != rhs.size())
+      {
+        return false;
+      }
+      for (std::size_t range = 0; range < lhs.size(); ++range)
+      {
+        if (lhs[range].deviceId != rhs[range].deviceId || lhs[range].begin != rhs[range].begin ||
+            lhs[range].end != rhs[range].end || lhs[range].valueCount != rhs[range].valueCount)
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
     void synchronize_if_requested(MatrixFamily& x)
     {
       if (sync_results_to_host)
@@ -58,15 +159,22 @@ struct VectorAlgebraEngine::Impl
 
     bool zero_slab(MatrixFamily& x)
     {
-      auto const device = this->coalesced_device(x);
-      if (!device.has_value())
+      if (x.empty())
+      {
+        this->synchronize_if_requested(x);
+        return true;
+      }
+      auto const ranges = this->coalesced_ranges(x);
+      if (ranges.empty())
       {
         return false;
       }
 
+      auto& swapper = arranger->residentSwapper();
+      for (auto const range : ranges)
       {
-        auto& swapper = arranger->residentSwapper();
-        auto access = swapper.createSlabAccessPlan(raw_matrices(x), *device, tensor::Swapper::SlabAccessKind::Write);
+        auto access = swapper.createSlabAccessPlan(this->range_matrices(x, range), range.deviceId,
+                                                   tensor::Swapper::SlabAccessKind::Write);
         CUDA_CALL(cudaMemsetAsync(access.data(), 0, access.sizeInByte(), access.stream()));
       }
       this->synchronize_if_requested(x);
@@ -75,12 +183,6 @@ struct VectorAlgebraEngine::Impl
 
     bool copy_slab(MatrixFamily const& source, MatrixFamily& target)
     {
-      auto const source_device = this->coalesced_device(source);
-      auto const target_device = this->coalesced_device(target);
-      if (!source_device.has_value() || !target_device.has_value() || *source_device != *target_device)
-      {
-        return false;
-      }
       if (source.coalesced_values().size() != target.coalesced_values().size())
       {
         throw std::invalid_argument("TensorContraction slab copy has mismatched storage sizes");
@@ -91,10 +193,21 @@ struct VectorAlgebraEngine::Impl
         return true;
       }
 
+      auto const sourceRanges = this->coalesced_ranges(source);
+      auto const targetRanges = this->coalesced_ranges(target);
+      if (sourceRanges.empty() || !this->compatible_ranges(sourceRanges, targetRanges))
       {
-        auto& swapper = arranger->residentSwapper();
-        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(source), *source_device);
-        auto write_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(target), *target_device);
+        return false;
+      }
+
+      auto& swapper = arranger->residentSwapper();
+      for (std::size_t rangeIndex = 0; rangeIndex < sourceRanges.size(); ++rangeIndex)
+      {
+        auto const range = sourceRanges[rangeIndex];
+        auto read_buffers =
+            swapper.collectCoalescedPreStoreBuffers(this->range_matrices(source, range), range.deviceId);
+        auto write_buffers = swapper.collectCoalescedPreStoreBuffers(
+            this->range_matrices(target, targetRanges[rangeIndex]), range.deviceId);
         if (read_buffers.empty() || write_buffers.empty())
         {
           return false;
@@ -103,8 +216,8 @@ struct VectorAlgebraEngine::Impl
         auto* target_base = write_buffers.front()->allocationBasePtr();
         if (source_base != target_base)
         {
-          auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), *target_device);
-          CUDA_CALL(cudaMemcpyAsync(target_base, source_base, target.coalesced_values().size_bytes(),
+          auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), range.deviceId);
+          CUDA_CALL(cudaMemcpyAsync(target_base, source_base, range.valueCount * sizeof(double),
                                     cudaMemcpyDeviceToDevice, access.stream()));
         }
       }
@@ -114,17 +227,23 @@ struct VectorAlgebraEngine::Impl
 
     bool scale_slab(MatrixFamily& x, double alpha)
     {
-      auto const device = this->coalesced_device(x);
-      if (!device.has_value())
+      if (x.empty())
+      {
+        this->synchronize_if_requested(x);
+        return true;
+      }
+      auto const ranges = this->coalesced_ranges(x);
+      if (ranges.empty())
       {
         return false;
       }
 
+      auto& swapper = arranger->residentSwapper();
+      for (auto const range : ranges)
       {
-        auto& swapper = arranger->residentSwapper();
-        auto access = swapper.createSlabAccessPlan(raw_matrices(x), *device, tensor::Swapper::SlabAccessKind::Write);
-        detail::launch_slab_scale_kernel(static_cast<double*>(access.data()), x.coalesced_values().size(), alpha,
-                                         access.stream());
+        auto access = swapper.createSlabAccessPlan(this->range_matrices(x, range), range.deviceId,
+                                                   tensor::Swapper::SlabAccessKind::Write);
+        detail::launch_slab_scale_kernel(static_cast<double*>(access.data()), range.valueCount, alpha, access.stream());
         CUDA_CALL(cudaGetLastError());
       }
       this->synchronize_if_requested(x);
@@ -133,12 +252,6 @@ struct VectorAlgebraEngine::Impl
 
     bool axpy_slab(double alpha, MatrixFamily const& x, MatrixFamily& y)
     {
-      auto const x_device = this->coalesced_device(x);
-      auto const y_device = this->coalesced_device(y);
-      if (!x_device.has_value() || !y_device.has_value() || *x_device != *y_device)
-      {
-        return false;
-      }
       if (x.coalesced_values().size() != y.coalesced_values().size())
       {
         throw std::invalid_argument("TensorContraction slab axpy has mismatched storage sizes");
@@ -149,18 +262,28 @@ struct VectorAlgebraEngine::Impl
         return true;
       }
 
+      auto const xRanges = this->coalesced_ranges(x);
+      auto const yRanges = this->coalesced_ranges(y);
+      if (xRanges.empty() || !this->compatible_ranges(xRanges, yRanges))
       {
-        auto& swapper = arranger->residentSwapper();
-        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(x), *x_device);
-        auto write_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(y), *y_device);
+        return false;
+      }
+
+      auto& swapper = arranger->residentSwapper();
+      for (std::size_t rangeIndex = 0; rangeIndex < xRanges.size(); ++rangeIndex)
+      {
+        auto const range = xRanges[rangeIndex];
+        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(this->range_matrices(x, range), range.deviceId);
+        auto write_buffers =
+            swapper.collectCoalescedPreStoreBuffers(this->range_matrices(y, yRanges[rangeIndex]), range.deviceId);
         if (read_buffers.empty() || write_buffers.empty())
         {
           return false;
         }
         auto* x_base = static_cast<double const*>(read_buffers.front()->allocationBasePtr());
         auto* y_base = static_cast<double*>(write_buffers.front()->allocationBasePtr());
-        auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), *y_device);
-        detail::launch_slab_axpy_kernel(x_base, y_base, y.coalesced_values().size(), alpha, access.stream());
+        auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), range.deviceId);
+        detail::launch_slab_axpy_kernel(x_base, y_base, range.valueCount, alpha, access.stream());
         CUDA_CALL(cudaGetLastError());
       }
       this->synchronize_if_requested(y);
@@ -169,12 +292,6 @@ struct VectorAlgebraEngine::Impl
 
     auto dot_slab(MatrixFamily const& lhs, MatrixFamily const& rhs) -> std::optional<double>
     {
-      auto const lhs_device = this->coalesced_device(lhs);
-      auto const rhs_device = this->coalesced_device(rhs);
-      if (!lhs_device.has_value() || !rhs_device.has_value() || *lhs_device != *rhs_device)
-      {
-        return std::nullopt;
-      }
       if (lhs.coalesced_values().size() != rhs.coalesced_values().size())
       {
         throw std::invalid_argument("TensorContraction slab dot has mismatched storage sizes");
@@ -183,33 +300,46 @@ struct VectorAlgebraEngine::Impl
       {
         return 0.0;
       }
-      if (lhs.coalesced_values().size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+
+      auto const lhsRanges = this->coalesced_ranges(lhs);
+      auto const rhsRanges = this->coalesced_ranges(rhs);
+      if (lhsRanges.empty() || !this->compatible_ranges(lhsRanges, rhsRanges))
       {
         return std::nullopt;
       }
 
       auto& swapper = arranger->residentSwapper();
-      auto read_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(lhs), *lhs_device);
-      auto rhs_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(rhs), *rhs_device);
-      if (read_buffers.empty() || rhs_buffers.empty())
-      {
-        return std::nullopt;
-      }
-      auto const* lhs_base = static_cast<double const*>(read_buffers.front()->allocationBasePtr());
-      auto const* rhs_base = static_cast<double const*>(rhs_buffers.front()->allocationBasePtr());
-      read_buffers.insert(read_buffers.end(), rhs_buffers.begin(), rhs_buffers.end());
-
       double result = 0.0;
+      for (std::size_t rangeIndex = 0; rangeIndex < lhsRanges.size(); ++rangeIndex)
       {
-        auto access = swapper.createBlasAccessPlan(std::move(read_buffers), {}, *lhs_device);
-        auto device_result = swapper.deviceContext(*lhs_device).acquireScratch(sizeof(double), access.stream());
+        auto const range = lhsRanges[rangeIndex];
+        if (range.valueCount > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        {
+          return std::nullopt;
+        }
+
+        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(this->range_matrices(lhs, range), range.deviceId);
+        auto rhs_buffers =
+            swapper.collectCoalescedPreStoreBuffers(this->range_matrices(rhs, rhsRanges[rangeIndex]), range.deviceId);
+        if (read_buffers.empty() || rhs_buffers.empty())
+        {
+          return std::nullopt;
+        }
+        auto const* lhs_base = static_cast<double const*>(read_buffers.front()->allocationBasePtr());
+        auto const* rhs_base = static_cast<double const*>(rhs_buffers.front()->allocationBasePtr());
+        read_buffers.insert(read_buffers.end(), rhs_buffers.begin(), rhs_buffers.end());
+
+        double partial = 0.0;
+        auto access = swapper.createBlasAccessPlan(std::move(read_buffers), {}, range.deviceId);
+        auto device_result = swapper.deviceContext(range.deviceId).acquireScratch(sizeof(double), access.stream());
         CUBLAS_CALL(cublasSetPointerMode(access.handle(), CUBLAS_POINTER_MODE_DEVICE));
-        CUBLAS_CALL(cublasDdot(access.handle(), static_cast<int>(lhs.coalesced_values().size()), lhs_base, 1, rhs_base,
-                               1, device_result.as<double>()));
+        CUBLAS_CALL(cublasDdot(access.handle(), static_cast<int>(range.valueCount), lhs_base, 1, rhs_base, 1,
+                               device_result.as<double>()));
         CUBLAS_CALL(cublasSetPointerMode(access.handle(), CUBLAS_POINTER_MODE_HOST));
-        CUDA_CALL(cudaMemcpyAsync(&result, device_result.as<double>(), sizeof(double), cudaMemcpyDeviceToHost,
+        CUDA_CALL(cudaMemcpyAsync(&partial, device_result.as<double>(), sizeof(double), cudaMemcpyDeviceToHost,
                                   access.stream()));
         CUDA_CALL(cudaStreamSynchronize(access.stream()));
+        result += partial;
       }
       return result;
     }

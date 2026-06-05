@@ -65,6 +65,12 @@ scattering small blocks mostly measures CUDA event and peer-copy overhead.  Set
 scheduling for diagnostics.  The defaults are `1e10` estimated contraction
 flops and `64MiB` of resident vector blocks before local multi-GPU scheduling is
 enabled.
+Forced local multi-GPU resident vector algebra uses a temporary contiguous
+byte-balanced placement: a `MatrixFamily` is split into one coalesced slab per
+active device instead of round-robin per-block placement.  This keeps slab
+transfers, dot products, scale/copy/axpy kernels, and explicit host syncs
+coalesced while the final BlockSpace-driven placement model is still under
+development.
 
 The CUDA work stream pool defaults to four streams per active device.  Set
 `UNI20_TENSORCONTRACTION_STREAMS=N` to change that pool size.  For CUDA-overhead

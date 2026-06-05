@@ -185,6 +185,14 @@ For the first placement-first implementation:
 This deliberately favors a simple first implementation over a globally optimal
 communication schedule.
 
+The temporary TensorContraction bridge currently implements only the first
+local-device placement slice of this idea for resident vector algebra:
+complete `MatrixFamily` storage is split into contiguous byte-balanced ranges,
+with one coalesced device slab per active local GPU.  That policy removes the
+worst per-block `Arranger`/`Swapper` overhead in forced all-GPU diagnostics, but
+it is not yet keyed by `BlockSpace`, environment ownership, or R/A/B/C term
+structure.
+
 ## Long-Term Planner
 
 The long-term scheduler should operate on a term graph:

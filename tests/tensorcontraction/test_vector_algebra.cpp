@@ -1,10 +1,14 @@
 #include <uni20/tensorcontraction/vector_algebra.hpp>
 
+#include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace utc = uni20::tensorcontraction;
@@ -20,6 +24,45 @@ auto make_vector() -> utc::MatrixFamily
   x.assign(1, std::array{5.0, -6.0, 7.0});
   return x;
 }
+
+class EnvGuard {
+    std::vector<std::pair<std::string, std::optional<std::string>>> saved_;
+
+  public:
+    explicit EnvGuard(std::initializer_list<char const*> names)
+    {
+      saved_.reserve(names.size());
+      for (auto const* name : names)
+      {
+        if (auto const* value = std::getenv(name); value != nullptr)
+        {
+          saved_.push_back({name, std::string(value)});
+        }
+        else
+        {
+          saved_.push_back({name, std::nullopt});
+        }
+      }
+    }
+
+    EnvGuard(EnvGuard const&) = delete;
+    EnvGuard& operator=(EnvGuard const&) = delete;
+
+    ~EnvGuard()
+    {
+      for (auto const& [name, value] : saved_)
+      {
+        if (value.has_value())
+        {
+          setenv(name.c_str(), value->c_str(), 1);
+        }
+        else
+        {
+          unsetenv(name.c_str());
+        }
+      }
+    }
+};
 
 } // namespace
 
@@ -221,6 +264,54 @@ TEST(TensorContractionVectorAlgebraTest, EngineDotAccumulatesManyBlocksIntoDevic
   y.fill(0.0);
   engine.upload(y);
   EXPECT_DOUBLE_EQ(engine.dot(x, y), 0.0);
+}
+
+TEST(TensorContractionVectorAlgebraTest, EngineRunsResidentSlabOperationsAcrossTwoLocalGpus)
+{
+  int device_count = 0;
+  if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count < 2)
+  {
+    GTEST_SKIP() << "requires at least two visible CUDA devices";
+  }
+
+  EnvGuard env_guard({"UNI20_TENSORCONTRACTION_BACKEND", "UNI20_TENSORCONTRACTION_DEVICES",
+                      "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_FLOPS"});
+  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+  setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
+  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "0", 1);
+  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_FLOPS", "0", 1);
+
+  std::vector<utc::MatrixFamily::Block> blocks(8, utc::MatrixFamily::Block{2, 2});
+  utc::MatrixFamily x(blocks);
+  utc::MatrixFamily y(blocks);
+  utc::MatrixFamily z(blocks);
+  double expected_dot = 0.0;
+  std::vector<double> expected_z(x.coalesced_values().size());
+  for (std::size_t index = 0; index < x.coalesced_values().size(); ++index)
+  {
+    double const x_value = static_cast<double>(index + 1);
+    double const y_value = static_cast<double>(3 * index + 2);
+    x.coalesced_values()[index] = x_value;
+    y.coalesced_values()[index] = y_value;
+    expected_dot += x_value * y_value;
+    expected_z[index] = y_value - 0.5 * x_value;
+  }
+
+  utc::VectorAlgebraEngine engine;
+  engine.upload(x);
+  engine.upload(y);
+  engine.set_host_synchronization(false);
+
+  EXPECT_DOUBLE_EQ(engine.dot(x, y), expected_dot);
+  engine.scale(x, 2.0);
+  engine.axpy(-0.25, x, y);
+  engine.copy(y, z);
+  engine.synchronize(z);
+
+  for (std::size_t index = 0; index < z.coalesced_values().size(); ++index)
+  {
+    EXPECT_DOUBLE_EQ(z.coalesced_values()[index], expected_z[index]);
+  }
 }
 
 TEST(TensorContractionVectorAlgebraTest, EngineCanKeepMutationsResidentUntilExplicitSync)
