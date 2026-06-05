@@ -195,6 +195,17 @@ worst per-block `Arranger`/`Swapper` overhead in forced all-GPU diagnostics, but
 it is not yet keyed by `BlockSpace`, environment ownership, or R/A/B/C term
 structure.
 
+The fixture replay benchmark also has an opt-in cost-based R/A/B/C placement
+prototype, enabled with `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost`.  It
+assigns contiguous fresh `R` output-block ranges to local devices using the
+current right-first term graph.  The default model scores GEMM work and
+central-vector movement; it intentionally ignores `A`/`C` environment staging
+cost so the captured-fixture benchmark measures resident Lanczos matvec
+behavior rather than setup time.  `cost-block` enables the more aggressive
+per-block greedy variant, but that can disable the bridge's current
+coalesced-slab vector algebra fast path.  Both policies are diagnostics, not the
+final storage layout.
+
 ## Long-Term Planner
 
 The long-term scheduler should operate on a term graph:

@@ -52,6 +52,43 @@ The replay benchmark uploads the captured initial vector once, keeps host synchr
 repeat with resident vector algebra. `UNI20_TENSORCONTRACTION_DEVICES=all` exercises one-process multi-GPU placement;
 `mpirun -np 2` with `CUDA_VISIBLE_DEVICES=$OMPI_COMM_WORLD_LOCAL_RANK` exercises one GPU per MPI rank.
 
+## Placement Experiments
+
+The default resident bridge places active `MatrixFamily` blocks in coalesced byte-balanced slabs.  This is still the
+best default for end-to-end Lanczos because the vector-algebra operations can use slab kernels.
+
+Set `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost` to enable the experimental R/A/B/C output-placement policy.  This
+policy uses a small dynamic program to choose contiguous `R` block ranges for each local device while minimizing the
+estimated maximum per-device matvec cost for the current right-first schedule:
+
+```text
+Y = B * C
+R += A * Y
+```
+
+The default model scores GEMM flops and central-vector `B` movement only.  It deliberately ignores the setup cost of
+materializing `A` and `C` environment blocks on the selected devices, because the fixture replay is intended to time the
+resident Lanczos loop after environment placement has been arranged.  Add
+`UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES=1` only when profiling a staging policy rather than a Lanczos matvec
+policy.
+
+Useful controls:
+
+| Variable | Meaning |
+| --- | --- |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT` | `cost`, `greedy`, or `cost-greedy` enables contiguous cost placement. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost-block` | Enables the more aggressive per-block greedy policy. This can break coalesced slab layout. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG` | Set to `1`, `true`, or `on` to print the selected output-block distribution. |
+| `UNI20_TENSORCONTRACTION_RABC_MODEL_GFLOPS` | Assumed per-device GEMM throughput. Default: `1000`. |
+| `UNI20_TENSORCONTRACTION_RABC_MODEL_CENTRAL_GBPS` | Assumed central-vector transfer bandwidth. Default: `32`. |
+| `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES` | If set, include environment staging bytes in the model. Default: unset. |
+| `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_GBPS` | Assumed environment transfer bandwidth when environment bytes are enabled. Default: central bandwidth. |
+
+The cost policies are intentionally opt-in.  Even the contiguous policy can choose a partition that is worse for the
+current executor than the default byte-balanced slabs; the per-block policy can also break vector-algebra slab kernels.
+Benchmark both `#LanczosMatvecS` and total wall time before treating a lower contraction model score as a faster
+Lanczos solve.
+
 The fixture preserves the exact TensorContraction block worklist emitted by the symmetry-aware DMRG path, but it does
 not store the higher-level `LocalSpace`, `BlockSpace`, or MPO metadata. Do not feed fixture data back into U(1) MPS
 state; use it only as a terminal benchmark artifact.

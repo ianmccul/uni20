@@ -8,11 +8,18 @@
 
 #include <fmt/core.h>
 
+#include <algorithm>
+#include <cmath>
 #include <compare>
+#include <cstddef>
 #include <cstdlib>
 #include <limits>
 #include <map>
 #include <memory>
+#include <numeric>
+#include <optional>
+#include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -168,6 +175,500 @@ bool use_legacy_arranger_rabc_planner()
   }
   auto const value = std::string(planner);
   return value == "arranger" || value == "legacy";
+}
+
+bool use_cost_based_rabc_placement()
+{
+  auto const* planner = std::getenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT");
+  if (planner == nullptr)
+  {
+    return false;
+  }
+  auto const value = std::string(planner);
+  return value == "cost" || value == "greedy" || value == "cost-greedy";
+}
+
+bool use_block_cost_based_rabc_placement()
+{
+  auto const* planner = std::getenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT");
+  if (planner == nullptr)
+  {
+    return false;
+  }
+  auto const value = std::string(planner);
+  return value == "cost-block" || value == "block" || value == "greedy-block";
+}
+
+bool log_cost_based_rabc_placement()
+{
+  auto const* raw = std::getenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG");
+  return raw != nullptr && (std::string(raw) == "1" || std::string(raw) == "true" || std::string(raw) == "on");
+}
+
+double env_double_or(char const* name, double fallback)
+{
+  auto const* raw = std::getenv(name);
+  if (raw == nullptr || *raw == '\0')
+  {
+    return fallback;
+  }
+  std::string const text(raw);
+  std::size_t consumed = 0;
+  double const value = std::stod(text, &consumed);
+  if (consumed != text.size() || !std::isfinite(value) || !(value > 0.0))
+  {
+    throw std::invalid_argument(std::string("invalid positive floating-point value for ") + name + ": " + text);
+  }
+  return value;
+}
+
+struct MatrixUseKey
+{
+    char family = '\0';
+    std::size_t index = 0;
+
+    auto operator<=>(MatrixUseKey const&) const = default;
+};
+
+struct BcUseKey
+{
+    std::size_t b = 0;
+    std::size_t c = 0;
+
+    auto operator<=>(BcUseKey const&) const = default;
+};
+
+struct RabcPlacementModel
+{
+    double gflops = 1000.0;
+    double central_gbps = 32.0;
+    bool count_environment_bytes = false;
+    double env_gbps = 32.0;
+};
+
+struct RabcPlacementRange
+{
+    int device = 0;
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    double model_seconds = 0.0;
+};
+
+double gemm_flops(MatrixFamily::Block lhs, MatrixFamily::Block rhs)
+{
+  return 2.0 * static_cast<double>(lhs.rows) * static_cast<double>(lhs.cols) * static_cast<double>(rhs.cols);
+}
+
+double term_right_first_flops(MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
+                              EffectiveHamiltonianOperator::Term const& term)
+{
+  auto const a = a_mats.block(term.a);
+  auto const b = b_mats.block(term.b);
+  auto const c = c_mats.block(term.c);
+  auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+  return gemm_flops(b, c) + gemm_flops(a, intermediate);
+}
+
+std::optional<int> pre_store_device_for(tensor::Swapper& swapper, tensor::Matrix mat)
+{
+  auto [device, buffer] = swapper.getPreStoreBufferOrNone(mat);
+  if (buffer == nullptr)
+  {
+    return std::nullopt;
+  }
+  return device;
+}
+
+RabcPlacementModel rabc_placement_model()
+{
+  double const central_gbps = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_CENTRAL_GBPS", 32.0);
+  return RabcPlacementModel{.gflops = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_GFLOPS", 1000.0),
+                            .central_gbps = central_gbps,
+                            .count_environment_bytes =
+                                std::getenv("UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES") != nullptr,
+                            .env_gbps = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_GBPS", central_gbps)};
+}
+
+double block_transfer_seconds(MatrixFamily::Block block, double gbps)
+{
+  return static_cast<double>(block.rows) * static_cast<double>(block.cols) * sizeof(double) / (gbps * 1.0e9);
+}
+
+double rabc_range_model_seconds(MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
+                                std::span<std::vector<EffectiveHamiltonianOperator::Term const*> const> terms_by_r,
+                                std::span<std::optional<int> const> b_source_device, std::size_t begin, std::size_t end,
+                                int device, RabcPlacementModel model)
+{
+  double seconds = 0.0;
+  std::set<BcUseKey> staged_bc;
+  std::set<MatrixUseKey> staged_mats;
+  for (std::size_t r = begin; r < end; ++r)
+  {
+    for (auto const* term : terms_by_r[r])
+    {
+      BcUseKey const bc{.b = term->b, .c = term->c};
+      if (staged_bc.insert(bc).second)
+      {
+        seconds += gemm_flops(b_mats.block(term->b), c_mats.block(term->c)) / (model.gflops * 1.0e9);
+      }
+
+      auto const a = a_mats.block(term->a);
+      auto const b = b_mats.block(term->b);
+      auto const c = c_mats.block(term->c);
+      auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+      seconds += gemm_flops(a, intermediate) / (model.gflops * 1.0e9);
+
+      MatrixUseKey const b_key{.family = 'B', .index = term->b};
+      if (staged_mats.insert(b_key).second &&
+          (!b_source_device[term->b].has_value() || *b_source_device[term->b] != device))
+      {
+        seconds += block_transfer_seconds(b, model.central_gbps);
+      }
+
+      if (model.count_environment_bytes)
+      {
+        MatrixUseKey const a_key{.family = 'A', .index = term->a};
+        MatrixUseKey const c_key{.family = 'C', .index = term->c};
+        if (staged_mats.insert(a_key).second)
+        {
+          seconds += block_transfer_seconds(a, model.env_gbps);
+        }
+        if (staged_mats.insert(c_key).second)
+        {
+          seconds += block_transfer_seconds(c, model.env_gbps);
+        }
+      }
+    }
+  }
+  return seconds;
+}
+
+std::vector<int> greedy_rabc_output_devices(MatrixFamily const& a_mats, MatrixFamily const& b_mats,
+                                            MatrixFamily const& c_mats, std::span<tensor::Matrix const> b_raw_mats,
+                                            std::span<EffectiveHamiltonianOperator::Term const> terms,
+                                            std::size_t output_count, tensor::Swapper& swapper)
+{
+  int const device_count = swapper.getDeviceCount();
+  std::vector<std::vector<EffectiveHamiltonianOperator::Term const*>> terms_by_r(output_count);
+  for (auto const& term : terms)
+  {
+    if (term.r < output_count)
+    {
+      terms_by_r[term.r].push_back(&term);
+    }
+  }
+
+  double const gflops = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_GFLOPS", 1000.0);
+  double const central_gbps = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_CENTRAL_GBPS", 32.0);
+  bool const count_environment_bytes = std::getenv("UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES") != nullptr;
+  double const env_gbps = env_double_or("UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_GBPS", central_gbps);
+
+  std::vector<std::optional<int>> b_source_device(b_mats.size());
+  for (std::size_t b = 0; b < b_mats.size(); ++b)
+  {
+    b_source_device[b] = pre_store_device_for(swapper, b_raw_mats[b]);
+  }
+
+  std::vector<std::size_t> order(output_count);
+  std::iota(order.begin(), order.end(), std::size_t{0});
+  std::sort(order.begin(), order.end(), [&](std::size_t lhs, std::size_t rhs) {
+    double lhs_flops = 0.0;
+    double rhs_flops = 0.0;
+    for (auto const* term : terms_by_r[lhs])
+    {
+      lhs_flops += term_right_first_flops(a_mats, b_mats, c_mats, *term);
+    }
+    for (auto const* term : terms_by_r[rhs])
+    {
+      rhs_flops += term_right_first_flops(a_mats, b_mats, c_mats, *term);
+    }
+    return lhs_flops > rhs_flops;
+  });
+
+  std::vector<int> devices(output_count, 0);
+  std::vector<double> load_seconds(static_cast<std::size_t>(device_count), 0.0);
+  std::vector<std::set<BcUseKey>> staged_bc(static_cast<std::size_t>(device_count));
+  std::vector<std::set<MatrixUseKey>> staged_mats(static_cast<std::size_t>(device_count));
+
+  auto matrix_transfer_seconds = [&](int device, MatrixUseKey key, MatrixFamily::Block block,
+                                     std::optional<int> source_device, double gbps) {
+    if (source_device.has_value() && *source_device == device)
+    {
+      return 0.0;
+    }
+    auto& staged = staged_mats[static_cast<std::size_t>(device)];
+    if (staged.contains(key))
+    {
+      return 0.0;
+    }
+    return static_cast<double>(block.rows) * static_cast<double>(block.cols) * sizeof(double) / (gbps * 1.0e9);
+  };
+
+  for (std::size_t r : order)
+  {
+    int best_device = 0;
+    double best_score = std::numeric_limits<double>::infinity();
+    for (int device = 0; device < device_count; ++device)
+    {
+      double incremental = 0.0;
+      std::set<BcUseKey> new_bc;
+      std::set<MatrixUseKey> new_mats;
+      for (auto const* term : terms_by_r[r])
+      {
+        BcUseKey const bc{.b = term->b, .c = term->c};
+        if (!staged_bc[static_cast<std::size_t>(device)].contains(bc) && !new_bc.contains(bc))
+        {
+          incremental += gemm_flops(b_mats.block(term->b), c_mats.block(term->c)) / (gflops * 1.0e9);
+          new_bc.insert(bc);
+        }
+
+        auto const a = a_mats.block(term->a);
+        auto const b = b_mats.block(term->b);
+        auto const c = c_mats.block(term->c);
+        auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+        incremental += gemm_flops(a, intermediate) / (gflops * 1.0e9);
+
+        MatrixUseKey const b_key{.family = 'B', .index = term->b};
+        if (!new_mats.contains(b_key))
+        {
+          incremental += matrix_transfer_seconds(device, b_key, b, b_source_device[term->b], central_gbps);
+          new_mats.insert(b_key);
+        }
+
+        if (count_environment_bytes)
+        {
+          MatrixUseKey const a_key{.family = 'A', .index = term->a};
+          MatrixUseKey const c_key{.family = 'C', .index = term->c};
+          if (!new_mats.contains(a_key))
+          {
+            incremental += matrix_transfer_seconds(device, a_key, a, std::nullopt, env_gbps);
+            new_mats.insert(a_key);
+          }
+          if (!new_mats.contains(c_key))
+          {
+            incremental += matrix_transfer_seconds(device, c_key, c, std::nullopt, env_gbps);
+            new_mats.insert(c_key);
+          }
+        }
+      }
+
+      auto projected = load_seconds;
+      projected[static_cast<std::size_t>(device)] += incremental;
+      double const score = *std::max_element(projected.begin(), projected.end());
+      if (score < best_score)
+      {
+        best_score = score;
+        best_device = device;
+      }
+    }
+
+    devices[r] = best_device;
+    for (auto const* term : terms_by_r[r])
+    {
+      BcUseKey const bc{.b = term->b, .c = term->c};
+      if (staged_bc[static_cast<std::size_t>(best_device)].insert(bc).second)
+      {
+        load_seconds[static_cast<std::size_t>(best_device)] +=
+            gemm_flops(b_mats.block(term->b), c_mats.block(term->c)) / (gflops * 1.0e9);
+      }
+
+      auto const a = a_mats.block(term->a);
+      auto const b = b_mats.block(term->b);
+      auto const c = c_mats.block(term->c);
+      auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+      load_seconds[static_cast<std::size_t>(best_device)] += gemm_flops(a, intermediate) / (gflops * 1.0e9);
+
+      MatrixUseKey const b_key{.family = 'B', .index = term->b};
+      auto& best_staged_mats = staged_mats[static_cast<std::size_t>(best_device)];
+      if (!best_staged_mats.contains(b_key))
+      {
+        load_seconds[static_cast<std::size_t>(best_device)] +=
+            matrix_transfer_seconds(best_device, b_key, b, b_source_device[term->b], central_gbps);
+        best_staged_mats.insert(b_key);
+      }
+
+      if (count_environment_bytes)
+      {
+        MatrixUseKey const a_key{.family = 'A', .index = term->a};
+        MatrixUseKey const c_key{.family = 'C', .index = term->c};
+        if (!best_staged_mats.contains(a_key))
+        {
+          load_seconds[static_cast<std::size_t>(best_device)] +=
+              matrix_transfer_seconds(best_device, a_key, a, std::nullopt, env_gbps);
+          best_staged_mats.insert(a_key);
+        }
+        if (!best_staged_mats.contains(c_key))
+        {
+          load_seconds[static_cast<std::size_t>(best_device)] +=
+              matrix_transfer_seconds(best_device, c_key, c, std::nullopt, env_gbps);
+          best_staged_mats.insert(c_key);
+        }
+      }
+    }
+  }
+
+  if (log_cost_based_rabc_placement())
+  {
+    fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy=cost devices={} outputs={}", device_count,
+               output_count);
+    for (int device = 0; device < device_count; ++device)
+    {
+      std::size_t count = 0;
+      for (int assigned : devices)
+      {
+        if (assigned == device)
+        {
+          ++count;
+        }
+      }
+      fmt::print(stderr, " device{}={{blocks={},model_s={:.6g}}}", device, count,
+                 load_seconds[static_cast<std::size_t>(device)]);
+    }
+    fmt::print(stderr, "\n");
+  }
+
+  return devices;
+}
+
+std::vector<RabcPlacementRange> cost_based_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily const& b_mats,
+                                                              MatrixFamily const& c_mats,
+                                                              std::span<tensor::Matrix const> b_raw_mats,
+                                                              std::span<EffectiveHamiltonianOperator::Term const> terms,
+                                                              std::size_t output_count, tensor::Swapper& swapper)
+{
+  int const device_count = swapper.getDeviceCount();
+  if (device_count <= 1 || output_count == 0)
+  {
+    return {};
+  }
+
+  int const range_count = std::min(device_count, static_cast<int>(output_count));
+  std::vector<std::vector<EffectiveHamiltonianOperator::Term const*>> terms_by_r(output_count);
+  for (auto const& term : terms)
+  {
+    if (term.r < output_count)
+    {
+      terms_by_r[term.r].push_back(&term);
+    }
+  }
+
+  std::vector<std::optional<int>> b_source_device(b_mats.size());
+  for (std::size_t b = 0; b < b_mats.size(); ++b)
+  {
+    b_source_device[b] = pre_store_device_for(swapper, b_raw_mats[b]);
+  }
+
+  auto const model = rabc_placement_model();
+  std::vector<std::vector<std::vector<double>>> range_cost(
+      static_cast<std::size_t>(range_count),
+      std::vector<std::vector<double>>(output_count + 1, std::vector<double>(output_count + 1, 0.0)));
+  for (int device = 0; device < range_count; ++device)
+  {
+    for (std::size_t begin = 0; begin < output_count; ++begin)
+    {
+      for (std::size_t end = begin + 1; end <= output_count; ++end)
+      {
+        range_cost[static_cast<std::size_t>(device)][begin][end] =
+            rabc_range_model_seconds(a_mats, b_mats, c_mats, terms_by_r, b_source_device, begin, end, device, model);
+      }
+    }
+  }
+
+  double const infinity = std::numeric_limits<double>::infinity();
+  std::vector<std::vector<double>> dp(static_cast<std::size_t>(range_count + 1),
+                                      std::vector<double>(output_count + 1, infinity));
+  std::vector<std::vector<std::size_t>> split(static_cast<std::size_t>(range_count + 1),
+                                              std::vector<std::size_t>(output_count + 1, 0));
+  dp[0][0] = 0.0;
+  for (int used = 1; used <= range_count; ++used)
+  {
+    for (std::size_t end = static_cast<std::size_t>(used); end <= output_count; ++end)
+    {
+      for (std::size_t begin = static_cast<std::size_t>(used - 1); begin < end; ++begin)
+      {
+        double const previous = dp[static_cast<std::size_t>(used - 1)][begin];
+        if (!std::isfinite(previous))
+        {
+          continue;
+        }
+        double const candidate = std::max(previous, range_cost[static_cast<std::size_t>(used - 1)][begin][end]);
+        if (candidate < dp[static_cast<std::size_t>(used)][end])
+        {
+          dp[static_cast<std::size_t>(used)][end] = candidate;
+          split[static_cast<std::size_t>(used)][end] = begin;
+        }
+      }
+    }
+  }
+
+  std::vector<RabcPlacementRange> ranges(static_cast<std::size_t>(range_count));
+  std::size_t end = output_count;
+  for (int used = range_count; used >= 1; --used)
+  {
+    std::size_t const begin = split[static_cast<std::size_t>(used)][end];
+    ranges[static_cast<std::size_t>(used - 1)] =
+        RabcPlacementRange{.device = used - 1,
+                           .begin = begin,
+                           .end = end,
+                           .model_seconds = range_cost[static_cast<std::size_t>(used - 1)][begin][end]};
+    end = begin;
+  }
+
+  if (log_cost_based_rabc_placement())
+  {
+    fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy=cost-contiguous devices={} outputs={}", device_count,
+               output_count);
+    for (auto const range : ranges)
+    {
+      fmt::print(stderr, " device{}={{blocks=[{},{}),model_s={:.6g}}}", range.device, range.begin, range.end,
+                 range.model_seconds);
+    }
+    fmt::print(stderr, "\n");
+  }
+
+  return ranges;
+}
+
+std::vector<tensor::Matrix> matrix_subrange(std::span<tensor::Matrix const> mats, std::size_t begin, std::size_t end)
+{
+  return {mats.begin() + static_cast<std::ptrdiff_t>(begin), mats.begin() + static_cast<std::ptrdiff_t>(end)};
+}
+
+bool maybe_place_rabc_outputs(std::span<tensor::Matrix const> r_raw_mats, MatrixFamily const& a_mats,
+                              MatrixFamily const& b_mats, MatrixFamily const& c_mats,
+                              std::span<tensor::Matrix const> b_raw_mats,
+                              std::span<EffectiveHamiltonianOperator::Term const> terms, tensor::Swapper& swapper)
+{
+  bool const use_contiguous_cost = use_cost_based_rabc_placement();
+  bool const use_block_cost = use_block_cost_based_rabc_placement();
+  if ((!use_contiguous_cost && !use_block_cost) || swapper.getDeviceCount() <= 1)
+  {
+    return false;
+  }
+
+  if (swapper.anyPreStoreBuffer(std::vector<tensor::Matrix>{r_raw_mats.begin(), r_raw_mats.end()}))
+  {
+    return false;
+  }
+
+  if (use_contiguous_cost)
+  {
+    auto const ranges =
+        cost_based_rabc_output_ranges(a_mats, b_mats, c_mats, b_raw_mats, terms, r_raw_mats.size(), swapper);
+    for (auto const range : ranges)
+    {
+      swapper.registerGpuAllocationsCoalesced(matrix_subrange(r_raw_mats, range.begin, range.end), range.device);
+    }
+    return !ranges.empty();
+  }
+
+  auto const devices =
+      greedy_rabc_output_devices(a_mats, b_mats, c_mats, b_raw_mats, terms, r_raw_mats.size(), swapper);
+  for (std::size_t r = 0; r < r_raw_mats.size(); ++r)
+  {
+    swapper.registerGpuAllocation(r_raw_mats[r], devices[r]);
+  }
+  return true;
 }
 
 void host_apply(MatrixFamily const& r_mats, MatrixFamily const& a_mats, MatrixFamily const& b_mats,
@@ -481,11 +982,20 @@ void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixF
                                                /*refreshExisting=*/false);
   }
   arranger.localizeCoalescedForLinearAlgebra(raw_matrices(x), x.coalesced_values(), /*uploadFromHost=*/false);
-  arranger.localizeCoalescedForLinearAlgebra(raw_matrices(y), y.coalesced_values(), /*uploadFromHost=*/false);
-
-  if (!use_legacy_arranger_rabc_planner())
+  auto& swapper = arranger.residentSwapper();
+  bool const use_legacy_planner = use_legacy_arranger_rabc_planner();
+  bool const output_placement_selected =
+      !use_legacy_planner &&
+      maybe_place_rabc_outputs(r, impl_->a_mats, impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
+                               impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x, b, impl_->terms,
+                               swapper);
+  if (!output_placement_selected)
   {
-    auto& swapper = arranger.residentSwapper();
+    arranger.localizeCoalescedForLinearAlgebra(raw_matrices(y), y.coalesced_values(), /*uploadFromHost=*/false);
+  }
+
+  if (!use_legacy_planner)
+  {
     deterministic_right_first_apply(r, a, b, c, impl_->terms, swapper);
     return;
   }

@@ -5,9 +5,12 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstdlib>
 #include <initializer_list>
+#include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace utc = uni20::tensorcontraction;
@@ -57,6 +60,45 @@ void expect_near(std::span<double const> actual, std::span<double const> expecte
     EXPECT_NEAR(actual[i], expected[i], 1.0e-10);
   }
 }
+
+class EnvGuard {
+    std::vector<std::pair<std::string, std::optional<std::string>>> saved_;
+
+  public:
+    explicit EnvGuard(std::initializer_list<char const*> names)
+    {
+      saved_.reserve(names.size());
+      for (auto const* name : names)
+      {
+        if (auto const* value = std::getenv(name); value != nullptr)
+        {
+          saved_.push_back({name, std::string(value)});
+        }
+        else
+        {
+          saved_.push_back({name, std::nullopt});
+        }
+      }
+    }
+
+    EnvGuard(EnvGuard const&) = delete;
+    EnvGuard& operator=(EnvGuard const&) = delete;
+
+    ~EnvGuard()
+    {
+      for (auto const& [name, value] : saved_)
+      {
+        if (value.has_value())
+        {
+          setenv(name.c_str(), value->c_str(), 1);
+        }
+        else
+        {
+          unsetenv(name.c_str());
+        }
+      }
+    }
+};
 
 } // namespace
 
@@ -312,6 +354,59 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, OutputWorksWithVectorAlg
   double const original_norm = utc::normalize(z);
   EXPECT_GT(original_norm, 0.0);
   EXPECT_NEAR(utc::norm(z), 1.0, 1.0e-14);
+}
+
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentCostPlacementMatchesReference)
+{
+  EnvGuard guard{
+      "UNI20_TENSORCONTRACTION_BACKEND",
+      "UNI20_TENSORCONTRACTION_DEVICES",
+      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
+  };
+  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+  setenv("UNI20_TENSORCONTRACTION_DEVICES", "all", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "cost", 1);
+
+  auto a = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
+  auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
+  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
+                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
+                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+
+  a.assign(0, std::array{2.0});
+  a.assign(1, std::array{3.0});
+  a.assign(2, std::array{5.0});
+  a.assign(3, std::array{7.0});
+  c.assign(0, std::array{11.0});
+  c.assign(1, std::array{13.0});
+  c.assign(2, std::array{17.0});
+  c.assign(3, std::array{19.0});
+
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{1, 1, 1, 1, -0.5},
+                   utc::EffectiveHamiltonianOperator::Term{2, 2, 2, 2, 0.25},
+                   utc::EffectiveHamiltonianOperator::Term{3, 3, 3, 3, 2.0}};
+  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
+                                                               terms);
+  utc::VectorAlgebraEngine algebra;
+  algebra.set_host_synchronization(false);
+
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{23.0});
+  x.assign(1, std::array{29.0});
+  x.assign(2, std::array{31.0});
+  x.assign(3, std::array{37.0});
+  algebra.upload(x);
+
+  op.apply_resident(x, y, algebra);
+  algebra.synchronize(y);
+
+  EXPECT_DOUBLE_EQ(y.values(0)[0], 2.0 * 23.0 * 11.0);
+  EXPECT_DOUBLE_EQ(y.values(1)[0], -0.5 * 3.0 * 29.0 * 13.0);
+  EXPECT_DOUBLE_EQ(y.values(2)[0], 0.25 * 5.0 * 31.0 * 17.0);
+  EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
 }
 
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, RejectsMismatchedInputOutputVectors)
