@@ -483,6 +483,23 @@ def leave_one_layout_out(
 
 def print_validation(rows: list[dict[str, Any]]) -> None:
     """Print leave-one-layout-out validation details and aggregate errors."""
+    stats = validation_stats(rows)
+    print(
+        f"layouts={int(stats['layouts'])} mae_s={stats['mae']:.9g} rmse_s={stats['rmse']:.9g} "
+        f"r2={stats['r2']:.9g} best_observed_line={int(stats['best_observed_line'])} "
+        f"best_predicted_line={int(stats['best_predicted_line'])} "
+        f"top1_match={str(bool(stats['top1_match'])).lower()}"
+    )
+    print("observed_gpu_s predicted_gpu_s error_s count first_line layout")
+    for row in rows:
+        print(
+            f"{row['observed']:.9g} {row['predicted']:.9g} {row['error']:.9g} "
+            f"{row['count']} {row['first_line']} {layout_string(list(row['layout']))}"
+        )
+
+
+def validation_stats(rows: list[dict[str, Any]]) -> dict[str, float]:
+    """Compute aggregate validation statistics."""
     errors = [float(row["error"]) for row in rows]
     observed = [float(row["observed"]) for row in rows]
     mean_observed = sum(observed) / len(observed)
@@ -493,18 +510,28 @@ def print_validation(rows: list[dict[str, Any]]) -> None:
     r2 = 1.0 - residual_sum / total_sum if total_sum > 0.0 else 1.0
     best_observed = min(rows, key=lambda row: row["observed"])
     best_predicted = min(rows, key=lambda row: row["predicted"])
+    return {
+        "layouts": float(len(rows)),
+        "mae": mae,
+        "rmse": rmse,
+        "r2": r2,
+        "best_observed_line": float(best_observed["first_line"]),
+        "best_predicted_line": float(best_predicted["first_line"]),
+        "top1_match": 1.0 if best_observed["layout"] == best_predicted["layout"] else 0.0,
+    }
 
-    print(
-        f"layouts={len(rows)} mae_s={mae:.9g} rmse_s={rmse:.9g} r2={r2:.9g} "
-        f"best_observed_line={best_observed['first_line']} best_predicted_line={best_predicted['first_line']} "
-        f"top1_match={str(best_observed['layout'] == best_predicted['layout']).lower()}"
-    )
-    print("observed_gpu_s predicted_gpu_s error_s count first_line layout")
-    for row in rows:
-        print(
-            f"{row['observed']:.9g} {row['predicted']:.9g} {row['error']:.9g} "
-            f"{row['count']} {row['first_line']} {layout_string(list(row['layout']))}"
-        )
+
+def parse_float_list(text: str) -> list[float]:
+    """Parse a comma-separated list of floating-point values."""
+    values: list[float] = []
+    for item in text.split(","):
+        stripped = item.strip()
+        if not stripped:
+            continue
+        values.append(float(stripped))
+    if not values:
+        raise ValueError("expected at least one floating-point value")
+    return values
 
 
 def cmd_fit(args: argparse.Namespace) -> int:
@@ -547,6 +574,40 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tune(args: argparse.Namespace) -> int:
+    """Scan ridge values using leave-one-layout-out validation."""
+    records = trace_records(args)
+    ridges = parse_float_list(args.ridges)
+    clamp_modes = [False, True] if args.include_clamped else [False]
+
+    candidates: list[dict[str, Any]] = []
+    for ridge in ridges:
+        for clamp_negative in clamp_modes:
+            rows = leave_one_layout_out(records, ridge, clamp_negative)
+            stats = validation_stats(rows)
+            candidates.append({"ridge": ridge, "clamp_negative": clamp_negative, "stats": stats})
+
+    candidates.sort(key=lambda item: (item["stats"]["top1_match"], item["stats"]["r2"], -item["stats"]["rmse"]),
+                    reverse=True)
+    print("ridge clamp_negative layouts mae_s rmse_s r2 top1_match best_observed_line best_predicted_line")
+    for item in candidates:
+        stats = item["stats"]
+        print(
+            f"{item['ridge']:.9g} {str(item['clamp_negative']).lower()} {int(stats['layouts'])} "
+            f"{stats['mae']:.9g} {stats['rmse']:.9g} {stats['r2']:.9g} "
+            f"{str(bool(stats['top1_match'])).lower()} {int(stats['best_observed_line'])} "
+            f"{int(stats['best_predicted_line'])}"
+        )
+
+    best = candidates[0]
+    print(
+        f"best ridge={best['ridge']:.9g} clamp_negative={str(best['clamp_negative']).lower()} "
+        f"r2={best['stats']['r2']:.9g} rmse_s={best['stats']['rmse']:.9g} "
+        f"top1_match={str(bool(best['stats']['top1_match'])).lower()}"
+    )
+    return 0
+
+
 def cmd_suggest(args: argparse.Namespace) -> int:
     """Fit a model and suggest the best searched layout."""
     records = trace_records(args)
@@ -558,8 +619,9 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     best_layout: list[int] | None = None
     best_score = float("inf")
     best_devices: list[float] = []
-    for seed in candidate_layouts(problem, records, args.random):
-        layout = local_search(problem, seed, coefficients, args.passes)
+    seeds = observed_layouts(records) if args.observed_only else candidate_layouts(problem, records, args.random)
+    for seed in seeds:
+        layout = seed if args.observed_only else local_search(problem, seed, coefficients, args.passes)
         score, device_predictions = score_layout(problem, layout, coefficients)
         if score < best_score:
             best_score = score
@@ -568,6 +630,7 @@ def cmd_suggest(args: argparse.Namespace) -> int:
 
     assert best_layout is not None
     print_fit(coefficients, stats)
+    print(f"search={'observed' if args.observed_only else 'local'}")
     print(f"predicted_gpu_s={best_score:.9g}")
     print("predicted_device_gpu_s=" + ",".join(f"{value:.9g}" for value in best_devices))
     print("layout=" + layout_string(best_layout))
@@ -599,6 +662,7 @@ def parser() -> argparse.ArgumentParser:
     suggest.add_argument("--passes", type=int, default=4)
     suggest.add_argument("--random", type=int, default=16)
     suggest.add_argument("--drop-first-per-layout", type=int, default=0)
+    suggest.add_argument("--observed-only", action="store_true")
     suggest.add_argument("--allow-negative", action="store_true")
     suggest.set_defaults(func=cmd_suggest)
 
@@ -608,6 +672,13 @@ def parser() -> argparse.ArgumentParser:
     validate.add_argument("--drop-first-per-layout", type=int, default=0)
     validate.add_argument("--clamp-negative", action="store_true")
     validate.set_defaults(func=cmd_validate)
+
+    tune = subcommands.add_parser("tune", help="scan ridge values with leave-one-layout-out validation")
+    tune.add_argument("trace", type=Path)
+    tune.add_argument("--ridges", default="1e-9,1e-7,1e-5,1e-3,1e-2,1e-1")
+    tune.add_argument("--drop-first-per-layout", type=int, default=0)
+    tune.add_argument("--include-clamped", action="store_true")
+    tune.set_defaults(func=cmd_tune)
 
     layouts = subcommands.add_parser("layouts", help="generate manual placement layouts")
     layouts.add_argument("--block-count", type=int, required=True)

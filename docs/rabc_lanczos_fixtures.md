@@ -174,6 +174,26 @@ The validation output reports held-out layout error and whether the predicted be
 layout.  A high in-sample `fit` score is not enough to justify `suggest`; the validation score is the relevant
 diagnostic for extrapolating to new layouts.
 
+Scan ridge parameters with the same held-out validation before choosing the model used for extrapolation:
+
+```bash
+scripts/rabc-trace-model.py tune /tmp/uni20_rabc_trace.jsonl --drop-first-per-layout=1
+```
+
+The `tune` subcommand ranks models by held-out top-1 layout match, then held-out `r2`, then held-out RMSE.  Use the
+reported ridge explicitly when running `fit`, `validate`, or `suggest`.
+
+Until the held-out validation set is broad enough to trust extrapolated layouts, keep suggestions inside the measured
+layout set:
+
+```bash
+scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl \
+  --drop-first-per-layout=1 \
+  --ridge <validated-ridge> \
+  --allow-negative \
+  --observed-only
+```
+
 To generate a few explicit layouts without fitting:
 
 ```bash
