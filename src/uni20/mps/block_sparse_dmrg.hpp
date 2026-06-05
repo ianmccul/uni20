@@ -22,6 +22,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -1468,6 +1469,7 @@ struct BlockSparseTwoSiteBondUpdate
     double discarded_weight = 0.0;
     std::size_t kept_rank = 0;
     std::size_t full_rank = 0;
+    std::optional<BlockSpace> shared_bond_space;
     double solve_seconds = 0.0;
     double split_seconds = 0.0;
     double replace_seconds = 0.0;
@@ -1525,6 +1527,7 @@ inline auto make_block_sparse_bond_update(std::size_t left_site, BlockSparseTwoS
                                       .discarded_weight = split.spectrum.discarded_weight,
                                       .kept_rank = split.spectrum.singular_values.size(),
                                       .full_rank = split.spectrum.full_rank,
+                                      .shared_bond_space = split.left.col_space(),
                                       .solve_seconds = solve_seconds,
                                       .split_seconds = split_seconds,
                                       .replace_seconds = replace_seconds,

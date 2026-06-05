@@ -16,6 +16,7 @@
 #include <fstream>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 using namespace uni20;
@@ -59,6 +60,31 @@ auto truncation_sum(BlockSparseTwoSiteSweepResult const& result) -> double
   return total;
 }
 
+auto format_bond_sectors(std::optional<BlockSpace> const& bond_space) -> std::string
+{
+  if (!bond_space.has_value())
+  {
+    return "[]";
+  }
+
+  std::string text = "[";
+  for (std::size_t index = 0; index < bond_space->size(); ++index)
+  {
+    if (index != 0)
+    {
+      text += ",";
+    }
+    auto const& sector = (*bond_space)[index];
+    text += "(";
+    text += uni20::to_string(sector.q);
+    text += ",";
+    text += std::to_string(sector.dim);
+    text += ")";
+  }
+  text += "]";
+  return text;
+}
+
 void ensure_mpi_initialized()
 {
   int initialized = 0;
@@ -97,7 +123,7 @@ class BenchFile {
         {
           fmt::print(file_, " #DebugGlobalEnergy");
         }
-        fmt::print(file_, " #SolveS #SplitS #ReplaceS #EnvS\n");
+        fmt::print(file_, " #SolveS #SplitS #ReplaceS #EnvS #BondSectors\n");
       }
     }
 
@@ -122,6 +148,7 @@ class BenchFile {
       }
       fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g}", update.solve_seconds, update.split_seconds,
                  update.replace_seconds, update.environment_seconds);
+      fmt::print(file_, " {}", format_bond_sectors(update.shared_bond_space));
       fmt::print(file_, "\n");
     }
 

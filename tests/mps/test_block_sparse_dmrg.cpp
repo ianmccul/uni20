@@ -239,6 +239,9 @@ TEST(BlockSparseTwoSiteDmrgTest, FourSiteRunMatchesExactOpenChainEnergy)
                                           },
                                   });
 
-  EXPECT_LT(result.sweeps.back().right_to_left.updates.back().kept_rank, 16);
+  auto const& final_update = result.sweeps.back().right_to_left.updates.back();
+  EXPECT_LT(final_update.kept_rank, 16);
+  ASSERT_TRUE(final_update.shared_bond_space.has_value());
+  EXPECT_EQ(final_update.shared_bond_space->total_dim(), final_update.kept_rank);
   EXPECT_NEAR(mps_expectation_value(psi, mpo), -1.6160254037844386, 1.0e-10);
 }
