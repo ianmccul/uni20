@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <ctime>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -1474,6 +1475,10 @@ struct BlockSparseTwoSiteBondUpdate
     double split_seconds = 0.0;
     double replace_seconds = 0.0;
     double environment_seconds = 0.0;
+    double solve_cpu_seconds = 0.0;
+    double split_cpu_seconds = 0.0;
+    double replace_cpu_seconds = 0.0;
+    double environment_cpu_seconds = 0.0;
 };
 
 /// \brief Observer invoked after each block-sparse bond update.
@@ -1498,10 +1503,50 @@ struct BlockSparseTwoSiteSweepResult
 namespace detail
 {
 
+/// \brief Wall-clock and process-CPU checkpoint for one benchmarked sweep stage.
+struct SweepStageCheckpoint
+{
+    std::chrono::steady_clock::time_point wall_time;
+    double process_cpu_seconds = 0.0;
+};
+
+/// \brief Return process CPU seconds consumed by the current benchmark process.
+/// \return CPU seconds accumulated by this process.
+inline auto process_cpu_seconds() -> double
+{
+  return static_cast<double>(std::clock()) / static_cast<double>(CLOCKS_PER_SEC);
+}
+
+/// \brief Capture wall-clock and process-CPU timing at a sweep stage boundary.
+/// \return Stage timing checkpoint.
+inline auto sweep_stage_checkpoint() -> SweepStageCheckpoint
+{
+  return SweepStageCheckpoint{.wall_time = std::chrono::steady_clock::now(),
+                              .process_cpu_seconds = process_cpu_seconds()};
+}
+
 inline auto elapsed_seconds(std::chrono::steady_clock::time_point start,
                             std::chrono::steady_clock::time_point stop) -> double
 {
   return std::chrono::duration<double>(stop - start).count();
+}
+
+/// \brief Return wall-clock seconds between two stage checkpoints.
+/// \param start Initial checkpoint.
+/// \param stop Final checkpoint.
+/// \return Wall-clock elapsed seconds.
+inline auto elapsed_wall_seconds(SweepStageCheckpoint const& start, SweepStageCheckpoint const& stop) -> double
+{
+  return elapsed_seconds(start.wall_time, stop.wall_time);
+}
+
+/// \brief Return process CPU seconds between two stage checkpoints.
+/// \param start Initial checkpoint.
+/// \param stop Final checkpoint.
+/// \return Process CPU elapsed seconds.
+inline auto elapsed_cpu_seconds(SweepStageCheckpoint const& start, SweepStageCheckpoint const& stop) -> double
+{
+  return stop.process_cpu_seconds - start.process_cpu_seconds;
 }
 
 inline void validate_block_sparse_sweep_inputs(BlockSparseFiniteMPS const& psi, BlockSparseMpoChain const& mpo)
@@ -1518,8 +1563,10 @@ inline void validate_block_sparse_sweep_inputs(BlockSparseFiniteMPS const& psi, 
 
 inline auto make_block_sparse_bond_update(std::size_t left_site, BlockSparseTwoSiteSolveResult const& solution,
                                           BlockSparseTwoSiteSplitResult const& split, double solve_seconds,
-                                          double split_seconds, double replace_seconds,
-                                          double environment_seconds) -> BlockSparseTwoSiteBondUpdate
+                                          double split_seconds, double replace_seconds, double environment_seconds,
+                                          double solve_cpu_seconds, double split_cpu_seconds,
+                                          double replace_cpu_seconds,
+                                          double environment_cpu_seconds) -> BlockSparseTwoSiteBondUpdate
 {
   return BlockSparseTwoSiteBondUpdate{.left_site = left_site,
                                       .energy = solution.lanczos.eigenvalue,
@@ -1531,7 +1578,11 @@ inline auto make_block_sparse_bond_update(std::size_t left_site, BlockSparseTwoS
                                       .solve_seconds = solve_seconds,
                                       .split_seconds = split_seconds,
                                       .replace_seconds = replace_seconds,
-                                      .environment_seconds = environment_seconds};
+                                      .environment_seconds = environment_seconds,
+                                      .solve_cpu_seconds = solve_cpu_seconds,
+                                      .split_cpu_seconds = split_cpu_seconds,
+                                      .replace_cpu_seconds = replace_cpu_seconds,
+                                      .environment_cpu_seconds = environment_cpu_seconds};
 }
 
 inline void assign_environment(std::vector<BlockSparseEnvironment>& environments, std::size_t index,
@@ -1599,21 +1650,26 @@ inline auto sweep_two_site_left_to_right(BlockSparseFiniteMPS& psi, BlockSparseM
   result.updates.reserve(psi.size() - 1);
   for (std::size_t left_site = 0; left_site + 1 < psi.size(); ++left_site)
   {
-    auto const solve_start = std::chrono::steady_clock::now();
+    auto const solve_start = detail::sweep_stage_checkpoint();
     auto solution =
         solve_two_site(psi, mpo, left_site, left_envs[left_site], right_envs[left_site + 2], options.lanczos);
-    auto const split_start = std::chrono::steady_clock::now();
+    auto const split_start = detail::sweep_stage_checkpoint();
     auto split = split_two_site_solution(solution, TwoSiteSplitDirection::LeftToRight, options.svd);
-    auto const replace_start = std::chrono::steady_clock::now();
-    auto update = detail::make_block_sparse_bond_update(left_site, solution, split,
-                                                        detail::elapsed_seconds(solve_start, split_start),
-                                                        detail::elapsed_seconds(split_start, replace_start), 0.0, 0.0);
+    auto const replace_start = detail::sweep_stage_checkpoint();
+    auto update = detail::make_block_sparse_bond_update(
+        left_site, solution, split, detail::elapsed_wall_seconds(solve_start, split_start),
+        detail::elapsed_wall_seconds(split_start, replace_start), 0.0, 0.0,
+        detail::elapsed_cpu_seconds(solve_start, split_start), detail::elapsed_cpu_seconds(split_start, replace_start),
+        0.0, 0.0);
     replace_two_site_solution(psi, left_site, std::move(split));
-    auto const env_start = std::chrono::steady_clock::now();
-    update.replace_seconds = detail::elapsed_seconds(replace_start, env_start);
+    auto const env_start = detail::sweep_stage_checkpoint();
+    update.replace_seconds = detail::elapsed_wall_seconds(replace_start, env_start);
+    update.replace_cpu_seconds = detail::elapsed_cpu_seconds(replace_start, env_start);
     detail::assign_environment(left_envs, left_site + 1,
                                extend_left_environment(left_envs[left_site], psi[left_site], mpo[left_site]));
-    update.environment_seconds = detail::elapsed_seconds(env_start, std::chrono::steady_clock::now());
+    auto const env_stop = detail::sweep_stage_checkpoint();
+    update.environment_seconds = detail::elapsed_wall_seconds(env_start, env_stop);
+    update.environment_cpu_seconds = detail::elapsed_cpu_seconds(env_start, env_stop);
     if (options.observer)
     {
       options.observer(BlockSparseTwoSiteSweepDirection::LeftToRight, update);
@@ -1643,22 +1699,27 @@ inline auto sweep_two_site_right_to_left(BlockSparseFiniteMPS& psi, BlockSparseM
   for (std::size_t offset = 0; offset + 1 < psi.size(); ++offset)
   {
     auto const left_site = psi.size() - 2 - offset;
-    auto const solve_start = std::chrono::steady_clock::now();
+    auto const solve_start = detail::sweep_stage_checkpoint();
     auto solution =
         solve_two_site(psi, mpo, left_site, left_envs[left_site], right_envs[left_site + 2], options.lanczos);
-    auto const split_start = std::chrono::steady_clock::now();
+    auto const split_start = detail::sweep_stage_checkpoint();
     auto split = split_two_site_solution(solution, TwoSiteSplitDirection::RightToLeft, options.svd);
-    auto const replace_start = std::chrono::steady_clock::now();
-    auto update = detail::make_block_sparse_bond_update(left_site, solution, split,
-                                                        detail::elapsed_seconds(solve_start, split_start),
-                                                        detail::elapsed_seconds(split_start, replace_start), 0.0, 0.0);
+    auto const replace_start = detail::sweep_stage_checkpoint();
+    auto update = detail::make_block_sparse_bond_update(
+        left_site, solution, split, detail::elapsed_wall_seconds(solve_start, split_start),
+        detail::elapsed_wall_seconds(split_start, replace_start), 0.0, 0.0,
+        detail::elapsed_cpu_seconds(solve_start, split_start), detail::elapsed_cpu_seconds(split_start, replace_start),
+        0.0, 0.0);
     replace_two_site_solution(psi, left_site, std::move(split));
-    auto const env_start = std::chrono::steady_clock::now();
-    update.replace_seconds = detail::elapsed_seconds(replace_start, env_start);
+    auto const env_start = detail::sweep_stage_checkpoint();
+    update.replace_seconds = detail::elapsed_wall_seconds(replace_start, env_start);
+    update.replace_cpu_seconds = detail::elapsed_cpu_seconds(replace_start, env_start);
     detail::assign_environment(
         right_envs, left_site + 1,
         extend_right_environment(right_envs[left_site + 2], psi[left_site + 1], mpo[left_site + 1]));
-    update.environment_seconds = detail::elapsed_seconds(env_start, std::chrono::steady_clock::now());
+    auto const env_stop = detail::sweep_stage_checkpoint();
+    update.environment_seconds = detail::elapsed_wall_seconds(env_start, env_stop);
+    update.environment_cpu_seconds = detail::elapsed_cpu_seconds(env_start, env_stop);
     if (options.observer)
     {
       options.observer(BlockSparseTwoSiteSweepDirection::RightToLeft, update);

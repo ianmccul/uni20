@@ -123,7 +123,8 @@ class BenchFile {
         {
           fmt::print(file_, " #DebugGlobalEnergy");
         }
-        fmt::print(file_, " #SolveS #SplitS #ReplaceS #EnvS #BondSectors\n");
+        fmt::print(file_, " #SolveS #SplitS #ReplaceS #EnvS #SolveCpuS #SplitCpuS #ReplaceCpuS #EnvCpuS "
+                          "#BondSectors\n");
       }
     }
 
@@ -148,6 +149,8 @@ class BenchFile {
       }
       fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g}", update.solve_seconds, update.split_seconds,
                  update.replace_seconds, update.environment_seconds);
+      fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g}", update.solve_cpu_seconds, update.split_cpu_seconds,
+                 update.replace_cpu_seconds, update.environment_cpu_seconds);
       fmt::print(file_, " {}", format_bond_sectors(update.shared_bond_space));
       fmt::print(file_, "\n");
     }
