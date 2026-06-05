@@ -206,6 +206,105 @@ per-block greedy variant, but that can disable the bridge's current
 coalesced-slab vector algebra fast path.  Both policies are diagnostics, not the
 final storage layout.
 
+## Optimization Formulation
+
+The placement problem is a graph/hypergraph partitioning problem with execution
+choices attached to each hyperedge.  A term
+
+```text
+t = (R_r, A_a, B_b, C_c, alpha)
+```
+
+connects one output block, three input blocks, and one scalar coefficient.  In
+the final Uni20 model, decision variables should include:
+
+- block placement `p_F(i) = (rank, device)` for each block `i` in each family
+  `F in {A, B, C, R}`;
+- multiplication order `o_t in {left-first, right-first}` for each term or term
+  group;
+- execution location `e_g` for each materialized intermediate group, for
+  example `(B_b, C_c)` in a right-first plan;
+- reduction location for partial `R_r` contributions when work is computed away
+  from the final `R` owner;
+- whether to replicate selected environment or center blocks when replication
+  is cheaper than repeated communication.
+
+The objective should minimize the critical path, not the sum of all work:
+
+```text
+minimize max_device load(device)
+       + memory_pressure_penalty
+       + layout_mismatch_penalty
+```
+
+where `load(device)` contains:
+
+- GEMM time, including a launch/handle overhead term for tiny blocks;
+- device-to-device, host-to-device, or rank-to-rank transfer time, including a
+  per-copy overhead term;
+- allocation/scratch overhead for materialized intermediates;
+- reduction or accumulation cost for partial outputs;
+- optional setup terms for materializing static environments.
+
+For the current resident Lanczos fixture benchmark, setup terms are deliberately
+excluded from the primary objective.  The static `A` and `C` environments should
+be placed before timing the Krylov loop.  The timed objective is the repeated
+matrix-free matvec plus the vector-algebra constraints it imposes.
+
+The fully generic term workflow is richer than a single target-owned GEMM pair.
+For each logical contribution, the planner may need to decide:
+
+1. Move the center block, if the first contraction should run on another device.
+2. Apply either the left environment or the right environment first.
+3. Accumulate reusable intermediate tensors, when several terms share the same
+   first-stage product.
+4. Move the intermediate, if the second contraction is cheaper elsewhere, and
+   optionally accumulate common intermediates on the new device.
+5. Apply the remaining environment tensor.
+6. Move the partial result, if necessary, to the canonical owner of `R_r` and
+   accumulate into the output block.
+
+The multiplication order is therefore a per-term or per-group decision, not a
+global flag.  Some moves in this chain may be unnecessary for a specific
+geometry or cost model, but the planner should include them as possible edges so
+benchmark feedback can decide which ones are worth scheduling.
+
+The right-first, target-owned prototype is the reduced problem:
+
+```text
+choose p(i) for center-vector blocks B_i/R_i
+run every term contributing to R_r on device p(r)
+materialize one Y_{d,b,c} = B_b * C_c per device d and pair (b,c)
+accumulate R_r += A_a * Y_{d,b,c}
+```
+
+Its per-device model is:
+
+```text
+load(d) =
+  sum_unique_(b,c used on d) cost_gemm(B_b, C_c)
+  + sum_terms_with_p(r)=d cost_gemm(A_a, Y_{d,b,c})
+  + sum_unique_b_needed_on_d_and_p(b)!=d cost_transfer(B_b)
+  + launch/copy/allocation overheads
+```
+
+The current `cost` policy restricts `p(i)` to contiguous block ranges.  The
+`cost-block` diagnostic allows arbitrary `p(i)` and therefore approximates the
+true graph partitioning problem.  Arbitrary placement still stores each device's
+chosen block set as one coalesced slab; contiguity is a storage property, not a
+requirement that logical block indices form intervals.  The operator applies one
+canonical center-vector layout to both Krylov input and output blocks; if a
+contraction produces a block away from that canonical owner, the generic planner
+must account for the relayout before the result becomes the next Lanczos input.
+
+For the current TensorContraction bridge, `cost-block` starts from the
+byte-balanced slab layout and applies local-search single-block moves.  Because
+non-contiguous logical layouts still have vector-layout and relayout overhead
+that is not yet represented perfectly in the R/A/B/C term model, the bridge
+requires a configurable minimum predicted speedup before accepting an arbitrary
+layout.  Otherwise it delegates back to the default byte-balanced coalesced
+layout.
+
 ## Long-Term Planner
 
 The long-term scheduler should operate on a term graph:

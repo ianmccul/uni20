@@ -911,6 +911,182 @@ void Swapper::registerGpuAllocation(Matrix mat, int deviceId)
   preStoreMap[mat.getId()] = std::make_pair(deviceId, buffer);
 }
 
+void Swapper::ensurePreStoreOnDevice(Matrix mat, int deviceId, bool preserveExistingContent)
+{
+  auto [existingDeviceId, existingBuffer] = this->getPreStoreBufferOrNone(mat);
+  if (existingBuffer == nullptr)
+  {
+    if (preserveExistingContent)
+    {
+      throw std::logic_error("TensorContraction cannot relocate a pre-store matrix with no resident source buffer");
+    }
+    this->registerGpuAllocation(mat, deviceId);
+    return;
+  }
+  if (preserveExistingContent && !existingBuffer->contentValid())
+  {
+    throw std::logic_error("TensorContraction cannot relocate a pre-store matrix with invalid resident contents");
+  }
+  if (existingDeviceId == deviceId)
+  {
+    return;
+  }
+
+  if (!preserveExistingContent)
+  {
+    this->clear(mat);
+    this->registerGpuAllocation(mat, deviceId);
+    return;
+  }
+
+  CUDA_CALL(cudaSetDevice(deviceId));
+  auto allocation = deviceContexts[deviceId]->allocateFromPool(memPools[deviceId], mat.sizeInByte());
+  CUDA_CALL(allocation.status);
+
+  auto allocationGroup = std::make_shared<GpuBuffer::AllocationGroup>();
+  allocationGroup->basePtr = allocation.ptr;
+  allocationGroup->bytes = mat.sizeInByte();
+  allocationGroup->liveBuffers = 1;
+  auto replacement = std::make_shared<GpuBuffer>(allocation.ptr, mat, dependencyEventsEnabled,
+                                                 *deviceContexts[deviceId], std::move(allocationGroup));
+  replacement->publishAllocation(std::move(allocation.completion));
+
+  {
+    auto access = this->createAccessPlan({existingBuffer}, {replacement}, deviceId);
+    DEBUG_GPU_COPY_D2D(*this, mat.getId(), existingDeviceId, existingBuffer->getPtr(), deviceId, replacement->getPtr(),
+                       access.stream(), mat.sizeInByte());
+    if (existingDeviceId == deviceId)
+    {
+      CUDA_CALL(cudaMemcpyAsync(replacement->getPtr(), existingBuffer->getPtr(), mat.sizeInByte(),
+                                cudaMemcpyDeviceToDevice, access.stream()));
+    }
+    else
+    {
+      CUDA_CALL(cudaMemcpyPeerAsync(replacement->getPtr(), deviceId, existingBuffer->getPtr(), existingDeviceId,
+                                    mat.sizeInByte(), access.stream()));
+    }
+  }
+
+  preStoreMap[mat.getId()] = std::make_pair(deviceId, replacement);
+  this->freeBuffer(std::move(existingBuffer), existingDeviceId);
+}
+
+void Swapper::ensurePreStoreCoalescedOnDevice(std::vector<Matrix> const& mats, int deviceId,
+                                              bool preserveExistingContent)
+{
+  if (mats.empty())
+  {
+    return;
+  }
+  if (this->preStoreBuffersAreCoalesced(mats, deviceId))
+  {
+    return;
+  }
+  if (!this->anyPreStoreBuffer(mats))
+  {
+    if (preserveExistingContent)
+    {
+      throw std::logic_error("TensorContraction cannot relocate a coalesced pre-store slab with no resident sources");
+    }
+    this->registerGpuAllocationsCoalesced(mats, deviceId);
+    return;
+  }
+  if (!preserveExistingContent)
+  {
+    for (auto const& mat : mats)
+    {
+      this->clear(mat);
+    }
+    this->registerGpuAllocationsCoalesced(mats, deviceId);
+    return;
+  }
+
+  std::size_t const totalBytes = totalMatrixBytes(mats);
+  if (totalBytes == 0)
+  {
+    throw std::invalid_argument("TensorContraction cannot coalesce an empty Matrix batch allocation");
+  }
+
+  CUDA_CALL(cudaSetDevice(deviceId));
+  auto allocation = deviceContexts[deviceId]->allocateFromPool(memPools[deviceId], totalBytes);
+  CUDA_CALL(allocation.status);
+
+  auto allocationGroup = std::make_shared<GpuBuffer::AllocationGroup>();
+  allocationGroup->basePtr = allocation.ptr;
+  allocationGroup->bytes = totalBytes;
+  allocationGroup->liveBuffers = mats.size();
+
+  std::vector<std::pair<int, std::shared_ptr<GpuBuffer>>> oldBuffers;
+  std::vector<std::shared_ptr<GpuBuffer>> readBuffers;
+  std::vector<std::shared_ptr<GpuBuffer>> writeBuffers;
+  std::vector<std::shared_ptr<GpuBuffer>> replacements;
+  oldBuffers.reserve(mats.size());
+  readBuffers.reserve(mats.size());
+  writeBuffers.reserve(mats.size());
+  replacements.reserve(mats.size());
+
+  auto* base = static_cast<std::byte*>(allocation.ptr);
+  std::size_t offsetBytes = 0;
+  for (auto const& mat : mats)
+  {
+    auto* ptr = base + offsetBytes;
+    auto replacement =
+        std::make_shared<GpuBuffer>(ptr, mat, dependencyEventsEnabled, *deviceContexts[deviceId], allocationGroup);
+    replacement->publishAllocation(allocation.completion);
+    auto [oldDeviceId, oldBuffer] = this->getPreStoreBufferOrNone(mat);
+    if (oldBuffer != nullptr)
+    {
+      if (!oldBuffer->contentValid())
+      {
+        throw std::logic_error(
+            "TensorContraction cannot relocate a coalesced pre-store slab with invalid resident contents");
+      }
+      oldBuffers.emplace_back(oldDeviceId, oldBuffer);
+      readBuffers.push_back(oldBuffer);
+      writeBuffers.push_back(replacement);
+    }
+    else
+    {
+      throw std::logic_error(
+          "TensorContraction cannot relocate a coalesced pre-store slab with a missing resident source");
+    }
+    replacements.push_back(std::move(replacement));
+    offsetBytes += mat.sizeInByte();
+  }
+
+  if (!readBuffers.empty())
+  {
+    auto access = this->createAccessPlan(readBuffers, writeBuffers, deviceId);
+    for (std::size_t copy = 0; copy < readBuffers.size(); ++copy)
+    {
+      auto const oldDeviceId = oldBuffers[copy].first;
+      auto const& oldBuffer = readBuffers[copy];
+      auto const& replacement = writeBuffers[copy];
+      DEBUG_GPU_COPY_D2D(*this, oldBuffer->getId(), oldDeviceId, oldBuffer->getPtr(), deviceId, replacement->getPtr(),
+                         access.stream(), oldBuffer->sizeInByte());
+      if (oldDeviceId == deviceId)
+      {
+        CUDA_CALL(cudaMemcpyAsync(replacement->getPtr(), oldBuffer->getPtr(), oldBuffer->sizeInByte(),
+                                  cudaMemcpyDeviceToDevice, access.stream()));
+      }
+      else
+      {
+        CUDA_CALL(cudaMemcpyPeerAsync(replacement->getPtr(), deviceId, oldBuffer->getPtr(), oldDeviceId,
+                                      oldBuffer->sizeInByte(), access.stream()));
+      }
+    }
+  }
+
+  for (std::size_t index = 0; index < mats.size(); ++index)
+  {
+    preStoreMap[mats[index].getId()] = std::make_pair(deviceId, replacements[index]);
+  }
+  for (auto& [oldDeviceId, oldBuffer] : oldBuffers)
+  {
+    this->freeBuffer(std::move(oldBuffer), oldDeviceId);
+  }
+}
+
 std::shared_ptr<GpuBuffer> Swapper::getForRead(Matrix mat, int deviceId, cudaStream_t stream)
 {
   auto bufferPtr = getForReadNoWait(mat, deviceId);

@@ -276,6 +276,16 @@ class Swapper {
     bool downloadDeviceMatricesToHostCoalesced(const std::vector<Matrix>& mats, std::span<double> values);
     void registerGpuAllocation(Matrix mat, int deviceId);
     void registerGpuAllocationsCoalesced(const std::vector<Matrix>& mats, int deviceId);
+    /// \brief Ensure a pre-store matrix buffer exists on the requested CUDA device.
+    /// \param mat Matrix whose pre-store buffer should be placed.
+    /// \param deviceId Target CUDA device.
+    /// \param preserveExistingContent If true, copy existing resident contents to the new placement.
+    void ensurePreStoreOnDevice(Matrix mat, int deviceId, bool preserveExistingContent);
+    /// \brief Ensure a batch of pre-store matrix buffers forms one coalesced slab on a CUDA device.
+    /// \param mats Ordered matrices that should share one contiguous allocation.
+    /// \param deviceId Target CUDA device.
+    /// \param preserveExistingContent If true, copy existing resident contents into the new slab.
+    void ensurePreStoreCoalescedOnDevice(std::vector<Matrix> const& mats, int deviceId, bool preserveExistingContent);
     bool anyPreStoreBuffer(const std::vector<Matrix>& mats) const;
     std::optional<int> commonPreStoreDevice(const std::vector<Matrix>& mats) const;
     bool preStoreBuffersAreCoalesced(const std::vector<Matrix>& mats, int deviceId) const;

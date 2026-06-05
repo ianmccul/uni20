@@ -1,5 +1,8 @@
 #include <uni20/tensorcontraction/vector_algebra.hpp>
 
+#include "Arranger.hpp"
+#include "Swapper.hpp"
+
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
@@ -23,6 +26,19 @@ auto make_vector() -> utc::MatrixFamily
   x.assign(0, std::array{1.0, -2.0, 3.0, -4.0});
   x.assign(1, std::array{5.0, -6.0, 7.0});
   return x;
+}
+
+auto select_matrices(utc::MatrixFamily& family,
+                     std::initializer_list<std::size_t> blocks) -> std::vector<tensor::Matrix>
+{
+  auto const& matrices = utc::raw_matrices(family);
+  std::vector<tensor::Matrix> selected;
+  selected.reserve(blocks.size());
+  for (std::size_t block : blocks)
+  {
+    selected.push_back(matrices[block]);
+  }
+  return selected;
 }
 
 class EnvGuard {
@@ -304,6 +320,68 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsResidentSlabOperationsAcrossT
 
   EXPECT_DOUBLE_EQ(engine.dot(x, y), expected_dot);
   engine.scale(x, 2.0);
+  engine.axpy(-0.25, x, y);
+  engine.copy(y, z);
+  engine.synchronize(z);
+
+  for (std::size_t index = 0; index < z.coalesced_values().size(); ++index)
+  {
+    EXPECT_DOUBLE_EQ(z.coalesced_values()[index], expected_z[index]);
+  }
+}
+
+TEST(TensorContractionVectorAlgebraTest, EngineHandlesNonContiguousLogicalBlocksInResidentSlabs)
+{
+  int device_count = 0;
+  if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count < 1)
+  {
+    GTEST_SKIP() << "requires at least one visible CUDA device";
+  }
+
+  EnvGuard env_guard({"UNI20_TENSORCONTRACTION_BACKEND", "UNI20_TENSORCONTRACTION_DEVICES"});
+  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+  setenv("UNI20_TENSORCONTRACTION_DEVICES", "1", 1);
+
+  std::vector<utc::MatrixFamily::Block> blocks{utc::MatrixFamily::Block{1, 2}, utc::MatrixFamily::Block{2, 1},
+                                               utc::MatrixFamily::Block{1, 3}, utc::MatrixFamily::Block{3, 1},
+                                               utc::MatrixFamily::Block{2, 2}, utc::MatrixFamily::Block{1, 1},
+                                               utc::MatrixFamily::Block{2, 3}, utc::MatrixFamily::Block{3, 2}};
+  utc::MatrixFamily x(blocks);
+  utc::MatrixFamily y(blocks);
+  utc::MatrixFamily z(blocks);
+
+  double expected_dot = 0.0;
+  std::vector<double> expected_z(x.coalesced_values().size());
+  for (std::size_t index = 0; index < x.coalesced_values().size(); ++index)
+  {
+    double const x_value = static_cast<double>(index + 1);
+    double const y_value = static_cast<double>(2 * index + 5);
+    x.coalesced_values()[index] = x_value;
+    y.coalesced_values()[index] = y_value;
+    expected_dot += x_value * y_value;
+    expected_z[index] = y_value - 0.25 * x_value;
+  }
+
+  utc::VectorAlgebraEngine engine;
+  if (engine.uses_host_backend())
+  {
+    GTEST_SKIP() << "requires the TensorContraction resident CUDA backend";
+  }
+  engine.upload(x);
+  engine.upload(y);
+  engine.set_host_synchronization(false);
+
+  auto& swapper = engine.resident_arranger().residentSwapper();
+  auto even_blocks = select_matrices(x, {0, 2, 4, 6});
+  auto odd_blocks = select_matrices(x, {1, 3, 5, 7});
+  swapper.ensurePreStoreCoalescedOnDevice(even_blocks, 0, /*preserveExistingContent=*/true);
+  swapper.ensurePreStoreCoalescedOnDevice(odd_blocks, 0, /*preserveExistingContent=*/true);
+
+  ASSERT_TRUE(swapper.preStoreBuffersAreCoalesced(even_blocks, 0));
+  ASSERT_TRUE(swapper.preStoreBuffersAreCoalesced(odd_blocks, 0));
+  EXPECT_FALSE(swapper.preStoreBuffersAreCoalesced(utc::raw_matrices(x), 0));
+
+  EXPECT_NEAR(engine.dot(x, y), expected_dot, 1.0e-12);
   engine.axpy(-0.25, x, y);
   engine.copy(y, z);
   engine.synchronize(z);

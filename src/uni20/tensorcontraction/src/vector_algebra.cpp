@@ -31,99 +31,145 @@ struct VectorAlgebraEngine::Impl
 
     [[nodiscard]] bool host_backend() const { return arranger == nullptr; }
 
-    struct CoalescedRange
+    struct CoalescedGroup
     {
         int deviceId = 0;
-        std::size_t begin = 0;
-        std::size_t end = 0;
+        std::vector<std::size_t> blocks;
         std::size_t valueCount = 0;
     };
 
-    [[nodiscard]] auto range_matrices(MatrixFamily const& x, CoalescedRange range) const -> std::vector<tensor::Matrix>
+    [[nodiscard]] auto group_matrices(MatrixFamily const& x,
+                                      CoalescedGroup const& group) const -> std::vector<tensor::Matrix>
     {
       auto const& matrices = raw_matrices(x);
-      return {matrices.begin() + static_cast<std::ptrdiff_t>(range.begin),
-              matrices.begin() + static_cast<std::ptrdiff_t>(range.end)};
+      std::vector<tensor::Matrix> groupMatrices;
+      groupMatrices.reserve(group.blocks.size());
+      for (std::size_t block : group.blocks)
+      {
+        groupMatrices.push_back(matrices[block]);
+      }
+      return groupMatrices;
     }
 
-    [[nodiscard]] auto coalesced_ranges(MatrixFamily const& x) const -> std::vector<CoalescedRange>
+    [[nodiscard]] auto coalesced_groups(MatrixFamily const& x) const -> std::vector<CoalescedGroup>
     {
-      std::vector<CoalescedRange> ranges;
+      struct GroupBuild
+      {
+          int deviceId = 0;
+          void* allocationBase = nullptr;
+          std::size_t allocationBytes = 0;
+          std::vector<std::size_t> blocks;
+          std::size_t valueCount = 0;
+      };
+
+      std::vector<GroupBuild> builds;
       if (arranger == nullptr || x.empty())
       {
-        return ranges;
+        return {};
       }
 
       auto& swapper = arranger->residentSwapper();
       auto const& matrices = raw_matrices(x);
-      std::size_t begin = 0;
-      while (begin < matrices.size())
+      for (std::size_t block = 0; block < matrices.size(); ++block)
       {
-        auto [deviceId, firstBuffer] = swapper.getPreStoreBufferOrNone(matrices[begin]);
-        if (firstBuffer == nullptr || firstBuffer->allocationOffsetInByte() != 0)
+        auto [deviceId, buffer] = swapper.getPreStoreBufferOrNone(matrices[block]);
+        if (buffer == nullptr)
         {
           return {};
         }
 
-        void* const allocationBase = firstBuffer->allocationBasePtr();
-        std::size_t const allocationBytes = firstBuffer->allocationSizeInByte();
-        std::size_t offsetBytes = 0;
-        std::size_t end = begin;
-        std::size_t valueCount = 0;
-        while (end < matrices.size())
+        void* const allocationBase = buffer->allocationBasePtr();
+        std::size_t const allocationBytes = buffer->allocationSizeInByte();
+        auto* group = [&]() -> GroupBuild* {
+          for (auto& candidate : builds)
+          {
+            if (candidate.deviceId == deviceId && candidate.allocationBase == allocationBase)
+            {
+              return &candidate;
+            }
+          }
+          GroupBuild build;
+          build.deviceId = deviceId;
+          build.allocationBase = allocationBase;
+          build.allocationBytes = allocationBytes;
+          builds.push_back(std::move(build));
+          return &builds.back();
+        }();
+        if (group->allocationBytes != allocationBytes)
         {
-          auto [currentDevice, currentBuffer] = swapper.getPreStoreBufferOrNone(matrices[end]);
-          if (currentBuffer == nullptr || currentDevice != deviceId ||
-              currentBuffer->allocationBasePtr() != allocationBase ||
+          return {};
+        }
+        group->blocks.push_back(block);
+        group->valueCount += matrices[block].size();
+      }
+
+      std::vector<CoalescedGroup> groups;
+      groups.reserve(builds.size());
+      for (auto const& build : builds)
+      {
+        std::size_t offsetBytes = 0;
+        for (std::size_t block : build.blocks)
+        {
+          auto [currentDevice, currentBuffer] = swapper.getPreStoreBufferOrNone(matrices[block]);
+          if (currentBuffer == nullptr || currentDevice != build.deviceId ||
+              currentBuffer->allocationBasePtr() != build.allocationBase ||
               currentBuffer->allocationOffsetInByte() != offsetBytes)
           {
-            break;
+            return {};
           }
 
-          offsetBytes += matrices[end].sizeInByte();
-          valueCount += matrices[end].size();
-          ++end;
-          if (offsetBytes == allocationBytes)
-          {
-            break;
-          }
-          if (offsetBytes > allocationBytes)
+          offsetBytes += matrices[block].sizeInByte();
+          if (offsetBytes > build.allocationBytes)
           {
             return {};
           }
         }
-
-        if (end == begin || offsetBytes != allocationBytes)
+        if (build.blocks.empty() || offsetBytes != build.allocationBytes)
         {
           return {};
         }
 
-        CoalescedRange const range{.deviceId = deviceId, .begin = begin, .end = end, .valueCount = valueCount};
-        if (!swapper.preStoreBuffersAreCoalesced(this->range_matrices(x, range), deviceId))
+        CoalescedGroup group{.deviceId = build.deviceId, .blocks = build.blocks, .valueCount = build.valueCount};
+        if (!swapper.preStoreBuffersAreCoalesced(this->group_matrices(x, group), build.deviceId))
         {
           return {};
         }
-        ranges.push_back(range);
-        begin = end;
+        groups.push_back(std::move(group));
       }
 
-      return ranges;
+      return groups;
     }
 
-    [[nodiscard]] bool compatible_ranges(std::vector<CoalescedRange> const& lhs,
-                                         std::vector<CoalescedRange> const& rhs) const
+    [[nodiscard]] bool compatible_groups(std::vector<CoalescedGroup> const& lhs,
+                                         std::vector<CoalescedGroup> const& rhs) const
     {
       if (lhs.size() != rhs.size())
       {
         return false;
       }
-      for (std::size_t range = 0; range < lhs.size(); ++range)
+      for (std::size_t group = 0; group < lhs.size(); ++group)
       {
-        if (lhs[range].deviceId != rhs[range].deviceId || lhs[range].begin != rhs[range].begin ||
-            lhs[range].end != rhs[range].end || lhs[range].valueCount != rhs[range].valueCount)
+        if (lhs[group].deviceId != rhs[group].deviceId || lhs[group].blocks != rhs[group].blocks ||
+            lhs[group].valueCount != rhs[group].valueCount)
         {
           return false;
         }
+      }
+      return true;
+    }
+
+    bool relayout_like(MatrixFamily const& source, MatrixFamily const& target, bool preserve_target_content)
+    {
+      auto const groups = this->coalesced_groups(source);
+      if (groups.empty())
+      {
+        return false;
+      }
+      auto& swapper = arranger->residentSwapper();
+      for (auto const& group : groups)
+      {
+        swapper.ensurePreStoreCoalescedOnDevice(this->group_matrices(target, group), group.deviceId,
+                                                preserve_target_content);
       }
       return true;
     }
@@ -143,16 +189,16 @@ struct VectorAlgebraEngine::Impl
         this->synchronize_if_requested(x);
         return true;
       }
-      auto const ranges = this->coalesced_ranges(x);
-      if (ranges.empty())
+      auto const groups = this->coalesced_groups(x);
+      if (groups.empty())
       {
         return false;
       }
 
       auto& swapper = arranger->residentSwapper();
-      for (auto const range : ranges)
+      for (auto const& group : groups)
       {
-        auto access = swapper.createSlabAccessPlan(this->range_matrices(x, range), range.deviceId,
+        auto access = swapper.createSlabAccessPlan(this->group_matrices(x, group), group.deviceId,
                                                    tensor::Swapper::SlabAccessKind::Write);
         CUDA_CALL(cudaMemsetAsync(access.data(), 0, access.sizeInByte(), access.stream()));
       }
@@ -172,21 +218,21 @@ struct VectorAlgebraEngine::Impl
         return true;
       }
 
-      auto const sourceRanges = this->coalesced_ranges(source);
-      auto const targetRanges = this->coalesced_ranges(target);
-      if (sourceRanges.empty() || !this->compatible_ranges(sourceRanges, targetRanges))
+      auto const sourceGroups = this->coalesced_groups(source);
+      auto const targetGroups = this->coalesced_groups(target);
+      if (sourceGroups.empty() || !this->compatible_groups(sourceGroups, targetGroups))
       {
         return false;
       }
 
       auto& swapper = arranger->residentSwapper();
-      for (std::size_t rangeIndex = 0; rangeIndex < sourceRanges.size(); ++rangeIndex)
+      for (std::size_t groupIndex = 0; groupIndex < sourceGroups.size(); ++groupIndex)
       {
-        auto const range = sourceRanges[rangeIndex];
+        auto const& group = sourceGroups[groupIndex];
         auto read_buffers =
-            swapper.collectCoalescedPreStoreBuffers(this->range_matrices(source, range), range.deviceId);
+            swapper.collectCoalescedPreStoreBuffers(this->group_matrices(source, group), group.deviceId);
         auto write_buffers = swapper.collectCoalescedPreStoreBuffers(
-            this->range_matrices(target, targetRanges[rangeIndex]), range.deviceId);
+            this->group_matrices(target, targetGroups[groupIndex]), group.deviceId);
         if (read_buffers.empty() || write_buffers.empty())
         {
           return false;
@@ -195,8 +241,8 @@ struct VectorAlgebraEngine::Impl
         auto* target_base = write_buffers.front()->allocationBasePtr();
         if (source_base != target_base)
         {
-          auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), range.deviceId);
-          CUDA_CALL(cudaMemcpyAsync(target_base, source_base, range.valueCount * sizeof(double),
+          auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), group.deviceId);
+          CUDA_CALL(cudaMemcpyAsync(target_base, source_base, group.valueCount * sizeof(double),
                                     cudaMemcpyDeviceToDevice, access.stream()));
         }
       }
@@ -211,18 +257,18 @@ struct VectorAlgebraEngine::Impl
         this->synchronize_if_requested(x);
         return true;
       }
-      auto const ranges = this->coalesced_ranges(x);
-      if (ranges.empty())
+      auto const groups = this->coalesced_groups(x);
+      if (groups.empty())
       {
         return false;
       }
 
       auto& swapper = arranger->residentSwapper();
-      for (auto const range : ranges)
+      for (auto const& group : groups)
       {
-        auto access = swapper.createSlabAccessPlan(this->range_matrices(x, range), range.deviceId,
+        auto access = swapper.createSlabAccessPlan(this->group_matrices(x, group), group.deviceId,
                                                    tensor::Swapper::SlabAccessKind::Write);
-        detail::launch_slab_scale_kernel(static_cast<double*>(access.data()), range.valueCount, alpha, access.stream());
+        detail::launch_slab_scale_kernel(static_cast<double*>(access.data()), group.valueCount, alpha, access.stream());
         CUDA_CALL(cudaGetLastError());
       }
       this->synchronize_if_requested(x);
@@ -241,28 +287,28 @@ struct VectorAlgebraEngine::Impl
         return true;
       }
 
-      auto const xRanges = this->coalesced_ranges(x);
-      auto const yRanges = this->coalesced_ranges(y);
-      if (xRanges.empty() || !this->compatible_ranges(xRanges, yRanges))
+      auto const xGroups = this->coalesced_groups(x);
+      auto const yGroups = this->coalesced_groups(y);
+      if (xGroups.empty() || !this->compatible_groups(xGroups, yGroups))
       {
         return false;
       }
 
       auto& swapper = arranger->residentSwapper();
-      for (std::size_t rangeIndex = 0; rangeIndex < xRanges.size(); ++rangeIndex)
+      for (std::size_t groupIndex = 0; groupIndex < xGroups.size(); ++groupIndex)
       {
-        auto const range = xRanges[rangeIndex];
-        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(this->range_matrices(x, range), range.deviceId);
+        auto const& group = xGroups[groupIndex];
+        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(this->group_matrices(x, group), group.deviceId);
         auto write_buffers =
-            swapper.collectCoalescedPreStoreBuffers(this->range_matrices(y, yRanges[rangeIndex]), range.deviceId);
+            swapper.collectCoalescedPreStoreBuffers(this->group_matrices(y, yGroups[groupIndex]), group.deviceId);
         if (read_buffers.empty() || write_buffers.empty())
         {
           return false;
         }
         auto* x_base = static_cast<double const*>(read_buffers.front()->allocationBasePtr());
         auto* y_base = static_cast<double*>(write_buffers.front()->allocationBasePtr());
-        auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), range.deviceId);
-        detail::launch_slab_axpy_kernel(x_base, y_base, range.valueCount, alpha, access.stream());
+        auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), group.deviceId);
+        detail::launch_slab_axpy_kernel(x_base, y_base, group.valueCount, alpha, access.stream());
         CUDA_CALL(cudaGetLastError());
       }
       this->synchronize_if_requested(y);
@@ -280,26 +326,26 @@ struct VectorAlgebraEngine::Impl
         return 0.0;
       }
 
-      auto const lhsRanges = this->coalesced_ranges(lhs);
-      auto const rhsRanges = this->coalesced_ranges(rhs);
-      if (lhsRanges.empty() || !this->compatible_ranges(lhsRanges, rhsRanges))
+      auto const lhsGroups = this->coalesced_groups(lhs);
+      auto const rhsGroups = this->coalesced_groups(rhs);
+      if (lhsGroups.empty() || !this->compatible_groups(lhsGroups, rhsGroups))
       {
         return std::nullopt;
       }
 
       auto& swapper = arranger->residentSwapper();
       double result = 0.0;
-      for (std::size_t rangeIndex = 0; rangeIndex < lhsRanges.size(); ++rangeIndex)
+      for (std::size_t groupIndex = 0; groupIndex < lhsGroups.size(); ++groupIndex)
       {
-        auto const range = lhsRanges[rangeIndex];
-        if (range.valueCount > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        auto const& group = lhsGroups[groupIndex];
+        if (group.valueCount > static_cast<std::size_t>(std::numeric_limits<int>::max()))
         {
           return std::nullopt;
         }
 
-        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(this->range_matrices(lhs, range), range.deviceId);
+        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(this->group_matrices(lhs, group), group.deviceId);
         auto rhs_buffers =
-            swapper.collectCoalescedPreStoreBuffers(this->range_matrices(rhs, rhsRanges[rangeIndex]), range.deviceId);
+            swapper.collectCoalescedPreStoreBuffers(this->group_matrices(rhs, rhsGroups[groupIndex]), group.deviceId);
         if (read_buffers.empty() || rhs_buffers.empty())
         {
           return std::nullopt;
@@ -309,10 +355,10 @@ struct VectorAlgebraEngine::Impl
         read_buffers.insert(read_buffers.end(), rhs_buffers.begin(), rhs_buffers.end());
 
         double partial = 0.0;
-        auto access = swapper.createBlasAccessPlan(std::move(read_buffers), {}, range.deviceId);
-        auto device_result = swapper.deviceContext(range.deviceId).acquireScratch(sizeof(double), access.stream());
+        auto access = swapper.createBlasAccessPlan(std::move(read_buffers), {}, group.deviceId);
+        auto device_result = swapper.deviceContext(group.deviceId).acquireScratch(sizeof(double), access.stream());
         CUBLAS_CALL(cublasSetPointerMode(access.handle(), CUBLAS_POINTER_MODE_DEVICE));
-        CUBLAS_CALL(cublasDdot(access.handle(), static_cast<int>(range.valueCount), lhs_base, 1, rhs_base, 1,
+        CUBLAS_CALL(cublasDdot(access.handle(), static_cast<int>(group.valueCount), lhs_base, 1, rhs_base, 1,
                                device_result.as<double>()));
         CUBLAS_CALL(cublasSetPointerMode(access.handle(), CUBLAS_POINTER_MODE_HOST));
         CUDA_CALL(cudaMemcpyAsync(&partial, device_result.as<double>(), sizeof(double), cudaMemcpyDeviceToHost,
@@ -413,6 +459,13 @@ double VectorAlgebraEngine::dot(MatrixFamily const& lhs, MatrixFamily const& rhs
   if (auto result = impl_->dot_slab(lhs, rhs); result.has_value())
   {
     return broadcast_from_rank_zero(*result);
+  }
+  if (impl_->relayout_like(lhs, rhs, /*preserve_target_content=*/true))
+  {
+    if (auto result = impl_->dot_slab(lhs, rhs); result.has_value())
+    {
+      return broadcast_from_rank_zero(*result);
+    }
   }
 
   auto const& lhs_matrices = raw_matrices(lhs);
@@ -518,11 +571,13 @@ void VectorAlgebraEngine::copy(MatrixFamily const& source, MatrixFamily& target)
   if (!impl_->upload_from_host)
   {
     impl_->localize(source, false, false);
-    impl_->localize(target, false, false);
   }
   else
   {
     impl_->localize(source, true, false);
+  }
+  if (!impl_->relayout_like(source, target, /*preserve_target_content=*/false))
+  {
     impl_->localize(target, false, false);
   }
 
@@ -592,6 +647,10 @@ void VectorAlgebraEngine::axpy(double alpha, MatrixFamily const& x, MatrixFamily
   auto const& x_matrices = raw_matrices(x);
   auto const& y_matrices = raw_matrices(y);
   if (impl_->axpy_slab(alpha, x, y))
+  {
+    return;
+  }
+  if (impl_->relayout_like(x, y, /*preserve_target_content=*/true) && impl_->axpy_slab(alpha, x, y))
   {
     return;
   }
