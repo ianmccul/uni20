@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import random
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,10 @@ GRAPH_FEATURE_NAMES = [
     "right_duplicate_groups",
 ]
 
+BENCHMARK_REPEAT_RE = re.compile(
+    r"repeat=(?P<repeat>\d+)\s+wall=(?P<wall>[0-9.eE+-]+)s\b.*\bmatvec=(?P<matvec>[0-9.eE+-]+)s\b"
+)
+
 
 def feature_names(include_graph_features: bool) -> list[str]:
     """Return the active model feature names."""
@@ -54,6 +59,44 @@ def read_trace(path: Path) -> list[dict[str, Any]]:
             continue
         record["_line"] = line_number
         records.append(record)
+    return records
+
+
+def read_benchmark_records(path: Path) -> list[dict[str, Any]]:
+    """Read no-trace R/A/B/C replay benchmark JSONL records."""
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("kind") != "rabc_replay_benchmark":
+            continue
+        record["_line"] = line_number
+        records.append(record)
+    return records
+
+
+def parse_benchmark_stdout(path: Path, layout: str, name: str) -> list[dict[str, Any]]:
+    """Parse replay benchmark stdout into benchmark records."""
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        match = BENCHMARK_REPEAT_RE.search(line)
+        if match is None:
+            continue
+        records.append(
+            {
+                "kind": "rabc_replay_benchmark",
+                "source": str(path),
+                "line": line_number,
+                "name": name,
+                "layout": layout,
+                "repeat": int(match.group("repeat")),
+                "wall_s": float(match.group("wall")),
+                "matvec_s": float(match.group("matvec")),
+            }
+        )
+    if not records:
+        raise ValueError(f"{path} contains no R/A/B/C replay benchmark repeat rows")
     return records
 
 
@@ -258,6 +301,31 @@ def summarize_grouped(records: list[dict[str, Any]]) -> None:
         )
     if best_key is not None:
         print(f"best_mean_gpu_s={best_mean:.9g} layout={layout_string(list(best_key))}")
+
+
+def summarize_benchmark_records(records: list[dict[str, Any]]) -> None:
+    """Print no-trace replay benchmark timing aggregates."""
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for record in records:
+        grouped.setdefault((str(record.get("name", "")), str(record.get("layout", ""))), []).append(record)
+
+    print("count mean_matvec_s min_matvec_s max_matvec_s mean_wall_s name layout")
+    best_key: tuple[str, str] | None = None
+    best_mean = float("inf")
+    for key, rows in grouped.items():
+        matvec = [float(record["matvec_s"]) for record in rows]
+        wall = [float(record["wall_s"]) for record in rows]
+        mean_matvec = sum(matvec) / len(matvec)
+        mean_wall = sum(wall) / len(wall)
+        if mean_matvec < best_mean:
+            best_mean = mean_matvec
+            best_key = key
+        print(
+            f"{len(rows)} {mean_matvec:.9g} {min(matvec):.9g} {max(matvec):.9g} "
+            f"{mean_wall:.9g} {key[0]} {key[1]}"
+        )
+    if best_key is not None:
+        print(f"best_mean_matvec_s={best_mean:.9g} name={best_key[0]} layout={best_key[1]}")
 
 
 def layout_mean_gpu_seconds(records: list[dict[str, Any]]) -> float:
@@ -1116,6 +1184,33 @@ def cmd_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bench_record(args: argparse.Namespace) -> int:
+    """Convert replay benchmark stdout into benchmark JSONL records."""
+    records: list[dict[str, Any]] = []
+    for path in args.stdout:
+        records.extend(parse_benchmark_stdout(path, args.layout, args.name))
+
+    output = sys.stdout if args.output is None else args.output.open("a" if args.append else "w")
+    try:
+        for record in records:
+            print(json.dumps(record, sort_keys=True), file=output)
+    finally:
+        if output is not sys.stdout:
+            output.close()
+    return 0
+
+
+def cmd_bench_summary(args: argparse.Namespace) -> int:
+    """Summarize no-trace replay benchmark JSONL records."""
+    records: list[dict[str, Any]] = []
+    for path in args.benchmark:
+        records.extend(read_benchmark_records(path))
+    if not records:
+        raise ValueError("benchmark files contained no R/A/B/C replay benchmark records")
+    summarize_benchmark_records(records)
+    return 0
+
+
 def cmd_order_summary(args: argparse.Namespace) -> int:
     """Summarize left-first versus right-first costs for traced `f` terms."""
     records = trace_records(args)
@@ -1425,6 +1520,18 @@ def parser() -> argparse.ArgumentParser:
     summary.add_argument("--drop-first-per-layout", type=int, default=0)
     summary.add_argument("--group-layouts", action="store_true")
     summary.set_defaults(func=cmd_summary)
+
+    bench_record = subcommands.add_parser("bench-record", help="convert replay benchmark stdout to JSONL records")
+    bench_record.add_argument("stdout", nargs="+", type=Path, help="benchmark stdout file(s) to parse")
+    bench_record.add_argument("--name", required=True, help="short label for this measured layout")
+    bench_record.add_argument("--layout", required=True, help="layout string associated with this benchmark run")
+    bench_record.add_argument("--output", type=Path, help="write JSONL records to this file instead of stdout")
+    bench_record.add_argument("--append", action="store_true", help="append to --output instead of replacing it")
+    bench_record.set_defaults(func=cmd_bench_record)
+
+    bench_summary = subcommands.add_parser("bench-summary", help="summarize replay benchmark JSONL records")
+    bench_summary.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    bench_summary.set_defaults(func=cmd_bench_summary)
 
     order_summary = subcommands.add_parser(
         "order-summary", help="summarize left-first versus right-first term costs"

@@ -214,6 +214,26 @@ target is useful for structural model development, but final placement decisions
 must be confirmed by rerunning the fixture replay with
 `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` unset.
 
+To record final no-trace replay timings as a separate empirical dataset, save
+the benchmark stdout and convert it to JSONL:
+
+```bash
+scripts/rabc-trace-model.py bench-record /tmp/uni20_rabc_default.out \
+  --name default \
+  --layout <layout-used-by-run> \
+  --output /tmp/uni20_rabc_benchmark.jsonl
+scripts/rabc-trace-model.py bench-record /tmp/uni20_rabc_candidate.out \
+  --name candidate \
+  --layout <layout-used-by-run> \
+  --output /tmp/uni20_rabc_benchmark.jsonl \
+  --append
+scripts/rabc-trace-model.py bench-summary /tmp/uni20_rabc_benchmark.jsonl
+```
+
+These `rabc_replay_benchmark` rows use the benchmark's printed `matvec=` field
+and are deliberately separate from CUDA-event trace rows.  Use them for final
+layout comparisons; use trace rows to explain or propose candidates.
+
 For symmetry-local Hamiltonians, also test the constrained contiguous-range
 family.  The traced sparse `f` tensor remains the ground truth for connectivity:
 contiguous ranges are only a candidate restriction that is useful when the
