@@ -14,6 +14,7 @@
 #include <exception>
 #include <fstream>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -26,6 +27,11 @@ namespace
 
 auto alternating_half_filled_indices(std::size_t length) -> std::vector<std::size_t>
 {
+  if (length % 2 != 0)
+  {
+    throw std::invalid_argument("half-filled spin-zero Hubbard sector requires an even chain length");
+  }
+
   std::vector<std::size_t> indices;
   indices.reserve(length);
   for (std::size_t site = 0; site < length; ++site)
@@ -35,10 +41,35 @@ auto alternating_half_filled_indices(std::size_t length) -> std::vector<std::siz
   return indices;
 }
 
-auto alternating_product_state(FermiHubbardSite const& site, std::size_t length) -> BlockSparseFiniteMPS
+auto product_state_total_charge(LocalSpace const& physical_space, std::span<std::size_t const> physical_indices) -> QNum
 {
-  auto const indices = alternating_half_filled_indices(length);
-  return make_block_sparse_product_state(site.space, indices);
+  QNum charge = QNum::identity(physical_space.symmetry());
+  for (auto const physical : physical_indices)
+  {
+    charge = charge + physical_space[physical];
+  }
+  return charge;
+}
+
+void validate_product_state_sector(BlockSparseFiniteMPS const& psi, QNum const& expected_total_charge)
+{
+  if (psi.empty())
+  {
+    throw std::invalid_argument("Hubbard DMRG product-state sector validation requires a nonempty MPS");
+  }
+
+  auto const& left_boundary = psi[0].row_space();
+  if (left_boundary.size() != 1 || left_boundary[0].dim != 1 ||
+      left_boundary[0].q != QNum::identity(expected_total_charge.symmetry()))
+  {
+    throw std::invalid_argument("Hubbard DMRG product state has an invalid left boundary sector");
+  }
+
+  auto const& right_boundary = psi[psi.size() - 1].col_space();
+  if (right_boundary.size() != 1 || right_boundary[0].dim != 1 || right_boundary[0].q != expected_total_charge)
+  {
+    throw std::invalid_argument("Hubbard DMRG product state is not in the requested total symmetry sector");
+  }
 }
 
 auto sweep_options(std::size_t max_rank,
@@ -71,21 +102,16 @@ auto truncation_sum(BlockSparseTwoSiteSweepResult const& result) -> double
   return total;
 }
 
-auto format_bond_sectors(std::optional<BlockSpace> const& bond_space) -> std::string
+auto format_bond_sectors(BlockSpace const& bond_space) -> std::string
 {
-  if (!bond_space.has_value())
-  {
-    return "[]";
-  }
-
   std::string text = "[";
-  for (std::size_t index = 0; index < bond_space->size(); ++index)
+  for (std::size_t index = 0; index < bond_space.size(); ++index)
   {
     if (index != 0)
     {
       text += ",";
     }
-    auto const& sector = (*bond_space)[index];
+    auto const& sector = bond_space[index];
     text += "(";
     text += uni20::to_string(sector.q);
     text += ",";
@@ -96,7 +122,25 @@ auto format_bond_sectors(std::optional<BlockSpace> const& bond_space) -> std::st
   return text;
 }
 
+auto format_bond_sectors(std::optional<BlockSpace> const& bond_space) -> std::string
+{
+  if (!bond_space.has_value())
+  {
+    return "[]";
+  }
+  return format_bond_sectors(*bond_space);
+}
+
 auto profile_solver_steps() -> bool { return std::getenv("UNI20_DMRG_PROFILE_SOLVER") != nullptr; }
+
+auto boundary_sector_string(BlockSparseFiniteMPS const& psi) -> std::string
+{
+  if (psi.empty())
+  {
+    return "[]";
+  }
+  return format_bond_sectors(psi[psi.size() - 1].col_space());
+}
 
 void ensure_mpi_initialized()
 {
@@ -243,7 +287,10 @@ void run_hubbard_sweep_check()
   }
 
   auto const site = make_fermi_hubbard_u1u1_site();
-  auto psi = alternating_product_state(site, length);
+  auto const physical_indices = alternating_half_filled_indices(length);
+  auto const target_sector = product_state_total_charge(site.space, physical_indices);
+  auto psi = make_block_sparse_product_state(site.space, physical_indices);
+  validate_product_state_sector(psi, target_sector);
   auto const mpo = make_block_sparse_mpo_chain(make_fermi_hubbard_mpo(length, site, hopping, onsite_u));
   bool const debug_global_energy = std::getenv("UNI20_DMRG_DEBUG_GLOBAL_ENERGY") != nullptr;
   bool const check_sweep_global_energy =
@@ -252,6 +299,8 @@ void run_hubbard_sweep_check()
   fmt::print("\nlength-{} strict U(1)xU(1) Hubbard sweep check\n", length);
   fmt::print("hopping t: {:.16g}\n", hopping);
   fmt::print("onsite U: {:.16g}\n", onsite_u);
+  fmt::print("target sector: {} (half-filled, spin zero)\n", uni20::to_string(target_sector));
+  fmt::print("initial right boundary sector: {}\n", boundary_sector_string(psi));
   fmt::print("max rank: {}\n", max_rank);
   fmt::print("sweeps: {}\n", sweep_count);
   double previous_energy = mps_expectation_value(psi, mpo);

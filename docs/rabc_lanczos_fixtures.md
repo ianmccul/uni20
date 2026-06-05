@@ -18,6 +18,7 @@ Useful selectors:
 | `UNI20_RABC_DUMP_LEFT_SITE` | Optional two-site left index filter. |
 | `UNI20_RABC_DUMP_MIN_BOND_DIM` | Optional minimum left and right external bond dimension. |
 | `UNI20_RABC_DUMP_MATCH_INDEX` | Optional zero-based index among matching solves. |
+| `UNI20_RABC_DUMP_EXIT` | If truthy, exit immediately after writing the selected fixture. |
 
 Example central `m=2048` capture:
 
@@ -30,10 +31,22 @@ env HWLOC_HIDE_ERRORS=2 \
   UNI20_RABC_DUMP_LEFT_SITE=19 \
   UNI20_RABC_DUMP_MIN_BOND_DIM=2048 \
   UNI20_RABC_DUMP_MATCH_INDEX=0 \
+  UNI20_RABC_DUMP_EXIT=1 \
   ./build_codex/tensorcontraction-polaron-release-fresh/examples/spin_half_heisenberg_u1_dmrg
 ```
 
 The fixture is a compact local binary format. It is not intended as a portable archival wavefunction format.
+
+For Hubbard U(1)xU(1) placement work, use `fermi_hubbard_u1u1_dmrg`. The example
+fixes the physical sector to half filling and total spin zero by seeding an
+even-length chain with alternating `|up>, |down>` states, giving final boundary
+charge `(N=L, Sz=0)`. This is the target sector for serious layout benchmarks;
+the existing `L=20, m=16` Hubbard fixture is only a smoke/topology probe and is
+pure GPU overhead for performance work. Do not use it to tune production layout
+policy. Large layout fixtures should be captured from central bonds in the same
+sector at bond dimensions high enough to put nontrivial time inside cuBLAS
+DGEMM, with `m=5000` to `m=10000` as the immediate target scale and larger
+fixtures useful when memory and runtime allow.
 
 ## Replay
 
@@ -237,6 +250,12 @@ scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_timing_trace.jsonl \
   --graph-features \
   --observed-only
 ```
+
+The companion term trace may come from a single-device replay. For no-trace
+benchmark fitting, the script treats the `f` tensor as device-independent and
+infers the active device count from the measured manual layouts in the
+benchmark JSONL. This allows a small term trace to be reused when comparing
+single-node two-GPU candidate layouts.
 
 Even lightweight CUDA-event tracing can perturb the resident matvec path because
 it inserts timing events and synchronization boundaries.  The `gpu_s` trace

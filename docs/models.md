@@ -133,6 +133,21 @@ Jordan-Wigner sign and matches the Matrix Product Toolkit convention
 `make_fermi_hubbard_mpo(length, site, t, U)` constructs a finite triangular MPO
 by repeating this same bulk component at every site.
 
+The `fermi_hubbard_u1u1_dmrg` example currently targets the half-filled
+spin-zero sector. For an even chain length `L`, it initializes the strict
+U(1)xU(1) path from the alternating product state
+
+```text
+|up>, |down>, |up>, |down>, ...
+```
+
+The cumulative MPS bond convention is `q_right = q_left + q_physical`, so this
+sets the final right boundary sector to `(N=L, Sz=0)`. Two-site SVD truncation
+then rebuilds intermediate bond spaces only from symmetry-allowed SVD sectors,
+so the sweep remains in that total sector. Odd lengths are rejected by the
+example because half filling with `Sz=0` is not possible for the alternating
+single-occupancy seed.
+
 ## Boundary Convention
 
 The current first-pass builder keeps the bulk virtual space unchanged at the

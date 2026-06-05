@@ -218,6 +218,39 @@ def layout_string(layout: list[int]) -> str:
     return ",".join(str(device) for device in layout)
 
 
+def compact_layout_string(layout: list[int]) -> str:
+    """Format a layout for human-readable summaries without printing every block."""
+    if not layout:
+        return "blocks=0;counts=;segments=0"
+
+    counts: dict[int, int] = {}
+    segments: list[tuple[int, int, int]] = []
+    start = 0
+    previous = layout[0]
+    for index, device in enumerate(layout):
+        counts[device] = counts.get(device, 0) + 1
+        if device != previous:
+            segments.append((previous, start, index))
+            start = index
+            previous = device
+    segments.append((previous, start, len(layout)))
+
+    counts_text = ",".join(f"{device}:{counts[device]}" for device in sorted(counts))
+    prefix = f"blocks={len(layout)};counts={counts_text};segments={len(segments)}"
+    if len(segments) == 1:
+        return f"all{segments[0][0]};{prefix}"
+    if len(segments) == 2 and segments[0][0] == 0 and segments[1][0] == 1:
+        return f"cut{segments[0][2]};{prefix}"
+    return f"{prefix};transitions={len(segments) - 1}"
+
+
+def maybe_compact_layout(layout: list[int], compact: bool) -> str:
+    """Return either the full manual layout or its compact summary."""
+    if compact:
+        return compact_layout_string(layout)
+    return layout_string(layout)
+
+
 def include_environment_bytes(args: argparse.Namespace) -> bool:
     """Return whether the selected timing objective includes environment staging."""
     return getattr(args, "timing_objective", "steady-state") == "cold-start"
@@ -371,13 +404,14 @@ def summarize_grouped(records: list[dict[str, Any]]) -> None:
         print(f"best_mean_gpu_s={best_mean:.9g} layout={layout_string(list(best_key))}")
 
 
-def summarize_benchmark_records(records: list[dict[str, Any]]) -> None:
+def summarize_benchmark_records(records: list[dict[str, Any]], compact_layouts: bool) -> None:
     """Print no-trace replay benchmark timing aggregates."""
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for record in records:
         grouped.setdefault((str(record.get("name", "")), str(record.get("layout", ""))), []).append(record)
 
-    print("count mean_matvec_s min_matvec_s max_matvec_s mean_wall_s name layout")
+    layout_column = "layout_summary" if compact_layouts else "layout"
+    print(f"count mean_matvec_s min_matvec_s max_matvec_s mean_wall_s name {layout_column}")
     best_key: tuple[str, str] | None = None
     best_mean = float("inf")
     for key, rows in grouped.items():
@@ -388,12 +422,17 @@ def summarize_benchmark_records(records: list[dict[str, Any]]) -> None:
         if mean_matvec < best_mean:
             best_mean = mean_matvec
             best_key = key
+        layout = [int(item) for item in key[1].split(",") if item]
         print(
             f"{len(rows)} {mean_matvec:.9g} {min(matvec):.9g} {max(matvec):.9g} "
-            f"{mean_wall:.9g} {key[0]} {key[1]}"
+            f"{mean_wall:.9g} {key[0]} {maybe_compact_layout(layout, compact_layouts)}"
         )
     if best_key is not None:
-        print(f"best_mean_matvec_s={best_mean:.9g} name={best_key[0]} layout={best_key[1]}")
+        layout = [int(item) for item in best_key[1].split(",") if item]
+        print(
+            f"best_mean_matvec_s={best_mean:.9g} name={best_key[0]} "
+            f"{layout_column}={maybe_compact_layout(layout, compact_layouts)}"
+        )
 
 
 def summarize_benchmark_structure(records: list[dict[str, Any]], problem: dict[str, Any], sort_key: str) -> None:
@@ -467,6 +506,33 @@ def benchmark_records_from_paths(paths: list[Path]) -> list[dict[str, Any]]:
     if not records:
         raise ValueError("benchmark files contained no R/A/B/C replay benchmark records")
     return records
+
+
+def raw_layout_values(record: dict[str, Any]) -> list[int]:
+    """Parse a benchmark layout string without validating the device count."""
+    layout: list[int] = []
+    for item in str(record.get("layout", "")).split(","):
+        stripped = item.strip()
+        if stripped:
+            layout.append(int(stripped))
+    return layout
+
+
+def benchmark_problem(records: list[dict[str, Any]], term_trace: Path) -> dict[str, Any]:
+    """Return a static term problem with device count inferred from benchmarks."""
+    problem = trace_problem([], read_trace(term_trace))
+    block_count = int(problem["block_count"])
+    device_count = int(problem["device_count"])
+    for record in records:
+        layout = raw_layout_values(record)
+        if len(layout) != block_count:
+            raise ValueError(f"layout has {len(layout)} blocks, expected {block_count}")
+        if layout:
+            device_count = max(device_count, max(layout) + 1)
+
+    problem = dict(problem)
+    problem["device_count"] = device_count
+    return problem
 
 
 def benchmark_layout(record: dict[str, Any], problem: dict[str, Any]) -> list[int]:
@@ -655,7 +721,7 @@ def leave_one_benchmark_layout_out(
     return rows
 
 
-def print_benchmark_validation(rows: list[dict[str, Any]]) -> None:
+def print_benchmark_validation(rows: list[dict[str, Any]], compact_layouts: bool) -> None:
     """Print leave-one-layout-out validation for no-trace benchmark timing."""
     stats = validation_stats(rows)
     print(
@@ -664,11 +730,14 @@ def print_benchmark_validation(rows: list[dict[str, Any]]) -> None:
         f"best_predicted_line={int(stats['best_predicted_line'])} "
         f"top1_match={str(bool(stats['top1_match'])).lower()}"
     )
-    print("observed_matvec_s predicted_matvec_s error_s count first_line names layout")
+    layout_column = "layout_summary" if compact_layouts else "layout"
+    print(f"observed_matvec_s predicted_matvec_s error_s count first_line names {layout_column}")
     for row in rows:
+        layout = list(row["layout"])
         print(
             f"{row['observed']:.9g} {row['predicted']:.9g} {row['error']:.9g} "
-            f"{row['count']} {row['first_line']} {row['names']} {layout_string(list(row['layout']))}"
+            f"{row['count']} {row['first_line']} {row['names']} "
+            f"{maybe_compact_layout(layout, compact_layouts)}"
         )
 
 
@@ -1674,14 +1743,14 @@ def cmd_bench_record(args: argparse.Namespace) -> int:
 def cmd_bench_summary(args: argparse.Namespace) -> int:
     """Summarize no-trace replay benchmark JSONL records."""
     records = benchmark_records_from_paths(args.benchmark)
-    summarize_benchmark_records(records)
+    summarize_benchmark_records(records, args.compact_layouts)
     return 0
 
 
 def cmd_bench_struct_summary(args: argparse.Namespace) -> int:
     """Summarize benchmark rows with static structural layout features."""
     records = benchmark_records_from_paths(args.benchmark)
-    problem = trace_problem([], read_trace(args.term_trace))
+    problem = benchmark_problem(records, args.term_trace)
     summarize_benchmark_structure(records, problem, args.sort)
     return 0
 
@@ -1689,7 +1758,7 @@ def cmd_bench_struct_summary(args: argparse.Namespace) -> int:
 def cmd_bench_fit(args: argparse.Namespace) -> int:
     """Fit replay benchmark matvec time from static layout features."""
     records = benchmark_records_from_paths(args.benchmark)
-    problem = trace_problem([], read_trace(args.term_trace))
+    problem = benchmark_problem(records, args.term_trace)
     include_env_bytes = include_environment_bytes(args)
     coefficients, stats = fit_benchmark_coefficients(
         records, problem, args.ridge, include_env_bytes, args.graph_features
@@ -1707,7 +1776,7 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
 def cmd_bench_validate(args: argparse.Namespace) -> int:
     """Validate replay benchmark layout predictions."""
     records = benchmark_records_from_paths(args.benchmark)
-    problem = trace_problem([], read_trace(args.term_trace))
+    problem = benchmark_problem(records, args.term_trace)
     rows = leave_one_benchmark_layout_out(
         records,
         problem,
@@ -1720,14 +1789,14 @@ def cmd_bench_validate(args: argparse.Namespace) -> int:
     print(f"target=matvec_s")
     print(f"reduction=critical_path_max")
     print(f"graph_features={str(args.graph_features).lower()}")
-    print_benchmark_validation(rows)
+    print_benchmark_validation(rows, args.compact_layouts)
     return 0
 
 
 def cmd_bench_suggest(args: argparse.Namespace) -> int:
     """Fit benchmark matvec timing and suggest a candidate layout."""
     records = benchmark_records_from_paths(args.benchmark)
-    problem = trace_problem([], read_trace(args.term_trace))
+    problem = benchmark_problem(records, args.term_trace)
     include_env_bytes = include_environment_bytes(args)
     coefficients, stats = fit_benchmark_coefficients(
         records, problem, args.ridge, include_env_bytes, args.graph_features
@@ -1799,16 +1868,20 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     print(f"observed_layout={str(bool(best['observed'])).lower()}")
     print(f"contiguous_layout={str(bool(best['contiguous'])).lower()}")
     print(f"byte_balanced_layout={str(bool(best['byte_balanced'])).lower()}")
-    print("layout=" + layout_string(best_layout))
+    if args.compact_layouts:
+        print("layout_summary=" + compact_layout_string(best_layout))
+    else:
+        print("layout=" + layout_string(best_layout))
     if not best["observed"]:
         print("warning=selected_layout_not_observed_in_benchmark")
     if args.top > 1:
-        print("top_rank predicted_matvec_s observed contiguous byte_balanced layout")
+        layout_column = "layout_summary" if args.compact_layouts else "layout"
+        print(f"top_rank predicted_matvec_s observed contiguous byte_balanced {layout_column}")
         for rank, row in enumerate(ranked[: args.top], start=1):
             print(
                 f"{rank} {float(row['score']):.9g} {str(bool(row['observed'])).lower()} "
                 f"{str(bool(row['contiguous'])).lower()} {str(bool(row['byte_balanced'])).lower()} "
-                f"{layout_string(row['layout'])}"
+                f"{maybe_compact_layout(row['layout'], args.compact_layouts)}"
             )
     print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual \\")
     print("    UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=" + layout_string(best_layout))
@@ -1818,7 +1891,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
 def cmd_bench_tune(args: argparse.Namespace) -> int:
     """Scan ridge values with benchmark leave-one-layout-out validation."""
     records = benchmark_records_from_paths(args.benchmark)
-    problem = trace_problem([], read_trace(args.term_trace))
+    problem = benchmark_problem(records, args.term_trace)
     ridges = parse_float_list(args.ridges)
     clamp_modes = [False, True] if args.include_clamped else [False]
     include_env_bytes = include_environment_bytes(args)
@@ -2201,6 +2274,9 @@ def parser() -> argparse.ArgumentParser:
 
     bench_summary = subcommands.add_parser("bench-summary", help="summarize replay benchmark JSONL records")
     bench_summary.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    bench_summary.add_argument(
+        "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
+    )
     bench_summary.set_defaults(func=cmd_bench_summary)
 
     bench_struct_summary = subcommands.add_parser(
@@ -2231,6 +2307,9 @@ def parser() -> argparse.ArgumentParser:
     bench_validate.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_validate.add_argument("--ridge", type=float, default=1.0e-9)
     bench_validate.add_argument("--clamp-negative", action="store_true")
+    bench_validate.add_argument(
+        "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
+    )
     add_timing_objective(bench_validate)
     add_graph_features(bench_validate)
     add_required_term_trace(bench_validate)
@@ -2251,6 +2330,9 @@ def parser() -> argparse.ArgumentParser:
         help="search only layouts that assign contiguous block-index ranges to ordered devices",
     )
     bench_suggest.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before search")
+    bench_suggest.add_argument(
+        "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
+    )
     add_timing_objective(bench_suggest)
     add_graph_features(bench_suggest)
     add_required_term_trace(bench_suggest)

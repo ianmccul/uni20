@@ -1,7 +1,10 @@
 #include <uni20/models/fermi_hubbard.hpp>
+#include <uni20/mps/block_sparse_mps.hpp>
 #include <uni20/mps/sparse_mpo_site.hpp>
 
 #include <gtest/gtest.h>
+
+#include <array>
 
 using namespace uni20;
 
@@ -144,4 +147,22 @@ TEST(FermiHubbardModelTest, BuildsUniformFiniteTriangularMpo)
     EXPECT_EQ(mpo[i].left_virtual_space(), mpo[i].right_virtual_space());
     EXPECT_EQ(mpo[i].nnz(), 11);
   }
+}
+
+TEST(FermiHubbardModelTest, AlternatingHalfFilledProductStateHasSpinZeroBoundarySector)
+{
+  auto const site = make_fermi_hubbard_u1u1_site();
+  std::array<std::size_t, 4> const indices{3, 2, 3, 2};
+  auto const psi = make_block_sparse_product_state(site.space, indices);
+
+  ASSERT_EQ(psi.size(), indices.size());
+  ASSERT_EQ(psi[0].row_space().size(), 1);
+  EXPECT_EQ(psi[0].row_space()[0].q, QNum::identity(site.symmetry));
+  EXPECT_EQ(psi[0].row_space()[0].dim, 1);
+
+  auto const& total_sector = psi[psi.size() - 1].col_space();
+  ASSERT_EQ(total_sector.size(), 1);
+  EXPECT_EQ(total_sector[0].dim, 1);
+  EXPECT_EQ(u1_component(total_sector[0].q, "N"), U1{4});
+  EXPECT_EQ(u1_component(total_sector[0].q, "Sz"), U1{0});
 }

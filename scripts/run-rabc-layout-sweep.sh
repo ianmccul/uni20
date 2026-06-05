@@ -34,6 +34,8 @@ Options:
                           for <output-dir>/trace.jsonl.
   --trace-terms           Include term metadata in trace records. Requires --trace-path.
   --placement-log         Print TensorContraction placement diagnostics to stderr.
+  --show-layouts          Print full manual placement lists to stdout. By default
+                          large layouts are summarized compactly.
   --help                  Show this help.
 
 Outputs:
@@ -65,6 +67,7 @@ resume=0
 trace_path=""
 trace_terms=0
 placement_log=0
+show_layouts=0
 declare -A custom_layouts=()
 custom_layout_names=()
 
@@ -144,6 +147,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --placement-log)
       placement_log=1
+      shift
+      ;;
+    --show-layouts)
+      show_layouts=1
       shift
       ;;
     --help)
@@ -278,7 +285,28 @@ for item in "${labels[@]}"; do
 
   echo "=== ${label} ==="
   if [[ "${manual_policy}" -eq 1 ]]; then
-    echo "layout=${layout}"
+    if [[ "${show_layouts}" -eq 1 ]]; then
+      echo "layout=${layout}"
+    else
+      counts="$(
+        awk -F',' -v device_count="${device_count}" '{
+          for (device = 0; device < device_count; ++device) {
+            counts[device] = 0
+          }
+          for (field = 1; field <= NF; ++field) {
+            ++counts[$field]
+          }
+          for (device = 0; device < device_count; ++device) {
+            if (device > 0) {
+              printf ","
+            }
+            printf "%d:%d", device, counts[device]
+          }
+          printf "\n"
+        }' <<< "${layout}"
+      )"
+      echo "layout_summary=blocks=${block_count};counts=${counts};stored_in=${layouts_file}"
+    fi
   fi
   if [[ "${resume}" -eq 1 ]] && has_bench_rows "${bench_file}"; then
     echo "resume=skip existing ${bench_file}"
@@ -317,7 +345,11 @@ done
 
 echo "=== summary ==="
 if [[ "${manual_policy}" -eq 1 ]]; then
-  "${repo_root}/scripts/rabc-trace-model.py" bench-summary "${jsonl}"
+  summary_args=()
+  if [[ "${show_layouts}" -eq 0 ]]; then
+    summary_args+=(--compact-layouts)
+  fi
+  "${repo_root}/scripts/rabc-trace-model.py" bench-summary "${jsonl}" "${summary_args[@]}"
   echo "benchmark_jsonl=${jsonl}"
 else
   echo "benchmark_jsonl=not_written_for_policy_${policy}"

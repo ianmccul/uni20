@@ -1011,6 +1011,18 @@ inline auto optional_env_size(char const* name) -> std::optional<std::size_t>
   return static_cast<std::size_t>(value);
 }
 
+inline auto env_flag_enabled(char const* name) -> bool
+{
+  char const* raw = std::getenv(name);
+  if (raw == nullptr || *raw == '\0')
+  {
+    return false;
+  }
+
+  std::string const value(raw);
+  return value == "1" || value == "true" || value == "on" || value == "yes";
+}
+
 inline auto rabc_fixture_match_counter() -> std::size_t&
 {
   static std::size_t counter = 0;
@@ -1054,6 +1066,11 @@ inline void maybe_dump_rabc_fixture(BlockSparseFiniteMPS const& psi, std::size_t
   std::fprintf(stderr, "[UNI20][RABC_FIXTURE] wrote %s left_site=%zu match=%zu left_dim=%zu right_dim=%zu blocks=%zu\n",
                path, left_site, match_index, layout.left_bond_space().total_dim(),
                layout.right_bond_space().total_dim(), layout.block_count());
+  if (env_flag_enabled("UNI20_RABC_DUMP_EXIT"))
+  {
+    std::fflush(stderr);
+    std::exit(0);
+  }
 }
 
 inline void validate_block_sparse_effective_hamiltonian_inputs(BlockSparseEnvironment const& left_env,
