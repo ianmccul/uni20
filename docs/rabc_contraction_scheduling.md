@@ -211,14 +211,27 @@ final storage layout.
 ## Optimization Formulation
 
 The placement problem is a graph/hypergraph partitioning problem with execution
-choices attached to each hyperedge.  A term
+choices attached to each hyperedge.  The sparse TensorContraction `f` tensor is
+the ground-truth connectivity object.  Its nonzero entries are terms of the
+form
 
 ```text
 t = (R_r, A_a, B_b, C_c, alpha)
 ```
 
-connects one output block, three input blocks, and one scalar coefficient.  In
-the final Uni20 model, decision variables should include:
+Each term connects one output block, three input blocks, and one scalar
+coefficient.  Symmetry and fusion rules explain why this sparse `f` tensor has
+locality, but they should not replace the `f` tensor in the planner.  For the
+U(1) Heisenberg Hamiltonian, local terms change charge by `0`, `+1`, or `-1`.
+Since the total Hamiltonian is a scalar, a charge-changing left/environment
+operation must be compensated by the opposite change on the other side.  This
+clusters strongly connected center blocks in neighboring quantum-number
+sectors.  The empirical placement model should therefore read locality from
+the actual `f` hypergraph, then optionally restrict candidate layouts to
+contiguous block-index ranges when the block ordering preserves that sector
+locality.
+
+In the final Uni20 model, decision variables should include:
 
 - block placement `p_F(i) = (rank, device)` for each block `i` in each family
   `F in {A, B, C, R}`;
@@ -270,6 +283,29 @@ The multiplication order is therefore a per-term or per-group decision, not a
 global flag.  Some moves in this chain may be unnecessary for a specific
 geometry or cost model, but the planner should include them as possible edges so
 benchmark feedback can decide which ones are worth scheduling.
+
+The interesting mixed-order case is when different connected regions of the
+same sparse `f` hypergraph prefer different first-stage contractions.  The
+planner should eventually compare at least these grouped choices:
+
+- right-first groups keyed by `(B_b, C_c)`, computing `Y = B_b * C_c`;
+- left-first groups keyed by `(A_a, B_b)`, computing `X = A_a * B_b`;
+- per-group execution location and any transfer needed before reducing into
+  the canonical `R_r` owner.
+
+This is where symmetry locality enters constructively.  A scalar Hamiltonian
+term can move charge on one side only if the opposite side compensates it, so
+the useful groups are determined by the nonzero `f` entries and the fusion
+algebra that generated them.  The final planner should score mixed left/right
+groups from that graph rather than choosing one global order for every block.
+
+The local rectangular-block heuristic is simpler: for an isolated term, multiply
+through the long dimension of the center block `B` first.  If `B` is tall, the
+left-first path `A * B` contracts the long row dimension; if `B` is wide, the
+right-first path `B * C` contracts the long column dimension.  This is only a
+local heuristic.  Reuse encoded in the sparse `f` tensor, communication costs,
+and shared intermediates can override it, especially when many neighboring
+sectors share the same `(A, B)` or `(B, C)` group.
 
 The right-first, target-owned prototype is the reduced problem:
 

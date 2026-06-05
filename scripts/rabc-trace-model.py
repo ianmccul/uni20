@@ -223,6 +223,168 @@ def layout_mean_gpu_seconds(records: list[dict[str, Any]]) -> float:
     return sum(timings) / len(timings)
 
 
+def term_left_first_flops(term: dict[str, Any]) -> tuple[float, float]:
+    """Return first and second GEMM flops for the `A * B` order."""
+    first = 2.0 * float(term["a_rows"]) * float(term["a_cols"]) * float(term["b_cols"])
+    second = 2.0 * float(term["a_rows"]) * float(term["b_cols"]) * float(term["c_cols"])
+    return first, second
+
+
+def term_left_first_intermediate_bytes(term: dict[str, Any]) -> int:
+    """Return intermediate bytes for the `A * B` order."""
+    return int(term["a_rows"]) * int(term["b_cols"]) * 8
+
+
+def order_stats_for_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Compute flop-only left/right order diagnostics for one traced layout."""
+    if "terms" not in record:
+        raise ValueError("order-summary requires trace rows captured with UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1")
+
+    layout = [int(item) for item in record.get("output_layout", [])]
+    device_count = int(record["device_count"])
+    devices: list[dict[str, Any]] = []
+    staged_right: list[set[tuple[int, int]]] = [set() for _ in range(device_count)]
+    staged_left: list[set[tuple[int, int]]] = [set() for _ in range(device_count)]
+    for device in range(device_count):
+        devices.append(
+            {
+                "device": device,
+                "terms": 0,
+                "right_first_flops": 0.0,
+                "right_second_flops": 0.0,
+                "right_intermediate_bytes": 0,
+                "left_first_flops": 0.0,
+                "left_second_flops": 0.0,
+                "left_intermediate_bytes": 0,
+                "term_pref_left": 0,
+                "term_pref_right": 0,
+                "term_pref_equal": 0,
+                "b_long_dim_pref_left": 0,
+                "b_long_dim_pref_right": 0,
+                "b_square": 0,
+            }
+        )
+
+    for term in record["terms"]:
+        r = int(term["r"])
+        device = layout[r]
+        row = devices[device]
+        row["terms"] += 1
+
+        right_key = (int(term["b"]), int(term["c"]))
+        if right_key not in staged_right[device]:
+            staged_right[device].add(right_key)
+            row["right_first_flops"] += float(term["bc_flops"])
+            row["right_intermediate_bytes"] += int(term["intermediate_bytes"])
+        row["right_second_flops"] += float(term["accumulate_flops"])
+
+        left_key = (int(term["a"]), int(term["b"]))
+        left_first, left_second = term_left_first_flops(term)
+        if left_key not in staged_left[device]:
+            staged_left[device].add(left_key)
+            row["left_first_flops"] += left_first
+            row["left_intermediate_bytes"] += term_left_first_intermediate_bytes(term)
+        row["left_second_flops"] += left_second
+
+        right_term_flops = float(term["bc_flops"]) + float(term["accumulate_flops"])
+        left_term_flops = left_first + left_second
+        if left_term_flops < right_term_flops:
+            row["term_pref_left"] += 1
+        elif right_term_flops < left_term_flops:
+            row["term_pref_right"] += 1
+        else:
+            row["term_pref_equal"] += 1
+
+        b_rows = int(term["b_rows"])
+        b_cols = int(term["b_cols"])
+        if b_rows > b_cols:
+            row["b_long_dim_pref_left"] += 1
+        elif b_cols > b_rows:
+            row["b_long_dim_pref_right"] += 1
+        else:
+            row["b_square"] += 1
+
+    for row in devices:
+        row["right_unique_first"] = len(staged_right[row["device"]])
+        row["left_unique_first"] = len(staged_left[row["device"]])
+        row["right_total_flops"] = row["right_first_flops"] + row["right_second_flops"]
+        row["left_total_flops"] = row["left_first_flops"] + row["left_second_flops"]
+
+    return {
+        "layout": layout,
+        "devices": devices,
+        "right_total_flops": sum(float(row["right_total_flops"]) for row in devices),
+        "left_total_flops": sum(float(row["left_total_flops"]) for row in devices),
+        "right_max_device_flops": max(float(row["right_total_flops"]) for row in devices),
+        "left_max_device_flops": max(float(row["left_total_flops"]) for row in devices),
+    }
+
+
+def block_order_preferences(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """Summarize left/right order preference for each `(device, B block)` group."""
+    if "terms" not in record:
+        raise ValueError("block order preferences require trace rows captured with term details")
+
+    layout = [int(item) for item in record.get("output_layout", [])]
+    groups: dict[tuple[int, int], dict[str, Any]] = {}
+    staged_right: dict[tuple[int, int], set[int]] = {}
+    staged_left: dict[tuple[int, int], set[int]] = {}
+
+    for term in record["terms"]:
+        r = int(term["r"])
+        b = int(term["b"])
+        device = layout[r]
+        key = (device, b)
+        row = groups.setdefault(
+            key,
+            {
+                "device": device,
+                "b": b,
+                "b_rows": int(term["b_rows"]),
+                "b_cols": int(term["b_cols"]),
+                "terms": 0,
+                "right_first_flops": 0.0,
+                "right_second_flops": 0.0,
+                "left_first_flops": 0.0,
+                "left_second_flops": 0.0,
+            },
+        )
+        row["terms"] += 1
+
+        c = int(term["c"])
+        if c not in staged_right.setdefault(key, set()):
+            staged_right[key].add(c)
+            row["right_first_flops"] += float(term["bc_flops"])
+        row["right_second_flops"] += float(term["accumulate_flops"])
+
+        a = int(term["a"])
+        left_first, left_second = term_left_first_flops(term)
+        if a not in staged_left.setdefault(key, set()):
+            staged_left[key].add(a)
+            row["left_first_flops"] += left_first
+        row["left_second_flops"] += left_second
+
+    rows = list(groups.values())
+    for row in rows:
+        row["right_total_flops"] = row["right_first_flops"] + row["right_second_flops"]
+        row["left_total_flops"] = row["left_first_flops"] + row["left_second_flops"]
+        if row["left_total_flops"] < row["right_total_flops"]:
+            row["preference"] = "left"
+        elif row["right_total_flops"] < row["left_total_flops"]:
+            row["preference"] = "right"
+        else:
+            row["preference"] = "equal"
+        if row["b_rows"] > row["b_cols"]:
+            row["long_dim_heuristic"] = "left"
+        elif row["b_cols"] > row["b_rows"]:
+            row["long_dim_heuristic"] = "right"
+        else:
+            row["long_dim_heuristic"] = "equal"
+        row["abs_delta_flops"] = abs(row["right_total_flops"] - row["left_total_flops"])
+    rows.sort(key=lambda row: (row["device"], -row["abs_delta_flops"], row["b"]))
+    return rows
+
+
 def term_problem(record: dict[str, Any]) -> dict[str, Any]:
     """Extract the shape-rich term problem needed to score candidate layouts."""
     terms = record.get("terms", [])
@@ -387,6 +549,36 @@ def byte_balanced_layout(problem: dict[str, Any]) -> list[int]:
             layout[block] = device
         begin = end
     return layout
+
+
+def contiguous_range_layouts(block_count: int, device_count: int) -> list[tuple[str, list[int]]]:
+    """Generate layouts that assign contiguous block-index ranges to ordered devices."""
+    if device_count <= 0:
+        raise ValueError("device_count must be positive")
+    if block_count <= 0:
+        raise ValueError("block_count must be positive")
+    if block_count < device_count:
+        raise ValueError("block_count must be at least device_count for nonempty contiguous ranges")
+
+    layouts: list[tuple[str, list[int]]] = []
+
+    def visit(device: int, begin: int, cuts: list[int], layout: list[int]) -> None:
+        if device == device_count - 1:
+            final = layout + [device] * (block_count - begin)
+            if device_count == 2:
+                name = f"cut{cuts[0]}"
+            else:
+                name = "cuts_" + "_".join(str(cut) for cut in cuts)
+            layouts.append((name, final))
+            return
+
+        remaining_devices = device_count - device - 1
+        max_end = block_count - remaining_devices
+        for end in range(begin + 1, max_end + 1):
+            visit(device + 1, end, cuts + [end], layout + [device] * (end - begin))
+
+    visit(0, 0, [], [])
+    return layouts
 
 
 def observed_layouts(records: list[dict[str, Any]]) -> list[list[int]]:
@@ -578,6 +770,51 @@ def cmd_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_order_summary(args: argparse.Namespace) -> int:
+    """Summarize left-first versus right-first costs for traced `f` terms."""
+    records = trace_records(args)
+    grouped = group_by_layout(records)
+    print(
+        "first_line count right_total_flops left_total_flops right_max_device_flops left_max_device_flops "
+        "layout"
+    )
+    for key, rows in grouped.items():
+        stats = order_stats_for_record(rows[0])
+        print(
+            f"{rows[0]['_line']} {len(rows)} {stats['right_total_flops']:.9g} {stats['left_total_flops']:.9g} "
+            f"{stats['right_max_device_flops']:.9g} {stats['left_max_device_flops']:.9g} "
+            f"{layout_string(list(key))}"
+        )
+        if args.devices:
+            print(
+                "  device terms right_total_flops left_total_flops right_unique_first left_unique_first "
+                "term_pref_left term_pref_right term_pref_equal "
+                "b_long_dim_pref_left b_long_dim_pref_right b_square"
+            )
+            for row in stats["devices"]:
+                print(
+                    f"  {row['device']} {row['terms']} {row['right_total_flops']:.9g} "
+                    f"{row['left_total_flops']:.9g} {row['right_unique_first']} {row['left_unique_first']} "
+                    f"{row['term_pref_left']} {row['term_pref_right']} {row['term_pref_equal']} "
+                    f"{row['b_long_dim_pref_left']} {row['b_long_dim_pref_right']} {row['b_square']}"
+                )
+        if args.blocks:
+            print(
+                "  device b b_rows b_cols terms right_total_flops left_total_flops preference "
+                "long_dim_heuristic"
+            )
+            block_rows = block_order_preferences(rows[0])
+            if args.top_blocks > 0:
+                block_rows = block_rows[: args.top_blocks]
+            for row in block_rows:
+                print(
+                    f"  {row['device']} {row['b']} {row['b_rows']} {row['b_cols']} {row['terms']} "
+                    f"{row['right_total_flops']:.9g} {row['left_total_flops']:.9g} "
+                    f"{row['preference']} {row['long_dim_heuristic']}"
+                )
+    return 0
+
+
 def cmd_layouts(args: argparse.Namespace) -> int:
     """Generate simple manual placement layouts."""
     rng = random.Random(args.seed)
@@ -586,6 +823,8 @@ def cmd_layouts(args: argparse.Namespace) -> int:
                    for block in range(args.block_count)]),
         ("alternating", [block % args.device_count for block in range(args.block_count)]),
     ]
+    if args.contiguous_cuts:
+        layouts.extend(contiguous_range_layouts(args.block_count, args.device_count))
     for index in range(args.random):
         layouts.append((f"random{index}", [rng.randrange(args.device_count) for _ in range(args.block_count)]))
     for name, layout in layouts:
@@ -649,11 +888,19 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     best_layout: list[int] | None = None
     best_score = float("inf")
     best_devices: list[float] = []
-    seeds = observed_layouts(records) if args.observed_only else candidate_layouts(problem, records, args.random)
+    if args.contiguous_only:
+        seeds = [
+            layout
+            for _, layout in contiguous_range_layouts(int(problem["block_count"]), int(problem["device_count"]))
+        ]
+    elif args.observed_only:
+        seeds = observed_layouts(records)
+    else:
+        seeds = candidate_layouts(problem, records, args.random)
     for seed in seeds:
         layout = (
             seed
-            if args.observed_only
+            if args.observed_only or args.contiguous_only
             else local_search(problem, seed, coefficients, args.passes, include_env_bytes)
         )
         score, device_predictions = score_layout(problem, layout, coefficients, include_env_bytes)
@@ -665,7 +912,10 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     assert best_layout is not None
     print(f"timing_objective={args.timing_objective}")
     print_fit(coefficients, stats)
-    print(f"search={'observed' if args.observed_only else 'local'}")
+    if args.contiguous_only:
+        print("search=contiguous")
+    else:
+        print(f"search={'observed' if args.observed_only else 'local'}")
     print(f"predicted_gpu_s={best_score:.9g}")
     print("predicted_device_gpu_s=" + ",".join(f"{value:.9g}" for value in best_devices))
     print("layout=" + layout_string(best_layout))
@@ -696,6 +946,16 @@ def parser() -> argparse.ArgumentParser:
     summary.add_argument("--group-layouts", action="store_true")
     summary.set_defaults(func=cmd_summary)
 
+    order_summary = subcommands.add_parser(
+        "order-summary", help="summarize left-first versus right-first term costs"
+    )
+    order_summary.add_argument("trace", type=Path)
+    order_summary.add_argument("--drop-first-per-layout", type=int, default=0)
+    order_summary.add_argument("--devices", action="store_true", help="print per-device order statistics")
+    order_summary.add_argument("--blocks", action="store_true", help="print per-center-block order statistics")
+    order_summary.add_argument("--top-blocks", type=int, default=0, help="limit per-layout block rows by delta")
+    order_summary.set_defaults(func=cmd_order_summary)
+
     fit = subcommands.add_parser("fit", help="fit per-device timing coefficients")
     fit.add_argument("trace", type=Path)
     fit.add_argument("--ridge", type=float, default=1.0e-9)
@@ -710,6 +970,11 @@ def parser() -> argparse.ArgumentParser:
     suggest.add_argument("--random", type=int, default=16)
     suggest.add_argument("--drop-first-per-layout", type=int, default=0)
     suggest.add_argument("--observed-only", action="store_true")
+    suggest.add_argument(
+        "--contiguous-only",
+        action="store_true",
+        help="search only layouts that assign contiguous block-index ranges to ordered devices",
+    )
     suggest.add_argument("--allow-negative", action="store_true")
     add_timing_objective(suggest)
     suggest.set_defaults(func=cmd_suggest)
@@ -735,6 +1000,11 @@ def parser() -> argparse.ArgumentParser:
     layouts.add_argument("--device-count", type=int, required=True)
     layouts.add_argument("--random", type=int, default=0)
     layouts.add_argument("--seed", type=int, default=1)
+    layouts.add_argument(
+        "--contiguous-cuts",
+        action="store_true",
+        help="also emit every nonempty contiguous range partition for the requested device count",
+    )
     layouts.set_defaults(func=cmd_layouts)
     return root
 

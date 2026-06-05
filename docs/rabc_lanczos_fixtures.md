@@ -145,12 +145,21 @@ the first empirical model.  Set `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1` whe
 or when a later optimizer needs term-level training data.  Term tracing also records the matrix dimensions and per-term
 right-first flops, which allows offline scoring of candidate layouts that were not directly measured.
 
+Use `order-summary` on a term trace to compare the current right-first schedule
+with the left-first alternative and to inspect per-center-block mixed-order
+pressure from the sparse `f` hypergraph:
+
+```bash
+scripts/rabc-trace-model.py order-summary /tmp/uni20_rabc_trace.jsonl --devices --blocks --top-blocks 12
+```
+
 Use `scripts/rabc-trace-model.py` to inspect and fit these traces:
 
 ```bash
 scripts/rabc-trace-model.py summary /tmp/uni20_rabc_trace.jsonl
 scripts/rabc-trace-model.py fit /tmp/uni20_rabc_trace.jsonl
 scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl
+scripts/rabc-trace-model.py order-summary /tmp/uni20_rabc_trace.jsonl --devices --blocks --top-blocks 12
 ```
 
 The `fit` subcommand performs a small ridge least-squares fit to per-device CUDA-event timings.  The `suggest`
@@ -158,6 +167,18 @@ subcommand fits the same model, clamps negative coefficients by default, and per
 local search over candidate center-vector layouts.  This is a first empirical optimizer, not a proof of global
 optimality.  It is intended to generate candidate manual layouts that should then be rerun through the fixture replay
 and compared against the measured `gpu_s` trace field.
+
+For symmetry-local Hamiltonians, also test the constrained contiguous-range
+family.  The traced sparse `f` tensor remains the ground truth for connectivity:
+contiguous ranges are only a candidate restriction that is useful when the
+block ordering clusters neighboring quantum-number sectors.
+
+```bash
+scripts/rabc-trace-model.py layouts --block-count 42 --device-count 2 --contiguous-cuts
+scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl \
+  --drop-first-per-layout=1 \
+  --contiguous-only
+```
 
 The fitting commands default to `--timing-objective=steady-state`, which matches the resident Lanczos comparison:
 `A` and `C` environment byte features are still reported in trace rows, but they are ignored as transfer regressors
