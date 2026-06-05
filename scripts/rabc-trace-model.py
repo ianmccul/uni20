@@ -36,6 +36,22 @@ GRAPH_FEATURE_NAMES = [
     "right_duplicate_groups",
 ]
 
+BENCHMARK_LAYOUT_FEATURE_NAMES = [
+    "layout_transitions",
+    "layout_segments",
+    "active_devices",
+    "max_output_block_fraction",
+    "max_output_byte_fraction",
+]
+
+DEVICE_BENCHMARK_FEATURE_NAMES = [
+    "right_flops",
+    "b_peer_bytes",
+    "terms",
+    "unique_bc",
+    "output_bytes",
+]
+
 BENCHMARK_REPEAT_RE = re.compile(
     r"repeat=(?P<repeat>\d+)\s+wall=(?P<wall>[0-9.eE+-]+)s\b.*\bmatvec=(?P<matvec>[0-9.eE+-]+)s\b"
 )
@@ -249,6 +265,65 @@ def maybe_compact_layout(layout: list[int], compact: bool) -> str:
     if compact:
         return compact_layout_string(layout)
     return layout_string(layout)
+
+
+def layout_segments(layout: list[int]) -> list[tuple[int, int, int]]:
+    """Return contiguous `(device, begin, end)` segments for a layout."""
+    if not layout:
+        return []
+    segments: list[tuple[int, int, int]] = []
+    begin = 0
+    previous = layout[0]
+    for index, device in enumerate(layout):
+        if device != previous:
+            segments.append((previous, begin, index))
+            begin = index
+            previous = device
+    segments.append((previous, begin, len(layout)))
+    return segments
+
+
+def is_ordered_contiguous_layout(layout: list[int]) -> bool:
+    """Return whether a layout is made from ordered contiguous device ranges."""
+    segments = layout_segments(layout)
+    devices = [device for device, _, _ in segments]
+    return devices == sorted(set(devices))
+
+
+def layout_shape_features(problem: dict[str, Any], layout: list[int]) -> dict[str, float]:
+    """Return global layout features that are not tied to an anonymous critical path."""
+    validate_layout(problem, layout)
+    segments = layout_segments(layout)
+    device_count = int(problem["device_count"])
+    block_count = int(problem["block_count"])
+    output_bytes = [int(item) for item in problem["output_bytes"]]
+    blocks_by_device = [0] * device_count
+    bytes_by_device = [0] * device_count
+    for block, device in enumerate(layout):
+        blocks_by_device[device] += 1
+        bytes_by_device[device] += output_bytes[block]
+
+    total_bytes = sum(bytes_by_device)
+    return {
+        "layout_transitions": float(max(0, len(segments) - 1)),
+        "layout_segments": float(len(segments)),
+        "active_devices": float(sum(1 for count in blocks_by_device if count != 0)),
+        "max_output_block_fraction": (max(blocks_by_device) / block_count) if block_count != 0 else 0.0,
+        "max_output_byte_fraction": (max(bytes_by_device) / total_bytes) if total_bytes != 0 else 0.0,
+    }
+
+
+def benchmark_feature_names(problem: dict[str, Any], include_graph_features: bool, model: str) -> list[str]:
+    """Return the active whole-layout benchmark model feature names."""
+    if model == "critical":
+        return feature_names(include_graph_features) + BENCHMARK_LAYOUT_FEATURE_NAMES
+    if model == "device":
+        names = ["intercept"]
+        for device in range(int(problem["device_count"])):
+            names.extend(f"d{device}_{name}" for name in DEVICE_BENCHMARK_FEATURE_NAMES)
+        names.extend(BENCHMARK_LAYOUT_FEATURE_NAMES)
+        return names
+    raise ValueError(f"unsupported benchmark model: {model}")
 
 
 def include_environment_bytes(args: argparse.Namespace) -> bool:
@@ -562,6 +637,23 @@ def observed_benchmark_layouts(records: list[dict[str, Any]], problem: dict[str,
     return layouts
 
 
+def filter_benchmark_records_by_layout(
+    records: list[dict[str, Any]], problem: dict[str, Any], layout_filter: str
+) -> list[dict[str, Any]]:
+    """Return benchmark records matching the requested layout class."""
+    if layout_filter == "all":
+        return records
+    if layout_filter != "contiguous":
+        raise ValueError(f"unsupported benchmark layout filter: {layout_filter}")
+
+    filtered = [
+        record for record in records if is_ordered_contiguous_layout(benchmark_layout(record, problem))
+    ]
+    if not filtered:
+        raise ValueError("layout-filter=contiguous removed all benchmark records")
+    return filtered
+
+
 def benchmark_layout_mean_matvec_seconds(records: list[dict[str, Any]]) -> float:
     """Return the mean resident matvec time for one no-trace benchmark layout."""
     timings = [float(record["matvec_s"]) for record in records]
@@ -584,7 +676,58 @@ def layout_critical_path_vector(
     values = [1.0]
     for column in range(1, len(device_vectors[0])):
         values.append(max(vector[column] for vector in device_vectors))
+    shape = layout_shape_features(problem, layout)
+    values.extend(shape[name] for name in BENCHMARK_LAYOUT_FEATURE_NAMES)
     return values
+
+
+def layout_device_aware_vector(
+    problem: dict[str, Any],
+    layout: list[int],
+    include_env_bytes: bool,
+    include_graph_features: bool,
+) -> list[float]:
+    """Return a device-identity-aware whole-layout feature vector."""
+    if include_env_bytes:
+        raise ValueError("device-aware benchmark model currently supports steady-state timing only")
+    validate_layout(problem, layout)
+    device_count = int(problem["device_count"])
+    features_by_device = {
+        int(row["device"]): row for row in features_for_layout(problem, layout, False, include_graph_features)
+    }
+    graph_by_device = {int(row["device"]): row for row in graph_metrics_for_layout(problem, layout)["devices"]}
+
+    values = [1.0]
+    for device in range(device_count):
+        features = features_by_device[device]
+        graph = graph_by_device[device]
+        values.extend(
+            [
+                float(graph["right_first_flops"]) + float(graph["right_second_flops"]),
+                float(features["b_peer_bytes"]),
+                float(features["terms"]),
+                float(features["unique_bc"]),
+                float(features["output_bytes"]),
+            ]
+        )
+    shape = layout_shape_features(problem, layout)
+    values.extend(shape[name] for name in BENCHMARK_LAYOUT_FEATURE_NAMES)
+    return values
+
+
+def benchmark_layout_vector(
+    problem: dict[str, Any],
+    layout: list[int],
+    include_env_bytes: bool,
+    include_graph_features: bool,
+    model: str,
+) -> list[float]:
+    """Return the feature vector for a whole-layout replay benchmark model."""
+    if model == "critical":
+        return layout_critical_path_vector(problem, layout, include_env_bytes, include_graph_features)
+    if model == "device":
+        return layout_device_aware_vector(problem, layout, include_env_bytes, include_graph_features)
+    raise ValueError(f"unsupported benchmark model: {model}")
 
 
 def fit_benchmark_coefficients(
@@ -593,19 +736,22 @@ def fit_benchmark_coefficients(
     ridge: float,
     include_env_bytes: bool,
     include_graph_features: bool,
+    model: str,
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Fit whole-layout replay matvec time from critical-path layout features."""
+    """Fit whole-layout replay matvec time from grouped layout features."""
+    grouped = group_benchmarks_by_layout(records, problem)
     samples = [
         (
-            layout_critical_path_vector(
-                problem, benchmark_layout(record, problem), include_env_bytes, include_graph_features
-            ),
-            float(record["matvec_s"]),
+            benchmark_layout_vector(problem, list(layout), include_env_bytes, include_graph_features, model),
+            benchmark_layout_mean_matvec_seconds(layout_records),
         )
-        for record in records
+        for layout, layout_records in grouped.items()
     ]
     return fit_linear_samples(
-        samples, feature_names(include_graph_features), ridge, "benchmark data contains no replay matvec samples"
+        samples,
+        benchmark_feature_names(problem, include_graph_features, model),
+        ridge,
+        "benchmark data contains no replay matvec samples",
     )
 
 
@@ -615,10 +761,11 @@ def score_benchmark_layout(
     coefficients: dict[str, float],
     include_env_bytes: bool,
     include_graph_features: bool,
+    model: str,
 ) -> tuple[float, list[float]]:
     """Predict no-trace resident matvec time for one candidate layout."""
-    vector = layout_critical_path_vector(problem, layout, include_env_bytes, include_graph_features)
-    names = feature_names(include_graph_features)
+    vector = benchmark_layout_vector(problem, layout, include_env_bytes, include_graph_features, model)
+    names = benchmark_feature_names(problem, include_graph_features, model)
     return sum(coefficients[name] * value for name, value in zip(names, vector)), vector
 
 
@@ -653,11 +800,12 @@ def benchmark_local_search(
     passes: int,
     include_env_bytes: bool,
     include_graph_features: bool,
+    model: str,
 ) -> list[int]:
     """Improve a layout using the benchmark-targeted critical-path score."""
     device_count = int(problem["device_count"])
     layout = start[:]
-    best_score, _ = score_benchmark_layout(problem, layout, coefficients, include_env_bytes, include_graph_features)
+    best_score, _ = score_benchmark_layout(problem, layout, coefficients, include_env_bytes, include_graph_features, model)
     for _ in range(passes):
         improved = False
         for block in range(len(layout)):
@@ -669,7 +817,7 @@ def benchmark_local_search(
                 trial = layout[:]
                 trial[block] = device
                 trial_score, _ = score_benchmark_layout(
-                    problem, trial, coefficients, include_env_bytes, include_graph_features
+                    problem, trial, coefficients, include_env_bytes, include_graph_features, model
                 )
                 if trial_score < best_score:
                     best_score = trial_score
@@ -689,6 +837,7 @@ def leave_one_benchmark_layout_out(
     clamp_negative: bool,
     include_env_bytes: bool,
     include_graph_features: bool,
+    model: str,
 ) -> list[dict[str, Any]]:
     """Predict each benchmarked layout from a fit over all other layouts."""
     grouped = group_benchmarks_by_layout(records, problem)
@@ -699,11 +848,13 @@ def leave_one_benchmark_layout_out(
     for key, held_out in grouped.items():
         train = [record for other_key, group in grouped.items() if other_key != key for record in group]
         coefficients, _ = fit_benchmark_coefficients(
-            train, problem, ridge, include_env_bytes, include_graph_features
+            train, problem, ridge, include_env_bytes, include_graph_features, model
         )
         if clamp_negative:
             coefficients = clamp_negative_coefficients(coefficients)
-        predicted, _ = score_benchmark_layout(problem, list(key), coefficients, include_env_bytes, include_graph_features)
+        predicted, _ = score_benchmark_layout(
+            problem, list(key), coefficients, include_env_bytes, include_graph_features, model
+        )
         observed = benchmark_layout_mean_matvec_seconds(held_out)
         names = sorted({str(record.get("name", "")) for record in held_out if str(record.get("name", ""))})
         rows.append(
@@ -1513,19 +1664,28 @@ def local_search(
     return layout
 
 
-def print_fit(coefficients: dict[str, float], stats: dict[str, float], include_graph_features: bool) -> None:
-    """Print fitted model coefficients."""
+def print_fit_for_names(coefficients: dict[str, float], stats: dict[str, float], names: list[str]) -> None:
+    """Print fitted model coefficients for an explicit feature list."""
     print(f"samples={int(stats['samples'])} rmse_s={stats['rmse']:.9g} r2={stats['r2']:.9g}")
-    for name in feature_names(include_graph_features):
+    for name in names:
         print(f"{name} {coefficients[name]:.17g}")
     for name in ("bc_flops", "accumulate_flops"):
+        if name not in coefficients:
+            continue
         coefficient = coefficients[name]
         if coefficient > 0.0:
             print(f"# implied_{name}_gflops={1.0 / (coefficient * 1.0e9):.9g}")
     for name in ("b_local_bytes", "b_peer_bytes", "a_bytes", "c_bytes", "output_bytes", "intermediate_bytes"):
+        if name not in coefficients:
+            continue
         coefficient = coefficients[name]
         if coefficient > 0.0:
             print(f"# implied_{name}_gbps={1.0 / (coefficient * 1.0e9):.9g}")
+
+
+def print_fit(coefficients: dict[str, float], stats: dict[str, float], include_graph_features: bool) -> None:
+    """Print fitted trace-model coefficients."""
+    print_fit_for_names(coefficients, stats, feature_names(include_graph_features))
 
 
 def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
@@ -1759,17 +1919,20 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     """Fit replay benchmark matvec time from static layout features."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
+    records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     include_env_bytes = include_environment_bytes(args)
     coefficients, stats = fit_benchmark_coefficients(
-        records, problem, args.ridge, include_env_bytes, args.graph_features
+        records, problem, args.ridge, include_env_bytes, args.graph_features, args.model
     )
     if args.clamp_negative:
         coefficients = clamp_negative_coefficients(coefficients)
     print(f"timing_objective={args.timing_objective}")
     print(f"target=matvec_s")
-    print(f"reduction=critical_path_max")
+    print(f"model={args.model}")
+    print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
-    print_fit(coefficients, stats, args.graph_features)
+    print(f"layout_filter={args.layout_filter}")
+    print_fit_for_names(coefficients, stats, benchmark_feature_names(problem, args.graph_features, args.model))
     return 0
 
 
@@ -1777,6 +1940,7 @@ def cmd_bench_validate(args: argparse.Namespace) -> int:
     """Validate replay benchmark layout predictions."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
+    records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     rows = leave_one_benchmark_layout_out(
         records,
         problem,
@@ -1784,11 +1948,14 @@ def cmd_bench_validate(args: argparse.Namespace) -> int:
         args.clamp_negative,
         include_environment_bytes(args),
         args.graph_features,
+        args.model,
     )
     print(f"timing_objective={args.timing_objective}")
     print(f"target=matvec_s")
-    print(f"reduction=critical_path_max")
+    print(f"model={args.model}")
+    print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
+    print(f"layout_filter={args.layout_filter}")
     print_benchmark_validation(rows, args.compact_layouts)
     return 0
 
@@ -1797,9 +1964,10 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     """Fit benchmark matvec timing and suggest a candidate layout."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
+    records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     include_env_bytes = include_environment_bytes(args)
     coefficients, stats = fit_benchmark_coefficients(
-        records, problem, args.ridge, include_env_bytes, args.graph_features
+        records, problem, args.ridge, include_env_bytes, args.graph_features, args.model
     )
     if args.clamp_negative:
         coefficients = clamp_negative_coefficients(coefficients)
@@ -1831,14 +1999,16 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             seed
             if args.observed_only or args.contiguous_only
             else benchmark_local_search(
-                problem, seed, coefficients, args.passes, include_env_bytes, args.graph_features
+                problem, seed, coefficients, args.passes, include_env_bytes, args.graph_features, args.model
             )
         )
         key = tuple(layout)
         if key in seen:
             continue
         seen.add(key)
-        score, vector = score_benchmark_layout(problem, layout, coefficients, include_env_bytes, args.graph_features)
+        score, vector = score_benchmark_layout(
+            problem, layout, coefficients, include_env_bytes, args.graph_features, args.model
+        )
         ranked.append(
             {
                 "layout": layout,
@@ -1857,9 +2027,11 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     best_layout = best["layout"]
     print(f"timing_objective={args.timing_objective}")
     print(f"target=matvec_s")
-    print(f"reduction=critical_path_max")
+    print(f"model={args.model}")
+    print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
-    print_fit(coefficients, stats, args.graph_features)
+    print(f"layout_filter={args.layout_filter}")
+    print_fit_for_names(coefficients, stats, benchmark_feature_names(problem, args.graph_features, args.model))
     if args.contiguous_only:
         print("search=contiguous")
     else:
@@ -1883,8 +2055,12 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
                 f"{str(bool(row['contiguous'])).lower()} {str(bool(row['byte_balanced'])).lower()} "
                 f"{maybe_compact_layout(row['layout'], args.compact_layouts)}"
             )
-    print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual \\")
-    print("    UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=" + layout_string(best_layout))
+    if args.compact_layouts:
+        print("env_layout_omitted=true")
+        print("env_layout_note=rerun_without_compact_layouts_for_full_manual_environment_value")
+    else:
+        print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual \\")
+        print("    UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=" + layout_string(best_layout))
     return 0
 
 
@@ -1892,6 +2068,7 @@ def cmd_bench_tune(args: argparse.Namespace) -> int:
     """Scan ridge values with benchmark leave-one-layout-out validation."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
+    records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     ridges = parse_float_list(args.ridges)
     clamp_modes = [False, True] if args.include_clamped else [False]
     include_env_bytes = include_environment_bytes(args)
@@ -1900,7 +2077,7 @@ def cmd_bench_tune(args: argparse.Namespace) -> int:
     for ridge in ridges:
         for clamp_negative in clamp_modes:
             rows = leave_one_benchmark_layout_out(
-                records, problem, ridge, clamp_negative, include_env_bytes, args.graph_features
+                records, problem, ridge, clamp_negative, include_env_bytes, args.graph_features, args.model
             )
             stats = validation_stats(rows)
             candidates.append({"ridge": ridge, "clamp_negative": clamp_negative, "stats": stats})
@@ -1911,8 +2088,10 @@ def cmd_bench_tune(args: argparse.Namespace) -> int:
     )
     print(f"timing_objective={args.timing_objective}")
     print(f"target=matvec_s")
-    print(f"reduction=critical_path_max")
+    print(f"model={args.model}")
+    print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
+    print(f"layout_filter={args.layout_filter}")
     print("ridge clamp_negative layouts mae_s rmse_s r2 top1_match best_observed_line best_predicted_line")
     for item in candidates:
         stats = item["stats"]
@@ -2237,6 +2416,22 @@ def parser() -> argparse.ArgumentParser:
             help="augment fitting/scoring with graph cut and first-stage reuse counters from term traces",
         )
 
+    def add_benchmark_model(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--model",
+            choices=("critical", "device"),
+            default="critical",
+            help="benchmark model shape: anonymous critical path or device-identity-aware",
+        )
+
+    def add_benchmark_layout_filter(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--layout-filter",
+            choices=("all", "contiguous"),
+            default="all",
+            help="restrict benchmark rows used for fitting and validation to a layout class",
+        )
+
     def add_term_trace(command: argparse.ArgumentParser) -> None:
         command.add_argument(
             "--term-trace",
@@ -2296,6 +2491,8 @@ def parser() -> argparse.ArgumentParser:
     bench_fit.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_fit.add_argument("--ridge", type=float, default=1.0e-9)
     bench_fit.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before printing")
+    add_benchmark_model(bench_fit)
+    add_benchmark_layout_filter(bench_fit)
     add_timing_objective(bench_fit)
     add_graph_features(bench_fit)
     add_required_term_trace(bench_fit)
@@ -2310,6 +2507,8 @@ def parser() -> argparse.ArgumentParser:
     bench_validate.add_argument(
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )
+    add_benchmark_model(bench_validate)
+    add_benchmark_layout_filter(bench_validate)
     add_timing_objective(bench_validate)
     add_graph_features(bench_validate)
     add_required_term_trace(bench_validate)
@@ -2333,6 +2532,8 @@ def parser() -> argparse.ArgumentParser:
     bench_suggest.add_argument(
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )
+    add_benchmark_model(bench_suggest)
+    add_benchmark_layout_filter(bench_suggest)
     add_timing_objective(bench_suggest)
     add_graph_features(bench_suggest)
     add_required_term_trace(bench_suggest)
@@ -2344,6 +2545,8 @@ def parser() -> argparse.ArgumentParser:
     bench_tune.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_tune.add_argument("--ridges", default="1e-9,1e-7,1e-5,1e-3,1e-2,1e-1")
     bench_tune.add_argument("--include-clamped", action="store_true")
+    add_benchmark_model(bench_tune)
+    add_benchmark_layout_filter(bench_tune)
     add_timing_objective(bench_tune)
     add_graph_features(bench_tune)
     add_required_term_trace(bench_tune)

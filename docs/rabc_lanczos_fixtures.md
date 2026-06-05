@@ -293,6 +293,16 @@ the right-heavy tail was slower, with cuts beyond `cut23` generally above
 `0.21s`.  Treat this as a fixture-local reference point, not a portable
 placement rule.
 
+For the local Hubbard `L=40, m=5000` U(1)xU(1) central fixture on Polaron, the
+best measured two-GPU contiguous range is currently `cut325`: mean
+`#LanczosMatvecS = 0.888566815s` over nine repeats.  The neighboring cuts
+`cut323` and `cut326` measured `0.893969526s` and `0.893149359s` over nine
+repeats, respectively, so treat this as a shallow placement basin around
+`cut323` to `cut326` rather than a sharply universal split.  The one-GPU
+baseline for the same fixture was about `0.963s`, so the best observed
+two-GPU layout is only an approximately eight-percent improvement at this
+problem size.
+
 Unconstrained non-contiguous suggestions from the current linear benchmark fit
 also require direct measurement.  Two top-ranked local-search candidates from
 the full contiguous training set measured at roughly `0.214s` and `0.215s`,
@@ -362,6 +372,31 @@ scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
   --term-trace /tmp/uni20_rabc_term_trace.jsonl \
   --graph-features \
   --ridge <selected-ridge> \
+  --contiguous-only \
+  --top 8
+```
+
+Use `--model device` when device identity matters for steady-state matvec
+timing.  The anonymous critical-path model is unable to distinguish layouts
+that put the dominant work on GPU 0 from layouts that put it on GPU 1.  On
+Polaron this mattered for the Hubbard fixture: edge cuts with the same
+anonymous structure measured differently on the two devices.  For
+contiguous-placement studies, add
+`--layout-filter contiguous` to `bench-fit`, `bench-validate`, `bench-tune`, and
+`bench-suggest` so one round-robin or otherwise fragmented sample does not
+dominate held-out validation for the ordered range family:
+
+```bash
+scripts/rabc-trace-model.py bench-validate /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --graph-features \
+  --model device \
+  --layout-filter contiguous
+scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --graph-features \
+  --model device \
+  --layout-filter contiguous \
   --contiguous-only \
   --top 8
 ```
