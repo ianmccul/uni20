@@ -1793,7 +1793,12 @@ def write_runtime_empirical_coefficients(
     values = runtime_empirical_coefficients(coefficients, names, model)
     if values is None:
         raise ValueError("--output-runtime-coefficients requires --model device")
-    path.write_text(values + "\n")
+    path.write_text(
+        "# R/A/B/C empirical-contiguous runtime coefficients.\n"
+        "# Use with UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE.\n"
+        "# runtime_coefficients_order=" + ",".join(names) + "\n"
+        "runtime_coefficients=" + values + "\n"
+    )
 
 
 def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, float]:

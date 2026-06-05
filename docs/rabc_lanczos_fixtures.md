@@ -134,9 +134,11 @@ Generate this coefficient vector with `bench-fit --model device` or
 `bench-suggest --model device`; both commands print the runtime
 `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` value.  Use
 `--output-runtime-coefficients <path>` to write a reusable coefficient file for
-`UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE`.  Do not use the
-policy for cold-start/environment-staging fits: the device-aware runtime model
-targets steady-state resident Lanczos matvec timing only.
+`UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE`; the generated file
+includes the coefficient order as comments and a `runtime_coefficients=...`
+line.  Do not use the policy for cold-start/environment-staging fits: the
+device-aware runtime model targets steady-state resident Lanczos matvec timing
+only.
 The current cost model is a variable-middle prototype: the Krylov input blocks `B_i` and output blocks `R_i` are forced
 onto one canonical layout so vector algebra can use the result as the next Lanczos input without an implicit relayout.
 Benchmark both `#LanczosMatvecS` and total wall time before treating a lower contraction model score as a faster
@@ -348,7 +350,10 @@ problem size.  A device-aware fit over the collected contiguous benchmark rows
 currently drives `empirical-contiguous` to `cut326`; a six-repeat no-trace
 policy replay measured mean `#LanczosMatvecS` of about `0.899s`, consistent
 with the same shallow basin but not better than the aggregate manual `cut325`
-measurements.
+measurements.  A later coefficient-file replay using the same fitted
+contiguous model also selected `cut326`; grouped with the manual `cut326`
+measurements via `bench-rank`, that layout ranked first in the focused
+`cut320` to `cut330` comparison at mean `#LanczosMatvecS` about `0.889s`.
 
 Unconstrained non-contiguous suggestions from the current linear benchmark fit
 also require direct measurement.  Two top-ranked local-search candidates from
