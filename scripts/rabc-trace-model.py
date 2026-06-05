@@ -86,10 +86,19 @@ def layout_string(layout: list[int]) -> str:
     return ",".join(str(device) for device in layout)
 
 
-def feature_vector(features: dict[str, Any]) -> list[float]:
+def include_environment_bytes(args: argparse.Namespace) -> bool:
+    """Return whether the selected timing objective includes environment staging."""
+    return getattr(args, "timing_objective", "steady-state") == "cold-start"
+
+
+def feature_vector(features: dict[str, Any], include_env_bytes: bool) -> list[float]:
     """Convert one per-device feature dictionary into the model vector."""
     values = [1.0]
-    values.extend(float(features.get(name, 0.0)) for name in FEATURE_NAMES[1:])
+    for name in FEATURE_NAMES[1:]:
+        if not include_env_bytes and name in ("a_bytes", "c_bytes"):
+            values.append(0.0)
+        else:
+            values.append(float(features.get(name, 0.0)))
     return values
 
 
@@ -117,7 +126,9 @@ def gaussian_solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
     return [a[row][n] for row in range(n)]
 
 
-def fit_coefficients(records: list[dict[str, Any]], ridge: float) -> tuple[dict[str, float], dict[str, float]]:
+def fit_coefficients(
+    records: list[dict[str, Any]], ridge: float, include_env_bytes: bool
+) -> tuple[dict[str, float], dict[str, float]]:
     """Fit per-device elapsed time as a linear function of aggregate features."""
     samples: list[tuple[list[float], float]] = []
     for record in records:
@@ -126,7 +137,7 @@ def fit_coefficients(records: list[dict[str, Any]], ridge: float) -> tuple[dict[
             device = int(features["device"])
             if device not in timings:
                 continue
-            samples.append((feature_vector(features), timings[device]))
+            samples.append((feature_vector(features, include_env_bytes), timings[device]))
 
     if not samples:
         raise ValueError("trace contains no per-device timing samples")
@@ -272,7 +283,7 @@ def empty_device_features(device: int) -> dict[str, Any]:
     }
 
 
-def features_for_layout(problem: dict[str, Any], layout: list[int]) -> list[dict[str, Any]]:
+def features_for_layout(problem: dict[str, Any], layout: list[int], include_env_bytes: bool) -> list[dict[str, Any]]:
     """Compute right-first aggregate features for a candidate center layout."""
     validate_layout(problem, layout)
     device_count = int(problem["device_count"])
@@ -319,6 +330,11 @@ def features_for_layout(problem: dict[str, Any], layout: list[int]) -> list[dict
             staged_c[device].add(c)
             row["c_bytes"] += int(term["c_rows"]) * int(term["c_cols"]) * 8
 
+    if not include_env_bytes:
+        for row in devices:
+            row["a_bytes"] = 0
+            row["c_bytes"] = 0
+
     for device in range(device_count):
         devices[device]["unique_bc"] = len(staged_bc[device])
         devices[device]["unique_a"] = len(staged_a[device])
@@ -327,14 +343,21 @@ def features_for_layout(problem: dict[str, Any], layout: list[int]) -> list[dict
     return devices
 
 
-def predict_device_seconds(features: dict[str, Any], coefficients: dict[str, float]) -> float:
+def predict_device_seconds(features: dict[str, Any], coefficients: dict[str, float], include_env_bytes: bool) -> float:
     """Predict elapsed seconds for one device."""
-    return sum(coefficients[name] * value for name, value in zip(FEATURE_NAMES, feature_vector(features)))
+    return sum(
+        coefficients[name] * value for name, value in zip(FEATURE_NAMES, feature_vector(features, include_env_bytes))
+    )
 
 
-def score_layout(problem: dict[str, Any], layout: list[int], coefficients: dict[str, float]) -> tuple[float, list[float]]:
+def score_layout(
+    problem: dict[str, Any], layout: list[int], coefficients: dict[str, float], include_env_bytes: bool
+) -> tuple[float, list[float]]:
     """Score a layout by the predicted maximum per-device elapsed time."""
-    predictions = [predict_device_seconds(features, coefficients) for features in features_for_layout(problem, layout)]
+    predictions = [
+        predict_device_seconds(features, coefficients, include_env_bytes)
+        for features in features_for_layout(problem, layout, include_env_bytes)
+    ]
     return max(predictions), predictions
 
 
@@ -402,11 +425,13 @@ def candidate_layouts(problem: dict[str, Any], records: list[dict[str, Any]], ra
     return unique
 
 
-def local_search(problem: dict[str, Any], start: list[int], coefficients: dict[str, float], passes: int) -> list[int]:
+def local_search(
+    problem: dict[str, Any], start: list[int], coefficients: dict[str, float], passes: int, include_env_bytes: bool
+) -> list[int]:
     """Improve a layout with deterministic single-block moves."""
     device_count = int(problem["device_count"])
     layout = start[:]
-    best_score, _ = score_layout(problem, layout, coefficients)
+    best_score, _ = score_layout(problem, layout, coefficients, include_env_bytes)
     for _ in range(passes):
         improved = False
         for block in range(len(layout)):
@@ -417,7 +442,7 @@ def local_search(problem: dict[str, Any], start: list[int], coefficients: dict[s
                     continue
                 trial = layout[:]
                 trial[block] = device
-                trial_score, _ = score_layout(problem, trial, coefficients)
+                trial_score, _ = score_layout(problem, trial, coefficients, include_env_bytes)
                 if trial_score < best_score:
                     best_score = trial_score
                     best_device = device
@@ -450,7 +475,7 @@ def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, flo
 
 
 def leave_one_layout_out(
-    records: list[dict[str, Any]], ridge: float, clamp_negative: bool
+    records: list[dict[str, Any]], ridge: float, clamp_negative: bool, include_env_bytes: bool
 ) -> list[dict[str, Any]]:
     """Predict each layout from a model fitted on all other layouts."""
     grouped = group_by_layout(records)
@@ -460,11 +485,11 @@ def leave_one_layout_out(
     rows: list[dict[str, Any]] = []
     for key, held_out in grouped.items():
         train = [record for other_key, group in grouped.items() if other_key != key for record in group]
-        coefficients, _ = fit_coefficients(train, ridge)
+        coefficients, _ = fit_coefficients(train, ridge, include_env_bytes)
         if clamp_negative:
             coefficients = clamp_negative_coefficients(coefficients)
         problem = term_problem(held_out[0])
-        predicted, device_predictions = score_layout(problem, list(key), coefficients)
+        predicted, device_predictions = score_layout(problem, list(key), coefficients, include_env_bytes)
         observed = layout_mean_gpu_seconds(held_out)
         rows.append(
             {
@@ -537,7 +562,8 @@ def parse_float_list(text: str) -> list[float]:
 def cmd_fit(args: argparse.Namespace) -> int:
     """Fit and print a model."""
     records = trace_records(args)
-    coefficients, stats = fit_coefficients(records, args.ridge)
+    coefficients, stats = fit_coefficients(records, args.ridge, include_environment_bytes(args))
+    print(f"timing_objective={args.timing_objective}")
     print_fit(coefficients, stats)
     return 0
 
@@ -569,7 +595,8 @@ def cmd_layouts(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     """Run leave-one-layout-out validation."""
-    rows = leave_one_layout_out(trace_records(args), args.ridge, args.clamp_negative)
+    rows = leave_one_layout_out(trace_records(args), args.ridge, args.clamp_negative, include_environment_bytes(args))
+    print(f"timing_objective={args.timing_objective}")
     print_validation(rows)
     return 0
 
@@ -579,16 +606,18 @@ def cmd_tune(args: argparse.Namespace) -> int:
     records = trace_records(args)
     ridges = parse_float_list(args.ridges)
     clamp_modes = [False, True] if args.include_clamped else [False]
+    include_env_bytes = include_environment_bytes(args)
 
     candidates: list[dict[str, Any]] = []
     for ridge in ridges:
         for clamp_negative in clamp_modes:
-            rows = leave_one_layout_out(records, ridge, clamp_negative)
+            rows = leave_one_layout_out(records, ridge, clamp_negative, include_env_bytes)
             stats = validation_stats(rows)
             candidates.append({"ridge": ridge, "clamp_negative": clamp_negative, "stats": stats})
 
     candidates.sort(key=lambda item: (item["stats"]["top1_match"], item["stats"]["r2"], -item["stats"]["rmse"]),
                     reverse=True)
+    print(f"timing_objective={args.timing_objective}")
     print("ridge clamp_negative layouts mae_s rmse_s r2 top1_match best_observed_line best_predicted_line")
     for item in candidates:
         stats = item["stats"]
@@ -611,7 +640,8 @@ def cmd_tune(args: argparse.Namespace) -> int:
 def cmd_suggest(args: argparse.Namespace) -> int:
     """Fit a model and suggest the best searched layout."""
     records = trace_records(args)
-    coefficients, stats = fit_coefficients(records, args.ridge)
+    include_env_bytes = include_environment_bytes(args)
+    coefficients, stats = fit_coefficients(records, args.ridge, include_env_bytes)
     if not args.allow_negative:
         coefficients = clamp_negative_coefficients(coefficients)
     problem = term_problem(records[-1])
@@ -621,14 +651,19 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     best_devices: list[float] = []
     seeds = observed_layouts(records) if args.observed_only else candidate_layouts(problem, records, args.random)
     for seed in seeds:
-        layout = seed if args.observed_only else local_search(problem, seed, coefficients, args.passes)
-        score, device_predictions = score_layout(problem, layout, coefficients)
+        layout = (
+            seed
+            if args.observed_only
+            else local_search(problem, seed, coefficients, args.passes, include_env_bytes)
+        )
+        score, device_predictions = score_layout(problem, layout, coefficients, include_env_bytes)
         if score < best_score:
             best_score = score
             best_layout = layout
             best_devices = device_predictions
 
     assert best_layout is not None
+    print(f"timing_objective={args.timing_objective}")
     print_fit(coefficients, stats)
     print(f"search={'observed' if args.observed_only else 'local'}")
     print(f"predicted_gpu_s={best_score:.9g}")
@@ -644,6 +679,17 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     subcommands = root.add_subparsers(dest="command", required=True)
 
+    def add_timing_objective(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--timing-objective",
+            choices=("steady-state", "cold-start"),
+            default="steady-state",
+            help=(
+                "model steady-state resident matvecs by ignoring A/C staging bytes, or cold-start setup by including "
+                "them"
+            ),
+        )
+
     summary = subcommands.add_parser("summary", help="summarize observed trace rows")
     summary.add_argument("trace", type=Path)
     summary.add_argument("--drop-first-per-layout", type=int, default=0)
@@ -654,6 +700,7 @@ def parser() -> argparse.ArgumentParser:
     fit.add_argument("trace", type=Path)
     fit.add_argument("--ridge", type=float, default=1.0e-9)
     fit.add_argument("--drop-first-per-layout", type=int, default=0)
+    add_timing_objective(fit)
     fit.set_defaults(func=cmd_fit)
 
     suggest = subcommands.add_parser("suggest", help="fit a model and suggest a layout")
@@ -664,6 +711,7 @@ def parser() -> argparse.ArgumentParser:
     suggest.add_argument("--drop-first-per-layout", type=int, default=0)
     suggest.add_argument("--observed-only", action="store_true")
     suggest.add_argument("--allow-negative", action="store_true")
+    add_timing_objective(suggest)
     suggest.set_defaults(func=cmd_suggest)
 
     validate = subcommands.add_parser("validate", help="leave-one-layout-out model validation")
@@ -671,6 +719,7 @@ def parser() -> argparse.ArgumentParser:
     validate.add_argument("--ridge", type=float, default=1.0e-9)
     validate.add_argument("--drop-first-per-layout", type=int, default=0)
     validate.add_argument("--clamp-negative", action="store_true")
+    add_timing_objective(validate)
     validate.set_defaults(func=cmd_validate)
 
     tune = subcommands.add_parser("tune", help="scan ridge values with leave-one-layout-out validation")
@@ -678,6 +727,7 @@ def parser() -> argparse.ArgumentParser:
     tune.add_argument("--ridges", default="1e-9,1e-7,1e-5,1e-3,1e-2,1e-1")
     tune.add_argument("--drop-first-per-layout", type=int, default=0)
     tune.add_argument("--include-clamped", action="store_true")
+    add_timing_objective(tune)
     tune.set_defaults(func=cmd_tune)
 
     layouts = subcommands.add_parser("layouts", help="generate manual placement layouts")

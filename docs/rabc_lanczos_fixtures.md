@@ -159,6 +159,12 @@ local search over candidate center-vector layouts.  This is a first empirical op
 optimality.  It is intended to generate candidate manual layouts that should then be rerun through the fixture replay
 and compared against the measured `gpu_s` trace field.
 
+The fitting commands default to `--timing-objective=steady-state`, which matches the resident Lanczos comparison:
+`A` and `C` environment byte features are still reported in trace rows, but they are ignored as transfer regressors
+because environment staging is expected to happen before the repeated Krylov matvec timing.  Use
+`--timing-objective=cold-start` only when fitting setup/materialization traces, and do not combine that objective with
+`--drop-first-per-layout=1` unless the remaining rows really include environment staging.
+
 Short replay sweeps usually include one slow setup row per process/layout before the steady-state matvec timing.  Use
 `--drop-first-per-layout=1` for exploratory fits when each layout was measured with at least two trace rows:
 

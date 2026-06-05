@@ -201,8 +201,10 @@ assigns contiguous fresh `R` output-block ranges to local devices using the
 current right-first term graph.  The default model scores GEMM work and
 central-vector movement; it intentionally ignores `A`/`C` environment staging
 cost so the captured-fixture benchmark measures resident Lanczos matvec
-behavior rather than setup time.  `cost-block` enables the more aggressive
-per-block greedy variant, but that can disable the bridge's current
+behavior rather than setup time.  This is a steady-state objective: the active
+`A` and `C` environments are assumed to have been generated or loaded in a
+layout compatible with the repeated Krylov loop.  `cost-block` enables the more
+aggressive per-block greedy variant, but that can disable the bridge's current
 coalesced-slab vector algebra fast path.  Both policies are diagnostics, not the
 final storage layout.
 
