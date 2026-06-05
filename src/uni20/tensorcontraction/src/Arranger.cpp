@@ -1895,6 +1895,11 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
   }
   linearAlgebraScheduledDeviceCount = this->scheduledDeviceCountForBytes(totalBytes);
 
+  auto finishLocalization = [&]() {
+    std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
+    CUDA_CALL(cudaSetDevice(0));
+  };
+
   if (!mats.empty() && totalBytes == values.size_bytes())
   {
     if (linearAlgebraScheduledDeviceCount == 1)
@@ -1912,8 +1917,7 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
         {
           swapper.registerGpuAllocationsCoalesced(mats, deviceId);
         }
-        std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
-        CUDA_CALL(cudaSetDevice(0));
+        finishLocalization();
         return;
       }
 
@@ -1923,15 +1927,13 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
         {
           if (swapper.refreshHostMatricesToDeviceCoalesced(mats, values, *existingDevice))
           {
-            std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
-            CUDA_CALL(cudaSetDevice(0));
+            finishLocalization();
             return;
           }
         }
         else
         {
-          std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
-          CUDA_CALL(cudaSetDevice(0));
+          finishLocalization();
           return;
         }
       }
@@ -1949,8 +1951,7 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
       }
       if (localized)
       {
-        std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
-        CUDA_CALL(cudaSetDevice(0));
+        finishLocalization();
         return;
       }
     }

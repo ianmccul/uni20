@@ -31,29 +31,11 @@ struct VectorAlgebraEngine::Impl
 
     [[nodiscard]] bool host_backend() const { return arranger == nullptr; }
 
-    [[nodiscard]] auto coalesced_device(MatrixFamily const& x) const -> std::optional<int>
-    {
-      if (arranger == nullptr || x.empty())
-      {
-        return std::nullopt;
-      }
-
-      auto& swapper = arranger->residentSwapper();
-      auto const& matrices = raw_matrices(x);
-      auto const device = swapper.commonPreStoreDevice(matrices);
-      if (!device.has_value() || !swapper.preStoreBuffersAreCoalesced(matrices, *device))
-      {
-        return std::nullopt;
-      }
-      return device;
-    }
-
     struct CoalescedRange
     {
         int deviceId = 0;
         std::size_t begin = 0;
         std::size_t end = 0;
-        std::size_t valueOffset = 0;
         std::size_t valueCount = 0;
     };
 
@@ -75,7 +57,6 @@ struct VectorAlgebraEngine::Impl
       auto& swapper = arranger->residentSwapper();
       auto const& matrices = raw_matrices(x);
       std::size_t begin = 0;
-      std::size_t valueOffset = 0;
       while (begin < matrices.size())
       {
         auto [deviceId, firstBuffer] = swapper.getPreStoreBufferOrNone(matrices[begin]);
@@ -117,15 +98,13 @@ struct VectorAlgebraEngine::Impl
           return {};
         }
 
-        CoalescedRange const range{
-            .deviceId = deviceId, .begin = begin, .end = end, .valueOffset = valueOffset, .valueCount = valueCount};
+        CoalescedRange const range{.deviceId = deviceId, .begin = begin, .end = end, .valueCount = valueCount};
         if (!swapper.preStoreBuffersAreCoalesced(this->range_matrices(x, range), deviceId))
         {
           return {};
         }
         ranges.push_back(range);
         begin = end;
-        valueOffset += valueCount;
       }
 
       return ranges;
