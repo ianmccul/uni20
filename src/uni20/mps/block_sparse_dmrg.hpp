@@ -15,6 +15,12 @@
 #include <uni20/tensorcontraction/svd.hpp>
 #include <uni20/tensorcontraction/vector_algebra.hpp>
 
+#include <uni20/config.hpp>
+
+#if UNI20_BACKEND_BLAS
+#include <uni20/backend/blas/backend_blas.hpp>
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -151,63 +157,118 @@ inline void add_dense_gemm(std::span<double const> lhs, std::size_t rows, std::s
   }
 }
 
+/// \brief Convert a matrix extent to the configured BLAS integer type.
+/// \throws std::length_error If `value` does not fit in `blas_int`.
+/// \param value Size value to convert.
+/// \param name Human-readable diagnostic name.
+/// \return BLAS-compatible integer value.
+inline auto checked_blas_size(std::size_t value, char const* name) -> blas_int
+{
+  if (value > static_cast<std::size_t>(std::numeric_limits<blas_int>::max()))
+  {
+    throw std::length_error(std::string(name) + " exceeds BLAS integer range");
+  }
+  return static_cast<blas_int>(value);
+}
+
+/// \brief Read one value from a row-major matrix with optional logical transpose.
+/// \param values Row-major dense matrix values.
+/// \param transpose `'N'` for normal access, otherwise transposed access.
+/// \param row Logical row.
+/// \param col Logical column.
+/// \param rows Logical row count after applying `transpose`.
+/// \param cols Logical column count after applying `transpose`.
+/// \return Matrix coefficient.
+inline auto row_major_value(std::span<double const> values, char transpose, std::size_t row, std::size_t col,
+                            std::size_t rows, std::size_t cols) -> double
+{
+  if (transpose == 'N')
+  {
+    return values[row * cols + col];
+  }
+  return values[col * rows + row];
+}
+
+/// \brief Accumulate a row-major matrix product, using BLAS when configured.
+/// \details Column-major BLAS receives the equivalent operation `C^T = B^T A^T`.
+/// \param transpose_lhs `'N'` for `lhs`, otherwise `lhs^T`.
+/// \param transpose_rhs `'N'` for `rhs`, otherwise `rhs^T`.
+/// \param rows Logical output row count.
+/// \param cols Logical output column count.
+/// \param shared Contracted dimension.
+/// \param alpha Product coefficient.
+/// \param lhs Left matrix payload.
+/// \param rhs Right matrix payload.
+/// \param beta Existing-output coefficient.
+/// \param out Output matrix payload.
+inline void row_major_gemm(char transpose_lhs, char transpose_rhs, std::size_t rows, std::size_t cols,
+                           std::size_t shared, double alpha, std::span<double const> lhs, std::span<double const> rhs,
+                           double beta, std::span<double> out)
+{
+#if UNI20_BACKEND_BLAS
+  auto const lhs_leading_dim = checked_blas_size(transpose_lhs == 'N' ? shared : rows, "BLAS lhs leading dimension");
+  auto const rhs_leading_dim = checked_blas_size(transpose_rhs == 'N' ? cols : shared, "BLAS rhs leading dimension");
+  blas::gemm(transpose_rhs, transpose_lhs, checked_blas_size(cols, "BLAS result columns"),
+             checked_blas_size(rows, "BLAS result rows"), checked_blas_size(shared, "BLAS shared dimension"), alpha,
+             rhs.data(), rhs_leading_dim, lhs.data(), lhs_leading_dim, beta, out.data(),
+             checked_blas_size(cols, "BLAS output leading dimension"));
+#else
+  for (std::size_t row = 0; row < rows; ++row)
+  {
+    for (std::size_t col = 0; col < cols; ++col)
+    {
+      double value = 0.0;
+      for (std::size_t inner = 0; inner < shared; ++inner)
+      {
+        value += row_major_value(lhs, transpose_lhs, row, inner, rows, shared) *
+                 row_major_value(rhs, transpose_rhs, inner, col, shared, cols);
+      }
+      out[row * cols + col] = beta * out[row * cols + col] + alpha * value;
+    }
+  }
+#endif
+}
+
+/// \brief Accumulate one left-environment block contribution.
+/// \param bra_site Bra MPS block.
+/// \param env Incoming environment block.
+/// \param ket_site Ket MPS block.
+/// \param left_bra_dim Incoming bra-bond dimension.
+/// \param left_ket_dim Incoming ket-bond dimension.
+/// \param right_bra_dim Outgoing bra-bond dimension.
+/// \param right_ket_dim Outgoing ket-bond dimension.
+/// \param out Output environment block.
+/// \param work Reusable temporary buffer.
+/// \param coefficient MPO entry coefficient.
 inline void add_environment_left(std::span<double const> bra_site, std::span<double const> env,
                                  std::span<double const> ket_site, std::size_t left_bra_dim, std::size_t left_ket_dim,
                                  std::size_t right_bra_dim, std::size_t right_ket_dim, std::span<double> out,
-                                 double coefficient)
+                                 std::vector<double>& work, double coefficient)
 {
-  for (std::size_t left_bra = 0; left_bra < left_bra_dim; ++left_bra)
-  {
-    for (std::size_t left_ket = 0; left_ket < left_ket_dim; ++left_ket)
-    {
-      double const weighted_env = coefficient * env[left_bra * left_ket_dim + left_ket];
-      if (weighted_env == 0.0)
-      {
-        continue;
-      }
-      for (std::size_t right_bra = 0; right_bra < right_bra_dim; ++right_bra)
-      {
-        double const bra_value = bra_site[left_bra * right_bra_dim + right_bra];
-        if (bra_value == 0.0)
-        {
-          continue;
-        }
-        for (std::size_t right_ket = 0; right_ket < right_ket_dim; ++right_ket)
-        {
-          out[right_bra * right_ket_dim + right_ket] +=
-              bra_value * weighted_env * ket_site[left_ket * right_ket_dim + right_ket];
-        }
-      }
-    }
-  }
+  work.resize(left_bra_dim * right_ket_dim);
+  row_major_gemm('N', 'N', left_bra_dim, right_ket_dim, left_ket_dim, 1.0, env, ket_site, 0.0, work);
+  row_major_gemm('T', 'N', right_bra_dim, right_ket_dim, left_bra_dim, coefficient, bra_site, work, 1.0, out);
 }
 
+/// \brief Accumulate one right-environment block contribution.
+/// \param bra_site Bra MPS block.
+/// \param env Incoming environment block.
+/// \param ket_site Ket MPS block.
+/// \param left_bra_dim Outgoing bra-bond dimension.
+/// \param left_ket_dim Outgoing ket-bond dimension.
+/// \param right_bra_dim Incoming bra-bond dimension.
+/// \param right_ket_dim Incoming ket-bond dimension.
+/// \param out Output environment block.
+/// \param work Reusable temporary buffer.
+/// \param coefficient MPO entry coefficient.
 inline void add_environment_right(std::span<double const> bra_site, std::span<double const> env,
                                   std::span<double const> ket_site, std::size_t left_bra_dim, std::size_t left_ket_dim,
                                   std::size_t right_bra_dim, std::size_t right_ket_dim, std::span<double> out,
-                                  double coefficient)
+                                  std::vector<double>& work, double coefficient)
 {
-  for (std::size_t left_bra = 0; left_bra < left_bra_dim; ++left_bra)
-  {
-    for (std::size_t left_ket = 0; left_ket < left_ket_dim; ++left_ket)
-    {
-      double value = 0.0;
-      for (std::size_t right_bra = 0; right_bra < right_bra_dim; ++right_bra)
-      {
-        double const bra_value = bra_site[left_bra * right_bra_dim + right_bra];
-        if (bra_value == 0.0)
-        {
-          continue;
-        }
-        for (std::size_t right_ket = 0; right_ket < right_ket_dim; ++right_ket)
-        {
-          value +=
-              bra_value * env[right_bra * right_ket_dim + right_ket] * ket_site[left_ket * right_ket_dim + right_ket];
-        }
-      }
-      out[left_bra * left_ket_dim + left_ket] += coefficient * value;
-    }
-  }
+  work.resize(left_bra_dim * right_ket_dim);
+  row_major_gemm('N', 'N', left_bra_dim, right_ket_dim, right_bra_dim, 1.0, bra_site, env, 0.0, work);
+  row_major_gemm('N', 'T', left_bra_dim, left_ket_dim, right_ket_dim, coefficient, work, ket_site, 1.0, out);
 }
 
 } // namespace detail
@@ -284,6 +345,7 @@ inline auto extend_left_environment(BlockSparseEnvironment const& left_env, Thre
   detail::validate_block_sparse_environment(left_env, site.row_space(), mpo_site.left_virtual_space(), "left");
 
   BlockSparseEnvironment next(site.col_space(), mpo_site.right_virtual_space(), site.col_space());
+  std::vector<double> work;
   for (auto const& env_block : left_env.blocks())
   {
     auto const env_values = left_env.values(env_block.key);
@@ -313,7 +375,7 @@ inline auto extend_left_environment(BlockSparseEnvironment const& left_env, Thre
             static_cast<void>(next.insert_zero_block(out_key));
           }
           detail::add_environment_left(site.values(bra_index), env_values, site.values(ket_index), bra_block.rows,
-                                       ket_block.rows, bra_block.cols, ket_block.cols, next.values(out_key),
+                                       ket_block.rows, bra_block.cols, ket_block.cols, next.values(out_key), work,
                                        entry.value);
         }
       }
@@ -334,6 +396,7 @@ inline auto extend_right_environment(BlockSparseEnvironment const& right_env, Th
   detail::validate_block_sparse_environment(right_env, site.col_space(), mpo_site.right_virtual_space(), "right");
 
   BlockSparseEnvironment previous(site.row_space(), mpo_site.left_virtual_space(), site.row_space());
+  std::vector<double> work;
   for (auto const& env_block : right_env.blocks())
   {
     auto const env_values = right_env.values(env_block.key);
@@ -363,7 +426,7 @@ inline auto extend_right_environment(BlockSparseEnvironment const& right_env, Th
             static_cast<void>(previous.insert_zero_block(out_key));
           }
           detail::add_environment_right(site.values(bra_index), env_values, site.values(ket_index), bra_block.rows,
-                                        ket_block.rows, bra_block.cols, ket_block.cols, previous.values(out_key),
+                                        ket_block.rows, bra_block.cols, ket_block.cols, previous.values(out_key), work,
                                         entry.value);
         }
       }

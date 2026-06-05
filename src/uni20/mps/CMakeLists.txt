@@ -9,3 +9,7 @@ target_link_libraries(uni20_mps
     uni20_symmetry
     uni20_tensorcontraction_runtime
 )
+
+if(UNI20_BACKEND_BLAS)
+  target_link_libraries(uni20_mps INTERFACE uni20_backend_blas)
+endif()
