@@ -255,12 +255,18 @@ scripts/rabc-trace-model.py fit /tmp/uni20_rabc_trace.jsonl \
   --output-model /tmp/uni20_rabc_model.json
 scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl \
   --model /tmp/uni20_rabc_model.json \
-  --contiguous-only
+  --contiguous-only \
+  --top 8
 ```
 
 The model file records the timing objective, feature set, ridge, clamp policy,
 feature names, coefficients, and fit statistics.  `suggest --model` uses those
 coefficients directly; it does not refit the trace or apply `--allow-negative`.
+Suggestion output labels whether each ranked layout was observed in the trace,
+is an ordered contiguous range split, and matches the byte-balanced default.
+Treat `observed=false` layouts as hypotheses only: benchmark them before using
+them to update runtime policy, especially when local search is extrapolating
+from a trace that only measured contiguous layouts.
 
 Until the held-out validation set is broad enough to trust extrapolated layouts, keep suggestions inside the measured
 layout set:

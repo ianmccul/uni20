@@ -1271,10 +1271,16 @@ def cmd_suggest(args: argparse.Namespace) -> int:
         stats = {str(name): float(value) for name, value in model.get("stats", {}).items()}
         model_source = str(args.model)
     problem = term_problem(records[-1])
+    observed_keys = {tuple(layout) for layout in observed_layouts(records)}
+    if int(problem["block_count"]) >= int(problem["device_count"]):
+        contiguous_keys = {
+            tuple(layout)
+            for _, layout in contiguous_range_layouts(int(problem["block_count"]), int(problem["device_count"]))
+        }
+    else:
+        contiguous_keys = set()
+    byte_balanced_key = tuple(byte_balanced_layout(problem))
 
-    best_layout: list[int] | None = None
-    best_score = float("inf")
-    best_devices: list[float] = []
     if args.contiguous_only:
         seeds = [
             layout
@@ -1284,19 +1290,37 @@ def cmd_suggest(args: argparse.Namespace) -> int:
         seeds = observed_layouts(records)
     else:
         seeds = candidate_layouts(problem, records, args.random)
+
+    ranked: list[dict[str, Any]] = []
+    seen: set[tuple[int, ...]] = set()
     for seed in seeds:
         layout = (
             seed
             if args.observed_only or args.contiguous_only
             else local_search(problem, seed, coefficients, args.passes, include_env_bytes, graph_features)
         )
+        key = tuple(layout)
+        if key in seen:
+            continue
+        seen.add(key)
         score, device_predictions = score_layout(problem, layout, coefficients, include_env_bytes, graph_features)
-        if score < best_score:
-            best_score = score
-            best_layout = layout
-            best_devices = device_predictions
+        ranked.append(
+            {
+                "layout": layout,
+                "score": score,
+                "device_predictions": device_predictions,
+                "observed": key in observed_keys,
+                "contiguous": key in contiguous_keys,
+                "byte_balanced": key == byte_balanced_key,
+            }
+        )
 
-    assert best_layout is not None
+    if not ranked:
+        raise ValueError("suggestion search generated no candidate layouts")
+    ranked.sort(key=lambda row: float(row["score"]))
+    best = ranked[0]
+    best_layout = best["layout"]
+    best_devices = best["device_predictions"]
     print(f"timing_objective={timing_objective}")
     print(f"graph_features={str(graph_features).lower()}")
     print(f"model_source={model_source}")
@@ -1305,9 +1329,22 @@ def cmd_suggest(args: argparse.Namespace) -> int:
         print("search=contiguous")
     else:
         print(f"search={'observed' if args.observed_only else 'local'}")
-    print(f"predicted_gpu_s={best_score:.9g}")
+    print(f"predicted_gpu_s={float(best['score']):.9g}")
     print("predicted_device_gpu_s=" + ",".join(f"{value:.9g}" for value in best_devices))
+    print(f"observed_layout={str(bool(best['observed'])).lower()}")
+    print(f"contiguous_layout={str(bool(best['contiguous'])).lower()}")
+    print(f"byte_balanced_layout={str(bool(best['byte_balanced'])).lower()}")
     print("layout=" + layout_string(best_layout))
+    if not best["observed"]:
+        print("warning=selected_layout_not_observed_in_trace")
+    if args.top > 1:
+        print("top_rank predicted_gpu_s observed contiguous byte_balanced layout")
+        for rank, row in enumerate(ranked[: args.top], start=1):
+            print(
+                f"{rank} {float(row['score']):.9g} {str(bool(row['observed'])).lower()} "
+                f"{str(bool(row['contiguous'])).lower()} {str(bool(row['byte_balanced'])).lower()} "
+                f"{layout_string(row['layout'])}"
+            )
     print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual \\")
     print("    UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=" + layout_string(best_layout))
     return 0
@@ -1387,6 +1424,7 @@ def parser() -> argparse.ArgumentParser:
     suggest.add_argument("--ridge", type=float, default=1.0e-9)
     suggest.add_argument("--passes", type=int, default=4)
     suggest.add_argument("--random", type=int, default=16)
+    suggest.add_argument("--top", type=int, default=1, help="print the top N ranked candidate layouts")
     suggest.add_argument("--drop-first-per-layout", type=int, default=0)
     suggest.add_argument("--observed-only", action="store_true")
     suggest.add_argument(
