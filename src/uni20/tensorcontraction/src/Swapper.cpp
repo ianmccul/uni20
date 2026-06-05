@@ -389,6 +389,28 @@ bool Swapper::preStoreBuffersAreCoalesced(const std::vector<Matrix>& mats, int d
   return group != nullptr && offsetBytes == group->bytes;
 }
 
+std::vector<std::shared_ptr<GpuBuffer>> Swapper::collectCoalescedPreStoreBuffers(const std::vector<Matrix>& mats,
+                                                                                 int deviceId) const
+{
+  if (!this->preStoreBuffersAreCoalesced(mats, deviceId))
+  {
+    return {};
+  }
+
+  std::vector<std::shared_ptr<GpuBuffer>> buffers;
+  buffers.reserve(mats.size());
+  for (auto const& mat : mats)
+  {
+    auto const it = preStoreMap.find(mat.getId());
+    if (it == preStoreMap.end() || it->second.first != deviceId || it->second.second == nullptr)
+    {
+      return {};
+    }
+    buffers.push_back(it->second.second);
+  }
+  return buffers;
+}
+
 void Swapper::notifyMatrixRead(Matrix mat, int deviceId, cuda::CompletionRef completion)
 {
   auto buffer = getGpuBufferOrNone(mat, deviceId);
@@ -773,24 +795,10 @@ void Swapper::uploadHostMatricesCoalesced(const std::vector<Matrix>& mats, std::
 
   this->registerGpuAllocationsCoalesced(mats, deviceId);
 
-  std::vector<std::shared_ptr<GpuBuffer>> buffers;
-  buffers.reserve(mats.size());
-  for (auto const& mat : mats)
-  {
-    auto [storedDeviceId, buffer] = this->getPreStoreBufferOrNone(mat);
-    assert(storedDeviceId == deviceId);
-    assert(buffer != nullptr);
-    buffers.push_back(std::move(buffer));
-  }
-
-  auto stream = deviceContexts[deviceId]->leaseWorkStream();
-  this->waitForAccessDependencies({}, buffers, stream.stream());
-  DEBUG_GPU_COPY_H2D(*this, mats.front().getId(), deviceId, stream.stream(), totalBytes);
+  auto access = this->createSlabAccessPlan(mats, deviceId, SlabAccessKind::Write);
+  DEBUG_GPU_COPY_H2D(*this, mats.front().getId(), deviceId, access.stream(), totalBytes);
   recordCopy(CopyStatsSite::PreStoreH2D, totalBytes);
-  CUDA_CALL(cudaMemcpyAsync(buffers.front()->allocationBasePtr(), values.data(), totalBytes, cudaMemcpyHostToDevice,
-                            stream.stream()));
-  auto completion = stream.recordCompletion();
-  this->publishAccessCompletion({}, buffers, stream.stream(), std::move(completion));
+  CUDA_CALL(cudaMemcpyAsync(access.data(), values.data(), totalBytes, cudaMemcpyHostToDevice, access.stream()));
 }
 
 void Swapper::copyHostToPreStoreMatrix(Matrix mat) { this->refreshHostMatrixToDevice(mat.hostView()); }
@@ -827,26 +835,11 @@ bool Swapper::refreshHostMatricesToDeviceCoalesced(const std::vector<Matrix>& ma
     return false;
   }
 
-  std::vector<std::shared_ptr<GpuBuffer>> buffers;
-  buffers.reserve(mats.size());
-  for (auto const& mat : mats)
-  {
-    auto [storedDeviceId, buffer] = this->getPreStoreBufferOrNone(mat);
-    if (storedDeviceId != deviceId || buffer == nullptr)
-    {
-      return false;
-    }
-    buffers.push_back(std::move(buffer));
-  }
-
-  auto stream = deviceContexts[deviceId]->leaseWorkStream();
-  this->waitForAccessDependencies({}, buffers, stream.stream());
-  DEBUG_GPU_COPY_H2D(*this, mats.front().getId(), deviceId, stream.stream(), values.size_bytes());
+  auto access = this->createSlabAccessPlan(mats, deviceId, SlabAccessKind::Write);
+  DEBUG_GPU_COPY_H2D(*this, mats.front().getId(), deviceId, access.stream(), values.size_bytes());
   recordCopy(CopyStatsSite::RefreshPreStoreH2D, values.size_bytes());
-  CUDA_CALL(cudaMemcpyAsync(buffers.front()->allocationBasePtr(), values.data(), values.size_bytes(),
-                            cudaMemcpyHostToDevice, stream.stream()));
-  auto completion = stream.recordCompletion();
-  this->publishAccessCompletion({}, buffers, stream.stream(), std::move(completion));
+  CUDA_CALL(
+      cudaMemcpyAsync(access.data(), values.data(), values.size_bytes(), cudaMemcpyHostToDevice, access.stream()));
   return true;
 }
 
@@ -884,26 +877,11 @@ bool Swapper::downloadDeviceMatricesToHostCoalesced(const std::vector<Matrix>& m
     return false;
   }
 
-  std::vector<std::shared_ptr<GpuBuffer>> buffers;
-  buffers.reserve(mats.size());
-  for (auto const& mat : mats)
-  {
-    auto [storedDeviceId, buffer] = this->getPreStoreBufferOrNone(mat);
-    if (storedDeviceId != *deviceId || buffer == nullptr)
-    {
-      return false;
-    }
-    buffers.push_back(std::move(buffer));
-  }
-
-  auto stream = deviceContexts[*deviceId]->leaseWorkStream();
-  this->waitForAccessDependencies(buffers, {}, stream.stream());
-  DEBUG_GPU_COPY_D2H(*this, mats.front().getId(), *deviceId, stream.stream(), values.size_bytes());
+  auto access = this->createSlabAccessPlan(mats, *deviceId, SlabAccessKind::Read);
+  DEBUG_GPU_COPY_D2H(*this, mats.front().getId(), *deviceId, access.stream(), values.size_bytes());
   recordCopy(CopyStatsSite::PreStoreD2H, values.size_bytes());
-  CUDA_CALL(cudaMemcpyAsync(values.data(), buffers.front()->allocationBasePtr(), values.size_bytes(),
-                            cudaMemcpyDeviceToHost, stream.stream()));
-  auto completion = stream.recordCompletion();
-  this->publishAccessCompletion(buffers, {}, stream.stream(), std::move(completion));
+  CUDA_CALL(
+      cudaMemcpyAsync(values.data(), access.data(), values.size_bytes(), cudaMemcpyDeviceToHost, access.stream()));
   return true;
 }
 
@@ -1011,6 +989,80 @@ void Swapper::BlasAccessPlan::publishCompletion(cuda::CompletionRef completion) 
   swapper.publishAccessCompletion(readBuffers, writeBuffers, this->stream(), std::move(completion));
 }
 
+Swapper::SlabAccessPlan::SlabAccessPlan(Swapper& swapper, int deviceId, SlabAccessKind accessKind,
+                                        std::vector<std::shared_ptr<GpuBuffer>> buffers)
+    : swapper(swapper), deviceId(deviceId), accessKind(accessKind),
+      streamOwner(swapper.deviceContext(deviceId).leaseWorkStream()), buffers(std::move(buffers))
+{
+  if (this->buffers.empty())
+  {
+    throw std::logic_error("TensorContraction slab access requires at least one GPU buffer");
+  }
+
+  auto const group = this->buffers.front()->allocationGroup;
+  if (group == nullptr || group->basePtr == nullptr || group->bytes == 0)
+  {
+    throw std::logic_error("TensorContraction slab access requires a live coalesced allocation group");
+  }
+
+  basePtr = group->basePtr;
+  bytes = group->bytes;
+  std::size_t offsetBytes = 0;
+  for (auto const& buffer : this->buffers)
+  {
+    if (buffer == nullptr || buffer->allocationGroup != group)
+    {
+      throw std::logic_error("TensorContraction slab access received buffers from different allocation groups");
+    }
+    auto* expected = static_cast<std::byte*>(basePtr) + offsetBytes;
+    if (buffer->ptr != expected)
+    {
+      throw std::logic_error("TensorContraction slab access received non-contiguous sub-block buffers");
+    }
+    offsetBytes += buffer->sizeInByte();
+  }
+  if (offsetBytes != bytes)
+  {
+    throw std::logic_error("TensorContraction slab access received an incomplete allocation group");
+  }
+
+  if (accessKind == SlabAccessKind::Read)
+  {
+    swapper.waitForAccessDependencies(this->buffers, {}, this->stream());
+  }
+  else
+  {
+    swapper.waitForAccessDependencies({}, this->buffers, this->stream());
+  }
+}
+
+Swapper::SlabAccessPlan::~SlabAccessPlan()
+{
+  if (swapper.dependencyEventsActive() && !published)
+  {
+    this->publishCompletion(this->recordCompletion());
+  }
+}
+
+cuda::CompletionRef Swapper::SlabAccessPlan::recordCompletion() const { return streamOwner.recordCompletion(); }
+
+void Swapper::SlabAccessPlan::publishCompletion(cuda::CompletionRef completion)
+{
+  if (published)
+  {
+    return;
+  }
+  if (accessKind == SlabAccessKind::Read)
+  {
+    swapper.publishAccessCompletion(buffers, {}, this->stream(), std::move(completion));
+  }
+  else
+  {
+    swapper.publishAccessCompletion({}, buffers, this->stream(), std::move(completion));
+  }
+  published = true;
+}
+
 auto Swapper::createAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
                                std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId) -> GpuAccessPlan
 {
@@ -1021,6 +1073,17 @@ auto Swapper::createBlasAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readB
                                    std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId) -> BlasAccessPlan
 {
   return BlasAccessPlan(*this, deviceId, std::move(readBuffers), std::move(writeBuffers));
+}
+
+auto Swapper::createSlabAccessPlan(const std::vector<Matrix>& mats, int deviceId,
+                                   SlabAccessKind accessKind) -> SlabAccessPlan
+{
+  auto buffers = this->collectCoalescedPreStoreBuffers(mats, deviceId);
+  if (buffers.empty())
+  {
+    throw std::logic_error("TensorContraction slab access requires a complete coalesced Matrix batch");
+  }
+  return SlabAccessPlan(*this, deviceId, accessKind, std::move(buffers));
 }
 
 void Swapper::waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,

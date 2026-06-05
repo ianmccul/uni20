@@ -64,6 +64,30 @@ operation sees the complete MatrixFamily, the matrices exactly cover the host
 slab, and the scheduler chooses a single CUDA device.  Partial, already mixed,
 or multi-device layouts fall back to the existing per-block path.
 
+## Slab Operations
+
+Avoid calling these operations "collective" operations.  In this codebase
+"collective" should remain available for MPI/NCCL-style communication.  The
+preferred term is **slab operation**: one operation whose memory scope is a whole
+coalesced allocation slab rather than one logical sub-block.
+
+`Swapper::SlabAccessPlan` is the current prototype synchronization primitive for
+these operations.  It:
+
+- verifies that the requested matrices cover one complete coalesced pre-store
+  slab;
+- waits on every participating sub-block reader/writer generation before
+  returning a stream;
+- exposes the slab base pointer and byte count for bulk operations such as H2D,
+  D2H, or future device reductions;
+- publishes one completion token back to every sub-block when the operation
+  scope exits.
+
+This gives slab transfers and reductions one explicit scheduling boundary
+without collapsing normal block-granular dependency tracking.  If later kernels
+modify only one sub-block, only that sub-block should advance.  If a slab
+operation touches every byte, every sub-block receives the same completion token.
+
 ## Future Uni20 Shape
 
 The same design should generalize to Uni20 block-sparse tensors:

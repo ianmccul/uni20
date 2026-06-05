@@ -106,8 +106,19 @@ class Swapper {
     void destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer);
     std::vector<CudaDeviceContext::EventDependencyRef>
     collectBufferDependencies(std::shared_ptr<GpuBuffer> const& buffer) const;
+    std::vector<std::shared_ptr<GpuBuffer>> collectCoalescedPreStoreBuffers(const std::vector<Matrix>& mats,
+                                                                            int deviceId) const;
 
   public:
+    /// \brief Access direction for a slab operation.
+    enum class SlabAccessKind
+    {
+      /// \brief The operation reads every sub-block in the slab.
+      Read,
+      /// \brief The operation writes every sub-block in the slab.
+      Write,
+    };
+
     class GpuAccessPlan {
         Swapper& swapper;
         int deviceId = 0;
@@ -151,6 +162,51 @@ class Swapper {
         void publishCompletion(cuda::CompletionRef completion) const;
     };
 
+    /// \brief RAII access token for a whole coalesced GPU allocation slab.
+    /// \details The plan waits for all sub-block dependencies before exposing a
+    ///          stream and publishes one completion back to all sub-blocks when
+    ///          destroyed.
+    class SlabAccessPlan {
+        Swapper& swapper;
+        int deviceId = 0;
+        SlabAccessKind accessKind = SlabAccessKind::Read;
+        cuda::Stream streamOwner;
+        std::vector<std::shared_ptr<GpuBuffer>> buffers;
+        void* basePtr = nullptr;
+        size_t bytes = 0;
+        bool published = false;
+
+      public:
+        /// \brief Acquire a whole coalesced allocation slab for one operation.
+        /// \param swapper Owner of the device buffers and dependency state.
+        /// \param deviceId CUDA device containing the slab.
+        /// \param accessKind Whether the operation reads or writes the slab.
+        /// \param buffers Ordered sub-block buffers covering the complete slab.
+        SlabAccessPlan(Swapper& swapper, int deviceId, SlabAccessKind accessKind,
+                       std::vector<std::shared_ptr<GpuBuffer>> buffers);
+        SlabAccessPlan(SlabAccessPlan const&) = delete;
+        SlabAccessPlan& operator=(SlabAccessPlan const&) = delete;
+        SlabAccessPlan(SlabAccessPlan&&) = delete;
+        SlabAccessPlan& operator=(SlabAccessPlan&&) = delete;
+        ~SlabAccessPlan();
+
+        /// \brief Return the CUDA stream prepared for the slab operation.
+        /// \return CUDA stream that has waited on all required sub-block events.
+        cudaStream_t stream() const { return streamOwner.stream(); }
+        /// \brief Return the base pointer of the coalesced allocation slab.
+        /// \return Device pointer to the first byte of the slab.
+        void* data() const { return basePtr; }
+        /// \brief Return the total byte count covered by the slab.
+        /// \return Number of bytes in the complete coalesced allocation.
+        size_t sizeInByte() const { return bytes; }
+        /// \brief Record completion of the slab operation in the plan stream.
+        /// \return Completion token that can be published to all sub-blocks.
+        cuda::CompletionRef recordCompletion() const;
+        /// \brief Publish an operation completion to every sub-block in the slab.
+        /// \param completion Completion token recorded after the slab operation.
+        void publishCompletion(cuda::CompletionRef completion);
+    };
+
     Swapper();
     Swapper(const Swapper&) = delete;
     Swapper& operator=(const Swapper&) = delete;
@@ -165,6 +221,12 @@ class Swapper {
                                    std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId);
     BlasAccessPlan createBlasAccessPlan(std::vector<std::shared_ptr<GpuBuffer>> readBuffers,
                                         std::vector<std::shared_ptr<GpuBuffer>> writeBuffers, int deviceId);
+    /// \brief Acquire a whole coalesced pre-store slab for a slab operation.
+    /// \param mats Ordered matrices that must cover the complete slab.
+    /// \param deviceId CUDA device containing the slab.
+    /// \param accessKind Whether the operation reads or writes the slab.
+    /// \return RAII plan exposing the synchronized slab pointer and stream.
+    SlabAccessPlan createSlabAccessPlan(const std::vector<Matrix>& mats, int deviceId, SlabAccessKind accessKind);
     void waitForAccessDependencies(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
                                    const std::vector<std::shared_ptr<GpuBuffer>>& writeBuffers, cudaStream_t stream);
     void publishAccessCompletion(const std::vector<std::shared_ptr<GpuBuffer>>& readBuffers,
