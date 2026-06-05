@@ -2463,6 +2463,16 @@ def cmd_layouts(args: argparse.Namespace) -> int:
     ]
     if args.contiguous_cuts:
         layouts.extend(contiguous_range_layouts(args.block_count, args.device_count))
+    if args.segmented_cuts:
+        layouts.extend(
+            segmented_alternating_layouts(
+                args.block_count,
+                args.device_count,
+                args.max_segments,
+                args.segment_cut_stride,
+                args.max_segment_layouts,
+            )
+        )
     for index in range(args.random):
         layouts.append((f"random{index}", [rng.randrange(args.device_count) for _ in range(args.block_count)]))
     for name, layout in layouts:
@@ -2933,6 +2943,29 @@ def parser() -> argparse.ArgumentParser:
         "--contiguous-cuts",
         action="store_true",
         help="also emit every nonempty contiguous range partition for the requested device count",
+    )
+    layouts.add_argument(
+        "--segmented-cuts",
+        action="store_true",
+        help="also emit bounded alternating two-device segmented layouts",
+    )
+    layouts.add_argument(
+        "--max-segments",
+        type=int,
+        default=2,
+        help="maximum number of alternating segments for --segmented-cuts",
+    )
+    layouts.add_argument(
+        "--segment-cut-stride",
+        type=int,
+        default=1,
+        help="only consider segmented cuts at multiples of this block stride",
+    )
+    layouts.add_argument(
+        "--max-segment-layouts",
+        type=int,
+        default=20000,
+        help="reject --segmented-cuts searches that would enumerate more layouts than this",
     )
     layouts.set_defaults(func=cmd_layouts)
     return root

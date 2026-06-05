@@ -330,6 +330,29 @@ scripts/rabc-trace-model.py bench-rank /tmp/uni20_rabc_empirical_replay/benchmar
   --selected-name empirical-contiguous
 ```
 
+To benchmark segmented candidates directly, generate explicit layout strings
+with the same bounded segmented generator and pass selected rows to
+`run-rabc-layout-sweep.sh --layout NAME=LIST`:
+
+```bash
+scripts/rabc-trace-model.py layouts \
+  --block-count 730 \
+  --device-count 2 \
+  --segmented-cuts \
+  --max-segments 3 \
+  --segment-cut-stride 20 \
+  --max-segment-layouts 20000
+```
+
+The first bounded segmented probe on the local Hubbard `L=40, m=5000` fixture
+did not beat the contiguous basin.  The best measured segmented candidate,
+`seg3_start0_cuts300_340`, placed 690 blocks on GPU 0 and 40 blocks on GPU 1
+in three segments and measured mean `#LanczosMatvecS = 0.923069940s` over
+three repeats.  This is slower than the best focused contiguous comparison
+around `cut326` at about `0.888s`, so the current useful automatic search space
+remains contiguous layouts unless a fixture supplies measured evidence for
+non-contiguous support.
+
 For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
 dual-GPU sweep over all contiguous cuts found `cut6` as the current best
 measured contiguous layout: mean `#LanczosMatvecS = 0.169051257s` over three

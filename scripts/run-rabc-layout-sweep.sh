@@ -22,6 +22,13 @@ Options:
                           For non-manual policies, labels are run names only.
   --layout NAME=LIST      Add one custom layout. May be repeated. The custom
                           layout name is appended after --labels entries.
+  --segmented-cuts        Include bounded segmented layout labels in the generated
+                          layout table for lookup by --labels.
+  --max-segments N        Maximum segments for --segmented-cuts. Default: 2.
+  --segment-cut-stride N  Only generate segmented cuts at multiples of this
+                          block stride. Default: 1.
+  --max-segment-layouts N Reject segmented generation above this layout count.
+                          Default: 20000.
   --block-count N         Number of center-vector blocks. Default: 42.
   --device-count N        Number of local CUDA devices. Default: 2.
   --cuda-visible LIST     CUDA_VISIBLE_DEVICES value. Default: 0,1.
@@ -61,6 +68,10 @@ policy="manual"
 default_labels_csv="cut3,cut4,cut5,cut6,cut7,cut8,cut9,cut10,cut12,cut14,cut16,cut21,cut36,alternating"
 labels_csv="${default_labels_csv}"
 labels_was_set=0
+segmented_cuts=0
+max_segments=2
+segment_cut_stride=1
+max_segment_layouts=20000
 block_count=42
 device_count=2
 cuda_visible="0,1"
@@ -109,6 +120,22 @@ while [[ $# -gt 0 ]]; do
       fi
       custom_layouts["${layout_name}"]="${layout_value}"
       custom_layout_names+=("${layout_name}")
+      shift 2
+      ;;
+    --segmented-cuts)
+      segmented_cuts=1
+      shift
+      ;;
+    --max-segments)
+      max_segments="$2"
+      shift 2
+      ;;
+    --segment-cut-stride)
+      segment_cut_stride="$2"
+      shift 2
+      ;;
+    --max-segment-layouts)
+      max_segment_layouts="$2"
       shift 2
       ;;
     --block-count)
@@ -209,8 +236,16 @@ if [[ -n "${trace_path}" ]]; then
 fi
 layouts_file="${output_dir}/layouts.txt"
 jsonl="${output_dir}/benchmarks.jsonl"
-"${repo_root}/scripts/rabc-trace-model.py" layouts --block-count "${block_count}" --device-count "${device_count}" \
-  --contiguous-cuts > "${layouts_file}"
+layout_args=(--block-count "${block_count}" --device-count "${device_count}" --contiguous-cuts)
+if [[ "${segmented_cuts}" -eq 1 ]]; then
+  layout_args+=(
+    --segmented-cuts
+    --max-segments "${max_segments}"
+    --segment-cut-stride "${segment_cut_stride}"
+    --max-segment-layouts "${max_segment_layouts}"
+  )
+fi
+"${repo_root}/scripts/rabc-trace-model.py" layouts "${layout_args[@]}" > "${layouts_file}"
 : > "${jsonl}"
 
 manual_policy=0
