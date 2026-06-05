@@ -78,12 +78,16 @@ Useful controls:
 | --- | --- |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT` | `cost`, `greedy`, or `cost-greedy` enables contiguous cost placement. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost-block` | Enables the more aggressive arbitrary block-ownership policy. Blocks are still stored as one coalesced slab per device. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual` | Uses the explicit center-block device list supplied by `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT`. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT` | Comma-separated CUDA device id per center block, for example `0,1,0,1`. The list length must equal the center-vector block count. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG` | Set to `1`, `true`, or `on` to print the selected output-block distribution. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_GFLOPS` | Assumed per-device GEMM throughput. Default: `1000`. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_CENTRAL_GBPS` | Assumed central-vector transfer bandwidth. Default: `32`. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES` | If set, include environment staging bytes in the model. Default: unset. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_GBPS` | Assumed environment transfer bandwidth when environment bytes are enabled. Default: central bandwidth. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ARBITRARY_MIN_SPEEDUP` | Minimum predicted speedup required before `cost-block` overrides byte-balanced slab layout. Default: `1.25`. |
+| `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` | Appends one JSONL record per deterministic resident matvec with layout, feature, and timing data for empirical model fitting. |
+| `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS` | If set, include the full term list and selected device for each term in each JSONL record. |
 
 The cost policies are intentionally opt-in.  Even the contiguous policy can choose a partition that is worse for the
 current executor than the default byte-balanced slabs; the arbitrary block policy can still lose to the default layout
@@ -96,6 +100,40 @@ Lanczos solve.
 The placement plan is cached inside the resident operator after the first resident apply for a given policy and device
 count.  Use `UNI20_RABC_WARMUP=1` when comparing matvec timings so plan construction and environment materialization
 are treated as setup rather than Lanczos-loop cost.
+
+## Empirical Cost Tracing
+
+For model fitting, run the fixture benchmark with an explicit layout and a trace path:
+
+```bash
+env \
+  UNI20_TENSORCONTRACTION_DEVICES=2 \
+  UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual \
+  UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=<one-device-id-per-center-block> \
+  UNI20_TENSORCONTRACTION_RABC_TRACE_PATH=/tmp/uni20_rabc_trace.jsonl \
+  UNI20_RABC_WARMUP=1 \
+  UNI20_RABC_REPEATS=4 \
+  ./build_codex/tensorcontraction-polaron-release-fresh/examples/tensorcontraction_rabc_lanczos_benchmark \
+  /tmp/uni20_l40_m2048_central.rabc
+```
+
+Each trace record contains the input/output block layout, per-device feature aggregates, host enqueue time, host wait
+time, and CUDA-event elapsed time.  The CUDA events are recorded on the legacy stream to create a diagnostic boundary
+around the blocking work streams on each device.  This makes tracing heavier than the default benchmark path but much
+lighter than Nsight Systems, and it produces directly usable feature rows for fitting bandwidth and GEMM-throughput
+parameters.
+
+The current feature rows describe the right-first executor:
+
+```text
+Y = B * C
+R += A * Y
+```
+
+Per-device fields include `bc_flops`, `accumulate_flops`, local versus peer `B` bytes, `A`/`C` environment bytes,
+output bytes, intermediate bytes, term count, and unique block counts.  These are intentionally aggregate features for
+the first empirical model.  Set `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1` when debugging individual block placement
+or when a later optimizer needs term-level training data.
 
 The fixture preserves the exact TensorContraction block worklist emitted by the symmetry-aware DMRG path, but it does
 not store the higher-level `LocalSpace`, `BlockSpace`, or MPO metadata. Do not feed fixture data back into U(1) MPS

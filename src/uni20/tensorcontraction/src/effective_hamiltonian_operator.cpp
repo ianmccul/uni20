@@ -9,9 +9,12 @@
 #include <fmt/core.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <compare>
 #include <cstddef>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <map>
@@ -48,8 +51,10 @@ struct ResidentOutputPlacementCache
     std::size_t output_count = 0;
     std::size_t input_count = 0;
     std::size_t term_count = 0;
+    std::string layout_key;
     bool use_default_localization = false;
     bool coalesced_ranges = false;
+    bool trace_plan_emitted = false;
     std::vector<ResidentOutputPlacementRange> ranges;
     std::vector<int> devices;
 };
@@ -218,6 +223,8 @@ bool use_block_cost_based_rabc_placement(std::string const& policy)
   return policy == "cost-block" || policy == "block" || policy == "greedy-block";
 }
 
+bool use_manual_rabc_placement(std::string const& policy) { return policy == "manual" || policy == "layout"; }
+
 bool log_cost_based_rabc_placement()
 {
   auto const* raw = std::getenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG");
@@ -239,6 +246,59 @@ double env_double_or(char const* name, double fallback)
     throw std::invalid_argument(std::string("invalid positive floating-point value for ") + name + ": " + text);
   }
   return value;
+}
+
+std::optional<std::string> optional_env_string(char const* name)
+{
+  auto const* raw = std::getenv(name);
+  if (raw == nullptr || *raw == '\0')
+  {
+    return std::nullopt;
+  }
+  return std::string(raw);
+}
+
+std::vector<int> parse_manual_rabc_layout(std::size_t block_count, int device_count)
+{
+  auto const layout_text = optional_env_string("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT");
+  if (!layout_text.has_value())
+  {
+    throw std::invalid_argument(
+        "UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual requires UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT");
+  }
+
+  std::vector<int> devices;
+  devices.reserve(block_count);
+  std::size_t begin = 0;
+  while (begin <= layout_text->size())
+  {
+    std::size_t const end = layout_text->find(',', begin);
+    auto const token = layout_text->substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+    if (token.empty())
+    {
+      throw std::invalid_argument("manual R/A/B/C placement layout contains an empty device token");
+    }
+
+    std::size_t consumed = 0;
+    int const device = std::stoi(token, &consumed);
+    if (consumed != token.size() || device < 0 || device >= device_count)
+    {
+      throw std::invalid_argument("manual R/A/B/C placement layout contains an invalid CUDA device id: " + token);
+    }
+    devices.push_back(device);
+
+    if (end == std::string::npos)
+    {
+      break;
+    }
+    begin = end + 1;
+  }
+
+  if (devices.size() != block_count)
+  {
+    throw std::invalid_argument("manual R/A/B/C placement layout block count does not match the center vector");
+  }
+  return devices;
 }
 
 struct MatrixUseKey
@@ -621,6 +681,312 @@ double max_load(std::span<double const> load)
   return load.empty() ? 0.0 : *std::max_element(load.begin(), load.end());
 }
 
+struct RabcDeviceCostFeatures
+{
+    int device = 0;
+    std::size_t input_blocks = 0;
+    std::size_t output_blocks = 0;
+    std::size_t terms = 0;
+    std::size_t unique_bc = 0;
+    std::size_t unique_a = 0;
+    std::size_t unique_b = 0;
+    std::size_t unique_c = 0;
+    double bc_flops = 0.0;
+    double accumulate_flops = 0.0;
+    std::size_t b_local_bytes = 0;
+    std::size_t b_peer_bytes = 0;
+    std::size_t a_bytes = 0;
+    std::size_t c_bytes = 0;
+    std::size_t output_bytes = 0;
+    std::size_t intermediate_bytes = 0;
+};
+
+struct RabcCostFeatures
+{
+    std::vector<int> input_devices;
+    std::vector<int> output_devices;
+    std::vector<RabcDeviceCostFeatures> devices;
+};
+
+std::vector<int> resident_devices_for(tensor::Swapper& swapper, std::span<tensor::Matrix const> mats)
+{
+  std::vector<int> devices;
+  devices.reserve(mats.size());
+  for (auto const& mat : mats)
+  {
+    auto device = pre_store_device_for(swapper, mat);
+    devices.push_back(device.value_or(0));
+  }
+  return devices;
+}
+
+RabcCostFeatures rabc_cost_features(MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
+                                    std::span<tensor::Matrix const> r_raw_mats,
+                                    std::span<tensor::Matrix const> b_raw_mats,
+                                    std::span<EffectiveHamiltonianOperator::Term const> terms, tensor::Swapper& swapper)
+{
+  int const device_count = swapper.getDeviceCount();
+  RabcCostFeatures features;
+  features.input_devices = resident_devices_for(swapper, b_raw_mats);
+  features.output_devices = resident_devices_for(swapper, r_raw_mats);
+  features.devices.resize(static_cast<std::size_t>(device_count));
+  std::vector<std::set<BcUseKey>> staged_bc(static_cast<std::size_t>(device_count));
+  std::vector<std::set<MatrixUseKey>> staged_mats(static_cast<std::size_t>(device_count));
+
+  for (int device = 0; device < device_count; ++device)
+  {
+    features.devices[static_cast<std::size_t>(device)].device = device;
+  }
+  for (std::size_t block = 0; block < features.input_devices.size(); ++block)
+  {
+    auto& device_features = features.devices[static_cast<std::size_t>(features.input_devices[block])];
+    ++device_features.input_blocks;
+  }
+  for (std::size_t block = 0; block < features.output_devices.size(); ++block)
+  {
+    auto& device_features = features.devices[static_cast<std::size_t>(features.output_devices[block])];
+    ++device_features.output_blocks;
+    device_features.output_bytes += r_raw_mats[block].sizeInByte();
+  }
+
+  for (auto const& term : terms)
+  {
+    int const device = features.output_devices[term.r];
+    auto const device_index = static_cast<std::size_t>(device);
+    auto& device_features = features.devices[device_index];
+    ++device_features.terms;
+
+    BcUseKey const bc{.b = term.b, .c = term.c};
+    if (staged_bc[device_index].insert(bc).second)
+    {
+      auto const b = b_mats.block(term.b);
+      auto const c = c_mats.block(term.c);
+      device_features.bc_flops += gemm_flops(b, c);
+      device_features.intermediate_bytes += b.rows * c.cols * sizeof(double);
+    }
+
+    auto const a = a_mats.block(term.a);
+    auto const b = b_mats.block(term.b);
+    auto const c = c_mats.block(term.c);
+    auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+    device_features.accumulate_flops += gemm_flops(a, intermediate);
+
+    MatrixUseKey const b_key{.family = 'B', .index = term.b};
+    if (staged_mats[device_index].insert(b_key).second)
+    {
+      ++device_features.unique_b;
+      if (features.input_devices[term.b] == device)
+      {
+        device_features.b_local_bytes += b_raw_mats[term.b].sizeInByte();
+      }
+      else
+      {
+        device_features.b_peer_bytes += b_raw_mats[term.b].sizeInByte();
+      }
+    }
+
+    MatrixUseKey const a_key{.family = 'A', .index = term.a};
+    if (staged_mats[device_index].insert(a_key).second)
+    {
+      ++device_features.unique_a;
+      device_features.a_bytes += a.rows * a.cols * sizeof(double);
+    }
+
+    MatrixUseKey const c_key{.family = 'C', .index = term.c};
+    if (staged_mats[device_index].insert(c_key).second)
+    {
+      ++device_features.unique_c;
+      device_features.c_bytes += c.rows * c.cols * sizeof(double);
+    }
+  }
+
+  for (int device = 0; device < device_count; ++device)
+  {
+    features.devices[static_cast<std::size_t>(device)].unique_bc = staged_bc[static_cast<std::size_t>(device)].size();
+  }
+  return features;
+}
+
+std::string json_int_array(std::span<int const> values)
+{
+  std::string result = "[";
+  for (std::size_t index = 0; index < values.size(); ++index)
+  {
+    if (index != 0)
+    {
+      result += ',';
+    }
+    result += std::to_string(values[index]);
+  }
+  result += ']';
+  return result;
+}
+
+std::string json_device_features(std::span<RabcDeviceCostFeatures const> features)
+{
+  std::string result = "[";
+  for (std::size_t index = 0; index < features.size(); ++index)
+  {
+    auto const& item = features[index];
+    if (index != 0)
+    {
+      result += ',';
+    }
+    result += fmt::format("{{\"device\":{},\"input_blocks\":{},\"output_blocks\":{},\"terms\":{},"
+                          "\"unique_bc\":{},\"unique_a\":{},\"unique_b\":{},\"unique_c\":{},"
+                          "\"bc_flops\":{:.17g},\"accumulate_flops\":{:.17g},"
+                          "\"b_local_bytes\":{},\"b_peer_bytes\":{},\"a_bytes\":{},\"c_bytes\":{},"
+                          "\"output_bytes\":{},\"intermediate_bytes\":{}}}",
+                          item.device, item.input_blocks, item.output_blocks, item.terms, item.unique_bc, item.unique_a,
+                          item.unique_b, item.unique_c, item.bc_flops, item.accumulate_flops, item.b_local_bytes,
+                          item.b_peer_bytes, item.a_bytes, item.c_bytes, item.output_bytes, item.intermediate_bytes);
+  }
+  result += ']';
+  return result;
+}
+
+bool rabc_trace_enabled() { return optional_env_string("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH").has_value(); }
+
+bool rabc_trace_terms_enabled() { return tensor::envFlagEnabled("UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS"); }
+
+std::uint64_t next_rabc_trace_index()
+{
+  static std::uint64_t next = 0;
+  return next++;
+}
+
+struct RabcTraceDeviceTiming
+{
+    int device = 0;
+    cudaEvent_t start = nullptr;
+    cudaEvent_t stop = nullptr;
+    double gpu_seconds = 0.0;
+};
+
+std::vector<RabcTraceDeviceTiming> start_rabc_trace_timing(tensor::Swapper& swapper)
+{
+  std::vector<RabcTraceDeviceTiming> timings;
+  timings.reserve(static_cast<std::size_t>(swapper.getDeviceCount()));
+  for (int device = 0; device < swapper.getDeviceCount(); ++device)
+  {
+    CUDA_CALL(cudaSetDevice(device));
+    RabcTraceDeviceTiming timing{.device = device};
+    CUDA_CALL(cudaEventCreate(&timing.start));
+    CUDA_CALL(cudaEventCreate(&timing.stop));
+    CUDA_CALL(cudaEventRecord(timing.start, cudaStreamLegacy));
+    timings.push_back(timing);
+  }
+  return timings;
+}
+
+void stop_rabc_trace_timing(std::span<RabcTraceDeviceTiming> timings)
+{
+  for (auto& timing : timings)
+  {
+    CUDA_CALL(cudaSetDevice(timing.device));
+    CUDA_CALL(cudaEventRecord(timing.stop, cudaStreamLegacy));
+  }
+}
+
+void finish_rabc_trace_timing(std::span<RabcTraceDeviceTiming> timings)
+{
+  for (auto& timing : timings)
+  {
+    CUDA_CALL(cudaSetDevice(timing.device));
+    CUDA_CALL(cudaEventSynchronize(timing.stop));
+    float milliseconds = 0.0F;
+    CUDA_CALL(cudaEventElapsedTime(&milliseconds, timing.start, timing.stop));
+    timing.gpu_seconds = static_cast<double>(milliseconds) * 1.0e-3;
+  }
+}
+
+void destroy_rabc_trace_timing(std::span<RabcTraceDeviceTiming> timings)
+{
+  for (auto& timing : timings)
+  {
+    CUDA_CALL(cudaSetDevice(timing.device));
+    if (timing.start != nullptr)
+    {
+      CUDA_CALL(cudaEventDestroy(timing.start));
+      timing.start = nullptr;
+    }
+    if (timing.stop != nullptr)
+    {
+      CUDA_CALL(cudaEventDestroy(timing.stop));
+      timing.stop = nullptr;
+    }
+  }
+}
+
+double max_gpu_seconds(std::span<RabcTraceDeviceTiming const> timings)
+{
+  double result = 0.0;
+  for (auto const& timing : timings)
+  {
+    result = std::max(result, timing.gpu_seconds);
+  }
+  return result;
+}
+
+std::string json_device_timings(std::span<RabcTraceDeviceTiming const> timings)
+{
+  std::string result = "[";
+  for (std::size_t index = 0; index < timings.size(); ++index)
+  {
+    if (index != 0)
+    {
+      result += ',';
+    }
+    result += fmt::format("{{\"device\":{},\"gpu_s\":{:.17g}}}", timings[index].device, timings[index].gpu_seconds);
+  }
+  result += ']';
+  return result;
+}
+
+void write_rabc_trace(std::uint64_t index, std::string const& policy, RabcCostFeatures const& features,
+                      std::span<EffectiveHamiltonianOperator::Term const> terms, double enqueue_seconds,
+                      double sync_seconds, double wall_seconds, std::span<RabcTraceDeviceTiming const> timings)
+{
+  auto const path = optional_env_string("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH");
+  if (!path.has_value())
+  {
+    return;
+  }
+
+  auto* file = std::fopen(path->c_str(), "a");
+  if (file == nullptr)
+  {
+    throw std::runtime_error("failed to open R/A/B/C trace file: " + *path);
+  }
+
+  fmt::print(file,
+             "{{\"kind\":\"rabc_matvec\",\"index\":{},\"policy\":\"{}\",\"device_count\":{},"
+             "\"block_count\":{},\"term_count\":{},\"enqueue_s\":{:.17g},\"sync_s\":{:.17g},"
+             "\"wall_s\":{:.17g},\"gpu_s\":{:.17g},\"input_layout\":{},\"output_layout\":{},"
+             "\"device_timings\":{},\"devices\":{}",
+             index, policy, features.devices.size(), features.output_devices.size(), terms.size(), enqueue_seconds,
+             sync_seconds, wall_seconds, max_gpu_seconds(timings), json_int_array(features.input_devices),
+             json_int_array(features.output_devices), json_device_timings(timings),
+             json_device_features(features.devices));
+  if (rabc_trace_terms_enabled())
+  {
+    fmt::print(file, ",\"terms\":[");
+    for (std::size_t term_index = 0; term_index < terms.size(); ++term_index)
+    {
+      auto const& term = terms[term_index];
+      if (term_index != 0)
+      {
+        fmt::print(file, ",");
+      }
+      fmt::print(file, "{{\"r\":{},\"a\":{},\"b\":{},\"c\":{},\"coefficient\":{:.17g},\"device\":{}}}", term.r, term.a,
+                 term.b, term.c, term.coefficient, features.output_devices[term.r]);
+    }
+    fmt::print(file, "]");
+  }
+  fmt::print(file, "}}\n");
+  std::fclose(file);
+}
+
 std::vector<int> cost_based_rabc_output_devices(MatrixFamily const& a_mats, MatrixFamily const& b_mats,
                                                 MatrixFamily const& c_mats, std::span<tensor::Matrix const> r_raw_mats,
                                                 std::span<EffectiveHamiltonianOperator::Term const> terms,
@@ -706,15 +1072,18 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
   auto const policy = rabc_placement_policy();
   bool const use_contiguous_cost = use_cost_based_rabc_placement(policy);
   bool const use_block_cost = use_block_cost_based_rabc_placement(policy);
+  bool const use_manual = use_manual_rabc_placement(policy);
   int const device_count = swapper.getDeviceCount();
-  if ((!use_contiguous_cost && !use_block_cost) || device_count <= 1)
+  auto const layout_key =
+      use_manual ? optional_env_string("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT").value_or("") : std::string{};
+  if ((!use_contiguous_cost && !use_block_cost && !use_manual) || device_count <= 1)
   {
     cache = ResidentOutputPlacementCache{};
     return false;
   }
 
   if (cache.policy == policy && cache.device_count == device_count && cache.output_count == output_count &&
-      cache.input_count == b_raw_mats.size() && cache.term_count == terms.size())
+      cache.input_count == b_raw_mats.size() && cache.term_count == terms.size() && cache.layout_key == layout_key)
   {
     return !cache.ranges.empty() || !cache.devices.empty();
   }
@@ -725,6 +1094,7 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
   next.output_count = output_count;
   next.input_count = b_raw_mats.size();
   next.term_count = terms.size();
+  next.layout_key = layout_key;
   if (use_contiguous_cost)
   {
     next.coalesced_ranges = true;
@@ -733,6 +1103,21 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
     if (next.use_default_localization && log_cost_based_rabc_placement())
     {
       fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy={} uses default byte-balanced ranges\n", policy);
+    }
+  }
+  else if (use_manual)
+  {
+    next.coalesced_ranges = false;
+    if (!center_block_layout_supported(b_mats, r_raw_mats, terms))
+    {
+      throw std::invalid_argument("manual R/A/B/C placement requires matching B/R center block spaces");
+    }
+    next.devices = parse_manual_rabc_layout(output_count, device_count);
+    next.use_default_localization = placement_devices_match_default(next.devices, r_raw_mats, device_count);
+    if (log_cost_based_rabc_placement())
+    {
+      fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy=manual devices={} outputs={} layout={}\n",
+                 device_count, output_count, json_int_array(next.devices));
     }
   }
   else
@@ -1146,7 +1531,26 @@ void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixF
 
   if (!use_legacy_planner)
   {
+    bool const trace_enabled = rabc_trace_enabled();
+    auto trace_timings = trace_enabled ? start_rabc_trace_timing(swapper) : std::vector<RabcTraceDeviceTiming>{};
+    auto const trace_index = trace_enabled ? next_rabc_trace_index() : 0;
+    auto const enqueue_start = std::chrono::steady_clock::now();
     deterministic_right_first_apply(r, a, b, c, impl_->terms, swapper);
+    auto const enqueue_stop = std::chrono::steady_clock::now();
+    if (trace_enabled)
+    {
+      stop_rabc_trace_timing(trace_timings);
+      finish_rabc_trace_timing(trace_timings);
+      auto const sync_stop = std::chrono::steady_clock::now();
+      auto const features = rabc_cost_features(
+          impl_->a_mats, impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
+          impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x, r, b, impl_->terms, swapper);
+      write_rabc_trace(trace_index, rabc_placement_policy(), features, impl_->terms,
+                       std::chrono::duration<double>(enqueue_stop - enqueue_start).count(),
+                       std::chrono::duration<double>(sync_stop - enqueue_stop).count(),
+                       std::chrono::duration<double>(sync_stop - enqueue_start).count(), trace_timings);
+      destroy_rabc_trace_timing(trace_timings);
+    }
     return;
   }
 
