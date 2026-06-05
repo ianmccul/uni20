@@ -409,6 +409,43 @@ TEST(TensorContractionVectorAlgebraTest, EngineCanKeepMutationsResidentUntilExpl
   EXPECT_DOUBLE_EQ(x.values(1)[2], 14.0);
 }
 
+TEST(TensorContractionVectorAlgebraTest, EngineReleaseDropsResidentStorage)
+{
+  utc::VectorAlgebraEngine engine;
+  if (engine.uses_host_backend())
+  {
+    GTEST_SKIP() << "requires the TensorContraction resident CUDA backend";
+  }
+
+  auto x = make_vector();
+  engine.upload(x);
+  engine.set_host_synchronization(false);
+  engine.scale(x, 2.0);
+
+  auto& swapper = engine.resident_arranger().residentSwapper();
+  for (auto const& matrix : utc::raw_matrices(x))
+  {
+    auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(matrix);
+    EXPECT_GE(device_id, 0);
+    EXPECT_NE(buffer, nullptr);
+  }
+
+  engine.release(x);
+  for (auto const& matrix : utc::raw_matrices(x))
+  {
+    auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(matrix);
+    EXPECT_EQ(device_id, -1);
+    EXPECT_EQ(buffer, nullptr);
+  }
+
+  engine.upload(x);
+  engine.scale(x, 3.0);
+  engine.synchronize(x);
+  EXPECT_DOUBLE_EQ(x.values(0)[0], 3.0);
+  EXPECT_DOUBLE_EQ(x.values(0)[1], -6.0);
+  EXPECT_DOUBLE_EQ(x.values(1)[2], 21.0);
+}
+
 TEST(TensorContractionVectorAlgebraTest, EngineCanBuildGemmOutputResidentFromHostInputs)
 {
   utc::VectorAlgebraEngine engine;

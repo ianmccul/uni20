@@ -196,6 +196,12 @@ auto main(int argc, char** argv) -> int
     auto apply = [&](utc::MatrixFamily const& x, utc::MatrixFamily& y) { op.apply_resident(x, y, algebra); };
     auto run_once = [&] {
       auto guess = utc::make_like(initial);
+      struct GuessResidentRelease
+      {
+          utc::VectorAlgebraEngine& algebra;
+          utc::MatrixFamily const& guess;
+          ~GuessResidentRelease() { algebra.release(guess); }
+      } release_guess{algebra, guess};
       algebra.copy(initial, guess);
       return utc::lanczos_lowest_with_engine(guess, apply, algebra, options);
     };

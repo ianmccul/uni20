@@ -290,6 +290,74 @@ template <typename MatVec> void apply_matrix_family_matvec(MatVec& matvec, Matri
   }
 }
 
+template <typename Algebra> void release_resident_if_supported(Algebra& algebra, MatrixFamily const& x) noexcept
+{
+  if constexpr (requires { algebra.release(x); })
+  {
+    algebra.release(x);
+  }
+}
+
+template <typename Algebra> class LanczosResidentVector {
+  public:
+    LanczosResidentVector() = default;
+
+    LanczosResidentVector(Algebra& algebra, MatrixFamily family)
+        : algebra_(&algebra), family_(std::move(family)), owns_resident_storage_(true)
+    {}
+
+    LanczosResidentVector(LanczosResidentVector const&) = delete;
+    LanczosResidentVector& operator=(LanczosResidentVector const&) = delete;
+
+    LanczosResidentVector(LanczosResidentVector&& other) noexcept
+        : algebra_(other.algebra_), family_(std::move(other.family_)),
+          owns_resident_storage_(other.owns_resident_storage_)
+    {
+      other.algebra_ = nullptr;
+      other.owns_resident_storage_ = false;
+    }
+
+    LanczosResidentVector& operator=(LanczosResidentVector&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->release();
+        algebra_ = other.algebra_;
+        family_ = std::move(other.family_);
+        owns_resident_storage_ = other.owns_resident_storage_;
+        other.algebra_ = nullptr;
+        other.owns_resident_storage_ = false;
+      }
+      return *this;
+    }
+
+    ~LanczosResidentVector() { this->release(); }
+
+    [[nodiscard]] MatrixFamily& get() noexcept { return family_; }
+    [[nodiscard]] MatrixFamily const& get() const noexcept { return family_; }
+
+    void release() noexcept
+    {
+      if (owns_resident_storage_ && algebra_ != nullptr)
+      {
+        release_resident_if_supported(*algebra_, family_);
+      }
+      owns_resident_storage_ = false;
+      algebra_ = nullptr;
+    }
+
+  private:
+    Algebra* algebra_ = nullptr;
+    MatrixFamily family_;
+    bool owns_resident_storage_ = false;
+};
+
+template <typename Algebra>
+auto make_lanczos_resident_like(Algebra& algebra, MatrixFamily const& source) -> LanczosResidentVector<Algebra>
+{
+  return LanczosResidentVector<Algebra>(algebra, make_like(source));
+}
+
 } // namespace detail
 
 template <typename MatVec, typename Algebra>
@@ -309,8 +377,10 @@ LanczosResult lanczos_lowest_with_engine(MatrixFamily& guess, MatVec&& matvec, A
     throw std::invalid_argument("Lanczos minimum iterations exceed maximum iterations");
   }
 
-  std::vector<MatrixFamily> v;
-  std::vector<MatrixFamily> hv;
+  std::vector<detail::LanczosResidentVector<Algebra>> v;
+  std::vector<detail::LanczosResidentVector<Algebra>> hv;
+  v.reserve(static_cast<std::size_t>(options.max_iterations));
+  hv.reserve(static_cast<std::size_t>(options.max_iterations));
   std::vector<double> sub_h(
       static_cast<std::size_t>(options.max_iterations + 1) * static_cast<std::size_t>(options.max_iterations + 1), 0.0);
   auto const stride = static_cast<std::size_t>(options.max_iterations + 1);
@@ -352,9 +422,18 @@ LanczosResult lanczos_lowest_with_engine(MatrixFamily& guess, MatVec&& matvec, A
     return eig;
   };
 
-  auto make_ritz_vector = [&](std::vector<MatrixFamily> const& vectors, std::vector<double> const& coefficients) {
+  auto make_ritz_vector = [&](auto const& vectors, std::vector<double> const& coefficients) {
     auto const start = detail::lanczos_profile_checkpoint();
-    auto y = detail::linear_combination(algebra, vectors, coefficients);
+    if (vectors.empty() || vectors.size() != coefficients.size())
+    {
+      throw std::invalid_argument("Lanczos linear combination has inconsistent inputs");
+    }
+    auto y = detail::make_lanczos_resident_like(algebra, vectors.front().get());
+    algebra.zero(y.get());
+    for (std::size_t j = 0; j < vectors.size(); ++j)
+    {
+      algebra.axpy(coefficients[j], vectors[j].get(), y.get());
+    }
     auto const stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.ritz_vector, start, stop);
     ++timings.ritz_vector_count;
@@ -364,12 +443,12 @@ LanczosResult lanczos_lowest_with_engine(MatrixFamily& guess, MatVec&& matvec, A
   auto make_residual_vector = [&](MatrixFamily const& y, double theta, std::vector<double> const& coefficients,
                                   std::size_t coefficient_count) {
     auto const start = detail::lanczos_profile_checkpoint();
-    auto r = make_like(y);
-    algebra.copy(y, r);
-    algebra.scale(r, -theta);
+    auto r = detail::make_lanczos_resident_like(algebra, y);
+    algebra.copy(y, r.get());
+    algebra.scale(r.get(), -theta);
     for (std::size_t j = 0; j < coefficient_count; ++j)
     {
-      algebra.axpy(coefficients[j], hv[j], r);
+      algebra.axpy(coefficients[j], hv[j].get(), r.get());
     }
     auto const stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.residual_vector, start, stop);
@@ -386,63 +465,63 @@ LanczosResult lanczos_lowest_with_engine(MatrixFamily& guess, MatVec&& matvec, A
   };
 
   stage_start = detail::lanczos_profile_checkpoint();
-  auto w = make_like(guess);
+  auto w = detail::make_lanczos_resident_like(algebra, guess);
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.workspace, stage_start, stage_stop);
 
   stage_start = stage_stop;
-  algebra.copy(guess, w);
-  algebra.scale(w, 1.0 / beta);
+  algebra.copy(guess, w.get());
+  algebra.scale(w.get(), 1.0 / beta);
   v.push_back(std::move(w));
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.basis_setup, stage_start, stage_stop);
 
   stage_start = stage_stop;
-  w = make_like(guess);
+  w = detail::make_lanczos_resident_like(algebra, guess);
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.workspace, stage_start, stage_stop);
 
   stage_start = stage_stop;
-  matvec(v[0], w);
+  matvec(v[0].get(), w.get());
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.matvec, stage_start, stage_stop);
   ++timings.matvec_count;
 
   stage_start = stage_stop;
-  hv.push_back(make_like(w));
-  algebra.copy(w, hv.back());
+  hv.push_back(detail::make_lanczos_resident_like(algebra, w.get()));
+  algebra.copy(w.get(), hv.back().get());
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.store_hamiltonian_vector, stage_start, stage_stop);
 
   stage_start = stage_stop;
-  double alpha = algebra.dot(v[0], w);
+  double alpha = algebra.dot(v[0].get(), w.get());
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.reductions, stage_start, stage_stop);
   sub_h[detail::dense_index(stride, 0, 0)] = alpha;
 
   stage_start = stage_stop;
-  algebra.axpy(-alpha, v[0], w);
+  algebra.axpy(-alpha, v[0].get(), w.get());
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.orthogonalization, stage_start, stage_stop);
 
   stage_start = stage_stop;
-  alpha = algebra.dot(v[0], w);
+  alpha = algebra.dot(v[0].get(), w.get());
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.reductions, stage_start, stage_stop);
   sub_h[detail::dense_index(stride, 0, 0)] += alpha;
 
   stage_start = stage_stop;
-  algebra.axpy(-alpha, v[0], w);
+  algebra.axpy(-alpha, v[0].get(), w.get());
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.orthogonalization, stage_start, stage_stop);
 
   stage_start = stage_stop;
-  beta = algebra.norm(w);
+  beta = algebra.norm(w.get());
   stage_stop = detail::lanczos_profile_checkpoint();
   detail::accumulate_lanczos_timing(timings.reductions, stage_start, stage_stop);
   if (beta < options.beta_tolerance)
   {
-    finish_with(v[0]);
+    finish_with(v[0].get());
     return make_result(sub_h[detail::dense_index(stride, 0, 0)], 1, beta, beta, 0.0,
                        LanczosStopReason::InvariantSubspace);
   }
@@ -459,80 +538,80 @@ LanczosResult lanczos_lowest_with_engine(MatrixFamily& guess, MatVec&& matvec, A
     sub_h[detail::dense_index(stride, idx - 1, idx)] = beta;
 
     stage_start = detail::lanczos_profile_checkpoint();
-    algebra.scale(w, 1.0 / beta);
+    algebra.scale(w.get(), 1.0 / beta);
     v.push_back(std::move(w));
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.basis_setup, stage_start, stage_stop);
 
     stage_start = stage_stop;
-    w = make_like(guess);
+    w = detail::make_lanczos_resident_like(algebra, guess);
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.workspace, stage_start, stage_stop);
 
     stage_start = stage_stop;
-    matvec(v[idx], w);
+    matvec(v[idx].get(), w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.matvec, stage_start, stage_stop);
     ++timings.matvec_count;
 
     stage_start = stage_stop;
-    hv.push_back(make_like(w));
-    algebra.copy(w, hv.back());
+    hv.push_back(detail::make_lanczos_resident_like(algebra, w.get()));
+    algebra.copy(w.get(), hv.back().get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.store_hamiltonian_vector, stage_start, stage_stop);
 
     stage_start = stage_stop;
-    algebra.axpy(-beta, v[idx - 1], w);
+    algebra.axpy(-beta, v[idx - 1].get(), w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.orthogonalization, stage_start, stage_stop);
 
     stage_start = stage_stop;
-    double previous_overlap = algebra.dot(v[idx - 1], w);
+    double previous_overlap = algebra.dot(v[idx - 1].get(), w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.reductions, stage_start, stage_stop);
 
     stage_start = stage_stop;
-    algebra.axpy(-previous_overlap, v[idx - 1], w);
+    algebra.axpy(-previous_overlap, v[idx - 1].get(), w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.orthogonalization, stage_start, stage_stop);
 
     stage_start = stage_stop;
-    alpha = algebra.dot(v[idx], w);
+    alpha = algebra.dot(v[idx].get(), w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.reductions, stage_start, stage_stop);
     sub_h[detail::dense_index(stride, idx, idx)] = alpha;
 
     stage_start = stage_stop;
-    algebra.axpy(-alpha, v[idx], w);
+    algebra.axpy(-alpha, v[idx].get(), w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.orthogonalization, stage_start, stage_stop);
 
     stage_start = stage_stop;
-    alpha = algebra.dot(v[idx], w);
+    alpha = algebra.dot(v[idx].get(), w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.reductions, stage_start, stage_stop);
     sub_h[detail::dense_index(stride, idx, idx)] += alpha;
 
     stage_start = stage_stop;
-    algebra.axpy(-alpha, v[idx], w);
+    algebra.axpy(-alpha, v[idx].get(), w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.orthogonalization, stage_start, stage_stop);
 
     stage_start = stage_stop;
-    beta = algebra.norm(w);
+    beta = algebra.norm(w.get());
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.reductions, stage_start, stage_stop);
     if (beta < options.beta_tolerance)
     {
       auto eig = solve_ritz_problem(idx + 1);
       auto y = make_ritz_vector(v, eig.eigenvector);
-      finish_with(y);
+      finish_with(y.get());
       return make_result(eig.eigenvalue, i + 1, detail::scaled_tolerance(beta, eig.spectral_diameter), beta,
                          eig.spectral_diameter, LanczosStopReason::InvariantSubspace);
     }
 
     stage_start = stage_stop;
-    double const overlap = std::abs(algebra.dot(v[0], v[idx]));
+    double const overlap = std::abs(algebra.dot(v[0].get(), v[idx].get()));
     stage_stop = detail::lanczos_profile_checkpoint();
     detail::accumulate_lanczos_timing(timings.reductions, stage_start, stage_stop);
     if (overlap > options.orthogonality_tolerance)
@@ -540,40 +619,40 @@ LanczosResult lanczos_lowest_with_engine(MatrixFamily& guess, MatVec&& matvec, A
       auto eig = solve_ritz_problem(idx);
       auto const coefficients = detail::coefficients_for(eig.eigenvector, idx);
       stage_start = detail::lanczos_profile_checkpoint();
-      auto active_v = std::vector<MatrixFamily>{};
+      auto active_v = std::vector<detail::LanczosResidentVector<Algebra>>{};
       active_v.reserve(idx);
       for (std::size_t j = 0; j < idx; ++j)
       {
-        active_v.push_back(make_like(v[j]));
-        algebra.copy(v[j], active_v.back());
+        active_v.push_back(detail::make_lanczos_resident_like(algebra, v[j].get()));
+        algebra.copy(v[j].get(), active_v.back().get());
       }
       stage_stop = detail::lanczos_profile_checkpoint();
       detail::accumulate_lanczos_timing(timings.workspace, stage_start, stage_stop);
 
       auto y = make_ritz_vector(active_v, coefficients);
-      auto r = make_residual_vector(y, eig.eigenvalue, coefficients, idx);
-      double const residual_norm = compute_residual_norm(r);
-      finish_with(y);
+      auto r = make_residual_vector(y.get(), eig.eigenvalue, coefficients, idx);
+      double const residual_norm = compute_residual_norm(r.get());
+      finish_with(y.get());
       return make_result(eig.eigenvalue, i + 1, detail::scaled_tolerance(residual_norm, eig.spectral_diameter),
                          residual_norm, eig.spectral_diameter, LanczosStopReason::LossOfOrthogonality);
     }
 
     auto eig = solve_ritz_problem(idx + 1);
     auto y = make_ritz_vector(v, eig.eigenvector);
-    auto r = make_residual_vector(y, eig.eigenvalue, eig.eigenvector, idx + 1);
-    double const residual_norm = compute_residual_norm(r);
+    auto r = make_residual_vector(y.get(), eig.eigenvalue, eig.eigenvector, idx + 1);
+    double const residual_norm = compute_residual_norm(r.get());
     double const denominator = eig.spectral_diameter == 0.0 ? 1.0 : eig.spectral_diameter;
 
     if (residual_norm < std::abs(options.tolerance * eig.spectral_diameter) && i + 1 >= options.min_iterations)
     {
-      finish_with(y);
+      finish_with(y.get());
       return make_result(eig.eigenvalue, i + 1, residual_norm / denominator, residual_norm, eig.spectral_diameter,
                          LanczosStopReason::Converged);
     }
 
     if (i == options.max_iterations - 1)
     {
-      finish_with(y);
+      finish_with(y.get());
       return make_result(eig.eigenvalue, i + 1, -residual_norm / denominator, residual_norm, eig.spectral_diameter,
                          LanczosStopReason::MaxIterations);
     }

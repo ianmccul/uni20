@@ -255,6 +255,7 @@ class VectorAlgebraEngine {
     void localize(MatrixFamily& x);
     void upload(MatrixFamily& x);
     void synchronize(MatrixFamily& x);
+    void release(MatrixFamily const& x) noexcept;
     void zero(MatrixFamily& x);
     void copy(MatrixFamily const& source, MatrixFamily& target);
     void scale(MatrixFamily& x, double alpha);

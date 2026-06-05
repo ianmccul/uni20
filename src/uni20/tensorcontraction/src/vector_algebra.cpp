@@ -540,6 +540,29 @@ void VectorAlgebraEngine::synchronize(MatrixFamily& x)
   impl_->arranger->synchronizeCoalescedLinearAlgebraToHost(raw_matrices(x), x.coalesced_values());
 }
 
+void VectorAlgebraEngine::release(MatrixFamily const& x) noexcept
+{
+  if (impl_->host_backend())
+  {
+    return;
+  }
+
+  try
+  {
+    auto& swapper = impl_->arranger->residentSwapper();
+    for (auto const& matrix : raw_matrices(x))
+    {
+      swapper.clear(matrix);
+    }
+  }
+  catch (...)
+  {
+    // This function is used from cleanup paths.  Leaking here is preferable to
+    // terminating during stack unwinding; explicit diagnostics can use Swapper
+    // counters when needed.
+  }
+}
+
 void VectorAlgebraEngine::zero(MatrixFamily& x)
 {
   if (impl_->host_backend())
