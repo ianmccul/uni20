@@ -510,6 +510,86 @@ def summarize_benchmark_records(records: list[dict[str, Any]], compact_layouts: 
         )
 
 
+def benchmark_layout_rank_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return benchmark timing aggregates grouped by actual layout."""
+    grouped: dict[tuple[int, ...], list[dict[str, Any]]] = {}
+    for record in records:
+        grouped.setdefault(tuple(raw_layout_values(record)), []).append(record)
+
+    rows: list[dict[str, Any]] = []
+    for layout, layout_records in grouped.items():
+        matvec = [float(record["matvec_s"]) for record in layout_records]
+        wall = [float(record["wall_s"]) for record in layout_records]
+        names = ",".join(
+            sorted({str(record.get("name", "")) for record in layout_records if str(record.get("name", ""))})
+        )
+        rows.append(
+            {
+                "layout": layout,
+                "count": len(layout_records),
+                "mean_matvec_s": sum(matvec) / len(matvec),
+                "min_matvec_s": min(matvec),
+                "max_matvec_s": max(matvec),
+                "mean_wall_s": sum(wall) / len(wall),
+                "names": names,
+            }
+        )
+    rows.sort(key=lambda row: (float(row["mean_matvec_s"]), str(row["names"]), tuple(row["layout"])))
+    for rank, row in enumerate(rows, start=1):
+        row["rank"] = rank
+    return rows
+
+
+def print_benchmark_layout_rank(
+    records: list[dict[str, Any]], compact_layouts: bool, selected_names: list[str]
+) -> None:
+    """Print replay benchmark timing aggregates grouped by actual layout."""
+    rows = benchmark_layout_rank_rows(records)
+    layout_column = "layout_summary" if compact_layouts else "layout"
+    print(f"rank count mean_matvec_s min_matvec_s max_matvec_s mean_wall_s names {layout_column}")
+    for row in rows:
+        layout = list(row["layout"])
+        print(
+            f"{row['rank']} {row['count']} {row['mean_matvec_s']:.9g} {row['min_matvec_s']:.9g} "
+            f"{row['max_matvec_s']:.9g} {row['mean_wall_s']:.9g} {row['names']} "
+            f"{maybe_compact_layout(layout, compact_layouts)}"
+        )
+
+    if rows:
+        best = rows[0]
+        print(
+            f"best_mean_matvec_s={best['mean_matvec_s']:.9g} rank=1 names={best['names']} "
+            f"{layout_column}={maybe_compact_layout(list(best['layout']), compact_layouts)}"
+        )
+
+    if not selected_names:
+        return
+
+    rows_by_layout = {tuple(row["layout"]): row for row in rows}
+    layouts_by_name: dict[str, set[tuple[int, ...]]] = {name: set() for name in selected_names}
+    for record in records:
+        name = str(record.get("name", ""))
+        if name in layouts_by_name:
+            layouts_by_name[name].add(tuple(raw_layout_values(record)))
+
+    best_mean = float(rows[0]["mean_matvec_s"]) if rows else float("nan")
+    for name in selected_names:
+        layouts = sorted(layouts_by_name[name])
+        if not layouts:
+            print(f"selected_name={name} found=false")
+            continue
+        for layout in layouts:
+            row = rows_by_layout[layout]
+            delta = float(row["mean_matvec_s"]) - best_mean
+            ratio = float(row["mean_matvec_s"]) / best_mean if best_mean > 0.0 else float("nan")
+            print(
+                f"selected_name={name} found=true rank={row['rank']} "
+                f"mean_matvec_s={row['mean_matvec_s']:.9g} delta_vs_best_s={delta:.9g} "
+                f"ratio_vs_best={ratio:.9g} names={row['names']} "
+                f"{layout_column}={maybe_compact_layout(list(layout), compact_layouts)}"
+            )
+
+
 def summarize_benchmark_structure(records: list[dict[str, Any]], problem: dict[str, Any], sort_key: str) -> None:
     """Print no-trace timings with raw structural layout features."""
     grouped = group_benchmarks_by_layout(records, problem)
@@ -1918,6 +1998,13 @@ def cmd_bench_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bench_rank(args: argparse.Namespace) -> int:
+    """Rank no-trace replay benchmark records by actual layout."""
+    records = benchmark_records_from_paths(args.benchmark)
+    print_benchmark_layout_rank(records, args.compact_layouts, args.selected_name)
+    return 0
+
+
 def cmd_bench_struct_summary(args: argparse.Namespace) -> int:
     """Summarize benchmark rows with static structural layout features."""
     records = benchmark_records_from_paths(args.benchmark)
@@ -2488,6 +2575,21 @@ def parser() -> argparse.ArgumentParser:
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )
     bench_summary.set_defaults(func=cmd_bench_summary)
+
+    bench_rank = subcommands.add_parser(
+        "bench-rank", help="rank replay benchmark JSONL records after grouping identical layouts"
+    )
+    bench_rank.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    bench_rank.add_argument(
+        "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
+    )
+    bench_rank.add_argument(
+        "--selected-name",
+        action="append",
+        default=[],
+        help="also report the measured rank of layouts produced by this benchmark name; may be repeated",
+    )
+    bench_rank.set_defaults(func=cmd_bench_rank)
 
     bench_struct_summary = subcommands.add_parser(
         "bench-struct-summary", help="summarize replay benchmark rows with static layout structure"

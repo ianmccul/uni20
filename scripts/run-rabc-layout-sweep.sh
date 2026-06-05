@@ -8,8 +8,8 @@ Usage:
 
 Run repeated no-trace TensorContraction R/A/B/C replay benchmarks for manual
 center-vector layouts or automatic placement policies.  The script writes one
-stdout, stderr, and MP_BENCHFILE table per run.  Manual layout runs are also
-converted into one JSONL benchmark dataset.
+stdout, stderr, and MP_BENCHFILE table per run.  Runs with known or inferred
+layouts are also converted into one JSONL benchmark dataset.
 
 Options:
   --fixture PATH          R/A/B/C fixture to replay. Required.

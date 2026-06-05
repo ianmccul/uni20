@@ -310,6 +310,14 @@ layout when the diagnostic line contains either a contiguous `cut=N` or explicit
 `empirical-contiguous`, `cost`, and `stripe` can be compared with
 `bench-summary`.  If a future policy does not expose a parseable layout, the
 wrapper still keeps the raw bench table but reports `inferred_layout=unavailable`.
+Use `bench-rank` when comparing automatic policies with manual cuts, because it
+groups rows by the actual recovered layout rather than the run name:
+
+```bash
+scripts/rabc-trace-model.py bench-rank /tmp/uni20_rabc_sweep/benchmarks.jsonl \
+  --compact-layouts \
+  --selected-name empirical-contiguous
+```
 
 For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
 dual-GPU sweep over all contiguous cuts found `cut6` as the current best
