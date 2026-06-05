@@ -210,27 +210,16 @@ def gaussian_solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
     return [a[row][n] for row in range(n)]
 
 
-def fit_coefficients(
-    records: list[dict[str, Any]],
+def fit_linear_samples(
+    samples: list[tuple[list[float], float]],
+    names: list[str],
     ridge: float,
-    include_env_bytes: bool,
-    include_graph_features: bool,
-    problem: dict[str, Any] | None = None,
+    empty_message: str,
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Fit per-device elapsed time as a linear function of aggregate features."""
-    samples: list[tuple[list[float], float]] = []
-    for record in records:
-        timings = {int(item["device"]): float(item["gpu_s"]) for item in record.get("device_timings", [])}
-        for features in device_features_for_record(record, include_graph_features, problem):
-            device = int(features["device"])
-            if device not in timings:
-                continue
-            samples.append((feature_vector(features, include_env_bytes, include_graph_features), timings[device]))
-
+    """Fit a ridge-regularized linear model to already-materialized samples."""
     if not samples:
-        raise ValueError("trace contains no per-device timing samples")
+        raise ValueError(empty_message)
 
-    names = feature_names(include_graph_features)
     scales = [1.0] * len(names)
     for column in range(1, len(names)):
         scales[column] = max(abs(vector[column]) for vector, _ in samples) or 1.0
@@ -261,6 +250,28 @@ def fit_coefficients(
         "r2": 1.0 - residual_sum / total_sum if total_sum > 0.0 else 1.0,
     }
     return coefficients, stats
+
+
+def fit_coefficients(
+    records: list[dict[str, Any]],
+    ridge: float,
+    include_env_bytes: bool,
+    include_graph_features: bool,
+    problem: dict[str, Any] | None = None,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Fit per-device elapsed time as a linear function of aggregate features."""
+    samples: list[tuple[list[float], float]] = []
+    for record in records:
+        timings = {int(item["device"]): float(item["gpu_s"]) for item in record.get("device_timings", [])}
+        for features in device_features_for_record(record, include_graph_features, problem):
+            device = int(features["device"])
+            if device not in timings:
+                continue
+            samples.append((feature_vector(features, include_env_bytes, include_graph_features), timings[device]))
+
+    return fit_linear_samples(
+        samples, feature_names(include_graph_features), ridge, "trace contains no per-device timing samples"
+    )
 
 
 def summarize(records: list[dict[str, Any]]) -> None:
@@ -332,6 +343,219 @@ def layout_mean_gpu_seconds(records: list[dict[str, Any]]) -> float:
     """Return the mean max-device GPU time for one layout."""
     timings = [float(record.get("gpu_s", float("nan"))) for record in records]
     return sum(timings) / len(timings)
+
+
+def benchmark_records_from_paths(paths: list[Path]) -> list[dict[str, Any]]:
+    """Read no-trace benchmark records from one or more JSONL files."""
+    records: list[dict[str, Any]] = []
+    for path in paths:
+        records.extend(read_benchmark_records(path))
+    if not records:
+        raise ValueError("benchmark files contained no R/A/B/C replay benchmark records")
+    return records
+
+
+def benchmark_layout(record: dict[str, Any], problem: dict[str, Any]) -> list[int]:
+    """Parse the benchmark record's manual placement layout."""
+    return parse_layout(str(record.get("layout", "")), int(problem["block_count"]), int(problem["device_count"]))
+
+
+def group_benchmarks_by_layout(
+    records: list[dict[str, Any]], problem: dict[str, Any]
+) -> dict[tuple[int, ...], list[dict[str, Any]]]:
+    """Group no-trace benchmark records by parsed output layout."""
+    grouped: dict[tuple[int, ...], list[dict[str, Any]]] = {}
+    for record in records:
+        grouped.setdefault(tuple(benchmark_layout(record, problem)), []).append(record)
+    return grouped
+
+
+def observed_benchmark_layouts(records: list[dict[str, Any]], problem: dict[str, Any]) -> list[list[int]]:
+    """Return unique layouts measured in no-trace benchmark rows."""
+    layouts: list[list[int]] = []
+    seen: set[tuple[int, ...]] = set()
+    for record in records:
+        layout = tuple(benchmark_layout(record, problem))
+        if layout not in seen:
+            seen.add(layout)
+            layouts.append(list(layout))
+    return layouts
+
+
+def benchmark_layout_mean_matvec_seconds(records: list[dict[str, Any]]) -> float:
+    """Return the mean resident matvec time for one no-trace benchmark layout."""
+    timings = [float(record["matvec_s"]) for record in records]
+    return sum(timings) / len(timings)
+
+
+def layout_critical_path_vector(
+    problem: dict[str, Any],
+    layout: list[int],
+    include_env_bytes: bool,
+    include_graph_features: bool,
+) -> list[float]:
+    """Reduce per-device layout features to one critical-path benchmark vector."""
+    device_vectors = [
+        feature_vector(features, include_env_bytes, include_graph_features)
+        for features in features_for_layout(problem, layout, include_env_bytes, include_graph_features)
+    ]
+    if not device_vectors:
+        raise ValueError("layout produced no device feature vectors")
+    values = [1.0]
+    for column in range(1, len(device_vectors[0])):
+        values.append(max(vector[column] for vector in device_vectors))
+    return values
+
+
+def fit_benchmark_coefficients(
+    records: list[dict[str, Any]],
+    problem: dict[str, Any],
+    ridge: float,
+    include_env_bytes: bool,
+    include_graph_features: bool,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Fit whole-layout replay matvec time from critical-path layout features."""
+    samples = [
+        (
+            layout_critical_path_vector(
+                problem, benchmark_layout(record, problem), include_env_bytes, include_graph_features
+            ),
+            float(record["matvec_s"]),
+        )
+        for record in records
+    ]
+    return fit_linear_samples(
+        samples, feature_names(include_graph_features), ridge, "benchmark data contains no replay matvec samples"
+    )
+
+
+def score_benchmark_layout(
+    problem: dict[str, Any],
+    layout: list[int],
+    coefficients: dict[str, float],
+    include_env_bytes: bool,
+    include_graph_features: bool,
+) -> tuple[float, list[float]]:
+    """Predict no-trace resident matvec time for one candidate layout."""
+    vector = layout_critical_path_vector(problem, layout, include_env_bytes, include_graph_features)
+    names = feature_names(include_graph_features)
+    return sum(coefficients[name] * value for name, value in zip(names, vector)), vector
+
+
+def candidate_benchmark_layouts(problem: dict[str, Any], records: list[dict[str, Any]], random_count: int) -> list[list[int]]:
+    """Generate seed layouts for benchmark-targeted local search."""
+    block_count = int(problem["block_count"])
+    device_count = int(problem["device_count"])
+    layouts = observed_benchmark_layouts(records, problem)
+    layouts.append(byte_balanced_layout(problem))
+    layouts.append([block % device_count for block in range(block_count)])
+    layouts.append([(block + 1) % device_count for block in range(block_count)])
+    for device in range(device_count):
+        layouts.append([device] * block_count)
+    rng = random.Random(1)
+    for _ in range(random_count):
+        layouts.append([rng.randrange(device_count) for _ in range(block_count)])
+
+    unique: list[list[int]] = []
+    seen: set[tuple[int, ...]] = set()
+    for layout in layouts:
+        key = tuple(layout)
+        if key not in seen:
+            seen.add(key)
+            unique.append(layout)
+    return unique
+
+
+def benchmark_local_search(
+    problem: dict[str, Any],
+    start: list[int],
+    coefficients: dict[str, float],
+    passes: int,
+    include_env_bytes: bool,
+    include_graph_features: bool,
+) -> list[int]:
+    """Improve a layout using the benchmark-targeted critical-path score."""
+    device_count = int(problem["device_count"])
+    layout = start[:]
+    best_score, _ = score_benchmark_layout(problem, layout, coefficients, include_env_bytes, include_graph_features)
+    for _ in range(passes):
+        improved = False
+        for block in range(len(layout)):
+            original = layout[block]
+            best_device = original
+            for device in range(device_count):
+                if device == original:
+                    continue
+                trial = layout[:]
+                trial[block] = device
+                trial_score, _ = score_benchmark_layout(
+                    problem, trial, coefficients, include_env_bytes, include_graph_features
+                )
+                if trial_score < best_score:
+                    best_score = trial_score
+                    best_device = device
+            if best_device != original:
+                layout[block] = best_device
+                improved = True
+        if not improved:
+            break
+    return layout
+
+
+def leave_one_benchmark_layout_out(
+    records: list[dict[str, Any]],
+    problem: dict[str, Any],
+    ridge: float,
+    clamp_negative: bool,
+    include_env_bytes: bool,
+    include_graph_features: bool,
+) -> list[dict[str, Any]]:
+    """Predict each benchmarked layout from a fit over all other layouts."""
+    grouped = group_benchmarks_by_layout(records, problem)
+    if len(grouped) < 2:
+        raise ValueError("benchmark validation requires at least two distinct layouts")
+
+    rows: list[dict[str, Any]] = []
+    for key, held_out in grouped.items():
+        train = [record for other_key, group in grouped.items() if other_key != key for record in group]
+        coefficients, _ = fit_benchmark_coefficients(
+            train, problem, ridge, include_env_bytes, include_graph_features
+        )
+        if clamp_negative:
+            coefficients = clamp_negative_coefficients(coefficients)
+        predicted, _ = score_benchmark_layout(problem, list(key), coefficients, include_env_bytes, include_graph_features)
+        observed = benchmark_layout_mean_matvec_seconds(held_out)
+        names = sorted({str(record.get("name", "")) for record in held_out if str(record.get("name", ""))})
+        rows.append(
+            {
+                "layout": key,
+                "first_line": held_out[0]["_line"],
+                "count": len(held_out),
+                "observed": observed,
+                "predicted": predicted,
+                "error": predicted - observed,
+                "names": ",".join(names),
+            }
+        )
+    rows.sort(key=lambda row: row["observed"])
+    return rows
+
+
+def print_benchmark_validation(rows: list[dict[str, Any]]) -> None:
+    """Print leave-one-layout-out validation for no-trace benchmark timing."""
+    stats = validation_stats(rows)
+    print(
+        f"layouts={int(stats['layouts'])} mae_s={stats['mae']:.9g} rmse_s={stats['rmse']:.9g} "
+        f"r2={stats['r2']:.9g} best_observed_line={int(stats['best_observed_line'])} "
+        f"best_predicted_line={int(stats['best_predicted_line'])} "
+        f"top1_match={str(bool(stats['top1_match'])).lower()}"
+    )
+    print("observed_matvec_s predicted_matvec_s error_s count first_line names layout")
+    for row in rows:
+        print(
+            f"{row['observed']:.9g} {row['predicted']:.9g} {row['error']:.9g} "
+            f"{row['count']} {row['first_line']} {row['names']} {layout_string(list(row['layout']))}"
+        )
 
 
 def term_left_first_flops(term: dict[str, Any]) -> tuple[float, float]:
@@ -1202,12 +1426,137 @@ def cmd_bench_record(args: argparse.Namespace) -> int:
 
 def cmd_bench_summary(args: argparse.Namespace) -> int:
     """Summarize no-trace replay benchmark JSONL records."""
-    records: list[dict[str, Any]] = []
-    for path in args.benchmark:
-        records.extend(read_benchmark_records(path))
-    if not records:
-        raise ValueError("benchmark files contained no R/A/B/C replay benchmark records")
+    records = benchmark_records_from_paths(args.benchmark)
     summarize_benchmark_records(records)
+    return 0
+
+
+def cmd_bench_fit(args: argparse.Namespace) -> int:
+    """Fit replay benchmark matvec time from static layout features."""
+    records = benchmark_records_from_paths(args.benchmark)
+    problem = trace_problem([], read_trace(args.term_trace))
+    include_env_bytes = include_environment_bytes(args)
+    coefficients, stats = fit_benchmark_coefficients(
+        records, problem, args.ridge, include_env_bytes, args.graph_features
+    )
+    if args.clamp_negative:
+        coefficients = clamp_negative_coefficients(coefficients)
+    print(f"timing_objective={args.timing_objective}")
+    print(f"target=matvec_s")
+    print(f"reduction=critical_path_max")
+    print(f"graph_features={str(args.graph_features).lower()}")
+    print_fit(coefficients, stats, args.graph_features)
+    return 0
+
+
+def cmd_bench_validate(args: argparse.Namespace) -> int:
+    """Validate replay benchmark layout predictions."""
+    records = benchmark_records_from_paths(args.benchmark)
+    problem = trace_problem([], read_trace(args.term_trace))
+    rows = leave_one_benchmark_layout_out(
+        records,
+        problem,
+        args.ridge,
+        args.clamp_negative,
+        include_environment_bytes(args),
+        args.graph_features,
+    )
+    print(f"timing_objective={args.timing_objective}")
+    print(f"target=matvec_s")
+    print(f"reduction=critical_path_max")
+    print(f"graph_features={str(args.graph_features).lower()}")
+    print_benchmark_validation(rows)
+    return 0
+
+
+def cmd_bench_suggest(args: argparse.Namespace) -> int:
+    """Fit benchmark matvec timing and suggest a candidate layout."""
+    records = benchmark_records_from_paths(args.benchmark)
+    problem = trace_problem([], read_trace(args.term_trace))
+    include_env_bytes = include_environment_bytes(args)
+    coefficients, stats = fit_benchmark_coefficients(
+        records, problem, args.ridge, include_env_bytes, args.graph_features
+    )
+    if not args.allow_negative:
+        coefficients = clamp_negative_coefficients(coefficients)
+
+    observed_keys = {tuple(layout) for layout in observed_benchmark_layouts(records, problem)}
+    if int(problem["block_count"]) >= int(problem["device_count"]):
+        contiguous_keys = {
+            tuple(layout)
+            for _, layout in contiguous_range_layouts(int(problem["block_count"]), int(problem["device_count"]))
+        }
+    else:
+        contiguous_keys = set()
+    byte_balanced_key = tuple(byte_balanced_layout(problem))
+
+    if args.contiguous_only:
+        seeds = [
+            layout
+            for _, layout in contiguous_range_layouts(int(problem["block_count"]), int(problem["device_count"]))
+        ]
+    elif args.observed_only:
+        seeds = observed_benchmark_layouts(records, problem)
+    else:
+        seeds = candidate_benchmark_layouts(problem, records, args.random)
+
+    ranked: list[dict[str, Any]] = []
+    seen: set[tuple[int, ...]] = set()
+    for seed in seeds:
+        layout = (
+            seed
+            if args.observed_only or args.contiguous_only
+            else benchmark_local_search(
+                problem, seed, coefficients, args.passes, include_env_bytes, args.graph_features
+            )
+        )
+        key = tuple(layout)
+        if key in seen:
+            continue
+        seen.add(key)
+        score, vector = score_benchmark_layout(problem, layout, coefficients, include_env_bytes, args.graph_features)
+        ranked.append(
+            {
+                "layout": layout,
+                "score": score,
+                "feature_vector": vector,
+                "observed": key in observed_keys,
+                "contiguous": key in contiguous_keys,
+                "byte_balanced": key == byte_balanced_key,
+            }
+        )
+
+    if not ranked:
+        raise ValueError("benchmark suggestion search generated no candidate layouts")
+    ranked.sort(key=lambda row: float(row["score"]))
+    best = ranked[0]
+    best_layout = best["layout"]
+    print(f"timing_objective={args.timing_objective}")
+    print(f"target=matvec_s")
+    print(f"reduction=critical_path_max")
+    print(f"graph_features={str(args.graph_features).lower()}")
+    print_fit(coefficients, stats, args.graph_features)
+    if args.contiguous_only:
+        print("search=contiguous")
+    else:
+        print(f"search={'observed' if args.observed_only else 'local'}")
+    print(f"predicted_matvec_s={float(best['score']):.9g}")
+    print(f"observed_layout={str(bool(best['observed'])).lower()}")
+    print(f"contiguous_layout={str(bool(best['contiguous'])).lower()}")
+    print(f"byte_balanced_layout={str(bool(best['byte_balanced'])).lower()}")
+    print("layout=" + layout_string(best_layout))
+    if not best["observed"]:
+        print("warning=selected_layout_not_observed_in_benchmark")
+    if args.top > 1:
+        print("top_rank predicted_matvec_s observed contiguous byte_balanced layout")
+        for rank, row in enumerate(ranked[: args.top], start=1):
+            print(
+                f"{rank} {float(row['score']):.9g} {str(bool(row['observed'])).lower()} "
+                f"{str(bool(row['contiguous'])).lower()} {str(bool(row['byte_balanced'])).lower()} "
+                f"{layout_string(row['layout'])}"
+            )
+    print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual \\")
+    print("    UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=" + layout_string(best_layout))
     return 0
 
 
@@ -1515,6 +1864,14 @@ def parser() -> argparse.ArgumentParser:
             help="read term-level problem metadata from this companion trace when the timing trace omits terms",
         )
 
+    def add_required_term_trace(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--term-trace",
+            type=Path,
+            required=True,
+            help="read term-level problem metadata from this companion trace",
+        )
+
     summary = subcommands.add_parser("summary", help="summarize observed trace rows")
     summary.add_argument("trace", type=Path)
     summary.add_argument("--drop-first-per-layout", type=int, default=0)
@@ -1532,6 +1889,46 @@ def parser() -> argparse.ArgumentParser:
     bench_summary = subcommands.add_parser("bench-summary", help="summarize replay benchmark JSONL records")
     bench_summary.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_summary.set_defaults(func=cmd_bench_summary)
+
+    bench_fit = subcommands.add_parser("bench-fit", help="fit no-trace replay benchmark timing coefficients")
+    bench_fit.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    bench_fit.add_argument("--ridge", type=float, default=1.0e-9)
+    bench_fit.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before printing")
+    add_timing_objective(bench_fit)
+    add_graph_features(bench_fit)
+    add_required_term_trace(bench_fit)
+    bench_fit.set_defaults(func=cmd_bench_fit)
+
+    bench_validate = subcommands.add_parser(
+        "bench-validate", help="leave-one-layout-out validation for replay benchmark timing"
+    )
+    bench_validate.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    bench_validate.add_argument("--ridge", type=float, default=1.0e-9)
+    bench_validate.add_argument("--clamp-negative", action="store_true")
+    add_timing_objective(bench_validate)
+    add_graph_features(bench_validate)
+    add_required_term_trace(bench_validate)
+    bench_validate.set_defaults(func=cmd_bench_validate)
+
+    bench_suggest = subcommands.add_parser(
+        "bench-suggest", help="fit no-trace benchmark timing and suggest a layout"
+    )
+    bench_suggest.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    bench_suggest.add_argument("--ridge", type=float, default=1.0e-9)
+    bench_suggest.add_argument("--passes", type=int, default=4)
+    bench_suggest.add_argument("--random", type=int, default=16)
+    bench_suggest.add_argument("--top", type=int, default=1, help="print the top N ranked candidate layouts")
+    bench_suggest.add_argument("--observed-only", action="store_true")
+    bench_suggest.add_argument(
+        "--contiguous-only",
+        action="store_true",
+        help="search only layouts that assign contiguous block-index ranges to ordered devices",
+    )
+    bench_suggest.add_argument("--allow-negative", action="store_true")
+    add_timing_objective(bench_suggest)
+    add_graph_features(bench_suggest)
+    add_required_term_trace(bench_suggest)
+    bench_suggest.set_defaults(func=cmd_bench_suggest)
 
     order_summary = subcommands.add_parser(
         "order-summary", help="summarize left-first versus right-first term costs"

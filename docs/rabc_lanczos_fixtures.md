@@ -168,6 +168,36 @@ scripts/rabc-trace-model.py graph-summary /tmp/uni20_rabc_trace.jsonl \
   --layout <one-device-id-per-center-block>
 ```
 
+## Hypergraph Placement Model
+
+The sparse coefficient tensor `f` is the ground-truth hypergraph for placement.
+Each nonzero term connects one output block `R_r`, one input/Krylov block `B_b`,
+and one left/right environment pair `(A_a, C_c)`.  A resident Lanczos layout is
+therefore a partitioning problem with at least two coupled decisions:
+
+| Decision | Current prototype | Future generalization |
+| --- | --- | --- |
+| Center-vector owner | One device id per `R/B` block. | Arbitrary per-block owner over all local or MPI-visible devices. |
+| First contraction order | Global right-first executor, with offline mixed-order diagnostics. | Per-term or per-group choice of left-first versus right-first. |
+| Intermediate placement | Kept local to the first executor device. | Optional migration before second-stage accumulation. |
+| Accumulation placement | Canonical `R` owner. | Optional partial accumulation followed by reduction/migration. |
+
+For two GPUs and a fixed canonical `B/R` layout, this already looks like a
+four-way split: GPU 0/right-first, GPU 0/left-first, GPU 1/right-first, and
+GPU 1/left-first.  Allowing explicit intermediate moves or alternate
+accumulation sites adds a small finite number of labels.  Once each label has a
+measured cost model, layout selection becomes a weighted hypergraph partition
+or min-cut problem.  Contiguous quantum-number ranges are only a useful
+restricted search family; the traced `f` connectivity is the actual objective.
+
+The current implementation is intentionally narrower.  It keeps one canonical
+Krylov-vector layout so successive Lanczos matvecs and vector algebra do not
+need implicit relayouts, and it fits aggregate feature costs rather than solving
+the full labeled hypergraph.  This is enough to reject bad layouts such as
+round-robin striping when they create excessive peer-`B` cuts and duplicated
+first-stage groups, while leaving the mixed left/right and migration choices as
+explicit future scheduling variables.
+
 Use `scripts/rabc-trace-model.py` to inspect and fit these traces:
 
 ```bash
@@ -233,6 +263,32 @@ scripts/rabc-trace-model.py bench-summary /tmp/uni20_rabc_benchmark.jsonl
 These `rabc_replay_benchmark` rows use the benchmark's printed `matvec=` field
 and are deliberately separate from CUDA-event trace rows.  Use them for final
 layout comparisons; use trace rows to explain or propose candidates.
+
+The same benchmark rows can be fitted against static term-trace features.  This
+uses the companion term trace for the fixed `f` hypergraph and reduces each
+candidate layout to a critical-path feature vector by taking the maximum
+per-device feature value.  This matches the resident replay target more closely
+than fitting per-device CUDA-event timings when profiler instrumentation
+perturbs the workload:
+
+```bash
+scripts/rabc-trace-model.py bench-fit /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --graph-features
+scripts/rabc-trace-model.py bench-validate /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --graph-features
+scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --graph-features \
+  --contiguous-only \
+  --top 8
+```
+
+Treat `bench-validate` as meaningful only after measuring several distinct
+layouts.  With one default layout and one deliberately bad striped layout it is
+a smoke test for ranking and command wiring, not evidence that the fitted model
+generalizes.
 
 For symmetry-local Hamiltonians, also test the constrained contiguous-range
 family.  The traced sparse `f` tensor remains the ground truth for connectivity:
