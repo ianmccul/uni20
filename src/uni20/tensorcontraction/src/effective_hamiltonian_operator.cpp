@@ -9,6 +9,7 @@
 #include <fmt/core.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <compare>
@@ -24,6 +25,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -231,6 +233,11 @@ bool use_manual_rabc_placement(std::string const& policy) { return policy == "ma
 bool use_striped_rabc_placement(std::string const& policy)
 {
   return policy == "stripe" || policy == "striped" || policy == "round-robin" || policy == "alternating";
+}
+
+bool use_empirical_contiguous_rabc_placement(std::string const& policy)
+{
+  return policy == "empirical" || policy == "empirical-contiguous" || policy == "bench-contiguous";
 }
 
 bool log_cost_based_rabc_placement()
@@ -649,6 +656,37 @@ std::vector<int> striped_devices(std::size_t block_count, int device_count)
   return devices;
 }
 
+std::vector<double> parse_double_list(std::string_view text, std::string_view name)
+{
+  std::vector<double> values;
+  std::size_t begin = 0;
+  while (begin <= text.size())
+  {
+    std::size_t const end = text.find(',', begin);
+    auto const token =
+        std::string{text.substr(begin, end == std::string_view::npos ? std::string_view::npos : end - begin)};
+    if (token.empty())
+    {
+      throw std::invalid_argument(std::string(name) + " contains an empty coefficient token");
+    }
+
+    std::size_t consumed = 0;
+    double const value = std::stod(token, &consumed);
+    if (consumed != token.size() || !std::isfinite(value))
+    {
+      throw std::invalid_argument(std::string(name) + " contains an invalid finite coefficient: " + token);
+    }
+    values.push_back(value);
+
+    if (end == std::string_view::npos)
+    {
+      break;
+    }
+    begin = end + 1;
+  }
+  return values;
+}
+
 bool placement_devices_match_default(std::span<int const> devices, std::span<tensor::Matrix const> mats,
                                      int device_count)
 {
@@ -732,6 +770,221 @@ std::vector<double> rabc_layout_load_seconds(MatrixFamily const& a_mats, MatrixF
 double max_load(std::span<double const> load)
 {
   return load.empty() ? 0.0 : *std::max_element(load.begin(), load.end());
+}
+
+struct RabcEmpiricalDeviceFeatures
+{
+    double right_flops = 0.0;
+    double b_peer_bytes = 0.0;
+    double terms = 0.0;
+    double unique_bc = 0.0;
+    double output_bytes = 0.0;
+};
+
+struct RabcEmpiricalLayoutFeatures
+{
+    RabcEmpiricalDeviceFeatures device0;
+    RabcEmpiricalDeviceFeatures device1;
+    double layout_transitions = 1.0;
+    double layout_segments = 2.0;
+    double active_devices = 2.0;
+    double max_output_block_fraction = 0.0;
+    double max_output_byte_fraction = 0.0;
+};
+
+struct RabcEmpiricalCoefficients
+{
+    double intercept = 0.0;
+    std::array<RabcEmpiricalDeviceFeatures, 2> devices{};
+    double layout_transitions = 0.0;
+    double layout_segments = 0.0;
+    double active_devices = 0.0;
+    double max_output_block_fraction = 0.0;
+    double max_output_byte_fraction = 0.0;
+};
+
+RabcEmpiricalCoefficients empirical_rabc_coefficients()
+{
+  auto const text = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
+  if (!text.has_value())
+  {
+    throw std::invalid_argument("UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous requires "
+                                "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
+  }
+  auto const values = parse_double_list(*text, "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
+  constexpr std::size_t expected_size = 1 + 2 * 5 + 5;
+  if (values.size() != expected_size)
+  {
+    throw std::invalid_argument(
+        fmt::format("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS expected {} values, got {}", expected_size,
+                    values.size()));
+  }
+
+  RabcEmpiricalCoefficients coefficients;
+  std::size_t index = 0;
+  coefficients.intercept = values[index++];
+  for (auto& device : coefficients.devices)
+  {
+    device.right_flops = values[index++];
+    device.b_peer_bytes = values[index++];
+    device.terms = values[index++];
+    device.unique_bc = values[index++];
+    device.output_bytes = values[index++];
+  }
+  coefficients.layout_transitions = values[index++];
+  coefficients.layout_segments = values[index++];
+  coefficients.active_devices = values[index++];
+  coefficients.max_output_block_fraction = values[index++];
+  coefficients.max_output_byte_fraction = values[index++];
+  return coefficients;
+}
+
+int empirical_contiguous_device_for(std::size_t block, std::size_t cut) { return block < cut ? 0 : 1; }
+
+RabcEmpiricalLayoutFeatures empirical_contiguous_features(MatrixFamily const& a_mats, MatrixFamily const& b_mats,
+                                                          MatrixFamily const& c_mats,
+                                                          std::span<tensor::Matrix const> r_raw_mats,
+                                                          std::span<EffectiveHamiltonianOperator::Term const> terms,
+                                                          std::size_t cut)
+{
+  RabcEmpiricalLayoutFeatures features;
+  std::array<std::set<BcUseKey>, 2> staged_bc;
+  std::array<std::set<std::size_t>, 2> staged_b;
+  std::array<std::size_t, 2> output_bytes{0, 0};
+
+  for (std::size_t r = 0; r < r_raw_mats.size(); ++r)
+  {
+    int const device = empirical_contiguous_device_for(r, cut);
+    output_bytes[static_cast<std::size_t>(device)] += r_raw_mats[r].sizeInByte();
+  }
+
+  features.device0.output_bytes = static_cast<double>(output_bytes[0]);
+  features.device1.output_bytes = static_cast<double>(output_bytes[1]);
+  for (auto const& term : terms)
+  {
+    int const device = empirical_contiguous_device_for(term.r, cut);
+    auto const device_index = static_cast<std::size_t>(device);
+    auto& device_features = device == 0 ? features.device0 : features.device1;
+    device_features.terms += 1.0;
+
+    BcUseKey const bc{.b = term.b, .c = term.c};
+    if (staged_bc[device_index].insert(bc).second)
+    {
+      device_features.right_flops += gemm_flops(b_mats.block(term.b), c_mats.block(term.c));
+    }
+
+    auto const a = a_mats.block(term.a);
+    auto const b = b_mats.block(term.b);
+    auto const c = c_mats.block(term.c);
+    auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+    device_features.right_flops += gemm_flops(a, intermediate);
+
+    if (staged_b[device_index].insert(term.b).second && empirical_contiguous_device_for(term.b, cut) != device)
+    {
+      device_features.b_peer_bytes += static_cast<double>(b.rows) * static_cast<double>(b.cols) * sizeof(double);
+    }
+  }
+
+  features.device0.unique_bc = static_cast<double>(staged_bc[0].size());
+  features.device1.unique_bc = static_cast<double>(staged_bc[1].size());
+  features.max_output_block_fraction =
+      std::max(static_cast<double>(cut), static_cast<double>(r_raw_mats.size() - cut)) /
+      static_cast<double>(r_raw_mats.size());
+  std::size_t const total_bytes = output_bytes[0] + output_bytes[1];
+  features.max_output_byte_fraction =
+      total_bytes == 0
+          ? 0.0
+          : static_cast<double>(std::max(output_bytes[0], output_bytes[1])) / static_cast<double>(total_bytes);
+  return features;
+}
+
+double empirical_contiguous_score(RabcEmpiricalLayoutFeatures const& features,
+                                  RabcEmpiricalCoefficients const& coefficients)
+{
+  auto score_device = [](RabcEmpiricalDeviceFeatures const& values,
+                         RabcEmpiricalDeviceFeatures const& weights) -> double {
+    return values.right_flops * weights.right_flops + values.b_peer_bytes * weights.b_peer_bytes +
+           values.terms * weights.terms + values.unique_bc * weights.unique_bc +
+           values.output_bytes * weights.output_bytes;
+  };
+
+  return coefficients.intercept + score_device(features.device0, coefficients.devices[0]) +
+         score_device(features.device1, coefficients.devices[1]) +
+         features.layout_transitions * coefficients.layout_transitions +
+         features.layout_segments * coefficients.layout_segments +
+         features.active_devices * coefficients.active_devices +
+         features.max_output_block_fraction * coefficients.max_output_block_fraction +
+         features.max_output_byte_fraction * coefficients.max_output_byte_fraction;
+}
+
+std::vector<ResidentOutputPlacementRange>
+empirical_contiguous_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily const& b_mats,
+                                        MatrixFamily const& c_mats, std::span<tensor::Matrix const> r_raw_mats,
+                                        std::span<EffectiveHamiltonianOperator::Term const> terms,
+                                        tensor::Swapper& swapper)
+{
+  int const device_count = swapper.getDeviceCount();
+  if (device_count != 2)
+  {
+    throw std::invalid_argument("empirical-contiguous R/A/B/C placement currently requires exactly two CUDA devices");
+  }
+  if (r_raw_mats.size() < 2)
+  {
+    return {};
+  }
+
+  auto const coefficients = empirical_rabc_coefficients();
+  std::size_t best_cut = 1;
+  double best_score = std::numeric_limits<double>::infinity();
+  for (std::size_t cut = 1; cut < r_raw_mats.size(); ++cut)
+  {
+    double const score = empirical_contiguous_score(
+        empirical_contiguous_features(a_mats, b_mats, c_mats, r_raw_mats, terms, cut), coefficients);
+    if (score < best_score)
+    {
+      best_score = score;
+      best_cut = cut;
+    }
+  }
+
+  auto default_ranges = default_byte_balanced_ranges(r_raw_mats, device_count);
+  std::size_t const default_cut = default_ranges.empty() ? 0 : default_ranges.front().end;
+  double const default_score =
+      default_cut == 0
+          ? std::numeric_limits<double>::infinity()
+          : empirical_contiguous_score(
+                empirical_contiguous_features(a_mats, b_mats, c_mats, r_raw_mats, terms, default_cut), coefficients);
+  double const min_speedup = env_double_or("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_MIN_SPEEDUP", 1.0);
+  bool const fallback_to_default =
+      std::isfinite(default_score) && std::isfinite(best_score) && default_score / best_score < min_speedup;
+  if (fallback_to_default)
+  {
+    for (auto& range : default_ranges)
+    {
+      range.model_seconds = default_score;
+    }
+    if (log_cost_based_rabc_placement())
+    {
+      fmt::print(stderr,
+                 "[TENSORCONTRACTION][RABC_PLACEMENT] policy=empirical-contiguous devices=2 outputs={} "
+                 "fallback=default-byte-balanced selected_cut={} selected_score={:.6g} default_cut={} "
+                 "default_score={:.6g} min_speedup={:.6g}\n",
+                 r_raw_mats.size(), best_cut, best_score, default_cut, default_score, min_speedup);
+    }
+    return default_ranges;
+  }
+
+  if (log_cost_based_rabc_placement())
+  {
+    fmt::print(stderr,
+               "[TENSORCONTRACTION][RABC_PLACEMENT] policy=empirical-contiguous devices=2 outputs={} cut={} "
+               "score={:.6g} default_cut={} default_score={:.6g}\n",
+               r_raw_mats.size(), best_cut, best_score, default_cut, default_score);
+  }
+
+  return {ResidentOutputPlacementRange{.device = 0, .begin = 0, .end = best_cut, .model_seconds = best_score},
+          ResidentOutputPlacementRange{
+              .device = 1, .begin = best_cut, .end = r_raw_mats.size(), .model_seconds = best_score}};
 }
 
 struct RabcDeviceCostFeatures
@@ -1140,10 +1393,24 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
   bool const use_block_cost = use_block_cost_based_rabc_placement(policy);
   bool const use_manual = use_manual_rabc_placement(policy);
   bool const use_striped = use_striped_rabc_placement(policy);
+  bool const use_empirical_contiguous = use_empirical_contiguous_rabc_placement(policy);
   int const device_count = swapper.getDeviceCount();
-  auto const layout_key =
-      use_manual ? optional_env_string("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT").value_or("") : std::string{};
-  if ((!use_contiguous_cost && !use_block_cost && !use_manual && !use_striped) || device_count <= 1)
+  auto layout_key = std::string{};
+  if (use_manual)
+  {
+    layout_key = optional_env_string("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT").value_or("");
+  }
+  else if (use_empirical_contiguous)
+  {
+    layout_key = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS").value_or("");
+    if (auto min_speedup = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_MIN_SPEEDUP");
+        min_speedup.has_value())
+    {
+      layout_key += ";min_speedup=" + *min_speedup;
+    }
+  }
+  if ((!use_contiguous_cost && !use_block_cost && !use_manual && !use_striped && !use_empirical_contiguous) ||
+      device_count <= 1)
   {
     cache = ResidentOutputPlacementCache{};
     return false;
@@ -1167,6 +1434,20 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
     next.coalesced_ranges = true;
     next.ranges =
         cost_based_rabc_output_ranges(a_mats, b_mats, c_mats, r_raw_mats, b_raw_mats, terms, output_count, swapper);
+    next.use_default_localization = placement_ranges_match_default(next.ranges, r_raw_mats, device_count);
+    if (next.use_default_localization && log_cost_based_rabc_placement())
+    {
+      fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy={} uses default byte-balanced ranges\n", policy);
+    }
+  }
+  else if (use_empirical_contiguous)
+  {
+    next.coalesced_ranges = true;
+    if (!center_block_layout_supported(b_mats, r_raw_mats, terms))
+    {
+      throw std::invalid_argument("empirical R/A/B/C placement requires matching B/R center block spaces");
+    }
+    next.ranges = empirical_contiguous_rabc_output_ranges(a_mats, b_mats, c_mats, r_raw_mats, terms, swapper);
     next.use_default_localization = placement_ranges_match_default(next.ranges, r_raw_mats, device_count);
     if (next.use_default_localization && log_cost_based_rabc_placement())
     {

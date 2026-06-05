@@ -91,6 +91,7 @@ Useful controls:
 | --- | --- |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT` | `cost`, `greedy`, or `cost-greedy` enables contiguous cost placement. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost-block` | Enables the more aggressive arbitrary block-ownership policy. Blocks are still stored as one coalesced slab per device. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous` | Enables a two-device contiguous policy scored by fitted no-trace benchmark coefficients. Aliases: `empirical`, `bench-contiguous`. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=stripe` | Places center blocks round-robin over local devices, equivalent to an alternating `0,1,0,1,...` layout on two GPUs. Aliases: `striped`, `round-robin`, `alternating`. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual` | Uses the explicit center-block device list supplied by `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT`. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT` | Comma-separated CUDA device id per center block, for example `0,1,0,1`. The list length must equal the center-vector block count. |
@@ -101,6 +102,8 @@ Useful controls:
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_GBPS` | Assumed environment transfer bandwidth when environment bytes are enabled. Default: central bandwidth. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP` | Minimum predicted speedup required before `cost` overrides byte-balanced contiguous ranges. Default: `1.05`. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ARBITRARY_MIN_SPEEDUP` | Minimum predicted speedup required before `cost-block` overrides byte-balanced slab layout. Default: `1.25`. |
+| `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` | Comma-separated fitted coefficients for `empirical-contiguous`, in the `bench-fit --model device` runtime order. |
+| `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_MIN_SPEEDUP` | Minimum fitted-score improvement required before `empirical-contiguous` overrides byte-balanced contiguous ranges. Default: `1.0`. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` | Appends one JSONL record per deterministic resident matvec with layout, feature, and timing data for empirical model fitting. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS` | If set, include the full term list and selected device for each term in each JSONL record. |
 
@@ -113,6 +116,24 @@ The `stripe` policy is also opt-in, but is deterministic rather than fitted.  It
 because it exercises the measured alternating block layout directly, while avoiding local-search extrapolation outside
 measured layouts.  It is not a default: validate it against the byte-balanced layout with tracing disabled before using
 it for production benchmarks.
+The `empirical-contiguous` policy is also opt-in and currently limited to two
+local CUDA devices.  It evaluates every nonempty ordered split of the center
+blocks and scores each split with the device-aware no-trace benchmark feature
+order:
+
+```text
+intercept,
+d0_right_flops,d0_b_peer_bytes,d0_terms,d0_unique_bc,d0_output_bytes,
+d1_right_flops,d1_b_peer_bytes,d1_terms,d1_unique_bc,d1_output_bytes,
+layout_transitions,layout_segments,active_devices,
+max_output_block_fraction,max_output_byte_fraction
+```
+
+Generate this coefficient vector with `bench-fit --model device` or
+`bench-suggest --model device`; both commands print the runtime
+`UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` value.  Do not use the
+policy for cold-start/environment-staging fits: the device-aware runtime model
+targets steady-state resident Lanczos matvec timing only.
 The current cost model is a variable-middle prototype: the Krylov input blocks `B_i` and output blocks `R_i` are forced
 onto one canonical layout so vector algebra can use the result as the next Lanczos input without an implicit relayout.
 Benchmark both `#LanczosMatvecS` and total wall time before treating a lower contraction model score as a faster
@@ -301,7 +322,11 @@ repeats, respectively, so treat this as a shallow placement basin around
 `cut323` to `cut326` rather than a sharply universal split.  The one-GPU
 baseline for the same fixture was about `0.963s`, so the best observed
 two-GPU layout is only an approximately eight-percent improvement at this
-problem size.
+problem size.  A device-aware fit over the collected contiguous benchmark rows
+currently drives `empirical-contiguous` to `cut326`; a six-repeat no-trace
+policy replay measured mean `#LanczosMatvecS` of about `0.899s`, consistent
+with the same shallow basin but not better than the aggregate manual `cut325`
+measurements.
 
 Unconstrained non-contiguous suggestions from the current linear benchmark fit
 also require direct measurement.  Two top-ranked local-search candidates from

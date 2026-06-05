@@ -1688,6 +1688,17 @@ def print_fit(coefficients: dict[str, float], stats: dict[str, float], include_g
     print_fit_for_names(coefficients, stats, feature_names(include_graph_features))
 
 
+def print_runtime_empirical_coefficients(coefficients: dict[str, float], names: list[str], model: str) -> None:
+    """Print runtime coefficient wiring for the C++ empirical-contiguous policy."""
+    if model != "device":
+        return
+    values = ",".join(f"{coefficients[name]:.17g}" for name in names)
+    print("runtime_coefficients_order=" + ",".join(names))
+    print("runtime_coefficients=" + values)
+    print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous \\")
+    print("    UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=" + values)
+
+
 def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
     """Return coefficients with negative values clamped to zero."""
     return {name: max(0.0, value) for name, value in coefficients.items()}
@@ -1932,7 +1943,9 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print(f"layout_filter={args.layout_filter}")
-    print_fit_for_names(coefficients, stats, benchmark_feature_names(problem, args.graph_features, args.model))
+    names = benchmark_feature_names(problem, args.graph_features, args.model)
+    print_fit_for_names(coefficients, stats, names)
+    print_runtime_empirical_coefficients(coefficients, names, args.model)
     return 0
 
 
@@ -2031,7 +2044,9 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print(f"layout_filter={args.layout_filter}")
-    print_fit_for_names(coefficients, stats, benchmark_feature_names(problem, args.graph_features, args.model))
+    names = benchmark_feature_names(problem, args.graph_features, args.model)
+    print_fit_for_names(coefficients, stats, names)
+    print_runtime_empirical_coefficients(coefficients, names, args.model)
     if args.contiguous_only:
         print("search=contiguous")
     else:
