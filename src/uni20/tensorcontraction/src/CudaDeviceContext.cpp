@@ -390,6 +390,10 @@ void CudaDeviceContext::returnBlasLane(std::size_t laneIndex)
 cudaEvent_t CudaDeviceContext::acquireEvent()
 {
   CUDA_CALL(cudaSetDevice(deviceId_));
+  if (freeEvents_.empty() && !retiredEvents_.empty())
+  {
+    this->reclaimRetiredEvents();
+  }
   if (!freeEvents_.empty())
   {
     auto event = freeEvents_.back();
@@ -468,13 +472,8 @@ CudaDeviceContext::ScratchLease CudaDeviceContext::acquireScratch(std::size_t by
     std::lock_guard<std::mutex> lock(scratchMutex_);
     auto candidate =
         std::find_if(freeScratchBuffers_.begin(), freeScratchBuffers_.end(), [bytes, stream](auto const& item) {
-          return item->bytes >= bytes && (!item->readyEventRecorded || item->readyStream == stream);
+          return item->bytes >= bytes && (item->readyStream == nullptr || item->readyStream == stream);
         });
-    if (candidate == freeScratchBuffers_.end())
-    {
-      candidate = std::find_if(freeScratchBuffers_.begin(), freeScratchBuffers_.end(),
-                               [bytes](auto const& item) { return item->bytes >= bytes; });
-    }
     if (candidate != freeScratchBuffers_.end())
     {
       buffer = std::move(*candidate);
@@ -492,8 +491,14 @@ CudaDeviceContext::ScratchLease CudaDeviceContext::acquireScratch(std::size_t by
     allScratchBuffers_.push_back(buffer);
   }
 
-  if (buffer->readyEventRecorded && buffer->readyStream != stream)
+  if (buffer->readyStream != nullptr && buffer->readyStream != stream)
   {
+    if (!buffer->readyEventRecorded)
+    {
+      CUDA_CALL(cudaEventRecord(buffer->readyEvent, buffer->readyStream));
+      ++counters_.eventRecord;
+      buffer->readyEventRecorded = true;
+    }
     waitEvent(stream, buffer->readyEvent);
   }
   buffer->readyEventRecorded = false;
@@ -686,9 +691,8 @@ void CudaDeviceContext::releaseScratch(std::shared_ptr<ScratchBuffer> buffer, cu
   CUDA_CALL(cudaSetDevice(deviceId_));
   if (!serialCuda_)
   {
-    CUDA_CALL(cudaEventRecord(buffer->readyEvent, stream));
-    buffer->readyEventRecorded = true;
     buffer->readyStream = stream;
+    buffer->readyEventRecorded = false;
   }
   std::lock_guard<std::mutex> lock(scratchMutex_);
   freeScratchBuffers_.push_back(std::move(buffer));

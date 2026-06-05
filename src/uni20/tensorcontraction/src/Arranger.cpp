@@ -1778,7 +1778,6 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
       {
         swapper.registerGpuAllocationsCoalesced(mats, deviceId);
       }
-      swapper.syncMemStream(deviceId, "linear_algebra_localize_coalesced");
       std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
       CUDA_CALL(cudaSetDevice(0));
       return;
@@ -1790,7 +1789,6 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
       {
         if (swapper.refreshHostMatricesToDeviceCoalesced(mats, values, *existingDevice))
         {
-          swapper.syncMemStream(*existingDevice, "linear_algebra_refresh_coalesced");
           std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
           CUDA_CALL(cudaSetDevice(0));
           return;
