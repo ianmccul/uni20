@@ -231,6 +231,20 @@ the actual `f` hypergraph, then optionally restrict candidate layouts to
 contiguous block-index ranges when the block ordering preserves that sector
 locality.
 
+Use the fixture trace tooling to inspect this connectivity directly:
+
+```bash
+scripts/rabc-trace-model.py hypergraph-summary /tmp/uni20_rabc_term_trace.jsonl
+```
+
+The summary reports center-block fanout from each `B_b`, direct `(R_r, B_b)`
+connectivity, right-first reuse hyperedges keyed by `(B_b, C_c)`, and
+left-first reuse hyperedges keyed by `(A_a, B_b)`.  These are the graph objects
+that should feed a real partitioner.  A contiguous `cutK` layout is only a
+restricted candidate family over the current block ordering; it is not the
+general model, especially once multiple symmetries or less one-dimensional
+fusion structure are present.
+
 In the final Uni20 model, decision variables should include:
 
 - block placement `p_F(i) = (rank, device)` for each block `i` in each family

@@ -261,6 +261,10 @@ The script writes one `MP_BENCHFILE` table per layout and rebuilds a combined
 interrupted sweep without rerunning layouts that already have nonempty bench
 files.  Use `--trace-path auto --trace-terms` only for a companion term trace or
 other structural diagnostics; do not compare final performance from traced rows.
+Use `--policy cost-block --labels cost-block` or another non-manual policy name
+to benchmark an automatic placement path through the same wrapper.  Non-manual
+policy runs keep the raw bench table but do not create benchmark JSONL rows,
+because the manual layout string is not known from the command line.
 
 For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
 dual-GPU sweep over all contiguous cuts found `cut6` as the current best
@@ -269,6 +273,14 @@ repeats.  The best model-suggested middle cut was `cut15` at `0.185988945s`;
 the right-heavy tail was slower, with cuts beyond `cut23` generally above
 `0.21s`.  Treat this as a fixture-local reference point, not a portable
 placement rule.
+
+Unconstrained non-contiguous suggestions from the current linear benchmark fit
+also require direct measurement.  Two top-ranked local-search candidates from
+the full contiguous training set measured at roughly `0.214s` and `0.215s`,
+despite much lower predicted times.  This reinforces that fitted coefficients
+over correlated aggregate features are candidate generators, not a partitioning
+proof.  Use `hypergraph-summary` and `bench-struct-summary` to inspect the
+underlying `f` connectivity before promoting any non-contiguous layout.
 
 To record final no-trace replay timings as a separate empirical dataset, save
 the benchmark stdout or `MP_BENCHFILE` table and convert it to JSONL:

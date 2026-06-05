@@ -1007,6 +1007,139 @@ def graph_metrics_for_layout(problem: dict[str, Any], layout: list[int]) -> dict
     }
 
 
+def sorted_pin_string(pins: set[int]) -> str:
+    """Format a set of center-block pins for compact reports."""
+    return ",".join(str(pin) for pin in sorted(pins))
+
+
+def rabc_hypergraph_summary(problem: dict[str, Any]) -> dict[str, Any]:
+    """Summarize layout-relevant hyperedges induced by the sparse `f` tensor."""
+    b_fanout: dict[int, dict[str, Any]] = {}
+    rb_edges: dict[tuple[int, int], dict[str, Any]] = {}
+    right_reuse: dict[tuple[int, int], dict[str, Any]] = {}
+    left_reuse: dict[tuple[int, int], dict[str, Any]] = {}
+
+    for term in problem["terms"]:
+        r = int(term["r"])
+        a = int(term["a"])
+        b = int(term["b"])
+        c = int(term["c"])
+
+        b_row = b_fanout.setdefault(
+            b,
+            {
+                "b": b,
+                "b_bytes": int(problem["input_bytes"][b]),
+                "outputs": set(),
+                "terms": 0,
+            },
+        )
+        b_row["outputs"].add(r)
+        b_row["terms"] += 1
+
+        rb_row = rb_edges.setdefault(
+            (r, b),
+            {
+                "r": r,
+                "b": b,
+                "b_bytes": int(problem["input_bytes"][b]),
+                "terms": 0,
+            },
+        )
+        rb_row["terms"] += 1
+
+        right_key = (b, c)
+        right_row = right_reuse.setdefault(
+            right_key,
+            {
+                "b": b,
+                "c": c,
+                "outputs": set(),
+                "terms": 0,
+                "first_flops": float(term["bc_flops"]),
+                "second_flops": 0.0,
+                "intermediate_bytes": int(term["intermediate_bytes"]),
+            },
+        )
+        right_row["outputs"].add(r)
+        right_row["terms"] += 1
+        right_row["second_flops"] += float(term["accumulate_flops"])
+
+        left_key = (a, b)
+        left_first, left_second = term_left_first_flops(term)
+        left_row = left_reuse.setdefault(
+            left_key,
+            {
+                "a": a,
+                "b": b,
+                "outputs": set(),
+                "terms": 0,
+                "first_flops": left_first,
+                "second_flops": 0.0,
+                "intermediate_bytes": term_left_first_intermediate_bytes(term),
+            },
+        )
+        left_row["outputs"].add(r)
+        left_row["terms"] += 1
+        left_row["second_flops"] += left_second
+
+    return {
+        "block_count": int(problem["block_count"]),
+        "term_count": len(problem["terms"]),
+        "b_fanout": list(b_fanout.values()),
+        "rb_edges": list(rb_edges.values()),
+        "right_reuse": list(right_reuse.values()),
+        "left_reuse": list(left_reuse.values()),
+    }
+
+
+def print_hypergraph_summary(summary: dict[str, Any], top: int) -> None:
+    """Print a compact text summary of `f`-tensor hypergraph connectivity."""
+    b_fanout = summary["b_fanout"]
+    rb_edges = summary["rb_edges"]
+    right_reuse = summary["right_reuse"]
+    left_reuse = summary["left_reuse"]
+    print(
+        "blocks terms b_fanout_edges rb_edges right_reuse_edges left_reuse_edges "
+        "max_b_fanout max_right_fanout max_left_fanout"
+    )
+    print(
+        f"{summary['block_count']} {summary['term_count']} {len(b_fanout)} {len(rb_edges)} "
+        f"{len(right_reuse)} {len(left_reuse)} "
+        f"{max((len(row['outputs']) for row in b_fanout), default=0)} "
+        f"{max((len(row['outputs']) for row in right_reuse), default=0)} "
+        f"{max((len(row['outputs']) for row in left_reuse), default=0)}"
+    )
+
+    def total_flops(row: dict[str, Any]) -> float:
+        return float(row.get("first_flops", 0.0)) + float(row.get("second_flops", 0.0))
+
+    print("top_b_fanout b b_bytes terms fanout outputs")
+    for row in sorted(b_fanout, key=lambda item: (len(item["outputs"]), item["terms"], item["b_bytes"]), reverse=True)[
+        :top
+    ]:
+        print(
+            f"  {row['b']} {row['b_bytes']} {row['terms']} {len(row['outputs'])} "
+            f"{sorted_pin_string(row['outputs'])}"
+        )
+
+    print("top_right_reuse b c terms fanout first_gflop total_gflop intermediate_bytes outputs")
+    for row in sorted(right_reuse, key=lambda item: (total_flops(item), len(item["outputs"])), reverse=True)[:top]:
+        print(
+            f"  {row['b']} {row['c']} {row['terms']} {len(row['outputs'])} "
+            f"{float(row['first_flops']) / 1.0e9:.9g} {total_flops(row) / 1.0e9:.9g} "
+            f"{row['intermediate_bytes']} {sorted_pin_string(row['outputs'])}"
+        )
+
+    print("top_left_reuse a b terms fanout first_gflop total_gflop intermediate_bytes outputs")
+    for row in sorted(left_reuse, key=lambda item: (total_flops(item), len(item["outputs"])), reverse=True)[:top]:
+        print(
+            f"  {row['a']} {row['b']} {row['terms']} {len(row['outputs'])} "
+            f"{float(row['first_flops']) / 1.0e9:.9g} {total_flops(row) / 1.0e9:.9g} "
+            f"{row['intermediate_bytes']} {sorted_pin_string(row['outputs'])}"
+        )
+
+
 def term_problem(record: dict[str, Any]) -> dict[str, Any]:
     """Extract the shape-rich term problem needed to score candidate layouts."""
     terms = record.get("terms", [])
@@ -1833,6 +1966,14 @@ def cmd_graph_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hypergraph_summary(args: argparse.Namespace) -> int:
+    """Summarize the layout-relevant hypergraph induced by sparse `f` terms."""
+    records = trace_records(args)
+    problem = trace_problem(records, term_records_for_args(args, records))
+    print_hypergraph_summary(rabc_hypergraph_summary(problem), args.top)
+    return 0
+
+
 def cmd_layouts(args: argparse.Namespace) -> int:
     """Generate simple manual placement layouts."""
     rng = random.Random(args.seed)
@@ -2156,6 +2297,16 @@ def parser() -> argparse.ArgumentParser:
     graph_summary.add_argument("--devices", action="store_true", help="print per-device graph metrics")
     add_term_trace(graph_summary)
     graph_summary.set_defaults(func=cmd_graph_summary)
+
+    hypergraph_summary = subcommands.add_parser(
+        "hypergraph-summary",
+        help="summarize layout-relevant sparse f-tensor hyperedges independent of a chosen layout",
+    )
+    hypergraph_summary.add_argument("trace", type=Path)
+    hypergraph_summary.add_argument("--drop-first-per-layout", type=int, default=0)
+    hypergraph_summary.add_argument("--top", type=int, default=12, help="number of top hyperedges to print")
+    add_term_trace(hypergraph_summary)
+    hypergraph_summary.set_defaults(func=cmd_hypergraph_summary)
 
     fit = subcommands.add_parser("fit", help="fit per-device timing coefficients")
     fit.add_argument("trace", type=Path)

@@ -6,17 +6,20 @@ usage() {
 Usage:
   scripts/run-rabc-layout-sweep.sh --fixture PATH [options]
 
-Run repeated no-trace TensorContraction R/A/B/C replay benchmarks for a list of
-manual center-vector layouts.  The script writes one stdout, stderr, and
-MP_BENCHFILE table per layout, then converts the bench tables into one JSONL
-benchmark dataset.
+Run repeated no-trace TensorContraction R/A/B/C replay benchmarks for manual
+center-vector layouts or automatic placement policies.  The script writes one
+stdout, stderr, and MP_BENCHFILE table per run.  Manual layout runs are also
+converted into one JSONL benchmark dataset.
 
 Options:
   --fixture PATH          R/A/B/C fixture to replay. Required.
   --exe PATH              Benchmark executable.
   --output-dir PATH       Output directory. Default: /tmp/uni20_rabc_sweep_<timestamp>.
+  --policy POLICY         R/A/B/C placement policy. Default: manual.
+                          Non-manual policies use labels as run names only.
   --labels LIST           Comma-separated labels. Default: representative contiguous cuts.
                           Labels are looked up with rabc-trace-model.py layouts.
+                          For non-manual policies, labels are run names only.
   --layout NAME=LIST      Add one custom layout. May be repeated. The custom
                           layout name is appended after --labels entries.
   --block-count N         Number of center-vector blocks. Default: 42.
@@ -47,7 +50,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture=""
 exe="${repo_root}/build_codex/tensorcontraction-polaron-release-fresh/examples/tensorcontraction_rabc_lanczos_benchmark"
 output_dir="/tmp/uni20_rabc_sweep_$(date +%Y%m%d_%H%M%S)"
-labels_csv="cut3,cut4,cut5,cut6,cut7,cut8,cut9,cut10,cut12,cut14,cut16,cut21,cut36,alternating"
+policy="manual"
+default_labels_csv="cut3,cut4,cut5,cut6,cut7,cut8,cut9,cut10,cut12,cut14,cut16,cut21,cut36,alternating"
+labels_csv="${default_labels_csv}"
+labels_was_set=0
 block_count=42
 device_count=2
 cuda_visible="0,1"
@@ -76,8 +82,13 @@ while [[ $# -gt 0 ]]; do
       output_dir="$2"
       shift 2
       ;;
+    --policy)
+      policy="$2"
+      shift 2
+      ;;
     --labels)
       labels_csv="$2"
+      labels_was_set=1
       shift 2
       ;;
     --layout)
@@ -181,6 +192,14 @@ jsonl="${output_dir}/benchmarks.jsonl"
   --contiguous-cuts > "${layouts_file}"
 : > "${jsonl}"
 
+manual_policy=0
+if [[ "${policy}" == "manual" || "${policy}" == "layout" ]]; then
+  manual_policy=1
+fi
+if [[ "${manual_policy}" -eq 0 && "${labels_was_set}" -eq 0 && "${#custom_layout_names[@]}" -eq 0 ]]; then
+  labels_csv="${policy}"
+fi
+
 labels=()
 if [[ -n "${labels_csv}" ]]; then
   IFS=',' read -r -a raw_labels <<< "${labels_csv}"
@@ -234,6 +253,7 @@ record_bench() {
 echo "fixture=${fixture}"
 echo "exe=${exe}"
 echo "output_dir=${output_dir}"
+echo "policy=${policy}"
 echo "labels=${labels_csv}"
 echo "repeats=${repeats} iters=${iters} warmup=${warmup} timeout=${timeout_seconds}"
 if [[ -n "${trace_path}" ]]; then
@@ -241,11 +261,14 @@ if [[ -n "${trace_path}" ]]; then
 fi
 
 for item in "${labels[@]}"; do
-  label="${item%%=*}"
-  layout="$(lookup_layout "${item}")"
-  if [[ -z "${layout}" ]]; then
-    echo "missing layout for label: ${item}" >&2
-    exit 2
+  label="${item}"
+  layout=""
+  if [[ "${manual_policy}" -eq 1 ]]; then
+    layout="$(lookup_layout "${item}")"
+    if [[ -z "${layout}" ]]; then
+      echo "missing layout for label: ${item}" >&2
+      exit 2
+    fi
   fi
 
   file_label="$(safe_label "${label}")"
@@ -254,7 +277,9 @@ for item in "${labels[@]}"; do
   stderr_file="${output_dir}/${file_label}.err"
 
   echo "=== ${label} ==="
-  echo "layout=${layout}"
+  if [[ "${manual_policy}" -eq 1 ]]; then
+    echo "layout=${layout}"
+  fi
   if [[ "${resume}" -eq 1 ]] && has_bench_rows "${bench_file}"; then
     echo "resume=skip existing ${bench_file}"
   else
@@ -262,14 +287,16 @@ for item in "${labels[@]}"; do
       "HWLOC_HIDE_ERRORS=2"
       "CUDA_VISIBLE_DEVICES=${cuda_visible}"
       "UNI20_TENSORCONTRACTION_DEVICES=${device_count}"
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual"
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=${layout}"
+      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT=${policy}"
       "UNI20_RABC_LANCZOS_ITERS=${iters}"
       "UNI20_RABC_LANCZOS_MIN_ITERS=${iters}"
       "UNI20_RABC_REPEATS=${repeats}"
       "UNI20_RABC_WARMUP=${warmup}"
       "MP_BENCHFILE=${bench_file}"
     )
+    if [[ "${manual_policy}" -eq 1 ]]; then
+      env_args+=("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=${layout}")
+    fi
     if [[ -n "${trace_path}" ]]; then
       env_args+=("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH=${trace_path}")
     fi
@@ -282,13 +309,19 @@ for item in "${labels[@]}"; do
     env "${env_args[@]}" /usr/bin/timeout "${timeout_seconds}" "${exe}" "${fixture}" > "${stdout_file}" 2> "${stderr_file}"
   fi
 
-  record_bench "${bench_file}" "${label}" "${layout}"
+  if [[ "${manual_policy}" -eq 1 ]]; then
+    record_bench "${bench_file}" "${label}" "${layout}"
+  fi
   tail -n "${repeats}" "${stdout_file}" || true
 done
 
 echo "=== summary ==="
-"${repo_root}/scripts/rabc-trace-model.py" bench-summary "${jsonl}"
-echo "benchmark_jsonl=${jsonl}"
+if [[ "${manual_policy}" -eq 1 ]]; then
+  "${repo_root}/scripts/rabc-trace-model.py" bench-summary "${jsonl}"
+  echo "benchmark_jsonl=${jsonl}"
+else
+  echo "benchmark_jsonl=not_written_for_policy_${policy}"
+fi
 if [[ -n "${trace_path}" ]]; then
   echo "trace_jsonl=${trace_path}"
 fi
