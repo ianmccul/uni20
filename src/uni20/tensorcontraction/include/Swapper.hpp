@@ -106,8 +106,6 @@ class Swapper {
     void destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer);
     std::vector<CudaDeviceContext::EventDependencyRef>
     collectBufferDependencies(std::shared_ptr<GpuBuffer> const& buffer) const;
-    std::vector<std::shared_ptr<GpuBuffer>> collectCoalescedPreStoreBuffers(const std::vector<Matrix>& mats,
-                                                                            int deviceId) const;
 
   public:
     /// \brief Access direction for a slab operation.
@@ -267,6 +265,13 @@ class Swapper {
     bool anyPreStoreBuffer(const std::vector<Matrix>& mats) const;
     std::optional<int> commonPreStoreDevice(const std::vector<Matrix>& mats) const;
     bool preStoreBuffersAreCoalesced(const std::vector<Matrix>& mats, int deviceId) const;
+    /// \brief Return ordered buffers for a complete coalesced pre-store slab.
+    /// \param mats Matrices that must cover the slab in storage order.
+    /// \param deviceId Device containing the slab.
+    /// \return Ordered sub-block buffers, or empty if the matrices do not form
+    ///         a complete coalesced slab on the requested device.
+    std::vector<std::shared_ptr<GpuBuffer>> collectCoalescedPreStoreBuffers(const std::vector<Matrix>& mats,
+                                                                            int deviceId) const;
     std::pair<int, std::shared_ptr<GpuBuffer>> getPreStoreBufferOrNone(Matrix mat);
     void notifyMatrixRead(Matrix mat, int deviceId, cuda::CompletionRef completion);
     void notifyMatrixWrite(Matrix mat, int deviceId, cuda::CompletionRef completion);

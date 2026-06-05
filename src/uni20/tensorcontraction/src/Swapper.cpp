@@ -24,9 +24,12 @@ namespace
 enum class CopyStatsSite : std::size_t
 {
   CopyMatrixH2D = 0,
-  PreStoreH2D,
-  RefreshPreStoreH2D,
-  PreStoreD2H,
+  PreStoreH2DIndividual,
+  PreStoreH2DCoalesced,
+  RefreshPreStoreH2DIndividual,
+  RefreshPreStoreH2DCoalesced,
+  PreStoreD2HIndividual,
+  PreStoreD2HCoalesced,
   SyncBufferD2H,
   Count,
 };
@@ -42,9 +45,12 @@ class CopyStats {
     bool enabled_ = std::getenv("UNI20_TENSORCONTRACTION_COPY_STATS") != nullptr;
     std::array<CopyStatsEntry, static_cast<std::size_t>(CopyStatsSite::Count)> entries_ = {
         CopyStatsEntry{"copyMatrix H2D"},
-        CopyStatsEntry{"preStoreMatrix H2D"},
-        CopyStatsEntry{"copyHostToPreStoreMatrix H2D"},
-        CopyStatsEntry{"copyPreStoreMatrixToHost D2H"},
+        CopyStatsEntry{"preStoreMatrix H2D individual"},
+        CopyStatsEntry{"preStoreMatrix H2D coalesced"},
+        CopyStatsEntry{"copyHostToPreStoreMatrix H2D individual"},
+        CopyStatsEntry{"copyHostToPreStoreMatrix H2D coalesced"},
+        CopyStatsEntry{"copyPreStoreMatrixToHost D2H individual"},
+        CopyStatsEntry{"copyPreStoreMatrixToHost D2H coalesced"},
         CopyStatsEntry{"syncBuffer D2H"},
     };
 
@@ -721,7 +727,7 @@ std::shared_ptr<GpuBuffer> Swapper::uploadHostMatrix(HostMatrixView host, int de
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeWrite(stream.stream());
   DEBUG_GPU_COPY_H2D(*this, host.handle().id(), deviceId, stream.stream(), host.sizeInByte());
-  recordCopy(CopyStatsSite::PreStoreH2D, host.sizeInByte());
+  recordCopy(CopyStatsSite::PreStoreH2DIndividual, host.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), host.requireData(), host.sizeInByte(), cudaMemcpyHostToDevice,
                             stream.stream()));
   buffer->publishWrite(stream.recordCompletion());
@@ -797,7 +803,7 @@ void Swapper::uploadHostMatricesCoalesced(const std::vector<Matrix>& mats, std::
 
   auto access = this->createSlabAccessPlan(mats, deviceId, SlabAccessKind::Write);
   DEBUG_GPU_COPY_H2D(*this, mats.front().getId(), deviceId, access.stream(), totalBytes);
-  recordCopy(CopyStatsSite::PreStoreH2D, totalBytes);
+  recordCopy(CopyStatsSite::PreStoreH2DCoalesced, totalBytes);
   CUDA_CALL(cudaMemcpyAsync(access.data(), values.data(), totalBytes, cudaMemcpyHostToDevice, access.stream()));
 }
 
@@ -816,7 +822,7 @@ void Swapper::refreshHostMatrixToDevice(HostMatrixView host)
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeWrite(stream.stream());
   DEBUG_GPU_COPY_H2D(*this, host.handle().id(), deviceId, stream.stream(), host.sizeInByte());
-  recordCopy(CopyStatsSite::RefreshPreStoreH2D, host.sizeInByte());
+  recordCopy(CopyStatsSite::RefreshPreStoreH2DIndividual, host.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(buffer->getPtr(), host.requireData(), host.sizeInByte(), cudaMemcpyHostToDevice,
                             stream.stream()));
   buffer->publishWrite(stream.recordCompletion());
@@ -837,7 +843,7 @@ bool Swapper::refreshHostMatricesToDeviceCoalesced(const std::vector<Matrix>& ma
 
   auto access = this->createSlabAccessPlan(mats, deviceId, SlabAccessKind::Write);
   DEBUG_GPU_COPY_H2D(*this, mats.front().getId(), deviceId, access.stream(), values.size_bytes());
-  recordCopy(CopyStatsSite::RefreshPreStoreH2D, values.size_bytes());
+  recordCopy(CopyStatsSite::RefreshPreStoreH2DCoalesced, values.size_bytes());
   CUDA_CALL(
       cudaMemcpyAsync(access.data(), values.data(), values.size_bytes(), cudaMemcpyHostToDevice, access.stream()));
   return true;
@@ -858,7 +864,7 @@ void Swapper::downloadDeviceToHost(HostMatrixView host)
   auto stream = deviceContexts[deviceId]->leaseWorkStream();
   buffer->waitBeforeRead(stream.stream());
   DEBUG_GPU_COPY_D2H(*this, host.handle().id(), deviceId, stream.stream(), host.sizeInByte());
-  recordCopy(CopyStatsSite::PreStoreD2H, host.sizeInByte());
+  recordCopy(CopyStatsSite::PreStoreD2HIndividual, host.sizeInByte());
   CUDA_CALL(cudaMemcpyAsync(host.requireData(), buffer->getPtr(), host.sizeInByte(), cudaMemcpyDeviceToHost,
                             stream.stream()));
   buffer->publishRead(stream.recordCompletion());
@@ -879,7 +885,7 @@ bool Swapper::downloadDeviceMatricesToHostCoalesced(const std::vector<Matrix>& m
 
   auto access = this->createSlabAccessPlan(mats, *deviceId, SlabAccessKind::Read);
   DEBUG_GPU_COPY_D2H(*this, mats.front().getId(), *deviceId, access.stream(), values.size_bytes());
-  recordCopy(CopyStatsSite::PreStoreD2H, values.size_bytes());
+  recordCopy(CopyStatsSite::PreStoreD2HCoalesced, values.size_bytes());
   CUDA_CALL(
       cudaMemcpyAsync(values.data(), access.data(), values.size_bytes(), cudaMemcpyDeviceToHost, access.stream()));
   return true;

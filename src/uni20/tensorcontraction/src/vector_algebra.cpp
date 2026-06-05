@@ -2,12 +2,16 @@
 
 #include "Arranger.hpp"
 #include "Swapper.hpp"
+#include "Utils.h"
+#include "vector_algebra_kernels.hpp"
 
 #include <mpi.h>
 
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -26,6 +30,189 @@ struct VectorAlgebraEngine::Impl
     Impl();
 
     [[nodiscard]] bool host_backend() const { return arranger == nullptr; }
+
+    [[nodiscard]] auto coalesced_device(MatrixFamily const& x) const -> std::optional<int>
+    {
+      if (arranger == nullptr || x.empty())
+      {
+        return std::nullopt;
+      }
+
+      auto& swapper = arranger->residentSwapper();
+      auto const& matrices = raw_matrices(x);
+      auto const device = swapper.commonPreStoreDevice(matrices);
+      if (!device.has_value() || !swapper.preStoreBuffersAreCoalesced(matrices, *device))
+      {
+        return std::nullopt;
+      }
+      return device;
+    }
+
+    void synchronize_if_requested(MatrixFamily& x)
+    {
+      if (sync_results_to_host)
+      {
+        arranger->synchronizeCoalescedLinearAlgebraToHost(raw_matrices(x), x.coalesced_values());
+      }
+    }
+
+    bool zero_slab(MatrixFamily& x)
+    {
+      auto const device = this->coalesced_device(x);
+      if (!device.has_value())
+      {
+        return false;
+      }
+
+      {
+        auto& swapper = arranger->residentSwapper();
+        auto access = swapper.createSlabAccessPlan(raw_matrices(x), *device, tensor::Swapper::SlabAccessKind::Write);
+        CUDA_CALL(cudaMemsetAsync(access.data(), 0, access.sizeInByte(), access.stream()));
+      }
+      this->synchronize_if_requested(x);
+      return true;
+    }
+
+    bool copy_slab(MatrixFamily const& source, MatrixFamily& target)
+    {
+      auto const source_device = this->coalesced_device(source);
+      auto const target_device = this->coalesced_device(target);
+      if (!source_device.has_value() || !target_device.has_value() || *source_device != *target_device)
+      {
+        return false;
+      }
+      if (source.coalesced_values().size() != target.coalesced_values().size())
+      {
+        throw std::invalid_argument("TensorContraction slab copy has mismatched storage sizes");
+      }
+      if (source.empty())
+      {
+        this->synchronize_if_requested(target);
+        return true;
+      }
+
+      {
+        auto& swapper = arranger->residentSwapper();
+        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(source), *source_device);
+        auto write_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(target), *target_device);
+        if (read_buffers.empty() || write_buffers.empty())
+        {
+          return false;
+        }
+        auto* source_base = read_buffers.front()->allocationBasePtr();
+        auto* target_base = write_buffers.front()->allocationBasePtr();
+        if (source_base != target_base)
+        {
+          auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), *target_device);
+          CUDA_CALL(cudaMemcpyAsync(target_base, source_base, target.coalesced_values().size_bytes(),
+                                    cudaMemcpyDeviceToDevice, access.stream()));
+        }
+      }
+      this->synchronize_if_requested(target);
+      return true;
+    }
+
+    bool scale_slab(MatrixFamily& x, double alpha)
+    {
+      auto const device = this->coalesced_device(x);
+      if (!device.has_value())
+      {
+        return false;
+      }
+
+      {
+        auto& swapper = arranger->residentSwapper();
+        auto access = swapper.createSlabAccessPlan(raw_matrices(x), *device, tensor::Swapper::SlabAccessKind::Write);
+        detail::launch_slab_scale_kernel(static_cast<double*>(access.data()), x.coalesced_values().size(), alpha,
+                                         access.stream());
+        CUDA_CALL(cudaGetLastError());
+      }
+      this->synchronize_if_requested(x);
+      return true;
+    }
+
+    bool axpy_slab(double alpha, MatrixFamily const& x, MatrixFamily& y)
+    {
+      auto const x_device = this->coalesced_device(x);
+      auto const y_device = this->coalesced_device(y);
+      if (!x_device.has_value() || !y_device.has_value() || *x_device != *y_device)
+      {
+        return false;
+      }
+      if (x.coalesced_values().size() != y.coalesced_values().size())
+      {
+        throw std::invalid_argument("TensorContraction slab axpy has mismatched storage sizes");
+      }
+      if (x.empty())
+      {
+        this->synchronize_if_requested(y);
+        return true;
+      }
+
+      {
+        auto& swapper = arranger->residentSwapper();
+        auto read_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(x), *x_device);
+        auto write_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(y), *y_device);
+        if (read_buffers.empty() || write_buffers.empty())
+        {
+          return false;
+        }
+        auto* x_base = static_cast<double const*>(read_buffers.front()->allocationBasePtr());
+        auto* y_base = static_cast<double*>(write_buffers.front()->allocationBasePtr());
+        auto access = swapper.createAccessPlan(std::move(read_buffers), std::move(write_buffers), *y_device);
+        detail::launch_slab_axpy_kernel(x_base, y_base, y.coalesced_values().size(), alpha, access.stream());
+        CUDA_CALL(cudaGetLastError());
+      }
+      this->synchronize_if_requested(y);
+      return true;
+    }
+
+    auto dot_slab(MatrixFamily const& lhs, MatrixFamily const& rhs) -> std::optional<double>
+    {
+      auto const lhs_device = this->coalesced_device(lhs);
+      auto const rhs_device = this->coalesced_device(rhs);
+      if (!lhs_device.has_value() || !rhs_device.has_value() || *lhs_device != *rhs_device)
+      {
+        return std::nullopt;
+      }
+      if (lhs.coalesced_values().size() != rhs.coalesced_values().size())
+      {
+        throw std::invalid_argument("TensorContraction slab dot has mismatched storage sizes");
+      }
+      if (lhs.empty())
+      {
+        return 0.0;
+      }
+      if (lhs.coalesced_values().size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+      {
+        return std::nullopt;
+      }
+
+      auto& swapper = arranger->residentSwapper();
+      auto read_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(lhs), *lhs_device);
+      auto rhs_buffers = swapper.collectCoalescedPreStoreBuffers(raw_matrices(rhs), *rhs_device);
+      if (read_buffers.empty() || rhs_buffers.empty())
+      {
+        return std::nullopt;
+      }
+      auto const* lhs_base = static_cast<double const*>(read_buffers.front()->allocationBasePtr());
+      auto const* rhs_base = static_cast<double const*>(rhs_buffers.front()->allocationBasePtr());
+      read_buffers.insert(read_buffers.end(), rhs_buffers.begin(), rhs_buffers.end());
+
+      double result = 0.0;
+      {
+        auto access = swapper.createBlasAccessPlan(std::move(read_buffers), {}, *lhs_device);
+        auto device_result = swapper.deviceContext(*lhs_device).acquireScratch(sizeof(double), access.stream());
+        CUBLAS_CALL(cublasSetPointerMode(access.handle(), CUBLAS_POINTER_MODE_DEVICE));
+        CUBLAS_CALL(cublasDdot(access.handle(), static_cast<int>(lhs.coalesced_values().size()), lhs_base, 1, rhs_base,
+                               1, device_result.as<double>()));
+        CUBLAS_CALL(cublasSetPointerMode(access.handle(), CUBLAS_POINTER_MODE_HOST));
+        CUDA_CALL(cudaMemcpyAsync(&result, device_result.as<double>(), sizeof(double), cudaMemcpyDeviceToHost,
+                                  access.stream()));
+        CUDA_CALL(cudaStreamSynchronize(access.stream()));
+      }
+      return result;
+    }
 
     void localize(MatrixFamily const& x, bool upload_from_host, bool refresh_existing)
     {
@@ -114,6 +301,11 @@ double VectorAlgebraEngine::dot(MatrixFamily const& lhs, MatrixFamily const& rhs
     impl_->localize(rhs, true, false);
   }
 
+  if (auto result = impl_->dot_slab(lhs, rhs); result.has_value())
+  {
+    return broadcast_from_rank_zero(*result);
+  }
+
   auto const& lhs_matrices = raw_matrices(lhs);
   auto const& rhs_matrices = raw_matrices(rhs);
   if (lhs_matrices.empty())
@@ -194,6 +386,10 @@ void VectorAlgebraEngine::zero(MatrixFamily& x)
     return;
   }
   impl_->localize(x, false, false);
+  if (impl_->zero_slab(x))
+  {
+    return;
+  }
   for (auto const& matrix : raw_matrices(x))
   {
     impl_->arranger->compileZeroForLinearAlgebra(matrix, impl_->sync_results_to_host);
@@ -219,6 +415,11 @@ void VectorAlgebraEngine::copy(MatrixFamily const& source, MatrixFamily& target)
   {
     impl_->localize(source, true, false);
     impl_->localize(target, false, false);
+  }
+
+  if (impl_->copy_slab(source, target))
+  {
+    return;
   }
 
   double one = 1.0;
@@ -247,6 +448,10 @@ void VectorAlgebraEngine::scale(MatrixFamily& x, double alpha)
   else
   {
     impl_->localize(x, true, false);
+  }
+  if (impl_->scale_slab(x, alpha))
+  {
+    return;
   }
   for (auto const& matrix : raw_matrices(x))
   {
@@ -277,6 +482,10 @@ void VectorAlgebraEngine::axpy(double alpha, MatrixFamily const& x, MatrixFamily
 
   auto const& x_matrices = raw_matrices(x);
   auto const& y_matrices = raw_matrices(y);
+  if (impl_->axpy_slab(alpha, x, y))
+  {
+    return;
+  }
   for (std::size_t block = 0; block < x_matrices.size(); ++block)
   {
     impl_->arranger->compileAddAccuForLinearAlgebra(y_matrices[block], x_matrices[block], &alpha,

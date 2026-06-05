@@ -56,6 +56,7 @@ add_library(uni20_tensorcontraction_runtime STATIC
   src/svd_cusolver.cpp
   src/svd_split_kernels.cu
   src/vector_algebra.cpp
+  src/vector_algebra_kernels.cu
   src/Arranger.cpp
   src/Calculator.cpp
   src/CudaDeviceContext.cpp
