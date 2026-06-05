@@ -880,8 +880,68 @@ struct BlockSparseTwoSiteEffectiveHamiltonian
     BlockSparseTwoSiteLayout layout;
 };
 
+/// \brief Wall-clock and process-CPU timing for one profiled DMRG substage.
+struct BlockSparseStageTiming
+{
+    double wall_seconds = 0.0;
+    double cpu_seconds = 0.0;
+};
+
+/// \brief Fine-grained timing data for one block-sparse two-site solve.
+struct BlockSparseTwoSiteSolveTimings
+{
+    BlockSparseStageTiming layout;
+    BlockSparseStageTiming effective_hamiltonian;
+    BlockSparseStageTiming engine;
+    BlockSparseStageTiming initial_vector;
+    BlockSparseStageTiming lanczos;
+};
+
+/// \brief Fine-grained timing data for one block-sparse two-site split.
+struct BlockSparseTwoSiteSplitTimings
+{
+    BlockSparseStageTiming sectors;
+    BlockSparseStageTiming plan;
+    BlockSparseStageTiming svd;
+    BlockSparseStageTiming metadata;
+    BlockSparseStageTiming materialize;
+};
+
 namespace detail
 {
+
+/// \brief Wall-clock and process-CPU checkpoint for fine-grained profiling.
+struct ProfileCheckpoint
+{
+    std::chrono::steady_clock::time_point wall_time;
+    double process_cpu_seconds = 0.0;
+};
+
+/// \brief Return process CPU seconds consumed by the current benchmark process.
+/// \return CPU seconds accumulated by this process.
+inline auto profile_cpu_seconds() -> double
+{
+  return static_cast<double>(std::clock()) / static_cast<double>(CLOCKS_PER_SEC);
+}
+
+/// \brief Capture a fine-grained profile timing checkpoint.
+/// \return Fine-grained profiling checkpoint.
+inline auto profile_checkpoint() -> ProfileCheckpoint
+{
+  return ProfileCheckpoint{.wall_time = std::chrono::steady_clock::now(), .process_cpu_seconds = profile_cpu_seconds()};
+}
+
+/// \brief Return elapsed profile timing between checkpoints.
+/// \param start Initial checkpoint.
+/// \param stop Final checkpoint.
+/// \return Wall-clock and process-CPU elapsed times.
+inline auto profile_elapsed(ProfileCheckpoint const& start, ProfileCheckpoint const& stop) -> BlockSparseStageTiming
+{
+  return BlockSparseStageTiming{
+      .wall_seconds = std::chrono::duration<double>(stop.wall_time - start.wall_time).count(),
+      .cpu_seconds = stop.process_cpu_seconds - start.process_cpu_seconds,
+  };
+}
 
 inline auto make_environment_matrix_family(BlockSparseEnvironment const& env) -> tensorcontraction::MatrixFamily
 {
@@ -1021,6 +1081,7 @@ struct BlockSparseTwoSiteSplitResult
     ThreeLegBlockMatrix right;
     tensorcontraction::SvdSpectrum spectrum;
     std::vector<std::size_t> sector_ranks;
+    BlockSparseTwoSiteSplitTimings timings;
 };
 
 /// \brief Device-resident result of splitting a U(1)-block-sparse two-site center.
@@ -1030,6 +1091,7 @@ struct DeviceBlockSparseTwoSiteSplitResult
     DeviceThreeLegBlockMatrix right;
     tensorcontraction::SvdSpectrum spectrum;
     std::vector<std::size_t> sector_ranks;
+    BlockSparseTwoSiteSplitTimings timings;
 
     /// \brief Explicitly materialize the split tensors into host storage.
     /// \return Host split result with synchronized block payloads.
@@ -1038,7 +1100,8 @@ struct DeviceBlockSparseTwoSiteSplitResult
       return BlockSparseTwoSiteSplitResult{.left = left.materialize_to_host(),
                                            .right = right.materialize_to_host(),
                                            .spectrum = spectrum,
-                                           .sector_ranks = sector_ranks};
+                                           .sector_ranks = sector_ranks,
+                                           .timings = timings};
     }
 };
 
@@ -1365,7 +1428,8 @@ inline auto split_two_site_center(BlockSparseTwoSiteLayout const& layout, tensor
   return BlockSparseTwoSiteSplitResult{.left = std::move(left),
                                        .right = std::move(right),
                                        .spectrum = std::move(spectrum),
-                                       .sector_ranks = std::move(ranks)};
+                                       .sector_ranks = std::move(ranks),
+                                       .timings = {}};
 }
 
 /// \brief Result of one block-sparse two-site solve.
@@ -1375,6 +1439,7 @@ struct BlockSparseTwoSiteSolveResult
     BlockSparseTwoSiteLayout layout;
     tensorcontraction::MatrixFamily optimized_vector;
     std::shared_ptr<tensorcontraction::VectorAlgebraEngine> resident_algebra;
+    BlockSparseTwoSiteSolveTimings timings;
 };
 
 /// \brief Solve one strict U(1) two-site effective Hamiltonian.
@@ -1394,25 +1459,47 @@ inline auto solve_two_site(BlockSparseFiniteMPS const& psi, BlockSparseMpoChain 
     throw std::out_of_range("block-sparse solve_two_site requires two adjacent MPS and MPO sites");
   }
 
+  BlockSparseTwoSiteSolveTimings timings;
+  auto stage_start = detail::profile_checkpoint();
   BlockSparseTwoSiteLayout layout(psi[left_site].local_space(), psi[left_site + 1].local_space(),
                                   psi[left_site].row_space(), psi[left_site + 1].col_space());
+  auto stage_stop = detail::profile_checkpoint();
+  timings.layout = detail::profile_elapsed(stage_start, stage_stop);
+
+  stage_start = stage_stop;
   auto effective_hamiltonian =
       make_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env, std::move(layout));
+  stage_stop = detail::profile_checkpoint();
+  timings.effective_hamiltonian = detail::profile_elapsed(stage_start, stage_stop);
+
+  stage_start = stage_stop;
   auto algebra = std::make_shared<tensorcontraction::VectorAlgebraEngine>();
   if (algebra->uses_host_backend())
   {
     throw std::runtime_error("block-sparse U(1) DMRG requires the TensorContraction resident CUDA/MPI backend");
   }
+  stage_stop = detail::profile_checkpoint();
+  timings.engine = detail::profile_elapsed(stage_start, stage_stop);
+
+  stage_start = stage_stop;
   auto optimized_vector = make_two_site_vector_resident(psi, left_site, effective_hamiltonian.layout, *algebra);
   algebra->set_host_synchronization(false);
+  stage_stop = detail::profile_checkpoint();
+  timings.initial_vector = detail::profile_elapsed(stage_start, stage_stop);
+
   auto apply = [&](tensorcontraction::MatrixFamily const& x, tensorcontraction::MatrixFamily& y) {
     effective_hamiltonian.op.apply_resident(x, y, *algebra);
   };
+  stage_start = stage_stop;
   auto lanczos = tensorcontraction::lanczos_lowest_with_engine(optimized_vector, apply, *algebra, options);
+  stage_stop = detail::profile_checkpoint();
+  timings.lanczos = detail::profile_elapsed(stage_start, stage_stop);
+
   return BlockSparseTwoSiteSolveResult{.lanczos = lanczos,
                                        .layout = std::move(effective_hamiltonian.layout),
                                        .optimized_vector = std::move(optimized_vector),
-                                       .resident_algebra = std::move(algebra)};
+                                       .resident_algebra = std::move(algebra),
+                                       .timings = timings};
 }
 
 /// \brief Split a solved resident block-sparse center without copying SVD factors to host.
@@ -1429,16 +1516,29 @@ split_two_site_solution_resident(BlockSparseTwoSiteSolveResult& solution, TwoSit
     throw std::invalid_argument("resident block-sparse split requires a resident algebra engine");
   }
   validate_matrix_family_layout(solution.optimized_vector, solution.layout);
+  BlockSparseTwoSiteSplitTimings timings;
+  auto stage_start = detail::profile_checkpoint();
   auto const sectors =
       make_two_site_svd_sectors(solution.layout.left_physical_space(), solution.layout.right_physical_space(),
                                 solution.layout.left_bond_space(), solution.layout.right_bond_space());
+  auto stage_stop = detail::profile_checkpoint();
+  timings.sectors = detail::profile_elapsed(stage_start, stage_stop);
+
+  stage_start = stage_stop;
   auto plan = detail::make_resident_block_sparse_svd_plan(solution.layout, sectors);
+  stage_stop = detail::profile_checkpoint();
+  timings.plan = detail::profile_elapsed(stage_start, stage_stop);
+
+  stage_start = stage_stop;
   auto resident_split = tensorcontraction::block_sparse_svd_split_resident_required(
       solution.optimized_vector, plan,
       direction == TwoSiteSplitDirection::RightToLeft ? tensorcontraction::SvdAbsorbSingularValues::Left
                                                       : tensorcontraction::SvdAbsorbSingularValues::Right,
       options, *solution.resident_algebra);
+  stage_stop = detail::profile_checkpoint();
+  timings.svd = detail::profile_elapsed(stage_start, stage_stop);
 
+  stage_start = stage_stop;
   auto shared_space = make_shared_bond_space_from_sector_ranks(sectors, resident_split.sector_ranks);
   auto const shared_indexes = detail::shared_sector_indexes(resident_split.sector_ranks);
   auto left_blocks = detail::make_device_split_blocks(sectors, resident_split.sector_ranks, shared_indexes, true);
@@ -1449,10 +1549,14 @@ split_two_site_solution_resident(BlockSparseTwoSiteSolveResult& solution, TwoSit
   DeviceThreeLegBlockMatrix right(shared_space, solution.layout.right_physical_space(),
                                   solution.layout.right_bond_space(), std::move(right_blocks),
                                   std::move(resident_split.right), solution.resident_algebra);
+  stage_stop = detail::profile_checkpoint();
+  timings.metadata = detail::profile_elapsed(stage_start, stage_stop);
+
   return DeviceBlockSparseTwoSiteSplitResult{.left = std::move(left),
                                              .right = std::move(right),
                                              .spectrum = std::move(resident_split.spectrum),
-                                             .sector_ranks = std::move(resident_split.sector_ranks)};
+                                             .sector_ranks = std::move(resident_split.sector_ranks),
+                                             .timings = timings};
 }
 
 /// \brief Split a solved resident block-sparse center after explicit host synchronization.
@@ -1464,7 +1568,11 @@ inline auto split_two_site_solution(BlockSparseTwoSiteSolveResult& solution, Two
                                     tensorcontraction::SvdOptions options = {}) -> BlockSparseTwoSiteSplitResult
 {
   auto resident_split = split_two_site_solution_resident(solution, direction, options);
-  return resident_split.materialize_to_host();
+  auto const stage_start = detail::profile_checkpoint();
+  auto split = resident_split.materialize_to_host();
+  auto const stage_stop = detail::profile_checkpoint();
+  split.timings.materialize = detail::profile_elapsed(stage_start, stage_stop);
+  return split;
 }
 
 /// \brief Replace the optimized two-site center in a block-sparse MPS.
@@ -1542,6 +1650,8 @@ struct BlockSparseTwoSiteBondUpdate
     double split_cpu_seconds = 0.0;
     double replace_cpu_seconds = 0.0;
     double environment_cpu_seconds = 0.0;
+    BlockSparseTwoSiteSolveTimings solve_timings;
+    BlockSparseTwoSiteSplitTimings split_timings;
 };
 
 /// \brief Observer invoked after each block-sparse bond update.
@@ -1645,7 +1755,9 @@ inline auto make_block_sparse_bond_update(std::size_t left_site, BlockSparseTwoS
                                       .solve_cpu_seconds = solve_cpu_seconds,
                                       .split_cpu_seconds = split_cpu_seconds,
                                       .replace_cpu_seconds = replace_cpu_seconds,
-                                      .environment_cpu_seconds = environment_cpu_seconds};
+                                      .environment_cpu_seconds = environment_cpu_seconds,
+                                      .solve_timings = solution.timings,
+                                      .split_timings = split.timings};
 }
 
 inline void assign_environment(std::vector<BlockSparseEnvironment>& environments, std::size_t index,

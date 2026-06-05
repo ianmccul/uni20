@@ -85,6 +85,8 @@ auto format_bond_sectors(std::optional<BlockSpace> const& bond_space) -> std::st
   return text;
 }
 
+auto profile_solver_steps() -> bool { return std::getenv("UNI20_DMRG_PROFILE_SOLVER") != nullptr; }
+
 void ensure_mpi_initialized()
 {
   int initialized = 0;
@@ -107,7 +109,8 @@ void ensure_mpi_initialized()
 
 class BenchFile {
   public:
-    explicit BenchFile(bool include_debug_global_energy) : include_debug_global_energy_(include_debug_global_energy)
+    explicit BenchFile(bool include_debug_global_energy)
+        : include_debug_global_energy_(include_debug_global_energy), include_solver_profile_(profile_solver_steps())
     {
       char const* path = std::getenv("MP_BENCHFILE");
       if (path == nullptr || *path == '\0')
@@ -124,7 +127,16 @@ class BenchFile {
           fmt::print(file_, " #DebugGlobalEnergy");
         }
         fmt::print(file_, " #SolveS #SplitS #ReplaceS #EnvS #SolveCpuS #SplitCpuS #ReplaceCpuS #EnvCpuS "
-                          "#BondSectors\n");
+                          "#BondSectors");
+        if (include_solver_profile_)
+        {
+          fmt::print(file_, " #SolveLayoutS #SolveEffHS #SolveEngineS #SolveVectorS #SolveLanczosS"
+                            " #SplitSectorsS #SplitPlanS #SplitSvdS #SplitMetadataS #SplitMaterializeS"
+                            " #SolveLayoutCpuS #SolveEffHCpuS #SolveEngineCpuS #SolveVectorCpuS #SolveLanczosCpuS"
+                            " #SplitSectorsCpuS #SplitPlanCpuS #SplitSvdCpuS #SplitMetadataCpuS "
+                            "#SplitMaterializeCpuS");
+        }
+        fmt::print(file_, "\n");
       }
     }
 
@@ -152,6 +164,21 @@ class BenchFile {
       fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g}", update.solve_cpu_seconds, update.split_cpu_seconds,
                  update.replace_cpu_seconds, update.environment_cpu_seconds);
       fmt::print(file_, " {}", format_bond_sectors(update.shared_bond_space));
+      if (include_solver_profile_)
+      {
+        auto const& solve = update.solve_timings;
+        auto const& split = update.split_timings;
+        fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g} {:.9g}", solve.layout.wall_seconds,
+                   solve.effective_hamiltonian.wall_seconds, solve.engine.wall_seconds,
+                   solve.initial_vector.wall_seconds, solve.lanczos.wall_seconds);
+        fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g} {:.9g}", split.sectors.wall_seconds, split.plan.wall_seconds,
+                   split.svd.wall_seconds, split.metadata.wall_seconds, split.materialize.wall_seconds);
+        fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g} {:.9g}", solve.layout.cpu_seconds,
+                   solve.effective_hamiltonian.cpu_seconds, solve.engine.cpu_seconds, solve.initial_vector.cpu_seconds,
+                   solve.lanczos.cpu_seconds);
+        fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g} {:.9g}", split.sectors.cpu_seconds, split.plan.cpu_seconds,
+                   split.svd.cpu_seconds, split.metadata.cpu_seconds, split.materialize.cpu_seconds);
+      }
       fmt::print(file_, "\n");
     }
 
@@ -167,6 +194,7 @@ class BenchFile {
     std::chrono::steady_clock::time_point start_ = std::chrono::steady_clock::now();
     std::ofstream file_;
     bool include_debug_global_energy_ = false;
+    bool include_solver_profile_ = false;
 };
 
 void run_exact_small_chain_check()
