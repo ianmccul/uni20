@@ -490,6 +490,77 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentManualPlacementM
   EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
 }
 
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentStripedPlacementUsesAlternatingLayout)
+{
+  if (visible_cuda_devices() < 2)
+  {
+    GTEST_SKIP() << "requires at least two visible CUDA devices";
+  }
+
+  auto const trace_path = temporary_trace_path();
+  EnvGuard guard{
+      "UNI20_TENSORCONTRACTION_BACKEND",
+      "UNI20_TENSORCONTRACTION_DEVICES",
+      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
+      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
+  };
+  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+  setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "stripe", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
+
+  auto a = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
+  auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
+  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
+                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
+                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+
+  a.assign(0, std::array{2.0});
+  a.assign(1, std::array{3.0});
+  a.assign(2, std::array{5.0});
+  a.assign(3, std::array{7.0});
+  c.assign(0, std::array{11.0});
+  c.assign(1, std::array{13.0});
+  c.assign(2, std::array{17.0});
+  c.assign(3, std::array{19.0});
+
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
+                   utc::EffectiveHamiltonianOperator::Term{1, 1, 1, 1, -0.5},
+                   utc::EffectiveHamiltonianOperator::Term{2, 2, 2, 2, 0.25},
+                   utc::EffectiveHamiltonianOperator::Term{3, 3, 3, 3, 2.0}};
+  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
+                                                               terms);
+  utc::VectorAlgebraEngine algebra;
+  algebra.set_host_synchronization(false);
+
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{23.0});
+  x.assign(1, std::array{29.0});
+  x.assign(2, std::array{31.0});
+  x.assign(3, std::array{37.0});
+  algebra.upload(x);
+
+  op.apply_resident(x, y, algebra);
+  algebra.synchronize(y);
+
+  EXPECT_DOUBLE_EQ(y.values(0)[0], 2.0 * 23.0 * 11.0);
+  EXPECT_DOUBLE_EQ(y.values(1)[0], -0.5 * 3.0 * 29.0 * 13.0);
+  EXPECT_DOUBLE_EQ(y.values(2)[0], 0.25 * 5.0 * 31.0 * 17.0);
+  EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
+
+  std::ifstream input(trace_path);
+  ASSERT_TRUE(input.good());
+  std::string line;
+  std::getline(input, line);
+  std::filesystem::remove(trace_path);
+
+  EXPECT_NE(line.find("\"policy\":\"stripe\""), std::string::npos);
+  EXPECT_NE(line.find("\"input_layout\":[0,1,0,1]"), std::string::npos);
+  EXPECT_NE(line.find("\"output_layout\":[0,1,0,1]"), std::string::npos);
+}
+
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentTraceWritesCostFeatures)
 {
   if (visible_cuda_devices() < 1)

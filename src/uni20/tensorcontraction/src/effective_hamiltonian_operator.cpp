@@ -225,6 +225,11 @@ bool use_block_cost_based_rabc_placement(std::string const& policy)
 
 bool use_manual_rabc_placement(std::string const& policy) { return policy == "manual" || policy == "layout"; }
 
+bool use_striped_rabc_placement(std::string const& policy)
+{
+  return policy == "stripe" || policy == "striped" || policy == "round-robin" || policy == "alternating";
+}
+
 bool log_cost_based_rabc_placement()
 {
   auto const* raw = std::getenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG");
@@ -592,6 +597,16 @@ std::vector<int> default_byte_balanced_devices(std::span<tensor::Matrix const> m
     {
       devices[index] = range.device;
     }
+  }
+  return devices;
+}
+
+std::vector<int> striped_devices(std::size_t block_count, int device_count)
+{
+  std::vector<int> devices(block_count, 0);
+  for (std::size_t block = 0; block < block_count; ++block)
+  {
+    devices[block] = static_cast<int>(block % static_cast<std::size_t>(device_count));
   }
   return devices;
 }
@@ -1086,10 +1101,11 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
   bool const use_contiguous_cost = use_cost_based_rabc_placement(policy);
   bool const use_block_cost = use_block_cost_based_rabc_placement(policy);
   bool const use_manual = use_manual_rabc_placement(policy);
+  bool const use_striped = use_striped_rabc_placement(policy);
   int const device_count = swapper.getDeviceCount();
   auto const layout_key =
       use_manual ? optional_env_string("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT").value_or("") : std::string{};
-  if ((!use_contiguous_cost && !use_block_cost && !use_manual) || device_count <= 1)
+  if ((!use_contiguous_cost && !use_block_cost && !use_manual && !use_striped) || device_count <= 1)
   {
     cache = ResidentOutputPlacementCache{};
     return false;
@@ -1131,6 +1147,38 @@ bool ensure_rabc_output_placement_cache(ResidentOutputPlacementCache& cache, Mat
     {
       fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy=manual devices={} outputs={} layout={}\n",
                  device_count, output_count, json_int_array(next.devices));
+    }
+  }
+  else if (use_striped)
+  {
+    next.coalesced_ranges = false;
+    bool default_reason_logged = false;
+    if (!center_block_layout_supported(b_mats, r_raw_mats, terms))
+    {
+      next.devices = default_byte_balanced_devices(r_raw_mats, device_count);
+      next.use_default_localization = true;
+      if (log_cost_based_rabc_placement())
+      {
+        fmt::print(stderr,
+                   "[TENSORCONTRACTION][RABC_PLACEMENT] policy={} falls back to default byte-balanced ranges: "
+                   "B/R block spaces differ\n",
+                   policy);
+        default_reason_logged = true;
+      }
+    }
+    else
+    {
+      next.devices = striped_devices(output_count, device_count);
+      next.use_default_localization = placement_devices_match_default(next.devices, r_raw_mats, device_count);
+    }
+    if (log_cost_based_rabc_placement())
+    {
+      fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy={} devices={} outputs={} layout={}\n", policy,
+                 device_count, output_count, json_int_array(next.devices));
+    }
+    if (next.use_default_localization && !default_reason_logged && log_cost_based_rabc_placement())
+    {
+      fmt::print(stderr, "[TENSORCONTRACTION][RABC_PLACEMENT] policy={} uses default byte-balanced ranges\n", policy);
     }
   }
   else

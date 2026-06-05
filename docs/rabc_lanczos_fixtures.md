@@ -78,6 +78,7 @@ Useful controls:
 | --- | --- |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT` | `cost`, `greedy`, or `cost-greedy` enables contiguous cost placement. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost-block` | Enables the more aggressive arbitrary block-ownership policy. Blocks are still stored as one coalesced slab per device. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=stripe` | Places center blocks round-robin over local devices, equivalent to an alternating `0,1,0,1,...` layout on two GPUs. Aliases: `striped`, `round-robin`, `alternating`. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual` | Uses the explicit center-block device list supplied by `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT`. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT` | Comma-separated CUDA device id per center block, for example `0,1,0,1`. The list length must equal the center-vector block count. |
 | `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG` | Set to `1`, `true`, or `on` to print the selected output-block distribution. |
@@ -92,6 +93,10 @@ Useful controls:
 The cost policies are intentionally opt-in.  Even the contiguous policy can choose a partition that is worse for the
 current executor than the default byte-balanced slabs; the arbitrary block policy can still lose to the default layout
 when the R/A/B/C model underestimates vector-layout or relayout costs.
+The `stripe` policy is also opt-in, but is deterministic rather than fitted.  It is useful as an empirical baseline
+because it exercises the measured alternating block layout directly, while avoiding local-search extrapolation outside
+measured layouts.  It is not a default: validate it against the byte-balanced layout with tracing disabled before using
+it for production benchmarks.
 The current cost model is a variable-middle prototype: the Krylov input blocks `B_i` and output blocks `R_i` are forced
 onto one canonical layout so vector algebra can use the result as the next Lanczos input without an implicit relayout.
 Benchmark both `#LanczosMatvecS` and total wall time before treating a lower contraction model score as a faster
@@ -122,6 +127,10 @@ time, and CUDA-event elapsed time.  The CUDA events are recorded on the legacy s
 around the blocking work streams on each device.  This makes tracing heavier than the default benchmark path but much
 lighter than Nsight Systems, and it produces directly usable feature rows for fitting bandwidth and GEMM-throughput
 parameters.
+
+Trace rows are model-fitting diagnostics, not final benchmark results.  CUDA-event tracing, term tracing, and trace
+file writes can change the relative cost of layouts.  Use traces to choose candidate layouts, then rerun the fixture
+benchmark with `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` unset before claiming a performance improvement.
 
 The current feature rows describe the right-first executor:
 
