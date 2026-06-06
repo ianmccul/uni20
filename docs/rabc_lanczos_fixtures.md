@@ -371,14 +371,18 @@ three repeats.  This is slower than the best focused contiguous comparison
 around `cut326` at about `0.888s`.  A later graph-feature `bench-suggest`
 diagnostic extrapolated to a three-segment `200/280` candidate with 650 blocks
 on GPU 0 and 80 on GPU 1, but direct replay measured mean
-`#LanczosMatvecS = 0.942111177s` over three repeats.  This confirms that the
+`#LanczosMatvecS = 0.942111177s` over three repeats.  After constraining
+segmented suggestions to measured shape support by segment count, the guarded
+top-three candidates were also replayed directly.  The best of those placed
+670 blocks on GPU 0 and 60 blocks on GPU 1 and measured mean
+`#LanczosMatvecS = 0.898845987s` over three repeats.  That is competitive with
+nearby contiguous cuts but still slower than the `cut326`/`empirical-contiguous`
+comparison at mean `0.888880086s` over nine rows.  This confirms that the
 current useful automatic search space remains contiguous layouts unless a
 fixture supplies measured evidence for non-contiguous support.  Static
-structural diagnostics explain the failure modes: the `300/340` segmented
-candidate lowers peer-`B` bytes but skews maximum output bytes and terms onto
-one device, while the `160/520` segmented candidates lower critical-path flops
-but roughly double peer-block and duplicated first-stage-group pressure
-relative to the contiguous basin.
+structural diagnostics explain the failure modes: segmented candidates can
+lower right-first and mixed critical-path flops, but they tend to increase
+peer-`B` traffic and heavily skew terms/unique `B,C` groups onto one device.
 
 For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
 dual-GPU sweep over all contiguous cuts found `cut6` as the current best
