@@ -565,7 +565,8 @@ scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
   --max-segments 3 \
   --segment-cut-stride 20 \
   --top 8 \
-  --compact-layouts
+  --compact-layouts \
+  --show-structure
 ```
 
 By default, segmented search only keeps candidates whose layout-shape features
@@ -578,6 +579,14 @@ from assigning unsupported negative or otherwise nonsensical scores to
 three-segment layouts.  Use `--allow-shape-extrapolation` only as an explicit
 diagnostic, then benchmark any suggested segmented layout directly before
 drawing conclusions.
+
+Use `--show-structure` when inspecting candidates from a fitted model.  It adds
+graph-derived counters for each ranked candidate, including right-first and
+mixed critical-path flops, peer-`B` traffic, cut-term counts, maximum per-device
+term pressure, unique `(B, C)` pressure, output-byte skew, and duplicate-group
+counts.  These columns make it easier to spot candidates whose fitted scalar
+score is attractive only because the regression has assigned compensating
+weights to correlated communication or load-skew features.
 
 ```bash
 scripts/rabc-trace-model.py layouts --block-count 42 --device-count 2 --contiguous-cuts

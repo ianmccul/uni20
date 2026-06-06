@@ -761,6 +761,41 @@ def summarize_benchmark_structure(
         )
 
 
+def layout_structure_row(problem: dict[str, Any], layout: list[int]) -> dict[str, Any]:
+    """Return graph-derived structural counters for one layout."""
+    graph = graph_metrics_for_layout(problem, layout)
+    device_features = features_for_layout(problem, layout, include_env_bytes=False, include_graph_features=True)
+    shape = layout_shape_features(problem, layout)
+    return {
+        "right_max_gflop": float(graph["right_max_device_flops"]) / 1.0e9,
+        "mixed_max_gflop": float(graph["mixed_max_device_flops"]) / 1.0e9,
+        "b_peer_mb": int(graph["b_peer_bytes"]) / 1.0e6,
+        "b_peer_blocks": int(graph["b_peer_blocks"]),
+        "b_cut_terms": int(graph["b_cut_terms"]),
+        "max_terms": max(int(row["terms"]) for row in device_features),
+        "max_unique_bc": max(int(row["unique_bc"]) for row in device_features),
+        "max_output_mb": max(int(row["output_bytes"]) for row in device_features) / 1.0e6,
+        "segments": int(shape["layout_segments"]),
+        "transitions": int(shape["layout_transitions"]),
+        "max_output_byte_fraction": float(shape["max_output_byte_fraction"]),
+        "right_duplicate_groups": int(graph["right_first"]["duplicate_groups"]),
+        "mixed_duplicate_groups": int(graph["mixed"]["duplicate_groups"]),
+        "mixed_left_groups": int(graph["mixed_left_groups"]),
+        "mixed_right_groups": int(graph["mixed_right_groups"]),
+    }
+
+
+def format_layout_structure_columns(row: dict[str, Any]) -> str:
+    """Return graph-derived structural counters as table columns."""
+    return (
+        f"{row['right_max_gflop']:.9g} {row['mixed_max_gflop']:.9g} {row['b_peer_mb']:.9g} "
+        f"{row['b_peer_blocks']} {row['b_cut_terms']} {row['max_terms']} {row['max_unique_bc']} "
+        f"{row['max_output_mb']:.9g} {row['segments']} {row['transitions']} "
+        f"{row['max_output_byte_fraction']:.9g} {row['right_duplicate_groups']} "
+        f"{row['mixed_duplicate_groups']} {row['mixed_left_groups']} {row['mixed_right_groups']}"
+    )
+
+
 def layout_mean_gpu_seconds(records: list[dict[str, Any]]) -> float:
     """Return the mean max-device GPU time for one layout."""
     timings = [float(record.get("gpu_s", float("nan"))) for record in records]
@@ -2406,6 +2441,16 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
                 f"{str(bool(row['contiguous'])).lower()} {str(bool(row['byte_balanced'])).lower()} "
                 f"{maybe_compact_layout(row['layout'], args.compact_layouts)}"
             )
+    if args.show_structure:
+        print(
+            "structure_rank predicted_matvec_s right_max_gflop mixed_max_gflop b_peer_mb "
+            "b_peer_blocks b_cut_terms max_terms max_unique_bc max_output_mb segments transitions "
+            "max_output_byte_fraction right_duplicate_groups mixed_duplicate_groups mixed_left_groups "
+            "mixed_right_groups"
+        )
+        for rank, row in enumerate(ranked[: args.top], start=1):
+            structure = layout_structure_row(problem, row["layout"])
+            print(f"{rank} {float(row['score']):.9g} {format_layout_structure_columns(structure)}")
     if args.compact_layouts:
         print("env_layout_omitted=true")
         print("env_layout_note=rerun_without_compact_layouts_for_full_manual_environment_value")
@@ -2950,6 +2995,11 @@ def parser() -> argparse.ArgumentParser:
     )
     bench_suggest.add_argument(
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
+    )
+    bench_suggest.add_argument(
+        "--show-structure",
+        action="store_true",
+        help="print graph-derived structural counters for ranked candidate layouts",
     )
     add_benchmark_model(bench_suggest)
     add_benchmark_layout_filter(bench_suggest)
