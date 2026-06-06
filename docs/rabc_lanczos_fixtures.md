@@ -588,6 +588,15 @@ counts.  These columns make it easier to spot candidates whose fitted scalar
 score is attractive only because the regression has assigned compensating
 weights to correlated communication or load-skew features.
 
+`--candidate-score monotonic-structure` replaces the candidate ranking score
+with a non-negative fit over the same structural counters.  This is a diagnostic
+step toward a calibrated graph cost function: communication, term-pressure,
+skew, and duplication counters cannot receive negative weights.  On the current
+Hubbard `L=40, m=5000` dataset it is intentionally conservative and does not
+recover the best contiguous basin, so do not use it as a runtime policy.  Its
+main value is checking whether a proposed layout still looks good when obvious
+structural costs are forced to be monotonic penalties.
+
 ```bash
 scripts/rabc-trace-model.py layouts --block-count 42 --device-count 2 --contiguous-cuts
 scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl \

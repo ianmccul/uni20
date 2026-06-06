@@ -11,7 +11,7 @@ import random
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 BASE_FEATURE_NAMES = [
@@ -56,6 +56,24 @@ DEVICE_BENCHMARK_FEATURE_NAMES = [
 DEVICE_BENCHMARK_GRAPH_FEATURE_NAMES = [
     "b_cut_terms",
     "b_peer_blocks",
+    "right_duplicate_groups",
+    "mixed_duplicate_groups",
+    "mixed_left_groups",
+    "mixed_right_groups",
+]
+
+STRUCTURE_SCORE_FEATURE_NAMES = [
+    "right_max_gflop",
+    "mixed_max_gflop",
+    "b_peer_mb",
+    "b_peer_blocks",
+    "b_cut_terms",
+    "max_terms",
+    "max_unique_bc",
+    "max_output_mb",
+    "segments",
+    "transitions",
+    "max_output_byte_fraction",
     "right_duplicate_groups",
     "mixed_duplicate_groups",
     "mixed_left_groups",
@@ -796,6 +814,81 @@ def format_layout_structure_columns(row: dict[str, Any]) -> str:
     )
 
 
+def layout_structure_vector(problem: dict[str, Any], layout: list[int]) -> list[float]:
+    """Return monotonic structural score features for one layout."""
+    row = layout_structure_row(problem, layout)
+    return [float(row[name]) for name in STRUCTURE_SCORE_FEATURE_NAMES]
+
+
+def fit_monotonic_structure_coefficients(
+    records: list[dict[str, Any]], problem: dict[str, Any], ridge: float, iterations: int
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Fit non-negative structural coefficients to benchmark layout means."""
+    grouped = group_benchmarks_by_layout(records, problem)
+    if not grouped:
+        raise ValueError("benchmark data contains no replay matvec samples")
+
+    raw_x = [layout_structure_vector(problem, list(layout)) for layout in grouped]
+    y = [benchmark_layout_mean_matvec_seconds(layout_records) for layout_records in grouped.values()]
+    baseline = min(y)
+    shifted_y = [max(0.0, value - baseline) for value in y]
+    scales = [max(max(row[column] for row in raw_x), 1.0) for column in range(len(STRUCTURE_SCORE_FEATURE_NAMES))]
+    x = [[value / scale for value, scale in zip(row, scales)] for row in raw_x]
+    weights = [0.0] * len(STRUCTURE_SCORE_FEATURE_NAMES)
+    iterations = max(1, iterations)
+
+    # Coordinate descent solves a small non-negative ridge problem without adding
+    # a scipy dependency to this analysis script.
+    for _ in range(iterations):
+        predictions = [sum(weight * value for weight, value in zip(weights, row)) for row in x]
+        max_delta = 0.0
+        for column in range(len(weights)):
+            numerator = 0.0
+            denominator = ridge
+            for row, target, prediction in zip(x, shifted_y, predictions):
+                value = row[column]
+                residual_without_column = target - prediction + weights[column] * value
+                numerator += value * residual_without_column
+                denominator += value * value
+            next_weight = max(0.0, numerator / denominator) if denominator > 0.0 else 0.0
+            delta = next_weight - weights[column]
+            if delta != 0.0:
+                for index, row in enumerate(x):
+                    predictions[index] += delta * row[column]
+                weights[column] = next_weight
+                max_delta = max(max_delta, abs(delta))
+        if max_delta < 1.0e-12:
+            break
+
+    coefficients = {
+        name: weight / scale for name, weight, scale in zip(STRUCTURE_SCORE_FEATURE_NAMES, weights, scales)
+    }
+    predicted = [
+        baseline + sum(coefficients[name] * value for name, value in zip(STRUCTURE_SCORE_FEATURE_NAMES, row))
+        for row in raw_x
+    ]
+    errors = [estimate - observed for estimate, observed in zip(predicted, y)]
+    rmse = math.sqrt(sum(error * error for error in errors) / len(errors))
+    mean_y = sum(y) / len(y)
+    total = sum((value - mean_y) ** 2 for value in y)
+    residual = sum(error * error for error in errors)
+    stats = {
+        "samples": float(len(y)),
+        "baseline": baseline,
+        "rmse": rmse,
+        "r2": 1.0 - residual / total if total != 0.0 else 1.0,
+    }
+    return coefficients, stats
+
+
+def score_monotonic_structure_layout(
+    problem: dict[str, Any], layout: list[int], baseline: float, coefficients: dict[str, float]
+) -> float:
+    """Return a non-negative structural score in seconds for one layout."""
+    vector = layout_structure_vector(problem, layout)
+    return baseline + sum(coefficients[name] * value for name, value in zip(STRUCTURE_SCORE_FEATURE_NAMES, vector))
+
+
 def layout_mean_gpu_seconds(records: list[dict[str, Any]]) -> float:
     """Return the mean max-device GPU time for one layout."""
     timings = [float(record.get("gpu_s", float("nan"))) for record in records]
@@ -1035,16 +1128,13 @@ def candidate_benchmark_layouts(problem: dict[str, Any], records: list[dict[str,
 def benchmark_local_search(
     problem: dict[str, Any],
     start: list[int],
-    coefficients: dict[str, float],
     passes: int,
-    include_env_bytes: bool,
-    include_graph_features: bool,
-    model: str,
+    score_layout: Callable[[list[int]], float],
 ) -> list[int]:
-    """Improve a layout using the benchmark-targeted critical-path score."""
+    """Improve a layout using a caller-supplied benchmark-targeted score."""
     device_count = int(problem["device_count"])
     layout = start[:]
-    best_score, _ = score_benchmark_layout(problem, layout, coefficients, include_env_bytes, include_graph_features, model)
+    best_score = score_layout(layout)
     for _ in range(passes):
         improved = False
         for block in range(len(layout)):
@@ -1055,9 +1145,7 @@ def benchmark_local_search(
                     continue
                 trial = layout[:]
                 trial[block] = device
-                trial_score, _ = score_benchmark_layout(
-                    problem, trial, coefficients, include_env_bytes, include_graph_features, model
-                )
+                trial_score = score_layout(trial)
                 if trial_score < best_score:
                     best_score = trial_score
                     best_device = device
@@ -2327,6 +2415,22 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     )
     if args.clamp_negative:
         coefficients = clamp_negative_coefficients(coefficients)
+    structure_coefficients: dict[str, float] = {}
+    structure_stats: dict[str, float] = {}
+    if args.candidate_score == "monotonic-structure":
+        structure_coefficients, structure_stats = fit_monotonic_structure_coefficients(
+            records, problem, args.structure_ridge, args.structure_iterations
+        )
+
+    def score_candidate(layout: list[int]) -> float:
+        if args.candidate_score == "fit":
+            score, _ = score_benchmark_layout(
+                problem, layout, coefficients, include_env_bytes, args.graph_features, args.model
+            )
+            return score
+        return score_monotonic_structure_layout(
+            problem, layout, structure_stats["baseline"], structure_coefficients
+        )
 
     observed_keys = {tuple(layout) for layout in observed_benchmark_layouts(records, problem)}
     block_count = int(problem["block_count"])
@@ -2379,17 +2483,14 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
         layout = (
             seed
             if args.observed_only or args.contiguous_only or args.segmented_only
-            else benchmark_local_search(
-                problem, seed, coefficients, args.passes, include_env_bytes, args.graph_features, args.model
-            )
+            else benchmark_local_search(problem, seed, args.passes, score_candidate)
         )
         key = tuple(layout)
         if key in seen:
             continue
         seen.add(key)
-        score, vector = score_benchmark_layout(
-            problem, layout, coefficients, include_env_bytes, args.graph_features, args.model
-        )
+        score = score_candidate(layout)
+        vector = benchmark_layout_vector(problem, layout, include_env_bytes, args.graph_features, args.model)
         ranked.append(
             {
                 "layout": layout,
@@ -2412,9 +2513,22 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print(f"layout_filter={args.layout_filter}")
+    print(f"candidate_score={args.candidate_score}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
     print_runtime_empirical_coefficients(coefficients, names, args.model)
+    if args.candidate_score == "monotonic-structure":
+        print(
+            f"monotonic_structure_samples={int(structure_stats['samples'])} "
+            f"monotonic_structure_baseline_s={structure_stats['baseline']:.9g} "
+            f"monotonic_structure_rmse_s={structure_stats['rmse']:.9g} "
+            f"monotonic_structure_r2={structure_stats['r2']:.9g}"
+        )
+        print("monotonic_structure_coefficients_order=" + ",".join(STRUCTURE_SCORE_FEATURE_NAMES))
+        print(
+            "monotonic_structure_coefficients="
+            + ",".join(f"{structure_coefficients[name]:.17g}" for name in STRUCTURE_SCORE_FEATURE_NAMES)
+        )
     if args.output_runtime_coefficients is not None:
         write_runtime_empirical_coefficients(args.output_runtime_coefficients, coefficients, names, args.model)
         print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
@@ -2953,6 +3067,24 @@ def parser() -> argparse.ArgumentParser:
     bench_suggest.add_argument("--passes", type=int, default=4)
     bench_suggest.add_argument("--random", type=int, default=16)
     bench_suggest.add_argument("--top", type=int, default=1, help="print the top N ranked candidate layouts")
+    bench_suggest.add_argument(
+        "--candidate-score",
+        choices=("fit", "monotonic-structure"),
+        default="fit",
+        help="score used to rank candidate layouts",
+    )
+    bench_suggest.add_argument(
+        "--structure-ridge",
+        type=float,
+        default=1.0e-6,
+        help="ridge penalty for --candidate-score=monotonic-structure",
+    )
+    bench_suggest.add_argument(
+        "--structure-iterations",
+        type=int,
+        default=1000,
+        help="coordinate-descent iterations for --candidate-score=monotonic-structure",
+    )
     bench_suggest.add_argument("--observed-only", action="store_true")
     bench_suggest.add_argument(
         "--contiguous-only",
