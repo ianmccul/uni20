@@ -67,12 +67,14 @@ struct RabcEmpiricalCoefficientText
 {
     std::string coefficients;
     std::vector<std::size_t> supported_output_blocks;
+    std::vector<std::string> supported_output_shape_signatures;
 };
 
 struct RabcEmpiricalCoefficientFileSelection
 {
     std::optional<RabcEmpiricalCoefficientText> selected;
     std::vector<std::size_t> supported_output_blocks;
+    std::vector<std::string> supported_output_shape_signatures;
     bool saw_coefficients = false;
 };
 
@@ -338,6 +340,28 @@ std::vector<std::size_t> parse_size_list(std::string_view text, std::string_view
   return values;
 }
 
+std::vector<std::string> parse_string_list(std::string_view text)
+{
+  std::vector<std::string> values;
+  std::size_t begin = 0;
+  while (begin <= text.size())
+  {
+    auto const comma = text.find(',', begin);
+    auto const end = comma == std::string_view::npos ? text.size() : comma;
+    auto token = trim_ascii(text.substr(begin, end - begin));
+    if (!token.empty())
+    {
+      values.push_back(std::move(token));
+    }
+    if (comma == std::string_view::npos)
+    {
+      break;
+    }
+    begin = comma + 1;
+  }
+  return values;
+}
+
 std::string comma_join(std::span<std::size_t const> values)
 {
   std::string result;
@@ -352,10 +376,60 @@ std::string comma_join(std::span<std::size_t const> values)
   return result;
 }
 
-bool supports_output_count(RabcEmpiricalCoefficientText const& stanza, std::size_t output_count)
+std::string comma_join(std::span<std::string const> values)
 {
-  return stanza.supported_output_blocks.empty() ||
-         std::ranges::find(stanza.supported_output_blocks, output_count) != stanza.supported_output_blocks.end();
+  std::string result;
+  for (std::size_t index = 0; index < values.size(); ++index)
+  {
+    if (index != 0)
+    {
+      result += ",";
+    }
+    result += values[index];
+  }
+  return result;
+}
+
+void fnv1a_update(std::uint64_t& hash, std::uint64_t value)
+{
+  constexpr std::uint64_t prime = 1099511628211ULL;
+  for (int byte = 0; byte < 8; ++byte)
+  {
+    hash ^= (value >> (8 * byte)) & 0xffULL;
+    hash *= prime;
+  }
+}
+
+std::string output_shape_signature(std::span<tensor::Matrix const> r_raw_mats)
+{
+  std::uint64_t hash = 14695981039346656037ULL;
+  fnv1a_update(hash, static_cast<std::uint64_t>(r_raw_mats.size()));
+  for (auto const& mat : r_raw_mats)
+  {
+    fnv1a_update(hash, static_cast<std::uint64_t>(mat.getFirstDim()));
+    fnv1a_update(hash, static_cast<std::uint64_t>(mat.getSecondDim()));
+  }
+  return fmt::format("fnv1a64:{:016x}", hash);
+}
+
+bool supports_output_shape(RabcEmpiricalCoefficientText const& stanza, std::string_view output_shape_signature)
+{
+  if (stanza.supported_output_shape_signatures.empty())
+  {
+    return true;
+  }
+  return std::ranges::any_of(stanza.supported_output_shape_signatures, [&](std::string const& supported) {
+    return std::string_view(supported) == output_shape_signature;
+  });
+}
+
+bool supports_output_shape(RabcEmpiricalCoefficientText const& stanza, std::size_t output_count,
+                           std::string_view output_shape_signature)
+{
+  bool const count_match =
+      stanza.supported_output_blocks.empty() ||
+      std::ranges::find(stanza.supported_output_blocks, output_count) != stanza.supported_output_blocks.end();
+  return count_match && supports_output_shape(stanza, output_shape_signature);
 }
 
 void append_unique(std::vector<std::size_t>& values, std::span<std::size_t const> new_values)
@@ -369,8 +443,20 @@ void append_unique(std::vector<std::size_t>& values, std::span<std::size_t const
   }
 }
 
+void append_unique(std::vector<std::string>& values, std::span<std::string const> new_values)
+{
+  for (auto const& value : new_values)
+  {
+    if (std::ranges::find(values, value) == values.end())
+    {
+      values.push_back(value);
+    }
+  }
+}
+
 RabcEmpiricalCoefficientFileSelection empirical_coefficients_from_file(std::string const& path,
-                                                                       std::size_t output_count)
+                                                                       std::size_t output_count,
+                                                                       std::string_view output_shape_signature)
 {
   std::ifstream input(path);
   if (!input.good())
@@ -384,7 +470,8 @@ RabcEmpiricalCoefficientFileSelection empirical_coefficients_from_file(std::stri
     stanza.coefficients = trim_ascii(coefficients);
     result.saw_coefficients = true;
     append_unique(result.supported_output_blocks, stanza.supported_output_blocks);
-    if (supports_output_count(stanza, output_count))
+    append_unique(result.supported_output_shape_signatures, stanza.supported_output_shape_signatures);
+    if (supports_output_shape(stanza, output_count, output_shape_signature))
     {
       result.selected = stanza;
       return true;
@@ -435,6 +522,15 @@ RabcEmpiricalCoefficientFileSelection empirical_coefficients_from_file(std::stri
       continue;
     }
 
+    constexpr std::string_view supported_shape_prefix = "runtime_output_shape_signature=";
+    if (trimmed.starts_with(supported_shape_prefix))
+    {
+      stanza.supported_output_shape_signatures =
+          parse_string_list(std::string_view(trimmed).substr(supported_shape_prefix.size()));
+      append_unique(result.supported_output_shape_signatures, stanza.supported_output_shape_signatures);
+      continue;
+    }
+
     constexpr std::string_view env_prefix = "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=";
     auto const env_position = trimmed.find(env_prefix);
     if (env_position != std::string::npos)
@@ -461,22 +557,26 @@ RabcEmpiricalCoefficientFileSelection empirical_coefficients_from_file(std::stri
                               path);
 }
 
-std::optional<RabcEmpiricalCoefficientText> empirical_coefficients_text(std::size_t output_count)
+std::optional<RabcEmpiricalCoefficientText> empirical_coefficients_text(std::size_t output_count,
+                                                                        std::string_view output_shape_signature)
 {
   if (auto const text = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS"); text.has_value())
   {
-    return RabcEmpiricalCoefficientText{.coefficients = *text, .supported_output_blocks = {}};
+    return RabcEmpiricalCoefficientText{
+        .coefficients = *text, .supported_output_blocks = {}, .supported_output_shape_signatures = {}};
   }
   if (auto const path = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
       path.has_value())
   {
-    auto selection = empirical_coefficients_from_file(*path, output_count);
+    auto selection = empirical_coefficients_from_file(*path, output_count, output_shape_signature);
     if (selection.selected.has_value())
     {
       return selection.selected;
     }
     return RabcEmpiricalCoefficientText{.coefficients = "",
-                                        .supported_output_blocks = std::move(selection.supported_output_blocks)};
+                                        .supported_output_blocks = std::move(selection.supported_output_blocks),
+                                        .supported_output_shape_signatures =
+                                            std::move(selection.supported_output_shape_signatures)};
   }
   return std::nullopt;
 }
@@ -1268,7 +1368,8 @@ empirical_contiguous_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily
     return {};
   }
 
-  auto const coefficient_text = empirical_coefficients_text(r_raw_mats.size());
+  auto const signature = output_shape_signature(r_raw_mats);
+  auto const coefficient_text = empirical_coefficients_text(r_raw_mats.size(), signature);
   if (!coefficient_text.has_value())
   {
     throw std::invalid_argument("UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous requires "
@@ -1282,8 +1383,10 @@ empirical_contiguous_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily
     {
       fmt::print(stderr,
                  "[TENSORCONTRACTION][RABC_PLACEMENT] policy=empirical-contiguous devices=2 outputs={} "
-                 "fallback=default-byte-balanced reason=unsupported-output-block-count supported={}\n",
-                 r_raw_mats.size(), comma_join(coefficient_text->supported_output_blocks));
+                 "signature={} fallback=default-byte-balanced reason=unsupported-output-shape supported_counts={} "
+                 "supported_signatures={}\n",
+                 r_raw_mats.size(), signature, comma_join(coefficient_text->supported_output_blocks),
+                 comma_join(coefficient_text->supported_output_shape_signatures));
     }
     return default_ranges;
   }
@@ -1623,13 +1726,14 @@ void write_rabc_trace(std::uint64_t index, std::string const& policy, RabcCostFe
 
   fmt::print(file,
              "{{\"kind\":\"rabc_matvec\",\"index\":{},\"policy\":\"{}\",\"device_count\":{},"
-             "\"block_count\":{},\"term_count\":{},\"enqueue_s\":{:.17g},\"sync_s\":{:.17g},"
+             "\"block_count\":{},\"output_shape_signature\":\"{}\",\"term_count\":{},\"enqueue_s\":{:.17g},"
+             "\"sync_s\":{:.17g},"
              "\"wall_s\":{:.17g},\"gpu_s\":{:.17g},\"input_layout\":{},\"output_layout\":{},"
              "\"device_timings\":{},\"devices\":{}",
-             index, policy, features.devices.size(), features.output_devices.size(), terms.size(), enqueue_seconds,
-             sync_seconds, wall_seconds, max_gpu_seconds(timings), json_int_array(features.input_devices),
-             json_int_array(features.output_devices), json_device_timings(timings),
-             json_device_features(features.devices));
+             index, policy, features.devices.size(), features.output_devices.size(), output_shape_signature(r_raw_mats),
+             terms.size(), enqueue_seconds, sync_seconds, wall_seconds, max_gpu_seconds(timings),
+             json_int_array(features.input_devices), json_int_array(features.output_devices),
+             json_device_timings(timings), json_device_features(features.devices));
   if (rabc_trace_terms_enabled())
   {
     fmt::print(file, ",\"terms\":[");

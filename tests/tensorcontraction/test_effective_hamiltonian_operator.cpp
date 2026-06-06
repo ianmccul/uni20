@@ -7,6 +7,8 @@
 
 #include <array>
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -25,6 +27,30 @@ namespace
 utc::MatrixFamily make_family(std::initializer_list<utc::MatrixFamily::Block> blocks)
 {
   return utc::MatrixFamily(std::span{blocks.begin(), blocks.size()});
+}
+
+void fnv1a_update(std::uint64_t& hash, std::uint64_t value)
+{
+  constexpr std::uint64_t prime = 1099511628211ULL;
+  for (int byte = 0; byte < 8; ++byte)
+  {
+    hash ^= (value >> (8 * byte)) & 0xffULL;
+    hash *= prime;
+  }
+}
+
+std::string output_shape_signature(std::span<utc::MatrixFamily::Block const> blocks)
+{
+  std::uint64_t hash = 14695981039346656037ULL;
+  fnv1a_update(hash, static_cast<std::uint64_t>(blocks.size()));
+  for (auto const& block : blocks)
+  {
+    fnv1a_update(hash, static_cast<std::uint64_t>(block.rows));
+    fnv1a_update(hash, static_cast<std::uint64_t>(block.cols));
+  }
+  std::array<char, 25> buffer{};
+  std::snprintf(buffer.data(), buffer.size(), "fnv1a64:%016llx", static_cast<unsigned long long>(hash));
+  return std::string(buffer.data());
 }
 
 std::vector<double> expected_single_term(std::span<double const> a_values, std::span<double const> b_values,
@@ -711,12 +737,18 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentEmpiricalPlaceme
 
   auto const trace_path = temporary_trace_path();
   auto const coefficients_path = temporary_trace_path();
+  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
+                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
   {
     std::ofstream output(coefficients_path);
     output << "# fitted by scripts/rabc-trace-model.py bench-fit --model device\n";
     output << "runtime_supported_output_blocks=999\n";
     output << "runtime_coefficients=0,0,0,-1,0,0,0,0,0,0,0,0,0,0,0,0\n";
     output << "runtime_supported_output_blocks=4\n";
+    output << "runtime_output_shape_signature=fnv1a64:0000000000000000\n";
+    output << "runtime_coefficients=0,0,0,-1,0,0,0,0,0,0,0,0,0,0,0,0\n";
+    output << "runtime_supported_output_blocks=4\n";
+    output << "runtime_output_shape_signature=" << output_shape_signature(output_blocks) << "\n";
     output << "runtime_coefficients=0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0\n";
   }
 
@@ -741,8 +773,6 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentEmpiricalPlaceme
   auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
   std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
 
   a.assign(0, std::array{2.0});
   a.assign(1, std::array{3.0});
@@ -1006,6 +1036,8 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentTraceWritesCostF
 
   EXPECT_NE(line.find("\"kind\":\"rabc_matvec\""), std::string::npos);
   EXPECT_NE(line.find("\"gpu_s\":"), std::string::npos);
+  EXPECT_NE(line.find("\"output_shape_signature\":\"" + output_shape_signature(output_blocks) + "\""),
+            std::string::npos);
   EXPECT_NE(line.find("\"input_layout\":[0]"), std::string::npos);
   EXPECT_NE(line.find("\"output_layout\":[0]"), std::string::npos);
   EXPECT_NE(line.find("\"bc_flops\":2"), std::string::npos);

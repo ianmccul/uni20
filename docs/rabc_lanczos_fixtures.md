@@ -104,7 +104,7 @@ Useful controls:
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP` | Minimum predicted speedup required before `cost` overrides byte-balanced contiguous ranges. Default: `1.05`. |
 | `UNI20_TENSORCONTRACTION_RABC_MODEL_ARBITRARY_MIN_SPEEDUP` | Minimum predicted speedup required before `cost-block` overrides byte-balanced slab layout. Default: `1.25`. |
 | `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` | Comma-separated fitted coefficients for `empirical-contiguous`, in the `bench-fit --model device` runtime order. |
-| `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE` | Text file containing coefficient stanzas. The runtime accepts a raw comma list, `runtime_coefficients=...`, or `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=...`. Generated stanzas also include `runtime_supported_output_blocks=...`; if present, the runtime uses the first stanza matching the current output block count and falls back to byte-balanced placement when none match. |
+| `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE` | Text file containing coefficient stanzas. The runtime accepts a raw comma list, `runtime_coefficients=...`, or `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=...`. Generated stanzas also include `runtime_supported_output_blocks=...` and `runtime_output_shape_signature=...`; if present, the runtime uses the first stanza matching the current output block count and output block-dimension signature, and falls back to byte-balanced placement when none match. |
 | `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_MIN_SPEEDUP` | Minimum fitted-score improvement required before `empirical-contiguous` overrides byte-balanced contiguous ranges. Default: `1.0`. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` | Appends one JSONL record per deterministic resident matvec with layout, feature, and timing data for empirical model fitting. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS` | If set, include the full term list and selected device for each term in each JSONL record. |
@@ -138,9 +138,10 @@ Generate this coefficient vector with `bench-fit --model device` or
 `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE`; the generated file
 includes the coefficient order as comments, a `runtime_supported_output_blocks`
 guard for the fitted fixture block count, and a `runtime_coefficients=...`
-line.  Do not use the policy for cold-start/environment-staging fits: the
-device-aware runtime model targets steady-state resident Lanczos matvec timing
-only.
+line. Generated files also include a `runtime_output_shape_signature` guard,
+which is a compact deterministic hash of the output `R` block dimensions. Do
+not use the policy for cold-start/environment-staging fits: the device-aware
+runtime model targets steady-state resident Lanczos matvec timing only.
 Multiple generated stanzas may be concatenated into one coefficient bundle when
 separate fixture shapes have been fitted.  Shape guards are deliberately strict:
 `m=16` runs are useful smoke and overhead regression probes, but their fitted
@@ -587,9 +588,13 @@ scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_shape2_benchmark.jsonl
   --append-runtime-coefficients
 ```
 
-The appended stanza carries its own `runtime_supported_output_blocks` guard, so
-the runtime can select the first matching shape and fall back to byte-balanced
-placement when the live DMRG solve has no fitted stanza.
+The appended stanza carries its own `runtime_supported_output_blocks` and
+`runtime_output_shape_signature` guards, so the runtime can select the first
+matching shape and fall back to byte-balanced placement when the live DMRG solve
+has no fitted stanza.  The block count alone is not a sufficient identity for
+serious live DMRG fitting: two bonds can have the same number of output blocks
+while having different block dimensions and therefore different GEMM/traffic
+costs.
 
 Treat `bench-validate` as meaningful only after measuring several distinct
 layouts.  With one default layout and one deliberately bad striped layout it is

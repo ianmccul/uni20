@@ -256,6 +256,24 @@ def parse_benchmark_file(path: Path, layout: str, name: str, input_format: str) 
     raise ValueError(f"unsupported benchmark input format: {input_format}")
 
 
+def fnv1a_update_u64(hash_value: int, value: int) -> int:
+    """Update an FNV-1a hash with one unsigned 64-bit little-endian value."""
+    for byte in value.to_bytes(8, "little", signed=False):
+        hash_value ^= byte
+        hash_value = (hash_value * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return hash_value
+
+
+def output_shape_signature(output_shapes: list[tuple[int, int]]) -> str:
+    """Return the runtime output-shape signature for `R` block dimensions."""
+    hash_value = 14695981039346656037
+    hash_value = fnv1a_update_u64(hash_value, len(output_shapes))
+    for rows, cols in output_shapes:
+        hash_value = fnv1a_update_u64(hash_value, int(rows))
+        hash_value = fnv1a_update_u64(hash_value, int(cols))
+    return f"fnv1a64:{hash_value:016x}"
+
+
 def parse_dmrg_benchfile(path: Path) -> list[dict[str, Any]]:
     """Parse a live DMRG `MP_BENCHFILE` table."""
     header: list[str] = []
@@ -2079,6 +2097,7 @@ def term_problem(record: dict[str, Any]) -> dict[str, Any]:
     device_count = int(record["device_count"])
     input_bytes = [0] * block_count
     output_bytes = [0] * block_count
+    output_shapes = [(0, 0)] * block_count
     for term in terms:
         b = int(term["b"])
         r = int(term["r"])
@@ -2086,12 +2105,18 @@ def term_problem(record: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("trace term references a center block outside block_count")
         input_bytes[b] = int(term["b_rows"]) * int(term["b_cols"]) * 8
         output_bytes[r] = int(term["r_rows"]) * int(term["r_cols"]) * 8
+        output_shapes[r] = (int(term["r_rows"]), int(term["r_cols"]))
+    signature = str(record.get("output_shape_signature", ""))
+    if not signature:
+        signature = output_shape_signature(output_shapes)
     return {
         "block_count": block_count,
         "device_count": device_count,
         "terms": terms,
         "input_bytes": input_bytes,
         "output_bytes": output_bytes,
+        "output_shapes": output_shapes,
+        "output_shape_signature": signature,
     }
 
 
@@ -2448,7 +2473,11 @@ def runtime_empirical_coefficients(coefficients: dict[str, float], names: list[s
 
 
 def print_runtime_empirical_coefficients(
-    coefficients: dict[str, float], names: list[str], model: str, supported_output_blocks: int | None = None
+    coefficients: dict[str, float],
+    names: list[str],
+    model: str,
+    supported_output_blocks: int | None = None,
+    output_shape_signature_value: str | None = None,
 ) -> None:
     """Print runtime coefficient wiring for the C++ empirical-contiguous policy."""
     values = runtime_empirical_coefficients(coefficients, names, model)
@@ -2460,6 +2489,8 @@ def print_runtime_empirical_coefficients(
     print("runtime_coefficients_order=" + ",".join(names))
     if supported_output_blocks is not None:
         print(f"runtime_supported_output_blocks={supported_output_blocks}")
+    if output_shape_signature_value:
+        print(f"runtime_output_shape_signature={output_shape_signature_value}")
     print("runtime_coefficients=" + values)
     print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous \\")
     print("    UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=" + values)
@@ -2471,6 +2502,7 @@ def write_runtime_empirical_coefficients(
     names: list[str],
     model: str,
     supported_output_blocks: int | None = None,
+    output_shape_signature_value: str | None = None,
     append: bool = False,
 ) -> None:
     """Write runtime coefficients for `empirical-contiguous` to a text file."""
@@ -2483,11 +2515,15 @@ def write_runtime_empirical_coefficients(
     supported_line = ""
     if supported_output_blocks is not None:
         supported_line = f"runtime_supported_output_blocks={supported_output_blocks}\n"
+    shape_line = ""
+    if output_shape_signature_value:
+        shape_line = f"runtime_output_shape_signature={output_shape_signature_value}\n"
     text = (
         "# R/A/B/C empirical-contiguous runtime coefficients.\n"
         "# Use with UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE.\n"
         "# runtime_coefficients_order=" + ",".join(names) + "\n"
         + supported_line
+        + shape_line
         + "runtime_coefficients="
         + values
         + "\n"
@@ -2779,7 +2815,9 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     print(f"layout_filter={args.layout_filter}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
-    print_runtime_empirical_coefficients(coefficients, names, args.model, int(problem["block_count"]))
+    print_runtime_empirical_coefficients(
+        coefficients, names, args.model, int(problem["block_count"]), str(problem.get("output_shape_signature", ""))
+    )
     if args.output_runtime_coefficients is not None:
         write_runtime_empirical_coefficients(
             args.output_runtime_coefficients,
@@ -2787,6 +2825,7 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
             names,
             args.model,
             int(problem["block_count"]),
+            str(problem.get("output_shape_signature", "")),
             args.append_runtime_coefficients,
         )
         print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
@@ -2963,7 +3002,9 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     print(f"candidate_score={args.candidate_score}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
-    print_runtime_empirical_coefficients(coefficients, names, args.model, int(problem["block_count"]))
+    print_runtime_empirical_coefficients(
+        coefficients, names, args.model, int(problem["block_count"]), str(problem.get("output_shape_signature", ""))
+    )
     if args.candidate_score == "monotonic-structure":
         print(
             f"monotonic_structure_samples={int(structure_stats['samples'])} "
@@ -2989,6 +3030,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             names,
             args.model,
             int(problem["block_count"]),
+            str(problem.get("output_shape_signature", "")),
             args.append_runtime_coefficients,
         )
         print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
