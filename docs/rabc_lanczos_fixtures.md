@@ -572,6 +572,24 @@ model should drive the graph-augmented runtime policy.  Omit it when writing a
 base 16-value coefficient file.  In both cases, keep `--layout-filter
 contiguous` for the current `empirical-contiguous` runtime policy unless the
 runtime placement family has been extended to match the measured layouts.
+Use `--append-runtime-coefficients` when adding another fitted shape to an
+existing coefficient bundle:
+
+```bash
+scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_shape2_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_shape2_term_trace.jsonl \
+  --model device \
+  --layout-filter contiguous \
+  --graph-features \
+  --ridge <selected-ridge> \
+  --contiguous-only \
+  --output-runtime-coefficients /tmp/uni20_rabc_empirical_bundle.txt \
+  --append-runtime-coefficients
+```
+
+The appended stanza carries its own `runtime_supported_output_blocks` guard, so
+the runtime can select the first matching shape and fall back to byte-balanced
+placement when the live DMRG solve has no fitted stanza.
 
 Treat `bench-validate` as meaningful only after measuring several distinct
 layouts.  With one default layout and one deliberately bad striped layout it is

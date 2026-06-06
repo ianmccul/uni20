@@ -2471,6 +2471,7 @@ def write_runtime_empirical_coefficients(
     names: list[str],
     model: str,
     supported_output_blocks: int | None = None,
+    append: bool = False,
 ) -> None:
     """Write runtime coefficients for `empirical-contiguous` to a text file."""
     values = runtime_empirical_coefficients(coefficients, names, model)
@@ -2491,7 +2492,12 @@ def write_runtime_empirical_coefficients(
         + values
         + "\n"
     )
-    path.write_text(text)
+    if append and path.exists() and path.stat().st_size > 0:
+        with path.open("a") as output:
+            output.write("\n")
+            output.write(text)
+    else:
+        path.write_text(text)
 
 
 def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
@@ -2776,9 +2782,15 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     print_runtime_empirical_coefficients(coefficients, names, args.model, int(problem["block_count"]))
     if args.output_runtime_coefficients is not None:
         write_runtime_empirical_coefficients(
-            args.output_runtime_coefficients, coefficients, names, args.model, int(problem["block_count"])
+            args.output_runtime_coefficients,
+            coefficients,
+            names,
+            args.model,
+            int(problem["block_count"]),
+            args.append_runtime_coefficients,
         )
         print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
+        print(f"runtime_coefficients_append={str(bool(args.append_runtime_coefficients)).lower()}")
     return 0
 
 
@@ -2972,9 +2984,15 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
         )
     if args.output_runtime_coefficients is not None:
         write_runtime_empirical_coefficients(
-            args.output_runtime_coefficients, coefficients, names, args.model, int(problem["block_count"])
+            args.output_runtime_coefficients,
+            coefficients,
+            names,
+            args.model,
+            int(problem["block_count"]),
+            args.append_runtime_coefficients,
         )
         print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
+        print(f"runtime_coefficients_append={str(bool(args.append_runtime_coefficients)).lower()}")
     print(f"search={search_kind}")
     print(f"candidate_layouts={len(ranked)}")
     if args.segmented_only:
@@ -3383,6 +3401,18 @@ def parser() -> argparse.ArgumentParser:
             help="augment fitting/scoring with graph cut and first-stage reuse counters from term traces",
         )
 
+    def add_runtime_coefficients_output(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--output-runtime-coefficients",
+            type=Path,
+            help="write the device-aware empirical-contiguous runtime coefficient list to this file",
+        )
+        command.add_argument(
+            "--append-runtime-coefficients",
+            action="store_true",
+            help="append a guarded coefficient stanza instead of replacing the runtime coefficient file",
+        )
+
     def add_benchmark_model(command: argparse.ArgumentParser) -> None:
         command.add_argument(
             "--model",
@@ -3500,11 +3530,7 @@ def parser() -> argparse.ArgumentParser:
     bench_fit.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_fit.add_argument("--ridge", type=float, default=1.0e-9)
     bench_fit.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before printing")
-    bench_fit.add_argument(
-        "--output-runtime-coefficients",
-        type=Path,
-        help="write the device-aware empirical-contiguous runtime coefficient list to this file",
-    )
+    add_runtime_coefficients_output(bench_fit)
     add_benchmark_model(bench_fit)
     add_benchmark_layout_filter(bench_fit)
     add_timing_objective(bench_fit)
@@ -3619,11 +3645,7 @@ def parser() -> argparse.ArgumentParser:
         help="allow segmented candidates whose shape features were not observed in benchmark rows",
     )
     bench_suggest.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before search")
-    bench_suggest.add_argument(
-        "--output-runtime-coefficients",
-        type=Path,
-        help="write the device-aware empirical-contiguous runtime coefficient list to this file",
-    )
+    add_runtime_coefficients_output(bench_suggest)
     bench_suggest.add_argument(
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )
