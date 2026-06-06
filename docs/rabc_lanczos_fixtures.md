@@ -389,14 +389,26 @@ repeats, respectively, so treat this as a shallow placement basin around
 `cut323` to `cut326` rather than a sharply universal split.  The one-GPU
 baseline for the same fixture was about `0.963s`, so the best observed
 two-GPU layout is only an approximately eight-percent improvement at this
-problem size.  A device-aware fit over the collected contiguous benchmark rows
-currently drives `empirical-contiguous` to `cut326`; a six-repeat no-trace
-policy replay measured mean `#LanczosMatvecS` of about `0.899s`, consistent
-with the same shallow basin but not better than the aggregate manual `cut325`
-measurements.  A later coefficient-file replay using the same fitted
-contiguous model also selected `cut326`; grouped with the manual `cut326`
-measurements via `bench-rank`, that layout ranked first in the focused
-`cut320` to `cut330` comparison at mean `#LanczosMatvecS` about `0.889s`.
+problem size.
+
+For this fixture, the graph-augmented device model is a materially better
+runtime placement generator than the base two-device model.  With
+`--layout-filter contiguous`, leave-one-layout-out tuning over the collected
+contiguous rows selected an unclamped graph-feature fit at ridge `1e-3`
+with RMSE about `0.0159s` and `R^2` about `0.947`.  The comparable base
+16-feature fit selected ridge `1e-2` with RMSE about `0.0177s` and `R^2`
+about `0.934`.  More importantly, the graph fit suggests `cut326`, adjacent
+to the measured best, while the base fit suggests `cut365`, which measured
+about `0.907s`.  Do not clamp coefficients for this benchmark: clamped
+graph-feature fits fail validation because the correlated structural counters
+need signed compensating weights.
+
+A no-trace coefficient-file replay using the graph-augmented
+`empirical-contiguous` runtime path selected `cut326` and measured mean
+`#LanczosMatvecS = 0.892266440s` over nine repeats.  This is consistent with
+the shallow `cut323` to `cut326` basin and proves the fitted graph feature
+coefficient file can drive the C++ runtime to a measured near-best two-GPU
+layout.
 
 Unconstrained non-contiguous suggestions from the current linear benchmark fit
 also require direct measurement.  Two top-ranked local-search candidates from
