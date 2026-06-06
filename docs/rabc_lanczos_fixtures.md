@@ -348,7 +348,10 @@ scripts/rabc-trace-model.py bench-rank /tmp/uni20_rabc_empirical_replay/benchmar
 
 To benchmark segmented candidates directly, generate explicit layout strings
 with the same bounded segmented generator and pass selected rows to
-`run-rabc-layout-sweep.sh --layout NAME=LIST`:
+`run-rabc-layout-sweep.sh --layout NAME=LIST`.  For long generated layouts,
+prefer `--layout-file NAME=PATH`; the wrapper accepts either a raw comma list
+or a `bench-suggest` output file containing a `layout=` line, which avoids
+truncating a hundreds-of-block layout at the shell:
 
 ```bash
 scripts/rabc-trace-model.py layouts \
@@ -365,13 +368,17 @@ did not beat the contiguous basin.  The best measured segmented candidate,
 `seg3_start0_cuts300_340`, placed 690 blocks on GPU 0 and 40 blocks on GPU 1
 in three segments and measured mean `#LanczosMatvecS = 0.923069940s` over
 three repeats.  This is slower than the best focused contiguous comparison
-around `cut326` at about `0.888s`, so the current useful automatic search space
-remains contiguous layouts unless a fixture supplies measured evidence for
-non-contiguous support.  Static structural diagnostics explain the failure
-modes: the `300/340` segmented candidate lowers peer-`B` bytes but skews
-maximum output bytes and terms onto one device, while the `160/520` segmented
-candidates lower critical-path flops but roughly double peer-block and
-duplicated first-stage-group pressure relative to the contiguous basin.
+around `cut326` at about `0.888s`.  A later graph-feature `bench-suggest`
+diagnostic extrapolated to a three-segment `200/280` candidate with 650 blocks
+on GPU 0 and 80 on GPU 1, but direct replay measured mean
+`#LanczosMatvecS = 0.942111177s` over three repeats.  This confirms that the
+current useful automatic search space remains contiguous layouts unless a
+fixture supplies measured evidence for non-contiguous support.  Static
+structural diagnostics explain the failure modes: the `300/340` segmented
+candidate lowers peer-`B` bytes but skews maximum output bytes and terms onto
+one device, while the `160/520` segmented candidates lower critical-path flops
+but roughly double peer-block and duplicated first-stage-group pressure
+relative to the contiguous basin.
 
 For the local `L=40, m=4608` central fixture on Polaron, the repeated no-trace
 dual-GPU sweep over all contiguous cuts found `cut6` as the current best

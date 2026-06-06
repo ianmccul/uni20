@@ -22,6 +22,9 @@ Options:
                           For non-manual policies, labels are run names only.
   --layout NAME=LIST      Add one custom layout. May be repeated. The custom
                           layout name is appended after --labels entries.
+  --layout-file NAME=PATH Add one custom layout read from PATH. The file may
+                          contain either a raw comma-separated layout or a
+                          bench-suggest output line beginning with "layout=".
   --segmented-cuts        Include bounded segmented layout labels in the generated
                           layout table for lookup by --labels.
   --max-segments N        Maximum segments for --segmented-cuts. Default: 2.
@@ -88,6 +91,29 @@ show_layouts=0
 declare -A custom_layouts=()
 custom_layout_names=()
 
+read_layout_file() {
+  local layout_path="$1"
+  local layout_value=""
+  layout_value="$(
+    awk '
+      /^layout=/ {
+        value = substr($0, 8)
+        gsub(/[[:space:]]/, "", value)
+        print value
+        found = 1
+        exit
+      }
+      END {
+        exit found ? 0 : 1
+      }
+    ' "${layout_path}" || true
+  )"
+  if [[ -z "${layout_value}" ]]; then
+    layout_value="$(tr -d '[:space:]' < "${layout_path}")"
+  fi
+  printf '%s' "${layout_value}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fixture)
@@ -116,6 +142,26 @@ while [[ $# -gt 0 ]]; do
       layout_value="${2#*=}"
       if [[ -z "${layout_name}" || "${layout_name}" == "${2}" || -z "${layout_value}" ]]; then
         echo "--layout expects NAME=LIST" >&2
+        exit 2
+      fi
+      custom_layouts["${layout_name}"]="${layout_value}"
+      custom_layout_names+=("${layout_name}")
+      shift 2
+      ;;
+    --layout-file)
+      layout_name="${2%%=*}"
+      layout_path="${2#*=}"
+      if [[ -z "${layout_name}" || "${layout_name}" == "${2}" || -z "${layout_path}" ]]; then
+        echo "--layout-file expects NAME=PATH" >&2
+        exit 2
+      fi
+      if [[ ! -f "${layout_path}" ]]; then
+        echo "layout file does not exist: ${layout_path}" >&2
+        exit 2
+      fi
+      layout_value="$(read_layout_file "${layout_path}")"
+      if [[ -z "${layout_value}" ]]; then
+        echo "layout file is empty: ${layout_path}" >&2
         exit 2
       fi
       custom_layouts["${layout_name}"]="${layout_value}"
