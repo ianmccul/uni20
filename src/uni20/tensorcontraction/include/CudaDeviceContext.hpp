@@ -53,6 +53,24 @@ class CudaDeviceContext {
         explicit operator bool() const noexcept { return status == cudaSuccess && ptr != nullptr; }
     };
 
+    struct RuntimeCounters
+    {
+        std::uint64_t eventCreate = 0;
+        std::uint64_t eventRecord = 0;
+        std::uint64_t eventWait = 0;
+        std::uint64_t eventQuery = 0;
+        std::uint64_t eventDestroy = 0;
+        std::uint64_t streamSync = 0;
+        std::uint64_t asyncFree = 0;
+        std::uint64_t asyncFreeReclaim = 0;
+        std::uint64_t asyncFreePoll = 0;
+        std::uint64_t poolCacheHit = 0;
+        std::uint64_t poolCacheMiss = 0;
+        std::uint64_t poolCacheStore = 0;
+        std::uint64_t poolCacheBypass = 0;
+        std::uint64_t poolCacheRelease = 0;
+    };
+
     struct ScratchBuffer
     {
         void* ptr = nullptr;
@@ -117,6 +135,7 @@ class CudaDeviceContext {
     void syncMemoryStream(const char* reason = "memory_unspecified");
     void flushPoolCache();
     void release();
+    [[nodiscard]] RuntimeCounters runtimeCounters() const noexcept;
 
   private:
     struct Counters
@@ -124,6 +143,7 @@ class CudaDeviceContext {
         std::uint64_t eventCreate = 0;
         std::uint64_t eventRecord = 0;
         std::uint64_t eventWait = 0;
+        std::uint64_t eventQuery = 0;
         std::uint64_t eventDestroy = 0;
         std::uint64_t streamSync = 0;
         std::uint64_t asyncFree = 0;

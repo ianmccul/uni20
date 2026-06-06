@@ -12,7 +12,8 @@
 namespace tensor
 {
 class Arranger;
-}
+class Swapper;
+} // namespace tensor
 
 namespace uni20::tensorcontraction
 {
@@ -273,6 +274,7 @@ class VectorAlgebraEngine {
 
     [[nodiscard]] bool uses_host_backend() const;
     [[nodiscard]] tensor::Arranger& resident_arranger();
+    [[nodiscard]] tensor::Swapper& resident_swapper();
 
   private:
     struct Impl;

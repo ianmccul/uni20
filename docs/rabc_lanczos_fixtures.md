@@ -66,6 +66,76 @@ The replay benchmark uploads the captured initial vector once, keeps host synchr
 repeat with resident vector algebra. `UNI20_TENSORCONTRACTION_DEVICES=all` exercises one-process multi-GPU placement;
 `mpirun -np 2` with `CUDA_VISIBLE_DEVICES=$OMPI_COMM_WORLD_LOCAL_RANK` exercises one GPU per MPI rank.
 
+## Synthetic Calibration
+
+Use `tensorcontraction_rabc_calibration` to measure isolated operation families
+inside the same resident `EffectiveHamiltonianOperator` path used by fixture
+replay.  These rows are intended to calibrate operation costs such as tiny-GEMM
+launch pressure, larger GEMM throughput, peer-copy latency/bandwidth, and
+temporary accumulation overhead.  They do not replace fixture replay, because
+real `f`-hypergraphs still determine which costs appear together on a critical
+path.
+
+The executable emits JSONL records to stdout:
+
+```bash
+env HWLOC_HIDE_ERRORS=2 \
+  CUDA_VISIBLE_DEVICES=0,1 \
+  UNI20_TENSORCONTRACTION_DEVICES=2 \
+  UNI20_RABC_CALIBRATION_REPEATS=3 \
+  UNI20_RABC_CALIBRATION_WARMUP=1 \
+  ./build_codex/tensorcontraction-polaron-release-fresh/examples/tensorcontraction_rabc_calibration \
+  > profiling/rabc_sweeps/rabc_calibration/calibration.jsonl
+```
+
+Useful controls:
+
+| Variable | Meaning |
+| --- | --- |
+| `UNI20_RABC_CALIBRATION_REPEATS` | Number of timed repeats per synthetic case. |
+| `UNI20_RABC_CALIBRATION_WARMUP` | Number of untimed warmup passes per synthetic case. |
+| `UNI20_RABC_CALIBRATION_FAMILIES` | Comma-separated family filter, or `all`. |
+
+Current calibration families:
+
+| Family | Purpose |
+| --- | --- |
+| `gemm_throughput` | Larger square local blocks, for nontrivial DGEMM throughput. |
+| `gemm_launch` | Many tiny local blocks, for launch and grouping overhead. |
+| `peer_latency` | Tiny remote `B -> R` pairings, for peer-transfer setup cost. |
+| `peer_bandwidth` | Larger remote `B -> R` pairings, for peer-transfer byte cost. |
+| `source_accumulation` | Local many-input source partial accumulation. |
+| `output_accumulation` | Remote source partials that must assemble on the output owner. |
+
+Summarize one or more calibration files with:
+
+```bash
+scripts/rabc-trace-model.py calibration-summary \
+  profiling/rabc_sweeps/rabc_calibration/calibration.jsonl \
+  --compact-layouts
+```
+
+The calibration rows carry explicit block counts, term counts, active-device
+count, used-device count, layout, and byte counts.  The timing boundary
+synchronizes only devices referenced by that synthetic layout, so local
+one-device families do not include an idle-device fence when run with multiple
+visible GPUs.
+
+Fit the calibration rows into an operation-cost seed model with:
+
+```bash
+scripts/rabc-trace-model.py calibration-fit \
+  profiling/rabc_sweeps/rabc_calibration/calibration.jsonl \
+  --output-model profiling/rabc_sweeps/rabc_calibration/calibration_model.json
+```
+
+The calibration fit intentionally uses only identifiable operation features:
+`bc_flops`, `accumulate_flops`, `temporary_accumulate_flops`, `bc_gemms`,
+`final_gemms`, source/output AXPY counts, zero fills, peer request count, and
+peer bytes.  Metadata counters such as `terms`, `unique_a`, and `unique_bc` are
+left for fixture-level fitting, because the synthetic families cannot identify
+them independently.  No-trace fixture replay remains the validation target.
+
 ## Placement Experiments
 
 The default resident bridge places active `MatrixFamily` blocks in coalesced
@@ -75,9 +145,17 @@ because the vector-algebra operations can use slab kernels.
 The current deterministic resident executor is input-anchored and right-first:
 
 ```text
-Y_{b,c} = B_b * C_c      on owner(B_b)
-R_r += A_a * Y_{b,c}    on owner(R_r)
+Y_{b,c}       = B_b * C_c                 on owner(B_b)
+Q^d_{r,a}    += f_{r,a,b,c} Y_{b,c}      on source device d = owner(B_b)
+Q_{r,a}      = sum_d Q^d_{r,a}           on owner(R_r), if more than one source contributes
+R_r          += A_a * Q_{r,a}            on owner(R_r)
 ```
+
+If a source-side accumulation set has one effective `Y_{b,c}` input, no local
+`Q^d_{r,a}` matrix is allocated; the scalar coefficient is folded into the
+next AXPY or GEMM.  If only one source partial contributes to `(r,a)`, no
+output-side assembly matrix is allocated; the final GEMM consumes that partial
+directly, staging it to `owner(R_r)` only if required by device placement.
 
 This matches the restricted model in
 `docs/latex/rabc_input_anchored_model.tex`.  For Hamiltonian matvecs, `B` and
@@ -156,28 +234,52 @@ env \
   /tmp/uni20_l40_m2048_central.rabc
 ```
 
-Each trace record contains the input/output block layout, per-device feature aggregates, host enqueue time, host wait
-time, and CUDA-event elapsed time.  The CUDA events are recorded on the legacy stream to create a diagnostic boundary
-around the blocking work streams on each device.  This makes tracing heavier than the default benchmark path but much
-lighter than Nsight Systems, and it produces directly usable feature rows for fitting bandwidth and GEMM-throughput
-parameters.
+Each trace record contains the input/output block layout, per-device feature
+aggregates, per-device enqueue counters, runtime copy/event/cache counter
+deltas, host enqueue time, host wait time, and CUDA-event elapsed time.  The
+CUDA events are recorded on the legacy stream to create a diagnostic boundary
+around the blocking work streams on each device.
+This makes tracing heavier than the default benchmark path but much lighter than
+Nsight Systems, and it produces directly usable feature rows for fitting
+bandwidth, GEMM-throughput, and launch-pressure parameters.
 
 Trace rows are model-fitting diagnostics, not final benchmark results.  CUDA-event tracing, term tracing, and trace
 file writes can change the relative cost of layouts.  Use traces to choose candidate layouts, then rerun the fixture
 benchmark with `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` unset before claiming a performance improvement.
 
-The current feature rows describe the right-first executor:
+The current feature rows describe the grouped right-first executor:
 
 ```text
 Y = B * C
-R += A * Y
+Q_source += f * Y
+Q_output = sum source partials
+R += A * Q_output
 ```
 
-Per-device fields include `bc_flops`, `accumulate_flops`, local versus peer `B` bytes, `A`/`C` environment bytes,
-output bytes, intermediate bytes, term count, and unique block counts.  These are intentionally aggregate features for
-the first empirical model.  Set `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1` when debugging individual block placement
-or when a later optimizer needs term-level training data.  Term tracing also records the matrix dimensions and per-term
-right-first flops, which allows offline scoring of candidate layouts that were not directly measured.
+Per-device fields include `bc_flops` for first-stage `B*C` products,
+`accumulate_flops` for final grouped `A*Q` products,
+`temporary_accumulate_flops` for AXPY assembly into source or output
+temporaries, `temporary_peer_request_bytes` for every remote temporary use,
+`temporary_peer_bytes` for unique remote temporaries staged to an output owner,
+local `B` bytes, `A`/`C` environment bytes, output bytes, intermediate bytes,
+term count, and unique block counts.  Launch-pressure counters include
+`bc_gemms`, `final_gemms`, `direct_final_gemms`, split source/output
+accumulation group and term counts, `source_axpys`, `output_axpys`,
+`zero_fills`, `intermediate_matrices`, `temporary_matrices`,
+`temporary_peer_requests`, and `temporary_peer_copies`.
+
+The `devices` array is the layout-derived feature model used for offline
+scoring and ILP.  The `execution_devices` array records the corresponding
+operation counters observed while enqueuing the current deterministic DAG; use
+it to catch mismatches between the model and implementation.  The
+`runtime_counters` object records matvec-window deltas for actual H2D, D2H,
+D2D, peer copy, CUDA event, async-free, and pool-cache operations; use it to
+identify runtime pressure not visible in the static `f`-hypergraph feature
+counts.  Set
+`UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1` when debugging individual block
+placement or when a later optimizer needs term-level training data.  Term
+tracing also records the matrix dimensions and per-term right-first flops, which
+allows offline scoring of candidate layouts that were not directly measured.
 
 Use `order-summary` on a term trace to compare the current right-first schedule
 with the left-first alternative and to inspect per-center-block mixed-order
@@ -246,6 +348,66 @@ local search over candidate center-vector layouts.  This is a first empirical op
 optimality.  It is intended to generate candidate manual layouts that should then be rerun through the fixture replay
 and compared against the measured `gpu_s` trace field.
 
+Use `ilp-suggest` when the goal is to solve the current grouped right-first
+placement model instead of running a local search:
+
+```bash
+scripts/rabc-trace-model.py ilp-suggest /tmp/uni20_rabc_trace.jsonl \
+  --drop-first-per-layout=1 \
+  --time-limit 60 \
+  --mip-rel-gap 0.02 > /tmp/uni20_rabc_ilp_candidate.txt
+```
+
+To use synthetic calibration directly as the operation-cost model:
+
+```bash
+scripts/rabc-trace-model.py ilp-suggest /tmp/uni20_rabc_trace.jsonl \
+  --calibration profiling/rabc_sweeps/rabc_calibration/calibration.jsonl \
+  --time-limit 60 \
+  --mip-rel-gap 0.02
+```
+
+To use no-trace fixture replay rows while regularizing weakly toward the
+calibration seed, pass both `--benchmark` and `--calibration`.  The default
+`--calibration-prior-weight=0.001` is intentionally weak; larger values can
+over-constrain the fixture fit if the synthetic families do not match the real
+block-size distribution:
+
+```bash
+scripts/rabc-trace-model.py ilp-suggest /tmp/uni20_rabc_trace.jsonl \
+  --benchmark /tmp/uni20_rabc_benchmark.jsonl \
+  --benchmark-layout-filter contiguous \
+  --calibration profiling/rabc_sweeps/rabc_calibration/calibration.jsonl \
+  --time-limit 60 \
+  --mip-rel-gap 0.02
+```
+
+The MILP is exact for the implemented input-anchored right-first DAG:
+`B*C` products are placed on `owner(B_b)`, source partials are accumulated
+locally, source partials are staged to `owner(R_r)` only when needed, and each
+`(r,a)` group is finished by one `A*Q` GEMM on `owner(R_r)`.  It minimizes the
+maximum fitted per-device time and emits a `layout=` line plus the corresponding
+manual environment variables.  Because the current fitted model is symmetric in
+the local CUDA device labels, `ilp-suggest` relabels the solved layout by first
+device occurrence before printing it.  This selects one canonical representative
+from globally permuted solutions without constraining the MILP feasible set.
+Use `--no-symmetry-break` when explicitly benchmarking equivalent device
+permutations.
+
+When `--benchmark` rows are supplied, `ilp-suggest` also fits
+`layout_transitions` and `layout_segments`, and by default caps the solved
+layout to the largest segment count observed in the benchmark rows.  This is a
+guard against unsupported shape extrapolation: a fit trained only on contiguous
+cuts should not silently choose a fragmented layout just because operation
+balance looks better.  Use `--allow-shape-extrapolation` only as an explicit
+diagnostic, or pass `--max-layout-segments N` to set a deliberate cap.
+
+The solver currently does not include per-term left/right order choice,
+optional first-stage migration, graph-feature model files, or a setup-time cost
+for rearranging an already resident Krylov vector.  For larger traces, always
+set a time limit or MIP gap and treat a non-optimal solver result as a candidate
+to replay, not as a proof.
+
 For term traces, add `--graph-features` to `fit`, `validate`, `tune`, or `suggest`
 to include graph counters in the fitted empirical model.  The current graph
 features are peer-`B` term count, unique peer-`B` block count, and duplicated
@@ -300,7 +462,7 @@ interrupted sweep without rerunning layouts that already have nonempty bench
 files.  Use `--trace-path auto --trace-terms` only for a companion term trace or
 other structural diagnostics; do not compare final performance from traced rows.
 Automatic runtime policies are not supported by the wrapper.  Use
-`bench-suggest` to choose an explicit layout, then pass the full comma-separated
+`bench-suggest` or `ilp-suggest` to choose an explicit layout, then pass the full comma-separated
 layout through `--layout NAME=LIST` or `--layout-file NAME=PATH`:
 
 ```bash
@@ -430,9 +592,12 @@ scripts/rabc-trace-model.py bench-record /tmp/uni20_rabc_candidate.bench \
 scripts/rabc-trace-model.py bench-summary /tmp/uni20_rabc_benchmark.jsonl
 ```
 
-These `rabc_replay_benchmark` rows use the benchmark's printed `matvec=` field
-and are deliberately separate from CUDA-event trace rows.  Use them for final
-layout comparisons; use trace rows to explain or propose candidates.
+These `rabc_replay_benchmark` rows are deliberately separate from CUDA-event
+trace rows.  For `MP_BENCHFILE` input, the JSON records store both cumulative
+`matvec_s` and normalized `matvec_per_apply_s = MatvecS / MatvecN`; summary,
+ranking, validation, and benchmark-model fitting commands use the normalized
+per-application time.  Use no-trace replay rows for final layout comparisons;
+use trace rows to explain or propose candidates.
 
 For live DMRG `MP_BENCHFILE` tables, use `dmrg-summary` instead of the replay
 benchmark commands.  It groups rows by kept-rank threshold and can also split

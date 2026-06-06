@@ -18,8 +18,11 @@ BASE_FEATURE_NAMES = [
     "intercept",
     "bc_flops",
     "accumulate_flops",
+    "temporary_accumulate_flops",
     "b_local_bytes",
     "b_peer_bytes",
+    "temporary_peer_request_bytes",
+    "temporary_peer_bytes",
     "a_bytes",
     "c_bytes",
     "output_bytes",
@@ -29,6 +32,22 @@ BASE_FEATURE_NAMES = [
     "unique_a",
     "unique_b",
     "unique_c",
+    "bc_gemms",
+    "final_gemms",
+    "direct_final_gemms",
+    "accumulation_groups",
+    "accumulation_terms",
+    "source_accumulation_groups",
+    "source_accumulation_terms",
+    "output_accumulation_groups",
+    "output_accumulation_terms",
+    "source_axpys",
+    "output_axpys",
+    "zero_fills",
+    "intermediate_matrices",
+    "temporary_matrices",
+    "temporary_peer_requests",
+    "temporary_peer_copies",
 ]
 
 GRAPH_FEATURE_NAMES = [
@@ -43,6 +62,11 @@ BENCHMARK_LAYOUT_FEATURE_NAMES = [
     "active_devices",
     "max_output_block_fraction",
     "max_output_byte_fraction",
+]
+
+ILP_LAYOUT_FEATURE_NAMES = [
+    "layout_transitions",
+    "layout_segments",
 ]
 
 DEVICE_BENCHMARK_FEATURE_NAMES = [
@@ -60,6 +84,20 @@ DEVICE_BENCHMARK_GRAPH_FEATURE_NAMES = [
     "mixed_duplicate_groups",
     "mixed_left_groups",
     "mixed_right_groups",
+]
+
+CALIBRATION_SEED_FEATURE_NAMES = [
+    "intercept",
+    "bc_flops",
+    "accumulate_flops",
+    "temporary_accumulate_flops",
+    "bc_gemms",
+    "final_gemms",
+    "source_axpys",
+    "output_axpys",
+    "zero_fills",
+    "temporary_peer_requests",
+    "temporary_peer_bytes",
 ]
 
 STRUCTURE_SCORE_FEATURE_NAMES = [
@@ -175,6 +213,20 @@ def read_benchmark_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def read_calibration_records(path: Path) -> list[dict[str, Any]]:
+    """Read synthetic R/A/B/C calibration JSONL records."""
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("kind") != "rabc_calibration":
+            continue
+        record["_line"] = line_number
+        records.append(record)
+    return records
+
+
 def parse_benchmark_stdout(path: Path, layout: str, name: str) -> list[dict[str, Any]]:
     """Parse replay benchmark stdout into benchmark records."""
     records: list[dict[str, Any]] = []
@@ -235,11 +287,22 @@ def parse_benchmark_benchfile(path: Path, layout: str, name: str) -> list[dict[s
                 "stop_reason": stop_reason,
                 "matvec_s": matvec_s,
                 "matvec_count": matvec_count,
+                "matvec_per_apply_s": matvec_s / matvec_count if matvec_count != 0 else math.nan,
             }
         )
     if not records:
         raise ValueError(f"{path} contains no R/A/B/C replay benchmark table rows")
     return records
+
+
+def benchmark_matvec_seconds(record: dict[str, Any]) -> float:
+    """Return normalized replay matvec time for one record."""
+    if "matvec_per_apply_s" in record:
+        return float(record["matvec_per_apply_s"])
+    if "matvec_count" in record:
+        count = int(record["matvec_count"])
+        return float(record["matvec_s"]) / count if count != 0 else math.nan
+    return float(record["matvec_s"])
 
 
 def parse_benchmark_file(path: Path, layout: str, name: str, input_format: str) -> list[dict[str, Any]]:
@@ -435,6 +498,19 @@ def layout_string(layout: list[int]) -> str:
     return ",".join(str(device) for device in layout)
 
 
+def canonicalize_device_labels(layout: list[int]) -> list[int]:
+    """Relabel devices by first occurrence to pick one representative of global permutations."""
+    mapping: dict[int, int] = {}
+    next_device = 0
+    canonical: list[int] = []
+    for device in layout:
+        if device not in mapping:
+            mapping[device] = next_device
+            next_device += 1
+        canonical.append(mapping[device])
+    return canonical
+
+
 def compact_layout_string(layout: list[int]) -> str:
     """Format a layout for human-readable summaries without printing every block."""
     if not layout:
@@ -598,6 +674,11 @@ def benchmark_feature_names(problem: dict[str, Any], include_graph_features: boo
     raise ValueError(f"unsupported benchmark model: {model}")
 
 
+def ilp_feature_names() -> list[str]:
+    """Return feature names expressible by the grouped RABC MILP objective."""
+    return feature_names(include_graph_features=False) + ILP_LAYOUT_FEATURE_NAMES
+
+
 def include_environment_bytes(args: argparse.Namespace) -> bool:
     """Return whether the selected timing objective includes environment staging."""
     return getattr(args, "timing_objective", "steady-state") == "cold-start"
@@ -652,6 +733,8 @@ def fit_linear_samples(
     names: list[str],
     ridge: float,
     empty_message: str,
+    prior: dict[str, float] | None = None,
+    prior_weight: float = 0.0,
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Fit a ridge-regularized linear model to already-materialized samples."""
     if not samples:
@@ -672,6 +755,12 @@ def fit_linear_samples(
                 ata[row][col] += vector[row] * vector[col]
     for diagonal in range(n):
         ata[diagonal][diagonal] += ridge
+    if prior is not None and prior_weight > 0.0:
+        for diagonal, name in enumerate(names):
+            if name not in prior:
+                continue
+            ata[diagonal][diagonal] += prior_weight
+            aty[diagonal] += prior_weight * prior[name] * scales[diagonal]
 
     scaled_coefficients = gaussian_solve(ata, aty)
     coefficients = {name: scaled_coefficients[index] / scales[index] for index, name in enumerate(names)}
@@ -758,11 +847,11 @@ def summarize_benchmark_records(records: list[dict[str, Any]], compact_layouts: 
         grouped.setdefault((str(record.get("name", "")), str(record.get("layout", ""))), []).append(record)
 
     layout_column = "layout_summary" if compact_layouts else "layout"
-    print(f"count mean_matvec_s min_matvec_s max_matvec_s mean_wall_s name {layout_column}")
+    print(f"count mean_matvec_per_apply_s min_matvec_per_apply_s max_matvec_per_apply_s mean_wall_s name {layout_column}")
     best_key: tuple[str, str] | None = None
     best_mean = float("inf")
     for key, rows in grouped.items():
-        matvec = [float(record["matvec_s"]) for record in rows]
+        matvec = [benchmark_matvec_seconds(record) for record in rows]
         wall = [float(record["wall_s"]) for record in rows]
         mean_matvec = sum(matvec) / len(matvec)
         mean_wall = sum(wall) / len(wall)
@@ -777,8 +866,36 @@ def summarize_benchmark_records(records: list[dict[str, Any]], compact_layouts: 
     if best_key is not None:
         layout = [int(item) for item in best_key[1].split(",") if item]
         print(
-            f"best_mean_matvec_s={best_mean:.9g} name={best_key[0]} "
+            f"best_mean_matvec_per_apply_s={best_mean:.9g} name={best_key[0]} "
             f"{layout_column}={maybe_compact_layout(layout, compact_layouts)}"
+        )
+
+
+def summarize_calibration_records(records: list[dict[str, Any]], compact_layouts: bool) -> None:
+    """Print synthetic calibration timing aggregates."""
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for record in records:
+        key = (str(record.get("family", "")), str(record.get("name", "")), str(record.get("layout", "")))
+        grouped.setdefault(key, []).append(record)
+
+    layout_column = "layout_summary" if compact_layouts else "layout"
+    print(
+        "count mean_apply_s min_apply_s max_apply_s active_devices used_devices block_count term_count "
+        f"inner_iterations center_bytes family name {layout_column}"
+    )
+    for key, rows in sorted(grouped.items()):
+        mean_apply = [float(record["mean_apply_s"]) for record in rows]
+        min_apply = [float(record["min_apply_s"]) for record in rows]
+        max_apply = [float(record["max_apply_s"]) for record in rows]
+        first = rows[0]
+        layout = [int(item) for item in key[2].split(",") if item]
+        print(
+            f"{len(rows)} {sum(mean_apply) / len(mean_apply):.9g} {min(min_apply):.9g} "
+            f"{max(max_apply):.9g} {int(first['active_devices'])} {int(first.get('used_devices', 0))} "
+            f"{int(first['block_count'])} "
+            f"{int(first['term_count'])} {int(first['inner_iterations'])} "
+            f"{int(first.get('center_bytes', 0))} {key[0]} {key[1]} "
+            f"{maybe_compact_layout(layout, compact_layouts)}"
         )
 
 
@@ -790,7 +907,7 @@ def benchmark_layout_rank_rows(records: list[dict[str, Any]]) -> list[dict[str, 
 
     rows: list[dict[str, Any]] = []
     for layout, layout_records in grouped.items():
-        matvec = [float(record["matvec_s"]) for record in layout_records]
+        matvec = [benchmark_matvec_seconds(record) for record in layout_records]
         wall = [float(record["wall_s"]) for record in layout_records]
         names = ",".join(
             sorted({str(record.get("name", "")) for record in layout_records if str(record.get("name", ""))})
@@ -818,7 +935,7 @@ def print_benchmark_layout_rank(
     """Print replay benchmark timing aggregates grouped by actual layout."""
     rows = benchmark_layout_rank_rows(records)
     layout_column = "layout_summary" if compact_layouts else "layout"
-    print(f"rank count mean_matvec_s min_matvec_s max_matvec_s mean_wall_s names {layout_column}")
+    print(f"rank count mean_matvec_per_apply_s min_matvec_per_apply_s max_matvec_per_apply_s mean_wall_s names {layout_column}")
     for row in rows:
         layout = list(row["layout"])
         print(
@@ -830,7 +947,7 @@ def print_benchmark_layout_rank(
     if rows:
         best = rows[0]
         print(
-            f"best_mean_matvec_s={best['mean_matvec_s']:.9g} rank=1 names={best['names']} "
+            f"best_mean_matvec_per_apply_s={best['mean_matvec_s']:.9g} rank=1 names={best['names']} "
             f"{layout_column}={maybe_compact_layout(list(best['layout']), compact_layouts)}"
         )
 
@@ -856,7 +973,7 @@ def print_benchmark_layout_rank(
             ratio = float(row["mean_matvec_s"]) / best_mean if best_mean > 0.0 else float("nan")
             print(
                 f"selected_name={name} found=true rank={row['rank']} "
-                f"mean_matvec_s={row['mean_matvec_s']:.9g} delta_vs_best_s={delta:.9g} "
+                f"mean_matvec_per_apply_s={row['mean_matvec_s']:.9g} delta_vs_best_s={delta:.9g} "
                 f"ratio_vs_best={ratio:.9g} names={row['names']} "
                 f"{layout_column}={maybe_compact_layout(list(layout), compact_layouts)}"
             )
@@ -870,7 +987,7 @@ def summarize_benchmark_structure(
     rows: list[dict[str, Any]] = []
     for layout_key, layout_records in grouped.items():
         layout = list(layout_key)
-        matvec = [float(record["matvec_s"]) for record in layout_records]
+        matvec = [benchmark_matvec_seconds(record) for record in layout_records]
         graph = graph_metrics_for_layout(problem, layout)
         device_features = features_for_layout(problem, layout, include_env_bytes=False, include_graph_features=True)
         shape = layout_shape_features(problem, layout)
@@ -918,7 +1035,7 @@ def summarize_benchmark_structure(
     column = sort_columns[sort_key]
     rows.sort(key=lambda row: row[column])
     print(
-        "count mean_matvec_s right_max_gflop mixed_max_gflop b_peer_mb "
+        "count mean_matvec_per_apply_s right_max_gflop mixed_max_gflop b_peer_mb "
         "b_peer_blocks b_cut_terms max_terms max_unique_bc max_output_mb "
         "segments transitions active_devices max_output_byte_fraction "
         "right_duplicate_groups mixed_duplicate_groups mixed_left_groups mixed_right_groups name layout"
@@ -936,7 +1053,7 @@ def summarize_benchmark_structure(
     if rows:
         best = min(rows, key=lambda row: row["mean_matvec_s"])
         print(
-            f"best_mean_matvec_s={best['mean_matvec_s']:.9g} name={best['name']} "
+            f"best_mean_matvec_per_apply_s={best['mean_matvec_s']:.9g} name={best['name']} "
             f"right_max_gflop={best['right_max_gflop']:.9g} b_peer_mb={best['b_peer_mb']:.9g}"
         )
 
@@ -1247,6 +1364,146 @@ def benchmark_records_from_paths(paths: list[Path]) -> list[dict[str, Any]]:
     return records
 
 
+def calibration_records_from_paths(paths: list[Path]) -> list[dict[str, Any]]:
+    """Read synthetic calibration records from one or more JSONL files."""
+    records: list[dict[str, Any]] = []
+    for path in paths:
+        records.extend(read_calibration_records(path))
+    if not records:
+        raise ValueError("calibration files contained no R/A/B/C calibration records")
+    return records
+
+
+def calibration_dimension(record: dict[str, Any]) -> int:
+    """Infer the square matrix dimension in a synthetic calibration row."""
+    block_count = int(record["block_count"])
+    center_values = int(record["center_values"])
+    if block_count <= 0 or center_values % block_count != 0:
+        raise ValueError(f"invalid calibration center size in {record.get('family', '')}/{record.get('name', '')}")
+    values_per_block = center_values // block_count
+    dimension = math.isqrt(values_per_block)
+    if dimension * dimension != values_per_block:
+        raise ValueError(
+            f"calibration row {record.get('family', '')}/{record.get('name', '')} is not square-block shaped"
+        )
+    return dimension
+
+
+def square_term(r: int, a: int, b: int, c: int, coefficient: float, dimension: int) -> dict[str, Any]:
+    """Construct one square-block synthetic term with right-first GEMM metadata."""
+    flops = 2.0 * float(dimension) * float(dimension) * float(dimension)
+    bytes_per_block = dimension * dimension * 8
+    return {
+        "r": r,
+        "a": a,
+        "b": b,
+        "c": c,
+        "coefficient": coefficient,
+        "r_rows": dimension,
+        "r_cols": dimension,
+        "a_rows": dimension,
+        "a_cols": dimension,
+        "b_rows": dimension,
+        "b_cols": dimension,
+        "c_rows": dimension,
+        "c_cols": dimension,
+        "bc_flops": flops,
+        "accumulate_flops": flops,
+        "intermediate_bytes": bytes_per_block,
+    }
+
+
+def calibration_problem(record: dict[str, Any]) -> dict[str, Any]:
+    """Reconstruct the synthetic R/A/B/C problem represented by one calibration row."""
+    family = str(record["family"])
+    block_count = int(record["block_count"])
+    dimension = calibration_dimension(record)
+    terms: list[dict[str, Any]] = []
+
+    if family in ("gemm_launch", "gemm_throughput"):
+        for block in range(block_count):
+            terms.append(square_term(block, block, block, block, 1.0, dimension))
+    elif family in ("peer_latency", "peer_bandwidth"):
+        if block_count % 2 != 0:
+            raise ValueError("peer calibration rows must have an even block count")
+        pair_count = block_count // 2
+        for pair in range(pair_count):
+            terms.append(square_term(pair + pair_count, 0, pair, 0, 1.0, dimension))
+            terms.append(square_term(pair, 0, pair + pair_count, 0, 1.0, dimension))
+    elif family == "source_accumulation":
+        for r in range(block_count):
+            for b in range(block_count):
+                terms.append(square_term(r, 0, b, 0, 1.0, dimension))
+    elif family == "output_accumulation":
+        if block_count % 2 != 0:
+            raise ValueError("output accumulation calibration rows must have an even block count")
+        group_count = block_count // 2
+        for r in range(block_count):
+            local_b = r
+            remote_b = r + group_count if r < group_count else r - group_count
+            terms.append(square_term(r, 0, local_b, 0, 1.0, dimension))
+            terms.append(square_term(r, 0, remote_b, 0, -1.0, dimension))
+    else:
+        raise ValueError(f"unsupported calibration family: {family}")
+
+    bytes_per_block = dimension * dimension * 8
+    layout = raw_layout_values(record)
+    device_count = max(int(record.get("active_devices", 1)), max(layout, default=0) + 1)
+    return {
+        "block_count": block_count,
+        "device_count": device_count,
+        "terms": terms,
+        "input_bytes": [bytes_per_block] * block_count,
+        "output_bytes": [bytes_per_block] * block_count,
+        "output_shapes": [(dimension, dimension)] * block_count,
+        "output_shape_signature": f"square{dimension}x{dimension}x{block_count}",
+    }
+
+
+def calibration_feature_vector(record: dict[str, Any]) -> list[float]:
+    """Return the MILP-compatible critical-path feature vector for one calibration row."""
+    problem = calibration_problem(record)
+    layout = parse_layout(str(record["layout"]), int(problem["block_count"]), int(problem["device_count"]))
+    return layout_ilp_feature_vector(problem, layout, include_env_bytes=False)
+
+
+def compressed_calibration_vector(vector: list[float]) -> list[float]:
+    """Project the full ILP feature vector onto identifiable calibration seed features."""
+    full_names = feature_names(include_graph_features=False)
+    by_name = {name: vector[index] for index, name in enumerate(full_names)}
+    return [by_name.get(name, 0.0) for name in CALIBRATION_SEED_FEATURE_NAMES]
+
+
+def expand_calibration_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
+    """Expand sparse calibration coefficients to the full R/A/B/C feature space."""
+    full = {name: 0.0 for name in ilp_feature_names()}
+    for name, value in coefficients.items():
+        full[name] = value
+    return full
+
+
+def calibration_prior_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
+    """Return only coefficients directly constrained by synthetic calibration."""
+    return {name: coefficients[name] for name in CALIBRATION_SEED_FEATURE_NAMES if name in coefficients}
+
+
+def fit_calibration_coefficients(
+    records: list[dict[str, Any]], ridge: float
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Fit operation-cost seed coefficients from synthetic calibration rows."""
+    samples = [
+        (compressed_calibration_vector(calibration_feature_vector(record)), float(record["mean_apply_s"]))
+        for record in records
+    ]
+    coefficients, stats = fit_linear_samples(
+        samples,
+        CALIBRATION_SEED_FEATURE_NAMES,
+        ridge,
+        "calibration data contains no synthetic R/A/B/C rows",
+    )
+    return expand_calibration_coefficients(coefficients), stats
+
+
 def raw_layout_values(record: dict[str, Any]) -> list[int]:
     """Parse a benchmark layout string without validating the device count."""
     layout: list[int] = []
@@ -1320,7 +1577,7 @@ def filter_benchmark_records_by_layout(
 
 def benchmark_layout_mean_matvec_seconds(records: list[dict[str, Any]]) -> float:
     """Return the mean resident matvec time for one no-trace benchmark layout."""
-    timings = [float(record["matvec_s"]) for record in records]
+    timings = [benchmark_matvec_seconds(record) for record in records]
     return sum(timings) / len(timings)
 
 
@@ -1427,6 +1684,62 @@ def fit_benchmark_coefficients(
         ridge,
         "benchmark data contains no replay matvec samples",
     )
+
+
+def layout_ilp_feature_vector(problem: dict[str, Any], layout: list[int], include_env_bytes: bool) -> list[float]:
+    """Return the critical-path feature vector expressible by the grouped RABC MILP."""
+    device_vectors = [
+        feature_vector(features, include_env_bytes, include_graph_features=False)
+        for features in features_for_layout(problem, layout, include_env_bytes, include_graph_features=False)
+    ]
+    if not device_vectors:
+        raise ValueError("layout produced no device feature vectors")
+    values = [1.0]
+    for column in range(1, len(device_vectors[0])):
+        values.append(max(vector[column] for vector in device_vectors))
+    shape = layout_shape_features(problem, layout)
+    values.extend(shape[name] for name in ILP_LAYOUT_FEATURE_NAMES)
+    return values
+
+
+def fit_ilp_benchmark_coefficients(
+    records: list[dict[str, Any]],
+    problem: dict[str, Any],
+    ridge: float,
+    include_env_bytes: bool,
+    prior: dict[str, float] | None = None,
+    prior_weight: float = 0.0,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Fit MILP-compatible operation costs from no-trace replay matvec timing."""
+    grouped = group_benchmarks_by_layout(records, problem)
+    samples = [
+        (
+            layout_ilp_feature_vector(problem, list(layout), include_env_bytes),
+            benchmark_layout_mean_matvec_seconds(layout_records),
+        )
+        for layout, layout_records in grouped.items()
+    ]
+    return fit_linear_samples(
+        samples,
+        ilp_feature_names(),
+        ridge,
+        "benchmark data contains no replay matvec samples",
+        prior,
+        prior_weight,
+    )
+
+
+def score_ilp_layout(
+    problem: dict[str, Any], layout: list[int], coefficients: dict[str, float], include_env_bytes: bool
+) -> tuple[float, list[float]]:
+    """Score a layout with the MILP-compatible critical-path feature vector."""
+    _, device_scores = score_layout(
+        problem, layout, coefficients, include_env_bytes, include_graph_features=False
+    )
+    shape = layout_shape_features(problem, layout)
+    layout_penalty = sum(coefficients.get(name, 0.0) * shape[name] for name in ILP_LAYOUT_FEATURE_NAMES)
+    scores = [value + layout_penalty for value in device_scores]
+    return max(scores), scores
 
 
 def score_benchmark_layout(
@@ -1596,7 +1909,7 @@ def print_benchmark_validation(rows: list[dict[str, Any]], compact_layouts: bool
         f"top1_match={str(bool(stats['top1_match'])).lower()}"
     )
     layout_column = "layout_summary" if compact_layouts else "layout"
-    print(f"observed_matvec_s predicted_matvec_s error_s count first_line names {layout_column}")
+    print(f"observed_matvec_per_apply_s predicted_matvec_per_apply_s error_s count first_line names {layout_column}")
     for row in rows:
         layout = list(row["layout"])
         print(
@@ -2167,10 +2480,29 @@ def empty_device_features(device: int) -> dict[str, Any]:
         "unique_a": 0,
         "unique_b": 0,
         "unique_c": 0,
+        "bc_gemms": 0,
+        "final_gemms": 0,
+        "direct_final_gemms": 0,
+        "accumulation_groups": 0,
+        "accumulation_terms": 0,
+        "source_accumulation_groups": 0,
+        "source_accumulation_terms": 0,
+        "output_accumulation_groups": 0,
+        "output_accumulation_terms": 0,
+        "source_axpys": 0,
+        "output_axpys": 0,
+        "zero_fills": 0,
+        "intermediate_matrices": 0,
+        "temporary_matrices": 0,
+        "temporary_peer_requests": 0,
+        "temporary_peer_copies": 0,
         "bc_flops": 0.0,
         "accumulate_flops": 0.0,
+        "temporary_accumulate_flops": 0.0,
         "b_local_bytes": 0,
         "b_peer_bytes": 0,
+        "temporary_peer_request_bytes": 0,
+        "temporary_peer_bytes": 0,
         "a_bytes": 0,
         "c_bytes": 0,
         "output_bytes": 0,
@@ -2181,7 +2513,7 @@ def empty_device_features(device: int) -> dict[str, Any]:
 def features_for_layout(
     problem: dict[str, Any], layout: list[int], include_env_bytes: bool, include_graph_features: bool
 ) -> list[dict[str, Any]]:
-    """Compute right-first aggregate features for a candidate center layout."""
+    """Compute input-anchored grouped right-first features for a candidate layout."""
     validate_layout(problem, layout)
     device_count = int(problem["device_count"])
     devices = [empty_device_features(device) for device in range(device_count)]
@@ -2189,6 +2521,9 @@ def features_for_layout(
     staged_a: list[set[int]] = [set() for _ in range(device_count)]
     staged_b: list[set[int]] = [set() for _ in range(device_count)]
     staged_c: list[set[int]] = [set() for _ in range(device_count)]
+    groups: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    intermediate_bytes: dict[tuple[int, int, int], int] = {}
+    migrated_temporaries: set[tuple[str, int, int, int, int]] = set()
 
     for block, device in enumerate(layout):
         devices[device]["input_blocks"] += 1
@@ -2200,32 +2535,111 @@ def features_for_layout(
         a = int(term["a"])
         b = int(term["b"])
         c = int(term["c"])
-        device = layout[r]
-        row = devices[device]
-        row["terms"] += 1
+        first_device = layout[b]
+        output_device = layout[r]
+        first_row = devices[first_device]
+        output_row = devices[output_device]
+        output_row["terms"] += 1
+        groups.setdefault((r, a), []).append(term)
 
         bc_key = (b, c)
-        if bc_key not in staged_bc[device]:
-            staged_bc[device].add(bc_key)
-            row["bc_flops"] += float(term["bc_flops"])
-            row["intermediate_bytes"] += int(term["intermediate_bytes"])
+        intermediate_key = (first_device, b, c)
+        intermediate_bytes[intermediate_key] = int(term["intermediate_bytes"])
+        if bc_key not in staged_bc[first_device]:
+            staged_bc[first_device].add(bc_key)
+            first_row["bc_gemms"] += 1
+            first_row["intermediate_matrices"] += 1
+            first_row["bc_flops"] += float(term["bc_flops"])
+            first_row["intermediate_bytes"] += int(term["intermediate_bytes"])
 
-        row["accumulate_flops"] += float(term["accumulate_flops"])
+        if b not in staged_b[first_device]:
+            staged_b[first_device].add(b)
+            first_row["b_local_bytes"] += problem["input_bytes"][b]
 
-        if b not in staged_b[device]:
-            staged_b[device].add(b)
-            if layout[b] == device:
-                row["b_local_bytes"] += problem["input_bytes"][b]
-            else:
-                row["b_peer_bytes"] += problem["input_bytes"][b]
+        if c not in staged_c[first_device]:
+            staged_c[first_device].add(c)
+            first_row["c_bytes"] += int(term["c_rows"]) * int(term["c_cols"]) * 8
 
-        if a not in staged_a[device]:
-            staged_a[device].add(a)
-            row["a_bytes"] += int(term["a_rows"]) * int(term["a_cols"]) * 8
+        if a not in staged_a[output_device]:
+            staged_a[output_device].add(a)
+            output_row["a_bytes"] += int(term["a_rows"]) * int(term["a_cols"]) * 8
 
-        if c not in staged_c[device]:
-            staged_c[device].add(c)
-            row["c_bytes"] += int(term["c_rows"]) * int(term["c_cols"]) * 8
+    for (r, a), group_terms in groups.items():
+        output_device = layout[r]
+        output_row = devices[output_device]
+        combined: dict[tuple[int, int, int], float] = {}
+        for term in group_terms:
+            b = int(term["b"])
+            c = int(term["c"])
+            key = (layout[b], b, c)
+            combined[key] = combined.get(key, 0.0) + float(term["coefficient"])
+        active_inputs = [(key, coefficient) for key, coefficient in combined.items() if coefficient != 0.0]
+        if not active_inputs:
+            continue
+
+        output_row["final_gemms"] += 1
+        output_row["accumulate_flops"] += float(group_terms[0]["accumulate_flops"])
+
+        source_groups: dict[int, list[tuple[tuple[int, int, int], float]]] = {}
+        for key, coefficient in active_inputs:
+            source_groups.setdefault(key[0], []).append((key, coefficient))
+
+        partials: list[dict[str, Any]] = []
+        for source_device, source_inputs in source_groups.items():
+            if len(source_inputs) == 1:
+                key, _ = source_inputs[0]
+                _, b, c = key
+                partials.append(
+                    {
+                        "device": source_device,
+                        "bytes": intermediate_bytes[key],
+                        "migration": ("Y", source_device, output_device, b, c),
+                    }
+                )
+                continue
+
+            source_row = devices[source_device]
+            source_row["accumulation_groups"] += 1
+            source_row["accumulation_terms"] += len(source_inputs)
+            source_row["source_accumulation_groups"] += 1
+            source_row["source_accumulation_terms"] += len(source_inputs)
+            source_row["source_axpys"] += len(source_inputs)
+            source_row["zero_fills"] += 1
+            source_row["temporary_matrices"] += 1
+            source_bytes = 0
+            for key, _ in source_inputs:
+                source_bytes = intermediate_bytes[key]
+                source_row["temporary_accumulate_flops"] += 2.0 * float(source_bytes // 8)
+            partials.append(
+                {
+                    "device": source_device,
+                    "bytes": source_bytes,
+                    "migration": ("Q", source_device, output_device, r, a),
+                }
+            )
+
+        if len(partials) == 1:
+            output_row["direct_final_gemms"] += 1
+        else:
+            output_row["accumulation_groups"] += 1
+            output_row["accumulation_terms"] += len(partials)
+            output_row["output_accumulation_groups"] += 1
+            output_row["output_accumulation_terms"] += len(partials)
+            output_row["output_axpys"] += len(partials)
+            output_row["zero_fills"] += 1
+            output_row["temporary_matrices"] += 1
+            output_row["temporary_accumulate_flops"] += sum(2.0 * float(partial["bytes"] // 8) for partial in partials)
+
+        for partial in partials:
+            if int(partial["device"]) == output_device:
+                continue
+            output_row["temporary_peer_requests"] += 1
+            output_row["temporary_peer_request_bytes"] += int(partial["bytes"])
+            migration_key = partial["migration"]
+            if migration_key not in migrated_temporaries:
+                migrated_temporaries.add(migration_key)
+                output_row["temporary_peer_copies"] += 1
+                output_row["temporary_peer_bytes"] += int(partial["bytes"])
 
     if not include_env_bytes:
         for row in devices:
@@ -2445,18 +2859,430 @@ def local_search(
     return layout
 
 
+class LinearExpr:
+    """Small affine expression helper for the R/A/B/C MILP builder."""
+
+    def __init__(self, constant: float = 0.0) -> None:
+        self.constant = float(constant)
+        self.terms: dict[int, float] = {}
+
+    def add_var(self, index: int, coefficient: float = 1.0) -> None:
+        if coefficient == 0.0:
+            return
+        self.terms[index] = self.terms.get(index, 0.0) + coefficient
+        if self.terms[index] == 0.0:
+            del self.terms[index]
+
+    def add_expr(self, other: "LinearExpr", scale: float = 1.0) -> None:
+        if scale == 0.0:
+            return
+        self.constant += scale * other.constant
+        for index, coefficient in other.terms.items():
+            self.add_var(index, scale * coefficient)
+
+
+def solve_grouped_right_first_ilp(
+    problem: dict[str, Any],
+    coefficients: dict[str, float],
+    include_env_bytes: bool,
+    time_limit: float | None,
+    mip_rel_gap: float | None,
+    max_layout_segments: int | None = None,
+    symmetry_break: bool = True,
+) -> dict[str, Any]:
+    """Solve the grouped input-anchored right-first placement MILP."""
+    try:
+        import numpy as np
+        from scipy.optimize import Bounds, LinearConstraint, milp
+        from scipy.sparse import lil_matrix
+    except ImportError as exc:
+        raise RuntimeError("ilp-suggest requires scipy with scipy.optimize.milp") from exc
+
+    block_count = int(problem["block_count"])
+    device_count = int(problem["device_count"])
+    if block_count <= 0 or device_count <= 0:
+        raise ValueError("ILP requires positive block and device counts")
+    if max_layout_segments is not None and max_layout_segments <= 0:
+        raise ValueError("max_layout_segments must be positive")
+
+    var_names: list[str] = []
+    objective: list[float] = []
+    lower_bounds: list[float] = []
+    upper_bounds: list[float] = []
+    integrality: list[int] = []
+    constraints: list[tuple[LinearExpr, float, float]] = []
+
+    def add_var(name: str, binary: bool = True, lower: float = 0.0, upper: float = 1.0) -> int:
+        index = len(var_names)
+        var_names.append(name)
+        objective.append(0.0)
+        lower_bounds.append(lower)
+        upper_bounds.append(upper)
+        integrality.append(1 if binary else 0)
+        return index
+
+    def add_constraint(expr: LinearExpr, lower: float = -math.inf, upper: float = math.inf) -> None:
+        constraints.append((expr, lower - expr.constant, upper - expr.constant))
+
+    def var_expr(index: int, coefficient: float = 1.0) -> LinearExpr:
+        expr = LinearExpr()
+        expr.add_var(index, coefficient)
+        return expr
+
+    def add_or(output: int, inputs: list[int]) -> None:
+        if not inputs:
+            add_constraint(var_expr(output), 0.0, 0.0)
+            return
+        for item in inputs:
+            expr = LinearExpr()
+            expr.add_var(item, 1.0)
+            expr.add_var(output, -1.0)
+            add_constraint(expr, upper=0.0)
+        expr = var_expr(output)
+        for item in inputs:
+            expr.add_var(item, -1.0)
+        add_constraint(expr, upper=0.0)
+
+    def add_and2(output: int, left: int, right: int) -> None:
+        expr = LinearExpr()
+        expr.add_var(output, 1.0)
+        expr.add_var(left, -1.0)
+        add_constraint(expr, upper=0.0)
+        expr = LinearExpr()
+        expr.add_var(output, 1.0)
+        expr.add_var(right, -1.0)
+        add_constraint(expr, upper=0.0)
+        expr = LinearExpr(1.0)
+        expr.add_var(output, 1.0)
+        expr.add_var(left, -1.0)
+        expr.add_var(right, -1.0)
+        add_constraint(expr, lower=0.0)
+
+    def coefficient(name: str) -> float:
+        if not include_env_bytes and name in ("a_bytes", "c_bytes"):
+            return 0.0
+        return float(coefficients.get(name, 0.0))
+
+    costs = [LinearExpr(coefficient("intercept")) for _ in range(device_count)]
+
+    def add_cost_var(device: int, feature: str, variable: int, amount: float = 1.0) -> None:
+        value = coefficient(feature) * amount
+        if value != 0.0:
+            costs[device].add_var(variable, value)
+
+    x: dict[tuple[int, int], int] = {}
+    for block in range(block_count):
+        row = LinearExpr()
+        for device in range(device_count):
+            variable = add_var(f"x[{block},{device}]")
+            x[(block, device)] = variable
+            row.add_var(variable, 1.0)
+        add_constraint(row, 1.0, 1.0)
+
+    layout_transition_cost = coefficient("layout_transitions") + coefficient("layout_segments")
+    transition_vars: list[int] = []
+    if coefficient("layout_segments") != 0.0:
+        for cost in costs:
+            cost.constant += coefficient("layout_segments")
+    if layout_transition_cost != 0.0 or max_layout_segments is not None:
+        for block in range(block_count - 1):
+            transition = add_var(f"layout_transition[{block}]")
+            transition_vars.append(transition)
+            same_device_vars: list[int] = []
+            for device in range(device_count):
+                same_device = add_var(f"layout_same[{block},{device}]")
+                add_and2(same_device, x[(block, device)], x[(block + 1, device)])
+                same_device_vars.append(same_device)
+            exact_transition = var_expr(transition)
+            for same_device in same_device_vars:
+                exact_transition.add_var(same_device, 1.0)
+            add_constraint(exact_transition, 1.0, 1.0)
+            for cost in costs:
+                cost.add_var(transition, layout_transition_cost)
+    if max_layout_segments is not None:
+        transition_sum = LinearExpr()
+        for transition in transition_vars:
+            transition_sum.add_var(transition, 1.0)
+        add_constraint(transition_sum, upper=float(max_layout_segments - 1))
+
+    terms = list(problem["terms"])
+    used_b = sorted({int(term["b"]) for term in terms})
+    for block in used_b:
+        for device in range(device_count):
+            owner = x[(block, device)]
+            add_cost_var(device, "b_local_bytes", owner, float(problem["input_bytes"][block]))
+            add_cost_var(device, "unique_b", owner)
+
+    for block in range(block_count):
+        for device in range(device_count):
+            owner = x[(block, device)]
+            add_cost_var(device, "output_bytes", owner, float(problem["output_bytes"][block]))
+
+    unique_bc: dict[tuple[int, int], dict[str, float]] = {}
+    unique_c_by_device: dict[tuple[int, int], set[int]] = {}
+    groups: dict[tuple[int, int], dict[str, Any]] = {}
+    for term in terms:
+        r = int(term["r"])
+        a = int(term["a"])
+        b = int(term["b"])
+        c = int(term["c"])
+        bc_key = (b, c)
+        unique_bc.setdefault(
+            bc_key,
+            {
+                "bc_flops": float(term["bc_flops"]),
+                "intermediate_bytes": float(term["intermediate_bytes"]),
+            },
+        )
+        for device in range(device_count):
+            unique_c_by_device.setdefault((device, c), set()).add(x[(b, device)])
+            add_cost_var(device, "terms", x[(r, device)])
+
+        group = groups.setdefault(
+            (r, a),
+            {
+                "r": r,
+                "a": a,
+                "inputs_by_bc": {},
+                "accumulate_flops": float(term["accumulate_flops"]),
+                "intermediate_bytes": float(term["intermediate_bytes"]),
+            },
+        )
+        group["inputs_by_bc"][bc_key] = group["inputs_by_bc"].get(bc_key, 0.0) + float(term["coefficient"])
+
+    for (b, c), values in unique_bc.items():
+        for device in range(device_count):
+            owner = x[(b, device)]
+            add_cost_var(device, "unique_bc", owner)
+            add_cost_var(device, "bc_gemms", owner)
+            add_cost_var(device, "intermediate_matrices", owner)
+            add_cost_var(device, "bc_flops", owner, values["bc_flops"])
+            add_cost_var(device, "intermediate_bytes", owner, values["intermediate_bytes"])
+
+    for (device, c), owners in unique_c_by_device.items():
+        variable = add_var(f"c_use[{device},{c}]")
+        add_or(variable, sorted(owners))
+        add_cost_var(device, "unique_c", variable)
+        c_bytes = 0.0
+        for term in terms:
+            if int(term["c"]) == c:
+                c_bytes = float(int(term["c_rows"]) * int(term["c_cols"]) * 8)
+                break
+        add_cost_var(device, "c_bytes", variable, c_bytes)
+
+    unique_a_by_device: dict[tuple[int, int], set[int]] = {}
+    for r, a in groups:
+        for device in range(device_count):
+            unique_a_by_device.setdefault((device, a), set()).add(x[(r, device)])
+    for (device, a), owners in unique_a_by_device.items():
+        variable = add_var(f"a_use[{device},{a}]")
+        add_or(variable, sorted(owners))
+        add_cost_var(device, "unique_a", variable)
+        a_bytes = 0.0
+        for term in terms:
+            if int(term["a"]) == a:
+                a_bytes = float(int(term["a_rows"]) * int(term["a_cols"]) * 8)
+                break
+        add_cost_var(device, "a_bytes", variable, a_bytes)
+
+    raw_migration_terms: dict[tuple[int, int, int, int], list[int]] = {}
+    for group_index, group in enumerate(groups.values()):
+        r = int(group["r"])
+        active_inputs = [
+            (b, c) for (b, c), value in sorted(group["inputs_by_bc"].items()) if value != 0.0
+        ]
+        if not active_inputs:
+            continue
+        input_count = len(active_inputs)
+        bytes_per_partial = float(group["intermediate_bytes"])
+
+        partial_exists: dict[int, int] = {}
+        source_multi: dict[int, int] = {}
+        source_single_input: dict[tuple[int, int, int], int] = {}
+
+        for device in range(device_count):
+            owner_inputs = [x[(b, device)] for b, _ in active_inputs]
+            partial = add_var(f"partial[{group_index},{device}]")
+            add_or(partial, sorted(set(owner_inputs)))
+            partial_exists[device] = partial
+
+            multi = add_var(f"source_multi[{group_index},{device}]")
+            source_multi[device] = multi
+            count_expr = LinearExpr()
+            for owner in owner_inputs:
+                count_expr.add_var(owner, 1.0)
+            expr = LinearExpr()
+            expr.add_expr(count_expr)
+            expr.add_var(multi, -float(input_count))
+            add_constraint(expr, upper=1.0)
+            expr = LinearExpr()
+            expr.add_var(multi, 2.0)
+            expr.add_expr(count_expr, -1.0)
+            add_constraint(expr, upper=0.0)
+
+            single = add_var(f"source_single[{group_index},{device}]")
+            expr = var_expr(single)
+            expr.add_var(partial, -1.0)
+            expr.add_var(multi, 1.0)
+            add_constraint(expr, 0.0, 0.0)
+
+            add_cost_var(device, "accumulation_groups", multi)
+            add_cost_var(device, "source_accumulation_groups", multi)
+            add_cost_var(device, "zero_fills", multi)
+            add_cost_var(device, "temporary_matrices", multi)
+            for b, c in active_inputs:
+                multi_input = add_var(f"source_multi_input[{group_index},{device},{b},{c}]")
+                add_and2(multi_input, x[(b, device)], multi)
+                add_cost_var(device, "accumulation_terms", multi_input)
+                add_cost_var(device, "source_accumulation_terms", multi_input)
+                add_cost_var(device, "source_axpys", multi_input)
+                add_cost_var(device, "temporary_accumulate_flops", multi_input, 2.0 * bytes_per_partial / 8.0)
+
+                single_input = add_var(f"source_single_input[{group_index},{device},{b},{c}]")
+                add_and2(single_input, x[(b, device)], single)
+                source_single_input[(device, b, c)] = single_input
+
+        group_multi = add_var(f"group_multi[{group_index}]")
+        partial_count = LinearExpr()
+        for partial in partial_exists.values():
+            partial_count.add_var(partial, 1.0)
+        expr = LinearExpr()
+        expr.add_expr(partial_count)
+        expr.add_var(group_multi, -float(device_count))
+        add_constraint(expr, upper=1.0)
+        expr = LinearExpr()
+        expr.add_var(group_multi, 2.0)
+        expr.add_expr(partial_count, -1.0)
+        add_constraint(expr, upper=0.0)
+
+        for output_device in range(device_count):
+            output_owner = x[(r, output_device)]
+            out_multi = add_var(f"output_multi[{group_index},{output_device}]")
+            add_and2(out_multi, output_owner, group_multi)
+            add_cost_var(output_device, "final_gemms", output_owner)
+            add_cost_var(output_device, "accumulate_flops", output_owner, float(group["accumulate_flops"]))
+            add_cost_var(output_device, "direct_final_gemms", output_owner)
+            add_cost_var(output_device, "direct_final_gemms", out_multi, -1.0)
+            add_cost_var(output_device, "accumulation_groups", out_multi)
+            add_cost_var(output_device, "output_accumulation_groups", out_multi)
+            add_cost_var(output_device, "zero_fills", out_multi)
+            add_cost_var(output_device, "temporary_matrices", out_multi)
+
+            for source_device, partial in partial_exists.items():
+                output_partial = add_var(f"output_partial[{group_index},{source_device},{output_device}]")
+                add_and2(output_partial, partial, out_multi)
+                add_cost_var(output_device, "accumulation_terms", output_partial)
+                add_cost_var(output_device, "output_accumulation_terms", output_partial)
+                add_cost_var(output_device, "output_axpys", output_partial)
+                add_cost_var(output_device, "temporary_accumulate_flops", output_partial, 2.0 * bytes_per_partial / 8.0)
+
+                if source_device == output_device:
+                    continue
+                q_migration = add_var(f"q_migration[{group_index},{source_device},{output_device}]")
+                add_and2(q_migration, source_multi[source_device], output_owner)
+                add_cost_var(output_device, "temporary_peer_requests", q_migration)
+                add_cost_var(output_device, "temporary_peer_copies", q_migration)
+                add_cost_var(output_device, "temporary_peer_request_bytes", q_migration, bytes_per_partial)
+                add_cost_var(output_device, "temporary_peer_bytes", q_migration, bytes_per_partial)
+
+                for b, c in active_inputs:
+                    raw_occurrence = add_var(
+                        f"raw_migration_occurrence[{group_index},{source_device},{output_device},{b},{c}]"
+                    )
+                    add_and2(raw_occurrence, source_single_input[(source_device, b, c)], output_owner)
+                    raw_migration_terms.setdefault((source_device, output_device, b, c), []).append(raw_occurrence)
+
+    for (source_device, output_device, b, c), occurrences in raw_migration_terms.items():
+        raw_migration = add_var(f"raw_migration[{source_device},{output_device},{b},{c}]")
+        add_or(raw_migration, occurrences)
+        bytes_per_partial = float(unique_bc[(b, c)]["intermediate_bytes"])
+        for occurrence in occurrences:
+            add_cost_var(output_device, "temporary_peer_requests", occurrence)
+            add_cost_var(output_device, "temporary_peer_request_bytes", occurrence, bytes_per_partial)
+        add_cost_var(output_device, "temporary_peer_copies", raw_migration)
+        add_cost_var(output_device, "temporary_peer_bytes", raw_migration, bytes_per_partial)
+
+    makespan = add_var("makespan", binary=False, lower=0.0, upper=math.inf)
+    objective[makespan] = 1.0
+    for cost in costs:
+        expr = LinearExpr()
+        expr.add_expr(cost)
+        expr.add_var(makespan, -1.0)
+        add_constraint(expr, upper=0.0)
+
+    matrix = lil_matrix((len(constraints), len(var_names)), dtype=float)
+    lower = np.empty(len(constraints), dtype=float)
+    upper = np.empty(len(constraints), dtype=float)
+    for row, (expr, row_lower, row_upper) in enumerate(constraints):
+        lower[row] = row_lower
+        upper[row] = row_upper
+        for column, value in expr.terms.items():
+            matrix[row, column] = value
+
+    options: dict[str, float] = {}
+    if time_limit is not None:
+        options["time_limit"] = time_limit
+    if mip_rel_gap is not None:
+        options["mip_rel_gap"] = mip_rel_gap
+
+    result = milp(
+        c=np.array(objective, dtype=float),
+        integrality=np.array(integrality, dtype=int),
+        bounds=Bounds(np.array(lower_bounds, dtype=float), np.array(upper_bounds, dtype=float)),
+        constraints=LinearConstraint(matrix.tocsr(), lower, upper),
+        options=options,
+    )
+    if result.x is None:
+        raise RuntimeError(f"MILP failed without a candidate solution: status={result.status} message={result.message}")
+
+    layout: list[int] = []
+    for block in range(block_count):
+        values = [float(result.x[x[(block, device)]]) for device in range(device_count)]
+        layout.append(max(range(device_count), key=lambda device: values[device]))
+    if symmetry_break:
+        # The current fitted trace model is device-label symmetric.  Relabeling
+        # after the solve selects a stable representative without excluding any
+        # optimal solution from the MILP feasible set.
+        layout = canonicalize_device_labels(layout)
+    score, device_scores = score_ilp_layout(problem, layout, coefficients, include_env_bytes)
+    return {
+        "layout": layout,
+        "score": score,
+        "device_scores": device_scores,
+        "objective": float(result.fun),
+        "success": bool(result.success),
+        "status": int(result.status),
+        "message": str(result.message),
+        "mip_node_count": getattr(result, "mip_node_count", None),
+        "mip_dual_bound": getattr(result, "mip_dual_bound", None),
+        "mip_gap": getattr(result, "mip_gap", None),
+        "variables": len(var_names),
+        "constraints": len(constraints),
+        "symmetry_break": "canonical_relabel_first_seen" if symmetry_break and device_count > 1 else "none",
+    }
+
+
 def print_fit_for_names(coefficients: dict[str, float], stats: dict[str, float], names: list[str]) -> None:
     """Print fitted model coefficients for an explicit feature list."""
     print(f"samples={int(stats['samples'])} rmse_s={stats['rmse']:.9g} r2={stats['r2']:.9g}")
     for name in names:
         print(f"{name} {coefficients[name]:.17g}")
-    for name in ("bc_flops", "accumulate_flops"):
+    for name in ("bc_flops", "accumulate_flops", "temporary_accumulate_flops"):
         if name not in coefficients:
             continue
         coefficient = coefficients[name]
         if coefficient > 0.0:
             print(f"# implied_{name}_gflops={1.0 / (coefficient * 1.0e9):.9g}")
-    for name in ("b_local_bytes", "b_peer_bytes", "a_bytes", "c_bytes", "output_bytes", "intermediate_bytes"):
+    for name in (
+        "b_local_bytes",
+        "b_peer_bytes",
+        "temporary_peer_request_bytes",
+        "temporary_peer_bytes",
+        "a_bytes",
+        "c_bytes",
+        "output_bytes",
+        "intermediate_bytes",
+    ):
         if name not in coefficients:
             continue
         coefficient = coefficients[name]
@@ -2688,6 +3514,38 @@ def cmd_bench_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_calibration_summary(args: argparse.Namespace) -> int:
+    """Summarize synthetic calibration JSONL records."""
+    records = calibration_records_from_paths(args.calibration)
+    summarize_calibration_records(records, args.compact_layouts)
+    return 0
+
+
+def cmd_calibration_fit(args: argparse.Namespace) -> int:
+    """Fit operation-cost seed coefficients from synthetic calibration rows."""
+    records = calibration_records_from_paths(args.calibration)
+    coefficients, stats = fit_calibration_coefficients(records, args.ridge)
+    if not args.allow_negative:
+        coefficients = clamp_negative_coefficients(coefficients)
+    print("timing_objective=steady-state")
+    print("target=mean_apply_s")
+    print("model_source=calibration")
+    print("fit_features=" + ",".join(CALIBRATION_SEED_FEATURE_NAMES))
+    print_fit(coefficients, stats, include_graph_features=False)
+    if args.output_model is not None:
+        write_model(
+            args.output_model,
+            coefficients,
+            stats,
+            "steady-state",
+            graph_features=False,
+            ridge=args.ridge,
+            clamp_negative=not args.allow_negative,
+        )
+        print(f"model_path={args.output_model}")
+    return 0
+
+
 def cmd_dmrg_summary(args: argparse.Namespace) -> int:
     """Summarize live DMRG benchmark table rows."""
     thresholds = [int(item) for item in args.min_states.split(",") if item.strip()]
@@ -2763,7 +3621,7 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     if args.clamp_negative:
         coefficients = clamp_negative_coefficients(coefficients)
     print(f"timing_objective={args.timing_objective}")
-    print(f"target=matvec_s")
+    print(f"target=matvec_per_apply_s")
     print(f"model={args.model}")
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
@@ -2797,7 +3655,7 @@ def cmd_bench_validate(args: argparse.Namespace) -> int:
             structure_feature_names(args.structure_feature_set),
         )
     print(f"timing_objective={args.timing_objective}")
-    print(f"target=matvec_s")
+    print(f"target=matvec_per_apply_s")
     print(f"model={args.model}")
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
@@ -2934,7 +3792,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     best = ranked[0]
     best_layout = best["layout"]
     print(f"timing_objective={args.timing_objective}")
-    print(f"target=matvec_s")
+    print(f"target=matvec_per_apply_s")
     print(f"model={args.model}")
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
@@ -2964,7 +3822,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     print(f"candidate_layouts={len(ranked)}")
     if args.segmented_only:
         print(f"shape_extrapolation={str(bool(args.allow_shape_extrapolation)).lower()}")
-    print(f"predicted_matvec_s={float(best['score']):.9g}")
+    print(f"predicted_matvec_per_apply_s={float(best['score']):.9g}")
     print(f"observed_layout={str(bool(best['observed'])).lower()}")
     print(f"contiguous_layout={str(bool(best['contiguous'])).lower()}")
     print(f"byte_balanced_layout={str(bool(best['byte_balanced'])).lower()}")
@@ -2976,7 +3834,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
         print("warning=selected_layout_not_observed_in_benchmark")
     if args.top > 1:
         layout_column = "layout_summary" if args.compact_layouts else "layout"
-        print(f"top_rank predicted_matvec_s observed contiguous byte_balanced {layout_column}")
+        print(f"top_rank predicted_matvec_per_apply_s observed contiguous byte_balanced {layout_column}")
         for rank, row in enumerate(ranked[: args.top], start=1):
             print(
                 f"{rank} {float(row['score']):.9g} {str(bool(row['observed'])).lower()} "
@@ -2985,7 +3843,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             )
     if args.show_structure:
         print(
-            "structure_rank predicted_matvec_s right_max_gflop mixed_max_gflop b_peer_mb "
+            "structure_rank predicted_matvec_per_apply_s right_max_gflop mixed_max_gflop b_peer_mb "
             "b_peer_blocks b_cut_terms max_terms max_unique_bc max_output_mb segments transitions "
             "max_output_byte_fraction right_duplicate_groups mixed_duplicate_groups mixed_left_groups "
             "mixed_right_groups"
@@ -2998,7 +3856,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
                 score_structure_rows[key] = structure
             print(f"{rank} {float(row['score']):.9g} {format_layout_structure_columns(structure)}")
         if args.candidate_score == "monotonic-structure":
-            print("score_feature_rank predicted_matvec_s " + " ".join(structure_names))
+            print("score_feature_rank predicted_matvec_per_apply_s " + " ".join(structure_names))
             for rank, row in enumerate(ranked[: args.top], start=1):
                 key = tuple(row["layout"])
                 structure = score_structure_rows.get(key)
@@ -3039,7 +3897,7 @@ def cmd_bench_tune(args: argparse.Namespace) -> int:
         reverse=True,
     )
     print(f"timing_objective={args.timing_objective}")
-    print(f"target=matvec_s")
+    print(f"target=matvec_per_apply_s")
     print(f"model={args.model}")
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
@@ -3345,6 +4203,141 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ilp_suggest(args: argparse.Namespace) -> int:
+    """Fit a model and solve the grouped right-first placement MILP."""
+    records = trace_records(args)
+    problem = trace_problem(records, term_records_for_args(args, records))
+    if args.device_count is not None:
+        if args.device_count <= 0:
+            raise ValueError("--device-count must be positive")
+        problem = dict(problem)
+        problem["device_count"] = args.device_count
+
+    model: dict[str, Any] | None = read_model(args.model) if args.model is not None else None
+    if model is not None and (args.benchmark or args.calibration):
+        raise ValueError("--model is mutually exclusive with --benchmark and --calibration for ilp-suggest")
+    max_layout_segments = args.max_layout_segments
+    if model is None:
+        timing_objective = args.timing_objective
+        graph_features = False
+        include_env_bytes = include_environment_bytes(args)
+        calibration_coefficients: dict[str, float] | None = None
+        calibration_stats: dict[str, float] | None = None
+        if args.calibration:
+            calibration_records = calibration_records_from_paths(args.calibration)
+            calibration_coefficients, calibration_stats = fit_calibration_coefficients(
+                calibration_records, args.calibration_ridge
+            )
+            if not args.allow_negative:
+                calibration_coefficients = clamp_negative_coefficients(calibration_coefficients)
+        if args.benchmark:
+            benchmark_records = benchmark_records_from_paths(args.benchmark)
+            benchmark_records = filter_benchmark_records_by_layout(
+                benchmark_records, problem, args.benchmark_layout_filter
+            )
+            if max_layout_segments is None and not args.allow_shape_extrapolation:
+                max_layout_segments = max(
+                    int(layout_shape_features(problem, benchmark_layout(record, problem))["layout_segments"])
+                    for record in benchmark_records
+                )
+            coefficients, stats = fit_ilp_benchmark_coefficients(
+                benchmark_records,
+                problem,
+                args.ridge,
+                include_env_bytes,
+                calibration_prior_coefficients(calibration_coefficients) if calibration_coefficients is not None else None,
+                args.calibration_prior_weight if calibration_coefficients is not None else 0.0,
+            )
+            model_source = "benchmark+calibration_prior" if calibration_coefficients is not None else "benchmark"
+        elif calibration_coefficients is not None and calibration_stats is not None:
+            coefficients = calibration_coefficients
+            stats = calibration_stats
+            model_source = "calibration"
+        else:
+            coefficients, stats = fit_coefficients(records, args.ridge, include_env_bytes, graph_features, problem)
+            model_source = "fit"
+        if not args.allow_negative:
+            coefficients = clamp_negative_coefficients(coefficients)
+    else:
+        timing_objective = str(model["timing_objective"])
+        graph_features = bool(model["graph_features"])
+        if graph_features:
+            raise ValueError("ilp-suggest does not yet support graph-feature model files")
+        include_env_bytes = include_environment_bytes_for_objective(timing_objective)
+        coefficients = dict(model["coefficients"])
+        stats = {str(name): float(value) for name, value in model.get("stats", {}).items()}
+        model_source = str(args.model)
+
+    result = solve_grouped_right_first_ilp(
+        problem,
+        coefficients,
+        include_env_bytes,
+        args.time_limit,
+        args.mip_rel_gap,
+        max_layout_segments,
+        not args.no_symmetry_break,
+    )
+    layout = result["layout"]
+    observed_keys = {tuple(item) for item in observed_layouts(records)}
+    if int(problem["block_count"]) >= int(problem["device_count"]):
+        contiguous_keys = {
+            tuple(item)
+            for _, item in contiguous_range_layouts(int(problem["block_count"]), int(problem["device_count"]))
+        }
+    else:
+        contiguous_keys = set()
+    byte_balanced_key = tuple(byte_balanced_layout(problem))
+
+    print(f"timing_objective={timing_objective}")
+    print("graph_features=false")
+    print(f"model_source={model_source}")
+    if args.benchmark:
+        print("target=matvec_per_apply_s")
+        print(f"benchmark_layout_filter={args.benchmark_layout_filter}")
+    print(
+        "max_layout_segments="
+        + ("none" if max_layout_segments is None else str(max_layout_segments))
+    )
+    if args.calibration:
+        print("calibration_target=mean_apply_s")
+        print("calibration_fit_features=" + ",".join(CALIBRATION_SEED_FEATURE_NAMES))
+        print(f"calibration_prior_weight={args.calibration_prior_weight:.9g}")
+    print_fit_for_names(coefficients, stats, ilp_feature_names())
+    print("search=ilp")
+    print("solver=scipy.optimize.milp")
+    print(f"milp_success={str(bool(result['success'])).lower()}")
+    print(f"milp_status={result['status']}")
+    print(f"milp_message={result['message']}")
+    print(f"milp_variables={result['variables']}")
+    print(f"milp_constraints={result['constraints']}")
+    print(f"symmetry_break={result['symmetry_break']}")
+    print(f"milp_objective_s={float(result['objective']):.9g}")
+    if result["mip_dual_bound"] is not None:
+        print(f"milp_dual_bound_s={float(result['mip_dual_bound']):.9g}")
+    if result["mip_gap"] is not None:
+        print(f"milp_gap={float(result['mip_gap']):.9g}")
+    if result["mip_node_count"] is not None:
+        print(f"milp_node_count={int(result['mip_node_count'])}")
+    print(f"predicted_gpu_s={float(result['score']):.9g}")
+    print("predicted_device_gpu_s=" + ",".join(f"{value:.9g}" for value in result["device_scores"]))
+    print(f"observed_layout={str(tuple(layout) in observed_keys).lower()}")
+    print(f"contiguous_layout={str(tuple(layout) in contiguous_keys).lower()}")
+    print(f"byte_balanced_layout={str(tuple(layout) == byte_balanced_key).lower()}")
+    if args.compact_layouts:
+        print("layout_summary=" + compact_layout_string(layout))
+        print("env_layout_omitted=true")
+        print("env_layout_note=rerun_without_compact_layouts_for_full_manual_environment_value")
+    else:
+        print("layout=" + layout_string(layout))
+        print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual \\")
+        print("    UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=" + layout_string(layout))
+    if abs(float(result["objective"]) - float(result["score"])) > 1.0e-7 * max(1.0, abs(float(result["score"]))):
+        print("warning=milp_objective_differs_from_rescored_layout")
+    if not result["success"]:
+        print("warning=milp_solver_did_not_prove_optimality")
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
     root = argparse.ArgumentParser(description=__doc__)
@@ -3425,6 +4418,24 @@ def parser() -> argparse.ArgumentParser:
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )
     bench_summary.set_defaults(func=cmd_bench_summary)
+
+    calibration_summary = subcommands.add_parser(
+        "calibration-summary", help="summarize synthetic calibration JSONL records"
+    )
+    calibration_summary.add_argument("calibration", nargs="+", type=Path, help="calibration JSONL file(s)")
+    calibration_summary.add_argument(
+        "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
+    )
+    calibration_summary.set_defaults(func=cmd_calibration_summary)
+
+    calibration_fit = subcommands.add_parser(
+        "calibration-fit", help="fit operation-cost coefficients from synthetic calibration rows"
+    )
+    calibration_fit.add_argument("calibration", nargs="+", type=Path, help="calibration JSONL file(s)")
+    calibration_fit.add_argument("--ridge", type=float, default=1.0e-9)
+    calibration_fit.add_argument("--allow-negative", action="store_true")
+    calibration_fit.add_argument("--output-model", type=Path, help="write fitted calibration model JSON")
+    calibration_fit.set_defaults(func=cmd_calibration_fit)
 
     dmrg_summary = subcommands.add_parser("dmrg-summary", help="summarize live DMRG MP_BENCHFILE rows")
     dmrg_summary.add_argument("benchfile", nargs="+", type=Path, help="live DMRG MP_BENCHFILE table(s)")
@@ -3703,6 +4714,69 @@ def parser() -> argparse.ArgumentParser:
     add_graph_features(suggest)
     add_term_trace(suggest)
     suggest.set_defaults(func=cmd_suggest)
+
+    ilp_suggest = subcommands.add_parser("ilp-suggest", help="solve the grouped right-first layout MILP")
+    ilp_suggest.add_argument("trace", type=Path)
+    ilp_suggest.add_argument("--model", type=Path, help="use a previously saved model JSON instead of fitting this trace")
+    ilp_suggest.add_argument(
+        "--benchmark",
+        nargs="+",
+        type=Path,
+        help="fit MILP-compatible coefficients from no-trace replay benchmark JSONL instead of trace GPU timing",
+    )
+    ilp_suggest.add_argument(
+        "--calibration",
+        nargs="+",
+        type=Path,
+        help=(
+            "fit synthetic calibration coefficients; with --benchmark these become a ridge prior, otherwise they "
+            "are used directly"
+        ),
+    )
+    ilp_suggest.add_argument(
+        "--benchmark-layout-filter",
+        choices=("all", "contiguous"),
+        default="all",
+        help="restrict benchmark rows used for --benchmark fitting",
+    )
+    ilp_suggest.add_argument("--ridge", type=float, default=1.0e-9)
+    ilp_suggest.add_argument("--calibration-ridge", type=float, default=1.0e-9)
+    ilp_suggest.add_argument(
+        "--calibration-prior-weight",
+        type=float,
+        default=1.0e-3,
+        help="ridge weight used to pull --benchmark fitting toward --calibration coefficients",
+    )
+    ilp_suggest.add_argument("--drop-first-per-layout", type=int, default=0)
+    ilp_suggest.add_argument("--allow-negative", action="store_true")
+    ilp_suggest.add_argument(
+        "--device-count",
+        type=int,
+        help="override the term-trace device count when solving the placement problem",
+    )
+    ilp_suggest.add_argument("--time-limit", type=float, help="optional SciPy/HiGHS MILP time limit in seconds")
+    ilp_suggest.add_argument("--mip-rel-gap", type=float, help="optional relative MIP gap target")
+    ilp_suggest.add_argument(
+        "--max-layout-segments",
+        type=int,
+        help="cap the number of contiguous owner segments in the solved layout",
+    )
+    ilp_suggest.add_argument(
+        "--allow-shape-extrapolation",
+        action="store_true",
+        help="do not cap layout segments to the segment counts observed in --benchmark rows",
+    )
+    ilp_suggest.add_argument(
+        "--no-symmetry-break",
+        action="store_true",
+        help="do not pin block 0 to device 0; useful when explicitly studying equivalent device permutations",
+    )
+    ilp_suggest.add_argument(
+        "--compact-layouts", action="store_true", help="print a compact layout summary instead of full placement"
+    )
+    add_timing_objective(ilp_suggest)
+    add_term_trace(ilp_suggest)
+    ilp_suggest.set_defaults(func=cmd_ilp_suggest)
 
     validate = subcommands.add_parser("validate", help="leave-one-layout-out model validation")
     validate.add_argument("trace", type=Path)

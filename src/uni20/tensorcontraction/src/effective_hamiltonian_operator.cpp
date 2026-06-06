@@ -2,7 +2,6 @@
 #include <uni20/tensorcontraction/rabc_lanczos_fixture.hpp>
 #include <uni20/tensorcontraction/vector_algebra.hpp>
 
-#include "Arranger.hpp"
 #include "Swapper.hpp"
 #include "Utils.h"
 
@@ -57,6 +56,54 @@ struct ResidentOutputPlacementCache
     std::vector<int> output_devices;
 };
 
+struct ResidentRabcContext
+{
+    struct FirstStageProductPlan
+    {
+        int device_id = 0;
+        std::size_t b = 0;
+        std::size_t c = 0;
+        tensor::Matrix matrix;
+    };
+
+    struct LocalPartialInput
+    {
+        std::size_t first_stage_product = 0;
+        double coefficient = 1.0;
+    };
+
+    struct LocalPartialPlan
+    {
+        int device_id = 0;
+        std::vector<LocalPartialInput> inputs;
+        std::optional<tensor::Matrix> accumulation;
+    };
+
+    struct AssembledTemporaryPlan
+    {
+        std::size_t r = 0;
+        std::size_t a = 0;
+        std::vector<LocalPartialPlan> local_partials;
+        std::optional<tensor::Matrix> output_accumulation;
+    };
+
+    VariableFamily variable_family = VariableFamily::Right;
+    int device_count = 0;
+    std::size_t input_count = 0;
+    std::size_t output_count = 0;
+    std::size_t term_count = 0;
+    std::vector<int> input_devices;
+    std::vector<int> output_devices;
+    std::vector<FirstStageProductPlan> first_stage_products;
+    std::vector<AssembledTemporaryPlan> assembled_temporaries;
+    std::vector<tensor::Matrix> owned_mats;
+
+    [[nodiscard]] bool matches(VariableFamily variable, int current_device_count,
+                               std::span<int const> current_input_devices, std::span<int const> current_output_devices,
+                               std::size_t current_term_count) const;
+    void release(tensor::Swapper& swapper);
+};
+
 struct EffectiveHamiltonianOperator::Impl
 {
     MatrixFamily r_mats;
@@ -68,8 +115,8 @@ struct EffectiveHamiltonianOperator::Impl
     std::vector<Term> terms;
     VariableFamily variable_family = VariableFamily::Right;
     std::unique_ptr<tensor::Swapper> swapper;
-    std::unique_ptr<tensor::Arranger> arranger;
     ResidentOutputPlacementCache output_placement_cache;
+    std::unique_ptr<ResidentRabcContext> resident_context;
     bool is_compiled = false;
 
     Impl(MatrixFamily a, MatrixFamily b, std::span<MatrixFamily::Block const> input,
@@ -90,9 +137,47 @@ struct EffectiveHamiltonianOperator::Impl
       initialize_runtime();
     }
 
+    ~Impl();
     void initialize_runtime();
-    [[nodiscard]] bool host_backend() const { return arranger == nullptr; }
+    ResidentRabcContext& ensure_resident_context(std::span<tensor::Matrix const> r_mats,
+                                                 std::span<tensor::Matrix const> a_raw_mats,
+                                                 std::span<tensor::Matrix const> b_raw_mats,
+                                                 std::span<tensor::Matrix const> c_raw_mats, MatrixFamily const& c_mats,
+                                                 tensor::Swapper& swapper);
+    [[nodiscard]] bool host_backend() const { return swapper == nullptr; }
 };
+
+bool ResidentRabcContext::matches(VariableFamily variable, int current_device_count,
+                                  std::span<int const> current_input_devices,
+                                  std::span<int const> current_output_devices, std::size_t current_term_count) const
+{
+  return variable_family == variable && device_count == current_device_count && device_count > 0 &&
+         current_input_devices.size() == input_count && current_output_devices.size() == output_count &&
+         current_term_count == term_count &&
+         std::equal(input_devices.begin(), input_devices.end(), current_input_devices.begin(),
+                    current_input_devices.end()) &&
+         std::equal(output_devices.begin(), output_devices.end(), current_output_devices.begin(),
+                    current_output_devices.end());
+}
+
+void ResidentRabcContext::release(tensor::Swapper& swapper)
+{
+  for (auto const& matrix : owned_mats)
+  {
+    swapper.clear(matrix);
+  }
+  owned_mats.clear();
+  first_stage_products.clear();
+  assembled_temporaries.clear();
+}
+
+EffectiveHamiltonianOperator::Impl::~Impl()
+{
+  if (resident_context != nullptr && swapper != nullptr)
+  {
+    resident_context->release(*swapper);
+  }
+}
 
 namespace
 {
@@ -109,24 +194,21 @@ int checked_index(std::size_t value)
   return static_cast<int>(value);
 }
 
+int checked_blas_vector_size(std::size_t value)
+{
+  if (value > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::length_error("TensorContraction BLAS vector length must fit in int");
+  }
+  return static_cast<int>(value);
+}
+
 void validate_index(std::size_t index, std::size_t size, char family)
 {
   if (index >= size)
   {
     throw std::out_of_range(std::string("TensorContraction term references missing ") + family + " block");
   }
-}
-
-std::vector<tensor::TermTy> convert_terms(std::span<EffectiveHamiltonianOperator::Term const> terms)
-{
-  std::vector<tensor::TermTy> converted;
-  converted.reserve(terms.size());
-  for (auto const& term : terms)
-  {
-    converted.emplace_back(checked_index(term.r), checked_index(term.a), checked_index(term.b), checked_index(term.c),
-                           term.coefficient);
-  }
-  return converted;
 }
 
 void validate_term_shapes(MatrixFamily const& r_mats, MatrixFamily const& a_mats, MatrixFamily const& b_mats,
@@ -415,6 +497,237 @@ std::vector<int> default_byte_balanced_devices(std::span<tensor::Matrix const> m
   return devices;
 }
 
+std::size_t matrix_element_count(std::span<tensor::Matrix const> mats, std::size_t begin, std::size_t end)
+{
+  std::size_t count = 0;
+  for (std::size_t index = begin; index < end; ++index)
+  {
+    count += mats[index].size();
+  }
+  return count;
+}
+
+std::size_t matrix_element_offset(std::span<tensor::Matrix const> mats, std::size_t end)
+{
+  return matrix_element_count(mats, 0, end);
+}
+
+std::size_t matrix_byte_count(std::span<tensor::Matrix const> mats)
+{
+  std::size_t count = 0;
+  for (auto const& mat : mats)
+  {
+    count += mat.sizeInByte();
+  }
+  return count;
+}
+
+std::vector<tensor::Matrix> matrix_range(std::span<tensor::Matrix const> mats, ResidentOutputPlacementRange range)
+{
+  return {mats.begin() + static_cast<std::ptrdiff_t>(range.begin),
+          mats.begin() + static_cast<std::ptrdiff_t>(range.end)};
+}
+
+std::span<double const> const_value_range(std::span<double const> values, std::span<tensor::Matrix const> mats,
+                                          ResidentOutputPlacementRange range)
+{
+  auto const offset = matrix_element_offset(mats, range.begin);
+  auto const count = matrix_element_count(mats, range.begin, range.end);
+  return values.subspan(offset, count);
+}
+
+std::span<double> value_range(std::span<double> values, std::span<tensor::Matrix const> mats,
+                              ResidentOutputPlacementRange range)
+{
+  auto const offset = matrix_element_offset(mats, range.begin);
+  auto const count = matrix_element_count(mats, range.begin, range.end);
+  return values.subspan(offset, count);
+}
+
+bool localize_rabc_range(tensor::Swapper& swapper, std::span<tensor::Matrix const> mats, std::span<double const> values,
+                         ResidentOutputPlacementRange range, bool upload_from_host, bool refresh_existing)
+{
+  auto const group = matrix_range(mats, range);
+  auto const group_values = const_value_range(values, mats, range);
+  bool const any_existing = swapper.anyPreStoreBuffer(group);
+  auto const existing_device = swapper.commonPreStoreDevice(group);
+
+  if (!any_existing)
+  {
+    if (upload_from_host)
+    {
+      swapper.uploadHostMatricesCoalesced(group, group_values, range.device);
+    }
+    else
+    {
+      swapper.registerGpuAllocationsCoalesced(group, range.device);
+    }
+    return true;
+  }
+
+  if (!existing_device.has_value() || *existing_device != range.device ||
+      !swapper.preStoreBuffersAreCoalesced(group, range.device))
+  {
+    return false;
+  }
+
+  if (upload_from_host && refresh_existing)
+  {
+    return swapper.refreshHostMatricesToDeviceCoalesced(group, group_values, range.device);
+  }
+  return true;
+}
+
+void localize_rabc_individual(tensor::Swapper& swapper, std::span<tensor::Matrix const> mats, bool upload_from_host,
+                              bool refresh_existing)
+{
+  auto const device_count = swapper.getDeviceCount();
+  std::vector<std::size_t> bytes_per_device(static_cast<std::size_t>(device_count), 0);
+  for (auto const& mat : mats)
+  {
+    auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(mat);
+    if (buffer != nullptr)
+    {
+      if (upload_from_host && refresh_existing)
+      {
+        swapper.refreshHostMatrixToDevice(mat.hostView());
+      }
+      continue;
+    }
+
+    auto const device =
+        static_cast<int>(std::min_element(bytes_per_device.begin(), bytes_per_device.end()) - bytes_per_device.begin());
+    if (upload_from_host)
+    {
+      swapper.uploadHostMatrix(mat.hostView(), device);
+    }
+    else
+    {
+      swapper.registerGpuAllocation(mat, device);
+    }
+    bytes_per_device[static_cast<std::size_t>(device)] += mat.sizeInByte();
+  }
+}
+
+void localize_rabc_family(tensor::Swapper& swapper, std::span<tensor::Matrix const> mats,
+                          std::span<double const> values, bool upload_from_host, bool refresh_existing)
+{
+  swapper.initMemPools();
+  if (mats.empty())
+  {
+    return;
+  }
+
+  auto const total_bytes = matrix_byte_count(mats);
+  if (total_bytes == values.size_bytes())
+  {
+    auto const ranges = default_byte_balanced_ranges(mats, swapper.getDeviceCount());
+    bool localized = true;
+    for (auto const range : ranges)
+    {
+      if (!localize_rabc_range(swapper, mats, values, range, upload_from_host, refresh_existing))
+      {
+        localized = false;
+        break;
+      }
+    }
+    if (localized)
+    {
+      CUDA_CALL(cudaSetDevice(0));
+      return;
+    }
+  }
+
+  localize_rabc_individual(swapper, mats, upload_from_host, refresh_existing);
+  CUDA_CALL(cudaSetDevice(0));
+}
+
+bool synchronize_rabc_range_to_host(tensor::Swapper& swapper, std::span<tensor::Matrix const> mats,
+                                    std::span<double> values, ResidentOutputPlacementRange range,
+                                    std::vector<bool>& touched)
+{
+  auto const group = matrix_range(mats, range);
+  if (!swapper.downloadDeviceMatricesToHostCoalesced(group, value_range(values, mats, range)))
+  {
+    return false;
+  }
+  auto const device = swapper.commonPreStoreDevice(group);
+  if (device.has_value())
+  {
+    touched[static_cast<std::size_t>(*device)] = true;
+  }
+  return true;
+}
+
+void synchronize_rabc_family_to_host(tensor::Swapper& swapper, std::span<tensor::Matrix const> mats,
+                                     std::span<double> values)
+{
+  swapper.initMemPools();
+  auto const device_count = swapper.getDeviceCount();
+  std::vector<bool> touched(static_cast<std::size_t>(device_count), false);
+  auto const total_bytes = matrix_byte_count(mats);
+
+  if (!mats.empty() && total_bytes == values.size_bytes())
+  {
+    auto const all_mats = matrix_range(mats, ResidentOutputPlacementRange{.device = 0, .begin = 0, .end = mats.size()});
+    if (swapper.downloadDeviceMatricesToHostCoalesced(all_mats, values))
+    {
+      if (auto const device = swapper.commonPreStoreDevice(all_mats); device.has_value())
+      {
+        touched[static_cast<std::size_t>(*device)] = true;
+      }
+    }
+    else
+    {
+      bool synchronized = true;
+      for (auto const range : default_byte_balanced_ranges(mats, device_count))
+      {
+        if (!synchronize_rabc_range_to_host(swapper, mats, values, range, touched))
+        {
+          synchronized = false;
+          break;
+        }
+      }
+      if (!synchronized)
+      {
+        std::fill(touched.begin(), touched.end(), false);
+        for (auto const& mat : mats)
+        {
+          auto const [device, buffer] = swapper.getPreStoreBufferOrNone(mat);
+          if (buffer == nullptr)
+          {
+            continue;
+          }
+          swapper.downloadDeviceToHost(mat.hostView());
+          touched[static_cast<std::size_t>(device)] = true;
+        }
+      }
+    }
+  }
+  else
+  {
+    for (auto const& mat : mats)
+    {
+      auto const [device, buffer] = swapper.getPreStoreBufferOrNone(mat);
+      if (buffer == nullptr)
+      {
+        continue;
+      }
+      swapper.downloadDeviceToHost(mat.hostView());
+      touched[static_cast<std::size_t>(device)] = true;
+    }
+  }
+
+  for (int device = 0; device < device_count; ++device)
+  {
+    if (touched[static_cast<std::size_t>(device)])
+    {
+      swapper.syncMemStream(device, "rabc_sync_to_host");
+    }
+  }
+  CUDA_CALL(cudaSetDevice(0));
+}
+
 bool devices_match_default(std::span<int const> devices, std::span<tensor::Matrix const> mats, int device_count)
 {
   auto const defaults = default_byte_balanced_devices(mats, device_count);
@@ -456,15 +769,38 @@ struct RabcDeviceCostFeatures
     std::size_t unique_a = 0;
     std::size_t unique_b = 0;
     std::size_t unique_c = 0;
+    std::size_t bc_gemms = 0;
+    std::size_t final_gemms = 0;
+    std::size_t direct_final_gemms = 0;
+    std::size_t accumulation_groups = 0;
+    std::size_t accumulation_terms = 0;
+    std::size_t source_accumulation_groups = 0;
+    std::size_t source_accumulation_terms = 0;
+    std::size_t output_accumulation_groups = 0;
+    std::size_t output_accumulation_terms = 0;
+    std::size_t source_axpys = 0;
+    std::size_t output_axpys = 0;
+    std::size_t zero_fills = 0;
+    std::size_t intermediate_matrices = 0;
+    std::size_t temporary_matrices = 0;
+    std::size_t temporary_peer_requests = 0;
+    std::size_t temporary_peer_copies = 0;
     double bc_flops = 0.0;
     double accumulate_flops = 0.0;
+    double temporary_accumulate_flops = 0.0;
     std::size_t b_local_bytes = 0;
     std::size_t b_peer_bytes = 0;
+    std::size_t temporary_peer_request_bytes = 0;
     std::size_t temporary_peer_bytes = 0;
     std::size_t a_bytes = 0;
     std::size_t c_bytes = 0;
     std::size_t output_bytes = 0;
     std::size_t intermediate_bytes = 0;
+    double intermediate_gemm_enqueue_s = 0.0;
+    double final_gemm_enqueue_s = 0.0;
+    double source_accumulation_enqueue_s = 0.0;
+    double output_accumulation_enqueue_s = 0.0;
+    double zero_fill_enqueue_s = 0.0;
 };
 
 struct RabcCostFeatures
@@ -472,6 +808,22 @@ struct RabcCostFeatures
     std::vector<int> input_devices;
     std::vector<int> output_devices;
     std::vector<RabcDeviceCostFeatures> devices;
+};
+
+struct RabcExecutionStats
+{
+    std::vector<RabcDeviceCostFeatures> devices;
+
+    void reset(int device_count)
+    {
+      devices.assign(static_cast<std::size_t>(device_count), RabcDeviceCostFeatures{});
+      for (int device = 0; device < device_count; ++device)
+      {
+        devices[static_cast<std::size_t>(device)].device = device;
+      }
+    }
+
+    [[nodiscard]] RabcDeviceCostFeatures& device(int device_id) { return devices[static_cast<std::size_t>(device_id)]; }
 };
 
 std::vector<int> resident_devices_for(tensor::Swapper& swapper, std::span<tensor::Matrix const> mats)
@@ -486,6 +838,204 @@ std::vector<int> resident_devices_for(tensor::Swapper& swapper, std::span<tensor
   return devices;
 }
 
+struct RightFirstIntermediateKey
+{
+    int device_id = 0;
+    int b = 0;
+    int c = 0;
+
+    auto operator<=>(RightFirstIntermediateKey const&) const = default;
+};
+
+struct RightFirstAccumulationKey
+{
+    int r = 0;
+    int a = 0;
+
+    auto operator<=>(RightFirstAccumulationKey const&) const = default;
+};
+
+struct TemporaryMigrationKey
+{
+    char kind = 'Y';
+    int source_device = 0;
+    int target_device = 0;
+    int first = 0;
+    int second = 0;
+
+    auto operator<=>(TemporaryMigrationKey const&) const = default;
+};
+
+struct RightFirstTermWork
+{
+    EffectiveHamiltonianOperator::Term const* term = nullptr;
+    RightFirstIntermediateKey intermediate;
+};
+
+auto right_first_work_by_accumulation(std::span<EffectiveHamiltonianOperator::Term const> terms,
+                                      std::span<int const> input_devices)
+    -> std::map<RightFirstAccumulationKey, std::vector<RightFirstTermWork>>
+{
+  std::map<RightFirstAccumulationKey, std::vector<RightFirstTermWork>> groups;
+  for (auto const& term : terms)
+  {
+    RightFirstAccumulationKey const key{.r = checked_index(term.r), .a = checked_index(term.a)};
+    groups[key].push_back(RightFirstTermWork{
+        .term = &term,
+        .intermediate = RightFirstIntermediateKey{
+            .device_id = input_devices[term.b], .b = checked_index(term.b), .c = checked_index(term.c)}});
+  }
+  return groups;
+}
+
+auto combine_accumulation_inputs(std::span<RightFirstTermWork const> terms)
+    -> std::vector<std::pair<RightFirstIntermediateKey, double>>
+{
+  std::map<RightFirstIntermediateKey, double> coefficients;
+  for (auto const& work : terms)
+  {
+    coefficients[work.intermediate] += work.term->coefficient;
+  }
+
+  std::vector<std::pair<RightFirstIntermediateKey, double>> result;
+  result.reserve(coefficients.size());
+  for (auto const& [key, coefficient] : coefficients)
+  {
+    if (coefficient != 0.0)
+    {
+      result.emplace_back(key, coefficient);
+    }
+  }
+  return result;
+}
+
+auto make_temporary_matrix(std::size_t rows, std::size_t cols) -> tensor::Matrix
+{
+  return tensor::Matrix(nullptr, checked_index(rows), checked_index(cols));
+}
+
+auto make_resident_rabc_context(VariableFamily variable_family, std::span<tensor::Matrix const> r_mats,
+                                std::span<tensor::Matrix const> b_raw_mats, MatrixFamily const& c_mats,
+                                std::span<EffectiveHamiltonianOperator::Term const> terms,
+                                tensor::Swapper& swapper) -> std::unique_ptr<ResidentRabcContext>
+{
+  auto context = std::make_unique<ResidentRabcContext>();
+  context->variable_family = variable_family;
+  context->device_count = swapper.getDeviceCount();
+  context->input_count = b_raw_mats.size();
+  context->output_count = r_mats.size();
+  context->term_count = terms.size();
+  context->input_devices = resident_devices_for(swapper, b_raw_mats);
+  context->output_devices = resident_devices_for(swapper, r_mats);
+
+  auto const groups = right_first_work_by_accumulation(terms, context->input_devices);
+  std::map<RightFirstIntermediateKey, std::size_t> intermediate_indices;
+  for (auto const& [_, group_terms] : groups)
+  {
+    for (auto const& work : group_terms)
+    {
+      if (intermediate_indices.contains(work.intermediate))
+      {
+        continue;
+      }
+
+      auto const& b_mat = b_raw_mats[static_cast<std::size_t>(work.intermediate.b)];
+      auto const c_block = c_mats.block(static_cast<std::size_t>(work.intermediate.c));
+      auto intermediate = make_temporary_matrix(b_mat.getFirstDim(), c_block.cols);
+      swapper.registerGpuAllocation(intermediate, work.intermediate.device_id);
+      auto const index = context->first_stage_products.size();
+      intermediate_indices.emplace(work.intermediate, index);
+      context->first_stage_products.push_back(ResidentRabcContext::FirstStageProductPlan{
+          .device_id = work.intermediate.device_id,
+          .b = static_cast<std::size_t>(work.intermediate.b),
+          .c = static_cast<std::size_t>(work.intermediate.c),
+          .matrix = intermediate,
+      });
+      context->owned_mats.push_back(intermediate);
+    }
+  }
+
+  for (auto const& [key, group_terms] : groups)
+  {
+    auto combined =
+        combine_accumulation_inputs(std::span<RightFirstTermWork const>(group_terms.data(), group_terms.size()));
+    if (combined.empty())
+    {
+      continue;
+    }
+
+    ResidentRabcContext::AssembledTemporaryPlan plan;
+    plan.r = static_cast<std::size_t>(key.r);
+    plan.a = static_cast<std::size_t>(key.a);
+
+    std::map<int, std::vector<std::pair<RightFirstIntermediateKey, double>>> source_groups;
+    for (auto const& input : combined)
+    {
+      source_groups[input.first.device_id].push_back(input);
+    }
+
+    for (auto const& [source_device, source_inputs] : source_groups)
+    {
+      ResidentRabcContext::LocalPartialPlan source_plan;
+      source_plan.device_id = source_device;
+      source_plan.inputs.reserve(source_inputs.size());
+      for (auto const& [intermediate_key, coefficient] : source_inputs)
+      {
+        source_plan.inputs.push_back(ResidentRabcContext::LocalPartialInput{
+            .first_stage_product = intermediate_indices.at(intermediate_key),
+            .coefficient = coefficient,
+        });
+      }
+      if (source_plan.inputs.size() > 1)
+      {
+        auto const& source_matrix =
+            context->first_stage_products[source_plan.inputs.front().first_stage_product].matrix;
+        auto q_matrix = make_temporary_matrix(source_matrix.getFirstDim(), source_matrix.getSecondDim());
+        swapper.registerGpuAllocation(q_matrix, source_device);
+        source_plan.accumulation = q_matrix;
+        context->owned_mats.push_back(q_matrix);
+      }
+      plan.local_partials.push_back(std::move(source_plan));
+    }
+
+    if (plan.local_partials.size() > 1)
+    {
+      auto const first_intermediate = plan.local_partials.front().inputs.front().first_stage_product;
+      auto const& source_matrix = context->first_stage_products[first_intermediate].matrix;
+      auto const target_device = context->output_devices.at(plan.r);
+      auto q_matrix = make_temporary_matrix(source_matrix.getFirstDim(), source_matrix.getSecondDim());
+      swapper.registerGpuAllocation(q_matrix, target_device);
+      plan.output_accumulation = q_matrix;
+      context->owned_mats.push_back(q_matrix);
+    }
+
+    context->assembled_temporaries.push_back(std::move(plan));
+  }
+
+  return context;
+}
+
+void stage_right_first_dependencies(ResidentRabcContext const& context, std::span<tensor::Matrix const> a_raw_mats,
+                                    std::span<tensor::Matrix const> c_raw_mats,
+                                    std::span<EffectiveHamiltonianOperator::Term const> terms, tensor::Swapper& swapper)
+{
+  std::set<std::pair<std::size_t, int>> staged_c;
+  std::set<std::pair<std::size_t, int>> staged_a;
+  for (auto const& term : terms)
+  {
+    auto const first_device = context.input_devices.at(term.b);
+    auto const output_device = context.output_devices.at(term.r);
+    if (staged_c.emplace(term.c, first_device).second)
+    {
+      static_cast<void>(swapper.ensureLocalCopy(c_raw_mats[term.c], first_device));
+    }
+    if (staged_a.emplace(term.a, output_device).second)
+    {
+      static_cast<void>(swapper.ensureLocalCopy(a_raw_mats[term.a], output_device));
+    }
+  }
+}
+
 RabcCostFeatures rabc_cost_features(MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
                                     std::span<tensor::Matrix const> r_raw_mats,
                                     std::span<tensor::Matrix const> b_raw_mats,
@@ -498,6 +1048,7 @@ RabcCostFeatures rabc_cost_features(MatrixFamily const& a_mats, MatrixFamily con
   features.devices.resize(static_cast<std::size_t>(device_count));
   std::vector<std::set<BcUseKey>> staged_bc(static_cast<std::size_t>(device_count));
   std::vector<std::set<MatrixUseKey>> staged_mats(static_cast<std::size_t>(device_count));
+  std::set<TemporaryMigrationKey> migrated_temporaries;
 
   for (int device = 0; device < device_count; ++device)
   {
@@ -523,26 +1074,20 @@ RabcCostFeatures rabc_cost_features(MatrixFamily const& a_mats, MatrixFamily con
     auto const output_device_index = static_cast<std::size_t>(output_device);
     auto& first_features = features.devices[first_device_index];
     auto& output_features = features.devices[output_device_index];
-    ++first_features.terms;
+    ++output_features.terms;
 
     BcUseKey const bc{.b = term.b, .c = term.c};
     if (staged_bc[first_device_index].insert(bc).second)
     {
       auto const b = b_mats.block(term.b);
       auto const c = c_mats.block(term.c);
+      ++first_features.bc_gemms;
+      ++first_features.intermediate_matrices;
       first_features.bc_flops += gemm_flops(b, c);
       first_features.intermediate_bytes += b.rows * c.cols * sizeof(double);
     }
 
     auto const a = a_mats.block(term.a);
-    auto const b = b_mats.block(term.b);
-    auto const c = c_mats.block(term.c);
-    auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
-    output_features.accumulate_flops += gemm_flops(a, intermediate);
-    if (first_device != output_device)
-    {
-      output_features.temporary_peer_bytes += intermediate.rows * intermediate.cols * sizeof(double);
-    }
 
     MatrixUseKey const b_key{.family = 'B', .index = term.b};
     if (staged_mats[first_device_index].insert(b_key).second)
@@ -561,8 +1106,137 @@ RabcCostFeatures rabc_cost_features(MatrixFamily const& a_mats, MatrixFamily con
     MatrixUseKey const c_key{.family = 'C', .index = term.c};
     if (staged_mats[first_device_index].insert(c_key).second)
     {
+      auto const c = c_mats.block(term.c);
       ++first_features.unique_c;
       first_features.c_bytes += c.rows * c.cols * sizeof(double);
+    }
+  }
+
+  auto groups = right_first_work_by_accumulation(terms, features.input_devices);
+  for (auto const& [key, group_terms] : groups)
+  {
+    if (group_terms.empty())
+    {
+      continue;
+    }
+
+    int const output_device = features.output_devices[static_cast<std::size_t>(key.r)];
+    auto& output_features = features.devices[static_cast<std::size_t>(output_device)];
+    auto combined =
+        combine_accumulation_inputs(std::span<RightFirstTermWork const>(group_terms.data(), group_terms.size()));
+    if (combined.empty())
+    {
+      continue;
+    }
+
+    auto const a = a_mats.block(static_cast<std::size_t>(key.a));
+    auto const first_intermediate = combined.front().first;
+    auto const b = b_mats.block(static_cast<std::size_t>(first_intermediate.b));
+    auto const c = c_mats.block(static_cast<std::size_t>(first_intermediate.c));
+    auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+    ++output_features.final_gemms;
+    output_features.accumulate_flops += gemm_flops(a, intermediate);
+    struct FeaturePartial
+    {
+        int device_id = 0;
+        std::size_t bytes = 0;
+        TemporaryMigrationKey migration_key;
+    };
+
+    std::map<int, std::vector<std::pair<RightFirstIntermediateKey, double>>> source_groups;
+    for (auto const& input : combined)
+    {
+      source_groups[input.first.device_id].push_back(input);
+    }
+
+    std::vector<FeaturePartial> partials;
+    partials.reserve(source_groups.size());
+    for (auto const& [source_device, source_inputs] : source_groups)
+    {
+      if (source_inputs.size() == 1)
+      {
+        auto const& intermediate_key = source_inputs.front().first;
+        auto const source_b = b_mats.block(static_cast<std::size_t>(intermediate_key.b));
+        auto const source_c = c_mats.block(static_cast<std::size_t>(intermediate_key.c));
+        auto const bytes = source_b.rows * source_c.cols * sizeof(double);
+        partials.push_back(FeaturePartial{
+            .device_id = source_device,
+            .bytes = bytes,
+            .migration_key =
+                TemporaryMigrationKey{
+                    .kind = 'Y',
+                    .source_device = source_device,
+                    .target_device = output_device,
+                    .first = intermediate_key.b,
+                    .second = intermediate_key.c,
+                },
+        });
+        continue;
+      }
+
+      auto& source_features = features.devices[static_cast<std::size_t>(source_device)];
+      ++source_features.accumulation_groups;
+      ++source_features.source_accumulation_groups;
+      source_features.accumulation_terms += source_inputs.size();
+      source_features.source_accumulation_terms += source_inputs.size();
+      source_features.source_axpys += source_inputs.size();
+      ++source_features.zero_fills;
+      ++source_features.temporary_matrices;
+      std::size_t source_bytes = 0;
+      for (auto const& [intermediate_key, coefficient] : source_inputs)
+      {
+        static_cast<void>(coefficient);
+        auto const source_b = b_mats.block(static_cast<std::size_t>(intermediate_key.b));
+        auto const source_c = c_mats.block(static_cast<std::size_t>(intermediate_key.c));
+        source_bytes = source_b.rows * source_c.cols * sizeof(double);
+        source_features.temporary_accumulate_flops += 2.0 * static_cast<double>(source_bytes / sizeof(double));
+      }
+      partials.push_back(FeaturePartial{
+          .device_id = source_device,
+          .bytes = source_bytes,
+          .migration_key =
+              TemporaryMigrationKey{
+                  .kind = 'Q',
+                  .source_device = source_device,
+                  .target_device = output_device,
+                  .first = key.r,
+                  .second = key.a,
+              },
+      });
+    }
+
+    if (partials.size() == 1)
+    {
+      ++output_features.direct_final_gemms;
+    }
+    else
+    {
+      ++output_features.accumulation_groups;
+      ++output_features.output_accumulation_groups;
+      output_features.accumulation_terms += partials.size();
+      output_features.output_accumulation_terms += partials.size();
+      output_features.output_axpys += partials.size();
+      ++output_features.zero_fills;
+      ++output_features.temporary_matrices;
+      for (auto const& partial : partials)
+      {
+        output_features.temporary_accumulate_flops += 2.0 * static_cast<double>(partial.bytes / sizeof(double));
+      }
+    }
+
+    for (auto const& partial : partials)
+    {
+      if (partial.device_id == output_device)
+      {
+        continue;
+      }
+      ++output_features.temporary_peer_requests;
+      output_features.temporary_peer_request_bytes += partial.bytes;
+      if (migrated_temporaries.insert(partial.migration_key).second)
+      {
+        ++output_features.temporary_peer_copies;
+        output_features.temporary_peer_bytes += partial.bytes;
+      }
     }
   }
 
@@ -598,16 +1272,38 @@ std::string json_device_features(std::span<RabcDeviceCostFeatures const> feature
     {
       result += ',';
     }
-    result += fmt::format("{{\"device\":{},\"input_blocks\":{},\"output_blocks\":{},\"terms\":{},"
-                          "\"unique_bc\":{},\"unique_a\":{},\"unique_b\":{},\"unique_c\":{},"
-                          "\"bc_flops\":{:.17g},\"accumulate_flops\":{:.17g},"
-                          "\"b_local_bytes\":{},\"b_peer_bytes\":{},\"temporary_peer_bytes\":{},"
-                          "\"a_bytes\":{},\"c_bytes\":{},"
-                          "\"output_bytes\":{},\"intermediate_bytes\":{}}}",
-                          item.device, item.input_blocks, item.output_blocks, item.terms, item.unique_bc, item.unique_a,
-                          item.unique_b, item.unique_c, item.bc_flops, item.accumulate_flops, item.b_local_bytes,
-                          item.b_peer_bytes, item.temporary_peer_bytes, item.a_bytes, item.c_bytes, item.output_bytes,
-                          item.intermediate_bytes);
+    result += fmt::format(
+        "{{\"device\":{},\"input_blocks\":{},\"output_blocks\":{},\"terms\":{},"
+        "\"unique_bc\":{},\"unique_a\":{},\"unique_b\":{},\"unique_c\":{},"
+        "\"bc_gemms\":{},"
+        "\"final_gemms\":{},\"direct_final_gemms\":{},"
+        "\"accumulation_groups\":{},\"accumulation_terms\":{},"
+        "\"source_accumulation_groups\":{},\"source_accumulation_terms\":{},"
+        "\"output_accumulation_groups\":{},\"output_accumulation_terms\":{},"
+        "\"source_axpys\":{},\"output_axpys\":{},\"zero_fills\":{},"
+        "\"intermediate_matrices\":{},\"temporary_matrices\":{},"
+        "\"temporary_peer_requests\":{},\"temporary_peer_copies\":{},"
+        "\"bc_flops\":{:.17g},\"accumulate_flops\":{:.17g},"
+        "\"temporary_accumulate_flops\":{:.17g},"
+        "\"b_local_bytes\":{},\"b_peer_bytes\":{},"
+        "\"temporary_peer_request_bytes\":{},\"temporary_peer_bytes\":{},"
+        "\"a_bytes\":{},\"c_bytes\":{},"
+        "\"output_bytes\":{},\"intermediate_bytes\":{},"
+        "\"intermediate_gemm_enqueue_s\":{:.17g},"
+        "\"final_gemm_enqueue_s\":{:.17g},"
+        "\"source_accumulation_enqueue_s\":{:.17g},"
+        "\"output_accumulation_enqueue_s\":{:.17g},"
+        "\"zero_fill_enqueue_s\":{:.17g}}}",
+        item.device, item.input_blocks, item.output_blocks, item.terms, item.unique_bc, item.unique_a, item.unique_b,
+        item.unique_c, item.bc_gemms, item.final_gemms, item.direct_final_gemms, item.accumulation_groups,
+        item.accumulation_terms, item.source_accumulation_groups, item.source_accumulation_terms,
+        item.output_accumulation_groups, item.output_accumulation_terms, item.source_axpys, item.output_axpys,
+        item.zero_fills, item.intermediate_matrices, item.temporary_matrices, item.temporary_peer_requests,
+        item.temporary_peer_copies, item.bc_flops, item.accumulate_flops, item.temporary_accumulate_flops,
+        item.b_local_bytes, item.b_peer_bytes, item.temporary_peer_request_bytes, item.temporary_peer_bytes,
+        item.a_bytes, item.c_bytes, item.output_bytes, item.intermediate_bytes, item.intermediate_gemm_enqueue_s,
+        item.final_gemm_enqueue_s, item.source_accumulation_enqueue_s, item.output_accumulation_enqueue_s,
+        item.zero_fill_enqueue_s);
   }
   result += ']';
   return result;
@@ -696,6 +1392,45 @@ double max_gpu_seconds(std::span<RabcTraceDeviceTiming const> timings)
   return result;
 }
 
+std::uint64_t counter_delta(std::uint64_t stop, std::uint64_t start) { return stop >= start ? stop - start : 0; }
+
+tensor::Swapper::RuntimeCounters subtract_runtime_counters(tensor::Swapper::RuntimeCounters const& stop,
+                                                           tensor::Swapper::RuntimeCounters const& start)
+{
+  return tensor::Swapper::RuntimeCounters{
+      .h2dCopies = counter_delta(stop.h2dCopies, start.h2dCopies),
+      .h2dBytes = counter_delta(stop.h2dBytes, start.h2dBytes),
+      .d2hCopies = counter_delta(stop.d2hCopies, start.d2hCopies),
+      .d2hBytes = counter_delta(stop.d2hBytes, start.d2hBytes),
+      .d2dCopies = counter_delta(stop.d2dCopies, start.d2dCopies),
+      .d2dBytes = counter_delta(stop.d2dBytes, start.d2dBytes),
+      .peerCopies = counter_delta(stop.peerCopies, start.peerCopies),
+      .peerBytes = counter_delta(stop.peerBytes, start.peerBytes),
+      .ensureLocalPeerCopies = counter_delta(stop.ensureLocalPeerCopies, start.ensureLocalPeerCopies),
+      .ensureLocalPeerBytes = counter_delta(stop.ensureLocalPeerBytes, start.ensureLocalPeerBytes),
+      .preStoreRelocateD2dCopies = counter_delta(stop.preStoreRelocateD2dCopies, start.preStoreRelocateD2dCopies),
+      .preStoreRelocateD2dBytes = counter_delta(stop.preStoreRelocateD2dBytes, start.preStoreRelocateD2dBytes),
+      .preStoreRelocatePeerCopies = counter_delta(stop.preStoreRelocatePeerCopies, start.preStoreRelocatePeerCopies),
+      .preStoreRelocatePeerBytes = counter_delta(stop.preStoreRelocatePeerBytes, start.preStoreRelocatePeerBytes),
+      .syncBufferPeerCopies = counter_delta(stop.syncBufferPeerCopies, start.syncBufferPeerCopies),
+      .syncBufferPeerBytes = counter_delta(stop.syncBufferPeerBytes, start.syncBufferPeerBytes),
+      .cudaEventCreate = counter_delta(stop.cudaEventCreate, start.cudaEventCreate),
+      .cudaEventRecord = counter_delta(stop.cudaEventRecord, start.cudaEventRecord),
+      .cudaEventWait = counter_delta(stop.cudaEventWait, start.cudaEventWait),
+      .cudaEventQuery = counter_delta(stop.cudaEventQuery, start.cudaEventQuery),
+      .cudaEventDestroy = counter_delta(stop.cudaEventDestroy, start.cudaEventDestroy),
+      .cudaStreamSync = counter_delta(stop.cudaStreamSync, start.cudaStreamSync),
+      .cudaAsyncFree = counter_delta(stop.cudaAsyncFree, start.cudaAsyncFree),
+      .cudaAsyncFreeReclaim = counter_delta(stop.cudaAsyncFreeReclaim, start.cudaAsyncFreeReclaim),
+      .cudaAsyncFreePoll = counter_delta(stop.cudaAsyncFreePoll, start.cudaAsyncFreePoll),
+      .cudaPoolCacheHit = counter_delta(stop.cudaPoolCacheHit, start.cudaPoolCacheHit),
+      .cudaPoolCacheMiss = counter_delta(stop.cudaPoolCacheMiss, start.cudaPoolCacheMiss),
+      .cudaPoolCacheStore = counter_delta(stop.cudaPoolCacheStore, start.cudaPoolCacheStore),
+      .cudaPoolCacheBypass = counter_delta(stop.cudaPoolCacheBypass, start.cudaPoolCacheBypass),
+      .cudaPoolCacheRelease = counter_delta(stop.cudaPoolCacheRelease, start.cudaPoolCacheRelease),
+  };
+}
+
 std::string json_device_timings(std::span<RabcTraceDeviceTiming const> timings)
 {
   std::string result = "[";
@@ -711,11 +1446,36 @@ std::string json_device_timings(std::span<RabcTraceDeviceTiming const> timings)
   return result;
 }
 
+std::string json_runtime_counters(tensor::Swapper::RuntimeCounters const& counters)
+{
+  return fmt::format(
+      "{{\"h2d_copies\":{},\"h2d_bytes\":{},\"d2h_copies\":{},\"d2h_bytes\":{},"
+      "\"d2d_copies\":{},\"d2d_bytes\":{},\"peer_copies\":{},\"peer_bytes\":{},"
+      "\"ensure_local_peer_copies\":{},\"ensure_local_peer_bytes\":{},"
+      "\"pre_store_relocate_d2d_copies\":{},\"pre_store_relocate_d2d_bytes\":{},"
+      "\"pre_store_relocate_peer_copies\":{},\"pre_store_relocate_peer_bytes\":{},"
+      "\"sync_buffer_peer_copies\":{},\"sync_buffer_peer_bytes\":{},"
+      "\"cuda_event_create\":{},\"cuda_event_record\":{},\"cuda_event_wait\":{},"
+      "\"cuda_event_query\":{},\"cuda_event_destroy\":{},\"cuda_stream_sync\":{},"
+      "\"cuda_async_free\":{},\"cuda_async_free_reclaim\":{},\"cuda_async_free_poll\":{},"
+      "\"cuda_pool_cache_hit\":{},\"cuda_pool_cache_miss\":{},\"cuda_pool_cache_store\":{},"
+      "\"cuda_pool_cache_bypass\":{},\"cuda_pool_cache_release\":{}}}",
+      counters.h2dCopies, counters.h2dBytes, counters.d2hCopies, counters.d2hBytes, counters.d2dCopies,
+      counters.d2dBytes, counters.peerCopies, counters.peerBytes, counters.ensureLocalPeerCopies,
+      counters.ensureLocalPeerBytes, counters.preStoreRelocateD2dCopies, counters.preStoreRelocateD2dBytes,
+      counters.preStoreRelocatePeerCopies, counters.preStoreRelocatePeerBytes, counters.syncBufferPeerCopies,
+      counters.syncBufferPeerBytes, counters.cudaEventCreate, counters.cudaEventRecord, counters.cudaEventWait,
+      counters.cudaEventQuery, counters.cudaEventDestroy, counters.cudaStreamSync, counters.cudaAsyncFree,
+      counters.cudaAsyncFreeReclaim, counters.cudaAsyncFreePoll, counters.cudaPoolCacheHit, counters.cudaPoolCacheMiss,
+      counters.cudaPoolCacheStore, counters.cudaPoolCacheBypass, counters.cudaPoolCacheRelease);
+}
+
 void write_rabc_trace(std::uint64_t index, std::string const& policy, RabcCostFeatures const& features,
-                      MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
-                      std::span<tensor::Matrix const> r_raw_mats,
+                      RabcExecutionStats const& execution_stats, MatrixFamily const& a_mats, MatrixFamily const& b_mats,
+                      MatrixFamily const& c_mats, std::span<tensor::Matrix const> r_raw_mats,
                       std::span<EffectiveHamiltonianOperator::Term const> terms, double enqueue_seconds,
-                      double sync_seconds, double wall_seconds, std::span<RabcTraceDeviceTiming const> timings)
+                      double sync_seconds, double wall_seconds, std::span<RabcTraceDeviceTiming const> timings,
+                      tensor::Swapper::RuntimeCounters const& runtime_counters)
 {
   auto const path = optional_env_string("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH");
   if (!path.has_value())
@@ -734,11 +1494,12 @@ void write_rabc_trace(std::uint64_t index, std::string const& policy, RabcCostFe
              "\"block_count\":{},\"output_shape_signature\":\"{}\",\"term_count\":{},\"enqueue_s\":{:.17g},"
              "\"sync_s\":{:.17g},"
              "\"wall_s\":{:.17g},\"gpu_s\":{:.17g},\"input_layout\":{},\"output_layout\":{},"
-             "\"device_timings\":{},\"devices\":{}",
+             "\"device_timings\":{},\"devices\":{},\"execution_devices\":{},\"runtime_counters\":{}",
              index, policy, features.devices.size(), features.output_devices.size(), output_shape_signature(r_raw_mats),
              terms.size(), enqueue_seconds, sync_seconds, wall_seconds, max_gpu_seconds(timings),
              json_int_array(features.input_devices), json_int_array(features.output_devices),
-             json_device_timings(timings), json_device_features(features.devices));
+             json_device_timings(timings), json_device_features(features.devices),
+             json_device_features(execution_stats.devices), json_runtime_counters(runtime_counters));
   if (rabc_trace_terms_enabled())
   {
     fmt::print(file, ",\"terms\":[");
@@ -981,16 +1742,137 @@ auto require_buffer_on(tensor::Swapper& swapper, tensor::Matrix mat,
   return buffer;
 }
 
-void zero_device_matrix(tensor::Swapper& swapper, tensor::Matrix mat, int device_id)
+enum class RabcGemmStage
 {
+  Intermediate,
+  Final,
+};
+
+enum class RabcAxpyStage
+{
+  SourceAccumulation,
+  OutputAccumulation,
+};
+
+enum class RabcTimedStage
+{
+  IntermediateGemm,
+  FinalGemm,
+  SourceAccumulation,
+  OutputAccumulation,
+  ZeroFill,
+};
+
+void add_enqueue_seconds(RabcExecutionStats* stats, int device_id, RabcTimedStage stage, double seconds)
+{
+  if (stats == nullptr)
+  {
+    return;
+  }
+
+  auto& device_stats = stats->device(device_id);
+  switch (stage)
+  {
+    case RabcTimedStage::IntermediateGemm:
+      device_stats.intermediate_gemm_enqueue_s += seconds;
+      break;
+    case RabcTimedStage::FinalGemm:
+      device_stats.final_gemm_enqueue_s += seconds;
+      break;
+    case RabcTimedStage::SourceAccumulation:
+      device_stats.source_accumulation_enqueue_s += seconds;
+      break;
+    case RabcTimedStage::OutputAccumulation:
+      device_stats.output_accumulation_enqueue_s += seconds;
+      break;
+    case RabcTimedStage::ZeroFill:
+      device_stats.zero_fill_enqueue_s += seconds;
+      break;
+  }
+}
+
+class RabcEnqueueTimer {
+  public:
+    RabcEnqueueTimer(RabcExecutionStats* stats, int device_id, RabcTimedStage stage)
+        : stats_(stats), device_id_(device_id), stage_(stage)
+    {
+      if (stats_ != nullptr)
+      {
+        start_ = std::chrono::steady_clock::now();
+      }
+    }
+
+    RabcEnqueueTimer(RabcEnqueueTimer const&) = delete;
+    RabcEnqueueTimer& operator=(RabcEnqueueTimer const&) = delete;
+
+    ~RabcEnqueueTimer()
+    {
+      if (stats_ == nullptr)
+      {
+        return;
+      }
+      auto const stop = std::chrono::steady_clock::now();
+      add_enqueue_seconds(stats_, device_id_, stage_, std::chrono::duration<double>(stop - start_).count());
+    }
+
+  private:
+    RabcExecutionStats* stats_ = nullptr;
+    int device_id_ = 0;
+    RabcTimedStage stage_ = RabcTimedStage::IntermediateGemm;
+    std::chrono::steady_clock::time_point start_;
+};
+
+void note_temporary_peer_access(RabcExecutionStats* stats, tensor::Swapper& swapper, tensor::Matrix mat,
+                                int source_device, int target_device)
+{
+  if (stats == nullptr || source_device == target_device)
+  {
+    return;
+  }
+
+  auto& device_stats = stats->device(target_device);
+  ++device_stats.temporary_peer_requests;
+  device_stats.temporary_peer_request_bytes += mat.sizeInByte();
+
+  auto target_buffer = swapper.getGpuBufferOrNone(mat, target_device);
+  if (target_buffer == nullptr || !target_buffer->contentValid())
+  {
+    ++device_stats.temporary_peer_copies;
+    device_stats.temporary_peer_bytes += mat.sizeInByte();
+  }
+}
+
+void zero_device_matrix(tensor::Swapper& swapper, tensor::Matrix mat, int device_id, RabcExecutionStats* stats)
+{
+  if (stats != nullptr)
+  {
+    ++stats->device(device_id).zero_fills;
+  }
+  RabcEnqueueTimer const timer(stats, device_id, RabcTimedStage::ZeroFill);
   auto buffer = require_buffer_on(swapper, mat, device_id);
   auto access = swapper.createAccessPlan({}, {buffer}, device_id);
   CUDA_CALL(cudaMemsetAsync(buffer->getPtr(), 0, mat.sizeInByte(), access.stream()));
 }
 
 void gemm_device_matrix(tensor::Swapper& swapper, tensor::Matrix result, tensor::Matrix lhs, tensor::Matrix rhs,
-                        double alpha, double beta, int device_id)
+                        double alpha, double beta, int device_id, RabcGemmStage stage, RabcExecutionStats* stats)
 {
+  if (stats != nullptr)
+  {
+    auto& device_stats = stats->device(device_id);
+    switch (stage)
+    {
+      case RabcGemmStage::Intermediate:
+        ++device_stats.bc_gemms;
+        break;
+      case RabcGemmStage::Final:
+        ++device_stats.final_gemms;
+        break;
+    }
+  }
+  RabcEnqueueTimer const timer(stats, device_id,
+                               stage == RabcGemmStage::Intermediate ? RabcTimedStage::IntermediateGemm
+                                                                    : RabcTimedStage::FinalGemm);
   auto lhs_buffer = swapper.ensureLocalCopy(lhs, device_id);
   auto rhs_buffer = swapper.ensureLocalCopy(rhs, device_id);
   auto result_buffer = require_buffer_on(swapper, result, device_id);
@@ -1001,86 +1883,180 @@ void gemm_device_matrix(tensor::Swapper& swapper, tensor::Matrix result, tensor:
                           lhs.getSecondDim(), &beta, result_buffer->getPtr(), result.getSecondDim()));
 }
 
-struct RightFirstIntermediateKey
+void axpy_device_matrix(tensor::Swapper& swapper, double alpha, tensor::Matrix source, tensor::Matrix target,
+                        int device_id, RabcAxpyStage stage, RabcExecutionStats* stats)
+{
+  if (source.getFirstDim() != target.getFirstDim() || source.getSecondDim() != target.getSecondDim())
+  {
+    throw std::logic_error("TensorContraction deterministic RABC executor attempted to accumulate mismatched blocks");
+  }
+
+  if (stats != nullptr)
+  {
+    auto& device_stats = stats->device(device_id);
+    switch (stage)
+    {
+      case RabcAxpyStage::SourceAccumulation:
+        ++device_stats.source_axpys;
+        break;
+      case RabcAxpyStage::OutputAccumulation:
+        ++device_stats.output_axpys;
+        break;
+    }
+  }
+  RabcEnqueueTimer const timer(stats, device_id,
+                               stage == RabcAxpyStage::SourceAccumulation ? RabcTimedStage::SourceAccumulation
+                                                                          : RabcTimedStage::OutputAccumulation);
+  auto source_buffer = swapper.ensureLocalCopy(source, device_id);
+  auto target_buffer = require_buffer_on(swapper, target, device_id);
+  auto access = swapper.createBlasAccessPlan({source_buffer}, {target_buffer}, device_id);
+  CUBLAS_CALL(cublasDaxpy(access.handle(), checked_blas_vector_size(source.size()), &alpha, source_buffer->getPtr(), 1,
+                          target_buffer->getPtr(), 1));
+}
+
+struct RightFirstPartial
 {
     int device_id = 0;
-    int b = 0;
-    int c = 0;
-
-    auto operator<=>(RightFirstIntermediateKey const&) const = default;
-};
-
-struct RightFirstIntermediate
-{
     tensor::Matrix matrix;
+    double coefficient = 1.0;
 };
 
-void deterministic_input_anchored_right_first_apply(std::span<tensor::Matrix const> r_mats,
-                                                    std::span<tensor::Matrix const> a_mats,
-                                                    std::span<tensor::Matrix const> b_mats,
-                                                    std::span<tensor::Matrix const> c_mats,
-                                                    std::span<EffectiveHamiltonianOperator::Term const> terms,
-                                                    tensor::Swapper& swapper)
+void apply_resident_rabc_context(ResidentRabcContext& context, std::span<tensor::Matrix const> r_mats,
+                                 std::span<tensor::Matrix const> a_mats, std::span<tensor::Matrix const> b_mats,
+                                 std::span<tensor::Matrix const> c_mats, tensor::Swapper& swapper,
+                                 RabcExecutionStats* stats)
 {
-  std::vector<int> r_devices(r_mats.size(), 0);
-  std::vector<int> b_devices(b_mats.size(), 0);
-  std::vector<bool> r_written(r_mats.size(), false);
-  for (std::size_t r = 0; r < r_mats.size(); ++r)
+  if (stats != nullptr)
   {
-    r_devices[r] = output_device_for(swapper, r_mats[r]);
-  }
-  for (std::size_t b = 0; b < b_mats.size(); ++b)
-  {
-    b_devices[b] = input_device_for(swapper, b_mats[b]);
+    stats->reset(swapper.getDeviceCount());
   }
 
-  std::map<RightFirstIntermediateKey, RightFirstIntermediate> intermediates;
-  for (auto const& term : terms)
+  for (auto const& first_stage_product : context.first_stage_products)
   {
-    auto const target_device = r_devices.at(term.r);
-    auto const first_device = b_devices.at(term.b);
-    auto const& b_mat = b_mats[term.b];
-    auto const& c_mat = c_mats[term.c];
-    RightFirstIntermediateKey const key{
-        .device_id = first_device, .b = checked_index(term.b), .c = checked_index(term.c)};
-    auto [intermediate_it, inserted] = intermediates.try_emplace(key);
-    if (inserted)
+    if (stats != nullptr)
     {
-      auto intermediate =
-          tensor::Matrix(nullptr, checked_index(b_mat.getFirstDim()), checked_index(c_mat.getSecondDim()));
-      swapper.registerGpuAllocation(intermediate, first_device);
-      gemm_device_matrix(swapper, intermediate, b_mat, c_mat, 1.0, 0.0, first_device);
-      intermediate_it->second.matrix = intermediate;
+      ++stats->device(first_stage_product.device_id).intermediate_matrices;
+    }
+    gemm_device_matrix(swapper, first_stage_product.matrix, b_mats[first_stage_product.b],
+                       c_mats[first_stage_product.c], 1.0, 0.0, first_stage_product.device_id,
+                       RabcGemmStage::Intermediate, stats);
+  }
+
+  std::vector<bool> r_written(r_mats.size(), false);
+  std::vector<RightFirstPartial> partials;
+  for (auto const& plan : context.assembled_temporaries)
+  {
+    auto const target_device = context.output_devices.at(plan.r);
+    auto const beta = r_written[plan.r] ? 1.0 : 0.0;
+    partials.clear();
+    partials.reserve(plan.local_partials.size());
+
+    for (auto const& local_partial : plan.local_partials)
+    {
+      if (!local_partial.accumulation.has_value())
+      {
+        auto const& input = local_partial.inputs.front();
+        auto const& first_stage_product = context.first_stage_products.at(input.first_stage_product);
+        partials.push_back(RightFirstPartial{
+            .device_id = local_partial.device_id,
+            .matrix = first_stage_product.matrix,
+            .coefficient = input.coefficient,
+        });
+        continue;
+      }
+
+      auto const& q_matrix = *local_partial.accumulation;
+      if (stats != nullptr)
+      {
+        auto& device_stats = stats->device(local_partial.device_id);
+        ++device_stats.temporary_matrices;
+        ++device_stats.accumulation_groups;
+        ++device_stats.source_accumulation_groups;
+        device_stats.accumulation_terms += local_partial.inputs.size();
+        device_stats.source_accumulation_terms += local_partial.inputs.size();
+      }
+      zero_device_matrix(swapper, q_matrix, local_partial.device_id, stats);
+      for (auto const& input : local_partial.inputs)
+      {
+        auto const& first_stage_product = context.first_stage_products.at(input.first_stage_product);
+        axpy_device_matrix(swapper, input.coefficient, first_stage_product.matrix, q_matrix, local_partial.device_id,
+                           RabcAxpyStage::SourceAccumulation, stats);
+      }
+      partials.push_back(
+          RightFirstPartial{.device_id = local_partial.device_id, .matrix = q_matrix, .coefficient = 1.0});
     }
 
-    // This is the initial input-anchored planner: right-first only.  The first
-    // GEMM runs where B_b lives, then the temporary is staged to R_r's owner for
-    // final accumulation.  A later cost model can choose left-first per term.
-    double const beta = r_written[static_cast<std::size_t>(term.r)] ? 1.0 : 0.0;
-    gemm_device_matrix(swapper, r_mats[term.r], a_mats[term.a], intermediate_it->second.matrix, term.coefficient, beta,
-                       target_device);
-    r_written[static_cast<std::size_t>(term.r)] = true;
+    if (!plan.output_accumulation.has_value())
+    {
+      auto const& partial = partials.front();
+      if (stats != nullptr)
+      {
+        ++stats->device(target_device).direct_final_gemms;
+      }
+      note_temporary_peer_access(stats, swapper, partial.matrix, partial.device_id, target_device);
+      gemm_device_matrix(swapper, r_mats[plan.r], a_mats[plan.a], partial.matrix, partial.coefficient, beta,
+                         target_device, RabcGemmStage::Final, stats);
+    }
+    else
+    {
+      auto const& q_matrix = *plan.output_accumulation;
+      if (stats != nullptr)
+      {
+        auto& device_stats = stats->device(target_device);
+        ++device_stats.temporary_matrices;
+        ++device_stats.accumulation_groups;
+        ++device_stats.output_accumulation_groups;
+        device_stats.accumulation_terms += partials.size();
+        device_stats.output_accumulation_terms += partials.size();
+      }
+      zero_device_matrix(swapper, q_matrix, target_device, stats);
+      for (auto const& partial : partials)
+      {
+        note_temporary_peer_access(stats, swapper, partial.matrix, partial.device_id, target_device);
+        axpy_device_matrix(swapper, partial.coefficient, partial.matrix, q_matrix, target_device,
+                           RabcAxpyStage::OutputAccumulation, stats);
+      }
+      gemm_device_matrix(swapper, r_mats[plan.r], a_mats[plan.a], q_matrix, 1.0, beta, target_device,
+                         RabcGemmStage::Final, stats);
+    }
+    r_written[plan.r] = true;
   }
 
   for (std::size_t r = 0; r < r_mats.size(); ++r)
   {
     if (!r_written[r])
     {
+      auto const device = context.output_devices.at(r);
       fmt::print(stderr,
                  "[TENSORCONTRACTION][RABC_WARNING] Output R block id={} shape={}x{} device={} received no "
                  "Hamiltonian terms; zeroing it explicitly.\n",
-                 r_mats[r].getId(), r_mats[r].getFirstDim(), r_mats[r].getSecondDim(), r_devices[r]);
-      zero_device_matrix(swapper, r_mats[r], r_devices[r]);
+                 r_mats[r].getId(), r_mats[r].getFirstDim(), r_mats[r].getSecondDim(), device);
+      zero_device_matrix(swapper, r_mats[r], device, stats);
     }
-  }
-
-  for (auto const& [_, intermediate] : intermediates)
-  {
-    swapper.clear(intermediate.matrix);
   }
 }
 
 } // namespace
+
+ResidentRabcContext& EffectiveHamiltonianOperator::Impl::ensure_resident_context(
+    std::span<tensor::Matrix const> r_mats, std::span<tensor::Matrix const> a_raw_mats,
+    std::span<tensor::Matrix const> b_raw_mats, std::span<tensor::Matrix const> c_raw_mats, MatrixFamily const& c_mats,
+    tensor::Swapper& swapper)
+{
+  auto const input_devices = resident_devices_for(swapper, b_raw_mats);
+  auto const output_devices = resident_devices_for(swapper, r_mats);
+  if (resident_context == nullptr || !resident_context->matches(variable_family, swapper.getDeviceCount(),
+                                                                input_devices, output_devices, terms.size()))
+  {
+    if (resident_context != nullptr)
+    {
+      resident_context->release(swapper);
+    }
+    resident_context = make_resident_rabc_context(variable_family, r_mats, b_raw_mats, c_mats, terms, swapper);
+  }
+  stage_right_first_dependencies(*resident_context, a_raw_mats, c_raw_mats, terms, swapper);
+  return *resident_context;
+}
 
 void EffectiveHamiltonianOperator::Impl::initialize_runtime()
 {
@@ -1089,7 +2065,6 @@ void EffectiveHamiltonianOperator::Impl::initialize_runtime()
     return;
   }
   swapper = std::make_unique<tensor::Swapper>();
-  arranger = std::make_unique<tensor::Arranger>(*swapper);
 }
 
 EffectiveHamiltonianOperator::EffectiveHamiltonianOperator(MatrixFamily a_mats, MatrixFamily b_mats,
@@ -1139,21 +2114,6 @@ void EffectiveHamiltonianOperator::compile()
   }
 
   validate_term_shapes(impl_->r_mats, impl_->a_mats, impl_->b_mats, impl_->c_mats, impl_->terms);
-  if (impl_->host_backend())
-  {
-    impl_->is_compiled = true;
-    return;
-  }
-
-  auto terms = convert_terms(impl_->terms);
-  auto const& r = raw_matrices(impl_->r_mats);
-  auto const& a = raw_matrices(impl_->a_mats);
-  auto const& b = raw_matrices(impl_->b_mats);
-  auto const& c = raw_matrices(impl_->c_mats);
-
-  impl_->arranger->resetWork();
-  impl_->arranger->analyzeComputation(r, a, b, c, terms);
-  impl_->arranger->compileWorklists(r, a, b, c, /*syncResultsToHost=*/true);
   impl_->is_compiled = true;
 }
 
@@ -1182,8 +2142,38 @@ void EffectiveHamiltonianOperator::apply(MatrixFamily const& x, MatrixFamily& y)
   }
   else
   {
-    impl_->arranger->doContraction(raw_matrices(impl_->r_mats), raw_matrices(impl_->a_mats),
-                                   raw_matrices(impl_->b_mats), raw_matrices(impl_->c_mats));
+    auto& swapper = *impl_->swapper;
+    auto const& r = raw_matrices(impl_->r_mats);
+    auto const& a = raw_matrices(impl_->a_mats);
+    auto const& b = raw_matrices(impl_->b_mats);
+    auto const& c = raw_matrices(impl_->c_mats);
+
+    localize_rabc_family(swapper, a, impl_->a_mats.coalesced_values(), /*upload_from_host=*/true,
+                         /*refresh_existing=*/false);
+    if (impl_->variable_family == VariableFamily::Middle)
+    {
+      localize_rabc_family(swapper, b, impl_->b_mats.coalesced_values(), /*upload_from_host=*/true,
+                           /*refresh_existing=*/true);
+      localize_rabc_family(swapper, c, impl_->c_mats.coalesced_values(), /*upload_from_host=*/true,
+                           /*refresh_existing=*/false);
+    }
+    else
+    {
+      localize_rabc_family(swapper, b, impl_->b_mats.coalesced_values(), /*upload_from_host=*/true,
+                           /*refresh_existing=*/false);
+      localize_rabc_family(swapper, c, impl_->c_mats.coalesced_values(), /*upload_from_host=*/true,
+                           /*refresh_existing=*/true);
+    }
+    bool const output_placement_selected = maybe_place_rabc_families(
+        b, r, impl_->b_mats, impl_->terms, impl_->variable_family, swapper, impl_->output_placement_cache);
+    if (!output_placement_selected)
+    {
+      localize_rabc_family(swapper, r, impl_->r_mats.coalesced_values(), /*upload_from_host=*/false,
+                           /*refresh_existing=*/false);
+    }
+    auto& context = impl_->ensure_resident_context(r, a, b, c, impl_->c_mats, swapper);
+    apply_resident_rabc_context(context, r, a, b, c, swapper, nullptr);
+    synchronize_rabc_family_to_host(swapper, r, impl_->r_mats.coalesced_values());
   }
   y.assign(impl_->r_mats);
 }
@@ -1199,11 +2189,13 @@ void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixF
     return;
   }
 
-  auto& arranger = algebra.resident_arranger();
+  auto& swapper = algebra.resident_swapper();
   auto const& r = raw_matrices(y);
   auto const& a = raw_matrices(impl_->a_mats);
-  auto const& b = impl_->variable_family == VariableFamily::Middle ? raw_matrices(x) : raw_matrices(impl_->b_mats);
-  auto const& c = impl_->variable_family == VariableFamily::Middle ? raw_matrices(impl_->c_mats) : raw_matrices(x);
+  auto const& b_family = impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats;
+  auto const& c_family = impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x;
+  auto const& b = raw_matrices(b_family);
+  auto const& c = raw_matrices(c_family);
 
   validate_term_shapes(y, impl_->a_mats, impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
                        impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x, impl_->terms);
@@ -1211,48 +2203,53 @@ void EffectiveHamiltonianOperator::apply_resident(MatrixFamily const& x, MatrixF
   // Static environments are host-authored but should not be refreshed during
   // every Krylov matvec.  The active Lanczos input/output vectors are already
   // resident in this same runtime.
-  arranger.localizeCoalescedForLinearAlgebra(a, impl_->a_mats.coalesced_values(), /*uploadFromHost=*/true,
-                                             /*refreshExisting=*/false);
+  localize_rabc_family(swapper, a, impl_->a_mats.coalesced_values(), /*upload_from_host=*/true,
+                       /*refresh_existing=*/false);
   if (impl_->variable_family == VariableFamily::Middle)
   {
-    arranger.localizeCoalescedForLinearAlgebra(c, impl_->c_mats.coalesced_values(), /*uploadFromHost=*/true,
-                                               /*refreshExisting=*/false);
+    localize_rabc_family(swapper, c, impl_->c_mats.coalesced_values(), /*upload_from_host=*/true,
+                         /*refresh_existing=*/false);
   }
   else
   {
-    arranger.localizeCoalescedForLinearAlgebra(b, impl_->b_mats.coalesced_values(), /*uploadFromHost=*/true,
-                                               /*refreshExisting=*/false);
+    localize_rabc_family(swapper, b, impl_->b_mats.coalesced_values(), /*upload_from_host=*/true,
+                         /*refresh_existing=*/false);
   }
-  arranger.localizeCoalescedForLinearAlgebra(raw_matrices(x), x.coalesced_values(), /*uploadFromHost=*/false);
-  auto& swapper = arranger.residentSwapper();
+  localize_rabc_family(swapper, raw_matrices(x), x.coalesced_values(), /*upload_from_host=*/false,
+                       /*refresh_existing=*/false);
   bool const output_placement_selected =
       maybe_place_rabc_families(b, r, impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
                                 impl_->terms, impl_->variable_family, swapper, impl_->output_placement_cache);
   if (!output_placement_selected)
   {
-    arranger.localizeCoalescedForLinearAlgebra(raw_matrices(y), y.coalesced_values(), /*uploadFromHost=*/false);
+    localize_rabc_family(swapper, raw_matrices(y), y.coalesced_values(), /*upload_from_host=*/false,
+                         /*refresh_existing=*/false);
   }
+  auto& context = impl_->ensure_resident_context(r, a, b, c, c_family, swapper);
 
   bool const trace_enabled = rabc_trace_enabled();
   auto trace_timings = trace_enabled ? start_rabc_trace_timing(swapper) : std::vector<RabcTraceDeviceTiming>{};
+  auto const runtime_counters_start = trace_enabled ? swapper.runtimeCounters() : tensor::Swapper::RuntimeCounters{};
+  RabcExecutionStats execution_stats;
   auto const trace_index = trace_enabled ? next_rabc_trace_index() : 0;
   auto const enqueue_start = std::chrono::steady_clock::now();
-  deterministic_input_anchored_right_first_apply(r, a, b, c, impl_->terms, swapper);
+  apply_resident_rabc_context(context, r, a, b, c, swapper, trace_enabled ? &execution_stats : nullptr);
   auto const enqueue_stop = std::chrono::steady_clock::now();
   if (trace_enabled)
   {
+    auto const runtime_counters = subtract_runtime_counters(swapper.runtimeCounters(), runtime_counters_start);
     stop_rabc_trace_timing(trace_timings);
     finish_rabc_trace_timing(trace_timings);
     auto const sync_stop = std::chrono::steady_clock::now();
     auto const features = rabc_cost_features(
         impl_->a_mats, impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
         impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x, r, b, impl_->terms, swapper);
-    write_rabc_trace(trace_index, rabc_placement_policy(), features, impl_->a_mats,
+    write_rabc_trace(trace_index, rabc_placement_policy(), features, execution_stats, impl_->a_mats,
                      impl_->variable_family == VariableFamily::Middle ? x : impl_->b_mats,
                      impl_->variable_family == VariableFamily::Middle ? impl_->c_mats : x, r, impl_->terms,
                      std::chrono::duration<double>(enqueue_stop - enqueue_start).count(),
                      std::chrono::duration<double>(sync_stop - enqueue_stop).count(),
-                     std::chrono::duration<double>(sync_stop - enqueue_start).count(), trace_timings);
+                     std::chrono::duration<double>(sync_stop - enqueue_start).count(), trace_timings, runtime_counters);
     destroy_rabc_trace_timing(trace_timings);
   }
 }

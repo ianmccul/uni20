@@ -2,6 +2,7 @@
 #include <cublas_v2.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -93,6 +94,42 @@ class GpuBuffer {
 };
 
 class Swapper {
+  public:
+    struct RuntimeCounters
+    {
+        std::uint64_t h2dCopies = 0;
+        std::uint64_t h2dBytes = 0;
+        std::uint64_t d2hCopies = 0;
+        std::uint64_t d2hBytes = 0;
+        std::uint64_t d2dCopies = 0;
+        std::uint64_t d2dBytes = 0;
+        std::uint64_t peerCopies = 0;
+        std::uint64_t peerBytes = 0;
+        std::uint64_t ensureLocalPeerCopies = 0;
+        std::uint64_t ensureLocalPeerBytes = 0;
+        std::uint64_t preStoreRelocateD2dCopies = 0;
+        std::uint64_t preStoreRelocateD2dBytes = 0;
+        std::uint64_t preStoreRelocatePeerCopies = 0;
+        std::uint64_t preStoreRelocatePeerBytes = 0;
+        std::uint64_t syncBufferPeerCopies = 0;
+        std::uint64_t syncBufferPeerBytes = 0;
+        std::uint64_t cudaEventCreate = 0;
+        std::uint64_t cudaEventRecord = 0;
+        std::uint64_t cudaEventWait = 0;
+        std::uint64_t cudaEventQuery = 0;
+        std::uint64_t cudaEventDestroy = 0;
+        std::uint64_t cudaStreamSync = 0;
+        std::uint64_t cudaAsyncFree = 0;
+        std::uint64_t cudaAsyncFreeReclaim = 0;
+        std::uint64_t cudaAsyncFreePoll = 0;
+        std::uint64_t cudaPoolCacheHit = 0;
+        std::uint64_t cudaPoolCacheMiss = 0;
+        std::uint64_t cudaPoolCacheStore = 0;
+        std::uint64_t cudaPoolCacheBypass = 0;
+        std::uint64_t cudaPoolCacheRelease = 0;
+    };
+
+  private:
     using MapType = std::unordered_map<int, std::shared_ptr<GpuBuffer>>;
     std::vector<MapType> hostToGpuMaps;
 
@@ -113,11 +150,14 @@ class Swapper {
     int deviceCount;
     bool serialCuda = false;
     bool dependencyEventsEnabled = true;
+    bool memoryPoolsInitialized = false;
     bool released = false;
+    RuntimeCounters runtimeCounters_;
 
     bool isPinned(int id, int deviceId);
     void freeBuffer(std::shared_ptr<GpuBuffer>, int deviceId);
     void destroyBufferEvents(std::shared_ptr<GpuBuffer> const& buffer);
+    void invalidateCopiesAfterWrite(std::shared_ptr<GpuBuffer> const& writer);
     std::vector<CudaDeviceContext::EventDependencyRef>
     collectBufferDependencies(std::shared_ptr<GpuBuffer> const& buffer) const;
 
@@ -257,6 +297,7 @@ class Swapper {
     bool dependencyEventsActive() const { return dependencyEventsEnabled; }
     CudaDeviceContext& deviceContext(int deviceId) { return *deviceContexts[deviceId]; }
     CudaDeviceContext const& deviceContext(int deviceId) const { return *deviceContexts[deviceId]; }
+    [[nodiscard]] RuntimeCounters runtimeCounters() const;
 
     void freeAllUnpinMatrices(int deviceId);
     void pinMatrix(Matrix mat, int deviceId);

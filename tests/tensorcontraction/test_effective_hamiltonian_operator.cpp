@@ -671,10 +671,15 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentTraceWritesCostF
 
   EXPECT_NE(line.find("\"kind\":\"rabc_matvec\""), std::string::npos);
   EXPECT_NE(line.find("\"gpu_s\":"), std::string::npos);
+  EXPECT_NE(line.find("\"execution_devices\":[{\"device\":0"), std::string::npos);
+  EXPECT_NE(line.find("\"runtime_counters\":{\"h2d_copies\":"), std::string::npos);
+  EXPECT_NE(line.find("\"peer_copies\":"), std::string::npos);
+  EXPECT_NE(line.find("\"cuda_event_record\":"), std::string::npos);
   EXPECT_NE(line.find("\"output_shape_signature\":\"" + output_shape_signature(output_blocks) + "\""),
             std::string::npos);
   EXPECT_NE(line.find("\"input_layout\":[0]"), std::string::npos);
   EXPECT_NE(line.find("\"output_layout\":[0]"), std::string::npos);
+  EXPECT_NE(line.find("\"bc_gemms\":1"), std::string::npos);
   EXPECT_NE(line.find("\"bc_flops\":2"), std::string::npos);
   EXPECT_NE(line.find("\"accumulate_flops\":2"), std::string::npos);
   EXPECT_NE(line.find("\"terms\":[{\"r\":0,\"a\":0,\"b\":0,\"c\":0"), std::string::npos);
@@ -682,6 +687,77 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentTraceWritesCostF
   EXPECT_NE(line.find("\"a_rows\":1,\"a_cols\":1"), std::string::npos);
   EXPECT_NE(line.find("\"b_rows\":1,\"b_cols\":1"), std::string::npos);
   EXPECT_NE(line.find("\"c_rows\":1,\"c_cols\":1"), std::string::npos);
+}
+
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentRightFirstDagGroupsCommonFinalGemms)
+{
+  if (visible_cuda_devices() < 1)
+  {
+    GTEST_SKIP() << "requires a visible CUDA device";
+  }
+
+  auto const trace_path = temporary_trace_path();
+  EnvGuard guard{
+      "UNI20_TENSORCONTRACTION_BACKEND",
+      "UNI20_TENSORCONTRACTION_DEVICES",
+      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
+      "UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS",
+  };
+  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+  setenv("UNI20_TENSORCONTRACTION_DEVICES", "1", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS", "1", 1);
+
+  auto a = make_family({{1, 1}});
+  auto c = make_family({{1, 1}});
+  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+  std::array output_blocks{utc::MatrixFamily::Block{1, 1}};
+  a.assign(0, std::array{2.0});
+  c.assign(0, std::array{3.0});
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.5},
+                   utc::EffectiveHamiltonianOperator::Term{0, 0, 1, 0, -0.5}};
+
+  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
+                                                               terms);
+  utc::VectorAlgebraEngine algebra;
+  if (algebra.uses_host_backend())
+  {
+    GTEST_SKIP() << "requires the TensorContraction resident CUDA backend";
+  }
+  algebra.set_host_synchronization(false);
+
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{5.0});
+  x.assign(1, std::array{7.0});
+  algebra.upload(x);
+
+  op.apply_resident(x, y, algebra);
+  algebra.synchronize(y);
+
+  EXPECT_DOUBLE_EQ(y.values(0)[0], 24.0);
+
+  std::ifstream input(trace_path);
+  ASSERT_TRUE(input.good());
+  std::string line;
+  std::getline(input, line);
+  std::filesystem::remove(trace_path);
+  SCOPED_TRACE(line);
+
+  EXPECT_NE(line.find("\"terms\":2"), std::string::npos);
+  EXPECT_NE(line.find("\"unique_bc\":2"), std::string::npos);
+  EXPECT_NE(line.find("\"final_gemms\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"direct_final_gemms\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"accumulation_groups\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"accumulation_terms\":2"), std::string::npos);
+  EXPECT_NE(line.find("\"source_accumulation_groups\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"source_accumulation_terms\":2"), std::string::npos);
+  EXPECT_NE(line.find("\"source_axpys\":2"), std::string::npos);
+  EXPECT_NE(line.find("\"zero_fills\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"temporary_matrices\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"bc_flops\":4"), std::string::npos);
+  EXPECT_NE(line.find("\"accumulate_flops\":2"), std::string::npos);
+  EXPECT_NE(line.find("\"temporary_accumulate_flops\":4"), std::string::npos);
 }
 
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, RejectsMismatchedInputOutputVectors)

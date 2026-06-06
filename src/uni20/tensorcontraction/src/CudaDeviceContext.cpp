@@ -779,6 +779,7 @@ void CudaDeviceContext::reclaimCompletedAsyncFrees()
   stillPending.reserve(pendingFrees_.size());
   for (auto& pending : pendingFrees_)
   {
+    ++counters_.eventQuery;
     cudaError_t status = cudaEventQuery(pending.completeEvent);
     if (status == cudaSuccess)
     {
@@ -798,6 +799,26 @@ void CudaDeviceContext::reclaimCompletedAsyncFrees()
     }
   }
   pendingFrees_ = std::move(stillPending);
+}
+
+CudaDeviceContext::RuntimeCounters CudaDeviceContext::runtimeCounters() const noexcept
+{
+  return RuntimeCounters{
+      .eventCreate = counters_.eventCreate,
+      .eventRecord = counters_.eventRecord,
+      .eventWait = counters_.eventWait,
+      .eventQuery = counters_.eventQuery,
+      .eventDestroy = counters_.eventDestroy,
+      .streamSync = counters_.streamSync,
+      .asyncFree = counters_.asyncFree,
+      .asyncFreeReclaim = counters_.asyncFreeReclaim,
+      .asyncFreePoll = counters_.asyncFreePoll,
+      .poolCacheHit = counters_.poolCacheHit,
+      .poolCacheMiss = counters_.poolCacheMiss,
+      .poolCacheStore = counters_.poolCacheStore,
+      .poolCacheBypass = counters_.poolCacheBypass,
+      .poolCacheRelease = counters_.poolCacheRelease,
+  };
 }
 
 void CudaDeviceContext::countStreamSync(const char* reason)
@@ -834,14 +855,14 @@ void CudaDeviceContext::printCounters() const
   std::fprintf(
       stderr,
       "[TENSORCONTRACTION][CUDA_COUNTERS] Device=%d EventCreate=%llu EventRecord=%llu EventWait=%llu "
-      "EventDestroy=%llu StreamSync=%llu EventPoolFree=%zu AsyncFree=%llu AsyncFreeReclaim=%llu "
+      "EventQuery=%llu EventDestroy=%llu StreamSync=%llu EventPoolFree=%zu AsyncFree=%llu AsyncFreeReclaim=%llu "
       "AsyncFreePoll=%llu PoolCacheHit=%llu PoolCacheMiss=%llu PoolCacheStore=%llu PoolCacheBypass=%llu "
       "PoolCacheRelease=%llu PoolCacheBytes=%zu PoolCachePeakBytes=%zu PoolCacheLimitBytes=%zu\n",
       deviceId_, static_cast<unsigned long long>(counters_.eventCreate),
       static_cast<unsigned long long>(counters_.eventRecord), static_cast<unsigned long long>(counters_.eventWait),
-      static_cast<unsigned long long>(counters_.eventDestroy), static_cast<unsigned long long>(counters_.streamSync),
-      freeEvents_.size(), static_cast<unsigned long long>(counters_.asyncFree),
-      static_cast<unsigned long long>(counters_.asyncFreeReclaim),
+      static_cast<unsigned long long>(counters_.eventQuery), static_cast<unsigned long long>(counters_.eventDestroy),
+      static_cast<unsigned long long>(counters_.streamSync), freeEvents_.size(),
+      static_cast<unsigned long long>(counters_.asyncFree), static_cast<unsigned long long>(counters_.asyncFreeReclaim),
       static_cast<unsigned long long>(counters_.asyncFreePoll), static_cast<unsigned long long>(counters_.poolCacheHit),
       static_cast<unsigned long long>(counters_.poolCacheMiss),
       static_cast<unsigned long long>(counters_.poolCacheStore),

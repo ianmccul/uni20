@@ -861,4 +861,13 @@ tensor::Arranger& VectorAlgebraEngine::resident_arranger()
   return *impl_->arranger;
 }
 
+tensor::Swapper& VectorAlgebraEngine::resident_swapper()
+{
+  if (impl_->swapper == nullptr)
+  {
+    throw std::logic_error("TensorContraction resident runtime is not available on the host backend");
+  }
+  return *impl_->swapper;
+}
+
 } // namespace uni20::tensorcontraction
