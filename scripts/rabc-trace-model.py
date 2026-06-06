@@ -1199,6 +1199,39 @@ def leave_one_benchmark_layout_out(
     return rows
 
 
+def leave_one_monotonic_structure_layout_out(
+    records: list[dict[str, Any]],
+    problem: dict[str, Any],
+    ridge: float,
+    iterations: int,
+) -> list[dict[str, Any]]:
+    """Predict each benchmarked layout from monotonic structural counters."""
+    grouped = group_benchmarks_by_layout(records, problem)
+    if len(grouped) < 2:
+        raise ValueError("benchmark validation requires at least two distinct layouts")
+
+    rows: list[dict[str, Any]] = []
+    for key, held_out in grouped.items():
+        train = [record for other_key, group in grouped.items() if other_key != key for record in group]
+        coefficients, stats = fit_monotonic_structure_coefficients(train, problem, ridge, iterations)
+        predicted = score_monotonic_structure_layout(problem, list(key), stats["baseline"], coefficients)
+        observed = benchmark_layout_mean_matvec_seconds(held_out)
+        names = sorted({str(record.get("name", "")) for record in held_out if str(record.get("name", ""))})
+        rows.append(
+            {
+                "layout": key,
+                "first_line": held_out[0]["_line"],
+                "count": len(held_out),
+                "observed": observed,
+                "predicted": predicted,
+                "error": predicted - observed,
+                "names": ",".join(names),
+            }
+        )
+    rows.sort(key=lambda row: row["observed"])
+    return rows
+
+
 def print_benchmark_validation(rows: list[dict[str, Any]], compact_layouts: bool) -> None:
     """Print leave-one-layout-out validation for no-trace benchmark timing."""
     stats = validation_stats(rows)
@@ -2381,21 +2414,30 @@ def cmd_bench_validate(args: argparse.Namespace) -> int:
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
     records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
-    rows = leave_one_benchmark_layout_out(
-        records,
-        problem,
-        args.ridge,
-        args.clamp_negative,
-        include_environment_bytes(args),
-        args.graph_features,
-        args.model,
-    )
+    if args.candidate_score == "fit":
+        rows = leave_one_benchmark_layout_out(
+            records,
+            problem,
+            args.ridge,
+            args.clamp_negative,
+            include_environment_bytes(args),
+            args.graph_features,
+            args.model,
+        )
+    else:
+        rows = leave_one_monotonic_structure_layout_out(
+            records, problem, args.structure_ridge, args.structure_iterations
+        )
     print(f"timing_objective={args.timing_objective}")
     print(f"target=matvec_s")
     print(f"model={args.model}")
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print(f"layout_filter={args.layout_filter}")
+    print(f"candidate_score={args.candidate_score}")
+    if args.candidate_score == "monotonic-structure":
+        print(f"structure_ridge={args.structure_ridge:.9g}")
+        print(f"structure_iterations={args.structure_iterations}")
     print_benchmark_validation(rows, args.compact_layouts)
     return 0
 
@@ -3049,6 +3091,24 @@ def parser() -> argparse.ArgumentParser:
     bench_validate.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_validate.add_argument("--ridge", type=float, default=1.0e-9)
     bench_validate.add_argument("--clamp-negative", action="store_true")
+    bench_validate.add_argument(
+        "--candidate-score",
+        choices=("fit", "monotonic-structure"),
+        default="fit",
+        help="score model to validate against held-out benchmark layouts",
+    )
+    bench_validate.add_argument(
+        "--structure-ridge",
+        type=float,
+        default=1.0e-6,
+        help="ridge penalty for --candidate-score=monotonic-structure",
+    )
+    bench_validate.add_argument(
+        "--structure-iterations",
+        type=int,
+        default=1000,
+        help="coordinate-descent iterations for --candidate-score=monotonic-structure",
+    )
     bench_validate.add_argument(
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )

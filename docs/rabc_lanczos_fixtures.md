@@ -597,6 +597,34 @@ recover the best contiguous basin, so do not use it as a runtime policy.  Its
 main value is checking whether a proposed layout still looks good when obvious
 structural costs are forced to be monotonic penalties.
 
+Validate the monotonic structural score before using it to rank a new candidate
+family:
+
+```bash
+scripts/rabc-trace-model.py bench-validate /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --model device \
+  --graph-features \
+  --candidate-score monotonic-structure \
+  --compact-layouts
+```
+
+This performs leave-one-layout-out validation with the same structural counters
+used by `bench-suggest --candidate-score monotonic-structure`.  A poor top-1
+match or poor `R^2` means the monotonic model is still only a diagnostic for
+that benchmark family; benchmark suggested layouts directly before interpreting
+them as improvements.
+
+Current Hubbard `L=40, m=5000` validation confirms that limitation.  With the
+mixed contiguous/segmented benchmark rows, leave-one-layout-out validation gives
+`R^2 = 0.139902132`, `RMSE = 0.066256608 s`, and a top-1 mismatch.  Restricting
+the same check to contiguous layouts gives `R^2 = 0.236318329`,
+`RMSE = 0.0603863751 s`, and still a top-1 mismatch.  The best observed
+contiguous basin remains around cuts `323`-`326`, while the structural score
+overpredicts those rows by about `0.05 s`; this is useful evidence that the
+next step is a better graph/hypergraph cost function rather than a stronger
+monotonic least-squares fit over the current counters.
+
 ```bash
 scripts/rabc-trace-model.py layouts --block-count 42 --device-count 2 --contiguous-cuts
 scripts/rabc-trace-model.py suggest /tmp/uni20_rabc_trace.jsonl \
