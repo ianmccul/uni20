@@ -565,11 +565,15 @@ scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
 ```
 
 By default, segmented search only keeps candidates whose layout-shape features
-were observed in the benchmark rows used for fitting.  This prevents a model
-trained only on contiguous cuts from assigning unsupported negative or otherwise
-nonsensical scores to three-segment layouts.  Use
-`--allow-shape-extrapolation` only as an explicit diagnostic, then benchmark any
-suggested segmented layout directly before drawing conclusions.
+were observed in benchmark rows from the same bounded segmented candidate
+family.  Contiguous cuts, alternating layouts, and segmented layouts outside the
+requested `--max-segments`/`--segment-cut-stride` family do not widen the
+support envelope, and each candidate is checked against measured rows with the
+same segment count.  This prevents a model trained mostly on contiguous cuts
+from assigning unsupported negative or otherwise nonsensical scores to
+three-segment layouts.  Use `--allow-shape-extrapolation` only as an explicit
+diagnostic, then benchmark any suggested segmented layout directly before
+drawing conclusions.
 
 ```bash
 scripts/rabc-trace-model.py layouts --block-count 42 --device-count 2 --contiguous-cuts

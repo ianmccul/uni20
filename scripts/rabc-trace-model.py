@@ -358,6 +358,40 @@ def layout_shape_is_supported(problem: dict[str, Any], layout: list[int], suppor
     return True
 
 
+def observed_layout_shape_support_by_segment_count(
+    records: list[dict[str, Any]], problem: dict[str, Any]
+) -> dict[int, dict[str, Any]]:
+    """Return shape-support envelopes keyed by observed layout segment count."""
+    grouped = group_benchmarks_by_layout(records, problem)
+    records_by_segment_count: dict[int, list[dict[str, Any]]] = {}
+    for layout, layout_records in grouped.items():
+        shape = layout_shape_features(problem, list(layout))
+        records_by_segment_count.setdefault(int(shape["layout_segments"]), []).extend(layout_records)
+    return {
+        segment_count: observed_layout_shape_support(segment_records, problem)
+        for segment_count, segment_records in records_by_segment_count.items()
+    }
+
+
+def layout_shape_is_supported_by_segment_count(
+    problem: dict[str, Any], layout: list[int], support_by_segment_count: dict[int, dict[str, Any]]
+) -> bool:
+    """Return whether a layout is supported by rows with the same segment count."""
+    shape = layout_shape_features(problem, layout)
+    support = support_by_segment_count.get(int(shape["layout_segments"]))
+    if support is None:
+        return False
+    return layout_shape_is_supported(problem, layout, support)
+
+
+def benchmark_records_matching_layouts(
+    records: list[dict[str, Any]], problem: dict[str, Any], layouts: list[list[int]]
+) -> list[dict[str, Any]]:
+    """Return benchmark rows whose layouts are in the requested candidate set."""
+    candidate_keys = {tuple(layout) for layout in layouts}
+    return [record for record in records if tuple(benchmark_layout(record, problem)) in candidate_keys]
+
+
 def benchmark_feature_names(problem: dict[str, Any], include_graph_features: bool, model: str) -> list[str]:
     """Return the active whole-layout benchmark model feature names."""
     if model == "critical":
@@ -2279,11 +2313,21 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             )
         ]
         if not args.allow_shape_extrapolation:
-            shape_support = observed_layout_shape_support(records, problem)
-            seeds = [layout for layout in seeds if layout_shape_is_supported(problem, layout, shape_support)]
+            support_records = benchmark_records_matching_layouts(records, problem, seeds)
+            if not support_records:
+                raise ValueError(
+                    "segmented search has no measured rows from the requested segmented candidate family; "
+                    "benchmark at least one matching segmented layout or pass --allow-shape-extrapolation"
+                )
+            shape_support = observed_layout_shape_support_by_segment_count(support_records, problem)
+            seeds = [
+                layout
+                for layout in seeds
+                if layout_shape_is_supported_by_segment_count(problem, layout, shape_support)
+            ]
             if not seeds:
                 raise ValueError(
-                    "segmented search produced no layouts inside observed benchmark shape support; "
+                    "segmented search produced no layouts inside observed segmented-family shape support; "
                     "benchmark at least one matching segmented layout or pass --allow-shape-extrapolation"
                 )
         search_kind = "segmented"
