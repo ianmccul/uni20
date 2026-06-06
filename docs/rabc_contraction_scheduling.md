@@ -376,6 +376,35 @@ requires a configurable minimum predicted speedup before accepting an arbitrary
 layout.  Otherwise it delegates back to the default byte-balanced coalesced
 layout.
 
+## Current Empirical Status
+
+The replay benchmarks now support a useful but deliberately narrow runtime
+policy: `empirical-contiguous`.  On the local Hubbard `L=40, m=5000`
+U(1)xU(1) fixture, a graph-augmented fit over contiguous cuts selects the
+measured-good basin around `cut323` to `cut326`, giving a real two-GPU speedup
+over the one-GPU baseline.  This validates the tracing and replay loop, and it
+shows that graph-derived features are the right source of placement
+information.
+
+The same evidence does not yet justify using an unconstrained non-contiguous
+layout as runtime policy.  Direct replays of segmented candidates have not
+beaten the contiguous basin.  The better segmented candidates reduce the
+right-first or mixed critical-path flops, but they increase peer `B` traffic and
+skew terms and unique `(B, C)` groups onto one device.  Unconstrained linear
+fits can also assign negative weights to correlated communication features, so
+they are useful for diagnostics and candidate generation but are not a
+principled graph optimizer.
+
+The next planner target should therefore be a calibrated graph/hypergraph cost
+function, not simply a larger feature vector.  The cost function should use the
+nonzero `f` tensor to construct typed edges for compute, communication,
+duplication, and reduction pressure.  Benchmark data should calibrate the
+weights and overhead terms, while the structural model should preserve
+monotonic penalties for obviously costly events such as peer traffic,
+duplicated first-stage groups, output-layout mismatch, and severe device-load
+skew.  Candidate layouts from that cost function must still be replayed before
+being promoted to a runtime policy.
+
 ## Long-Term Planner
 
 The long-term scheduler should operate on a term graph:
