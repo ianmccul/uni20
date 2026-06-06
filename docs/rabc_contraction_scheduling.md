@@ -412,6 +412,13 @@ Hubbard contiguous cut.  This suggests that the missing information is not just
 which aggregate counters are included, but how typed hyperedges share work,
 traffic, and launch pressure across candidate partitions.
 
+A first typed-hypergraph diagnostic adds weighted split counters for `B`
+fanout, direct `(R,B)` edges, and right/left first-stage reuse hyperedges.  It
+improves the small overhead fixture, but still misses the Hubbard `L=40,
+m=5000` best contiguous basin.  The next model therefore needs a more explicit
+execution-state cost over typed hyperedges, not just monotonic penalties on
+typed split summaries.
+
 ## Long-Term Planner
 
 The long-term scheduler should operate on a term graph:

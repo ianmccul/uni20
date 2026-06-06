@@ -623,9 +623,12 @@ interpretable subset of counters.  `all` keeps every structural counter.
 `execution-pressure` focuses on mixed-order critical-path flops, term pressure,
 unique `(B, C)` pressure, peer-`B` traffic, and duplicate mixed groups.
 `launch-pressure` removes flop counters and focuses on term/group counts.
-`no-output` removes output-slab size and output-skew counters.  These subsets
-are meant to test hypotheses about the graph cost function; they are not
-separate runtime policies.
+`no-output` removes output-slab size and output-skew counters.
+`typed-hypergraph` adds weighted split counters for `B` fanout, direct `(R,B)`
+edges, and right/left first-stage reuse hyperedges.  These subsets are meant to
+test hypotheses about the graph cost function; they are not separate runtime
+policies.  With `--show-structure`, monotonic scoring also prints a
+`score_feature_rank` table containing exactly the selected feature columns.
 
 Current Hubbard `L=40, m=5000` validation confirms that limitation.  With the
 mixed contiguous/segmented benchmark rows, leave-one-layout-out validation gives
@@ -645,6 +648,13 @@ mixed-layout validation `R^2 = 0.152480984`, `RMSE = 0.0657703251 s`.
 (`R^2` about `0.40`, still top-1 mismatch).  This shows that simply dropping
 output-skew counters or emphasizing launch pressure does not recover the best
 cut; the next model needs typed hypergraph structure beyond aggregate counters.
+The first `typed-hypergraph` feature set is better on the small overhead
+fixture (`R^2 = 0.832593018`, top-1 match), but on the Hubbard `L=40, m=5000`
+fixture it remains similar to the other monotonic structural models:
+contiguous-layout validation gives `R^2 = 0.396808955`,
+`RMSE = 0.0536673584 s`, with a top-1 mismatch, and mixed-layout validation
+gives `R^2 = 0.152373035`, `RMSE = 0.0657745136 s`.  It ranks the contiguous
+`cut358` basin, not the measured `cut323`-`cut326` basin.
 
 ```bash
 scripts/rabc-trace-model.py layouts --block-count 42 --device-count 2 --contiguous-cuts

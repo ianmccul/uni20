@@ -118,6 +118,21 @@ STRUCTURE_SCORE_FEATURE_SETS = {
         "mixed_left_groups",
         "mixed_right_groups",
     ],
+    "typed-hypergraph": [
+        "mixed_max_gflop",
+        "right_reuse_split_first_gflop",
+        "left_reuse_split_first_gflop",
+        "b_fanout_split_mb",
+        "b_fanout_split_blocks",
+        "right_reuse_split_groups",
+        "left_reuse_split_groups",
+        "rb_cut_terms",
+        "rb_cut_edges",
+        "max_terms",
+        "max_unique_bc",
+        "segments",
+        "transitions",
+    ],
 }
 
 BENCHMARK_REPEAT_RE = re.compile(
@@ -819,9 +834,138 @@ def summarize_benchmark_structure(
         )
 
 
+def typed_hypergraph_metrics_for_layout(problem: dict[str, Any], layout: list[int]) -> dict[str, Any]:
+    """Return weighted split metrics over the typed sparse `f` hyperedges."""
+    validate_layout(problem, layout)
+    b_fanout: dict[int, dict[str, Any]] = {}
+    rb_edges: dict[tuple[int, int], dict[str, Any]] = {}
+    right_reuse: dict[tuple[int, int], dict[str, Any]] = {}
+    left_reuse: dict[tuple[int, int], dict[str, Any]] = {}
+
+    for term in problem["terms"]:
+        r = int(term["r"])
+        a = int(term["a"])
+        b = int(term["b"])
+        c = int(term["c"])
+        output_device = int(layout[r])
+        input_device = int(layout[b])
+
+        b_row = b_fanout.setdefault(
+            b,
+            {
+                "devices": set(),
+                "terms": 0,
+                "bytes": int(problem["input_bytes"][b]),
+            },
+        )
+        b_row["devices"].add(output_device)
+        b_row["terms"] += 1
+
+        rb_row = rb_edges.setdefault(
+            (r, b),
+            {
+                "cut": False,
+                "terms": 0,
+                "bytes": int(problem["input_bytes"][b]),
+            },
+        )
+        rb_row["cut"] = bool(rb_row["cut"]) or output_device != input_device
+        rb_row["terms"] += 1
+
+        right_key = (b, c)
+        right_row = right_reuse.setdefault(
+            right_key,
+            {
+                "devices": set(),
+                "terms": 0,
+                "first_flops": float(term["bc_flops"]),
+                "second_flops": 0.0,
+            },
+        )
+        right_row["devices"].add(output_device)
+        right_row["terms"] += 1
+        right_row["second_flops"] += float(term["accumulate_flops"])
+
+        left_key = (a, b)
+        left_first, left_second = term_left_first_flops(term)
+        left_row = left_reuse.setdefault(
+            left_key,
+            {
+                "devices": set(),
+                "terms": 0,
+                "first_flops": left_first,
+                "second_flops": 0.0,
+            },
+        )
+        left_row["devices"].add(output_device)
+        left_row["terms"] += 1
+        left_row["second_flops"] += left_second
+
+    def split_group_stats(groups: Iterable[dict[str, Any]]) -> dict[str, float]:
+        split_groups = 0
+        split_terms = 0
+        split_first_flops = 0.0
+        split_second_flops = 0.0
+        for row in groups:
+            extra_devices = len(row["devices"]) - 1
+            if extra_devices <= 0:
+                continue
+            split_groups += 1
+            split_terms += int(row["terms"])
+            split_first_flops += extra_devices * float(row["first_flops"])
+            split_second_flops += float(row["second_flops"])
+        return {
+            "groups": float(split_groups),
+            "terms": float(split_terms),
+            "first_gflop": split_first_flops / 1.0e9,
+            "second_gflop": split_second_flops / 1.0e9,
+        }
+
+    b_split_blocks = 0
+    b_split_terms = 0
+    b_split_bytes = 0
+    for row in b_fanout.values():
+        extra_devices = len(row["devices"]) - 1
+        if extra_devices <= 0:
+            continue
+        b_split_blocks += 1
+        b_split_terms += int(row["terms"])
+        b_split_bytes += extra_devices * int(row["bytes"])
+
+    rb_cut_edges = 0
+    rb_cut_terms = 0
+    rb_cut_bytes = 0
+    for row in rb_edges.values():
+        if not bool(row["cut"]):
+            continue
+        rb_cut_edges += 1
+        rb_cut_terms += int(row["terms"])
+        rb_cut_bytes += int(row["bytes"])
+
+    right = split_group_stats(right_reuse.values())
+    left = split_group_stats(left_reuse.values())
+    return {
+        "b_fanout_split_blocks": b_split_blocks,
+        "b_fanout_split_terms": b_split_terms,
+        "b_fanout_split_mb": b_split_bytes / 1.0e6,
+        "rb_cut_edges": rb_cut_edges,
+        "rb_cut_terms": rb_cut_terms,
+        "rb_cut_mb": rb_cut_bytes / 1.0e6,
+        "right_reuse_split_groups": int(right["groups"]),
+        "right_reuse_split_terms": int(right["terms"]),
+        "right_reuse_split_first_gflop": right["first_gflop"],
+        "right_reuse_split_second_gflop": right["second_gflop"],
+        "left_reuse_split_groups": int(left["groups"]),
+        "left_reuse_split_terms": int(left["terms"]),
+        "left_reuse_split_first_gflop": left["first_gflop"],
+        "left_reuse_split_second_gflop": left["second_gflop"],
+    }
+
+
 def layout_structure_row(problem: dict[str, Any], layout: list[int]) -> dict[str, Any]:
     """Return graph-derived structural counters for one layout."""
     graph = graph_metrics_for_layout(problem, layout)
+    typed = typed_hypergraph_metrics_for_layout(problem, layout)
     device_features = features_for_layout(problem, layout, include_env_bytes=False, include_graph_features=True)
     shape = layout_shape_features(problem, layout)
     return {
@@ -840,6 +984,7 @@ def layout_structure_row(problem: dict[str, Any], layout: list[int]) -> dict[str
         "mixed_duplicate_groups": int(graph["mixed"]["duplicate_groups"]),
         "mixed_left_groups": int(graph["mixed_left_groups"]),
         "mixed_right_groups": int(graph["mixed_right_groups"]),
+        **typed,
     }
 
 
@@ -2739,6 +2884,16 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
                 structure = layout_structure_row(problem, row["layout"])
                 score_structure_rows[key] = structure
             print(f"{rank} {float(row['score']):.9g} {format_layout_structure_columns(structure)}")
+        if args.candidate_score == "monotonic-structure":
+            print("score_feature_rank predicted_matvec_s " + " ".join(structure_names))
+            for rank, row in enumerate(ranked[: args.top], start=1):
+                key = tuple(row["layout"])
+                structure = score_structure_rows.get(key)
+                if structure is None:
+                    structure = layout_structure_row(problem, row["layout"])
+                    score_structure_rows[key] = structure
+                values = " ".join(f"{float(structure[name]):.9g}" for name in structure_names)
+                print(f"{rank} {float(row['score']):.9g} {values}")
     if args.compact_layouts:
         print("env_layout_omitted=true")
         print("env_layout_note=rerun_without_compact_layouts_for_full_manual_environment_value")
