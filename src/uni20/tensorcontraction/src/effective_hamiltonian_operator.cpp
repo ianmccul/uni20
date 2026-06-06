@@ -400,6 +400,15 @@ struct BcUseKey
     auto operator<=>(BcUseKey const&) const = default;
 };
 
+struct FirstStageGroupKey
+{
+    char side = 'R';
+    std::size_t first = 0;
+    std::size_t second = 0;
+
+    auto operator<=>(FirstStageGroupKey const&) const = default;
+};
+
 struct RabcPlacementModel
 {
     double gflops = 1000.0;
@@ -847,6 +856,12 @@ struct RabcEmpiricalDeviceFeatures
     double terms = 0.0;
     double unique_bc = 0.0;
     double output_bytes = 0.0;
+    double b_cut_terms = 0.0;
+    double b_peer_blocks = 0.0;
+    double right_duplicate_groups = 0.0;
+    double mixed_duplicate_groups = 0.0;
+    double mixed_left_groups = 0.0;
+    double mixed_right_groups = 0.0;
 };
 
 struct RabcEmpiricalLayoutFeatures
@@ -869,6 +884,7 @@ struct RabcEmpiricalCoefficients
     double active_devices = 0.0;
     double max_output_block_fraction = 0.0;
     double max_output_byte_fraction = 0.0;
+    bool graph_features = false;
 };
 
 RabcEmpiricalCoefficients empirical_rabc_coefficients()
@@ -881,15 +897,20 @@ RabcEmpiricalCoefficients empirical_rabc_coefficients()
                                 "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
   }
   auto const values = parse_double_list(*text, "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS(_FILE)");
-  constexpr std::size_t expected_size = 1 + 2 * 5 + 5;
-  if (values.size() != expected_size)
+  constexpr std::size_t base_device_features = 5;
+  constexpr std::size_t graph_device_features = 6;
+  constexpr std::size_t layout_features = 5;
+  constexpr std::size_t expected_base_size = 1 + 2 * base_device_features + layout_features;
+  constexpr std::size_t expected_graph_size = 1 + 2 * (base_device_features + graph_device_features) + layout_features;
+  if (values.size() != expected_base_size && values.size() != expected_graph_size)
   {
     throw std::invalid_argument(
-        fmt::format("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS(_FILE) expected {} values, got {}",
-                    expected_size, values.size()));
+        fmt::format("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS(_FILE) expected {} or {} values, got {}",
+                    expected_base_size, expected_graph_size, values.size()));
   }
 
   RabcEmpiricalCoefficients coefficients;
+  coefficients.graph_features = values.size() == expected_graph_size;
   std::size_t index = 0;
   coefficients.intercept = values[index++];
   for (auto& device : coefficients.devices)
@@ -899,6 +920,15 @@ RabcEmpiricalCoefficients empirical_rabc_coefficients()
     device.terms = values[index++];
     device.unique_bc = values[index++];
     device.output_bytes = values[index++];
+    if (coefficients.graph_features)
+    {
+      device.b_cut_terms = values[index++];
+      device.b_peer_blocks = values[index++];
+      device.right_duplicate_groups = values[index++];
+      device.mixed_duplicate_groups = values[index++];
+      device.mixed_left_groups = values[index++];
+      device.mixed_right_groups = values[index++];
+    }
   }
   coefficients.layout_transitions = values[index++];
   coefficients.layout_segments = values[index++];
@@ -910,6 +940,63 @@ RabcEmpiricalCoefficients empirical_rabc_coefficients()
 
 int empirical_contiguous_device_for(std::size_t block, std::size_t cut) { return block < cut ? 0 : 1; }
 
+struct EmpiricalMixedOrderStats
+{
+    std::set<std::size_t> right_c;
+    std::set<std::size_t> left_a;
+    double right_flops = 0.0;
+    double left_flops = 0.0;
+};
+
+std::map<std::pair<int, std::size_t>, bool>
+empirical_left_first_by_device_b(MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
+                                 std::span<EffectiveHamiltonianOperator::Term const> terms, std::size_t cut)
+{
+  std::map<std::pair<int, std::size_t>, EmpiricalMixedOrderStats> stats;
+  for (auto const& term : terms)
+  {
+    int const device = empirical_contiguous_device_for(term.r, cut);
+    auto& row = stats[{device, term.b}];
+    auto const a = a_mats.block(term.a);
+    auto const b = b_mats.block(term.b);
+    auto const c = c_mats.block(term.c);
+
+    if (row.right_c.insert(term.c).second)
+    {
+      row.right_flops += gemm_flops(b, c);
+    }
+    auto const right_intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+    row.right_flops += gemm_flops(a, right_intermediate);
+
+    if (row.left_a.insert(term.a).second)
+    {
+      row.left_flops += gemm_flops(a, b);
+    }
+    auto const left_intermediate = MatrixFamily::Block{.rows = a.rows, .cols = b.cols};
+    row.left_flops += gemm_flops(left_intermediate, c);
+  }
+
+  std::map<std::pair<int, std::size_t>, bool> left_first;
+  for (auto const& [key, value] : stats)
+  {
+    left_first[key] = value.left_flops < value.right_flops;
+  }
+  return left_first;
+}
+
+std::array<std::size_t, 2> duplicate_group_counts(std::array<std::set<FirstStageGroupKey>, 2> const& groups)
+{
+  std::size_t duplicates = 0;
+  for (auto const& group : groups[0])
+  {
+    if (groups[1].contains(group))
+    {
+      ++duplicates;
+    }
+  }
+  return {duplicates, duplicates};
+}
+
 RabcEmpiricalLayoutFeatures empirical_contiguous_features(MatrixFamily const& a_mats, MatrixFamily const& b_mats,
                                                           MatrixFamily const& c_mats,
                                                           std::span<tensor::Matrix const> r_raw_mats,
@@ -919,7 +1006,11 @@ RabcEmpiricalLayoutFeatures empirical_contiguous_features(MatrixFamily const& a_
   RabcEmpiricalLayoutFeatures features;
   std::array<std::set<BcUseKey>, 2> staged_bc;
   std::array<std::set<std::size_t>, 2> staged_b;
+  std::array<std::set<std::size_t>, 2> peer_b;
+  std::array<std::set<FirstStageGroupKey>, 2> right_first_groups;
+  std::array<std::set<FirstStageGroupKey>, 2> mixed_first_groups;
   std::array<std::size_t, 2> output_bytes{0, 0};
+  auto const mixed_left_first = empirical_left_first_by_device_b(a_mats, b_mats, c_mats, terms, cut);
 
   for (std::size_t r = 0; r < r_raw_mats.size(); ++r)
   {
@@ -941,6 +1032,7 @@ RabcEmpiricalLayoutFeatures empirical_contiguous_features(MatrixFamily const& a_
     {
       device_features.right_flops += gemm_flops(b_mats.block(term.b), c_mats.block(term.c));
     }
+    right_first_groups[device_index].insert(FirstStageGroupKey{.side = 'R', .first = term.b, .second = term.c});
 
     auto const a = a_mats.block(term.a);
     auto const b = b_mats.block(term.b);
@@ -948,14 +1040,49 @@ RabcEmpiricalLayoutFeatures empirical_contiguous_features(MatrixFamily const& a_
     auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
     device_features.right_flops += gemm_flops(a, intermediate);
 
-    if (staged_b[device_index].insert(term.b).second && empirical_contiguous_device_for(term.b, cut) != device)
+    bool const peer_b_block = empirical_contiguous_device_for(term.b, cut) != device;
+    if (peer_b_block)
+    {
+      device_features.b_cut_terms += 1.0;
+      peer_b[device_index].insert(term.b);
+    }
+    if (staged_b[device_index].insert(term.b).second && peer_b_block)
     {
       device_features.b_peer_bytes += static_cast<double>(b.rows) * static_cast<double>(b.cols) * sizeof(double);
+    }
+
+    if (mixed_left_first.at({device, term.b}))
+    {
+      mixed_first_groups[device_index].insert(FirstStageGroupKey{.side = 'L', .first = term.a, .second = term.b});
+    }
+    else
+    {
+      mixed_first_groups[device_index].insert(FirstStageGroupKey{.side = 'R', .first = term.b, .second = term.c});
     }
   }
 
   features.device0.unique_bc = static_cast<double>(staged_bc[0].size());
   features.device1.unique_bc = static_cast<double>(staged_bc[1].size());
+  features.device0.b_peer_blocks = static_cast<double>(peer_b[0].size());
+  features.device1.b_peer_blocks = static_cast<double>(peer_b[1].size());
+  for (auto const& [key, left_first] : mixed_left_first)
+  {
+    auto& device_features = key.first == 0 ? features.device0 : features.device1;
+    if (left_first)
+    {
+      device_features.mixed_left_groups += 1.0;
+    }
+    else
+    {
+      device_features.mixed_right_groups += 1.0;
+    }
+  }
+  auto const right_duplicates = duplicate_group_counts(right_first_groups);
+  auto const mixed_duplicates = duplicate_group_counts(mixed_first_groups);
+  features.device0.right_duplicate_groups = static_cast<double>(right_duplicates[0]);
+  features.device1.right_duplicate_groups = static_cast<double>(right_duplicates[1]);
+  features.device0.mixed_duplicate_groups = static_cast<double>(mixed_duplicates[0]);
+  features.device1.mixed_duplicate_groups = static_cast<double>(mixed_duplicates[1]);
   features.max_output_block_fraction =
       std::max(static_cast<double>(cut), static_cast<double>(r_raw_mats.size() - cut)) /
       static_cast<double>(r_raw_mats.size());
@@ -974,7 +1101,12 @@ double empirical_contiguous_score(RabcEmpiricalLayoutFeatures const& features,
                          RabcEmpiricalDeviceFeatures const& weights) -> double {
     return values.right_flops * weights.right_flops + values.b_peer_bytes * weights.b_peer_bytes +
            values.terms * weights.terms + values.unique_bc * weights.unique_bc +
-           values.output_bytes * weights.output_bytes;
+           values.output_bytes * weights.output_bytes + values.b_cut_terms * weights.b_cut_terms +
+           values.b_peer_blocks * weights.b_peer_blocks +
+           values.right_duplicate_groups * weights.right_duplicate_groups +
+           values.mixed_duplicate_groups * weights.mixed_duplicate_groups +
+           values.mixed_left_groups * weights.mixed_left_groups +
+           values.mixed_right_groups * weights.mixed_right_groups;
   };
 
   return coefficients.intercept + score_device(features.device0, coefficients.devices[0]) +

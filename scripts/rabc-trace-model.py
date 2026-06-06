@@ -373,11 +373,13 @@ def benchmark_feature_names(problem: dict[str, Any], include_graph_features: boo
     raise ValueError(f"unsupported benchmark model: {model}")
 
 
-def runtime_empirical_feature_names() -> list[str]:
+def runtime_empirical_feature_names(include_graph_features: bool) -> list[str]:
     """Return the feature order supported by the C++ empirical-contiguous policy."""
     names = ["intercept"]
     for device in range(2):
         names.extend(f"d{device}_{name}" for name in DEVICE_BENCHMARK_FEATURE_NAMES)
+        if include_graph_features:
+            names.extend(f"d{device}_{name}" for name in DEVICE_BENCHMARK_GRAPH_FEATURE_NAMES)
     names.extend(BENCHMARK_LAYOUT_FEATURE_NAMES)
     return names
 
@@ -1920,7 +1922,7 @@ def runtime_empirical_coefficients(coefficients: dict[str, float], names: list[s
     """Return the C++ empirical-contiguous runtime coefficient string."""
     if model != "device":
         return None
-    if names != runtime_empirical_feature_names():
+    if names not in (runtime_empirical_feature_names(False), runtime_empirical_feature_names(True)):
         return None
     return ",".join(f"{coefficients[name]:.17g}" for name in names)
 
@@ -1931,7 +1933,7 @@ def print_runtime_empirical_coefficients(coefficients: dict[str, float], names: 
     if values is None:
         if model == "device":
             print("runtime_coefficients_unavailable=non_runtime_feature_order")
-            print("runtime_coefficients_note=omit_graph_features_for_cpp_empirical_contiguous")
+            print("runtime_coefficients_note=requires_two_device_base_or_graph_empirical_contiguous_order")
         return
     print("runtime_coefficients_order=" + ",".join(names))
     print("runtime_coefficients=" + values)
@@ -1945,7 +1947,10 @@ def write_runtime_empirical_coefficients(
     """Write runtime coefficients for `empirical-contiguous` to a text file."""
     values = runtime_empirical_coefficients(coefficients, names, model)
     if values is None:
-        raise ValueError("--output-runtime-coefficients requires --model device without --graph-features")
+        raise ValueError(
+            "--output-runtime-coefficients requires --model device with the two-device base or graph "
+            "empirical-contiguous feature order"
+        )
     path.write_text(
         "# R/A/B/C empirical-contiguous runtime coefficients.\n"
         "# Use with UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE.\n"

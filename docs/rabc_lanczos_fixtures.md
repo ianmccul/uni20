@@ -131,17 +131,30 @@ max_output_block_fraction,max_output_byte_fraction
 ```
 
 Generate this coefficient vector with `bench-fit --model device` or
-`bench-suggest --model device` without `--graph-features`; both commands print the runtime
+`bench-suggest --model device`; both commands print the runtime
 `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` value.  Use
 `--output-runtime-coefficients <path>` to write a reusable coefficient file for
 `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE`; the generated file
 includes the coefficient order as comments and a `runtime_coefficients=...`
 line.  Do not use the policy for cold-start/environment-staging fits: the
 device-aware runtime model targets steady-state resident Lanczos matvec timing
-only.  Device-aware fits with `--graph-features` add analysis-only per-device
-cut, peer-block, duplicate-group, and mixed-order counters; they are useful for
-explaining segmented-layout behavior but are not accepted by the C++ runtime
-coefficient path yet.
+only.
+
+Device-aware fits with `--graph-features` use a 28-value runtime coefficient
+order.  The graph-augmented order keeps the same intercept and layout features,
+and inserts these six per-device counters immediately after each device's
+`output_bytes` coefficient:
+
+```text
+b_cut_terms,b_peer_blocks,right_duplicate_groups,
+mixed_duplicate_groups,mixed_left_groups,mixed_right_groups
+```
+
+The C++ runtime accepts both the 16-value base order and this 28-value
+graph-augmented order.  The graph features target cut, peer-block,
+duplicate-group, and mixed-order effects in the `f` hypergraph; validate them
+against held-out benchmark layouts before using them as the active
+`empirical-contiguous` placement model.
 The current cost model is a variable-middle prototype: the Krylov input blocks `B_i` and output blocks `R_i` are forced
 onto one canonical layout so vector algebra can use the result as the next Lanczos input without an implicit relayout.
 Benchmark both `#LanczosMatvecS` and total wall time before treating a lower contraction model score as a faster
@@ -491,10 +504,11 @@ scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
   --output-runtime-coefficients /tmp/uni20_rabc_empirical_coefficients.txt
 ```
 
-Omit `--graph-features` when writing `--output-runtime-coefficients`; the
-runtime `empirical-contiguous` policy currently consumes only the base
-two-device feature order shown above.  Keep `--graph-features` for diagnostic
-validation and candidate explanation.
+Use `--graph-features` with `--output-runtime-coefficients` when the fitted
+model should drive the graph-augmented runtime policy.  Omit it when writing a
+base 16-value coefficient file.  In both cases, keep `--layout-filter
+contiguous` for the current `empirical-contiguous` runtime policy unless the
+runtime placement family has been extended to match the measured layouts.
 
 Treat `bench-validate` as meaningful only after measuring several distinct
 layouts.  With one default layout and one deliberately bad striped layout it is
