@@ -1536,6 +1536,38 @@ def benchmark_layout(record: dict[str, Any], problem: dict[str, Any]) -> list[in
     return parse_layout(str(record.get("layout", "")), int(problem["block_count"]), int(problem["device_count"]))
 
 
+def benchmark_run_key(record: dict[str, Any], problem: dict[str, Any]) -> tuple[tuple[int, ...], str, str]:
+    """Return the measurement-run key used for dropping cold benchmark rows."""
+    layout = tuple(benchmark_layout(record, problem))
+    source = str(record.get("source", ""))
+    name = str(record.get("name", ""))
+    return (layout, source, name)
+
+
+def drop_initial_per_benchmark_run(
+    records: list[dict[str, Any]], problem: dict[str, Any], count: int
+) -> list[dict[str, Any]]:
+    """Drop the first measured rows for each benchmark source and layout.
+
+    Multiple benchmark JSONL files can contain repeated measurements of the
+    same logical layout.  Each source file has its own cold first row, so the
+    filter must key by both layout and source rather than by layout alone.
+    """
+    if count <= 0:
+        return records
+    seen: dict[tuple[tuple[int, ...], str, str], int] = {}
+    filtered: list[dict[str, Any]] = []
+    for record in records:
+        key = benchmark_run_key(record, problem)
+        observed = seen.get(key, 0)
+        seen[key] = observed + 1
+        if observed >= count:
+            filtered.append(record)
+    if not filtered:
+        raise ValueError("benchmark cold-row filter removed all replay benchmark records")
+    return filtered
+
+
 def group_benchmarks_by_layout(
     records: list[dict[str, Any]], problem: dict[str, Any]
 ) -> dict[tuple[int, ...], list[dict[str, Any]]]:
@@ -3613,6 +3645,7 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     """Fit replay benchmark matvec time from static layout features."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
+    records = drop_initial_per_benchmark_run(records, problem, args.drop_first_per_run)
     records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     include_env_bytes = include_environment_bytes(args)
     coefficients, stats = fit_benchmark_coefficients(
@@ -3626,6 +3659,7 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print(f"layout_filter={args.layout_filter}")
+    print(f"drop_first_per_run={args.drop_first_per_run}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
     return 0
@@ -3635,6 +3669,7 @@ def cmd_bench_validate(args: argparse.Namespace) -> int:
     """Validate replay benchmark layout predictions."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
+    records = drop_initial_per_benchmark_run(records, problem, args.drop_first_per_run)
     records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     if args.candidate_score == "fit":
         rows = leave_one_benchmark_layout_out(
@@ -3660,6 +3695,7 @@ def cmd_bench_validate(args: argparse.Namespace) -> int:
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print(f"layout_filter={args.layout_filter}")
+    print(f"drop_first_per_run={args.drop_first_per_run}")
     print(f"candidate_score={args.candidate_score}")
     if args.candidate_score == "monotonic-structure":
         print(f"structure_ridge={args.structure_ridge:.9g}")
@@ -3677,6 +3713,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
         raise ValueError("--contiguous-only and --segmented-only are mutually exclusive")
     if args.observed_only and args.segmented_only:
         raise ValueError("--observed-only and --segmented-only are mutually exclusive")
+    records = drop_initial_per_benchmark_run(records, problem, args.drop_first_per_run)
     records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     include_env_bytes = include_environment_bytes(args)
     coefficients, stats = fit_benchmark_coefficients(
@@ -3797,6 +3834,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print(f"layout_filter={args.layout_filter}")
+    print(f"drop_first_per_run={args.drop_first_per_run}")
     print(f"candidate_score={args.candidate_score}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
@@ -3878,6 +3916,7 @@ def cmd_bench_tune(args: argparse.Namespace) -> int:
     """Scan ridge values with benchmark leave-one-layout-out validation."""
     records = benchmark_records_from_paths(args.benchmark)
     problem = benchmark_problem(records, args.term_trace)
+    records = drop_initial_per_benchmark_run(records, problem, args.drop_first_per_run)
     records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
     ridges = parse_float_list(args.ridges)
     clamp_modes = [False, True] if args.include_clamped else [False]
@@ -3902,6 +3941,7 @@ def cmd_bench_tune(args: argparse.Namespace) -> int:
     print(f"reduction={'device_aware_linear' if args.model == 'device' else 'critical_path_max'}")
     print(f"graph_features={str(args.graph_features).lower()}")
     print(f"layout_filter={args.layout_filter}")
+    print(f"drop_first_per_run={args.drop_first_per_run}")
     print("ridge clamp_negative layouts mae_s rmse_s r2 top1_match best_observed_line best_predicted_line")
     for item in candidates:
         stats = item["stats"]
@@ -4231,7 +4271,15 @@ def cmd_ilp_suggest(args: argparse.Namespace) -> int:
             if not args.allow_negative:
                 calibration_coefficients = clamp_negative_coefficients(calibration_coefficients)
         if args.benchmark:
+            benchmark_drop_first = (
+                args.drop_first_per_run
+                if args.drop_first_per_run is not None
+                else args.drop_first_per_layout
+            )
             benchmark_records = benchmark_records_from_paths(args.benchmark)
+            benchmark_records = drop_initial_per_benchmark_run(
+                benchmark_records, problem, benchmark_drop_first
+            )
             benchmark_records = filter_benchmark_records_by_layout(
                 benchmark_records, problem, args.benchmark_layout_filter
             )
@@ -4294,6 +4342,11 @@ def cmd_ilp_suggest(args: argparse.Namespace) -> int:
     if args.benchmark:
         print("target=matvec_per_apply_s")
         print(f"benchmark_layout_filter={args.benchmark_layout_filter}")
+        benchmark_drop_first = (
+            args.drop_first_per_run if args.drop_first_per_run is not None else args.drop_first_per_layout
+        )
+        print(f"drop_first_per_run={benchmark_drop_first}")
+    print(f"trace_drop_first_per_layout={args.drop_first_per_layout}")
     print(
         "max_layout_segments="
         + ("none" if max_layout_segments is None else str(max_layout_segments))
@@ -4375,6 +4428,19 @@ def parser() -> argparse.ArgumentParser:
             choices=("all", "contiguous"),
             default="all",
             help="restrict benchmark rows used for fitting and validation to a layout class",
+        )
+
+    def add_benchmark_drop_first(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--drop-first-per-run",
+            "--drop-first-per-layout",
+            dest="drop_first_per_run",
+            type=int,
+            default=0,
+            help=(
+                "drop the first N replay rows for each benchmark source/layout run; "
+                "--drop-first-per-layout is kept as a compatibility alias"
+            ),
         )
 
     def add_term_trace(command: argparse.ArgumentParser) -> None:
@@ -4503,6 +4569,7 @@ def parser() -> argparse.ArgumentParser:
     bench_fit.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before printing")
     add_benchmark_model(bench_fit)
     add_benchmark_layout_filter(bench_fit)
+    add_benchmark_drop_first(bench_fit)
     add_timing_objective(bench_fit)
     add_graph_features(bench_fit)
     add_required_term_trace(bench_fit)
@@ -4543,6 +4610,7 @@ def parser() -> argparse.ArgumentParser:
     )
     add_benchmark_model(bench_validate)
     add_benchmark_layout_filter(bench_validate)
+    add_benchmark_drop_first(bench_validate)
     add_timing_objective(bench_validate)
     add_graph_features(bench_validate)
     add_required_term_trace(bench_validate)
@@ -4625,6 +4693,7 @@ def parser() -> argparse.ArgumentParser:
     )
     add_benchmark_model(bench_suggest)
     add_benchmark_layout_filter(bench_suggest)
+    add_benchmark_drop_first(bench_suggest)
     add_timing_objective(bench_suggest)
     add_graph_features(bench_suggest)
     add_required_term_trace(bench_suggest)
@@ -4638,6 +4707,7 @@ def parser() -> argparse.ArgumentParser:
     bench_tune.add_argument("--include-clamped", action="store_true")
     add_benchmark_model(bench_tune)
     add_benchmark_layout_filter(bench_tune)
+    add_benchmark_drop_first(bench_tune)
     add_timing_objective(bench_tune)
     add_graph_features(bench_tune)
     add_required_term_trace(bench_tune)
@@ -4744,10 +4814,27 @@ def parser() -> argparse.ArgumentParser:
     ilp_suggest.add_argument(
         "--calibration-prior-weight",
         type=float,
-        default=1.0e-3,
-        help="ridge weight used to pull --benchmark fitting toward --calibration coefficients",
+        default=1.0e-10,
+        help=(
+            "ridge weight used to pull --benchmark fitting toward --calibration coefficients; keep this very small "
+            "because live replay timings are the optimization target"
+        ),
     )
-    ilp_suggest.add_argument("--drop-first-per-layout", type=int, default=0)
+    ilp_suggest.add_argument(
+        "--drop-first-per-layout",
+        type=int,
+        default=0,
+        help=(
+            "drop the first N trace rows for each observed trace layout; when --benchmark is supplied this also "
+            "acts as a compatibility fallback for --drop-first-per-run"
+        ),
+    )
+    ilp_suggest.add_argument(
+        "--drop-first-per-run",
+        type=int,
+        default=None,
+        help="drop the first N replay rows for each benchmark source/layout run",
+    )
     ilp_suggest.add_argument("--allow-negative", action="store_true")
     ilp_suggest.add_argument(
         "--device-count",

@@ -368,19 +368,32 @@ scripts/rabc-trace-model.py ilp-suggest /tmp/uni20_rabc_trace.jsonl \
 ```
 
 To use no-trace fixture replay rows while regularizing weakly toward the
-calibration seed, pass both `--benchmark` and `--calibration`.  The default
-`--calibration-prior-weight=0.001` is intentionally weak; larger values can
-over-constrain the fixture fit if the synthetic families do not match the real
-block-size distribution:
+calibration seed, pass both `--benchmark` and `--calibration`.  The benchmark
+rows are the optimization target; calibration is only a prior.  The default
+`--calibration-prior-weight=1e-10` is intentionally very weak because synthetic
+calibration families can otherwise over-constrain the fixture fit and dominate
+real replay timings.  Increase it only after checking leave-one-layout-out
+validation.
 
 ```bash
 scripts/rabc-trace-model.py ilp-suggest /tmp/uni20_rabc_trace.jsonl \
   --benchmark /tmp/uni20_rabc_benchmark.jsonl \
   --benchmark-layout-filter contiguous \
   --calibration profiling/rabc_sweeps/rabc_calibration/calibration.jsonl \
+  --drop-first-per-run=1 \
   --time-limit 60 \
   --mip-rel-gap 0.02
 ```
+
+For benchmark JSONL rows, `--drop-first-per-run=N` drops cold rows per
+`(layout, source)` measurement run.  This matters when multiple benchmark
+JSONL files contain repeated measurements of the same logical layout: each
+source run can have its own cold first row.  The older spelling
+`--drop-first-per-layout` is kept as a compatibility alias for benchmark-only
+commands.  For `ilp-suggest`, `--drop-first-per-layout` still refers to trace
+rows, and `--drop-first-per-run` refers to benchmark rows; if benchmark rows are
+supplied and `--drop-first-per-run` is omitted, the trace value is also used as
+the benchmark-run fallback for old command lines.
 
 The MILP is exact for the implemented input-anchored right-first DAG:
 `B*C` products are placed on `owner(B_b)`, source partials are accumulated
@@ -654,16 +667,20 @@ perturbs the workload:
 ```bash
 scripts/rabc-trace-model.py bench-fit /tmp/uni20_rabc_benchmark.jsonl \
   --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --drop-first-per-run=1 \
   --graph-features
 scripts/rabc-trace-model.py bench-validate /tmp/uni20_rabc_benchmark.jsonl \
   --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --drop-first-per-run=1 \
   --graph-features
 scripts/rabc-trace-model.py bench-tune /tmp/uni20_rabc_benchmark.jsonl \
   --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --drop-first-per-run=1 \
   --graph-features \
   --ridges 1e-9,1e-7,1e-5,1e-3,1e-2,1e-1
 scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
   --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --drop-first-per-run=1 \
   --graph-features \
   --ridge <selected-ridge> \
   --contiguous-only \
