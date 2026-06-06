@@ -714,6 +714,9 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentEmpiricalPlaceme
   {
     std::ofstream output(coefficients_path);
     output << "# fitted by scripts/rabc-trace-model.py bench-fit --model device\n";
+    output << "runtime_supported_output_blocks=999\n";
+    output << "runtime_coefficients=0,0,0,-1,0,0,0,0,0,0,0,0,0,0,0,0\n";
+    output << "runtime_supported_output_blocks=4\n";
     output << "runtime_coefficients=0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0\n";
   }
 

@@ -69,6 +69,13 @@ struct RabcEmpiricalCoefficientText
     std::vector<std::size_t> supported_output_blocks;
 };
 
+struct RabcEmpiricalCoefficientFileSelection
+{
+    std::optional<RabcEmpiricalCoefficientText> selected;
+    std::vector<std::size_t> supported_output_blocks;
+    bool saw_coefficients = false;
+};
+
 struct EffectiveHamiltonianOperator::Impl
 {
     MatrixFamily r_mats;
@@ -345,7 +352,25 @@ std::string comma_join(std::span<std::size_t const> values)
   return result;
 }
 
-RabcEmpiricalCoefficientText empirical_coefficients_from_file(std::string const& path)
+bool supports_output_count(RabcEmpiricalCoefficientText const& stanza, std::size_t output_count)
+{
+  return stanza.supported_output_blocks.empty() ||
+         std::ranges::find(stanza.supported_output_blocks, output_count) != stanza.supported_output_blocks.end();
+}
+
+void append_unique(std::vector<std::size_t>& values, std::span<std::size_t const> new_values)
+{
+  for (auto const value : new_values)
+  {
+    if (std::ranges::find(values, value) == values.end())
+    {
+      values.push_back(value);
+    }
+  }
+}
+
+RabcEmpiricalCoefficientFileSelection empirical_coefficients_from_file(std::string const& path,
+                                                                       std::size_t output_count)
 {
   std::ifstream input(path);
   if (!input.good())
@@ -353,7 +378,21 @@ RabcEmpiricalCoefficientText empirical_coefficients_from_file(std::string const&
     throw std::runtime_error("failed to open UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE: " + path);
   }
 
-  RabcEmpiricalCoefficientText result;
+  RabcEmpiricalCoefficientFileSelection result;
+  RabcEmpiricalCoefficientText stanza;
+  auto finish_stanza = [&](std::string_view coefficients) -> bool {
+    stanza.coefficients = trim_ascii(coefficients);
+    result.saw_coefficients = true;
+    append_unique(result.supported_output_blocks, stanza.supported_output_blocks);
+    if (supports_output_count(stanza, output_count))
+    {
+      result.selected = stanza;
+      return true;
+    }
+    stanza = {};
+    return false;
+  };
+
   std::string line;
   while (std::getline(input, line))
   {
@@ -366,15 +405,33 @@ RabcEmpiricalCoefficientText empirical_coefficients_from_file(std::string const&
     constexpr std::string_view runtime_prefix = "runtime_coefficients=";
     if (trimmed.starts_with(runtime_prefix))
     {
-      result.coefficients = trim_ascii(std::string_view(trimmed).substr(runtime_prefix.size()));
-      return result;
+      if (finish_stanza(std::string_view(trimmed).substr(runtime_prefix.size())))
+      {
+        return result;
+      }
+      continue;
+    }
+
+    constexpr std::string_view bundle_separator = "runtime_coefficients_begin";
+    if (trimmed == bundle_separator)
+    {
+      stanza = {};
+      continue;
+    }
+
+    constexpr std::string_view bundle_end = "runtime_coefficients_end";
+    if (trimmed == bundle_end)
+    {
+      stanza = {};
+      continue;
     }
 
     constexpr std::string_view supported_blocks_prefix = "runtime_supported_output_blocks=";
     if (trimmed.starts_with(supported_blocks_prefix))
     {
-      result.supported_output_blocks = parse_size_list(std::string_view(trimmed).substr(supported_blocks_prefix.size()),
+      stanza.supported_output_blocks = parse_size_list(std::string_view(trimmed).substr(supported_blocks_prefix.size()),
                                                        "runtime_supported_output_blocks");
+      append_unique(result.supported_output_blocks, stanza.supported_output_blocks);
       continue;
     }
 
@@ -382,11 +439,21 @@ RabcEmpiricalCoefficientText empirical_coefficients_from_file(std::string const&
     auto const env_position = trimmed.find(env_prefix);
     if (env_position != std::string::npos)
     {
-      result.coefficients = trim_ascii(std::string_view(trimmed).substr(env_position + env_prefix.size()));
-      return result;
+      if (finish_stanza(std::string_view(trimmed).substr(env_position + env_prefix.size())))
+      {
+        return result;
+      }
+      continue;
     }
 
-    result.coefficients = trimmed;
+    if (finish_stanza(trimmed))
+    {
+      return result;
+    }
+  }
+
+  if (result.saw_coefficients)
+  {
     return result;
   }
 
@@ -394,7 +461,7 @@ RabcEmpiricalCoefficientText empirical_coefficients_from_file(std::string const&
                               path);
 }
 
-std::optional<RabcEmpiricalCoefficientText> empirical_coefficients_text()
+std::optional<RabcEmpiricalCoefficientText> empirical_coefficients_text(std::size_t output_count)
 {
   if (auto const text = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS"); text.has_value())
   {
@@ -403,7 +470,13 @@ std::optional<RabcEmpiricalCoefficientText> empirical_coefficients_text()
   if (auto const path = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
       path.has_value())
   {
-    return empirical_coefficients_from_file(*path);
+    auto selection = empirical_coefficients_from_file(*path, output_count);
+    if (selection.selected.has_value())
+    {
+      return selection.selected;
+    }
+    return RabcEmpiricalCoefficientText{.coefficients = "",
+                                        .supported_output_blocks = std::move(selection.supported_output_blocks)};
   }
   return std::nullopt;
 }
@@ -1195,7 +1268,7 @@ empirical_contiguous_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily
     return {};
   }
 
-  auto const coefficient_text = empirical_coefficients_text();
+  auto const coefficient_text = empirical_coefficients_text(r_raw_mats.size());
   if (!coefficient_text.has_value())
   {
     throw std::invalid_argument("UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous requires "
@@ -1203,9 +1276,7 @@ empirical_contiguous_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily
                                 "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
   }
   auto default_ranges = default_byte_balanced_ranges(r_raw_mats, device_count);
-  if (!coefficient_text->supported_output_blocks.empty() &&
-      std::ranges::find(coefficient_text->supported_output_blocks, r_raw_mats.size()) ==
-          coefficient_text->supported_output_blocks.end())
+  if (coefficient_text->coefficients.empty())
   {
     if (log_cost_based_rabc_placement())
     {
