@@ -419,6 +419,16 @@ m=5000` best contiguous basin.  The next model therefore needs a more explicit
 execution-state cost over typed hyperedges, not just monotonic penalties on
 typed split summaries.
 
+Live DMRG validation also shows that fixture-local replay coefficients are not
+portable enough to use as a default sweep policy.  The graph-augmented
+`empirical-contiguous` coefficient file that selects the near-best `cut326`
+layout for the Hubbard `L=40, m=5000` central replay fixture loses badly on a
+live `L=30, max_rank=512` sweep: after filtering to `States >= 512`, matvec time
+rose from `0.0478421028s` to `0.0798366683s` per Hamiltonian application.  The
+planner therefore needs either live-shape training data, a shape-support guard,
+or a structural execution model that generalizes across the changing
+effective-Hamiltonian block graphs seen during a sweep.
+
 ## Long-Term Planner
 
 The long-term scheduler should operate on a term graph:

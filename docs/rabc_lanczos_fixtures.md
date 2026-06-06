@@ -421,6 +421,19 @@ the shallow `cut323` to `cut326` basin and proves the fitted graph feature
 coefficient file can drive the C++ runtime to a measured near-best two-GPU
 layout.
 
+This replay result does not yet make the same coefficient file a safe live
+DMRG default.  A live Hubbard `L=30, max_rank=512, sweeps=4` comparison on
+Polaron used `UNI20_DMRG_PROFILE_SOLVER=1` and filtered the resulting
+`MP_BENCHFILE` rows to `States >= 512`.  The default byte-balanced placement
+measured `#LanczosMatvecS = 94.5838372s` over `1977` Hamiltonian applications,
+or `0.0478421028s` per application.  The graph-augmented
+`empirical-contiguous` policy using the Hubbard `L=40, m=5000` replay
+coefficient file measured `#LanczosMatvecS = 158.236277s` over `1982`
+applications, or `0.0798366683s` per application.  Treat replay-fitted
+coefficients as fixture-local resident Lanczos policies until the live
+effective-Hamiltonian shape family has its own validation or a shape-support
+guard.
+
 Unconstrained non-contiguous suggestions from the current linear benchmark fit
 also require direct measurement.  Two top-ranked local-search candidates from
 the full contiguous training set measured at roughly `0.214s` and `0.215s`,
@@ -454,6 +467,23 @@ scripts/rabc-trace-model.py bench-summary /tmp/uni20_rabc_benchmark.jsonl
 These `rabc_replay_benchmark` rows use the benchmark's printed `matvec=` field
 and are deliberately separate from CUDA-event trace rows.  Use them for final
 layout comparisons; use trace rows to explain or propose candidates.
+
+For live DMRG `MP_BENCHFILE` tables, use `dmrg-summary` instead of the replay
+benchmark commands.  It groups rows by kept-rank threshold and can also split
+the comparison by half sweep:
+
+```bash
+scripts/rabc-trace-model.py dmrg-summary \
+  /tmp/uni20_live_hubbard_l30_m512_default_profile.bench \
+  /tmp/uni20_live_hubbard_l30_m512_empirical_profile.bench \
+  --min-states 512 \
+  --half-sweeps
+```
+
+This command requires `UNI20_DMRG_PROFILE_SOLVER=1` if
+`#LanczosMatvecS` and per-application matvec timing are needed.  Without that
+profile switch it can still summarize top-level solve, split, and environment
+timings.
 
 Use `bench-struct-summary` to join no-trace benchmark rows with static
 term-trace features.  This is a diagnostic for correlated or misleading fitted

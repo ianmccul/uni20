@@ -256,6 +256,89 @@ def parse_benchmark_file(path: Path, layout: str, name: str, input_format: str) 
     raise ValueError(f"unsupported benchmark input format: {input_format}")
 
 
+def parse_dmrg_benchfile(path: Path) -> list[dict[str, Any]]:
+    """Parse a live DMRG `MP_BENCHFILE` table."""
+    header: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#Time"):
+            header = [field[1:] if field.startswith("#") else field for field in stripped.split()]
+            continue
+        if stripped.startswith("#"):
+            continue
+        if not header:
+            continue
+        fields = stripped.split()
+        if len(fields) < len(header):
+            continue
+        row: dict[str, Any] = {"source": str(path), "line": line_number}
+        for name, value in zip(header, fields):
+            row[name] = value
+        rows.append(row)
+    if not rows:
+        raise ValueError(f"{path} contains no live DMRG benchmark table rows")
+    return rows
+
+
+def dmrg_row_float(row: dict[str, Any], key: str) -> float:
+    """Return a DMRG benchmark row value as `float`."""
+    try:
+        return float(row[key])
+    except KeyError as exc:
+        raise ValueError(f"DMRG benchmark row is missing required column {key}") from exc
+
+
+def dmrg_row_int(row: dict[str, Any], key: str) -> int:
+    """Return a DMRG benchmark row value as `int`."""
+    return int(dmrg_row_float(row, key))
+
+
+def summarize_dmrg_rows(rows: list[dict[str, Any]]) -> dict[str, float | int]:
+    """Summarize a set of live DMRG benchmark rows."""
+    solve_sum = sum(dmrg_row_float(row, "SolveS") for row in rows)
+    split_sum = sum(dmrg_row_float(row, "SplitS") for row in rows)
+    env_sum = sum(dmrg_row_float(row, "EnvS") for row in rows)
+    summary: dict[str, float | int] = {
+        "rows": len(rows),
+        "solve_sum": solve_sum,
+        "solve_mean": solve_sum / len(rows),
+        "split_sum": split_sum,
+        "split_mean": split_sum / len(rows),
+        "env_sum": env_sum,
+        "env_mean": env_sum / len(rows),
+    }
+    if "LanczosMatvecS" in rows[0]:
+        matvec_sum = sum(dmrg_row_float(row, "LanczosMatvecS") for row in rows)
+        matvec_count = sum(dmrg_row_int(row, "LanczosMatvecN") for row in rows)
+        summary.update(
+            {
+                "matvec_sum": matvec_sum,
+                "matvec_mean": matvec_sum / len(rows),
+                "matvec_per_apply": matvec_sum / matvec_count if matvec_count != 0 else math.nan,
+                "matvec_count": matvec_count,
+            }
+        )
+    return summary
+
+
+def print_dmrg_summary_row(name: str, threshold: int, summary: dict[str, float | int], half_sweep: str = "-") -> None:
+    """Print one live DMRG summary row."""
+    matvec_sum = summary.get("matvec_sum", math.nan)
+    matvec_mean = summary.get("matvec_mean", math.nan)
+    matvec_per_apply = summary.get("matvec_per_apply", math.nan)
+    matvec_count = summary.get("matvec_count", 0)
+    print(
+        f"{name} {threshold} {half_sweep} {int(summary['rows'])} "
+        f"{float(summary['solve_sum']):.9g} {float(summary['solve_mean']):.9g} "
+        f"{float(summary['split_sum']):.9g} {float(summary['split_mean']):.9g} "
+        f"{float(summary['env_sum']):.9g} {float(summary['env_mean']):.9g} "
+        f"{float(matvec_sum):.9g} {float(matvec_mean):.9g} {float(matvec_per_apply):.9g} {int(matvec_count)}"
+    )
+
+
 def layout_key(record: dict[str, Any]) -> tuple[int, ...]:
     """Return the output-layout key for grouping repeated measurements."""
     return tuple(int(item) for item in record.get("output_layout", []))
@@ -2615,6 +2698,32 @@ def cmd_bench_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dmrg_summary(args: argparse.Namespace) -> int:
+    """Summarize live DMRG benchmark table rows."""
+    thresholds = [int(item) for item in args.min_states.split(",") if item.strip()]
+    if not thresholds:
+        raise ValueError("--min-states must include at least one threshold")
+
+    print(
+        "#Name #MinStates #HalfSweep #Rows #SolveSumS #SolveMeanS #SplitSumS #SplitMeanS "
+        "#EnvSumS #EnvMeanS #LanczosMatvecSumS #LanczosMatvecMeanS #LanczosMatvecPerApplyS #LanczosMatvecN"
+    )
+    for path in args.benchfile:
+        rows = parse_dmrg_benchfile(path)
+        for threshold in thresholds:
+            filtered = [row for row in rows if dmrg_row_int(row, "States") >= threshold]
+            if not filtered:
+                continue
+            print_dmrg_summary_row(path.stem, threshold, summarize_dmrg_rows(filtered))
+            if args.half_sweeps:
+                by_half_sweep: dict[int, list[dict[str, Any]]] = {}
+                for row in filtered:
+                    by_half_sweep.setdefault(dmrg_row_int(row, "SweepNum"), []).append(row)
+                for half_sweep, grouped in sorted(by_half_sweep.items()):
+                    print_dmrg_summary_row(path.stem, threshold, summarize_dmrg_rows(grouped), str(half_sweep))
+    return 0
+
+
 def cmd_bench_rank(args: argparse.Namespace) -> int:
     """Rank no-trace replay benchmark records by actual layout."""
     records = benchmark_records_from_paths(args.benchmark)
@@ -3312,6 +3421,18 @@ def parser() -> argparse.ArgumentParser:
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )
     bench_summary.set_defaults(func=cmd_bench_summary)
+
+    dmrg_summary = subcommands.add_parser("dmrg-summary", help="summarize live DMRG MP_BENCHFILE rows")
+    dmrg_summary.add_argument("benchfile", nargs="+", type=Path, help="live DMRG MP_BENCHFILE table(s)")
+    dmrg_summary.add_argument(
+        "--min-states",
+        default="16,64,256,512",
+        help="comma-separated kept-rank thresholds to summarize",
+    )
+    dmrg_summary.add_argument(
+        "--half-sweeps", action="store_true", help="also print rows grouped by half-sweep number"
+    )
+    dmrg_summary.set_defaults(func=cmd_dmrg_summary)
 
     bench_rank = subcommands.add_parser(
         "bench-rank", help="rank replay benchmark JSONL records after grouping identical layouts"
