@@ -822,7 +822,7 @@ def layout_structure_vector(problem: dict[str, Any], layout: list[int]) -> list[
 
 def fit_monotonic_structure_coefficients(
     records: list[dict[str, Any]], problem: dict[str, Any], ridge: float, iterations: int
-) -> tuple[dict[str, float], dict[str, float]]:
+) -> tuple[dict[str, float], dict[str, Any]]:
     """Fit non-negative structural coefficients to benchmark layout means."""
     grouped = group_benchmarks_by_layout(records, problem)
     if not grouped:
@@ -832,8 +832,16 @@ def fit_monotonic_structure_coefficients(
     y = [benchmark_layout_mean_matvec_seconds(layout_records) for layout_records in grouped.values()]
     baseline = min(y)
     shifted_y = [max(0.0, value - baseline) for value in y]
-    scales = [max(max(row[column] for row in raw_x), 1.0) for column in range(len(STRUCTURE_SCORE_FEATURE_NAMES))]
-    x = [[value / scale for value, scale in zip(row, scales)] for row in raw_x]
+    offsets = [min(row[column] for row in raw_x) for column in range(len(STRUCTURE_SCORE_FEATURE_NAMES))]
+    centered_x = [
+        [max(0.0, value - offset) for value, offset in zip(row, offsets)]
+        for row in raw_x
+    ]
+    scales = [
+        max(max(row[column] for row in centered_x), 1.0)
+        for column in range(len(STRUCTURE_SCORE_FEATURE_NAMES))
+    ]
+    x = [[value / scale for value, scale in zip(row, scales)] for row in centered_x]
     weights = [0.0] * len(STRUCTURE_SCORE_FEATURE_NAMES)
     iterations = max(1, iterations)
 
@@ -865,7 +873,7 @@ def fit_monotonic_structure_coefficients(
     }
     predicted = [
         baseline + sum(coefficients[name] * value for name, value in zip(STRUCTURE_SCORE_FEATURE_NAMES, row))
-        for row in raw_x
+        for row in centered_x
     ]
     errors = [estimate - observed for estimate, observed in zip(predicted, y)]
     rmse = math.sqrt(sum(error * error for error in errors) / len(errors))
@@ -877,16 +885,25 @@ def fit_monotonic_structure_coefficients(
         "baseline": baseline,
         "rmse": rmse,
         "r2": 1.0 - residual / total if total != 0.0 else 1.0,
+        "offsets": {name: offset for name, offset in zip(STRUCTURE_SCORE_FEATURE_NAMES, offsets)},
     }
     return coefficients, stats
 
 
 def score_monotonic_structure_layout(
-    problem: dict[str, Any], layout: list[int], baseline: float, coefficients: dict[str, float]
+    problem: dict[str, Any],
+    layout: list[int],
+    baseline: float,
+    coefficients: dict[str, float],
+    offsets: dict[str, float] | None = None,
 ) -> float:
     """Return a non-negative structural score in seconds for one layout."""
     vector = layout_structure_vector(problem, layout)
-    return baseline + sum(coefficients[name] * value for name, value in zip(STRUCTURE_SCORE_FEATURE_NAMES, vector))
+    offsets = offsets if offsets is not None else {}
+    return baseline + sum(
+        coefficients[name] * max(0.0, value - offsets.get(name, 0.0))
+        for name, value in zip(STRUCTURE_SCORE_FEATURE_NAMES, vector)
+    )
 
 
 def layout_mean_gpu_seconds(records: list[dict[str, Any]]) -> float:
@@ -1214,7 +1231,9 @@ def leave_one_monotonic_structure_layout_out(
     for key, held_out in grouped.items():
         train = [record for other_key, group in grouped.items() if other_key != key for record in group]
         coefficients, stats = fit_monotonic_structure_coefficients(train, problem, ridge, iterations)
-        predicted = score_monotonic_structure_layout(problem, list(key), stats["baseline"], coefficients)
+        predicted = score_monotonic_structure_layout(
+            problem, list(key), stats["baseline"], coefficients, stats["offsets"]
+        )
         observed = benchmark_layout_mean_matvec_seconds(held_out)
         names = sorted({str(record.get("name", "")) for record in held_out if str(record.get("name", ""))})
         rows.append(
@@ -2471,7 +2490,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             )
             return score
         return score_monotonic_structure_layout(
-            problem, layout, structure_stats["baseline"], structure_coefficients
+            problem, layout, structure_stats["baseline"], structure_coefficients, structure_stats["offsets"]
         )
 
     observed_keys = {tuple(layout) for layout in observed_benchmark_layouts(records, problem)}
@@ -2570,6 +2589,11 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
         print(
             "monotonic_structure_coefficients="
             + ",".join(f"{structure_coefficients[name]:.17g}" for name in STRUCTURE_SCORE_FEATURE_NAMES)
+        )
+        print("monotonic_structure_offsets_order=" + ",".join(STRUCTURE_SCORE_FEATURE_NAMES))
+        print(
+            "monotonic_structure_offsets="
+            + ",".join(f"{structure_stats['offsets'][name]:.17g}" for name in STRUCTURE_SCORE_FEATURE_NAMES)
         )
     if args.output_runtime_coefficients is not None:
         write_runtime_empirical_coefficients(args.output_runtime_coefficients, coefficients, names, args.model)

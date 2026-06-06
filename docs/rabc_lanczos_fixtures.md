@@ -589,9 +589,11 @@ score is attractive only because the regression has assigned compensating
 weights to correlated communication or load-skew features.
 
 `--candidate-score monotonic-structure` replaces the candidate ranking score
-with a non-negative fit over the same structural counters.  This is a diagnostic
-step toward a calibrated graph cost function: communication, term-pressure,
-skew, and duplication counters cannot receive negative weights.  On the current
+with a non-negative fit over the same structural counters.  Each counter is
+centered at its training-set minimum, so the fit penalizes excess structural
+cost rather than the absolute value of a counter.  This is a diagnostic step
+toward a calibrated graph cost function: communication, term-pressure, skew,
+and duplication counters cannot receive negative weights.  On the current
 Hubbard `L=40, m=5000` dataset it is intentionally conservative and does not
 recover the best contiguous basin, so do not use it as a runtime policy.  Its
 main value is checking whether a proposed layout still looks good when obvious
@@ -617,11 +619,11 @@ them as improvements.
 
 Current Hubbard `L=40, m=5000` validation confirms that limitation.  With the
 mixed contiguous/segmented benchmark rows, leave-one-layout-out validation gives
-`R^2 = 0.139902132`, `RMSE = 0.066256608 s`, and a top-1 mismatch.  Restricting
-the same check to contiguous layouts gives `R^2 = 0.236318329`,
-`RMSE = 0.0603863751 s`, and still a top-1 mismatch.  The best observed
+`R^2 = 0.172333708`, `RMSE = 0.0649954413 s`, and a top-1 mismatch.  Restricting
+the same check to contiguous layouts gives `R^2 = 0.401401351`,
+`RMSE = 0.0534626698 s`, and still a top-1 mismatch.  The best observed
 contiguous basin remains around cuts `323`-`326`, while the structural score
-overpredicts those rows by about `0.05 s`; this is useful evidence that the
+overpredicts those rows by about `0.03`-`0.04 s`; this is useful evidence that the
 next step is a better graph/hypergraph cost function rather than a stronger
 monotonic least-squares fit over the current counters.
 
