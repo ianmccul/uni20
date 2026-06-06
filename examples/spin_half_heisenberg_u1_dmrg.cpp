@@ -127,7 +127,7 @@ class BenchFile {
           fmt::print(file_, " #DebugGlobalEnergy");
         }
         fmt::print(file_, " #SolveS #SplitS #ReplaceS #EnvS #SolveCpuS #SplitCpuS #ReplaceCpuS #EnvCpuS "
-                          "#BondSectors");
+                          "#BondSectors #RabcOutputBlocks #RabcOutputShape");
         if (include_solver_profile_)
         {
           fmt::print(file_, " #SolveLayoutS #SolveEffHS #SolveEngineS #SolveVectorS #SolveLanczosS"
@@ -170,7 +170,8 @@ class BenchFile {
                  update.replace_seconds, update.environment_seconds);
       fmt::print(file_, " {:.9g} {:.9g} {:.9g} {:.9g}", update.solve_cpu_seconds, update.split_cpu_seconds,
                  update.replace_cpu_seconds, update.environment_cpu_seconds);
-      fmt::print(file_, " {}", format_bond_sectors(update.shared_bond_space));
+      fmt::print(file_, " {} {} {}", format_bond_sectors(update.shared_bond_space), update.rabc_output_blocks,
+                 update.rabc_output_shape_signature);
       if (include_solver_profile_)
       {
         auto const& solve = update.solve_timings;

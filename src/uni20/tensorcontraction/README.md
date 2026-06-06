@@ -57,20 +57,15 @@ design.  The all-visible-GPU mode is still available for TensorContraction
 experiments that need one process to drive multiple local GPUs; multi-GPU plus
 multi-node execution is not covered by the current single-node GV100 test
 environment.
-When more than one GPU is active, tiny resident DMRG workloads keep their
-pre-stored matrices and scheduled work on one local GPU by default because
-scattering small blocks mostly measures CUDA event and peer-copy overhead.  Set
-`UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_FLOPS=0` and
-`UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES=0` to force all-active-GPU
-scheduling for diagnostics.  The defaults are `1e10` estimated contraction
-flops and `64MiB` of resident vector blocks before local multi-GPU scheduling is
-enabled.
-Forced local multi-GPU resident vector algebra uses a temporary contiguous
-byte-balanced placement: a `MatrixFamily` is split into one coalesced slab per
-active device instead of round-robin per-block placement.  This keeps slab
-transfers, dot products, scale/copy/axpy kernels, and explicit host syncs
-coalesced while the final BlockSpace-driven placement model is still under
-development.
+When more than one GPU is active, resident TensorContraction uses those devices
+immediately rather than applying a workload-size threshold.  The current
+temporary placement is contiguous and byte-balanced: a `MatrixFamily` is split
+into one coalesced slab per active device instead of round-robin per-block
+placement.  This keeps slab transfers, dot products, scale/copy/axpy kernels,
+and explicit host syncs coalesced while the final BlockSpace-driven placement
+model is still under development.  Once the cost-model planner is active, a
+single-device placement should be represented as an ordinary planner decision
+rather than as a separate threshold-gated code path.
 
 The CUDA work stream pool defaults to four streams per active device.  Set
 `UNI20_TENSORCONTRACTION_STREAMS=N` to change that pool size.  For CUDA-overhead

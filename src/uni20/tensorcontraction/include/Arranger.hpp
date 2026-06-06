@@ -52,8 +52,6 @@ class Arranger {
     std::vector<LiveIntervalMap> liveIntervalsForLinearAlgebra;
     std::vector<double> linearAlgebraFlopsPerDevice;
     std::vector<cudaEvent_t> syncFinishEvents;
-    int contractionScheduledDeviceCount = 1;
-    int linearAlgebraScheduledDeviceCount = 1;
     bool memoryPoolsInitialized = false;
     bool ncclCommsInitialized = false;
 
@@ -76,8 +74,6 @@ class Arranger {
 
     void executeWorklists(std::vector<WorklistTy>& worklists, std::vector<LiveIntervalMap>& liveIntervals,
                           bool freeBuffersAtEnd = true);
-    int scheduledDeviceCountForFlops(double flops) const;
-    int scheduledDeviceCountForBytes(std::size_t bytes) const;
     int leastBusyContractionDevice(const std::vector<double>& flopsPerDevice) const;
     int leastBusyLinearAlgebraDevice() const;
     void ensureNcclCommsInitialized();

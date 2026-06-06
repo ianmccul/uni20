@@ -68,100 +68,69 @@ repeat with resident vector algebra. `UNI20_TENSORCONTRACTION_DEVICES=all` exerc
 
 ## Placement Experiments
 
-The default resident bridge places active `MatrixFamily` blocks in coalesced byte-balanced slabs.  This is still the
-best default for end-to-end Lanczos because the vector-algebra operations can use slab kernels.
+The default resident bridge places active `MatrixFamily` blocks in coalesced
+byte-balanced slabs.  This is still the best default for end-to-end Lanczos
+because the vector-algebra operations can use slab kernels.
 
-Set `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost` to enable the experimental R/A/B/C output-placement policy.  This
-policy uses a small dynamic program to choose contiguous `R` block ranges for each local device while minimizing the
-estimated maximum per-device matvec cost for the current right-first schedule:
+The current deterministic resident executor is input-anchored and right-first:
 
 ```text
-Y = B * C
-R += A * Y
+Y_{b,c} = B_b * C_c      on owner(B_b)
+R_r += A_a * Y_{b,c}    on owner(R_r)
 ```
 
-The default model scores GEMM flops and central-vector `B` movement only.  It deliberately ignores the setup cost of
-materializing `A` and `C` environment blocks on the selected devices, because the fixture replay is intended to time the
-resident Lanczos loop after environment placement has been arranged.  Add
-`UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES=1` only when profiling a staging policy rather than a Lanczos matvec
-policy.
+This matches the restricted model in
+`docs/latex/rabc_input_anchored_model.tex`.  For Hamiltonian matvecs, `B` and
+`R` are the same center space and must share one owner layout.  For
+environment-style contractions, `B` and `R` are different spaces and may use
+independent owner layouts.
 
 Useful controls:
 
 | Variable | Meaning |
 | --- | --- |
-| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT` | `cost`, `greedy`, or `cost-greedy` enables contiguous cost placement. |
-| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost-block` | Enables the more aggressive arbitrary block-ownership policy. Blocks are still stored as one coalesced slab per device. |
-| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous` | Enables a two-device contiguous policy scored by fitted no-trace benchmark coefficients. Aliases: `empirical`, `bench-contiguous`. |
-| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=stripe` | Places center blocks round-robin over local devices, equivalent to an alternating `0,1,0,1,...` layout on two GPUs. Aliases: `striped`, `round-robin`, `alternating`. |
-| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual` | Uses the explicit center-block device list supplied by `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT`. |
-| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT` | Comma-separated CUDA device id per center block, for example `0,1,0,1`. The list length must equal the center-vector block count. |
-| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG` | Set to `1`, `true`, or `on` to print the selected output-block distribution. |
-| `UNI20_TENSORCONTRACTION_RABC_MODEL_GFLOPS` | Assumed per-device GEMM throughput. Default: `1000`. |
-| `UNI20_TENSORCONTRACTION_RABC_MODEL_CENTRAL_GBPS` | Assumed central-vector transfer bandwidth. Default: `32`. |
-| `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_BYTES` | If set, include environment staging bytes in the model. Default: unset. |
-| `UNI20_TENSORCONTRACTION_RABC_MODEL_ENV_GBPS` | Assumed environment transfer bandwidth when environment bytes are enabled. Default: central bandwidth. |
-| `UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP` | Minimum predicted speedup required before `cost` overrides byte-balanced contiguous ranges. Default: `1.05`. |
-| `UNI20_TENSORCONTRACTION_RABC_MODEL_ARBITRARY_MIN_SPEEDUP` | Minimum predicted speedup required before `cost-block` overrides byte-balanced slab layout. Default: `1.25`. |
-| `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` | Comma-separated fitted coefficients for `empirical-contiguous`, in the `bench-fit --model device` runtime order. |
-| `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE` | Text file containing coefficient stanzas. The runtime accepts a raw comma list, `runtime_coefficients=...`, or `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=...`. Generated stanzas also include `runtime_supported_output_blocks=...` and `runtime_output_shape_signature=...`; if present, the runtime uses the first stanza matching the current output block count and output block-dimension signature, and falls back to byte-balanced placement when none match. |
-| `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_MIN_SPEEDUP` | Minimum fitted-score improvement required before `empirical-contiguous` overrides byte-balanced contiguous ranges. Default: `1.0`. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual` | Enables explicit resident owner layouts. Other historical values are rejected by the current runtime path. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT` | Hamiltonian-only shared center-layout list. The list length must equal both the `B` and `R` block counts. |
+| `UNI20_TENSORCONTRACTION_RABC_B_LAYOUT` | Environment-style `B` owner list. If omitted, `B` keeps the default byte-balanced slab layout. |
+| `UNI20_TENSORCONTRACTION_RABC_R_LAYOUT` | Environment-style `R` owner list. If omitted, `R` keeps the default byte-balanced slab layout. |
+| `UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG` | Set to `1`, `true`, or `on` to print the selected `B`/`R` owner layouts. |
 | `UNI20_TENSORCONTRACTION_RABC_TRACE_PATH` | Appends one JSONL record per deterministic resident matvec with layout, feature, and timing data for empirical model fitting. |
-| `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS` | If set, include the full term list and selected device for each term in each JSONL record. |
+| `UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS` | If set, include the full term list plus `first_device` and `output_device` for each term. |
 
-The cost policies are intentionally opt-in.  The contiguous policy compares its
-model-selected split with the default byte-balanced split and falls back unless
-the predicted speedup clears `UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP`.
-The arbitrary block policy can still lose to the default layout when the R/A/B/C
-model underestimates vector-layout or relayout costs.
-The `stripe` policy is also opt-in, but is deterministic rather than fitted.  It is useful as an empirical baseline
-because it exercises the measured alternating block layout directly, while avoiding local-search extrapolation outside
-measured layouts.  It is not a default: validate it against the byte-balanced layout with tracing disabled before using
-it for production benchmarks.
-The `empirical-contiguous` policy is also opt-in and currently limited to two
-local CUDA devices.  It evaluates every nonempty ordered split of the center
-blocks and scores each split with the device-aware no-trace benchmark feature
-order:
+The old `cost`, `cost-block`, `stripe`, and `empirical-contiguous` runtime
+policies were useful diagnostics but have been removed from the C++ runtime
+path.  They relied on ordered block ranges or fitted replay coefficients, while
+the planner we need is a graph/hypergraph optimizer over the sparse `f` tensor.
+Use manual layouts or generated manual layout sweeps for replay experiments
+until the input-anchored cost model is implemented.
 
-```text
-intercept,
-d0_right_flops,d0_b_peer_bytes,d0_terms,d0_unique_bc,d0_output_bytes,
-d1_right_flops,d1_b_peer_bytes,d1_terms,d1_unique_bc,d1_output_bytes,
-layout_transitions,layout_segments,active_devices,
-max_output_block_fraction,max_output_byte_fraction
-```
+`bench-fit --model device` and `bench-suggest --model device` still fit and
+rank benchmark layouts offline.  The fitted coefficients are diagnostic data:
+they no longer generate runtime coefficient files and should be consumed by
+choosing an explicit manual layout for replay.  `m=16` runs remain useful smoke
+and overhead regression probes, but fits from those runs must not silently drive
+larger DMRG or fixture layouts.
 
-Generate this coefficient vector with `bench-fit --model device` or
-`bench-suggest --model device`; both commands print the runtime
-`UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` value.  Use
-`--output-runtime-coefficients <path>` to write a reusable coefficient file for
-`UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE`; the generated file
-includes the coefficient order as comments, a `runtime_supported_output_blocks`
-guard for the fitted fixture block count, and a `runtime_coefficients=...`
-line. Generated files also include a `runtime_output_shape_signature` guard,
-which is a compact deterministic hash of the output `R` block dimensions. Do
-not use the policy for cold-start/environment-staging fits: the device-aware
-runtime model targets steady-state resident Lanczos matvec timing only.
-Multiple generated stanzas may be concatenated into one coefficient bundle when
-separate fixture shapes have been fitted.  Shape guards are deliberately strict:
-`m=16` runs are useful smoke and overhead regression probes, but their fitted
-coefficients must not silently drive larger DMRG or fixture layouts.
-
-Device-aware fits with `--graph-features` use a 28-value runtime coefficient
-order.  The graph-augmented order keeps the same intercept and layout features,
-and inserts these six per-device counters immediately after each device's
-`output_bytes` coefficient:
+Device-aware fits with `--graph-features` include additional per-device graph
+counters.  These counters target cut, peer-block, duplicate-group, and
+mixed-order effects in the `f` hypergraph:
 
 ```text
 b_cut_terms,b_peer_blocks,right_duplicate_groups,
 mixed_duplicate_groups,mixed_left_groups,mixed_right_groups
 ```
 
-The C++ runtime accepts both the 16-value base order and this 28-value
-graph-augmented order.  The graph features target cut, peer-block,
-duplicate-group, and mixed-order effects in the `f` hypergraph; validate them
-against held-out benchmark layouts before using them as the active
-`empirical-contiguous` placement model.
+Validate graph-feature fits against held-out benchmark layouts before using
+them to choose a manual replay layout.
+For the mathematical placement domain and the intended cost functional, see
+`docs/latex/rabc_hypergraph_partitioning.tex`. That note separates logical
+block identity, graph placement, and final coalesced storage packing. In
+particular, ordered ranges are only ranges in the current implementation
+order, not an invariant physical notion of neighboring blocks.
+For the narrower cost function that is likely to become the first optimizer,
+see `docs/latex/rabc_input_anchored_model.tex`. It fixes the first GEMM to the
+input `B_b` owner and the second GEMM to the output `R_r` owner, leaving the
+layout and per-term left/right path as the main optimization variables.
 The current cost model is a variable-middle prototype: the Krylov input blocks `B_i` and output blocks `R_i` are forced
 onto one canonical layout so vector algebra can use the result as the next Lanczos input without an implicit relayout.
 Benchmark both `#LanczosMatvecS` and total wall time before treating a lower contraction model score as a faster
@@ -249,8 +218,9 @@ four-way split: GPU 0/right-first, GPU 0/left-first, GPU 1/right-first, and
 GPU 1/left-first.  Allowing explicit intermediate moves or alternate
 accumulation sites adds a small finite number of labels.  Once each label has a
 measured cost model, layout selection becomes a weighted hypergraph partition
-or min-cut problem.  Contiguous quantum-number ranges are only a useful
-restricted search family; the traced `f` connectivity is the actual objective.
+or min-cut problem.  Ordered quantum-number ranges are only a legacy restricted
+search family that may be useful when the current construction order happens to
+cluster connected sectors; the traced `f` connectivity is the actual objective.
 
 The current implementation is intentionally narrower.  It keeps one canonical
 Krylov-vector layout so successive Lanczos matvecs and vector algebra do not
@@ -329,28 +299,21 @@ The script writes one `MP_BENCHFILE` table per layout and rebuilds a combined
 interrupted sweep without rerunning layouts that already have nonempty bench
 files.  Use `--trace-path auto --trace-terms` only for a companion term trace or
 other structural diagnostics; do not compare final performance from traced rows.
-Use `--policy cost-block --labels cost-block` or another non-manual policy name
-to benchmark an automatic placement path through the same wrapper.  Non-manual
-policy runs enable placement diagnostics automatically and infer the selected
-layout when the diagnostic line contains either a contiguous `cut=N` or explicit
-`deviceK={blocks=[begin,end)}` ranges.  Inferred layouts are written to the same
-`benchmarks.jsonl` dataset as manual layouts, so automatic policies such as
-`empirical-contiguous`, `cost`, and `stripe` can be compared with
-`bench-summary`.  If a future policy does not expose a parseable layout, the
-wrapper still keeps the raw bench table but reports `inferred_layout=unavailable`.
-Use `bench-rank` when comparing automatic policies with manual cuts, because it
-groups rows by the actual recovered layout rather than the run name:
+Automatic runtime policies are not supported by the wrapper.  Use
+`bench-suggest` to choose an explicit layout, then pass the full comma-separated
+layout through `--layout NAME=LIST` or `--layout-file NAME=PATH`:
 
 ```bash
+scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
+  --term-trace /tmp/uni20_rabc_term_trace.jsonl \
+  --model device \
+  --layout-filter contiguous \
+  --contiguous-only \
+  --top 1 > /tmp/uni20_rabc_candidate.txt
 scripts/run-rabc-layout-sweep.sh \
   --fixture /home/ian/sync/fixtures/tensorcontraction/uni20_hubbard_l40_m5000_central.rabc \
-  --output-dir /tmp/uni20_rabc_empirical_replay \
-  --policy empirical-contiguous \
-  --labels empirical-contiguous \
-  --empirical-coefficients-file /tmp/uni20_rabc_empirical_coefficients.txt
-scripts/rabc-trace-model.py bench-rank /tmp/uni20_rabc_empirical_replay/benchmarks.jsonl \
-  --compact-layouts \
-  --selected-name empirical-contiguous
+  --output-dir /tmp/uni20_rabc_manual_replay \
+  --layout-file candidate=/tmp/uni20_rabc_candidate.txt
 ```
 
 To benchmark segmented candidates directly, generate explicit layout strings
@@ -383,8 +346,8 @@ segmented suggestions to measured shape support by segment count, the guarded
 top-three candidates were also replayed directly.  The best of those placed
 670 blocks on GPU 0 and 60 blocks on GPU 1 and measured mean
 `#LanczosMatvecS = 0.898845987s` over three repeats.  That is competitive with
-nearby contiguous cuts but still slower than the `cut326`/`empirical-contiguous`
-comparison at mean `0.888880086s` over nine rows.  This confirms that the
+nearby contiguous cuts but still slower than the focused `cut326` comparison at
+mean `0.888880086s` over nine rows.  This confirms that the
 current useful automatic search space remains contiguous layouts unless a
 fixture supplies measured evidence for non-contiguous support.  Static
 structural diagnostics explain the failure modes: segmented candidates can
@@ -421,12 +384,10 @@ about `0.907s`.  Do not clamp coefficients for this benchmark: clamped
 graph-feature fits fail validation because the correlated structural counters
 need signed compensating weights.
 
-A no-trace coefficient-file replay using the graph-augmented
-`empirical-contiguous` runtime path selected `cut326` and measured mean
-`#LanczosMatvecS = 0.892266440s` over nine repeats.  This is consistent with
-the shallow `cut323` to `cut326` basin and proves the fitted graph feature
-coefficient file can drive the C++ runtime to a measured near-best two-GPU
-layout.
+A historical no-trace replay selected the `cut326` layout from a
+graph-augmented fit and measured mean `#LanczosMatvecS = 0.892266440s` over nine
+repeats.  This is consistent with the shallow `cut323` to `cut326` basin and
+shows that graph-feature fits can generate useful manual-layout candidates.
 
 This replay result does not yet make the same coefficient file a safe live
 DMRG default.  A live Hubbard `L=30, max_rank=512, sweeps=4` comparison on
@@ -434,16 +395,10 @@ Polaron used `UNI20_DMRG_PROFILE_SOLVER=1` and filtered the resulting
 `MP_BENCHFILE` rows to `States >= 512`.  The default byte-balanced placement
 measured `#LanczosMatvecS = 94.5838372s` over `1977` Hamiltonian applications,
 or `0.0478421028s` per application.  The graph-augmented
-`empirical-contiguous` policy using the Hubbard `L=40, m=5000` replay
-coefficient file measured `#LanczosMatvecS = 158.236277s` over `1982`
-applications, or `0.0798366683s` per application.  Treat replay-fitted
-coefficients as fixture-local resident Lanczos policies until the live
-effective-Hamiltonian shape family has its own validation.  Coefficient files
-generated by `--output-runtime-coefficients` now carry a
-`runtime_supported_output_blocks` guard, so this particular fixture-local file
-will fall back to byte-balanced placement for the smaller live sweep shapes.
-Raw `UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS` strings intentionally
-remain unrestricted for diagnostics.
+historical replay-fitted placement measured `#LanczosMatvecS = 158.236277s`
+over `1982` applications, or `0.0798366683s` per application.  Treat fitted
+candidate layouts as fixture-local until the live effective-Hamiltonian shape
+family has its own validation.
 
 Unconstrained non-contiguous suggestions from the current linear benchmark fit
 also require direct measurement.  Two top-ranked local-search candidates from
@@ -486,15 +441,22 @@ the comparison by half sweep:
 ```bash
 scripts/rabc-trace-model.py dmrg-summary \
   /tmp/uni20_live_hubbard_l30_m512_default_profile.bench \
-  /tmp/uni20_live_hubbard_l30_m512_empirical_profile.bench \
+  /tmp/uni20_live_hubbard_l30_m512_candidate_profile.bench \
   --min-states 512 \
-  --half-sweeps
+  --half-sweeps \
+  --shapes
 ```
 
 This command requires `UNI20_DMRG_PROFILE_SOLVER=1` if
 `#LanczosMatvecS` and per-application matvec timing are needed.  Without that
 profile switch it can still summarize top-level solve, split, and environment
 timings.
+The `--shapes` summary groups live rows by the R/A/B/C output block count and
+output-shape signature reported by the U(1) and U(1)xU(1) DMRG examples.  Use
+that table to identify which live effective-Hamiltonian shapes dominate matvec
+time and therefore need serious fixture captures and fitted coefficient
+stanzas.  Older bench files that do not contain `RabcOutputBlocks` and
+`RabcOutputShape` are still accepted; they simply do not produce shape rows.
 
 Use `bench-struct-summary` to join no-trace benchmark rows with static
 term-trace features.  This is a diagnostic for correlated or misleading fitted
@@ -564,17 +526,14 @@ scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_benchmark.jsonl \
   --model device \
   --layout-filter contiguous \
   --contiguous-only \
-  --top 8 \
-  --output-runtime-coefficients /tmp/uni20_rabc_empirical_coefficients.txt
+  --top 8
 ```
 
-Use `--graph-features` with `--output-runtime-coefficients` when the fitted
-model should drive the graph-augmented runtime policy.  Omit it when writing a
-base 16-value coefficient file.  In both cases, keep `--layout-filter
-contiguous` for the current `empirical-contiguous` runtime policy unless the
-runtime placement family has been extended to match the measured layouts.
-Use `--append-runtime-coefficients` when adding another fitted shape to an
-existing coefficient bundle:
+Use `--graph-features` when the fitted model should include graph-augmented
+layout counters.  Keep `--layout-filter contiguous` when the training rows only
+cover ordered range layouts; otherwise the model may rank unsupported layout
+families from extrapolated aggregate features.  To measure a suggested layout,
+write it to a file and replay it explicitly:
 
 ```bash
 scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_shape2_benchmark.jsonl \
@@ -584,17 +543,11 @@ scripts/rabc-trace-model.py bench-suggest /tmp/uni20_rabc_shape2_benchmark.jsonl
   --graph-features \
   --ridge <selected-ridge> \
   --contiguous-only \
-  --output-runtime-coefficients /tmp/uni20_rabc_empirical_bundle.txt \
-  --append-runtime-coefficients
+  --top 1 > /tmp/uni20_rabc_shape2_candidate.txt
+scripts/run-rabc-layout-sweep.sh \
+  --fixture /home/ian/sync/fixtures/tensorcontraction/uni20_shape2_central.rabc \
+  --layout-file candidate=/tmp/uni20_rabc_shape2_candidate.txt
 ```
-
-The appended stanza carries its own `runtime_supported_output_blocks` and
-`runtime_output_shape_signature` guards, so the runtime can select the first
-matching shape and fall back to byte-balanced placement when the live DMRG solve
-has no fitted stanza.  The block count alone is not a sufficient identity for
-serious live DMRG fitting: two bonds can have the same number of output blocks
-while having different block dimensions and therefore different GEMM/traffic
-costs.
 
 Treat `bench-validate` as meaningful only after measuring several distinct
 layouts.  With one default layout and one deliberately bad striped layout it is
@@ -611,10 +564,11 @@ The tune output reports best-by-top1, best-by-RMSE, and best-by-R2 summaries;
 do not choose a top1-only fit if its RMSE/R2 shows that the timing model is
 numerically unstable.
 
-For symmetry-local Hamiltonians, also test the constrained contiguous-range
-family.  The traced sparse `f` tensor remains the ground truth for connectivity:
-contiguous ranges are only a candidate restriction that is useful when the
-block ordering clusters neighboring quantum-number sectors.
+For symmetry-local Hamiltonians, keep the constrained ordered-range family only
+as a diagnostic baseline.  The traced sparse `f` tensor remains the ground
+truth for connectivity: ordered ranges are useful only when the current block
+ordering happens to cluster neighboring quantum-number sectors, and they should
+not be promoted as a general runtime policy.
 
 `bench-suggest --segmented-only` is a controlled next step between one
 contiguous cut and arbitrary per-block local search.  It enumerates alternating

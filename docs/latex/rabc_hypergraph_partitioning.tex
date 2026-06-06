@@ -1,0 +1,535 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath, amssymb}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+
+\title{Hypergraph Placement Model for R/A/B/C Hamiltonian Application}
+\author{Uni20 Developer Documentation}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Scope}
+
+This note defines the scheduling domain and cost functional for applying a
+block-sparse effective Hamiltonian in the R/A/B/C form used by the current
+TensorContraction bridge.  The immediate target is the two-site DMRG Lanczos
+operator
+\begin{equation}
+  R_r \mathrel{+}= f_t A_a B_b C_c,
+  \qquad t = (r,a,b,c,f_t),
+\end{equation}
+where $B$ is the input Krylov vector block family and $R$ is the output Krylov
+vector block family.
+
+For Hamiltonian application inside Lanczos, $B$ and $R$ must have the same
+logical block space and the same persistent device layout.  The next Lanczos
+matvec consumes the previous output as its input, so an implicit relayout after
+each application is not acceptable.  The same R/A/B/C machinery can also be
+used for environment construction, but then the input and output families are
+not necessarily the same object and need not share a device layout.  This
+document records that distinction, but focuses first on the Hamiltonian case.
+
+\section{The Sparse Coefficient Tensor as a Hypergraph}
+
+Let
+\begin{itemize}
+  \item $\mathcal{D}$ be the set of CUDA devices visible to one MPI rank,
+  \item $\mathcal{K}$ be the logical center-block set shared by $B$ and $R$,
+  \item $\mathcal{A}$ and $\mathcal{C}$ be the left and right environment block sets,
+  \item $\mathcal{T}$ be the set of nonzero R/A/B/C terms.
+\end{itemize}
+Each term
+\begin{equation}
+  t \in \mathcal{T}, \qquad t = (r(t),a(t),b(t),c(t),f_t)
+\end{equation}
+is a typed hyperedge connecting one output block, one input center block, and
+one left/right environment pair.  Symmetry explains much of the sparsity, but
+the optimizer should use the actual nonzero tensor $f$ as the ground-truth
+connectivity object.
+
+\section{Hamiltonian Scheduling Domain}
+
+The first useful Hamiltonian domain consists of four classes of choices:
+center-block ownership, active environment placement, exact factorization of
+the sparse coefficient tensor into temporary families, and placement of the
+first-stage product contributions and second-stage operations.
+
+\paragraph{Center-block owner.}
+Choose one canonical owner for each center block:
+\begin{equation}
+  h : \mathcal{K} \to \mathcal{D}.
+\end{equation}
+For Hamiltonian application, $h(k)$ is both the persistent owner of input block
+$B_k$ and the final owner of output block $R_k$.
+
+\paragraph{Active environment placement.}
+Choose where active environment blocks are resident during the local solve:
+\begin{align}
+  e_A &: \mathcal{A} \to \mathcal{D}, \\
+  e_C &: \mathcal{C} \to \mathcal{D}.
+\end{align}
+The first model treats each active environment block as having one selected
+device.  A later model may allow environment replicas, but then the second-stage
+device must choose one of the available replicas.
+
+\paragraph{Exact path factorization.}
+Split the sparse coefficient tensor into a left-first part and a right-first
+part:
+\begin{equation}
+  f_{rabc} = f^L_{rabc} + f^R_{rabc}.
+\end{equation}
+Each part is then represented by an exact sparse factorization through
+temporary labels:
+\begin{align}
+  f^L_{rabc} &= \sum_{p \in \mathcal{P}_L}
+    \lambda^L_{pab}\,\mu^L_{rpc}, \\
+  f^R_{rabc} &= \sum_{q \in \mathcal{P}_R}
+    \lambda^R_{qbc}\,\mu^R_{raq}.
+\end{align}
+This induces left-first temporaries
+\begin{equation}
+  P^L_p = \sum_{a,b} \lambda^L_{pab} A_a B_b
+\end{equation}
+and right-first temporaries
+\begin{equation}
+  P^R_q = \sum_{b,c} \lambda^R_{qbc} B_b C_c.
+\end{equation}
+The final output is
+\begin{equation}
+  R_r \mathrel{+}=
+    \sum_{p,c} \mu^L_{rpc} P^L_p C_c
+  + \sum_{a,q} \mu^R_{raq} A_a P^R_q .
+\end{equation}
+All products accumulated into one temporary must have the same dense matrix
+shape, and all downstream uses must be shape-compatible with the target
+output block.  The factorization is therefore typed by both block labels and
+matrix dimensions; it is not merely an algebraic factorization of scalar
+coefficients.
+
+This formulation incorporates the scalar prefactor before temporary
+accumulation.  For example, if two first-stage products are reused with
+opposite signs downstream, the exact factorization may create
+\begin{equation}
+  P^L_1 = A_1B_1 + A_2B_2,
+  \qquad
+  P^L_2 = A_1B_1 - A_2B_2,
+\end{equation}
+so that different $C$ blocks can multiply different linear combinations.  This
+is a symbolic sparse factorization, not a numerical low-rank approximation.
+The first optimizer should not use SVD, QR, or any other floating-point rank
+reduction of $f$ to create the $P$ objects: even if such a reduction lowers the
+formal rank, it changes numerical stability and reproducibility properties.
+
+The term-level model is a degenerate exact factorization.  A right-first term
+$(r,a,b,c,f_t)$ can be represented with one temporary $q=(b,c)$ and coefficient
+$\mu^R_{raq}=f_t$, or with a private temporary $q=t$.  The useful
+factorization groups terms only when doing so creates an exactly reusable
+linear combination.
+
+\paragraph{Conservative no-rank-reduction specialization.}
+Because we do not currently know a guaranteed stable useful factorization of
+$f$, the first implementation should use a conservative exact specialization.
+For left-first terms, use
+\begin{equation}
+  p=(r,c), \qquad
+  \lambda^L_{(r,c)ab} = f^L_{rabc}, \qquad
+  \mu^L_{r'p c'} =
+    \begin{cases}
+      1, & p=(r',c'),\\
+      0, & \text{otherwise}.
+    \end{cases}
+\end{equation}
+Thus
+\begin{equation}
+  P^L_{rc} = \sum_{a,b} f^L_{rabc} A_aB_b,
+  \qquad
+  R_r \mathrel{+}= P^L_{rc}C_c.
+\end{equation}
+For right-first terms, use
+\begin{equation}
+  q=(r,a), \qquad
+  \lambda^R_{(r,a)bc} = f^R_{rabc}, \qquad
+  \mu^R_{r'a'q} =
+    \begin{cases}
+      1, & q=(r',a'),\\
+      0, & \text{otherwise}.
+    \end{cases}
+\end{equation}
+Thus
+\begin{equation}
+  P^R_{ra} = \sum_{b,c} f^R_{rabc} B_bC_c,
+  \qquad
+  R_r \mathrel{+}= A_aP^R_{ra}.
+\end{equation}
+This specialization preserves the general $\lambda/\mu$ notation while avoiding
+any numerical factorization.  It also fixes the natural second-stage
+destination: $P^L_{rc}$ must be assembled where $C_c$ resides, and $P^R_{ra}$
+must be assembled where $A_a$ resides.
+
+\paragraph{Product and second-stage placement.}
+Choose the device for each nonzero first-stage product contribution:
+\begin{align}
+  \kappa_L(p,a,b) &\in \mathcal{D}
+    &&\text{when } \lambda^L_{pab} \ne 0,\\
+  \kappa_R(q,b,c) &\in \mathcal{D}
+    &&\text{when } \lambda^R_{qbc} \ne 0.
+\end{align}
+These choices create device-labelled partial temporaries.  Also choose the
+device for each nonzero second-stage use:
+\begin{align}
+  \sigma_L(r,p,c) &\in \mathcal{D}
+    &&\text{when } \mu^L_{rpc} \ne 0,\\
+  \sigma_R(r,a,q) &\in \mathcal{D}
+    &&\text{when } \mu^R_{raq} \ne 0.
+\end{align}
+For the conservative specialization above, the first natural restriction is
+\begin{align}
+  \sigma_L(r,(r,c),c) &= e_C(c),\\
+  \sigma_R(r,a,(r,a)) &= e_A(a).
+\end{align}
+If a product contribution is accumulated on a different device from a
+second-stage consumer of its temporary, that partial temporary must be migrated
+and accumulated on the consumer device.  Thus temporary migration is not an
+optional extension: it is part of the induced execution DAG.
+
+The tuple
+$(h,e_A,e_C,\mathcal{P}_L,\mathcal{P}_R,\lambda,\mu,\kappa,\sigma)$ is still
+not the fully general CUDA scheduling space.  It excludes arbitrary temporary
+reduction trees and nontrivial final-output reduction trees.  These exclusions
+keep the first optimizer tractable while capturing the main placement
+tradeoffs.
+
+\section{Induced Execution DAG}
+
+Given the placement and factorization tuple above, the execution DAG is
+determined by the following canonical rules.
+
+\paragraph{Input-center availability.}
+For each center block $b$, define the devices that need $B_b$:
+\begin{equation}
+  U_B(b) =
+    \{ \kappa_L(p,a,b) : \lambda^L_{pab}\ne 0 \text{ for some } p,a \}
+    \cup
+    \{ \kappa_R(q,b,c) : \lambda^R_{qbc}\ne 0 \text{ for some } q,c \}.
+\end{equation}
+The block is already resident on $h(b)$.  If $d \in U_B(b)$ and $d \ne h(b)$,
+the model includes a peer copy or staging operation for $B_b$ to device $d$.
+There is no reason to replicate $B_b$ onto a device that has no assigned term
+using it.
+
+\paragraph{Environment availability.}
+Similarly, define
+\begin{align}
+  U_A(a) &=
+    \{ \kappa_L(p,a,b) : \lambda^L_{pab}\ne 0 \text{ for some } p,b \}
+    \cup
+    \{ \sigma_R(r,a,q) : \mu^R_{raq}\ne 0 \text{ for some } r,q \}, \\
+  U_C(c) &=
+    \{ \kappa_R(q,b,c) : \lambda^R_{qbc}\ne 0 \text{ for some } q,b \}
+    \cup
+    \{ \sigma_L(r,p,c) : \mu^L_{rpc}\ne 0 \text{ for some } r,p \}.
+\end{align}
+For steady-state resident Lanczos modelling, active $A$ and $C$ blocks may be
+assumed already materialized on the devices that need them.  For cold-start or
+environment-staging models, the cost functional should include the required
+$A$ and $C$ staging bytes.
+
+\paragraph{First-stage temporaries.}
+Each device constructs local partial temporaries from the first-stage products
+assigned to that device:
+\begin{align}
+  P^{L,d}_p &=
+    \sum_{\substack{a,b\\ \lambda^L_{pab}\ne 0\\ \kappa_L(p,a,b)=d}}
+      \lambda^L_{pab} A_aB_b,\\
+  P^{R,d}_q &=
+    \sum_{\substack{b,c\\ \lambda^R_{qbc}\ne 0\\ \kappa_R(q,b,c)=d}}
+      \lambda^R_{qbc} B_bC_c.
+\end{align}
+The coefficients $\lambda$ are applied during this accumulation, so identical
+matrix products that appear with different signs or scalars can feed distinct
+temporary objects.
+
+\paragraph{Temporary migration.}
+For each left-first temporary, define its consumer devices
+\begin{equation}
+  V_L(p) = \{ \sigma_L(r,p,c) : \mu^L_{rpc}\ne 0 \}.
+\end{equation}
+For each right-first temporary, define
+\begin{equation}
+  V_R(q) = \{ \sigma_R(r,a,q) : \mu^R_{raq}\ne 0 \}.
+\end{equation}
+If a nonzero partial $P^{L,d}_p$ exists and $v \in V_L(p)$ with $v\ne d$, then
+$P^{L,d}_p$ is copied to $v$ and accumulated into the assembled temporary on
+$v$.  The analogous rule applies to $P^{R,d}_q$.  A later scheduler may choose
+tree or multicast strategies, but the first model counts one materialized
+partial-temporary transfer per source and consumer device.
+
+\paragraph{Second-stage accumulation.}
+Each nonzero $\mu^L_{rpc}$ computes and accumulates
+$\mu^L_{rpc}P^{L,\sigma_L(r,p,c)}_pC_c$ on $\sigma_L(r,p,c)$.  Each nonzero
+$\mu^R_{raq}$ computes and accumulates
+$\mu^R_{raq}A_aP^{R,\sigma_R(r,a,q)}_q$ on $\sigma_R(r,a,q)$.  The result is
+accumulated into a per-device partial output block
+\begin{equation}
+  P^d_r.
+\end{equation}
+
+\paragraph{Final output reduction.}
+For each output block $r$, all nonzero partials $P^d_r$ are reduced or copied
+to the canonical owner $h(r)$.  If $d=h(r)$, the partial can be accumulated
+directly into the final $R_r$ buffer.  If $d \ne h(r)$, the model includes a
+peer transfer and accumulation into $R_r$ on $h(r)$.
+
+\section{Cost Functional}
+
+The objective is predicted makespan.  For each device $d$, define a device cost
+\begin{equation}
+  C_d =
+    C^{\mathrm{gemm}}_d
+  + C^{\mathrm{copy}}_d
+  + C^{\mathrm{overhead}}_d
+  + C^{\mathrm{memory}}_d.
+\end{equation}
+The optimizer minimizes
+\begin{equation}
+  \min \max_{d \in \mathcal{D}} C_d,
+\end{equation}
+possibly subject to memory-capacity constraints.
+
+\subsection{GEMM Work}
+
+Let $\Phi^{L,1}_{ab}$ be the flop count for $A_aB_b$, and
+$\Phi^{R,1}_{bc}$ be the flop count for $B_bC_c$.  Let
+$\Phi^{L,2}_{pc}$ be the flop count for $P^L_pC_c$, and let
+$\Phi^{R,2}_{aq}$ be the flop count for $A_aP^R_q$.  Then
+\begin{align}
+  C^{\mathrm{gemm}}_d &=
+    \alpha_{L,1}
+      \sum_{\substack{p,a,b\\ \lambda^L_{pab}\ne 0\\ \kappa_L(p,a,b)=d}}
+        \Phi^{L,1}_{ab}
+  + \alpha_{R,1}
+      \sum_{\substack{q,b,c\\ \lambda^R_{qbc}\ne 0\\ \kappa_R(q,b,c)=d}}
+        \Phi^{R,1}_{bc} \notag \\
+  &\quad
+  + \alpha_{L,2}
+      \sum_{\substack{r,p,c\\ \mu^L_{rpc}\ne 0\\ \sigma_L(r,p,c)=d}}
+        \Phi^{L,2}_{pc}
+  + \alpha_{R,2}
+      \sum_{\substack{r,a,q\\ \mu^R_{raq}\ne 0\\ \sigma_R(r,a,q)=d}}
+        \Phi^{R,2}_{aq}.
+\end{align}
+The coefficients $\alpha$ are not just reciprocal peak FLOP rates.  For small
+block GEMMs they should absorb cuBLAS dispatch overhead and the reduced
+efficiency of small matrices.
+
+Temporary construction also includes accumulation operations.  For large dense
+blocks these are lower order than GEMMs, but for many tiny symmetry blocks they
+can contribute measurable kernel-launch and memory-bandwidth overhead.  The
+overhead model below should therefore count the number of product accumulations
+into each temporary, not only the number of final temporary objects.
+
+\subsection{Data Movement}
+
+Let $\operatorname{bytes}(M_i)$ be the storage size of block $M_i$.  The
+steady-state input-center movement cost is
+\begin{equation}
+  C^{B\mathrm{-copy}}_d =
+  \beta_B
+  \sum_{\substack{b \in \mathcal{K}\\d \in U_B(b)\\d \ne h(b)}}
+    \operatorname{bytes}(B_b).
+\end{equation}
+Cold-start environment staging can be modelled as
+\begin{equation}
+  C^{AC\mathrm{-stage}}_d =
+  \beta_A \sum_{\substack{a \in \mathcal{A}\\d \in U_A(a)}} \operatorname{bytes}(A_a)
+  +
+  \beta_C \sum_{\substack{c \in \mathcal{C}\\d \in U_C(c)}} \operatorname{bytes}(C_c).
+\end{equation}
+This term should normally be omitted or amortized when modelling repeated
+resident Lanczos matvecs with fixed active environments.
+If active environments are already resident according to $e_A$ and $e_C$, then
+only additional replicas should be charged:
+\begin{equation}
+  C^{AC\mathrm{-replica}}_d =
+  \beta_A \sum_{\substack{a \in \mathcal{A}\\d \in U_A(a)\\d\ne e_A(a)}} \operatorname{bytes}(A_a)
+  +
+  \beta_C \sum_{\substack{c \in \mathcal{C}\\d \in U_C(c)\\d\ne e_C(c)}} \operatorname{bytes}(C_c).
+\end{equation}
+Which of these two terms is appropriate depends on whether the model is
+scoring cold environment materialization or steady-state resident matvecs.
+
+The final output movement cost is
+\begin{equation}
+  C^{R\mathrm{-reduce}}_d =
+  \rho_R
+  \sum_{\substack{r \in \mathcal{K}\\P^d_r\ne 0\\d \ne h(r)}}
+    \operatorname{bytes}(R_r).
+\end{equation}
+In the restricted domain, this is a flat peer-copy-plus-accumulate model.  A
+future model may replace it with an explicit reduction tree.
+
+Temporary migration is
+\begin{align}
+  S_L(p) &=
+    \{ \kappa_L(p,a,b) : \lambda^L_{pab}\ne 0 \},\\
+  S_R(q) &=
+    \{ \kappa_R(q,b,c) : \lambda^R_{qbc}\ne 0 \}.
+\end{align}
+The corresponding movement cost is
+\begin{align}
+  C^{P\mathrm{-copy}}_d &=
+  \beta_P
+  \left(
+    \sum_{\substack{p\in \mathcal{P}_L\\s\in S_L(p)\\d\in V_L(p)\\d\ne s}}
+      \operatorname{bytes}(P^L_p)
+    +
+    \sum_{\substack{q\in \mathcal{P}_R\\s\in S_R(q)\\d\in V_R(q)\\d\ne s}}
+      \operatorname{bytes}(P^R_q)
+  \right).
+\end{align}
+This term is essential.  A schedule that saves first-stage GEMMs but ships a
+large temporary to many devices may be worse than recomputing a smaller
+temporary locally.
+
+\subsection{CUDA and Scheduling Overheads}
+
+CUDA overheads are not represented well by FLOPs or bytes alone.  The cost
+model should include count features such as
+\begin{equation}
+  C^{\mathrm{overhead}}_d =
+    \gamma_T N^{\mathrm{term}}_d
+  + \gamma_L N^{L\mathrm{-prod}}_d
+  + \gamma_R N^{R\mathrm{-prod}}_d
+  + \gamma_{PC} N^{P\mathrm{-copy}}_d
+  + \gamma_{PR} N^{\mathrm{partial}}_d
+  + \gamma_Q N^{\mathrm{peer}}_d,
+\end{equation}
+where $N^{L\mathrm{-prod}}_d$ and $N^{R\mathrm{-prod}}_d$ count first-stage
+product accumulations on $d$, $N^{P\mathrm{-copy}}_d$ counts temporary
+migrations, $N^{\mathrm{partial}}_d$ counts nonzero partial output blocks on
+$d$, and $N^{\mathrm{peer}}_d$ counts peer-staged input blocks.  These
+coefficients should be fitted empirically from no-trace fixture benchmarks.
+They are the main way the model captures kernel launch overhead, cuBLAS
+handle/stream effects, small-GEMM overhead, peer-copy setup overhead, and
+duplicate first-stage group costs.
+
+\subsection{Temporary Memory Pressure}
+
+Let $M_d$ be the peak temporary memory required by first-stage temporaries,
+temporary replicas, peer input replicas, and partial outputs on device $d$
+under the chosen schedule.  The first optimizer can enforce a hard constraint
+\begin{equation}
+  M_d \le M^{\max}_d
+\end{equation}
+or add a soft penalty
+\begin{equation}
+  C^{\mathrm{memory}}_d = \mu M_d.
+\end{equation}
+The hard constraint is preferable for production scheduling.  The soft penalty
+is useful while fitting a prototype model.
+
+\section{Integer-Program View}
+
+For a fixed exact temporary factorization, the restricted placement domain can
+be linearized.  Introduce binary variables
+\begin{align}
+  o_{k,d} &= 1 \quad \text{if center block } k \text{ is owned by device } d,\\
+  a_{i,d} &= 1 \quad \text{if environment block } A_i \text{ is resident on } d,\\
+  c_{i,d} &= 1 \quad \text{if environment block } C_i \text{ is resident on } d,\\
+  y^L_{pab,d} &= 1 \quad \text{if product } A_aB_b \text{ contributes to } P^L_p
+                  \text{ on } d,\\
+  y^R_{qbc,d} &= 1 \quad \text{if product } B_bC_c \text{ contributes to } P^R_q
+                  \text{ on } d,\\
+  s^L_{rpc,d} &= 1 \quad \text{if } P^L_pC_c \text{ for } R_r \text{ runs on } d,\\
+  s^R_{raq,d} &= 1 \quad \text{if } A_aP^R_q \text{ for } R_r \text{ runs on } d.
+\end{align}
+The assignment constraints are
+\begin{align}
+  \sum_{d \in \mathcal{D}} o_{k,d} &= 1
+    &&\text{for every } k \in \mathcal{K},\\
+  \sum_{d \in \mathcal{D}} a_{i,d} &= 1
+    &&\text{for every } i \in \mathcal{A},\\
+  \sum_{d \in \mathcal{D}} c_{i,d} &= 1
+    &&\text{for every } i \in \mathcal{C},\\
+  \sum_{d \in \mathcal{D}} y^L_{pab,d} &= 1
+    &&\text{for every nonzero } \lambda^L_{pab},\\
+  \sum_{d \in \mathcal{D}} y^R_{qbc,d} &= 1
+    &&\text{for every nonzero } \lambda^R_{qbc},\\
+  \sum_{d \in \mathcal{D}} s^L_{rpc,d} &= 1
+    &&\text{for every nonzero } \mu^L_{rpc},\\
+  \sum_{d \in \mathcal{D}} s^R_{raq,d} &= 1
+    &&\text{for every nonzero } \mu^R_{raq}.
+\end{align}
+Activation variables for $B$ replicas, $A/C$ staging, temporary migrations,
+partial outputs, and peer reductions can be constrained above the corresponding
+$y$ and $s$ variables.  The conservative specialization can add constraints
+$s^L_{r,(r,c),c,d} = c_{c,d}$ and $s^R_{r,a,(r,a),d} = a_{a,d}$ so the final
+temporary accumulation happens where the corresponding environment block is
+resident.  The makespan objective is then
+\begin{equation}
+  \min T
+  \qquad \text{subject to} \qquad
+  C_d \le T \quad \text{for every } d \in \mathcal{D}.
+\end{equation}
+This form is a mixed-integer linear program once the cost coefficients are
+fixed.  It can be used offline as an oracle for small fixtures.  The runtime
+optimizer can use cheaper local search or graph partitioning heuristics against
+the same evaluator.
+
+\section{Relation to Current Implementation}
+
+The current deterministic resident executor is a strict subcase:
+\begin{align}
+  \mathcal{P}_L &= \emptyset,\\
+  q &= (b,c,d),\\
+  P^R_q &= B_bC_c \quad \text{constructed separately for each device } d
+            \text{ that needs it},\\
+  \kappa_R(q,b,c) &= d,\\
+  \sigma_R(r,a,q) &= h(r) = d.
+\end{align}
+That is, every term is right-first, each right-first temporary is local to the
+owner of the output block that needs it, identical $(B_b,C_c)$ temporaries are
+reused only within one device, and cross-device temporary migration is not
+modelled.  The current \texttt{empirical-contiguous} policy is a legacy
+two-device ordered-range diagnostic in the existing block construction order.
+That ordering is not a mathematical invariant: block spaces can be permuted and
+any chosen partition can be packed contiguously afterward.  Therefore an
+ordered-range policy is not an appropriate optimization domain beyond
+diagnostic comparison with the real hypergraph placement model.
+
+The next model should separate logical block identity, placement, and storage
+packing:
+\begin{enumerate}
+  \item choose an exact temporary factorization and placement variables over
+        logical block and term keys;
+  \item evaluate the induced copies, first-stage groups, partial outputs, and
+        reductions;
+  \item pack the chosen placement into coalesced device slabs as a storage
+        implementation detail.
+\end{enumerate}
+
+\section{Environment Construction Variant}
+
+For environment construction, the same term hypergraph and path labels apply,
+but the Hamiltonian-specific constraint
+\begin{equation}
+  \operatorname{owner}(B_k) = \operatorname{owner}(R_k)
+\end{equation}
+is not required.  The more general domain uses separate owner maps
+\begin{equation}
+  h^B : \mathcal{B} \to \mathcal{D}, \qquad
+  h^R : \mathcal{R} \to \mathcal{D}.
+\end{equation}
+The output may also be written to host-side cached environment storage after
+construction rather than retained as the next Krylov input.  This changes the
+output-reduction and staging terms, but not the underlying typed hypergraph.
+
+\end{document}

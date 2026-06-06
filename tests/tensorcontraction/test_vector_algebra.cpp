@@ -290,12 +290,9 @@ TEST(TensorContractionVectorAlgebraTest, EngineRunsResidentSlabOperationsAcrossT
     GTEST_SKIP() << "requires at least two visible CUDA devices";
   }
 
-  EnvGuard env_guard({"UNI20_TENSORCONTRACTION_BACKEND", "UNI20_TENSORCONTRACTION_DEVICES",
-                      "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_FLOPS"});
+  EnvGuard env_guard({"UNI20_TENSORCONTRACTION_BACKEND", "UNI20_TENSORCONTRACTION_DEVICES"});
   unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
   setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
-  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "0", 1);
-  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_FLOPS", "0", 1);
 
   std::vector<utc::MatrixFamily::Block> blocks(8, utc::MatrixFamily::Block{2, 2});
   utc::MatrixFamily x(blocks);

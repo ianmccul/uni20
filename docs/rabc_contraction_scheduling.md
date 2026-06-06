@@ -47,11 +47,10 @@ The executor:
 - accumulates `A*(B*C)` into `R`;
 - frees temporary intermediates through the resident buffer dependency tracker.
 
-Set `UNI20_TENSORCONTRACTION_RABC_PLANNER=arranger` to use the old worklist
-planner for profiling or regression comparison.
-
 This is not the final Uni20 storage model. It still borrows TensorContraction
-buffer bookkeeping while replacing the R/A/B/C worklist scheduling seam.
+buffer bookkeeping while replacing the R/A/B/C worklist scheduling seam.  The
+resident matvec path no longer exposes the old worklist planner as a runtime
+selection; profiling and cost-model work should use the deterministic bridge.
 
 ## Legacy TensorContraction Behavior
 
@@ -195,18 +194,20 @@ worst per-block `Arranger`/`Swapper` overhead in forced all-GPU diagnostics, but
 it is not yet keyed by `BlockSpace`, environment ownership, or R/A/B/C term
 structure.
 
-The fixture replay benchmark also has an opt-in cost-based R/A/B/C placement
-prototype, enabled with `UNI20_TENSORCONTRACTION_RABC_PLACEMENT=cost`.  It
-assigns contiguous fresh `R` output-block ranges to local devices using the
-current right-first term graph.  The default model scores GEMM work and
-central-vector movement; it intentionally ignores `A`/`C` environment staging
-cost so the captured-fixture benchmark measures resident Lanczos matvec
-behavior rather than setup time.  This is a steady-state objective: the active
-`A` and `C` environments are assumed to have been generated or loaded in a
-layout compatible with the repeated Krylov loop.  `cost-block` enables the more
-aggressive per-block greedy variant, but that can disable the bridge's current
-coalesced-slab vector algebra fast path.  Both policies are diagnostics, not the
-final storage layout.
+The resident bridge now keeps only a narrow explicit placement hook while the
+real planner is being designed.  With
+`UNI20_TENSORCONTRACTION_RABC_PLACEMENT=manual`, Hamiltonian matvecs use
+`UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT` as the shared owner layout for
+the matching `B` and `R` center spaces.  Environment-style contractions may use
+separate `UNI20_TENSORCONTRACTION_RABC_B_LAYOUT` and
+`UNI20_TENSORCONTRACTION_RABC_R_LAYOUT` lists because `B` and `R` are different
+spaces.  The executor forms each right-first `B_b C_c` product on owner(`B_b`)
+and then accumulates `A_a (B_b C_c)` on owner(`R_r`).
+
+The older `cost`, `cost-block`, `stripe`, and `empirical-contiguous` runtime
+paths were ordered-range or replay-fit diagnostics.  They should not be used as
+the implementation target: an ordered range only refers to the current block
+construction order, while the real objective is the sparse `f` hypergraph.
 
 ## Optimization Formulation
 
@@ -227,9 +228,9 @@ Since the total Hamiltonian is a scalar, a charge-changing left/environment
 operation must be compensated by the opposite change on the other side.  This
 clusters strongly connected center blocks in neighboring quantum-number
 sectors.  The empirical placement model should therefore read locality from
-the actual `f` hypergraph, then optionally restrict candidate layouts to
-contiguous block-index ranges when the block ordering preserves that sector
-locality.
+the actual `f` hypergraph.  A one-dimensional ordered-range search is only a
+legacy diagnostic for checking whether the current construction order happens
+to cluster connected sectors; it is not a general placement domain.
 
 Use the fixture trace tooling to inspect this connectivity directly:
 
@@ -241,9 +242,29 @@ The summary reports center-block fanout from each `B_b`, direct `(R_r, B_b)`
 connectivity, right-first reuse hyperedges keyed by `(B_b, C_c)`, and
 left-first reuse hyperedges keyed by `(A_a, B_b)`.  These are the graph objects
 that should feed a real partitioner.  A contiguous `cutK` layout is only a
-restricted candidate family over the current block ordering; it is not the
-general model, especially once multiple symmetries or less one-dimensional
-fusion structure are present.
+restricted diagnostic over the current block ordering; it is not the general
+model, especially once multiple symmetries or less one-dimensional fusion
+structure are present. More strongly, contiguity is a storage property, not a
+logical invariant: the bond and center block spaces can be permuted, and any
+chosen partition can be packed into contiguous per-device slabs after the
+placement decision.
+
+The LaTeX design note `docs/latex/rabc_hypergraph_partitioning.tex` gives the
+restricted Hamiltonian-domain formulation in terms of a center owner map,
+exact left/right temporary factorizations of the sparse `f` tensor, temporary
+construction devices, and second-stage execution devices. Under explicit
+canonical rules, those variables induce the B-block copies, temporary
+migrations, per-device partial outputs, and final reductions. The same note
+also records the environment-construction variant, where input and output block
+owners do not need to coincide.
+
+The more implementation-oriented note
+`docs/latex/rabc_input_anchored_model.tex` records the first serious restricted
+model: `B` and `R` share one layout `h`, the first GEMM for a term runs on
+`h(b)`, the second GEMM runs on `h(r)`, and the only remaining term-level
+choice is left-first versus right-first. That anchoring makes the temporary
+copy schedule and environment staging costs deterministic for a chosen layout
+and path assignment.
 
 The U(1) Heisenberg chain is useful for low-overhead benchmarking, but it is a
 weak stress test for the placement model because the dominant sector
@@ -252,10 +273,10 @@ nearest-neighbor Fermi-Hubbard chain with U(1)xU(1) symmetry is the next
 reference benchmark: center blocks are labelled by two charges, hopping terms
 move through distinct up/down charge directions, and the sparse `f` tensor is a
 more faithful proxy for the multi-charge hypergraph that the final planner must
-partition.  The default byte-balanced or contiguous-cut layout may still win for
-small fixtures, but that should be interpreted as an empirical result for the
-measured `f` tensor, not as evidence that a one-dimensional cut is the general
-optimization model.
+partition.  The default byte-balanced layout or a legacy ordered-range
+diagnostic may still win for small fixtures, but that should be interpreted as
+an empirical result for the measured `f` tensor, not as evidence that a
+one-dimensional ordering is the general optimization model.
 
 In the final Uni20 model, decision variables should include:
 
@@ -352,39 +373,25 @@ load(d) =
   + launch/copy/allocation overheads
 ```
 
-The current `cost` policy restricts `p(i)` to contiguous block ranges.  It now
-compares the selected range split against the default byte-balanced split under
-the same reduced right-first model, and accepts the model-selected split only
-when it exceeds a configurable minimum predicted speedup.  This keeps the
-prototype conservative when the model sees only a marginal advantage that can be
-erased by vector-layout, locality, or launch effects.
-
-The `cost-block` diagnostic allows arbitrary `p(i)` and therefore approximates
-one slice of the true graph partitioning problem.  Arbitrary placement still
-stores each device's chosen block set as one coalesced slab; contiguity is a
-storage property, not a requirement that logical block indices form intervals.
-The operator applies one canonical center-vector layout to both Krylov input and
-output blocks; if a contraction produces a block away from that canonical owner,
-the generic planner must account for the relayout before the result becomes the
-next Lanczos input.
-
-For the current TensorContraction bridge, `cost-block` starts from the
-byte-balanced slab layout and applies local-search single-block moves.  Because
-non-contiguous logical layouts still have vector-layout and relayout overhead
-that is not yet represented perfectly in the R/A/B/C term model, the bridge
-requires a configurable minimum predicted speedup before accepting an arbitrary
-layout.  Otherwise it delegates back to the default byte-balanced coalesced
-layout.
+The former `cost`, `cost-block`, `stripe`, and `empirical-contiguous` runtime
+diagnostics have been removed from the C++ bridge.  They were useful for
+learning, but they were runtime policies over ordered block ranges or replay-fit
+coefficients rather than solvers for the graph problem above.  Current
+experiments should generate candidate layouts offline and replay them as explicit
+`manual` layouts.  The operator still applies one canonical center-vector layout
+to both Krylov input and output blocks; if a contraction produces a block away
+from that canonical owner, the generic planner must account for the relayout
+before the result becomes the next Lanczos input.
 
 ## Current Empirical Status
 
-The replay benchmarks now support a useful but deliberately narrow runtime
-policy: `empirical-contiguous`.  On the local Hubbard `L=40, m=5000`
-U(1)xU(1) fixture, a graph-augmented fit over contiguous cuts selects the
-measured-good basin around `cut323` to `cut326`, giving a real two-GPU speedup
-over the one-GPU baseline.  This validates the tracing and replay loop, and it
-shows that graph-derived features are the right source of placement
-information.
+Replay benchmarks still provide useful evidence even though the automatic
+runtime policies have been removed.  On the local Hubbard `L=40, m=5000`
+U(1)xU(1) fixture, a graph-augmented fit over ordered splits selects the
+measured-good basin historically labelled `cut323` to `cut326`, giving a real
+two-GPU speedup over the one-GPU baseline.  This validates the tracing and
+replay loop, and it shows that graph-derived features are the right source of
+placement information.
 
 The same evidence does not yet justify using an unconstrained non-contiguous
 layout as runtime policy.  Direct replays of segmented candidates have not
@@ -408,28 +415,25 @@ being promoted to a runtime policy.
 Current monotonic structural diagnostics support this conclusion.  Narrow
 feature subsets such as execution-pressure, launch-pressure, and no-output
 produce similar leave-one-layout-out errors and still miss the best observed
-Hubbard contiguous cut.  This suggests that the missing information is not just
-which aggregate counters are included, but how typed hyperedges share work,
-traffic, and launch pressure across candidate partitions.
+Hubbard ordered-range basin.  This suggests that the missing information is not
+just which aggregate counters are included, but how typed hyperedges share
+work, traffic, and launch pressure across candidate partitions.
 
 A first typed-hypergraph diagnostic adds weighted split counters for `B`
 fanout, direct `(R,B)` edges, and right/left first-stage reuse hyperedges.  It
 improves the small overhead fixture, but still misses the Hubbard `L=40,
-m=5000` best contiguous basin.  The next model therefore needs a more explicit
-execution-state cost over typed hyperedges, not just monotonic penalties on
-typed split summaries.
+m=5000` best ordered-range basin.  The next model therefore needs a more
+explicit execution-state cost over typed hyperedges, not just monotonic
+penalties on typed split summaries.
 
-Live DMRG validation also shows that fixture-local replay coefficients are not
-portable enough to use as a default sweep policy.  The graph-augmented
-`empirical-contiguous` coefficient file that selects the near-best `cut326`
-layout for the Hubbard `L=40, m=5000` central replay fixture loses badly on a
-live `L=30, max_rank=512` sweep: after filtering to `States >= 512`, matvec time
-rose from `0.0478421028s` to `0.0798366683s` per Hamiltonian application.  The
-planner therefore needs either live-shape training data or a structural
-execution model that generalizes across the changing effective-Hamiltonian block
-graphs seen during a sweep.  Generated coefficient files now carry a
-`runtime_supported_output_blocks` guard so fixture-local replay fits do not
-silently override live shapes with different output block counts.
+Live DMRG validation also shows that fixture-local replay fits are not portable
+enough to use as a default sweep policy.  A graph-augmented fit that selects the
+near-best historical `cut326` layout for the Hubbard `L=40, m=5000` central
+replay fixture loses badly on a live `L=30, max_rank=512` sweep: after filtering
+to `States >= 512`, matvec time rose from `0.0478421028s` to `0.0798366683s` per
+Hamiltonian application.  The planner therefore needs either live-shape training
+data or a structural execution model that generalizes across the changing
+effective-Hamiltonian block graphs seen during a sweep.
 
 ## Long-Term Planner
 

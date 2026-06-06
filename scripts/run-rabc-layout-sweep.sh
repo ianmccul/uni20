@@ -6,20 +6,20 @@ usage() {
 Usage:
   scripts/run-rabc-layout-sweep.sh --fixture PATH [options]
 
-Run repeated no-trace TensorContraction R/A/B/C replay benchmarks for manual
-center-vector layouts or automatic placement policies.  The script writes one
-stdout, stderr, and MP_BENCHFILE table per run.  Runs with known or inferred
-layouts are also converted into one JSONL benchmark dataset.
+Run repeated no-trace TensorContraction R/A/B/C replay benchmarks for explicit
+manual center-vector layouts.  The script writes one
+stdout, stderr, and MP_BENCHFILE table per run.  Runs are also converted into
+one JSONL benchmark dataset.
 
 Options:
   --fixture PATH          R/A/B/C fixture to replay. Required.
   --exe PATH              Benchmark executable.
   --output-dir PATH       Output directory. Default: /tmp/uni20_rabc_sweep_<timestamp>.
-  --policy POLICY         R/A/B/C placement policy. Default: manual.
-                          Non-manual policies use labels as run names only.
+  --policy POLICY         R/A/B/C placement policy. Only manual/layout are
+                          supported. Default: manual.
   --labels LIST           Comma-separated labels. Default: representative contiguous cuts.
                           Labels are looked up with rabc-trace-model.py layouts.
-                          For non-manual policies, labels are run names only.
+                          Labels must resolve to explicit layouts.
   --layout NAME=LIST      Add one custom layout. May be repeated. The custom
                           layout name is appended after --labels entries.
   --layout-file NAME=PATH Add one custom layout read from PATH. The file may
@@ -43,12 +43,7 @@ Options:
   --trace-path PATH       Append R/A/B/C JSONL trace records to PATH. Use "auto"
                           for <output-dir>/trace.jsonl.
   --trace-terms           Include term metadata in trace records. Requires --trace-path.
-  --empirical-coefficients-file PATH
-                          Pass a fitted empirical-contiguous coefficient file
-                          to the benchmark runtime.
   --placement-log         Print TensorContraction placement diagnostics to stderr.
-                          Enabled automatically for non-manual policies so the
-                          selected layout can be recorded when possible.
   --show-layouts          Print full manual placement lists to stdout. By default
                           large layouts are summarized compactly.
   --help                  Show this help.
@@ -85,7 +80,6 @@ warmup=1
 resume=0
 trace_path=""
 trace_terms=0
-empirical_coefficients_file=""
 placement_log=0
 show_layouts=0
 declare -A custom_layouts=()
@@ -224,10 +218,6 @@ while [[ $# -gt 0 ]]; do
       trace_terms=1
       shift
       ;;
-    --empirical-coefficients-file)
-      empirical_coefficients_file="$2"
-      shift 2
-      ;;
     --placement-log)
       placement_log=1
       shift
@@ -265,11 +255,6 @@ if [[ "${trace_terms}" -eq 1 && -z "${trace_path}" ]]; then
   echo "--trace-terms requires --trace-path" >&2
   exit 2
 fi
-if [[ -n "${empirical_coefficients_file}" && ! -f "${empirical_coefficients_file}" ]]; then
-  echo "empirical coefficient file does not exist: ${empirical_coefficients_file}" >&2
-  exit 2
-fi
-
 mkdir -p "${output_dir}"
 if [[ "${trace_path}" == "auto" ]]; then
   trace_path="${output_dir}/trace.jsonl"
@@ -294,12 +279,9 @@ fi
 "${repo_root}/scripts/rabc-trace-model.py" layouts "${layout_args[@]}" > "${layouts_file}"
 : > "${jsonl}"
 
-manual_policy=0
-if [[ "${policy}" == "manual" || "${policy}" == "layout" ]]; then
-  manual_policy=1
-fi
-if [[ "${manual_policy}" -eq 0 && "${labels_was_set}" -eq 0 && "${#custom_layout_names[@]}" -eq 0 ]]; then
-  labels_csv="${policy}"
+if [[ "${policy}" != "manual" && "${policy}" != "layout" ]]; then
+  echo "--policy now supports only manual/layout; use scripts/rabc-trace-model.py to choose a manual layout" >&2
+  exit 2
 fi
 
 labels=()
@@ -352,126 +334,6 @@ record_bench() {
     "${append_flag[@]}"
 }
 
-layout_from_cut() {
-  local cut="$1"
-  local block
-  for ((block = 0; block < block_count; ++block)); do
-    if [[ "${block}" -gt 0 ]]; then
-      printf ','
-    fi
-    if [[ "${block}" -lt "${cut}" ]]; then
-      printf '0'
-    else
-      printf '1'
-    fi
-  done
-  printf '\n'
-}
-
-layout_from_ranges_line() {
-  local line="$1"
-  local remaining="${line}"
-  local pattern='device([0-9]+)=\{blocks=\[([0-9]+),([0-9]+)\)'
-  local -a inferred=()
-  local block
-  for ((block = 0; block < block_count; ++block)); do
-    inferred["${block}"]=""
-  done
-
-  while [[ "${remaining}" =~ ${pattern} ]]; do
-    local device="${BASH_REMATCH[1]}"
-    local begin="${BASH_REMATCH[2]}"
-    local end="${BASH_REMATCH[3]}"
-    if [[ "${device}" -ge "${device_count}" || "${begin}" -gt "${end}" || "${end}" -gt "${block_count}" ]]; then
-      return 1
-    fi
-    for ((block = begin; block < end; ++block)); do
-      inferred["${block}"]="${device}"
-    done
-    remaining="${remaining#*"${BASH_REMATCH[0]}"}"
-  done
-
-  for ((block = 0; block < block_count; ++block)); do
-    if [[ -z "${inferred[${block}]}" ]]; then
-      return 1
-    fi
-    if [[ "${block}" -gt 0 ]]; then
-      printf ','
-    fi
-    printf '%s' "${inferred[${block}]}"
-  done
-  printf '\n'
-}
-
-layout_from_policy_log() {
-  local stderr_file="$1"
-  local policy_name="$2"
-  local line=""
-
-  case "${policy_name}" in
-    stripe|striped|round-robin|alternating)
-      local block
-      for ((block = 0; block < block_count; ++block)); do
-        if [[ "${block}" -gt 0 ]]; then
-          printf ','
-        fi
-        printf '%d' $((block % device_count))
-      done
-      printf '\n'
-      return 0
-      ;;
-  esac
-
-  if [[ ! -s "${stderr_file}" ]]; then
-    return 1
-  fi
-
-  line="$(grep -E '\[TENSORCONTRACTION\]\[RABC_PLACEMENT\].*(cut=|blocks=\[)' "${stderr_file}" | tail -n 1 || true)"
-  if [[ -z "${line}" ]]; then
-    return 1
-  fi
-
-  if [[ "${line}" =~ (^|[[:space:]])cut=([0-9]+) ]]; then
-    layout_from_cut "${BASH_REMATCH[2]}"
-    return 0
-  fi
-  if [[ "${line}" =~ fallback=default-byte-balanced && "${line}" =~ default_cut=([0-9]+) ]]; then
-    layout_from_cut "${BASH_REMATCH[1]}"
-    return 0
-  fi
-  layout_from_ranges_line "${line}"
-}
-
-layout_summary_from_layout() {
-  local layout_value="$1"
-  awk -F',' -v device_count="${device_count}" '{
-    for (device = 0; device < device_count; ++device) {
-      counts[device] = 0
-    }
-    previous = ""
-    segments = 0
-    for (field = 1; field <= NF; ++field) {
-      ++counts[$field]
-      if (field == 1 || $field != previous) {
-        ++segments
-        previous = $field
-      }
-    }
-    printf "blocks=%d;counts=", NF
-    for (device = 0; device < device_count; ++device) {
-      if (device > 0) {
-        printf ","
-      }
-      printf "%d:%d", device, counts[device]
-    }
-    printf ";segments=%d", segments
-    if (segments > 1) {
-      printf ";transitions=%d", segments - 1
-    }
-    printf "\n"
-  }' <<< "${layout_value}"
-}
-
 echo "fixture=${fixture}"
 echo "exe=${exe}"
 echo "output_dir=${output_dir}"
@@ -485,12 +347,10 @@ fi
 for item in "${labels[@]}"; do
   label="${item}"
   layout=""
-  if [[ "${manual_policy}" -eq 1 ]]; then
-    layout="$(lookup_layout "${item}")"
-    if [[ -z "${layout}" ]]; then
-      echo "missing layout for label: ${item}" >&2
-      exit 2
-    fi
+  layout="$(lookup_layout "${item}")"
+  if [[ -z "${layout}" ]]; then
+    echo "missing layout for label: ${item}" >&2
+    exit 2
   fi
 
   file_label="$(safe_label "${label}")"
@@ -499,29 +359,27 @@ for item in "${labels[@]}"; do
   stderr_file="${output_dir}/${file_label}.err"
 
   echo "=== ${label} ==="
-  if [[ "${manual_policy}" -eq 1 ]]; then
-    if [[ "${show_layouts}" -eq 1 ]]; then
-      echo "layout=${layout}"
-    else
-      counts="$(
-        awk -F',' -v device_count="${device_count}" '{
-          for (device = 0; device < device_count; ++device) {
-            counts[device] = 0
+  if [[ "${show_layouts}" -eq 1 ]]; then
+    echo "layout=${layout}"
+  else
+    counts="$(
+      awk -F',' -v device_count="${device_count}" '{
+        for (device = 0; device < device_count; ++device) {
+          counts[device] = 0
+        }
+        for (field = 1; field <= NF; ++field) {
+          ++counts[$field]
+        }
+        for (device = 0; device < device_count; ++device) {
+          if (device > 0) {
+            printf ","
           }
-          for (field = 1; field <= NF; ++field) {
-            ++counts[$field]
-          }
-          for (device = 0; device < device_count; ++device) {
-            if (device > 0) {
-              printf ","
-            }
-            printf "%d:%d", device, counts[device]
-          }
-          printf "\n"
-        }' <<< "${layout}"
-      )"
-      echo "layout_summary=blocks=${block_count};counts=${counts};stored_in=${layouts_file}"
-    fi
+          printf "%d:%d", device, counts[device]
+        }
+        printf "\n"
+      }' <<< "${layout}"
+    )"
+    echo "layout_summary=blocks=${block_count};counts=${counts};stored_in=${layouts_file}"
   fi
   if [[ "${resume}" -eq 1 ]] && has_bench_rows "${bench_file}"; then
     echo "resume=skip existing ${bench_file}"
@@ -537,39 +395,20 @@ for item in "${labels[@]}"; do
       "UNI20_RABC_WARMUP=${warmup}"
       "MP_BENCHFILE=${bench_file}"
     )
-    if [[ "${manual_policy}" -eq 1 ]]; then
-      env_args+=("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=${layout}")
-    fi
-    if [[ -n "${empirical_coefficients_file}" ]]; then
-      env_args+=("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE=${empirical_coefficients_file}")
-    fi
+    env_args+=("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT=${layout}")
     if [[ -n "${trace_path}" ]]; then
       env_args+=("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH=${trace_path}")
     fi
     if [[ "${trace_terms}" -eq 1 ]]; then
       env_args+=("UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS=1")
     fi
-    if [[ "${placement_log}" -eq 1 || "${manual_policy}" -eq 0 ]]; then
+    if [[ "${placement_log}" -eq 1 ]]; then
       env_args+=("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LOG=1")
     fi
     env "${env_args[@]}" /usr/bin/timeout "${timeout_seconds}" "${exe}" "${fixture}" > "${stdout_file}" 2> "${stderr_file}"
   fi
 
-  if [[ "${manual_policy}" -eq 1 ]]; then
-    record_bench "${bench_file}" "${label}" "${layout}"
-  else
-    inferred_layout=""
-    if inferred_layout="$(layout_from_policy_log "${stderr_file}" "${policy}")" && [[ -n "${inferred_layout}" ]]; then
-      record_bench "${bench_file}" "${label}" "${inferred_layout}"
-      if [[ "${show_layouts}" -eq 1 ]]; then
-        echo "inferred_layout=${inferred_layout}"
-      else
-        echo "inferred_layout_summary=$(layout_summary_from_layout "${inferred_layout}")"
-      fi
-    else
-      echo "inferred_layout=unavailable"
-    fi
-  fi
+  record_bench "${bench_file}" "${label}" "${layout}"
   tail -n "${repeats}" "${stdout_file}" || true
 done
 
@@ -582,7 +421,7 @@ if [[ -s "${jsonl}" ]]; then
   "${repo_root}/scripts/rabc-trace-model.py" bench-summary "${jsonl}" "${summary_args[@]}"
   echo "benchmark_jsonl=${jsonl}"
 else
-  echo "benchmark_jsonl=not_written_for_policy_${policy}"
+  echo "benchmark_jsonl=not_written"
 fi
 if [[ -n "${trace_path}" ]]; then
   echo "trace_jsonl=${trace_path}"

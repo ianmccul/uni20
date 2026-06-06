@@ -20,6 +20,8 @@
 - [GPU Epoch Design Draft](gpu_epoch_design_draft.md)
 - [TensorContraction Matrix Storage Prototype](tensorcontraction_matrix_storage_prototype.md)
 - [R/A/B/C Contraction Scheduling](rabc_contraction_scheduling.md)
+- [R/A/B/C Hypergraph Partitioning LaTeX Note](latex/rabc_hypergraph_partitioning.tex)
+- [R/A/B/C Input-Anchored Cost Model LaTeX Note](latex/rabc_input_anchored_model.tex)
 - [Async Storage and Assignment Semantics](async_storage.md)
 
 ## AI Guidance

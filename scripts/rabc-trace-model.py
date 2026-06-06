@@ -357,6 +357,23 @@ def print_dmrg_summary_row(name: str, threshold: int, summary: dict[str, float |
     )
 
 
+def print_dmrg_shape_summary_row(
+    name: str, threshold: int, output_blocks: str, output_shape: str, summary: dict[str, float | int]
+) -> None:
+    """Print one live DMRG summary row grouped by R/A/B/C output shape."""
+    matvec_sum = summary.get("matvec_sum", math.nan)
+    matvec_mean = summary.get("matvec_mean", math.nan)
+    matvec_per_apply = summary.get("matvec_per_apply", math.nan)
+    matvec_count = summary.get("matvec_count", 0)
+    print(
+        f"{name} {threshold} {output_blocks} {output_shape} {int(summary['rows'])} "
+        f"{float(summary['solve_sum']):.9g} {float(summary['solve_mean']):.9g} "
+        f"{float(summary['split_sum']):.9g} {float(summary['split_mean']):.9g} "
+        f"{float(summary['env_sum']):.9g} {float(summary['env_mean']):.9g} "
+        f"{float(matvec_sum):.9g} {float(matvec_mean):.9g} {float(matvec_per_apply):.9g} {int(matvec_count)}"
+    )
+
+
 def layout_key(record: dict[str, Any]) -> tuple[int, ...]:
     """Return the output-layout key for grouping repeated measurements."""
     return tuple(int(item) for item in record.get("output_layout", []))
@@ -579,17 +596,6 @@ def benchmark_feature_names(problem: dict[str, Any], include_graph_features: boo
         names.extend(BENCHMARK_LAYOUT_FEATURE_NAMES)
         return names
     raise ValueError(f"unsupported benchmark model: {model}")
-
-
-def runtime_empirical_feature_names(include_graph_features: bool) -> list[str]:
-    """Return the feature order supported by the C++ empirical-contiguous policy."""
-    names = ["intercept"]
-    for device in range(2):
-        names.extend(f"d{device}_{name}" for name in DEVICE_BENCHMARK_FEATURE_NAMES)
-        if include_graph_features:
-            names.extend(f"d{device}_{name}" for name in DEVICE_BENCHMARK_GRAPH_FEATURE_NAMES)
-    names.extend(BENCHMARK_LAYOUT_FEATURE_NAMES)
-    return names
 
 
 def include_environment_bytes(args: argparse.Namespace) -> bool:
@@ -2463,79 +2469,6 @@ def print_fit(coefficients: dict[str, float], stats: dict[str, float], include_g
     print_fit_for_names(coefficients, stats, feature_names(include_graph_features))
 
 
-def runtime_empirical_coefficients(coefficients: dict[str, float], names: list[str], model: str) -> str | None:
-    """Return the C++ empirical-contiguous runtime coefficient string."""
-    if model != "device":
-        return None
-    if names not in (runtime_empirical_feature_names(False), runtime_empirical_feature_names(True)):
-        return None
-    return ",".join(f"{coefficients[name]:.17g}" for name in names)
-
-
-def print_runtime_empirical_coefficients(
-    coefficients: dict[str, float],
-    names: list[str],
-    model: str,
-    supported_output_blocks: int | None = None,
-    output_shape_signature_value: str | None = None,
-) -> None:
-    """Print runtime coefficient wiring for the C++ empirical-contiguous policy."""
-    values = runtime_empirical_coefficients(coefficients, names, model)
-    if values is None:
-        if model == "device":
-            print("runtime_coefficients_unavailable=non_runtime_feature_order")
-            print("runtime_coefficients_note=requires_two_device_base_or_graph_empirical_contiguous_order")
-        return
-    print("runtime_coefficients_order=" + ",".join(names))
-    if supported_output_blocks is not None:
-        print(f"runtime_supported_output_blocks={supported_output_blocks}")
-    if output_shape_signature_value:
-        print(f"runtime_output_shape_signature={output_shape_signature_value}")
-    print("runtime_coefficients=" + values)
-    print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous \\")
-    print("    UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=" + values)
-
-
-def write_runtime_empirical_coefficients(
-    path: Path,
-    coefficients: dict[str, float],
-    names: list[str],
-    model: str,
-    supported_output_blocks: int | None = None,
-    output_shape_signature_value: str | None = None,
-    append: bool = False,
-) -> None:
-    """Write runtime coefficients for `empirical-contiguous` to a text file."""
-    values = runtime_empirical_coefficients(coefficients, names, model)
-    if values is None:
-        raise ValueError(
-            "--output-runtime-coefficients requires --model device with the two-device base or graph "
-            "empirical-contiguous feature order"
-        )
-    supported_line = ""
-    if supported_output_blocks is not None:
-        supported_line = f"runtime_supported_output_blocks={supported_output_blocks}\n"
-    shape_line = ""
-    if output_shape_signature_value:
-        shape_line = f"runtime_output_shape_signature={output_shape_signature_value}\n"
-    text = (
-        "# R/A/B/C empirical-contiguous runtime coefficients.\n"
-        "# Use with UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE.\n"
-        "# runtime_coefficients_order=" + ",".join(names) + "\n"
-        + supported_line
-        + shape_line
-        + "runtime_coefficients="
-        + values
-        + "\n"
-    )
-    if append and path.exists() and path.stat().st_size > 0:
-        with path.open("a") as output:
-            output.write("\n")
-            output.write(text)
-    else:
-        path.write_text(text)
-
-
 def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
     """Return coefficients with negative values clamped to zero."""
     return {name: max(0.0, value) for name, value in coefficients.items()}
@@ -2778,6 +2711,28 @@ def cmd_dmrg_summary(args: argparse.Namespace) -> int:
                     by_half_sweep.setdefault(dmrg_row_int(row, "SweepNum"), []).append(row)
                 for half_sweep, grouped in sorted(by_half_sweep.items()):
                     print_dmrg_summary_row(path.stem, threshold, summarize_dmrg_rows(grouped), str(half_sweep))
+    if args.shapes:
+        print(
+            "#ShapeName #MinStates #RabcOutputBlocks #RabcOutputShape #Rows #SolveSumS #SolveMeanS "
+            "#SplitSumS #SplitMeanS #EnvSumS #EnvMeanS #LanczosMatvecSumS #LanczosMatvecMeanS "
+            "#LanczosMatvecPerApplyS #LanczosMatvecN"
+        )
+        for path in args.benchfile:
+            rows = parse_dmrg_benchfile(path)
+            if not rows or "RabcOutputShape" not in rows[0] or "RabcOutputBlocks" not in rows[0]:
+                continue
+            for threshold in thresholds:
+                filtered = [row for row in rows if dmrg_row_int(row, "States") >= threshold]
+                by_shape: dict[tuple[str, str], list[dict[str, Any]]] = {}
+                for row in filtered:
+                    key = (str(row["RabcOutputBlocks"]), str(row["RabcOutputShape"]))
+                    by_shape.setdefault(key, []).append(row)
+                for (output_blocks, output_shape), grouped in sorted(
+                    by_shape.items(), key=lambda item: summarize_dmrg_rows(item[1]).get("matvec_sum", 0.0), reverse=True
+                ):
+                    print_dmrg_shape_summary_row(
+                        path.stem, threshold, output_blocks, output_shape, summarize_dmrg_rows(grouped)
+                    )
     return 0
 
 
@@ -2815,21 +2770,6 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     print(f"layout_filter={args.layout_filter}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
-    print_runtime_empirical_coefficients(
-        coefficients, names, args.model, int(problem["block_count"]), str(problem.get("output_shape_signature", ""))
-    )
-    if args.output_runtime_coefficients is not None:
-        write_runtime_empirical_coefficients(
-            args.output_runtime_coefficients,
-            coefficients,
-            names,
-            args.model,
-            int(problem["block_count"]),
-            str(problem.get("output_shape_signature", "")),
-            args.append_runtime_coefficients,
-        )
-        print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
-        print(f"runtime_coefficients_append={str(bool(args.append_runtime_coefficients)).lower()}")
     return 0
 
 
@@ -3002,9 +2942,6 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     print(f"candidate_score={args.candidate_score}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
-    print_runtime_empirical_coefficients(
-        coefficients, names, args.model, int(problem["block_count"]), str(problem.get("output_shape_signature", ""))
-    )
     if args.candidate_score == "monotonic-structure":
         print(
             f"monotonic_structure_samples={int(structure_stats['samples'])} "
@@ -3023,18 +2960,6 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             "monotonic_structure_offsets="
             + ",".join(f"{structure_stats['offsets'][name]:.17g}" for name in structure_names)
         )
-    if args.output_runtime_coefficients is not None:
-        write_runtime_empirical_coefficients(
-            args.output_runtime_coefficients,
-            coefficients,
-            names,
-            args.model,
-            int(problem["block_count"]),
-            str(problem.get("output_shape_signature", "")),
-            args.append_runtime_coefficients,
-        )
-        print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
-        print(f"runtime_coefficients_append={str(bool(args.append_runtime_coefficients)).lower()}")
     print(f"search={search_kind}")
     print(f"candidate_layouts={len(ranked)}")
     if args.segmented_only:
@@ -3443,18 +3368,6 @@ def parser() -> argparse.ArgumentParser:
             help="augment fitting/scoring with graph cut and first-stage reuse counters from term traces",
         )
 
-    def add_runtime_coefficients_output(command: argparse.ArgumentParser) -> None:
-        command.add_argument(
-            "--output-runtime-coefficients",
-            type=Path,
-            help="write the device-aware empirical-contiguous runtime coefficient list to this file",
-        )
-        command.add_argument(
-            "--append-runtime-coefficients",
-            action="store_true",
-            help="append a guarded coefficient stanza instead of replacing the runtime coefficient file",
-        )
-
     def add_benchmark_model(command: argparse.ArgumentParser) -> None:
         command.add_argument(
             "--model",
@@ -3523,6 +3436,11 @@ def parser() -> argparse.ArgumentParser:
     dmrg_summary.add_argument(
         "--half-sweeps", action="store_true", help="also print rows grouped by half-sweep number"
     )
+    dmrg_summary.add_argument(
+        "--shapes",
+        action="store_true",
+        help="also group live rows by R/A/B/C output block count and shape signature",
+    )
     dmrg_summary.set_defaults(func=cmd_dmrg_summary)
 
     bench_rank = subcommands.add_parser(
@@ -3572,7 +3490,6 @@ def parser() -> argparse.ArgumentParser:
     bench_fit.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
     bench_fit.add_argument("--ridge", type=float, default=1.0e-9)
     bench_fit.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before printing")
-    add_runtime_coefficients_output(bench_fit)
     add_benchmark_model(bench_fit)
     add_benchmark_layout_filter(bench_fit)
     add_timing_objective(bench_fit)
@@ -3687,7 +3604,6 @@ def parser() -> argparse.ArgumentParser:
         help="allow segmented candidates whose shape features were not observed in benchmark rows",
     )
     bench_suggest.add_argument("--clamp-negative", action="store_true", help="clamp negative coefficients before search")
-    add_runtime_coefficients_output(bench_suggest)
     bench_suggest.add_argument(
         "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
     )

@@ -19,7 +19,7 @@
 #include "MatrixAllocator.hpp"
 #include "Swapper.hpp"
 
-static int getLeastBusyDevice(const std::vector<double>& flopsPerDevice, int scheduledDeviceCount)
+static int getLeastBusyDevice(const std::vector<double>& flopsPerDevice)
 {
   if (flopsPerDevice.empty())
   {
@@ -29,9 +29,8 @@ static int getLeastBusyDevice(const std::vector<double>& flopsPerDevice, int sch
   int result = -1;
   double flops = std::numeric_limits<double>::max();
   int const deviceCount = static_cast<int>(flopsPerDevice.size());
-  int const activeDeviceCount = scheduledDeviceCount <= 0 ? deviceCount : std::min(scheduledDeviceCount, deviceCount);
 
-  for (int deviceId = 0; deviceId < activeDeviceCount; deviceId++)
+  for (int deviceId = 0; deviceId < deviceCount; deviceId++)
   {
     if (flopsPerDevice[static_cast<std::size_t>(deviceId)] < flops)
     {
@@ -83,8 +82,7 @@ std::span<double> valueRange(std::span<double> values, CoalescedMatrixRange rang
   return values.subspan(range.valueOffset, range.valueCount);
 }
 
-std::vector<CoalescedMatrixRange> contiguousCoalescedPlacement(std::vector<Matrix> const& mats,
-                                                               int scheduledDeviceCount)
+std::vector<CoalescedMatrixRange> contiguousCoalescedPlacement(std::vector<Matrix> const& mats, int activeDeviceCount)
 {
   if (mats.empty())
   {
@@ -97,7 +95,7 @@ std::vector<CoalescedMatrixRange> contiguousCoalescedPlacement(std::vector<Matri
     totalBytes += mat.sizeInByte();
   }
 
-  int const rangeCount = std::max(1, std::min(scheduledDeviceCount, static_cast<int>(mats.size())));
+  int const rangeCount = std::max(1, std::min(activeDeviceCount, static_cast<int>(mats.size())));
   std::vector<CoalescedMatrixRange> ranges;
   ranges.reserve(static_cast<std::size_t>(rangeCount));
 
@@ -188,8 +186,6 @@ Arranger::Arranger(Swapper& swapper) : swapper(swapper)
     linearAlgebraWorklists.emplace_back();
   }
   linearAlgebraFlopsPerDevice.resize(deviceCount, 0.0);
-  contractionScheduledDeviceCount = std::max(1, deviceCount);
-  linearAlgebraScheduledDeviceCount = std::max(1, deviceCount);
 
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
@@ -358,19 +354,7 @@ std::vector<Matrix>& Arranger::getInterMats() { return interMats; }
 void Arranger::preStoreToDevice(const std::vector<Matrix>& aMats, const std::vector<Matrix>& bMats,
                                 const std::vector<Matrix>& cMats)
 {
-  std::size_t totalPreStoreBytes = 0;
-  auto accumulateBytes = [&](const std::vector<Matrix>& mats) {
-    for (auto mat : mats)
-    {
-      totalPreStoreBytes += mat.sizeInByte();
-    }
-  };
-  accumulateBytes(interMats);
-  accumulateBytes(aMats);
-  accumulateBytes(bMats);
-  accumulateBytes(cMats);
-
-  int const preStoreDeviceCount = this->scheduledDeviceCountForBytes(totalPreStoreBytes);
+  int const preStoreDeviceCount = deviceCount;
 
   // Get available GPU memory for each device
   std::vector<size_t> availableMemory(deviceCount);
@@ -619,8 +603,6 @@ void Arranger::compileWorklists(const std::vector<Matrix>& rMats, const std::vec
                                 bool syncResultsToHost)
 {
   std::vector<double> flopsPerDevice(deviceCount, 0.0);
-  double const totalFlops = std::accumulate(rFlops.begin(), rFlops.end(), 0.0);
-  contractionScheduledDeviceCount = this->scheduledDeviceCountForFlops(totalFlops);
 
   // The contraction is split into two parts:
   //   1. Calculate the repeated B*C result.
@@ -668,37 +650,12 @@ void Arranger::buildLiveInterval(std::vector<WorklistTy>& worklists, std::vector
   }
 }
 
-int Arranger::scheduledDeviceCountForFlops(double flops) const
-{
-  if (deviceCount <= 1)
-  {
-    return deviceCount;
-  }
-
-  double const minFlops = resolveTensorContractionMultiGpuMinFlops();
-  return (minFlops > 0.0 && flops < minFlops) ? 1 : deviceCount;
-}
-
-int Arranger::scheduledDeviceCountForBytes(std::size_t bytes) const
-{
-  if (deviceCount <= 1)
-  {
-    return deviceCount;
-  }
-
-  std::size_t const minBytes = resolveTensorContractionMultiGpuMinBytes();
-  return (minBytes > 0 && bytes < minBytes) ? 1 : deviceCount;
-}
-
 int Arranger::leastBusyContractionDevice(const std::vector<double>& flopsPerDevice) const
 {
-  return getLeastBusyDevice(flopsPerDevice, contractionScheduledDeviceCount);
+  return getLeastBusyDevice(flopsPerDevice);
 }
 
-int Arranger::leastBusyLinearAlgebraDevice() const
-{
-  return getLeastBusyDevice(linearAlgebraFlopsPerDevice, linearAlgebraScheduledDeviceCount);
-}
+int Arranger::leastBusyLinearAlgebraDevice() const { return getLeastBusyDevice(linearAlgebraFlopsPerDevice); }
 
 void Arranger::compileWorklistsForInterMat(const std::vector<Matrix>& rMats, const std::vector<Matrix>& aMats,
                                            const std::vector<Matrix>& bMats, const std::vector<Matrix>& cMats,
@@ -1825,7 +1782,6 @@ void Arranger::doLinearAlgebra()
     wl.clear();
   liveIntervalsForLinearAlgebra.clear();
   std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
-  linearAlgebraScheduledDeviceCount = std::max(1, deviceCount);
 }
 
 void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool uploadFromHost, bool refreshExisting)
@@ -1835,13 +1791,6 @@ void Arranger::localizeForLinearAlgebra(const std::vector<Matrix>& mats, bool up
   // Localize MatrixFamily blocks into TensorContraction pre-store buffers.
   // With uploadFromHost=false this is allocation-only and preserves the current
   // GPU-resident value; with uploadFromHost=true host storage is the authority.
-  std::size_t totalBytes = 0;
-  for (auto mat : mats)
-  {
-    totalBytes += mat.sizeInByte();
-  }
-  linearAlgebraScheduledDeviceCount = this->scheduledDeviceCountForBytes(totalBytes);
-
   std::vector<size_t> bytesPerDevice(deviceCount, 0);
   std::vector<bool> touchedDevice(deviceCount, false);
   for (auto mat : mats)
@@ -1893,7 +1842,6 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
   {
     totalBytes += mat.sizeInByte();
   }
-  linearAlgebraScheduledDeviceCount = this->scheduledDeviceCountForBytes(totalBytes);
 
   auto finishLocalization = [&]() {
     std::fill(linearAlgebraFlopsPerDevice.begin(), linearAlgebraFlopsPerDevice.end(), 0.0);
@@ -1902,7 +1850,7 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
 
   if (!mats.empty() && totalBytes == values.size_bytes())
   {
-    if (linearAlgebraScheduledDeviceCount == 1)
+    if (deviceCount == 1)
     {
       bool const anyExisting = swapper.anyPreStoreBuffer(mats);
       auto const existingDevice = swapper.commonPreStoreDevice(mats);
@@ -1941,7 +1889,7 @@ void Arranger::localizeCoalescedForLinearAlgebra(const std::vector<Matrix>& mats
     else
     {
       bool localized = true;
-      for (auto const range : contiguousCoalescedPlacement(mats, linearAlgebraScheduledDeviceCount))
+      for (auto const range : contiguousCoalescedPlacement(mats, deviceCount))
       {
         if (!localizeCoalescedRange(swapper, range, mats, values, uploadFromHost, refreshExisting))
         {
@@ -2010,10 +1958,9 @@ void Arranger::synchronizeCoalescedLinearAlgebraToHost(const std::vector<Matrix>
   }
   if (!mats.empty() && totalBytes == values.size_bytes())
   {
-    auto const scheduledDeviceCount = this->scheduledDeviceCountForBytes(totalBytes);
     std::vector<bool> touched(deviceCount, false);
     bool synchronized = true;
-    for (auto const range : contiguousCoalescedPlacement(mats, scheduledDeviceCount))
+    for (auto const range : contiguousCoalescedPlacement(mats, deviceCount))
     {
       auto const rangeMats = matrixRange(mats, range);
       if (swapper.downloadDeviceMatricesToHostCoalesced(rangeMats, valueRange(values, range)))

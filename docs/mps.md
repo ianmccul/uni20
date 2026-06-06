@@ -105,6 +105,9 @@ wavefunction storage infrastructure.
   By default it treats the edge local solve energy as a benchmark diagnostic;
   set `UNI20_HUBBARD_CHECK_GLOBAL_ENERGY=1` for the slower global-energy
   monotonicity check.
+  The block-sparse examples include `RabcOutputBlocks` and `RabcOutputShape` in
+  `MP_BENCHFILE`; these identify the effective-Hamiltonian output shape used by
+  TensorContraction placement and coefficient-bundle guards.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.

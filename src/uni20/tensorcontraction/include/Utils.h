@@ -131,38 +131,6 @@ inline std::size_t resolveTensorContractionPoolCacheBytes()
   return 256ULL * 1024ULL * 1024ULL;
 }
 
-inline double resolveTensorContractionMultiGpuMinFlops()
-{
-  auto const* env = std::getenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_FLOPS");
-  if (env != nullptr)
-  {
-    try
-    {
-      return std::max(0.0, std::stod(env));
-    }
-    catch (...)
-    {}
-  }
-
-  return 1.0e10;
-}
-
-inline std::size_t resolveTensorContractionMultiGpuMinBytes()
-{
-  auto const* env = std::getenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES");
-  if (env != nullptr)
-  {
-    try
-    {
-      return static_cast<std::size_t>(std::stoull(env));
-    }
-    catch (...)
-    {}
-  }
-
-  return 64ULL * 1024ULL * 1024ULL;
-}
-
 } // namespace tensor
 
 #define CUDA_CALL(func)                                                                                                \

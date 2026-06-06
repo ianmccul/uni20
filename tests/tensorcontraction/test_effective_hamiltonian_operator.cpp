@@ -403,16 +403,14 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, OutputWorksWithVectorAlg
   EXPECT_NEAR(utc::norm(z), 1.0, 1.0e-14);
 }
 
-TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentCostPlacementMatchesReference)
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentDefaultPlacementMatchesReference)
 {
   EnvGuard guard{
       "UNI20_TENSORCONTRACTION_BACKEND",
       "UNI20_TENSORCONTRACTION_DEVICES",
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
   };
   unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
   setenv("UNI20_TENSORCONTRACTION_DEVICES", "all", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "cost", 1);
 
   auto a = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
   auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
@@ -516,7 +514,47 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentManualPlacementM
   EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
 }
 
-TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentCostPlacementFallsBackToDefaultForMarginalSpeedup)
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, RejectsUnsupportedResidentPlacementPolicy)
+{
+  if (visible_cuda_devices() < 1)
+  {
+    GTEST_SKIP() << "requires a visible CUDA device";
+  }
+
+  EnvGuard guard{
+      "UNI20_TENSORCONTRACTION_BACKEND",
+      "UNI20_TENSORCONTRACTION_DEVICES",
+      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
+  };
+  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
+  setenv("UNI20_TENSORCONTRACTION_DEVICES", "1", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "cost", 1);
+
+  auto a = make_family({{1, 1}});
+  auto c = make_family({{1, 1}});
+  std::array input_blocks{utc::MatrixFamily::Block{1, 1}};
+  std::array output_blocks{utc::MatrixFamily::Block{1, 1}};
+  a.assign(0, std::array{2.0});
+  c.assign(0, std::array{3.0});
+  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0}};
+  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
+                                                               terms);
+  utc::VectorAlgebraEngine algebra;
+  if (algebra.uses_host_backend())
+  {
+    GTEST_SKIP() << "requires the TensorContraction resident CUDA backend";
+  }
+  algebra.set_host_synchronization(false);
+
+  auto x = op.make_input_vector();
+  auto y = op.make_output_vector();
+  x.assign(0, std::array{5.0});
+  algebra.upload(x);
+
+  EXPECT_THROW(op.apply_resident(x, y, algebra), std::invalid_argument);
+}
+
+TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentManualPlacementSupportsIndependentEnvironmentLayouts)
 {
   if (visible_cuda_devices() < 2)
   {
@@ -525,36 +563,33 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentCostPlacementFal
 
   auto const trace_path = temporary_trace_path();
   EnvGuard guard{
-      "UNI20_TENSORCONTRACTION_BACKEND",
-      "UNI20_TENSORCONTRACTION_DEVICES",
-      "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES",
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
-      "UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP",
-      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
+      "UNI20_TENSORCONTRACTION_BACKEND",         "UNI20_TENSORCONTRACTION_DEVICES",
+      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",  "UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT",
+      "UNI20_TENSORCONTRACTION_RABC_B_LAYOUT",   "UNI20_TENSORCONTRACTION_RABC_R_LAYOUT",
+      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", "UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS",
   };
   unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
   setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
-  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "0", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "cost", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_MODEL_CONTIGUOUS_MIN_SPEEDUP", "1000", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "manual", 1);
+  unsetenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT_LAYOUT");
+  setenv("UNI20_TENSORCONTRACTION_RABC_B_LAYOUT", "0,1", 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_R_LAYOUT", "1,0", 1);
   setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
+  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_TERMS", "1", 1);
 
   auto a = make_family({{1, 1}, {1, 1}});
-  auto c = make_family({{1, 1}, {1, 1}});
-  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+  auto b = make_family({{1, 1}, {1, 1}});
+  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
+  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
 
   a.assign(0, std::array{2.0});
   a.assign(1, std::array{3.0});
-  c.assign(0, std::array{5.0});
-  c.assign(1, std::array{7.0});
+  b.assign(0, std::array{5.0});
+  b.assign(1, std::array{7.0});
 
   std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
-                   utc::EffectiveHamiltonianOperator::Term{0, 1, 0, 1, 1.0}};
-  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
-                                                               terms);
+                   utc::EffectiveHamiltonianOperator::Term{1, 1, 1, 1, 1.0}};
+  utc::EffectiveHamiltonianOperator op(std::move(a), std::move(b), input_blocks, output_blocks, terms);
   utc::VectorAlgebraEngine algebra;
   algebra.set_host_synchronization(false);
 
@@ -562,426 +597,26 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentCostPlacementFal
   auto y = op.make_output_vector();
   x.assign(0, std::array{11.0});
   x.assign(1, std::array{13.0});
-  x.assign(2, std::array{17.0});
-  x.assign(3, std::array{19.0});
   algebra.upload(x);
 
   op.apply_resident(x, y, algebra);
   algebra.synchronize(y);
+
+  EXPECT_DOUBLE_EQ(y.values(0)[0], 2.0 * 5.0 * 11.0);
+  EXPECT_DOUBLE_EQ(y.values(1)[0], 3.0 * 7.0 * 13.0);
 
   std::ifstream input(trace_path);
   ASSERT_TRUE(input.good());
   std::string line;
   std::getline(input, line);
   std::filesystem::remove(trace_path);
+  SCOPED_TRACE(line);
 
-  EXPECT_NE(line.find("\"policy\":\"cost\""), std::string::npos);
-  EXPECT_NE(line.find("\"input_layout\":[0,0,1,1]"), std::string::npos);
-  EXPECT_NE(line.find("\"output_layout\":[0,0,1,1]"), std::string::npos);
-}
-
-TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentStripedPlacementUsesAlternatingLayout)
-{
-  if (visible_cuda_devices() < 2)
-  {
-    GTEST_SKIP() << "requires at least two visible CUDA devices";
-  }
-
-  auto const trace_path = temporary_trace_path();
-  EnvGuard guard{
-      "UNI20_TENSORCONTRACTION_BACKEND",
-      "UNI20_TENSORCONTRACTION_DEVICES",
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
-      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
-  };
-  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
-  setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "stripe", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
-
-  auto a = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-
-  a.assign(0, std::array{2.0});
-  a.assign(1, std::array{3.0});
-  a.assign(2, std::array{5.0});
-  a.assign(3, std::array{7.0});
-  c.assign(0, std::array{11.0});
-  c.assign(1, std::array{13.0});
-  c.assign(2, std::array{17.0});
-  c.assign(3, std::array{19.0});
-
-  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
-                   utc::EffectiveHamiltonianOperator::Term{1, 1, 1, 1, -0.5},
-                   utc::EffectiveHamiltonianOperator::Term{2, 2, 2, 2, 0.25},
-                   utc::EffectiveHamiltonianOperator::Term{3, 3, 3, 3, 2.0}};
-  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
-                                                               terms);
-  utc::VectorAlgebraEngine algebra;
-  algebra.set_host_synchronization(false);
-
-  auto x = op.make_input_vector();
-  auto y = op.make_output_vector();
-  x.assign(0, std::array{23.0});
-  x.assign(1, std::array{29.0});
-  x.assign(2, std::array{31.0});
-  x.assign(3, std::array{37.0});
-  algebra.upload(x);
-
-  op.apply_resident(x, y, algebra);
-  algebra.synchronize(y);
-
-  EXPECT_DOUBLE_EQ(y.values(0)[0], 2.0 * 23.0 * 11.0);
-  EXPECT_DOUBLE_EQ(y.values(1)[0], -0.5 * 3.0 * 29.0 * 13.0);
-  EXPECT_DOUBLE_EQ(y.values(2)[0], 0.25 * 5.0 * 31.0 * 17.0);
-  EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
-
-  std::ifstream input(trace_path);
-  ASSERT_TRUE(input.good());
-  std::string line;
-  std::getline(input, line);
-  std::filesystem::remove(trace_path);
-
-  EXPECT_NE(line.find("\"policy\":\"stripe\""), std::string::npos);
-  EXPECT_NE(line.find("\"input_layout\":[0,1,0,1]"), std::string::npos);
-  EXPECT_NE(line.find("\"output_layout\":[0,1,0,1]"), std::string::npos);
-}
-
-TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentEmpiricalPlacementUsesFittedContiguousCut)
-{
-  if (visible_cuda_devices() < 2)
-  {
-    GTEST_SKIP() << "requires at least two visible CUDA devices";
-  }
-
-  auto const trace_path = temporary_trace_path();
-  EnvGuard guard{
-      "UNI20_TENSORCONTRACTION_BACKEND",
-      "UNI20_TENSORCONTRACTION_DEVICES",
-      "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES",
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
-      "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS",
-      "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE",
-      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
-  };
-  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
-  unsetenv("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
-  setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
-  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "0", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "empirical-contiguous", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS", "0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
-
-  auto a = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-
-  a.assign(0, std::array{2.0});
-  a.assign(1, std::array{3.0});
-  a.assign(2, std::array{5.0});
-  a.assign(3, std::array{7.0});
-  c.assign(0, std::array{11.0});
-  c.assign(1, std::array{13.0});
-  c.assign(2, std::array{17.0});
-  c.assign(3, std::array{19.0});
-
-  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
-                   utc::EffectiveHamiltonianOperator::Term{1, 1, 1, 1, -0.5},
-                   utc::EffectiveHamiltonianOperator::Term{2, 2, 2, 2, 0.25},
-                   utc::EffectiveHamiltonianOperator::Term{3, 3, 3, 3, 2.0}};
-  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
-                                                               terms);
-  utc::VectorAlgebraEngine algebra;
-  algebra.set_host_synchronization(false);
-
-  auto x = op.make_input_vector();
-  auto y = op.make_output_vector();
-  x.assign(0, std::array{23.0});
-  x.assign(1, std::array{29.0});
-  x.assign(2, std::array{31.0});
-  x.assign(3, std::array{37.0});
-  algebra.upload(x);
-
-  op.apply_resident(x, y, algebra);
-  algebra.synchronize(y);
-
-  EXPECT_DOUBLE_EQ(y.values(0)[0], 2.0 * 23.0 * 11.0);
-  EXPECT_DOUBLE_EQ(y.values(1)[0], -0.5 * 3.0 * 29.0 * 13.0);
-  EXPECT_DOUBLE_EQ(y.values(2)[0], 0.25 * 5.0 * 31.0 * 17.0);
-  EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
-
-  std::ifstream input(trace_path);
-  ASSERT_TRUE(input.good());
-  std::string line;
-  std::getline(input, line);
-  std::filesystem::remove(trace_path);
-
-  EXPECT_NE(line.find("\"policy\":\"empirical-contiguous\""), std::string::npos);
-  EXPECT_NE(line.find("\"input_layout\":[0,1,1,1]"), std::string::npos);
-  EXPECT_NE(line.find("\"output_layout\":[0,1,1,1]"), std::string::npos);
-}
-
-TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentEmpiricalPlacementReadsFittedCoefficientsFile)
-{
-  if (visible_cuda_devices() < 2)
-  {
-    GTEST_SKIP() << "requires at least two visible CUDA devices";
-  }
-
-  auto const trace_path = temporary_trace_path();
-  auto const coefficients_path = temporary_trace_path();
-  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-  {
-    std::ofstream output(coefficients_path);
-    output << "# fitted by scripts/rabc-trace-model.py bench-fit --model device\n";
-    output << "runtime_supported_output_blocks=999\n";
-    output << "runtime_coefficients=0,0,0,-1,0,0,0,0,0,0,0,0,0,0,0,0\n";
-    output << "runtime_supported_output_blocks=4\n";
-    output << "runtime_output_shape_signature=fnv1a64:0000000000000000\n";
-    output << "runtime_coefficients=0,0,0,-1,0,0,0,0,0,0,0,0,0,0,0,0\n";
-    output << "runtime_supported_output_blocks=4\n";
-    output << "runtime_output_shape_signature=" << output_shape_signature(output_blocks) << "\n";
-    output << "runtime_coefficients=0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0\n";
-  }
-
-  EnvGuard guard{
-      "UNI20_TENSORCONTRACTION_BACKEND",
-      "UNI20_TENSORCONTRACTION_DEVICES",
-      "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES",
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
-      "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS",
-      "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE",
-      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
-  };
-  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
-  unsetenv("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
-  setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
-  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "0", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "empirical-contiguous", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE", coefficients_path.c_str(), 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
-
-  auto a = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-
-  a.assign(0, std::array{2.0});
-  a.assign(1, std::array{3.0});
-  a.assign(2, std::array{5.0});
-  a.assign(3, std::array{7.0});
-  c.assign(0, std::array{11.0});
-  c.assign(1, std::array{13.0});
-  c.assign(2, std::array{17.0});
-  c.assign(3, std::array{19.0});
-
-  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
-                   utc::EffectiveHamiltonianOperator::Term{1, 1, 1, 1, -0.5},
-                   utc::EffectiveHamiltonianOperator::Term{2, 2, 2, 2, 0.25},
-                   utc::EffectiveHamiltonianOperator::Term{3, 3, 3, 3, 2.0}};
-  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
-                                                               terms);
-  utc::VectorAlgebraEngine algebra;
-  algebra.set_host_synchronization(false);
-
-  auto x = op.make_input_vector();
-  auto y = op.make_output_vector();
-  x.assign(0, std::array{23.0});
-  x.assign(1, std::array{29.0});
-  x.assign(2, std::array{31.0});
-  x.assign(3, std::array{37.0});
-  algebra.upload(x);
-
-  op.apply_resident(x, y, algebra);
-  algebra.synchronize(y);
-
-  EXPECT_DOUBLE_EQ(y.values(0)[0], 2.0 * 23.0 * 11.0);
-  EXPECT_DOUBLE_EQ(y.values(1)[0], -0.5 * 3.0 * 29.0 * 13.0);
-  EXPECT_DOUBLE_EQ(y.values(2)[0], 0.25 * 5.0 * 31.0 * 17.0);
-  EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
-
-  std::ifstream input(trace_path);
-  ASSERT_TRUE(input.good());
-  std::string line;
-  std::getline(input, line);
-  std::filesystem::remove(trace_path);
-  std::filesystem::remove(coefficients_path);
-
-  EXPECT_NE(line.find("\"policy\":\"empirical-contiguous\""), std::string::npos);
-  EXPECT_NE(line.find("\"input_layout\":[0,1,1,1]"), std::string::npos);
-  EXPECT_NE(line.find("\"output_layout\":[0,1,1,1]"), std::string::npos);
-}
-
-TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentEmpiricalPlacementFallsBackForUnsupportedOutputCount)
-{
-  if (visible_cuda_devices() < 2)
-  {
-    GTEST_SKIP() << "requires at least two visible CUDA devices";
-  }
-
-  auto const trace_path = temporary_trace_path();
-  auto const coefficients_path = temporary_trace_path();
-  {
-    std::ofstream output(coefficients_path);
-    output << "# fitted by scripts/rabc-trace-model.py bench-fit --model device\n";
-    output << "runtime_supported_output_blocks=999\n";
-    output << "runtime_coefficients=0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0\n";
-  }
-
-  EnvGuard guard{
-      "UNI20_TENSORCONTRACTION_BACKEND",
-      "UNI20_TENSORCONTRACTION_DEVICES",
-      "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES",
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
-      "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS",
-      "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE",
-      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
-  };
-  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
-  unsetenv("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS");
-  setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
-  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "0", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "empirical-contiguous", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE", coefficients_path.c_str(), 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
-
-  auto a = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-
-  a.assign(0, std::array{2.0});
-  a.assign(1, std::array{3.0});
-  a.assign(2, std::array{5.0});
-  a.assign(3, std::array{7.0});
-  c.assign(0, std::array{11.0});
-  c.assign(1, std::array{13.0});
-  c.assign(2, std::array{17.0});
-  c.assign(3, std::array{19.0});
-
-  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 0, 0, 1.0},
-                   utc::EffectiveHamiltonianOperator::Term{1, 1, 1, 1, -0.5},
-                   utc::EffectiveHamiltonianOperator::Term{2, 2, 2, 2, 0.25},
-                   utc::EffectiveHamiltonianOperator::Term{3, 3, 3, 3, 2.0}};
-  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
-                                                               terms);
-  utc::VectorAlgebraEngine algebra;
-  algebra.set_host_synchronization(false);
-
-  auto x = op.make_input_vector();
-  auto y = op.make_output_vector();
-  x.assign(0, std::array{23.0});
-  x.assign(1, std::array{29.0});
-  x.assign(2, std::array{31.0});
-  x.assign(3, std::array{37.0});
-  algebra.upload(x);
-
-  op.apply_resident(x, y, algebra);
-  algebra.synchronize(y);
-
-  EXPECT_DOUBLE_EQ(y.values(0)[0], 2.0 * 23.0 * 11.0);
-  EXPECT_DOUBLE_EQ(y.values(1)[0], -0.5 * 3.0 * 29.0 * 13.0);
-  EXPECT_DOUBLE_EQ(y.values(2)[0], 0.25 * 5.0 * 31.0 * 17.0);
-  EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
-
-  std::ifstream input(trace_path);
-  ASSERT_TRUE(input.good());
-  std::string line;
-  std::getline(input, line);
-  std::filesystem::remove(trace_path);
-  std::filesystem::remove(coefficients_path);
-
-  EXPECT_NE(line.find("\"policy\":\"empirical-contiguous\""), std::string::npos);
-  EXPECT_NE(line.find("\"input_layout\":[0,0,1,1]"), std::string::npos);
-  EXPECT_NE(line.find("\"output_layout\":[0,0,1,1]"), std::string::npos);
-}
-
-TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentEmpiricalPlacementUsesGraphFeatureCoefficients)
-{
-  if (visible_cuda_devices() < 2)
-  {
-    GTEST_SKIP() << "requires at least two visible CUDA devices";
-  }
-
-  auto const trace_path = temporary_trace_path();
-  EnvGuard guard{
-      "UNI20_TENSORCONTRACTION_BACKEND",
-      "UNI20_TENSORCONTRACTION_DEVICES",
-      "UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES",
-      "UNI20_TENSORCONTRACTION_RABC_PLACEMENT",
-      "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS",
-      "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE",
-      "UNI20_TENSORCONTRACTION_RABC_TRACE_PATH",
-  };
-  unsetenv("UNI20_TENSORCONTRACTION_BACKEND");
-  unsetenv("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
-  setenv("UNI20_TENSORCONTRACTION_DEVICES", "2", 1);
-  setenv("UNI20_TENSORCONTRACTION_MULTI_GPU_MIN_BYTES", "0", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_PLACEMENT", "empirical-contiguous", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS",
-         "0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0", 1);
-  setenv("UNI20_TENSORCONTRACTION_RABC_TRACE_PATH", trace_path.c_str(), 1);
-
-  auto a = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  auto c = make_family({{1, 1}, {1, 1}, {1, 1}, {1, 1}});
-  std::array input_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                          utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-  std::array output_blocks{utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1},
-                           utc::MatrixFamily::Block{1, 1}, utc::MatrixFamily::Block{1, 1}};
-
-  a.assign(0, std::array{2.0});
-  a.assign(1, std::array{3.0});
-  a.assign(2, std::array{5.0});
-  a.assign(3, std::array{7.0});
-  c.assign(0, std::array{11.0});
-  c.assign(1, std::array{13.0});
-  c.assign(2, std::array{17.0});
-  c.assign(3, std::array{19.0});
-
-  std::array terms{utc::EffectiveHamiltonianOperator::Term{0, 0, 3, 0, 1.0},
-                   utc::EffectiveHamiltonianOperator::Term{1, 1, 3, 1, -0.5},
-                   utc::EffectiveHamiltonianOperator::Term{2, 2, 2, 2, 0.25},
-                   utc::EffectiveHamiltonianOperator::Term{3, 3, 3, 3, 2.0}};
-  auto op = utc::EffectiveHamiltonianOperator::variable_middle(std::move(a), std::move(c), input_blocks, output_blocks,
-                                                               terms);
-  utc::VectorAlgebraEngine algebra;
-  algebra.set_host_synchronization(false);
-
-  auto x = op.make_input_vector();
-  auto y = op.make_output_vector();
-  x.assign(0, std::array{23.0});
-  x.assign(1, std::array{29.0});
-  x.assign(2, std::array{31.0});
-  x.assign(3, std::array{37.0});
-  algebra.upload(x);
-
-  op.apply_resident(x, y, algebra);
-  algebra.synchronize(y);
-
-  EXPECT_DOUBLE_EQ(y.values(0)[0], 2.0 * 37.0 * 11.0);
-  EXPECT_DOUBLE_EQ(y.values(1)[0], -0.5 * 3.0 * 37.0 * 13.0);
-  EXPECT_DOUBLE_EQ(y.values(2)[0], 0.25 * 5.0 * 31.0 * 17.0);
-  EXPECT_DOUBLE_EQ(y.values(3)[0], 2.0 * 7.0 * 37.0 * 19.0);
-
-  std::ifstream input(trace_path);
-  ASSERT_TRUE(input.good());
-  std::string line;
-  std::getline(input, line);
-  std::filesystem::remove(trace_path);
-
-  EXPECT_NE(line.find("\"policy\":\"empirical-contiguous\""), std::string::npos);
-  EXPECT_NE(line.find("\"input_layout\":[0,1,1,1]"), std::string::npos);
-  EXPECT_NE(line.find("\"output_layout\":[0,1,1,1]"), std::string::npos);
+  EXPECT_NE(line.find("\"policy\":\"manual\""), std::string::npos);
+  EXPECT_NE(line.find("\"input_layout\":[0,1]"), std::string::npos);
+  EXPECT_NE(line.find("\"output_layout\":[1,0]"), std::string::npos);
+  EXPECT_NE(line.find("\"first_device\":0,\"output_device\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"first_device\":1,\"output_device\":0"), std::string::npos);
 }
 
 TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentTraceWritesCostFeatures)

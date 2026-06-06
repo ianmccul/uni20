@@ -1,0 +1,339 @@
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath, amssymb}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+
+\title{Input-Anchored Cost Model for R/A/B/C Hamiltonian Application}
+\author{Uni20 Developer Documentation}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Purpose}
+
+This note defines a restricted, implementation-oriented cost model for applying
+the two-site DMRG effective Hamiltonian in R/A/B/C form.  It is a simplification
+of the more general hypergraph placement model in
+\texttt{docs/latex/rabc\_hypergraph\_partitioning.tex}.  The aim is to remove
+most underdetermined communication choices while keeping the dominant
+Hamiltonian scheduling decisions.
+
+The effective Hamiltonian is represented by sparse terms
+\begin{equation}
+  t = (r(t),a(t),b(t),c(t),f_t),
+  \qquad
+  R_{r(t)} \mathrel{+}= f_t A_{a(t)} B_{b(t)} C_{c(t)} .
+\end{equation}
+The Hamiltonian Lanczos path has one important invariant: the input center
+vector $B$ and output center vector $R$ have the same block space and must use
+the same persistent layout, so the next matvec can consume the output without a
+relayout.
+
+\section{Anchoring Assumption}
+
+Let $\mathcal{D}$ be the device set and $\mathcal{K}$ be the center-block set.
+Choose one canonical owner
+\begin{equation}
+  h : \mathcal{K} \to \mathcal{D}.
+\end{equation}
+For Hamiltonian application, $B_k$ is initially resident on $h(k)$ and $R_k$
+must finally be resident on $h(k)$.
+
+The input-anchored rule is:
+\begin{equation}
+  \text{the first GEMM for term } t \text{ runs on } h(b(t)).
+\end{equation}
+The output rule is:
+\begin{equation}
+  \text{the second GEMM for term } t \text{ runs on } h(r(t)).
+\end{equation}
+These two rules remove the independent choice of where to compute first-stage
+products, where to assemble temporaries, and where to accumulate final outputs.
+Given a layout $h$ and a left/right path choice for each term, the copy and
+temporary schedule is induced.
+
+This is not the fully general communication schedule.  It excludes moving the
+first GEMM away from the input block, moving the second GEMM away from the final
+output block, tree reductions, temporary recomputation instead of copying, and
+arbitrary environment replication.  These are deliberate restrictions.  They
+turn an ill-determined communication problem into a concrete cost functional.
+
+\section{Optimization Variables}
+
+For each term choose only its contraction side:
+\begin{equation}
+  s_t \in \{L,R\}.
+\end{equation}
+Here $s_t=L$ means left-first,
+\begin{equation}
+  A_aB_b \quad \text{then} \quad (A_aB_b)C_c,
+\end{equation}
+and $s_t=R$ means right-first,
+\begin{equation}
+  B_bC_c \quad \text{then} \quad A_a(B_bC_c).
+\end{equation}
+The full restricted decision is therefore
+\begin{equation}
+  (h,\{s_t\}_{t\in\mathcal{T}}).
+\end{equation}
+
+\section{Induced DAG}
+
+The induced DAG uses conservative exact temporaries.  The scalar coefficient
+$f_t$ is applied after the first-stage GEMM product has been formed, while
+accumulating that product into the local temporary.
+Before the resident matvec begins, setup has already materialized every
+environment block needed on the devices where the GEMM kernels below will run.
+
+\subsection{Left-First Terms}
+
+For each device, first form the distinct left-first GEMM products needed by
+terms whose input block lives on that device:
+\begin{equation}
+  G_L(d) =
+    \{(a(t),b(t)) : s_t=L,\ h(b(t))=d\}.
+\end{equation}
+For every $(a,b)\in G_L(d)$, compute once on device $d$:
+\begin{equation}
+  X^d_{a,b} = A_a B_b .
+\end{equation}
+The block $B_b$ is already on $d=h(b)$.  The environment block $A_a$ is made
+available on $d$ by the setup procedure before the resident matvec is timed.
+
+Then, for every left-first term $t$ with
+$(r,a,b,c)=(r(t),a(t),b(t),c(t))$, accumulate on $h(b)$:
+\begin{equation}
+  Q^{L,h(b)}_{r,c}
+  \mathrel{+}= f_t X^{h(b)}_{a,b}.
+\end{equation}
+
+For each nonzero local partial $Q^{L,d}_{r,c}$, copy it to $h(r)$ if
+$d\ne h(r)$ and accumulate it into the assembled temporary
+\begin{equation}
+  Q^L_{r,c} = \sum_{d\in\mathcal{D}} Q^{L,d}_{r,c}
+  \quad \text{on } h(r).
+\end{equation}
+Then execute the second GEMM on $h(r)$:
+\begin{equation}
+  R_r \mathrel{+}= Q^L_{r,c} C_c
+  \quad \text{on } h(r).
+\end{equation}
+The environment block $C_c$ has also been made available on $h(r)$ by setup.
+
+\subsection{Right-First Terms}
+
+For each device, first form the distinct right-first GEMM products needed by
+terms whose input block lives on that device:
+\begin{equation}
+  G_R(d) =
+    \{(b(t),c(t)) : s_t=R,\ h(b(t))=d\}.
+\end{equation}
+For every $(b,c)\in G_R(d)$, compute once on device $d$:
+\begin{equation}
+  Y^d_{b,c} = B_b C_c .
+\end{equation}
+The block $B_b$ is already on $d=h(b)$.  The environment block $C_c$ is made
+available on $d$ by the setup procedure before the resident matvec is timed.
+
+Then, for every right-first term $t$ with
+$(r,a,b,c)=(r(t),a(t),b(t),c(t))$, accumulate on $h(b)$:
+\begin{equation}
+  Q^{R,h(b)}_{r,a}
+  \mathrel{+}= f_t Y^{h(b)}_{b,c}.
+\end{equation}
+
+For each nonzero local partial $Q^{R,d}_{r,a}$, copy it to $h(r)$ if
+$d\ne h(r)$ and accumulate it into the assembled temporary
+\begin{equation}
+  Q^R_{r,a} = \sum_{d\in\mathcal{D}} Q^{R,d}_{r,a}
+  \quad \text{on } h(r).
+\end{equation}
+Then execute the second GEMM on $h(r)$:
+\begin{equation}
+  R_r \mathrel{+}= A_a Q^R_{r,a}
+  \quad \text{on } h(r).
+\end{equation}
+The environment block $A_a$ has also been made available on $h(r)$ by setup.
+
+\section{Cost Functional}
+
+The objective is predicted makespan:
+\begin{equation}
+  \min_{h,s} \max_{d\in\mathcal{D}} C_d(h,s).
+\end{equation}
+For each device $d$,
+\begin{equation}
+  C_d =
+    C^{\mathrm{gemm}}_d
+  + C^{\mathrm{accum}}_d
+  + C^{\mathrm{temp}}_d
+  + C^{\mathrm{overhead}}_d
+  + C^{\mathrm{memory}}_d.
+\end{equation}
+
+\subsection{GEMM Cost}
+
+Let $\Phi(A_a,B_b)$ denote the GEMM flop count for $A_aB_b$ and similarly for
+other products.  The first-stage cost is
+\begin{align}
+  C^{\mathrm{first}}_d &=
+    \alpha_{L,1}
+      \sum_{(a,b)\in G_L(d)}
+        \Phi(A_a,B_b) \notag\\
+  &\quad+
+    \alpha_{R,1}
+      \sum_{(b,c)\in G_R(d)}
+        \Phi(B_b,C_c).
+\end{align}
+The second-stage cost is grouped by assembled temporaries:
+\begin{align}
+  C^{\mathrm{second}}_d &=
+    \alpha_{L,2}
+      \sum_{\substack{(r,c): Q^L_{r,c}\ne 0\\h(r)=d}}
+        \Phi(Q^L_{r,c},C_c) \notag\\
+  &\quad+
+    \alpha_{R,2}
+      \sum_{\substack{(r,a): Q^R_{r,a}\ne 0\\h(r)=d}}
+        \Phi(A_a,Q^R_{r,a}).
+\end{align}
+Then
+\begin{equation}
+  C^{\mathrm{gemm}}_d =
+    C^{\mathrm{first}}_d + C^{\mathrm{second}}_d .
+\end{equation}
+The coefficients $\alpha$ should be fitted, not assumed from peak FLOPS, because
+small block GEMMs include cuBLAS dispatch and launch overhead.
+
+\subsection{Temporary Accumulation Cost}
+
+After forming each first-stage product, the scheduler scales it by $f_t$ and
+accumulates it into a local temporary.  This is lower order than the GEMM, but
+it can matter for many small symmetry blocks.  Let
+$\operatorname{bytes}(X^d_{a,b})$ and $\operatorname{bytes}(Y^d_{b,c})$ be the
+temporary product sizes.  A simple bandwidth-like model is
+\begin{align}
+  C^{\mathrm{accum}}_d &=
+    \delta_L
+      \sum_{\substack{t\in\mathcal{T}\\s_t=L\\h(b(t))=d}}
+        \operatorname{bytes}(X^d_{a(t),b(t)}) \notag\\
+  &\quad+
+    \delta_R
+      \sum_{\substack{t\in\mathcal{T}\\s_t=R\\h(b(t))=d}}
+        \operatorname{bytes}(Y^d_{b(t),c(t)}).
+\end{align}
+The associated kernel-launch or loop overhead is represented separately by the
+count features below.
+
+\subsection{Environment Setup}
+
+The first GEMM needs one environment side on $h(b)$; the second GEMM needs the
+other side on $h(r)$.  In this input-anchored resident matvec model, environment
+placement is part of setup, not part of the Hamiltonian-apply cost functional.
+The setup step must materialize the required distinct environment blocks:
+\begin{align}
+  U^{L,1}_A(d) &= \{a(t): s_t=L,\ h(b(t))=d\}
+    &&\text{for } A_aB_b \text{ products},\\
+  U^{L,2}_C(d) &= \{c(t): s_t=L,\ h(r(t))=d\}
+    &&\text{for } Q^L_{r,c}C_c \text{ products},\\
+  U^{R,1}_C(d) &= \{c(t): s_t=R,\ h(b(t))=d\}
+    &&\text{for } B_bC_c \text{ products},\\
+  U^{R,2}_A(d) &= \{a(t): s_t=R,\ h(r(t))=d\}
+    &&\text{for } A_aQ^R_{r,a} \text{ products}.
+\end{align}
+The setup benchmark may separately measure bytes and latency for this
+materialization, but those costs should not be included in $C_d$ when fitting
+or optimizing the steady-state Lanczos matvec.
+
+\subsection{Temporary Migration}
+
+Left-first temporaries are keyed by $(r,c)$ and initially accumulated on every
+device that owns at least one contributing $B_b$.  Define
+\begin{align}
+  S^L_{r,c} &= \{h(b(t)): s_t=L,\ r(t)=r,\ c(t)=c\},\\
+  S^R_{r,a} &= \{h(b(t)): s_t=R,\ r(t)=r,\ a(t)=a\}.
+\end{align}
+The temporary migration cost charged to destination device $d$ is
+\begin{align}
+  C^{\mathrm{temp}}_d &=
+    \beta_P
+    \sum_{\substack{(r,c): Q^L_{r,c}\ne 0\\h(r)=d}}
+      \sum_{\substack{s\in S^L_{r,c}\\s\ne d}}
+        \operatorname{bytes}(Q^L_{r,c}) \notag\\
+  &\quad+
+    \beta_P
+    \sum_{\substack{(r,a): Q^R_{r,a}\ne 0\\h(r)=d}}
+      \sum_{\substack{s\in S^R_{r,a}\\s\ne d}}
+        \operatorname{bytes}(Q^R_{r,a}).
+\end{align}
+This model assumes local accumulation before transfer.  That is not a proof of
+optimality, but it avoids shipping one temporary per term and makes the
+communication cost quadratic-order in block dimensions rather than cubic-order
+GEMM work.
+
+\subsection{CUDA and Scheduler Overheads}
+
+For small blocks, count features are necessary.  A minimal overhead model is
+\begin{equation}
+  C^{\mathrm{overhead}}_d =
+    \gamma_1 N^{\mathrm{first\_gemm}}_d
+  + \gamma_A N^{\mathrm{term\_accum}}_d
+  + \gamma_2 N^{\mathrm{second}}_d
+  + \gamma_P N^{\mathrm{temp\_copy}}_d
+  + \gamma_Z N^{\mathrm{zero}}_d .
+\end{equation}
+Here $N^{\mathrm{first\_gemm}}_d=|G_L(d)|+|G_R(d)|$ is the number of cached
+first-stage GEMM products on $d$, $N^{\mathrm{term\_accum}}_d$ is the number
+of term contributions accumulated into local temporaries on $d$,
+$N^{\mathrm{second}}_d$ is the number of assembled second-stage temporaries
+multiplied on $d$, $N^{\mathrm{temp\_copy}}_d$ counts temporary migrations
+into $d$, and $N^{\mathrm{zero}}_d$ counts output or temporary buffers that
+must be initialized.  These coefficients should be learned from no-trace
+fixture benchmarks or low-overhead CUDA event timing.
+
+\subsection{Memory Pressure}
+
+Let $M_d(h,s)$ be the peak live bytes for the resident environment working set,
+local partial temporaries, assembled temporaries, and output buffers on $d$.
+The production model should enforce
+\begin{equation}
+  M_d(h,s) \le M^{\max}_d.
+\end{equation}
+A prototype model may instead add
+\begin{equation}
+  C^{\mathrm{memory}}_d = \mu M_d(h,s),
+\end{equation}
+but hard capacity constraints are the correct final form.
+
+\section{Layout Domain and Storage Packing}
+
+This model does not require a one-dimensional block ordering.  The layout
+$h(k)$ is a graph placement of logical center blocks, and the cost functional
+above applies directly to arbitrary placements.  That is the intended target
+for local search, graph partitioning, or offline integer programming.
+
+Storage packing is a separate implementation step.  After $h$ is chosen, the
+storage layer may pack all blocks assigned to a device into one or more
+contiguous slabs.  Contiguity is therefore a storage consequence, not part of
+the mathematical optimization domain.
+
+\section{Environment-Construction Variant}
+
+For environment construction, the input and output families need not share one
+layout.  Use separate maps
+\begin{equation}
+  h_B : \mathcal{B} \to \mathcal{D},
+  \qquad
+  h_R : \mathcal{R} \to \mathcal{D}.
+\end{equation}
+The same input-anchored rule can run first GEMMs on $h_B(b)$ and second GEMMs
+on $h_R(r)$.  The Hamiltonian constraint $h_B=h_R$ should not be imposed in
+that case.
+
+\end{document}

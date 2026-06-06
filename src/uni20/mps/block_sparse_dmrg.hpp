@@ -23,9 +23,11 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -783,6 +785,37 @@ make_two_site_vector_resident(BlockSparseFiniteMPS const& psi, std::size_t left_
 
 namespace detail
 {
+
+/// \brief Update a 64-bit FNV-1a hash with one little-endian 64-bit integer.
+/// \param hash Hash state to update in place.
+/// \param value Integer value to append to the hash stream.
+inline void fnv1a_update(std::uint64_t& hash, std::uint64_t value)
+{
+  constexpr std::uint64_t prime = 1099511628211ULL;
+  for (int byte = 0; byte < 8; ++byte)
+  {
+    hash ^= (value >> (8 * byte)) & 0xffULL;
+    hash *= prime;
+  }
+}
+
+/// \brief Return the TensorContraction output-shape signature for R/A/B/C placement.
+/// \param blocks MatrixFamily block shapes in effective-Hamiltonian output order.
+/// \return Stable runtime shape signature used by empirical coefficient guards.
+inline auto rabc_output_shape_signature(std::span<tensorcontraction::MatrixFamily::Block const> blocks) -> std::string
+{
+  std::uint64_t hash = 14695981039346656037ULL;
+  fnv1a_update(hash, static_cast<std::uint64_t>(blocks.size()));
+  for (auto const& block : blocks)
+  {
+    fnv1a_update(hash, static_cast<std::uint64_t>(block.rows));
+    fnv1a_update(hash, static_cast<std::uint64_t>(block.cols));
+  }
+
+  std::array<char, 25> buffer{};
+  std::snprintf(buffer.data(), buffer.size(), "fnv1a64:%016llx", static_cast<unsigned long long>(hash));
+  return std::string(buffer.data());
+}
 
 inline void add_effective_two_site_block(std::span<double const> left_env, std::span<double const> input,
                                          std::span<double const> right_env, std::span<double> output,
@@ -1725,6 +1758,8 @@ struct BlockSparseTwoSiteBondUpdate
     double discarded_weight = 0.0;
     std::size_t kept_rank = 0;
     std::size_t full_rank = 0;
+    std::size_t rabc_output_blocks = 0;
+    std::string rabc_output_shape_signature;
     std::optional<BlockSpace> shared_bond_space;
     double solve_seconds = 0.0;
     double split_seconds = 0.0;
@@ -1825,12 +1860,15 @@ inline auto make_block_sparse_bond_update(std::size_t left_site, BlockSparseTwoS
                                           double replace_cpu_seconds,
                                           double environment_cpu_seconds) -> BlockSparseTwoSiteBondUpdate
 {
+  auto const rabc_blocks = solution.layout.matrix_family_blocks();
   return BlockSparseTwoSiteBondUpdate{.left_site = left_site,
                                       .energy = solution.lanczos.eigenvalue,
                                       .lanczos = solution.lanczos,
                                       .discarded_weight = split.spectrum.discarded_weight,
                                       .kept_rank = split.spectrum.singular_values.size(),
                                       .full_rank = split.spectrum.full_rank,
+                                      .rabc_output_blocks = rabc_blocks.size(),
+                                      .rabc_output_shape_signature = rabc_output_shape_signature(rabc_blocks),
                                       .shared_bond_space = split.left.col_space(),
                                       .solve_seconds = solve_seconds,
                                       .split_seconds = split_seconds,
