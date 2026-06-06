@@ -63,6 +63,12 @@ struct ResidentOutputPlacementCache
     std::vector<int> devices;
 };
 
+struct RabcEmpiricalCoefficientText
+{
+    std::string coefficients;
+    std::vector<std::size_t> supported_output_blocks;
+};
+
 struct EffectiveHamiltonianOperator::Impl
 {
     MatrixFamily r_mats;
@@ -290,7 +296,56 @@ std::string trim_ascii(std::string_view text)
   return std::string(begin, end);
 }
 
-std::string empirical_coefficients_line_from_file(std::string const& path)
+std::vector<std::size_t> parse_size_list(std::string_view text, std::string_view name)
+{
+  std::vector<std::size_t> values;
+  std::size_t begin = 0;
+  while (begin <= text.size())
+  {
+    auto const comma = text.find(',', begin);
+    auto const end = comma == std::string_view::npos ? text.size() : comma;
+    auto const token = trim_ascii(text.substr(begin, end - begin));
+    if (!token.empty())
+    {
+      try
+      {
+        std::size_t parsed_end = 0;
+        auto const value = std::stoull(token, &parsed_end);
+        if (parsed_end != token.size())
+        {
+          throw std::invalid_argument("trailing characters");
+        }
+        values.push_back(static_cast<std::size_t>(value));
+      }
+      catch (std::exception const&)
+      {
+        throw std::invalid_argument(fmt::format("{} contains an invalid non-negative integer: {}", name, token));
+      }
+    }
+    if (comma == std::string_view::npos)
+    {
+      break;
+    }
+    begin = comma + 1;
+  }
+  return values;
+}
+
+std::string comma_join(std::span<std::size_t const> values)
+{
+  std::string result;
+  for (std::size_t index = 0; index < values.size(); ++index)
+  {
+    if (index != 0)
+    {
+      result += ",";
+    }
+    result += std::to_string(values[index]);
+  }
+  return result;
+}
+
+RabcEmpiricalCoefficientText empirical_coefficients_from_file(std::string const& path)
 {
   std::ifstream input(path);
   if (!input.good())
@@ -298,6 +353,7 @@ std::string empirical_coefficients_line_from_file(std::string const& path)
     throw std::runtime_error("failed to open UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE: " + path);
   }
 
+  RabcEmpiricalCoefficientText result;
   std::string line;
   while (std::getline(input, line))
   {
@@ -310,33 +366,44 @@ std::string empirical_coefficients_line_from_file(std::string const& path)
     constexpr std::string_view runtime_prefix = "runtime_coefficients=";
     if (trimmed.starts_with(runtime_prefix))
     {
-      return trim_ascii(std::string_view(trimmed).substr(runtime_prefix.size()));
+      result.coefficients = trim_ascii(std::string_view(trimmed).substr(runtime_prefix.size()));
+      return result;
+    }
+
+    constexpr std::string_view supported_blocks_prefix = "runtime_supported_output_blocks=";
+    if (trimmed.starts_with(supported_blocks_prefix))
+    {
+      result.supported_output_blocks = parse_size_list(std::string_view(trimmed).substr(supported_blocks_prefix.size()),
+                                                       "runtime_supported_output_blocks");
+      continue;
     }
 
     constexpr std::string_view env_prefix = "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=";
     auto const env_position = trimmed.find(env_prefix);
     if (env_position != std::string::npos)
     {
-      return trim_ascii(std::string_view(trimmed).substr(env_position + env_prefix.size()));
+      result.coefficients = trim_ascii(std::string_view(trimmed).substr(env_position + env_prefix.size()));
+      return result;
     }
 
-    return trimmed;
+    result.coefficients = trimmed;
+    return result;
   }
 
   throw std::invalid_argument("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE has no coefficient line: " +
                               path);
 }
 
-std::optional<std::string> empirical_coefficients_text()
+std::optional<RabcEmpiricalCoefficientText> empirical_coefficients_text()
 {
   if (auto const text = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS"); text.has_value())
   {
-    return text;
+    return RabcEmpiricalCoefficientText{.coefficients = *text, .supported_output_blocks = {}};
   }
   if (auto const path = optional_env_string("UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
       path.has_value())
   {
-    return empirical_coefficients_line_from_file(*path);
+    return empirical_coefficients_from_file(*path);
   }
   return std::nullopt;
 }
@@ -887,16 +954,10 @@ struct RabcEmpiricalCoefficients
     bool graph_features = false;
 };
 
-RabcEmpiricalCoefficients empirical_rabc_coefficients()
+RabcEmpiricalCoefficients empirical_rabc_coefficients(RabcEmpiricalCoefficientText const& text)
 {
-  auto const text = empirical_coefficients_text();
-  if (!text.has_value())
-  {
-    throw std::invalid_argument("UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous requires "
-                                "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS or "
-                                "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
-  }
-  auto const values = parse_double_list(*text, "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS(_FILE)");
+  auto const values =
+      parse_double_list(text.coefficients, "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS(_FILE)");
   constexpr std::size_t base_device_features = 5;
   constexpr std::size_t graph_device_features = 6;
   constexpr std::size_t layout_features = 5;
@@ -1134,7 +1195,29 @@ empirical_contiguous_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily
     return {};
   }
 
-  auto const coefficients = empirical_rabc_coefficients();
+  auto const coefficient_text = empirical_coefficients_text();
+  if (!coefficient_text.has_value())
+  {
+    throw std::invalid_argument("UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous requires "
+                                "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS or "
+                                "UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE");
+  }
+  auto default_ranges = default_byte_balanced_ranges(r_raw_mats, device_count);
+  if (!coefficient_text->supported_output_blocks.empty() &&
+      std::ranges::find(coefficient_text->supported_output_blocks, r_raw_mats.size()) ==
+          coefficient_text->supported_output_blocks.end())
+  {
+    if (log_cost_based_rabc_placement())
+    {
+      fmt::print(stderr,
+                 "[TENSORCONTRACTION][RABC_PLACEMENT] policy=empirical-contiguous devices=2 outputs={} "
+                 "fallback=default-byte-balanced reason=unsupported-output-block-count supported={}\n",
+                 r_raw_mats.size(), comma_join(coefficient_text->supported_output_blocks));
+    }
+    return default_ranges;
+  }
+
+  auto const coefficients = empirical_rabc_coefficients(*coefficient_text);
   std::size_t best_cut = 1;
   double best_score = std::numeric_limits<double>::infinity();
   for (std::size_t cut = 1; cut < r_raw_mats.size(); ++cut)
@@ -1148,7 +1231,6 @@ empirical_contiguous_rabc_output_ranges(MatrixFamily const& a_mats, MatrixFamily
     }
   }
 
-  auto default_ranges = default_byte_balanced_ranges(r_raw_mats, device_count);
   std::size_t const default_cut = default_ranges.empty() ? 0 : default_ranges.front().end;
   double const default_score =
       default_cut == 0

@@ -425,9 +425,11 @@ portable enough to use as a default sweep policy.  The graph-augmented
 layout for the Hubbard `L=40, m=5000` central replay fixture loses badly on a
 live `L=30, max_rank=512` sweep: after filtering to `States >= 512`, matvec time
 rose from `0.0478421028s` to `0.0798366683s` per Hamiltonian application.  The
-planner therefore needs either live-shape training data, a shape-support guard,
-or a structural execution model that generalizes across the changing
-effective-Hamiltonian block graphs seen during a sweep.
+planner therefore needs either live-shape training data or a structural
+execution model that generalizes across the changing effective-Hamiltonian block
+graphs seen during a sweep.  Generated coefficient files now carry a
+`runtime_supported_output_blocks` guard so fixture-local replay fits do not
+silently override live shapes with different output block counts.
 
 ## Long-Term Planner
 

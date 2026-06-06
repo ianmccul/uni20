@@ -2447,7 +2447,9 @@ def runtime_empirical_coefficients(coefficients: dict[str, float], names: list[s
     return ",".join(f"{coefficients[name]:.17g}" for name in names)
 
 
-def print_runtime_empirical_coefficients(coefficients: dict[str, float], names: list[str], model: str) -> None:
+def print_runtime_empirical_coefficients(
+    coefficients: dict[str, float], names: list[str], model: str, supported_output_blocks: int | None = None
+) -> None:
     """Print runtime coefficient wiring for the C++ empirical-contiguous policy."""
     values = runtime_empirical_coefficients(coefficients, names, model)
     if values is None:
@@ -2456,13 +2458,19 @@ def print_runtime_empirical_coefficients(coefficients: dict[str, float], names: 
             print("runtime_coefficients_note=requires_two_device_base_or_graph_empirical_contiguous_order")
         return
     print("runtime_coefficients_order=" + ",".join(names))
+    if supported_output_blocks is not None:
+        print(f"runtime_supported_output_blocks={supported_output_blocks}")
     print("runtime_coefficients=" + values)
     print("env UNI20_TENSORCONTRACTION_RABC_PLACEMENT=empirical-contiguous \\")
     print("    UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS=" + values)
 
 
 def write_runtime_empirical_coefficients(
-    path: Path, coefficients: dict[str, float], names: list[str], model: str
+    path: Path,
+    coefficients: dict[str, float],
+    names: list[str],
+    model: str,
+    supported_output_blocks: int | None = None,
 ) -> None:
     """Write runtime coefficients for `empirical-contiguous` to a text file."""
     values = runtime_empirical_coefficients(coefficients, names, model)
@@ -2471,12 +2479,19 @@ def write_runtime_empirical_coefficients(
             "--output-runtime-coefficients requires --model device with the two-device base or graph "
             "empirical-contiguous feature order"
         )
-    path.write_text(
+    supported_line = ""
+    if supported_output_blocks is not None:
+        supported_line = f"runtime_supported_output_blocks={supported_output_blocks}\n"
+    text = (
         "# R/A/B/C empirical-contiguous runtime coefficients.\n"
         "# Use with UNI20_TENSORCONTRACTION_RABC_EMPIRICAL_COEFFICIENTS_FILE.\n"
         "# runtime_coefficients_order=" + ",".join(names) + "\n"
-        "runtime_coefficients=" + values + "\n"
+        + supported_line
+        + "runtime_coefficients="
+        + values
+        + "\n"
     )
+    path.write_text(text)
 
 
 def clamp_negative_coefficients(coefficients: dict[str, float]) -> dict[str, float]:
@@ -2758,9 +2773,11 @@ def cmd_bench_fit(args: argparse.Namespace) -> int:
     print(f"layout_filter={args.layout_filter}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
-    print_runtime_empirical_coefficients(coefficients, names, args.model)
+    print_runtime_empirical_coefficients(coefficients, names, args.model, int(problem["block_count"]))
     if args.output_runtime_coefficients is not None:
-        write_runtime_empirical_coefficients(args.output_runtime_coefficients, coefficients, names, args.model)
+        write_runtime_empirical_coefficients(
+            args.output_runtime_coefficients, coefficients, names, args.model, int(problem["block_count"])
+        )
         print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
     return 0
 
@@ -2934,7 +2951,7 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
     print(f"candidate_score={args.candidate_score}")
     names = benchmark_feature_names(problem, args.graph_features, args.model)
     print_fit_for_names(coefficients, stats, names)
-    print_runtime_empirical_coefficients(coefficients, names, args.model)
+    print_runtime_empirical_coefficients(coefficients, names, args.model, int(problem["block_count"]))
     if args.candidate_score == "monotonic-structure":
         print(
             f"monotonic_structure_samples={int(structure_stats['samples'])} "
@@ -2954,7 +2971,9 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             + ",".join(f"{structure_stats['offsets'][name]:.17g}" for name in structure_names)
         )
     if args.output_runtime_coefficients is not None:
-        write_runtime_empirical_coefficients(args.output_runtime_coefficients, coefficients, names, args.model)
+        write_runtime_empirical_coefficients(
+            args.output_runtime_coefficients, coefficients, names, args.model, int(problem["block_count"])
+        )
         print(f"runtime_coefficients_path={args.output_runtime_coefficients}")
     print(f"search={search_kind}")
     print(f"candidate_layouts={len(ranked)}")
