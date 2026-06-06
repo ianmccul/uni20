@@ -405,6 +405,13 @@ duplicated first-stage groups, output-layout mismatch, and severe device-load
 skew.  Candidate layouts from that cost function must still be replayed before
 being promoted to a runtime policy.
 
+Current monotonic structural diagnostics support this conclusion.  Narrow
+feature subsets such as execution-pressure, launch-pressure, and no-output
+produce similar leave-one-layout-out errors and still miss the best observed
+Hubbard contiguous cut.  This suggests that the missing information is not just
+which aggregate counters are included, but how typed hyperedges share work,
+traffic, and launch pressure across candidate partitions.
+
 ## Long-Term Planner
 
 The long-term scheduler should operate on a term graph:

@@ -608,6 +608,7 @@ scripts/rabc-trace-model.py bench-validate /tmp/uni20_rabc_benchmark.jsonl \
   --model device \
   --graph-features \
   --candidate-score monotonic-structure \
+  --structure-feature-set all \
   --compact-layouts
 ```
 
@@ -616,6 +617,15 @@ used by `bench-suggest --candidate-score monotonic-structure`.  A poor top-1
 match or poor `R^2` means the monotonic model is still only a diagnostic for
 that benchmark family; benchmark suggested layouts directly before interpreting
 them as improvements.
+
+Use `--structure-feature-set` to restrict the monotonic fit to a more
+interpretable subset of counters.  `all` keeps every structural counter.
+`execution-pressure` focuses on mixed-order critical-path flops, term pressure,
+unique `(B, C)` pressure, peer-`B` traffic, and duplicate mixed groups.
+`launch-pressure` removes flop counters and focuses on term/group counts.
+`no-output` removes output-slab size and output-skew counters.  These subsets
+are meant to test hypotheses about the graph cost function; they are not
+separate runtime policies.
 
 Current Hubbard `L=40, m=5000` validation confirms that limitation.  With the
 mixed contiguous/segmented benchmark rows, leave-one-layout-out validation gives
@@ -626,6 +636,15 @@ contiguous basin remains around cuts `323`-`326`, while the structural score
 overpredicts those rows by about `0.03`-`0.04 s`; this is useful evidence that the
 next step is a better graph/hypergraph cost function rather than a stronger
 monotonic least-squares fit over the current counters.
+
+The narrower structural subsets show the same conclusion on the Hubbard
+fixture.  `execution-pressure` gives contiguous-layout validation
+`R^2 = 0.399415376`, `RMSE = 0.0535512831 s`, with a top-1 mismatch, and
+mixed-layout validation `R^2 = 0.152480984`, `RMSE = 0.0657703251 s`.
+`launch-pressure` and `no-output` are similar on the contiguous subset
+(`R^2` about `0.40`, still top-1 mismatch).  This shows that simply dropping
+output-skew counters or emphasizing launch pressure does not recover the best
+cut; the next model needs typed hypergraph structure beyond aggregate counters.
 
 ```bash
 scripts/rabc-trace-model.py layouts --block-count 42 --device-count 2 --contiguous-cuts
