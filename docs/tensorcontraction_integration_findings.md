@@ -143,8 +143,11 @@ The term trace (`*_term_trace.jsonl`) is exactly this value-free representation 
 `accumulate_flops`, and `intermediate_bytes`. So the artifact to share is the trace
 `.jsonl` itself plus a small standalone reader that loads it into data structures;
 collaborators run their own analysis/partitioning code rather than this branch's
-(heavily modified) tooling. Documenting the JSONL schema and shipping a minimal
-reader is a clean, separate deliverable (open item).
+(heavily modified) tooling. A documented JSONL schema and a minimal header-only
+C++ reader (using nlohmann/json) are provided in `tools/rabc_trace_reader/`. Note
+the apply is the eigensolver **self-map** matvec: `R` and the input center vector
+`B` share the same block space and layout (`output_layout == input_layout`), so the
+placement domain is a single layout over the `block_count` center-vector blocks.
 
 **What to generate — typical iterations, not whole runs.** The representative unit is
 the **central-bond iteration**: maximal bond dimension, largest contraction, most
