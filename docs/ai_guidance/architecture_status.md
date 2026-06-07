@@ -150,6 +150,8 @@ This file is for questions about project maturity, active design seams, and what
 - CUDA-related directories and types exist.
 - Full CUDA execution is not complete.
 - Full cuSOLVER execution is not complete.
+- Future CUDA scheduler and device-resource design notes live in
+  `cuda_scheduler_notes.md`; treat them as roadmap, not implemented behavior.
 
 ### DO NOT CLAIM
 

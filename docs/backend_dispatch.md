@@ -77,6 +77,8 @@ Examples:
 - layout can be represented as an order or transpose flag
 - operands do not alias in an unsupported way
 - memory is resident on the required device
+- the resolved vendor library version supports the active device architecture
+  and requested operation
 - handles, streams, workspaces, and scratch buffers are available
 - backend-specific status codes indicate success
 
@@ -92,6 +94,11 @@ existing Uni20 kernel, or another already-supported backend.
 
 The fallback should not be treated as an error path. It is the expected path for
 valid inputs that a specific backend cannot represent.
+
+Vendor-library availability is also a runtime capability, not only a build
+configuration fact.  For CUDA libraries this includes the resolved shared
+library version, CUDA ABI, active device architecture, and operation-specific
+support.  See `cuda_backend_libraries.md` for the versioned CUDA library model.
 
 ## Testing Against Fallbacks
 

@@ -2,6 +2,10 @@
 
 This document is the current planning baseline for Uni20.
 
+Revised 2026-06 to adopt **device-first** sequencing (see §4.0): GPU and MPI are
+designed into the foundational abstractions from the start rather than layered on
+after a CPU-only baseline.
+
 It consolidates and replaces the old local design drafts:
 
 - `docs/tensor_design.md`
@@ -71,10 +75,57 @@ is still a roadmap item.
 ### 3.4 Heterogeneous execution maturity
 
 CPU and BLAS are usable today. CUDA/cuSOLVER and broader heterogeneous scheduling remain incomplete.
+Under device-first sequencing (§4.0) these are built out incrementally on top of device-aware
+foundations, not deferred to a final phase.
+
+### 3.5 Storage location and ordering ownership
+
+Two foundational abstractions are not yet expressed in core:
+
+- **Storage memory kind vs location.** Storage has a compile-time *kind* axis
+  (`StoragePolicy`) but no runtime *location* (device ordinal / MPI rank). See
+  `docs/storage_kind_and_location.md`.
+- **Ordering ownership.** The Async scheduler should own all ordering; CUDA events and
+  MPI requests are derived lowerings, with a polymorphic completion-token abstraction.
+  See `docs/ordering_and_backend_lowering.md`.
 
 ## 4. Roadmap
 
-## Phase A — Stabilize tensor lifetime semantics
+### 4.0 Sequencing principle: device-first
+
+Earlier planning assumed a CPU-first sequence — make everything work on the CPU,
+then add GPU schedulers, then add MPI. We are replacing that with **device-first**
+sequencing: tensor data (and other data) conceptually lives on a *device*, and
+GPU + MPI are designed into the foundational abstractions from the start. The
+implementations still land incrementally — kernels and schedulers are built out bit
+by bit — but the *interfaces* must not bake in host-only or single-device
+assumptions, because those are the assumptions that are expensive to remove later.
+
+Three abstractions are load-bearing and must be device-aware from the outset:
+
+1. **Storage memory kind vs location.** Memory *kind* (host / device / unified) is a
+   compile-time property of the type that selects legal kernels; *location* (which
+   device ordinal, which MPI rank) is a runtime value attached to storage. See
+   `docs/storage_kind_and_location.md`.
+2. **Completion / dependency tokens.** The Async scheduler owns ordering; CUDA
+   events and MPI requests are derived performance lowerings. The token abstraction
+   must be polymorphic over {CPU done, CUDA event, MPI request} from day one. See
+   `docs/ordering_and_backend_lowering.md`.
+3. **Multi-buffer operation acquisition.** Acquiring read/write access for a whole
+   operation as one transaction; see `docs/gpu_epoch_design_draft.md`.
+
+Everything else — actual NCCL/MPI wiring, device schedulers, individual kernels —
+stays incremental and test-backed. The synchronous-blocking device path is correct
+by construction and serves as the correctness oracle for the optimized path, so a
+backend is correct from its first kernel.
+
+The phases run on two tracks that proceed largely in parallel. The device-first
+change is that the heterogeneous track's *foundations* (Phase H1) start early and are
+not deferred to a final "backend expansion" phase.
+
+### Track 1 — Tensor and async semantics
+
+#### Phase A — Stabilize tensor lifetime semantics
 
 Goals:
 
@@ -86,7 +137,7 @@ Deliverables:
 - Design note + tests covering view lifetime guarantees.
 - Clear guidance for async-safe tensor/view handoff patterns.
 
-## Phase B — Finalize async assignment behavior for tensor types
+#### Phase B — Finalize async assignment behavior for tensor types
 
 Goals:
 
@@ -99,7 +150,7 @@ Deliverables:
 - Tests mirroring real tensor/view write-through and explicit `rebind(...)` paths.
 - Documentation update in `docs/async/`.
 
-## Phase C — Introduce expression-layer roadmap implementation
+#### Phase C — Introduce expression-layer roadmap implementation
 
 Goals:
 
@@ -111,7 +162,7 @@ Deliverables:
 - Initial expression API proposal and one implemented vertical slice.
 - Benchmarks demonstrating no regression and targeted improvements.
 
-## Phase D — Async-aware tensor expression execution
+#### Phase D — Async-aware tensor expression execution
 
 Goals:
 
@@ -123,20 +174,59 @@ Deliverables:
 - Prototype async evaluation path for selected expression nodes.
 - Error/cancellation behavior documented and covered by tests.
 
-## Phase E — Backend expansion and parity
+### Track 2 — Heterogeneous execution
+
+#### Phase H1 — Device-aware foundations (start early)
 
 Goals:
 
-- Improve CUDA/cuSOLVER path maturity.
-- Keep backend dispatch behavior transparent and testable.
-- Keep public operations generic while backend adapters decide whether a call can
-  be lowered to a specific vendor implementation.
+- Add the runtime **location** axis to storage alongside the compile-time **kind**
+  axis, without disturbing existing host code (`docs/storage_kind_and_location.md`).
+- Define a polymorphic **completion-token** abstraction and make epoch publish/wait
+  operate over it, with the trivial CPU implementation first
+  (`docs/ordering_and_backend_lowering.md`).
+- Establish the multi-buffer operation-acquisition transaction
+  (`docs/gpu_epoch_design_draft.md`).
+
+Deliverables:
+
+- Storage location representation + tests; symmetry/block-key preservation under
+  (re)placement.
+- Completion-token interface with the report-done-after-submission contract and
+  buffer-release-on-completion semantics documented and tested.
+
+#### Phase H2 — Incremental device backends
+
+Goals:
+
+- Improve CUDA/cuSOLVER path maturity via the compile-time capability + runtime
+  `try_*` + fallback pattern (`docs/backend_dispatch.md`).
+- Bring up each kernel synchronous-blocking first (validated against the oracle),
+  then add event-based async lowering edge by edge.
+- Keep public operations generic while backend adapters decide lowering.
 
 Deliverables:
 
 - Backend capability matrix in docs.
 - Backend dispatch traits and `try_*` adapters for selected vertical slices.
-- Backend-specific correctness tests and representative performance benchmarks.
+- Backend-specific correctness tests (differential against the synchronous baseline)
+  and representative performance benchmarks.
+
+#### Phase H3 — Distributed execution
+
+Goals:
+
+- Lower cross-rank transfers to nonblocking MPI with a unique tag per edge and an
+  active progress engine (`docs/ordering_and_backend_lowering.md`).
+- Introduce the placement/cost policy as a strategy layer *above* the ordering layer
+  (informed by the RABC scheduling prototype).
+
+Deliverables:
+
+- MPI/NCCL transfer lowering with deterministic per-edge tag derivation and progress
+  integration into the schedulers.
+- Placement-policy interface emitting transfers into the async DAG; correctness held
+  by the ordering layer regardless of placement.
 
 ## 5. Guardrails
 
@@ -149,6 +239,9 @@ Deliverables:
 
 - `docs/architecture_diagram.md`
 - `docs/backend_dispatch.md`
+- `docs/ordering_and_backend_lowering.md`
+- `docs/storage_kind_and_location.md`
+- `docs/gpu_epoch_design_draft.md`
 - `docs/async/README.md`
 - `docs/async/reverse_mode_ad.md`
 - `docs/async/buffers_and_awaiters.md`
