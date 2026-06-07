@@ -20,6 +20,7 @@
 - [Backend Dispatch Design](backend_dispatch.md)
 - [CUDA Backend Library Compatibility](cuda_backend_libraries.md)
 - [CUDA/cuSOLVER Architecture Notes](cuda_cusolver_architecture.md)
+- [CUDA Memory Allocation: Pools vs Custom Sub-Allocation](cuda_memory_allocation.md)
 - [GPU Epoch Design Draft](gpu_epoch_design_draft.md)
 - [Ordering Ownership and Backend Lowering](ordering_and_backend_lowering.md)
 - [Storage Memory Kind vs Location](storage_kind_and_location.md)
