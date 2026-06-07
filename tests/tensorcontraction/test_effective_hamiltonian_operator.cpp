@@ -673,6 +673,12 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentTraceWritesCostF
   EXPECT_NE(line.find("\"gpu_s\":"), std::string::npos);
   EXPECT_NE(line.find("\"execution_devices\":[{\"device\":0"), std::string::npos);
   EXPECT_NE(line.find("\"runtime_counters\":{\"h2d_copies\":"), std::string::npos);
+  EXPECT_NE(line.find("\"layout_metrics\":{\"input\":{\"blocks\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"shape_summary\":{\"unique_term_shapes\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"feature_summary\":{\"total_terms\":1"), std::string::npos);
+  EXPECT_NE(line.find("\"execution_summary\":{\"total_terms\":"), std::string::npos);
+  EXPECT_NE(line.find("\"max_source_fan_in\":0"), std::string::npos);
+  EXPECT_NE(line.find("\"max_accumulation_fan_in\":0"), std::string::npos);
   EXPECT_NE(line.find("\"peer_copies\":"), std::string::npos);
   EXPECT_NE(line.find("\"cuda_event_record\":"), std::string::npos);
   EXPECT_NE(line.find("\"output_shape_signature\":\"" + output_shape_signature(output_blocks) + "\""),
@@ -752,6 +758,8 @@ TEST(TensorContractionEffectiveHamiltonianOperatorTest, ResidentRightFirstDagGro
   EXPECT_NE(line.find("\"accumulation_terms\":2"), std::string::npos);
   EXPECT_NE(line.find("\"source_accumulation_groups\":1"), std::string::npos);
   EXPECT_NE(line.find("\"source_accumulation_terms\":2"), std::string::npos);
+  EXPECT_NE(line.find("\"max_source_fan_in\":2"), std::string::npos);
+  EXPECT_NE(line.find("\"max_accumulation_fan_in\":2"), std::string::npos);
   EXPECT_NE(line.find("\"source_axpys\":2"), std::string::npos);
   EXPECT_NE(line.find("\"zero_fills\":1"), std::string::npos);
   EXPECT_NE(line.find("\"temporary_matrices\":1"), std::string::npos);

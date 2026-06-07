@@ -41,6 +41,9 @@ BASE_FEATURE_NAMES = [
     "source_accumulation_terms",
     "output_accumulation_groups",
     "output_accumulation_terms",
+    "max_source_fan_in",
+    "max_output_fan_in",
+    "max_accumulation_fan_in",
     "source_axpys",
     "output_axpys",
     "zero_fills",
@@ -74,6 +77,11 @@ DEVICE_BENCHMARK_FEATURE_NAMES = [
     "b_peer_bytes",
     "terms",
     "unique_bc",
+    "max_accumulation_fan_in",
+    "temporary_peer_requests",
+    "temporary_peer_bytes",
+    "source_axpys",
+    "zero_fills",
     "output_bytes",
 ]
 
@@ -838,6 +846,192 @@ def summarize_grouped(records: list[dict[str, Any]]) -> None:
         )
     if best_key is not None:
         print(f"best_mean_gpu_s={best_mean:.9g} layout={layout_string(list(best_key))}")
+
+
+def nested_dict(record: dict[str, Any], *keys: str) -> dict[str, Any]:
+    """Return a nested dictionary value, or an empty dictionary if it is missing."""
+    value: Any = record
+    for key in keys:
+        if not isinstance(value, dict):
+            return {}
+        value = value.get(key, {})
+    return value if isinstance(value, dict) else {}
+
+
+def nested_number(record: dict[str, Any], *keys: str, default: float = 0.0) -> float:
+    """Return a nested numeric value as `float`."""
+    value: Any = record
+    for key in keys:
+        if not isinstance(value, dict):
+            return default
+        value = value.get(key, default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def trace_cost_summary_row(record: dict[str, Any], compact_layouts: bool) -> dict[str, Any]:
+    """Extract one high-signal cost-model row from a trace record."""
+    feature = nested_dict(record, "feature_summary")
+    execution = nested_dict(record, "execution_summary")
+    runtime = nested_dict(record, "runtime_counters")
+    shape = nested_dict(record, "shape_summary")
+    input_layout = nested_dict(record, "layout_metrics", "input")
+    output_layout = nested_dict(record, "layout_metrics", "output")
+    feature_enqueue = nested_dict(feature, "enqueue_sum_s")
+    execution_enqueue = nested_dict(execution, "enqueue_sum_s")
+    layout = [int(item) for item in record.get("output_layout", [])]
+
+    return {
+        "line": int(record.get("_line", 0)),
+        "gpu_s": float(record.get("gpu_s", math.nan)),
+        "enqueue_s": float(record.get("enqueue_s", math.nan)),
+        "sync_s": float(record.get("sync_s", math.nan)),
+        "wall_s": float(record.get("wall_s", math.nan)),
+        "policy": str(record.get("policy", "")),
+        "blocks": int(record.get("block_count", 0)),
+        "terms": int(record.get("term_count", 0)),
+        "out_segments": int(output_layout.get("segments", 0)),
+        "out_transitions": int(output_layout.get("transitions", 0)),
+        "out_active": int(output_layout.get("active_devices", 0)),
+        "out_max_byte_frac": float(output_layout.get("max_byte_fraction", 0.0)),
+        "in_segments": int(input_layout.get("segments", 0)),
+        "in_transitions": int(input_layout.get("transitions", 0)),
+        "in_max_byte_frac": float(input_layout.get("max_byte_fraction", 0.0)),
+        "unique_shapes": int(shape.get("unique_term_shapes", 0)),
+        "bc_q50": nested_number(shape, "bc_flops", "q50"),
+        "bc_q90": nested_number(shape, "bc_flops", "q90"),
+        "bc_q99": nested_number(shape, "bc_flops", "q99"),
+        "acc_q50": nested_number(shape, "accumulate_flops", "q50"),
+        "acc_q90": nested_number(shape, "accumulate_flops", "q90"),
+        "acc_q99": nested_number(shape, "accumulate_flops", "q99"),
+        "tmp_q50_B": nested_number(shape, "intermediate_bytes", "q50"),
+        "tmp_q90_B": nested_number(shape, "intermediate_bytes", "q90"),
+        "tmp_q99_B": nested_number(shape, "intermediate_bytes", "q99"),
+        "b_q90_elems": nested_number(shape, "b_values", "q90"),
+        "r_q90_elems": nested_number(shape, "r_values", "q90"),
+        "total_bc_gemms": int(feature.get("total_bc_gemms", 0)),
+        "total_final_gemms": int(feature.get("total_final_gemms", 0)),
+        "total_source_axpys": int(feature.get("total_source_axpys", 0)),
+        "total_output_axpys": int(feature.get("total_output_axpys", 0)),
+        "total_zero_fills": int(feature.get("total_zero_fills", 0)),
+        "total_temp_peer_reqs": int(feature.get("total_temporary_peer_requests", 0)),
+        "total_temp_peer_copies": int(feature.get("total_temporary_peer_copies", 0)),
+        "total_temp_peer_MB": float(feature.get("total_temporary_peer_bytes", 0)) / 1.0e6,
+        "max_terms": int(feature.get("max_terms", 0)),
+        "max_unique_bc": int(feature.get("max_unique_bc", 0)),
+        "max_source_fan_in": int(feature.get("max_source_fan_in", 0)),
+        "max_output_fan_in": int(feature.get("max_output_fan_in", 0)),
+        "max_accumulation_fan_in": int(feature.get("max_accumulation_fan_in", 0)),
+        "exec_bc_gemms": int(execution.get("total_bc_gemms", 0)),
+        "exec_final_gemms": int(execution.get("total_final_gemms", 0)),
+        "exec_source_axpys": int(execution.get("total_source_axpys", 0)),
+        "exec_output_axpys": int(execution.get("total_output_axpys", 0)),
+        "exec_zero_fills": int(execution.get("total_zero_fills", 0)),
+        "exec_temp_peer_MB": float(execution.get("total_temporary_peer_bytes", 0)) / 1.0e6,
+        "peer_copies": int(runtime.get("peer_copies", 0)),
+        "peer_MB": float(runtime.get("peer_bytes", 0)) / 1.0e6,
+        "d2d_copies": int(runtime.get("d2d_copies", 0)),
+        "d2d_MB": float(runtime.get("d2d_bytes", 0)) / 1.0e6,
+        "h2d_copies": int(runtime.get("h2d_copies", 0)),
+        "h2d_MB": float(runtime.get("h2d_bytes", 0)) / 1.0e6,
+        "d2h_copies": int(runtime.get("d2h_copies", 0)),
+        "d2h_MB": float(runtime.get("d2h_bytes", 0)) / 1.0e6,
+        "event_record": int(runtime.get("cuda_event_record", 0)),
+        "event_wait": int(runtime.get("cuda_stream_wait_event", 0)),
+        "pool_miss": int(runtime.get("device_scratch_pool_misses", 0)),
+        "feature_enqueue_intermediate_s": float(feature_enqueue.get("intermediate_gemm", 0.0)),
+        "feature_enqueue_final_s": float(feature_enqueue.get("final_gemm", 0.0)),
+        "exec_enqueue_intermediate_s": float(execution_enqueue.get("intermediate_gemm", 0.0)),
+        "exec_enqueue_final_s": float(execution_enqueue.get("final_gemm", 0.0)),
+        "exec_enqueue_source_accum_s": float(execution_enqueue.get("source_accumulation", 0.0)),
+        "exec_enqueue_output_accum_s": float(execution_enqueue.get("output_accumulation", 0.0)),
+        "exec_enqueue_zero_s": float(execution_enqueue.get("zero_fill", 0.0)),
+        "layout": maybe_compact_layout(layout, compact_layouts),
+    }
+
+
+def summarize_trace_cost_features(records: list[dict[str, Any]], compact_layouts: bool) -> None:
+    """Print trace rows with model features aligned to measured R/A/B/C costs."""
+    fields = [
+        "line",
+        "gpu_s",
+        "enqueue_s",
+        "sync_s",
+        "wall_s",
+        "policy",
+        "blocks",
+        "terms",
+        "out_segments",
+        "out_transitions",
+        "out_active",
+        "out_max_byte_frac",
+        "in_segments",
+        "in_transitions",
+        "in_max_byte_frac",
+        "unique_shapes",
+        "bc_q50",
+        "bc_q90",
+        "bc_q99",
+        "acc_q50",
+        "acc_q90",
+        "acc_q99",
+        "tmp_q50_B",
+        "tmp_q90_B",
+        "tmp_q99_B",
+        "b_q90_elems",
+        "r_q90_elems",
+        "total_bc_gemms",
+        "total_final_gemms",
+        "total_source_axpys",
+        "total_output_axpys",
+        "total_zero_fills",
+        "total_temp_peer_reqs",
+        "total_temp_peer_copies",
+        "total_temp_peer_MB",
+        "max_terms",
+        "max_unique_bc",
+        "max_source_fan_in",
+        "max_output_fan_in",
+        "max_accumulation_fan_in",
+        "exec_bc_gemms",
+        "exec_final_gemms",
+        "exec_source_axpys",
+        "exec_output_axpys",
+        "exec_zero_fills",
+        "exec_temp_peer_MB",
+        "peer_copies",
+        "peer_MB",
+        "d2d_copies",
+        "d2d_MB",
+        "h2d_copies",
+        "h2d_MB",
+        "d2h_copies",
+        "d2h_MB",
+        "event_record",
+        "event_wait",
+        "pool_miss",
+        "feature_enqueue_intermediate_s",
+        "feature_enqueue_final_s",
+        "exec_enqueue_intermediate_s",
+        "exec_enqueue_final_s",
+        "exec_enqueue_source_accum_s",
+        "exec_enqueue_output_accum_s",
+        "exec_enqueue_zero_s",
+        "layout",
+    ]
+    print(" ".join(fields))
+    for record in records:
+        row = trace_cost_summary_row(record, compact_layouts)
+        values: list[str] = []
+        for field in fields:
+            value = row[field]
+            if isinstance(value, float):
+                values.append(f"{value:.9g}")
+            else:
+                values.append(str(value))
+        print(" ".join(values))
 
 
 def summarize_benchmark_records(records: list[dict[str, Any]], compact_layouts: bool) -> None:
@@ -1660,6 +1854,11 @@ def layout_device_aware_vector(
                 float(features["b_peer_bytes"]),
                 float(features["terms"]),
                 float(features["unique_bc"]),
+                float(features["max_accumulation_fan_in"]),
+                float(features["temporary_peer_requests"]),
+                float(features["temporary_peer_bytes"]),
+                float(features["source_axpys"]),
+                float(features["zero_fills"]),
                 float(features["output_bytes"]),
             ]
         )
@@ -1788,6 +1987,209 @@ def score_benchmark_layout(
     return sum(coefficients[name] * value for name, value in zip(names, vector)), vector
 
 
+def input_anchored_proxy_score(
+    problem: dict[str, Any],
+    layout: list[int],
+    gflops: float,
+    peer_gbps: float,
+    launch_us: float,
+    transition_us: float = 0.0,
+) -> float:
+    """Score a Hamiltonian layout with a cheap input-anchored execution proxy.
+
+    The proxy models the current resident R/A/B/C Hamiltonian apply: first-stage
+    `B_b C_c` products are formed on the owner of input block `b`, temporaries
+    are copied to the output block owner as needed, and final GEMMs accumulate
+    into `R_r`.  It is intentionally a candidate generator rather than a
+    calibrated timing model.
+    """
+    validate_layout(problem, layout)
+    device_count = int(problem["device_count"])
+    first_flops = [0.0] * device_count
+    final_flops = [0.0] * device_count
+    peer_bytes = [0] * device_count
+    launches = [0] * device_count
+
+    first_groups: dict[tuple[int, int], dict[str, Any]] = {}
+    for term in problem["terms"]:
+        r = int(term["r"])
+        b = int(term["b"])
+        c = int(term["c"])
+        output_device = int(layout[r])
+        final_flops[output_device] += float(term["accumulate_flops"])
+        launches[output_device] += 1
+
+        group = first_groups.setdefault(
+            (b, c),
+            {
+                "b": b,
+                "bc_flops": float(term["bc_flops"]),
+                "intermediate_bytes": int(term["intermediate_bytes"]),
+                "output_devices": set(),
+            },
+        )
+        group["output_devices"].add(output_device)
+
+    for group in first_groups.values():
+        input_device = int(layout[int(group["b"])])
+        first_flops[input_device] += float(group["bc_flops"])
+        launches[input_device] += 1
+        for output_device in group["output_devices"]:
+            if output_device == input_device:
+                continue
+            peer_bytes[int(output_device)] += int(group["intermediate_bytes"])
+            launches[int(output_device)] += 1
+
+    flop_scale = max(gflops, 1.0e-12) * 1.0e9
+    peer_scale = max(peer_gbps, 1.0e-12) * 1.0e9
+    launch_scale = launch_us * 1.0e-6
+    transition_penalty = max(0, len(layout_segments(layout)) - 1) * transition_us * 1.0e-6
+    return transition_penalty + max(
+        (first_flops[device] + final_flops[device]) / flop_scale
+        + peer_bytes[device] / peer_scale
+        + launches[device] * launch_scale
+        for device in range(device_count)
+    )
+
+
+class InputAnchoredProxyScorer:
+    """Mutable incremental scorer for input-anchored single-block layout moves."""
+
+    def __init__(
+        self,
+        problem: dict[str, Any],
+        layout: list[int],
+        gflops: float,
+        peer_gbps: float,
+        launch_us: float,
+        transition_us: float = 0.0,
+    ) -> None:
+        """Build the scorer state for one starting layout."""
+        validate_layout(problem, layout)
+        self.problem = problem
+        self.layout = layout[:]
+        self.device_count = int(problem["device_count"])
+        self.flop_scale = max(gflops, 1.0e-12) * 1.0e9
+        self.peer_scale = max(peer_gbps, 1.0e-12) * 1.0e9
+        self.launch_scale = launch_us * 1.0e-6
+        self.transition_scale = transition_us * 1.0e-6
+        self.transitions = max(0, len(layout_segments(self.layout)) - 1)
+        self.first_flops = [0.0] * self.device_count
+        self.final_flops = [0.0] * self.device_count
+        self.peer_bytes = [0] * self.device_count
+        self.launches = [0] * self.device_count
+        self.terms_by_r: list[list[tuple[int, float]]] = [[] for _ in self.layout]
+        self.groups_by_b: list[list[int]] = [[] for _ in self.layout]
+        self.groups: list[dict[str, Any]] = []
+        self.group_index: dict[tuple[int, int], int] = {}
+
+        for term in problem["terms"]:
+            r = int(term["r"])
+            b = int(term["b"])
+            c = int(term["c"])
+            output_device = int(self.layout[r])
+            group_id = self.group_index.get((b, c))
+            if group_id is None:
+                group_id = len(self.groups)
+                self.group_index[(b, c)] = group_id
+                self.groups.append(
+                    {
+                        "b": b,
+                        "bc_flops": float(term["bc_flops"]),
+                        "intermediate_bytes": int(term["intermediate_bytes"]),
+                        "input_device": int(self.layout[b]),
+                        "output_counts": [0] * self.device_count,
+                    }
+                )
+                self.groups_by_b[b].append(group_id)
+
+            self.terms_by_r[r].append((group_id, float(term["accumulate_flops"])))
+            self.final_flops[output_device] += float(term["accumulate_flops"])
+            self.launches[output_device] += 1
+            self.groups[group_id]["output_counts"][output_device] += 1
+
+        for group in self.groups:
+            input_device = int(group["input_device"])
+            self.first_flops[input_device] += float(group["bc_flops"])
+            self.launches[input_device] += 1
+            for output_device, count in enumerate(group["output_counts"]):
+                if count != 0 and output_device != input_device:
+                    self.peer_bytes[output_device] += int(group["intermediate_bytes"])
+                    self.launches[output_device] += 1
+
+    def score(self) -> float:
+        """Return the current critical-device proxy score."""
+        return self.transitions * self.transition_scale + max(
+            (self.first_flops[device] + self.final_flops[device]) / self.flop_scale
+            + self.peer_bytes[device] / self.peer_scale
+            + self.launches[device] * self.launch_scale
+            for device in range(self.device_count)
+        )
+
+    def move(self, block: int, device: int) -> None:
+        """Move one block to another device and update affected counters."""
+        old_device = int(self.layout[block])
+        if device == old_device:
+            return
+        old_transitions = self.local_transition_count(block, old_device)
+        new_transitions = self.local_transition_count(block, device)
+
+        for group_id, accumulate_flops in self.terms_by_r[block]:
+            group = self.groups[group_id]
+            self.final_flops[old_device] -= accumulate_flops
+            self.final_flops[device] += accumulate_flops
+            self.launches[old_device] -= 1
+            self.launches[device] += 1
+            self.change_output_device(group, old_device, device)
+
+        for group_id in self.groups_by_b[block]:
+            self.change_input_device(self.groups[group_id], old_device, device)
+
+        self.layout[block] = device
+        self.transitions += new_transitions - old_transitions
+
+    def local_transition_count(self, block: int, device: int) -> int:
+        """Return the transition count on edges touching `block` if it used `device`."""
+        count = 0
+        if block > 0 and self.layout[block - 1] != device:
+            count += 1
+        if block + 1 < len(self.layout) and device != self.layout[block + 1]:
+            count += 1
+        return count
+
+    def change_output_device(self, group: dict[str, Any], old_device: int, new_device: int) -> None:
+        """Update peer-copy counters when one output term changes device."""
+        input_device = int(group["input_device"])
+        output_counts = group["output_counts"]
+        if output_counts[old_device] <= 0:
+            raise ValueError("proxy scorer output count underflow")
+        if output_counts[old_device] == 1 and old_device != input_device:
+            self.peer_bytes[old_device] -= int(group["intermediate_bytes"])
+            self.launches[old_device] -= 1
+        output_counts[old_device] -= 1
+        if output_counts[new_device] == 0 and new_device != input_device:
+            self.peer_bytes[new_device] += int(group["intermediate_bytes"])
+            self.launches[new_device] += 1
+        output_counts[new_device] += 1
+
+    def change_input_device(self, group: dict[str, Any], old_device: int, new_device: int) -> None:
+        """Update first-stage and peer-copy counters when one input block moves."""
+        self.first_flops[old_device] -= float(group["bc_flops"])
+        self.first_flops[new_device] += float(group["bc_flops"])
+        self.launches[old_device] -= 1
+        self.launches[new_device] += 1
+        for output_device, count in enumerate(group["output_counts"]):
+            if count == 0:
+                continue
+            if output_device != old_device:
+                self.peer_bytes[output_device] -= int(group["intermediate_bytes"])
+                self.launches[output_device] -= 1
+            if output_device != new_device:
+                self.peer_bytes[output_device] += int(group["intermediate_bytes"])
+                self.launches[output_device] += 1
+        group["input_device"] = new_device
+
+
 def candidate_benchmark_layouts(problem: dict[str, Any], records: list[dict[str, Any]], random_count: int) -> list[list[int]]:
     """Generate seed layouts for benchmark-targeted local search."""
     block_count = int(problem["block_count"])
@@ -1810,6 +2212,344 @@ def candidate_benchmark_layouts(problem: dict[str, Any], records: list[dict[str,
             seen.add(key)
             unique.append(layout)
     return unique
+
+
+def benchmark_anneal_search(
+    problem: dict[str, Any],
+    start: list[int],
+    steps: int,
+    score_layout: Callable[[list[int]], float],
+    rng: random.Random,
+    initial_temperature: float,
+    cooling: float,
+) -> list[int]:
+    """Improve a layout using random single-block moves and Metropolis acceptance."""
+    device_count = int(problem["device_count"])
+    if device_count <= 1 or steps <= 0:
+        return start[:]
+
+    layout = start[:]
+    current_score = score_layout(layout)
+    best_layout = layout[:]
+    best_score = current_score
+    temperature = max(initial_temperature, 0.0)
+    cooling = min(max(cooling, 0.0), 1.0)
+
+    for _ in range(steps):
+        block = rng.randrange(len(layout))
+        original = layout[block]
+        device = rng.randrange(device_count - 1)
+        if device >= original:
+            device += 1
+
+        layout[block] = device
+        trial_score = score_layout(layout)
+        delta = trial_score - current_score
+        accept = delta <= 0.0
+        if not accept and temperature > 0.0:
+            accept = rng.random() < math.exp(-delta / temperature)
+        if accept:
+            current_score = trial_score
+            if trial_score < best_score:
+                best_score = trial_score
+                best_layout = layout[:]
+        else:
+            layout[block] = original
+        temperature *= cooling
+
+    return best_layout
+
+
+def benchmark_proxy_anneal_search(
+    problem: dict[str, Any],
+    start: list[int],
+    steps: int,
+    rng: random.Random,
+    initial_temperature: float,
+    cooling: float,
+    gflops: float,
+    peer_gbps: float,
+    launch_us: float,
+    transition_us: float,
+) -> list[int]:
+    """Improve a layout with Metropolis moves using the incremental proxy scorer."""
+    scorer = InputAnchoredProxyScorer(problem, start, gflops, peer_gbps, launch_us, transition_us)
+    device_count = int(problem["device_count"])
+    if device_count <= 1 or steps <= 0:
+        return scorer.layout[:]
+
+    current_score = scorer.score()
+    best_layout = scorer.layout[:]
+    best_score = current_score
+    temperature = max(initial_temperature, 0.0)
+    cooling = min(max(cooling, 0.0), 1.0)
+
+    for _ in range(steps):
+        block = rng.randrange(len(scorer.layout))
+        original = int(scorer.layout[block])
+        device = rng.randrange(device_count - 1)
+        if device >= original:
+            device += 1
+
+        scorer.move(block, device)
+        trial_score = scorer.score()
+        delta = trial_score - current_score
+        accept = delta <= 0.0
+        if not accept and temperature > 0.0:
+            accept = rng.random() < math.exp(-delta / temperature)
+        if accept:
+            current_score = trial_score
+            if trial_score < best_score:
+                best_score = trial_score
+                best_layout = scorer.layout[:]
+        else:
+            scorer.move(block, original)
+        temperature *= cooling
+
+    return best_layout
+
+
+def benchmark_proxy_coordinate_search(
+    problem: dict[str, Any],
+    start: list[int],
+    passes: int,
+    gflops: float,
+    peer_gbps: float,
+    launch_us: float,
+    transition_us: float,
+) -> list[int]:
+    """Improve a layout by exhaustive single-block moves using an incremental proxy scorer."""
+    scorer = InputAnchoredProxyScorer(problem, start, gflops, peer_gbps, launch_us, transition_us)
+    device_count = int(problem["device_count"])
+    best_score = scorer.score()
+    for _ in range(passes):
+        improved = False
+        for block in range(len(scorer.layout)):
+            original = int(scorer.layout[block])
+            best_device = original
+            block_best = best_score
+            for device in range(device_count):
+                if device == original:
+                    continue
+                scorer.move(block, device)
+                trial_score = scorer.score()
+                scorer.move(block, original)
+                if trial_score < block_best:
+                    block_best = trial_score
+                    best_device = device
+            if best_device != original:
+                scorer.move(block, best_device)
+                best_score = block_best
+                improved = True
+        if not improved:
+            break
+    return scorer.layout[:]
+
+
+def proxy_layout_features(problem: dict[str, Any], layout: list[int]) -> dict[str, Any]:
+    """Return the param-free per-device proxy features for one layout.
+
+    Reuses the incremental scorer with unit weights, then reads its raw
+    aggregates (which do not depend on the weights): per-device combined GEMM
+    flops, peer-copy bytes, kernel launches, and the layout transition count.
+    """
+    scorer = InputAnchoredProxyScorer(problem, layout, 1.0, 1.0, 1.0, 0.0)
+    device_count = scorer.device_count
+    return {
+        "flop": [scorer.first_flops[d] + scorer.final_flops[d] for d in range(device_count)],
+        "peer": [float(scorer.peer_bytes[d]) for d in range(device_count)],
+        "launch": [float(scorer.launches[d]) for d in range(device_count)],
+        "transitions": float(scorer.transitions),
+    }
+
+
+def proxy_predict(features: dict[str, Any], weights: list[float], device: int | None = None) -> tuple[float, int]:
+    """Predict seconds from proxy features and `[w_flop, w_peer, w_launch, w_trans]`.
+
+    Returns the prediction and the critical (max-load) device.  When `device`
+    is supplied, that device's load is used instead of the maximum, which lets
+    calibration fix the per-layout argmax while solving for the weights.
+    """
+    w_flop, w_peer, w_launch, w_trans = weights
+    loads = [
+        w_flop * f + w_peer * p + w_launch * l
+        for f, p, l in zip(features["flop"], features["peer"], features["launch"])
+    ]
+    if device is None:
+        load = max(loads)
+        device = loads.index(load)
+    else:
+        load = loads[device]
+    return load + w_trans * features["transitions"], device
+
+
+def proxy_weights_to_physical(weights: list[float]) -> dict[str, float]:
+    """Convert internal proxy weights to the bench-suggest `--proxy-*` units."""
+    w_flop, w_peer, w_launch, w_trans = weights
+    return {
+        "gflops": (1.0 / (w_flop * 1.0e9)) if w_flop > 0.0 else float("inf"),
+        "peer_gbps": (1.0 / (w_peer * 1.0e9)) if w_peer > 0.0 else float("inf"),
+        "launch_us": w_launch * 1.0e6,
+        "transition_us": w_trans * 1.0e6,
+    }
+
+
+def solve_scaled_ridge_nonneg(rows: list[list[float]], targets: list[float], columns: int, ridge: float) -> list[float]:
+    """Solve `min ||A w - y||^2 + ridge||w||^2` with `w >= 0` for a small system.
+
+    Columns are scaled to unit magnitude before forming the normal equations,
+    and negative coefficients are dropped one at a time (active-set projection).
+    """
+    scales = [1.0] * columns
+    for column in range(columns):
+        scales[column] = max((abs(row[column]) for row in rows), default=1.0) or 1.0
+    active = list(range(columns))
+    weights = [0.0] * columns
+    for _ in range(columns + 1):
+        size = len(active)
+        if size == 0:
+            break
+        ata = [[0.0] * size for _ in range(size)]
+        aty = [0.0] * size
+        for row, target in zip(rows, targets):
+            scaled = [row[active[i]] / scales[active[i]] for i in range(size)]
+            for i in range(size):
+                aty[i] += scaled[i] * target
+                for k in range(size):
+                    ata[i][k] += scaled[i] * scaled[k]
+        for i in range(size):
+            ata[i][i] += ridge
+        solution = gaussian_solve(ata, aty)
+        negative = [(solution[i], active[i]) for i in range(size) if solution[i] < 0.0]
+        if not negative:
+            for i in range(size):
+                weights[active[i]] = solution[i] / scales[active[i]]
+            return weights
+        worst = min(negative)[1]
+        active.remove(worst)
+        weights[worst] = 0.0
+    return weights
+
+
+def kendall_tau(xs: list[float], ys: list[float]) -> float:
+    """Return Kendall rank correlation between two sequences (ties ignored)."""
+    n = len(xs)
+    concordant = 0
+    discordant = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            sign = (xs[i] - xs[j]) * (ys[i] - ys[j])
+            if sign > 0.0:
+                concordant += 1
+            elif sign < 0.0:
+                discordant += 1
+    total = concordant + discordant
+    return (concordant - discordant) / total if total else 1.0
+
+
+def proxy_top1_regret(predictions: list[float], seconds: list[float]) -> float:
+    """Return the fractional slowdown of the proxy-preferred layout vs the best."""
+    if not seconds:
+        return 0.0
+    chosen = min(range(len(predictions)), key=lambda index: predictions[index])
+    best = min(seconds)
+    return (seconds[chosen] - best) / best if best > 0.0 else 0.0
+
+
+def fit_proxy_weights(
+    problem: dict[str, Any],
+    layout_seconds: list[tuple[list[int], float]],
+    ridge: float = 1.0e-6,
+    iterations: int = 30,
+    restarts: int = 6,
+) -> tuple[list[float], dict[str, float], dict[str, float]]:
+    """Calibrate proxy weights `[w_flop, w_peer, w_launch, w_trans]` to measured seconds.
+
+    The proxy is linear in the weights once each layout's critical device is
+    fixed, so this alternates between (1) assigning each layout's critical
+    device under the current weights and (2) re-solving the nonnegative ridge
+    least squares with those assignments fixed.  Because that objective is not
+    convex (the critical-device assignment can change), the search is repeated
+    from several initial assignments and the best training fit is returned.
+    """
+    if not layout_seconds:
+        raise ValueError("no benchmark layouts to calibrate against")
+    features = [(proxy_layout_features(problem, layout), seconds) for layout, seconds in layout_seconds]
+    device_count = int(problem["device_count"])
+
+    def refine(initial_assignment: list[int]) -> tuple[list[float] | None, float]:
+        assignment = initial_assignment[:]
+        run_weights: list[float] | None = None
+        run_sse = float("inf")
+        for _ in range(iterations):
+            rows = []
+            targets = []
+            for (feature, seconds), device in zip(features, assignment):
+                rows.append(
+                    [feature["flop"][device], feature["peer"][device], feature["launch"][device], feature["transitions"]]
+                )
+                targets.append(seconds)
+            weights = solve_scaled_ridge_nonneg(rows, targets, 4, ridge)
+            new_assignment = []
+            sse = 0.0
+            for feature, seconds in features:
+                prediction, device = proxy_predict(feature, weights)
+                new_assignment.append(device)
+                sse += (prediction - seconds) ** 2
+            if sse < run_sse:
+                run_sse = sse
+                run_weights = weights
+            if new_assignment == assignment:
+                break
+            assignment = new_assignment
+        return run_weights, run_sse
+
+    initial_assignments = [[max(range(len(f["flop"])), key=lambda d: f["flop"][d]) for f, _ in features]]
+    for device in range(device_count):
+        initial_assignments.append([device] * len(features))
+    restart_rng = random.Random(0)
+    for _ in range(restarts):
+        initial_assignments.append([restart_rng.randrange(device_count) for _ in features])
+
+    best_weights: list[float] | None = None
+    best_sse = float("inf")
+    for initial_assignment in initial_assignments:
+        weights, sse = refine(initial_assignment)
+        if weights is not None and sse < best_sse:
+            best_sse = sse
+            best_weights = weights
+    assert best_weights is not None
+    predictions = [proxy_predict(feature, best_weights)[0] for feature, _ in features]
+    seconds = [value for _, value in features]
+    stats = {
+        "samples": float(len(features)),
+        "rmse": math.sqrt(best_sse / len(features)),
+        "top1_regret": proxy_top1_regret(predictions, seconds),
+        "kendall_tau": kendall_tau(predictions, seconds),
+    }
+    return best_weights, proxy_weights_to_physical(best_weights), stats
+
+
+def proxy_leave_one_out(
+    problem: dict[str, Any], layout_seconds: list[tuple[list[int], float]], ridge: float
+) -> dict[str, float]:
+    """Leave-one-layout-out validation of the calibrated proxy ranking."""
+    if len(layout_seconds) < 3:
+        return {"n": float(len(layout_seconds)), "kendall_tau": float("nan"), "top1_regret": float("nan")}
+    predictions = []
+    seconds = []
+    for index in range(len(layout_seconds)):
+        train = layout_seconds[:index] + layout_seconds[index + 1 :]
+        weights, _, _ = fit_proxy_weights(problem, train, ridge)
+        feature = proxy_layout_features(problem, layout_seconds[index][0])
+        prediction, _ = proxy_predict(feature, weights)
+        predictions.append(prediction)
+        seconds.append(layout_seconds[index][1])
+    return {
+        "n": float(len(seconds)),
+        "kendall_tau": kendall_tau(predictions, seconds),
+        "top1_regret": proxy_top1_regret(predictions, seconds),
+    }
 
 
 def benchmark_local_search(
@@ -2521,6 +3261,9 @@ def empty_device_features(device: int) -> dict[str, Any]:
         "source_accumulation_terms": 0,
         "output_accumulation_groups": 0,
         "output_accumulation_terms": 0,
+        "max_source_fan_in": 0,
+        "max_output_fan_in": 0,
+        "max_accumulation_fan_in": 0,
         "source_axpys": 0,
         "output_axpys": 0,
         "zero_fills": 0,
@@ -2635,6 +3378,8 @@ def features_for_layout(
             source_row["accumulation_terms"] += len(source_inputs)
             source_row["source_accumulation_groups"] += 1
             source_row["source_accumulation_terms"] += len(source_inputs)
+            source_row["max_source_fan_in"] = max(source_row["max_source_fan_in"], len(source_inputs))
+            source_row["max_accumulation_fan_in"] = max(source_row["max_accumulation_fan_in"], len(source_inputs))
             source_row["source_axpys"] += len(source_inputs)
             source_row["zero_fills"] += 1
             source_row["temporary_matrices"] += 1
@@ -2657,6 +3402,8 @@ def features_for_layout(
             output_row["accumulation_terms"] += len(partials)
             output_row["output_accumulation_groups"] += 1
             output_row["output_accumulation_terms"] += len(partials)
+            output_row["max_output_fan_in"] = max(output_row["max_output_fan_in"], len(partials))
+            output_row["max_accumulation_fan_in"] = max(output_row["max_accumulation_fan_in"], len(partials))
             output_row["output_axpys"] += len(partials)
             output_row["zero_fills"] += 1
             output_row["temporary_matrices"] += 1
@@ -3516,7 +4263,9 @@ def cmd_fit(args: argparse.Namespace) -> int:
 def cmd_summary(args: argparse.Namespace) -> int:
     """Summarize trace rows."""
     records = trace_records(args)
-    if args.group_layouts:
+    if args.cost_features:
+        summarize_trace_cost_features(records, args.compact_layouts)
+    elif args.group_layouts:
         summarize_grouped(records)
     else:
         summarize(records)
@@ -3641,6 +4390,42 @@ def cmd_bench_struct_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_proxy_calibrate(args: argparse.Namespace) -> int:
+    """Calibrate input-anchored proxy weights from replay benchmark timings."""
+    records = benchmark_records_from_paths(args.benchmark)
+    problem = benchmark_problem(records, args.term_trace)
+    records = drop_initial_per_benchmark_run(records, problem, args.drop_first_per_run)
+    records = filter_benchmark_records_by_layout(records, problem, args.layout_filter)
+    grouped = group_benchmarks_by_layout(records, problem)
+    layout_seconds: list[tuple[list[int], float]] = []
+    for layout_key, layout_records in grouped.items():
+        times = [benchmark_matvec_seconds(record) for record in layout_records]
+        times = [value for value in times if not math.isnan(value)]
+        if not times:
+            continue
+        layout_seconds.append((list(layout_key), sum(times) / len(times)))
+    if not layout_seconds:
+        print("no benchmark layouts with matvec timings", file=sys.stderr)
+        return 1
+
+    weights, physical, stats = fit_proxy_weights(problem, layout_seconds, args.ridge)
+    loo = proxy_leave_one_out(problem, layout_seconds, args.ridge)
+    print(f"layouts={int(stats['samples'])}")
+    print(f"rmse_s={stats['rmse']:.9g}")
+    print(f"train_kendall_tau={stats['kendall_tau']:.4f} train_top1_regret={stats['top1_regret']:.6f}")
+    print(f"loo_n={int(loo['n'])} loo_kendall_tau={loo['kendall_tau']:.4f} loo_top1_regret={loo['top1_regret']:.6f}")
+    print(
+        "proxy_gflops={gflops:.6g} proxy_peer_gbps={peer_gbps:.6g} "
+        "proxy_launch_us={launch_us:.6g} proxy_transition_us={transition_us:.6g}".format(**physical)
+    )
+    print(
+        "suggested: bench-suggest --candidate-score input-anchored-proxy "
+        f"--proxy-gflops {physical['gflops']:.6g} --proxy-peer-gbps {physical['peer_gbps']:.6g} "
+        f"--proxy-launch-us {physical['launch_us']:.6g} --proxy-transition-us {physical['transition_us']:.6g}"
+    )
+    return 0
+
+
 def cmd_bench_fit(args: argparse.Namespace) -> int:
     """Fit replay benchmark matvec time from static layout features."""
     records = benchmark_records_from_paths(args.benchmark)
@@ -3738,6 +4523,15 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
                 problem, layout, coefficients, include_env_bytes, args.graph_features, args.model
             )
             return score
+        if args.candidate_score == "input-anchored-proxy":
+            return input_anchored_proxy_score(
+                problem,
+                layout,
+                args.proxy_gflops,
+                args.proxy_peer_gbps,
+                args.proxy_launch_us,
+                args.proxy_transition_us,
+            )
         key = tuple(layout)
         structure_row = score_structure_rows.get(key)
         if structure_row is None:
@@ -3800,12 +4594,46 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
 
     ranked: list[dict[str, Any]] = []
     seen: set[tuple[int, ...]] = set()
-    for seed in seeds:
-        layout = (
-            seed
-            if args.observed_only or args.contiguous_only or args.segmented_only
-            else benchmark_local_search(problem, seed, args.passes, score_candidate)
-        )
+    for seed_index, seed in enumerate(seeds):
+        if args.observed_only or args.contiguous_only or args.segmented_only:
+            layout = seed
+        elif args.candidate_score == "input-anchored-proxy" and args.search_mode == "anneal":
+            rng = random.Random(args.search_seed + seed_index)
+            layout = benchmark_proxy_anneal_search(
+                problem,
+                seed,
+                args.anneal_steps,
+                rng,
+                args.anneal_temperature,
+                args.anneal_cooling,
+                args.proxy_gflops,
+                args.proxy_peer_gbps,
+                args.proxy_launch_us,
+                args.proxy_transition_us,
+            )
+        elif args.candidate_score == "input-anchored-proxy":
+            layout = benchmark_proxy_coordinate_search(
+                problem,
+                seed,
+                args.passes,
+                args.proxy_gflops,
+                args.proxy_peer_gbps,
+                args.proxy_launch_us,
+                args.proxy_transition_us,
+            )
+        elif args.search_mode == "anneal":
+            rng = random.Random(args.search_seed + seed_index)
+            layout = benchmark_anneal_search(
+                problem,
+                seed,
+                args.anneal_steps,
+                score_candidate,
+                rng,
+                args.anneal_temperature,
+                args.anneal_cooling,
+            )
+        else:
+            layout = benchmark_local_search(problem, seed, args.passes, score_candidate)
         key = tuple(layout)
         if key in seen:
             continue
@@ -3856,7 +4684,18 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
             "monotonic_structure_offsets="
             + ",".join(f"{structure_stats['offsets'][name]:.17g}" for name in structure_names)
         )
+    if args.candidate_score == "input-anchored-proxy":
+        print(
+            f"proxy_gflops={args.proxy_gflops:.9g} proxy_peer_gbps={args.proxy_peer_gbps:.9g} "
+            f"proxy_launch_us={args.proxy_launch_us:.9g} proxy_transition_us={args.proxy_transition_us:.9g}"
+        )
     print(f"search={search_kind}")
+    print(f"search_mode={args.search_mode}")
+    if args.search_mode == "anneal":
+        print(
+            f"anneal_steps={args.anneal_steps} anneal_temperature={args.anneal_temperature:.9g} "
+            f"anneal_cooling={args.anneal_cooling:.9g} search_seed={args.search_seed}"
+        )
     print(f"candidate_layouts={len(ranked)}")
     if args.segmented_only:
         print(f"shape_extrapolation={str(bool(args.allow_shape_extrapolation)).lower()}")
@@ -3879,6 +4718,12 @@ def cmd_bench_suggest(args: argparse.Namespace) -> int:
                 f"{str(bool(row['contiguous'])).lower()} {str(bool(row['byte_balanced'])).lower()} "
                 f"{maybe_compact_layout(row['layout'], args.compact_layouts)}"
             )
+    if args.write_layout_dir is not None:
+        args.write_layout_dir.mkdir(parents=True, exist_ok=True)
+        for rank, row in enumerate(ranked[: args.top], start=1):
+            path = args.write_layout_dir / f"rank{rank:02d}.layout"
+            path.write_text(layout_string(row["layout"]) + "\n", encoding="utf-8")
+            print(f"layout_file_rank{rank}={path}")
     if args.show_structure:
         print(
             "structure_rank predicted_matvec_per_apply_s right_max_gflop mixed_max_gflop b_peer_mb "
@@ -4462,6 +5307,10 @@ def parser() -> argparse.ArgumentParser:
     summary.add_argument("trace", type=Path)
     summary.add_argument("--drop-first-per-layout", type=int, default=0)
     summary.add_argument("--group-layouts", action="store_true")
+    summary.add_argument("--cost-features", action="store_true", help="print model-facing cost feature rows")
+    summary.add_argument(
+        "--compact-layouts", action="store_true", help="print layout summaries instead of full placement lists"
+    )
     summary.set_defaults(func=cmd_summary)
 
     bench_record = subcommands.add_parser("bench-record", help="convert replay benchmark stdout to JSONL records")
@@ -4575,6 +5424,16 @@ def parser() -> argparse.ArgumentParser:
     add_required_term_trace(bench_fit)
     bench_fit.set_defaults(func=cmd_bench_fit)
 
+    proxy_calibrate = subcommands.add_parser(
+        "proxy-calibrate", help="calibrate input-anchored proxy weights from replay timings"
+    )
+    proxy_calibrate.add_argument("benchmark", nargs="+", type=Path, help="benchmark JSONL file(s)")
+    proxy_calibrate.add_argument("--ridge", type=float, default=1.0e-6)
+    add_benchmark_layout_filter(proxy_calibrate)
+    add_benchmark_drop_first(proxy_calibrate)
+    add_required_term_trace(proxy_calibrate)
+    proxy_calibrate.set_defaults(func=cmd_proxy_calibrate)
+
     bench_validate = subcommands.add_parser(
         "bench-validate", help="leave-one-layout-out validation for replay benchmark timing"
     )
@@ -4626,9 +5485,63 @@ def parser() -> argparse.ArgumentParser:
     bench_suggest.add_argument("--top", type=int, default=1, help="print the top N ranked candidate layouts")
     bench_suggest.add_argument(
         "--candidate-score",
-        choices=("fit", "monotonic-structure"),
+        choices=("fit", "monotonic-structure", "input-anchored-proxy"),
         default="fit",
         help="score used to rank candidate layouts",
+    )
+    bench_suggest.add_argument(
+        "--search-mode",
+        choices=("coordinate", "anneal"),
+        default="coordinate",
+        help="local candidate search strategy for non-enumerated layout families",
+    )
+    bench_suggest.add_argument(
+        "--search-seed",
+        type=int,
+        default=1,
+        help="random seed used by stochastic search modes",
+    )
+    bench_suggest.add_argument(
+        "--anneal-steps",
+        type=int,
+        default=2000,
+        help="single-block move proposals per seed for --search-mode=anneal",
+    )
+    bench_suggest.add_argument(
+        "--anneal-temperature",
+        type=float,
+        default=1.0e-3,
+        help="initial Metropolis temperature for --search-mode=anneal",
+    )
+    bench_suggest.add_argument(
+        "--anneal-cooling",
+        type=float,
+        default=0.999,
+        help="per-proposal temperature multiplier for --search-mode=anneal",
+    )
+    bench_suggest.add_argument(
+        "--proxy-gflops",
+        type=float,
+        default=2500.0,
+        help="effective small-GEMM throughput used by --candidate-score=input-anchored-proxy",
+    )
+    bench_suggest.add_argument(
+        "--proxy-peer-gbps",
+        type=float,
+        default=35.0,
+        help="effective peer-transfer bandwidth used by --candidate-score=input-anchored-proxy",
+    )
+    bench_suggest.add_argument(
+        "--proxy-launch-us",
+        type=float,
+        default=2.0,
+        help="per-work-item launch overhead used by --candidate-score=input-anchored-proxy",
+    )
+    bench_suggest.add_argument(
+        "--proxy-transition-us",
+        type=float,
+        default=5000.0,
+        help="layout-transition penalty used by --candidate-score=input-anchored-proxy",
     )
     bench_suggest.add_argument(
         "--structure-ridge",
@@ -4690,6 +5603,11 @@ def parser() -> argparse.ArgumentParser:
         "--show-structure",
         action="store_true",
         help="print graph-derived structural counters for ranked candidate layouts",
+    )
+    bench_suggest.add_argument(
+        "--write-layout-dir",
+        type=Path,
+        help="write top-ranked raw layout lists as rankNN.layout files in this directory",
     )
     add_benchmark_model(bench_suggest)
     add_benchmark_layout_filter(bench_suggest)

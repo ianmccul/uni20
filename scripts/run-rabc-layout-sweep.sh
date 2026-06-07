@@ -425,4 +425,12 @@ else
 fi
 if [[ -n "${trace_path}" ]]; then
   echo "trace_jsonl=${trace_path}"
+  if [[ -s "${trace_path}" ]]; then
+    trace_summary_args=(--cost-features)
+    if [[ "${show_layouts}" -eq 0 ]]; then
+      trace_summary_args+=(--compact-layouts)
+    fi
+    echo "=== trace cost features ==="
+    "${repo_root}/scripts/rabc-trace-model.py" summary "${trace_path}" "${trace_summary_args[@]}"
+  fi
 fi

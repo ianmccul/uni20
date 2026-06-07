@@ -8,6 +8,7 @@
 #include <fmt/core.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <compare>
@@ -778,6 +779,9 @@ struct RabcDeviceCostFeatures
     std::size_t source_accumulation_terms = 0;
     std::size_t output_accumulation_groups = 0;
     std::size_t output_accumulation_terms = 0;
+    std::size_t max_source_fan_in = 0;
+    std::size_t max_output_fan_in = 0;
+    std::size_t max_accumulation_fan_in = 0;
     std::size_t source_axpys = 0;
     std::size_t output_axpys = 0;
     std::size_t zero_fills = 0;
@@ -1179,6 +1183,8 @@ RabcCostFeatures rabc_cost_features(MatrixFamily const& a_mats, MatrixFamily con
       ++source_features.source_accumulation_groups;
       source_features.accumulation_terms += source_inputs.size();
       source_features.source_accumulation_terms += source_inputs.size();
+      source_features.max_source_fan_in = std::max(source_features.max_source_fan_in, source_inputs.size());
+      source_features.max_accumulation_fan_in = std::max(source_features.max_accumulation_fan_in, source_inputs.size());
       source_features.source_axpys += source_inputs.size();
       ++source_features.zero_fills;
       ++source_features.temporary_matrices;
@@ -1215,6 +1221,8 @@ RabcCostFeatures rabc_cost_features(MatrixFamily const& a_mats, MatrixFamily con
       ++output_features.output_accumulation_groups;
       output_features.accumulation_terms += partials.size();
       output_features.output_accumulation_terms += partials.size();
+      output_features.max_output_fan_in = std::max(output_features.max_output_fan_in, partials.size());
+      output_features.max_accumulation_fan_in = std::max(output_features.max_accumulation_fan_in, partials.size());
       output_features.output_axpys += partials.size();
       ++output_features.zero_fills;
       ++output_features.temporary_matrices;
@@ -1280,6 +1288,7 @@ std::string json_device_features(std::span<RabcDeviceCostFeatures const> feature
         "\"accumulation_groups\":{},\"accumulation_terms\":{},"
         "\"source_accumulation_groups\":{},\"source_accumulation_terms\":{},"
         "\"output_accumulation_groups\":{},\"output_accumulation_terms\":{},"
+        "\"max_source_fan_in\":{},\"max_output_fan_in\":{},\"max_accumulation_fan_in\":{},"
         "\"source_axpys\":{},\"output_axpys\":{},\"zero_fills\":{},"
         "\"intermediate_matrices\":{},\"temporary_matrices\":{},"
         "\"temporary_peer_requests\":{},\"temporary_peer_copies\":{},"
@@ -1297,13 +1306,13 @@ std::string json_device_features(std::span<RabcDeviceCostFeatures const> feature
         item.device, item.input_blocks, item.output_blocks, item.terms, item.unique_bc, item.unique_a, item.unique_b,
         item.unique_c, item.bc_gemms, item.final_gemms, item.direct_final_gemms, item.accumulation_groups,
         item.accumulation_terms, item.source_accumulation_groups, item.source_accumulation_terms,
-        item.output_accumulation_groups, item.output_accumulation_terms, item.source_axpys, item.output_axpys,
-        item.zero_fills, item.intermediate_matrices, item.temporary_matrices, item.temporary_peer_requests,
-        item.temporary_peer_copies, item.bc_flops, item.accumulate_flops, item.temporary_accumulate_flops,
-        item.b_local_bytes, item.b_peer_bytes, item.temporary_peer_request_bytes, item.temporary_peer_bytes,
-        item.a_bytes, item.c_bytes, item.output_bytes, item.intermediate_bytes, item.intermediate_gemm_enqueue_s,
-        item.final_gemm_enqueue_s, item.source_accumulation_enqueue_s, item.output_accumulation_enqueue_s,
-        item.zero_fill_enqueue_s);
+        item.output_accumulation_groups, item.output_accumulation_terms, item.max_source_fan_in, item.max_output_fan_in,
+        item.max_accumulation_fan_in, item.source_axpys, item.output_axpys, item.zero_fills, item.intermediate_matrices,
+        item.temporary_matrices, item.temporary_peer_requests, item.temporary_peer_copies, item.bc_flops,
+        item.accumulate_flops, item.temporary_accumulate_flops, item.b_local_bytes, item.b_peer_bytes,
+        item.temporary_peer_request_bytes, item.temporary_peer_bytes, item.a_bytes, item.c_bytes, item.output_bytes,
+        item.intermediate_bytes, item.intermediate_gemm_enqueue_s, item.final_gemm_enqueue_s,
+        item.source_accumulation_enqueue_s, item.output_accumulation_enqueue_s, item.zero_fill_enqueue_s);
   }
   result += ']';
   return result;
@@ -1470,6 +1479,232 @@ std::string json_runtime_counters(tensor::Swapper::RuntimeCounters const& counte
       counters.cudaPoolCacheStore, counters.cudaPoolCacheBypass, counters.cudaPoolCacheRelease);
 }
 
+std::size_t layout_transitions(std::span<int const> devices)
+{
+  if (devices.empty())
+  {
+    return 0;
+  }
+
+  std::size_t transitions = 0;
+  for (std::size_t index = 1; index < devices.size(); ++index)
+  {
+    if (devices[index] != devices[index - 1])
+    {
+      ++transitions;
+    }
+  }
+  return transitions;
+}
+
+std::size_t active_device_count(std::span<int const> devices, std::size_t device_count)
+{
+  std::vector<bool> active(device_count, false);
+  for (int device : devices)
+  {
+    if (device >= 0 && static_cast<std::size_t>(device) < active.size())
+    {
+      active[static_cast<std::size_t>(device)] = true;
+    }
+  }
+  return static_cast<std::size_t>(std::ranges::count(active, true));
+}
+
+double max_block_fraction(std::span<int const> devices, std::size_t device_count)
+{
+  if (devices.empty())
+  {
+    return 0.0;
+  }
+
+  std::vector<std::size_t> counts(device_count, 0);
+  for (int device : devices)
+  {
+    if (device >= 0 && static_cast<std::size_t>(device) < counts.size())
+    {
+      ++counts[static_cast<std::size_t>(device)];
+    }
+  }
+  auto const max_count = *std::ranges::max_element(counts);
+  return static_cast<double>(max_count) / static_cast<double>(devices.size());
+}
+
+double max_byte_fraction(std::span<int const> devices, std::span<tensor::Matrix const> mats, std::size_t device_count)
+{
+  std::size_t total_bytes = 0;
+  std::vector<std::size_t> bytes(device_count, 0);
+  for (std::size_t index = 0; index < devices.size() && index < mats.size(); ++index)
+  {
+    auto const matrix_bytes = mats[index].sizeInByte();
+    total_bytes += matrix_bytes;
+    auto const device = devices[index];
+    if (device >= 0 && static_cast<std::size_t>(device) < bytes.size())
+    {
+      bytes[static_cast<std::size_t>(device)] += matrix_bytes;
+    }
+  }
+  if (total_bytes == 0)
+  {
+    return 0.0;
+  }
+  auto const max_bytes = *std::ranges::max_element(bytes);
+  return static_cast<double>(max_bytes) / static_cast<double>(total_bytes);
+}
+
+std::string json_one_layout_metrics(std::string_view name, std::span<int const> devices,
+                                    std::span<tensor::Matrix const> mats, std::size_t device_count)
+{
+  auto const transitions = layout_transitions(devices);
+  return fmt::format("\"{}\":{{\"blocks\":{},\"segments\":{},\"transitions\":{},\"active_devices\":{},"
+                     "\"max_block_fraction\":{:.17g},\"max_byte_fraction\":{:.17g}}}",
+                     name, devices.size(), devices.empty() ? 0 : transitions + 1, transitions,
+                     active_device_count(devices, device_count), max_block_fraction(devices, device_count),
+                     max_byte_fraction(devices, mats, device_count));
+}
+
+std::string json_layout_metrics(RabcCostFeatures const& features, std::span<tensor::Matrix const> b_raw_mats,
+                                std::span<tensor::Matrix const> r_raw_mats)
+{
+  auto const device_count = features.devices.size();
+  return fmt::format("{{{},{}}}", json_one_layout_metrics("input", features.input_devices, b_raw_mats, device_count),
+                     json_one_layout_metrics("output", features.output_devices, r_raw_mats, device_count));
+}
+
+std::array<double, 5> quantile_summary(std::vector<double> values)
+{
+  if (values.empty())
+  {
+    return {0.0, 0.0, 0.0, 0.0, 0.0};
+  }
+  std::ranges::sort(values);
+  auto const pick = [&](double fraction) {
+    auto const index = static_cast<std::size_t>(
+        std::clamp(fraction * static_cast<double>(values.size() - 1), 0.0, static_cast<double>(values.size() - 1)));
+    return values[index];
+  };
+  return {values.front(), pick(0.5), pick(0.9), pick(0.99), values.back()};
+}
+
+std::string json_quantile_summary(std::vector<double> values)
+{
+  auto const summary = quantile_summary(std::move(values));
+  return fmt::format("{{\"min\":{:.17g},\"q50\":{:.17g},\"q90\":{:.17g},\"q99\":{:.17g},\"max\":{:.17g}}}", summary[0],
+                     summary[1], summary[2], summary[3], summary[4]);
+}
+
+std::string json_shape_summary(MatrixFamily const& a_mats, MatrixFamily const& b_mats, MatrixFamily const& c_mats,
+                               std::span<tensor::Matrix const> r_raw_mats,
+                               std::span<EffectiveHamiltonianOperator::Term const> terms)
+{
+  std::set<std::array<std::size_t, 8>> unique_shapes;
+  std::vector<double> bc_flops;
+  std::vector<double> accumulate_flops;
+  std::vector<double> intermediate_bytes;
+  std::vector<double> r_values;
+  std::vector<double> b_values;
+  bc_flops.reserve(terms.size());
+  accumulate_flops.reserve(terms.size());
+  intermediate_bytes.reserve(terms.size());
+  r_values.reserve(terms.size());
+  b_values.reserve(terms.size());
+
+  for (auto const& term : terms)
+  {
+    auto const a = a_mats.block(term.a);
+    auto const b = b_mats.block(term.b);
+    auto const c = c_mats.block(term.c);
+    auto const& r = r_raw_mats[term.r];
+    auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+    unique_shapes.insert({static_cast<std::size_t>(r.getFirstDim()), static_cast<std::size_t>(r.getSecondDim()), a.rows,
+                          a.cols, b.rows, b.cols, c.rows, c.cols});
+    bc_flops.push_back(gemm_flops(b, c));
+    accumulate_flops.push_back(gemm_flops(a, intermediate));
+    intermediate_bytes.push_back(static_cast<double>(intermediate.rows * intermediate.cols * sizeof(double)));
+    r_values.push_back(static_cast<double>(r.getFirstDim()) * static_cast<double>(r.getSecondDim()));
+    b_values.push_back(static_cast<double>(b.rows) * static_cast<double>(b.cols));
+  }
+
+  return fmt::format("{{\"unique_term_shapes\":{},\"bc_flops\":{},\"accumulate_flops\":{},"
+                     "\"intermediate_bytes\":{},\"r_values\":{},\"b_values\":{}}}",
+                     unique_shapes.size(), json_quantile_summary(std::move(bc_flops)),
+                     json_quantile_summary(std::move(accumulate_flops)),
+                     json_quantile_summary(std::move(intermediate_bytes)), json_quantile_summary(std::move(r_values)),
+                     json_quantile_summary(std::move(b_values)));
+}
+
+std::string json_feature_summary(std::span<RabcDeviceCostFeatures const> devices)
+{
+  RabcDeviceCostFeatures totals;
+  RabcDeviceCostFeatures maximums;
+  for (auto const& device : devices)
+  {
+    totals.terms += device.terms;
+    totals.bc_gemms += device.bc_gemms;
+    totals.final_gemms += device.final_gemms;
+    totals.source_axpys += device.source_axpys;
+    totals.output_axpys += device.output_axpys;
+    totals.zero_fills += device.zero_fills;
+    totals.temporary_peer_requests += device.temporary_peer_requests;
+    totals.temporary_peer_copies += device.temporary_peer_copies;
+    totals.temporary_peer_bytes += device.temporary_peer_bytes;
+    totals.intermediate_bytes += device.intermediate_bytes;
+    totals.output_bytes += device.output_bytes;
+    totals.bc_flops += device.bc_flops;
+    totals.accumulate_flops += device.accumulate_flops;
+    totals.intermediate_gemm_enqueue_s += device.intermediate_gemm_enqueue_s;
+    totals.final_gemm_enqueue_s += device.final_gemm_enqueue_s;
+    totals.source_accumulation_enqueue_s += device.source_accumulation_enqueue_s;
+    totals.output_accumulation_enqueue_s += device.output_accumulation_enqueue_s;
+    totals.zero_fill_enqueue_s += device.zero_fill_enqueue_s;
+
+    maximums.terms = std::max(maximums.terms, device.terms);
+    maximums.unique_bc = std::max(maximums.unique_bc, device.unique_bc);
+    maximums.bc_gemms = std::max(maximums.bc_gemms, device.bc_gemms);
+    maximums.final_gemms = std::max(maximums.final_gemms, device.final_gemms);
+    maximums.max_source_fan_in = std::max(maximums.max_source_fan_in, device.max_source_fan_in);
+    maximums.max_output_fan_in = std::max(maximums.max_output_fan_in, device.max_output_fan_in);
+    maximums.max_accumulation_fan_in = std::max(maximums.max_accumulation_fan_in, device.max_accumulation_fan_in);
+    maximums.temporary_peer_bytes = std::max(maximums.temporary_peer_bytes, device.temporary_peer_bytes);
+    maximums.intermediate_bytes = std::max(maximums.intermediate_bytes, device.intermediate_bytes);
+    maximums.output_bytes = std::max(maximums.output_bytes, device.output_bytes);
+    maximums.bc_flops = std::max(maximums.bc_flops, device.bc_flops);
+    maximums.accumulate_flops = std::max(maximums.accumulate_flops, device.accumulate_flops);
+    maximums.intermediate_gemm_enqueue_s =
+        std::max(maximums.intermediate_gemm_enqueue_s, device.intermediate_gemm_enqueue_s);
+    maximums.final_gemm_enqueue_s = std::max(maximums.final_gemm_enqueue_s, device.final_gemm_enqueue_s);
+    maximums.source_accumulation_enqueue_s =
+        std::max(maximums.source_accumulation_enqueue_s, device.source_accumulation_enqueue_s);
+    maximums.output_accumulation_enqueue_s =
+        std::max(maximums.output_accumulation_enqueue_s, device.output_accumulation_enqueue_s);
+    maximums.zero_fill_enqueue_s = std::max(maximums.zero_fill_enqueue_s, device.zero_fill_enqueue_s);
+  }
+
+  return fmt::format(
+      "{{\"total_terms\":{},\"total_bc_gemms\":{},\"total_final_gemms\":{},"
+      "\"total_source_axpys\":{},\"total_output_axpys\":{},\"total_zero_fills\":{},"
+      "\"total_temporary_peer_requests\":{},\"total_temporary_peer_copies\":{},"
+      "\"total_temporary_peer_bytes\":{},\"total_intermediate_bytes\":{},\"total_output_bytes\":{},"
+      "\"total_bc_flops\":{:.17g},\"total_accumulate_flops\":{:.17g},"
+      "\"max_terms\":{},\"max_unique_bc\":{},\"max_bc_gemms\":{},\"max_final_gemms\":{},"
+      "\"max_source_fan_in\":{},\"max_output_fan_in\":{},\"max_accumulation_fan_in\":{},"
+      "\"max_temporary_peer_bytes\":{},\"max_intermediate_bytes\":{},\"max_output_bytes\":{},"
+      "\"max_bc_flops\":{:.17g},\"max_accumulate_flops\":{:.17g},"
+      "\"enqueue_sum_s\":{{\"intermediate_gemm\":{:.17g},\"final_gemm\":{:.17g},"
+      "\"source_accumulation\":{:.17g},\"output_accumulation\":{:.17g},\"zero_fill\":{:.17g}}},"
+      "\"enqueue_max_s\":{{\"intermediate_gemm\":{:.17g},\"final_gemm\":{:.17g},"
+      "\"source_accumulation\":{:.17g},\"output_accumulation\":{:.17g},\"zero_fill\":{:.17g}}}}}",
+      totals.terms, totals.bc_gemms, totals.final_gemms, totals.source_axpys, totals.output_axpys, totals.zero_fills,
+      totals.temporary_peer_requests, totals.temporary_peer_copies, totals.temporary_peer_bytes,
+      totals.intermediate_bytes, totals.output_bytes, totals.bc_flops, totals.accumulate_flops, maximums.terms,
+      maximums.unique_bc, maximums.bc_gemms, maximums.final_gemms, maximums.max_source_fan_in,
+      maximums.max_output_fan_in, maximums.max_accumulation_fan_in, maximums.temporary_peer_bytes,
+      maximums.intermediate_bytes, maximums.output_bytes, maximums.bc_flops, maximums.accumulate_flops,
+      totals.intermediate_gemm_enqueue_s, totals.final_gemm_enqueue_s, totals.source_accumulation_enqueue_s,
+      totals.output_accumulation_enqueue_s, totals.zero_fill_enqueue_s, maximums.intermediate_gemm_enqueue_s,
+      maximums.final_gemm_enqueue_s, maximums.source_accumulation_enqueue_s, maximums.output_accumulation_enqueue_s,
+      maximums.zero_fill_enqueue_s);
+}
+
 void write_rabc_trace(std::uint64_t index, std::string const& policy, RabcCostFeatures const& features,
                       RabcExecutionStats const& execution_stats, MatrixFamily const& a_mats, MatrixFamily const& b_mats,
                       MatrixFamily const& c_mats, std::span<tensor::Matrix const> r_raw_mats,
@@ -1494,12 +1729,16 @@ void write_rabc_trace(std::uint64_t index, std::string const& policy, RabcCostFe
              "\"block_count\":{},\"output_shape_signature\":\"{}\",\"term_count\":{},\"enqueue_s\":{:.17g},"
              "\"sync_s\":{:.17g},"
              "\"wall_s\":{:.17g},\"gpu_s\":{:.17g},\"input_layout\":{},\"output_layout\":{},"
-             "\"device_timings\":{},\"devices\":{},\"execution_devices\":{},\"runtime_counters\":{}",
+             "\"device_timings\":{},\"devices\":{},\"execution_devices\":{},\"runtime_counters\":{},"
+             "\"layout_metrics\":{},\"shape_summary\":{},\"feature_summary\":{},\"execution_summary\":{}",
              index, policy, features.devices.size(), features.output_devices.size(), output_shape_signature(r_raw_mats),
              terms.size(), enqueue_seconds, sync_seconds, wall_seconds, max_gpu_seconds(timings),
              json_int_array(features.input_devices), json_int_array(features.output_devices),
              json_device_timings(timings), json_device_features(features.devices),
-             json_device_features(execution_stats.devices), json_runtime_counters(runtime_counters));
+             json_device_features(execution_stats.devices), json_runtime_counters(runtime_counters),
+             json_layout_metrics(features, raw_matrices(b_mats), r_raw_mats),
+             json_shape_summary(a_mats, b_mats, c_mats, r_raw_mats, terms), json_feature_summary(features.devices),
+             json_feature_summary(execution_stats.devices));
   if (rabc_trace_terms_enabled())
   {
     fmt::print(file, ",\"terms\":[");
@@ -1974,6 +2213,9 @@ void apply_resident_rabc_context(ResidentRabcContext& context, std::span<tensor:
         ++device_stats.source_accumulation_groups;
         device_stats.accumulation_terms += local_partial.inputs.size();
         device_stats.source_accumulation_terms += local_partial.inputs.size();
+        device_stats.max_source_fan_in = std::max(device_stats.max_source_fan_in, local_partial.inputs.size());
+        device_stats.max_accumulation_fan_in =
+            std::max(device_stats.max_accumulation_fan_in, local_partial.inputs.size());
       }
       zero_device_matrix(swapper, q_matrix, local_partial.device_id, stats);
       for (auto const& input : local_partial.inputs)
@@ -2008,6 +2250,8 @@ void apply_resident_rabc_context(ResidentRabcContext& context, std::span<tensor:
         ++device_stats.output_accumulation_groups;
         device_stats.accumulation_terms += partials.size();
         device_stats.output_accumulation_terms += partials.size();
+        device_stats.max_output_fan_in = std::max(device_stats.max_output_fan_in, partials.size());
+        device_stats.max_accumulation_fan_in = std::max(device_stats.max_accumulation_fan_in, partials.size());
       }
       zero_device_matrix(swapper, q_matrix, target_device, stats);
       for (auto const& partial : partials)
