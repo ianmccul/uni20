@@ -449,3 +449,6 @@ same completion event.
 - How much of this should be prototyped inside TensorContraction before the real
   uni20 CUDA scheduler exists?
 - How should NCCL/MPI remote-storage dependencies map onto the same epoch model?
+  See `ordering_and_backend_lowering.md`: the Async scheduler owns ordering, so MPI
+  can use a unique tag per edge and lower to nonblocking transfers, the same way
+  CUDA events lower intra-device edges.
