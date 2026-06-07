@@ -109,6 +109,48 @@ These primitives enforce *causal consistency*: all reads and writes occur in dep
 
 ---
 
+### 3.5 Symmetry and Block-Sparse Tensor Invariants
+
+* Quantum-number metadata is part of the tensor type semantics. Do **not** drop
+  `LocalSpace`, `BlockSpace`, `QNum`, or leg-orientation metadata when moving
+  between MPS, MPO, environment, SVD, TensorContraction, CUDA, or MPI layers.
+* Symmetry-aware MPS/MPO/DMRG code must preserve explicit block structure. Do
+  **not** silently flatten a block-sparse tensor into one dense matrix unless
+  the API name and documentation make the conversion explicit, for example a
+  debug/reference helper named `to_dense_reference`, `materialize_dense_debug`,
+  or similar.
+* There is no dense fallback for a symmetry-typed path. A dense calculation is
+  a distinct no-symmetry model/path, for example the dense Heisenberg executable
+  whose local states both carry the identity charge, or an explicit conversion
+  that changes the symmetry group and exits the U(1) path.
+* Dense debug/reference projections may exist only as terminal diagnostics:
+  they must be explicitly named, documented as leaving the symmetry-aware
+  execution path, and must not feed back into U(1) MPS/MPO/DMRG state.
+  Production U(1) DMRG paths must reject unsupported block-sparse operations
+  rather than silently using a symmetry-erasing dense implementation.
+* Every block-sparse operation must validate and/or construct blocks through
+  the applicable selection rule. For the first U(1) MPS prototype:
+  `ThreeLegBlockMatrix` uses `q_column = q_row + q_local`, local operator
+  coefficients use `q_bra = q_ket + q_operator`, and sparse MPO entries use
+  `q_left_virtual + q_ket = q_right_virtual + q_bra`.
+* TensorContraction worklists generated from symmetry-aware tensors must carry
+  logical block keys and placement metadata. If a temporary dense bridge is
+  still required, isolate it behind an explicitly named adapter and add tests
+  proving that quantum-number sector information is preserved at the adapter
+  boundary.
+* Agents must treat loss of symmetry metadata as a correctness bug, not an
+  optimization tradeoff. If maintaining symmetry metadata is impossible for a
+  requested change, stop and report the limitation instead of adding an
+  implicit dense path.
+
+**Why:**
+Symmetry sectors define which tensor blocks exist and which contractions are
+legal. Losing that metadata changes the mathematical problem, hides invalid
+states, and prevents the CUDA/MPI block distribution strategy needed for large
+DMRG calculations.
+
+---
+
 ## 4. Testing
 
 ```bash
@@ -121,7 +163,40 @@ ctest --test-dir build --output-on-failure
 
 ---
 
-## 5. Python Bindings
+## 5. CUDA Profiling
+
+When profiling TensorContraction CUDA benchmarks with Nsight Systems, always
+disable CUDA event tracing explicitly:
+
+```bash
+nsys profile \
+  --trace=cuda,nvtx,osrt,cublas,cusolver,mpi,openmp \
+  --mpi-impl=openmpi \
+  --sample=process-tree \
+  --cpuctxsw=process-tree \
+  --backtrace=fp \
+  --cuda-event-trace=false \
+  --cuda-memory-usage=true \
+  --cudabacktrace=memory,sync,other \
+  -o profiling/<report-name> \
+  <command>
+```
+
+**Why:** Nsight Systems defaults `--cuda-event-trace` to `auto`. On CUDA 12.8+
+drivers this may behave like enabled for TensorContraction workloads. These
+workloads create many `cudaEventRecord` and `cudaStreamWaitEvent` calls, so CUDA
+event tracing can add massive profiler-induced overhead and false dependencies.
+In local profiling on a single-GPU `L=20, m=512` DMRG run, event tracing caused a
+short two-sweep profile to time out after only 58 benchmark rows, while the same
+run with `--cuda-event-trace=false` completed all 77 rows.
+
+Use `--cuda-event-trace=true` only for a targeted CUDA event investigation, and
+then run a much smaller benchmark with an explicit timeout. Do not use Nsight's
+implicit `auto` setting for TensorContraction profiling.
+
+---
+
+## 6. Python Bindings
 
 * Source files live under `bindings/python/`.
 * Follow the same C++ style and coroutine safety rules.
@@ -129,7 +204,7 @@ ctest --test-dir build --output-on-failure
 
 ---
 
-## 6. Documentation
+## 7. Documentation
 
 * All developer docs reside in `docs/`.
 * Use Markdown tables and fenced code blocks for clarity.
@@ -137,11 +212,11 @@ ctest --test-dir build --output-on-failure
 
 ---
 
-## 7. Doxygen Documentation Policy
+## 8. Doxygen Documentation Policy
 
 **Purpose:** define how tools detect, modify, and validate documentation.
 
-### 7.1 Comment Types
+### 8.1 Comment Types
 * `///` is the **canonical Doxygen form** for function, class, and member documentation.
   Tools must treat contiguous `///` lines as a single documentation block immediately preceding a declaration.
 
@@ -155,7 +230,7 @@ ctest --test-dir build --output-on-failure
   They are free for agents to clean, rewrite, or insert to clarify logic, lifetime, or invariants.
   These comments do not appear in generated documentation.
 
-### 7.2 Formatting Rules
+### 8.2 Formatting Rules
 
 * Every Doxygen block must begin with `\brief`. Do *not* follow this with a blank line, unless readability demands it. Remove existing blank lines where where possible.
 * Always include `\param`, `\tparam`, and `\return` when applicable.
@@ -170,7 +245,7 @@ ctest --test-dir build --output-on-failure
   `\brief`, `\details`, `\pre`, `\post`, `\throws`, `\note`, `\warning`, `\tparam`, `\param`, `\return`, `\ingroup`.
 * Preserve indentation relative to the documented entity.
 
-### 7.3 Enforcement
+### 8.3 Enforcement
 
 When cleaning or generating documentation:
 
