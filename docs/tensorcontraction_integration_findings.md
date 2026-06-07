@@ -133,6 +133,40 @@ levers (CPU offload, coalescing, host-submission parallelism) help every invocat
   <trace.jsonl>`, pairing a sweep with a **matching block-count** term trace, on
   **diverse** layouts timed **untraced**.
 
+## Sharing benchmark structure with collaborators
+
+The contraction *performance* problem is fully specified by the f-hypergraph (which
+`(r,a,b,c)` terms exist, with coefficients) plus the per-block dimensions; the
+matrix-element values do not affect contraction timing, data movement, or placement.
+The term trace (`*_term_trace.jsonl`) is exactly this value-free representation —
+`r,a,b,c,coefficient`, every block `*_rows/*_cols`, and the derived `bc_flops`,
+`accumulate_flops`, and `intermediate_bytes`. So the artifact to share is the trace
+`.jsonl` itself plus a small standalone reader that loads it into data structures;
+collaborators run their own analysis/partitioning code rather than this branch's
+(heavily modified) tooling. Documenting the JSONL schema and shipping a minimal
+reader is a clean, separate deliverable (open item).
+
+**What to generate — typical iterations, not whole runs.** The representative unit is
+the **central-bond iteration**: maximal bond dimension, largest contraction, most
+terms. Edge bonds are boundary-truncated and unrepresentative, and the rest of a run
+just interpolates. The suite is a grid `{U(1) Heisenberg, U(1)×U(1) Hubbard} ×
+{bond-dimension ladder up to the maximum constructible}`, dumping the central-bond
+term trace per point. Lattice size and sweep count are tuned per target `m` so the
+central bond actually reaches that dimension (the sectors must be able to hold it,
+roughly `d^{L/2} ≥ m`, with enough sweeps; running at `max_rank = m` to convergence
+lets the centre saturate). The existing `uni20_l40_m<m>_central` fixtures are
+instances of this grid.
+
+**Connectivity is analytic; block dimensions are physics.** The connectivity (which
+terms exist) follows combinatorially from the model and the selection rule, so it can
+be generated at any `m`. The *block dimensions* cannot be freely synthesized: the
+distribution of bond dimension across charge sectors is set by the entanglement
+structure of the ground state (the Schmidt/entanglement spectrum), which depends on
+the model, couplings, filling, and bipartition. Representative dimensions must
+therefore be **extracted** from real central-bond dumps; reaching `m` beyond what can
+be constructed would require modeling the entanglement-spectrum scaling (e.g. CFT for
+critical chains), which is a research problem, not a free knob.
+
 ## Conclusion
 
 The GPU placement optimization workflow is **done informing**. The constants above
