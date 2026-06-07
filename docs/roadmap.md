@@ -89,6 +89,18 @@ Two foundational abstractions are not yet expressed in core:
   MPI requests are derived lowerings, with a polymorphic completion-token abstraction.
   See `docs/ordering_and_backend_lowering.md`.
 
+### 3.6 Block-sparse tensor data model
+
+There is no real block-sparse tensor class yet beyond embryonic experiments, and it
+is the linchpin the rest of the execution stack consumes. The design — two-level
+(lightweight `mdspan` block + block-sparse container), typed ranks
+(BlockSpace/LocalSpace), and a single **layout** object (device/rank map +
+coalescing-aware memory plan) — is captured in `docs/block_sparse_tensor.md`. Its
+companion `docs/block_coalescing.md` covers single-axis GEMM grouping, and
+`docs/execution_architecture.md` ties the data model, dispatch, and scheduling
+together under a mechanism/policy split with a concrete build order. The empirical
+findings that informed these are in `docs/tensorcontraction_integration_findings.md`.
+
 ## 4. Roadmap
 
 ### 4.0 Sequencing principle: device-first
