@@ -1106,6 +1106,61 @@ inline void maybe_dump_rabc_fixture(BlockSparseFiniteMPS const& psi, std::size_t
   }
 }
 
+inline auto rabc_term_trace_match_counter() -> std::size_t&
+{
+  static std::size_t counter = 0;
+  return counter;
+}
+
+/// \brief Dump the value-free R/A/B/C term structure (f-hypergraph + block
+/// dimensions) at a selected bond, without the heavy `.rabc` matrix-element dump.
+/// \details Gated by `UNI20_RABC_TERM_TRACE_PATH`; honours the same central-bond
+/// filters as the fixture dump via `UNI20_RABC_TERM_TRACE_LEFT_SITE`,
+/// `_MIN_BOND_DIM`, `_MATCH_INDEX`, and `_EXIT`. Cheap enough to harvest block
+/// dimensions at large bond dimension (no GPU apply, no timing).
+inline void maybe_dump_rabc_term_trace(std::size_t left_site, BlockSparseTwoSiteLayout const& layout,
+                                       tensorcontraction::EffectiveHamiltonianOperator const& op)
+{
+  char const* path = std::getenv("UNI20_RABC_TERM_TRACE_PATH");
+  if (path == nullptr || *path == '\0')
+  {
+    return;
+  }
+
+  if (auto const target_left_site = optional_env_size("UNI20_RABC_TERM_TRACE_LEFT_SITE");
+      target_left_site.has_value() && left_site != *target_left_site)
+  {
+    return;
+  }
+
+  if (auto const min_bond_dim = optional_env_size("UNI20_RABC_TERM_TRACE_MIN_BOND_DIM"); min_bond_dim.has_value())
+  {
+    if (layout.left_bond_space().total_dim() < *min_bond_dim || layout.right_bond_space().total_dim() < *min_bond_dim)
+    {
+      return;
+    }
+  }
+
+  auto& match_counter = rabc_term_trace_match_counter();
+  auto const match_index = match_counter++;
+  if (auto const target_match = optional_env_size("UNI20_RABC_TERM_TRACE_MATCH_INDEX");
+      target_match.has_value() && match_index != *target_match)
+  {
+    return;
+  }
+
+  op.write_term_structure(path, match_index);
+  std::fprintf(stderr,
+               "[UNI20][RABC_TERM_TRACE] wrote %s left_site=%zu match=%zu left_dim=%zu right_dim=%zu blocks=%zu\n", path,
+               left_site, match_index, layout.left_bond_space().total_dim(), layout.right_bond_space().total_dim(),
+               layout.block_count());
+  if (env_flag_enabled("UNI20_RABC_TERM_TRACE_EXIT"))
+  {
+    std::fflush(stderr);
+    std::exit(0);
+  }
+}
+
 inline void validate_block_sparse_effective_hamiltonian_inputs(BlockSparseEnvironment const& left_env,
                                                                SparseMpoSite const& left_mpo,
                                                                SparseMpoSite const& right_mpo,
@@ -1586,6 +1641,7 @@ inline auto solve_two_site(BlockSparseFiniteMPS const& psi, BlockSparseMpoChain 
   auto effective_hamiltonian =
       make_two_site_effective_hamiltonian(left_env, mpo[left_site], mpo[left_site + 1], right_env, std::move(layout));
   detail::maybe_dump_rabc_fixture(psi, left_site, effective_hamiltonian.layout, effective_hamiltonian.op);
+  detail::maybe_dump_rabc_term_trace(left_site, effective_hamiltonian.layout, effective_hamiltonian.op);
   stage_stop = detail::profile_checkpoint();
   timings.effective_hamiltonian = detail::profile_elapsed(stage_start, stage_stop);
 

@@ -4,8 +4,10 @@
 #include <uni20/tensorcontraction/matrix_family.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 
 namespace uni20::tensorcontraction
 {
@@ -34,6 +36,17 @@ class EffectiveHamiltonianOperator {
     [[nodiscard]] bool compiled() const noexcept;
     [[nodiscard]] MatrixFamily make_input_vector() const;
     [[nodiscard]] MatrixFamily make_output_vector() const;
+
+    /// \brief Append one value-free term-structure record (the contraction
+    /// f-hypergraph plus per-block dimensions) to a JSONL file at \p path.
+    /// \details Emits a `kind:"rabc_matvec"` record with `terms[]` carrying
+    /// r/a/b/c, coefficient, block dimensions, and derived bc_flops /
+    /// accumulate_flops / intermediate_bytes — no matrix-element values, no GPU
+    /// apply, and no timing. Intended for cheaply harvesting block dimensions at
+    /// large bond dimension. The layout is reported as a single device.
+    /// \param path JSONL output path (opened in append mode).
+    /// \param index Record index written into the JSON.
+    void write_term_structure(std::string const& path, std::uint64_t index) const;
 
     void compile();
     void apply(MatrixFamily const& x, MatrixFamily& y);

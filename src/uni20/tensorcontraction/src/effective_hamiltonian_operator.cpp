@@ -2350,6 +2350,63 @@ MatrixFamily EffectiveHamiltonianOperator::make_input_vector() const { return Ma
 
 MatrixFamily EffectiveHamiltonianOperator::make_output_vector() const { return MatrixFamily(impl_->output_blocks); }
 
+void EffectiveHamiltonianOperator::write_term_structure(std::string const& path, std::uint64_t index) const
+{
+  auto const& a_mats = impl_->a_mats;
+  auto const& b_mats = impl_->b_mats;
+  auto const& c_mats = impl_->c_mats;
+  auto const& r_mats = impl_->r_mats;
+  auto const& terms = impl_->terms;
+  std::size_t const block_count = r_mats.size();
+
+  auto* file = std::fopen(path.c_str(), "a");
+  if (file == nullptr)
+  {
+    throw std::runtime_error("failed to open R/A/B/C term-structure file: " + path);
+  }
+
+  // Single-device placeholder layout: R shares B's space, all on device 0.
+  std::string layout = "[";
+  for (std::size_t block = 0; block < block_count; ++block)
+  {
+    if (block != 0)
+    {
+      layout += ',';
+    }
+    layout += '0';
+  }
+  layout += ']';
+
+  fmt::print(file,
+             "{{\"kind\":\"rabc_matvec\",\"index\":{},\"policy\":\"structure\",\"device_count\":1,"
+             "\"block_count\":{},\"term_count\":{},\"input_layout\":{},\"output_layout\":{},\"terms\":[",
+             index, block_count, terms.size(), layout, layout);
+  for (std::size_t term_index = 0; term_index < terms.size(); ++term_index)
+  {
+    auto const& term = terms[term_index];
+    if (term_index != 0)
+    {
+      fmt::print(file, ",");
+    }
+    auto const a = a_mats.block(term.a);
+    auto const b = b_mats.block(term.b);
+    auto const c = c_mats.block(term.c);
+    auto const r = r_mats.block(term.r);
+    auto const intermediate = MatrixFamily::Block{.rows = b.rows, .cols = c.cols};
+    fmt::print(file,
+               "{{\"r\":{},\"a\":{},\"b\":{},\"c\":{},\"coefficient\":{:.17g},\"device\":0,"
+               "\"r_rows\":{},\"r_cols\":{},\"a_rows\":{},\"a_cols\":{},"
+               "\"b_rows\":{},\"b_cols\":{},\"c_rows\":{},\"c_cols\":{},"
+               "\"bc_flops\":{},\"accumulate_flops\":{},\"intermediate_bytes\":{}}}",
+               term.r, term.a, term.b, term.c, term.coefficient, r.rows, r.cols, a.rows, a.cols, b.rows, b.cols,
+               c.rows, c.cols, static_cast<std::int64_t>(gemm_flops(b, c)),
+               static_cast<std::int64_t>(gemm_flops(a, intermediate)),
+               static_cast<std::int64_t>(b.rows * c.cols * sizeof(double)));
+  }
+  fmt::print(file, "]}}\n");
+  std::fclose(file);
+}
+
 void EffectiveHamiltonianOperator::compile()
 {
   if (impl_->is_compiled)
