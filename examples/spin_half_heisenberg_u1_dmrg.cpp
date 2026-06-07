@@ -308,8 +308,30 @@ void run_large_chain_sweep_check()
   };
   auto options = sweep_options(max_rank, observer);
 
-  for (std::size_t sweep = 0; sweep < sweep_count; ++sweep)
+  // Optional bond-dimension ramp: hold each max_rank for one full sweep (2 half
+  // sweeps) while doubling 2,4,8,... up to UNI20_HEISENBERG_MAX_RANK. Each stage
+  // only needs to double the central bond from the previous stage's saturation,
+  // so one full sweep suffices to reach a symmetric N x N central bond. Useful
+  // for a clean scaling series of central-bond structures.
+  bool const ramp_max_rank = std::getenv("UNI20_HEISENBERG_RAMP") != nullptr;
+  std::vector<std::size_t> rank_schedule;
+  if (ramp_max_rank)
   {
+    for (std::size_t rank = 2; rank < max_rank; rank *= 2)
+    {
+      rank_schedule.push_back(rank);
+    }
+    rank_schedule.push_back(max_rank);
+    fmt::print("max-rank ramp: {} stages (2..{})\n", rank_schedule.size(), max_rank);
+  }
+  std::size_t const effective_sweeps = ramp_max_rank ? rank_schedule.size() : sweep_count;
+
+  for (std::size_t sweep = 0; sweep < effective_sweeps; ++sweep)
+  {
+    if (ramp_max_rank)
+    {
+      options.svd.max_rank = rank_schedule[sweep];
+    }
     half_sweep = 2 * sweep;
     auto left_to_right = sweep_two_site_left_to_right(psi, mpo, left_envs, right_envs, options);
     fmt::print("Cumulative truncation error for sweep: {:.16g}\n", truncation_sum(left_to_right));
