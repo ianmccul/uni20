@@ -76,7 +76,10 @@ auto sweep_options(std::size_t max_rank,
                    BlockSparseTwoSiteSweepObserver observer = {}) -> BlockSparseTwoSiteSweepOptions
 {
   return BlockSparseTwoSiteSweepOptions{
-      .lanczos = tensorcontraction::LanczosOptions{.max_iterations = 24, .min_iterations = 2, .tolerance = 1.0e-12},
+      .lanczos = tensorcontraction::LanczosOptions{
+          .max_iterations = static_cast<int>(terminal::getenv_or_default<long>("UNI20_HUBBARD_LANCZOS_MAX_ITERS", 24)),
+          .min_iterations = static_cast<int>(terminal::getenv_or_default<long>("UNI20_HUBBARD_LANCZOS_MIN_ITERS", 2)),
+          .tolerance = 1.0e-12},
       .svd = tensorcontraction::SvdOptions{.max_rank = max_rank},
       .observer = std::move(observer),
   };

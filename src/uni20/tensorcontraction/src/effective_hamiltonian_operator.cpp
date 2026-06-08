@@ -2377,10 +2377,15 @@ void EffectiveHamiltonianOperator::write_term_structure(std::string const& path,
   }
   layout += ']';
 
+  std::size_t mem_free = 0;
+  std::size_t mem_total = 0;
+  cudaMemGetInfo(&mem_free, &mem_total);  // device-wide; counts pool-retained memory as used
+
   fmt::print(file,
              "{{\"kind\":\"rabc_matvec\",\"index\":{},\"policy\":\"structure\",\"device_count\":1,"
-             "\"block_count\":{},\"term_count\":{},\"input_layout\":{},\"output_layout\":{},\"terms\":[",
-             index, block_count, terms.size(), layout, layout);
+             "\"block_count\":{},\"term_count\":{},\"gpu_mem_used_bytes\":{},\"gpu_mem_free_bytes\":{},"
+             "\"gpu_mem_total_bytes\":{},\"input_layout\":{},\"output_layout\":{},\"terms\":[",
+             index, block_count, terms.size(), mem_total - mem_free, mem_free, mem_total, layout, layout);
   for (std::size_t term_index = 0; term_index < terms.size(); ++term_index)
   {
     auto const& term = terms[term_index];
