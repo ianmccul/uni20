@@ -641,6 +641,47 @@ auto resident_output_buffers(MatrixFamily& family, int target_device,
   return result;
 }
 
+// Register each output block on its assigned (per-sector) device, coalescing the
+// blocks that share a device into one allocation per device.
+void register_resident_output_distributed(MatrixFamily& family, std::span<int const> block_devices, int device_count,
+                                          tensor::Swapper& swapper)
+{
+  auto const& mats = raw_matrices(family);
+  for (int device = 0; device < device_count; ++device)
+  {
+    std::vector<tensor::Matrix> group;
+    for (std::size_t block = 0; block < mats.size(); ++block)
+    {
+      if (block_devices[block] == device)
+      {
+        group.push_back(mats[block]);
+      }
+    }
+    if (!group.empty())
+    {
+      swapper.registerGpuAllocationsCoalesced(group, device);
+    }
+  }
+}
+
+auto resident_output_buffers_distributed(MatrixFamily& family, std::span<int const> block_devices,
+                                         tensor::Swapper& swapper) -> std::vector<std::shared_ptr<tensor::GpuBuffer>>
+{
+  std::vector<std::shared_ptr<tensor::GpuBuffer>> result;
+  auto const& mats = raw_matrices(family);
+  result.reserve(mats.size());
+  for (std::size_t block = 0; block < mats.size(); ++block)
+  {
+    auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(mats[block]);
+    if (buffer == nullptr || device_id != block_devices[block])
+    {
+      throw std::logic_error("resident block-sparse SVD failed to allocate an output block on its assigned device");
+    }
+    result.push_back(std::move(buffer));
+  }
+  return result;
+}
+
 } // namespace
 
 std::optional<SingleBlockSvd> single_block_svd_cusolver(MatrixFamily const& matrix, SvdOptions options)
@@ -823,8 +864,11 @@ block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlo
   arranger.ensureMemoryPoolsInitialized();
   auto& swapper = arranger.residentSwapper();
   auto const& matrices = raw_matrices(vector);
+  if (matrices.empty())
+  {
+    throw std::invalid_argument("resident block-sparse SVD requires at least one resident source block");
+  }
   std::vector<ResidentSourceBuffer> sources(matrices.size());
-  int target_device = -1;
   for (std::size_t block = 0; block < matrices.size(); ++block)
   {
     auto [device_id, buffer] = swapper.getPreStoreBufferOrNone(matrices[block]);
@@ -832,31 +876,62 @@ block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlo
     {
       return std::nullopt;
     }
-    if (target_device < 0)
-    {
-      target_device = device_id;
-    }
     sources[block] = ResidentSourceBuffer{.device_id = device_id, .buffer = std::move(buffer)};
   }
-  if (target_device < 0)
+
+  int const device_count = std::max(1, swapper.getDeviceCount());
+
+  // Assign each sector to a device, greedily balancing the dominant SVD input
+  // size (row_dim * col_dim) so no single card carries every sector's SVD. With
+  // device_count == 1 this trivially places all sectors on device 0.
+  std::vector<int> sector_device(plan.sectors.size(), 0);
   {
-    throw std::invalid_argument("resident block-sparse SVD requires at least one resident source block");
+    std::vector<std::size_t> order(plan.sectors.size());
+    for (std::size_t i = 0; i < order.size(); ++i)
+    {
+      order[i] = i;
+    }
+    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+      return plan.sectors[a].row_dim * plan.sectors[a].col_dim > plan.sectors[b].row_dim * plan.sectors[b].col_dim;
+    });
+    std::vector<std::size_t> load(static_cast<std::size_t>(device_count), 0);
+    for (auto const s : order)
+    {
+      int best = 0;
+      for (int d = 1; d < device_count; ++d)
+      {
+        if (load[static_cast<std::size_t>(d)] < load[static_cast<std::size_t>(best)])
+        {
+          best = d;
+        }
+      }
+      sector_device[s] = best;
+      load[static_cast<std::size_t>(best)] += plan.sectors[s].row_dim * plan.sectors[s].col_dim;
+    }
   }
 
-  check_cuda(cudaSetDevice(target_device), "cudaSetDevice");
-  auto& context = cusolver_context_for_current_device();
-  auto const handle = context.handle.get();
-  auto const stream = context.stream.get();
+  auto device_stream = [&](int device) -> cudaStream_t {
+    check_cuda(cudaSetDevice(device), "cudaSetDevice");
+    return cusolver_context_for_current_device().stream.get();
+  };
 
   std::vector<DeviceBuffer> staging_buffers;
-  std::vector<ResidentSectorSvd> sector_svds;
+  std::vector<ResidentSectorSvd> sector_svds(plan.sectors.size());
   std::vector<std::shared_ptr<tensor::GpuBuffer>> read_buffers;
+  std::vector<char> device_used(static_cast<std::size_t>(device_count), 0);
   staging_buffers.reserve(vector.size());
-  sector_svds.reserve(plan.sectors.size());
   read_buffers.reserve(vector.size());
 
-  for (auto const& sector : plan.sectors)
+  for (std::size_t sector_index = 0; sector_index < plan.sectors.size(); ++sector_index)
   {
+    auto const& sector = plan.sectors[sector_index];
+    int const device = sector_device[sector_index];
+    device_used[static_cast<std::size_t>(device)] = 1;
+    check_cuda(cudaSetDevice(device), "cudaSetDevice");
+    auto& context = cusolver_context_for_current_device();
+    auto const handle = context.handle.get();
+    auto const stream = context.stream.get();
+
     auto const shape = make_svd_solver_shape(sector.row_dim, sector.col_dim);
     DeviceBuffer device_a(sector.row_dim * sector.col_dim * sizeof(double));
     check_cuda(cudaMemsetAsync(device_a.as<double>(), 0, sector.row_dim * sector.col_dim * sizeof(double), stream),
@@ -878,12 +953,12 @@ block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlo
       }
 
       double const* source_ptr = source.buffer->getPtr();
-      if (source.device_id != target_device)
+      if (source.device_id != device)
       {
         staging_buffers.emplace_back(matrix.sizeInByte());
         auto* staging = staging_buffers.back().as<double>();
-        check_cuda(cudaMemcpyPeerAsync(staging, target_device, source.buffer->getPtr(), source.device_id,
-                                       matrix.sizeInByte(), stream),
+        check_cuda(cudaMemcpyPeerAsync(staging, device, source.buffer->getPtr(), source.device_id, matrix.sizeInByte(),
+                                       stream),
                    "cudaMemcpyPeerAsync resident block-sparse SVD source staging");
         source_ptr = staging;
       }
@@ -893,10 +968,19 @@ block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlo
                                             sector.col_dim, term.row_offset, term.col_offset, shape.transposed, stream);
     }
     check_cuda(cudaGetLastError(), "launch_pack_svd_input_subblock_kernel");
-    sector_svds.push_back(make_resident_sector_svd(std::move(device_a), shape, handle, stream));
+    sector_svds[sector_index] = make_resident_sector_svd(std::move(device_a), shape, handle, stream);
   }
 
-  check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize resident block-sparse SVD singular values");
+  // Barrier: every device finishes its sector SVDs before we read singular values.
+  for (int device = 0; device < device_count; ++device)
+  {
+    if (device_used[static_cast<std::size_t>(device)])
+    {
+      check_cuda(cudaStreamSynchronize(device_stream(device)),
+                 "cudaStreamSynchronize resident block-sparse SVD singular values");
+    }
+  }
+
   std::vector<std::vector<double>> singular_values;
   singular_values.reserve(sector_svds.size());
   for (auto& svd : sector_svds)
@@ -914,12 +998,34 @@ block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlo
 
   auto [ranks, spectrum] = select_resident_sector_ranks(singular_values, options);
   auto [left_blocks, right_blocks] = make_resident_output_blocks(plan, ranks);
+
+  // Each output block is placed on its sector's device (kept sectors only).
+  std::vector<int> left_block_devices;
+  std::vector<int> right_block_devices;
+  for (std::size_t sector_index = 0; sector_index < plan.sectors.size(); ++sector_index)
+  {
+    if (ranks[sector_index] == 0)
+    {
+      continue;
+    }
+    auto const& sector = plan.sectors[sector_index];
+    int const device = sector_device[sector_index];
+    for (std::size_t i = 0; i < sector.left_terms.size(); ++i)
+    {
+      left_block_devices.push_back(device);
+    }
+    for (std::size_t i = 0; i < sector.right_terms.size(); ++i)
+    {
+      right_block_devices.push_back(device);
+    }
+  }
+
   MatrixFamily left(left_blocks);
   MatrixFamily right(right_blocks);
-  register_resident_output(left, target_device, swapper);
-  register_resident_output(right, target_device, swapper);
-  auto left_buffers = resident_output_buffers(left, target_device, swapper);
-  auto right_buffers = resident_output_buffers(right, target_device, swapper);
+  register_resident_output_distributed(left, left_block_devices, device_count, swapper);
+  register_resident_output_distributed(right, right_block_devices, device_count, swapper);
+  auto left_buffers = resident_output_buffers_distributed(left, left_block_devices, swapper);
+  auto right_buffers = resident_output_buffers_distributed(right, right_block_devices, swapper);
 
   std::size_t left_block = 0;
   std::size_t right_block = 0;
@@ -933,6 +1039,8 @@ block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlo
     }
     auto const& sector = plan.sectors[sector_index];
     auto const& svd = sector_svds[sector_index];
+    int const device = sector_device[sector_index];
+    auto const stream = device_stream(device);
     for (auto const& term : sector.left_terms)
     {
       auto& buffer = left_buffers.at(left_block++);
@@ -954,20 +1062,38 @@ block_sparse_svd_split_resident_cusolver(MatrixFamily const& vector, ResidentBlo
   }
   check_cuda(cudaGetLastError(), "resident block-sparse SVD scatter kernels");
 
-  auto completion = swapper.deviceContext(target_device).recordCompletionEvent(stream);
+  // Barrier + per-device completion. The SVD path is host-synchronous, so a
+  // post-sync event is already complete; dependents waiting on it (cross-device
+  // waits are valid) see the outputs ready. (Async cross-device completion
+  // ordering is the core async runtime's job, not the bridge's.)
+  int first_used = -1;
+  std::unordered_map<int, tensor::cuda::CompletionRef> completions;
+  for (int device = 0; device < device_count; ++device)
+  {
+    if (!device_used[static_cast<std::size_t>(device)])
+    {
+      continue;
+    }
+    auto const stream = device_stream(device);
+    check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize resident block-sparse SVD scatter");
+    completions.emplace(device, swapper.deviceContext(device).recordCompletionEvent(stream));
+    if (first_used < 0)
+    {
+      first_used = device;
+    }
+  }
   for (auto const& buffer : read_buffers)
   {
-    buffer->publishRead(completion);
+    buffer->publishRead(completions.at(first_used));
   }
-  for (auto const& buffer : left_buffers)
+  for (std::size_t i = 0; i < left_buffers.size(); ++i)
   {
-    buffer->publishWrite(completion);
+    left_buffers[i]->publishWrite(completions.at(left_block_devices[i]));
   }
-  for (auto const& buffer : right_buffers)
+  for (std::size_t i = 0; i < right_buffers.size(); ++i)
   {
-    buffer->publishWrite(completion);
+    right_buffers[i]->publishWrite(completions.at(right_block_devices[i]));
   }
-  check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize resident block-sparse SVD scatter");
 
   return ResidentBlockSparseSvdSplit{.left = std::move(left),
                                      .right = std::move(right),
