@@ -75,7 +75,7 @@ struct FloatingULP<T>
 
 /// \brief ULP comparator for complex numbers over floating point.
 template <typename T>
-requires uni20::is_complex<T>
+requires uni20::is_complex_v<T>
 struct FloatingULP<T>
 {
     static bool eq(T const& a, T const& b, std::int64_t max_ulps = 4)
