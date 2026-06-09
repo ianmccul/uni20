@@ -143,8 +143,10 @@ The term trace (`*_term_trace.jsonl`) is exactly this value-free representation 
 `accumulate_flops`, and `intermediate_bytes`. So the artifact to share is the trace
 `.jsonl` itself plus a small standalone reader that loads it into data structures;
 collaborators run their own analysis/partitioning code rather than this branch's
-(heavily modified) tooling. Documenting the JSONL schema and shipping a minimal
-reader is a clean, separate deliverable (open item).
+(heavily modified) tooling. A documented JSONL schema and a minimal header-only
+C++ reader (nlohmann/json) live on the `tensorcontraction-integration` branch under
+`tools/rabc_trace_reader/` (and a standalone repo), so collaborators can load the
+value-free structure without depending on the prototype's tooling.
 
 **What to generate — typical iterations, not whole runs.** The representative unit is
 the **central-bond iteration**: maximal bond dimension, largest contraction, most
