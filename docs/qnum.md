@@ -91,7 +91,7 @@ Implemented operations:
 - `symmetry()`
 - `raw_code()`
 - `dual(q)`
-- `is_scalar(q)`
+- `is_identity(q)`
 - `qdim(q)`
 - `degree(q)`
 - `to_string(q)` producing comma-separated named components such as
