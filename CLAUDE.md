@@ -85,7 +85,7 @@ dispatch), `linalg/`, `tensor/`, `level1/`, `mdspan/`, `storage/`, `tags/`,
   brackets `[]`** for multi-dim indexing — do **not** define
   `MDSPAN_USE_PAREN_OPERATOR`. (Watch for `[a,b]` inside TRACE/gtest macros.)
 - **Coroutine safety (critical):** async coroutine lambdas (anything returning a
-  type derived from `BasicAsyncTask`, e.g. `AsyncTask`, `AsyncGpuTask`) **must have
+  type derived from `BasicAsyncTask`, e.g. `AsyncTask`, `CudaTask`) **must have
   no capture list and must use the `static` modifier** — pass all values as
   parameters. Convention: `[](int x) static -> AsyncTask { ... }`. Captures would
   dangle because the coroutine outlives the lambda closure.

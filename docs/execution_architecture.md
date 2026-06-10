@@ -10,8 +10,10 @@ description of current implemented behavior.
 Related notes:
 
 - `docs/block_sparse_tensor.md` — the tensor + layout (the linchpin data model).
+- `docs/block_tensor.md` — the symmetry-typed `BlockTensor` refinement of the data model.
 - `docs/block_coalescing.md` — single-axis GEMM grouping.
 - `docs/backend_dispatch.md` — the `maybe_can_*` / `try_*` / generic dispatch pattern.
+- `docs/kernel_dispatch.md` — the ordered backend-list generalization and scheduler integration.
 - `docs/ordering_and_backend_lowering.md` — ordering ownership; two-clocks lifetime.
 - `docs/storage_kind_and_location.md` — memory kind vs location.
 - `docs/cuda_runtime_design_notes.md` — stream ownership; idle-stream `co_await` pool.
@@ -37,10 +39,10 @@ The guiding constraint is *uni20 should facilitate any choice we want to make*.
 That requires a clean split:
 
 - **Mechanism (policy-free):** the tensor layout can map any block to any
-  device/rank; dispatch can run any backend; scheduling handles any device mix.
-  None of these bake in a placement assumption.
-- **Policy (one layer):** the planner decides coalescing groups and the device/rank
-  map, using the cost model. Decisions like "the small-block tail runs on the CPU"
+  device / MPI rank; dispatch can run any backend; scheduling handles any device
+  mix. None of these bake in a placement assumption.
+- **Policy (one layer):** the planner decides coalescing groups and the
+  device / MPI-rank map, using the cost model. Decisions like "the small-block tail runs on the CPU"
   are planner output, not properties of the tensor, dispatch, or scheduler.
 
 This is why the cost-model calibration work matters beyond the prototype: it is the
@@ -53,13 +55,15 @@ planner's oracle, and the planner is the only place policy is allowed to live.
    sub-ranges, and a device completion token carried in the buffer's epoch. This is
    the seam under both the tensor (blocks as sub-views) and scheduling (deferred
    GPU sync). It also houses the token-pins-storage lifetime rule.
-2. **Tensor + layout (the gap).** See `block_sparse_tensor.md`. Design the layout
-   type first (device/rank map + coalescing-aware memory plan), then the
+2. **Tensor + layout (the gap).** See `block_sparse_tensor.md`, refined into the
+   symmetry-typed `BlockTensor` in `block_tensor.md`. Design the layout
+   type first (device / MPI-rank map + coalescing-aware memory plan), then the
    block-sparse container on top. This is the only piece with no existing
    foundation, and dispatch/scheduling/MPI/planner all consume its layout.
 3. **Kernel dispatch.** The `backend_dispatch.md` pattern already defines the
    shape (`maybe_can_*` compile-time capability, `try_*` runtime attempt, generic
-   fallback as the correctness oracle). What this stack adds: dispatch reads the
+   fallback as the correctness oracle), generalized to an ordered backend list in
+   `kernel_dispatch.md`. What this stack adds: dispatch reads the
    layout for device selection, emits ops into the appropriate scheduler with a
    completion token, picks a synchronization mode (below), and treats
    batched/coalesced kernels as backend capabilities.
@@ -125,7 +129,7 @@ completion token is the always-on correctness substrate:
   GPU→GPU dataflow and for the tail (many tiny kernels on one stream, FIFO-ordered
   with zero events, one terminal sync). It makes the token-pins-storage rule
   mandatory: no coroutine frame is left holding the inputs alive.
-- **Explicit await (`co_await` a nested GpuTask).** For GPU→host edges and
+- **Explicit await (`co_await` a nested `CudaTask`).** For GPU→host edges and
   control-flow that genuinely needs op-level sequencing (a norm, Lanczos
   coefficients), suspend the coroutine on the token.
 

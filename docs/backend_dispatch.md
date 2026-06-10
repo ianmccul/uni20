@@ -2,7 +2,10 @@
 
 This note records the preferred direction for future Uni20 backend work. It is
 planning guidance, not a statement that every current backend already follows
-this pattern.
+this pattern. The three-stage pattern described here is generalized to an
+ordered, overridable backend list — with nesting for distributed execution — in
+`kernel_dispatch.md`; this note remains the reference for the per-backend
+`maybe_can_*` / `try_*` / fallback contract.
 
 ## Core Rule
 

@@ -8,6 +8,7 @@ experiments.
 
 Related notes:
 
+- `docs/block_tensor.md` — the symmetry-typed `BlockTensor` design that refines this note.
 - `docs/storage_kind_and_location.md` — storage memory kind (type) vs location (runtime).
 - `docs/ordering_and_backend_lowering.md` — ordering ownership; two-clocks lifetime rule.
 - `docs/gpu_epoch_design_draft.md` — GPU per-buffer hazard model.
@@ -21,10 +22,12 @@ Related notes:
 The block-sparse tensor is the missing data model, and its **layout** is the
 linchpin of the whole stack. The design is two-level: a lightweight dense block
 (an `mdspan` leaf living on one device) and a block-sparse container of such
-blocks. The **layout** object carries two things at once — *which device/rank owns
-each block* and *how blocks are arranged in memory* (coalescing-aware strides) —
-and it is the single object that tensor storage, kernel dispatch, device
-scheduling, MPI distribution, and the placement planner all consume. Blocks are
+blocks. The **layout** object carries two things at once — *which device / MPI
+rank owns each block* and *how blocks are arranged in memory* (coalescing-aware
+strides) — and it is the single object that tensor storage, kernel dispatch,
+device scheduling, MPI distribution, and the placement planner all consume.
+(Which location fields the per-block record carries is policy-typed in the
+refined design — see `block_tensor.md` §1/§6.) Blocks are
 strided views into shared buffer storage tracked by the async runtime; symmetry
 metadata is part of the type. The tensor is **policy-free mechanism**: it can map
 any block to any device. Placement — including "tail on CPU" — is the planner's
@@ -41,22 +44,22 @@ policy, layered on top (see `execution_architecture.md`).
   lives and how it is stored. The container is the "tensor"; the blocks are its
   populated sectors.
 
-## Typed ranks
+## Typed legs
 
-Tensors are general rank-N, but the ranks are **typed**, because different rank
+Tensors are general order-N, but the legs are **typed**, because different leg
 kinds carry different sparsity:
 
 - **BlockSpace** — symmetry-decomposed virtual index (e.g. an MPS bond). Block-
   sparse: only some charge sectors are populated, with varying sector dimensions.
 - **LocalSpace** — a small dense physical index (e.g. 2 for spin-½, 4 for a
   Hubbard site). Treated as *inherently sparse* through the selection rule: for a
-  fixed combination of the other ranks, only some local values are allowed. It is
+  fixed combination of the other legs, only some local values are allowed. It is
   dense-but-small and regular, which makes it the natural coalescing axis (see
   `block_coalescing.md`).
-- **Dense rank** — an ordinary dense index where neither block-sparsity nor a
+- **Dense leg** — an ordinary dense index where neither block-sparsity nor a
   selection rule applies. Mostly relevant for the dense-tensor degenerate case.
 
-The current DMRG blocks are a rank-3 prototype `A(i, s, j)`: `i`/`j` BlockSpace
+The current DMRG blocks are a three-leg prototype `A(i, s, j)`: `i`/`j` BlockSpace
 virtual bonds, `s` a LocalSpace physical index.
 
 ### Selection rule is part of the type
@@ -99,8 +102,8 @@ start because they are expensive to retrofit:
 
 ## The layout object (the linchpin)
 
-A uni20 **layout** is `(block-index → device/rank map) + (coalescing-aware memory
-arrangement)`. One object, consumed everywhere:
+A uni20 **layout** is `(block-index → device / MPI-rank map) + (coalescing-aware
+memory arrangement)`. One object, consumed everywhere:
 
 | Consumer | What it reads from the layout |
 |---|---|
@@ -108,7 +111,7 @@ arrangement)`. One object, consumed everywhere:
 | Kernel dispatch | block location → backend/device selection |
 | Device scheduling | which device's scheduler/stream an op targets |
 | MPI | the distribution, and deterministic block identity for tag derivation |
-| Placement planner | the device/rank map is the planner's *output* |
+| Placement planner | the device / MPI-rank map is the planner's *output* |
 
 Because the same object threads all of these, getting it right makes the pieces
 compose, and getting it wrong makes them fight at every boundary. The layout type
@@ -116,18 +119,18 @@ should be designed first, before the tensor that contains it.
 
 ## Distribution from day one
 
-The device/rank map exists even in the single-device case (everything trivially
-on device 0), so single-device, multi-GPU, and multi-rank are the same code path
-with different maps — not a CPU-first design with distribution bolted on later.
-For MPI, block identity must be globally deterministic so both ranks derive the
-same tag for an edge without communicating (graph construction, including
+The device / MPI-rank map exists even in the single-device case (everything
+trivially on device 0), so single-device, multi-GPU, and multi-MPI-rank are the
+same code path with different maps — not a CPU-first design with distribution
+bolted on later. For MPI, block identity must be globally deterministic so both
+MPI ranks derive the same tag for an edge without communicating (graph construction, including
 reverse-mode AD, must be replicated/deterministic — see
 `ordering_and_backend_lowering.md`).
 
 ## Decisions made
 
 - Two-level model: lightweight dense `mdspan` block + block-sparse container.
-- Typed ranks: BlockSpace / LocalSpace / dense; general rank-N; LocalSpace is a
+- Typed legs: BlockSpace / LocalSpace / dense; general order-N; LocalSpace is a
   distinct kind, treated as sparse via the selection rule.
 - The selection rule and all symmetry metadata are part of the type; no dense
   fallback on a symmetry path.
@@ -135,14 +138,14 @@ reverse-mode AD, must be replicated/deterministic — see
   buffers, not by blocks.
 - Hazard tracking is buffer-with-subviews; storage lifetime is pinned by the
   completion token.
-- The layout is a single object = device/rank map + coalescing-aware memory plan,
-  consumed by tensor/dispatch/scheduling/MPI/planner.
+- The layout is a single object = device / MPI-rank map + coalescing-aware memory
+  plan, consumed by tensor/dispatch/scheduling/MPI/planner.
 - The tensor is policy-free mechanism; placement is the planner's policy.
 
 ## Open questions
 
-- **LocalSpace representation.** Is LocalSpace a dense rank annotated with a
-  selection-rule predicate, or a first-class rank kind with its own block
+- **LocalSpace representation.** Is LocalSpace a dense leg annotated with a
+  selection-rule predicate, or a first-class leg kind with its own block
   structure? It is small and regular, which argues for keeping it cheap.
 - **Layout memory plan generality.** How much memory-arrangement freedom does the
   layout expose — arbitrary per-block strides, or a constrained interleave/
@@ -153,7 +156,8 @@ reverse-mode AD, must be replicated/deterministic — see
   overlap tracking (precise, more parallel) for mixed coalesced/uncoalesced access
   to one buffer.
 - **Block-index identity for MPI.** What canonical, replication-stable identity is
-  used to derive tags (sector quantum numbers + rank coordinates?), and how it
+  used to derive tags (sector quantum numbers + per-leg sector indices?), and how it
   survives truncation/growth across DMRG sweeps.
-- **Where leg orientation lives** — on the BlockSpace rank, on the tensor, or
-  both — and how it interacts with the selection rule and adjoint operations.
+- ~~**Where leg orientation lives**~~ — *resolved* in `block_tensor.md` §3:
+  intrinsically on the leg, as distinct co-types (`CoBlockSpace`, `CoLocalSpace`,
+  `CoQNumSpace`).

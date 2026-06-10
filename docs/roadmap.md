@@ -93,10 +93,12 @@ Two foundational abstractions are not yet expressed in core:
 
 There is no real block-sparse tensor class yet beyond embryonic experiments, and it
 is the linchpin the rest of the execution stack consumes. The design — two-level
-(lightweight `mdspan` block + block-sparse container), typed ranks
-(BlockSpace/LocalSpace), and a single **layout** object (device/rank map +
-coalescing-aware memory plan) — is captured in `docs/block_sparse_tensor.md`. Its
-companion `docs/block_coalescing.md` covers single-axis GEMM grouping, and
+(lightweight `mdspan` block + block-sparse container), typed legs
+(BlockSpace/LocalSpace), and a single **layout** object (device / MPI-rank map +
+coalescing-aware memory plan) — is captured in `docs/block_sparse_tensor.md` and
+refined into the symmetry-typed `BlockTensor` in `docs/block_tensor.md`. Its
+companion `docs/block_coalescing.md` covers single-axis GEMM grouping,
+`docs/kernel_dispatch.md` the backend-list dispatch, and
 `docs/execution_architecture.md` ties the data model, dispatch, and scheduling
 together under a mechanism/policy split with a concrete build order. The empirical
 findings that informed these are in `docs/tensorcontraction_integration_findings.md`.

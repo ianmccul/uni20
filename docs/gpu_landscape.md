@@ -6,6 +6,21 @@ It is not a statement of current Uni20 backend support. As of April 8, 2026, Uni
 
 Refresh this note before spending real money. The workstation GPU market changes quickly.
 
+## HPC policy context
+
+Deelman et al., ["High-performance computing at a crossroads"](https://www.science.org/doi/full/10.1126/science.adu0801),
+Science 387(6736), 829-831 (2025), is useful background for this note.
+It frames current HPC hardware as a strategic transition rather than a simple
+GPU upgrade cycle: memory movement, algorithm efficiency, power consumption,
+software portability, and AI-driven low-precision accelerator markets all affect
+whether future commodity systems remain suitable for traditional scientific
+simulation.
+
+For Uni20, this is a practical warning. Tensor-network codes need large memory,
+high bandwidth, dependable FP64 behavior when physics demands it, and portable
+fallback paths. Backend work should therefore treat GPUs and vendor libraries as
+important accelerators, but not as the only semantic home for tensor operations.
+
 ## What matters most for tensor networks
 
 For tensor-network work, the most important GPU properties are usually:
@@ -129,3 +144,4 @@ If you are choosing hardware in 2026 for tensor-network work:
 - [NVIDIA A100 product page](https://www.nvidia.com/en-us/data-center/a100/)
 - [AMD Radeon PRO W7900 dual-slot datasheet](https://www.amd.com/content/dam/amd/en/documents/partner-hub/radeon-pro/amd-radeon-pro-w7900-dual-slot-datasheet-competitive.pdf)
 - [AMD Instinct MI210 product brief](https://www.amd.com/content/dam/amd/en/documents/instinct-business-docs/product-briefs/instinct-mi210-brochure.pdf)
+- [Deelman et al., "High-performance computing at a crossroads," Science 387(6736), 829-831 (2025)](https://www.science.org/doi/full/10.1126/science.adu0801)

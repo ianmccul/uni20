@@ -69,7 +69,7 @@ auto f = [](int x) static->AsyncTask { foo(x); co_return; };
 
 **Why:**
 Async coroutine lambdas are lambdas that return anything derived from `BasicAsyncTask`
-(so `AsyncTask`, `AsyncGpuTask`, etc). This is a wrapper for a `coroutine_handle`, and
+(so `AsyncTask`, `CudaTask`, etc). This is a wrapper for a `coroutine_handle`, and
 that coroutine handle has a lifetime that is distinct from the lambda itself. Captured
 values are stored inside the lambda closure object, and hence go out of scope as soon
 as the lambda variable is destroyed. They are not copied onto the coroutine stack frame.

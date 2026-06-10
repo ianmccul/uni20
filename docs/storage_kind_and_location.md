@@ -11,6 +11,9 @@ Related notes:
   host/device transfer model.
 - `docs/backend_dispatch.md` — compile-time capability / runtime `try_*` dispatch.
 - `docs/qnum.md` — symmetry/QNum and block-key invariants.
+- `docs/block_tensor.md` — the container-level refinement: the
+  `TensorStorage` / `BlockTensorStorage` two-policy split and policy-typed
+  per-block records (§1, §5–§6 there).
 
 ## Summary
 
@@ -27,7 +30,7 @@ collapsed into one:
 Conflating them breaks the design in one of two ways:
 
 - If location is encoded in the *type*, you cannot support multi-GPU or MPI: the
-  device ordinal and the rank are not knowable at compile time.
+  device ordinal and the MPI rank are not knowable at compile time.
 - If kind is pushed to *runtime* (type-erased storage), you lose compile-time kernel
   dispatch **and** the symmetry/QNum guarantees that uni20 treats as correctness
   invariants (see `docs/qnum.md`).
@@ -65,7 +68,12 @@ the other:
 
 A block-sparse tensor therefore needs *per-block* location, not a single
 whole-tensor location, because different sectors can be placed on different
-devices/ranks.
+devices / MPI ranks. `block_tensor.md` §1 refines this into a two-policy split:
+the leaf `TensorStorage` carries the compile-time kind, and the container's
+`BlockTensorStorage` policy fixes which location fields the per-block record
+carries (none for single-node `HostOnly`, MPI rank and device ordinal for
+`Mpi<Cuda>`) — distribution as a compile-time *capability*, placement as runtime
+*values*.
 
 ## Relationship to the ordering model
 
@@ -93,8 +101,8 @@ of device storage.
 
 ## Open questions
 
-- How is location represented? Candidates: a `(rank, device_ordinal)` pair, or an
-  opaque `Device` handle that the scheduler resolves. The representation must be
+- How is location represented? Candidates: an `(MPI rank, device_ordinal)` pair, or
+  an opaque `Device` handle that the scheduler resolves. The representation must be
   cheap to attach to every block.
 - How does a compile-time `GpuStorage` policy carry a runtime device id — a policy
   type with a runtime member, versus a separate location field on the storage object?
