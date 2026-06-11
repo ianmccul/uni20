@@ -1,6 +1,6 @@
+#include <uni20/common/trace.hpp>
 #include <uni20/tensor/basic_tensor.hpp>
 #include <uni20/tensor/layout.hpp>
-#include <uni20/common/trace.hpp>
 
 #include <gtest/gtest.h>
 
@@ -112,6 +112,79 @@ TEST(BasicTensorTest, MappingBuilderSupportsLayoutLeft)
   EXPECT_EQ((tensor[1, 2]), 21);
 }
 
+TEST(BasicTensorTest, CopyConstructionOwnsIndependentStorage)
+{
+  tensor_type source(extents_2d{2, 3});
+  source[0, 0] = 1;
+  source[1, 2] = 6;
+
+  tensor_type copy(source);
+
+  EXPECT_EQ(copy.handle(), static_cast<int const*>(copy.storage().data()));
+  EXPECT_NE(copy.handle(), source.handle());
+  EXPECT_EQ(copy.extents().extent(0), 2);
+  EXPECT_EQ(copy.extents().extent(1), 3);
+  EXPECT_EQ((copy[0, 0]), 1);
+  EXPECT_EQ((copy[1, 2]), 6);
+
+  copy[0, 0] = 99;
+  EXPECT_EQ((source[0, 0]), 1);
+  EXPECT_EQ((copy[0, 0]), 99);
+}
+
+TEST(BasicTensorTest, CopyAssignmentRebindsViewToOwnedStorage)
+{
+  tensor_type source(extents_2d{2, 3}, std::array<index_t, 2>{4, 1});
+  source[0, 0] = 3;
+  source[1, 2] = 9;
+
+  tensor_type target(extents_2d{1, 1});
+  target = source;
+
+  EXPECT_EQ(target.handle(), static_cast<int const*>(target.storage().data()));
+  EXPECT_NE(target.handle(), source.handle());
+  EXPECT_EQ(target.mapping().stride(0), 4);
+  EXPECT_EQ(target.mapping().stride(1), 1);
+  EXPECT_EQ(target.storage().size(), source.storage().size());
+  EXPECT_EQ((target[0, 0]), 3);
+  EXPECT_EQ((target[1, 2]), 9);
+
+  target[1, 2] = 42;
+  EXPECT_EQ((source[1, 2]), 9);
+  EXPECT_EQ((target[1, 2]), 42);
+}
+
+TEST(BasicTensorTest, MoveConstructionRebindsViewToMovedStorage)
+{
+  tensor_type source(extents_2d{2, 3});
+  source[0, 1] = 7;
+  source[1, 2] = 8;
+
+  tensor_type moved(std::move(source));
+
+  EXPECT_EQ(moved.handle(), static_cast<int const*>(moved.storage().data()));
+  EXPECT_EQ(source.handle(), static_cast<int const*>(source.storage().data()));
+  EXPECT_EQ((moved[0, 1]), 7);
+  EXPECT_EQ((moved[1, 2]), 8);
+}
+
+TEST(BasicTensorTest, MoveAssignmentRebindsViewToMovedStorage)
+{
+  tensor_type source(extents_2d{2, 3});
+  source[0, 1] = 11;
+  source[1, 2] = 12;
+
+  tensor_type target(extents_2d{1, 1});
+  target = std::move(source);
+
+  EXPECT_EQ(target.handle(), static_cast<int const*>(target.storage().data()));
+  EXPECT_EQ(source.handle(), static_cast<int const*>(source.storage().data()));
+  EXPECT_EQ(target.extents().extent(0), 2);
+  EXPECT_EQ(target.extents().extent(1), 3);
+  EXPECT_EQ((target[0, 1]), 11);
+  EXPECT_EQ((target[1, 2]), 12);
+}
+
 TEST(BasicTensorTest, MdspanFromConstTensorIsReadOnly)
 {
   extents_2d exts{2, 3};
@@ -189,8 +262,8 @@ TEST(BasicTensorTest, TraceFormattingUsesPresentationTensorArt)
   opts.set_color_output(trace::FormattingOptions::ColorOptions::no);
 
   EXPECT_EQ(trace::formatValue(tensor, opts), "shape=(2, 2)\n"
-                                             "\xE2\x8E\xA1   1 20 \xE2\x8E\xA4\n"
-                                             "\xE2\x8E\xA3 300  4 \xE2\x8E\xA6");
+                                              "\xE2\x8E\xA1   1 20 \xE2\x8E\xA4\n"
+                                              "\xE2\x8E\xA3 300  4 \xE2\x8E\xA6");
 }
 
 } // namespace

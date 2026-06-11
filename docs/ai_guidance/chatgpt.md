@@ -38,6 +38,7 @@ Recommended uploaded files:
 - `docs/ai_guidance/async_runtime.md`
 - `docs/ai_guidance/reverse_mode_ad.md`
 - `docs/ai_guidance/architecture_status.md`
+- `docs/ai_guidance/tensor_dispatch_design.md`
 - `docs/ai_guidance/presentation_and_python.md`
 - `docs/ai_guidance/glossary.md`
 
@@ -68,6 +69,9 @@ These are always active.
 - The most mature subsystem is `src/uni20/async/`.
 - Reverse-mode AD is integrated with the async runtime and uses `Var<T>`.
 - Tensor/view semantics are still evolving.
+- Tensor/backend dispatch design is active and speculative. Do not present
+  candidate APIs such as `TensorRef`, backend state tags, or
+  `unique_tuple_cat_t` as implemented unless source inspection confirms it.
 - Build-system discussion should remain high-level unless relevant CMake files are actually inspected.
 
 ## How to reason about answers

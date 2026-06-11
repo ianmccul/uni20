@@ -50,6 +50,52 @@ class BasicTensor
     /// \brief Default-construct an empty tensor without allocated storage.
     BasicTensor() = default;
 
+    /// \brief Copy-construct a tensor with independent owned storage.
+    /// \details The inherited view is rebound to this tensor's copied storage;
+    ///          tensor elements are copied through `storage_type`.
+    /// \param other Source tensor to copy.
+    BasicTensor(BasicTensor const& other) : base_type(), data_(other.data_)
+    {
+      this->reset_view(other.mapping(), other.accessor());
+    }
+
+    /// \brief Move-construct a tensor and rebind its inherited view.
+    /// \details The inherited view is rebound to this tensor's moved storage so
+    ///          it never aliases the moved-from object's storage descriptor.
+    /// \param other Source tensor to move from.
+    BasicTensor(BasicTensor&& other) : base_type(), data_(std::move(other.data_))
+    {
+      this->reset_view(other.mapping(), other.accessor());
+      other.reset_view_to_owned_storage();
+    }
+
+    /// \brief Copy-assign tensor storage and rebind the inherited view.
+    /// \param other Source tensor to copy.
+    /// \return Reference to `*this`.
+    BasicTensor& operator=(BasicTensor const& other)
+    {
+      if (this != &other)
+      {
+        data_ = other.data_;
+        this->reset_view(other.mapping(), other.accessor());
+      }
+      return *this;
+    }
+
+    /// \brief Move-assign tensor storage and rebind the inherited view.
+    /// \param other Source tensor to move from.
+    /// \return Reference to `*this`.
+    BasicTensor& operator=(BasicTensor&& other)
+    {
+      if (this != &other)
+      {
+        data_ = std::move(other.data_);
+        this->reset_view(other.mapping(), other.accessor());
+        other.reset_view_to_owned_storage();
+      }
+      return *this;
+    }
+
     /// \brief Construct a tensor with default layout and accessor factory.
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
@@ -63,12 +109,10 @@ class BasicTensor
     /// \param mapping_builder Builder used to derive the mapping from the extents.
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
     template <typename MappingBuilder>
-    requires(layout::mapping_builder_for<MappingBuilder, layout_policy, extents_type> &&
-             (!std::same_as<std::remove_cvref_t<MappingBuilder>,
-                            accessor_factory_type>)) explicit BasicTensor(extents_type const& exts,
-                                                                          MappingBuilder&& mapping_builder,
-                                                                          accessor_factory_type accessor_factory =
-                                                                              accessor_factory_type{})
+      requires(layout::mapping_builder_for<MappingBuilder, layout_policy, extents_type> &&
+               (!std::same_as<std::remove_cvref_t<MappingBuilder>, accessor_factory_type>))
+    explicit BasicTensor(extents_type const& exts, MappingBuilder&& mapping_builder,
+                         accessor_factory_type accessor_factory = accessor_factory_type{})
         : BasicTensor(internal_tag{},
                       make_payload(std::forward<MappingBuilder>(mapping_builder)(exts), std::move(accessor_factory)))
     {}
@@ -121,11 +165,11 @@ class BasicTensor
         accessor_factory_type accessor_factory;
     };
 
-    BasicTensor(internal_tag, ctor_payload payload)
-        : base_type(storage_policy::make_handle(payload.storage), payload.mapping,
-                    payload.accessor_factory.template make_accessor<element_type>(payload.storage)),
-          data_(std::move(payload.storage))
-    {}
+    BasicTensor(internal_tag, ctor_payload payload) : base_type(), data_(std::move(payload.storage))
+    {
+      this->reset_view(std::move(payload.mapping),
+                       payload.accessor_factory.template make_accessor<element_type>(data_));
+    }
 
     static ctor_payload make_payload(mapping_type mapping, accessor_factory_type accessor_factory)
     {
@@ -142,7 +186,7 @@ class BasicTensor
     static storage_type create_storage(size_type span_size)
     {
       auto const count = static_cast<std::size_t>(span_size);
-      if constexpr (requires(storage_type & s) { s.resize(std::size_t{}); })
+      if constexpr (requires(storage_type& s) { s.resize(std::size_t{}); })
       {
         storage_type storage{};
         storage.resize(count);
@@ -159,7 +203,7 @@ class BasicTensor
       else
       {
         static_assert(
-            requires(storage_type & s) { s.resize(std::size_t{}); } ||
+            requires(storage_type& s) { s.resize(std::size_t{}); } ||
                 std::is_constructible_v<storage_type, std::size_t> || std::is_constructible_v<storage_type, size_type>,
             "StoragePolicy::storage_t must be constructible from a size or provide resize().");
         return storage_type{};
@@ -185,6 +229,14 @@ class BasicTensor
         return layout::make_mapping<layout_policy>(exts);
       }
     }
+
+    void reset_view(mapping_type mapping, accessor_type accessor)
+    {
+      static_cast<base_type&>(*this) =
+          base_type(storage_policy::make_handle(data_), std::move(mapping), std::move(accessor));
+    }
+
+    void reset_view_to_owned_storage() { this->reset_view(this->mapping(), this->accessor()); }
 
     storage_type data_{};
 };

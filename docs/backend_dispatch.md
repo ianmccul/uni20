@@ -3,9 +3,10 @@
 This note records the preferred direction for future Uni20 backend work. It is
 planning guidance, not a statement that every current backend already follows
 this pattern. The three-stage pattern described here is generalized to an
-ordered, overridable backend list — with nesting for distributed execution — in
-`kernel_dispatch.md`; this note remains the reference for the per-backend
-`maybe_can_*` / `try_*` / fallback contract.
+ordered, overridable backend list — with operation tags, detected customization
+points, and nesting for distributed execution — in `kernel_dispatch.md`; this
+note remains the reference for the per-backend compile-time capability /
+runtime-attempt / fallback contract.
 
 ## Core Rule
 
@@ -19,7 +20,7 @@ adapters.
 
 ## Dispatch Shape
 
-Use a three-stage dispatch path for optimized backends:
+Use a three-stage dispatch path for optimized backends. Conceptually:
 
 ```cpp
 template <typename... Args>
@@ -41,9 +42,116 @@ The same structure also applies to functions that return a value. In that case,
 `try_backend_algorithm` should return an object such as `std::optional<Result>`,
 or should write into an output argument and return `bool`.
 
+In the full kernel-dispatch design, this is expressed once for every operation
+through an operation tag and customization points:
+
+```cpp
+struct gemm_op {};
+
+template <class State, class Backend, class Op, class... Args>
+consteval bool maybe_can_kernel();       // detects optional kernel_maybe_can(...)
+                                         // and constrained try_kernel(...)
+
+template <class State, class Backend, class Op, class... Args>
+bool try_kernel(State&, Backend, Op, Args&&...); // implemented only for supported operations
+```
+
+A backend that does not provide a usable `try_kernel(State&, Backend, Op, ...)`
+overload does not implement that operation and is skipped. A backend may provide
+`kernel_maybe_can(state_type<State>, backend_type<Backend>, Op,
+std::tuple<Args...>)` for extra type-level eligibility. This keeps the backend
+walk generic and avoids a separate `dispatch_gemm`, `dispatch_scale`,
+`dispatch_svd`, etc. implementation for every kernel.
+
+Callers may select either an ordered backend-list value or a single backend
+value. The single backend form is normalized to a one-element list, so
+forced-backend tests and benchmarks do not need to spell a one-entry list.
+
+The list has a static type order, but it is not only a type list. Backend
+entries can be stateless tags that declare the runtime state they need:
+
+```cpp
+struct Device { int value; };
+struct Stream { cudaStream_t value; };
+struct CublasMathMode { math_mode_t value; };
+
+struct CublasBackend {
+  using state = std::tuple<Device, Stream, CublasMathMode>;
+};
+
+struct CudaGenericBackend {
+  using state = std::tuple<Device, Stream>;
+};
+```
+
+For `backend_list<CublasBackend, CudaGenericBackend>`, the selector stores the
+unique concatenation of the backend state tuples:
+
+```cpp
+using state_t =
+  unique_tuple_cat_t<CublasBackend::state, CudaGenericBackend::state>;
+// std::tuple<Device, Stream, CublasMathMode>
+```
+
+`unique_tuple_cat_t` is a Uni20 helper, not a standard metafunction. It is
+equivalent to concatenating tuple types and removing duplicate element types.
+This matters because `std::get<T>(tuple)` is well-formed only when `T` appears
+exactly once. Duplicate state tags should collapse to one shared value; distinct
+semantics should use distinct tag types.
+
+When several candidate backends share structural state, prefer storing that
+state once in the selector state tuple rather than duplicating it in every
+backend entry. State tags can represent CUDA device, scheduler target,
+allocator/resource, communicator, or a distributed placement descriptor.
+
+Inheritance may be useful to declare backend state requirements, but it should
+not encode fallback order. Prefer empty requirement bases:
+
+```cpp
+template <class... State>
+struct requires_state {
+  using state = std::tuple<State...>;
+};
+
+struct CublasBackend : requires_state<Device, Stream, CublasMathMode> {};
+struct CudaGenericBackend : requires_state<Device, Stream> {};
+```
+
+This says both entries need the shared CUDA state. It does not say that
+`CublasBackend` derives from `CudaGenericBackend`, or that one is a fallback for
+the other. The ordered backend list remains the fallback order.
+
+The selector state can be synthesized from a backend list with a customization
+point:
+
+```cpp
+template <class BackendList>
+struct backend_state;
+```
+
+The default implementation can use tuple-type composition:
+
+```cpp
+template <class... Backends>
+struct backend_state<backend_list<Backends...>> {
+  using type = unique_tuple_cat_t<typename Backends::state...>;
+};
+```
+
+If a list needs unusual aggregation, the backend-list specialization can define
+an explicit state tuple. This avoids C++ reflection while keeping shared state
+construction extensible.
+
+`kernel_maybe_can(...)` remains type-level and should receive type tags rather
+than stateful backend objects. `try_kernel(...)` receives the composed state
+tuple and a backend tag value. It may inspect state such as device ordinal,
+stream policy, allocator, communicator, workspace limits, runtime library
+handle, or backend-specific hints.
+
 ## Compile-Time Capability
 
-`maybe_can_*` checks only type-level facts. It should not inspect runtime values.
+`kernel_maybe_can(...)` / `maybe_can_*` checks only type-level facts. It should
+not inspect runtime values.
 
 Examples:
 
@@ -55,7 +163,9 @@ Examples:
 - whether a backend call is well-formed for these C++ types
 
 Prefer traits or `constexpr` functions whose template arguments match the
-operation being lowered:
+operation being lowered. In the operation-tag model, those facts can live either
+in a constrained `try_kernel` overload or in an optional `kernel_maybe_can`
+customization:
 
 ```cpp
 template <typename Scalar, typename Mdspan>
@@ -69,9 +179,15 @@ inline constexpr bool maybe_can_blas_scale_v =
 The purpose of this layer is to keep invalid backend code out of overload
 resolution and out of compiled control flow.
 
+Backend `try_kernel` overloads must be genuinely constrained. Do not rely on
+invalid statements inside the function body to reject unsupported types; the
+generic dispatcher can only skip a backend if overload resolution or a
+`kernel_maybe_can` check makes the operation unavailable.
+
 ## Runtime Attempt
 
-`try_*` checks runtime facts and performs the backend call if all checks pass.
+`try_kernel(...)` / `try_*` checks runtime facts and performs the backend call if
+all checks pass.
 
 Examples:
 
@@ -80,14 +196,29 @@ Examples:
 - layout can be represented as an order or transpose flag
 - operands do not alias in an unsupported way
 - memory is resident on the required device
+- the composed backend state is compatible with the operands, for example CUDA
+  device, stream/scheduler target, or workspace allocator
 - the resolved vendor library version supports the active device architecture
   and requested operation
 - handles, streams, workspaces, and scratch buffers are available
 - backend-specific status codes indicate success
 
-If the runtime checks pass, `try_*` performs the backend call and reports success.
-If any check fails, it reports failure without changing the semantic contract of
-the public operation.
+If the runtime checks pass, `try_kernel(...)` performs the backend call and
+reports success. If any check fails, it reports failure without changing the
+semantic contract of the public operation.
+
+Backend state has two broad categories:
+
+- **Structural state** changes semantics of compatibility and allocation:
+  memory domain, CUDA device, stream/scheduler target, allocator/resource, and
+  workspace ownership. Prefer storing shared structural state once in the
+  composed selector state when several backend tags need it.
+- **Advisory state** guides optimization only: preferred algorithm, tile shape,
+  math mode, fusion hint, workspace budget, or "try this path first".
+
+Structural state should be checked before side effects and before scratch
+allocation where practical. Advisory state may vary across backend-list entries
+and may be ignored by backends that do not understand it.
 
 ## Fallback Semantics
 
@@ -159,8 +290,9 @@ This pattern is not BLAS-specific. Use it for future optimized paths involving:
 
 - Keep the public overload generic unless the operation semantics themselves
   require a constraint.
-- Put backend eligibility in `maybe_can_*`, not in public-facing overloads.
-- Put runtime validation and the actual backend call in `try_*`.
+- Put backend eligibility in constrained `try_kernel` overloads or optional
+  `kernel_maybe_can(...)` checks, not in public-facing overloads.
+- Put runtime validation and the actual backend call in `try_kernel(...)`.
 - Keep vendor ABI details in adapters.
 - Add tests that cover backend success, forced generic execution for
   backend-eligible inputs, and fallback behavior when practical.

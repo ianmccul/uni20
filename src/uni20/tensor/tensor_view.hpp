@@ -11,9 +11,9 @@
 
 #pragma once
 
+#include "layout.hpp"
 #include <uni20/common/mdspan.hpp>
 #include <uni20/core/types.hpp>
-#include "layout.hpp"
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 
@@ -75,19 +75,21 @@ struct mutable_tensor_traits : tensor_traits<Extents, StoragePolicy, LayoutPolic
     template <typename ElementType> using storage_type = std::remove_cv_t<ElementType>;
 };
 
-/// \brief Trait bundle describing the policies required to build tensor views.
-/// \ingroup tensor
-/// \tparam Extents Extents type describing the tensor shape.
-/// \tparam StoragePolicy Policy that identifies how storage is owned or referenced.
-/// \tparam LayoutPolicy Layout policy that maps indices to offsets.
-/// \tparam AccessorPolicy Accessor policy used to interact with the storage handle.
 /// \brief Forward declaration for the TensorView template using bundled traits.
+/// \details `TensorView` is a lightweight descriptor and data handle, following
+///          `std::mdspan`-style semantics. Copying or assigning a view copies or
+///          rebinds the descriptor and handle; it never copies tensor elements.
+///          Use element access or level-1 algorithms such as `assign` for
+///          element-wise data movement.
 /// \ingroup tensor
 /// \tparam ElementType Value type viewed by the tensor.
 /// \tparam Traits Trait bundle describing policies and extents.
 template <typename ElementType, typename Traits> class TensorView;
 
 /// \brief Tensor view specialisation for const-qualified element access.
+/// \details The view is non-owning: it stores a data handle, mapping, extents,
+///          and accessor. Copy and assignment have pointer-like `mdspan`
+///          semantics and rebind only the view object, not the backing data.
 /// \ingroup tensor
 /// \tparam T Base value type without const-qualification.
 /// \tparam Traits Trait bundle describing policies and extents.
@@ -107,6 +109,8 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     using default_tag = typename storage_policy::default_tag;
     /// \brief Layout policy that governs multidimensional index ordering.
     using layout_policy = typename traits_type::layout_policy;
+    /// \brief Mdspan-compatible alias for the layout policy.
+    using layout_type = layout_policy;
     /// \brief Policy providing accessors for the underlying handle.
     using accessor_policy = typename traits_type::accessor_policy;
 
@@ -125,6 +129,8 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     using mutable_handle_type = typename mutable_accessor_type::data_handle_type;
     /// \brief Data handle type exposed by the const accessor.
     using handle_type = typename accessor_type::data_handle_type;
+    /// \brief Mdspan-compatible alias for the data handle type.
+    using data_handle_type = handle_type;
     /// \brief Mdspan specialisation used to present the tensor view.
     using mdspan_type = stdex::mdspan<element_type, extents_type, layout_policy, accessor_type>;
     /// \brief Index type used for addressing elements.
@@ -137,6 +143,31 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \brief Default-construct an empty view.
     TensorView() = default;
 
+    /// \brief Copy-construct a view by copying its descriptor and data handle.
+    /// \details This does not copy tensor elements or allocate storage.
+    /// \param other Source view whose descriptor and handle are copied.
+    TensorView(TensorView const& other) = default;
+
+    /// \brief Move-construct a view by moving its descriptor and data handle.
+    /// \details This does not move tensor elements or allocate storage.
+    /// \param other Source view whose descriptor and handle are moved.
+    TensorView(TensorView&& other) = default;
+
+    /// \brief Copy-assign a view by rebinding its descriptor and data handle.
+    /// \details This has `std::mdspan`-like semantics: the target view is made
+    ///          to reference the same backing data as the source view, and no
+    ///          tensor elements are copied.
+    /// \param other Source view whose descriptor and handle are copied.
+    /// \return Reference to `*this`.
+    TensorView& operator=(TensorView const& other) = default;
+
+    /// \brief Move-assign a view by rebinding its descriptor and data handle.
+    /// \details This has `std::mdspan`-like semantics: only the view object is
+    ///          moved/rebound, and no tensor elements are moved.
+    /// \param other Source view whose descriptor and handle are moved.
+    /// \return Reference to `*this`.
+    TensorView& operator=(TensorView&& other) = default;
+
     /// \brief Construct from a handle, mapping, and accessor.
     /// \tparam Handle Handle type convertible to the mutable handle type.
     /// \tparam Accessor Accessor type convertible to the mutable accessor type.
@@ -144,9 +175,9 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \param mapping Mapping that translates indices into offsets.
     /// \param accessor Accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = mutable_accessor_type>
-    requires((std::convertible_to<Handle, mutable_handle_type> ||
-              std::convertible_to<Handle, handle_type>)&&std::convertible_to<Accessor, mutable_accessor_type>)
-        TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
+      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
+               std::convertible_to<Accessor, mutable_accessor_type>)
+    TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
         : handle_(to_mutable_handle(std::forward<Handle>(handle))), mapping_(std::move(mapping)),
           extents_(mapping_.extents()), accessor_(std::forward<Accessor>(accessor))
     {}
@@ -158,9 +189,9 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor Accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = mutable_accessor_type>
-    requires((std::convertible_to<Handle, mutable_handle_type> ||
-              std::convertible_to<Handle, handle_type>)&&std::convertible_to<Accessor, mutable_accessor_type>)
-        TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
+      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
+               std::convertible_to<Accessor, mutable_accessor_type>)
+    TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
         : TensorView(std::forward<Handle>(handle), layout::make_mapping<layout_policy>(exts),
                      std::forward<Accessor>(accessor))
     {}
@@ -173,10 +204,10 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \param strides Stride specification for each tensor dimension.
     /// \param accessor Accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = mutable_accessor_type>
-    requires((std::convertible_to<Handle, mutable_handle_type> ||
-              std::convertible_to<Handle, handle_type>)&&std::convertible_to<Accessor, mutable_accessor_type>)
-        TensorView(Handle&& handle, extents_type const& exts,
-                   std::array<index_type, extents_type::rank()> const& strides, Accessor&& accessor = Accessor{})
+      requires((std::convertible_to<Handle, mutable_handle_type> || std::convertible_to<Handle, handle_type>) &&
+               std::convertible_to<Accessor, mutable_accessor_type>)
+    TensorView(Handle&& handle, extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
+               Accessor&& accessor = Accessor{})
         : TensorView(std::forward<Handle>(handle), mapping_type{exts, strides}, std::forward<Accessor>(accessor))
     {}
 
@@ -185,9 +216,20 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \param idxs Coordinate pack enumerating each dimension index.
     /// \return Reference to the tensor element at the requested coordinates.
     template <typename... Idx>
-    requires(sizeof...(Idx) == extents_type::rank()) reference operator[](Idx... idxs) const noexcept
+      requires(sizeof...(Idx) == extents_type::rank())
+    reference operator[](Idx... idxs) const noexcept
     {
       return accessor_.access(handle_, mapping_(static_cast<index_type>(idxs)...));
+    }
+
+    /// \brief Access via an mdspan-style index array.
+    /// \param idxs Coordinate array enumerating each dimension index.
+    /// \return Reference to the tensor element at the requested coordinates.
+    reference operator[](std::array<index_type, extents_type::rank()> const& idxs) const noexcept
+    {
+      return [&]<std::size_t... I>(std::index_sequence<I...>) -> reference {
+        return (*this)[idxs[I]...];
+      }(std::make_index_sequence<extents_type::rank()>{});
     }
 
     /// \brief Retrieve the mdspan view (mapping plus accessor).
@@ -197,6 +239,22 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
     /// \brief Rank of the tensor.
     /// \return Static rank reported by the extents type.
     static constexpr size_type rank() noexcept { return extents_type::rank(); }
+
+    /// \brief Dynamic-rank count of the tensor extents.
+    /// \return Number of dynamic extents reported by the extents type.
+    static constexpr size_type rank_dynamic() noexcept { return extents_type::rank_dynamic(); }
+
+    /// \brief Report whether the mapping is always unique.
+    /// \return `true` when the layout mapping type is always unique.
+    static constexpr bool is_always_unique() noexcept { return mapping_type::is_always_unique(); }
+
+    /// \brief Report whether the mapping is always exhaustive.
+    /// \return `true` when the layout mapping type is always exhaustive.
+    static constexpr bool is_always_exhaustive() noexcept { return mapping_type::is_always_exhaustive(); }
+
+    /// \brief Report whether the mapping is always strided.
+    /// \return `true` when the layout mapping type is always strided.
+    static constexpr bool is_always_strided() noexcept { return mapping_type::is_always_strided(); }
 
     /// \brief Number of elements, equivalent to required_span_size().
     /// \return Total number of elements addressable by the view.
@@ -211,21 +269,50 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
       return static_cast<handle_type>(handle_);
     }
 
+    /// \brief Mdspan-compatible handle accessor.
+    /// \return Data handle supplied by the accessor, with const qualifications applied.
+    [[nodiscard]] auto data_handle() const noexcept -> data_handle_type { return handle(); }
+
     /// \brief The extents (shape).
     /// \return Extents that describe the tensor dimensions.
     [[nodiscard]] auto extents() const noexcept -> extents_type const& { return extents_; }
 
+    /// \brief Extent of a single dimension.
+    /// \param dim Dimension index to query.
+    /// \return Extent of the requested dimension.
+    [[nodiscard]] auto extent(size_type dim) const noexcept { return extents().extent(dim); }
+
     /// \brief Number of matrix rows for rank-2 tensor views.
     /// \return Count of the first extent when the tensor models a matrix.
-    [[nodiscard]] auto rows() const noexcept requires(extents_type::rank() == 2) { return extents().extent(0); }
+    [[nodiscard]] auto rows() const noexcept
+      requires(extents_type::rank() == 2)
+    {
+      return extents().extent(0);
+    }
 
     /// \brief Number of matrix columns for rank-2 tensor views.
     /// \return Count of the second extent when the tensor models a matrix.
-    [[nodiscard]] auto cols() const noexcept requires(extents_type::rank() == 2) { return extents().extent(1); }
+    [[nodiscard]] auto cols() const noexcept
+      requires(extents_type::rank() == 2)
+    {
+      return extents().extent(1);
+    }
 
     /// \brief The layout mapping (holds strides plus extents).
     /// \return Mapping instance that translates coordinates to offsets.
     [[nodiscard]] auto mapping() const noexcept -> mapping_type const& { return mapping_; }
+
+    /// \brief Report whether the current mapping is unique.
+    /// \return `true` when each index maps to a unique offset.
+    [[nodiscard]] bool is_unique() const noexcept { return mapping_.is_unique(); }
+
+    /// \brief Report whether the current mapping is exhaustive.
+    /// \return `true` when the mapping covers its span without holes.
+    [[nodiscard]] bool is_exhaustive() const noexcept { return mapping_.is_exhaustive(); }
+
+    /// \brief Report whether the current mapping is strided.
+    /// \return `true` when strides are available for every dimension.
+    [[nodiscard]] bool is_strided() const noexcept { return mapping_.is_strided(); }
 
     /// \brief The accessor object with const semantics applied.
     /// \return Accessor associated with the tensor view.
@@ -284,6 +371,9 @@ template <typename T, typename Traits> class TensorView<T const, Traits> {
 };
 
 /// \brief Tensor view specialisation providing mutable access.
+/// \details The view is non-owning: it stores a data handle, mapping, extents,
+///          and accessor. Copy and assignment have pointer-like `mdspan`
+///          semantics and rebind only the view object, not the backing data.
 /// \ingroup tensor
 /// \tparam T Value type stored in the tensor.
 /// \tparam Traits Trait bundle describing policies and extents.
@@ -305,6 +395,8 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     using default_tag = typename storage_policy::default_tag;
     /// \brief Layout policy that governs multidimensional index ordering.
     using layout_policy = typename traits_type::layout_policy;
+    /// \brief Mdspan-compatible alias for the layout policy.
+    using layout_type = layout_policy;
     /// \brief Policy providing accessors for the underlying handle.
     using accessor_policy = typename traits_type::accessor_policy;
 
@@ -318,6 +410,8 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     using accessor_type = typename accessor_policy::template accessor_t<element_type>;
     /// \brief Data handle type exposed by the mutable accessor.
     using handle_type = typename accessor_type::data_handle_type;
+    /// \brief Mdspan-compatible alias for the data handle type.
+    using data_handle_type = handle_type;
     /// \brief Mdspan specialisation used to present the tensor view.
     using mdspan_type = stdex::mdspan<element_type, extents_type, layout_policy, accessor_type>;
     /// \brief Reference type returned by the accessor.
@@ -326,6 +420,31 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \brief Default-construct an empty mutable view.
     TensorView() = default;
 
+    /// \brief Copy-construct a view by copying its descriptor and data handle.
+    /// \details This does not copy tensor elements or allocate storage.
+    /// \param other Source view whose descriptor and handle are copied.
+    TensorView(TensorView const& other) = default;
+
+    /// \brief Move-construct a view by moving its descriptor and data handle.
+    /// \details This does not move tensor elements or allocate storage.
+    /// \param other Source view whose descriptor and handle are moved.
+    TensorView(TensorView&& other) = default;
+
+    /// \brief Copy-assign a view by rebinding its descriptor and data handle.
+    /// \details This has `std::mdspan`-like semantics: the target view is made
+    ///          to reference the same backing data as the source view, and no
+    ///          tensor elements are copied.
+    /// \param other Source view whose descriptor and handle are copied.
+    /// \return Reference to `*this`.
+    TensorView& operator=(TensorView const& other) = default;
+
+    /// \brief Move-assign a view by rebinding its descriptor and data handle.
+    /// \details This has `std::mdspan`-like semantics: only the view object is
+    ///          moved/rebound, and no tensor elements are moved.
+    /// \param other Source view whose descriptor and handle are moved.
+    /// \return Reference to `*this`.
+    TensorView& operator=(TensorView&& other) = default;
+
     /// \brief Construct from a handle, mapping, and mutable accessor.
     /// \tparam Handle Handle type convertible to the mutable handle type.
     /// \tparam Accessor Accessor type convertible to the mutable accessor type.
@@ -333,8 +452,8 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \param mapping Mapping that translates indices into offsets.
     /// \param accessor Mutable accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = accessor_type>
-    requires(std::convertible_to<Handle, mutable_handle_type>&& std::convertible_to<Accessor, accessor_type>)
-        TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
+      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
+    TensorView(Handle&& handle, mapping_type mapping, Accessor&& accessor = Accessor{})
         : base_type(std::forward<Handle>(handle), std::move(mapping), std::forward<Accessor>(accessor))
     {}
 
@@ -345,8 +464,8 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor Mutable accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = accessor_type>
-    requires(std::convertible_to<Handle, mutable_handle_type>&& std::convertible_to<Accessor, accessor_type>)
-        TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
+      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
+    TensorView(Handle&& handle, extents_type const& exts, Accessor&& accessor = Accessor{})
         : TensorView(std::forward<Handle>(handle), layout::make_mapping<layout_policy>(exts),
                      std::forward<Accessor>(accessor))
     {}
@@ -359,10 +478,10 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \param strides Stride specification for each tensor dimension.
     /// \param accessor Mutable accessor that interacts with the data handle.
     template <typename Handle, typename Accessor = accessor_type>
-    requires(std::convertible_to<Handle, mutable_handle_type>&& std::convertible_to<Accessor, accessor_type>)
-        TensorView(Handle&& handle, extents_type const& exts,
-                   std::array<typename base_type::index_type, extents_type::rank()> const& strides,
-                   Accessor&& accessor = Accessor{})
+      requires(std::convertible_to<Handle, mutable_handle_type> && std::convertible_to<Accessor, accessor_type>)
+    TensorView(Handle&& handle, extents_type const& exts,
+               std::array<typename base_type::index_type, extents_type::rank()> const& strides,
+               Accessor&& accessor = Accessor{})
         : TensorView(std::forward<Handle>(handle), mapping_type{exts, strides}, std::forward<Accessor>(accessor))
     {}
 
@@ -371,10 +490,21 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \param idxs Coordinate pack enumerating each dimension index.
     /// \return Mutable reference to the tensor element at the requested coordinates.
     template <typename... Idx>
-    requires(sizeof...(Idx) == extents_type::rank()) reference operator[](Idx... idxs) noexcept
+      requires(sizeof...(Idx) == extents_type::rank())
+    reference operator[](Idx... idxs) noexcept
     {
       return this->mutable_accessor_ref().access(this->mutable_handle_ref(),
                                                  this->mapping_(static_cast<typename base_type::index_type>(idxs)...));
+    }
+
+    /// \brief Mutable access via an mdspan-style index array.
+    /// \param idxs Coordinate array enumerating each dimension index.
+    /// \return Mutable reference to the tensor element at the requested coordinates.
+    reference operator[](std::array<typename base_type::index_type, extents_type::rank()> const& idxs) noexcept
+    {
+      return [&]<std::size_t... I>(std::index_sequence<I...>) -> reference {
+        return (*this)[idxs[I]...];
+      }(std::make_index_sequence<extents_type::rank()>{});
     }
 
     using base_type::operator[];
@@ -389,6 +519,14 @@ template <typename T, typename Traits> class TensorView : public TensorView<T co
     /// \brief Provide mutable access to the underlying handle.
     /// \return Mutable data handle supplied by the accessor.
     [[nodiscard]] auto mutable_handle() noexcept -> mutable_handle_type { return this->mutable_handle_ref(); }
+
+    /// \brief Mdspan-compatible handle accessor.
+    /// \return Mutable data handle supplied by the accessor.
+    [[nodiscard]] auto data_handle() noexcept -> data_handle_type { return this->mutable_handle_ref(); }
+
+    /// \brief Mdspan-compatible handle accessor in const contexts.
+    /// \return Mutable data handle copied from this view's descriptor.
+    [[nodiscard]] auto data_handle() const noexcept -> data_handle_type { return this->mutable_handle_ref(); }
 
     /// \brief Retrieve the mutable accessor in use by the tensor view.
     /// \return Accessor that provides mutable access semantics.

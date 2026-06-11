@@ -1,3 +1,6 @@
+#include <uni20/level1/assign.hpp>
+#include <uni20/level1/zip_transform.hpp>
+#include <uni20/mdspan/concepts.hpp>
 #include <uni20/tensor/tensor_view.hpp>
 
 #include <gtest/gtest.h>
@@ -96,6 +99,39 @@ TEST(TensorViewTest, RankTwoTensorProvidesMatrixDimensions)
   TensorView<int, mutable_traits_type> const& const_ref = mutable_view;
   EXPECT_EQ(const_ref.rows(), 2);
   EXPECT_EQ(const_ref.cols(), 3);
+}
+
+TEST(TensorViewTest, ModelsSpanLikeAndWorksWithLevel1Kernels)
+{
+  using const_view_type = TensorView<int const, const_traits_type>;
+  using mutable_view_type = TensorView<int, mutable_traits_type>;
+
+  static_assert(SpanLike<const_view_type>);
+  static_assert(StridedMdspan<const_view_type>);
+  static_assert(SpanLike<mutable_view_type>);
+  static_assert(MutableSpanLike<mutable_view_type>);
+  static_assert(StridedMdspan<mutable_view_type>);
+  static_assert(MutableStridedMdspan<mutable_view_type>);
+  static_assert(std::is_same_v<typename mutable_view_type::layout_type, stdex::layout_stride>);
+
+  std::array<int, 6> src_storage{1, 2, 3, 4, 5, 6};
+  std::array<int, 6> dst_storage{};
+
+  const_view_type src(src_storage.data(), extents_2d{2, 3});
+  mutable_view_type dst(dst_storage.data(), extents_2d{2, 3});
+
+  EXPECT_EQ(src.data_handle(), src.handle());
+  EXPECT_EQ(dst.data_handle(), dst.mutable_handle());
+  EXPECT_EQ(src.extent(0), 2);
+  EXPECT_EQ(src.extent(1), 3);
+  EXPECT_TRUE(src.is_strided());
+
+  assign(src, dst);
+  EXPECT_EQ(dst_storage, src_storage);
+
+  auto shifted = zip_transform([](int const& value) { return value + 10; }, src);
+  EXPECT_EQ((shifted[0, 0]), 11);
+  EXPECT_EQ((shifted[1, 2]), 16);
 }
 
 TEST(TensorViewTest, ExposesDefaultBackendTag)

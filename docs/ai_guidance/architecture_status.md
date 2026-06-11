@@ -77,27 +77,45 @@ This file is for questions about project maturity, active design seams, and what
 ### STATUS
 
 - Tensor and view semantics are still evolving.
+- Tensor/backend dispatch is active design work, not a settled API.
 
 ### SAFE CLAIMS
 
 - `TensorView` is conceptually important.
 - Ownership and lifetime sharing are not fully settled.
 - Async-safe aliasing rules are not fully settled.
+- Current design discussion favors concept/CPO dispatch over making inheritance
+  from `TensorView` the public dispatch contract.
+- Current backend-dispatch design discussion favors stateless backend tags plus
+  composed backend state tuples.
 
 ### DO NOT CLAIM
 
 - Do not claim that tensor/view lifetime semantics are finalized.
 - Do not claim that aliasing is solved by the async runtime.
+- Do not claim that the speculative tensor dispatch APIs are implemented.
+- Do not claim that `std::type_list` exists or that `unique_tuple_cat_t` is a
+  standard C++ metafunction.
 
 ### DESIGN SEAMS
 
 - `assignment_semantics_of<T>` is important for future tensor/view write semantics.
 - View-like types may need `write_through` rather than `rebind`.
+- Candidate tensor roles are `BasicTensor` as owning value, `TensorRef` as
+  proposed write-through non-owning lvalue, and resolved mdspan-like views as
+  leaf-kernel arguments.
+- Candidate backend state model: each backend tag declares
+  `using state = std::tuple<...>`; selector state is composed with a Uni20
+  helper such as `unique_tuple_cat_t`.
 
 ### RELATED
 
 - `async_runtime.md`
+- `tensor_dispatch_design.md`
 - `../roadmap.md`
+- `../tensor_dispatch_and_view_semantics_draft.md`
+- `../async_tensor_lifetime_and_dispatch_draft.md`
+- `../kernel_dispatch.md`
 
 ## expression layer
 

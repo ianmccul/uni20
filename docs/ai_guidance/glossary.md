@@ -175,16 +175,68 @@ This glossary is optimized for retrieval, not pedagogy.
 
 ## Tensor and aliasing terms
 
+### `BasicTensor`
+
+- `ROLE`: Owning dense tensor value.
+- `STATUS`: Current type, but long-term relation to `TensorView` is still design work.
+- `ASSIGNMENT`: Should be reasoned about as value/replace semantics, not mdspan-style descriptor rebind.
+
 ### `TensorView`
 
 - `ROLE`: Non-owning tensor/view abstraction.
 - `INVARIANT`: `TensorView` is important, but its ownership and async interaction rules are still evolving.
+- `MISCONCEPTION`: `TensorView` being important means every top-level tensor dispatch API should name `TensorView`.
+
+### `TensorRef`
+
+- `ROLE`: Proposed non-owning write-through tensor lvalue for slices or block outputs.
+- `STATUS`: Design draft, not settled API.
+- `ASSIGNMENT`: Writes through to referenced storage when shape is compatible.
+
+### resolved mdspan-like view
+
+- `ROLE`: Leaf-kernel argument containing data handle, extents, strides, and accessor.
+- `INVARIANT`: Suitable for leaf kernels after backend compatibility is known.
+- `MISCONCEPTION`: A resolved mdspan-like view carries enough metadata for default Uni20 top-level dispatch.
 
 ### aliasing
 
 - `ROLE`: Two handles refer to overlapping storage.
 - `INVARIANT`: Uni20 async ordering does not automatically solve aliasing correctness across distinct async objects or views.
 - `MISCONCEPTION`: Wrapping a view-like object in `Async<T>` automatically solves overlap ordering.
+
+## Backend dispatch terms
+
+### backend tag
+
+- `ROLE`: Stateless type representing a candidate backend in an ordered backend list.
+- `INVARIANT`: Backend order comes from `backend_list<...>`, not inheritance.
+- `RELATED`: backend state tag, backend selector.
+
+### backend state tag
+
+- `ROLE`: Runtime state component required by one or more backend tags.
+- `EXAMPLES`: `cuda::Device`, `cuda::Stream`, `cublas::MathMode`.
+- `INVARIANT`: State tag types should have global/namespaced semantic meaning.
+- `MISCONCEPTION`: One generic tag name can safely mean different things for different backends.
+
+### backend selector
+
+- `ROLE`: Value that combines ordered backend tags with composed runtime backend state.
+- `STATUS`: Design draft.
+- `INVARIANT`: Backend selector state is composed from backend tag `using state = std::tuple<...>` declarations.
+
+### `unique_tuple_cat_t`
+
+- `ROLE`: Proposed Uni20 helper for composing backend state tuples.
+- `STATUS`: Not a standard C++ metafunction.
+- `MEANING`: Concatenate `std::tuple<...>` types and remove duplicate element types.
+- `WHY`: `std::get<T>(tuple)` by type requires `T` to appear exactly once.
+
+### `std::type_list`
+
+- `STATUS`: Does not exist in the C++ standard library.
+- `GUIDANCE`: Use `std::tuple<...>` or a Uni20-local helper when a type pack must be named.
 
 ## Safety terms
 
