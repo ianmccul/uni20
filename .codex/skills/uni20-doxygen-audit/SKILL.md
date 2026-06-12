@@ -7,7 +7,7 @@ description: Audit and normalize Uni20 Doxygen comments to AGENTS.md policy with
 
 ## Overview
 
-Use this skill to enforce the Doxygen policy in `AGENTS.md` section 7.
+Use this skill to apply the Doxygen policy in `AGENTS.md` section 8.
 
 Keep edits scoped to requested files or changed files unless a full-tree audit is explicitly requested.
 
@@ -36,10 +36,12 @@ rg -n "^\s*///|^\s*/\*\*|\\\brief|\\\param|\\\tparam|\\\return|\\\ingroup" src t
 ## Policy Checklist
 
 - Prefer `///` for ordinary declarations; reserve `/** ... */` for file/module overviews.
-- Every Doxygen block starts with `\brief`.
-- Include `\param`, `\tparam`, `\return` where applicable.
+- New or substantially edited public API Doxygen blocks should start with `\brief`.
+- Include `\param`, `\tparam`, and `\return` when they clarify semantics; avoid tautological tags.
 - Do not emit `\return` on non-callable declarations.
-- Keep tag order exactly as specified by `AGENTS.md`.
+- Keep tag order consistent with `AGENTS.md` when several tags are present.
+- Avoid placeholder comments and documentation-only churn outside the requested scope.
+- Use `\ingroup` sparingly; do not repeat it mechanically on members or nested declarations.
 - Preserve useful implementation comments (`//`, `/* ... */`) as non-Doxygen comments.
 
 ## Output Expectations

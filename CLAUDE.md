@@ -100,11 +100,11 @@ dispatch), `linalg/`, `tensor/`, `level1/`, `mdspan/`, `storage/`, `tags/`,
 ## Docs & formatting policy
 
 Developer docs live in `docs/` (index: `docs/README.md`). Keep docs in sync with
-API changes. Doxygen: `///` is canonical for member/function/class docs (start
-every block with `\brief`); `/** ... */` only for file/module headers and
-`\defgroup`. Tag order: `\brief \details \pre \post \throws \note \warning \tparam
-\param \return \ingroup`. Use `\ingroup internal` / `uni20::internal` / `detail`
-for non-public code. Full policy in `AGENTS.md` §8.
+API changes. Doxygen: prefer `///` for ordinary declaration docs and `/** ... */`
+for file/module overviews. New or changed public APIs should have a concise
+`\brief`; add `\param`, `\tparam`, `\return`, and `\ingroup` only where they
+clarify behavior or improve generated navigation. Do not add placeholder docs or
+mechanically document every internal helper. Full policy in `AGENTS.md` §8.
 
 ## CUDA profiling
 
