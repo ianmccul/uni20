@@ -4,6 +4,7 @@
 
 #include "env_var_guard.hpp"
 
+#include <fmt/core.h>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -546,11 +547,26 @@ TEST(PresentationReportBuilder, RendersStatusFieldsAndAlignedTables)
                                                         "\xE2\x9C\x93 converged\n"
                                                         "  matrix     demo\n"
                                                         "  dimension  128\n"
-                                                        "\n"
                                                         "Solver Summary\n"
                                                         "  solver  matvecs  residual\n"
                                                         "  native      185   1.0e-15\n"
                                                         "  arpack      238   8.0e-13\n");
+}
+
+TEST(PresentationReportBuilder, TableReferencesRemainStableWhenAddingTables)
+{
+  presentation::report_builder report("Stable tables");
+  auto& first = report.table("first");
+
+  for (int i = 0; i < 16; ++i)
+  {
+    report.table(fmt::format("extra {}", i));
+  }
+
+  first.column("name", presentation::table_alignment::left).row("alpha");
+
+  ASSERT_EQ(report.tables().front().rows().size(), 1U);
+  EXPECT_EQ(report.tables().front().rows().front().front(), "alpha");
 }
 
 TEST(PresentationReportBuilder, UsesSemanticGlyphFallbackInAscii)
@@ -578,7 +594,6 @@ TEST(PresentationReportBuilder, RendersAsciiGridTableWithIntersections)
       .row("arpack", 238, "8.0e-13");
 
   EXPECT_EQ(presentation::render_plain(report, policy), "Grid report\n"
-                                                        "\n"
                                                         "Solver Summary\n"
                                                         "  +--------+---------+----------+\n"
                                                         "  | solver | matvecs | residual |\n"
@@ -602,7 +617,6 @@ TEST(PresentationReportBuilder, WrapsCellsInsideTableWidth)
       .row("alpha", "abcdefghijklmno");
 
   EXPECT_EQ(presentation::render_plain(report, policy), "Grid report\n"
-                                                        "\n"
                                                         "Wrapped\n"
                                                         "  +-------+----------+\n"
                                                         "  | name  | note     |\n"
@@ -625,7 +639,6 @@ TEST(PresentationReportBuilder, PrefersWhitespaceWrapsWhenFittingColumns)
       .row("abcdefghijklmno", "alpha beta gamma");
 
   EXPECT_EQ(presentation::render_plain(report, policy), "Fit report\n"
-                                                        "\n"
                                                         "Prefer soft wraps\n"
                                                         "  +-----------------+------------+\n"
                                                         "  | id              | note       |\n"

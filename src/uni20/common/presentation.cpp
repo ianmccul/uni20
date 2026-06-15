@@ -151,6 +151,10 @@ void append_codepoint_escape(std::string& out, char32_t value)
 
 [[nodiscard]] bool is_emoji(char32_t value) { return in_range(value, 0x1F000, 0x1FAFF); }
 
+// Partial Emoji variation-sequence base set, based on Unicode emoji variation
+// sequences. These code points are normally width 1 in text presentation, but
+// width 2 when followed by U+FE0F. This is intentionally a terminal heuristic,
+// not a full grapheme-cluster implementation.
 [[nodiscard]] bool is_emoji_variation_base(char32_t value)
 {
   switch (value)
@@ -1307,7 +1311,7 @@ std::vector<std::pair<semantic_glyph, std::string>> const& report_builder::statu
 
 std::vector<std::pair<std::string, std::string>> const& report_builder::fields() const noexcept { return fields_; }
 
-std::vector<report_table> const& report_builder::tables() const noexcept { return tables_; }
+std::deque<report_table> const& report_builder::tables() const noexcept { return tables_; }
 
 namespace
 {
@@ -1727,7 +1731,7 @@ void append_report_table(styled_text& text, report_table const& table, output_po
 {
   if (!table.title().empty())
   {
-    text.append("\n").append(table.title(), style("Cyan")).append("\n");
+    text.append(table.title(), style("Cyan")).append("\n");
   }
 
   auto const widths = fit_table_widths(table_widths(table, policy), table, policy);

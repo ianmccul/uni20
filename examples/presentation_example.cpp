@@ -27,6 +27,17 @@ namespace presentation = uni20::presentation;
 
 [[nodiscard]] terminal::TerminalStyle style(std::string_view spec) { return terminal::TerminalStyle(spec); }
 
+[[nodiscard]] std::string width_ruler(std::size_t width)
+{
+  std::string ruler;
+  ruler.reserve(width);
+  for (std::size_t i = 0; i < width; ++i)
+  {
+    ruler.push_back(static_cast<char>('0' + ((i + 1) % 10)));
+  }
+  return ruler;
+}
+
 [[nodiscard]] std::size_t detected_terminal_width()
 {
   int const columns = terminal::columns();
@@ -251,9 +262,11 @@ void append_glyphs(presentation::styled_text& text, presentation::semantic_glyph
                                                                  presentation::output_policy const& policy)
 {
   static constexpr std::string_view marker = "\xE2\x80\xA6";
+  static constexpr std::string_view source_gutter = "  12 | ";
+  static constexpr std::string_view annotation_gutter = "     | ";
 
-  std::size_t const gutter_width = 6;
-  std::size_t const content_width = terminal_width > gutter_width + 8 ? terminal_width - gutter_width : 24;
+  std::size_t const gutter_width = presentation::display_width(source_gutter, policy);
+  std::size_t const content_width = terminal_width > gutter_width ? terminal_width - gutter_width : 1;
   std::size_t const clamped_begin = std::min(region_begin, line.size());
   std::size_t const clamped_end = std::max(clamped_begin, std::min(region_end, line.size()));
 
@@ -270,30 +283,40 @@ void append_glyphs(presentation::styled_text& text, presentation::semantic_glyph
   auto const caret_column = presentation::display_width(visible_prefix, policy);
   auto const region_width = std::max<std::size_t>(1, presentation::display_width(region, policy));
   bool const region_continues = region_width > suffix_budget;
-  std::size_t const marker_width = presentation::display_width(marker, policy);
-  std::size_t underline_width = std::min(region_width, suffix_budget);
-  if (region_continues && underline_width > marker_width)
+  auto const annotation_label = std::string(label) + (region_continues ? " continues" : "");
+  auto const annotation_tail = (region_continues ? std::string(marker) : std::string{}) + " " + annotation_label;
+  static constexpr std::string_view header_prefix = "parser error: ";
+  auto const header_prefix_width = presentation::display_width(header_prefix, policy);
+  auto const message_budget = terminal_width > header_prefix_width ? terminal_width - header_prefix_width : 0;
+  auto const visible_message =
+      message_budget > 0 ? presentation::truncate_to_width(message, message_budget, policy, marker) : std::string{};
+  auto const annotation_available =
+      terminal_width > gutter_width + caret_column ? terminal_width - gutter_width - caret_column : 1;
+  auto const tail_width = presentation::display_width(annotation_tail, policy);
+  std::size_t underline_width = std::min(region_width, annotation_available);
+  if (tail_width < annotation_available)
   {
-    underline_width -= marker_width;
+    underline_width = std::min(underline_width, annotation_available - tail_width);
   }
+  underline_width = std::max<std::size_t>(1, underline_width);
+  auto const tail_available = annotation_available > underline_width ? annotation_available - underline_width : 0;
+  auto const visible_tail =
+      tail_available > 0 ? presentation::truncate_to_width(annotation_tail, tail_available, policy) : std::string{};
 
   presentation::styled_text out;
   out.append("parser error", style("Red;Bold"))
       .append(": ")
-      .append(message)
+      .append(visible_message)
       .append("\n")
-      .append("  12 | ")
+      .append(source_gutter)
       .append(visible_prefix)
       .append(visible_suffix)
       .append("\n")
-      .append("     | ")
+      .append(annotation_gutter)
       .append(repeat(' ', caret_column))
       .append("^", style("Red;Bold"))
       .append(repeat('~', underline_width > 0 ? underline_width - 1 : 0), style("Red;Bold"))
-      .append(region_continues ? std::string(marker) : std::string{}, style("Red;Bold"))
-      .append(" ", style("Red;Bold"))
-      .append(label, style("Red;Bold"))
-      .append(region_continues ? " continues" : "", style("Red;Bold"))
+      .append(visible_tail, style("Red;Bold"))
       .append("\n");
   return out;
 }
@@ -339,23 +362,27 @@ int main()
   narrow.wrap_width = std::nullopt;
 
   fmt::print("point diagnostic at width 48\n");
+  fmt::print("{}\n", width_ruler(48));
   fmt::print("{}\n",
              presentation::render(parser_region_diagnostic(source, error_byte, error_byte, 48,
                                                            "expected ';' before call expression", "here", narrow),
                                   narrow));
 
   fmt::print("fitting region diagnostic at width 72\n");
+  fmt::print("{}\n", width_ruler(72));
   fmt::print("{}\n", presentation::render(parser_region_diagnostic(source, error_byte, identifier_end, 72,
                                                                    "unknown parser action", "identifier", narrow),
                                           narrow));
 
   fmt::print("region diagnostic at width 48\n");
+  fmt::print("{}\n", width_ruler(48));
   fmt::print("{}\n",
              presentation::render(parser_region_diagnostic(source, error_byte, region_end, 48,
                                                            "selected expression is not valid here", "region", narrow),
                                   narrow));
 
   fmt::print("region diagnostic at width 72\n");
+  fmt::print("{}\n", width_ruler(72));
   fmt::print("{}\n",
              presentation::render(parser_region_diagnostic(source, error_byte, region_end, 72,
                                                            "selected expression is not valid here", "region", narrow),

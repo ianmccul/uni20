@@ -7,6 +7,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdio>
+#include <deque>
 #include <fmt/core.h>
 #include <optional>
 #include <string>
@@ -350,14 +351,14 @@ class report_builder {
     [[nodiscard]] std::vector<std::pair<std::string, std::string>> const& fields() const noexcept;
 
     /// \brief Return the report tables.
-    /// \return Immutable table vector.
-    [[nodiscard]] std::vector<report_table> const& tables() const noexcept;
+    /// \return Immutable table sequence.
+    [[nodiscard]] std::deque<report_table> const& tables() const noexcept;
 
   private:
     std::string title_;
     std::vector<std::pair<semantic_glyph, std::string>> statuses_;
     std::vector<std::pair<std::string, std::string>> fields_;
-    std::vector<report_table> tables_;
+    std::deque<report_table> tables_;
 };
 
 /// \brief Build a policy for terminal rendering.
@@ -419,10 +420,17 @@ class report_builder {
                                               text_charset charset = text_charset::ascii_escape,
                                               output_policy policy = strict_ascii_policy());
 
-/// \brief Render a high-level report builder into styled text.
+/// \brief Format a high-level report builder into styled text.
+/// \details The returned document may already be width-formatted according to
+///          `policy.wrap_width`, with table cell wrapping and column alignment
+///          resolved. Prefer the report-specific `render_terminal` and
+///          `render_plain` overloads for final output; if this intermediate
+///          document is rendered directly, do not apply a smaller final
+///          `wrap_width`, because generic whole-string wrapping can split
+///          completed table layouts.
 /// \param report Report description to render.
 /// \param policy Output policy controlling width, glyphs, and fallback.
-/// \return Styled text document ready for terminal or plain rendering.
+/// \return Styled text document preserving report styles and semantic glyphs.
 [[nodiscard]] styled_text render_report(report_builder const& report, output_policy const& policy);
 
 /// \brief Render a high-level report builder for a terminal stream.

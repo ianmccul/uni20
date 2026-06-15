@@ -115,6 +115,12 @@ column widths if the table fits, then prefers shrinking columns that can still w
 split inside an unbreakable token. Report-specific renderers disable final whole-string wrapping after the table has been
 formatted, because wrapping a completed table would split borders and column alignment.
 
+`render_report(report, policy)` exposes the styled intermediate representation used by the report renderers. It preserves
+semantic glyphs and span styles, but the report layout may already have consumed `policy.wrap_width`. Prefer
+`render_plain(report, policy)` or `render_terminal(report, policy)` for final output. If the intermediate styled document
+is rendered directly, render it without a smaller final `wrap_width`; a wider output area is harmless, but generic
+whole-string wrapping can break a completed table.
+
 ## Python And Notebook Display
 
 The presentation layer is intended to be the shared formatting backend for future Python bindings and Jupyter display, but Python should not expose the C++ terminal model directly. Treat the current renderers as separate adapters over the same semantic presentation data:
