@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -77,6 +78,14 @@ enum class real_notation
   general,
   fixed,
   scientific
+};
+
+/// \brief Selects table cell alignment in report-style output.
+enum class table_alignment
+{
+  left,
+  right,
+  center
 };
 
 /// \brief Numeric scalar formatting controls shared by tensor-style renderers.
@@ -197,6 +206,160 @@ class styled_text {
     std::vector<presentation_span> spans_;
 };
 
+/// \brief Column specification for report tables.
+struct table_column
+{
+    std::string heading;
+    table_alignment alignment = table_alignment::right;
+};
+
+/// \brief Rule and border controls for report tables.
+struct table_border_options
+{
+    bool outer = false;
+    bool column_separators = false;
+    bool row_separators = false;
+    bool header_separator = false;
+    std::size_t horizontal_padding = 1;
+};
+
+/// \brief A small report table builder for command-line examples and diagnostics.
+class report_table {
+  public:
+    /// \brief Construct a titled report table.
+    /// \param title Human-readable table title.
+    explicit report_table(std::string title = {});
+
+    /// \brief Add a column to the table.
+    /// \param heading Column heading text.
+    /// \param alignment Cell alignment for this column.
+    /// \return Reference to this table for chaining.
+    report_table& column(std::string heading, table_alignment alignment = table_alignment::right);
+
+    /// \brief Add a row from already formatted cell strings.
+    /// \param cells Cell text in column order.
+    /// \return Reference to this table for chaining.
+    report_table& row(std::vector<std::string> cells);
+
+    /// \brief Set table border and rule options.
+    /// \param options Border and rule controls to apply.
+    /// \return Reference to this table for chaining.
+    report_table& borders(table_border_options options);
+
+    /// \brief Enable or disable an outer border around the table.
+    /// \param enabled Whether to draw the border.
+    /// \return Reference to this table for chaining.
+    report_table& outer_border(bool enabled = true);
+
+    /// \brief Enable or disable vertical rules between columns.
+    /// \param enabled Whether to draw column separators.
+    /// \return Reference to this table for chaining.
+    report_table& column_separators(bool enabled = true);
+
+    /// \brief Enable or disable horizontal rules between rows.
+    /// \param enabled Whether to draw row separators.
+    /// \return Reference to this table for chaining.
+    report_table& row_separators(bool enabled = true);
+
+    /// \brief Enable or disable a horizontal rule after the heading row.
+    /// \param enabled Whether to draw the heading separator.
+    /// \return Reference to this table for chaining.
+    report_table& header_separator(bool enabled = true);
+
+    /// \brief Enable or disable a full table grid.
+    /// \param enabled Whether to draw outer, column, row, and heading rules.
+    /// \return Reference to this table for chaining.
+    report_table& grid(bool enabled = true);
+
+    /// \brief Add a row by formatting each value with `fmt`.
+    /// \tparam Values Cell value types.
+    /// \param values Values to format into cell text.
+    /// \return Reference to this table for chaining.
+    template <typename... Values> report_table& row(Values const&... values)
+    {
+      return this->row(std::vector<std::string>{fmt::format("{}", values)...});
+    }
+
+    /// \brief Return the table title.
+    /// \return Table title text.
+    [[nodiscard]] std::string const& title() const noexcept;
+
+    /// \brief Return the column specifications.
+    /// \return Immutable column vector.
+    [[nodiscard]] std::vector<table_column> const& columns() const noexcept;
+
+    /// \brief Return the table rows.
+    /// \return Immutable row vector.
+    [[nodiscard]] std::vector<std::vector<std::string>> const& rows() const noexcept;
+
+    /// \brief Return table border and rule options.
+    /// \return Border and rule controls.
+    [[nodiscard]] table_border_options const& border_options() const noexcept;
+
+  private:
+    std::string title_;
+    std::vector<table_column> columns_;
+    std::vector<std::vector<std::string>> rows_;
+    table_border_options border_options_;
+};
+
+/// \brief Builder for simple terminal reports with headings, status lines, fields, and tables.
+class report_builder {
+  public:
+    /// \brief Construct a report with an optional title.
+    /// \param title Report title.
+    explicit report_builder(std::string title = {});
+
+    /// \brief Add a semantic status line such as `✓ converged`.
+    /// \param glyph Semantic status glyph.
+    /// \param label Status label text.
+    /// \return Reference to this report for chaining.
+    report_builder& status(semantic_glyph glyph, std::string label);
+
+    /// \brief Add a labeled field to the report header.
+    /// \param key Field label.
+    /// \param value Already formatted field value.
+    /// \return Reference to this report for chaining.
+    report_builder& field(std::string key, std::string value);
+
+    /// \brief Add a labeled field after formatting the value with `fmt`.
+    /// \tparam Value Field value type.
+    /// \param key Field label.
+    /// \param value Field value.
+    /// \return Reference to this report for chaining.
+    template <typename Value> report_builder& field(std::string key, Value const& value)
+    {
+      return this->field(std::move(key), fmt::format("{}", value));
+    }
+
+    /// \brief Add a titled table and return it for population.
+    /// \param title Table title.
+    /// \return Mutable table reference.
+    report_table& table(std::string title);
+
+    /// \brief Return the report title.
+    /// \return Report title text.
+    [[nodiscard]] std::string const& title() const noexcept;
+
+    /// \brief Return the status lines.
+    /// \return Immutable status vector.
+    [[nodiscard]] std::vector<std::pair<semantic_glyph, std::string>> const& statuses() const noexcept;
+
+    /// \brief Return the report fields.
+    /// \return Immutable field vector.
+    [[nodiscard]] std::vector<std::pair<std::string, std::string>> const& fields() const noexcept;
+
+    /// \brief Return the report tables.
+    /// \return Immutable table vector.
+    [[nodiscard]] std::vector<report_table> const& tables() const noexcept;
+
+  private:
+    std::string title_;
+    std::vector<std::pair<semantic_glyph, std::string>> statuses_;
+    std::vector<std::pair<std::string, std::string>> fields_;
+    std::vector<report_table> tables_;
+};
+
 /// \brief Build a policy for terminal rendering.
 /// \param stream Stream used for automatic terminal detection.
 /// \return Terminal-oriented output policy.
@@ -255,6 +418,26 @@ class styled_text {
 [[nodiscard]] std::string render_strict_ascii(styled_text const& text,
                                               text_charset charset = text_charset::ascii_escape,
                                               output_policy policy = strict_ascii_policy());
+
+/// \brief Render a high-level report builder into styled text.
+/// \param report Report description to render.
+/// \param policy Output policy controlling width, glyphs, and fallback.
+/// \return Styled text document ready for terminal or plain rendering.
+[[nodiscard]] styled_text render_report(report_builder const& report, output_policy const& policy);
+
+/// \brief Render a high-level report builder for a terminal stream.
+/// \param report Report description to render.
+/// \param policy Output policy to apply.
+/// \param stream Stream used for automatic color detection.
+/// \return Rendered terminal string.
+[[nodiscard]] std::string render_terminal(report_builder const& report, output_policy policy,
+                                          std::FILE* stream = stdout);
+
+/// \brief Render a high-level report builder without ANSI escape sequences.
+/// \param report Report description to render.
+/// \param policy Output policy to apply apart from forced color suppression.
+/// \return Rendered plain string.
+[[nodiscard]] std::string render_plain(report_builder const& report, output_policy policy = plain_policy());
 
 /// \brief Measure rendered text width under the selected policy.
 /// \param text Input text.

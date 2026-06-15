@@ -84,6 +84,37 @@ auto suffix = presentation::truncate_to_width(error_and_after, 40, policy, "…"
 
 See `examples/presentation_example.cpp` for semantic Unicode/emoji output, display-cell table alignment, fixed indentation after wrapping, tensor-network-style connector art, the default rounded tensor-box style, and a parser-style range diagnostic that adapts to different terminal widths.
 
+## Report Tables
+
+`report_builder` and `report_table` provide a small higher-level API for command-line examples and diagnostics:
+
+```cpp
+presentation::report_builder report("Krylov solve");
+report.status(presentation::semantic_glyph::success, "converged")
+    .field("dimension", 128)
+    .field("tolerance", "1.0e-12");
+
+report.table("Solver Summary")
+    .grid()
+    .column("solver", presentation::table_alignment::left)
+    .column("matvecs")
+    .column("residual")
+    .row("native", 185, "1.0e-15")
+    .row("arpack", 238, "8.0e-13");
+
+auto rendered = presentation::render_plain(report, presentation::plain_policy());
+```
+
+Tables are compact by default, preserving the existing two-space column layout. Use `outer_border()`,
+`column_separators()`, `row_separators()`, and `header_separator()` for individual rules, or `grid()` for a full
+outer border with column, header, and row rules. Borders use semantic box glyphs, so Unicode, emoji, and strict ASCII
+policies all render through the same fallback path.
+
+When `output_policy::wrap_width` is set, report tables use it as a table-width budget. The renderer first keeps natural
+column widths if the table fits, then prefers shrinking columns that can still wrap at whitespace before forcing a hard
+split inside an unbreakable token. Report-specific renderers disable final whole-string wrapping after the table has been
+formatted, because wrapping a completed table would split borders and column alignment.
+
 ## Python And Notebook Display
 
 The presentation layer is intended to be the shared formatting backend for future Python bindings and Jupyter display, but Python should not expose the C++ terminal model directly. Treat the current renderers as separate adapters over the same semantic presentation data:

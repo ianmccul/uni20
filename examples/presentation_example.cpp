@@ -27,6 +27,12 @@ namespace presentation = uni20::presentation;
 
 [[nodiscard]] terminal::TerminalStyle style(std::string_view spec) { return terminal::TerminalStyle(spec); }
 
+[[nodiscard]] std::size_t detected_terminal_width()
+{
+  int const columns = terminal::columns();
+  return columns > 0 ? static_cast<std::size_t>(columns) : 80;
+}
+
 void append_glyphs(presentation::styled_text& text, presentation::semantic_glyph glyph, std::size_t count,
                    terminal::TerminalStyle line_style = {})
 {
@@ -77,6 +83,69 @@ void append_glyphs(presentation::styled_text& text, presentation::semantic_glyph
         .append("\n");
   }
   return text;
+}
+
+[[nodiscard]] presentation::report_builder solver_report()
+{
+  presentation::report_builder report("Krylov solve");
+  report.status(presentation::semantic_glyph::success, "converged")
+      .field("matrix", "demo")
+      .field("dimension", 128)
+      .field("tolerance", "1.0e-12");
+
+  report.table("Solver Summary")
+      .grid()
+      .column("solver", presentation::table_alignment::left)
+      .column("matvecs")
+      .column("ritz value")
+      .column("residual")
+      .row("native", 185, "-1.732050807568877", "1.0e-15")
+      .row("arpack", 238, "-1.732050807568102", "8.0e-13");
+
+  return report;
+}
+
+[[nodiscard]] presentation::report_builder fixed_width_wrapping_report()
+{
+  presentation::report_builder report("Fixed-width wrapped table");
+  report.status(presentation::semantic_glyph::info, "wrap_width = 44 display cells");
+
+  report.table("Cell wrapping")
+      .grid()
+      .column("case", presentation::table_alignment::left)
+      .column("content", presentation::table_alignment::left)
+      .row("ascii", "A long diagnostic message wraps inside this cell instead of after the table is rendered.")
+      .row("unicode", "display width counts 中文 and 🚀 before choosing where each cell line breaks.")
+      .row("numbers", "right-aligned numeric columns can stay compact while nearby text columns wrap.");
+
+  return report;
+}
+
+[[nodiscard]] presentation::report_builder terminal_width_wrapping_report(std::size_t terminal_width)
+{
+  presentation::report_builder report("Terminal-width table");
+  report.status(presentation::semantic_glyph::info,
+                fmt::format("detected width = {} display cells; resize the terminal and rerun", terminal_width));
+
+  report.table("Resize experiment")
+      .grid()
+      .column("item", presentation::table_alignment::left)
+      .column("observation", presentation::table_alignment::left)
+      .column("value")
+      .row("policy", "The table consumes output_policy::wrap_width before final rendering, so borders remain intact.",
+           "stable")
+      .row("wide terminal", "More width is assigned to natural columns, reducing the number of wrapped cell lines.",
+           "fewer rows")
+      .row("narrow terminal", "The widest cells shrink first; each entry wraps independently inside its own column.",
+           "more rows")
+      .row("glyphs", "Semantic box drawing still falls back through the selected glyph policy: ✓ → 中文 🚀.", "cells")
+      .row("width: check", "isolated checkmark: ✓", "probe")
+      .row("width: arrow", "isolated right arrow: →", "probe")
+      .row("width: cjk", "isolated CJK text: 中文", "probe")
+      .row("width: emoji", "isolated emoji: 🚀", "probe")
+      .row("width: mixed", "mixed sequence: ✓ → 中文 🚀", "probe");
+
+  return report;
 }
 
 [[nodiscard]] presentation::styled_text indented_wrapping(presentation::output_policy const& policy)
@@ -240,6 +309,17 @@ int main()
   fmt::print("{}\n\n", presentation::render(glyph_line("emoji glyphs"), emoji_policy));
 
   fmt::print("{}\n", presentation::render(spacing_table(unicode_policy), unicode_policy));
+  fmt::print("{}\n", presentation::render_plain(solver_report(), unicode_policy));
+
+  auto fixed_table_policy = unicode_policy;
+  fixed_table_policy.wrap_width = 44;
+  fmt::print("{}\n", presentation::render_plain(fixed_width_wrapping_report(), fixed_table_policy));
+
+  auto terminal_table_policy = unicode_policy;
+  terminal_table_policy.wrap_width = std::max<std::size_t>(detected_terminal_width(), 24);
+  fmt::print("{}\n", presentation::render_plain(terminal_width_wrapping_report(*terminal_table_policy.wrap_width),
+                                                terminal_table_policy));
+
   fmt::print("{}\n", presentation::render(indented_wrapping(unicode_policy), unicode_policy));
   fmt::print("{}\n", presentation::render(tensor_network_diagram(), unicode_policy));
   fmt::print("{}\n", presentation::render(tensor_node_style(), unicode_policy));

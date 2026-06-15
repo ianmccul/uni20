@@ -149,8 +149,7 @@ TEST(PresentationGlyphs, EmojiPolicyUsesEmojiOnlyForSemanticMappings)
       .append(" ")
       .append(presentation::semantic_glyph::arrow_right);
 
-  EXPECT_EQ(presentation::render(text, policy),
-            "\xE2\x9C\x85 \xE2\x9D\x8C \xF0\x9F\x9A\xA8 \xE2\x9E\xA1\xEF\xB8\x8F");
+  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x85 \xE2\x9D\x8C \xF0\x9F\x9A\xA8 \xE2\x9E\xA1\xEF\xB8\x8F");
 }
 
 TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
@@ -213,6 +212,7 @@ TEST(PresentationWidth, CoversAsciiStyledCombiningCjkAmbiguousEmojiAndTabs)
 
   EXPECT_EQ(presentation::display_width("e\xCC\x81", policy), 1U);
   EXPECT_EQ(presentation::display_width("\xE4\xB8\xAD", policy), 2U);
+  EXPECT_EQ(presentation::display_width("\xE2\x9C\x93", policy), 1U);
   EXPECT_EQ(presentation::display_width("\xF0\x9F\x98\x80", policy), 2U);
   EXPECT_EQ(presentation::display_width("\xE2\x9A\xA0\xEF\xB8\x8F", policy), 2U);
   EXPECT_EQ(presentation::display_width("a\tb", policy), 5U);
@@ -265,6 +265,11 @@ TEST(PresentationLayout, PadsClipsTruncatesAndWrapsByDisplayCells)
   ASSERT_EQ(lines.size(), 2U);
   EXPECT_EQ(lines[0], "ab");
   EXPECT_EQ(lines[1], "cd");
+
+  lines = presentation::wrap_text("alpha beta", 6, policy);
+  ASSERT_EQ(lines.size(), 2U);
+  EXPECT_EQ(lines[0], "alpha");
+  EXPECT_EQ(lines[1], "beta");
 }
 
 TEST(PresentationLayout, LeftTruncationPreservesDisplayCellSuffix)
@@ -521,4 +526,111 @@ TEST(PresentationRenderers, TerminalColorIsPolicyControlled)
   policy.color = presentation::color_mode::never;
   EXPECT_EQ(presentation::render(text, policy), "red");
   EXPECT_EQ(presentation::render_plain(text, policy), "red");
+}
+
+TEST(PresentationReportBuilder, RendersStatusFieldsAndAlignedTables)
+{
+  auto policy = base_policy();
+
+  presentation::report_builder report("Krylov solve");
+  report.status(presentation::semantic_glyph::success, "converged").field("matrix", "demo").field("dimension", 128);
+
+  report.table("Solver Summary")
+      .column("solver", presentation::table_alignment::left)
+      .column("matvecs")
+      .column("residual")
+      .row("native", 185, "1.0e-15")
+      .row("arpack", 238, "8.0e-13");
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Krylov solve\n"
+                                                        "\xE2\x9C\x93 converged\n"
+                                                        "  matrix     demo\n"
+                                                        "  dimension  128\n"
+                                                        "\n"
+                                                        "Solver Summary\n"
+                                                        "  solver  matvecs  residual\n"
+                                                        "  native      185   1.0e-15\n"
+                                                        "  arpack      238   8.0e-13\n");
+}
+
+TEST(PresentationReportBuilder, UsesSemanticGlyphFallbackInAscii)
+{
+  auto policy = presentation::strict_ascii_policy();
+
+  presentation::report_builder report("Status");
+  report.status(presentation::semantic_glyph::success, "converged");
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Status\n"
+                                                        "[OK] converged\n");
+}
+
+TEST(PresentationReportBuilder, RendersAsciiGridTableWithIntersections)
+{
+  auto policy = presentation::strict_ascii_policy();
+
+  presentation::report_builder report("Grid report");
+  report.table("Solver Summary")
+      .grid()
+      .column("solver", presentation::table_alignment::left)
+      .column("matvecs")
+      .column("residual")
+      .row("native", 185, "1.0e-15")
+      .row("arpack", 238, "8.0e-13");
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Grid report\n"
+                                                        "\n"
+                                                        "Solver Summary\n"
+                                                        "  +--------+---------+----------+\n"
+                                                        "  | solver | matvecs | residual |\n"
+                                                        "  +--------+---------+----------+\n"
+                                                        "  | native |     185 |  1.0e-15 |\n"
+                                                        "  +--------+---------+----------+\n"
+                                                        "  | arpack |     238 |  8.0e-13 |\n"
+                                                        "  +--------+---------+----------+\n");
+}
+
+TEST(PresentationReportBuilder, WrapsCellsInsideTableWidth)
+{
+  auto policy = presentation::strict_ascii_policy();
+  policy.wrap_width = 22;
+
+  presentation::report_builder report("Grid report");
+  report.table("Wrapped")
+      .grid()
+      .column("name", presentation::table_alignment::left)
+      .column("note", presentation::table_alignment::left)
+      .row("alpha", "abcdefghijklmno");
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Grid report\n"
+                                                        "\n"
+                                                        "Wrapped\n"
+                                                        "  +-------+----------+\n"
+                                                        "  | name  | note     |\n"
+                                                        "  +-------+----------+\n"
+                                                        "  | alpha | abcdefgh |\n"
+                                                        "  |       | ijklmno  |\n"
+                                                        "  +-------+----------+\n");
+}
+
+TEST(PresentationReportBuilder, PrefersWhitespaceWrapsWhenFittingColumns)
+{
+  auto policy = presentation::strict_ascii_policy();
+  policy.wrap_width = 34;
+
+  presentation::report_builder report("Fit report");
+  report.table("Prefer soft wraps")
+      .grid()
+      .column("id", presentation::table_alignment::left)
+      .column("note", presentation::table_alignment::left)
+      .row("abcdefghijklmno", "alpha beta gamma");
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Fit report\n"
+                                                        "\n"
+                                                        "Prefer soft wraps\n"
+                                                        "  +-----------------+------------+\n"
+                                                        "  | id              | note       |\n"
+                                                        "  +-----------------+------------+\n"
+                                                        "  | abcdefghijklmno | alpha beta |\n"
+                                                        "  |                 | gamma      |\n"
+                                                        "  +-----------------+------------+\n");
 }

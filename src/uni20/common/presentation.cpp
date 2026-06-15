@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <numeric>
 #include <utility>
 
 namespace uni20::presentation
@@ -113,6 +114,25 @@ void append_codepoint_escape(std::string& out, char32_t value)
   out += buffer;
 }
 
+[[nodiscard]] terminal::TerminalStyle style(std::string_view spec) { return terminal::TerminalStyle(spec); }
+
+[[nodiscard]] terminal::TerminalStyle status_style(semantic_glyph glyph)
+{
+  switch (glyph)
+  {
+    case semantic_glyph::success:
+      return style("Green;Bold");
+    case semantic_glyph::failure:
+      return style("Red;Bold");
+    case semantic_glyph::warning:
+      return style("Yellow;Bold");
+    case semantic_glyph::info:
+      return style("LightBlue;Bold");
+    default:
+      return style("Bold");
+  }
+}
+
 [[nodiscard]] bool in_range(char32_t value, char32_t lo, char32_t hi) { return value >= lo && value <= hi; }
 
 [[nodiscard]] bool is_combining(char32_t value)
@@ -129,9 +149,182 @@ void append_codepoint_escape(std::string& out, char32_t value)
          in_range(value, 0x20000, 0x3FFFD);
 }
 
-[[nodiscard]] bool is_emoji(char32_t value)
+[[nodiscard]] bool is_emoji(char32_t value) { return in_range(value, 0x1F000, 0x1FAFF); }
+
+[[nodiscard]] bool is_emoji_variation_base(char32_t value)
 {
-  return in_range(value, 0x1F000, 0x1FAFF) || in_range(value, 0x2600, 0x27BF);
+  switch (value)
+  {
+    case 0x203C:
+    case 0x2049:
+    case 0x2122:
+    case 0x2139:
+    case 0x2194:
+    case 0x2195:
+    case 0x2196:
+    case 0x2197:
+    case 0x2198:
+    case 0x2199:
+    case 0x21A9:
+    case 0x21AA:
+    case 0x231A:
+    case 0x231B:
+    case 0x2328:
+    case 0x23CF:
+    case 0x23E9:
+    case 0x23EA:
+    case 0x23EB:
+    case 0x23EC:
+    case 0x23ED:
+    case 0x23EE:
+    case 0x23EF:
+    case 0x23F0:
+    case 0x23F1:
+    case 0x23F2:
+    case 0x23F3:
+    case 0x23F8:
+    case 0x23F9:
+    case 0x23FA:
+    case 0x24C2:
+    case 0x25AA:
+    case 0x25AB:
+    case 0x25B6:
+    case 0x25C0:
+    case 0x25FB:
+    case 0x25FC:
+    case 0x25FD:
+    case 0x25FE:
+    case 0x2600:
+    case 0x2601:
+    case 0x2602:
+    case 0x2603:
+    case 0x2604:
+    case 0x260E:
+    case 0x2611:
+    case 0x2614:
+    case 0x2615:
+    case 0x2618:
+    case 0x261D:
+    case 0x2620:
+    case 0x2622:
+    case 0x2623:
+    case 0x2626:
+    case 0x262A:
+    case 0x262E:
+    case 0x262F:
+    case 0x2638:
+    case 0x2639:
+    case 0x263A:
+    case 0x2640:
+    case 0x2642:
+    case 0x2648:
+    case 0x2649:
+    case 0x264A:
+    case 0x264B:
+    case 0x264C:
+    case 0x264D:
+    case 0x264E:
+    case 0x264F:
+    case 0x2650:
+    case 0x2651:
+    case 0x2652:
+    case 0x2653:
+    case 0x2660:
+    case 0x2663:
+    case 0x2665:
+    case 0x2666:
+    case 0x2668:
+    case 0x267B:
+    case 0x267E:
+    case 0x267F:
+    case 0x2692:
+    case 0x2693:
+    case 0x2694:
+    case 0x2695:
+    case 0x2696:
+    case 0x2697:
+    case 0x2699:
+    case 0x269B:
+    case 0x269C:
+    case 0x26A0:
+    case 0x26A1:
+    case 0x26AA:
+    case 0x26AB:
+    case 0x26B0:
+    case 0x26B1:
+    case 0x26BD:
+    case 0x26BE:
+    case 0x26C4:
+    case 0x26C5:
+    case 0x26C8:
+    case 0x26CE:
+    case 0x26CF:
+    case 0x26D1:
+    case 0x26D3:
+    case 0x26D4:
+    case 0x26E9:
+    case 0x26EA:
+    case 0x26F0:
+    case 0x26F1:
+    case 0x26F2:
+    case 0x26F3:
+    case 0x26F4:
+    case 0x26F5:
+    case 0x26F7:
+    case 0x26F8:
+    case 0x26F9:
+    case 0x26FA:
+    case 0x26FD:
+    case 0x2702:
+    case 0x2705:
+    case 0x2708:
+    case 0x2709:
+    case 0x270A:
+    case 0x270B:
+    case 0x270C:
+    case 0x270D:
+    case 0x270F:
+    case 0x2712:
+    case 0x2714:
+    case 0x2716:
+    case 0x271D:
+    case 0x2721:
+    case 0x2728:
+    case 0x2733:
+    case 0x2734:
+    case 0x2744:
+    case 0x2747:
+    case 0x274C:
+    case 0x274E:
+    case 0x2753:
+    case 0x2754:
+    case 0x2755:
+    case 0x2757:
+    case 0x2763:
+    case 0x2764:
+    case 0x2795:
+    case 0x2796:
+    case 0x2797:
+    case 0x27A1:
+    case 0x27B0:
+    case 0x27BF:
+    case 0x2934:
+    case 0x2935:
+    case 0x2B05:
+    case 0x2B06:
+    case 0x2B07:
+    case 0x2B1B:
+    case 0x2B1C:
+    case 0x2B50:
+    case 0x2B55:
+    case 0x3030:
+    case 0x303D:
+    case 0x3297:
+    case 0x3299:
+      return true;
+    default:
+      return false;
+  }
 }
 
 [[nodiscard]] bool is_ambiguous(char32_t value)
@@ -582,6 +775,17 @@ void append_codepoint_escape(std::string& out, char32_t value)
   return 1;
 }
 
+[[nodiscard]] std::size_t codepoint_width_at(std::string_view rendered, decoded_codepoint const& decoded,
+                                             std::size_t next_offset, output_policy const& policy)
+{
+  if (decoded.valid && is_emoji_variation_base(decoded.value) && next_offset < rendered.size())
+  {
+    auto const next = decode_next(rendered, next_offset);
+    if (next.valid && next.value == 0xFE0F) return 2;
+  }
+  return decoded.valid ? codepoint_width(decoded.value, policy) : 1;
+}
+
 [[nodiscard]] std::size_t tab_advance(std::size_t column, std::size_t tab_width)
 {
   std::size_t const effective_tab_width = std::max<std::size_t>(tab_width, 1);
@@ -651,7 +855,7 @@ void append_codepoint_escape(std::string& out, char32_t value)
       continue;
     }
 
-    current += codepoint_width(decoded.value, policy);
+    current += codepoint_width_at(rendered, decoded, offset, policy);
     max_column = std::max(max_column, current);
   }
 
@@ -710,7 +914,7 @@ void append_codepoint_escape(std::string& out, char32_t value)
       }
       else
       {
-        unit_width = codepoint_width(decoded.value, policy);
+        unit_width = codepoint_width_at(rendered, decoded, offset + decoded.bytes, policy);
       }
     }
 
@@ -1013,6 +1217,581 @@ std::string render_strict_ascii(styled_text const& text, text_charset charset, o
   return render(text, policy);
 }
 
+report_table::report_table(std::string title) : title_(std::move(title)) {}
+
+report_table& report_table::column(std::string heading, table_alignment alignment)
+{
+  columns_.push_back(table_column{std::move(heading), alignment});
+  return *this;
+}
+
+report_table& report_table::row(std::vector<std::string> cells)
+{
+  rows_.push_back(std::move(cells));
+  return *this;
+}
+
+report_table& report_table::borders(table_border_options options)
+{
+  border_options_ = options;
+  return *this;
+}
+
+report_table& report_table::outer_border(bool enabled)
+{
+  border_options_.outer = enabled;
+  return *this;
+}
+
+report_table& report_table::column_separators(bool enabled)
+{
+  border_options_.column_separators = enabled;
+  return *this;
+}
+
+report_table& report_table::row_separators(bool enabled)
+{
+  border_options_.row_separators = enabled;
+  return *this;
+}
+
+report_table& report_table::header_separator(bool enabled)
+{
+  border_options_.header_separator = enabled;
+  return *this;
+}
+
+report_table& report_table::grid(bool enabled)
+{
+  border_options_.outer = enabled;
+  border_options_.column_separators = enabled;
+  border_options_.row_separators = enabled;
+  border_options_.header_separator = enabled;
+  return *this;
+}
+
+std::string const& report_table::title() const noexcept { return title_; }
+
+std::vector<table_column> const& report_table::columns() const noexcept { return columns_; }
+
+std::vector<std::vector<std::string>> const& report_table::rows() const noexcept { return rows_; }
+
+table_border_options const& report_table::border_options() const noexcept { return border_options_; }
+
+report_builder::report_builder(std::string title) : title_(std::move(title)) {}
+
+report_builder& report_builder::status(semantic_glyph glyph, std::string label)
+{
+  statuses_.push_back({glyph, std::move(label)});
+  return *this;
+}
+
+report_builder& report_builder::field(std::string key, std::string value)
+{
+  fields_.push_back({std::move(key), std::move(value)});
+  return *this;
+}
+
+report_table& report_builder::table(std::string title)
+{
+  tables_.push_back(report_table(std::move(title)));
+  return tables_.back();
+}
+
+std::string const& report_builder::title() const noexcept { return title_; }
+
+std::vector<std::pair<semantic_glyph, std::string>> const& report_builder::statuses() const noexcept
+{
+  return statuses_;
+}
+
+std::vector<std::pair<std::string, std::string>> const& report_builder::fields() const noexcept { return fields_; }
+
+std::vector<report_table> const& report_builder::tables() const noexcept { return tables_; }
+
+namespace
+{
+
+[[nodiscard]] std::string pad_table_cell(std::string_view text, std::size_t width, table_alignment alignment,
+                                         output_policy const& policy)
+{
+  switch (alignment)
+  {
+    case table_alignment::left:
+      return pad_right(text, width, policy);
+    case table_alignment::right:
+      return pad_left(text, width, policy);
+    case table_alignment::center:
+      return pad_center(text, width, policy);
+  }
+  return pad_right(text, width, policy);
+}
+
+[[nodiscard]] std::size_t table_column_count(report_table const& table)
+{
+  std::size_t count = table.columns().size();
+  for (auto const& row : table.rows())
+  {
+    count = std::max(count, row.size());
+  }
+  return count;
+}
+
+[[nodiscard]] table_alignment column_alignment(report_table const& table, std::size_t column)
+{
+  if (column < table.columns().size()) return table.columns()[column].alignment;
+  return table_alignment::right;
+}
+
+[[nodiscard]] std::string column_heading(report_table const& table, std::size_t column)
+{
+  if (column < table.columns().size()) return table.columns()[column].heading;
+  return {};
+}
+
+[[nodiscard]] std::vector<std::size_t> table_widths(report_table const& table, output_policy const& policy)
+{
+  std::vector<std::size_t> widths(table_column_count(table), 0);
+  for (std::size_t i = 0; i < widths.size(); ++i)
+  {
+    widths[i] = display_width(column_heading(table, i), policy);
+  }
+
+  for (auto const& row : table.rows())
+  {
+    for (std::size_t i = 0; i < row.size(); ++i)
+    {
+      widths[i] = std::max(widths[i], display_width(row[i], policy));
+    }
+  }
+
+  return widths;
+}
+
+[[nodiscard]] bool is_table_break_space(decoded_codepoint const& decoded)
+{
+  return decoded.valid && (decoded.value == U' ' || decoded.value == U'\t' || decoded.value == U'\n');
+}
+
+[[nodiscard]] std::size_t longest_unbreakable_width(std::string_view text, output_policy const& policy)
+{
+  auto const rendered = render_text(text, policy);
+  std::size_t longest = 0;
+  std::size_t current = 0;
+
+  for (std::size_t offset = 0; offset < rendered.size();)
+  {
+    auto const decoded = decode_next(rendered, offset);
+    if (is_table_break_space(decoded))
+    {
+      longest = std::max(longest, current);
+      current = 0;
+      offset += decoded.bytes;
+      continue;
+    }
+
+    std::size_t unit_width = decoded.bytes;
+    if (policy.width == width_mode::display_cells)
+    {
+      if (!decoded.valid)
+        unit_width = 1;
+      else if (decoded.value == U'\r')
+        unit_width = 0;
+      else
+        unit_width = codepoint_width_at(rendered, decoded, offset + decoded.bytes, policy);
+    }
+
+    current += unit_width;
+    offset += decoded.bytes;
+  }
+
+  return std::max(longest, current);
+}
+
+[[nodiscard]] std::vector<std::size_t> table_unbreakable_widths(report_table const& table, output_policy const& policy)
+{
+  std::vector<std::size_t> widths(table_column_count(table), 1);
+  for (std::size_t i = 0; i < widths.size(); ++i)
+  {
+    widths[i] = std::max(widths[i], longest_unbreakable_width(column_heading(table, i), policy));
+  }
+
+  for (auto const& row : table.rows())
+  {
+    for (std::size_t i = 0; i < row.size(); ++i)
+    {
+      widths[i] = std::max(widths[i], longest_unbreakable_width(row[i], policy));
+    }
+  }
+
+  return widths;
+}
+
+[[nodiscard]] std::size_t compact_table_fixed_width(std::size_t column_count)
+{
+  if (column_count == 0) return 0;
+  return 2 + 2 * (column_count - 1);
+}
+
+[[nodiscard]] std::size_t ruled_table_fixed_width(std::size_t column_count, table_border_options const& options)
+{
+  if (column_count == 0) return 0;
+  return 2 + 2 * options.horizontal_padding * column_count + (options.outer ? 2 : 0) +
+         (options.column_separators ? column_count - 1 : 2 * (column_count - 1));
+}
+
+[[nodiscard]] std::size_t table_fixed_width(std::size_t column_count, table_border_options const& options)
+{
+  if (options.outer || options.column_separators || options.row_separators || options.header_separator)
+  {
+    return ruled_table_fixed_width(column_count, options);
+  }
+  return compact_table_fixed_width(column_count);
+}
+
+[[nodiscard]] std::vector<std::size_t> fit_table_widths(std::vector<std::size_t> widths, report_table const& table,
+                                                        output_policy const& policy)
+{
+  if (!policy.wrap_width.has_value() || widths.empty()) return widths;
+
+  auto const fixed_width = table_fixed_width(widths.size(), table.border_options());
+  std::size_t const content_budget =
+      *policy.wrap_width > fixed_width ? *policy.wrap_width - fixed_width : widths.size();
+  if (content_budget >= widths.size())
+  {
+    auto const unbreakable_widths = table_unbreakable_widths(table, policy);
+    while (true)
+    {
+      auto const total = std::accumulate(widths.begin(), widths.end(), std::size_t{0});
+      if (total <= content_budget) return widths;
+
+      std::optional<std::size_t> best_soft_index;
+      std::size_t best_soft_width = 0;
+      std::optional<std::size_t> widest_index;
+      std::size_t widest_width = 0;
+      for (std::size_t i = 0; i < widths.size(); ++i)
+      {
+        if (widths[i] <= 1) continue;
+        auto const next_width = widths[i] - 1;
+        if (!widest_index.has_value() || widths[i] > widest_width)
+        {
+          widest_index = i;
+          widest_width = widths[i];
+        }
+        if (unbreakable_widths[i] < widths[i] && next_width >= unbreakable_widths[i] &&
+            (!best_soft_index.has_value() || widths[i] > best_soft_width))
+        {
+          best_soft_index = i;
+          best_soft_width = widths[i];
+        }
+      }
+
+      if (best_soft_index.has_value())
+      {
+        --widths[*best_soft_index];
+        continue;
+      }
+
+      if (!widest_index.has_value()) return widths;
+      --widths[*widest_index];
+    }
+  }
+
+  std::fill(widths.begin(), widths.end(), std::size_t{1});
+  return widths;
+}
+
+[[nodiscard]] bool has_table_rules(table_border_options const& options)
+{
+  return options.outer || options.column_separators || options.row_separators || options.header_separator;
+}
+
+void append_repeated_glyph(styled_text& text, semantic_glyph glyph, std::size_t count,
+                           terminal::TerminalStyle line_style)
+{
+  for (std::size_t i = 0; i < count; ++i)
+  {
+    text.append(glyph, line_style);
+  }
+}
+
+[[nodiscard]] std::vector<std::size_t> table_cell_widths(std::vector<std::size_t> const& content_widths,
+                                                         table_border_options const& options)
+{
+  std::vector<std::size_t> widths;
+  widths.reserve(content_widths.size());
+  for (auto const width : content_widths)
+  {
+    widths.push_back(width + 2 * options.horizontal_padding);
+  }
+  return widths;
+}
+
+[[nodiscard]] std::string padded_table_cell(std::string_view text, std::size_t width, table_alignment alignment,
+                                            table_border_options const& border_options, output_policy const& policy)
+{
+  return std::string(border_options.horizontal_padding, ' ') + pad_table_cell(text, width, alignment, policy) +
+         std::string(border_options.horizontal_padding, ' ');
+}
+
+[[nodiscard]] std::vector<std::string> wrapped_table_cell(std::string_view text, std::size_t width,
+                                                          output_policy const& policy)
+{
+  auto lines = wrap_text(text, std::max<std::size_t>(width, 1), policy);
+  if (lines.empty()) lines.emplace_back();
+  return lines;
+}
+
+[[nodiscard]] std::vector<std::vector<std::string>> wrapped_table_cells(std::vector<std::string> const& row,
+                                                                        std::vector<std::size_t> const& widths,
+                                                                        output_policy const& policy)
+{
+  std::vector<std::vector<std::string>> cells;
+  cells.reserve(widths.size());
+  for (std::size_t i = 0; i < widths.size(); ++i)
+  {
+    std::string_view const cell = i < row.size() ? std::string_view(row[i]) : std::string_view{};
+    cells.push_back(wrapped_table_cell(cell, widths[i], policy));
+  }
+  return cells;
+}
+
+[[nodiscard]] std::size_t wrapped_row_height(std::vector<std::vector<std::string>> const& cells)
+{
+  std::size_t height = 1;
+  for (auto const& cell : cells)
+  {
+    height = std::max(height, cell.size());
+  }
+  return height;
+}
+
+void append_table_rule(styled_text& text, std::vector<std::size_t> const& cell_widths,
+                       table_border_options const& border_options, semantic_glyph left, semantic_glyph junction,
+                       semantic_glyph right)
+{
+  auto const line_style = style("LightGray");
+  text.append("  ");
+  if (border_options.outer)
+  {
+    text.append(left, line_style);
+  }
+
+  for (std::size_t i = 0; i < cell_widths.size(); ++i)
+  {
+    append_repeated_glyph(text, semantic_glyph::box_horizontal, cell_widths[i], line_style);
+    if (i + 1 < cell_widths.size())
+    {
+      if (border_options.column_separators)
+      {
+        text.append(junction, line_style);
+      }
+      else
+      {
+        append_repeated_glyph(text, semantic_glyph::box_horizontal, 2, line_style);
+      }
+    }
+  }
+
+  if (border_options.outer)
+  {
+    text.append(right, line_style);
+  }
+  text.append("\n");
+}
+
+void append_ruled_table_row(styled_text& text, report_table const& table, std::vector<std::size_t> const& widths,
+                            std::vector<std::string> const& row, output_policy const& policy, bool heading = false)
+{
+  auto const& border_options = table.border_options();
+  auto const line_style = style("LightGray");
+  auto const wrapped_cells = wrapped_table_cells(row, widths, policy);
+  auto const height = wrapped_row_height(wrapped_cells);
+  for (std::size_t line = 0; line < height; ++line)
+  {
+    text.append("  ");
+    if (border_options.outer)
+    {
+      text.append(semantic_glyph::box_vertical, line_style);
+    }
+
+    for (std::size_t i = 0; i < widths.size(); ++i)
+    {
+      if (i > 0)
+      {
+        if (border_options.column_separators)
+        {
+          text.append(semantic_glyph::box_vertical, line_style);
+        }
+        else
+        {
+          text.append("  ");
+        }
+      }
+
+      std::string_view const cell =
+          line < wrapped_cells[i].size() ? std::string_view(wrapped_cells[i][line]) : std::string_view{};
+      text.append(padded_table_cell(cell, widths[i], column_alignment(table, i), border_options, policy),
+                  heading ? style("LightGray") : terminal::TerminalStyle{});
+    }
+
+    if (border_options.outer)
+    {
+      text.append(semantic_glyph::box_vertical, line_style);
+    }
+    text.append("\n");
+  }
+}
+
+void append_plain_table_row(styled_text& text, report_table const& table, std::vector<std::size_t> const& widths,
+                            std::vector<std::string> const& row, output_policy const& policy, bool heading = false)
+{
+  auto const wrapped_cells = wrapped_table_cells(row, widths, policy);
+  auto const height = wrapped_row_height(wrapped_cells);
+  for (std::size_t line = 0; line < height; ++line)
+  {
+    text.append("  ");
+    for (std::size_t i = 0; i < widths.size(); ++i)
+    {
+      if (i > 0) text.append("  ");
+      std::string_view const cell =
+          line < wrapped_cells[i].size() ? std::string_view(wrapped_cells[i][line]) : std::string_view{};
+      text.append(pad_table_cell(cell, widths[i], column_alignment(table, i), policy),
+                  heading ? style("LightGray") : terminal::TerminalStyle{});
+    }
+    text.append("\n");
+  }
+}
+
+void append_plain_report_table(styled_text& text, report_table const& table, output_policy const& policy,
+                               std::vector<std::size_t> const& widths)
+{
+  std::vector<std::string> headings;
+  headings.reserve(widths.size());
+  for (std::size_t i = 0; i < widths.size(); ++i)
+  {
+    headings.push_back(column_heading(table, i));
+  }
+  append_plain_table_row(text, table, widths, headings, policy, true);
+
+  for (auto const& row : table.rows())
+  {
+    append_plain_table_row(text, table, widths, row, policy);
+  }
+}
+
+void append_ruled_report_table(styled_text& text, report_table const& table, output_policy const& policy,
+                               std::vector<std::size_t> const& widths)
+{
+  auto const& border_options = table.border_options();
+  auto const cell_widths = table_cell_widths(widths, border_options);
+
+  if (border_options.outer)
+  {
+    append_table_rule(text, cell_widths, border_options, semantic_glyph::box_top_left, semantic_glyph::box_tee_down,
+                      semantic_glyph::box_top_right);
+  }
+
+  std::vector<std::string> headings;
+  headings.reserve(widths.size());
+  for (std::size_t i = 0; i < widths.size(); ++i)
+  {
+    headings.push_back(column_heading(table, i));
+  }
+  append_ruled_table_row(text, table, widths, headings, policy, true);
+
+  if (border_options.header_separator)
+  {
+    append_table_rule(text, cell_widths, border_options, semantic_glyph::box_tee_right, semantic_glyph::box_cross,
+                      semantic_glyph::box_tee_left);
+  }
+
+  for (std::size_t row_index = 0; row_index < table.rows().size(); ++row_index)
+  {
+    append_ruled_table_row(text, table, widths, table.rows()[row_index], policy);
+    if (border_options.row_separators && row_index + 1 < table.rows().size())
+    {
+      append_table_rule(text, cell_widths, border_options, semantic_glyph::box_tee_right, semantic_glyph::box_cross,
+                        semantic_glyph::box_tee_left);
+    }
+  }
+
+  if (border_options.outer)
+  {
+    append_table_rule(text, cell_widths, border_options, semantic_glyph::box_bottom_left, semantic_glyph::box_tee_up,
+                      semantic_glyph::box_bottom_right);
+  }
+}
+
+void append_report_table(styled_text& text, report_table const& table, output_policy const& policy)
+{
+  if (!table.title().empty())
+  {
+    text.append("\n").append(table.title(), style("Cyan")).append("\n");
+  }
+
+  auto const widths = fit_table_widths(table_widths(table, policy), table, policy);
+  if (widths.empty()) return;
+
+  if (has_table_rules(table.border_options()))
+  {
+    append_ruled_report_table(text, table, policy, widths);
+  }
+  else
+  {
+    append_plain_report_table(text, table, policy, widths);
+  }
+}
+
+} // namespace
+
+styled_text render_report(report_builder const& report, output_policy const& policy)
+{
+  styled_text text;
+  if (!report.title().empty())
+  {
+    text.append(report.title(), style("Bold")).append("\n");
+  }
+
+  for (auto const& [glyph, label] : report.statuses())
+  {
+    text.append(glyph, status_style(glyph)).append(" ").append(label, status_style(glyph)).append("\n");
+  }
+
+  std::size_t key_width = 0;
+  for (auto const& [key, value] : report.fields())
+  {
+    key_width = std::max(key_width, display_width(key, policy));
+  }
+
+  for (auto const& [key, value] : report.fields())
+  {
+    text.append("  ").append(pad_right(key, key_width + 2, policy), style("LightGray")).append(value).append("\n");
+  }
+
+  for (auto const& table : report.tables())
+  {
+    append_report_table(text, table, policy);
+  }
+
+  return text;
+}
+
+std::string render_terminal(report_builder const& report, output_policy policy, std::FILE* stream)
+{
+  policy.output_stream = stream;
+  auto render_policy = policy;
+  render_policy.wrap_width = std::nullopt;
+  return render_terminal(render_report(report, policy), render_policy, stream);
+}
+
+std::string render_plain(report_builder const& report, output_policy policy)
+{
+  auto render_policy = policy;
+  render_policy.wrap_width = std::nullopt;
+  return render_plain(render_report(report, policy), render_policy);
+}
+
 std::size_t display_width(std::string_view text, output_policy const& policy, std::size_t initial_column)
 {
   auto const rendered = render_text(text, policy);
@@ -1123,10 +1902,43 @@ std::vector<std::string> wrap_text(std::string_view text, std::size_t max_width,
   auto const rendered = render_text(text, policy);
   if (max_width == 0) return {std::string(rendered)};
 
+  auto const is_breakable_space = [](decoded_codepoint const& decoded) {
+    return decoded.valid && (decoded.value == U' ' || decoded.value == U'\t');
+  };
+
+  auto refresh_last_break = [&](std::string_view line, std::size_t& break_begin, std::size_t& break_end) {
+    break_begin = std::string::npos;
+    break_end = std::string::npos;
+    for (std::size_t offset = 0; offset < line.size();)
+    {
+      auto const decoded = decode_next(line, offset);
+      if (is_breakable_space(decoded))
+      {
+        break_begin = offset;
+        break_end = offset + decoded.bytes;
+      }
+      offset += decoded.bytes;
+    }
+  };
+
+  auto const trim_leading_spaces = [&](std::string value) {
+    std::size_t offset = 0;
+    while (offset < value.size())
+    {
+      auto const decoded = decode_next(value, offset);
+      if (!is_breakable_space(decoded)) break;
+      offset += decoded.bytes;
+    }
+    value.erase(0, offset);
+    return value;
+  };
+
   std::vector<std::string> lines;
   std::string current;
   std::size_t used = 0;
   std::size_t column = 0;
+  std::size_t break_begin = std::string::npos;
+  std::size_t break_end = std::string::npos;
 
   for (std::size_t offset = 0; offset < rendered.size();)
   {
@@ -1145,6 +1957,8 @@ std::vector<std::string> wrap_text(std::string_view text, std::size_t max_width,
       current.clear();
       used = 0;
       column = 0;
+      break_begin = std::string::npos;
+      break_end = std::string::npos;
       offset += decoded.bytes;
       continue;
     }
@@ -1158,21 +1972,56 @@ std::vector<std::string> wrap_text(std::string_view text, std::size_t max_width,
         unit_width = tab_advance(column, policy.tab_width);
       else
       {
-        unit_width = codepoint_width(decoded.value, policy);
+        unit_width = codepoint_width_at(rendered, decoded, offset + decoded.bytes, policy);
       }
     }
 
     if (used > 0 && used + unit_width > max_width)
     {
-      lines.push_back(current);
-      current.clear();
-      used = 0;
-      column = 0;
+      if (is_breakable_space(decoded))
+      {
+        lines.push_back(current);
+        current.clear();
+        used = 0;
+        column = 0;
+        break_begin = std::string::npos;
+        break_end = std::string::npos;
+        offset += decoded.bytes;
+        continue;
+      }
+      if (break_begin != std::string::npos)
+      {
+        lines.push_back(current.substr(0, break_begin));
+        current = trim_leading_spaces(current.substr(break_end));
+        used = width_of_rendered(current, policy);
+        column = used;
+        refresh_last_break(current, break_begin, break_end);
+      }
+      else
+      {
+        lines.push_back(current);
+        current.clear();
+        used = 0;
+        column = 0;
+        break_begin = std::string::npos;
+        break_end = std::string::npos;
+      }
+      if (current.empty() && is_breakable_space(decoded))
+      {
+        offset += decoded.bytes;
+        continue;
+      }
     }
 
+    auto const current_offset = current.size();
     current.append(rendered.substr(offset, decoded.bytes));
     used += unit_width;
     column += unit_width;
+    if (is_breakable_space(decoded))
+    {
+      break_begin = current_offset;
+      break_end = current.size();
+    }
     offset += decoded.bytes;
   }
 
