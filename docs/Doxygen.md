@@ -1,221 +1,141 @@
 # Uni20 Doxygen Documentation Guidelines
 
-This document defines the conventions for writing and maintaining **Doxygen-style documentation** across the Uni20 C++ library.
-
-These rules ensure that:
-- Documentation is uniform and machine-parsable.  
-- Preconditions and invariants are explicitly stated.  
-- Automation tools (e.g., Codex, Doxygen XML, Sphinx+Breathe) can reliably process it.  
-- Mathematical and concurrency semantics are preserved.
-
----
+This document defines the conventions for Doxygen-style documentation across
+the Uni20 C++ library. The goal is useful generated documentation and clear
+developer-facing comments, not mechanical comment coverage.
 
 ## 1. Comment Syntax
 
-- Use `///` for all public API documentation.  
-  Example:
-  ```cpp
-  /// \brief Adds two tensors asynchronously.
-  ```
+- Prefer `///` for ordinary declaration documentation.
+- Use `/** ... */` for file-level overviews, module/group definitions, and long
+  multi-paragraph or LaTeX-heavy blocks.
+- Use regular `//` comments for implementation details that should not appear
+  in generated API docs.
+- Place Doxygen comments immediately above the declaration they describe.
+- Preserve existing comment form unless changing it clearly improves the
+  surrounding code.
 
-* Use regular `//` comments for **implementation details** not intended for Doxygen.
-* Do **not** mix `/** ... */` and `///` styles in the same component.
-* Place Doxygen comments **immediately above** the entity (function, struct, class) they describe.
-* Use `/** ... */` **only** for `\defgroup` or file-level documentation.
-* All ordinary macros, functions, and classes must use `///` Doxygen comments.
-* When a description line (for `\brief`, `\details`, `\note`, `\warning`, etc.) wraps, indent the following
-  lines so that the first character of text aligns under the first character of the text on
-  the previous line.
-  - Example:
-
-    ```cpp
-    /// \details Real numbers are unchanged by conjugation, so the value is returned verbatim.
-    ///          The overload is `constexpr`, enabling compile-time evaluation for literal arguments.
-    ```
-
----
-
-## 2. Documentation Structure
-
-Each documented symbol (function, class, struct, typedef, concept, etc.) should follow this order:
-
-1. `\brief` — One-sentence summary.
-2. Optional `\details` — Extended description.
-3. Optional clauses in the following order:
-
-   * `\pre` — Preconditions
-   * `\post` — Postconditions
-   * `\throws` — Exception behavior
-   * `\note` — Implementation, lifetime, or concurrency remarks
-   * `\warning` — Hazard or race condition
-4. Parameter and return tags:
-
-   * `\tparam` — Template parameters
-   * `\param` — Function parameters
-   * `\return` — Return values
-5. Grouping tags:
-
-   * `\ingroup` — Link to a module
-   * `\defgroup` / `\addtogroup` — For defining module groups
-
----
-
-## 3. Parameter and Template Rules
-
-* Use `\tparam` for every template parameter.
-
-  ```cpp
-  /// \tparam T Tensor element type (must satisfy TensorElement concept).
-  ```
-
-* Use `\param` for every parameter, even when the name is self-explanatory.
-  This ensures automatic tooling works correctly.
-
-  ```cpp
-  /// \param a First operand tensor.
-  /// \param b Second operand tensor.
-  ```
-
-* Use `\return` for **every non-void** function or method:
-
-  ```cpp
-  /// \return A tensor representing the element-wise sum.
-  ```
-
----
-
-## 4. Preconditions, Postconditions, and Exceptions
-
-State explicit logical and lifetime guarantees:
+When a description line wraps, align continuation text under the previous text:
 
 ```cpp
-/// \pre Both tensors must have identical extents and layouts.
-/// \post The result becomes available once both operands resolve.
-/// \throws std::invalid_argument if tensor extents mismatch.
+/// \details Real numbers are unchanged by conjugation, so the value is returned verbatim.
+///          The overload is constexpr, enabling compile-time evaluation for literals.
 ```
 
-* Preconditions correspond to requirements checked via `PRECONDITION()` or `CHECK()`.
-* Postconditions define observable guarantees after return.
-* Use `\throws` for all thrown exceptions, even internal ones.
+## 2. What To Document
 
----
+Document new or substantially changed declarations when they are part of a
+developer-facing API, encode a cross-module contract, or carry important
+semantic, lifetime, ownership, concurrency, or mathematical invariants.
 
-## 5. Notes, Warnings, and Concurrency
+Internal helpers do not need Doxygen by default. Add Doxygen only when generated
+docs would help, or when the helper is a conceptual interface in practice. Use
+ordinary `//` comments for local implementation notes.
 
-Concurrency and lifetime invariants must be explicit:
+Do not add placeholder documentation such as `[TODO] Document this function`.
+If no useful comment can be written from the local context, leave the code
+undocumented and keep the task focused.
+
+## 3. Tags
+
+New or substantially edited public API Doxygen blocks should start with a
+concise `\brief`. Use additional tags when they add useful information:
+
+- `\details` for multi-sentence behavior or mathematical context.
+- `\pre` and `\post` for observable requirements and guarantees.
+- `\throws` for meaningful exception behavior.
+- `\note` for ownership, lifetime, evaluation, or implementation context.
+- `\warning` for hazards such as aliasing, races, invalid lifetimes, or
+  undefined behavior.
+- `\tparam`, `\param`, and `\return` when a template parameter, parameter, or
+  return value has non-obvious semantics or constraints.
+
+Avoid tautological tags:
 
 ```cpp
-/// \note Non-blocking; coroutine resumes once both dependencies complete.
-/// \warning Unsafe if tensors alias overlapping memory regions.
+/// \param value The value.
+/// \return The result.
 ```
 
-Use:
+When several tags appear, use this order:
 
-* `\note` for descriptive context, ownership, and evaluation behavior.
-* `\warning` for situations that can cause deadlocks, data races, or undefined behavior.
+```text
+\brief, \details, \pre, \post, \throws, \note, \warning,
+\tparam, \param, \return, \ingroup
+```
 
----
+Only use `\return` for callable entities that actually return a value. Do not
+add it to classes, structs, aliases, concepts, variables, constructors, or
+destructors.
 
-## 6. Grouping and Module Structure
+## 4. Grouping
 
-Modules organize documentation hierarchically.
-
-Example:
+Define groups at module or file boundaries:
 
 ```cpp
-/// \defgroup async Asynchronous Primitives
-/// \ingroup core
-///
-/// Coroutines, awaiters, and schedulers for deferred tensor evaluation.
-///
-/// \{
-...
-/// \}
+/**
+ * \defgroup async Asynchronous Primitives
+ * \brief Coroutines, awaiters, and schedulers for deferred tensor evaluation.
+ */
 ```
 
-* Use `\defgroup` once per module (in a header or overview file).
-* Use `\ingroup` on all API members that belong to that module.
+Use `\ingroup` sparingly. Add it where it improves generated navigation, not on
+every declaration. Do not repeat `\ingroup` on members, nested types, or
+declarations already covered by surrounding file or type documentation.
 
----
+Namespaces such as `uni20::internal`, `detail`, and directories named
+`internal` or `detail` already signal internal scope. Use `\internal ...
+\endinternal` only when generated documentation needs an explicit hidden or
+internal section.
 
-## 7. Formatting Rules
+## 5. Examples
 
-* Avoid a **blank line after `\brief`**, unless it is needed for readability.
-* End all sentences and parameter descriptions with a period.
-* Keep `\brief` to **one sentence** — the first period ends the summary.
-* Prefer **imperative mood** (“Constructs…”, “Returns…”, “Throws…”).
-* Avoid Unicode; prefer LaTeX for mathematical symbols:
-
-  ```cpp
-  /// Computes \( C = A B \) using Einstein summation.
-  ```
-* Avoid embedding Markdown inside Doxygen; use Doxygen’s native syntax.
-
----
-
-## 8. Example Template
-
-Here’s a canonical example illustrating the complete structure:
+A small declaration may need only a brief:
 
 ```cpp
-/// \brief Performs element-wise addition of tensors `a` and `b`.
-/// \details The returned Async<Tensor> defers evaluation until awaited.
-///          Useful for building lazy tensor computation graphs.
-/// \tparam T Tensor element type.
-/// \param a First operand tensor.
-/// \param b Second operand tensor.
-/// \return An Async<Tensor<T>> representing the sum.
-/// \pre Both tensors must have identical extents.
-/// \post The resulting tensor becomes available when both operands resolve.
-/// \throws std::invalid_argument if tensor extents mismatch.
-/// \note Non-blocking; evaluation deferred until awaited.
-/// \warning Undefined behavior if tensors alias the same buffer.
-/// \ingroup async
-AsyncTensor operator+(AsyncTensor const& a, AsyncTensor const& b);
+/// \brief Returns the scalar conjugate, preserving real values unchanged.
+template <typename Scalar>
+constexpr auto conjugate(Scalar const& value);
 ```
 
----
+A cross-module or lifetime-sensitive API should be more explicit:
 
-## 9. Special Considerations for Uni20
+```cpp
+/// \brief Schedules an asynchronous tensor assignment.
+/// \details The returned task completes after all source dependencies are
+///          readable and the destination epoch has exclusive write access.
+/// \pre The source and destination extents match.
+/// \warning Source and destination buffers must not partially overlap.
+/// \param scheduler Scheduler that owns the task lifetime.
+/// \param destination Destination write buffer.
+/// \param source Source read buffer.
+/// \return Task representing the scheduled assignment.
+AsyncTask assign(TbbScheduler& scheduler, WriteBuffer<Tensor>& destination,
+                 ReadBuffer<Tensor> source);
+```
 
-* **Coroutines:** Document lifetime explicitly. Use `\note` to indicate when parameters are passed by value to prevent dangling references.
-* **Tensor math:** Prefer LaTeX for contractions, symmetries, and index notation.
-* **Async APIs:** Always include `\note` on evaluation order and scheduler behavior.
+## 6. Validation
 
----
-
-## 10. Validation
-
-Run:
+For documentation builds, use an out-of-source build directory:
 
 ```bash
-cmake -S . -B build -DUNI20_DOCS_WEB=ON
-cmake --build build --target doc
+cmake -S . -B ./build_codex/docs -DUNI20_DOCS_WEB=ON
+cmake --build ./build_codex/docs --target doc
 ```
 
-to verify formatting.
-Warnings such as:
+Fix real Doxygen warnings such as a `\param` whose name is not in the function
+signature. Do not add broad documentation churn simply to satisfy a coverage
+metric.
 
-```
-warning: argument 'b' of command @param is not found in the argument list
-```
+## 7. Checklist
 
-must be fixed immediately — no undocumented parameters are allowed.
-
----
-
-## 11. Summary Checklist
-
-| Category                | Requirement                    |
-| ----------------------- | ------------------------------ |
-| Comment style           | `///` only                     |
-| Parameter tags          | Always present                 |
-| Return tags             | Always present                 |
-| Template tags           | Always present                 |
-| Pre/Post/Throws         | Explicit when relevant         |
-| Grouping                | Use `\ingroup` and `\defgroup` |
-| Unicode                 | Avoid; prefer LaTeX            |
-| Concurrency notes       | Required for async code        |
-| Brief format            | One sentence,  blank line      |
-| Multi-line tags         | Continuation lines align under first text column |
-| Implementation comments | Use `//`, not Doxygen          |
+| Category | Guidance |
+| --- | --- |
+| Comment style | Prefer `///`; use block comments for file/module overviews |
+| Briefs | Use concise `\brief` on new or edited public API docs |
+| Parameter tags | Add when semantics or constraints are useful |
+| Return tags | Add for meaningful non-void return values |
+| Grouping | Use `\ingroup` sparingly |
+| Internal helpers | Document only when it adds useful context |
+| Implementation comments | Use `//`, not Doxygen |
+| Churn | Avoid placeholder comments and mechanical tag insertion |

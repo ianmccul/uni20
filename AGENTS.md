@@ -214,17 +214,20 @@ implicit `auto` setting for TensorContraction profiling.
 
 ## 8. Doxygen Documentation Policy
 
-**Purpose:** define how tools detect, modify, and validate documentation.
+**Purpose:** keep generated API documentation useful without forcing noisy,
+mechanical comments into ordinary implementation code.
 
 ### 8.1 Comment Types
-* `///` is the **canonical Doxygen form** for function, class, and member documentation.
-  Tools must treat contiguous `///` lines as a single documentation block immediately preceding a declaration.
+* `///` is the preferred Doxygen form for ordinary function, class, alias,
+  concept, and member documentation. Treat contiguous `///` lines immediately
+  preceding a declaration as that declaration's documentation block.
 
 * `/** ... */` **may** appear for:
 
   * File- or module-level overviews (e.g., containing `\file`, `\ingroup`, `\defgroup`).
   * Long multi-paragraph or LaTeX-heavy doc blocks.
-    Agents **may preserve or reformat** these, but should prefer converting routine member docs to `///`.
+  * Existing comments where converting form would create churn without improving
+    the documentation.
 
 * `/* ... */` and `//` are **non-Doxygen implementation comments.**
   They are free for agents to clean, rewrite, or insert to clarify logic, lifetime, or invariants.
@@ -232,8 +235,13 @@ implicit `auto` setting for TensorContraction profiling.
 
 ### 8.2 Formatting Rules
 
-* Every Doxygen block must begin with `\brief`. Do *not* follow this with a blank line, unless readability demands it. Remove existing blank lines where where possible.
-* Always include `\param`, `\tparam`, and `\return` when applicable.
+* New or substantially edited public API Doxygen blocks should begin with a
+  concise `\brief`.
+* Do not add blank lines after `\brief` unless they improve readability for a
+  multi-paragraph block.
+* Include `\param`, `\tparam`, and `\return` when they clarify behavior,
+  requirements, ownership, lifetime, or non-obvious semantics. Do not add
+  tautological tags solely to satisfy a checklist.
 * Only emit `\return` for callable entities (functions, lambdas, or overloaded operators)
   whose declaration includes parentheses and is not a constructor or destructor.
 * Do NOT add `\return` for:
@@ -241,7 +249,7 @@ implicit `auto` setting for TensorContraction profiling.
   - structs, classes, enums, concepts
   - variables or constants
 * Remove any spurious \return lines previously added to such declarations.
-* Maintain this tag order:
+* When several tags are present, use this order:
   `\brief`, `\details`, `\pre`, `\post`, `\throws`, `\note`, `\warning`, `\tparam`, `\param`, `\return`, `\ingroup`.
 * Preserve indentation relative to the documented entity.
 
@@ -249,25 +257,23 @@ implicit `auto` setting for TensorContraction profiling.
 
 When cleaning or generating documentation:
 
-1. **Insert missing documentation**
+1. **Document intentionally**
 
-   * If a public declaration has no Doxygen block, synthesize one automatically.
-   * The generated block must include a meaningful `\brief` inferred from the symbol name, type, or nearby comments.
-   * Only fall back to a placeholder such as:
-
-     ```cpp
-     /// \brief [TODO] Document this function.
-     ```
-
-     if no meaningful inference is possible.
+   * Add Doxygen for new or changed public APIs, conceptual interfaces,
+     cross-module contracts, and declarations with important invariants.
+   * Internal helpers should be documented when their behavior, lifetime, or
+     invariants are not obvious from the code.
+   * Do not synthesize placeholder comments such as `[TODO] Document this
+     function`.
+   * Avoid documentation-only churn outside the files and declarations touched
+     for the task.
 
 2. **Normalize comment form**
 
-   * Convert `/** ... */` comments on individual members to `///` form unless the block contains multi-paragraph or LaTeX-heavy content.
-   * File- or module-level headers using `/** ... */` should remain block-style.
-   * Use `/** ... */` **only** for `\defgroup` or file-level documentation.
-   * All ordinary macros, functions, and classes must use `///` Doxygen comments.
-   * Convert misplaced `/** ... */` to `///` while preserving all tags and text.
+   * Prefer `///` for new ordinary declaration docs.
+   * File- or module-level headers using `/** ... */` may remain block-style.
+   * Preserve existing block comments unless the surrounding edit already makes
+     cleanup worthwhile.
    * When a description line (for `\brief`, `\details`, `\note`, `\warning`, etc.) wraps, indent the following lines so that the first character of text aligns under the first character of the text on the previous line.
      - Example:
 
@@ -275,21 +281,20 @@ When cleaning or generating documentation:
        /// \details Real numbers are unchanged by conjugation, so the value is returned verbatim.
        ///          The overload is `constexpr`, enabling compile-time evaluation for literal arguments.
        ```
-   * When adding or normalizing \ingroup tags:
-     - Apply \ingroup only to top-level declarations (functions, classes, aliases, concepts, etc.).
-     - Do not repeat \ingroup on members, nested types, or typedefs that reside within a grouped entity.
-     - Only reapply \ingroup if a nested entity belongs to a *different* group than its parent.
 
 3. **Maintain implementation commentary**
 
    * Preserve and, when useful, rewrite `//` or `/* ... */` comments to improve clarity or correctness.
    * Agents may insert new internal comments where explanation would aid maintainability.
-   * Implementation comments must never be upgraded to Doxygen unless the entity is part of the public API.
+   * Do not upgrade implementation comments to Doxygen unless the declaration is
+     part of the documented API surface or carries a useful invariant.
 
-4. **Ensure completeness**
+4. **Use grouping sparingly**
 
-   * Every Doxygen block must contain at least a `\brief` and all applicable tags (`\param`, `\tparam`, `\return`, etc.).
-   * Agents should fill in missing parameter or return documentation where it can be inferred safely.
+   * Define groups at module or file boundaries, not on every declaration.
+   * Add `\ingroup` only where it materially improves generated navigation.
+   * Do not repeat `\ingroup` on members, nested types, or declarations already
+     covered by the surrounding file or type documentation.
 
 5. **File and module headers**
 
@@ -306,9 +311,11 @@ When cleaning or generating documentation:
 6. **Internal vs. Public Documentation**
 
 Uni20 does not currently define a stable "public API" boundary.  
-All code should be documented, including internal helpers, but documentation must distinguish between *conceptual interfaces* and *implementation internals*.
+Treat headers under `src/uni20/` as potentially developer-facing, but do not
+document every internal helper mechanically.
 
-- Use `\ingroup internal` or `\internal ... \endinternal` for functions, classes, or templates not intended for external use.
-- Internal documentation follows the same Doxygen formatting rules as all other code.
-- Documentation generators may exclude internal content using `INTERNAL_DOCS = NO` in the Doxygen configuration.
-- Codex and other agents may automatically infer internal scope from namespaces such as `uni20::internal`, `detail`, or directories named `internal` or `detail`.
+- Use `\internal ... \endinternal` only when generated documentation must hide
+  or distinguish a non-public declaration.
+- Namespaces such as `uni20::internal`, `detail`, or directories named
+  `internal` or `detail` already signal internal scope; do not add redundant
+  internal grouping tags unless they help the generated docs.
