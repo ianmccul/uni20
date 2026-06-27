@@ -74,7 +74,7 @@ Future heterogeneous (GPU/MPI) execution follows a **device-first** design — s
 
 Other modules: `backend/` (BLAS/CUDA/cuSOLVER wrappers), `kernel/` (kernel
 dispatch), `linalg/`, `tensor/`, `level1/`, `mdspan/`, `storage/`, `tags/`,
-`common/`, `core/`, `expokit/`. Python bindings use **nanobind** under
+`common/`, `core/`. Python bindings use **nanobind** under
 `bindings/python/`.
 
 ## Code conventions (from AGENTS.md — read it for the full set)

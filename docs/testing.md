@@ -20,7 +20,6 @@ Current test modules include:
 - `tests/backend`
 - `tests/common`
 - `tests/core`
-- `tests/expokit`
 - `tests/kernel`
 - `tests/level1`
 - `tests/linalg`
