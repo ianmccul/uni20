@@ -110,6 +110,27 @@ Tables are compact by default, preserving the existing two-space column layout. 
 outer border with column, header, and row rules. Borders use semantic box glyphs, so Unicode, emoji, and strict ASCII
 policies all render through the same fallback path.
 
+Rows can contain `table_cell` values when a cell should span multiple columns:
+
+```cpp
+report.table("Grouped Summary")
+    .grid(presentation::table_rule_style::double_line)
+    .column("stage", presentation::table_alignment::left)
+    .column("note", presentation::table_alignment::left)
+    .column("error", presentation::table_alignment::decimal)
+    .row("setup", "read inputs", 4)
+    .separator()
+    .row({{"solve", 1}, {"Krylov iterations and restart details", 2, presentation::table_alignment::left}});
+```
+
+`separator()` inserts an explicit body rule without enabling global row separators; `top_separator()` inserts an explicit
+rule before the generated heading row. Automatic borders and separators use `table_border_options::rule_style`, set
+directly with `border_style(...)` or by calling `grid(presentation::table_rule_style::double_line)`.
+
+`table_alignment::decimal` aligns finite values on `.`; values without a decimal point align as if the point followed the
+rendered value. Non-finite spellings such as `nan`, `inf`, and `-inf` are centered in a decimal-aligned cell. A
+`table_cell` can also override alignment for one cell, including non-spanning cells.
+
 When `output_policy::wrap_width` is set, report tables use it as a table-width budget. The renderer first keeps natural
 column widths if the table fits, then prefers shrinking columns that can still wrap at whitespace before forcing a hard
 split inside an unbreakable token. Report-specific renderers disable final whole-string wrapping after the table has been
@@ -151,7 +172,7 @@ Rank-1 values render as a row vector, rank-2 values render as aligned matrix art
 
 Python and Jupyter tensor display must be preview-first rather than exhaustive by default. Before binding tensor `repr`, add a preview policy with explicit limits such as maximum elements, edge items, maximum rows/columns, maximum slices, selected matrix axes, and `full=true` opt-in behavior. This protects notebooks from accidentally rendering very large tensors while preserving an explicit path to exhaustive output when the user requests it.
 
-Real and complex tensor elements use `numeric_format_options` when no custom element formatter is supplied. The defaults use general notation with 6 significant digits for `float`, 15 significant digits for `double`, normalized negative zero, and algebraic complex form such as `1.25-3.5i`. `mdspan_format_options::numeric` can switch to fixed or scientific notation and adjust the digit counts.
+Real and complex tensor elements use `numeric_format_options` when no custom element formatter is supplied. The defaults use general notation with 6 significant digits for `float`, 15 significant digits for `double`, normalized negative zero, and algebraic complex form such as `1.25-3.5i`. Non-finite real values render deterministically as `nan`, `inf`, and `-inf`; complex values use the same component spelling, for example `-inf+nani`. `mdspan_format_options::numeric` can switch to fixed or scientific notation and adjust the digit counts.
 
 For rank-2-or-higher tensors, `mdspan_format_options::matrix_axes` can choose which axes form the displayed row and column dimensions:
 

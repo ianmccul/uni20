@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <fmt/core.h>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -105,13 +106,17 @@ void append_glyphs(presentation::styled_text& text, presentation::semantic_glyph
       .field("tolerance", "1.0e-12");
 
   report.table("Solver Summary")
-      .grid()
+      .grid(presentation::table_rule_style::double_line)
       .column("solver", presentation::table_alignment::left)
       .column("matvecs")
       .column("ritz value")
       .column("residual")
       .row("native", 185, "-1.732050807568877", "1.0e-15")
-      .row("arpack", 238, "-1.732050807568102", "8.0e-13");
+      .row("arpack", 238, "-1.732050807568102", "8.0e-13")
+      .separator()
+      .row({{"notes", 1},
+            {"spanning cells are useful for solver diagnostics that need a short label followed by wider prose.", 3,
+             presentation::table_alignment::left}});
 
   return report;
 }
@@ -128,6 +133,51 @@ void append_glyphs(presentation::styled_text& text, presentation::semantic_glyph
       .row("ascii", "A long diagnostic message wraps inside this cell instead of after the table is rendered.")
       .row("unicode", "display width counts 中文 and 🚀 before choosing where each cell line breaks.")
       .row("numbers", "right-aligned numeric columns can stay compact while nearby text columns wrap.");
+
+  return report;
+}
+
+[[nodiscard]] presentation::report_builder advanced_table_report()
+{
+  presentation::report_builder report("Advanced table layout");
+  report.status(presentation::semantic_glyph::info, "spans, manual rules, mixed borders, and decimal alignment");
+
+  report.table("Phase ledger")
+      .outer_border()
+      .column_separators()
+      .header_separator()
+      .top_separator(presentation::table_rule_style::double_line)
+      .column("phase", presentation::table_alignment::left)
+      .column("description", presentation::table_alignment::left)
+      .column("cost", presentation::table_alignment::decimal)
+      .column("state", presentation::table_alignment::center)
+      .row("parse", "read sparse blocks", "1.250", "ok")
+      .row("factor", "symbolic setup", "12", "cached")
+      .separator()
+      .row({{"solve", 1},
+            {"Krylov restart used a spanning note cell; the separator above shows where vertical rules stop.", 2,
+             presentation::table_alignment::left},
+            {"warn", 1, presentation::table_alignment::center}})
+      .separator(presentation::table_rule_style::double_line)
+      .row("cleanup", "release temporaries", "0.03125", "done");
+
+  report.table("Decimal alignment")
+      .grid()
+      .column("quantity", presentation::table_alignment::left)
+      .column("estimate", presentation::table_alignment::decimal)
+      .column("observed", presentation::table_alignment::decimal)
+      .column("note", presentation::table_alignment::left)
+      .row("residual", "1.0e-15", "8.0e-13", "scientific strings still align before the decimal")
+      .row("runtime", "12", "12.375", "integers align as if the decimal follows the value")
+      .row("overflow", presentation::format_real(std::numeric_limits<double>::infinity(), {}),
+           presentation::format_real(-std::numeric_limits<double>::infinity(), {}),
+           "non-finite real values use deterministic lowercase spelling")
+      .row("invalid", presentation::format_real(std::numeric_limits<double>::quiet_NaN(), {}), "nan",
+           "NaN renders as nan and decimal alignment treats it like text")
+      .row({{"status", 1},
+            {"-", 1, presentation::table_alignment::center},
+            {"-", 1, presentation::table_alignment::center},
+            {"per-cell center overrides", 1}});
 
   return report;
 }
@@ -333,6 +383,7 @@ int main()
 
   fmt::print("{}\n", presentation::render(spacing_table(unicode_policy), unicode_policy));
   fmt::print("{}\n", presentation::render_plain(solver_report(), unicode_policy));
+  fmt::print("{}\n", presentation::render_plain(advanced_table_report(), unicode_policy));
 
   auto fixed_table_policy = unicode_policy;
   fixed_table_policy.wrap_width = 44;

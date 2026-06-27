@@ -9,6 +9,7 @@
 
 #include <array>
 #include <complex>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -328,6 +329,25 @@ TEST(PresentationNumeric, RealAndComplexFormattingUsesConfiguredDigits)
   EXPECT_EQ(presentation::format_real(12.5, options), "1.25e+01");
 }
 
+TEST(PresentationNumeric, NonFiniteFormattingIsDeterministic)
+{
+  presentation::numeric_format_options options;
+  options.notation = presentation::real_notation::fixed;
+  options.float64_precision = 3;
+
+  auto const inf = std::numeric_limits<double>::infinity();
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+
+  EXPECT_EQ(presentation::format_real(inf, options), "inf");
+  EXPECT_EQ(presentation::format_real(-inf, options), "-inf");
+  EXPECT_EQ(presentation::format_real(nan, options), "nan");
+
+  options.notation = presentation::real_notation::scientific;
+  EXPECT_EQ(presentation::format_real(inf, options), "inf");
+  EXPECT_EQ(presentation::format_complex(std::complex<double>{-inf, nan}, options), "-inf+nani");
+  EXPECT_EQ(presentation::format_complex(std::complex<double>{nan, -inf}, options), "nan-infi");
+}
+
 TEST(PresentationMdspan, DefaultFormatterHandlesRealAndComplexScalars)
 {
   auto policy = base_policy();
@@ -565,8 +585,12 @@ TEST(PresentationReportBuilder, TableReferencesRemainStableWhenAddingTables)
 
   first.column("name", presentation::table_alignment::left).row("alpha");
 
-  ASSERT_EQ(report.tables().front().rows().size(), 1U);
-  EXPECT_EQ(report.tables().front().rows().front().front(), "alpha");
+  auto const& entries = report.tables().front().entries();
+  ASSERT_EQ(entries.size(), 1U);
+  auto const* row = std::get_if<std::vector<presentation::table_cell>>(&entries.front());
+  ASSERT_NE(row, nullptr);
+  ASSERT_EQ(row->size(), 1U);
+  EXPECT_EQ(row->front().text, "alpha");
 }
 
 TEST(PresentationReportBuilder, UsesSemanticGlyphFallbackInAscii)
@@ -602,6 +626,213 @@ TEST(PresentationReportBuilder, RendersAsciiGridTableWithIntersections)
                                                         "  +--------+---------+----------+\n"
                                                         "  | arpack |     238 |  8.0e-13 |\n"
                                                         "  +--------+---------+----------+\n");
+}
+
+TEST(PresentationReportBuilder, RendersCellsSpanningMultipleColumns)
+{
+  auto policy = presentation::strict_ascii_policy();
+  policy.wrap_width = 32;
+
+  presentation::report_builder report("Span report");
+  report.table("Spans")
+      .grid()
+      .column("name", presentation::table_alignment::left)
+      .column("detail", presentation::table_alignment::left)
+      .column("value")
+      .row({{"alpha", 1}, {"spans detail and value", 2}})
+      .row("beta", "plain", 7);
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Span report\n"
+                                                        "Spans\n"
+                                                        "  +-------+---------+----------+\n"
+                                                        "  | name  | detail  |    value |\n"
+                                                        "  +-------+---------+----------+\n"
+                                                        "  | alpha | spans detail and   |\n"
+                                                        "  |       | value              |\n"
+                                                        "  +-------+---------+----------+\n"
+                                                        "  | beta  | plain   |        7 |\n"
+                                                        "  +-------+---------+----------+\n");
+}
+
+TEST(PresentationReportBuilder, RendersManualSeparatorsWithoutGlobalRowSeparators)
+{
+  auto policy = presentation::strict_ascii_policy();
+
+  presentation::report_builder report("Manual rules");
+  report.table("Phases")
+      .outer_border()
+      .column_separators()
+      .header_separator()
+      .top_separator(presentation::table_rule_style::double_line)
+      .column("phase", presentation::table_alignment::left)
+      .column("count")
+      .row("setup", 2)
+      .separator()
+      .row("solve", 7)
+      .row("cleanup", 1)
+      .separator(presentation::table_rule_style::double_line);
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Manual rules\n"
+                                                        "Phases\n"
+                                                        "  +---------+-------+\n"
+                                                        "  +=========+=======+\n"
+                                                        "  | phase   | count |\n"
+                                                        "  +---------+-------+\n"
+                                                        "  | setup   |     2 |\n"
+                                                        "  +---------+-------+\n"
+                                                        "  | solve   |     7 |\n"
+                                                        "  | cleanup |     1 |\n"
+                                                        "  +=========+=======+\n"
+                                                        "  +---------+-------+\n");
+}
+
+TEST(PresentationReportBuilder, RendersDoubleLineGridWithAsciiFallback)
+{
+  auto policy = presentation::strict_ascii_policy();
+
+  presentation::report_builder report("Double grid");
+  report.table("Summary")
+      .grid(presentation::table_rule_style::double_line)
+      .column("key", presentation::table_alignment::left)
+      .column("value")
+      .row("alpha", 12);
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Double grid\n"
+                                                        "Summary\n"
+                                                        "  +=======+=======+\n"
+                                                        "  | key   | value |\n"
+                                                        "  +=======+=======+\n"
+                                                        "  | alpha |    12 |\n"
+                                                        "  +=======+=======+\n");
+}
+
+TEST(PresentationReportBuilder, RendersMixedSingleSeparatorInsideDoubleGrid)
+{
+  auto policy = base_policy();
+
+  presentation::report_builder report("Mixed rules");
+  report.table("Rules")
+      .grid(presentation::table_rule_style::double_line)
+      .column("name", presentation::table_alignment::left)
+      .column("note", presentation::table_alignment::left)
+      .column("value")
+      .row("alpha", "plain", 1)
+      .separator()
+      .row({{"notes", 1}, {"spanning text", 2, presentation::table_alignment::left}});
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Mixed rules\n"
+                                                        "Rules\n"
+                                                        "  ╔═══════╦═══════╦═══════╗\n"
+                                                        "  ║ name  ║ note  ║ value ║\n"
+                                                        "  ╠═══════╬═══════╬═══════╣\n"
+                                                        "  ║ alpha ║ plain ║     1 ║\n"
+                                                        "  ╟───────╫───────╨───────╢\n"
+                                                        "  ║ notes ║ spanning text ║\n"
+                                                        "  ╚═══════╩═══════════════╝\n");
+}
+
+TEST(PresentationReportBuilder, AlignsDecimalColumnsAndCellOverrides)
+{
+  auto policy = presentation::strict_ascii_policy();
+
+  presentation::report_builder report("Decimal report");
+  report.table("Values")
+      .outer_border()
+      .column_separators()
+      .column("name", presentation::table_alignment::left)
+      .column("value", presentation::table_alignment::decimal)
+      .column("note", presentation::table_alignment::left)
+      .row("alpha", "1.25", "base")
+      .row("beta", "12", "integer")
+      .row({{"gamma", 1}, {"3.5", 1}, {"center", 1, presentation::table_alignment::center}});
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Decimal report\n"
+                                                        "Values\n"
+                                                        "  +-------+-------+---------+\n"
+                                                        "  | name  | value | note    |\n"
+                                                        "  | alpha |  1.25 | base    |\n"
+                                                        "  | beta  | 12    | integer |\n"
+                                                        "  | gamma |  3.5  | center  |\n"
+                                                        "  +-------+-------+---------+\n");
+}
+
+TEST(PresentationReportBuilder, DecimalAlignmentExpandsColumnForLeftPadding)
+{
+  auto policy = presentation::strict_ascii_policy();
+
+  presentation::report_builder report("Decimal width");
+  report.table("Values")
+      .grid()
+      .column("label", presentation::table_alignment::left)
+      .column("value", presentation::table_alignment::decimal)
+      .row("short", "1.0e-15")
+      .row("wide", "123");
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Decimal width\n"
+                                                        "Values\n"
+                                                        "  +-------+-----------+\n"
+                                                        "  | label | value     |\n"
+                                                        "  +-------+-----------+\n"
+                                                        "  | short |   1.0e-15 |\n"
+                                                        "  +-------+-----------+\n"
+                                                        "  | wide  | 123       |\n"
+                                                        "  +-------+-----------+\n");
+}
+
+TEST(PresentationReportBuilder, DecimalAlignmentCentersNonFiniteValues)
+{
+  auto policy = presentation::strict_ascii_policy();
+
+  presentation::report_builder report("Nonfinite decimal");
+  report.table("Values")
+      .grid()
+      .column("label", presentation::table_alignment::left)
+      .column("value", presentation::table_alignment::decimal)
+      .row("finite", "12.5")
+      .row("pos", "inf")
+      .row("neg", "-inf")
+      .row("bad", "nan");
+
+  EXPECT_EQ(presentation::render_plain(report, policy), "Nonfinite decimal\n"
+                                                        "Values\n"
+                                                        "  +--------+-------+\n"
+                                                        "  | label  | value |\n"
+                                                        "  +--------+-------+\n"
+                                                        "  | finite | 12.5  |\n"
+                                                        "  +--------+-------+\n"
+                                                        "  | pos    |  inf  |\n"
+                                                        "  +--------+-------+\n"
+                                                        "  | neg    | -inf  |\n"
+                                                        "  +--------+-------+\n"
+                                                        "  | bad    |  nan  |\n"
+                                                        "  +--------+-------+\n");
+}
+
+TEST(PresentationReportBuilder, ExplicitSeparatorsUseRuledWidthBudget)
+{
+  auto policy = presentation::strict_ascii_policy();
+  policy.wrap_width = 18;
+
+  presentation::report_builder report("Manual fit");
+  report.table("")
+      .column("item", presentation::table_alignment::left)
+      .column("note", presentation::table_alignment::left)
+      .row("id", "alpha beta gamma")
+      .separator()
+      .row("tail", "done");
+
+  auto const rendered = presentation::render_plain(report, policy);
+  EXPECT_NE(rendered.find("--------"), std::string::npos);
+
+  std::size_t start = 0;
+  while (start < rendered.size())
+  {
+    auto const newline = rendered.find('\n', start);
+    auto const line = rendered.substr(start, newline == std::string::npos ? std::string::npos : newline - start);
+    EXPECT_LE(presentation::display_width(line, policy), *policy.wrap_width) << line;
+    if (newline == std::string::npos) break;
+    start = newline + 1;
+  }
 }
 
 TEST(PresentationReportBuilder, WrapsCellsInsideTableWidth)

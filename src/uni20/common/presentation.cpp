@@ -529,6 +529,27 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case semantic_glyph::box_tee_up:
     case semantic_glyph::box_tee_down:
     case semantic_glyph::box_cross:
+    case semantic_glyph::box_double_horizontal:
+    case semantic_glyph::box_double_vertical:
+    case semantic_glyph::box_double_top_left:
+    case semantic_glyph::box_double_top_right:
+    case semantic_glyph::box_double_bottom_left:
+    case semantic_glyph::box_double_bottom_right:
+    case semantic_glyph::box_double_tee_left:
+    case semantic_glyph::box_double_tee_right:
+    case semantic_glyph::box_double_tee_up:
+    case semantic_glyph::box_double_tee_down:
+    case semantic_glyph::box_double_cross:
+    case semantic_glyph::box_double_vertical_tee_right_single:
+    case semantic_glyph::box_double_vertical_tee_left_single:
+    case semantic_glyph::box_double_vertical_cross_single_horizontal:
+    case semantic_glyph::box_double_down_single_horizontal:
+    case semantic_glyph::box_double_up_single_horizontal:
+    case semantic_glyph::box_single_vertical_tee_right_double:
+    case semantic_glyph::box_single_vertical_tee_left_double:
+    case semantic_glyph::box_single_vertical_cross_double_horizontal:
+    case semantic_glyph::box_single_down_double_horizontal:
+    case semantic_glyph::box_single_up_double_horizontal:
     case semantic_glyph::box_diagonal_forward:
     case semantic_glyph::box_diagonal_back:
     case semantic_glyph::box_diagonal_cross:
@@ -575,7 +596,10 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "...";
     case semantic_glyph::box_horizontal:
       return "-";
+    case semantic_glyph::box_double_horizontal:
+      return "=";
     case semantic_glyph::box_vertical:
+    case semantic_glyph::box_double_vertical:
       return "|";
     case semantic_glyph::box_top_left:
     case semantic_glyph::box_top_right:
@@ -590,6 +614,25 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case semantic_glyph::box_tee_up:
     case semantic_glyph::box_tee_down:
     case semantic_glyph::box_cross:
+    case semantic_glyph::box_double_top_left:
+    case semantic_glyph::box_double_top_right:
+    case semantic_glyph::box_double_bottom_left:
+    case semantic_glyph::box_double_bottom_right:
+    case semantic_glyph::box_double_tee_left:
+    case semantic_glyph::box_double_tee_right:
+    case semantic_glyph::box_double_tee_up:
+    case semantic_glyph::box_double_tee_down:
+    case semantic_glyph::box_double_cross:
+    case semantic_glyph::box_double_vertical_tee_right_single:
+    case semantic_glyph::box_double_vertical_tee_left_single:
+    case semantic_glyph::box_double_vertical_cross_single_horizontal:
+    case semantic_glyph::box_double_down_single_horizontal:
+    case semantic_glyph::box_double_up_single_horizontal:
+    case semantic_glyph::box_single_vertical_tee_right_double:
+    case semantic_glyph::box_single_vertical_tee_left_double:
+    case semantic_glyph::box_single_vertical_cross_double_horizontal:
+    case semantic_glyph::box_single_down_double_horizontal:
+    case semantic_glyph::box_single_up_double_horizontal:
       return "+";
     case semantic_glyph::box_diagonal_forward:
       return "/";
@@ -608,14 +651,13 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case semantic_glyph::bullet:
       return "*";
     case semantic_glyph::matrix_top_left:
+    case semantic_glyph::matrix_middle_left:
     case semantic_glyph::matrix_bottom_left:
       return "[";
     case semantic_glyph::matrix_top_right:
+    case semantic_glyph::matrix_middle_right:
     case semantic_glyph::matrix_bottom_right:
       return "]";
-    case semantic_glyph::matrix_middle_left:
-    case semantic_glyph::matrix_middle_right:
-      return "|";
   }
   return "";
 }
@@ -674,6 +716,48 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "\xE2\x94\xAC";
     case semantic_glyph::box_cross:
       return "\xE2\x94\xBC";
+    case semantic_glyph::box_double_horizontal:
+      return "\xE2\x95\x90";
+    case semantic_glyph::box_double_vertical:
+      return "\xE2\x95\x91";
+    case semantic_glyph::box_double_top_left:
+      return "\xE2\x95\x94";
+    case semantic_glyph::box_double_top_right:
+      return "\xE2\x95\x97";
+    case semantic_glyph::box_double_bottom_left:
+      return "\xE2\x95\x9A";
+    case semantic_glyph::box_double_bottom_right:
+      return "\xE2\x95\x9D";
+    case semantic_glyph::box_double_tee_left:
+      return "\xE2\x95\xA3";
+    case semantic_glyph::box_double_tee_right:
+      return "\xE2\x95\xA0";
+    case semantic_glyph::box_double_tee_up:
+      return "\xE2\x95\xA9";
+    case semantic_glyph::box_double_tee_down:
+      return "\xE2\x95\xA6";
+    case semantic_glyph::box_double_cross:
+      return "\xE2\x95\xAC";
+    case semantic_glyph::box_double_vertical_tee_right_single:
+      return "\xE2\x95\x9F";
+    case semantic_glyph::box_double_vertical_tee_left_single:
+      return "\xE2\x95\xA2";
+    case semantic_glyph::box_double_vertical_cross_single_horizontal:
+      return "\xE2\x95\xAB";
+    case semantic_glyph::box_double_down_single_horizontal:
+      return "\xE2\x95\xA5";
+    case semantic_glyph::box_double_up_single_horizontal:
+      return "\xE2\x95\xA8";
+    case semantic_glyph::box_single_vertical_tee_right_double:
+      return "\xE2\x95\x9E";
+    case semantic_glyph::box_single_vertical_tee_left_double:
+      return "\xE2\x95\xA1";
+    case semantic_glyph::box_single_vertical_cross_double_horizontal:
+      return "\xE2\x95\xAA";
+    case semantic_glyph::box_single_down_double_horizontal:
+      return "\xE2\x95\xA4";
+    case semantic_glyph::box_single_up_double_horizontal:
+      return "\xE2\x95\xA7";
     case semantic_glyph::box_diagonal_forward:
       return "\xE2\x95\xB1";
     case semantic_glyph::box_diagonal_back:
@@ -1231,13 +1315,52 @@ report_table& report_table::column(std::string heading, table_alignment alignmen
 
 report_table& report_table::row(std::vector<std::string> cells)
 {
-  rows_.push_back(std::move(cells));
+  std::vector<table_cell> entry_cells;
+  entry_cells.reserve(cells.size());
+  for (auto& cell : cells)
+  {
+    entry_cells.push_back(table_cell{std::move(cell), 1});
+  }
+  entries_.push_back(std::move(entry_cells));
+  return *this;
+}
+
+report_table& report_table::row(std::vector<table_cell> cells)
+{
+  for (auto& cell : cells)
+  {
+    if (cell.span == 0) cell.span = 1;
+  }
+  entries_.push_back(std::move(cells));
+  return *this;
+}
+
+report_table& report_table::row(std::initializer_list<table_cell> cells)
+{
+  return this->row(std::vector<table_cell>(cells));
+}
+
+report_table& report_table::top_separator(table_rule_style style)
+{
+  top_separators_.push_back(style);
+  return *this;
+}
+
+report_table& report_table::separator(table_rule_style style)
+{
+  entries_.push_back(table_separator{style});
   return *this;
 }
 
 report_table& report_table::borders(table_border_options options)
 {
   border_options_ = options;
+  return *this;
+}
+
+report_table& report_table::border_style(table_rule_style style)
+{
+  border_options_.rule_style = style;
   return *this;
 }
 
@@ -1274,11 +1397,15 @@ report_table& report_table::grid(bool enabled)
   return *this;
 }
 
+report_table& report_table::grid(table_rule_style style) { return this->grid(true).border_style(style); }
+
 std::string const& report_table::title() const noexcept { return title_; }
 
 std::vector<table_column> const& report_table::columns() const noexcept { return columns_; }
 
-std::vector<std::vector<std::string>> const& report_table::rows() const noexcept { return rows_; }
+std::vector<table_entry> const& report_table::entries() const noexcept { return entries_; }
+
+std::vector<table_rule_style> const& report_table::top_separators() const noexcept { return top_separators_; }
 
 table_border_options const& report_table::border_options() const noexcept { return border_options_; }
 
@@ -1327,16 +1454,71 @@ namespace
       return pad_left(text, width, policy);
     case table_alignment::center:
       return pad_center(text, width, policy);
+    case table_alignment::decimal:
+      return pad_left(text, width, policy);
   }
   return pad_right(text, width, policy);
+}
+
+[[nodiscard]] std::size_t decimal_position_width(std::string_view text, output_policy const& policy)
+{
+  auto const rendered = render_text(text, policy);
+  auto const point = rendered.find('.');
+  if (point == std::string::npos) return width_of_rendered(rendered, policy);
+  return width_of_rendered(std::string_view(rendered).substr(0, point), policy);
+}
+
+[[nodiscard]] bool is_nonfinite_decimal_text(std::string_view rendered)
+{
+  if (rendered == "nan" || rendered == "+nan" || rendered == "-nan") return true;
+  if (rendered == "inf" || rendered == "+inf" || rendered == "-inf") return true;
+  return false;
+}
+
+[[nodiscard]] std::string pad_decimal(std::string_view text, std::size_t target_width, std::size_t decimal_position,
+                                      output_policy const& policy)
+{
+  auto rendered = render_text(text, policy);
+  if (is_nonfinite_decimal_text(rendered))
+  {
+    return pad_center(rendered, target_width, policy);
+  }
+
+  auto const before_decimal = decimal_position_width(rendered, policy);
+  auto const rendered_width = width_of_rendered(rendered, policy);
+  auto const desired_left_padding = decimal_position > before_decimal ? decimal_position - before_decimal : 0;
+  auto const max_left_padding = target_width > rendered_width ? target_width - rendered_width : 0;
+  std::size_t const left_padding = std::min(desired_left_padding, max_left_padding);
+  if (left_padding > 0) rendered.insert(0, left_padding, ' ');
+  auto const width = width_of_rendered(rendered, policy);
+  if (width >= target_width) return rendered;
+  rendered.append(target_width - width, ' ');
+  return rendered;
+}
+
+[[nodiscard]] std::string pad_table_cell(std::string_view text, std::size_t width, table_alignment alignment,
+                                         output_policy const& policy, std::optional<std::size_t> decimal_position)
+{
+  if (alignment == table_alignment::decimal)
+  {
+    return pad_decimal(text, width, decimal_position.value_or(width), policy);
+  }
+  return pad_table_cell(text, width, alignment, policy);
 }
 
 [[nodiscard]] std::size_t table_column_count(report_table const& table)
 {
   std::size_t count = table.columns().size();
-  for (auto const& row : table.rows())
+  for (auto const& entry : table.entries())
   {
-    count = std::max(count, row.size());
+    auto const* row = std::get_if<std::vector<table_cell>>(&entry);
+    if (row == nullptr) continue;
+    std::size_t row_columns = 0;
+    for (auto const& cell : *row)
+    {
+      row_columns += std::max<std::size_t>(cell.span, 1);
+    }
+    count = std::max(count, row_columns);
   }
   return count;
 }
@@ -1361,15 +1543,151 @@ namespace
     widths[i] = display_width(column_heading(table, i), policy);
   }
 
-  for (auto const& row : table.rows())
+  for (auto const& entry : table.entries())
   {
-    for (std::size_t i = 0; i < row.size(); ++i)
+    auto const* row = std::get_if<std::vector<table_cell>>(&entry);
+    if (row == nullptr) continue;
+    std::size_t column = 0;
+    for (auto const& cell : *row)
     {
-      widths[i] = std::max(widths[i], display_width(row[i], policy));
+      if (column >= widths.size()) break;
+      auto const span = std::min(std::max<std::size_t>(cell.span, 1), widths.size() - column);
+      if (span == 1)
+      {
+        widths[column] = std::max(widths[column], display_width(cell.text, policy));
+      }
+      column += span;
     }
   }
 
   return widths;
+}
+
+[[nodiscard]] std::vector<std::optional<std::size_t>>
+decimal_positions(report_table const& table, output_policy const& policy, std::size_t column_count)
+{
+  std::vector<std::optional<std::size_t>> positions(column_count);
+  for (std::size_t i = 0; i < column_count; ++i)
+  {
+    if (column_alignment(table, i) == table_alignment::decimal)
+    {
+      positions[i] = 0;
+    }
+  }
+
+  for (auto const& entry : table.entries())
+  {
+    auto const* row = std::get_if<std::vector<table_cell>>(&entry);
+    if (row == nullptr) continue;
+    std::size_t column = 0;
+    for (auto const& cell : *row)
+    {
+      if (column >= column_count) break;
+      auto const span = std::min(std::max<std::size_t>(cell.span, 1), column_count - column);
+      auto const alignment = cell.alignment.value_or(column_alignment(table, column));
+      auto const rendered = render_text(cell.text, policy);
+      if (span == 1 && alignment == table_alignment::decimal && positions[column].has_value() &&
+          !is_nonfinite_decimal_text(rendered))
+      {
+        positions[column] = std::max(*positions[column], decimal_position_width(rendered, policy));
+      }
+      column += span;
+    }
+  }
+
+  return positions;
+}
+
+void fit_decimal_table_widths(std::vector<std::size_t>& widths, report_table const& table, output_policy const& policy)
+{
+  auto const positions = decimal_positions(table, policy, widths.size());
+  for (auto const& entry : table.entries())
+  {
+    auto const* row = std::get_if<std::vector<table_cell>>(&entry);
+    if (row == nullptr) continue;
+    std::size_t column = 0;
+    for (auto const& cell : *row)
+    {
+      if (column >= widths.size()) break;
+      auto const span = std::min(std::max<std::size_t>(cell.span, 1), widths.size() - column);
+      auto const alignment = cell.alignment.value_or(column_alignment(table, column));
+      if (span == 1 && alignment == table_alignment::decimal && column < positions.size() &&
+          positions[column].has_value())
+      {
+        auto const rendered = render_text(cell.text, policy);
+        if (is_nonfinite_decimal_text(rendered))
+        {
+          column += span;
+          continue;
+        }
+        auto const before_decimal = decimal_position_width(rendered, policy);
+        auto const rendered_width = width_of_rendered(rendered, policy);
+        auto const left_padding = *positions[column] > before_decimal ? *positions[column] - before_decimal : 0;
+        widths[column] = std::max(widths[column], left_padding + rendered_width);
+      }
+      column += span;
+    }
+  }
+}
+
+[[nodiscard]] std::size_t spanned_gap_width(std::size_t span, table_border_options const& options, bool ruled)
+{
+  if (span <= 1) return 0;
+  if (!ruled) return 2 * (span - 1);
+  auto const separator_width = options.column_separators ? 1 : 2;
+  return (2 * options.horizontal_padding + separator_width) * (span - 1);
+}
+
+[[nodiscard]] std::size_t spanned_cell_width(std::vector<std::size_t> const& widths, std::size_t column,
+                                             std::size_t span, table_border_options const& options, bool ruled)
+{
+  auto const clamped_span = std::min(span, widths.size() - column);
+  auto total = std::accumulate(widths.begin() + static_cast<std::ptrdiff_t>(column),
+                               widths.begin() + static_cast<std::ptrdiff_t>(column + clamped_span), std::size_t{0});
+  return total + spanned_gap_width(clamped_span, options, ruled);
+}
+
+void grow_spanned_widths(std::vector<std::size_t>& widths, std::size_t column, std::size_t span, std::size_t target,
+                         table_border_options const& options, bool ruled)
+{
+  auto const clamped_span = std::min(span, widths.size() - column);
+  if (clamped_span == 0) return;
+
+  while (spanned_cell_width(widths, column, clamped_span, options, ruled) < target)
+  {
+    std::size_t best = column;
+    for (std::size_t i = column + 1; i < column + clamped_span; ++i)
+    {
+      if (widths[i] < widths[best]) best = i;
+    }
+    ++widths[best];
+  }
+}
+
+void fit_spanned_table_widths(std::vector<std::size_t>& widths, report_table const& table, output_policy const& policy)
+{
+  auto const& options = table.border_options();
+  auto const ruled = options.outer || options.column_separators || options.row_separators || options.header_separator ||
+                     !table.top_separators().empty() ||
+                     std::any_of(table.entries().begin(), table.entries().end(), [](table_entry const& entry) {
+                       return std::holds_alternative<table_separator>(entry);
+                     });
+  for (auto const& entry : table.entries())
+  {
+    auto const* row = std::get_if<std::vector<table_cell>>(&entry);
+    if (row == nullptr) continue;
+    std::size_t column = 0;
+    for (auto const& cell : *row)
+    {
+      if (column >= widths.size()) break;
+      auto const span = std::min(std::max<std::size_t>(cell.span, 1), widths.size() - column);
+      if (span > 1)
+      {
+        grow_spanned_widths(widths, column, span, display_width(cell.text, policy), table.border_options(), ruled);
+      }
+      column += span;
+    }
+  }
 }
 
 [[nodiscard]] bool is_table_break_space(decoded_codepoint const& decoded)
@@ -1420,11 +1738,20 @@ namespace
     widths[i] = std::max(widths[i], longest_unbreakable_width(column_heading(table, i), policy));
   }
 
-  for (auto const& row : table.rows())
+  for (auto const& entry : table.entries())
   {
-    for (std::size_t i = 0; i < row.size(); ++i)
+    auto const* row = std::get_if<std::vector<table_cell>>(&entry);
+    if (row == nullptr) continue;
+    std::size_t column = 0;
+    for (auto const& cell : *row)
     {
-      widths[i] = std::max(widths[i], longest_unbreakable_width(row[i], policy));
+      if (column >= widths.size()) break;
+      auto const span = std::min(std::max<std::size_t>(cell.span, 1), widths.size() - column);
+      if (span == 1)
+      {
+        widths[column] = std::max(widths[column], longest_unbreakable_width(cell.text, policy));
+      }
+      column += span;
     }
   }
 
@@ -1444,11 +1771,23 @@ namespace
          (options.column_separators ? column_count - 1 : 2 * (column_count - 1));
 }
 
-[[nodiscard]] std::size_t table_fixed_width(std::size_t column_count, table_border_options const& options)
+[[nodiscard]] bool has_table_rules(report_table const& table)
 {
-  if (options.outer || options.column_separators || options.row_separators || options.header_separator)
+  auto const& options = table.border_options();
+  if (options.outer || options.column_separators || options.row_separators || options.header_separator ||
+      !table.top_separators().empty())
   {
-    return ruled_table_fixed_width(column_count, options);
+    return true;
+  }
+  return std::any_of(table.entries().begin(), table.entries().end(),
+                     [](table_entry const& entry) { return std::holds_alternative<table_separator>(entry); });
+}
+
+[[nodiscard]] std::size_t table_fixed_width(std::size_t column_count, report_table const& table)
+{
+  if (has_table_rules(table))
+  {
+    return ruled_table_fixed_width(column_count, table.border_options());
   }
   return compact_table_fixed_width(column_count);
 }
@@ -1458,7 +1797,7 @@ namespace
 {
   if (!policy.wrap_width.has_value() || widths.empty()) return widths;
 
-  auto const fixed_width = table_fixed_width(widths.size(), table.border_options());
+  auto const fixed_width = table_fixed_width(widths.size(), table);
   std::size_t const content_budget =
       *policy.wrap_width > fixed_width ? *policy.wrap_width - fixed_width : widths.size();
   if (content_budget >= widths.size())
@@ -1505,11 +1844,6 @@ namespace
   return widths;
 }
 
-[[nodiscard]] bool has_table_rules(table_border_options const& options)
-{
-  return options.outer || options.column_separators || options.row_separators || options.header_separator;
-}
-
 void append_repeated_glyph(styled_text& text, semantic_glyph glyph, std::size_t count,
                            terminal::TerminalStyle line_style)
 {
@@ -1517,6 +1851,58 @@ void append_repeated_glyph(styled_text& text, semantic_glyph glyph, std::size_t 
   {
     text.append(glyph, line_style);
   }
+}
+
+struct table_rule_glyphs
+{
+    semantic_glyph horizontal = semantic_glyph::box_horizontal;
+    semantic_glyph vertical = semantic_glyph::box_vertical;
+    semantic_glyph top_left = semantic_glyph::box_top_left;
+    semantic_glyph top_right = semantic_glyph::box_top_right;
+    semantic_glyph bottom_left = semantic_glyph::box_bottom_left;
+    semantic_glyph bottom_right = semantic_glyph::box_bottom_right;
+    semantic_glyph tee_left = semantic_glyph::box_tee_left;
+    semantic_glyph tee_right = semantic_glyph::box_tee_right;
+    semantic_glyph tee_up = semantic_glyph::box_tee_up;
+    semantic_glyph tee_down = semantic_glyph::box_tee_down;
+    semantic_glyph cross = semantic_glyph::box_cross;
+};
+
+[[nodiscard]] table_rule_glyphs glyphs_for_rule_style(table_rule_style rule_style)
+{
+  if (rule_style == table_rule_style::double_line)
+  {
+    return {semantic_glyph::box_double_horizontal,  semantic_glyph::box_double_vertical,
+            semantic_glyph::box_double_top_left,    semantic_glyph::box_double_top_right,
+            semantic_glyph::box_double_bottom_left, semantic_glyph::box_double_bottom_right,
+            semantic_glyph::box_double_tee_left,    semantic_glyph::box_double_tee_right,
+            semantic_glyph::box_double_tee_up,      semantic_glyph::box_double_tee_down,
+            semantic_glyph::box_double_cross};
+  }
+  return {};
+}
+
+[[nodiscard]] table_rule_glyphs glyphs_for_separator_style(table_rule_style horizontal_style,
+                                                           table_rule_style vertical_style)
+{
+  auto glyphs = glyphs_for_rule_style(horizontal_style);
+  if (horizontal_style == table_rule_style::single && vertical_style == table_rule_style::double_line)
+  {
+    glyphs.tee_right = semantic_glyph::box_double_vertical_tee_right_single;
+    glyphs.tee_left = semantic_glyph::box_double_vertical_tee_left_single;
+    glyphs.tee_down = semantic_glyph::box_double_down_single_horizontal;
+    glyphs.tee_up = semantic_glyph::box_double_up_single_horizontal;
+    glyphs.cross = semantic_glyph::box_double_vertical_cross_single_horizontal;
+  }
+  else if (horizontal_style == table_rule_style::double_line && vertical_style == table_rule_style::single)
+  {
+    glyphs.tee_right = semantic_glyph::box_single_vertical_tee_right_double;
+    glyphs.tee_left = semantic_glyph::box_single_vertical_tee_left_double;
+    glyphs.tee_down = semantic_glyph::box_single_down_double_horizontal;
+    glyphs.tee_up = semantic_glyph::box_single_up_double_horizontal;
+    glyphs.cross = semantic_glyph::box_single_vertical_cross_double_horizontal;
+  }
+  return glyphs;
 }
 
 [[nodiscard]] std::vector<std::size_t> table_cell_widths(std::vector<std::size_t> const& content_widths,
@@ -1532,9 +1918,11 @@ void append_repeated_glyph(styled_text& text, semantic_glyph glyph, std::size_t 
 }
 
 [[nodiscard]] std::string padded_table_cell(std::string_view text, std::size_t width, table_alignment alignment,
-                                            table_border_options const& border_options, output_policy const& policy)
+                                            table_border_options const& border_options, output_policy const& policy,
+                                            std::optional<std::size_t> decimal_position)
 {
-  return std::string(border_options.horizontal_padding, ' ') + pad_table_cell(text, width, alignment, policy) +
+  return std::string(border_options.horizontal_padding, ' ') +
+         pad_table_cell(text, width, alignment, policy, decimal_position) +
          std::string(border_options.horizontal_padding, ' ');
 }
 
@@ -1546,35 +1934,109 @@ void append_repeated_glyph(styled_text& text, semantic_glyph glyph, std::size_t 
   return lines;
 }
 
-[[nodiscard]] std::vector<std::vector<std::string>> wrapped_table_cells(std::vector<std::string> const& row,
-                                                                        std::vector<std::size_t> const& widths,
-                                                                        output_policy const& policy)
+struct wrapped_table_cell_layout
 {
-  std::vector<std::vector<std::string>> cells;
-  cells.reserve(widths.size());
-  for (std::size_t i = 0; i < widths.size(); ++i)
+    std::vector<std::string> lines;
+    std::size_t width = 1;
+    std::size_t span = 1;
+    table_alignment alignment = table_alignment::right;
+    std::optional<std::size_t> decimal_position;
+};
+
+[[nodiscard]] std::vector<wrapped_table_cell_layout>
+wrapped_table_cells(std::vector<table_cell> const& row, std::vector<std::size_t> const& widths,
+                    std::vector<std::optional<std::size_t>> const& decimals, table_border_options const& border_options,
+                    bool ruled, report_table const& table, output_policy const& policy)
+{
+  std::vector<wrapped_table_cell_layout> cells;
+  cells.reserve(row.size());
+  std::size_t column = 0;
+  for (auto const& cell : row)
   {
-    std::string_view const cell = i < row.size() ? std::string_view(row[i]) : std::string_view{};
-    cells.push_back(wrapped_table_cell(cell, widths[i], policy));
+    if (column >= widths.size()) break;
+    auto const span = std::min(std::max<std::size_t>(cell.span, 1), widths.size() - column);
+    auto const width = spanned_cell_width(widths, column, span, border_options, ruled);
+    auto const alignment = cell.alignment.value_or(column_alignment(table, column));
+    auto const decimal_position = span == 1 && column < decimals.size() && alignment == table_alignment::decimal
+                                      ? decimals[column]
+                                      : std::nullopt;
+    cells.push_back(wrapped_table_cell_layout{wrapped_table_cell(cell.text, width, policy), width, span, alignment,
+                                              decimal_position});
+    column += span;
+  }
+  while (column < widths.size())
+  {
+    auto const alignment = column_alignment(table, column);
+    auto const decimal_position =
+        column < decimals.size() && alignment == table_alignment::decimal ? decimals[column] : std::nullopt;
+    cells.push_back(wrapped_table_cell_layout{wrapped_table_cell({}, widths[column], policy), widths[column], 1,
+                                              alignment, decimal_position});
+    ++column;
   }
   return cells;
 }
 
-[[nodiscard]] std::size_t wrapped_row_height(std::vector<std::vector<std::string>> const& cells)
+[[nodiscard]] std::size_t wrapped_row_height(std::vector<wrapped_table_cell_layout> const& cells)
 {
   std::size_t height = 1;
   for (auto const& cell : cells)
   {
-    height = std::max(height, cell.size());
+    height = std::max(height, cell.lines.size());
   }
   return height;
 }
 
+[[nodiscard]] std::vector<bool> full_boundary_mask(std::size_t column_count)
+{
+  if (column_count == 0) return {};
+  return std::vector<bool>(column_count - 1, true);
+}
+
+[[nodiscard]] std::vector<bool> row_boundary_mask(std::vector<table_cell> const& row, std::size_t column_count)
+{
+  auto mask = full_boundary_mask(column_count);
+  std::size_t column = 0;
+  for (auto const& cell : row)
+  {
+    if (column >= column_count) break;
+    auto const span = std::min(std::max<std::size_t>(cell.span, 1), column_count - column);
+    for (std::size_t i = column; i + 1 < column + span; ++i)
+    {
+      mask[i] = false;
+    }
+    column += span;
+  }
+  return mask;
+}
+
+[[nodiscard]] std::vector<std::optional<semantic_glyph>>
+rule_junctions(std::vector<bool> const& above, std::vector<bool> const& below, table_rule_glyphs const& glyphs)
+{
+  std::vector<std::optional<semantic_glyph>> junctions;
+  junctions.reserve(std::max(above.size(), below.size()));
+  for (std::size_t i = 0; i < std::max(above.size(), below.size()); ++i)
+  {
+    bool const has_above = i < above.size() ? above[i] : false;
+    bool const has_below = i < below.size() ? below[i] : false;
+    if (has_above && has_below)
+      junctions.push_back(glyphs.cross);
+    else if (has_above)
+      junctions.push_back(glyphs.tee_up);
+    else if (has_below)
+      junctions.push_back(glyphs.tee_down);
+    else
+      junctions.push_back(std::nullopt);
+  }
+  return junctions;
+}
+
 void append_table_rule(styled_text& text, std::vector<std::size_t> const& cell_widths,
-                       table_border_options const& border_options, semantic_glyph left, semantic_glyph junction,
+                       table_border_options const& border_options, table_rule_style rule_style,
+                       std::vector<std::optional<semantic_glyph>> const& junctions, semantic_glyph left,
                        semantic_glyph right)
 {
   auto const line_style = style("LightGray");
+  auto const glyphs = glyphs_for_rule_style(rule_style);
   text.append("  ");
   if (border_options.outer)
   {
@@ -1583,16 +2045,17 @@ void append_table_rule(styled_text& text, std::vector<std::size_t> const& cell_w
 
   for (std::size_t i = 0; i < cell_widths.size(); ++i)
   {
-    append_repeated_glyph(text, semantic_glyph::box_horizontal, cell_widths[i], line_style);
+    append_repeated_glyph(text, glyphs.horizontal, cell_widths[i], line_style);
     if (i + 1 < cell_widths.size())
     {
-      if (border_options.column_separators)
+      auto const junction = i < junctions.size() ? junctions[i] : std::optional<semantic_glyph>{};
+      if (border_options.column_separators && junction.has_value())
       {
-        text.append(junction, line_style);
+        text.append(*junction, line_style);
       }
       else
       {
-        append_repeated_glyph(text, semantic_glyph::box_horizontal, 2, line_style);
+        append_repeated_glyph(text, glyphs.horizontal, border_options.column_separators ? 1 : 2, line_style);
       }
     }
   }
@@ -1605,27 +2068,30 @@ void append_table_rule(styled_text& text, std::vector<std::size_t> const& cell_w
 }
 
 void append_ruled_table_row(styled_text& text, report_table const& table, std::vector<std::size_t> const& widths,
-                            std::vector<std::string> const& row, output_policy const& policy, bool heading = false)
+                            std::vector<std::optional<std::size_t>> const& decimals, std::vector<table_cell> const& row,
+                            output_policy const& policy, bool heading = false)
 {
   auto const& border_options = table.border_options();
   auto const line_style = style("LightGray");
-  auto const wrapped_cells = wrapped_table_cells(row, widths, policy);
+  auto const rule_glyphs = glyphs_for_rule_style(border_options.rule_style);
+  auto const wrapped_cells = wrapped_table_cells(row, widths, decimals, border_options, true, table, policy);
   auto const height = wrapped_row_height(wrapped_cells);
   for (std::size_t line = 0; line < height; ++line)
   {
     text.append("  ");
     if (border_options.outer)
     {
-      text.append(semantic_glyph::box_vertical, line_style);
+      text.append(rule_glyphs.vertical, line_style);
     }
 
-    for (std::size_t i = 0; i < widths.size(); ++i)
+    std::size_t column = 0;
+    for (auto const& wrapped_cell : wrapped_cells)
     {
-      if (i > 0)
+      if (column > 0)
       {
         if (border_options.column_separators)
         {
-          text.append(semantic_glyph::box_vertical, line_style);
+          text.append(rule_glyphs.vertical, line_style);
         }
         else
         {
@@ -1634,34 +2100,40 @@ void append_ruled_table_row(styled_text& text, report_table const& table, std::v
       }
 
       std::string_view const cell =
-          line < wrapped_cells[i].size() ? std::string_view(wrapped_cells[i][line]) : std::string_view{};
-      text.append(padded_table_cell(cell, widths[i], column_alignment(table, i), border_options, policy),
+          line < wrapped_cell.lines.size() ? std::string_view(wrapped_cell.lines[line]) : std::string_view{};
+      text.append(padded_table_cell(cell, wrapped_cell.width, wrapped_cell.alignment, border_options, policy,
+                                    wrapped_cell.decimal_position),
                   heading ? style("LightGray") : terminal::TerminalStyle{});
+      column += wrapped_cell.span;
     }
 
     if (border_options.outer)
     {
-      text.append(semantic_glyph::box_vertical, line_style);
+      text.append(rule_glyphs.vertical, line_style);
     }
     text.append("\n");
   }
 }
 
 void append_plain_table_row(styled_text& text, report_table const& table, std::vector<std::size_t> const& widths,
-                            std::vector<std::string> const& row, output_policy const& policy, bool heading = false)
+                            std::vector<std::optional<std::size_t>> const& decimals, std::vector<table_cell> const& row,
+                            output_policy const& policy, bool heading = false)
 {
-  auto const wrapped_cells = wrapped_table_cells(row, widths, policy);
+  auto const wrapped_cells = wrapped_table_cells(row, widths, decimals, table.border_options(), false, table, policy);
   auto const height = wrapped_row_height(wrapped_cells);
   for (std::size_t line = 0; line < height; ++line)
   {
     text.append("  ");
-    for (std::size_t i = 0; i < widths.size(); ++i)
+    std::size_t column = 0;
+    for (auto const& wrapped_cell : wrapped_cells)
     {
-      if (i > 0) text.append("  ");
+      if (column > 0) text.append("  ");
       std::string_view const cell =
-          line < wrapped_cells[i].size() ? std::string_view(wrapped_cells[i][line]) : std::string_view{};
-      text.append(pad_table_cell(cell, widths[i], column_alignment(table, i), policy),
-                  heading ? style("LightGray") : terminal::TerminalStyle{});
+          line < wrapped_cell.lines.size() ? std::string_view(wrapped_cell.lines[line]) : std::string_view{};
+      text.append(
+          pad_table_cell(cell, wrapped_cell.width, wrapped_cell.alignment, policy, wrapped_cell.decimal_position),
+          heading ? style("LightGray") : terminal::TerminalStyle{});
+      column += wrapped_cell.span;
     }
     text.append("\n");
   }
@@ -1670,17 +2142,19 @@ void append_plain_table_row(styled_text& text, report_table const& table, std::v
 void append_plain_report_table(styled_text& text, report_table const& table, output_policy const& policy,
                                std::vector<std::size_t> const& widths)
 {
-  std::vector<std::string> headings;
+  auto const decimals = decimal_positions(table, policy, widths.size());
+  std::vector<table_cell> headings;
   headings.reserve(widths.size());
   for (std::size_t i = 0; i < widths.size(); ++i)
   {
-    headings.push_back(column_heading(table, i));
+    headings.push_back(table_cell{column_heading(table, i), 1});
   }
-  append_plain_table_row(text, table, widths, headings, policy, true);
+  append_plain_table_row(text, table, widths, decimals, headings, policy, true);
 
-  for (auto const& row : table.rows())
+  for (auto const& entry : table.entries())
   {
-    append_plain_table_row(text, table, widths, row, policy);
+    auto const* row = std::get_if<std::vector<table_cell>>(&entry);
+    if (row != nullptr) append_plain_table_row(text, table, widths, decimals, *row, policy);
   }
 }
 
@@ -1689,41 +2163,90 @@ void append_ruled_report_table(styled_text& text, report_table const& table, out
 {
   auto const& border_options = table.border_options();
   auto const cell_widths = table_cell_widths(widths, border_options);
+  auto const decimals = decimal_positions(table, policy, widths.size());
+  auto const automatic_glyphs = glyphs_for_rule_style(border_options.rule_style);
+  auto const all_boundaries = full_boundary_mask(widths.size());
+  auto const no_boundaries = std::vector<bool>(all_boundaries.size(), false);
 
   if (border_options.outer)
   {
-    append_table_rule(text, cell_widths, border_options, semantic_glyph::box_top_left, semantic_glyph::box_tee_down,
-                      semantic_glyph::box_top_right);
+    append_table_rule(text, cell_widths, border_options, border_options.rule_style,
+                      rule_junctions(no_boundaries, all_boundaries, automatic_glyphs), automatic_glyphs.top_left,
+                      automatic_glyphs.top_right);
   }
 
-  std::vector<std::string> headings;
+  for (auto const separator_style : table.top_separators())
+  {
+    auto const separator_glyphs = glyphs_for_separator_style(separator_style, border_options.rule_style);
+    append_table_rule(text, cell_widths, border_options, separator_style,
+                      rule_junctions(all_boundaries, all_boundaries, separator_glyphs), separator_glyphs.tee_right,
+                      separator_glyphs.tee_left);
+  }
+
+  std::vector<table_cell> headings;
   headings.reserve(widths.size());
   for (std::size_t i = 0; i < widths.size(); ++i)
   {
-    headings.push_back(column_heading(table, i));
+    headings.push_back(table_cell{column_heading(table, i), 1});
   }
-  append_ruled_table_row(text, table, widths, headings, policy, true);
+  append_ruled_table_row(text, table, widths, decimals, headings, policy, true);
 
   if (border_options.header_separator)
   {
-    append_table_rule(text, cell_widths, border_options, semantic_glyph::box_tee_right, semantic_glyph::box_cross,
-                      semantic_glyph::box_tee_left);
+    append_table_rule(text, cell_widths, border_options, border_options.rule_style,
+                      rule_junctions(all_boundaries, all_boundaries, automatic_glyphs), automatic_glyphs.tee_right,
+                      automatic_glyphs.tee_left);
   }
 
-  for (std::size_t row_index = 0; row_index < table.rows().size(); ++row_index)
+  std::size_t data_rows_since_separator = 0;
+  std::vector<table_cell> const* previous_row = nullptr;
+  for (std::size_t entry_index = 0; entry_index < table.entries().size(); ++entry_index)
   {
-    append_ruled_table_row(text, table, widths, table.rows()[row_index], policy);
-    if (border_options.row_separators && row_index + 1 < table.rows().size())
+    auto const& entry = table.entries()[entry_index];
+    if (auto const* row = std::get_if<std::vector<table_cell>>(&entry))
     {
-      append_table_rule(text, cell_widths, border_options, semantic_glyph::box_tee_right, semantic_glyph::box_cross,
-                        semantic_glyph::box_tee_left);
+      if (border_options.row_separators && data_rows_since_separator > 0)
+      {
+        auto const above = previous_row == nullptr ? all_boundaries : row_boundary_mask(*previous_row, widths.size());
+        auto const below = row_boundary_mask(*row, widths.size());
+        append_table_rule(text, cell_widths, border_options, border_options.rule_style,
+                          rule_junctions(above, below, automatic_glyphs), automatic_glyphs.tee_right,
+                          automatic_glyphs.tee_left);
+      }
+      append_ruled_table_row(text, table, widths, decimals, *row, policy);
+      ++data_rows_since_separator;
+      previous_row = row;
+      continue;
+    }
+
+    if (auto const* separator = std::get_if<table_separator>(&entry))
+    {
+      auto const above = previous_row == nullptr ? all_boundaries : row_boundary_mask(*previous_row, widths.size());
+      auto below = all_boundaries;
+      for (std::size_t next_index = entry_index + 1; next_index < table.entries().size(); ++next_index)
+      {
+        if (auto const* next_row = std::get_if<std::vector<table_cell>>(&table.entries()[next_index]))
+        {
+          below = row_boundary_mask(*next_row, widths.size());
+          break;
+        }
+        if (std::holds_alternative<table_separator>(table.entries()[next_index])) break;
+      }
+      auto const separator_glyphs = glyphs_for_separator_style(separator->style, border_options.rule_style);
+      append_table_rule(text, cell_widths, border_options, separator->style,
+                        rule_junctions(above, below, separator_glyphs), separator_glyphs.tee_right,
+                        separator_glyphs.tee_left);
+      data_rows_since_separator = 0;
+      previous_row = nullptr;
     }
   }
 
   if (border_options.outer)
   {
-    append_table_rule(text, cell_widths, border_options, semantic_glyph::box_bottom_left, semantic_glyph::box_tee_up,
-                      semantic_glyph::box_bottom_right);
+    auto const above = previous_row == nullptr ? all_boundaries : row_boundary_mask(*previous_row, widths.size());
+    append_table_rule(text, cell_widths, border_options, border_options.rule_style,
+                      rule_junctions(above, no_boundaries, automatic_glyphs), automatic_glyphs.bottom_left,
+                      automatic_glyphs.bottom_right);
   }
 }
 
@@ -1734,10 +2257,13 @@ void append_report_table(styled_text& text, report_table const& table, output_po
     text.append(table.title(), style("Cyan")).append("\n");
   }
 
-  auto const widths = fit_table_widths(table_widths(table, policy), table, policy);
+  auto widths = table_widths(table, policy);
+  fit_spanned_table_widths(widths, table, policy);
+  fit_decimal_table_widths(widths, table, policy);
+  widths = fit_table_widths(std::move(widths), table, policy);
   if (widths.empty()) return;
 
-  if (has_table_rules(table.border_options()))
+  if (has_table_rules(table))
   {
     append_ruled_report_table(text, table, policy, widths);
   }

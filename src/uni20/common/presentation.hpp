@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <deque>
 #include <fmt/core.h>
+#include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -86,7 +87,15 @@ enum class table_alignment
 {
   left,
   right,
-  center
+  center,
+  decimal
+};
+
+/// \brief Selects the glyph family used for table rules and borders.
+enum class table_rule_style
+{
+  single,
+  double_line
 };
 
 /// \brief Numeric scalar formatting controls shared by tensor-style renderers.
@@ -128,6 +137,27 @@ enum class semantic_glyph
   box_tee_up,
   box_tee_down,
   box_cross,
+  box_double_horizontal,
+  box_double_vertical,
+  box_double_top_left,
+  box_double_top_right,
+  box_double_bottom_left,
+  box_double_bottom_right,
+  box_double_tee_left,
+  box_double_tee_right,
+  box_double_tee_up,
+  box_double_tee_down,
+  box_double_cross,
+  box_double_vertical_tee_right_single,
+  box_double_vertical_tee_left_single,
+  box_double_vertical_cross_single_horizontal,
+  box_double_down_single_horizontal,
+  box_double_up_single_horizontal,
+  box_single_vertical_tee_right_double,
+  box_single_vertical_tee_left_double,
+  box_single_vertical_cross_double_horizontal,
+  box_single_down_double_horizontal,
+  box_single_up_double_horizontal,
   box_diagonal_forward,
   box_diagonal_back,
   box_diagonal_cross,
@@ -221,8 +251,25 @@ struct table_border_options
     bool column_separators = false;
     bool row_separators = false;
     bool header_separator = false;
+    table_rule_style rule_style = table_rule_style::single;
     std::size_t horizontal_padding = 1;
 };
+
+/// \brief Cell specification for table rows, including optional column span.
+struct table_cell
+{
+    std::string text;
+    std::size_t span = 1;
+    std::optional<table_alignment> alignment = std::nullopt;
+};
+
+/// \brief Explicit separator row inserted between table data rows.
+struct table_separator
+{
+    table_rule_style style = table_rule_style::single;
+};
+
+using table_entry = std::variant<std::vector<table_cell>, table_separator>;
 
 /// \brief A small report table builder for command-line examples and diagnostics.
 class report_table {
@@ -242,10 +289,35 @@ class report_table {
     /// \return Reference to this table for chaining.
     report_table& row(std::vector<std::string> cells);
 
+    /// \brief Add a row from table cell specifications.
+    /// \param cells Cell specifications in column order.
+    /// \return Reference to this table for chaining.
+    report_table& row(std::vector<table_cell> cells);
+
+    /// \brief Add a row from table cell specifications.
+    /// \param cells Cell specifications in column order.
+    /// \return Reference to this table for chaining.
+    report_table& row(std::initializer_list<table_cell> cells);
+
+    /// \brief Insert a separator before the generated heading row.
+    /// \param style Rule glyph style to use.
+    /// \return Reference to this table for chaining.
+    report_table& top_separator(table_rule_style style = table_rule_style::single);
+
+    /// \brief Insert a separator at the current body position.
+    /// \param style Rule glyph style to use.
+    /// \return Reference to this table for chaining.
+    report_table& separator(table_rule_style style = table_rule_style::single);
+
     /// \brief Set table border and rule options.
     /// \param options Border and rule controls to apply.
     /// \return Reference to this table for chaining.
     report_table& borders(table_border_options options);
+
+    /// \brief Set the rule style used by automatic borders and separators.
+    /// \param style Rule glyph style to use.
+    /// \return Reference to this table for chaining.
+    report_table& border_style(table_rule_style style);
 
     /// \brief Enable or disable an outer border around the table.
     /// \param enabled Whether to draw the border.
@@ -272,6 +344,11 @@ class report_table {
     /// \return Reference to this table for chaining.
     report_table& grid(bool enabled = true);
 
+    /// \brief Enable a full table grid with a specific rule style.
+    /// \param style Rule glyph style to use.
+    /// \return Reference to this table for chaining.
+    report_table& grid(table_rule_style style);
+
     /// \brief Add a row by formatting each value with `fmt`.
     /// \tparam Values Cell value types.
     /// \param values Values to format into cell text.
@@ -289,9 +366,13 @@ class report_table {
     /// \return Immutable column vector.
     [[nodiscard]] std::vector<table_column> const& columns() const noexcept;
 
-    /// \brief Return the table rows.
-    /// \return Immutable row vector.
-    [[nodiscard]] std::vector<std::vector<std::string>> const& rows() const noexcept;
+    /// \brief Return table entries, including row and separator entries.
+    /// \return Immutable table entry vector.
+    [[nodiscard]] std::vector<table_entry> const& entries() const noexcept;
+
+    /// \brief Return explicit separators rendered before the heading row.
+    /// \return Immutable top separator vector.
+    [[nodiscard]] std::vector<table_rule_style> const& top_separators() const noexcept;
 
     /// \brief Return table border and rule options.
     /// \return Border and rule controls.
@@ -300,7 +381,8 @@ class report_table {
   private:
     std::string title_;
     std::vector<table_column> columns_;
-    std::vector<std::vector<std::string>> rows_;
+    std::vector<table_entry> entries_;
+    std::vector<table_rule_style> top_separators_;
     table_border_options border_options_;
 };
 
@@ -567,6 +649,9 @@ template <std::floating_point T> [[nodiscard]] int real_precision(numeric_format
 /// \return Formatted numeric text.
 template <std::floating_point T> [[nodiscard]] std::string format_real(T value, numeric_format_options const& options)
 {
+  if (std::isnan(value)) return "nan";
+  if (std::isinf(value)) return std::signbit(value) ? "-inf" : "inf";
+
   if (options.normalize_negative_zero && value == T{})
   {
     value = T{};
@@ -594,7 +679,8 @@ template <std::floating_point T>
 [[nodiscard]] std::string format_complex(std::complex<T> const& value, numeric_format_options const& options)
 {
   T imag = value.imag();
-  bool const negative_imag = std::signbit(imag) && !(options.normalize_negative_zero && imag == T{});
+  bool const negative_imag =
+      !std::isnan(imag) && std::signbit(imag) && !(options.normalize_negative_zero && imag == T{});
   if (negative_imag)
   {
     imag = -imag;
