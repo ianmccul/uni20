@@ -12,6 +12,7 @@ behavior.
 Related notes:
 
 - `docs/block_sparse_tensor.md` — the two-level tensor + layout linchpin (this note refines it).
+- `docs/axis_labels_and_braiding.md` — user-facing axis-label policy and explicit braid semantics.
 - `docs/storage_kind_and_location.md` — memory kind (compile-time) vs location (runtime).
 - `docs/ordering_and_backend_lowering.md` — Async owns ordering; CUDA/MPI as lowerings; two-clocks lifetime.
 - `docs/block_coalescing.md` — single-axis GEMM grouping (the LocalSpace coalescing axis).

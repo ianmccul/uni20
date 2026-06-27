@@ -17,6 +17,7 @@
 - [Execution Architecture: Mechanism, Policy, Build Order](execution_architecture.md)
 - [Block-Sparse Tensors and Layout](block_sparse_tensor.md)
 - [BlockTensor: Symmetric Block-Sparse Tensor Design](block_tensor.md)
+- [Axis Labels, Contraction, and Braiding](axis_labels_and_braiding.md)
 - [Block Coalescing and GEMM Grouping](block_coalescing.md)
 - [Backend Dispatch Design](backend_dispatch.md)
 - [Kernel Dispatch Design](kernel_dispatch.md)
@@ -31,6 +32,7 @@
 - [R/A/B/C Contraction Scheduling](rabc_contraction_scheduling.md)
 - [R/A/B/C Lanczos Replay Fixtures](rabc_lanczos_fixtures.md)
 - [Async Storage and Assignment Semantics](async_storage.md)
+- [Python Dtype Promotion Policy](python_dtype_promotion.md)
 
 ## AI Guidance
 

@@ -76,6 +76,8 @@ Design rules for future Python display:
 
 Tensor and mdspan display in Python must be preview-first. Do not bind a tensor `repr` to the current exhaustive mdspan formatter by default. Add an explicit preview policy first, with limits such as maximum elements, edge items, maximum rows/columns, maximum slices, and an opt-in full-output mode.
 
+Future tensor bindings should also follow a documented dtype policy before exposing arithmetic. See [Python Dtype Promotion Policy](python_dtype_promotion.md) for the current design note.
+
 ## Running tests
 
 The Python bindings ship with lightweight smoke tests that import the compiled extension and validate both `greet()` and the generated build information:
