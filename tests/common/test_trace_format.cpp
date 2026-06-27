@@ -218,11 +218,11 @@ TEST(TraceFormatting, SemanticGlyphsUseFormatterPolicy)
   auto opts = make_test_options();
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::unicode;
 
-  EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::warning, "ERROR"), "\xE2\x96\xB2");
+  EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::warning, "ERROR"), "\xE2\x9A\xA0");
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::arrow_right, "TRACE"), "\xE2\x86\x92");
 
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::emoji;
-  EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::warning, "ERROR"), "\xF0\x9F\x9A\xA8");
+  EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::warning, "ERROR"), "\xE2\x9A\xA0\xEF\xB8\x8F");
 
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::success, "TRACE"), "[OK]");
@@ -272,21 +272,21 @@ TEST(TraceFormatting, DiagnosticHeadersUseSemanticGlyphPolicy)
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::emoji;
   auto check = trace::detail::make_diagnostic_header(opts, "CHECK", "CHECK", __FILE__, __LINE__);
   auto panic = trace::detail::make_diagnostic_header(opts, "PANIC", "PANIC", __FILE__, __LINE__);
-  EXPECT_NE(opts.render(check).find("\xE2\x9D\x8C CHECK at "), std::string::npos);
+  EXPECT_NE(opts.render(check).find("\xF0\x9F\x9A\xA8 CHECK at "), std::string::npos);
   EXPECT_NE(opts.render(panic).find("\xF0\x9F\x9A\xA8 PANIC at "), std::string::npos);
 
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::unicode;
   check = trace::detail::make_diagnostic_header(opts, "CHECK", "CHECK", __FILE__, __LINE__);
   panic = trace::detail::make_diagnostic_header(opts, "PANIC", "PANIC", __FILE__, __LINE__);
-  EXPECT_NE(opts.render(check).find("\xE2\x9C\x97 CHECK at "), std::string::npos);
-  EXPECT_NE(opts.render(panic).find("\xE2\x96\xB2 PANIC at "), std::string::npos);
+  EXPECT_NE(opts.render(check).find("\xE2\x80\xBC CHECK at "), std::string::npos);
+  EXPECT_NE(opts.render(panic).find("\xE2\x80\xBC PANIC at "), std::string::npos);
 
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
   auto error = trace::detail::make_diagnostic_header(opts, "ERROR", "ERROR", __FILE__, __LINE__);
   auto precondition =
       trace::detail::make_diagnostic_header(opts, "PRECONDITION", "PRECONDITION", __FILE__, __LINE__);
   EXPECT_NE(opts.render(error).find("[FAIL] ERROR at "), std::string::npos);
-  EXPECT_NE(opts.render(precondition).find("[WARN] PRECONDITION at "), std::string::npos);
+  EXPECT_NE(opts.render(precondition).find("[FATAL] PRECONDITION at "), std::string::npos);
 }
 
 TEST(TraceFormatting, GlobalEnvironmentConfiguresPresentationPolicy)

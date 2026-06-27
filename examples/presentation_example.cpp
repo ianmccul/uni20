@@ -13,14 +13,20 @@ namespace
 {
 namespace presentation = uni20::presentation;
 
-[[nodiscard]] presentation::output_policy demo_policy(presentation::glyph_set glyphs, std::size_t width)
+[[nodiscard]] presentation::output_policy terminal_demo_policy(std::size_t width)
 {
   auto policy = presentation::terminal_policy(stdout);
-  policy.glyphs = glyphs;
-  policy.charset = presentation::text_charset::utf8;
   policy.width = presentation::width_mode::display_cells;
   policy.wrap_width = width;
   policy.tab_width = 4;
+  return policy;
+}
+
+[[nodiscard]] presentation::output_policy forced_demo_policy(presentation::glyph_set glyphs, std::size_t width)
+{
+  auto policy = terminal_demo_policy(width);
+  policy.glyphs = glyphs;
+  policy.charset = presentation::text_charset::utf8;
   return policy;
 }
 
@@ -375,11 +381,17 @@ void append_glyphs(presentation::styled_text& text, presentation::semantic_glyph
 
 int main()
 {
-  auto unicode_policy = demo_policy(presentation::glyph_set::unicode, 80);
-  auto emoji_policy = demo_policy(presentation::glyph_set::emoji, 80);
+  auto unicode_policy = forced_demo_policy(presentation::glyph_set::unicode, 80);
+  auto emoji_policy = forced_demo_policy(presentation::glyph_set::emoji, 80);
+  auto environment_policy = terminal_demo_policy(80);
 
+  fmt::print("forced glyph policy demo\n");
   fmt::print("{}\n", presentation::render(glyph_line("unicode glyphs"), unicode_policy));
   fmt::print("{}\n\n", presentation::render(glyph_line("emoji glyphs"), emoji_policy));
+
+  fmt::print("terminal environment policy demo\n");
+  fmt::print("try UNI20_GLYPHS=ascii UNI20_CHARSET=ascii_replace UNI20_COLOR=never\n");
+  fmt::print("{}\n\n", presentation::render(glyph_line("terminal policy glyphs"), environment_policy));
 
   fmt::print("{}\n", presentation::render(spacing_table(unicode_policy), unicode_policy));
   fmt::print("{}\n", presentation::render_plain(solver_report(), unicode_policy));

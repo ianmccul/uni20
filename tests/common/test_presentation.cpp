@@ -49,7 +49,7 @@ TEST(PresentationPolicies, DefaultPoliciesPreferEmojiGlyphs)
 
   presentation::styled_text text;
   text.append(presentation::semantic_glyph::warning);
-  EXPECT_EQ(presentation::render(text, presentation::plain_policy()), "\xF0\x9F\x9A\xA8");
+  EXPECT_EQ(presentation::render(text, presentation::plain_policy()), "\xE2\x9A\xA0\xEF\xB8\x8F");
 }
 
 TEST(PresentationPolicies, TerminalPolicyUsesGlobalEnvironment)
@@ -118,6 +118,8 @@ TEST(PresentationGlyphs, UnicodePolicyUsesSemanticUnicodeGlyphs)
       .append(" ")
       .append(presentation::semantic_glyph::arrow_right)
       .append(" ")
+      .append(presentation::semantic_glyph::fatal)
+      .append(" ")
       .append(presentation::semantic_glyph::warning)
       .append(" ")
       .append(presentation::semantic_glyph::box_top_left)
@@ -131,7 +133,7 @@ TEST(PresentationGlyphs, UnicodePolicyUsesSemanticUnicodeGlyphs)
       .append(presentation::semantic_glyph::box_diagonal_forward)
       .append(presentation::semantic_glyph::box_diagonal_back);
 
-  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x93 \xE2\x86\x92 \xE2\x96\xB2 "
+  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x93 \xE2\x86\x92 \xE2\x80\xBC \xE2\x9A\xA0 "
                                                 "\xE2\x94\x8C\xE2\x94\x80\xE2\x94\x90 "
                                                 "\xE2\x95\xAD\xE2\x94\x80\xE2\x95\xAE "
                                                 "\xE2\x95\xB1\xE2\x95\xB2");
@@ -147,11 +149,14 @@ TEST(PresentationGlyphs, EmojiPolicyUsesEmojiOnlyForSemanticMappings)
       .append(" ")
       .append(presentation::semantic_glyph::failure)
       .append(" ")
+      .append(presentation::semantic_glyph::fatal)
+      .append(" ")
       .append(presentation::semantic_glyph::warning)
       .append(" ")
       .append(presentation::semantic_glyph::arrow_right);
 
-  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x85 \xE2\x9D\x8C \xF0\x9F\x9A\xA8 \xE2\x9E\xA1\xEF\xB8\x8F");
+  EXPECT_EQ(presentation::render(text, policy),
+            "\xE2\x9C\x85 \xE2\x9D\x8C \xF0\x9F\x9A\xA8 \xE2\x9A\xA0\xEF\xB8\x8F \xE2\x9E\xA1\xEF\xB8\x8F");
 }
 
 TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
@@ -161,6 +166,8 @@ TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
 
   presentation::styled_text text;
   text.append(presentation::semantic_glyph::success)
+      .append(" ")
+      .append(presentation::semantic_glyph::fatal)
       .append(" ")
       .append(presentation::semantic_glyph::warning)
       .append(" ")
@@ -172,7 +179,7 @@ TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
       .append(presentation::semantic_glyph::box_diagonal_forward)
       .append(presentation::semantic_glyph::box_diagonal_back);
 
-  EXPECT_EQ(presentation::render(text, policy), "[OK] [WARN] -> |- +/\\");
+  EXPECT_EQ(presentation::render(text, policy), "[OK] [FATAL] [WARN] -> |- +/\\");
 }
 
 TEST(PresentationTextFallback, RawSymbolFallbackCoversCommonNonLanguageSymbols)

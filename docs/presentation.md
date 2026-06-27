@@ -36,6 +36,10 @@ Automatic color follows terminal detection and honors `NO_COLOR`. Explicit `colo
 `UNI20_COLOR=yes` or `UNI20_COLOR=always`, still forces color. Terminal width comes from
 `terminal::columns()`, which uses `COLUMNS` when it is set to a positive integer.
 
+Callers may deliberately override fields on a policy for a forced demonstration or a
+known output destination. For ordinary terminal output, prefer `terminal_policy(...)`
+as the starting point so user environment choices win over program defaults.
+
 ## Semantic Glyphs
 
 Call sites should use `semantic_glyph` tokens instead of hard-coding Unicode and ASCII spellings:
@@ -54,6 +58,18 @@ auto rendered = presentation::render(text, policy);
 ```
 
 The default terminal and plain policies prefer emoji for semantic status glyphs. Use `glyph_set::unicode` for symbol-only output, or `glyph_set::ascii` when fixed-width terminal behavior matters more than rich status symbols. Central mappings cover status symbols, arrows, ellipsis, square and rounded box/table drawing, diagonal connector glyphs, and tree drawing. ASCII output uses these mappings automatically.
+
+Diagnostic code should choose semantic severity, not literal symbols:
+
+| Semantic glyph | Intended use | Emoji policy | ASCII policy |
+|---|---|---|---|
+| `warning` | Non-fatal warning or advisory diagnostic. | warning sign | `[WARN]` |
+| `failure` | Recoverable error or exception-boundary diagnostic. | cross mark | `[FAIL]` |
+| `fatal` | Abort-path diagnostics such as `PANIC`, `CHECK`, and `PRECONDITION`. | siren | `[FATAL]` |
+
+Trace diagnostics use this split so warnings, recoverable errors, and aborting
+assertions remain distinct while still rendering through the active glyph and
+charset policy.
 
 ## Text Fallback
 

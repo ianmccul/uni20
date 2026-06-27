@@ -1442,9 +1442,15 @@ inline uni20::presentation::styled_text make_diagnostic_header(FormattingOptions
                                                                std::string_view style_kind, const char* file, int line)
 {
   uni20::presentation::styled_text text;
-  auto const glyph = style_kind == "CHECK" || style_kind == "DEBUG_CHECK" || style_kind == "ERROR"
-                         ? uni20::presentation::semantic_glyph::failure
-                         : uni20::presentation::semantic_glyph::warning;
+  auto const glyph = [&] {
+    if (style_kind == "ERROR") return uni20::presentation::semantic_glyph::failure;
+    if (style_kind == "CHECK" || style_kind == "DEBUG_CHECK" || style_kind == "PRECONDITION" ||
+        style_kind == "DEBUG_PRECONDITION" || style_kind == "PANIC")
+    {
+      return uni20::presentation::semantic_glyph::fatal;
+    }
+    return uni20::presentation::semantic_glyph::warning;
+  }();
   opts.append_glyph(text, glyph, std::string(style_kind));
   text.append(" ");
   append_trace_location(text, opts, label, style_kind, file, line);

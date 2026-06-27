@@ -123,6 +123,7 @@ void append_codepoint_escape(std::string& out, char32_t value)
     case semantic_glyph::success:
       return style("Green;Bold");
     case semantic_glyph::failure:
+    case semantic_glyph::fatal:
       return style("Red;Bold");
     case semantic_glyph::warning:
       return style("Yellow;Bold");
@@ -578,6 +579,8 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "[OK]";
     case semantic_glyph::failure:
       return "[FAIL]";
+    case semantic_glyph::fatal:
+      return "[FATAL]";
     case semantic_glyph::warning:
       return "[WARN]";
     case semantic_glyph::info:
@@ -670,8 +673,10 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "\xE2\x9C\x93";
     case semantic_glyph::failure:
       return "\xE2\x9C\x97";
+    case semantic_glyph::fatal:
+      return "\xE2\x80\xBC";
     case semantic_glyph::warning:
-      return "\xE2\x96\xB2";
+      return "\xE2\x9A\xA0";
     case semantic_glyph::info:
       return "\xE2\x84\xB9";
     case semantic_glyph::arrow_right:
@@ -798,8 +803,10 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "\xE2\x9C\x85";
     case semantic_glyph::failure:
       return "\xE2\x9D\x8C";
-    case semantic_glyph::warning:
+    case semantic_glyph::fatal:
       return "\xF0\x9F\x9A\xA8";
+    case semantic_glyph::warning:
+      return "\xE2\x9A\xA0\xEF\xB8\x8F";
     case semantic_glyph::info:
       return "\xE2\x84\xB9\xEF\xB8\x8F";
     case semantic_glyph::arrow_right:

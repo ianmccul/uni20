@@ -114,6 +114,7 @@ enum class semantic_glyph
 {
   success,
   failure,
+  fatal,
   warning,
   info,
   arrow_right,
