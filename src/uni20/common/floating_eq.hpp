@@ -51,7 +51,7 @@ template <std::floating_point T> inline long long float_distance(T a, T b)
 /// \brief Compare floating point or complex values within a given ULP tolerance.
 ///
 /// \details
-/// This template is specialized for `float`, `double`, and `std::complex<T>`
+/// This template is specialized for `float`, `double`, and `uni20::complex<T>`
 /// where `T` is one of those types.  It can be extended by specializing
 /// `FloatingULP<T>` for other scalar-like types such as bfloat16.
 ///

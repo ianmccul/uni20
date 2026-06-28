@@ -51,6 +51,15 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 * Use `constexpr`, `consteval`, and concepts from C++23 wherever they simplify code or improve correctness.
 * Uni20 uses the Kokkos reference `mdspan` implementation, in namespace `stdex::`.
 * Uni20 uses square brackets `[]` for multi-dimensional indexing of tensors. **Do not** define `MDSPAN_USE_PAREN_OPERATOR`, use `[]` instead. This may mean adding brackets when code like `[a,b]` is used in a macro invocation, especially in TRACE and gtest macros.
+* Spell complex scalar types as `uni20::complex<T>` in Uni20 code, tests,
+  examples, and docs. `uni20::complex<T>` is intentionally an alias to
+  `std::complex<T>`, not a wrapper. Direct `std::complex<T>` spellings should
+  be limited to the alias definition, explicit alias tests/docs, or narrow
+  external interop boundaries.
+* Use `uni20::numeric_limits<T>` in scalar-generic Uni20 algorithms. It
+  delegates to `std::numeric_limits<T>` for ordinary arithmetic types and is the
+  project customization point for extension or library scalar types with
+  missing/incomplete standard-library limits.
 
 ---
 
@@ -209,6 +218,12 @@ implicit `auto` setting for TensorContraction profiling.
 * All developer docs reside in `docs/`.
 * Use Markdown tables and fenced code blocks for clarity.
 * Sync all docs with behavior and API changes.
+* When changing scalar aliases, scalar traits, scalar numeric-limits behavior,
+  or scalar spelling policy, update `docs/scalar_policy.md`.
+* When changing Krylov algorithms, supported scalar types, public Krylov
+  parameters, default values, or internal convergence/restart tuning, update
+  `docs/krylov_algorithms.md`. If scalar support changes, also update
+  `docs/krylov_precision_validation.md`.
 
 ---
 

@@ -790,7 +790,7 @@ switch (desc.dtype) {
 case DType::f64:
     return mpi_contract_typed<double>(ctx, desc);
 case DType::c128:
-    return mpi_contract_typed<std::complex<double>>(ctx, desc);
+    return mpi_contract_typed<uni20::complex<double>>(ctx, desc);
 }
 ```
 

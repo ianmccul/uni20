@@ -181,8 +181,8 @@ This file is for questions about `Var<T>`, `ReverseValue<T>`, `backprop()`, grad
 
 ### RELATED
 
-- `Var<std::complex<T>>`
-- `ReverseValue<std::complex<T>>`
+- `Var<uni20::complex<T>>`
+- `ReverseValue<uni20::complex<T>>`
 
 ## custom reverse kernel
 

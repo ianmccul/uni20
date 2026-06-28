@@ -68,8 +68,8 @@ TEST(TraceFormatting, FloatingPointPrecision)
 
   EXPECT_EQ("3.14", trace::formatValue(3.14159f, opts));
   EXPECT_EQ("2.7183", trace::formatValue(2.718281828, opts));
-  EXPECT_EQ("1.23-6.79i", trace::formatValue(std::complex<float>{1.2345f, -6.789f}, opts));
-  EXPECT_EQ("-0.1250+42.5000i", trace::formatValue(std::complex<double>{-0.125, 42.5}, opts));
+  EXPECT_EQ("1.23-6.79i", trace::formatValue(uni20::complex<float>{1.2345f, -6.789f}, opts));
+  EXPECT_EQ("-0.1250+42.5000i", trace::formatValue(uni20::complex<double>{-0.125, 42.5}, opts));
 }
 
 TEST(TraceFormatting, NullRepresentations)
@@ -351,9 +351,9 @@ TEST(TraceFormatting, MdspanRealAndComplexValuesUseTracePrecision)
                                                   "\xE2\x8E\xA3 10.25 -3.00 \xE2\x8E\xA6");
 
   opts.fp_precision_float64 = 1;
-  std::array<std::complex<double>, 2> complex_data{std::complex<double>{1.0, -2.5},
-                                                  std::complex<double>{0.0, 3.0}};
-  stdex::mdspan<std::complex<double>, stdex::extents<std::size_t, 2>> complex_vector(complex_data.data());
+  std::array<uni20::complex<double>, 2> complex_data{uni20::complex<double>{1.0, -2.5},
+                                                  uni20::complex<double>{0.0, 3.0}};
+  stdex::mdspan<uni20::complex<double>, stdex::extents<std::size_t, 2>> complex_vector(complex_data.data());
 
   EXPECT_EQ(trace::formatValue(complex_vector, opts), "shape=(2)\n[ 1.0-2.5i 0.0+3.0i ]");
 }

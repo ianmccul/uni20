@@ -30,13 +30,13 @@ namespace uni20
 template <typename T> inline constexpr bool has_trivial_conj = has_real_scalar_v<T> || has_integer_scalar_v<T>;
 
 /// \brief Returns the complex conjugate for complex-valued scalars.
-/// \details This overload forwards to `std::conj` and therefore returns a `std::complex<T>` copy of the
+/// \details This overload forwards to `std::conj` and therefore returns a `uni20::complex<T>` copy of the
 ///         input value. It inherits the constexpr availability of `std::conj` (currently not `constexpr`).
 /// \tparam T Component type of the complex scalar.
 /// \param x Complex value whose conjugate is requested.
 /// \return The complex conjugate of `x`.
 /// \ingroup core_math
-template <typename T> std::complex<T> conj(std::complex<T> x) { return std::conj(x); }
+template <typename T> uni20::complex<T> conj(uni20::complex<T> x) { return std::conj(x); }
 
 /// \brief Returns the conjugate of a real-valued scalar.
 /// \details Real numbers are unchanged by conjugation, so the value is returned verbatim. The overload is
@@ -66,25 +66,25 @@ template <HasIntegerScalar I> constexpr I conj(I const& x) { return x; }
 /// \ingroup core_math
 template <HasScalar S> constexpr auto herm(S x) { return uni20::conj(x); }
 
-/// \brief Provides mutable access to the real component of a `std::complex` value.
+/// \brief Provides mutable access to the real component of a `uni20::complex` value.
 /// \details This helper mirrors the `std::real` overload for lvalues while remaining `constexpr` and
 /// `noexcept` for direct reference access.
 /// \tparam T Component type of the complex scalar.
 /// \param z Complex number whose real component will be exposed.
 /// \return Reference to the real component of `z`.
 /// \ingroup core_math
-template <typename T> constexpr T& real(std::complex<T>& z) noexcept { return reinterpret_cast<T*>(&z)[0]; }
+template <typename T> constexpr T& real(uni20::complex<T>& z) noexcept { return reinterpret_cast<T*>(&z)[0]; }
 
 using std::real;
 
-/// \brief Provides mutable access to the imaginary component of a `std::complex` value.
+/// \brief Provides mutable access to the imaginary component of a `uni20::complex` value.
 /// \details This helper mirrors the `std::imag` overload for lvalues while remaining `constexpr` and
 /// `noexcept` for direct reference access.
 /// \tparam T Component type of the complex scalar.
 /// \param z Complex number whose imaginary component will be exposed.
 /// \return Reference to the imaginary component of `z`.
 /// \ingroup core_math
-template <typename T> constexpr T& imag(std::complex<T>& z) noexcept { return reinterpret_cast<T*>(&z)[1]; }
+template <typename T> constexpr T& imag(uni20::complex<T>& z) noexcept { return reinterpret_cast<T*>(&z)[1]; }
 
 using std::imag;
 

@@ -2,9 +2,10 @@
 
 #include "terminal.hpp"
 
+#include <uni20/core/scalar_io.hpp>
+
 #include <cmath>
 #include <complex>
-#include <concepts>
 #include <cstddef>
 #include <cstdio>
 #include <deque>
@@ -104,6 +105,7 @@ struct numeric_format_options
     int float32_precision = 6;
     int float64_precision = 15;
     int long_double_precision = 18;
+    int float128_precision = 36;
     real_notation notation = real_notation::general;
     bool normalize_negative_zero = true;
     std::string imaginary_unit = "i";
@@ -623,11 +625,11 @@ class report_builder {
 [[nodiscard]] std::vector<std::string> wrap_text(std::string_view text, std::size_t max_width,
                                                  output_policy const& policy);
 
-/// \brief Select the configured precision for a floating-point type.
-/// \tparam T Floating-point type.
+/// \brief Select the configured precision for a Uni20 real scalar type.
+/// \tparam T Real scalar type.
 /// \param options Numeric formatting controls.
 /// \return Precision value associated with \p T.
-template <std::floating_point T> [[nodiscard]] int real_precision(numeric_format_options const& options)
+template <uni20::Real T> [[nodiscard]] int real_precision(numeric_format_options const& options)
 {
   if constexpr (std::is_same_v<std::remove_cv_t<T>, float>)
   {
@@ -637,62 +639,59 @@ template <std::floating_point T> [[nodiscard]] int real_precision(numeric_format
   {
     return options.float64_precision;
   }
+#if UNI20_HAS_FLOAT128
+  else if constexpr (std::is_same_v<std::remove_cv_t<T>, uni20::float128>)
+  {
+    return options.float128_precision;
+  }
+#endif
   else
   {
     return options.long_double_precision;
   }
 }
 
-/// \brief Format a real floating-point value according to numeric presentation options.
-/// \tparam T Floating-point type.
+[[nodiscard]] inline uni20::real_format_notation core_notation(real_notation notation)
+{
+  switch (notation)
+  {
+    case real_notation::fixed:
+      return uni20::real_format_notation::fixed;
+    case real_notation::scientific:
+      return uni20::real_format_notation::scientific;
+    case real_notation::general:
+      return uni20::real_format_notation::general;
+  }
+  return uni20::real_format_notation::general;
+}
+
+/// \brief Format a real scalar value according to numeric presentation options.
+/// \tparam T Real scalar type.
 /// \param value Value to format.
 /// \param options Numeric formatting controls.
 /// \return Formatted numeric text.
-template <std::floating_point T> [[nodiscard]] std::string format_real(T value, numeric_format_options const& options)
+template <uni20::Real T> [[nodiscard]] std::string format_real(T value, numeric_format_options const& options)
 {
-  if (std::isnan(value)) return "nan";
-  if (std::isinf(value)) return std::signbit(value) ? "-inf" : "inf";
-
-  if (options.normalize_negative_zero && value == T{})
-  {
-    value = T{};
-  }
-
-  int const precision = real_precision<T>(options);
-  switch (options.notation)
-  {
-    case real_notation::fixed:
-      return fmt::format("{:.{}f}", value, precision);
-    case real_notation::scientific:
-      return fmt::format("{:.{}e}", value, precision);
-    case real_notation::general:
-      return fmt::format("{:.{}g}", value, precision);
-  }
-  return fmt::format("{}", value);
+  return uni20::format_real(value,
+                            uni20::scalar_format_options{.precision = real_precision<T>(options),
+                                                         .notation = core_notation(options.notation),
+                                                         .normalize_negative_zero = options.normalize_negative_zero,
+                                                         .imaginary_unit = std::string_view(options.imaginary_unit)});
 }
 
 /// \brief Format a complex value as `real+imagi`.
-/// \tparam T Floating-point component type.
+/// \tparam T Real component type.
 /// \param value Complex value to format.
 /// \param options Numeric formatting controls.
 /// \return Formatted complex numeric text.
-template <std::floating_point T>
-[[nodiscard]] std::string format_complex(std::complex<T> const& value, numeric_format_options const& options)
+template <uni20::Real T>
+[[nodiscard]] std::string format_complex(uni20::complex<T> const& value, numeric_format_options const& options)
 {
-  T imag = value.imag();
-  bool const negative_imag =
-      !std::isnan(imag) && std::signbit(imag) && !(options.normalize_negative_zero && imag == T{});
-  if (negative_imag)
-  {
-    imag = -imag;
-  }
-  else if (options.normalize_negative_zero && imag == T{})
-  {
-    imag = T{};
-  }
-
-  return format_real(value.real(), options) + (negative_imag ? "-" : "+") + format_real(imag, options) +
-         options.imaginary_unit;
+  return uni20::format_complex(
+      value, uni20::scalar_format_options{.precision = real_precision<T>(options),
+                                          .notation = core_notation(options.notation),
+                                          .normalize_negative_zero = options.normalize_negative_zero,
+                                          .imaginary_unit = std::string_view(options.imaginary_unit)});
 }
 
 /// \brief Format an arbitrary scalar-like value for presentation output.
@@ -703,16 +702,11 @@ template <std::floating_point T>
 template <typename T> [[nodiscard]] std::string format_scalar(T const& value, numeric_format_options const& options)
 {
   using value_type = std::remove_cvref_t<T>;
-  if constexpr (std::floating_point<value_type>)
+  if constexpr (uni20::Real<value_type>)
   {
     return format_real(value, options);
   }
-  else if constexpr (
-      requires { typename value_type::value_type; } &&
-      requires(value_type const& z) {
-        { z.real() } -> std::floating_point;
-        { z.imag() } -> std::floating_point;
-      })
+  else if constexpr (uni20::Complex<value_type>)
   {
     return format_complex(value, options);
   }

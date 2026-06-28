@@ -43,8 +43,8 @@ TEST(FloatingEqExample, AssertFailStopsTest)
 // Demonstrates complex numbers
 TEST(FloatingEqExample, ComplexComparison)
 {
-  std::complex<float> a{1.0f, 2.0f};
-  std::complex<float> b{std::nextafter(std::nextafter(1.0f, 2.0f), 2.0f), 2.0f};
+  uni20::complex<float> a{1.0f, 2.0f};
+  uni20::complex<float> b{std::nextafter(std::nextafter(1.0f, 2.0f), 2.0f), 2.0f};
 
   EXPECT_FLOATING_EQ(a, b, 2); // this should succeed
   EXPECT_FLOATING_EQ(a, b, 1); // intentionally fails

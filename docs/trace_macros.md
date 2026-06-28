@@ -164,8 +164,8 @@ CHECK_FLOATING_EQ(ref, got, 2, iter, timestep, "solver drift");
 Complex values compare both real and imaginary parts:
 
 ```cpp
-std::complex<double> expected{1.0, -2.0};
-std::complex<double> actual{1.0, -1.9999999999999998}; // imag differs by ~1 ULP
+uni20::complex<double> expected{1.0, -2.0};
+uni20::complex<double> actual{1.0, -1.9999999999999998}; // imag differs by ~1 ULP
 CHECK_FLOATING_EQ(expected, actual, 1);
 ```
 

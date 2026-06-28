@@ -41,7 +41,7 @@ int main()
   complex_options.numeric.notation = uni20::presentation::real_notation::fixed;
   complex_options.numeric.float64_precision = 2;
 
-  using complex_t = std::complex<double>;
+  using complex_t = uni20::complex<double>;
   std::array<complex_t, 4> complex_data{complex_t{1.0, -2.5}, complex_t{0.0, 3.0}, complex_t{-4.25, 0.125},
                                         complex_t{2.0, -0.0}};
   stdex::mdspan<complex_t, stdex::extents<std::size_t, 2, 2>> complex_matrix(complex_data.data());

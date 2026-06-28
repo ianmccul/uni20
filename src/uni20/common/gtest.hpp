@@ -8,7 +8,7 @@
 /// floating-point comparison macros (`EXPECT_FLOAT_EQ`, `EXPECT_DOUBLE_EQ`) to:
 ///
 /// - Work with `float` and `double`.
-/// - Work with `std::complex<T>` where `T` is `float` or `double`.
+/// - Work with `uni20::complex<T>` where `T` is `float` or `double`.
 /// - Allow explicit specification of ULP tolerance.
 /// - Default to a tolerance of 4 ULPs if none is provided, matching GoogleTest.
 ///

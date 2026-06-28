@@ -1,10 +1,10 @@
 #include <uni20/common/aligned_buffer.hpp>
-#include <complex>
+#include <uni20/core/types.hpp>
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <type_traits>
 
-static_assert(uni20::uninitialized_ok<std::complex<double>>, "complex<double> should be trivially copyable");
+static_assert(uni20::uninitialized_ok<uni20::complex<double>>, "complex<double> should be trivially copyable");
 
 // A helper type that counts how many times its ctor and dtor run.
 struct Tracker
@@ -77,13 +77,13 @@ TEST(AlignedBuffer, UninitializedBufferNonTrivial_NoCtorNoDtor)
 }
 
 //-----------------------------------------------------------------------------
-// 4) Trivial-copyable: std::complex<double> should use the no-dtor deleter
+// 4) Trivial-copyable: uni20::complex<double> should use the no-dtor deleter
 //    We check this at compile time via static_assert on the unique_ptr's
 //    deleter_type.
 //-----------------------------------------------------------------------------
 TEST(AlignedBuffer, TemporaryTrivial_UsesNoDtorDeleter)
 {
-  using T = std::complex<double>;
+  using T = uni20::complex<double>;
   constexpr std::size_t N = 4;
 
   // The buffer type returned:
@@ -100,7 +100,7 @@ TEST(AlignedBuffer, TemporaryTrivial_UsesNoDtorDeleter)
 
 TEST(AlignedBuffer, TemporaryUninitializedTrivial_UsesNoDtorDeleter)
 {
-  using T = std::complex<double>;
+  using T = uni20::complex<double>;
   constexpr std::size_t N = 6;
 
   using Buf = decltype(uni20::allocate_temporary_buffer_uninitialized<T>(N));

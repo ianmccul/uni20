@@ -27,7 +27,7 @@ TEST(AsyncToysTest, ComplexTransformsMatchStd)
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  using complex_t = std::complex<double>;
+  using complex_t = uni20::complex<double>;
   complex_t const z_value{2.0, -3.0};
   Async<complex_t> z = z_value;
 

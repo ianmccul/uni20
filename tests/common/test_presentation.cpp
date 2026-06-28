@@ -325,15 +325,22 @@ TEST(PresentationNumeric, RealAndComplexFormattingUsesConfiguredDigits)
   EXPECT_EQ(presentation::format_real(1.0, options), "1");
   EXPECT_EQ(presentation::format_real(3.141592653589793, options), "3.142");
   EXPECT_EQ(presentation::format_real(1.0f / 3.0f, options), "0.333");
-  EXPECT_EQ(presentation::format_complex(std::complex<double>{1.25, -3.5}, options), "1.25-3.5i");
+  EXPECT_EQ(presentation::format_complex(uni20::complex<double>{1.25, -3.5}, options), "1.25-3.5i");
 
   options.notation = presentation::real_notation::fixed;
   options.float64_precision = 2;
   EXPECT_EQ(presentation::format_real(-0.0, options), "0.00");
-  EXPECT_EQ(presentation::format_complex(std::complex<double>{1.25, -3.5}, options), "1.25-3.50i");
+  EXPECT_EQ(presentation::format_complex(uni20::complex<double>{1.25, -3.5}, options), "1.25-3.50i");
 
   options.notation = presentation::real_notation::scientific;
   EXPECT_EQ(presentation::format_real(12.5, options), "1.25e+01");
+
+#if UNI20_HAS_FLOAT128
+  options.notation = presentation::real_notation::general;
+  options.float128_precision = 36;
+  auto const value = uni20::parse_real<uni20::float128>("1.000000000000000000000000000000001");
+  EXPECT_TRUE(uni20::parse_real<uni20::float128>(presentation::format_real(value, options)) == value);
+#endif
 }
 
 TEST(PresentationNumeric, NonFiniteFormattingIsDeterministic)
@@ -351,8 +358,8 @@ TEST(PresentationNumeric, NonFiniteFormattingIsDeterministic)
 
   options.notation = presentation::real_notation::scientific;
   EXPECT_EQ(presentation::format_real(inf, options), "inf");
-  EXPECT_EQ(presentation::format_complex(std::complex<double>{-inf, nan}, options), "-inf+nani");
-  EXPECT_EQ(presentation::format_complex(std::complex<double>{nan, -inf}, options), "nan-infi");
+  EXPECT_EQ(presentation::format_complex(uni20::complex<double>{-inf, nan}, options), "-inf+nani");
+  EXPECT_EQ(presentation::format_complex(uni20::complex<double>{nan, -inf}, options), "nan-infi");
 }
 
 TEST(PresentationMdspan, DefaultFormatterHandlesRealAndComplexScalars)
@@ -371,8 +378,9 @@ TEST(PresentationMdspan, DefaultFormatterHandlesRealAndComplexScalars)
 
   options.numeric.notation = presentation::real_notation::fixed;
   options.numeric.float64_precision = 2;
-  std::array<std::complex<double>, 2> complex_data{std::complex<double>{1.0, -2.5}, std::complex<double>{3.125, 0.0}};
-  stdex::mdspan<std::complex<double>, stdex::extents<std::size_t, 2>> complex_vector(complex_data.data());
+  std::array<uni20::complex<double>, 2> complex_data{uni20::complex<double>{1.0, -2.5},
+                                                     uni20::complex<double>{3.125, 0.0}};
+  stdex::mdspan<uni20::complex<double>, stdex::extents<std::size_t, 2>> complex_vector(complex_data.data());
 
   EXPECT_EQ(presentation::format_mdspan(complex_vector, policy, options), "shape=(2)\n[ 1.00-2.50i 3.12+0.00i ]");
 }

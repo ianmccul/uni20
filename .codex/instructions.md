@@ -29,6 +29,13 @@ If there is a conflict, follow:
 - Keep changes focused and minimal.
 - Do not touch unrelated code/files.
 - Update documentation when behavior or APIs change.
+- Use `uni20::complex<T>` for complex scalar types in Uni20 code, tests,
+  examples, and docs. Direct `std::complex<T>` spellings are reserved for the
+  alias definition, explicit alias tests/docs, or narrow external interop
+  boundaries; see `docs/scalar_policy.md`.
+- Use `uni20::numeric_limits<T>` in scalar-generic Uni20 algorithms so
+  extension and library scalar types can supply limits without specializing
+  standard-library templates.
 
 ## 4. Notes
 

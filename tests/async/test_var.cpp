@@ -167,7 +167,7 @@ TEST(Var, RealImagGradients)
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Var<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+  Var<uni20::complex<double>> z = uni20::complex<double>{1.5, -2.5};
 
   auto r = real(z);
   auto i = imag(z);
@@ -192,7 +192,7 @@ TEST(Var, RealImagGradientSum)
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Var<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+  Var<uni20::complex<double>> z = uni20::complex<double>{1.5, -2.5};
 
   auto f = 2.0 * real(z) + 3.0 * imag(z);
 
@@ -214,7 +214,7 @@ TEST(Var, RealImagGradientsImagSeedFirst)
   DebugScheduler sched;
   set_global_scheduler(&sched);
 
-  Var<std::complex<double>> z = std::complex<double>{1.5, -2.5};
+  Var<uni20::complex<double>> z = uni20::complex<double>{1.5, -2.5};
 
   auto r = real(z);
   auto i = imag(z);

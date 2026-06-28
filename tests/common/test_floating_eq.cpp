@@ -78,15 +78,15 @@ TEST(FloatingEqGTest, AssertRejectsNegativeTolerance)
 
 TEST(FloatingEqGTest, ComplexPasses)
 {
-  std::complex<float> a{1.0f, 2.0f};
-  std::complex<float> b{std::nextafter(1.0f, 2.0f), 2.0f};
+  uni20::complex<float> a{1.0f, 2.0f};
+  uni20::complex<float> b{std::nextafter(1.0f, 2.0f), 2.0f};
   EXPECT_FLOATING_EQ(a, b, 1); // real differs by 1 ULP
 }
 
 TEST(FloatingEqGTest, ComplexFails)
 {
-  std::complex<double> a{1.0, 2.0};
-  std::complex<double> b{1.0, 2.1};
+  uni20::complex<double> a{1.0, 2.0};
+  uni20::complex<double> b{1.0, 2.1};
   EXPECT_NONFATAL_FAILURE(EXPECT_FLOATING_EQ(a, b, 1), "EXPECT_FLOATING_EQ failed");
 }
 

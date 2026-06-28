@@ -346,8 +346,8 @@ TEST(CheckFloatingEqDeathTest, OppositeInfinitiesFail)
 // --- Complex numbers ---
 TEST(CheckFloatingEq, ComplexEqualPass)
 {
-  std::complex<double> a{1.0, 2.0};
-  std::complex<double> b{std::nextafter(1.0, 2.0), 2.0};
+  uni20::complex<double> a{1.0, 2.0};
+  uni20::complex<double> b{std::nextafter(1.0, 2.0), 2.0};
   CHECK_FLOATING_EQ(a, b); // real differs by 1 ULP, imag equal
   SUCCEED();
 }
@@ -355,8 +355,8 @@ TEST(CheckFloatingEq, ComplexEqualPass)
 TEST(CheckFloatingEqDeathTest, ComplexUnequalAbort)
 {
   GTEST_FLAG_SET(death_test_style, "fast");
-  std::complex<float> a{1.0f, 2.0f};
-  std::complex<float> b{1.0f, 2.1f}; // imag off by many ULPs
+  uni20::complex<float> a{1.0f, 2.0f};
+  uni20::complex<float> b{1.0f, 2.1f}; // imag off by many ULPs
   EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b); }, "CHECK_FLOATING_EQ");
 }
 
@@ -471,9 +471,9 @@ TEST(CheckFloatingEqDeathTest, UlpToleranceTwoFailsThreeAway)
 
 TEST(CheckFloatingEq, ComplexWithinTolerancePass)
 {
-  std::complex<float> a{1.0f, 2.0f};
+  uni20::complex<float> a{1.0f, 2.0f};
   // real part differs by 1 ULP, imag identical
-  std::complex<float> b{std::nextafter(1.0f, 2.0f), 2.0f};
+  uni20::complex<float> b{std::nextafter(1.0f, 2.0f), 2.0f};
   CHECK_FLOATING_EQ(a, b, 1); // should pass
   SUCCEED();
 }
@@ -481,20 +481,20 @@ TEST(CheckFloatingEq, ComplexWithinTolerancePass)
 TEST(CheckFloatingEqDeathTest, ComplexOutsideToleranceFail)
 {
   GTEST_FLAG_SET(death_test_style, "fast");
-  std::complex<double> a{1.0, 2.0};
+  uni20::complex<double> a{1.0, 2.0};
   // imag part shifted by 10 ULPs
   double imag_shift = std::bit_cast<double>(std::bit_cast<std::uint64_t>(2.0) + 10);
-  std::complex<double> b{1.0, imag_shift};
+  uni20::complex<double> b{1.0, imag_shift};
   EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 1); }, "CHECK_FLOATING_EQ");
 }
 
 TEST(CheckFloatingEqDeathTest, ComplexDefaultTolerance)
 {
   GTEST_FLAG_SET(death_test_style, "fast");
-  std::complex<float> a{1.0f, 2.0f};
+  uni20::complex<float> a{1.0f, 2.0f};
   // real part is 4 ULPs away, imag identical
   float shifted = std::bit_cast<float>(std::bit_cast<std::uint32_t>(1.0f) + 4);
-  std::complex<float> b{shifted, 2.0f};
+  uni20::complex<float> b{shifted, 2.0f};
   CHECK_FLOATING_EQ(a, b); // should pass with default 4 ULPs
   EXPECT_DEATH({ CHECK_FLOATING_EQ(a, b, 3); }, "CHECK_FLOATING_EQ");
 }

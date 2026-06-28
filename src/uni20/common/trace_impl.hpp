@@ -569,7 +569,7 @@ inline std::string formatValue(double value, const FormattingOptions& opts)
 /// \param value the complex value
 /// \param opts   formatting options (controls precision)
 /// \returns a string like "1.23+4.56i"
-inline std::string formatValue(const std::complex<float>& value, FormattingOptions const& opts)
+inline std::string formatValue(uni20::complex<float> const& value, FormattingOptions const& opts)
 {
   // {:+.{}f} prints a leading +/-, "{:.{}f}" uses dynamic precision
   return uni20::presentation::format_complex(value, opts.numeric_format_policy());
@@ -579,7 +579,7 @@ inline std::string formatValue(const std::complex<float>& value, FormattingOptio
 /// \param value the complex value
 /// \param opts   formatting options (controls precision)
 /// \returns a string like "1.234567+8.765432i"
-inline std::string formatValue(const std::complex<double>& value, FormattingOptions const& opts)
+inline std::string formatValue(uni20::complex<double> const& value, FormattingOptions const& opts)
 {
   return uni20::presentation::format_complex(value, opts.numeric_format_policy());
 }

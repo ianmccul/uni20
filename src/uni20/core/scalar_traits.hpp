@@ -1,5 +1,6 @@
 #pragma once
 
+#include "numeric_limits.hpp"
 #include "types.hpp"
 #include <complex>
 #include <type_traits>
@@ -38,19 +39,24 @@ template <> struct is_real_t<double> : std::true_type
 template <> struct is_real_t<long double> : std::true_type
 {};
 
+#if UNI20_HAS_FLOAT128
+template <> struct is_real_t<uni20::float128> : std::true_type
+{};
+#endif
+
 /// \brief Convenience alias that exposes the value of \c is_real_t.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
 template <typename T> inline constexpr bool is_real_v = is_real_t<std::remove_cvref_t<T>>::value;
 
 /// \brief Trait to detect whether a type is a complex scalar type.
-/// \details Specializes for `std::complex<T>`; users may extend this for custom complex scalar wrappers.
+/// \details Specializes for `uni20::complex<T>`; users may extend this for custom complex scalar wrappers.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
 template <typename T> struct is_complex_t : std::false_type
 {};
 
-template <typename T> struct is_complex_t<std::complex<T>> : std::true_type
+template <typename T> struct is_complex_t<uni20::complex<T>> : std::true_type
 {};
 
 /// \brief Convenience alias that exposes the value of \c is_complex_t.
@@ -80,17 +86,15 @@ template <typename T> struct scalar_type
 };
 
 template <typename T>
-requires is_scalar_v<T>
+  requires is_scalar_v<T>
 struct scalar_type<T>
 {
     using type = T;
 };
 
 template <typename T>
-requires requires { typename T::value_type; } &&(!is_scalar_v<T>)&&requires
-{
-  typename scalar_type<typename T::value_type>::type;
-}
+  requires requires { typename T::value_type; } && (!is_scalar_v<T>) &&
+           requires { typename scalar_type<typename T::value_type>::type; }
 struct scalar_type<T> : scalar_type<typename T::value_type>
 {};
 
@@ -105,23 +109,23 @@ template <typename T> inline constexpr bool has_scalar_v = !std::same_as<scalar_
 /// \brief Trait to detect whether `scalar_t<T>` is an integer scalar.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_integer_scalar_v = has_scalar_v<T>&& is_integer_v<scalar_t<T>>;
+template <typename T> inline constexpr bool has_integer_scalar_v = has_scalar_v<T> && is_integer_v<scalar_t<T>>;
 
 /// \brief Trait to detect whether `scalar_t<T>` is a real scalar.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_real_scalar_v = has_scalar_v<T>&& is_real_v<scalar_t<T>>;
+template <typename T> inline constexpr bool has_real_scalar_v = has_scalar_v<T> && is_real_v<scalar_t<T>>;
 
 /// \brief Trait to detect whether `scalar_t<T>` is a complex scalar.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_complex_scalar_v = has_scalar_v<T>&& is_complex_v<scalar_t<T>>;
+template <typename T> inline constexpr bool has_complex_scalar_v = has_scalar_v<T> && is_complex_v<scalar_t<T>>;
 
 /// \brief Trait to detect whether a type has a scalar that is real or complex.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
 template <typename T>
-inline constexpr bool has_real_or_complex_scalar_v = has_scalar_v<T>&& is_real_or_complex_v<scalar_t<T>>;
+inline constexpr bool has_real_or_complex_scalar_v = has_scalar_v<T> && is_real_or_complex_v<scalar_t<T>>;
 
 /// \brief Metafunction to convert a type to its real-valued analog.
 /// \details If `T` is a complex scalar, this returns the underlying real type. For real types, it returns `T`
@@ -133,14 +137,14 @@ inline constexpr bool has_real_or_complex_scalar_v = has_scalar_v<T>&& is_real_o
 template <typename T> struct make_real;
 
 template <typename T>
-requires has_real_scalar_v<T>
+  requires has_real_scalar_v<T>
 struct make_real<T>
 {
     using type = T;
 };
 
 template <typename T>
-requires is_complex_v<T>
+  requires is_complex_v<T>
 struct make_real<T>
 {
     using type = typename T::value_type;
@@ -169,7 +173,7 @@ template <typename T> struct accumulation_real
 template <typename T> using accumulation_real_t = typename accumulation_real<T>::type;
 
 /// \brief Metafunction to convert a type to its complexified analog.
-/// \details For real scalar types (e.g., `float`, `double`), returns `std::complex<T>`.
+/// \details For real scalar types (e.g., `float`, `double`), returns `uni20::complex<T>`.
 ///          For types that already have a complex scalar (including containers), returns `T` unchanged.
 /// \note This is a customization point. Users may specialize this for containers such as
 ///       tensors, enabling automatic transformation to complex-valued analogs.
@@ -178,21 +182,21 @@ template <typename T> using accumulation_real_t = typename accumulation_real<T>:
 template <typename T> struct make_complex;
 
 /// \brief Metafunction that produces the complex counterpart of a real-valued scalar.
-/// \details For built-in floating point types this specialization aliases `std::complex<T>`.
-/// \tparam T Floating-point type to complexify.
+/// \details For Uni20 real scalar types this specialization aliases `uni20::complex<T>`.
+/// \tparam T Real scalar type to complexify.
 /// \ingroup core_math
 template <typename T>
-requires std::floating_point<T>
+  requires is_real_v<T>
 struct make_complex<T>
 {
-    using type = std::complex<T>;
+    using type = uni20::complex<T>;
 };
 
 /// \brief Metafunction that leaves already-complex types unchanged.
 /// \tparam T Type whose scalar component is already complex.
 /// \ingroup core_math
 template <typename T>
-requires has_complex_scalar_v<T>
+  requires has_complex_scalar_v<T>
 struct make_complex<T>
 {
     using type = T;
