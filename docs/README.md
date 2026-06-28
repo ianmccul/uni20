@@ -10,6 +10,7 @@
 - [Local Operators](operators.md)
 - [Models](models.md)
 - [Trace Macros](trace_macros.md)
+- [Scalar Type Policy](scalar_policy.md)
 - [Presentation Formatting](presentation.md)
 - [Diagnostics and Logging Plan](diagnostics_logging_plan.md)
 - [Testing Infrastructure](testing.md)

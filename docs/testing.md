@@ -21,11 +21,16 @@ Current test modules include:
 - `tests/common`
 - `tests/core`
 - `tests/kernel`
+- `tests/krylov`
 - `tests/level1`
 - `tests/linalg`
 - `tests/mdspan`
 - `tests/tensor`
 - `tests/python` (only when `UNI20_BUILD_PYTHON=ON`)
+
+`tests/krylov` contains Uni20-native C++ matrix-free interface tests, native
+solver tests, Matrix Market fixture checks, and optional MPLAPACK binary128
+probes when `UNI20_ENABLE_MPLAPACK=ON`.
 
 ## Configuration Options
 
