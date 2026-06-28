@@ -171,11 +171,11 @@ This avoids closure lifetime issues when coroutine lifetime exceeds lambda objec
 
 The `examples/` folder contains runnable async demos that match current semantics:
 
-- `examples/async_example.cpp`: basic reads/writes and `try_await`
-- `examples/async_example2.cpp`: async toy IO + expression composition
-- `examples/async_ops_example.cpp`: expression DAG composition + `all(...)`
-- `examples/async_buffer_semantics_example.cpp`: read/write ownership, cancellation paths, and exception routing
-- `examples/async_tbb_reduction_example.cpp`: parallel map-reduce with `TbbScheduler`
-- `examples/async_dag_debug_example.cpp`: Graphviz snapshots of a blocked async DAG
-- `examples/async_dag_deadlock_tbb_example.cpp`: deliberate TBB dataflow deadlock with a best-effort DOT dump
-- `examples/async_fib_example.cpp`: recursive async composition
+- `examples/async/async_example.cpp`: basic reads/writes and `try_await`
+- `examples/async/async_example2.cpp`: async toy IO + expression composition
+- `examples/async/async_ops_example.cpp`: expression DAG composition + `all(...)`
+- `examples/async/async_buffer_semantics_example.cpp`: read/write ownership, cancellation paths, and exception routing
+- `examples/async/async_tbb_reduction_example.cpp`: parallel map-reduce with `TbbScheduler`
+- `examples/async/async_dag_debug_example.cpp`: Graphviz snapshots of a blocked async DAG
+- `examples/async/async_dag_deadlock_tbb_example.cpp`: deliberate TBB dataflow deadlock with a best-effort DOT dump
+- `examples/async/async_fib_example.cpp`: recursive async composition

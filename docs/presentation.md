@@ -29,7 +29,7 @@ The layer is intentionally independent of trace, async, tensor, AD, and schedule
 | Variable | Default | Values | Effect |
 |---|---|---|---|
 | `UNI20_GLYPHS` | `emoji` | `emoji`, `unicode`, `ascii` | Select semantic glyph spelling. |
-| `UNI20_CHARSET` | `utf8` | `utf8`, `ascii_escape`, `ascii_replace` | Preserve UTF-8, escape non-ASCII text, or replace it. Hyphen aliases are accepted. |
+| `UNI20_CHARSET` | `utf8` | `utf8`, `escape`, `replace` | Preserve UTF-8, escape non-ASCII text, or replace it. `utf-8`, `ascii_escape`, and `ascii_replace` aliases are accepted. |
 | `UNI20_COLOR` | `auto` | `auto`, `yes`, `always`, `no`, `never`, plus boolean aliases | Control ANSI style emission globally. |
 
 Automatic color follows terminal detection and honors `NO_COLOR`. Explicit `color_mode::always`, including
@@ -98,7 +98,7 @@ auto prefix = presentation::truncate_left_to_width(before_error, 24, policy, "â€
 auto suffix = presentation::truncate_to_width(error_and_after, 40, policy, "â€¦");
 ```
 
-See `examples/presentation_example.cpp` for semantic Unicode/emoji output, display-cell table alignment, fixed indentation after wrapping, tensor-network-style connector art, the default rounded tensor-box style, and a parser-style range diagnostic that adapts to different terminal widths.
+See `examples/presentation/` for runnable demonstrations of semantic Unicode/emoji output, display-cell table alignment, fixed indentation after wrapping, tensor-network-style connector art, the default rounded tensor-box style, and parser-style range diagnostics that adapt to different terminal widths.
 
 ## Report Tables
 

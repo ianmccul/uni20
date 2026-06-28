@@ -58,9 +58,13 @@ uni20/                              # Project root
 │   └── helpers.hpp                 # Shared testing helpers and mocks
 ├── benchmarks/                     # Performance benchmarks using Google Benchmark
 ├── examples/                       # Demonstration programs
-│   ├── mdspan_example.cpp
-│   ├── async_example.cpp
-│   └── trace_example.cpp
+│   ├── ad/
+│   ├── async/
+│   ├── common/
+│   ├── linalg/
+│   ├── mdspan/
+│   ├── presentation/
+│   └── python/
 ├── bindings/                       # Language bindings (currently Python via nanobind)
 │   └── python/
 └── asm/                            # Contains sample code for testing generated assembly output

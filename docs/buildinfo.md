@@ -54,7 +54,7 @@ cmake --build build --target buildinfo_example
 The example uses the common presentation layer for color, glyphs, display-cell width handling, and wrapping. It does not define build-info-specific environment variables. Existing general controls apply:
 
 - `UNI20_GLYPHS`: selects `emoji`, `unicode`, or `ascii` semantic glyphs.
-- `UNI20_CHARSET`: selects `utf8`, `ascii_escape`, or `ascii_replace` text rendering.
+- `UNI20_CHARSET`: selects `utf8`, `escape`, or `replace` text rendering.
 - `UNI20_COLOR`: selects `auto`, forced color, or disabled color.
 - `NO_COLOR`: disables automatic ANSI color output when set to a non-empty value.
 - `COLUMNS`: overrides terminal width detection for wrapping when set to a positive integer.

@@ -58,11 +58,11 @@ The docs are split into two groups:
 
 Runnable examples in `examples/` that pair well with this docs set:
 
-- `examples/async_buffer_semantics_example.cpp`: read/write ownership, release ordering, cancellation, and exception routing
-- `examples/async_example.cpp`: basic read/write and `try_await(...)`
-- `examples/async_ops_example.cpp`: expression DAG composition and `all(...)`
-- `examples/async_tbb_reduction_example.cpp`: parallel scheduling with `TbbScheduler`
-- `examples/async_dag_deadlock_tbb_example.cpp`: Graphviz snapshot of a deliberate TBB dataflow deadlock
+- `examples/async/async_buffer_semantics_example.cpp`: read/write ownership, release ordering, cancellation, and exception routing
+- `examples/async/async_example.cpp`: basic read/write and `try_await(...)`
+- `examples/async/async_ops_example.cpp`: expression DAG composition and `all(...)`
+- `examples/async/async_tbb_reduction_example.cpp`: parallel scheduling with `TbbScheduler`
+- `examples/async/async_dag_deadlock_tbb_example.cpp`: Graphviz snapshot of a deliberate TBB dataflow deadlock
 
 ## Related Top-Level Docs
 

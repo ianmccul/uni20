@@ -337,7 +337,7 @@ Trace diagnostics are rendered through the common [presentation formatting](pres
 | Variable | Default | Values | Effect |
 |---|---|---|---|
 | `UNI20_GLYPHS` | `emoji` | `unicode`, `emoji`, `ascii` | Select semantic glyph spelling for all presentation output, including trace. |
-| `UNI20_CHARSET` | `utf8` | `utf8`, `ascii_escape`, `ascii_replace` | Select fallback for non-ASCII text in all presentation output, including trace. |
+| `UNI20_CHARSET` | `utf8` | `utf8`, `escape`, `replace` | Select fallback for non-ASCII text in all presentation output, including trace. `utf-8`, `ascii_escape`, and `ascii_replace` aliases are accepted. |
 | `UNI20_COLOR` | `auto` | `auto`, `yes`, `always`, `no`, `never`, plus boolean aliases | Control ANSI style emission globally. |
 | `COLUMNS` | terminal columns | positive integer | Override detected terminal width for trace layout and wrapping. |
 

@@ -24,6 +24,7 @@
 - [Kernel Dispatch Design](kernel_dispatch.md)
 - [MPI Persistent Object Store and Kernel Dispatch](uni20_mpi_persistent_dispatch_design.md)
 - [CUDA Backend Library Compatibility](cuda_backend_libraries.md)
+- [CUDA Runtime Resolution Strategy](cuda_runtime_resolution_strategy.md)
 - [CUDA/cuSOLVER Architecture Notes](cuda_cusolver_architecture.md)
 - [CUDA Memory Allocation: Pools vs Custom Sub-Allocation](cuda_memory_allocation.md)
 - [GPU Epoch Design Draft](gpu_epoch_design_draft.md)

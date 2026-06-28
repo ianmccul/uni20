@@ -1,6 +1,6 @@
 # Async DAG Debug Examples
 
-`examples/async_dag_debug_example.cpp` demonstrates the Graphviz diagnostics path.
+`examples/async/async_dag_debug_example.cpp` demonstrates the Graphviz diagnostics path.
 It builds a small async graph, writes snapshots before execution, while a task is
 suspended, after partial progress, and after completion.
 
@@ -9,14 +9,14 @@ The examples label selected nodes with `Async<T>::debug_name(...)` and
 DOT easier to read and compile down to no useful runtime output in dummy registry
 builds.
 
-`examples/async_dag_gallery_example.cpp` generates several graph shapes inspired by
+`examples/async/async_dag_gallery_example.cpp` generates several graph shapes inspired by
 the existing async examples:
 
-- branching expression graphs from `async_ops_example.cpp`
-- compact expression versus explicit-kernel graphs from `async_kernel_shapes_example.cpp`
-- a small map/reduce tree from `async_tbb_reduction_example.cpp`
+- branching expression graphs from `examples/async/async_ops_example.cpp`
+- compact expression versus explicit-kernel graphs from `examples/async/async_kernel_shapes_example.cpp`
+- a small map/reduce tree from `examples/async/async_tbb_reduction_example.cpp`
 
-`examples/async_dag_deadlock_tbb_example.cpp` builds a deliberate two-task TBB
+`examples/async/async_dag_deadlock_tbb_example.cpp` builds a deliberate two-task TBB
 dataflow cycle, lets the worker threads block, then has the main thread sleep and
 capture a best-effort DOT snapshot of the deadlocked DAG.
 

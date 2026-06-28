@@ -117,4 +117,4 @@ Environment variable:
 Docs:
 
 - `task_registry_debug.md`
-- `examples/async_buffer_semantics_example.cpp`
+- `examples/async/async_buffer_semantics_example.cpp`

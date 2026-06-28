@@ -2,6 +2,9 @@
 
 These notes record how uni20 should handle CUDA-adjacent vendor libraries such
 as cuBLAS, cuSOLVER, cuTENSOR, cuTensorNet, cuStateVec, and cuDensityMat.
+See also [`cuda_runtime_resolution_strategy.md`](cuda_runtime_resolution_strategy.md)
+for the loader/rpath policy that determines which shared libraries are found
+before these runtime probes can run.
 
 The main rule is that library discovery is not enough.  A CUDA backend adapter
 must distinguish:
