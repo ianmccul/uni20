@@ -13,6 +13,74 @@ if(TARGET uni20_backend_blas)
   uni20_add_example(blas_example linalg/blas_example.cpp fmt::fmt uni20_backend_blas)
 endif()
 
+uni20_add_example(krylov_matrix_market_example krylov/krylov_matrix_market_example.cpp fmt::fmt uni20_common
+                  uni20_krylov)
+target_compile_definitions(krylov_matrix_market_example
+    PRIVATE
+        UNI20_KRYLOV_EXAMPLE_MATRIX_MARKET_DIR="${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market"
+)
+add_test(NAME KrylovMatrixMarketExample.Float
+    COMMAND krylov_matrix_market_example
+        "${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market/path_laplacian_30.mtx"
+        --precision=float --which=LA --nev=2 --ncv=8 --tol=1e-5 --max-iters=100 --diagnostics=none)
+add_test(NAME KrylovMatrixMarketExample.Double
+    COMMAND krylov_matrix_market_example
+        "${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market/path_laplacian_30.mtx"
+        --precision=double --which=LA --nev=2 --ncv=8 --tol=1e-10 --max-iters=100 --diagnostics=none)
+if(UNI20_HAS_FLOAT128)
+  add_test(NAME KrylovMatrixMarketExample.Float128
+      COMMAND krylov_matrix_market_example
+          "${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market/path_laplacian_30.mtx"
+          --precision=float128 --which=LA --nev=2 --ncv=8 --tol=1e-20 --max-iters=100 --diagnostics=none)
+endif()
+
+uni20_add_example(krylov_nonsymmetric_matrix_market_example krylov/krylov_nonsymmetric_matrix_market_example.cpp
+                  fmt::fmt uni20_common uni20_krylov)
+target_compile_definitions(krylov_nonsymmetric_matrix_market_example
+    PRIVATE
+        UNI20_KRYLOV_EXAMPLE_MATRIX_MARKET_DIR="${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market"
+)
+add_test(NAME KrylovNonsymmetricMatrixMarketExample.Lop163
+    COMMAND krylov_nonsymmetric_matrix_market_example
+        "${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market/nep/stoch/lop163.mtx"
+        --which=LM --nev=3 --nkeep=6 --ncv=24 --tol=1e-10 --diagnostics=summary --eigenvectors=false)
+if(UNI20_HAS_FLOAT128)
+  add_test(NAME KrylovNonsymmetricMatrixMarketExample.Lop163Float128
+      COMMAND krylov_nonsymmetric_matrix_market_example
+          "${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market/nep/stoch/lop163.mtx"
+          --precision=float128 --which=LM --nev=3 --nkeep=6 --ncv=24 --tol=1e-20
+          --diagnostics=summary --eigenvectors=false)
+endif()
+
+uni20_add_example(krylov_exponential_probe_example krylov/krylov_exponential_probe_example.cpp fmt::fmt uni20_common
+                  uni20_krylov)
+add_test(NAME KrylovExponentialProbeExample.Float
+    COMMAND krylov_exponential_probe_example --precision=float --tol=1e-4 --check)
+add_test(NAME KrylovExponentialProbeExample.Double
+    COMMAND krylov_exponential_probe_example --precision=double --tol=1e-8 --check)
+
+uni20_add_example(krylov_exponential_orthogonality_example krylov/krylov_exponential_orthogonality_example.cpp
+                  fmt::fmt uni20_common uni20_krylov)
+add_test(NAME KrylovExponentialOrthogonalityExample.Float
+    COMMAND krylov_exponential_orthogonality_example --precision=float --tol=1e-8 --check)
+
+uni20_add_example(krylov_exponential_matrix_market_probe_example
+                  krylov/krylov_exponential_matrix_market_probe_example.cpp fmt::fmt uni20_common uni20_krylov)
+target_compile_definitions(krylov_exponential_matrix_market_probe_example
+    PRIVATE
+        UNI20_KRYLOV_EXAMPLE_MATRIX_MARKET_DIR="${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market"
+)
+add_test(NAME KrylovExponentialMatrixMarketProbeExample.TdvpDouble
+    COMMAND krylov_exponential_matrix_market_probe_example --check)
+add_test(NAME KrylovExponentialMatrixMarketProbeExample.TdvpFloat
+    COMMAND krylov_exponential_matrix_market_probe_example
+        --precision=float --tol=1e-8 --time-imag=-0.01968473663975394 --max-dim=32 --check)
+if(UNI20_HAS_FLOAT128)
+  add_test(NAME KrylovExponentialMatrixMarketProbeExample.TdvpFloat128
+      COMMAND krylov_exponential_matrix_market_probe_example
+          --precision=float128 --tol=1e-20 --time-imag=-0.01968473663975394 --max-dim=32)
+endif()
+
 uni20_add_example(presentation_example presentation/table_layout_example.cpp fmt::fmt uni20_common)
 uni20_add_example(presentation_table_layout_example presentation/table_layout_example.cpp fmt::fmt uni20_common)
 uni20_add_example(presentation_glyph_policy_example presentation/glyph_policy_example.cpp fmt::fmt uni20_common)

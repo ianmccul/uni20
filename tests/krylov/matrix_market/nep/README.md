@@ -31,7 +31,7 @@ comparison corpora for the eventual linalg-benchmark repository.
 
 ## Suggested Manual Examples
 
-These are useful with `examples/krylov_nonsymmetric_matrix_market_example.cpp`
+These are useful with `examples/krylov/krylov_nonsymmetric_matrix_market_example.cpp`
 after building the examples target:
 
 ```bash

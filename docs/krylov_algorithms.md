@@ -209,7 +209,7 @@ uses scaled Taylor series steps with a geometric tail estimate and an explicit
 caller-supplied bound for `||A||`. Taylor scaling-step selection and
 tail-error amplification are computed in the solver real scalar type, so
 extended-precision real types are not silently rounded through `long double`.
-`examples/krylov_exponential_probe_example.cpp` compares Lanczos, Taylor, and
+`examples/krylov/krylov_exponential_probe_example.cpp` compares Lanczos, Taylor, and
 exact diagonal exponential actions on deliberately awkward spectra. It reports
 both an example-local full-reorthogonalized Lanczos recurrence, mirroring the
 production path while exposing projected data, and an example-local legacy
@@ -229,7 +229,7 @@ underflow from loss of useful Lanczos orthogonality. Full Al-Mohy/Higham-style
 norm estimation, block right-hand sides, adaptive Lanczos time stepping,
 restart/error control, and broader benchmark examples are still future work.
 
-`examples/krylov_exponential_orthogonality_example.cpp` is a smaller teaching
+`examples/krylov/krylov_exponential_orthogonality_example.cpp` is a smaller teaching
 example focused on this failure mode. Its default float run requests
 `tol=1e-8`, below the `sqrt(eps(float))` warning scale that motivated the old
 TDVP/Cytnx policy for non-reorthogonalized or lightly reorthogonalized Lanczos.
@@ -242,7 +242,7 @@ precision; it is a conservative default for Lanczos exponential actions that do
 not maintain or monitor basis orthogonality strongly enough to certify tighter
 tolerances.
 
-`examples/krylov_exponential_matrix_market_probe_example.cpp` is the real
+`examples/krylov/krylov_exponential_matrix_market_probe_example.cpp` is the real
 Matrix Market stress case for this issue. Its default input is the copied TDVP
 harmonic-oscillator fixture in `tests/krylov/matrix_market/tdvp_lanczos/`, with
 the initial vector from the same directory and the old problematic coefficient

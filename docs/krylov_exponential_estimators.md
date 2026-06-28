@@ -1,12 +1,12 @@
 # Krylov Exponential Error Estimators
 
 This note records the exponential-action convergence diagnostics measured by
-`examples/krylov_exponential_probe_example.cpp`. For a smaller toy illustration
+`examples/krylov/krylov_exponential_probe_example.cpp`. For a smaller toy illustration
 of an orthogonality-driven tolerance floor, run
-`examples/krylov_exponential_orthogonality_example.cpp`.
+`examples/krylov/krylov_exponential_orthogonality_example.cpp`.
 For a real Matrix Market stress case copied from the Cytnx TDVP/Lanczos
 harmonic-oscillator investigation, run
-`examples/krylov_exponential_matrix_market_probe_example.cpp`; its default
+`examples/krylov/krylov_exponential_matrix_market_probe_example.cpp`; its default
 `complex<double>` configuration uses
 `tests/krylov/matrix_market/tdvp_lanczos/` and shows the old raw projected-tail
 indicator below `1e-8` while the Taylor-reference action error is still above
