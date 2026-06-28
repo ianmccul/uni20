@@ -14,6 +14,7 @@
  *
  * \par Submodules
  * - \ref backend_blas — BLAS integration and vendor selection utilities.
+ * - \ref backend_lapack — LAPACK integration and dense linear algebra adapters.
  * - \ref backend_cuda — CUDA runtime orchestration helpers.
  * - \ref backend_cusolver — cuSOLVER-specific linear algebra adapters.
  */
@@ -42,6 +43,15 @@
  */
 
 /**
+ * \defgroup backend_lapack LAPACK backend integration
+ * \ingroup backend
+ * \brief Glue that binds Uni20 abstractions to LAPACK-compatible dense linear algebra providers.
+ *
+ * \par Submodules
+ * - \ref backend_lapack_reference — Reference LAPACK wrappers for float and double.
+ */
+
+/**
  * \defgroup internal Backend implementation details
  * \ingroup backend
  * \brief Internal macros and helpers that support backend integrations without being part of the
@@ -54,14 +64,14 @@
 /// \ingroup internal
 #define UNI20_INTERNAL_STRINGIFY_TOKEN(x) #x
 
-/// \brief Produces the log-friendly spelling of a backend API symbol.
+/// \brief Produces the log-friendly spelling of an external backend API symbol.
 /// \param func Macro argument that names the symbol being traced.
 /// \return String literal suitable for concatenating into trace output.
 /// \ingroup internal
 #define UNI20_INTERNAL_API_CALL_STRINGIZE(func) UNI20_INTERNAL_STRINGIFY_TOKEN(func)
 
 /// \brief Emits a trace log entry for an outgoing backend API call.
-/// \details This macro wraps \ref TRACE_MODULE so every backend API call records a side
+/// \details This macro wraps \ref TRACE_MODULE so every external backend API call records a side
 ///          effect visible to the tracing subsystem.
 /// \param module Name of the backend module emitting the trace entry. This must match one of
 ///        the trace channels registered in the top-level CMake configuration.
@@ -70,5 +80,6 @@
 /// \param ... Optional comma-separated arguments that mirror the runtime parameters forwarded to
 ///        the backend function. Each argument is appended to the trace entry when provided.
 /// \ingroup backend
-#define UNI20_API_CALL(module, func, ...)                                                                              \
-  TRACE_MODULE(module, "Calling API function " UNI20_INTERNAL_API_CALL_STRINGIZE(func) __VA_OPT__(, __VA_ARGS__))
+#define UNI20_EXTERNAL_API_CALL(module, func, ...)                                                                     \
+  TRACE_MODULE(module,                                                                                                 \
+               "Calling external API function " UNI20_INTERNAL_API_CALL_STRINGIZE(func) __VA_OPT__(, __VA_ARGS__))

@@ -276,6 +276,27 @@ ABI is available, put the Fortran wrapper behind a Uni20 C-like adapter so
 algorithm lowering code does not depend on symbol mangling or Fortran integer
 details.
 
+The low-level LAPACK facade currently follows a two-layer convention:
+
+- `uni20::lapack::unchecked` contains type-safe, provider-backed overloads that
+  return the raw LAPACK `INFO` value. These wrappers are marked `[[nodiscard]]`
+  and are the right layer for algorithms that want to handle singularity,
+  non-convergence, workspace queries, condition warnings, or fallback policy
+  themselves.
+- `uni20::lapack` contains thin checked wrappers that call the corresponding
+  unchecked overload and throw with diagnostic context for ordinary fatal
+  statuses such as invalid arguments, singular factors, or convergence failure.
+  This layer should not contain algorithmic fallback policy. Higher-level
+  helpers such as `svd`, `solve`, or tensor truncation routines can call
+  `unchecked` directly when they need trial algorithms or richer recovery.
+
+The provider is a physical implementation detail, not part of the public call
+surface. Standard LAPACK overloads and MPLAPACK binary128 overloads should
+present the same `uni20::lapack::unchecked::<routine>` spelling when they
+provide the same operation. Future global kernel dispatch can then detect
+compile-time callability and runtime suitability without hard-coding provider
+names into algorithm code.
+
 ## Applicability
 
 This pattern is not BLAS-specific. Use it for future optimized paths involving:
