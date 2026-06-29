@@ -94,11 +94,11 @@ uni20::krylov::Matrix<double> tridiagonal_matrix(std::vector<double> const& diag
   uni20::krylov::laset(matrix, 0.0, 0.0, uni20::krylov::MatrixFill::All);
   for (std::size_t i = 0; i < diagonal.size(); ++i)
   {
-    matrix(i, i) = diagonal[i];
+    matrix[i, i] = diagonal[i];
     if (i + 1 < diagonal.size())
     {
-      matrix(i, i + 1) = subdiagonal[i];
-      matrix(i + 1, i) = subdiagonal[i];
+      matrix[i, i + 1] = subdiagonal[i];
+      matrix[i + 1, i] = subdiagonal[i];
     }
   }
   return matrix;
@@ -118,7 +118,7 @@ uni20::krylov::Matrix<double> multiply(uni20::krylov::Matrix<double> const& lhs,
     {
       for (std::size_t row = 0; row < lhs.rows(); ++row)
       {
-        result(row, col) += lhs(row, k) * rhs(k, col);
+        result[row, col] += lhs[row, k] * rhs[k, col];
       }
     }
   }
@@ -132,7 +132,7 @@ uni20::krylov::Matrix<double> transpose(uni20::krylov::Matrix<double> const& mat
   {
     for (std::size_t row = 0; row < matrix.rows(); ++row)
     {
-      result(col, row) = matrix(row, col);
+      result[col, row] = matrix[row, col];
     }
   }
   return result;
@@ -147,7 +147,7 @@ void expect_matrix_near(uni20::krylov::Matrix<double> const& actual, uni20::kryl
   {
     for (std::size_t row = 0; row < actual.rows(); ++row)
     {
-      EXPECT_NEAR(actual(row, col), expected(row, col), tolerance);
+      EXPECT_NEAR((actual[row, col]), (expected[row, col]), tolerance);
     }
   }
 }
@@ -1141,18 +1141,18 @@ TEST(KrylovSymmetricLanczos, CompressesRestartedBasisAndResidualThroughMatrixFre
     expected_column.reserve(basis.size());
     for (std::size_t row = 0; row < basis.size(); ++row)
     {
-      expected_column.push_back(shifted.transform(row, column));
+      expected_column.push_back(shifted.transform[row, column]);
     }
     expect_vector_near(compressed.basis[column], expected_column, 1.0e-12);
   }
 
-  double const sigma = shifted.transform(shifted.transform.rows() - 1, 1);
+  double const sigma = shifted.transform[shifted.transform.rows() - 1, 1];
   double const beta = shifted.subdiagonal[1];
   std::vector<double> expected_residual;
   expected_residual.reserve(residual.values.size());
   for (std::size_t row = 0; row < residual.values.size(); ++row)
   {
-    expected_residual.push_back(sigma * residual.values[row] + beta * shifted.transform(row, 2));
+    expected_residual.push_back(sigma * residual.values[row] + beta * shifted.transform[row, 2]);
   }
   expect_vector_near(compressed.residual, expected_residual, 1.0e-12);
 

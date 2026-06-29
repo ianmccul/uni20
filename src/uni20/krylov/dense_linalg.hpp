@@ -64,9 +64,9 @@ template <typename Scalar> class RightMatrix {
 
     [[nodiscard]] std::size_t size() const noexcept { return data_.size(); }
 
-    Scalar& operator()(std::size_t row, std::size_t col) { return data_[col + row * cols_]; }
+    Scalar& operator[](std::size_t row, std::size_t col) { return data_[col + row * cols_]; }
 
-    Scalar const& operator()(std::size_t row, std::size_t col) const { return data_[col + row * cols_]; }
+    Scalar const& operator[](std::size_t row, std::size_t col) const { return data_[col + row * cols_]; }
 
     [[nodiscard]] Scalar* data() noexcept { return data_.data(); }
 
@@ -109,7 +109,7 @@ template <typename Scalar> RightMatrix<Scalar> copy_left_to_right(Matrix<Scalar>
   {
     for (std::size_t col = 0; col < matrix.cols(); ++col)
     {
-      result(row, col) = matrix(row, col);
+      result[row, col] = matrix[row, col];
     }
   }
   return result;
@@ -126,7 +126,7 @@ template <typename Scalar> Matrix<Scalar> copy_right_to_left(RightMatrix<Scalar>
   {
     for (std::size_t col = 0; col < matrix.cols(); ++col)
     {
-      result(row, col) = matrix(row, col);
+      result[row, col] = matrix[row, col];
     }
   }
   return result;
@@ -6200,7 +6200,7 @@ template <typename Scalar> void lacpy(Matrix<Scalar> const& source, Matrix<Scala
     {
       if (detail::in_selected_region<Scalar>(row, col, fill))
       {
-        destination(row, col) = source(row, col);
+        destination[row, col] = source[row, col];
       }
     }
   }
@@ -6221,7 +6221,7 @@ void laset(Matrix<Scalar>& matrix, Scalar const& diagonal, Scalar const& off_dia
     {
       if (detail::in_selected_region<Scalar>(row, col, fill))
       {
-        matrix(row, col) = (row == col) ? diagonal : off_diagonal;
+        matrix[row, col] = (row == col) ? diagonal : off_diagonal;
       }
     }
   }
@@ -6258,7 +6258,7 @@ void gemv(Scalar const& alpha, Matrix<Scalar> const& matrix, std::span<Scalar co
       Scalar const factor = alpha * x[col];
       for (std::size_t row = 0; row < matrix.rows(); ++row)
       {
-        y[row] += factor * matrix(row, col);
+        y[row] += factor * matrix[row, col];
       }
     }
     return;
@@ -6269,7 +6269,7 @@ void gemv(Scalar const& alpha, Matrix<Scalar> const& matrix, std::span<Scalar co
     Scalar sum{};
     for (std::size_t row = 0; row < matrix.rows(); ++row)
     {
-      Scalar entry = matrix(row, col);
+      Scalar entry = matrix[row, col];
       if (transpose == MatrixTranspose::ConjugateTranspose)
       {
         entry = detail::conjugate_if_complex(entry);
@@ -6299,7 +6299,7 @@ void geru(Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const
     Scalar const factor = alpha * y[col];
     for (std::size_t row = 0; row < matrix.rows(); ++row)
     {
-      matrix(row, col) += x[row] * factor;
+      matrix[row, col] += x[row] * factor;
     }
   }
 }
@@ -6323,7 +6323,7 @@ void gerc(Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const
     Scalar const factor = alpha * detail::conjugate_if_complex(y[col]);
     for (std::size_t row = 0; row < matrix.rows(); ++row)
     {
-      matrix(row, col) += x[row] * factor;
+      matrix[row, col] += x[row] * factor;
     }
   }
 }

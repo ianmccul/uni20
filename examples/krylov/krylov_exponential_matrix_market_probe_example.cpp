@@ -62,9 +62,9 @@ struct DenseRealMatrix
     std::size_t cols = 0;
     std::vector<double> values;
 
-    [[nodiscard]] double operator()(std::size_t row, std::size_t col) const { return values[row * cols + col]; }
+    [[nodiscard]] double operator[](std::size_t row, std::size_t col) const { return values[row * cols + col]; }
 
-    double& operator()(std::size_t row, std::size_t col) { return values[row * cols + col]; }
+    double& operator[](std::size_t row, std::size_t col) { return values[row * cols + col]; }
 };
 
 template <typename Scalar> using RealOf = uni20::make_real_t<Scalar>;
@@ -282,10 +282,10 @@ void print_usage(char const* program)
     }
     --row;
     --col;
-    matrix(row, col) += value;
+    matrix[row, col] += value;
     if (symmetry == "symmetric" && row != col)
     {
-      matrix(col, row) += value;
+      matrix[col, row] += value;
     }
   }
 
@@ -294,7 +294,7 @@ void print_usage(char const* program)
   {
     for (std::size_t col = row + 1; col < cols; ++col)
     {
-      max_symmetry_error = std::max(max_symmetry_error, std::abs(matrix(row, col) - matrix(col, row)));
+      max_symmetry_error = std::max(max_symmetry_error, std::abs(matrix[row, col] - matrix[col, row]));
     }
   }
   if (max_symmetry_error > 1.0e-10)
@@ -379,7 +379,7 @@ void print_usage(char const* program)
     double column_sum = 0.0;
     for (std::size_t row = 0; row < matrix.rows; ++row)
     {
-      column_sum += std::abs(matrix(row, col));
+      column_sum += std::abs(matrix[row, col]);
     }
     result = std::max(result, column_sum);
   }
@@ -487,7 +487,7 @@ template <typename Scalar>
     Scalar value{};
     for (std::size_t col = 0; col < matrix.cols; ++col)
     {
-      value += static_cast<RealOf<Scalar>>(matrix(row, col)) * x.values[col];
+      value += static_cast<RealOf<Scalar>>(matrix[row, col]) * x.values[col];
     }
     y.values[row] = value;
   }
@@ -640,11 +640,11 @@ run_legacy_three_term(DenseRealMatrix const& matrix, DenseHostVector<Scalar> con
   uni20::krylov::Matrix<Real> projected(projected_size, projected_size);
   for (std::size_t i = 0; i < projected_size; ++i)
   {
-    projected(i, i) = diagonal[i];
+    projected[i, i] = diagonal[i];
     if (i + 1 < projected_size)
     {
-      projected(i, i + 1) = offdiagonal[i];
-      projected(i + 1, i) = offdiagonal[i];
+      projected[i, i + 1] = offdiagonal[i];
+      projected[i + 1, i] = offdiagonal[i];
     }
   }
 
@@ -653,7 +653,7 @@ run_legacy_three_term(DenseRealMatrix const& matrix, DenseHostVector<Scalar> con
   std::vector<Scalar> coefficients(projected_size);
   for (std::size_t row = 0; row < projected_size; ++row)
   {
-    coefficients[row] = Scalar{initial_norm, Real{}} * exponential(row, 0);
+    coefficients[row] = Scalar{initial_norm, Real{}} * exponential[row, 0];
     host_axpy(action, coefficients[row], basis[row]);
   }
 

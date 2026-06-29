@@ -171,11 +171,11 @@ template <typename Scalar> class DenseShiftInvertOps {
       }
       for (auto const& entry : matrix.entries)
       {
-        coefficient_(entry.row, entry.col) += static_cast<Scalar>(entry.value);
+        coefficient_[entry.row, entry.col] += static_cast<Scalar>(entry.value);
       }
       for (std::size_t i = 0; i < matrix.rows; ++i)
       {
-        coefficient_(i, i) -= sigma_;
+        coefficient_[i, i] -= sigma_;
       }
     }
 
@@ -245,12 +245,12 @@ template <typename Scalar> class DenseShiftInvertOps {
       uni20::krylov::Matrix<Scalar> rhs(x.values.size(), 1);
       for (std::size_t i = 0; i < x.values.size(); ++i)
       {
-        rhs(i, 0) = x.values[i];
+        rhs[i, 0] = x.values[i];
       }
       auto solution = uni20::krylov::solve_linear_system(coefficient_, std::move(rhs));
       for (std::size_t i = 0; i < y.values.size(); ++i)
       {
-        y.values[i] = solution(i, 0);
+        y.values[i] = solution[i, 0];
       }
     }
 

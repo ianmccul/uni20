@@ -212,11 +212,11 @@ hermitian_exponential_projection(Ops& ops, Vector const& initial,
   result.projected = Matrix<Real>(dimension, dimension);
   for (std::size_t i = 0; i < dimension; ++i)
   {
-    result.projected(i, i) = diagonal[i];
+    result.projected[i, i] = diagonal[i];
     if (i + 1 < dimension)
     {
-      result.projected(i, i + 1) = subdiagonal[i];
-      result.projected(i + 1, i) = subdiagonal[i];
+      result.projected[i, i + 1] = subdiagonal[i];
+      result.projected[i + 1, i] = subdiagonal[i];
     }
   }
   if (params.diagnostics != KrylovDiagnosticsLevel::None)
@@ -256,7 +256,7 @@ template <typename Scalar> std::vector<Scalar> first_column_scaled(Matrix<Scalar
   std::vector<Scalar> coefficients(exponential.rows());
   for (std::size_t row = 0; row < exponential.rows(); ++row)
   {
-    coefficients[row] = scale * exponential(row, 0);
+    coefficients[row] = scale * exponential[row, 0];
   }
   return coefficients;
 }
@@ -268,7 +268,7 @@ std::vector<Scalar> first_real_column_scaled(Matrix<uni20::make_real_t<Scalar>> 
   std::vector<Scalar> coefficients(exponential.rows());
   for (std::size_t row = 0; row < exponential.rows(); ++row)
   {
-    coefficients[row] = static_cast<Scalar>(scale * exponential(row, 0));
+    coefficients[row] = static_cast<Scalar>(scale * exponential[row, 0]);
   }
   return coefficients;
 }
@@ -298,7 +298,7 @@ Matrix<OutputScalar> projected_exponential(Matrix<InputScalar> const& projected,
   {
     for (std::size_t col = 0; col < projected.cols(); ++col)
     {
-      scaled(row, col) = coefficient * static_cast<OutputScalar>(projected(row, col));
+      scaled[row, col] = coefficient * static_cast<OutputScalar>(projected[row, col]);
     }
   }
   return matrix_exponential(scaled, uni20::make_real_t<OutputScalar>{1});

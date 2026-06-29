@@ -450,16 +450,16 @@ template <typename Scalar> [[nodiscard]] std::vector<Scalar> phi1_first_column(u
   {
     for (std::size_t col = 0; col < n; ++col)
     {
-      augmented(row, col) = z(row, col);
+      augmented[row, col] = z[row, col];
     }
   }
-  augmented(0, n) = Scalar{1};
+  augmented[0, n] = Scalar{1};
 
   auto const exponential = uni20::krylov::matrix_exponential(augmented, uni20::make_real_t<Scalar>{1});
   std::vector<Scalar> column(n);
   for (std::size_t row = 0; row < n; ++row)
   {
-    column[row] = exponential(row, n);
+    column[row] = exponential[row, n];
   }
   return column;
 }
@@ -570,11 +570,11 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
   uni20::krylov::Matrix<Real> projected(projected_size, projected_size);
   for (std::size_t i = 0; i < projected_size; ++i)
   {
-    projected(i, i) = diagonal[i];
+    projected[i, i] = diagonal[i];
     if (i + 1 < projected_size)
     {
-      projected(i, i + 1) = offdiagonal[i];
-      projected(i + 1, i) = offdiagonal[i];
+      projected[i, i + 1] = offdiagonal[i];
+      projected[i + 1, i] = offdiagonal[i];
     }
   }
 
@@ -584,7 +584,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
   {
     for (std::size_t col = 0; col < projected_size; ++col)
     {
-      scaled(row, col) = coefficient * static_cast<ProjectedScalar>(projected(row, col));
+      scaled[row, col] = coefficient * static_cast<ProjectedScalar>(projected[row, col]);
     }
   }
 
@@ -596,7 +596,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
   std::vector<Scalar> coefficients(projected_size);
   for (std::size_t row = 0; row < projected_size; ++row)
   {
-    coefficients[row] = static_cast<Scalar>(static_cast<ProjectedScalar>(initial_norm) * exponential(row, 0));
+    coefficients[row] = static_cast<Scalar>(static_cast<ProjectedScalar>(initial_norm) * exponential[row, 0]);
     host_axpy(action, coefficients[row], basis[row]);
   }
 
@@ -605,7 +605,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
   // Hquad and HL bound: [HochbruckLubich1997], [JaweckiAuzingerKoch2020].
   // Saad phi1: [Saad1992], [JiaLv2015].
   Real const tail_coefficient =
-      projected_size == 0 ? Real{} : static_cast<Real>(std::abs(exponential(projected_size - 1, 0)));
+      projected_size == 0 ? Real{} : static_cast<Real>(std::abs(exponential[projected_size - 1, 0]));
   Real const time_magnitude = static_cast<Real>(std::abs(static_cast<ProjectedScalar>(time)));
   Real const residual_estimate =
       coefficients.empty() ? Real{} : residual_norm * static_cast<Real>(std::abs(coefficients.back()));
@@ -734,7 +734,7 @@ template <typename Real> struct ProbeReport
 template <typename Real> [[nodiscard]] Real safe_ratio(Real numerator, Real denominator)
 {
   return denominator > uni20::numeric_limits<Real>::min() ? numerator / denominator
-                                                        : uni20::numeric_limits<Real>::infinity();
+                                                          : uni20::numeric_limits<Real>::infinity();
 }
 
 template <typename Real> [[nodiscard]] Real growth_ratio(Real numerator, Real denominator)

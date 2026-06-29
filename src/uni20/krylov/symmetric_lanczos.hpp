@@ -158,10 +158,10 @@ void apply_givens_to_transform(Matrix<Scalar>& q, std::size_t lhs, std::size_t r
 {
   for (std::size_t row = 0; row < q.rows(); ++row)
   {
-    Scalar const q_lhs = q(row, lhs);
-    Scalar const q_rhs = q(row, rhs);
-    q(row, lhs) = c * q_lhs + s * q_rhs;
-    q(row, rhs) = -s * q_lhs + c * q_rhs;
+    Scalar const q_lhs = q[row, lhs];
+    Scalar const q_rhs = q[row, rhs];
+    q[row, lhs] = c * q_lhs + s * q_rhs;
+    q[row, rhs] = -s * q_lhs + c * q_rhs;
   }
 }
 
@@ -381,7 +381,7 @@ std::vector<Scalar> symmetric_ritz_residual_bounds(Scalar residual_norm,
   std::vector<Scalar> residual_bounds(projected.eigenvalues.size(), Scalar{});
   for (std::size_t i = 0; i < residual_bounds.size(); ++i)
   {
-    residual_bounds[i] = residual_norm * adl_abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, i));
+    residual_bounds[i] = residual_norm * adl_abs(projected.eigenvectors[projected.eigenvectors.rows() - 1, i]);
   }
   return residual_bounds;
 }
@@ -446,7 +446,7 @@ make_symmetric_lanczos_result(Ops& ops, std::vector<Vector> const& basis, uni20:
   {
     std::erase_if(selected, [&](std::size_t ritz_index) {
       Real const residual_bound =
-          residual_norm * adl_abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, ritz_index));
+          residual_norm * adl_abs(projected.eigenvectors[projected.eigenvectors.rows() - 1, ritz_index]);
       return !symmetric_ritz_converged(projected.eigenvalues[ritz_index], residual_bound, tolerance);
     });
   }
@@ -458,7 +458,7 @@ make_symmetric_lanczos_result(Ops& ops, std::vector<Vector> const& basis, uni20:
   {
     result.eigenvalues.push_back(projected.eigenvalues[ritz_index]);
     Real const residual_bound =
-        residual_norm * adl_abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, ritz_index));
+        residual_norm * adl_abs(projected.eigenvectors[projected.eigenvectors.rows() - 1, ritz_index]);
     result.residual_bounds.push_back(residual_bound);
     if (symmetric_ritz_converged(projected.eigenvalues[ritz_index], residual_bound, tolerance))
     {
@@ -470,7 +470,7 @@ make_symmetric_lanczos_result(Ops& ops, std::vector<Vector> const& basis, uni20:
       ops.set_zero(vector);
       for (std::size_t row = 0; row < basis.size(); ++row)
       {
-        ops.axpy(vector, static_cast<Scalar>(projected.eigenvectors(row, ritz_index)), basis[row]);
+        ops.axpy(vector, static_cast<Scalar>(projected.eigenvectors[row, ritz_index]), basis[row]);
       }
       result.eigenvectors.push_back(std::move(vector));
     }
@@ -728,7 +728,7 @@ SymmetricQrShiftResult<Scalar> apply_symmetric_qr_shifts(std::vector<Scalar> dia
         subdiagonal[iend - 1] = -subdiagonal[iend - 1];
         for (std::size_t row = 0; row < result.transform.rows(); ++row)
         {
-          result.transform(row, iend) = -result.transform(row, iend);
+          result.transform[row, iend] = -result.transform[row, iend];
         }
       }
 
@@ -807,7 +807,7 @@ compress_symmetric_lanczos_restart(Ops& ops, std::vector<Vector> const& basis, V
     ops.set_zero(vector);
     for (std::size_t row = 0; row < order; ++row)
     {
-      Real const coefficient = shifted.transform(row, column);
+      Real const coefficient = shifted.transform[row, column];
       if (coefficient != Real{})
       {
         ops.axpy(vector, static_cast<Scalar>(coefficient), basis[row]);
@@ -822,7 +822,7 @@ compress_symmetric_lanczos_restart(Ops& ops, std::vector<Vector> const& basis, V
       .diagonal = {},
       .subdiagonal = {},
       .residual_norm = Real{},
-      .residual_scale = shifted.transform(order - 1, retained_count - 1),
+      .residual_scale = shifted.transform[order - 1, retained_count - 1],
       .trailing_coupling = retained_count < order ? shifted.subdiagonal[retained_count - 1] : Real{}};
 
   result.basis.reserve(retained_count);

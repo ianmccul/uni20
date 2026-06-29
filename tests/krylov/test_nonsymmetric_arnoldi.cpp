@@ -479,7 +479,7 @@ DenseHostVector<double> projected_column(std::vector<DenseHostVector<double>> co
   DenseHostVector<double> result{std::vector<double>(basis.front().values.size(), 0.0)};
   for (std::size_t basis_index = 0; basis_index < basis.size(); ++basis_index)
   {
-    double const coefficient = hessenberg(basis_index, column);
+    double const coefficient = hessenberg[basis_index, column];
     for (std::size_t row = 0; row < result.values.size(); ++row)
     {
       result.values[row] += coefficient * basis[basis_index].values[row];
@@ -567,10 +567,10 @@ TEST(KrylovNonsymmetricArnoldi, SolvesDenseComplexNonsymmetricProjectedProblem)
   using Complex = uni20::complex<double>;
 
   uni20::krylov::Matrix<Complex> matrix(2, 2);
-  matrix(0, 0) = Complex{1.0, 2.0};
-  matrix(1, 0) = Complex{};
-  matrix(0, 1) = Complex{3.0, -1.0};
-  matrix(1, 1) = Complex{-2.0, 0.5};
+  matrix[0, 0] = Complex{1.0, 2.0};
+  matrix[1, 0] = Complex{};
+  matrix[0, 1] = Complex{3.0, -1.0};
+  matrix[1, 1] = Complex{-2.0, 0.5};
 
   auto eigensystem = uni20::krylov::complex_nonsymmetric_eigensystem<double>(std::move(matrix), true);
 
@@ -670,7 +670,7 @@ TEST(KrylovNonsymmetricArnoldi, CompressesArnoldiFactorizationThroughRealSchurRe
     ops.set_zero(expected);
     for (std::size_t row = 0; row < compressed.basis.size(); ++row)
     {
-      ops.axpy(expected, compressed.schur_form(row, column), compressed.basis[row]);
+      ops.axpy(expected, compressed.schur_form[row, column], compressed.basis[row]);
     }
     ops.axpy(expected, compressed.residual_coupling[column], compressed.residual);
 
@@ -767,7 +767,7 @@ TEST(KrylovNonsymmetricArnoldi, ReportsHappyBreakdownOnInvariantSubspace)
   EXPECT_EQ(factorization.step_count, 1);
   EXPECT_TRUE(factorization.happy_breakdown);
   EXPECT_EQ(factorization.basis.size(), 1);
-  EXPECT_NEAR(factorization.hessenberg(0, 0), 2.0, 1.0e-14);
+  EXPECT_NEAR((factorization.hessenberg[0, 0]), 2.0, 1.0e-14);
   EXPECT_NEAR(factorization.residual_norm, 0.0, 1.0e-14);
 }
 
@@ -837,16 +837,16 @@ TEST(KrylovNonsymmetricArnoldi, ExtractsComplexConjugateRitzPairFromRealOperator
 TEST(KrylovNonsymmetricArnoldi, MeasuresProjectedDepartureFromNormality)
 {
   uni20::krylov::Matrix<double> normal(2, 2);
-  normal(0, 0) = 1.0;
-  normal(1, 0) = -2.0;
-  normal(0, 1) = 2.0;
-  normal(1, 1) = 1.0;
+  normal[0, 0] = 1.0;
+  normal[1, 0] = -2.0;
+  normal[0, 1] = 2.0;
+  normal[1, 1] = 1.0;
 
   uni20::krylov::Matrix<double> nonnormal(2, 2);
-  nonnormal(0, 0) = 1.0;
-  nonnormal(1, 0) = 0.0;
-  nonnormal(0, 1) = 10.0;
-  nonnormal(1, 1) = 1.0;
+  nonnormal[0, 0] = 1.0;
+  nonnormal[1, 0] = 0.0;
+  nonnormal[0, 1] = 10.0;
+  nonnormal[1, 1] = 1.0;
 
   EXPECT_NEAR(uni20::krylov::projected_departure_from_normality(normal), 0.0, 1.0e-14);
   EXPECT_GT(uni20::krylov::projected_departure_from_normality(nonnormal), 1.0);

@@ -624,11 +624,11 @@ template <uni20::LapackReal Scalar> Scalar symmetric_matrix_one_norm(Matrix<Scal
     {
       if (triangle == MatrixFill::Upper)
       {
-        column_sum += row <= col ? detail::adl_abs(matrix(row, col)) : detail::adl_abs(matrix(col, row));
+        column_sum += row <= col ? detail::adl_abs(matrix[row, col]) : detail::adl_abs(matrix[col, row]);
       }
       else
       {
-        column_sum += row >= col ? detail::adl_abs(matrix(row, col)) : detail::adl_abs(matrix(col, row));
+        column_sum += row >= col ? detail::adl_abs(matrix[row, col]) : detail::adl_abs(matrix[col, row]);
       }
     }
     norm = std::max(norm, column_sum);
@@ -648,11 +648,11 @@ template <typename Scalar> void mirror_selected_symmetric_triangle(Matrix<Scalar
     {
       if (triangle == MatrixFill::Upper && row > col)
       {
-        matrix(row, col) = matrix(col, row);
+        matrix[row, col] = matrix[col, row];
       }
       if (triangle == MatrixFill::Lower && row < col)
       {
-        matrix(row, col) = matrix(col, row);
+        matrix[row, col] = matrix[col, row];
       }
     }
   }
@@ -822,7 +822,7 @@ RealGeneralBandMatrix<Scalar> real_general_band_from_dense(Matrix<Scalar> const&
     for (std::size_t row = first_row; row <= last_row; ++row)
     {
       std::size_t const band_row = lower_bandwidth + upper_bandwidth + row - col;
-      result.storage(band_row, col) = matrix(row, col);
+      result.storage[band_row, col] = matrix[row, col];
     }
   }
   return result;
@@ -1005,11 +1005,11 @@ RealGeneralTridiagonalMatrix<Scalar> real_general_tridiagonal_from_dense(Matrix<
   }
   for (std::size_t index = 0; index < matrix.rows(); ++index)
   {
-    result.diagonal[index] = matrix(index, index);
+    result.diagonal[index] = matrix[index, index];
     if (index + 1 < matrix.rows())
     {
-      result.lower_diagonal[index] = matrix(index + 1, index);
-      result.upper_diagonal[index] = matrix(index, index + 1);
+      result.lower_diagonal[index] = matrix[index + 1, index];
+      result.upper_diagonal[index] = matrix[index, index + 1];
     }
   }
   return result;
@@ -1806,7 +1806,7 @@ real_symmetric_positive_definite_band_from_dense(Matrix<Scalar> const& matrix, s
       std::size_t const first_row = col > bandwidth ? col - bandwidth : 0;
       for (std::size_t row = first_row; row <= col; ++row)
       {
-        result.storage(bandwidth + row - col, col) = matrix(row, col);
+        result.storage[bandwidth + row - col, col] = matrix[row, col];
       }
     }
     else
@@ -1814,7 +1814,7 @@ real_symmetric_positive_definite_band_from_dense(Matrix<Scalar> const& matrix, s
       std::size_t const last_row = std::min(n - 1, col + bandwidth);
       for (std::size_t row = col; row <= last_row; ++row)
       {
-        result.storage(row - col, col) = matrix(row, col);
+        result.storage[row - col, col] = matrix[row, col];
       }
     }
   }
@@ -1946,7 +1946,7 @@ Scalar real_symmetric_positive_definite_band_one_norm(RealSymmetricPositiveDefin
       std::size_t const first_row = col > matrix.bandwidth ? col - matrix.bandwidth : 0;
       for (std::size_t row = first_row; row <= col; ++row)
       {
-        Scalar const magnitude = detail::adl_abs(matrix.storage(matrix.bandwidth + row - col, col));
+        Scalar const magnitude = detail::adl_abs(matrix.storage[matrix.bandwidth + row - col, col]);
         column_sums[col] += magnitude;
         if (row != col)
         {
@@ -1959,7 +1959,7 @@ Scalar real_symmetric_positive_definite_band_one_norm(RealSymmetricPositiveDefin
       std::size_t const last_row = std::min(matrix.order - 1, col + matrix.bandwidth);
       for (std::size_t row = col; row <= last_row; ++row)
       {
-        Scalar const magnitude = detail::adl_abs(matrix.storage(row - col, col));
+        Scalar const magnitude = detail::adl_abs(matrix.storage[row - col, col]);
         column_sums[col] += magnitude;
         if (row != col)
         {
@@ -2174,10 +2174,10 @@ real_symmetric_positive_definite_tridiagonal_from_dense(Matrix<Scalar> const& ma
   }
   for (std::size_t index = 0; index < matrix.rows(); ++index)
   {
-    result.diagonal[index] = matrix(index, index);
+    result.diagonal[index] = matrix[index, index];
     if (index + 1 < matrix.rows())
     {
-      result.offdiagonal[index] = matrix(index + 1, index);
+      result.offdiagonal[index] = matrix[index + 1, index];
     }
   }
   return result;
@@ -2932,12 +2932,12 @@ Matrix<Scalar> real_triangular_inverse(Matrix<Scalar> matrix, MatrixFill triangl
       bool const selected = triangle == MatrixFill::Upper ? row <= col : row >= col;
       if (!selected)
       {
-        matrix(row, col) = Scalar{};
+        matrix[row, col] = Scalar{};
       }
     }
     if (unit_diagonal)
     {
-      matrix(row, row) = Scalar{1};
+      matrix[row, row] = Scalar{1};
     }
   }
   return matrix;
@@ -3100,7 +3100,7 @@ Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
     {
-      rhs_workspace(row, col) = right_hand_sides(row, col);
+      rhs_workspace[row, col] = right_hand_sides[row, col];
     }
   }
 
@@ -3123,7 +3123,7 @@ Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
     {
-      solution(row, col) = rhs_workspace(row, col);
+      solution[row, col] = rhs_workspace[row, col];
     }
   }
   return solution;
@@ -3165,7 +3165,7 @@ RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, 
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
     {
-      rhs_workspace(row, col) = right_hand_sides(row, col);
+      rhs_workspace[row, col] = right_hand_sides[row, col];
     }
   }
 
@@ -3195,7 +3195,7 @@ RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, 
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
     {
-      result.solution(row, col) = rhs_workspace(row, col);
+      result.solution[row, col] = rhs_workspace[row, col];
     }
   }
   return result;
@@ -3238,7 +3238,7 @@ real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Sc
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
     {
-      rhs_workspace(row, col) = right_hand_sides(row, col);
+      rhs_workspace[row, col] = right_hand_sides[row, col];
     }
   }
 
@@ -3271,7 +3271,7 @@ real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Sc
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
     {
-      result.solution(row, col) = rhs_workspace(row, col);
+      result.solution[row, col] = rhs_workspace[row, col];
     }
   }
   return result;
@@ -3314,7 +3314,7 @@ real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
     {
-      rhs_workspace(row, col) = right_hand_sides(row, col);
+      rhs_workspace[row, col] = right_hand_sides[row, col];
     }
   }
 
@@ -3355,7 +3355,7 @@ real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
   {
     for (std::size_t col = 0; col < rhs_count; ++col)
     {
-      result.solution(row, col) = rhs_workspace(row, col);
+      result.solution[row, col] = rhs_workspace[row, col];
     }
   }
   return result;
@@ -4864,7 +4864,7 @@ template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factoriz
   {
     for (std::size_t col = row; col < cols; ++col)
     {
-      result.r(row, col) = compact.reflectors(row, col);
+      result.r[row, col] = compact.reflectors[row, col];
     }
   }
 
@@ -4872,7 +4872,7 @@ template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factoriz
   {
     for (std::size_t row = 0; row < rows; ++row)
     {
-      result.q(row, col) = compact.reflectors(row, col);
+      result.q[row, col] = compact.reflectors[row, col];
     }
   }
 
@@ -5015,7 +5015,7 @@ template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factoriz
   {
     for (std::size_t col = 0; col < rank && col <= row; ++col)
     {
-      result.l(row, col) = compact.reflectors(row, col);
+      result.l[row, col] = compact.reflectors[row, col];
     }
   }
 
@@ -5023,7 +5023,7 @@ template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factoriz
   {
     for (std::size_t col = 0; col < cols; ++col)
     {
-      result.q(row, col) = compact.reflectors(row, col);
+      result.q[row, col] = compact.reflectors[row, col];
     }
   }
 
@@ -5169,7 +5169,7 @@ template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factoriz
     std::size_t const max_col = diagonal_offset + row;
     for (std::size_t col = 0; col < cols && col <= max_col; ++col)
     {
-      result.l(row, col) = compact.reflectors(first_l_row + row, col);
+      result.l[row, col] = compact.reflectors[first_l_row + row, col];
     }
   }
 
@@ -5178,7 +5178,7 @@ template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factoriz
   {
     for (std::size_t row = 0; row < rows; ++row)
     {
-      result.q(row, col) = compact.reflectors(row, first_q_col + col);
+      result.q[row, col] = compact.reflectors[row, first_q_col + col];
     }
   }
 
@@ -5325,7 +5325,7 @@ template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factoriz
     {
       if (row <= diagonal_offset + col)
       {
-        result.r(row, col) = compact.reflectors(row, first_r_col + col);
+        result.r[row, col] = compact.reflectors[row, first_r_col + col];
       }
     }
   }
@@ -5335,7 +5335,7 @@ template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factoriz
   {
     for (std::size_t col = 0; col < cols; ++col)
     {
-      result.q(row, col) = compact.reflectors(first_q_row + row, col);
+      result.q[row, col] = compact.reflectors[first_q_row + row, col];
     }
   }
 
@@ -5393,17 +5393,17 @@ template <uni20::LapackReal Scalar> RealBidiagonalReduction<Scalar> real_bidiago
 
   for (std::size_t index = 0; index < rank; ++index)
   {
-    result.bidiagonal(index, index) = result.diagonal[index];
+    result.bidiagonal[index, index] = result.diagonal[index];
   }
   for (std::size_t index = 0; index + 1 < rank; ++index)
   {
     if (result.upper)
     {
-      result.bidiagonal(index, index + 1) = result.offdiagonal[index];
+      result.bidiagonal[index, index + 1] = result.offdiagonal[index];
     }
     else
     {
-      result.bidiagonal(index + 1, index) = result.offdiagonal[index];
+      result.bidiagonal[index + 1, index] = result.offdiagonal[index];
     }
   }
 
@@ -5592,8 +5592,8 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd_index_range(std::vector<Scalar> di
   {
     for (std::size_t row = 0; row < order; ++row)
     {
-      result.u(row, col) = z(row, col);
-      result.vt(col, row) = z(order + row, col);
+      result.u[row, col] = z[row, col];
+      result.vt[col, row] = z[order + row, col];
     }
   }
   return result;
@@ -5629,7 +5629,7 @@ Matrix<Scalar> real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Sc
   Matrix<Scalar> factor(rows, rows);
   for (std::size_t index = 0; index < rows; ++index)
   {
-    factor(index, index) = Scalar{1};
+    factor[index, index] = Scalar{1};
   }
   if (rows == 0 || cols == 0)
   {
@@ -5644,7 +5644,7 @@ Matrix<Scalar> real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Sc
   {
     for (std::size_t row = 0; row < rows; ++row)
     {
-      factor(row, col) = reduction.reflectors(row, col);
+      factor[row, col] = reduction.reflectors[row, col];
     }
   }
 
@@ -5678,7 +5678,7 @@ Matrix<Scalar> real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalR
   Matrix<Scalar> factor(cols, cols);
   for (std::size_t index = 0; index < cols; ++index)
   {
-    factor(index, index) = Scalar{1};
+    factor[index, index] = Scalar{1};
   }
   if (rows == 0 || cols == 0)
   {
@@ -5693,7 +5693,7 @@ Matrix<Scalar> real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalR
   {
     for (std::size_t row = 0; row < std::min(rows, cols); ++row)
     {
-      factor(row, col) = reduction.reflectors(row, col);
+      factor[row, col] = reduction.reflectors[row, col];
     }
   }
 
@@ -5879,7 +5879,7 @@ template <uni20::LapackReal Scalar> RealHessenbergReduction<Scalar> real_hessenb
   {
     for (std::size_t row = col + 2; row < n; ++row)
     {
-      result.hessenberg(row, col) = Scalar{};
+      result.hessenberg[row, col] = Scalar{};
     }
   }
   return result;
@@ -5912,7 +5912,7 @@ Matrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar>
   Matrix<Scalar> q(n, n);
   for (std::size_t diagonal = 0; diagonal < n; ++diagonal)
   {
-    q(diagonal, diagonal) = Scalar{1};
+    q[diagonal, diagonal] = Scalar{1};
   }
   if (n <= 1)
   {
@@ -6048,12 +6048,12 @@ RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(M
   result.tridiagonal = Matrix<Scalar>(n, n);
   for (std::size_t index = 0; index < n; ++index)
   {
-    result.tridiagonal(index, index) = result.diagonal[index];
+    result.tridiagonal[index, index] = result.diagonal[index];
   }
   for (std::size_t index = 0; index + 1 < n; ++index)
   {
-    result.tridiagonal(index, index + 1) = result.offdiagonal[index];
-    result.tridiagonal(index + 1, index) = result.offdiagonal[index];
+    result.tridiagonal[index, index + 1] = result.offdiagonal[index];
+    result.tridiagonal[index + 1, index] = result.offdiagonal[index];
   }
   return result;
 }
@@ -6084,7 +6084,7 @@ Matrix<Scalar> real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiag
   Matrix<Scalar> q(n, n);
   for (std::size_t diagonal = 0; diagonal < n; ++diagonal)
   {
-    q(diagonal, diagonal) = Scalar{1};
+    q[diagonal, diagonal] = Scalar{1};
   }
   if (n <= 1)
   {
@@ -6226,7 +6226,7 @@ RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(Matrix<Scalar> 
   {
     for (std::size_t col = row; col < cols; ++col)
     {
-      result.r(row, col) = matrix(row, col);
+      result.r[row, col] = matrix[row, col];
     }
   }
 
@@ -6234,7 +6234,7 @@ RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(Matrix<Scalar> 
   {
     for (std::size_t row = 0; row < rows; ++row)
     {
-      result.q(row, col) = matrix(row, col);
+      result.q[row, col] = matrix[row, col];
     }
   }
 
@@ -6709,7 +6709,7 @@ RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomp
     {
       for (std::size_t row = 0; row < n; ++row)
       {
-        result.right_eigenvectors(row, col) = uni20::complex<Scalar>{right_vectors(row, col), Scalar{}};
+        result.right_eigenvectors[row, col] = uni20::complex<Scalar>{right_vectors[row, col], Scalar{}};
       }
       ++col;
       continue;
@@ -6729,16 +6729,16 @@ RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomp
 
     for (std::size_t row = 0; row < n; ++row)
     {
-      uni20::complex<Scalar> const positive_imaginary_vector{right_vectors(row, col), right_vectors(row, col + 1)};
+      uni20::complex<Scalar> const positive_imaginary_vector{right_vectors[row, col], right_vectors[row, col + 1]};
       if (eigenvalue.imag() > Scalar{})
       {
-        result.right_eigenvectors(row, col) = positive_imaginary_vector;
-        result.right_eigenvectors(row, col + 1) = std::conj(positive_imaginary_vector);
+        result.right_eigenvectors[row, col] = positive_imaginary_vector;
+        result.right_eigenvectors[row, col + 1] = std::conj(positive_imaginary_vector);
       }
       else
       {
-        result.right_eigenvectors(row, col) = std::conj(positive_imaginary_vector);
-        result.right_eigenvectors(row, col + 1) = positive_imaginary_vector;
+        result.right_eigenvectors[row, col] = std::conj(positive_imaginary_vector);
+        result.right_eigenvectors[row, col + 1] = positive_imaginary_vector;
       }
     }
     col += 2;
@@ -7028,7 +7028,7 @@ real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_tr
   {
     for (std::size_t row = col + 1; row < n; ++row)
     {
-      if (upper_triangular_metric(row, col) != Real{})
+      if (upper_triangular_metric[row, col] != Real{})
       {
         throw std::invalid_argument("real_generalized_hessenberg_reduction requires an upper-triangular metric");
       }
@@ -7100,14 +7100,14 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
   {
     for (std::size_t row = col + 2; row < n; ++row)
     {
-      if (hessenberg(row, col) != Real{})
+      if (hessenberg[row, col] != Real{})
       {
         throw std::invalid_argument("real_generalized_hessenberg_schur requires an upper-Hessenberg matrix");
       }
     }
     for (std::size_t row = col + 1; row < n; ++row)
     {
-      if (upper_triangular_metric(row, col) != Real{})
+      if (upper_triangular_metric[row, col] != Real{})
       {
         throw std::invalid_argument("real_generalized_hessenberg_schur requires an upper-triangular metric");
       }
@@ -7560,7 +7560,7 @@ real_generalized_schur_right_eigenvectors(RealGeneralizedSchurDecomposition<Real
     {
       for (std::size_t row = 0; row < n; ++row)
       {
-        result.right_eigenvectors(row, col) = uni20::complex<Real>{right_vectors(row, col), Real{}};
+        result.right_eigenvectors[row, col] = uni20::complex<Real>{right_vectors[row, col], Real{}};
       }
       ++col;
       continue;
@@ -7580,16 +7580,16 @@ real_generalized_schur_right_eigenvectors(RealGeneralizedSchurDecomposition<Real
 
     for (std::size_t row = 0; row < n; ++row)
     {
-      uni20::complex<Real> const positive_imaginary_vector{right_vectors(row, col), right_vectors(row, col + 1)};
+      uni20::complex<Real> const positive_imaginary_vector{right_vectors[row, col], right_vectors[row, col + 1]};
       if (eigenvalue.imag() > Real{})
       {
-        result.right_eigenvectors(row, col) = positive_imaginary_vector;
-        result.right_eigenvectors(row, col + 1) = std::conj(positive_imaginary_vector);
+        result.right_eigenvectors[row, col] = positive_imaginary_vector;
+        result.right_eigenvectors[row, col + 1] = std::conj(positive_imaginary_vector);
       }
       else
       {
-        result.right_eigenvectors(row, col) = std::conj(positive_imaginary_vector);
-        result.right_eigenvectors(row, col + 1) = positive_imaginary_vector;
+        result.right_eigenvectors[row, col] = std::conj(positive_imaginary_vector);
+        result.right_eigenvectors[row, col + 1] = positive_imaginary_vector;
       }
     }
     col += 2;
@@ -7758,7 +7758,7 @@ RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Mat
     {
       for (std::size_t row = 0; row < n; ++row)
       {
-        result.right_eigenvectors(row, col) = uni20::complex<Real>{vr(row, col), Real{}};
+        result.right_eigenvectors[row, col] = uni20::complex<Real>{vr[row, col], Real{}};
       }
     }
     else if (wi[col] > Real{})
@@ -7769,9 +7769,9 @@ RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Mat
       }
       for (std::size_t row = 0; row < n; ++row)
       {
-        uni20::complex<Real> const vector_value{vr(row, col), vr(row, col + 1)};
-        result.right_eigenvectors(row, col) = vector_value;
-        result.right_eigenvectors(row, col + 1) = std::conj(vector_value);
+        uni20::complex<Real> const vector_value{vr[row, col], vr[row, col + 1]};
+        result.right_eigenvectors[row, col] = vector_value;
+        result.right_eigenvectors[row, col + 1] = std::conj(vector_value);
       }
       ++col;
     }
@@ -7862,7 +7862,7 @@ real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metr
     {
       for (std::size_t row = 0; row < n; ++row)
       {
-        result.right_eigenvectors(row, col) = uni20::complex<Real>{vr(row, col), Real{}};
+        result.right_eigenvectors[row, col] = uni20::complex<Real>{vr[row, col], Real{}};
       }
     }
     else if (alphai[col] > Real{})
@@ -7873,9 +7873,9 @@ real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metr
       }
       for (std::size_t row = 0; row < n; ++row)
       {
-        uni20::complex<Real> const vector_value{vr(row, col), vr(row, col + 1)};
-        result.right_eigenvectors(row, col) = vector_value;
-        result.right_eigenvectors(row, col + 1) = std::conj(vector_value);
+        uni20::complex<Real> const vector_value{vr[row, col], vr[row, col + 1]};
+        result.right_eigenvectors[row, col] = vector_value;
+        result.right_eigenvectors[row, col + 1] = std::conj(vector_value);
       }
       ++col;
     }
@@ -7991,7 +7991,7 @@ real_generalized_nonsymmetric_expert_eigensystem(Matrix<Real> matrix, Matrix<Rea
     {
       for (std::size_t row = 0; row < n; ++row)
       {
-        result.right_eigenvectors(row, col) = uni20::complex<Real>{vr(row, col), Real{}};
+        result.right_eigenvectors[row, col] = uni20::complex<Real>{vr[row, col], Real{}};
       }
     }
     else if (alphai[col] > Real{})
@@ -8002,9 +8002,9 @@ real_generalized_nonsymmetric_expert_eigensystem(Matrix<Real> matrix, Matrix<Rea
       }
       for (std::size_t row = 0; row < n; ++row)
       {
-        uni20::complex<Real> const vector_value{vr(row, col), vr(row, col + 1)};
-        result.right_eigenvectors(row, col) = vector_value;
-        result.right_eigenvectors(row, col + 1) = std::conj(vector_value);
+        uni20::complex<Real> const vector_value{vr[row, col], vr[row, col + 1]};
+        result.right_eigenvectors[row, col] = vector_value;
+        result.right_eigenvectors[row, col + 1] = std::conj(vector_value);
       }
       ++col;
     }

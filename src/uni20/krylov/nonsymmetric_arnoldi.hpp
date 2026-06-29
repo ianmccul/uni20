@@ -212,7 +212,7 @@ NonsymmetricEigenResult<Scalar, Vector> make_real_nonsymmetric_arnoldi_result(
       ops.set_zero(vector);
       for (std::size_t row = 0; row < static_cast<std::size_t>(factorization.step_count); ++row)
       {
-        ops.axpy(vector, ritz.projected_right_eigenvectors(row, index).real(), factorization.basis[row]);
+        ops.axpy(vector, ritz.projected_right_eigenvectors[row, index].real(), factorization.basis[row]);
       }
       result.right_eigenvectors.push_back(std::move(vector));
     }
@@ -303,7 +303,7 @@ NonsymmetricEigenResult<Real, Vector> make_complex_nonsymmetric_arnoldi_result(
       ops.set_zero(vector);
       for (std::size_t row = 0; row < static_cast<std::size_t>(factorization.step_count); ++row)
       {
-        ops.axpy(vector, ritz.projected_right_eigenvectors(row, index), factorization.basis[row]);
+        ops.axpy(vector, ritz.projected_right_eigenvectors[row, index], factorization.basis[row]);
       }
       result.right_eigenvectors.push_back(std::move(vector));
     }
@@ -359,7 +359,7 @@ uni20::make_real_t<Scalar> projected_departure_from_normality(Matrix<Scalar> con
   {
     for (std::size_t row = 0; row < order; ++row)
     {
-      Scalar const value = matrix(row, col);
+      Scalar const value = matrix[row, col];
       norm_squared += detail::abs_squared(value);
     }
   }
@@ -373,8 +373,8 @@ uni20::make_real_t<Scalar> projected_departure_from_normality(Matrix<Scalar> con
       Scalar hht{};
       for (std::size_t inner = 0; inner < order; ++inner)
       {
-        hth += detail::conjugate_if_complex(matrix(inner, row)) * matrix(inner, col);
-        hht += matrix(row, inner) * detail::conjugate_if_complex(matrix(col, inner));
+        hth += detail::conjugate_if_complex(matrix[inner, row]) * matrix[inner, col];
+        hht += matrix[row, inner] * detail::conjugate_if_complex(matrix[col, inner]);
       }
       Scalar const difference = hth - hht;
       commutator_norm_squared += detail::abs_squared(difference);
@@ -441,7 +441,7 @@ arnoldi_factorize(Ops& ops, Vector const& initial, int max_steps,
       for (int row = 0; row <= step; ++row)
       {
         Scalar const coefficient = ops.inner_product(factorization.basis[static_cast<std::size_t>(row)], residual);
-        factorization.hessenberg(static_cast<std::size_t>(row), static_cast<std::size_t>(step)) += coefficient;
+        factorization.hessenberg[static_cast<std::size_t>(row), static_cast<std::size_t>(step)] += coefficient;
         ops.axpy(residual, -coefficient, factorization.basis[static_cast<std::size_t>(row)]);
       }
     }
@@ -455,7 +455,7 @@ arnoldi_factorize(Ops& ops, Vector const& initial, int max_steps,
       break;
     }
 
-    factorization.hessenberg(static_cast<std::size_t>(step + 1), static_cast<std::size_t>(step)) =
+    factorization.hessenberg[static_cast<std::size_t>(step + 1), static_cast<std::size_t>(step)] =
         static_cast<Scalar>(beta);
     ops.scal(residual, Scalar{1} / static_cast<Scalar>(beta));
     factorization.basis.push_back(std::move(residual));
@@ -488,7 +488,7 @@ Matrix<Scalar> arnoldi_projected_hessenberg(ArnoldiFactorization<Scalar, Vector>
   {
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
-      projected(row, col) = factorization.hessenberg(row, col);
+      projected[row, col] = factorization.hessenberg[row, col];
     }
   }
   return projected;
@@ -528,7 +528,7 @@ ArnoldiRitzExtraction<Scalar> extract_arnoldi_ritz(ArnoldiFactorization<Scalar, 
   {
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
-      Scalar const value = factorization.hessenberg(row, col);
+      Scalar const value = factorization.hessenberg[row, col];
       hessenberg_scale = std::max(hessenberg_scale, detail::adl_abs(value));
     }
   }
@@ -543,21 +543,21 @@ ArnoldiRitzExtraction<Scalar> extract_arnoldi_ritz(ArnoldiFactorization<Scalar, 
 
   Scalar const beta = factorization.happy_breakdown
                           ? Scalar{}
-                          : detail::adl_abs(factorization.hessenberg(projected_dimension, projected_dimension - 1));
+                          : detail::adl_abs(factorization.hessenberg[projected_dimension, projected_dimension - 1]);
   Scalar const classification_scale = std::max(scale, hessenberg_scale);
   for (std::size_t col = 0; col < projected_dimension; ++col)
   {
     Scalar norm_squared = Scalar{};
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
-      norm_squared += detail::abs_squared(result.projected_right_eigenvectors(row, col));
+      norm_squared += detail::abs_squared(result.projected_right_eigenvectors[row, col]);
     }
     Scalar const vector_norm = detail::adl_sqrt(norm_squared);
     if (vector_norm == Scalar{})
     {
       throw std::runtime_error("extract_arnoldi_ritz received a zero projected eigenvector from LAPACK");
     }
-    Scalar const last_component = detail::adl_abs(result.projected_right_eigenvectors(projected_dimension - 1, col));
+    Scalar const last_component = detail::adl_abs(result.projected_right_eigenvectors[projected_dimension - 1, col]);
     result.residual_bounds[col] = beta * last_component / vector_norm;
     result.reality[col] = classify_ritz_reality(result.ritz_values[col], complex_pair_tolerance, classification_scale);
   }
@@ -601,7 +601,7 @@ extract_complex_arnoldi_ritz(ArnoldiFactorization<uni20::complex<Real>, Vector> 
   {
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
-      hessenberg_scale = std::max(hessenberg_scale, detail::adl_abs(factorization.hessenberg(row, col)));
+      hessenberg_scale = std::max(hessenberg_scale, detail::adl_abs(factorization.hessenberg[row, col]));
     }
   }
 
@@ -615,21 +615,21 @@ extract_complex_arnoldi_ritz(ArnoldiFactorization<uni20::complex<Real>, Vector> 
 
   Real const beta = factorization.happy_breakdown
                         ? Real{}
-                        : detail::adl_abs(factorization.hessenberg(projected_dimension, projected_dimension - 1));
+                        : detail::adl_abs(factorization.hessenberg[projected_dimension, projected_dimension - 1]);
   Real const classification_scale = std::max(scale, hessenberg_scale);
   for (std::size_t col = 0; col < projected_dimension; ++col)
   {
     Real norm_squared = Real{};
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
-      norm_squared += detail::abs_squared(result.projected_right_eigenvectors(row, col));
+      norm_squared += detail::abs_squared(result.projected_right_eigenvectors[row, col]);
     }
     Real const vector_norm = detail::adl_sqrt(norm_squared);
     if (vector_norm == Real{})
     {
       throw std::runtime_error("extract_complex_arnoldi_ritz received a zero projected eigenvector from LAPACK");
     }
-    Real const last_component = detail::adl_abs(result.projected_right_eigenvectors(projected_dimension - 1, col));
+    Real const last_component = detail::adl_abs(result.projected_right_eigenvectors[projected_dimension - 1, col]);
     result.residual_bounds[col] = beta * last_component / vector_norm;
     result.reality[col] = classify_ritz_reality(result.ritz_values[col], complex_pair_tolerance, classification_scale);
   }
@@ -823,7 +823,7 @@ compress_real_schur_arnoldi_restart(Ops& ops, ArnoldiFactorization<Scalar, Vecto
     ops.set_zero(vector);
     for (std::size_t row = 0; row < order; ++row)
     {
-      Scalar const coefficient = schur.schur_vectors(row, column);
+      Scalar const coefficient = schur.schur_vectors[row, column];
       if (coefficient != Scalar{})
       {
         ops.axpy(vector, coefficient, factorization.basis[row]);
@@ -853,7 +853,7 @@ compress_real_schur_arnoldi_restart(Ops& ops, ArnoldiFactorization<Scalar, Vecto
   {
     for (std::size_t row = 0; row < retained_count; ++row)
     {
-      result.schur_form(row, col) = schur.schur_form(row, col);
+      result.schur_form[row, col] = schur.schur_form[row, col];
     }
   }
 
@@ -875,12 +875,12 @@ compress_real_schur_arnoldi_restart(Ops& ops, ArnoldiFactorization<Scalar, Vecto
   ops.set_zero(result.residual);
   if (!factorization.happy_breakdown)
   {
-    Scalar const beta = factorization.hessenberg(order, order - 1);
+    Scalar const beta = factorization.hessenberg[order, order - 1];
     ops.copy(result.residual, factorization.basis[order]);
     ops.scal(result.residual, beta);
     for (std::size_t col = 0; col < retained_count; ++col)
     {
-      result.residual_coupling[col] = schur.schur_vectors(order - 1, col);
+      result.residual_coupling[col] = schur.schur_vectors[order - 1, col];
     }
   }
   result.residual_norm = norm_or_inner_product<Scalar>(ops, result.residual);
@@ -947,7 +947,7 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
   {
     for (std::size_t row = 0; row < retained_count; ++row)
     {
-      factorization.hessenberg(row, col) = compressed.schur_form(row, col);
+      factorization.hessenberg[row, col] = compressed.schur_form[row, col];
     }
   }
 
@@ -966,7 +966,7 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
   factorization.basis.push_back(std::move(next_vector));
   for (std::size_t col = 0; col < retained_count; ++col)
   {
-    factorization.hessenberg(retained_count, col) = compressed.residual_norm * compressed.residual_coupling[col];
+    factorization.hessenberg[retained_count, col] = compressed.residual_norm * compressed.residual_coupling[col];
   }
   if (target_step_count == retained_count)
   {
@@ -984,7 +984,7 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
       for (std::size_t row = 0; row <= step; ++row)
       {
         Scalar const coefficient = ops.inner_product(factorization.basis[row], residual);
-        factorization.hessenberg(row, step) += coefficient;
+        factorization.hessenberg[row, step] += coefficient;
         ops.axpy(residual, -coefficient, factorization.basis[row]);
       }
     }
@@ -998,7 +998,7 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
       break;
     }
 
-    factorization.hessenberg(step + 1, step) = beta;
+    factorization.hessenberg[step + 1, step] = beta;
     ops.scal(residual, Scalar{1} / beta);
     factorization.basis.push_back(std::move(residual));
   }
@@ -1054,7 +1054,7 @@ compress_complex_schur_arnoldi_restart(Ops& ops,
     ops.set_zero(vector);
     for (std::size_t row = 0; row < order; ++row)
     {
-      Complex const coefficient = schur.schur_vectors(row, column);
+      Complex const coefficient = schur.schur_vectors[row, column];
       if (coefficient != Complex{})
       {
         ops.axpy(vector, coefficient, factorization.basis[row]);
@@ -1082,7 +1082,7 @@ compress_complex_schur_arnoldi_restart(Ops& ops,
   {
     for (std::size_t row = 0; row < retained_count; ++row)
     {
-      result.schur_form(row, col) = schur.schur_form(row, col);
+      result.schur_form[row, col] = schur.schur_form[row, col];
     }
   }
 
@@ -1092,12 +1092,12 @@ compress_complex_schur_arnoldi_restart(Ops& ops,
   ops.set_zero(result.residual);
   if (!factorization.happy_breakdown)
   {
-    Complex const beta = factorization.hessenberg(order, order - 1);
+    Complex const beta = factorization.hessenberg[order, order - 1];
     ops.copy(result.residual, factorization.basis[order]);
     ops.scal(result.residual, beta);
     for (std::size_t col = 0; col < retained_count; ++col)
     {
-      result.residual_coupling[col] = schur.schur_vectors(order - 1, col);
+      result.residual_coupling[col] = schur.schur_vectors[order - 1, col];
     }
   }
   result.residual_norm = norm_or_inner_product<Complex>(ops, result.residual);
@@ -1166,7 +1166,7 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
   {
     for (std::size_t row = 0; row < retained_count; ++row)
     {
-      factorization.hessenberg(row, col) = compressed.schur_form(row, col);
+      factorization.hessenberg[row, col] = compressed.schur_form[row, col];
     }
   }
 
@@ -1185,7 +1185,7 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
   factorization.basis.push_back(std::move(next_vector));
   for (std::size_t col = 0; col < retained_count; ++col)
   {
-    factorization.hessenberg(retained_count, col) = compressed.residual_norm * compressed.residual_coupling[col];
+    factorization.hessenberg[retained_count, col] = compressed.residual_norm * compressed.residual_coupling[col];
   }
   if (target_step_count == retained_count)
   {
@@ -1203,7 +1203,7 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
       for (std::size_t row = 0; row <= step; ++row)
       {
         Complex const coefficient = ops.inner_product(factorization.basis[row], residual);
-        factorization.hessenberg(row, step) += coefficient;
+        factorization.hessenberg[row, step] += coefficient;
         ops.axpy(residual, -coefficient, factorization.basis[row]);
       }
     }
@@ -1217,7 +1217,7 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
       break;
     }
 
-    factorization.hessenberg(step + 1, step) = beta;
+    factorization.hessenberg[step + 1, step] = beta;
     ops.scal(residual, Complex{1} / beta);
     factorization.basis.push_back(std::move(residual));
   }

@@ -24,8 +24,8 @@ TEST(KrylovDenseSubspace, SolvesSymmetricTridiagonalProjection)
 TEST(KrylovDenseSubspace, ReordersRealSchurBlocks)
 {
   uni20::krylov::Matrix<double> matrix(2, 2);
-  matrix(0, 0) = 1.0;
-  matrix(1, 1) = 3.0;
+  matrix[0, 0] = 1.0;
+  matrix[1, 1] = 3.0;
 
   auto schur = uni20::krylov::real_schur(std::move(matrix), true);
   auto reordered = uni20::krylov::reorder_real_schur(std::move(schur), std::vector<std::size_t>{1});
@@ -38,10 +38,10 @@ TEST(KrylovDenseSubspace, ReordersRealSchurBlocks)
 TEST(KrylovDenseSubspace, SolvesRealNonsymmetricProjection)
 {
   uni20::krylov::Matrix<double> matrix(2, 2);
-  matrix(0, 0) = 1.0;
-  matrix(0, 1) = -2.0;
-  matrix(1, 0) = 2.0;
-  matrix(1, 1) = 1.0;
+  matrix[0, 0] = 1.0;
+  matrix[0, 1] = -2.0;
+  matrix[1, 0] = 2.0;
+  matrix[1, 1] = 1.0;
 
   auto result = uni20::krylov::real_nonsymmetric_eigensystem(std::move(matrix), true);
 
@@ -59,8 +59,8 @@ TEST(KrylovDenseSubspace, SolvesComplexNonsymmetricProjection)
   using Complex = uni20::complex<double>;
 
   uni20::krylov::Matrix<Complex> matrix(2, 2);
-  matrix(0, 0) = Complex{1.0, 0.0};
-  matrix(1, 1) = Complex{3.0, 0.0};
+  matrix[0, 0] = Complex{1.0, 0.0};
+  matrix[1, 1] = Complex{3.0, 0.0};
 
   auto result = uni20::krylov::complex_nonsymmetric_eigensystem<double>(std::move(matrix), true);
 

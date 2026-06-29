@@ -353,11 +353,11 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
   uni20::krylov::Matrix<Scalar> projected(projected_size, projected_size);
   for (std::size_t i = 0; i < projected_size; ++i)
   {
-    projected(i, i) = diagonal[i];
+    projected[i, i] = diagonal[i];
     if (i + 1 < projected_size)
     {
-      projected(i, i + 1) = offdiagonal[i];
-      projected(i + 1, i) = offdiagonal[i];
+      projected[i, i + 1] = offdiagonal[i];
+      projected[i + 1, i] = offdiagonal[i];
     }
   }
 
@@ -366,7 +366,7 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
   {
     for (std::size_t col = 0; col < projected_size; ++col)
     {
-      scaled(row, col) = time * projected(row, col);
+      scaled[row, col] = time * projected[row, col];
     }
   }
 
@@ -375,7 +375,7 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
   std::vector<Scalar> coefficients(projected_size);
   for (std::size_t row = 0; row < projected_size; ++row)
   {
-    coefficients[row] = initial_norm * exponential(row, 0);
+    coefficients[row] = initial_norm * exponential[row, 0];
     host_axpy(action, coefficients[row], basis[row]);
   }
 

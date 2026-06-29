@@ -27,9 +27,9 @@ template <typename T> class DenseMatrix {
 
     [[nodiscard]] std::size_t size() const noexcept { return data_.size(); }
 
-    T& operator()(std::size_t row, std::size_t col) { return data_[row + col * rows_]; }
+    T& operator[](std::size_t row, std::size_t col) { return data_[row + col * rows_]; }
 
-    T const& operator()(std::size_t row, std::size_t col) const { return data_[row + col * rows_]; }
+    T const& operator[](std::size_t row, std::size_t col) const { return data_[row + col * rows_]; }
 
     [[nodiscard]] T* data() noexcept { return data_.data(); }
 
@@ -59,7 +59,7 @@ template <typename T> DenseMatrix<T> make_identity(std::size_t n)
   {
     for (std::size_t j = 0; j < n; ++j)
     {
-      result(i, j) = (i == j) ? T{1} : T{};
+      result[i, j] = (i == j) ? T{1} : T{};
     }
   }
   return result;
@@ -82,14 +82,14 @@ template <typename T> DenseMatrix<T> multiply(DenseMatrix<T> const& lhs, DenseMa
   {
     for (std::size_t k = 0; k < lhs.cols(); ++k)
     {
-      T const factor = lhs(i, k);
+      T const factor = lhs[i, k];
       if (factor == T{})
       {
         continue;
       }
       for (std::size_t j = 0; j < rhs.cols(); ++j)
       {
-        result(i, j) += factor * rhs(k, j);
+        result[i, j] += factor * rhs[k, j];
       }
     }
   }
@@ -140,7 +140,7 @@ template <typename T> DenseMatrix<T> subtract(DenseMatrix<T> const& lhs, DenseMa
 /// \tparam T Element type of the matrix.
 /// \param mat DenseMatrix to scale.
 /// \param scalar Scalar factor.
-/// \return A matrix where each element is \p mat(i, j) * \p scalar.
+/// \return A matrix where each element is \p mat[i, j] * \p scalar.
 template <typename T, typename Scalar> DenseMatrix<T> scale(DenseMatrix<T> const& mat, Scalar const& scalar)
 {
   DenseMatrix<T> result(mat.rows(), mat.cols());
@@ -181,7 +181,7 @@ template <typename T> uni20::accumulation_real_t<T> matrix_one_norm(DenseMatrix<
     Real column_sum = Real{};
     for (std::size_t i = 0; i < mat.rows(); ++i)
     {
-      column_sum += abs(mat(i, j));
+      column_sum += abs(mat[i, j]);
     }
     result = std::max(result, column_sum);
   }
@@ -249,7 +249,7 @@ template <typename T> void swap_rows(DenseMatrix<T>& mat, std::size_t lhs, std::
   }
   for (std::size_t j = 0; j < mat.cols(); ++j)
   {
-    std::swap(mat(lhs, j), mat(rhs, j));
+    std::swap(mat[lhs, j], mat[rhs, j]);
   }
 }
 
@@ -274,10 +274,10 @@ template <typename T> DenseMatrix<T> solve_linear_system(DenseMatrix<T> A, Dense
   for (std::size_t k = 0; k < n; ++k)
   {
     std::size_t pivot_row = k;
-    Real pivot_value = abs(A(k, k));
+    Real pivot_value = abs(A[k, k]);
     for (std::size_t i = k + 1; i < n; ++i)
     {
-      Real candidate = abs(A(i, k));
+      Real candidate = abs(A[i, k]);
       if (candidate > pivot_value)
       {
         pivot_value = candidate;
@@ -293,37 +293,37 @@ template <typename T> DenseMatrix<T> solve_linear_system(DenseMatrix<T> A, Dense
     swap_rows(A, k, pivot_row);
     swap_rows(B, k, pivot_row);
 
-    T const pivot = A(k, k);
+    T const pivot = A[k, k];
     for (std::size_t i = k + 1; i < n; ++i)
     {
-      T const factor = A(i, k) / pivot;
+      T const factor = A[i, k] / pivot;
       if (factor == T{})
       {
         continue;
       }
-      A(i, k) = T{};
+      A[i, k] = T{};
       for (std::size_t j = k + 1; j < n; ++j)
       {
-        A(i, j) -= factor * A(k, j);
+        A[i, j] -= factor * A[k, j];
       }
       for (std::size_t j = 0; j < nrhs; ++j)
       {
-        B(i, j) -= factor * B(k, j);
+        B[i, j] -= factor * B[k, j];
       }
     }
   }
 
   for (std::size_t i = n; i-- > 0;)
   {
-    T const pivot = A(i, i);
+    T const pivot = A[i, i];
     for (std::size_t j = 0; j < nrhs; ++j)
     {
-      T value = B(i, j);
+      T value = B[i, j];
       for (std::size_t k = i + 1; k < n; ++k)
       {
-        value -= A(i, k) * B(k, j);
+        value -= A[i, k] * B[k, j];
       }
-      B(i, j) = value / pivot;
+      B[i, j] = value / pivot;
     }
   }
 

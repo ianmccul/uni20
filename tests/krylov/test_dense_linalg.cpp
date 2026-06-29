@@ -114,7 +114,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
   {
     for (std::size_t row = 0; row < matrix.rows(); ++row)
     {
-      expect_near_value(matrix(row, col), row == col ? Scalar{1} : Scalar{-2});
+      expect_near_value(matrix[row, col], row == col ? Scalar{1} : Scalar{-2});
     }
   }
 
@@ -125,8 +125,8 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
   {
     for (std::size_t row = 0; row < upper.rows(); ++row)
     {
-      Scalar const expected = row <= col ? matrix(row, col) : Scalar{};
-      expect_near_value(upper(row, col), expected);
+      Scalar const expected = row <= col ? matrix[row, col] : Scalar{};
+      expect_near_value(upper[row, col], expected);
     }
   }
 }
@@ -136,12 +136,12 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, StoresRightMatrixRowMajorAndCopiesToColum
   using Scalar = TypeParam;
 
   uni20::krylov::RightMatrix<Scalar> right(2, 3);
-  right(0, 0) = Scalar{1};
-  right(0, 1) = Scalar{2};
-  right(0, 2) = Scalar{3};
-  right(1, 0) = Scalar{4};
-  right(1, 1) = Scalar{5};
-  right(1, 2) = Scalar{6};
+  right[0, 0] = Scalar{1};
+  right[0, 1] = Scalar{2};
+  right[0, 2] = Scalar{3};
+  right[1, 0] = Scalar{4};
+  right[1, 1] = Scalar{5};
+  right[1, 2] = Scalar{6};
 
   expect_vector_near_values(std::vector<Scalar>(right.data(), right.data() + right.size()),
                             std::vector<Scalar>{Scalar{1}, Scalar{2}, Scalar{3}, Scalar{4}, Scalar{5}, Scalar{6}});
@@ -164,12 +164,12 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesMatrixVectorProducts)
   using Scalar = TypeParam;
 
   uni20::krylov::Matrix<Scalar> matrix(2, 3);
-  matrix(0, 0) = Scalar{1};
-  matrix(1, 0) = Scalar{2};
-  matrix(0, 1) = Scalar{3};
-  matrix(1, 1) = Scalar{4};
-  matrix(0, 2) = Scalar{5};
-  matrix(1, 2) = Scalar{6};
+  matrix[0, 0] = Scalar{1};
+  matrix[1, 0] = Scalar{2};
+  matrix[0, 1] = Scalar{3};
+  matrix[1, 1] = Scalar{4};
+  matrix[0, 2] = Scalar{5};
+  matrix[1, 2] = Scalar{6};
 
   std::vector<Scalar> x{Scalar{1}, Scalar{2}, Scalar{3}};
   std::vector<Scalar> y{Scalar{10}, Scalar{20}};
@@ -189,8 +189,8 @@ TEST(KrylovDenseLinalg, ComputesComplexConjugateTransposeMatrixVectorProduct)
   using Scalar = uni20::complex<double>;
 
   uni20::krylov::Matrix<Scalar> matrix(2, 1);
-  matrix(0, 0) = Scalar{1.0, 2.0};
-  matrix(1, 0) = Scalar{3.0, -1.0};
+  matrix[0, 0] = Scalar{1.0, 2.0};
+  matrix[1, 0] = Scalar{3.0, -1.0};
 
   std::vector<Scalar> x{Scalar{2.0, -1.0}, Scalar{1.0, 4.0}};
   std::vector<Scalar> y{Scalar{}};
@@ -210,10 +210,10 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, AppliesRankOneUpdates)
 
   uni20::krylov::geru(Scalar{2}, const_span(x), const_span(y), matrix);
 
-  expect_near_value(matrix(0, 0), Scalar{6});
-  expect_near_value(matrix(1, 0), Scalar{12});
-  expect_near_value(matrix(0, 1), Scalar{8});
-  expect_near_value(matrix(1, 1), Scalar{16});
+  expect_near_value(matrix[0, 0], Scalar{6});
+  expect_near_value(matrix[1, 0], Scalar{12});
+  expect_near_value(matrix[0, 1], Scalar{8});
+  expect_near_value(matrix[1, 1], Scalar{16});
 }
 
 TEST(KrylovDenseLinalg, AppliesComplexConjugatedRankOneUpdate)
@@ -226,8 +226,8 @@ TEST(KrylovDenseLinalg, AppliesComplexConjugatedRankOneUpdate)
 
   uni20::krylov::gerc(Scalar{1}, const_span(x), const_span(y), matrix);
 
-  EXPECT_EQ(matrix(0, 0), (Scalar{1.0, 3.0}));
-  EXPECT_EQ(matrix(0, 1), (Scalar{8.0, -1.0}));
+  EXPECT_EQ((matrix[0, 0]), (Scalar{1.0, 3.0}));
+  EXPECT_EQ((matrix[0, 1]), (Scalar{8.0, -1.0}));
 }
 
 TEST(KrylovDenseLinalg, RejectsMismatchedVectorSizes)

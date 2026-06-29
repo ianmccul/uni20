@@ -435,7 +435,7 @@ RealSchurDecomposition<Scalar> real_hessenberg_schur(Matrix<Scalar> hessenberg, 
   {
     for (std::size_t diagonal = 0; diagonal < n; ++diagonal)
     {
-      schur_vectors(diagonal, diagonal) = Scalar{1};
+      schur_vectors[diagonal, diagonal] = Scalar{1};
     }
   }
 
@@ -808,7 +808,7 @@ RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> mat
     {
       for (std::size_t row = 0; row < n; ++row)
       {
-        result.right_eigenvectors(row, col) = uni20::complex<Real>{vr(row, col), Real{}};
+        result.right_eigenvectors[row, col] = uni20::complex<Real>{vr[row, col], Real{}};
       }
     }
     else if (wi[col] > Real{})
@@ -819,9 +819,9 @@ RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> mat
       }
       for (std::size_t row = 0; row < n; ++row)
       {
-        uni20::complex<Real> const vector_value{vr(row, col), vr(row, col + 1)};
-        result.right_eigenvectors(row, col) = vector_value;
-        result.right_eigenvectors(row, col + 1) = std::conj(vector_value);
+        uni20::complex<Real> const vector_value{vr[row, col], vr[row, col + 1]};
+        result.right_eigenvectors[row, col] = vector_value;
+        result.right_eigenvectors[row, col + 1] = std::conj(vector_value);
       }
       ++col;
     }
