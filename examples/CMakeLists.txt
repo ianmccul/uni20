@@ -27,6 +27,11 @@ add_test(NAME KrylovMatrixMarketExample.Double
     COMMAND krylov_matrix_market_example
         "${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market/path_laplacian_30.mtx"
         --precision=double --which=LA --nev=2 --ncv=8 --tol=1e-10 --max-iters=100 --diagnostics=none)
+add_test(NAME KrylovMatrixMarketExample.ShiftInvertDouble
+    COMMAND krylov_matrix_market_example
+        "${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market/path_laplacian_30.mtx"
+        --precision=double --mode=shift-invert --which=LM --nev=2 --ncv=8 --tol=1e-10 --max-iters=100
+        --diagnostics=summary)
 if(UNI20_HAS_FLOAT128)
   add_test(NAME KrylovMatrixMarketExample.Float128
       COMMAND krylov_matrix_market_example

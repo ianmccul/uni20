@@ -1020,6 +1020,7 @@ symmetric_lanczos_restarted_standard(Ops& ops, Vector const& initial,
 
   int matvec_count = 0;
   int restart_cycle_count = 0;
+  int restart_count = 0;
   EigenResult<Real, Vector> last_result;
   EigenResult<Real, Vector> last_partial_exit_result;
   std::optional<SymmetricLanczosDiagnostics<Real>> diagnostics;
@@ -1031,6 +1032,7 @@ symmetric_lanczos_restarted_standard(Ops& ops, Vector const& initial,
   auto finish = [&](EigenResult<Real, Vector> result) {
     if (diagnostics.has_value())
     {
+      diagnostics->restart_count = restart_count;
       diagnostics->op_count = matvec_count;
       result.diagnostics = *diagnostics;
     }
@@ -1105,15 +1107,17 @@ symmetric_lanczos_restarted_standard(Ops& ops, Vector const& initial,
     restart_params.retained_ritz_count = static_cast<int>(restart_plan.retained_count);
     SymmetricRestartSelection<Real> const selection = select_symmetric_restart(
         projected_for_result.eigenvalues, residual_bounds, restart_params, restart_plan.shift_count);
-    if (diagnostics.has_value() && params.diagnostics == KrylovDiagnosticsLevel::Full)
-    {
-      detail::record_symmetric_restart_cycle(*diagnostics, cycle, projected_for_result, residual_bounds, restart_plan,
-                                             selection, residual_norm);
-    }
     if (selection.shifts.empty())
     {
       last_partial_exit_result.status = last_result.converged_count < params.eigenvalue_count ? 2 : 0;
       return finish(std::move(last_partial_exit_result));
+    }
+
+    ++restart_count;
+    if (diagnostics.has_value() && params.diagnostics == KrylovDiagnosticsLevel::Full)
+    {
+      detail::record_symmetric_restart_cycle(*diagnostics, cycle, projected_for_result, residual_bounds, restart_plan,
+                                             selection, residual_norm);
     }
 
     auto shifted = apply_symmetric_qr_shifts(diagonal, subdiagonal, selection.shifts);

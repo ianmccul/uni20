@@ -163,7 +163,7 @@ template <typename Scalar> class SparseHostVectorOps {
 template <typename Scalar> class DenseShiftInvertOps {
   public:
     DenseShiftInvertOps(SparseMatrixMarketMatrix const& matrix, Scalar sigma)
-        : coefficient_(matrix.rows, matrix.cols), sigma_(sigma)
+        : factorized_coefficient_(matrix.rows, matrix.cols)
     {
       if (matrix.rows != matrix.cols)
       {
@@ -171,15 +171,16 @@ template <typename Scalar> class DenseShiftInvertOps {
       }
       for (auto const& entry : matrix.entries)
       {
-        coefficient_[entry.row, entry.col] += static_cast<Scalar>(entry.value);
+        factorized_coefficient_[entry.row, entry.col] += static_cast<Scalar>(entry.value);
       }
       for (std::size_t i = 0; i < matrix.rows; ++i)
       {
-        coefficient_[i, i] -= sigma_;
+        factorized_coefficient_[i, i] -= sigma;
       }
+      this->factorize_coefficient();
     }
 
-    [[nodiscard]] std::size_t problem_dimension() const noexcept { return coefficient_.rows(); }
+    [[nodiscard]] std::size_t problem_dimension() const noexcept { return factorized_coefficient_.rows(); }
 
     [[nodiscard]] std::size_t vector_dimension(DenseHostVector<Scalar> const& x) const noexcept
     {
@@ -237,24 +238,18 @@ template <typename Scalar> class DenseShiftInvertOps {
 
     void matvec(DenseHostVector<Scalar>& y, DenseHostVector<Scalar> const& x)
     {
-      if (x.values.size() != coefficient_.cols() || y.values.size() != coefficient_.rows())
+      if (x.values.size() != factorized_coefficient_.cols() || y.values.size() != factorized_coefficient_.rows())
       {
         throw std::invalid_argument("Krylov shift-invert example vector has the wrong size");
       }
       ++solve_count_;
-      uni20::krylov::Matrix<Scalar> rhs(x.values.size(), 1);
-      for (std::size_t i = 0; i < x.values.size(); ++i)
-      {
-        rhs[i, 0] = x.values[i];
-      }
-      auto solution = uni20::krylov::solve_linear_system(coefficient_, std::move(rhs));
-      for (std::size_t i = 0; i < y.values.size(); ++i)
-      {
-        y.values[i] = solution[i, 0];
-      }
+      y.values = x.values;
+      this->apply_factorized_solve(y.values);
     }
 
   private:
+    using Real = uni20::make_real_t<Scalar>;
+
     static void require_same_size(DenseHostVector<Scalar> const& lhs, DenseHostVector<Scalar> const& rhs)
     {
       if (lhs.values.size() != rhs.values.size())
@@ -263,8 +258,93 @@ template <typename Scalar> class DenseShiftInvertOps {
       }
     }
 
-    uni20::krylov::Matrix<Scalar> coefficient_;
-    Scalar sigma_ = Scalar{};
+    void swap_factorized_rows(std::size_t lhs, std::size_t rhs)
+    {
+      if (lhs == rhs)
+      {
+        return;
+      }
+      for (std::size_t col = 0; col < factorized_coefficient_.cols(); ++col)
+      {
+        std::swap(factorized_coefficient_[lhs, col], factorized_coefficient_[rhs, col]);
+      }
+    }
+
+    void factorize_coefficient()
+    {
+      using std::abs;
+
+      std::size_t const n = factorized_coefficient_.rows();
+      pivots_.resize(n);
+      for (std::size_t k = 0; k < n; ++k)
+      {
+        std::size_t pivot_row = k;
+        Real pivot_value = abs(factorized_coefficient_[k, k]);
+        for (std::size_t row = k + 1; row < n; ++row)
+        {
+          Real const candidate = abs(factorized_coefficient_[row, k]);
+          if (candidate > pivot_value)
+          {
+            pivot_value = candidate;
+            pivot_row = row;
+          }
+        }
+        if (pivot_value == Real{})
+        {
+          throw std::runtime_error("singular shifted matrix in Krylov shift-invert example");
+        }
+
+        pivots_[k] = pivot_row;
+        this->swap_factorized_rows(k, pivot_row);
+
+        Scalar const pivot = factorized_coefficient_[k, k];
+        for (std::size_t row = k + 1; row < n; ++row)
+        {
+          Scalar const factor = factorized_coefficient_[row, k] / pivot;
+          factorized_coefficient_[row, k] = factor;
+          if (factor == Scalar{})
+          {
+            continue;
+          }
+          for (std::size_t col = k + 1; col < n; ++col)
+          {
+            factorized_coefficient_[row, col] -= factor * factorized_coefficient_[k, col];
+          }
+        }
+      }
+    }
+
+    void apply_factorized_solve(std::vector<Scalar>& values) const
+    {
+      std::size_t const n = factorized_coefficient_.rows();
+      for (std::size_t k = 0; k < n; ++k)
+      {
+        if (pivots_[k] != k)
+        {
+          std::swap(values[k], values[pivots_[k]]);
+        }
+      }
+
+      for (std::size_t row = 0; row < n; ++row)
+      {
+        for (std::size_t col = 0; col < row; ++col)
+        {
+          values[row] -= factorized_coefficient_[row, col] * values[col];
+        }
+      }
+
+      for (std::size_t row = n; row-- > 0;)
+      {
+        for (std::size_t col = row + 1; col < n; ++col)
+        {
+          values[row] -= factorized_coefficient_[row, col] * values[col];
+        }
+        values[row] /= factorized_coefficient_[row, row];
+      }
+    }
+
+    uni20::krylov::Matrix<Scalar> factorized_coefficient_;
+    std::vector<std::size_t> pivots_;
     int solve_count_ = 0;
 };
 

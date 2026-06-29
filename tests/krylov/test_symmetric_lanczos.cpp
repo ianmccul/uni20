@@ -675,6 +675,40 @@ TEST(KrylovSymmetricLanczos, RestartedSolveReportsFullDiagnosticsWhenRequested)
   EXPECT_EQ(first_cycle.ritz_bounds.size(), first_cycle.ritz_values.size());
 }
 
+TEST(KrylovSymmetricLanczos, RestartedSolveReportsSummaryRestartCount)
+{
+  using uni20::krylov::DenseHostVector;
+  using uni20::krylov::DenseHostVectorOps;
+  using uni20::krylov::KrylovDiagnosticsLevel;
+  using uni20::krylov::SpectrumPart;
+  using uni20::krylov::SymmetricEigenParams;
+
+  DenseHostVectorOps<double> ops(8, {
+                                        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                        0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0,
+                                        0.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 6.0, 0.0, 0.0,
+                                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 8.0,
+                                    });
+  DenseHostVector<double> initial{{1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0}};
+
+  SymmetricEigenParams<double> params;
+  params.eigenvalue_count = 2;
+  params.krylov_dimension = 5;
+  params.max_iterations = 60;
+  params.tolerance = 1.0e-10;
+  params.spectrum = SpectrumPart::LargestAlgebraic;
+  params.compute_eigenvectors = false;
+  params.diagnostics = KrylovDiagnosticsLevel::Summary;
+
+  auto result = uni20::krylov::symmetric_lanczos_restarted_standard<double>(ops, initial, params);
+
+  ASSERT_EQ(result.status, 0);
+  ASSERT_TRUE(result.diagnostics.has_value());
+  EXPECT_EQ(result.diagnostics->op_count, result.matvec_count);
+  EXPECT_GT(result.diagnostics->restart_count, 0);
+  EXPECT_TRUE(result.diagnostics->restart_cycles.empty());
+}
+
 TEST(KrylovSymmetricLanczos, SolvesDiagonalBothEndsProblem)
 {
   using uni20::krylov::DenseHostVector;
