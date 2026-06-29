@@ -51,10 +51,10 @@ void ExpectMatrixNear(DenseMatrix<Scalar> const& actual, DenseMatrix<Scalar> con
   {
     for (std::size_t j = 0; j < actual.cols(); ++j)
     {
-      double const difference = static_cast<double>(std::abs(actual(i, j) - expected(i, j)));
-      double const magnitude = std::max(1.0, static_cast<double>(std::abs(expected(i, j))));
+      double const difference = static_cast<double>(std::abs(actual[i, j] - expected[i, j]));
+      double const magnitude = std::max(1.0, static_cast<double>(std::abs(expected[i, j])));
       EXPECT_LE(difference, tol * magnitude)
-          << "entry (" << i << ", " << j << ") differs: actual=" << actual(i, j) << " expected=" << expected(i, j);
+          << "entry (" << i << ", " << j << ") differs: actual=" << actual[i, j] << " expected=" << expected[i, j];
     }
   }
 }
@@ -82,7 +82,7 @@ template <typename Scalar> DenseMatrix<Scalar> MakeIdentity(std::size_t order)
   {
     for (std::size_t j = 0; j < order; ++j)
     {
-      identity(i, j) = (i == j) ? Scalar(Real{1}) : Scalar();
+      identity[i, j] = (i == j) ? Scalar(Real{1}) : Scalar();
     }
   }
   return identity;
@@ -176,7 +176,7 @@ TYPED_TEST(MatrixExponentialTypedTest, RejectsNaNEntryBeforeZeroNormShortcut)
   using Scalar = TypeParam;
   using Real = uni20::make_real_t<Scalar>;
   DenseMatrix<Scalar> matrix(2, 2);
-  matrix(0, 0) = Scalar(uni20::numeric_limits<Real>::quiet_NaN());
+  matrix[0, 0] = Scalar(uni20::numeric_limits<Real>::quiet_NaN());
 
   EXPECT_THROW(cpu_linalg::matrix_exponential(matrix, Real{1}), std::overflow_error);
 }
@@ -187,13 +187,13 @@ TYPED_TEST(MatrixExponentialTypedTest, ScalarMatrixMatchesScalarExponential)
   using Real = uni20::make_real_t<Scalar>;
   DenseMatrix<Scalar> matrix(1, 1);
   Scalar const entry = MakeScalarValue<Scalar>();
-  matrix(0, 0) = entry;
+  matrix[0, 0] = entry;
 
   DenseMatrix<Scalar> const result = cpu_linalg::matrix_exponential(matrix, Real{1});
 
   Scalar const expected = std::exp(entry);
   double const tolerance = DefaultTolerance<Scalar>();
-  double const diff = static_cast<double>(std::abs(result(0, 0) - expected));
+  double const diff = static_cast<double>(std::abs(result[0, 0] - expected));
   double const magnitude = std::max(1.0, static_cast<double>(std::abs(expected)));
   EXPECT_LE(diff, tolerance * magnitude);
 }
@@ -201,26 +201,26 @@ TYPED_TEST(MatrixExponentialTypedTest, ScalarMatrixMatchesScalarExponential)
 TEST(MatrixExponentialTest, RealMatrixWithComplexMultiplierPromotesToComplex)
 {
   DenseMatrix<double> matrix(1, 1);
-  matrix(0, 0) = 2.0;
+  matrix[0, 0] = 2.0;
 
   uni20::complex<double> const time{0.0, std::numbers::pi / 2.0};
   auto const result = cpu_linalg::matrix_exponential(matrix, time);
 
   static_assert(std::is_same_v<decltype(result), DenseMatrix<uni20::complex<double>> const>);
-  uni20::complex<double> const expected = std::exp(time * matrix(0, 0));
-  EXPECT_LE(std::abs(result(0, 0) - expected), 1.0e-12);
+  uni20::complex<double> const expected = std::exp(time * matrix[0, 0]);
+  EXPECT_LE(std::abs(result[0, 0] - expected), 1.0e-12);
 }
 
 TEST(MatrixExponentialTest, ComplexMatrixWithComplexMultiplierUsesComplexTime)
 {
   DenseMatrix<uni20::complex<double>> matrix(1, 1);
-  matrix(0, 0) = uni20::complex<double>{1.0, -0.25};
+  matrix[0, 0] = uni20::complex<double>{1.0, -0.25};
 
   uni20::complex<double> const time{0.2, -0.3};
   auto const result = cpu_linalg::matrix_exponential(matrix, time);
 
-  uni20::complex<double> const expected = std::exp(time * matrix(0, 0));
-  EXPECT_LE(std::abs(result(0, 0) - expected), 1.0e-12);
+  uni20::complex<double> const expected = std::exp(time * matrix[0, 0]);
+  EXPECT_LE(std::abs(result[0, 0] - expected), 1.0e-12);
 }
 
 TYPED_TEST(MatrixExponentialTypedTest, SkewSymmetricGeneratesRotation)
@@ -228,10 +228,10 @@ TYPED_TEST(MatrixExponentialTypedTest, SkewSymmetricGeneratesRotation)
   using Scalar = TypeParam;
   using Real = uni20::make_real_t<Scalar>;
   DenseMatrix<Scalar> matrix(2, 2);
-  matrix(0, 0) = MakeZero<Scalar>();
-  matrix(0, 1) = MakeNegativeOne<Scalar>();
-  matrix(1, 0) = MakeOne<Scalar>();
-  matrix(1, 1) = MakeZero<Scalar>();
+  matrix[0, 0] = MakeZero<Scalar>();
+  matrix[0, 1] = MakeNegativeOne<Scalar>();
+  matrix[1, 0] = MakeOne<Scalar>();
+  matrix[1, 1] = MakeZero<Scalar>();
 
   Real const angle = std::numbers::pi_v<Real> / Real{2};
   DenseMatrix<Scalar> const result = cpu_linalg::matrix_exponential(matrix, angle);
@@ -239,10 +239,10 @@ TYPED_TEST(MatrixExponentialTypedTest, SkewSymmetricGeneratesRotation)
   DenseMatrix<Scalar> expected(2, 2);
   Real const cosine = std::cos(angle);
   Real const sine = std::sin(angle);
-  expected(0, 0) = Scalar(cosine);
-  expected(0, 1) = Scalar(-sine);
-  expected(1, 0) = Scalar(sine);
-  expected(1, 1) = Scalar(cosine);
+  expected[0, 0] = Scalar(cosine);
+  expected[0, 1] = Scalar(-sine);
+  expected[1, 0] = Scalar(sine);
+  expected[1, 1] = Scalar(cosine);
 
   ExpectMatrixNear(result, expected, RelaxedTolerance<Scalar>());
 }
@@ -252,15 +252,15 @@ TEST(MatrixExponentialTest, LongDoubleNilpotentUsesExtendedPrecisionScaling)
   DenseMatrix<long double> matrix(2, 2);
   long double const large = std::ldexp(1.0L, uni20::numeric_limits<long double>::max_exponent - 2);
   ASSERT_TRUE(std::isfinite(large));
-  matrix(0, 1) = large;
+  matrix[0, 1] = large;
 
   DenseMatrix<long double> const result = cpu_linalg::matrix_exponential(matrix, 1.0L);
 
   long double constexpr tolerance = 1.0e-12L;
-  EXPECT_LE(std::abs(result(0, 0) - 1.0L), tolerance);
-  EXPECT_LE(std::abs(result(1, 0)), tolerance);
-  EXPECT_LE(std::abs(result(1, 1) - 1.0L), tolerance);
-  EXPECT_LE(std::abs((result(0, 1) - large) / large), tolerance);
+  EXPECT_LE(std::abs(result[0, 0] - 1.0L), tolerance);
+  EXPECT_LE(std::abs(result[1, 0]), tolerance);
+  EXPECT_LE(std::abs(result[1, 1] - 1.0L), tolerance);
+  EXPECT_LE(std::abs((result[0, 1] - large) / large), tolerance);
 }
 
 TYPED_TEST(MatrixExponentialTypedTest, HugeSkewSymmetricGeneratorStaysFinite)
@@ -269,17 +269,17 @@ TYPED_TEST(MatrixExponentialTypedTest, HugeSkewSymmetricGeneratorStaysFinite)
   using Real = uni20::make_real_t<Scalar>;
   DenseMatrix<Scalar> matrix(2, 2);
   Real const theta = MakeHugeSkewTheta<Scalar>();
-  matrix(0, 0) = MakeZero<Scalar>();
-  matrix(0, 1) = Scalar(-theta);
-  matrix(1, 0) = Scalar(theta);
-  matrix(1, 1) = MakeZero<Scalar>();
+  matrix[0, 0] = MakeZero<Scalar>();
+  matrix[0, 1] = Scalar(-theta);
+  matrix[1, 0] = Scalar(theta);
+  matrix[1, 1] = MakeZero<Scalar>();
 
   DenseMatrix<Scalar> const result = cpu_linalg::matrix_exponential(matrix, Real{1});
 
-  ExpectFiniteBounded(result(0, 0), 2.0);
-  ExpectFiniteBounded(result(0, 1), 2.0);
-  ExpectFiniteBounded(result(1, 0), 2.0);
-  ExpectFiniteBounded(result(1, 1), 2.0);
+  ExpectFiniteBounded(result[0, 0], 2.0);
+  ExpectFiniteBounded(result[0, 1], 2.0);
+  ExpectFiniteBounded(result[1, 0], 2.0);
+  ExpectFiniteBounded(result[1, 1], 2.0);
 }
 
 template <typename Scalar> void RunOverflowedOneNormSkewSymmetricGeneratorStaysFinite()
@@ -287,15 +287,15 @@ template <typename Scalar> void RunOverflowedOneNormSkewSymmetricGeneratorStaysF
   using Real = uni20::make_real_t<Scalar>;
   Real const theta = Real{1.0e308};
   DenseMatrix<Scalar> matrix(3, 3);
-  matrix(0, 0) = MakeZero<Scalar>();
-  matrix(0, 1) = Scalar(-theta);
-  matrix(0, 2) = Scalar(theta);
-  matrix(1, 0) = Scalar(theta);
-  matrix(1, 1) = MakeZero<Scalar>();
-  matrix(1, 2) = Scalar(-theta);
-  matrix(2, 0) = Scalar(-theta);
-  matrix(2, 1) = Scalar(theta);
-  matrix(2, 2) = MakeZero<Scalar>();
+  matrix[0, 0] = MakeZero<Scalar>();
+  matrix[0, 1] = Scalar(-theta);
+  matrix[0, 2] = Scalar(theta);
+  matrix[1, 0] = Scalar(theta);
+  matrix[1, 1] = MakeZero<Scalar>();
+  matrix[1, 2] = Scalar(-theta);
+  matrix[2, 0] = Scalar(-theta);
+  matrix[2, 1] = Scalar(theta);
+  matrix[2, 2] = MakeZero<Scalar>();
 
   DenseMatrix<Scalar> const result = cpu_linalg::matrix_exponential(matrix, Real{1});
 
@@ -303,7 +303,7 @@ template <typename Scalar> void RunOverflowedOneNormSkewSymmetricGeneratorStaysF
   {
     for (std::size_t j = 0; j < result.cols(); ++j)
     {
-      ExpectFiniteBounded(result(i, j), 2.0);
+      ExpectFiniteBounded(result[i, j], 2.0);
     }
   }
 }
@@ -321,19 +321,19 @@ TYPED_TEST(MatrixExponentialTypedTest, HighNormJordanBlockMatchesAnalyticSolutio
   DenseMatrix<Scalar> matrix(2, 2);
   Scalar const diag = MakeLargeDiagonal<Scalar>();
   Scalar const off = MakeLargeOffDiagonal<Scalar>();
-  matrix(0, 0) = diag;
-  matrix(0, 1) = off;
-  matrix(1, 0) = MakeZero<Scalar>();
-  matrix(1, 1) = diag;
+  matrix[0, 0] = diag;
+  matrix[0, 1] = off;
+  matrix[1, 0] = MakeZero<Scalar>();
+  matrix[1, 1] = diag;
 
   DenseMatrix<Scalar> const result = cpu_linalg::matrix_exponential(matrix, Real{1});
 
   Scalar const exp_diag = std::exp(diag);
   DenseMatrix<Scalar> expected(2, 2);
-  expected(0, 0) = exp_diag;
-  expected(0, 1) = exp_diag * off;
-  expected(1, 0) = MakeZero<Scalar>();
-  expected(1, 1) = exp_diag;
+  expected[0, 0] = exp_diag;
+  expected[0, 1] = exp_diag * off;
+  expected[1, 0] = MakeZero<Scalar>();
+  expected[1, 1] = exp_diag;
 
   ExpectMatrixNear(result, expected, RelaxedTolerance<Scalar>());
 }
@@ -344,15 +344,15 @@ TYPED_TEST(MatrixExponentialTypedTest, NilpotentChainMatchesSeries)
   using Real = uni20::make_real_t<Scalar>;
   DenseMatrix<Scalar> matrix(3, 3);
   Scalar const large = MakeLargeNilpotent<Scalar>();
-  matrix(0, 0) = MakeZero<Scalar>();
-  matrix(0, 1) = large;
-  matrix(0, 2) = MakeZero<Scalar>();
-  matrix(1, 0) = MakeZero<Scalar>();
-  matrix(1, 1) = MakeZero<Scalar>();
-  matrix(1, 2) = large;
-  matrix(2, 0) = MakeZero<Scalar>();
-  matrix(2, 1) = MakeZero<Scalar>();
-  matrix(2, 2) = MakeZero<Scalar>();
+  matrix[0, 0] = MakeZero<Scalar>();
+  matrix[0, 1] = large;
+  matrix[0, 2] = MakeZero<Scalar>();
+  matrix[1, 0] = MakeZero<Scalar>();
+  matrix[1, 1] = MakeZero<Scalar>();
+  matrix[1, 2] = large;
+  matrix[2, 0] = MakeZero<Scalar>();
+  matrix[2, 1] = MakeZero<Scalar>();
+  matrix[2, 2] = MakeZero<Scalar>();
 
   DenseMatrix<Scalar> const result = cpu_linalg::matrix_exponential(matrix, Real{1});
 

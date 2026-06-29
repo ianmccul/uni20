@@ -91,7 +91,7 @@ linear_combination(std::size_t rows, std::size_t cols,
     {
       for (std::size_t j = 0; j < cols; ++j)
       {
-        result(i, j) += coefficient * mat(i, j);
+        result[i, j] += coefficient * mat[i, j];
       }
     }
   }
@@ -413,15 +413,15 @@ bool try_real_skew_symmetric_3x3_matrix_exponential(DenseMatrix<Scalar> const& A
     return false;
   }
 
-  if (A(0, 0) != Scalar{} || A(1, 1) != Scalar{} || A(2, 2) != Scalar{} || A(0, 1) != -A(1, 0) || A(0, 2) != -A(2, 0) ||
-      A(1, 2) != -A(2, 1))
+  if (A[0, 0] != Scalar{} || A[1, 1] != Scalar{} || A[2, 2] != Scalar{} || A[0, 1] != -A[1, 0] || A[0, 2] != -A[2, 0] ||
+      A[1, 2] != -A[2, 1])
   {
     return false;
   }
 
-  Real const x = -real_value(A(1, 2));
-  Real const y = real_value(A(0, 2));
-  Real const z = -real_value(A(0, 1));
+  Real const x = -real_value(A[1, 2]);
+  Real const y = real_value(A[0, 2]);
+  Real const z = -real_value(A[0, 1]);
   AccumReal const max_component = std::max(
       {adl_abs(static_cast<AccumReal>(x)), adl_abs(static_cast<AccumReal>(y)), adl_abs(static_cast<AccumReal>(z))});
   if (max_component == AccumReal{})
@@ -448,12 +448,12 @@ bool try_real_skew_symmetric_3x3_matrix_exponential(DenseMatrix<Scalar> const& A
   Real const uy = static_cast<Real>(y_scaled / norm_scaled);
   Real const uz = static_cast<Real>(z_scaled / norm_scaled);
   DenseMatrix<Scalar> K(3, 3);
-  K(0, 1) = Scalar(-uz);
-  K(0, 2) = Scalar(uy);
-  K(1, 0) = Scalar(uz);
-  K(1, 2) = Scalar(-ux);
-  K(2, 0) = Scalar(-uy);
-  K(2, 1) = Scalar(ux);
+  K[0, 1] = Scalar(-uz);
+  K[0, 2] = Scalar(uy);
+  K[1, 0] = Scalar(uz);
+  K[1, 2] = Scalar(-ux);
+  K[2, 0] = Scalar(-uy);
+  K[2, 1] = Scalar(ux);
 
   AccumReal const half_theta = theta / AccumReal{2};
   AccumReal const sin_half_theta = adl_sin(half_theta);

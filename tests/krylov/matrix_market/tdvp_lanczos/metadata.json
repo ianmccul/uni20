@@ -1,0 +1,78 @@
+{
+  "source": "1D QTT harmonic oscillator TDVP/Lanczos exponential investigation, matching imag_1dsho_dynamics/one_particle.py",
+  "source_directory": "/home/ian/sync/git/cytnx-fixes/local/jerry_ho_lanczos",
+  "original_matrix_market_hamiltonian": "jerry_ho_n8_hamiltonian.mtx",
+  "original_matrix_market_initial_vector": "jerry_ho_n8_v0.mtx",
+  "matrix_market_hamiltonian": "tdvp_ho_n8_hamiltonian.mtx",
+  "matrix_market_initial_vector": "tdvp_ho_n8_v0.mtx",
+  "old_lanczos_scan": "old_lanczos_exp_scan.csv",
+  "recommended_case": "realtime_double_factor10000",
+  "recommended_work_dtype": "complex128",
+  "recommended_tolerance": 1e-08,
+  "nsites": 8,
+  "dimension": 256,
+  "xmin": -8.0,
+  "dx": 0.06274509803921569,
+  "x0": 2.0,
+  "mpo_compression_cutoff": 2e-05,
+  "hamiltonian_nnz_after_threshold": 3306,
+  "hermitian_relative_residual": 1.7327345597901386e-13,
+  "base_realtime_tau": {
+    "real": 0.0,
+    "imag": -1.968473663975394e-05
+  },
+  "base_imagtime_tau": {
+    "real": -0.000984236831987697,
+    "imag": 0.0
+  },
+  "scan_final_rows": [
+    {
+      "case": "realtime_float_factor1000",
+      "tau_real": 0.0,
+      "tau_imag": -0.01968473663975394,
+      "work_dtype": "complex64",
+      "krylov_dim": 10,
+      "old_error_indicator": 4.197080093239507e-09,
+      "true_error": 1.5685087557098518e-07,
+      "relative_error": 1.5685087557098523e-07,
+      "beta_next": 119.14987177318879,
+      "reason": "old_converged"
+    },
+    {
+      "case": "realtime_float_factor5000",
+      "tau_real": 0.0,
+      "tau_imag": -0.0984236831987697,
+      "work_dtype": "complex64",
+      "krylov_dim": 31,
+      "old_error_indicator": 6.431962970456062e-09,
+      "true_error": 5.246680057707561e-07,
+      "relative_error": 5.246680057707587e-07,
+      "beta_next": 137.83930137732796,
+      "reason": "old_converged"
+    },
+    {
+      "case": "realtime_double_factor10000",
+      "tau_real": 0.0,
+      "tau_imag": -0.1968473663975394,
+      "work_dtype": "complex128",
+      "krylov_dim": 33,
+      "old_error_indicator": 8.47677729418914e-09,
+      "true_error": 1.3982341149064179e-08,
+      "relative_error": 1.3982341149064452e-08,
+      "beta_next": 134.04554489993916,
+      "reason": "old_converged"
+    },
+    {
+      "case": "imagtime_double_factor1000",
+      "tau_real": -0.984236831987697,
+      "tau_imag": 0.0,
+      "work_dtype": "complex128",
+      "krylov_dim": 54,
+      "old_error_indicator": 8.238286016842642e-09,
+      "true_error": 2.4490980577076553e-08,
+      "relative_error": 9.470088544579304e-08,
+      "beta_next": 131.80104147635777,
+      "reason": "old_converged"
+    }
+  ]
+}

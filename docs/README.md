@@ -10,6 +10,7 @@
 - [Local Operators](operators.md)
 - [Models](models.md)
 - [Trace Macros](trace_macros.md)
+- [Scalar Type Policy](scalar_policy.md)
 - [Presentation Formatting](presentation.md)
 - [Diagnostics and Logging Plan](diagnostics_logging_plan.md)
 - [Testing Infrastructure](testing.md)
@@ -35,6 +36,17 @@
 - [R/A/B/C Lanczos Replay Fixtures](rabc_lanczos_fixtures.md)
 - [Async Storage and Assignment Semantics](async_storage.md)
 - [Python Dtype Promotion Policy](python_dtype_promotion.md)
+
+## Krylov and Linear Algebra
+
+- [Krylov Algorithms](krylov_algorithms.md)
+- [Krylov Solver Defaults](krylov_solver_defaults.md)
+- [Krylov Precision Validation](krylov_precision_validation.md)
+- [Krylov Test Matrices](krylov_test_matrices.md)
+- [Krylov Exponential Error Bounds](krylov_exponential_error_bounds.md)
+- [Krylov Exponential Estimators](krylov_exponential_estimators.md)
+- [Real Nonsymmetric iDMRG Policy](real_nonsymmetric_idmrg_policy.md)
+- [Tensor-Network Linear Algebra API Survey](tensor_network_linalg_survey.md)
 
 ## AI Guidance
 

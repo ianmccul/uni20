@@ -1,0 +1,12 @@
+%%MatrixMarket matrix coordinate complex general
+% Uni20 Krylov generated fixture.
+% Complex upper triangular nonsymmetric matrix with known diagonal spectrum.
+% Eigenvalues are: 1+1i, 3+0.5i, -2+2.5i, 0.25-0.1i.
+4 4 7
+1 1 1.0 1.0
+1 2 0.25 -0.5
+2 2 3.0 0.5
+2 3 -0.125 0.25
+3 3 -2.0 2.5
+3 4 0.5 0.125
+4 4 0.25 -0.1

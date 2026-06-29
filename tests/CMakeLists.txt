@@ -14,6 +14,7 @@ add_subdirectory(kernel)
 add_subdirectory(backend)
 add_subdirectory(async)
 add_subdirectory(linalg)
+add_subdirectory(krylov)
 
 if(UNI20_BUILD_PYTHON)
   add_subdirectory(python)
@@ -30,6 +31,8 @@ if(UNI20_BUILD_COMBINED_TESTS AND UNI20_COMBINED_TEST_SRCS)
     uni20_tests_main.cpp
   )
   target_link_libraries(uni20_tests PRIVATE ${UNI20_COMBINED_TEST_LIBS} GTest::gtest)
+  target_compile_definitions(uni20_tests PRIVATE
+    UNI20_KRYLOV_MATRIX_MARKET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/krylov/matrix_market")
   # gtest_discover_tests(uni20_tests) # we do not nede to discover the tests here - the individial test modules already do this
 elseif(UNI20_BUILD_COMBINED_TESTS)
   message(WARNING "UNI20_BUILD_COMBINED_TESTS is ON, but no test sources were registered.")
