@@ -263,7 +263,10 @@ void print_usage(char const* program)
   std::size_t rows = 0;
   std::size_t cols = 0;
   std::size_t stored_entries = 0;
-  size_stream >> rows >> cols >> stored_entries;
+  if (!(size_stream >> rows >> cols >> stored_entries))
+  {
+    throw std::invalid_argument("Matrix Market file has a malformed size line");
+  }
   if (rows != cols)
   {
     throw std::invalid_argument("Hermitian exponential Matrix Market probe requires a square matrix");

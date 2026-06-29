@@ -277,7 +277,7 @@ taylor_exponential_action(Ops& ops, Vector const& initial, TimeScalar time,
     {
       ops.matvec(scratch, term);
       ++matvec_count;
-      ops.scal(scratch, step_time / Scalar{static_cast<Real>(degree)});
+      ops.scal(scratch, step_time / static_cast<Real>(degree));
       ops.copy(term, scratch);
       ops.axpy(step_result, Scalar{1}, term);
 

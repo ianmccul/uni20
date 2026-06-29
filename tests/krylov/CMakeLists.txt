@@ -1,5 +1,7 @@
 set(_uni20_krylov_test_sources
     test_dense_linalg.cpp
+    # Intentionally compiled: keeps quarantined dense-wrapper code tested
+    # without exposing those wrappers through the default Krylov API surface.
     test_dense_linalg_unused.cpp
     test_dense_subspace.cpp
     test_known_matrices.cpp

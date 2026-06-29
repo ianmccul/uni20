@@ -699,7 +699,9 @@ template <typename Scalar> int run_example(ExampleOptions const& options)
   append_key_value(report, policy, "entries", fmt::format("{}", matrix.entries.size()));
   append_key_value(report, policy, "which", spectrum_name(options.spectrum));
   int const effective_ncv = uni20::krylov::effective_nonsymmetric_krylov_dimension(params, matrix.rows);
-  int const effective_nkeep = uni20::krylov::effective_nonsymmetric_retained_ritz_count(params, effective_ncv);
+  int const effective_nkeep = effective_ncv == params.eigenvalue_count
+                                  ? params.eigenvalue_count
+                                  : uni20::krylov::effective_nonsymmetric_retained_ritz_count(params, effective_ncv);
   append_key_value(report, policy, "nev / nkeep / ncv",
                    fmt::format("{} / {} / {}", params.eigenvalue_count, effective_nkeep, effective_ncv));
   append_key_value(report, policy, "tol", presentation::format_real(params.tolerance, numeric));
