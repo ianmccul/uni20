@@ -31,16 +31,16 @@ norms and inner products.
   useful ARPACK/IRAM/IRLM ideas, but ARPACK comparisons and larger benchmark
   dashboards belong in a separate validation repository.
 - Public behavior, supported scalar types, defaults, and internal tuning are
-  documented in [`../../../docs/krylov_algorithms.md`](../../../docs/krylov_algorithms.md).
+  documented in [`/docs/krylov_algorithms.md`](../../../docs/krylov_algorithms.md).
 - Default `ncv`/`nkeep` policy notes live in
-  [`../../../docs/krylov_solver_defaults.md`](../../../docs/krylov_solver_defaults.md).
+  [`/docs/krylov_solver_defaults.md`](../../../docs/krylov_solver_defaults.md).
 - Precision validation status lives in
-  [`../../../docs/krylov_precision_validation.md`](../../../docs/krylov_precision_validation.md).
+  [`/docs/krylov_precision_validation.md`](../../../docs/krylov_precision_validation.md).
 - Test matrix provenance and stress-test intent live in
-  [`../../../docs/krylov_test_matrices.md`](../../../docs/krylov_test_matrices.md).
+  [`/docs/krylov_test_matrices.md`](../../../docs/krylov_test_matrices.md).
 
 ## Tests And Examples
 
-Unit tests live under [`../../../tests/krylov`](../../../tests/krylov), with
-Matrix Market fixtures under `tests/krylov/matrix_market`. Example drivers live
-under [`../../../examples/krylov`](../../../examples/krylov).
+Unit tests live under [`/tests/krylov`](../../../tests/krylov), with Matrix
+Market fixtures under `/tests/krylov/matrix_market`. Example drivers live under
+[`/examples/krylov`](../../../examples/krylov).

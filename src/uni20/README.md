@@ -24,8 +24,8 @@ top-level namespace.
 
 ## References
 
-- Contributor and style rules: [`../../AGENTS.md`](../../AGENTS.md)
-- Project documentation index: [`../../docs/README.md`](../../docs/README.md)
-- Architecture overview: [`../../docs/architecture_diagram.md`](../../docs/architecture_diagram.md)
-- Backend dispatch notes: [`../../docs/backend_dispatch.md`](../../docs/backend_dispatch.md)
-- Kernel dispatch notes: [`../../docs/kernel_dispatch.md`](../../docs/kernel_dispatch.md)
+- Contributor and style rules: [`/AGENTS.md`](../../AGENTS.md)
+- Project documentation index: [`/docs/README.md`](../../docs/README.md)
+- Architecture overview: [`/docs/architecture_diagram.md`](../../docs/architecture_diagram.md)
+- Backend dispatch notes: [`/docs/backend_dispatch.md`](../../docs/backend_dispatch.md)
+- Kernel dispatch notes: [`/docs/kernel_dispatch.md`](../../docs/kernel_dispatch.md)
