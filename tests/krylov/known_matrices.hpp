@@ -58,7 +58,8 @@ template <uni20::Real Scalar>
   Scalar max_abs = Scalar{};
   for (Scalar value : eigenvalues)
   {
-    Scalar const abs_value = std::abs(value);
+    using std::abs;
+    Scalar const abs_value = abs(value);
     if (abs_value == Scalar{})
     {
       return std::nullopt;
@@ -360,7 +361,8 @@ template <uni20::Real Scalar> [[nodiscard]] std::vector<Scalar> soules_matrix(st
     throw std::invalid_argument("Soules matrix dimension must be nonzero");
   }
 
-  std::vector<Scalar> x(n, Scalar{1} / std::sqrt(static_cast<Scalar>(n)));
+  using std::sqrt;
+  std::vector<Scalar> x(n, Scalar{1} / sqrt(static_cast<Scalar>(n)));
   std::vector<Scalar> q(n * n, Scalar{});
   for (std::size_t i = 0; i < n; ++i)
   {
@@ -371,7 +373,8 @@ template <uni20::Real Scalar> [[nodiscard]] std::vector<Scalar> soules_matrix(st
   {
     if (x[i] != Scalar{})
     {
-      Scalar const norm = std::hypot(x[i - 1], x[i]);
+      using std::hypot;
+      Scalar const norm = hypot(x[i - 1], x[i]);
       Scalar const c = x[i - 1] / norm;
       Scalar const s = x[i] / norm;
       x[i - 1] = norm;
