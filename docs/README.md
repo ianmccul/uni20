@@ -37,6 +37,17 @@
 - [Async Storage and Assignment Semantics](async_storage.md)
 - [Python Dtype Promotion Policy](python_dtype_promotion.md)
 
+## Krylov and Linear Algebra
+
+- [Krylov Algorithms](krylov_algorithms.md)
+- [Krylov Solver Defaults](krylov_solver_defaults.md)
+- [Krylov Precision Validation](krylov_precision_validation.md)
+- [Krylov Test Matrices](krylov_test_matrices.md)
+- [Krylov Exponential Error Bounds](krylov_exponential_error_bounds.md)
+- [Krylov Exponential Estimators](krylov_exponential_estimators.md)
+- [Real Nonsymmetric iDMRG Policy](real_nonsymmetric_idmrg_policy.md)
+- [Tensor-Network Linear Algebra API Survey](tensor_network_linalg_survey.md)
+
 ## AI Guidance
 
 - [AI Guidance: Custom GPT Instructions](ai_guidance/chatgpt.md)
