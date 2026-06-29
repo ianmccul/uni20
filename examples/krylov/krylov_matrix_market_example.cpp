@@ -560,9 +560,9 @@ void print_usage(char const* program)
   {
     throw std::invalid_argument("example supports real or integer Matrix Market fields only");
   }
-  if (symmetry != "general" && symmetry != "symmetric")
+  if (symmetry != "symmetric")
   {
-    throw std::invalid_argument("example supports general or symmetric Matrix Market matrices only");
+    throw std::invalid_argument("symmetric Lanczos example requires a symmetric Matrix Market matrix");
   }
 
   std::string line;
