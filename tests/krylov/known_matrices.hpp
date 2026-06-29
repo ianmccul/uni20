@@ -133,10 +133,11 @@ template <uni20::Real Scalar>
   std::vector<Scalar> eigenvalues;
   eigenvalues.reserve(n);
   Scalar const pi = matrix_test_pi<Scalar>();
+  using std::cos;
   for (std::size_t j = 1; j <= n; ++j)
   {
     Scalar const angle = static_cast<Scalar>(j) * pi / static_cast<Scalar>(n + 1);
-    eigenvalues.push_back(diagonal + Scalar{2} * offdiagonal * std::cos(angle));
+    eigenvalues.push_back(diagonal + Scalar{2} * offdiagonal * cos(angle));
   }
   std::ranges::sort(eigenvalues);
   auto condition_number = condition_number_from_eigenvalues(eigenvalues);
@@ -183,10 +184,11 @@ template <uni20::Real Scalar> [[nodiscard]] KnownSymmetricMatrix<Scalar> path_la
   std::vector<Scalar> eigenvalues;
   eigenvalues.reserve(n);
   Scalar const pi = matrix_test_pi<Scalar>();
+  using std::cos;
   for (std::size_t j = 0; j < n; ++j)
   {
     Scalar const angle = static_cast<Scalar>(j) * pi / static_cast<Scalar>(n);
-    eigenvalues.push_back(Scalar{2} - Scalar{2} * std::cos(angle));
+    eigenvalues.push_back(Scalar{2} - Scalar{2} * cos(angle));
   }
   std::ranges::sort(eigenvalues);
 

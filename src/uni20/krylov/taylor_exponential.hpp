@@ -158,7 +158,7 @@ Scalar amplified_tail_bound(Scalar local_tail_bound, Scalar step_norm_bound, int
 
   Scalar const exponent = static_cast<Scalar>(remaining_steps) * step_norm_bound;
   Scalar const max_value = uni20::numeric_limits<Scalar>::max();
-  if (exponent >= log(max_value / local_tail_bound))
+  if (exponent >= log(max_value) - log(local_tail_bound))
   {
     return uni20::numeric_limits<Scalar>::infinity();
   }

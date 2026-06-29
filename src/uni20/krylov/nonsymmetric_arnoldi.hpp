@@ -1311,7 +1311,9 @@ NonsymmetricEigenResult<Real, Vector> complex_nonsymmetric_arnoldi_standard(Ops&
   {
     throw std::invalid_argument("complex nonsymmetric Arnoldi requires eigenvalue_count <= krylov_dimension");
   }
-  int const requested_retained_count = effective_nonsymmetric_retained_ritz_count(params, basis_limit);
+  int const requested_retained_count = basis_limit > params.eigenvalue_count
+                                           ? effective_nonsymmetric_retained_ritz_count(params, basis_limit)
+                                           : params.eigenvalue_count;
   if (params.max_iterations < params.eigenvalue_count)
   {
     throw std::invalid_argument("complex nonsymmetric Arnoldi iteration limit is too small for nev");
@@ -1339,7 +1341,8 @@ NonsymmetricEigenResult<Real, Vector> complex_nonsymmetric_arnoldi_standard(Ops&
       return result;
     }
 
-    if (static_cast<std::size_t>(factorization.step_count) <= static_cast<std::size_t>(requested_retained_count))
+    if (basis_limit == params.eigenvalue_count ||
+        static_cast<std::size_t>(factorization.step_count) <= static_cast<std::size_t>(requested_retained_count))
     {
       return result;
     }
@@ -1413,7 +1416,9 @@ real_nonsymmetric_arnoldi_restarted_standard(Ops& ops, Vector const& initial,
     throw std::invalid_argument("restarted real nonsymmetric Arnoldi requires eigenvalue_count <= krylov_dimension");
   }
 
-  int const requested_retained_count = effective_nonsymmetric_retained_ritz_count(params, basis_limit);
+  int const requested_retained_count = basis_limit > params.eigenvalue_count
+                                           ? effective_nonsymmetric_retained_ritz_count(params, basis_limit)
+                                           : params.eigenvalue_count;
   if (params.max_iterations < params.eigenvalue_count)
   {
     throw std::invalid_argument("restarted real nonsymmetric Arnoldi iteration limit is too small for nev");
@@ -1441,7 +1446,8 @@ real_nonsymmetric_arnoldi_restarted_standard(Ops& ops, Vector const& initial,
       return result;
     }
 
-    if (static_cast<std::size_t>(factorization.step_count) <= static_cast<std::size_t>(requested_retained_count))
+    if (basis_limit == params.eigenvalue_count ||
+        static_cast<std::size_t>(factorization.step_count) <= static_cast<std::size_t>(requested_retained_count))
     {
       return result;
     }

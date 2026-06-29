@@ -1108,6 +1108,36 @@ TEST(KrylovNonsymmetricArnoldi, SolvesNonrestartedComplexNonsymmetricDiagonalPro
   }
 }
 
+TEST(KrylovNonsymmetricArnoldi, SolvesOneDimensionalComplexFullSubspaceProblem)
+{
+  using Complex = uni20::complex<double>;
+
+  DenseHostVectorOps<Complex> ops(1, {Complex{2.0, -0.5}});
+  DenseHostVector<Complex> initial{{Complex{1.0, 1.0}}};
+
+  NonsymmetricEigenParams<double> params;
+  params.eigenvalue_count = 1;
+  params.tolerance = 1.0e-12;
+  params.compute_eigenvectors = true;
+  params.diagnostics = KrylovDiagnosticsLevel::Summary;
+
+  auto result = uni20::krylov::complex_nonsymmetric_arnoldi_standard<double>(ops, initial, params);
+
+  ASSERT_EQ(result.status, NonsymmetricStatus::Converged);
+  ASSERT_EQ(result.converged_count, 1);
+  ASSERT_EQ(result.eigenvalues.size(), 1);
+  ASSERT_EQ(result.residual_bounds.size(), 1);
+  ASSERT_EQ(result.right_eigenvectors.size(), 1);
+  EXPECT_EQ(result.iteration_count, 1);
+  EXPECT_EQ(result.matvec_count, 1);
+  EXPECT_EQ(ops.matvec_count(), 1);
+  EXPECT_NEAR(std::abs(result.eigenvalues[0] - Complex{2.0, -0.5}), 0.0, 1.0e-12);
+  EXPECT_LT(result.residual_bounds[0], 1.0e-12);
+  EXPECT_LT(relative_eigen_residual(ops, result.right_eigenvectors[0], result.eigenvalues[0]), 1.0e-12);
+  ASSERT_TRUE(result.diagnostics.has_value());
+  EXPECT_EQ(result.diagnostics->final_projected_dimension, 1);
+}
+
 TEST(KrylovNonsymmetricArnoldi, ReportsComplexHappyBreakdownBeforeRequestedEigenvalueCount)
 {
   using Complex = uni20::complex<double>;
