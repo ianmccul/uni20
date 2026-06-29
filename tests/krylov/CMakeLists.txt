@@ -1,5 +1,6 @@
 set(_uni20_krylov_test_sources
     test_dense_linalg.cpp
+    test_dense_linalg_unused.cpp
     test_dense_subspace.cpp
     test_known_matrices.cpp
     test_krylov_exponential.cpp
