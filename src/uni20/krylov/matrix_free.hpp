@@ -1,6 +1,7 @@
 #pragma once
 
 #include <uni20/core/scalar_concepts.hpp>
+#include <uni20/krylov/detail_math.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -452,8 +453,8 @@ uni20::make_real_t<Scalar> norm_or_inner_product(Ops& ops, Vector const& x)
   else
   {
     Scalar const norm_squared = ops.inner_product(x, x);
-    RealScalar const real_norm_squared = static_cast<RealScalar>(std::real(norm_squared));
-    return real_norm_squared > RealScalar{} ? std::sqrt(real_norm_squared) : RealScalar{};
+    RealScalar const real_norm_squared = static_cast<RealScalar>(detail::adl_real(norm_squared));
+    return real_norm_squared > RealScalar{} ? detail::adl_sqrt(real_norm_squared) : RealScalar{};
   }
 }
 
@@ -462,7 +463,7 @@ uni20::make_real_t<Scalar> norm_or_inner_product(Ops& ops, Vector const& x)
 /// \return A conservative scale multiplier derived from machine precision.
 template <uni20::Real Scalar> Scalar default_complex_pair_tolerance()
 {
-  return std::sqrt(uni20::numeric_limits<Scalar>::epsilon());
+  return detail::adl_sqrt(uni20::numeric_limits<Scalar>::epsilon());
 }
 
 /// \brief Classify whether a complex Ritz value is numerically real.
@@ -487,9 +488,9 @@ RitzReality classify_ritz_reality(uni20::complex<Scalar> theta, Scalar tolerance
                                   Scalar ambiguity_factor = Scalar{10})
 {
   Scalar const effective_tolerance = tolerance > Scalar{} ? tolerance : default_complex_pair_tolerance<Scalar>();
-  Scalar const effective_scale = std::max({Scalar{1}, std::abs(theta), std::abs(scale)});
+  Scalar const effective_scale = std::max({Scalar{1}, detail::adl_abs(theta), detail::adl_abs(scale)});
   Scalar const threshold = effective_tolerance * effective_scale;
-  Scalar const imaginary = std::abs(theta.imag());
+  Scalar const imaginary = detail::adl_abs(theta.imag());
   if (imaginary <= threshold)
   {
     return RitzReality::Real;

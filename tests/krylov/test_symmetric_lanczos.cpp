@@ -512,6 +512,49 @@ TEST(KrylovSymmetricLanczos, ReportsUnconvergedTruncatedProjection)
   EXPECT_EQ(result.matvec_count, 2);
 }
 
+TEST(KrylovSymmetricLanczos, ReportsHappyBreakdownBeforeRequestedEigenvalueCount)
+{
+  using uni20::krylov::DenseHostVector;
+  using uni20::krylov::DenseHostVectorOps;
+  using uni20::krylov::SpectrumPart;
+  using uni20::krylov::SymmetricEigenParams;
+
+  DenseHostVectorOps<double> ops(4, {
+                                        1.0,
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        2.0,
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        4.0,
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        8.0,
+                                    });
+  DenseHostVector<double> initial{{0.0, 0.0, 0.0, 1.0}};
+
+  SymmetricEigenParams<double> params;
+  params.eigenvalue_count = 2;
+  params.krylov_dimension = 4;
+  params.tolerance = 1.0e-14;
+  params.spectrum = SpectrumPart::LargestAlgebraic;
+  params.compute_eigenvectors = false;
+
+  auto result = uni20::krylov::symmetric_lanczos_standard<double>(ops, initial, params);
+
+  ASSERT_EQ(result.eigenvalues.size(), 1);
+  ASSERT_EQ(result.residual_bounds.size(), 1);
+  EXPECT_NEAR(result.eigenvalues[0], 8.0, 1.0e-12);
+  EXPECT_EQ(result.converged_count, 1);
+  EXPECT_EQ(result.status, 1);
+}
+
 TEST(KrylovSymmetricLanczos, RestartedSolveConvergesOnDiagonalLargestAlgebraicProblem)
 {
   using uni20::krylov::DenseHostVector;

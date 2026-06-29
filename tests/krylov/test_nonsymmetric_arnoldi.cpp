@@ -996,6 +996,35 @@ TEST(KrylovNonsymmetricArnoldi, SolvesNonrestartedRealNonsymmetricDiagonalProble
   EXPECT_NEAR(result.diagnostics->projected_departure_from_normality, 0.0, 1.0e-12);
 }
 
+TEST(KrylovNonsymmetricArnoldi, ReportsRealHappyBreakdownBeforeRequestedEigenvalueCount)
+{
+  std::vector<double> const matrix{
+      2.0, 0.0, 0.0, //
+      0.0, 3.0, 0.0, //
+      0.0, 0.0, 5.0,
+  };
+  DenseHostVectorOps<double> ops(3, matrix);
+  DenseHostVector<double> initial{{0.0, 0.0, 1.0}};
+  NonsymmetricEigenParams<double> params;
+  params.eigenvalue_count = 2;
+  params.krylov_dimension = 3;
+  params.spectrum = SpectrumPart::LargestReal;
+  params.tolerance = 1.0e-12;
+  params.compute_eigenvectors = false;
+  params.diagnostics = KrylovDiagnosticsLevel::Summary;
+
+  auto result = uni20::krylov::real_nonsymmetric_arnoldi_standard(ops, initial, params);
+
+  EXPECT_EQ(result.status, NonsymmetricStatus::Breakdown);
+  ASSERT_EQ(result.eigenvalues.size(), 1);
+  ASSERT_EQ(result.residual_bounds.size(), 1);
+  EXPECT_EQ(result.converged_count, 1);
+  EXPECT_NEAR(result.eigenvalues[0].real(), 5.0, 1.0e-12);
+  EXPECT_NEAR(result.eigenvalues[0].imag(), 0.0, 1.0e-12);
+  ASSERT_TRUE(result.diagnostics.has_value());
+  EXPECT_EQ(result.diagnostics->final_projected_dimension, 1);
+}
+
 TYPED_TEST(KrylovNonsymmetricArnoldiRealTypedTest, SolvesNonrestartedRealNonsymmetricDiagonalProblem)
 {
   using Real = TypeParam;
@@ -1077,6 +1106,37 @@ TEST(KrylovNonsymmetricArnoldi, SolvesNonrestartedComplexNonsymmetricDiagonalPro
     EXPECT_LT(result.residual_bounds[i], 1.0e-12);
     EXPECT_LT(relative_eigen_residual(ops, result.right_eigenvectors[i], result.eigenvalues[i]), 1.0e-11);
   }
+}
+
+TEST(KrylovNonsymmetricArnoldi, ReportsComplexHappyBreakdownBeforeRequestedEigenvalueCount)
+{
+  using Complex = uni20::complex<double>;
+
+  std::vector<Complex> const matrix{
+      Complex{1.0, 1.0}, Complex{},         Complex{}, //
+      Complex{},         Complex{3.0, 0.5}, Complex{}, //
+      Complex{},         Complex{},         Complex{5.0, -0.25},
+  };
+  DenseHostVectorOps<Complex> ops(3, matrix);
+  DenseHostVector<Complex> initial{{Complex{}, Complex{}, Complex{1.0, 0.0}}};
+  NonsymmetricEigenParams<double> params;
+  params.eigenvalue_count = 2;
+  params.krylov_dimension = 3;
+  params.spectrum = SpectrumPart::LargestReal;
+  params.tolerance = 1.0e-12;
+  params.compute_eigenvectors = false;
+  params.diagnostics = KrylovDiagnosticsLevel::Summary;
+
+  auto result = uni20::krylov::complex_nonsymmetric_arnoldi_standard<double>(ops, initial, params);
+
+  EXPECT_EQ(result.status, NonsymmetricStatus::Breakdown);
+  ASSERT_EQ(result.eigenvalues.size(), 1);
+  ASSERT_EQ(result.residual_bounds.size(), 1);
+  EXPECT_EQ(result.converged_count, 1);
+  EXPECT_NEAR(result.eigenvalues[0].real(), 5.0, 1.0e-12);
+  EXPECT_NEAR(result.eigenvalues[0].imag(), -0.25, 1.0e-12);
+  ASSERT_TRUE(result.diagnostics.has_value());
+  EXPECT_EQ(result.diagnostics->final_projected_dimension, 1);
 }
 
 TYPED_TEST(KrylovNonsymmetricArnoldiComplexTypedTest, SolvesNonrestartedComplexNonsymmetricDiagonalProblem)

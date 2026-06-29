@@ -1,6 +1,7 @@
 #pragma once
 
 #include <uni20/krylov/dense_linalg.hpp>
+#include <uni20/krylov/detail_math.hpp>
 
 #include <algorithm>
 #include <array>
@@ -698,9 +699,9 @@ std::vector<RealSchurBlock<Scalar>> real_schur_blocks(std::vector<uni20::complex
     {
       throw std::runtime_error("LAPACK gees returned an incomplete complex Schur block");
     }
-    if (std::abs(eigenvalues[index + 1] - std::conj(eigenvalues[index])) >
+    if (detail::adl_abs(eigenvalues[index + 1] - std::conj(eigenvalues[index])) >
         Scalar{100} * uni20::numeric_limits<Scalar>::epsilon() *
-            std::max(Scalar{1}, std::max(std::abs(eigenvalues[index]), std::abs(eigenvalues[index + 1]))))
+            std::max(Scalar{1}, std::max(detail::adl_abs(eigenvalues[index]), detail::adl_abs(eigenvalues[index + 1]))))
     {
       throw std::runtime_error("LAPACK gees returned a non-adjacent complex conjugate Schur block");
     }
@@ -863,11 +864,11 @@ template <uni20::LapackReal Scalar> Scalar symmetric_matrix_one_norm(Matrix<Scal
     {
       if (triangle == MatrixFill::Upper)
       {
-        column_sum += row <= col ? std::abs(matrix(row, col)) : std::abs(matrix(col, row));
+        column_sum += row <= col ? detail::adl_abs(matrix(row, col)) : detail::adl_abs(matrix(col, row));
       }
       else
       {
-        column_sum += row >= col ? std::abs(matrix(row, col)) : std::abs(matrix(col, row));
+        column_sum += row >= col ? detail::adl_abs(matrix(row, col)) : detail::adl_abs(matrix(col, row));
       }
     }
     norm = std::max(norm, column_sum);
@@ -1413,14 +1414,14 @@ Scalar real_general_tridiagonal_one_norm(RealGeneralTridiagonalMatrix<Scalar> co
   Scalar norm{};
   for (std::size_t col = 0; col < order; ++col)
   {
-    Scalar column_sum = std::abs(matrix.diagonal[col]);
+    Scalar column_sum = detail::adl_abs(matrix.diagonal[col]);
     if (col > 0)
     {
-      column_sum += std::abs(matrix.upper_diagonal[col - 1]);
+      column_sum += detail::adl_abs(matrix.upper_diagonal[col - 1]);
     }
     if (col + 1 < order)
     {
-      column_sum += std::abs(matrix.lower_diagonal[col]);
+      column_sum += detail::adl_abs(matrix.lower_diagonal[col]);
     }
     norm = std::max(norm, column_sum);
   }
@@ -2189,7 +2190,7 @@ Scalar real_symmetric_positive_definite_band_one_norm(RealSymmetricPositiveDefin
       std::size_t const first_row = col > matrix.bandwidth ? col - matrix.bandwidth : 0;
       for (std::size_t row = first_row; row <= col; ++row)
       {
-        Scalar const magnitude = std::abs(matrix.storage(matrix.bandwidth + row - col, col));
+        Scalar const magnitude = detail::adl_abs(matrix.storage(matrix.bandwidth + row - col, col));
         column_sums[col] += magnitude;
         if (row != col)
         {
@@ -2202,7 +2203,7 @@ Scalar real_symmetric_positive_definite_band_one_norm(RealSymmetricPositiveDefin
       std::size_t const last_row = std::min(matrix.order - 1, col + matrix.bandwidth);
       for (std::size_t row = col; row <= last_row; ++row)
       {
-        Scalar const magnitude = std::abs(matrix.storage(row - col, col));
+        Scalar const magnitude = detail::adl_abs(matrix.storage(row - col, col));
         column_sums[col] += magnitude;
         if (row != col)
         {
@@ -2543,14 +2544,14 @@ Scalar real_symmetric_positive_definite_tridiagonal_one_norm(
   Scalar norm{};
   for (std::size_t col = 0; col < order; ++col)
   {
-    Scalar column_sum = std::abs(matrix.diagonal[col]);
+    Scalar column_sum = detail::adl_abs(matrix.diagonal[col]);
     if (col > 0)
     {
-      column_sum += std::abs(matrix.offdiagonal[col - 1]);
+      column_sum += detail::adl_abs(matrix.offdiagonal[col - 1]);
     }
     if (col + 1 < order)
     {
-      column_sum += std::abs(matrix.offdiagonal[col]);
+      column_sum += detail::adl_abs(matrix.offdiagonal[col]);
     }
     norm = std::max(norm, column_sum);
   }
@@ -4652,7 +4653,7 @@ ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::co
   detail::heev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork,
                rwork.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   detail::heev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork, rwork.data());
 
@@ -4698,7 +4699,7 @@ complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> ma
   detail::heevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork,
                 &rwork_query, query_lwork, &iwork_query, query_lwork);
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
   blas_int const lrwork = std::max<blas_int>(1, static_cast<blas_int>(rwork_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
@@ -4761,7 +4762,7 @@ complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, s
                 result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), &work_query, query_lwork,
                 &rwork_query, query_lwork, &iwork_query, query_lwork);
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
   blas_int const lrwork = std::max<blas_int>(1, static_cast<blas_int>(rwork_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
@@ -4828,7 +4829,7 @@ complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, M
   detail::hegv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(), &work_query,
                query_lwork, rwork.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   detail::hegv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(), work.data(),
                lwork, rwork.data());
@@ -4888,7 +4889,7 @@ complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::compl
   detail::hegvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
                 &work_query, query_lwork, &rwork_query, query_lwork, &iwork_query, query_lwork);
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
   blas_int const lrwork = std::max<blas_int>(1, static_cast<blas_int>(rwork_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
@@ -4962,7 +4963,7 @@ ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_inde
                 Real{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, &work_query, query_lwork,
                 rwork.data(), iwork.data(), ifail.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   selected_count = 0;
   detail::hegvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Real{}, Real{}, first, last,
@@ -7051,7 +7052,7 @@ RightComplexSchurDecomposition<Real> complex_schur_layout_right(RightMatrix<uni2
   detail::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, result.eigenvalues.data(),
                schur_vectors_left.data(), ldvs, &work_query, query_lwork, rwork.data(), bwork.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   detail::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, result.eigenvalues.data(),
                schur_vectors_left.data(), ldvs, work.data(), lwork, rwork.data(), bwork.data());
@@ -7361,8 +7362,8 @@ RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomp
       throw std::runtime_error("LAPACK trevc returned an incomplete complex eigenvector pair");
     }
     auto const next_eigenvalue = decomposition.eigenvalues[col + 1];
-    Scalar const scale = std::max(Scalar{1}, std::max(std::abs(eigenvalue), std::abs(next_eigenvalue)));
-    if (std::abs(next_eigenvalue - std::conj(eigenvalue)) >
+    Scalar const scale = std::max(Scalar{1}, std::max(detail::adl_abs(eigenvalue), detail::adl_abs(next_eigenvalue)));
+    if (detail::adl_abs(next_eigenvalue - std::conj(eigenvalue)) >
         Scalar{100} * uni20::numeric_limits<Scalar>::epsilon() * scale)
     {
       throw std::runtime_error("LAPACK trevc returned a non-adjacent complex eigenvector pair");
@@ -8320,8 +8321,9 @@ real_generalized_schur_right_eigenvectors(RealGeneralizedSchurDecomposition<Real
       throw std::runtime_error("LAPACK tgevc returned an incomplete complex eigenvector pair");
     }
     auto const next_eigenvalue = decomposition.eigenvalues[col + 1];
-    Real const scale = std::max(Real{1}, std::max(std::abs(eigenvalue), std::abs(next_eigenvalue)));
-    if (std::abs(next_eigenvalue - std::conj(eigenvalue)) > Real{100} * uni20::numeric_limits<Real>::epsilon() * scale)
+    Real const scale = std::max(Real{1}, std::max(detail::adl_abs(eigenvalue), detail::adl_abs(next_eigenvalue)));
+    if (detail::adl_abs(next_eigenvalue - std::conj(eigenvalue)) >
+        Real{100} * uni20::numeric_limits<Real>::epsilon() * scale)
     {
       throw std::runtime_error("LAPACK tgevc returned a non-adjacent complex eigenvector pair");
     }
@@ -8895,7 +8897,7 @@ ComplexNonsymmetricEigensystem<Real> complex_nonsymmetric_eigensystem(Matrix<uni
   detail::geev(jobvl, jobvr, order, matrix.data(), order, result.eigenvalues.data(), vl.data(), ldvl, vr.data(), ldvr,
                &work_query, query_lwork, rwork.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   detail::geev(jobvl, jobvr, order, matrix.data(), order, result.eigenvalues.data(), vl.data(), ldvl, vr.data(), ldvr,
                work.data(), lwork, rwork.data());

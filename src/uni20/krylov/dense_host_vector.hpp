@@ -107,9 +107,10 @@ template <typename Scalar> class DenseHostVectorOps {
       uni20::make_real_t<Scalar> norm_squared{};
       for (auto const& value : x.values)
       {
-        norm_squared += std::norm(value);
+        norm_squared += detail::abs_squared(value);
       }
-      return norm_squared > uni20::make_real_t<Scalar>{} ? std::sqrt(norm_squared) : uni20::make_real_t<Scalar>{};
+      return norm_squared > uni20::make_real_t<Scalar>{} ? detail::adl_sqrt(norm_squared)
+                                                         : uni20::make_real_t<Scalar>{};
     }
 
     void matvec(DenseHostVector<Scalar>& y, DenseHostVector<Scalar> const& x)
@@ -166,9 +167,9 @@ template <typename Scalar> class DenseHostVectorOps {
 
 static_assert(KrylovMatrixFreeOperator<DenseHostVectorOps<float>, DenseHostVector<float>, float>);
 static_assert(KrylovMatrixFreeOperator<DenseHostVectorOps<double>, DenseHostVector<double>, double>);
-static_assert(KrylovMatrixFreeOperator<DenseHostVectorOps<uni20::complex<float>>, DenseHostVector<uni20::complex<float>>,
-                                       uni20::complex<float>>);
-static_assert(KrylovMatrixFreeOperator<DenseHostVectorOps<uni20::complex<double>>, DenseHostVector<uni20::complex<double>>,
-                                       uni20::complex<double>>);
+static_assert(KrylovMatrixFreeOperator<DenseHostVectorOps<uni20::complex<float>>,
+                                       DenseHostVector<uni20::complex<float>>, uni20::complex<float>>);
+static_assert(KrylovMatrixFreeOperator<DenseHostVectorOps<uni20::complex<double>>,
+                                       DenseHostVector<uni20::complex<double>>, uni20::complex<double>>);
 
 } // namespace uni20::krylov

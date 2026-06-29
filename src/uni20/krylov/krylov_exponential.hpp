@@ -120,19 +120,19 @@ void record_exponential_basis_orthogonality(Ops& ops, HermitianExponentialProjec
       Scalar const entry = ops.inner_product(projection.basis[row], projection.basis[col]);
       if (row == col)
       {
-        Real const error = static_cast<Real>(std::abs(entry - Scalar{1}));
+        Real const error = static_cast<Real>(detail::adl_abs(entry - Scalar{1}));
         projection.basis_max_diag_error = std::max(projection.basis_max_diag_error, error);
         frobenius_squared += error * error;
       }
       else
       {
-        Real const magnitude = static_cast<Real>(std::abs(entry));
+        Real const magnitude = static_cast<Real>(detail::adl_abs(entry));
         projection.basis_max_offdiag = std::max(projection.basis_max_offdiag, magnitude);
         frobenius_squared += Real{2} * magnitude * magnitude;
       }
     }
   }
-  projection.basis_frobenius_error = static_cast<Real>(std::sqrt(frobenius_squared));
+  projection.basis_frobenius_error = static_cast<Real>(detail::adl_sqrt(frobenius_squared));
 }
 
 template <uni20::RealOrComplex Scalar, typename Vector, KrylovMatrixFreeOperator<Vector, Scalar> Ops>
@@ -285,7 +285,7 @@ uni20::make_real_t<Scalar> last_coefficient_residual_estimate(uni20::make_real_t
   {
     return uni20::make_real_t<Scalar>{};
   }
-  return residual_norm * static_cast<uni20::make_real_t<Scalar>>(std::abs(coefficients.back()));
+  return residual_norm * static_cast<uni20::make_real_t<Scalar>>(detail::adl_abs(coefficients.back()));
 }
 
 template <typename TimeScalar, uni20::LapackScalar OutputScalar, typename InputScalar>

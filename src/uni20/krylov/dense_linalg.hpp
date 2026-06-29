@@ -13,6 +13,7 @@
 #include <uni20/config.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/core/scalar_traits.hpp>
+#include <uni20/krylov/detail_math.hpp>
 #include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
 
@@ -6175,10 +6176,10 @@ template <typename Scalar> accumulation_real_t<Scalar> nrm2(std::span<Scalar con
   Real sum{};
   for (Scalar const& value : vector)
   {
-    Real const magnitude = static_cast<Real>(std::abs(value));
+    Real const magnitude = static_cast<Real>(detail::adl_abs(value));
     sum += magnitude * magnitude;
   }
-  return std::sqrt(sum);
+  return detail::adl_sqrt(sum);
 }
 
 /// \brief Copy a selected region of a local dense matrix.

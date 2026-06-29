@@ -85,15 +85,15 @@ Scalar effective_taylor_exponential_tolerance(TaylorExponentialParams<Scalar> co
 template <uni20::Real Scalar>
 void validate_taylor_exponential_params(Scalar operator_norm_bound, TaylorExponentialParams<Scalar> const& params)
 {
-  if (!std::isfinite(operator_norm_bound) || operator_norm_bound < Scalar{})
+  if (!detail::adl_isfinite(operator_norm_bound) || operator_norm_bound < Scalar{})
   {
     throw std::invalid_argument("Taylor exponential requires a finite non-negative operator norm bound");
   }
-  if (params.tolerance < Scalar{} || !std::isfinite(params.tolerance))
+  if (params.tolerance < Scalar{} || !detail::adl_isfinite(params.tolerance))
   {
     throw std::invalid_argument("Taylor exponential requires a finite non-negative tolerance");
   }
-  if (params.step_norm_limit <= Scalar{} || !std::isfinite(params.step_norm_limit))
+  if (params.step_norm_limit <= Scalar{} || !detail::adl_isfinite(params.step_norm_limit))
   {
     throw std::invalid_argument("Taylor exponential requires a positive finite step norm limit");
   }
@@ -215,15 +215,15 @@ taylor_exponential_action(Ops& ops, Vector const& initial, TimeScalar time,
   validate_matrix_free_dimensions(ops, initial, "Taylor exponential");
 
   Scalar const time_scalar = static_cast<Scalar>(time);
-  Real const time_abs = static_cast<Real>(std::abs(time_scalar));
-  if (!std::isfinite(time_abs))
+  Real const time_abs = static_cast<Real>(detail::adl_abs(time_scalar));
+  if (!detail::adl_isfinite(time_abs))
   {
     throw std::invalid_argument("Taylor exponential requires a finite time coefficient");
   }
 
   Real const tolerance = detail::effective_taylor_exponential_tolerance(params);
   Real const scaled_operator_norm = time_abs * operator_norm_bound;
-  if (!std::isfinite(scaled_operator_norm))
+  if (!detail::adl_isfinite(scaled_operator_norm))
   {
     throw std::overflow_error("Taylor exponential scaled operator norm overflowed");
   }

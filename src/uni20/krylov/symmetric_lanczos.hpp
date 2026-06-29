@@ -140,14 +140,16 @@ template <uni20::Real Scalar> GivensRotation<Scalar> lartg_like(Scalar f, Scalar
 {
   if (g == Scalar{})
   {
-    return GivensRotation<Scalar>{f < Scalar{} ? Scalar{-1} : Scalar{1}, Scalar{}, std::abs(f)};
+    return GivensRotation<Scalar>{f < Scalar{} ? Scalar{-1} : Scalar{1}, Scalar{}, adl_abs(f)};
   }
   if (f == Scalar{})
   {
-    return GivensRotation<Scalar>{Scalar{}, g < Scalar{} ? Scalar{-1} : Scalar{1}, std::abs(g)};
+    return GivensRotation<Scalar>{Scalar{}, g < Scalar{} ? Scalar{-1} : Scalar{1}, adl_abs(g)};
   }
 
-  Scalar const r = std::copysign(std::hypot(f, g), f);
+  using std::copysign;
+  using std::hypot;
+  Scalar const r = copysign(hypot(f, g), f);
   return GivensRotation<Scalar>{f / r, g / r, r};
 }
 
@@ -169,13 +171,13 @@ template <uni20::Real Scalar> constexpr Scalar ritz_convergence_floor()
 template <uni20::Real Scalar> Scalar ritz_convergence_floor()
 #endif
 {
-  return std::pow(uni20::numeric_limits<Scalar>::epsilon(), Scalar{2} / Scalar{3});
+  return adl_pow(uni20::numeric_limits<Scalar>::epsilon(), Scalar{2} / Scalar{3});
 }
 
 template <uni20::Real Scalar> bool symmetric_ritz_converged(Scalar value, Scalar residual_bound, Scalar tolerance)
 {
   Scalar const eps23 = ritz_convergence_floor<Scalar>();
-  return residual_bound <= tolerance * std::max(eps23, std::abs(value));
+  return residual_bound <= tolerance * std::max(eps23, adl_abs(value));
 }
 
 template <uni20::Real Scalar>
@@ -196,12 +198,12 @@ bool symmetric_happy_breakdown(Scalar residual_norm, SymmetricEigenParams<Scalar
 template <uni20::RealOrComplex Scalar> uni20::make_real_t<Scalar> hermitian_projection_scalar(Scalar value)
 {
   using Real = uni20::make_real_t<Scalar>;
-  Real const real_part = static_cast<Real>(std::real(value));
+  Real const real_part = static_cast<Real>(adl_real(value));
   if constexpr (uni20::Complex<Scalar>)
   {
-    Real const scale = std::max(Real{1}, std::abs(value));
+    Real const scale = std::max(Real{1}, adl_abs(value));
     Real const tolerance = Real{100} * uni20::numeric_limits<Real>::epsilon() * scale;
-    if (std::abs(std::imag(value)) > tolerance)
+    if (adl_abs(adl_imag(value)) > tolerance)
     {
       throw std::runtime_error("Hermitian Lanczos received a projected diagonal with non-negligible imaginary part");
     }
@@ -221,7 +223,7 @@ orthogonalize_lanczos_residual(Ops& ops, std::vector<Vector> const& basis, Vecto
     for (Vector const& basis_vector : basis)
     {
       Scalar const correction = ops.inner_product(basis_vector, residual);
-      max_correction = std::max(max_correction, static_cast<Real>(std::abs(correction)));
+      max_correction = std::max(max_correction, static_cast<Real>(adl_abs(correction)));
       ops.axpy(residual, -correction, basis_vector);
     }
     return max_correction;
@@ -291,12 +293,12 @@ std::vector<std::size_t> ordered_symmetric_ritz_indices(std::vector<Scalar> cons
   switch (spectrum)
   {
     case SpectrumPart::LargestMagnitude:
-      std::ranges::sort(
-          indices, [&](std::size_t lhs, std::size_t rhs) { return std::abs(values[lhs]) < std::abs(values[rhs]); });
+      std::ranges::sort(indices,
+                        [&](std::size_t lhs, std::size_t rhs) { return adl_abs(values[lhs]) < adl_abs(values[rhs]); });
       break;
     case SpectrumPart::SmallestMagnitude:
-      std::ranges::sort(
-          indices, [&](std::size_t lhs, std::size_t rhs) { return std::abs(values[lhs]) > std::abs(values[rhs]); });
+      std::ranges::sort(indices,
+                        [&](std::size_t lhs, std::size_t rhs) { return adl_abs(values[lhs]) > adl_abs(values[rhs]); });
       break;
     case SpectrumPart::LargestAlgebraic:
     case SpectrumPart::LargestReal:
@@ -331,12 +333,12 @@ std::vector<std::size_t> select_symmetric_ritz_indices(std::vector<Scalar> const
   switch (params.spectrum)
   {
     case SpectrumPart::LargestMagnitude:
-      std::ranges::sort(
-          indices, [&](std::size_t lhs, std::size_t rhs) { return std::abs(values[lhs]) > std::abs(values[rhs]); });
+      std::ranges::sort(indices,
+                        [&](std::size_t lhs, std::size_t rhs) { return adl_abs(values[lhs]) > adl_abs(values[rhs]); });
       break;
     case SpectrumPart::SmallestMagnitude:
-      std::ranges::sort(
-          indices, [&](std::size_t lhs, std::size_t rhs) { return std::abs(values[lhs]) < std::abs(values[rhs]); });
+      std::ranges::sort(indices,
+                        [&](std::size_t lhs, std::size_t rhs) { return adl_abs(values[lhs]) < adl_abs(values[rhs]); });
       break;
     case SpectrumPart::LargestAlgebraic:
     case SpectrumPart::LargestReal:
@@ -379,7 +381,7 @@ std::vector<Scalar> symmetric_ritz_residual_bounds(Scalar residual_norm,
   std::vector<Scalar> residual_bounds(projected.eigenvalues.size(), Scalar{});
   for (std::size_t i = 0; i < residual_bounds.size(); ++i)
   {
-    residual_bounds[i] = residual_norm * std::abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, i));
+    residual_bounds[i] = residual_norm * adl_abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, i));
   }
   return residual_bounds;
 }
@@ -444,7 +446,7 @@ make_symmetric_lanczos_result(Ops& ops, std::vector<Vector> const& basis, uni20:
   {
     std::erase_if(selected, [&](std::size_t ritz_index) {
       Real const residual_bound =
-          residual_norm * std::abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, ritz_index));
+          residual_norm * adl_abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, ritz_index));
       return !symmetric_ritz_converged(projected.eigenvalues[ritz_index], residual_bound, tolerance);
     });
   }
@@ -456,7 +458,7 @@ make_symmetric_lanczos_result(Ops& ops, std::vector<Vector> const& basis, uni20:
   {
     result.eigenvalues.push_back(projected.eigenvalues[ritz_index]);
     Real const residual_bound =
-        residual_norm * std::abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, ritz_index));
+        residual_norm * adl_abs(projected.eigenvectors(projected.eigenvectors.rows() - 1, ritz_index));
     result.residual_bounds.push_back(residual_bound);
     if (symmetric_ritz_converged(projected.eigenvalues[ritz_index], residual_bound, tolerance))
     {
@@ -474,11 +476,9 @@ make_symmetric_lanczos_result(Ops& ops, std::vector<Vector> const& basis, uni20:
     }
   }
 
-  result.status = result.converged_count == static_cast<int>(result.eigenvalues.size()) ? 0 : 1;
-  if (policy == SymmetricResultPolicy::ConvergedWanted)
-  {
-    result.status = 0;
-  }
+  bool const requested_count_available = result.eigenvalues.size() >= static_cast<std::size_t>(params.eigenvalue_count);
+  bool const requested_count_converged = result.converged_count >= params.eigenvalue_count;
+  result.status = requested_count_available && requested_count_converged ? 0 : 1;
   return result;
 }
 } // namespace detail
@@ -547,7 +547,7 @@ select_symmetric_restart(std::vector<Scalar> const& values, std::vector<Scalar> 
   selection.shift_indices.assign(unwanted_indices.begin(),
                                  unwanted_indices.begin() + static_cast<std::ptrdiff_t>(shift_count));
   std::ranges::sort(selection.shift_indices, [&](std::size_t lhs, std::size_t rhs) {
-    return std::abs(residual_bounds[lhs]) > std::abs(residual_bounds[rhs]);
+    return detail::adl_abs(residual_bounds[lhs]) > detail::adl_abs(residual_bounds[rhs]);
   });
   selection.shifts.reserve(selection.shift_indices.size());
   for (std::size_t const index : selection.shift_indices)
@@ -669,8 +669,8 @@ SymmetricQrShiftResult<Scalar> apply_symmetric_qr_shifts(std::vector<Scalar> dia
       std::size_t iend = order - 1;
       for (std::size_t i = istart; i + 1 < order; ++i)
       {
-        Scalar const big = std::abs(diagonal[i]) + std::abs(diagonal[i + 1]);
-        if (std::abs(subdiagonal[i]) <= epsilon * big)
+        Scalar const big = detail::adl_abs(diagonal[i]) + detail::adl_abs(diagonal[i + 1]);
+        if (detail::adl_abs(subdiagonal[i]) <= epsilon * big)
         {
           subdiagonal[i] = Scalar{};
           iend = i;
@@ -747,8 +747,8 @@ SymmetricQrShiftResult<Scalar> apply_symmetric_qr_shifts(std::vector<Scalar> dia
 
   for (std::size_t i = itop; i + 1 < order; ++i)
   {
-    Scalar const big = std::abs(diagonal[i]) + std::abs(diagonal[i + 1]);
-    if (std::abs(subdiagonal[i]) <= epsilon * big)
+    Scalar const big = detail::adl_abs(diagonal[i]) + detail::adl_abs(diagonal[i + 1]);
+    if (detail::adl_abs(subdiagonal[i]) <= epsilon * big)
     {
       subdiagonal[i] = Scalar{};
     }
@@ -927,7 +927,7 @@ symmetric_lanczos_standard(Ops& ops, Vector const& initial,
 
     Real const beta = detail::orthogonalize_lanczos_residual<Scalar>(ops, basis, w);
     Real const previous_beta = step > 0 ? subdiagonal[static_cast<std::size_t>(step - 1)] : Real{};
-    Real const breakdown_scale = std::max({Real{1}, std::abs(alpha), std::abs(previous_beta)});
+    Real const breakdown_scale = std::max({Real{1}, detail::adl_abs(alpha), detail::adl_abs(previous_beta)});
     if (step + 1 == basis_limit || detail::symmetric_happy_breakdown(beta, params, breakdown_scale))
     {
       final_residual_norm = beta;
@@ -1068,7 +1068,7 @@ symmetric_lanczos_restarted_standard(Ops& ops, Vector const& initial,
 
       Real const beta = detail::orthogonalize_lanczos_residual<Scalar>(ops, basis, w);
       Real const previous_beta = step > 0 ? subdiagonal[step - 1] : Real{};
-      Real const breakdown_scale = std::max({Real{1}, std::abs(alpha), std::abs(previous_beta)});
+      Real const breakdown_scale = std::max({Real{1}, detail::adl_abs(alpha), detail::adl_abs(previous_beta)});
       cycle_happy_breakdown = detail::symmetric_happy_breakdown(beta, params, breakdown_scale);
       residual = std::move(w);
       residual_norm = beta;
@@ -1126,7 +1126,7 @@ symmetric_lanczos_restarted_standard(Ops& ops, Vector const& initial,
     residual = std::move(compressed.residual);
     residual_norm = compressed.residual_norm;
     Real const compressed_breakdown_scale =
-        std::max({Real{1}, std::abs(compressed.residual_scale), std::abs(compressed.trailing_coupling)});
+        std::max({Real{1}, detail::adl_abs(compressed.residual_scale), detail::adl_abs(compressed.trailing_coupling)});
 
     if (detail::symmetric_happy_breakdown(residual_norm, params, compressed_breakdown_scale))
     {

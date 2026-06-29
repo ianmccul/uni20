@@ -100,14 +100,14 @@ template <uni20::Real Scalar> constexpr Scalar nonsymmetric_convergence_floor()
 template <uni20::Real Scalar> Scalar nonsymmetric_convergence_floor()
 #endif
 {
-  return std::pow(uni20::numeric_limits<Scalar>::epsilon(), Scalar{2} / Scalar{3});
+  return adl_pow(uni20::numeric_limits<Scalar>::epsilon(), Scalar{2} / Scalar{3});
 }
 
 template <uni20::Real Scalar>
 bool nonsymmetric_ritz_converged(uni20::complex<Scalar> value, Scalar residual_bound, Scalar tolerance)
 {
   Scalar const eps23 = nonsymmetric_convergence_floor<Scalar>();
-  return residual_bound <= tolerance * std::max(eps23, std::abs(value));
+  return residual_bound <= tolerance * std::max(eps23, adl_abs(value));
 }
 
 template <typename Compare> void sort_indices(std::vector<std::size_t>& indices, Compare&& compare)
@@ -132,9 +132,9 @@ template <uni20::LapackReal Scalar> Scalar schur_block_score(RealSchurBlock<Scal
   switch (spectrum)
   {
     case SpectrumPart::LargestMagnitude:
-      return std::max(std::abs(first), std::abs(second));
+      return std::max(adl_abs(first), adl_abs(second));
     case SpectrumPart::SmallestMagnitude:
-      return std::min(std::abs(first), std::abs(second));
+      return std::min(adl_abs(first), adl_abs(second));
     case SpectrumPart::LargestReal:
       return std::max(first.real(), second.real());
     case SpectrumPart::SmallestReal:
@@ -253,9 +253,12 @@ NonsymmetricEigenResult<Scalar, Vector> make_real_nonsymmetric_arnoldi_result(
   }
   else
   {
-    result.status = result.converged_count == static_cast<int>(result.eigenvalues.size())
-                        ? NonsymmetricStatus::Converged
-                        : NonsymmetricStatus::NotConverged;
+    result.status = result.converged_count == params.eigenvalue_count ? NonsymmetricStatus::Converged
+                                                                      : NonsymmetricStatus::NotConverged;
+  }
+  if (result.eigenvalues.size() < static_cast<std::size_t>(params.eigenvalue_count))
+  {
+    result.status = factorization.happy_breakdown ? NonsymmetricStatus::Breakdown : NonsymmetricStatus::NotConverged;
   }
 
   return result;
@@ -320,9 +323,12 @@ NonsymmetricEigenResult<Real, Vector> make_complex_nonsymmetric_arnoldi_result(
     result.diagnostics = std::move(diagnostics);
   }
 
-  result.status = result.converged_count == static_cast<int>(result.eigenvalues.size())
-                      ? NonsymmetricStatus::Converged
-                      : NonsymmetricStatus::NotConverged;
+  result.status = result.converged_count == params.eigenvalue_count ? NonsymmetricStatus::Converged
+                                                                    : NonsymmetricStatus::NotConverged;
+  if (result.eigenvalues.size() < static_cast<std::size_t>(params.eigenvalue_count))
+  {
+    result.status = factorization.happy_breakdown ? NonsymmetricStatus::Breakdown : NonsymmetricStatus::NotConverged;
+  }
   return result;
 }
 } // namespace detail
@@ -354,7 +360,7 @@ uni20::make_real_t<Scalar> projected_departure_from_normality(Matrix<Scalar> con
     for (std::size_t row = 0; row < order; ++row)
     {
       Scalar const value = matrix(row, col);
-      norm_squared += std::norm(value);
+      norm_squared += detail::abs_squared(value);
     }
   }
 
@@ -371,12 +377,12 @@ uni20::make_real_t<Scalar> projected_departure_from_normality(Matrix<Scalar> con
         hht += matrix(row, inner) * detail::conjugate_if_complex(matrix(col, inner));
       }
       Scalar const difference = hth - hht;
-      commutator_norm_squared += std::norm(difference);
+      commutator_norm_squared += detail::abs_squared(difference);
     }
   }
 
   Real const scale = std::max(Real{1}, norm_squared);
-  return std::sqrt(commutator_norm_squared) / scale;
+  return detail::adl_sqrt(commutator_norm_squared) / scale;
 }
 
 /// \brief Build a full-reorthogonalized Arnoldi factorization.
@@ -523,7 +529,7 @@ ArnoldiRitzExtraction<Scalar> extract_arnoldi_ritz(ArnoldiFactorization<Scalar, 
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
       Scalar const value = factorization.hessenberg(row, col);
-      hessenberg_scale = std::max(hessenberg_scale, std::abs(value));
+      hessenberg_scale = std::max(hessenberg_scale, detail::adl_abs(value));
     }
   }
 
@@ -537,21 +543,21 @@ ArnoldiRitzExtraction<Scalar> extract_arnoldi_ritz(ArnoldiFactorization<Scalar, 
 
   Scalar const beta = factorization.happy_breakdown
                           ? Scalar{}
-                          : std::abs(factorization.hessenberg(projected_dimension, projected_dimension - 1));
+                          : detail::adl_abs(factorization.hessenberg(projected_dimension, projected_dimension - 1));
   Scalar const classification_scale = std::max(scale, hessenberg_scale);
   for (std::size_t col = 0; col < projected_dimension; ++col)
   {
     Scalar norm_squared = Scalar{};
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
-      norm_squared += std::norm(result.projected_right_eigenvectors(row, col));
+      norm_squared += detail::abs_squared(result.projected_right_eigenvectors(row, col));
     }
-    Scalar const vector_norm = std::sqrt(norm_squared);
+    Scalar const vector_norm = detail::adl_sqrt(norm_squared);
     if (vector_norm == Scalar{})
     {
       throw std::runtime_error("extract_arnoldi_ritz received a zero projected eigenvector from LAPACK");
     }
-    Scalar const last_component = std::abs(result.projected_right_eigenvectors(projected_dimension - 1, col));
+    Scalar const last_component = detail::adl_abs(result.projected_right_eigenvectors(projected_dimension - 1, col));
     result.residual_bounds[col] = beta * last_component / vector_norm;
     result.reality[col] = classify_ritz_reality(result.ritz_values[col], complex_pair_tolerance, classification_scale);
   }
@@ -595,7 +601,7 @@ extract_complex_arnoldi_ritz(ArnoldiFactorization<uni20::complex<Real>, Vector> 
   {
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
-      hessenberg_scale = std::max(hessenberg_scale, std::abs(factorization.hessenberg(row, col)));
+      hessenberg_scale = std::max(hessenberg_scale, detail::adl_abs(factorization.hessenberg(row, col)));
     }
   }
 
@@ -609,21 +615,21 @@ extract_complex_arnoldi_ritz(ArnoldiFactorization<uni20::complex<Real>, Vector> 
 
   Real const beta = factorization.happy_breakdown
                         ? Real{}
-                        : std::abs(factorization.hessenberg(projected_dimension, projected_dimension - 1));
+                        : detail::adl_abs(factorization.hessenberg(projected_dimension, projected_dimension - 1));
   Real const classification_scale = std::max(scale, hessenberg_scale);
   for (std::size_t col = 0; col < projected_dimension; ++col)
   {
     Real norm_squared = Real{};
     for (std::size_t row = 0; row < projected_dimension; ++row)
     {
-      norm_squared += std::norm(result.projected_right_eigenvectors(row, col));
+      norm_squared += detail::abs_squared(result.projected_right_eigenvectors(row, col));
     }
-    Real const vector_norm = std::sqrt(norm_squared);
+    Real const vector_norm = detail::adl_sqrt(norm_squared);
     if (vector_norm == Real{})
     {
       throw std::runtime_error("extract_complex_arnoldi_ritz received a zero projected eigenvector from LAPACK");
     }
-    Real const last_component = std::abs(result.projected_right_eigenvectors(projected_dimension - 1, col));
+    Real const last_component = detail::adl_abs(result.projected_right_eigenvectors(projected_dimension - 1, col));
     result.residual_bounds[col] = beta * last_component / vector_norm;
     result.reality[col] = classify_ritz_reality(result.ritz_values[col], complex_pair_tolerance, classification_scale);
   }
@@ -661,12 +667,14 @@ std::vector<std::size_t> select_nonsymmetric_ritz_indices(std::vector<uni20::com
   switch (params.spectrum)
   {
     case SpectrumPart::LargestMagnitude:
-      detail::sort_indices(
-          indices, [&](std::size_t lhs, std::size_t rhs) { return std::abs(values[lhs]) > std::abs(values[rhs]); });
+      detail::sort_indices(indices, [&](std::size_t lhs, std::size_t rhs) {
+        return detail::adl_abs(values[lhs]) > detail::adl_abs(values[rhs]);
+      });
       break;
     case SpectrumPart::SmallestMagnitude:
-      detail::sort_indices(
-          indices, [&](std::size_t lhs, std::size_t rhs) { return std::abs(values[lhs]) < std::abs(values[rhs]); });
+      detail::sort_indices(indices, [&](std::size_t lhs, std::size_t rhs) {
+        return detail::adl_abs(values[lhs]) < detail::adl_abs(values[rhs]);
+      });
       break;
     case SpectrumPart::LargestReal:
       detail::sort_indices(indices,
@@ -693,6 +701,16 @@ std::vector<std::size_t> select_nonsymmetric_ritz_indices(std::vector<uni20::com
   indices.resize(static_cast<std::size_t>(params.eigenvalue_count));
   return indices;
 }
+
+namespace detail
+{
+template <typename Scalar> std::vector<std::size_t> all_ritz_indices(std::vector<uni20::complex<Scalar>> const& values)
+{
+  std::vector<std::size_t> indices(values.size());
+  std::iota(indices.begin(), indices.end(), std::size_t{0});
+  return indices;
+}
+} // namespace detail
 
 /// \brief Select retained Ritz or Schur indices for a nonsymmetric thick restart.
 /// \tparam Scalar Real scalar type.
@@ -1245,90 +1263,14 @@ real_nonsymmetric_arnoldi_standard(Ops& ops, Vector const& initial, Nonsymmetric
 
   ArnoldiFactorization<Scalar, Vector> factorization = arnoldi_factorize<Scalar>(ops, initial, basis_limit);
   ArnoldiRitzExtraction<Scalar> ritz = extract_arnoldi_ritz(factorization, params.complex_pair_tolerance);
-  std::vector<std::size_t> const selected = select_nonsymmetric_ritz_indices(ritz.ritz_values, params);
+  bool const undersized_projection = ritz.ritz_values.size() < static_cast<std::size_t>(params.eigenvalue_count);
+  std::vector<std::size_t> const selected = undersized_projection
+                                                ? detail::all_ritz_indices(ritz.ritz_values)
+                                                : select_nonsymmetric_ritz_indices(ritz.ritz_values, params);
   Scalar const projected_departure = projected_departure_from_normality(arnoldi_projected_hessenberg(factorization));
-
-  Scalar const tolerance =
-      params.tolerance > Scalar{} ? params.tolerance : Scalar{100} * uni20::numeric_limits<Scalar>::epsilon();
-
-  NonsymmetricEigenResult<Scalar, Vector> result;
-  result.iteration_count = factorization.op_count;
-  result.matvec_count = factorization.op_count;
-  result.eigenvalues.reserve(selected.size());
-  result.residual_bounds.reserve(selected.size());
-  result.reality.reserve(selected.size());
-  result.right_eigenvectors.reserve(params.compute_eigenvectors ? selected.size() : 0);
-
-  bool saw_complex = false;
-  bool saw_ambiguous = false;
-  for (std::size_t const index : selected)
-  {
-    uni20::complex<Scalar> const value = ritz.ritz_values[index];
-    Scalar const residual_bound = ritz.residual_bounds[index];
-    RitzReality const reality = ritz.reality[index];
-
-    result.eigenvalues.push_back(value);
-    result.residual_bounds.push_back(residual_bound);
-    result.reality.push_back(reality);
-    if (detail::nonsymmetric_ritz_converged(value, residual_bound, tolerance))
-    {
-      ++result.converged_count;
-    }
-
-    saw_complex = saw_complex || reality == RitzReality::Complex;
-    saw_ambiguous = saw_ambiguous || reality == RitzReality::Ambiguous;
-    if (params.compute_eigenvectors && reality == RitzReality::Real)
-    {
-      Vector vector = ops.allocate_like(initial);
-      ops.set_zero(vector);
-      for (std::size_t row = 0; row < static_cast<std::size_t>(factorization.step_count); ++row)
-      {
-        ops.axpy(vector, ritz.projected_right_eigenvectors(row, index).real(), factorization.basis[row]);
-      }
-      result.right_eigenvectors.push_back(std::move(vector));
-    }
-  }
-
-  if (params.diagnostics != KrylovDiagnosticsLevel::None)
-  {
-    NonsymmetricArnoldiDiagnostics<Scalar> diagnostics;
-    diagnostics.op_count = factorization.op_count;
-    diagnostics.final_projected_dimension = factorization.step_count;
-    diagnostics.final_residual_norm = factorization.residual_norm;
-    diagnostics.projected_departure_from_normality = projected_departure;
-    diagnostics.final_ritz_values = ritz.ritz_values;
-    diagnostics.final_ritz_bounds = ritz.residual_bounds;
-    diagnostics.final_ritz_reality = ritz.reality;
-    result.diagnostics = std::move(diagnostics);
-  }
-
-  if (saw_ambiguous)
-  {
-    result.status = NonsymmetricStatus::AmbiguousReality;
-  }
-  else if (saw_complex)
-  {
-    switch (params.real_policy)
-    {
-      case RealNonsymmetricPolicy::RequireRealEigenpairs:
-        result.status = NonsymmetricStatus::ComplexPairEncountered;
-        break;
-      case RealNonsymmetricPolicy::PromoteToComplexSuggested:
-        result.status = NonsymmetricStatus::ComplexPromotionRecommended;
-        break;
-      case RealNonsymmetricPolicy::AllowRealSchurPairs:
-        result.status = NonsymmetricStatus::RealSchurPairRequired;
-        break;
-    }
-  }
-  else
-  {
-    result.status = result.converged_count == static_cast<int>(result.eigenvalues.size())
-                        ? NonsymmetricStatus::Converged
-                        : NonsymmetricStatus::NotConverged;
-  }
-
-  return result;
+  return detail::make_real_nonsymmetric_arnoldi_result(ops, factorization, ritz, selected, params,
+                                                       factorization.op_count, factorization.op_count, 0,
+                                                       projected_departure);
 }
 
 /// \brief Run a restarted complex nonsymmetric Arnoldi solver.
@@ -1383,7 +1325,10 @@ NonsymmetricEigenResult<Real, Vector> complex_nonsymmetric_arnoldi_standard(Ops&
   while (true)
   {
     ArnoldiRitzExtraction<Real> ritz = extract_complex_arnoldi_ritz<Real>(factorization, params.complex_pair_tolerance);
-    std::vector<std::size_t> const selected = select_nonsymmetric_ritz_indices(ritz.ritz_values, params);
+    bool const undersized_projection = ritz.ritz_values.size() < static_cast<std::size_t>(params.eigenvalue_count);
+    std::vector<std::size_t> const selected = undersized_projection
+                                                  ? detail::all_ritz_indices(ritz.ritz_values)
+                                                  : select_nonsymmetric_ritz_indices(ritz.ritz_values, params);
     Real const projected_departure = projected_departure_from_normality(arnoldi_projected_hessenberg(factorization));
     NonsymmetricEigenResult<Real, Vector> result = detail::make_complex_nonsymmetric_arnoldi_result(
         ops, factorization, ritz, selected, params, matvec_count, matvec_count, restart_count, projected_departure);
@@ -1482,7 +1427,10 @@ real_nonsymmetric_arnoldi_restarted_standard(Ops& ops, Vector const& initial,
   while (true)
   {
     ArnoldiRitzExtraction<Scalar> ritz = extract_arnoldi_ritz(factorization, params.complex_pair_tolerance);
-    std::vector<std::size_t> const selected = select_nonsymmetric_ritz_indices(ritz.ritz_values, params);
+    bool const undersized_projection = ritz.ritz_values.size() < static_cast<std::size_t>(params.eigenvalue_count);
+    std::vector<std::size_t> const selected = undersized_projection
+                                                  ? detail::all_ritz_indices(ritz.ritz_values)
+                                                  : select_nonsymmetric_ritz_indices(ritz.ritz_values, params);
     Scalar const projected_departure = projected_departure_from_normality(arnoldi_projected_hessenberg(factorization));
     NonsymmetricEigenResult<Scalar, Vector> result = detail::make_real_nonsymmetric_arnoldi_result(
         ops, factorization, ritz, selected, params, matvec_count, matvec_count, restart_count, projected_departure);
