@@ -899,6 +899,19 @@ TEST(KrylovSymmetricLanczos, RitzConvergenceUsesMachinePrecisionFloor)
   EXPECT_TRUE(uni20::krylov::detail::symmetric_ritz_converged(tiny_ritz_value, 0.5 * tolerance * floor, tolerance));
 }
 
+TEST(KrylovSymmetricLanczos, HermitianProjectionImaginaryToleranceUsesLocalActionScale)
+{
+  using Complex = uni20::complex<double>;
+
+  Complex const projected_diagonal{0.0, 1.0e-10};
+
+  EXPECT_THROW((void)uni20::krylov::detail::hermitian_projection_scalar(projected_diagonal), std::runtime_error);
+  EXPECT_NO_THROW({
+    double const real_part = uni20::krylov::detail::hermitian_projection_scalar(projected_diagonal, 1.0e8);
+    EXPECT_EQ(real_part, 0.0);
+  });
+}
+
 TEST(KrylovSymmetricLanczos, SelectsLargestAlgebraicRestartShiftsByResidualBound)
 {
   using uni20::krylov::SpectrumPart;

@@ -110,6 +110,48 @@ bool nonsymmetric_ritz_converged(uni20::complex<Scalar> value, Scalar residual_b
   return residual_bound <= tolerance * std::max(eps23, adl_abs(value));
 }
 
+template <uni20::Real Scalar> Scalar arnoldi_breakdown_threshold(Scalar tolerance, Scalar local_scale)
+{
+  Scalar const base_tolerance =
+      tolerance > Scalar{} ? tolerance : Scalar{10} * uni20::numeric_limits<Scalar>::epsilon();
+  return base_tolerance * std::max(Scalar{1}, local_scale);
+}
+
+template <uni20::RealOrComplex Scalar>
+uni20::make_real_t<Scalar> arnoldi_hessenberg_column_scale(Matrix<Scalar> const& hessenberg, std::size_t column,
+                                                           std::size_t coefficient_count,
+                                                           uni20::make_real_t<Scalar> residual_norm)
+{
+  using Real = uni20::make_real_t<Scalar>;
+  Real scale = std::max(Real{1}, residual_norm);
+  for (std::size_t row = 0; row < coefficient_count; ++row)
+  {
+    scale = std::max(scale, static_cast<Real>(adl_abs(hessenberg[row, column])));
+  }
+  return scale;
+}
+
+template <uni20::RealOrComplex Scalar>
+uni20::make_real_t<Scalar> arnoldi_compressed_relation_scale(Matrix<Scalar> const& schur_form,
+                                                             std::vector<Scalar> const& residual_coupling,
+                                                             uni20::make_real_t<Scalar> residual_norm)
+{
+  using Real = uni20::make_real_t<Scalar>;
+  Real scale = std::max(Real{1}, residual_norm);
+  for (std::size_t col = 0; col < schur_form.cols(); ++col)
+  {
+    for (std::size_t row = 0; row < schur_form.rows(); ++row)
+    {
+      scale = std::max(scale, static_cast<Real>(adl_abs(schur_form[row, col])));
+    }
+  }
+  for (Scalar const& coupling : residual_coupling)
+  {
+    scale = std::max(scale, static_cast<Real>(residual_norm * adl_abs(coupling)));
+  }
+  return scale;
+}
+
 template <typename Compare> void sort_indices(std::vector<std::size_t>& indices, Compare&& compare)
 {
   std::ranges::sort(indices, [&](std::size_t lhs, std::size_t rhs) {
@@ -413,9 +455,6 @@ arnoldi_factorize(Ops& ops, Vector const& initial, int max_steps,
 
   using Real = uni20::make_real_t<Scalar>;
 
-  Real const effective_breakdown_tolerance =
-      breakdown_tolerance > Real{} ? breakdown_tolerance : Real{10} * uni20::numeric_limits<Real>::epsilon();
-
   Vector q0 = ops.allocate_like(initial);
   ops.copy(q0, initial);
   Real const initial_norm = norm_or_inner_product<Scalar>(ops, q0);
@@ -449,7 +488,9 @@ arnoldi_factorize(Ops& ops, Vector const& initial, int max_steps,
     Real const beta = norm_or_inner_product<Scalar>(ops, residual);
     factorization.residual_norm = beta;
     factorization.step_count = step + 1;
-    if (beta <= effective_breakdown_tolerance)
+    Real const breakdown_scale = detail::arnoldi_hessenberg_column_scale(
+        factorization.hessenberg, static_cast<std::size_t>(step), static_cast<std::size_t>(step + 1), beta);
+    if (beta <= detail::arnoldi_breakdown_threshold(breakdown_tolerance, breakdown_scale))
     {
       factorization.happy_breakdown = true;
       break;
@@ -930,9 +971,6 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
     throw std::invalid_argument("real Schur Arnoldi expansion target exceeds problem dimension");
   }
 
-  Scalar const effective_breakdown_tolerance =
-      breakdown_tolerance > Scalar{} ? breakdown_tolerance : Scalar{10} * uni20::numeric_limits<Scalar>::epsilon();
-
   ArnoldiFactorization<Scalar, Vector> factorization;
   factorization.hessenberg = Matrix<Scalar>(target_step_count + 1, target_step_count);
   factorization.basis.reserve(target_step_count + 1);
@@ -953,10 +991,13 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
 
   factorization.step_count = static_cast<int>(retained_count);
   factorization.residual_norm = compressed.residual_norm;
-  if (compressed.residual_norm <= effective_breakdown_tolerance)
+  Scalar const compressed_breakdown_scale = detail::arnoldi_compressed_relation_scale(
+      compressed.schur_form, compressed.residual_coupling, compressed.residual_norm);
+  if (compressed.residual_norm <= detail::arnoldi_breakdown_threshold(breakdown_tolerance, compressed_breakdown_scale))
   {
     factorization.happy_breakdown =
-        compressed.happy_breakdown || compressed.residual_norm <= effective_breakdown_tolerance;
+        compressed.happy_breakdown || compressed.residual_norm <= detail::arnoldi_breakdown_threshold(
+                                                                      breakdown_tolerance, compressed_breakdown_scale);
     return factorization;
   }
 
@@ -992,7 +1033,9 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
     Scalar const beta = norm_or_inner_product<Scalar>(ops, residual);
     factorization.residual_norm = beta;
     factorization.step_count = static_cast<int>(step + 1);
-    if (beta <= effective_breakdown_tolerance)
+    Scalar const breakdown_scale =
+        detail::arnoldi_hessenberg_column_scale(factorization.hessenberg, step, step + 1, beta);
+    if (beta <= detail::arnoldi_breakdown_threshold(breakdown_tolerance, breakdown_scale))
     {
       factorization.happy_breakdown = true;
       break;
@@ -1149,9 +1192,6 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
     throw std::invalid_argument("complex Schur Arnoldi expansion target exceeds problem dimension");
   }
 
-  Real const effective_breakdown_tolerance =
-      breakdown_tolerance > Real{} ? breakdown_tolerance : Real{10} * uni20::numeric_limits<Real>::epsilon();
-
   ArnoldiFactorization<Complex, Vector> factorization;
   factorization.hessenberg = Matrix<Complex>(target_step_count + 1, target_step_count);
   factorization.basis.reserve(target_step_count + 1);
@@ -1172,10 +1212,13 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
 
   factorization.step_count = static_cast<int>(retained_count);
   factorization.residual_norm = compressed.residual_norm;
-  if (compressed.residual_norm <= effective_breakdown_tolerance)
+  Real const compressed_breakdown_scale = detail::arnoldi_compressed_relation_scale(
+      compressed.schur_form, compressed.residual_coupling, compressed.residual_norm);
+  if (compressed.residual_norm <= detail::arnoldi_breakdown_threshold(breakdown_tolerance, compressed_breakdown_scale))
   {
     factorization.happy_breakdown =
-        compressed.happy_breakdown || compressed.residual_norm <= effective_breakdown_tolerance;
+        compressed.happy_breakdown || compressed.residual_norm <= detail::arnoldi_breakdown_threshold(
+                                                                      breakdown_tolerance, compressed_breakdown_scale);
     return factorization;
   }
 
@@ -1211,7 +1254,9 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
     Real const beta = norm_or_inner_product<Complex>(ops, residual);
     factorization.residual_norm = beta;
     factorization.step_count = static_cast<int>(step + 1);
-    if (beta <= effective_breakdown_tolerance)
+    Real const breakdown_scale =
+        detail::arnoldi_hessenberg_column_scale(factorization.hessenberg, step, step + 1, beta);
+    if (beta <= detail::arnoldi_breakdown_threshold(breakdown_tolerance, breakdown_scale))
     {
       factorization.happy_breakdown = true;
       break;
@@ -1332,38 +1377,51 @@ NonsymmetricEigenResult<Real, Vector> complex_nonsymmetric_arnoldi_standard(Ops&
                                                   ? detail::all_ritz_indices(ritz.ritz_values)
                                                   : select_nonsymmetric_ritz_indices(ritz.ritz_values, params);
     Real const projected_departure = projected_departure_from_normality(arnoldi_projected_hessenberg(factorization));
-    NonsymmetricEigenResult<Real, Vector> result = detail::make_complex_nonsymmetric_arnoldi_result(
-        ops, factorization, ritz, selected, params, matvec_count, matvec_count, restart_count, projected_departure);
+    auto make_cycle_result = [&](NonsymmetricEigenParams<Real> const& result_params) {
+      return detail::make_complex_nonsymmetric_arnoldi_result(ops, factorization, ritz, selected, result_params,
+                                                              matvec_count, matvec_count, restart_count,
+                                                              projected_departure);
+    };
+    NonsymmetricEigenParams<Real> intermediate_params = params;
+    intermediate_params.compute_eigenvectors = false;
+    NonsymmetricEigenResult<Real, Vector> result = make_cycle_result(intermediate_params);
+    auto make_final_result = [&]() {
+      if (params.compute_eigenvectors)
+      {
+        return make_cycle_result(params);
+      }
+      return std::move(result);
+    };
 
     bool const all_selected_converged = result.converged_count == static_cast<int>(selected.size());
     if (all_selected_converged || factorization.happy_breakdown || matvec_count >= params.max_iterations)
     {
-      return result;
+      return make_final_result();
     }
 
     if (basis_limit == params.eigenvalue_count ||
         static_cast<std::size_t>(factorization.step_count) <= static_cast<std::size_t>(requested_retained_count))
     {
-      return result;
+      return make_final_result();
     }
 
     auto compressed = compress_complex_schur_arnoldi_restart<Real>(ops, factorization, params);
     ++restart_count;
     if (compressed.basis.size() >= static_cast<std::size_t>(basis_limit))
     {
-      return result;
+      return make_final_result();
     }
 
     int const remaining_matvecs = params.max_iterations - matvec_count;
     if (remaining_matvecs <= 0)
     {
-      return result;
+      return make_final_result();
     }
     std::size_t const expansion_count = std::min<std::size_t>(
         static_cast<std::size_t>(basis_limit) - compressed.basis.size(), static_cast<std::size_t>(remaining_matvecs));
     if (expansion_count == 0)
     {
-      return result;
+      return make_final_result();
     }
     std::size_t const target_step_count = compressed.basis.size() + expansion_count;
     factorization = expand_complex_schur_arnoldi_restart<Real>(ops, compressed, target_step_count);
@@ -1437,38 +1495,51 @@ real_nonsymmetric_arnoldi_restarted_standard(Ops& ops, Vector const& initial,
                                                   ? detail::all_ritz_indices(ritz.ritz_values)
                                                   : select_nonsymmetric_ritz_indices(ritz.ritz_values, params);
     Scalar const projected_departure = projected_departure_from_normality(arnoldi_projected_hessenberg(factorization));
-    NonsymmetricEigenResult<Scalar, Vector> result = detail::make_real_nonsymmetric_arnoldi_result(
-        ops, factorization, ritz, selected, params, matvec_count, matvec_count, restart_count, projected_departure);
+    auto make_cycle_result = [&](NonsymmetricEigenParams<Scalar> const& result_params) {
+      return detail::make_real_nonsymmetric_arnoldi_result(ops, factorization, ritz, selected, result_params,
+                                                           matvec_count, matvec_count, restart_count,
+                                                           projected_departure);
+    };
+    NonsymmetricEigenParams<Scalar> intermediate_params = params;
+    intermediate_params.compute_eigenvectors = false;
+    NonsymmetricEigenResult<Scalar, Vector> result = make_cycle_result(intermediate_params);
+    auto make_final_result = [&]() {
+      if (params.compute_eigenvectors)
+      {
+        return make_cycle_result(params);
+      }
+      return std::move(result);
+    };
 
     bool const all_selected_converged = result.converged_count == static_cast<int>(selected.size());
     if (all_selected_converged || factorization.happy_breakdown || matvec_count >= params.max_iterations)
     {
-      return result;
+      return make_final_result();
     }
 
     if (basis_limit == params.eigenvalue_count ||
         static_cast<std::size_t>(factorization.step_count) <= static_cast<std::size_t>(requested_retained_count))
     {
-      return result;
+      return make_final_result();
     }
 
     auto compressed = compress_real_schur_arnoldi_restart<Scalar>(ops, factorization, params);
     ++restart_count;
     if (compressed.basis.size() >= static_cast<std::size_t>(basis_limit))
     {
-      return result;
+      return make_final_result();
     }
 
     int const remaining_matvecs = params.max_iterations - matvec_count;
     if (remaining_matvecs <= 0)
     {
-      return result;
+      return make_final_result();
     }
     std::size_t const expansion_count = std::min<std::size_t>(
         static_cast<std::size_t>(basis_limit) - compressed.basis.size(), static_cast<std::size_t>(remaining_matvecs));
     if (expansion_count == 0)
     {
-      return result;
+      return make_final_result();
     }
     std::size_t const target_step_count = compressed.basis.size() + expansion_count;
     factorization = expand_real_schur_arnoldi_restart<Scalar>(ops, compressed, target_step_count);

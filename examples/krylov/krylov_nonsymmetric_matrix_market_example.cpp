@@ -716,7 +716,7 @@ template <typename Scalar> int run_example(ExampleOptions const& options)
   append_diagnostics(report, result);
 
   fmt::print("{}", presentation::render_terminal(report, policy, stdout));
-  return 0;
+  return converged_status ? 0 : 2;
 }
 
 } // namespace

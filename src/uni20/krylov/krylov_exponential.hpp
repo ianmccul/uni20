@@ -189,8 +189,9 @@ hermitian_exponential_projection(Ops& ops, Vector const& initial,
                result.basis[static_cast<std::size_t>(step - 1)]);
     }
 
-    Real const alpha =
-        detail::hermitian_projection_scalar(ops.inner_product(result.basis[static_cast<std::size_t>(step)], residual));
+    Real const projection_scale = detail::hermitian_projection_scale<Scalar>(ops, residual);
+    Real const alpha = detail::hermitian_projection_scalar(
+        ops.inner_product(result.basis[static_cast<std::size_t>(step)], residual), projection_scale);
     diagonal.push_back(alpha);
     ops.axpy(residual, -static_cast<Scalar>(alpha), result.basis[static_cast<std::size_t>(step)]);
 

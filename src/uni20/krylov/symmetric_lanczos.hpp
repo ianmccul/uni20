@@ -197,13 +197,29 @@ bool symmetric_happy_breakdown(Scalar residual_norm, SymmetricEigenParams<Scalar
   return residual_norm <= symmetric_breakdown_threshold(params, local_scale);
 }
 
-template <uni20::RealOrComplex Scalar> uni20::make_real_t<Scalar> hermitian_projection_scalar(Scalar value)
+template <uni20::RealOrComplex Scalar, typename Vector, typename Ops>
+uni20::make_real_t<Scalar> hermitian_projection_scale(Ops& ops, Vector const& action)
+{
+  using Real = uni20::make_real_t<Scalar>;
+  if constexpr (uni20::Complex<Scalar>)
+  {
+    return norm_or_inner_product<Scalar>(ops, action);
+  }
+  else
+  {
+    return Real{1};
+  }
+}
+
+template <uni20::RealOrComplex Scalar>
+uni20::make_real_t<Scalar>
+hermitian_projection_scalar(Scalar value, uni20::make_real_t<Scalar> local_scale = uni20::make_real_t<Scalar>{1})
 {
   using Real = uni20::make_real_t<Scalar>;
   Real const real_part = static_cast<Real>(adl_real(value));
   if constexpr (uni20::Complex<Scalar>)
   {
-    Real const scale = std::max(Real{1}, adl_abs(value));
+    Real const scale = std::max({Real{1}, local_scale, static_cast<Real>(adl_abs(value))});
     Real const tolerance = Real{100} * uni20::numeric_limits<Real>::epsilon() * scale;
     if (adl_abs(adl_imag(value)) > tolerance)
     {
@@ -940,7 +956,9 @@ symmetric_lanczos_standard(Ops& ops, Vector const& initial,
                basis[static_cast<std::size_t>(step - 1)]);
     }
 
-    Real const alpha = detail::hermitian_projection_scalar(ops.inner_product(basis[static_cast<std::size_t>(step)], w));
+    Real const projection_scale = detail::hermitian_projection_scale<Scalar>(ops, w);
+    Real const alpha = detail::hermitian_projection_scalar(ops.inner_product(basis[static_cast<std::size_t>(step)], w),
+                                                           projection_scale);
     diagonal.push_back(alpha);
     ops.axpy(w, -static_cast<Scalar>(alpha), basis[static_cast<std::size_t>(step)]);
 
@@ -1083,7 +1101,8 @@ symmetric_lanczos_restarted_standard(Ops& ops, Vector const& initial,
         ops.axpy(w, -static_cast<Scalar>(subdiagonal[step - 1]), basis[step - 1]);
       }
 
-      Real const alpha = detail::hermitian_projection_scalar(ops.inner_product(basis[step], w));
+      Real const projection_scale = detail::hermitian_projection_scale<Scalar>(ops, w);
+      Real const alpha = detail::hermitian_projection_scalar(ops.inner_product(basis[step], w), projection_scale);
       diagonal.push_back(alpha);
       ops.axpy(w, -static_cast<Scalar>(alpha), basis[step]);
 

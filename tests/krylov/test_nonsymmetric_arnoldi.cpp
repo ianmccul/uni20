@@ -771,6 +771,16 @@ TEST(KrylovNonsymmetricArnoldi, ReportsHappyBreakdownOnInvariantSubspace)
   EXPECT_NEAR(factorization.residual_norm, 0.0, 1.0e-14);
 }
 
+TEST(KrylovNonsymmetricArnoldi, BreakdownThresholdScalesWithLocalRelation)
+{
+  double const unit_threshold = uni20::krylov::detail::arnoldi_breakdown_threshold(0.0, 1.0);
+  double const large_threshold = uni20::krylov::detail::arnoldi_breakdown_threshold(0.0, 1.0e12);
+
+  EXPECT_LT(unit_threshold, 1.0e-12);
+  EXPECT_GT(large_threshold, 1.0e-6);
+  EXPECT_LT(large_threshold, 1.0e-2);
+}
+
 TEST(KrylovNonsymmetricArnoldi, ExtractsRealRitzValuesFromInvariantSubspace)
 {
   std::vector<double> const matrix{
@@ -1271,6 +1281,17 @@ TYPED_TEST(KrylovNonsymmetricArnoldiComplexTypedTest, RestartedSolveConvergesOnC
   ASSERT_TRUE(result.diagnostics.has_value());
   EXPECT_GT(result.diagnostics->restart_count, 0);
 
+  NonsymmetricEigenParams<Real> no_vector_params = params;
+  no_vector_params.compute_eigenvectors = false;
+  DenseHostVectorOps<Complex> no_vector_ops(4, matrix);
+  auto no_vector_result =
+      uni20::krylov::complex_nonsymmetric_arnoldi_standard<Real>(no_vector_ops, initial, no_vector_params);
+  ASSERT_EQ(no_vector_result.status, NonsymmetricStatus::Converged);
+  EXPECT_TRUE(no_vector_result.right_eigenvectors.empty());
+  int const reconstruction_axpy_count = ops.axpy_count() - no_vector_ops.axpy_count();
+  EXPECT_GE(reconstruction_axpy_count, 0);
+  EXPECT_LE(reconstruction_axpy_count, params.eigenvalue_count * params.krylov_dimension);
+
   auto nearest = [&](Complex target) {
     return std::abs(result.eigenvalues[0] - target) < std::abs(result.eigenvalues[1] - target) ? result.eigenvalues[0]
                                                                                                : result.eigenvalues[1];
@@ -1375,6 +1396,16 @@ TEST(KrylovNonsymmetricArnoldi, RestartedSolveConvergesOnRealNonsymmetricDiagona
   EXPECT_NEAR(result.eigenvalues[1].real(), 5.0, 1.0e-11);
   EXPECT_NEAR(result.eigenvalues[0].imag(), 0.0, 1.0e-12);
   EXPECT_NEAR(result.eigenvalues[1].imag(), 0.0, 1.0e-12);
+  NonsymmetricEigenParams<double> no_vector_params = params;
+  no_vector_params.compute_eigenvectors = false;
+  DenseHostVectorOps<double> no_vector_ops(4, matrix);
+  auto no_vector_result =
+      uni20::krylov::real_nonsymmetric_arnoldi_restarted_standard(no_vector_ops, initial, no_vector_params);
+  ASSERT_EQ(no_vector_result.status, NonsymmetricStatus::Converged);
+  EXPECT_TRUE(no_vector_result.right_eigenvectors.empty());
+  int const reconstruction_axpy_count = ops.axpy_count() - no_vector_ops.axpy_count();
+  EXPECT_GE(reconstruction_axpy_count, 0);
+  EXPECT_LE(reconstruction_axpy_count, params.eigenvalue_count * params.krylov_dimension);
   EXPECT_LT(relative_eigen_residual(ops, result.right_eigenvectors[0], result.eigenvalues[0].real()), 1.0e-10);
   EXPECT_LT(relative_eigen_residual(ops, result.right_eigenvectors[1], result.eigenvalues[1].real()), 1.0e-10);
   ASSERT_TRUE(result.diagnostics.has_value());
