@@ -9,8 +9,6 @@ namespace uni20::krylov
 /// \details This header is intentionally opt-in. It keeps prototype wrappers tested
 ///          while avoiding default exposure from `dense_subspace.hpp`.
 
-/// \brief Eigenvalues and optional eigenvectors of a dense real symmetric matrix.
-/// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSymmetricEigensystem
 {
     std::vector<Scalar> eigenvalues;
@@ -432,8 +430,9 @@ template <uni20::LapackReal Scalar> struct RealPivotedQrFactorization
     std::vector<std::size_t> pivot_columns;
 };
 
-/// \brief Expert eigensystem diagnostics for a dense real nonsymmetric matrix.
+/// \brief Eigenvalues and optional right eigenvectors of a real nonsymmetric matrix.
 /// \tparam Real Underlying real precision.
+
 template <uni20::LapackReal Real> struct RealNonsymmetricExpertEigensystem
 {
     std::vector<uni20::complex<Real>> eigenvalues;
@@ -517,8 +516,9 @@ template <uni20::LapackReal Real> struct RealGeneralizedHessenbergReduction
     std::size_t last_exclusive = 0;
 };
 
-/// \brief Generalized real Schur decomposition of a dense real matrix pencil.
-/// \tparam Real Underlying real precision.
+/// \brief One diagonal block of a real Schur form.
+/// \tparam Scalar Real scalar type.
+
 template <uni20::LapackReal Real> struct RealGeneralizedSchurDecomposition
 {
     Matrix<Real> matrix_schur_form;
@@ -561,8 +561,9 @@ template <uni20::LapackReal Real> struct RealGeneralizedSchurConditionEstimates
     std::size_t computed_estimates = 0;
 };
 
-/// \brief Real Schur selected invariant-subspace reordering with condition estimates.
-/// \tparam Scalar Real scalar type.
+/// \brief Eigenvalues and optional right eigenvectors of a complex nonsymmetric matrix.
+/// \tparam Real Underlying real precision.
+
 template <uni20::LapackReal Scalar> struct RealSchurSelectedSubspace
 {
     RealSchurDecomposition<Scalar> decomposition;
@@ -590,7 +591,6 @@ template <uni20::LapackReal Scalar> struct RealSchurConditionEstimates
 
 namespace detail
 {
-
 inline char lapack_uplo(MatrixFill fill)
 {
   switch (fill)
@@ -687,7 +687,7 @@ inline char lapack_transpose(MatrixTranspose transpose)
     case MatrixTranspose::Transpose:
       return 'T';
     case MatrixTranspose::ConjugateTranspose:
-      return 'T';
+      return 'C';
   }
   throw std::invalid_argument("dense real LAPACK operation received an unknown transpose selector");
 }
@@ -721,7 +721,6 @@ inline char lapack_balance_job(RealNonsymmetricBalanceJob job)
 }
 } // namespace detail
 
-/// \return Requested matrix norm.
 template <uni20::LapackReal Scalar> Scalar real_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm)
 {
   if (matrix.rows() == 0 || matrix.cols() == 0)
@@ -733,7 +732,7 @@ template <uni20::LapackReal Scalar> Scalar real_matrix_norm(Matrix<Scalar> matri
   blas_int const cols = detail::checked_blas_int(matrix.cols());
   blas_int const lda = std::max<blas_int>(1, rows);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, rows)), Scalar{});
-  return detail::lange(detail::lapack_norm(norm), rows, cols, matrix.data(), lda, work.data());
+  return uni20::lapack::lange(detail::lapack_norm(norm), rows, cols, matrix.data(), lda, work.data());
 }
 
 /// \brief Compute a dense real symmetric matrix norm through LAPACK `lansy`.
@@ -759,7 +758,7 @@ Scalar real_symmetric_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, Matrix
   blas_int const lda = std::max<blas_int>(1, order);
   char const uplo = detail::lapack_uplo(triangle);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, order)), Scalar{});
-  return detail::lansy(detail::lapack_norm(norm), uplo, order, matrix.data(), lda, work.data());
+  return uni20::lapack::lansy(detail::lapack_norm(norm), uplo, order, matrix.data(), lda, work.data());
 }
 
 /// \brief Compute a dense real triangular or trapezoidal matrix norm through LAPACK `lantr`.
@@ -787,7 +786,7 @@ Scalar real_triangular_matrix_norm(Matrix<Scalar> matrix, MatrixNorm norm, Matri
   char const uplo = detail::lapack_uplo(triangle);
   char const diag = unit_diagonal ? 'U' : 'N';
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, rows)), Scalar{});
-  return detail::lantr(detail::lapack_norm(norm), uplo, diag, rows, cols, matrix.data(), lda, work.data());
+  return uni20::lapack::lantr(detail::lapack_norm(norm), uplo, diag, rows, cols, matrix.data(), lda, work.data());
 }
 
 /// \brief Pack a dense real square matrix into LAPACK general-band factor storage.
@@ -855,7 +854,7 @@ Scalar real_general_band_matrix_norm(RealGeneralBandMatrix<Scalar> band_matrix, 
   blas_int const ldab = detail::checked_blas_int(band_matrix.storage.rows());
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, n)), Scalar{});
   Scalar* compact_band = band_matrix.storage.data() + band_matrix.lower_bandwidth;
-  return detail::langb(detail::lapack_norm(norm), n, kl, ku, compact_band, ldab, work.data());
+  return uni20::lapack::langb(detail::lapack_norm(norm), n, kl, ku, compact_band, ldab, work.data());
 }
 
 /// \brief Solve a real general-band linear system through LAPACK `gbsv`.
@@ -888,7 +887,7 @@ Matrix<Scalar> real_general_band_solve(RealGeneralBandMatrix<Scalar> coefficient
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   blas_int const ldab = detail::checked_blas_int(coefficients.storage.rows());
   std::vector<blas_int> pivots(coefficients.order);
-  detail::gbsv(n, kl, ku, nrhs, coefficients.storage.data(), ldab, pivots.data(), right_hand_sides.data(), n);
+  uni20::lapack::gbsv(n, kl, ku, nrhs, coefficients.storage.data(), ldab, pivots.data(), right_hand_sides.data(), n);
   return right_hand_sides;
 }
 
@@ -919,7 +918,7 @@ RealGeneralBandFactorization<Scalar> real_general_band_factorization(RealGeneral
   blas_int const ku = detail::checked_blas_int(result.factors.upper_bandwidth);
   blas_int const ldab = detail::checked_blas_int(result.factors.storage.rows());
   std::vector<blas_int> pivots(result.factors.order);
-  detail::gbtrf(n, n, kl, ku, result.factors.storage.data(), ldab, pivots.data());
+  uni20::lapack::gbtrf(n, n, kl, ku, result.factors.storage.data(), ldab, pivots.data());
   for (std::size_t index = 0; index < result.factors.order; ++index)
   {
     if (pivots[index] <= 0 || static_cast<std::size_t>(pivots[index]) > result.factors.order)
@@ -978,7 +977,7 @@ Matrix<Scalar> real_general_band_solve(RealGeneralBandFactorization<Scalar> cons
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   blas_int const ldab = detail::checked_blas_int(factors.rows());
   char const trans = detail::lapack_transpose(transpose);
-  detail::gbtrs(trans, n, kl, ku, nrhs, factors.data(), ldab, pivots.data(), right_hand_sides.data(), n);
+  uni20::lapack::gbtrs(trans, n, kl, ku, nrhs, factors.data(), ldab, pivots.data(), right_hand_sides.data(), n);
   return right_hand_sides;
 }
 
@@ -1046,7 +1045,8 @@ Matrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalMatrix<Scala
       coefficients.lower_diagonal.empty() ? coefficients.diagonal.data() : coefficients.lower_diagonal.data();
   Scalar* upper_diagonal =
       coefficients.upper_diagonal.empty() ? coefficients.diagonal.data() : coefficients.upper_diagonal.data();
-  detail::gtsv(n, nrhs, lower_diagonal, coefficients.diagonal.data(), upper_diagonal, right_hand_sides.data(), n);
+  uni20::lapack::gtsv(n, nrhs, lower_diagonal, coefficients.diagonal.data(), upper_diagonal, right_hand_sides.data(),
+                      n);
   return right_hand_sides;
 }
 
@@ -1083,8 +1083,8 @@ real_general_tridiagonal_factorization(RealGeneralTridiagonalMatrix<Scalar> matr
       result.factors.upper_diagonal.empty() ? result.factors.diagonal.data() : result.factors.upper_diagonal.data();
   Scalar* second_upper_diagonal =
       result.second_upper_diagonal.empty() ? result.factors.diagonal.data() : result.second_upper_diagonal.data();
-  detail::gttrf(n, lower_diagonal, result.factors.diagonal.data(), upper_diagonal, second_upper_diagonal,
-                pivots.data());
+  uni20::lapack::gttrf(n, lower_diagonal, result.factors.diagonal.data(), upper_diagonal, second_upper_diagonal,
+                       pivots.data());
   for (std::size_t index = 0; index < order; ++index)
   {
     if (pivots[index] <= 0 || static_cast<std::size_t>(pivots[index]) > order)
@@ -1148,8 +1148,8 @@ Matrix<Scalar> real_general_tridiagonal_solve(RealGeneralTridiagonalFactorizatio
   Scalar* upper_diagonal = upper_diagonal_values.empty() ? diagonal_values.data() : upper_diagonal_values.data();
   Scalar* second_upper_diagonal =
       second_upper_diagonal_values.empty() ? diagonal_values.data() : second_upper_diagonal_values.data();
-  detail::gttrs(trans, n, nrhs, lower_diagonal, diagonal_values.data(), upper_diagonal, second_upper_diagonal,
-                pivots.data(), right_hand_sides.data(), n);
+  uni20::lapack::gttrs(trans, n, nrhs, lower_diagonal, diagonal_values.data(), upper_diagonal, second_upper_diagonal,
+                       pivots.data(), right_hand_sides.data(), n);
   return right_hand_sides;
 }
 
@@ -1241,8 +1241,8 @@ Scalar real_general_tridiagonal_one_norm_reciprocal_condition_number(
   Scalar* upper_diagonal = upper_diagonal_values.empty() ? diagonal_values.data() : upper_diagonal_values.data();
   Scalar* second_upper_diagonal =
       second_upper_diagonal_values.empty() ? diagonal_values.data() : second_upper_diagonal_values.data();
-  return detail::gtcon('1', n, lower_diagonal, diagonal_values.data(), upper_diagonal, second_upper_diagonal,
-                       pivots.data(), original_one_norm, work.data(), iwork.data());
+  return uni20::lapack::gtcon('1', n, lower_diagonal, diagonal_values.data(), upper_diagonal, second_upper_diagonal,
+                              pivots.data(), original_one_norm, work.data(), iwork.data());
 }
 
 /// \brief Estimate a real general-tridiagonal one-norm reciprocal condition number from a matrix.
@@ -1322,10 +1322,11 @@ RealRefinedLinearSolve<Scalar> real_general_tridiagonal_refined_solve(RealGenera
   Scalar* factor_second_upper_diagonal = factorization.second_upper_diagonal.empty()
                                              ? factorization.factors.diagonal.data()
                                              : factorization.second_upper_diagonal.data();
-  detail::gtrfs(trans, n, nrhs, lower_diagonal, coefficients.diagonal.data(), upper_diagonal, factor_lower_diagonal,
-                factorization.factors.diagonal.data(), factor_upper_diagonal, factor_second_upper_diagonal,
-                pivots.data(), right_hand_sides.data(), n, result.solution.data(), n,
-                result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data(), iwork.data());
+  uni20::lapack::gtrfs(trans, n, nrhs, lower_diagonal, coefficients.diagonal.data(), upper_diagonal,
+                       factor_lower_diagonal, factorization.factors.diagonal.data(), factor_upper_diagonal,
+                       factor_second_upper_diagonal, pivots.data(), right_hand_sides.data(), n, result.solution.data(),
+                       n, result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data(),
+                       iwork.data());
   return result;
 }
 
@@ -1393,7 +1394,7 @@ real_general_tridiagonal_expert_linear_solve(RealGeneralTridiagonalMatrix<Scalar
   Scalar* factor_second_upper_diagonal = result.factorization.second_upper_diagonal.empty()
                                              ? result.factorization.factors.diagonal.data()
                                              : result.factorization.second_upper_diagonal.data();
-  result.reciprocal_condition_below_machine_precision = detail::gtsvx(
+  result.reciprocal_condition_below_machine_precision = uni20::lapack::gtsvx(
       'N', trans, n, nrhs, lower_diagonal, coefficients.diagonal.data(), upper_diagonal, factor_lower_diagonal,
       result.factorization.factors.diagonal.data(), factor_upper_diagonal, factor_second_upper_diagonal, pivots.data(),
       right_hand_sides.data(), n, result.solution.data(), n, result.reciprocal_condition,
@@ -1457,8 +1458,8 @@ Scalar real_general_band_one_norm_reciprocal_condition_number(RealGeneralBandFac
   blas_int const ldab = detail::checked_blas_int(factors.rows());
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * n)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, n)), 0);
-  return detail::gbcon('1', n, kl, ku, factors.data(), ldab, pivots.data(), original_one_norm, work.data(),
-                       iwork.data());
+  return uni20::lapack::gbcon('1', n, kl, ku, factors.data(), ldab, pivots.data(), original_one_norm, work.data(),
+                              iwork.data());
 }
 
 /// \brief Estimate a real general-band one-norm reciprocal condition number.
@@ -1530,15 +1531,16 @@ RealRefinedLinearSolve<Scalar> real_general_band_refined_solve(RealGeneralBandMa
   blas_int const ldafb = detail::checked_blas_int(factorization.factors.storage.rows());
   char const trans = detail::lapack_transpose(transpose);
 
-  detail::gbtrs(trans, n, kl, ku, nrhs, factorization.factors.storage.data(), ldafb, pivots.data(),
-                result.solution.data(), n);
+  uni20::lapack::gbtrs(trans, n, kl, ku, nrhs, factorization.factors.storage.data(), ldafb, pivots.data(),
+                       result.solution.data(), n);
 
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * n)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, n)), 0);
   Scalar* compact_band = coefficients.storage.data() + coefficients.lower_bandwidth;
-  detail::gbrfs(trans, n, kl, ku, nrhs, compact_band, ldab, factorization.factors.storage.data(), ldafb, pivots.data(),
-                right_hand_sides.data(), n, result.solution.data(), n, result.forward_error_bounds.data(),
-                result.backward_error_bounds.data(), work.data(), iwork.data());
+  uni20::lapack::gbrfs(trans, n, kl, ku, nrhs, compact_band, ldab, factorization.factors.storage.data(), ldafb,
+                       pivots.data(), right_hand_sides.data(), n, result.solution.data(), n,
+                       result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data(),
+                       iwork.data());
   return result;
 }
 
@@ -1601,7 +1603,7 @@ real_general_band_expert_linear_solve(RealGeneralBandMatrix<Scalar> coefficients
   Scalar rcond{};
   Scalar* compact_band = coefficients.storage.data() + coefficients.lower_bandwidth;
 
-  result.reciprocal_condition_below_machine_precision = detail::gbsvx(
+  result.reciprocal_condition_below_machine_precision = uni20::lapack::gbsvx(
       'N', trans, order, kl, ku, nrhs, compact_band, ldab, result.factors.storage.data(), ldafb, pivots.data(), equed,
       row_scale.data(), column_scale.data(), right_hand_sides.data(), order, result.solution.data(), order, rcond,
       result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data(), iwork.data());
@@ -1649,8 +1651,8 @@ RealEquilibration<Scalar> real_general_band_equilibration(RealGeneralBandMatrix<
   blas_int const ku = detail::checked_blas_int(band_matrix.upper_bandwidth);
   blas_int const ldab = detail::checked_blas_int(band_matrix.storage.rows());
   Scalar* compact_band = band_matrix.storage.data() + band_matrix.lower_bandwidth;
-  detail::gbequ(false, n, n, kl, ku, compact_band, ldab, result.row_scale.data(), result.column_scale.data(),
-                result.row_condition, result.column_condition, result.max_abs);
+  uni20::lapack::gbequ(false, n, n, kl, ku, compact_band, ldab, result.row_scale.data(), result.column_scale.data(),
+                       result.row_condition, result.column_condition, result.max_abs);
   return result;
 }
 
@@ -1683,8 +1685,8 @@ RealEquilibration<Scalar> real_general_band_power_of_two_equilibration(RealGener
   blas_int const ku = detail::checked_blas_int(band_matrix.upper_bandwidth);
   blas_int const ldab = detail::checked_blas_int(band_matrix.storage.rows());
   Scalar* compact_band = band_matrix.storage.data() + band_matrix.lower_bandwidth;
-  detail::gbequ(true, n, n, kl, ku, compact_band, ldab, result.row_scale.data(), result.column_scale.data(),
-                result.row_condition, result.column_condition, result.max_abs);
+  uni20::lapack::gbequ(true, n, n, kl, ku, compact_band, ldab, result.row_scale.data(), result.column_scale.data(),
+                       result.row_condition, result.column_condition, result.max_abs);
   return result;
 }
 
@@ -1707,8 +1709,8 @@ template <uni20::LapackReal Scalar> RealEquilibration<Scalar> real_equilibration
 
   blas_int const rows = detail::checked_blas_int(matrix.rows());
   blas_int const cols = detail::checked_blas_int(matrix.cols());
-  detail::geequ(rows, cols, matrix.data(), rows, result.row_scale.data(), result.column_scale.data(),
-                result.row_condition, result.column_condition, result.max_abs);
+  uni20::lapack::geequ(rows, cols, matrix.data(), rows, result.row_scale.data(), result.column_scale.data(),
+                       result.row_condition, result.column_condition, result.max_abs);
   return result;
 }
 
@@ -1735,7 +1737,7 @@ RealSymmetricPositiveDefiniteEquilibration<Scalar> real_symmetric_positive_defin
   }
 
   blas_int const order = detail::checked_blas_int(matrix.rows());
-  detail::poequ(order, matrix.data(), order, result.scale.data(), result.scale_condition, result.max_abs);
+  uni20::lapack::poequ(order, matrix.data(), order, result.scale.data(), result.scale_condition, result.max_abs);
   return result;
 }
 
@@ -1765,7 +1767,7 @@ real_symmetric_positive_definite_factorization(Matrix<Scalar> matrix, MatrixFill
 
   blas_int const order = detail::checked_blas_int(result.factors.rows());
   char const uplo = detail::lapack_uplo(triangle);
-  detail::potrf(uplo, order, result.factors.data(), order);
+  uni20::lapack::potrf(uplo, order, result.factors.data(), order);
   return result;
 }
 
@@ -1851,7 +1853,7 @@ Matrix<Scalar> real_symmetric_positive_definite_band_solve(RealSymmetricPositive
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   blas_int const ldab = detail::checked_blas_int(coefficients.storage.rows());
   char const uplo = detail::lapack_uplo(coefficients.triangle);
-  detail::pbsv(uplo, n, kd, nrhs, coefficients.storage.data(), ldab, right_hand_sides.data(), n);
+  uni20::lapack::pbsv(uplo, n, kd, nrhs, coefficients.storage.data(), ldab, right_hand_sides.data(), n);
   return right_hand_sides;
 }
 
@@ -1884,7 +1886,7 @@ real_symmetric_positive_definite_band_factorization(RealSymmetricPositiveDefinit
   blas_int const kd = detail::checked_blas_int(result.factors.bandwidth);
   blas_int const ldab = detail::checked_blas_int(result.factors.storage.rows());
   char const uplo = detail::lapack_uplo(result.factors.triangle);
-  detail::pbtrf(uplo, n, kd, result.factors.storage.data(), ldab);
+  uni20::lapack::pbtrf(uplo, n, kd, result.factors.storage.data(), ldab);
   return result;
 }
 
@@ -1918,7 +1920,7 @@ real_symmetric_positive_definite_band_solve(RealSymmetricPositiveDefiniteBandFac
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   blas_int const ldab = detail::checked_blas_int(factors.rows());
   char const uplo = detail::lapack_uplo(factorization.factors.triangle);
-  detail::pbtrs(uplo, n, kd, nrhs, factors.data(), ldab, right_hand_sides.data(), n);
+  uni20::lapack::pbtrs(uplo, n, kd, nrhs, factors.data(), ldab, right_hand_sides.data(), n);
   return right_hand_sides;
 }
 
@@ -2017,7 +2019,7 @@ Scalar real_symmetric_positive_definite_band_one_norm_reciprocal_condition_numbe
   char const uplo = detail::lapack_uplo(factorization.factors.triangle);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * n)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, n)), 0);
-  return detail::pbcon(uplo, n, kd, factors.data(), ldab, original_one_norm, work.data(), iwork.data());
+  return uni20::lapack::pbcon(uplo, n, kd, factors.data(), ldab, original_one_norm, work.data(), iwork.data());
 }
 
 /// \brief Estimate a real SPD band one-norm reciprocal condition number from a matrix.
@@ -2082,9 +2084,9 @@ real_symmetric_positive_definite_band_refined_solve(RealSymmetricPositiveDefinit
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * n)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, n)), 0);
 
-  detail::pbrfs(uplo, n, kd, nrhs, coefficients.storage.data(), ldab, factorization.factors.storage.data(), ldafb,
-                right_hand_sides.data(), n, result.solution.data(), n, result.forward_error_bounds.data(),
-                result.backward_error_bounds.data(), work.data(), iwork.data());
+  uni20::lapack::pbrfs(uplo, n, kd, nrhs, coefficients.storage.data(), ldab, factorization.factors.storage.data(),
+                       ldafb, right_hand_sides.data(), n, result.solution.data(), n, result.forward_error_bounds.data(),
+                       result.backward_error_bounds.data(), work.data(), iwork.data());
   return result;
 }
 
@@ -2142,7 +2144,7 @@ real_symmetric_positive_definite_band_expert_linear_solve(RealSymmetricPositiveD
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
 
-  result.reciprocal_condition_below_machine_precision = detail::pbsvx(
+  result.reciprocal_condition_below_machine_precision = uni20::lapack::pbsvx(
       'N', uplo, order, kd, nrhs, coefficients.storage.data(), ldab, result.factorization.factors.storage.data(), ldafb,
       equed, result.scale.data(), right_hand_sides.data(), order, result.solution.data(), order, rcond,
       result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data(), iwork.data());
@@ -2214,7 +2216,7 @@ real_symmetric_positive_definite_tridiagonal_solve(RealSymmetricPositiveDefinite
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   Scalar* offdiagonal =
       coefficients.offdiagonal.empty() ? coefficients.diagonal.data() : coefficients.offdiagonal.data();
-  detail::ptsv(n, nrhs, coefficients.diagonal.data(), offdiagonal, right_hand_sides.data(), n);
+  uni20::lapack::ptsv(n, nrhs, coefficients.diagonal.data(), offdiagonal, right_hand_sides.data(), n);
   return right_hand_sides;
 }
 
@@ -2244,7 +2246,7 @@ real_symmetric_positive_definite_tridiagonal_factorization(
   blas_int const n = detail::checked_blas_int(order);
   Scalar* offdiagonal =
       result.factors.offdiagonal.empty() ? result.factors.diagonal.data() : result.factors.offdiagonal.data();
-  detail::pttrf(n, result.factors.diagonal.data(), offdiagonal);
+  uni20::lapack::pttrf(n, result.factors.diagonal.data(), offdiagonal);
   return result;
 }
 
@@ -2278,7 +2280,7 @@ Matrix<Scalar> real_symmetric_positive_definite_tridiagonal_solve(
   blas_int const n = detail::checked_blas_int(order);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   Scalar* offdiagonal_data = offdiagonal.empty() ? diagonal.data() : offdiagonal.data();
-  detail::pttrs(n, nrhs, diagonal.data(), offdiagonal_data, right_hand_sides.data(), n);
+  uni20::lapack::pttrs(n, nrhs, diagonal.data(), offdiagonal_data, right_hand_sides.data(), n);
   return right_hand_sides;
 }
 
@@ -2348,7 +2350,7 @@ Scalar real_symmetric_positive_definite_tridiagonal_one_norm_reciprocal_conditio
   blas_int const n = detail::checked_blas_int(order);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, n)), Scalar{});
   Scalar* offdiagonal_data = offdiagonal.empty() ? diagonal.data() : offdiagonal.data();
-  return detail::ptcon(n, diagonal.data(), offdiagonal_data, original_one_norm, work.data());
+  return uni20::lapack::ptcon(n, diagonal.data(), offdiagonal_data, original_one_norm, work.data());
 }
 
 /// \brief Estimate a real SPD tridiagonal one-norm reciprocal condition number from a matrix.
@@ -2407,9 +2409,9 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_tridiagonal_refi
       coefficients.offdiagonal.empty() ? coefficients.diagonal.data() : coefficients.offdiagonal.data();
   Scalar* factor_offdiagonal = factorization.factors.offdiagonal.empty() ? factorization.factors.diagonal.data()
                                                                          : factorization.factors.offdiagonal.data();
-  detail::ptrfs(n, nrhs, coefficients.diagonal.data(), offdiagonal, factorization.factors.diagonal.data(),
-                factor_offdiagonal, right_hand_sides.data(), n, result.solution.data(), n,
-                result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data());
+  uni20::lapack::ptrfs(n, nrhs, coefficients.diagonal.data(), offdiagonal, factorization.factors.diagonal.data(),
+                       factor_offdiagonal, right_hand_sides.data(), n, result.solution.data(), n,
+                       result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data());
   return result;
 }
 
@@ -2460,7 +2462,7 @@ real_symmetric_positive_definite_tridiagonal_expert_linear_solve(
   Scalar* factor_offdiagonal = result.factorization.factors.offdiagonal.empty()
                                    ? result.factorization.factors.diagonal.data()
                                    : result.factorization.factors.offdiagonal.data();
-  result.reciprocal_condition_below_machine_precision = detail::ptsvx(
+  result.reciprocal_condition_below_machine_precision = uni20::lapack::ptsvx(
       'N', n, nrhs, coefficients.diagonal.data(), offdiagonal, result.factorization.factors.diagonal.data(),
       factor_offdiagonal, right_hand_sides.data(), n, result.solution.data(), n, result.reciprocal_condition,
       result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data());
@@ -2507,7 +2509,7 @@ RealPivotedCholeskyFactorization<Scalar> real_pivoted_cholesky_factorization(Mat
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), Scalar{});
   blas_int rank = 0;
   result.rank_deficient =
-      detail::pstrf(uplo, order, result.factors.data(), order, pivots.data(), rank, tolerance, work.data());
+      uni20::lapack::pstrf(uplo, order, result.factors.data(), order, pivots.data(), rank, tolerance, work.data());
   if (rank < 0 || rank > order)
   {
     throw std::runtime_error("LAPACK pstrf returned an invalid numerical rank");
@@ -2553,7 +2555,7 @@ Matrix<Scalar> real_dense_solve_linear_system(Matrix<Scalar> coefficients, Matri
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   std::vector<blas_int> pivots(n);
-  detail::gesv(order, nrhs, coefficients.data(), order, pivots.data(), right_hand_sides.data(), order);
+  uni20::lapack::gesv(order, nrhs, coefficients.data(), order, pivots.data(), right_hand_sides.data(), order);
   return right_hand_sides;
 }
 
@@ -2604,7 +2606,7 @@ RealExpertLinearSolve<Scalar> real_expert_linear_solve(Matrix<Scalar> coefficien
   char equed = 'N';
   Scalar rcond{};
 
-  result.reciprocal_condition_below_machine_precision = detail::gesvx(
+  result.reciprocal_condition_below_machine_precision = uni20::lapack::gesvx(
       'N', 'N', order, nrhs, coefficients.data(), order, result.factors.data(), order, pivots.data(), equed,
       row_scale.data(), column_scale.data(), right_hand_sides.data(), order, result.solution.data(), order, rcond,
       result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data(), iwork.data());
@@ -2646,7 +2648,7 @@ template <uni20::LapackReal Scalar> RealLuFactorization<Scalar> real_lu_factoriz
 
   blas_int const order = detail::checked_blas_int(n);
   std::vector<blas_int> pivots(n);
-  detail::getrf(order, order, result.factors.data(), order, pivots.data());
+  uni20::lapack::getrf(order, order, result.factors.data(), order, pivots.data());
   for (std::size_t index = 0; index < n; ++index)
   {
     if (pivots[index] <= 0 || static_cast<std::size_t>(pivots[index]) > n)
@@ -2702,7 +2704,7 @@ Matrix<Scalar> real_lu_solve(RealLuFactorization<Scalar> const& factorization, M
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   char const trans = detail::lapack_transpose(transpose);
-  detail::getrs(trans, order, nrhs, factors.data(), order, pivots.data(), right_hand_sides.data(), order);
+  uni20::lapack::getrs(trans, order, nrhs, factors.data(), order, pivots.data(), right_hand_sides.data(), order);
   return right_hand_sides;
 }
 
@@ -2744,16 +2746,17 @@ RealRefinedLinearSolve<Scalar> real_refined_linear_solve(Matrix<Scalar> coeffici
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(rhs_count);
   std::vector<blas_int> pivots(n);
-  detail::getrf(order, order, factors.data(), order, pivots.data());
+  uni20::lapack::getrf(order, order, factors.data(), order, pivots.data());
 
   char const trans = detail::lapack_transpose(transpose);
-  detail::getrs(trans, order, nrhs, factors.data(), order, pivots.data(), result.solution.data(), order);
+  uni20::lapack::getrs(trans, order, nrhs, factors.data(), order, pivots.data(), result.solution.data(), order);
 
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  detail::gerfs(trans, order, nrhs, coefficients.data(), order, factors.data(), order, pivots.data(),
-                right_hand_sides.data(), order, result.solution.data(), order, result.forward_error_bounds.data(),
-                result.backward_error_bounds.data(), work.data(), iwork.data());
+  uni20::lapack::gerfs(trans, order, nrhs, coefficients.data(), order, factors.data(), order, pivots.data(),
+                       right_hand_sides.data(), order, result.solution.data(), order,
+                       result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data(),
+                       iwork.data());
   return result;
 }
 
@@ -2787,7 +2790,7 @@ Scalar real_lu_one_norm_reciprocal_condition_number(RealLuFactorization<Scalar> 
   blas_int const order = detail::checked_blas_int(n);
   std::vector<Scalar> work(static_cast<std::size_t>(4 * order), Scalar{});
   std::vector<blas_int> iwork(n);
-  return detail::gecon('1', order, factors.data(), order, original_one_norm, work.data(), iwork.data());
+  return uni20::lapack::gecon('1', order, factors.data(), order, original_one_norm, work.data(), iwork.data());
 }
 
 /// \brief Estimate the one-norm reciprocal condition number of a dense real matrix.
@@ -2840,7 +2843,7 @@ Matrix<Scalar> real_triangular_solve(Matrix<Scalar> coefficients, Matrix<Scalar>
   char const uplo = detail::lapack_uplo(triangle);
   char const trans = detail::lapack_transpose(transpose);
   char const diag = unit_diagonal ? 'U' : 'N';
-  detail::trtrs(uplo, trans, diag, order, nrhs, coefficients.data(), order, right_hand_sides.data(), order);
+  uni20::lapack::trtrs(uplo, trans, diag, order, nrhs, coefficients.data(), order, right_hand_sides.data(), order);
   return right_hand_sides;
 }
 
@@ -2886,13 +2889,13 @@ real_triangular_refined_solve(Matrix<Scalar> coefficients, Matrix<Scalar> right_
   char const uplo = detail::lapack_uplo(triangle);
   char const trans = detail::lapack_transpose(transpose);
   char const diag = unit_diagonal ? 'U' : 'N';
-  detail::trtrs(uplo, trans, diag, order, nrhs, coefficients.data(), order, result.solution.data(), order);
+  uni20::lapack::trtrs(uplo, trans, diag, order, nrhs, coefficients.data(), order, result.solution.data(), order);
 
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  detail::trrfs(uplo, trans, diag, order, nrhs, coefficients.data(), order, right_hand_sides.data(), order,
-                result.solution.data(), order, result.forward_error_bounds.data(), result.backward_error_bounds.data(),
-                work.data(), iwork.data());
+  uni20::lapack::trrfs(uplo, trans, diag, order, nrhs, coefficients.data(), order, right_hand_sides.data(), order,
+                       result.solution.data(), order, result.forward_error_bounds.data(),
+                       result.backward_error_bounds.data(), work.data(), iwork.data());
   return result;
 }
 
@@ -2923,7 +2926,7 @@ Matrix<Scalar> real_triangular_inverse(Matrix<Scalar> matrix, MatrixFill triangl
   blas_int const order = detail::checked_blas_int(n);
   char const uplo = detail::lapack_uplo(triangle);
   char const diag = unit_diagonal ? 'U' : 'N';
-  detail::trtri(uplo, diag, order, matrix.data(), order);
+  uni20::lapack::trtri(uplo, diag, order, matrix.data(), order);
 
   for (std::size_t row = 0; row < n; ++row)
   {
@@ -2973,7 +2976,7 @@ Scalar real_triangular_one_norm_reciprocal_condition_number(Matrix<Scalar> matri
   char const diag = unit_diagonal ? 'U' : 'N';
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  return detail::trcon('1', uplo, diag, order, matrix.data(), order, work.data(), iwork.data());
+  return uni20::lapack::trcon('1', uplo, diag, order, matrix.data(), order, work.data(), iwork.data());
 }
 
 /// \brief Solve a dense real Sylvester equation through LAPACK `trsyl`.
@@ -3025,8 +3028,8 @@ RealSylvesterSolution<Scalar> real_sylvester_solve(Matrix<Scalar> left, Matrix<S
   char const trans_a = detail::lapack_transpose(transpose_left);
   char const trans_b = detail::lapack_transpose(transpose_right);
   Scalar scale = Scalar{1};
-  result.separation_perturbed = detail::trsyl(trans_a, trans_b, static_cast<blas_int>(sign), m, n, left.data(), m,
-                                              right.data(), n, result.solution.data(), m, scale);
+  result.separation_perturbed = uni20::lapack::trsyl(trans_a, trans_b, static_cast<blas_int>(sign), m, n, left.data(),
+                                                     m, right.data(), n, result.solution.data(), m, scale);
   result.scale = scale;
   return result;
 }
@@ -3052,15 +3055,15 @@ template <uni20::LapackReal Scalar> Matrix<Scalar> real_dense_inverse(Matrix<Sca
 
   blas_int const order = detail::checked_blas_int(n);
   std::vector<blas_int> pivots(n);
-  detail::getrf(order, order, matrix.data(), order, pivots.data());
+  uni20::lapack::getrf(order, order, matrix.data(), order, pivots.data());
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::getri(order, matrix.data(), order, pivots.data(), &work_query, query_lwork);
+  uni20::lapack::getri(order, matrix.data(), order, pivots.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::getri(order, matrix.data(), order, pivots.data(), work.data(), lwork);
+  uni20::lapack::getri(order, matrix.data(), order, pivots.data(), work.data(), lwork);
 
   return matrix;
 }
@@ -3113,11 +3116,11 @@ Matrix<Scalar> real_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gels(trans, m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, &work_query, query_lwork);
+  uni20::lapack::gels(trans, m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::gels(trans, m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, work.data(), lwork);
+  uni20::lapack::gels(trans, m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, work.data(), lwork);
 
   for (std::size_t row = 0; row < cols; ++row)
   {
@@ -3178,13 +3181,13 @@ RealSvdLeastSquares<Scalar> real_svd_least_squares(Matrix<Scalar> coefficients, 
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gelss(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, result.singular_values.data(), rcond,
-                rank, &work_query, query_lwork);
+  uni20::lapack::gelss(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, result.singular_values.data(),
+                       rcond, rank, &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::gelss(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, result.singular_values.data(), rcond,
-                rank, work.data(), lwork);
+  uni20::lapack::gelss(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, result.singular_values.data(),
+                       rcond, rank, work.data(), lwork);
 
   if (rank < 0)
   {
@@ -3253,14 +3256,14 @@ real_divide_and_conquer_svd_least_squares(Matrix<Scalar> coefficients, Matrix<Sc
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gelsd(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, result.singular_values.data(), rcond,
-                rank, &work_query, query_lwork, iwork.data());
+  uni20::lapack::gelsd(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, result.singular_values.data(),
+                       rcond, rank, &work_query, query_lwork, iwork.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   rank = 0;
-  detail::gelsd(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, result.singular_values.data(), rcond,
-                rank, work.data(), lwork, iwork.data());
+  uni20::lapack::gelsd(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, result.singular_values.data(),
+                       rcond, rank, work.data(), lwork, iwork.data());
 
   if (rank < 0)
   {
@@ -3328,14 +3331,14 @@ real_rank_revealing_least_squares(Matrix<Scalar> coefficients, Matrix<Scalar> ri
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gelsy(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, jpvt.data(), rcond, rank, &work_query,
-                query_lwork);
+  uni20::lapack::gelsy(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, jpvt.data(), rcond, rank,
+                       &work_query, query_lwork);
 
   std::fill(jpvt.begin(), jpvt.end(), 0);
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::gelsy(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, jpvt.data(), rcond, rank, work.data(),
-                lwork);
+  uni20::lapack::gelsy(m, n, nrhs, coefficients.data(), lda, rhs_workspace.data(), ldb, jpvt.data(), rcond, rank,
+                       work.data(), lwork);
 
   if (rank < 0)
   {
@@ -3392,8 +3395,8 @@ Matrix<Scalar> real_symmetric_positive_definite_solve(Matrix<Scalar> coefficient
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   char const uplo = detail::lapack_uplo(triangle);
-  detail::potrf(uplo, order, coefficients.data(), order);
-  detail::potrs(uplo, order, nrhs, coefficients.data(), order, right_hand_sides.data(), order);
+  uni20::lapack::potrf(uplo, order, coefficients.data(), order);
+  uni20::lapack::potrs(uplo, order, nrhs, coefficients.data(), order, right_hand_sides.data(), order);
   return right_hand_sides;
 }
 
@@ -3425,7 +3428,7 @@ real_symmetric_positive_definite_solve(RealSymmetricPositiveDefiniteFactorizatio
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   char const uplo = detail::lapack_uplo(factorization.triangle);
-  detail::potrs(uplo, order, nrhs, factors.data(), order, right_hand_sides.data(), order);
+  uni20::lapack::potrs(uplo, order, nrhs, factors.data(), order, right_hand_sides.data(), order);
   return right_hand_sides;
 }
 
@@ -3469,14 +3472,14 @@ RealRefinedLinearSolve<Scalar> real_symmetric_positive_definite_refined_solve(Ma
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(rhs_count);
   char const uplo = detail::lapack_uplo(triangle);
-  detail::potrf(uplo, order, factors.data(), order);
-  detail::potrs(uplo, order, nrhs, factors.data(), order, result.solution.data(), order);
+  uni20::lapack::potrf(uplo, order, factors.data(), order);
+  uni20::lapack::potrs(uplo, order, nrhs, factors.data(), order, result.solution.data(), order);
 
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  detail::porfs(uplo, order, nrhs, coefficients.data(), order, factors.data(), order, right_hand_sides.data(), order,
-                result.solution.data(), order, result.forward_error_bounds.data(), result.backward_error_bounds.data(),
-                work.data(), iwork.data());
+  uni20::lapack::porfs(uplo, order, nrhs, coefficients.data(), order, factors.data(), order, right_hand_sides.data(),
+                       order, result.solution.data(), order, result.forward_error_bounds.data(),
+                       result.backward_error_bounds.data(), work.data(), iwork.data());
   return result;
 }
 
@@ -3527,10 +3530,10 @@ real_symmetric_positive_definite_expert_solve(Matrix<Scalar> coefficients, Matri
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
 
-  result.reciprocal_condition_below_machine_precision =
-      detail::posvx('N', uplo, order, nrhs, coefficients.data(), order, result.factors.data(), order, equed,
-                    result.scale.data(), right_hand_sides.data(), order, result.solution.data(), order, rcond,
-                    result.forward_error_bounds.data(), result.backward_error_bounds.data(), work.data(), iwork.data());
+  result.reciprocal_condition_below_machine_precision = uni20::lapack::posvx(
+      'N', uplo, order, nrhs, coefficients.data(), order, result.factors.data(), order, equed, result.scale.data(),
+      right_hand_sides.data(), order, result.solution.data(), order, rcond, result.forward_error_bounds.data(),
+      result.backward_error_bounds.data(), work.data(), iwork.data());
   result.equilibration = equed;
   result.reciprocal_condition = rcond;
   return result;
@@ -3564,10 +3567,10 @@ Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(Mat
   Scalar const original_one_norm = detail::symmetric_matrix_one_norm(matrix, triangle);
   blas_int const order = detail::checked_blas_int(n);
   char const uplo = detail::lapack_uplo(triangle);
-  detail::potrf(uplo, order, matrix.data(), order);
+  uni20::lapack::potrf(uplo, order, matrix.data(), order);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  return detail::pocon(uplo, order, matrix.data(), order, original_one_norm, work.data(), iwork.data());
+  return uni20::lapack::pocon(uplo, order, matrix.data(), order, original_one_norm, work.data(), iwork.data());
 }
 
 /// \brief Estimate an SPD one-norm reciprocal condition number from an existing Cholesky factorization.
@@ -3603,7 +3606,7 @@ Scalar real_symmetric_positive_definite_one_norm_reciprocal_condition_number(
   char const uplo = detail::lapack_uplo(factorization.triangle);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  return detail::pocon(uplo, order, factors.data(), order, original_one_norm, work.data(), iwork.data());
+  return uni20::lapack::pocon(uplo, order, factors.data(), order, original_one_norm, work.data(), iwork.data());
 }
 
 /// \brief Invert a dense real SPD matrix through LAPACK `potrf` and `potri`.
@@ -3630,8 +3633,8 @@ Matrix<Scalar> real_symmetric_positive_definite_inverse(Matrix<Scalar> matrix, M
 
   blas_int const order = detail::checked_blas_int(n);
   char const uplo = detail::lapack_uplo(triangle);
-  detail::potrf(uplo, order, matrix.data(), order);
-  detail::potri(uplo, order, matrix.data(), order);
+  uni20::lapack::potrf(uplo, order, matrix.data(), order);
+  uni20::lapack::potri(uplo, order, matrix.data(), order);
   detail::mirror_selected_symmetric_triangle(matrix, triangle);
   return matrix;
 }
@@ -3669,11 +3672,11 @@ real_symmetric_indefinite_factorization(Matrix<Scalar> matrix, MatrixFill triang
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::sytrf(uplo, order, result.factors.data(), order, pivots.data(), &work_query, query_lwork);
+  uni20::lapack::sytrf(uplo, order, result.factors.data(), order, pivots.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::sytrf(uplo, order, result.factors.data(), order, pivots.data(), work.data(), lwork);
+  uni20::lapack::sytrf(uplo, order, result.factors.data(), order, pivots.data(), work.data(), lwork);
 
   for (std::size_t index = 0; index < n; ++index)
   {
@@ -3718,12 +3721,12 @@ Matrix<Scalar> real_symmetric_indefinite_solve(Matrix<Scalar> coefficients, Matr
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::sytrf(uplo, order, coefficients.data(), order, pivots.data(), &work_query, query_lwork);
+  uni20::lapack::sytrf(uplo, order, coefficients.data(), order, pivots.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::sytrf(uplo, order, coefficients.data(), order, pivots.data(), work.data(), lwork);
-  detail::sytrs(uplo, order, nrhs, coefficients.data(), order, pivots.data(), right_hand_sides.data(), order);
+  uni20::lapack::sytrf(uplo, order, coefficients.data(), order, pivots.data(), work.data(), lwork);
+  uni20::lapack::sytrs(uplo, order, nrhs, coefficients.data(), order, pivots.data(), right_hand_sides.data(), order);
   return right_hand_sides;
 }
 
@@ -3759,7 +3762,7 @@ Matrix<Scalar> real_symmetric_indefinite_solve(RealSymmetricIndefiniteFactorizat
   blas_int const order = detail::checked_blas_int(n);
   blas_int const nrhs = detail::checked_blas_int(right_hand_sides.cols());
   char const uplo = detail::lapack_uplo(factorization.triangle);
-  detail::sytrs(uplo, order, nrhs, factors.data(), order, pivots.data(), right_hand_sides.data(), order);
+  uni20::lapack::sytrs(uplo, order, nrhs, factors.data(), order, pivots.data(), right_hand_sides.data(), order);
   return right_hand_sides;
 }
 
@@ -3806,18 +3809,19 @@ RealRefinedLinearSolve<Scalar> real_symmetric_indefinite_refined_solve(Matrix<Sc
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::sytrf(uplo, order, factors.data(), order, pivots.data(), &work_query, query_lwork);
+  uni20::lapack::sytrf(uplo, order, factors.data(), order, pivots.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> factor_work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::sytrf(uplo, order, factors.data(), order, pivots.data(), factor_work.data(), lwork);
-  detail::sytrs(uplo, order, nrhs, factors.data(), order, pivots.data(), result.solution.data(), order);
+  uni20::lapack::sytrf(uplo, order, factors.data(), order, pivots.data(), factor_work.data(), lwork);
+  uni20::lapack::sytrs(uplo, order, nrhs, factors.data(), order, pivots.data(), result.solution.data(), order);
 
   std::vector<Scalar> refine_work(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  detail::syrfs(uplo, order, nrhs, coefficients.data(), order, factors.data(), order, pivots.data(),
-                right_hand_sides.data(), order, result.solution.data(), order, result.forward_error_bounds.data(),
-                result.backward_error_bounds.data(), refine_work.data(), iwork.data());
+  uni20::lapack::syrfs(uplo, order, nrhs, coefficients.data(), order, factors.data(), order, pivots.data(),
+                       right_hand_sides.data(), order, result.solution.data(), order,
+                       result.forward_error_bounds.data(), result.backward_error_bounds.data(), refine_work.data(),
+                       iwork.data());
   return result;
 }
 
@@ -3849,14 +3853,14 @@ Matrix<Scalar> real_symmetric_indefinite_inverse(Matrix<Scalar> matrix, MatrixFi
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::sytrf(uplo, order, matrix.data(), order, pivots.data(), &work_query, query_lwork);
+  uni20::lapack::sytrf(uplo, order, matrix.data(), order, pivots.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> factor_work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::sytrf(uplo, order, matrix.data(), order, pivots.data(), factor_work.data(), lwork);
+  uni20::lapack::sytrf(uplo, order, matrix.data(), order, pivots.data(), factor_work.data(), lwork);
 
   std::vector<Scalar> inverse_work(static_cast<std::size_t>(std::max<blas_int>(1, order)), Scalar{});
-  detail::sytri(uplo, order, matrix.data(), order, pivots.data(), inverse_work.data());
+  uni20::lapack::sytri(uplo, order, matrix.data(), order, pivots.data(), inverse_work.data());
   detail::mirror_selected_symmetric_triangle(matrix, triangle);
   return matrix;
 }
@@ -3907,14 +3911,14 @@ real_symmetric_indefinite_expert_solve(Matrix<Scalar> coefficients, Matrix<Scala
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::sysvx('N', uplo, order, nrhs, coefficients.data(), order, result.factors.data(), order, pivots.data(),
-                right_hand_sides.data(), order, result.solution.data(), order, rcond,
-                result.forward_error_bounds.data(), result.backward_error_bounds.data(), &work_query, query_lwork,
-                iwork.data());
+  uni20::lapack::sysvx('N', uplo, order, nrhs, coefficients.data(), order, result.factors.data(), order, pivots.data(),
+                       right_hand_sides.data(), order, result.solution.data(), order, rcond,
+                       result.forward_error_bounds.data(), result.backward_error_bounds.data(), &work_query,
+                       query_lwork, iwork.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  result.reciprocal_condition_below_machine_precision = detail::sysvx(
+  result.reciprocal_condition_below_machine_precision = uni20::lapack::sysvx(
       'N', uplo, order, nrhs, coefficients.data(), order, result.factors.data(), order, pivots.data(),
       right_hand_sides.data(), order, result.solution.data(), order, rcond, result.forward_error_bounds.data(),
       result.backward_error_bounds.data(), work.data(), lwork, iwork.data());
@@ -3959,16 +3963,16 @@ Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(Matrix<Sca
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::sytrf(uplo, order, matrix.data(), order, pivots.data(), &work_query, query_lwork);
+  uni20::lapack::sytrf(uplo, order, matrix.data(), order, pivots.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> factor_work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::sytrf(uplo, order, matrix.data(), order, pivots.data(), factor_work.data(), lwork);
+  uni20::lapack::sytrf(uplo, order, matrix.data(), order, pivots.data(), factor_work.data(), lwork);
 
   std::vector<Scalar> condition_work(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  return detail::sycon(uplo, order, matrix.data(), order, pivots.data(), original_one_norm, condition_work.data(),
-                       iwork.data());
+  return uni20::lapack::sycon(uplo, order, matrix.data(), order, pivots.data(), original_one_norm,
+                              condition_work.data(), iwork.data());
 }
 
 /// \brief Estimate a symmetric-indefinite one-norm reciprocal condition number from an existing factorization.
@@ -4010,7 +4014,8 @@ Scalar real_symmetric_indefinite_one_norm_reciprocal_condition_number(
   char const uplo = detail::lapack_uplo(factorization.triangle);
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order)), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order)), 0);
-  return detail::sycon(uplo, order, factors.data(), order, pivots.data(), original_one_norm, work.data(), iwork.data());
+  return uni20::lapack::sycon(uplo, order, factors.data(), order, pivots.data(), original_one_norm, work.data(),
+                              iwork.data());
 }
 
 /// \brief Solve a dense real symmetric eigensystem through LAPACK `syev`.
@@ -4046,11 +4051,11 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem(Matrix<Scalar> matri
   char const uplo = detail::lapack_uplo(triangle);
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::syev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork);
+  uni20::lapack::syev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::syev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork);
+  uni20::lapack::syev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork);
 
   result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
   return result;
@@ -4092,15 +4097,15 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_divide_and_conquer(M
   Scalar work_query{};
   blas_int iwork_query = 0;
   blas_int const query_lwork = -1;
-  detail::syevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork,
-                &iwork_query, query_lwork);
+  uni20::lapack::syevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork,
+                       &iwork_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
-  detail::syevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork, iwork.data(),
-                liwork);
+  uni20::lapack::syevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
+                       iwork.data(), liwork);
 
   result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
   return result;
@@ -4152,18 +4157,18 @@ RealSymmetricEigensystem<Scalar> real_symmetric_eigensystem_index_range(Matrix<S
   blas_int iwork_query = 0;
   blas_int selected_count = 0;
   blas_int const query_lwork = -1;
-  detail::syevr(jobz, range, uplo, order, matrix.data(), order, Scalar{}, Scalar{}, first, last, Scalar{},
-                selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), &work_query,
-                query_lwork, &iwork_query, query_lwork);
+  uni20::lapack::syevr(jobz, range, uplo, order, matrix.data(), order, Scalar{}, Scalar{}, first, last, Scalar{},
+                       selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), &work_query,
+                       query_lwork, &iwork_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
   selected_count = 0;
-  detail::syevr(jobz, range, uplo, order, matrix.data(), order, Scalar{}, Scalar{}, first, last, Scalar{},
-                selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), work.data(), lwork,
-                iwork.data(), liwork);
+  uni20::lapack::syevr(jobz, range, uplo, order, matrix.data(), order, Scalar{}, Scalar{}, first, last, Scalar{},
+                       selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), work.data(),
+                       lwork, iwork.data(), liwork);
 
   if (selected_count < 0 || static_cast<std::size_t>(selected_count) != selected)
   {
@@ -4218,13 +4223,13 @@ RealSymmetricEigensystem<Scalar> real_generalized_symmetric_eigensystem(Matrix<S
   char const uplo = detail::lapack_uplo(triangle);
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::sygv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(), &work_query,
-               query_lwork);
+  uni20::lapack::sygv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
+                      &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::sygv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(), work.data(),
-               lwork);
+  uni20::lapack::sygv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
+                      work.data(), lwork);
 
   result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
   return result;
@@ -4278,15 +4283,15 @@ real_generalized_symmetric_eigensystem_divide_and_conquer(Matrix<Scalar> matrix,
   Scalar work_query{};
   blas_int iwork_query = 0;
   blas_int const query_lwork = -1;
-  detail::sygvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
-                &work_query, query_lwork, &iwork_query, query_lwork);
+  uni20::lapack::sygvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
+                       &work_query, query_lwork, &iwork_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
-  detail::sygvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
-                work.data(), lwork, iwork.data(), liwork);
+  uni20::lapack::sygvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
+                       work.data(), lwork, iwork.data(), liwork);
 
   result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Scalar>(0, 0);
   return result;
@@ -4350,16 +4355,16 @@ real_generalized_symmetric_eigensystem_index_range(Matrix<Scalar> matrix, Matrix
   Scalar work_query{};
   blas_int selected_count = 0;
   blas_int const query_lwork = -1;
-  detail::sygvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Scalar{}, Scalar{}, first,
-                last, Scalar{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, &work_query,
-                query_lwork, iwork.data(), ifail.data());
+  uni20::lapack::sygvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Scalar{}, Scalar{},
+                       first, last, Scalar{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz,
+                       &work_query, query_lwork, iwork.data(), ifail.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   selected_count = 0;
-  detail::sygvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Scalar{}, Scalar{}, first,
-                last, Scalar{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, work.data(), lwork,
-                iwork.data(), ifail.data());
+  uni20::lapack::sygvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Scalar{}, Scalar{},
+                       first, last, Scalar{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz,
+                       work.data(), lwork, iwork.data(), ifail.data());
 
   if (selected_count < 0 || static_cast<std::size_t>(selected_count) != selected)
   {
@@ -4406,12 +4411,13 @@ ComplexHermitianEigensystem<Real> complex_hermitian_eigensystem(Matrix<uni20::co
   std::vector<Real> rwork(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order - 2)), Real{});
   Complex work_query{};
   blas_int const query_lwork = -1;
-  detail::heev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork,
-               rwork.data());
+  uni20::lapack::heev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork,
+                      rwork.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
-  detail::heev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork, rwork.data());
+  uni20::lapack::heev(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
+                      rwork.data());
 
   result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
   return result;
@@ -4452,17 +4458,17 @@ complex_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::complex<Real>> ma
   Real rwork_query{};
   blas_int iwork_query = 0;
   blas_int const query_lwork = -1;
-  detail::heevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork,
-                &rwork_query, query_lwork, &iwork_query, query_lwork);
+  uni20::lapack::heevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), &work_query, query_lwork,
+                       &rwork_query, query_lwork, &iwork_query, query_lwork);
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
   blas_int const lrwork = std::max<blas_int>(1, static_cast<blas_int>(rwork_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   std::vector<Real> rwork(static_cast<std::size_t>(lrwork), Real{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
-  detail::heevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork, rwork.data(),
-                lrwork, iwork.data(), liwork);
+  uni20::lapack::heevd(jobz, uplo, order, matrix.data(), order, result.eigenvalues.data(), work.data(), lwork,
+                       rwork.data(), lrwork, iwork.data(), liwork);
 
   result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
   return result;
@@ -4514,20 +4520,20 @@ complex_hermitian_eigensystem_index_range(Matrix<uni20::complex<Real>> matrix, s
   blas_int iwork_query = 0;
   blas_int selected_count = 0;
   blas_int const query_lwork = -1;
-  detail::heevr(jobz, range, uplo, order, matrix.data(), order, Real{}, Real{}, first, last, Real{}, selected_count,
-                result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), &work_query, query_lwork,
-                &rwork_query, query_lwork, &iwork_query, query_lwork);
+  uni20::lapack::heevr(jobz, range, uplo, order, matrix.data(), order, Real{}, Real{}, first, last, Real{},
+                       selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), &work_query,
+                       query_lwork, &rwork_query, query_lwork, &iwork_query, query_lwork);
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
   blas_int const lrwork = std::max<blas_int>(1, static_cast<blas_int>(rwork_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   std::vector<Real> rwork(static_cast<std::size_t>(lrwork), Real{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
   selected_count = 0;
-  detail::heevr(jobz, range, uplo, order, matrix.data(), order, Real{}, Real{}, first, last, Real{}, selected_count,
-                result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), work.data(), lwork, rwork.data(),
-                lrwork, iwork.data(), liwork);
+  uni20::lapack::heevr(jobz, range, uplo, order, matrix.data(), order, Real{}, Real{}, first, last, Real{},
+                       selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), work.data(),
+                       lwork, rwork.data(), lrwork, iwork.data(), liwork);
 
   if (selected_count < 0 || static_cast<std::size_t>(selected_count) != selected)
   {
@@ -4582,13 +4588,13 @@ complex_generalized_hermitian_eigensystem(Matrix<uni20::complex<Real>> matrix, M
   std::vector<Real> rwork(static_cast<std::size_t>(std::max<blas_int>(1, 3 * order - 2)), Real{});
   Complex work_query{};
   blas_int const query_lwork = -1;
-  detail::hegv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(), &work_query,
-               query_lwork, rwork.data());
+  uni20::lapack::hegv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
+                      &work_query, query_lwork, rwork.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
-  detail::hegv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(), work.data(),
-               lwork, rwork.data());
+  uni20::lapack::hegv(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
+                      work.data(), lwork, rwork.data());
 
   result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
   return result;
@@ -4642,17 +4648,17 @@ complex_generalized_hermitian_eigensystem_divide_and_conquer(Matrix<uni20::compl
   Real rwork_query{};
   blas_int iwork_query = 0;
   blas_int const query_lwork = -1;
-  detail::hegvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
-                &work_query, query_lwork, &rwork_query, query_lwork, &iwork_query, query_lwork);
+  uni20::lapack::hegvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
+                       &work_query, query_lwork, &rwork_query, query_lwork, &iwork_query, query_lwork);
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
   blas_int const lrwork = std::max<blas_int>(1, static_cast<blas_int>(rwork_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   std::vector<Real> rwork(static_cast<std::size_t>(lrwork), Real{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
-  detail::hegvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
-                work.data(), lwork, rwork.data(), lrwork, iwork.data(), liwork);
+  uni20::lapack::hegvd(1, jobz, uplo, order, matrix.data(), order, metric.data(), order, result.eigenvalues.data(),
+                       work.data(), lwork, rwork.data(), lrwork, iwork.data(), liwork);
 
   result.eigenvectors = compute_vectors ? std::move(matrix) : Matrix<Complex>(0, 0);
   return result;
@@ -4715,16 +4721,16 @@ ComplexHermitianEigensystem<Real> complex_generalized_hermitian_eigensystem_inde
   Complex work_query{};
   blas_int selected_count = 0;
   blas_int const query_lwork = -1;
-  detail::hegvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Real{}, Real{}, first, last,
-                Real{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, &work_query, query_lwork,
-                rwork.data(), iwork.data(), ifail.data());
+  uni20::lapack::hegvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Real{}, Real{}, first,
+                       last, Real{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, &work_query,
+                       query_lwork, rwork.data(), iwork.data(), ifail.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
   selected_count = 0;
-  detail::hegvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Real{}, Real{}, first, last,
-                Real{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, work.data(), lwork,
-                rwork.data(), iwork.data(), ifail.data());
+  uni20::lapack::hegvx(1, jobz, range, uplo, order, matrix.data(), order, metric.data(), order, Real{}, Real{}, first,
+                       last, Real{}, selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, work.data(),
+                       lwork, rwork.data(), iwork.data(), ifail.data());
 
   if (selected_count < 0 || static_cast<std::size_t>(selected_count) != selected)
   {
@@ -4765,11 +4771,11 @@ RealCompactQrFactorization<Scalar> real_compact_qr_factorization(Matrix<Scalar> 
 
   Scalar geqrf_work_query{};
   blas_int const query_lwork = -1;
-  detail::geqrf(m, n, result.reflectors.data(), lda, result.tau.data(), &geqrf_work_query, query_lwork);
+  uni20::lapack::geqrf(m, n, result.reflectors.data(), lda, result.tau.data(), &geqrf_work_query, query_lwork);
 
   blas_int const geqrf_lwork = std::max<blas_int>(1, static_cast<blas_int>(geqrf_work_query));
   std::vector<Scalar> geqrf_work(static_cast<std::size_t>(geqrf_lwork), Scalar{});
-  detail::geqrf(m, n, result.reflectors.data(), lda, result.tau.data(), geqrf_work.data(), geqrf_lwork);
+  uni20::lapack::geqrf(m, n, result.reflectors.data(), lda, result.tau.data(), geqrf_work.data(), geqrf_lwork);
 
   return result;
 }
@@ -4825,12 +4831,13 @@ Matrix<Scalar> apply_real_qr_factor(RealCompactQrFactorization<Scalar> const& fa
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::ormqr(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
-                query_lwork);
+  uni20::lapack::ormqr(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
+                       query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::ormqr(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(), lwork);
+  uni20::lapack::ormqr(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(),
+                       lwork);
 
   return target;
 }
@@ -4878,11 +4885,11 @@ template <uni20::LapackReal Scalar> RealQrFactorization<Scalar> real_qr_factoriz
 
   Scalar orgqr_work_query{};
   blas_int const query_lwork = -1;
-  detail::orgqr(m, k, k, result.q.data(), lda, compact.tau.data(), &orgqr_work_query, query_lwork);
+  uni20::lapack::orgqr(m, k, k, result.q.data(), lda, compact.tau.data(), &orgqr_work_query, query_lwork);
 
   blas_int const orgqr_lwork = std::max<blas_int>(1, static_cast<blas_int>(orgqr_work_query));
   std::vector<Scalar> orgqr_work(static_cast<std::size_t>(orgqr_lwork), Scalar{});
-  detail::orgqr(m, k, k, result.q.data(), lda, compact.tau.data(), orgqr_work.data(), orgqr_lwork);
+  uni20::lapack::orgqr(m, k, k, result.q.data(), lda, compact.tau.data(), orgqr_work.data(), orgqr_lwork);
 
   return result;
 }
@@ -4916,11 +4923,11 @@ RealCompactLqFactorization<Scalar> real_compact_lq_factorization(Matrix<Scalar> 
 
   Scalar gelqf_work_query{};
   blas_int const query_lwork = -1;
-  detail::gelqf(m, n, result.reflectors.data(), lda, result.tau.data(), &gelqf_work_query, query_lwork);
+  uni20::lapack::gelqf(m, n, result.reflectors.data(), lda, result.tau.data(), &gelqf_work_query, query_lwork);
 
   blas_int const gelqf_lwork = std::max<blas_int>(1, static_cast<blas_int>(gelqf_work_query));
   std::vector<Scalar> gelqf_work(static_cast<std::size_t>(gelqf_lwork), Scalar{});
-  detail::gelqf(m, n, result.reflectors.data(), lda, result.tau.data(), gelqf_work.data(), gelqf_lwork);
+  uni20::lapack::gelqf(m, n, result.reflectors.data(), lda, result.tau.data(), gelqf_work.data(), gelqf_lwork);
 
   return result;
 }
@@ -4976,12 +4983,13 @@ Matrix<Scalar> apply_real_lq_factor(RealCompactLqFactorization<Scalar> const& fa
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::ormlq(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
-                query_lwork);
+  uni20::lapack::ormlq(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
+                       query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::ormlq(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(), lwork);
+  uni20::lapack::ormlq(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(),
+                       lwork);
 
   return target;
 }
@@ -5029,11 +5037,11 @@ template <uni20::LapackReal Scalar> RealLqFactorization<Scalar> real_lq_factoriz
 
   Scalar orglq_work_query{};
   blas_int const query_lwork = -1;
-  detail::orglq(k, n, k, result.q.data(), lda, compact.tau.data(), &orglq_work_query, query_lwork);
+  uni20::lapack::orglq(k, n, k, result.q.data(), lda, compact.tau.data(), &orglq_work_query, query_lwork);
 
   blas_int const orglq_lwork = std::max<blas_int>(1, static_cast<blas_int>(orglq_work_query));
   std::vector<Scalar> orglq_work(static_cast<std::size_t>(orglq_lwork), Scalar{});
-  detail::orglq(k, n, k, result.q.data(), lda, compact.tau.data(), orglq_work.data(), orglq_lwork);
+  uni20::lapack::orglq(k, n, k, result.q.data(), lda, compact.tau.data(), orglq_work.data(), orglq_lwork);
 
   return result;
 }
@@ -5067,11 +5075,11 @@ RealCompactQlFactorization<Scalar> real_compact_ql_factorization(Matrix<Scalar> 
 
   Scalar geqlf_work_query{};
   blas_int const query_lwork = -1;
-  detail::geqlf(m, n, result.reflectors.data(), lda, result.tau.data(), &geqlf_work_query, query_lwork);
+  uni20::lapack::geqlf(m, n, result.reflectors.data(), lda, result.tau.data(), &geqlf_work_query, query_lwork);
 
   blas_int const geqlf_lwork = std::max<blas_int>(1, static_cast<blas_int>(geqlf_work_query));
   std::vector<Scalar> geqlf_work(static_cast<std::size_t>(geqlf_lwork), Scalar{});
-  detail::geqlf(m, n, result.reflectors.data(), lda, result.tau.data(), geqlf_work.data(), geqlf_lwork);
+  uni20::lapack::geqlf(m, n, result.reflectors.data(), lda, result.tau.data(), geqlf_work.data(), geqlf_lwork);
 
   return result;
 }
@@ -5127,12 +5135,13 @@ Matrix<Scalar> apply_real_ql_factor(RealCompactQlFactorization<Scalar> const& fa
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::ormql(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
-                query_lwork);
+  uni20::lapack::ormql(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
+                       query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::ormql(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(), lwork);
+  uni20::lapack::ormql(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(),
+                       lwork);
 
   return target;
 }
@@ -5184,11 +5193,11 @@ template <uni20::LapackReal Scalar> RealQlFactorization<Scalar> real_ql_factoriz
 
   Scalar orgql_work_query{};
   blas_int const query_lwork = -1;
-  detail::orgql(m, k, k, result.q.data(), lda, compact.tau.data(), &orgql_work_query, query_lwork);
+  uni20::lapack::orgql(m, k, k, result.q.data(), lda, compact.tau.data(), &orgql_work_query, query_lwork);
 
   blas_int const orgql_lwork = std::max<blas_int>(1, static_cast<blas_int>(orgql_work_query));
   std::vector<Scalar> orgql_work(static_cast<std::size_t>(orgql_lwork), Scalar{});
-  detail::orgql(m, k, k, result.q.data(), lda, compact.tau.data(), orgql_work.data(), orgql_lwork);
+  uni20::lapack::orgql(m, k, k, result.q.data(), lda, compact.tau.data(), orgql_work.data(), orgql_lwork);
 
   return result;
 }
@@ -5222,11 +5231,11 @@ RealCompactRqFactorization<Scalar> real_compact_rq_factorization(Matrix<Scalar> 
 
   Scalar gerqf_work_query{};
   blas_int const query_lwork = -1;
-  detail::gerqf(m, n, result.reflectors.data(), lda, result.tau.data(), &gerqf_work_query, query_lwork);
+  uni20::lapack::gerqf(m, n, result.reflectors.data(), lda, result.tau.data(), &gerqf_work_query, query_lwork);
 
   blas_int const gerqf_lwork = std::max<blas_int>(1, static_cast<blas_int>(gerqf_work_query));
   std::vector<Scalar> gerqf_work(static_cast<std::size_t>(gerqf_lwork), Scalar{});
-  detail::gerqf(m, n, result.reflectors.data(), lda, result.tau.data(), gerqf_work.data(), gerqf_lwork);
+  uni20::lapack::gerqf(m, n, result.reflectors.data(), lda, result.tau.data(), gerqf_work.data(), gerqf_lwork);
 
   return result;
 }
@@ -5282,12 +5291,13 @@ Matrix<Scalar> apply_real_rq_factor(RealCompactRqFactorization<Scalar> const& fa
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::ormrq(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
-                query_lwork);
+  uni20::lapack::ormrq(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
+                       query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::ormrq(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(), lwork);
+  uni20::lapack::ormrq(side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(),
+                       lwork);
 
   return target;
 }
@@ -5341,11 +5351,11 @@ template <uni20::LapackReal Scalar> RealRqFactorization<Scalar> real_rq_factoriz
 
   Scalar orgrq_work_query{};
   blas_int const query_lwork = -1;
-  detail::orgrq(k, n, k, result.q.data(), lda, compact.tau.data(), &orgrq_work_query, query_lwork);
+  uni20::lapack::orgrq(k, n, k, result.q.data(), lda, compact.tau.data(), &orgrq_work_query, query_lwork);
 
   blas_int const orgrq_lwork = std::max<blas_int>(1, static_cast<blas_int>(orgrq_work_query));
   std::vector<Scalar> orgrq_work(static_cast<std::size_t>(orgrq_lwork), Scalar{});
-  detail::orgrq(k, n, k, result.q.data(), lda, compact.tau.data(), orgrq_work.data(), orgrq_lwork);
+  uni20::lapack::orgrq(k, n, k, result.q.data(), lda, compact.tau.data(), orgrq_work.data(), orgrq_lwork);
 
   return result;
 }
@@ -5383,13 +5393,13 @@ template <uni20::LapackReal Scalar> RealBidiagonalReduction<Scalar> real_bidiago
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gebrd(m, n, result.reflectors.data(), lda, result.diagonal.data(), result.offdiagonal.data(),
-                result.tauq.data(), result.taup.data(), &work_query, query_lwork);
+  uni20::lapack::gebrd(m, n, result.reflectors.data(), lda, result.diagonal.data(), result.offdiagonal.data(),
+                       result.tauq.data(), result.taup.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::gebrd(m, n, result.reflectors.data(), lda, result.diagonal.data(), result.offdiagonal.data(),
-                result.tauq.data(), result.taup.data(), work.data(), lwork);
+  uni20::lapack::gebrd(m, n, result.reflectors.data(), lda, result.diagonal.data(), result.offdiagonal.data(),
+                       result.tauq.data(), result.taup.data(), work.data(), lwork);
 
   for (std::size_t index = 0; index < rank; ++index)
   {
@@ -5440,8 +5450,8 @@ std::vector<Scalar> real_bidiagonal_singular_values(std::vector<Scalar> diagonal
   Scalar dummy{};
   Scalar* e = offdiagonal.empty() ? &dummy : offdiagonal.data();
   std::vector<Scalar> work(static_cast<std::size_t>(std::max<blas_int>(1, 4 * n)), Scalar{});
-  detail::bdsqr(upper ? 'U' : 'L', n, zero, zero, zero, diagonal.data(), e, &dummy, dummy_ld, &dummy, dummy_ld, &dummy,
-                dummy_ld, work.data());
+  uni20::lapack::bdsqr(upper ? 'U' : 'L', n, zero, zero, zero, diagonal.data(), e, &dummy, dummy_ld, &dummy, dummy_ld,
+                       &dummy, dummy_ld, work.data());
   return diagonal;
 }
 
@@ -5500,8 +5510,8 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd(std::vector<Scalar> diagonal, std:
   std::size_t const work_size = compute_vectors ? 3 * order * order + 4 * order : 4 * order;
   std::vector<Scalar> work(std::max<std::size_t>(1, work_size), Scalar{});
   std::vector<blas_int> iwork(std::max<std::size_t>(1, 8 * order), 0);
-  detail::bdsdc(upper ? 'U' : 'L', compq, n, result.singular_values.data(), e, u.data(), leading_dimension, vt.data(),
-                leading_dimension, q.data(), iq.data(), work.data(), iwork.data());
+  uni20::lapack::bdsdc(upper ? 'U' : 'L', compq, n, result.singular_values.data(), e, u.data(), leading_dimension,
+                       vt.data(), leading_dimension, q.data(), iq.data(), work.data(), iwork.data());
 
   result.u = compute_vectors ? std::move(u) : Matrix<Scalar>(0, 0);
   result.vt = compute_vectors ? std::move(vt) : Matrix<Scalar>(0, 0);
@@ -5569,8 +5579,8 @@ RealBidiagonalSvd<Scalar> real_bidiagonal_svd_index_range(std::vector<Scalar> di
   std::vector<Scalar> work(std::max<std::size_t>(1, 14 * order), Scalar{});
   std::vector<blas_int> iwork(std::max<std::size_t>(1, 12 * order), 0);
   blas_int selected_count = 0;
-  detail::bdsvdx(upper ? 'U' : 'L', jobz, range, n, diagonal.data(), e, Scalar{}, Scalar{}, first, last, selected_count,
-                 singular_values_workspace.data(), z.data(), ldz, work.data(), iwork.data());
+  uni20::lapack::bdsvdx(upper ? 'U' : 'L', jobz, range, n, diagonal.data(), e, Scalar{}, Scalar{}, first, last,
+                        selected_count, singular_values_workspace.data(), z.data(), ldz, work.data(), iwork.data());
 
   if (selected_count < 0 || static_cast<std::size_t>(selected_count) != selected)
   {
@@ -5655,11 +5665,13 @@ Matrix<Scalar> real_bidiagonal_left_orthogonal_factor(RealBidiagonalReduction<Sc
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::orgbr('Q', m, n, k, factor.data(), lda, const_cast<Scalar*>(reduction.tauq.data()), &work_query, query_lwork);
+  uni20::lapack::orgbr('Q', m, n, k, factor.data(), lda, const_cast<Scalar*>(reduction.tauq.data()), &work_query,
+                       query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::orgbr('Q', m, n, k, factor.data(), lda, const_cast<Scalar*>(reduction.tauq.data()), work.data(), lwork);
+  uni20::lapack::orgbr('Q', m, n, k, factor.data(), lda, const_cast<Scalar*>(reduction.tauq.data()), work.data(),
+                       lwork);
 
   return factor;
 }
@@ -5704,11 +5716,13 @@ Matrix<Scalar> real_bidiagonal_right_orthogonal_factor_transpose(RealBidiagonalR
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::orgbr('P', m, n, k, factor.data(), lda, const_cast<Scalar*>(reduction.taup.data()), &work_query, query_lwork);
+  uni20::lapack::orgbr('P', m, n, k, factor.data(), lda, const_cast<Scalar*>(reduction.taup.data()), &work_query,
+                       query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::orgbr('P', m, n, k, factor.data(), lda, const_cast<Scalar*>(reduction.taup.data()), work.data(), lwork);
+  uni20::lapack::orgbr('P', m, n, k, factor.data(), lda, const_cast<Scalar*>(reduction.taup.data()), work.data(),
+                       lwork);
 
   return factor;
 }
@@ -5761,13 +5775,13 @@ Matrix<Scalar> apply_real_bidiagonal_left_factor(RealBidiagonalReduction<Scalar>
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::ormbr('Q', side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
-                query_lwork);
+  uni20::lapack::ormbr('Q', side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc,
+                       &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::ormbr('Q', side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(),
-                lwork);
+  uni20::lapack::ormbr('Q', side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc,
+                       work.data(), lwork);
 
   return target;
 }
@@ -5820,13 +5834,13 @@ Matrix<Scalar> apply_real_bidiagonal_right_factor(RealBidiagonalReduction<Scalar
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::ormbr('P', side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, &work_query,
-                query_lwork);
+  uni20::lapack::ormbr('P', side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc,
+                       &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::ormbr('P', side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc, work.data(),
-                lwork);
+  uni20::lapack::ormbr('P', side_char, trans, m, n, k, reflectors.data(), lda, tau.data(), target.data(), ldc,
+                       work.data(), lwork);
 
   return target;
 }
@@ -5866,11 +5880,11 @@ template <uni20::LapackReal Scalar> RealHessenbergReduction<Scalar> real_hessenb
 
     Scalar work_query{};
     blas_int const query_lwork = -1;
-    detail::gehrd(order, first, last, matrix.data(), order, result.tau.data(), &work_query, query_lwork);
+    uni20::lapack::gehrd(order, first, last, matrix.data(), order, result.tau.data(), &work_query, query_lwork);
 
     blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
     std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-    detail::gehrd(order, first, last, matrix.data(), order, result.tau.data(), work.data(), lwork);
+    uni20::lapack::gehrd(order, first, last, matrix.data(), order, result.tau.data(), work.data(), lwork);
   }
 
   result.reflectors = matrix;
@@ -5926,11 +5940,11 @@ Matrix<Scalar> real_hessenberg_orthogonal_factor(RealHessenbergReduction<Scalar>
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::orghr(order, first, last, q.data(), order, reduction.tau.data(), &work_query, query_lwork);
+  uni20::lapack::orghr(order, first, last, q.data(), order, reduction.tau.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::orghr(order, first, last, q.data(), order, reduction.tau.data(), work.data(), lwork);
+  uni20::lapack::orghr(order, first, last, q.data(), order, reduction.tau.data(), work.data(), lwork);
   return q;
 }
 
@@ -5989,13 +6003,13 @@ Matrix<Scalar> apply_real_hessenberg_orthogonal_factor(RealHessenbergReduction<S
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::ormhr(side_char, trans, m, n, first, last, reflectors.data(), lda, reduction.tau.data(), target.data(), ldc,
-                &work_query, query_lwork);
+  uni20::lapack::ormhr(side_char, trans, m, n, first, last, reflectors.data(), lda, reduction.tau.data(), target.data(),
+                       ldc, &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::ormhr(side_char, trans, m, n, first, last, reflectors.data(), lda, reduction.tau.data(), target.data(), ldc,
-                work.data(), lwork);
+  uni20::lapack::ormhr(side_char, trans, m, n, first, last, reflectors.data(), lda, reduction.tau.data(), target.data(),
+                       ldc, work.data(), lwork);
   return target;
 }
 
@@ -6036,13 +6050,13 @@ RealSymmetricTridiagonalReduction<Scalar> real_symmetric_tridiagonal_reduction(M
   blas_int const order = detail::checked_blas_int(n);
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::sytrd(uplo, order, matrix.data(), order, result.diagonal.data(), result.offdiagonal.data(), result.tau.data(),
-                &work_query, query_lwork);
+  uni20::lapack::sytrd(uplo, order, matrix.data(), order, result.diagonal.data(), result.offdiagonal.data(),
+                       result.tau.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::sytrd(uplo, order, matrix.data(), order, result.diagonal.data(), result.offdiagonal.data(), result.tau.data(),
-                work.data(), lwork);
+  uni20::lapack::sytrd(uplo, order, matrix.data(), order, result.diagonal.data(), result.offdiagonal.data(),
+                       result.tau.data(), work.data(), lwork);
 
   result.reflectors = matrix;
   result.tridiagonal = Matrix<Scalar>(n, n);
@@ -6097,11 +6111,11 @@ Matrix<Scalar> real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiag
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::orgtr(uplo, order, q.data(), order, reduction.tau.data(), &work_query, query_lwork);
+  uni20::lapack::orgtr(uplo, order, q.data(), order, reduction.tau.data(), &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::orgtr(uplo, order, q.data(), order, reduction.tau.data(), work.data(), lwork);
+  uni20::lapack::orgtr(uplo, order, q.data(), order, reduction.tau.data(), work.data(), lwork);
   return q;
 }
 
@@ -6163,13 +6177,13 @@ apply_real_symmetric_tridiagonal_orthogonal_factor(RealSymmetricTridiagonalReduc
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::ormtr(side_char, uplo, trans, m, n, reflectors.data(), lda, reduction.tau.data(), target.data(), ldc,
-                &work_query, query_lwork);
+  uni20::lapack::ormtr(side_char, uplo, trans, m, n, reflectors.data(), lda, reduction.tau.data(), target.data(), ldc,
+                       &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::ormtr(side_char, uplo, trans, m, n, reflectors.data(), lda, reduction.tau.data(), target.data(), ldc,
-                work.data(), lwork);
+  uni20::lapack::ormtr(side_char, uplo, trans, m, n, reflectors.data(), lda, reduction.tau.data(), target.data(), ldc,
+                       work.data(), lwork);
   return target;
 }
 
@@ -6206,12 +6220,12 @@ RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(Matrix<Scalar> 
 
   Scalar geqp3_work_query{};
   blas_int const query_lwork = -1;
-  detail::geqp3(m, n, matrix.data(), lda, jpvt.data(), tau.data(), &geqp3_work_query, query_lwork);
+  uni20::lapack::geqp3(m, n, matrix.data(), lda, jpvt.data(), tau.data(), &geqp3_work_query, query_lwork);
 
   std::fill(jpvt.begin(), jpvt.end(), 0);
   blas_int const geqp3_lwork = std::max<blas_int>(1, static_cast<blas_int>(geqp3_work_query));
   std::vector<Scalar> geqp3_work(static_cast<std::size_t>(geqp3_lwork), Scalar{});
-  detail::geqp3(m, n, matrix.data(), lda, jpvt.data(), tau.data(), geqp3_work.data(), geqp3_lwork);
+  uni20::lapack::geqp3(m, n, matrix.data(), lda, jpvt.data(), tau.data(), geqp3_work.data(), geqp3_lwork);
 
   for (std::size_t col = 0; col < cols; ++col)
   {
@@ -6239,11 +6253,11 @@ RealPivotedQrFactorization<Scalar> real_pivoted_qr_factorization(Matrix<Scalar> 
   }
 
   Scalar orgqr_work_query{};
-  detail::orgqr(m, k, k, result.q.data(), lda, tau.data(), &orgqr_work_query, query_lwork);
+  uni20::lapack::orgqr(m, k, k, result.q.data(), lda, tau.data(), &orgqr_work_query, query_lwork);
 
   blas_int const orgqr_lwork = std::max<blas_int>(1, static_cast<blas_int>(orgqr_work_query));
   std::vector<Scalar> orgqr_work(static_cast<std::size_t>(orgqr_lwork), Scalar{});
-  detail::orgqr(m, k, k, result.q.data(), lda, tau.data(), orgqr_work.data(), orgqr_lwork);
+  uni20::lapack::orgqr(m, k, k, result.q.data(), lda, tau.data(), orgqr_work.data(), orgqr_lwork);
 
   return result;
 }
@@ -6285,13 +6299,13 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition(Matrix<
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gesvd(jobu, jobvt, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
-                right_transpose.data(), ldvt, &work_query, query_lwork);
+  uni20::lapack::gesvd(jobu, jobvt, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
+                       right_transpose.data(), ldvt, &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::gesvd(jobu, jobvt, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
-                right_transpose.data(), ldvt, work.data(), lwork);
+  uni20::lapack::gesvd(jobu, jobvt, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
+                       right_transpose.data(), ldvt, work.data(), lwork);
 
   result.left_singular_vectors = compute_vectors ? std::move(left) : Matrix<Scalar>(0, 0);
   result.right_singular_vectors_transpose = compute_vectors ? std::move(right_transpose) : Matrix<Scalar>(0, 0);
@@ -6338,13 +6352,13 @@ RealSingularValueDecomposition<Scalar> real_singular_value_decomposition_divide_
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gesdd(jobz, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu, right_transpose.data(),
-                ldvt, &work_query, query_lwork, iwork.data());
+  uni20::lapack::gesdd(jobz, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
+                       right_transpose.data(), ldvt, &work_query, query_lwork, iwork.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::gesdd(jobz, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu, right_transpose.data(),
-                ldvt, work.data(), lwork, iwork.data());
+  uni20::lapack::gesdd(jobz, m, n, matrix.data(), lda, result.singular_values.data(), left.data(), ldu,
+                       right_transpose.data(), ldvt, work.data(), lwork, iwork.data());
 
   result.left_singular_vectors = compute_vectors ? std::move(left) : Matrix<Scalar>(0, 0);
   result.right_singular_vectors_transpose = compute_vectors ? std::move(right_transpose) : Matrix<Scalar>(0, 0);
@@ -6398,15 +6412,15 @@ real_singular_value_decomposition_index_range(Matrix<Scalar> matrix, std::size_t
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gesvdx(jobu, jobvt, range, m, n, matrix.data(), lda, Scalar{}, Scalar{}, first, last, selected_count,
-                 singular_values_workspace.data(), left.data(), ldu, right_transpose.data(), ldvt, &work_query,
-                 query_lwork, iwork.data());
+  uni20::lapack::gesvdx(jobu, jobvt, range, m, n, matrix.data(), lda, Scalar{}, Scalar{}, first, last, selected_count,
+                        singular_values_workspace.data(), left.data(), ldu, right_transpose.data(), ldvt, &work_query,
+                        query_lwork, iwork.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::gesvdx(jobu, jobvt, range, m, n, matrix.data(), lda, Scalar{}, Scalar{}, first, last, selected_count,
-                 singular_values_workspace.data(), left.data(), ldu, right_transpose.data(), ldvt, work.data(), lwork,
-                 iwork.data());
+  uni20::lapack::gesvdx(jobu, jobvt, range, m, n, matrix.data(), lda, Scalar{}, Scalar{}, first, last, selected_count,
+                        singular_values_workspace.data(), left.data(), ldu, right_transpose.data(), ldvt, work.data(),
+                        lwork, iwork.data());
 
   if (selected_count < 0 || static_cast<std::size_t>(selected_count) != selected)
   {
@@ -6427,8 +6441,8 @@ real_singular_value_decomposition_index_range(Matrix<Scalar> matrix, std::size_t
 /// \param diagonal Main diagonal of the tridiagonal matrix.
 /// \param subdiagonal Subdiagonal/superdiagonal entries.
 /// \return Eigenvalues in ascending order.
-template <uni20::LapackReal Scalar>
 
+template <uni20::LapackReal Scalar>
 TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem_divide_and_conquer(std::vector<Scalar> diagonal,
                                                                                     std::vector<Scalar> subdiagonal,
                                                                                     bool compute_vectors)
@@ -6458,14 +6472,15 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem_divide_and_conq
   Scalar work_query{};
   blas_int iwork_query = 0;
   blas_int const query_lwork = -1;
-  detail::stevd(jobz, order, result.eigenvalues.data(), e, z.data(), ldz, &work_query, query_lwork, &iwork_query,
-                query_lwork);
+  uni20::lapack::stevd(jobz, order, result.eigenvalues.data(), e, z.data(), ldz, &work_query, query_lwork, &iwork_query,
+                       query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
-  detail::stevd(jobz, order, result.eigenvalues.data(), e, z.data(), ldz, work.data(), lwork, iwork.data(), liwork);
+  uni20::lapack::stevd(jobz, order, result.eigenvalues.data(), e, z.data(), ldz, work.data(), lwork, iwork.data(),
+                       liwork);
 
   result.eigenvectors = compute_vectors ? std::move(z) : Matrix<Scalar>(0, 0);
   return result;
@@ -6518,18 +6533,18 @@ symmetric_tridiagonal_eigensystem_index_range(std::vector<Scalar> diagonal, std:
   blas_int iwork_query = 0;
   blas_int selected_count = 0;
   blas_int const query_lwork = -1;
-  detail::stevr(jobz, range, order, diagonal.data(), e, Scalar{}, Scalar{}, first, last, Scalar{}, selected_count,
-                result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), &work_query, query_lwork,
-                &iwork_query, query_lwork);
+  uni20::lapack::stevr(jobz, range, order, diagonal.data(), e, Scalar{}, Scalar{}, first, last, Scalar{},
+                       selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), &work_query,
+                       query_lwork, &iwork_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
   selected_count = 0;
-  detail::stevr(jobz, range, order, diagonal.data(), e, Scalar{}, Scalar{}, first, last, Scalar{}, selected_count,
-                result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), work.data(), lwork, iwork.data(),
-                liwork);
+  uni20::lapack::stevr(jobz, range, order, diagonal.data(), e, Scalar{}, Scalar{}, first, last, Scalar{},
+                       selected_count, result.eigenvalues.data(), eigenvectors.data(), ldz, support.data(), work.data(),
+                       lwork, iwork.data(), liwork);
 
   if (selected_count < 0 || static_cast<std::size_t>(selected_count) != selected)
   {
@@ -6548,11 +6563,8 @@ symmetric_tridiagonal_eigensystem_index_range(std::vector<Scalar> diagonal, std:
 ///          LAPACK, so the returned Schur vectors correspond to the logical
 ///          input matrix rather than its transpose.
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
-/// \param matrix Real square matrix in logical layout-right storage.
-/// \param compute_vectors Whether to compute Schur vectors.
-/// \return Real Schur form, optional Schur vectors, eigenvalues, and block metadata.
-template <uni20::LapackReal Scalar>
 
+template <uni20::LapackReal Scalar>
 RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecomposition<Scalar> decomposition,
                                                                std::vector<std::size_t> const& selected_blocks)
 {
@@ -6623,17 +6635,18 @@ RealSchurSelectedSubspace<Scalar> real_schur_selected_subspace(RealSchurDecompos
   Scalar work_query = Scalar{};
   blas_int iwork_query = 0;
   blas_int const query_workspace = -1;
-  detail::trsen(job, compq, select.data(), order, schur_form.data(), order, schur_vectors.data(), ldq, wr.data(),
-                wi.data(), selected_dimension, reciprocal_eigenvalue_cluster_condition,
-                reciprocal_invariant_subspace_condition, &work_query, query_workspace, &iwork_query, query_workspace);
+  uni20::lapack::trsen(job, compq, select.data(), order, schur_form.data(), order, schur_vectors.data(), ldq, wr.data(),
+                       wi.data(), selected_dimension, reciprocal_eigenvalue_cluster_condition,
+                       reciprocal_invariant_subspace_condition, &work_query, query_workspace, &iwork_query,
+                       query_workspace);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
-  detail::trsen(job, compq, select.data(), order, schur_form.data(), order, schur_vectors.data(), ldq, wr.data(),
-                wi.data(), selected_dimension, reciprocal_eigenvalue_cluster_condition,
-                reciprocal_invariant_subspace_condition, work.data(), lwork, iwork.data(), liwork);
+  uni20::lapack::trsen(job, compq, select.data(), order, schur_form.data(), order, schur_vectors.data(), ldq, wr.data(),
+                       wi.data(), selected_dimension, reciprocal_eigenvalue_cluster_condition,
+                       reciprocal_invariant_subspace_condition, work.data(), lwork, iwork.data(), liwork);
 
   if (selected_dimension < 0 || static_cast<std::size_t>(selected_dimension) != expected_selected_dimension)
   {
@@ -6694,8 +6707,8 @@ RealSchurRightEigenvectors<Scalar> real_schur_right_eigenvectors(RealSchurDecomp
   blas_int computed_vectors = 0;
   char const side = 'R';
   char const howmny = 'A';
-  detail::trevc(side, howmny, select.data(), order, schur_form.data(), order, left_vectors.data(), 1,
-                right_vectors.data(), order, order, computed_vectors, work.data());
+  uni20::lapack::trevc(side, howmny, select.data(), order, schur_form.data(), order, left_vectors.data(), 1,
+                       right_vectors.data(), order, order, computed_vectors, work.data());
 
   if (computed_vectors < 0 || static_cast<std::size_t>(computed_vectors) != n)
   {
@@ -6783,8 +6796,8 @@ RealSchurConditionEstimates<Scalar> real_schur_condition_estimates(RealSchurDeco
   std::vector<Scalar> trevc_work(3 * n, Scalar{});
   blas_int const order = detail::checked_blas_int(n);
   blas_int computed_vectors = 0;
-  detail::trevc('B', 'A', select.data(), order, schur_form.data(), order, left_vectors.data(), order,
-                right_vectors.data(), order, order, computed_vectors, trevc_work.data());
+  uni20::lapack::trevc('B', 'A', select.data(), order, schur_form.data(), order, left_vectors.data(), order,
+                       right_vectors.data(), order, order, computed_vectors, trevc_work.data());
 
   if (computed_vectors < 0 || static_cast<std::size_t>(computed_vectors) != n)
   {
@@ -6795,10 +6808,10 @@ RealSchurConditionEstimates<Scalar> real_schur_condition_estimates(RealSchurDeco
   blas_int const ldwork = order;
   std::vector<Scalar> work(n * (n + 6), Scalar{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, 2 * order - 2)), 0);
-  detail::trsna('B', 'A', select.data(), order, schur_form.data(), order, left_vectors.data(), order,
-                right_vectors.data(), order, result.reciprocal_eigenvalue_condition_numbers.data(),
-                result.reciprocal_eigenvector_condition_numbers.data(), order, computed_estimates, work.data(), ldwork,
-                iwork.data());
+  uni20::lapack::trsna('B', 'A', select.data(), order, schur_form.data(), order, left_vectors.data(), order,
+                       right_vectors.data(), order, result.reciprocal_eigenvalue_condition_numbers.data(),
+                       result.reciprocal_eigenvector_condition_numbers.data(), order, computed_estimates, work.data(),
+                       ldwork, iwork.data());
 
   if (computed_estimates < 0 || static_cast<std::size_t>(computed_estimates) != n)
   {
@@ -6809,15 +6822,17 @@ RealSchurConditionEstimates<Scalar> real_schur_condition_estimates(RealSchurDeco
   return result;
 }
 
-/// \details The input matrix is copied by value and overwritten with the
-///          balanced matrix. The returned balanced interval is zero-based and
-///          half-open; pass the full result to
-///          `real_nonsymmetric_balance_backtransform_right_vectors` to
-///          backtransform real right eigenvectors of the balanced matrix.
-/// \tparam Real Real scalar type satisfying `uni20::LapackReal`.
-/// \param matrix Real square matrix in column-major local storage.
-/// \param job Balancing operation to apply.
-/// \return Balanced matrix, LAPACK scale data, and balanced active interval.
+/// \brief Reorder a layout-right complex Schur decomposition by moving selected entries to the front.
+///
+/// \details Complex Schur form contains only scalar 1x1 diagonal entries.
+///          `leading_order` names entries in the input decomposition's current
+///          order. Entries not named are left after the requested prefix in
+///          their original relative order.
+/// \tparam Real `float` or `double`.
+/// \param decomposition Complex Schur decomposition to reorder.
+/// \param leading_order Input entry indices to move to the leading positions.
+/// \return Reordered complex Schur decomposition.
+
 template <uni20::LapackReal Real>
 RealNonsymmetricBalance<Real>
 real_nonsymmetric_balance(Matrix<Real> matrix, RealNonsymmetricBalanceJob job = RealNonsymmetricBalanceJob::Both)
@@ -6840,8 +6855,8 @@ real_nonsymmetric_balance(Matrix<Real> matrix, RealNonsymmetricBalanceJob job = 
   blas_int const order = detail::checked_blas_int(n);
   blas_int first = 0;
   blas_int last = 0;
-  detail::gebal(detail::lapack_balance_job(job), order, result.balanced_matrix.data(), order, first, last,
-                result.scale.data());
+  uni20::lapack::gebal(detail::lapack_balance_job(job), order, result.balanced_matrix.data(), order, first, last,
+                       result.scale.data());
 
   if (first <= 0 || last < first || last > order)
   {
@@ -6886,8 +6901,8 @@ real_nonsymmetric_balance_backtransform_right_vectors(Matrix<Real> vectors,
   blas_int const last = detail::checked_blas_int(balance.balanced_last_exclusive);
   blas_int const vector_count = detail::checked_blas_int(vectors.cols());
   std::vector<Real> scale = balance.scale;
-  detail::gebak(detail::lapack_balance_job(job), 'R', order, first, last, scale.data(), vector_count, vectors.data(),
-                order);
+  uni20::lapack::gebak(detail::lapack_balance_job(job), 'R', order, first, last, scale.data(), vector_count,
+                       vectors.data(), order);
   return vectors;
 }
 
@@ -6936,9 +6951,9 @@ real_generalized_nonsymmetric_balance(Matrix<Real> matrix, Matrix<Real> metric,
   blas_int first = 0;
   blas_int last = 0;
   std::vector<Real> work(6 * n, Real{});
-  detail::ggbal(detail::lapack_balance_job(job), order, result.balanced_matrix.data(), order,
-                result.balanced_metric.data(), order, first, last, result.left_scale.data(), result.right_scale.data(),
-                work.data());
+  uni20::lapack::ggbal(detail::lapack_balance_job(job), order, result.balanced_matrix.data(), order,
+                       result.balanced_metric.data(), order, first, last, result.left_scale.data(),
+                       result.right_scale.data(), work.data());
 
   if (first <= 0 || last < first || last > order)
   {
@@ -6990,8 +7005,8 @@ Matrix<Real> real_generalized_nonsymmetric_balance_backtransform_right_vectors(
   blas_int const vector_count = detail::checked_blas_int(vectors.cols());
   std::vector<Real> left_scale = balance.left_scale;
   std::vector<Real> right_scale = balance.right_scale;
-  detail::ggbak(detail::lapack_balance_job(job), 'R', order, first, last, left_scale.data(), right_scale.data(),
-                vector_count, vectors.data(), order);
+  uni20::lapack::ggbak(detail::lapack_balance_job(job), 'R', order, first, last, left_scale.data(), right_scale.data(),
+                       vector_count, vectors.data(), order);
   return vectors;
 }
 
@@ -7057,8 +7072,8 @@ real_generalized_hessenberg_reduction(Matrix<Real> matrix, Matrix<Real> upper_tr
   char const compq = compute_vectors ? 'I' : 'N';
   char const compz = compute_vectors ? 'I' : 'N';
 
-  detail::gghrd(compq, compz, order, first, last, matrix.data(), order, upper_triangular_metric.data(), order,
-                left_vectors.data(), ldq, right_vectors.data(), ldz);
+  uni20::lapack::gghrd(compq, compz, order, first, last, matrix.data(), order, upper_triangular_metric.data(), order,
+                       left_vectors.data(), ldq, right_vectors.data(), ldz);
 
   result.matrix_hessenberg_form = std::move(matrix);
   result.metric_triangular_form = std::move(upper_triangular_metric);
@@ -7143,15 +7158,15 @@ real_generalized_hessenberg_schur(Matrix<Real> hessenberg, Matrix<Real> upper_tr
 
   Real work_query{};
   blas_int const query_lwork = -1;
-  detail::hgeqz(job, compq, compz, order, first, last, hessenberg.data(), order, upper_triangular_metric.data(), order,
-                alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldq, right_vectors.data(), ldz,
-                &work_query, query_lwork);
+  uni20::lapack::hgeqz(job, compq, compz, order, first, last, hessenberg.data(), order, upper_triangular_metric.data(),
+                       order, alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldq, right_vectors.data(),
+                       ldz, &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
-  detail::hgeqz(job, compq, compz, order, first, last, hessenberg.data(), order, upper_triangular_metric.data(), order,
-                alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldq, right_vectors.data(), ldz,
-                work.data(), lwork);
+  uni20::lapack::hgeqz(job, compq, compz, order, first, last, hessenberg.data(), order, upper_triangular_metric.data(),
+                       order, alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldq, right_vectors.data(),
+                       ldz, work.data(), lwork);
 
   result.matrix_schur_form = std::move(hessenberg);
   result.metric_schur_form = std::move(upper_triangular_metric);
@@ -7225,15 +7240,15 @@ RealGeneralizedSchurDecomposition<Real> real_generalized_schur(Matrix<Real> matr
 
   Real work_query = Real{};
   blas_int const query_lwork = -1;
-  detail::gges(jobvsl, jobvsr, sort, order, matrix.data(), order, metric.data(), order, selected_dimension,
-               alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldvsl, right_vectors.data(), ldvsr,
-               &work_query, query_lwork, bwork.data());
+  uni20::lapack::gges(jobvsl, jobvsr, sort, order, matrix.data(), order, metric.data(), order, selected_dimension,
+                      alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldvsl, right_vectors.data(),
+                      ldvsr, &work_query, query_lwork, bwork.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
-  detail::gges(jobvsl, jobvsr, sort, order, matrix.data(), order, metric.data(), order, selected_dimension,
-               alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldvsl, right_vectors.data(), ldvsr,
-               work.data(), lwork, bwork.data());
+  uni20::lapack::gges(jobvsl, jobvsr, sort, order, matrix.data(), order, metric.data(), order, selected_dimension,
+                      alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldvsl, right_vectors.data(),
+                      ldvsr, work.data(), lwork, bwork.data());
 
   result.matrix_schur_form = std::move(matrix);
   result.metric_schur_form = std::move(metric);
@@ -7334,9 +7349,9 @@ reorder_real_generalized_schur(RealGeneralizedSchurDecomposition<Real> decomposi
 
     blas_int first = detail::checked_blas_int(current_blocks[current_position].begin + 1);
     blas_int last = detail::checked_blas_int(current_blocks[target_position].begin + 1);
-    detail::tgexc(update_vectors, update_vectors, order, decomposition.matrix_schur_form.data(), order,
-                  decomposition.metric_schur_form.data(), order, left_vectors.data(), ldq, right_vectors.data(), ldz,
-                  first, last, work.data(), lwork);
+    uni20::lapack::tgexc(update_vectors, update_vectors, order, decomposition.matrix_schur_form.data(), order,
+                         decomposition.metric_schur_form.data(), order, left_vectors.data(), ldq, right_vectors.data(),
+                         ldz, first, last, work.data(), lwork);
 
     std::size_t const moved_index = current_order[current_position];
     current_order.erase(current_order.begin() + static_cast<std::ptrdiff_t>(current_position));
@@ -7457,19 +7472,19 @@ real_generalized_schur_selected_subspace(RealGeneralizedSchurDecomposition<Real>
   Real work_query = Real{};
   blas_int iwork_query = 0;
   blas_int const query_workspace = -1;
-  detail::tgsen(ijob, update_vectors, update_vectors, select.data(), order, matrix_schur_form.data(), order,
-                metric_schur_form.data(), order, alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldq,
-                right_vectors.data(), ldz, selected_dimension, pl, pr, dif.data(), &work_query, query_workspace,
-                &iwork_query, query_workspace);
+  uni20::lapack::tgsen(ijob, update_vectors, update_vectors, select.data(), order, matrix_schur_form.data(), order,
+                       metric_schur_form.data(), order, alphar.data(), alphai.data(), beta.data(), left_vectors.data(),
+                       ldq, right_vectors.data(), ldz, selected_dimension, pl, pr, dif.data(), &work_query,
+                       query_workspace, &iwork_query, query_workspace);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   blas_int const liwork = std::max<blas_int>(1, iwork_query);
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(liwork), 0);
-  detail::tgsen(ijob, update_vectors, update_vectors, select.data(), order, matrix_schur_form.data(), order,
-                metric_schur_form.data(), order, alphar.data(), alphai.data(), beta.data(), left_vectors.data(), ldq,
-                right_vectors.data(), ldz, selected_dimension, pl, pr, dif.data(), work.data(), lwork, iwork.data(),
-                liwork);
+  uni20::lapack::tgsen(ijob, update_vectors, update_vectors, select.data(), order, matrix_schur_form.data(), order,
+                       metric_schur_form.data(), order, alphar.data(), alphai.data(), beta.data(), left_vectors.data(),
+                       ldq, right_vectors.data(), ldz, selected_dimension, pl, pr, dif.data(), work.data(), lwork,
+                       iwork.data(), liwork);
 
   if (selected_dimension < 0 || static_cast<std::size_t>(selected_dimension) != expected_selected_dimension)
   {
@@ -7545,8 +7560,9 @@ real_generalized_schur_right_eigenvectors(RealGeneralizedSchurDecomposition<Real
   blas_int computed_vectors = 0;
   char const side = 'R';
   char const howmny = 'A';
-  detail::tgevc(side, howmny, select.data(), order, matrix_schur_form.data(), order, metric_schur_form.data(), order,
-                left_vectors.data(), 1, right_vectors.data(), order, order, computed_vectors, work.data());
+  uni20::lapack::tgevc(side, howmny, select.data(), order, matrix_schur_form.data(), order, metric_schur_form.data(),
+                       order, left_vectors.data(), 1, right_vectors.data(), order, order, computed_vectors,
+                       work.data());
 
   if (computed_vectors < 0 || static_cast<std::size_t>(computed_vectors) != n)
   {
@@ -7645,8 +7661,9 @@ real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Rea
   std::vector<Real> tgevc_work(6 * n, Real{});
   blas_int const order = detail::checked_blas_int(n);
   blas_int computed_vectors = 0;
-  detail::tgevc('B', 'A', select.data(), order, matrix_schur_form.data(), order, metric_schur_form.data(), order,
-                left_vectors.data(), order, right_vectors.data(), order, order, computed_vectors, tgevc_work.data());
+  uni20::lapack::tgevc('B', 'A', select.data(), order, matrix_schur_form.data(), order, metric_schur_form.data(), order,
+                       left_vectors.data(), order, right_vectors.data(), order, order, computed_vectors,
+                       tgevc_work.data());
 
   if (computed_vectors < 0 || static_cast<std::size_t>(computed_vectors) != n)
   {
@@ -7657,11 +7674,11 @@ real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Rea
   blas_int const lwork = std::max<blas_int>(1, 2 * order * (order + 2) + 16);
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
   std::vector<blas_int> iwork(static_cast<std::size_t>(std::max<blas_int>(1, order + 6)), 0);
-  detail::tgsna('B', 'A', select.data(), order, matrix_schur_form.data(), order, metric_schur_form.data(), order,
-                left_vectors.data(), order, right_vectors.data(), order,
-                result.reciprocal_eigenvalue_condition_numbers.data(),
-                result.reciprocal_eigenvector_condition_numbers.data(), order, computed_estimates, work.data(), lwork,
-                iwork.data());
+  uni20::lapack::tgsna('B', 'A', select.data(), order, matrix_schur_form.data(), order, metric_schur_form.data(), order,
+                       left_vectors.data(), order, right_vectors.data(), order,
+                       result.reciprocal_eigenvalue_condition_numbers.data(),
+                       result.reciprocal_eigenvector_condition_numbers.data(), order, computed_estimates, work.data(),
+                       lwork, iwork.data());
 
   if (computed_estimates < 0 || static_cast<std::size_t>(computed_estimates) != n)
   {
@@ -7683,8 +7700,8 @@ real_generalized_schur_condition_estimates(RealGeneralizedSchurDecomposition<Rea
 /// \param matrix Real square matrix in column-major local storage.
 /// \param compute_right_vectors Whether to compute right eigenvectors.
 /// \return Complex eigenvalues and, optionally, right eigenvectors.
-template <uni20::LapackReal Real>
 
+template <uni20::LapackReal Real>
 RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Matrix<Real> matrix,
                                                                              bool compute_right_vectors)
 {
@@ -7723,17 +7740,17 @@ RealNonsymmetricExpertEigensystem<Real> real_nonsymmetric_expert_eigensystem(Mat
 
   Real work_query = Real{};
   blas_int const query_lwork = -1;
-  detail::geevx(balanc, jobvl, jobvr, sense, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl,
-                vr.data(), ldvr, ilo, ihi, result.balance_scale.data(), result.balanced_matrix_norm,
-                result.reciprocal_eigenvalue_condition_numbers.data(),
-                result.reciprocal_eigenvector_condition_numbers.data(), &work_query, query_lwork, iwork.data());
+  uni20::lapack::geevx(balanc, jobvl, jobvr, sense, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl,
+                       vr.data(), ldvr, ilo, ihi, result.balance_scale.data(), result.balanced_matrix_norm,
+                       result.reciprocal_eigenvalue_condition_numbers.data(),
+                       result.reciprocal_eigenvector_condition_numbers.data(), &work_query, query_lwork, iwork.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
-  detail::geevx(balanc, jobvl, jobvr, sense, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl,
-                vr.data(), ldvr, ilo, ihi, result.balance_scale.data(), result.balanced_matrix_norm,
-                result.reciprocal_eigenvalue_condition_numbers.data(),
-                result.reciprocal_eigenvector_condition_numbers.data(), work.data(), lwork, iwork.data());
+  uni20::lapack::geevx(balanc, jobvl, jobvr, sense, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl,
+                       vr.data(), ldvr, ilo, ihi, result.balance_scale.data(), result.balanced_matrix_norm,
+                       result.reciprocal_eigenvalue_condition_numbers.data(),
+                       result.reciprocal_eigenvector_condition_numbers.data(), work.data(), lwork, iwork.data());
 
   if (ilo <= 0 || ihi < ilo || ihi > order)
   {
@@ -7836,13 +7853,13 @@ real_generalized_nonsymmetric_eigensystem(Matrix<Real> matrix, Matrix<Real> metr
 
   Real work_query = Real{};
   blas_int const query_lwork = -1;
-  detail::ggev(jobvl, jobvr, order, matrix.data(), order, metric.data(), order, alphar.data(), alphai.data(),
-               beta.data(), vl.data(), ldvl, vr.data(), ldvr, &work_query, query_lwork);
+  uni20::lapack::ggev(jobvl, jobvr, order, matrix.data(), order, metric.data(), order, alphar.data(), alphai.data(),
+                      beta.data(), vl.data(), ldvl, vr.data(), ldvr, &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
-  detail::ggev(jobvl, jobvr, order, matrix.data(), order, metric.data(), order, alphar.data(), alphai.data(),
-               beta.data(), vl.data(), ldvl, vr.data(), ldvr, work.data(), lwork);
+  uni20::lapack::ggev(jobvl, jobvr, order, matrix.data(), order, metric.data(), order, alphar.data(), alphai.data(),
+                      beta.data(), vl.data(), ldvl, vr.data(), ldvr, work.data(), lwork);
 
   for (std::size_t i = 0; i < n; ++i)
   {
@@ -7951,20 +7968,21 @@ real_generalized_nonsymmetric_expert_eigensystem(Matrix<Real> matrix, Matrix<Rea
 
   Real work_query = Real{};
   blas_int const query_lwork = -1;
-  detail::ggevx(balanc, jobvl, jobvr, sense, order, matrix.data(), order, metric.data(), order, alphar.data(),
-                alphai.data(), beta.data(), vl.data(), ldvl, vr.data(), ldvr, ilo, ihi,
-                result.left_balance_scale.data(), result.right_balance_scale.data(), result.balanced_matrix_norm,
-                result.balanced_metric_norm, result.reciprocal_eigenvalue_condition_numbers.data(),
-                result.reciprocal_eigenvector_condition_numbers.data(), &work_query, query_lwork, iwork.data(),
-                bwork.data());
+  uni20::lapack::ggevx(balanc, jobvl, jobvr, sense, order, matrix.data(), order, metric.data(), order, alphar.data(),
+                       alphai.data(), beta.data(), vl.data(), ldvl, vr.data(), ldvr, ilo, ihi,
+                       result.left_balance_scale.data(), result.right_balance_scale.data(), result.balanced_matrix_norm,
+                       result.balanced_metric_norm, result.reciprocal_eigenvalue_condition_numbers.data(),
+                       result.reciprocal_eigenvector_condition_numbers.data(), &work_query, query_lwork, iwork.data(),
+                       bwork.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
-  detail::ggevx(balanc, jobvl, jobvr, sense, order, matrix.data(), order, metric.data(), order, alphar.data(),
-                alphai.data(), beta.data(), vl.data(), ldvl, vr.data(), ldvr, ilo, ihi,
-                result.left_balance_scale.data(), result.right_balance_scale.data(), result.balanced_matrix_norm,
-                result.balanced_metric_norm, result.reciprocal_eigenvalue_condition_numbers.data(),
-                result.reciprocal_eigenvector_condition_numbers.data(), work.data(), lwork, iwork.data(), bwork.data());
+  uni20::lapack::ggevx(balanc, jobvl, jobvr, sense, order, matrix.data(), order, metric.data(), order, alphar.data(),
+                       alphai.data(), beta.data(), vl.data(), ldvl, vr.data(), ldvr, ilo, ihi,
+                       result.left_balance_scale.data(), result.right_balance_scale.data(), result.balanced_matrix_norm,
+                       result.balanced_metric_norm, result.reciprocal_eigenvalue_condition_numbers.data(),
+                       result.reciprocal_eigenvector_condition_numbers.data(), work.data(), lwork, iwork.data(),
+                       bwork.data());
 
   if (ilo <= 0 || ihi < ilo || ihi > order)
   {

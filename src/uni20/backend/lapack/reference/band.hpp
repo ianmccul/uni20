@@ -3,7 +3,7 @@
 /**
  * \file band.hpp
  * \ingroup backend_lapack_reference
- * \brief Reference LAPACK wrappers for real general-band linear algebra.
+ * \brief Reference LAPACK wrappers for real band linear algebra.
  */
 
 #include <uni20/backend/backend.hpp>
@@ -79,6 +79,48 @@ extern "C"
   void dgbequb_(blas_int const* m, blas_int const* n, blas_int const* kl, blas_int const* ku, double* ab,
                 blas_int const* ldab, double* row_scale, double* column_scale, double* row_condition,
                 double* column_condition, double* max_abs, blas_int* info);
+
+  void spbsv_(char const* uplo, blas_int const* n, blas_int const* kd, blas_int const* nrhs, float* ab,
+              blas_int const* ldab, float* b, blas_int const* ldb, blas_int* info);
+
+  void dpbsv_(char const* uplo, blas_int const* n, blas_int const* kd, blas_int const* nrhs, double* ab,
+              blas_int const* ldab, double* b, blas_int const* ldb, blas_int* info);
+
+  void spbtrf_(char const* uplo, blas_int const* n, blas_int const* kd, float* ab, blas_int const* ldab,
+               blas_int* info);
+
+  void dpbtrf_(char const* uplo, blas_int const* n, blas_int const* kd, double* ab, blas_int const* ldab,
+               blas_int* info);
+
+  void spbtrs_(char const* uplo, blas_int const* n, blas_int const* kd, blas_int const* nrhs, float* ab,
+               blas_int const* ldab, float* b, blas_int const* ldb, blas_int* info);
+
+  void dpbtrs_(char const* uplo, blas_int const* n, blas_int const* kd, blas_int const* nrhs, double* ab,
+               blas_int const* ldab, double* b, blas_int const* ldb, blas_int* info);
+
+  void spbcon_(char const* uplo, blas_int const* n, blas_int const* kd, float* ab, blas_int const* ldab,
+               float const* anorm, float* rcond, float* work, blas_int* iwork, blas_int* info);
+
+  void dpbcon_(char const* uplo, blas_int const* n, blas_int const* kd, double* ab, blas_int const* ldab,
+               double const* anorm, double* rcond, double* work, blas_int* iwork, blas_int* info);
+
+  void spbrfs_(char const* uplo, blas_int const* n, blas_int const* kd, blas_int const* nrhs, float* ab,
+               blas_int const* ldab, float* afb, blas_int const* ldafb, float* b, blas_int const* ldb, float* x,
+               blas_int const* ldx, float* ferr, float* berr, float* work, blas_int* iwork, blas_int* info);
+
+  void dpbrfs_(char const* uplo, blas_int const* n, blas_int const* kd, blas_int const* nrhs, double* ab,
+               blas_int const* ldab, double* afb, blas_int const* ldafb, double* b, blas_int const* ldb, double* x,
+               blas_int const* ldx, double* ferr, double* berr, double* work, blas_int* iwork, blas_int* info);
+
+  void spbsvx_(char const* fact, char const* uplo, blas_int const* n, blas_int const* kd, blas_int const* nrhs,
+               float* ab, blas_int const* ldab, float* afb, blas_int const* ldafb, char* equed, float* scale, float* b,
+               blas_int const* ldb, float* x, blas_int const* ldx, float* rcond, float* ferr, float* berr, float* work,
+               blas_int* iwork, blas_int* info);
+
+  void dpbsvx_(char const* fact, char const* uplo, blas_int const* n, blas_int const* kd, blas_int const* nrhs,
+               double* ab, blas_int const* ldab, double* afb, blas_int const* ldafb, char* equed, double* scale,
+               double* b, blas_int const* ldb, double* x, blas_int const* ldx, double* rcond, double* ferr,
+               double* berr, double* work, blas_int* iwork, blas_int* info);
 }
 } // namespace detail
 
@@ -245,6 +287,126 @@ extern "C"
     detail::dgbequ_(&m, &n, &kl, &ku, ab, &ldab, row_scale, column_scale, &row_condition, &column_condition, &max_abs,
                     &info);
   }
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbsv(char uplo, blas_int n, blas_int kd, blas_int nrhs, float* ab, blas_int ldab,
+                                   float* b, blas_int ldb)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, spbsv_, uplo, n, kd, nrhs, ab, ldab, b, ldb);
+  detail::spbsv_(&uplo, &n, &kd, &nrhs, ab, &ldab, b, &ldb, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbsv(char uplo, blas_int n, blas_int kd, blas_int nrhs, double* ab, blas_int ldab,
+                                   double* b, blas_int ldb)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, dpbsv_, uplo, n, kd, nrhs, ab, ldab, b, ldb);
+  detail::dpbsv_(&uplo, &n, &kd, &nrhs, ab, &ldab, b, &ldb, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbtrf(char uplo, blas_int n, blas_int kd, float* ab, blas_int ldab)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, spbtrf_, uplo, n, kd, ab, ldab);
+  detail::spbtrf_(&uplo, &n, &kd, ab, &ldab, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbtrf(char uplo, blas_int n, blas_int kd, double* ab, blas_int ldab)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, dpbtrf_, uplo, n, kd, ab, ldab);
+  detail::dpbtrf_(&uplo, &n, &kd, ab, &ldab, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbtrs(char uplo, blas_int n, blas_int kd, blas_int nrhs, float* ab, blas_int ldab,
+                                    float* b, blas_int ldb)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, spbtrs_, uplo, n, kd, nrhs, ab, ldab, b, ldb);
+  detail::spbtrs_(&uplo, &n, &kd, &nrhs, ab, &ldab, b, &ldb, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbtrs(char uplo, blas_int n, blas_int kd, blas_int nrhs, double* ab, blas_int ldab,
+                                    double* b, blas_int ldb)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, dpbtrs_, uplo, n, kd, nrhs, ab, ldab, b, ldb);
+  detail::dpbtrs_(&uplo, &n, &kd, &nrhs, ab, &ldab, b, &ldb, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbcon(char uplo, blas_int n, blas_int kd, float* ab, blas_int ldab, float anorm,
+                                    float& rcond, float* work, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, spbcon_, uplo, n, kd, ab, ldab, anorm, work, iwork);
+  detail::spbcon_(&uplo, &n, &kd, ab, &ldab, &anorm, &rcond, work, iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbcon(char uplo, blas_int n, blas_int kd, double* ab, blas_int ldab, double anorm,
+                                    double& rcond, double* work, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, dpbcon_, uplo, n, kd, ab, ldab, anorm, work, iwork);
+  detail::dpbcon_(&uplo, &n, &kd, ab, &ldab, &anorm, &rcond, work, iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbrfs(char uplo, blas_int n, blas_int kd, blas_int nrhs, float* ab, blas_int ldab,
+                                    float* afb, blas_int ldafb, float* b, blas_int ldb, float* x, blas_int ldx,
+                                    float* forward_error, float* backward_error, float* work, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, spbrfs_, uplo, n, kd, nrhs, ab, ldab, afb, ldafb, b, ldb, x, ldx, forward_error,
+                          backward_error, work, iwork);
+  detail::spbrfs_(&uplo, &n, &kd, &nrhs, ab, &ldab, afb, &ldafb, b, &ldb, x, &ldx, forward_error, backward_error, work,
+                  iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbrfs(char uplo, blas_int n, blas_int kd, blas_int nrhs, double* ab, blas_int ldab,
+                                    double* afb, blas_int ldafb, double* b, blas_int ldb, double* x, blas_int ldx,
+                                    double* forward_error, double* backward_error, double* work, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, dpbrfs_, uplo, n, kd, nrhs, ab, ldab, afb, ldafb, b, ldb, x, ldx, forward_error,
+                          backward_error, work, iwork);
+  detail::dpbrfs_(&uplo, &n, &kd, &nrhs, ab, &ldab, afb, &ldafb, b, &ldb, x, &ldx, forward_error, backward_error, work,
+                  iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbsvx(char fact, char uplo, blas_int n, blas_int kd, blas_int nrhs, float* ab,
+                                    blas_int ldab, float* afb, blas_int ldafb, char& equed, float* scale, float* b,
+                                    blas_int ldb, float* x, blas_int ldx, float& rcond, float* forward_error,
+                                    float* backward_error, float* work, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, spbsvx_, fact, uplo, n, kd, nrhs, ab, ldab, afb, ldafb, equed, scale, b, ldb, x, ldx,
+                          work, iwork);
+  detail::spbsvx_(&fact, &uplo, &n, &kd, &nrhs, ab, &ldab, afb, &ldafb, &equed, scale, b, &ldb, x, &ldx, &rcond,
+                  forward_error, backward_error, work, iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int pbsvx(char fact, char uplo, blas_int n, blas_int kd, blas_int nrhs, double* ab,
+                                    blas_int ldab, double* afb, blas_int ldafb, char& equed, double* scale, double* b,
+                                    blas_int ldb, double* x, blas_int ldx, double& rcond, double* forward_error,
+                                    double* backward_error, double* work, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, dpbsvx_, fact, uplo, n, kd, nrhs, ab, ldab, afb, ldafb, equed, scale, b, ldb, x, ldx,
+                          work, iwork);
+  detail::dpbsvx_(&fact, &uplo, &n, &kd, &nrhs, ab, &ldab, afb, &ldafb, &equed, scale, b, &ldb, x, &ldx, &rcond,
+                  forward_error, backward_error, work, iwork, &info);
   return info;
 }
 

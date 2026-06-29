@@ -103,7 +103,7 @@ uni20::krylov::Matrix<Scalar> conjugate_transpose(uni20::krylov::Matrix<Scalar> 
   {
     for (std::size_t col = 0; col < matrix.cols(); ++col)
     {
-      if constexpr (uni20::krylov::detail::is_complex_v<Scalar>)
+      if constexpr (uni20::is_complex_v<Scalar>)
       {
         result[col, row] = std::conj(matrix[row, col]);
       }

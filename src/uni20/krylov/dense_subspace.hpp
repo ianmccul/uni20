@@ -1,7 +1,6 @@
 #pragma once
 
 #include <uni20/krylov/dense_linalg.hpp>
-#include <uni20/krylov/detail_math.hpp>
 
 #include <algorithm>
 #include <array>
@@ -18,22 +17,24 @@ namespace uni20::krylov
 
 /// \brief Eigenvalues and optional eigenvectors of a symmetric tridiagonal matrix.
 /// \tparam Scalar Real scalar type.
+
 template <typename Scalar> struct TridiagonalEigensystem
 {
     std::vector<Scalar> eigenvalues;
     Matrix<Scalar> eigenvectors;
 };
 
-/// \brief Eigenvalues and optional right eigenvectors of a real nonsymmetric matrix.
-/// \tparam Real Underlying real precision.
+/// \brief Eigenvalues and optional eigenvectors of a dense real symmetric matrix.
+
 template <uni20::LapackReal Real> struct RealNonsymmetricEigensystem
 {
     std::vector<uni20::complex<Real>> eigenvalues;
     Matrix<uni20::complex<Real>> right_eigenvectors;
 };
 
-/// \brief One diagonal block of a real Schur form.
-/// \tparam Scalar Real scalar type.
+/// \brief Expert eigensystem diagnostics for a dense real nonsymmetric matrix.
+/// \tparam Real Underlying real precision.
+
 template <uni20::LapackReal Scalar> struct RealSchurBlock
 {
     std::size_t begin = 0;
@@ -42,8 +43,8 @@ template <uni20::LapackReal Scalar> struct RealSchurBlock
     uni20::complex<Scalar> second_eigenvalue{};
 };
 
-/// \brief Eigenvalues and optional right eigenvectors of a complex nonsymmetric matrix.
-/// \tparam Real Underlying real precision.
+/// \brief Generalized real Schur decomposition of a dense real matrix pencil.
+
 template <uni20::LapackReal Real> struct ComplexNonsymmetricEigensystem
 {
     std::vector<uni20::complex<Real>> eigenvalues;
@@ -68,8 +69,6 @@ template <uni20::LapackReal Real> struct RightComplexSchurDecomposition
     std::vector<uni20::complex<Real>> eigenvalues;
 };
 
-/// \brief Real Schur decomposition stored in the current column-major Krylov matrix type.
-/// \tparam Scalar Real scalar type.
 template <uni20::LapackReal Scalar> struct RealSchurDecomposition
 {
     Matrix<Scalar> schur_form;
@@ -270,7 +269,7 @@ std::vector<Scalar> symmetric_tridiagonal_eigenvalues(std::vector<Scalar> diagon
   blas_int const order = detail::checked_blas_int(n);
   Scalar dummy{};
   Scalar* e = subdiagonal.empty() ? &dummy : subdiagonal.data();
-  detail::sterf(order, diagonal.data(), e);
+  uni20::lapack::sterf(order, diagonal.data(), e);
   return diagonal;
 }
 
@@ -317,7 +316,7 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem(std::vector<Sca
   std::vector<Scalar> work(n > 1 ? 2 * n - 2 : 1, Scalar{});
   char const compz = 'I';
 
-  detail::steqr(compz, order, result.eigenvalues.data(), subdiagonal.data(), z.data(), ldz, work.data());
+  uni20::lapack::steqr(compz, order, result.eigenvalues.data(), subdiagonal.data(), z.data(), ldz, work.data());
 
   result.eigenvectors = std::move(z);
   return result;
@@ -335,8 +334,8 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem(std::vector<Sca
 /// \param subdiagonal Subdiagonal/superdiagonal entries.
 /// \param compute_vectors Whether to compute eigenvectors.
 /// \return Eigenvalues and, optionally, eigenvectors.
-template <uni20::LapackReal Scalar>
 
+template <uni20::LapackReal Scalar>
 RightRealSchurDecomposition<Scalar> real_schur_layout_right(RightMatrix<Scalar> matrix, bool compute_vectors)
 {
   if (matrix.rows() != matrix.cols())
@@ -367,13 +366,13 @@ RightRealSchurDecomposition<Scalar> real_schur_layout_right(RightMatrix<Scalar> 
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, wr.data(), wi.data(),
-               schur_vectors_left.data(), ldvs, &work_query, query_lwork, bwork.data());
+  uni20::lapack::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, wr.data(), wi.data(),
+                      schur_vectors_left.data(), ldvs, &work_query, query_lwork, bwork.data());
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, wr.data(), wi.data(),
-               schur_vectors_left.data(), ldvs, work.data(), lwork, bwork.data());
+  uni20::lapack::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, wr.data(), wi.data(),
+                      schur_vectors_left.data(), ldvs, work.data(), lwork, bwork.data());
 
   for (std::size_t i = 0; i < n; ++i)
   {
@@ -449,13 +448,13 @@ RealSchurDecomposition<Scalar> real_hessenberg_schur(Matrix<Scalar> hessenberg, 
 
   Scalar work_query{};
   blas_int const query_lwork = -1;
-  detail::hseqr(job, compz, order, first, last, hessenberg.data(), order, wr.data(), wi.data(), schur_vectors.data(),
-                ldz, &work_query, query_lwork);
+  uni20::lapack::hseqr(job, compz, order, first, last, hessenberg.data(), order, wr.data(), wi.data(),
+                       schur_vectors.data(), ldz, &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  detail::hseqr(job, compz, order, first, last, hessenberg.data(), order, wr.data(), wi.data(), schur_vectors.data(),
-                ldz, work.data(), lwork);
+  uni20::lapack::hseqr(job, compz, order, first, last, hessenberg.data(), order, wr.data(), wi.data(),
+                       schur_vectors.data(), ldz, work.data(), lwork);
 
   for (std::size_t i = 0; i < n; ++i)
   {
@@ -510,13 +509,13 @@ RightComplexSchurDecomposition<Real> complex_schur_layout_right(RightMatrix<uni2
 
   Complex work_query{};
   blas_int const query_lwork = -1;
-  detail::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, result.eigenvalues.data(),
-               schur_vectors_left.data(), ldvs, &work_query, query_lwork, rwork.data(), bwork.data());
+  uni20::lapack::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, result.eigenvalues.data(),
+                      schur_vectors_left.data(), ldvs, &work_query, query_lwork, rwork.data(), bwork.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
-  detail::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, result.eigenvalues.data(),
-               schur_vectors_left.data(), ldvs, work.data(), lwork, rwork.data(), bwork.data());
+  uni20::lapack::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, result.eigenvalues.data(),
+                      schur_vectors_left.data(), ldvs, work.data(), lwork, rwork.data(), bwork.data());
 
   result.schur_form = copy_left_to_right(lapack_matrix);
   result.schur_vectors = compute_vectors ? copy_left_to_right(schur_vectors_left) : RightMatrix<Complex>(0, 0);
@@ -606,7 +605,7 @@ RightRealSchurDecomposition<Scalar> reorder_real_schur_layout_right(RightRealSch
 
     blas_int first = detail::checked_blas_int(current_blocks[current_position].begin + 1);
     blas_int last = detail::checked_blas_int(current_blocks[target_position].begin + 1);
-    detail::trexc(compq, order, schur_form.data(), order, schur_vectors.data(), ldq, first, last, work.data());
+    uni20::lapack::trexc(compq, order, schur_form.data(), order, schur_vectors.data(), ldq, first, last, work.data());
 
     std::size_t const moved_index = current_order[current_position];
     current_order.erase(current_order.begin() + static_cast<std::ptrdiff_t>(current_position));
@@ -653,7 +652,6 @@ RealSchurDecomposition<Scalar> reorder_real_schur(RealSchurDecomposition<Scalar>
 ///          complex-conjugate blocks cannot be split accidentally.
 /// \tparam Scalar Real scalar type satisfying `uni20::LapackReal`.
 /// \param decomposition Real Schur decomposition to reorder and diagnose.
-/// \param selected_blocks Block indices to move into the leading invariant subspace.
 
 template <uni20::LapackReal Real>
 RightComplexSchurDecomposition<Real>
@@ -709,7 +707,7 @@ reorder_complex_schur_layout_right(RightComplexSchurDecomposition<Real> decompos
 
     blas_int first = detail::checked_blas_int(current_position + 1);
     blas_int last = detail::checked_blas_int(target_position + 1);
-    detail::trexc(compq, order, schur_form.data(), order, schur_vectors.data(), ldq, first, last);
+    uni20::lapack::trexc(compq, order, schur_form.data(), order, schur_vectors.data(), ldq, first, last);
 
     std::size_t const moved_index = current_order[current_position];
     current_order.erase(current_order.begin() + static_cast<std::ptrdiff_t>(current_position));
@@ -752,8 +750,6 @@ ComplexSchurDecomposition<Real> reorder_complex_schur(ComplexSchurDecomposition<
   return result;
 }
 
-/// \brief Balance a dense real nonsymmetric matrix through LAPACK `gebal`.
-
 template <uni20::LapackReal Real>
 RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> matrix, bool compute_right_vectors)
 {
@@ -784,13 +780,13 @@ RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> mat
 
   Real work_query = Real{};
   blas_int const query_lwork = -1;
-  detail::geev(jobvl, jobvr, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl, vr.data(), ldvr,
-               &work_query, query_lwork);
+  uni20::lapack::geev(jobvl, jobvr, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl, vr.data(), ldvr,
+                      &work_query, query_lwork);
 
   blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
   std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
-  detail::geev(jobvl, jobvr, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl, vr.data(), ldvr,
-               work.data(), lwork);
+  uni20::lapack::geev(jobvl, jobvr, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl, vr.data(), ldvr,
+                      work.data(), lwork);
 
   for (std::size_t i = 0; i < n; ++i)
   {
@@ -846,8 +842,8 @@ RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> mat
 /// \param compute_right_vectors Whether to compute right eigenvectors.
 /// \return Complex eigenvalues, optional right eigenvectors, balancing data,
 ///         and reciprocal condition estimates.
-template <uni20::LapackReal Real>
 
+template <uni20::LapackReal Real>
 ComplexNonsymmetricEigensystem<Real> complex_nonsymmetric_eigensystem(Matrix<uni20::complex<Real>> matrix,
                                                                       bool compute_right_vectors)
 {
@@ -878,13 +874,13 @@ ComplexNonsymmetricEigensystem<Real> complex_nonsymmetric_eigensystem(Matrix<uni
 
   Complex work_query{};
   blas_int const query_lwork = -1;
-  detail::geev(jobvl, jobvr, order, matrix.data(), order, result.eigenvalues.data(), vl.data(), ldvl, vr.data(), ldvr,
-               &work_query, query_lwork, rwork.data());
+  uni20::lapack::geev(jobvl, jobvr, order, matrix.data(), order, result.eigenvalues.data(), vl.data(), ldvl, vr.data(),
+                      ldvr, &work_query, query_lwork, rwork.data());
 
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(detail::adl_real(work_query)));
+  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
   std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
-  detail::geev(jobvl, jobvr, order, matrix.data(), order, result.eigenvalues.data(), vl.data(), ldvl, vr.data(), ldvr,
-               work.data(), lwork, rwork.data());
+  uni20::lapack::geev(jobvl, jobvr, order, matrix.data(), order, result.eigenvalues.data(), vl.data(), ldvl, vr.data(),
+                      ldvr, work.data(), lwork, rwork.data());
 
   if (compute_right_vectors)
   {

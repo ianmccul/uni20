@@ -32,7 +32,7 @@ template <typename Scalar> double tolerance()
 
 template <typename Scalar> void expect_near_value(Scalar const& actual, Scalar const& expected)
 {
-  if constexpr (uni20::krylov::detail::is_complex_v<Scalar>)
+  if constexpr (uni20::is_complex_v<Scalar>)
   {
     EXPECT_NEAR(static_cast<double>(actual.real()), static_cast<double>(expected.real()), tolerance<Scalar>());
     EXPECT_NEAR(static_cast<double>(actual.imag()), static_cast<double>(expected.imag()), tolerance<Scalar>());
