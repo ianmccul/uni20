@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstddef>
@@ -771,6 +772,25 @@ TEST(KrylovNonsymmetricArnoldi, ReportsHappyBreakdownOnInvariantSubspace)
   EXPECT_NEAR(factorization.residual_norm, 0.0, 1.0e-14);
 }
 
+TEST(KrylovNonsymmetricArnoldi, UsesSingleArnoldiReorthogonalizationPassWhenStable)
+{
+  std::vector<double> const matrix{
+      0.0,
+      0.0, //
+      1.0,
+      0.0,
+  };
+  DenseHostVectorOps<double> ops(2, matrix);
+  DenseHostVector<double> initial{{1.0, 0.0}};
+
+  auto factorization = uni20::krylov::arnoldi_factorize<double>(ops, initial, 1);
+
+  EXPECT_FALSE(factorization.happy_breakdown);
+  EXPECT_EQ(factorization.step_count, 1);
+  EXPECT_EQ(ops.inner_product_count(), 1);
+  EXPECT_EQ(factorization.basis.size(), 2);
+}
+
 TEST(KrylovNonsymmetricArnoldi, BreakdownThresholdScalesWithLocalRelation)
 {
   double const unit_threshold = uni20::krylov::detail::arnoldi_breakdown_threshold(0.0, 1.0);
@@ -965,6 +985,32 @@ TEST(KrylovNonsymmetricArnoldi, ReportsPolicySpecificComplexWantedStatus)
             NonsymmetricStatus::ComplexPromotionRecommended);
   EXPECT_EQ(solve_with_policy(uni20::krylov::RealNonsymmetricPolicy::AllowRealSchurPairs).status,
             NonsymmetricStatus::RealSchurPairRequired);
+}
+
+TEST(KrylovNonsymmetricArnoldi, RealPathSuppressesEigenvectorsForMixedRealitySelection)
+{
+  std::vector<double> const matrix{
+      5.0, 0.0,  0.0, //
+      0.0, 1.0,  2.0, //
+      0.0, -2.0, 1.0,
+  };
+  DenseHostVectorOps<double> ops(3, matrix);
+  DenseHostVector<double> initial{{1.0, 1.0, 0.0}};
+  NonsymmetricEigenParams<double> params;
+  params.eigenvalue_count = 2;
+  params.krylov_dimension = 3;
+  params.spectrum = SpectrumPart::LargestMagnitude;
+  params.tolerance = 1.0e-12;
+  params.compute_eigenvectors = true;
+
+  auto result = uni20::krylov::real_nonsymmetric_arnoldi_standard(ops, initial, params);
+
+  ASSERT_EQ(result.eigenvalues.size(), 2);
+  ASSERT_EQ(result.reality.size(), 2);
+  EXPECT_EQ(result.status, NonsymmetricStatus::ComplexPairEncountered);
+  EXPECT_TRUE(std::ranges::contains(result.reality, RitzReality::Real));
+  EXPECT_TRUE(std::ranges::contains(result.reality, RitzReality::Complex));
+  EXPECT_TRUE(result.right_eigenvectors.empty());
 }
 
 TEST(KrylovNonsymmetricArnoldi, SolvesNonrestartedRealNonsymmetricDiagonalProblem)

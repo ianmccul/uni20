@@ -912,6 +912,20 @@ TEST(KrylovSymmetricLanczos, HermitianProjectionImaginaryToleranceUsesLocalActio
   });
 }
 
+TEST(KrylovSymmetricLanczos, HermitianProjectionScaleUsesRealActionNorm)
+{
+  std::vector<double> const matrix{
+      1.0,
+      0.0, //
+      0.0,
+      1.0,
+  };
+  uni20::krylov::DenseHostVectorOps<double> ops(2, matrix);
+  uni20::krylov::DenseHostVector<double> action{{3.0, 4.0}};
+
+  EXPECT_EQ((uni20::krylov::detail::hermitian_projection_scale<double>(ops, action)), 5.0);
+}
+
 TEST(KrylovSymmetricLanczos, SelectsLargestAlgebraicRestartShiftsByResidualBound)
 {
   using uni20::krylov::SpectrumPart;

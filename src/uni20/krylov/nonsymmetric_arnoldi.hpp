@@ -152,6 +152,44 @@ uni20::make_real_t<Scalar> arnoldi_compressed_relation_scale(Matrix<Scalar> cons
   return scale;
 }
 
+template <uni20::RealOrComplex Scalar, typename Vector, typename Ops>
+uni20::make_real_t<Scalar> orthogonalize_arnoldi_residual(Ops& ops, std::vector<Vector> const& basis,
+                                                          Matrix<Scalar>& hessenberg, std::size_t column,
+                                                          Vector& residual)
+{
+  using Real = uni20::make_real_t<Scalar>;
+  auto norm = [&]() { return norm_or_inner_product<Scalar>(ops, residual); };
+  auto orthogonalize_once = [&]() {
+    Real max_correction{};
+    for (std::size_t row = 0; row < basis.size(); ++row)
+    {
+      Scalar const coefficient = ops.inner_product(basis[row], residual);
+      hessenberg[row, column] += coefficient;
+      max_correction = std::max(max_correction, static_cast<Real>(adl_abs(coefficient)));
+      ops.axpy(residual, -coefficient, basis[row]);
+    }
+    return max_correction;
+  };
+
+  Real const original_norm = norm();
+  (void)orthogonalize_once();
+  Real residual_norm = norm();
+  if (original_norm == Real{} || residual_norm > Real{0.717} * original_norm)
+  {
+    return residual_norm;
+  }
+
+  Real const first_refined_norm = residual_norm;
+  (void)orthogonalize_once();
+  residual_norm = norm();
+  if (first_refined_norm == Real{} || residual_norm <= Real{0.717} * first_refined_norm)
+  {
+    ops.set_zero(residual);
+    return Real{};
+  }
+  return residual_norm;
+}
+
 template <typename Compare> void sort_indices(std::vector<std::size_t>& indices, Compare&& compare)
 {
   std::ranges::sort(indices, [&](std::size_t lhs, std::size_t rhs) {
@@ -228,7 +266,11 @@ NonsymmetricEigenResult<Scalar, Vector> make_real_nonsymmetric_arnoldi_result(
   result.eigenvalues.reserve(selected.size());
   result.residual_bounds.reserve(selected.size());
   result.reality.reserve(selected.size());
-  result.right_eigenvectors.reserve(params.compute_eigenvectors ? selected.size() : 0);
+
+  bool const can_compute_right_eigenvectors =
+      params.compute_eigenvectors &&
+      std::ranges::all_of(selected, [&](std::size_t index) { return ritz.reality[index] == RitzReality::Real; });
+  result.right_eigenvectors.reserve(can_compute_right_eigenvectors ? selected.size() : 0);
 
   bool saw_complex = false;
   bool saw_ambiguous = false;
@@ -248,7 +290,7 @@ NonsymmetricEigenResult<Scalar, Vector> make_real_nonsymmetric_arnoldi_result(
 
     saw_complex = saw_complex || reality == RitzReality::Complex;
     saw_ambiguous = saw_ambiguous || reality == RitzReality::Ambiguous;
-    if (params.compute_eigenvectors && reality == RitzReality::Real)
+    if (can_compute_right_eigenvectors)
     {
       Vector vector = ops.allocate_like(factorization.basis.front());
       ops.set_zero(vector);
@@ -475,17 +517,8 @@ arnoldi_factorize(Ops& ops, Vector const& initial, int max_steps,
     ops.matvec(residual, factorization.basis[static_cast<std::size_t>(step)]);
     ++factorization.op_count;
 
-    for (int pass = 0; pass < 2; ++pass)
-    {
-      for (int row = 0; row <= step; ++row)
-      {
-        Scalar const coefficient = ops.inner_product(factorization.basis[static_cast<std::size_t>(row)], residual);
-        factorization.hessenberg[static_cast<std::size_t>(row), static_cast<std::size_t>(step)] += coefficient;
-        ops.axpy(residual, -coefficient, factorization.basis[static_cast<std::size_t>(row)]);
-      }
-    }
-
-    Real const beta = norm_or_inner_product<Scalar>(ops, residual);
+    Real const beta = detail::orthogonalize_arnoldi_residual<Scalar>(ops, factorization.basis, factorization.hessenberg,
+                                                                     static_cast<std::size_t>(step), residual);
     factorization.residual_norm = beta;
     factorization.step_count = step + 1;
     Real const breakdown_scale = detail::arnoldi_hessenberg_column_scale(
@@ -1020,17 +1053,8 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
     ops.matvec(residual, factorization.basis[step]);
     ++factorization.op_count;
 
-    for (int pass = 0; pass < 2; ++pass)
-    {
-      for (std::size_t row = 0; row <= step; ++row)
-      {
-        Scalar const coefficient = ops.inner_product(factorization.basis[row], residual);
-        factorization.hessenberg[row, step] += coefficient;
-        ops.axpy(residual, -coefficient, factorization.basis[row]);
-      }
-    }
-
-    Scalar const beta = norm_or_inner_product<Scalar>(ops, residual);
+    Scalar const beta = detail::orthogonalize_arnoldi_residual<Scalar>(ops, factorization.basis,
+                                                                       factorization.hessenberg, step, residual);
     factorization.residual_norm = beta;
     factorization.step_count = static_cast<int>(step + 1);
     Scalar const breakdown_scale =
@@ -1241,17 +1265,8 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
     ops.matvec(residual, factorization.basis[step]);
     ++factorization.op_count;
 
-    for (int pass = 0; pass < 2; ++pass)
-    {
-      for (std::size_t row = 0; row <= step; ++row)
-      {
-        Complex const coefficient = ops.inner_product(factorization.basis[row], residual);
-        factorization.hessenberg[row, step] += coefficient;
-        ops.axpy(residual, -coefficient, factorization.basis[row]);
-      }
-    }
-
-    Real const beta = norm_or_inner_product<Complex>(ops, residual);
+    Real const beta = detail::orthogonalize_arnoldi_residual<Complex>(ops, factorization.basis,
+                                                                      factorization.hessenberg, step, residual);
     factorization.residual_norm = beta;
     factorization.step_count = static_cast<int>(step + 1);
     Real const breakdown_scale =

@@ -373,3 +373,27 @@ TEST(KrylovExponentialTaylorAction, ThrowsWhenTaylorDegreeCannotMeetTolerance)
   EXPECT_THROW((uni20::krylov::taylor_exponential_action<Scalar>(ops, initial, Scalar{1}, Scalar{2}, params)),
                std::runtime_error);
 }
+
+TEST(KrylovExponentialTaylorAction, NonThrowingNonconvergenceReportsInfiniteError)
+{
+  using Scalar = double;
+
+  std::vector<Scalar> matrix{Scalar{2}};
+  DenseHostVectorOps<Scalar> ops(1, matrix);
+  DenseHostVector<Scalar> initial{{Scalar{1}}};
+
+  TaylorExponentialParams<Scalar> params;
+  params.tolerance = Scalar{1.0e-14};
+  params.step_norm_limit = Scalar{10};
+  params.max_taylor_degree = 1;
+  params.throw_on_nonconvergence = false;
+  params.diagnostics = KrylovDiagnosticsLevel::Summary;
+
+  auto result = uni20::krylov::taylor_exponential_action<Scalar>(ops, initial, Scalar{1}, Scalar{2}, params);
+
+  EXPECT_FALSE(result.converged);
+  EXPECT_TRUE(std::isinf(result.estimated_error));
+  ASSERT_TRUE(result.diagnostics.has_value());
+  EXPECT_FALSE(result.diagnostics->converged);
+  EXPECT_TRUE(std::isinf(result.diagnostics->estimated_error));
+}

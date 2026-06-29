@@ -305,6 +305,7 @@ taylor_exponential_action(Ops& ops, Vector const& initial, TimeScalar time,
       {
         throw std::runtime_error("Taylor exponential did not satisfy the requested tolerance");
       }
+      estimated_error = uni20::numeric_limits<Real>::infinity();
       break;
     }
   }

@@ -200,15 +200,7 @@ bool symmetric_happy_breakdown(Scalar residual_norm, SymmetricEigenParams<Scalar
 template <uni20::RealOrComplex Scalar, typename Vector, typename Ops>
 uni20::make_real_t<Scalar> hermitian_projection_scale(Ops& ops, Vector const& action)
 {
-  using Real = uni20::make_real_t<Scalar>;
-  if constexpr (uni20::Complex<Scalar>)
-  {
-    return norm_or_inner_product<Scalar>(ops, action);
-  }
-  else
-  {
-    return Real{1};
-  }
+  return norm_or_inner_product<Scalar>(ops, action);
 }
 
 template <uni20::RealOrComplex Scalar>
@@ -964,7 +956,8 @@ symmetric_lanczos_standard(Ops& ops, Vector const& initial,
 
     Real const beta = detail::orthogonalize_lanczos_residual<Scalar>(ops, basis, w);
     Real const previous_beta = step > 0 ? subdiagonal[static_cast<std::size_t>(step - 1)] : Real{};
-    Real const breakdown_scale = std::max({Real{1}, detail::adl_abs(alpha), detail::adl_abs(previous_beta)});
+    Real const breakdown_scale =
+        std::max({Real{1}, projection_scale, detail::adl_abs(alpha), detail::adl_abs(previous_beta)});
     if (step + 1 == basis_limit || detail::symmetric_happy_breakdown(beta, params, breakdown_scale))
     {
       final_residual_norm = beta;
@@ -1108,7 +1101,8 @@ symmetric_lanczos_restarted_standard(Ops& ops, Vector const& initial,
 
       Real const beta = detail::orthogonalize_lanczos_residual<Scalar>(ops, basis, w);
       Real const previous_beta = step > 0 ? subdiagonal[step - 1] : Real{};
-      Real const breakdown_scale = std::max({Real{1}, detail::adl_abs(alpha), detail::adl_abs(previous_beta)});
+      Real const breakdown_scale =
+          std::max({Real{1}, projection_scale, detail::adl_abs(alpha), detail::adl_abs(previous_beta)});
       cycle_happy_breakdown = detail::symmetric_happy_breakdown(beta, params, breakdown_scale);
       residual = std::move(w);
       residual_norm = beta;

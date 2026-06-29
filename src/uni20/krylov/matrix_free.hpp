@@ -134,9 +134,11 @@ template <uni20::Real Scalar> struct NonsymmetricArnoldiDiagnostics
 ///
 /// \details For real nonsymmetric Arnoldi, eigenvalues may be complex even
 ///          though vectors and matrix-vector products are real. Real
-///          eigenvectors are populated only for accepted real Ritz pairs.
-///          Complex eigenvector output and real Schur two-plane output are
-///          reserved for later nonsymmetric phases.
+///          eigenvectors are populated only when every selected Ritz value is
+///          numerically real. If any selected Ritz value is complex or
+///          ambiguous, `right_eigenvectors` is left empty and callers should
+///          inspect `status` and `reality`. Complex eigenvector output and real
+///          Schur two-plane output are reserved for later nonsymmetric phases.
 template <uni20::Real Scalar, typename Vector> struct NonsymmetricEigenResult
 {
     std::vector<uni20::complex<Scalar>> eigenvalues;

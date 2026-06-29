@@ -282,7 +282,7 @@ benchmarking repository rather than in core Uni20.
 | `krylov_dimension` | `0` | all symmetric paths | Lanczos subspace dimension, `ncv`; zero selects the default policy. |
 | `max_iterations` | `300` | restarted native paths | Restart-cycle budget. |
 | `tolerance` | `0` | all symmetric paths | Ritz convergence tolerance; zero selects `100 * epsilon`. |
-| `breakdown_tolerance` | `0` | native symmetric paths | Internal invariant-subspace threshold; zero selects `10 * epsilon` scaled by the local recurrence scale. |
+| `breakdown_tolerance` | `0` | native symmetric paths | Internal invariant-subspace threshold; zero selects `10 * epsilon` scaled by the local action/recurrence scale. |
 | `spectrum` | `LargestMagnitude` | all symmetric paths | Wanted part of the spectrum. |
 | `compute_eigenvectors` | `true` | all symmetric paths | Whether to return Ritz vector approximations. |
 | `diagnostics` | `None` | all symmetric paths | Optional projected-problem and restart diagnostics. |
@@ -365,9 +365,9 @@ and should be changed deliberately.
 | --- | --- | --- | --- |
 | Effective Ritz tolerance when user tolerance is zero | `100 * epsilon` | symmetric and nonsymmetric | ARPACK-style automatic tolerance floor. |
 | Residual convergence scale | `tol * max(epsilon^(2/3), abs(theta))` | symmetric and nonsymmetric | Avoids impossible absolute accuracy near zero Ritz values. |
-| Symmetric/Lanczos happy-breakdown threshold | `breakdown_tolerance * max(1, local recurrence scale)`; default `10 * epsilon` | symmetric Lanczos | Treats a tiny residual expansion vector as invariant-subspace breakdown independently of Ritz convergence tolerance. |
-| Arnoldi happy-breakdown threshold | `10 * epsilon` | nonsymmetric Arnoldi | Treats a tiny residual expansion vector as invariant-subspace breakdown. |
-| Arnoldi orthogonalization passes | `2` | nonsymmetric Arnoldi | Full reorthogonalized Arnoldi update. |
+| Symmetric/Lanczos happy-breakdown threshold | `breakdown_tolerance * max(1, local action/recurrence scale)`; default `10 * epsilon` | symmetric Lanczos | Treats a tiny residual expansion vector as invariant-subspace breakdown independently of Ritz convergence tolerance. |
+| Arnoldi happy-breakdown threshold | `breakdown_tolerance * max(1, local Arnoldi relation scale)`; default `10 * epsilon` | nonsymmetric Arnoldi | Treats a tiny residual expansion vector as invariant-subspace breakdown. |
+| Arnoldi orthogonalization passes | one pass, with a second DGKS-style pass after a `0.717` shrink test | nonsymmetric Arnoldi | Keeps full reorthogonalization when needed without unconditionally doubling the orthogonalization work. |
 | Lanczos residual reorthogonalization threshold | `0.717` shrink test | symmetric Lanczos | Controls whether an additional reorthogonalization pass is taken. |
 | Symmetric implicit QR deflation threshold | `epsilon * (abs(d_i) + abs(d_{i+1}))` | symmetric restart | Splits negligible tridiagonal subdiagonal entries. |
 | Default complex-pair tolerance | `sqrt(epsilon)` | real nonsymmetric classification | Classifies nearly real Ritz values. |
