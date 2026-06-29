@@ -10,6 +10,7 @@
 #include <limits>
 #include <numeric>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -36,6 +37,7 @@ template <uni20::Real Scalar> struct SymmetricRestartPlan
     std::size_t retained_count = 0;
     std::size_t shift_count = 0;
     std::size_t protected_zero_bound_count = 0;
+    std::vector<std::size_t> protected_zero_bound_indices;
     bool enlarged_for_partial_convergence = false;
 };
 
@@ -500,7 +502,8 @@ make_symmetric_lanczos_result(Ops& ops, std::vector<Vector> const& basis, uni20:
 template <uni20::Real Scalar>
 SymmetricRestartSelection<Scalar>
 select_symmetric_restart(std::vector<Scalar> const& values, std::vector<Scalar> const& residual_bounds,
-                         SymmetricEigenParams<Scalar> const& params, std::size_t shift_count)
+                         SymmetricEigenParams<Scalar> const& params, std::size_t shift_count,
+                         std::span<std::size_t const> protected_shift_indices = {})
 {
   if (values.size() != residual_bounds.size())
   {
@@ -526,6 +529,21 @@ select_symmetric_restart(std::vector<Scalar> const& values, std::vector<Scalar> 
     wanted_indices.assign(ordered.end() - static_cast<std::ptrdiff_t>(wanted_count), ordered.end());
     unwanted_indices.assign(ordered.begin(), ordered.end() - static_cast<std::ptrdiff_t>(wanted_count));
   }
+
+  std::vector<bool> protected_index(values.size(), false);
+  for (std::size_t const index : protected_shift_indices)
+  {
+    if (index >= values.size())
+    {
+      throw std::invalid_argument("symmetric restart selection received an invalid protected Ritz index");
+    }
+    protected_index[index] = true;
+    if (std::ranges::find(wanted_indices, index) == wanted_indices.end())
+    {
+      wanted_indices.push_back(index);
+    }
+  }
+  std::erase_if(unwanted_indices, [&](std::size_t index) { return protected_index[index]; });
   shift_count = std::min(shift_count, unwanted_indices.size());
 
   Scalar const tolerance =
@@ -597,6 +615,7 @@ SymmetricRestartPlan<Scalar> plan_symmetric_restart(SymmetricEigenParams<Scalar>
     if (residual_bounds[index] == Scalar{})
     {
       ++plan.protected_zero_bound_count;
+      plan.protected_zero_bound_indices.push_back(index);
     }
   }
 
@@ -1091,26 +1110,45 @@ symmetric_lanczos_restarted_standard(Ops& ops, Vector const& initial,
       detail::record_symmetric_final_diagnostics(*diagnostics, projected_for_result, residual_bounds, params,
                                                  residual_norm);
     }
-    last_result = detail::make_symmetric_lanczos_result<Scalar>(ops, basis, residual_norm, projected_for_result, params,
-                                                                restart_cycle_count, matvec_count);
+    SymmetricEigenParams<Real> cycle_result_params = params;
+    if (cycle + 1 < params.max_iterations)
+    {
+      cycle_result_params.compute_eigenvectors = false;
+    }
+    last_result = detail::make_symmetric_lanczos_result<Scalar>(ops, basis, residual_norm, projected_for_result,
+                                                                cycle_result_params, restart_cycle_count, matvec_count);
     last_partial_exit_result = detail::make_symmetric_lanczos_result<Scalar>(
-        ops, basis, residual_norm, projected_for_result, params, restart_cycle_count, matvec_count,
+        ops, basis, residual_norm, projected_for_result, cycle_result_params, restart_cycle_count, matvec_count,
         detail::SymmetricResultPolicy::ConvergedWanted);
     if (last_result.status == 0 || cycle_happy_breakdown || diagonal.size() < ncv)
     {
+      if (!cycle_result_params.compute_eigenvectors && params.compute_eigenvectors)
+      {
+        return finish(detail::make_symmetric_lanczos_result<Scalar>(ops, basis, residual_norm, projected_for_result,
+                                                                    params, restart_cycle_count, matvec_count));
+      }
       return finish(std::move(last_result));
     }
 
-    SymmetricRestartPlan<Real> const restart_plan =
+    SymmetricRestartPlan<Real> restart_plan =
         plan_symmetric_restart(params, projected_for_result.eigenvalues, residual_bounds, last_result.converged_count);
     SymmetricEigenParams<Real> restart_params = params;
     restart_params.retained_ritz_count = static_cast<int>(restart_plan.retained_count);
-    SymmetricRestartSelection<Real> const selection = select_symmetric_restart(
-        projected_for_result.eigenvalues, residual_bounds, restart_params, restart_plan.shift_count);
+    SymmetricRestartSelection<Real> const selection =
+        select_symmetric_restart(projected_for_result.eigenvalues, residual_bounds, restart_params,
+                                 restart_plan.shift_count, restart_plan.protected_zero_bound_indices);
+    restart_plan.shift_count = selection.shifts.size();
+    restart_plan.retained_count = projected_for_result.eigenvalues.size() - restart_plan.shift_count;
     if (selection.shifts.empty())
     {
-      last_partial_exit_result.status = last_result.converged_count < params.eigenvalue_count ? 2 : 0;
-      return finish(std::move(last_partial_exit_result));
+      EigenResult<Real, Vector> exit_result =
+          (!cycle_result_params.compute_eigenvectors && params.compute_eigenvectors)
+              ? detail::make_symmetric_lanczos_result<Scalar>(ops, basis, residual_norm, projected_for_result, params,
+                                                              restart_cycle_count, matvec_count,
+                                                              detail::SymmetricResultPolicy::ConvergedWanted)
+              : std::move(last_partial_exit_result);
+      exit_result.status = last_result.converged_count < params.eigenvalue_count ? 2 : 0;
+      return finish(std::move(exit_result));
     }
 
     ++restart_count;

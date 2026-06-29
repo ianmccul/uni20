@@ -1018,9 +1018,17 @@ TEST(KrylovSymmetricLanczos, RestartPlanProtectsZeroBoundUnwantedRitzValues)
   auto plan = uni20::krylov::plan_symmetric_restart(params, values, bounds, 0);
 
   EXPECT_EQ(plan.protected_zero_bound_count, 2);
+  EXPECT_EQ(plan.protected_zero_bound_indices, (std::vector<std::size_t>{1, 3}));
   EXPECT_EQ(plan.retained_count, 4);
   EXPECT_EQ(plan.shift_count, 2);
   EXPECT_FALSE(plan.enlarged_for_partial_convergence);
+
+  SymmetricEigenParams<double> restart_params = params;
+  restart_params.retained_ritz_count = static_cast<int>(plan.retained_count);
+  auto selection = uni20::krylov::select_symmetric_restart(values, bounds, restart_params, plan.shift_count,
+                                                           plan.protected_zero_bound_indices);
+  EXPECT_EQ(selection.shift_indices, (std::vector<std::size_t>{0}));
+  EXPECT_EQ(selection.shifts, (std::vector<double>{-10.0}));
 }
 
 TEST(KrylovSymmetricLanczos, RestartPlanIncreasesRetainedBlockAfterPartialConvergence)
