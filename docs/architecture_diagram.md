@@ -24,7 +24,7 @@ graph TD
         Kernel[Kernel dispatch]
         Async[Async runtime]
         Common[Common/core utilities]
-        Expokit[Expokit integration]
+        DenseExp[CPU dense matrix exponential]
     end
 
     subgraph AsyncRuntime[Async Runtime Details]
@@ -56,7 +56,7 @@ graph TD
     Uni20Lib --> Kernel
     Uni20Lib --> Async
     Uni20Lib --> Common
-    Uni20Lib --> Expokit
+    Uni20Lib --> DenseExp
 
     Tensor --> Mdspan
     Level1 --> Kernel

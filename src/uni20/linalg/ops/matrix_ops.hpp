@@ -1,5 +1,6 @@
 #pragma once
 
+#include <uni20/core/scalar_traits.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/linalg/backend_manifest.hpp>
 #include <uni20/storage/vectorstorage.hpp>
@@ -28,8 +29,8 @@ template <typename FirstView, typename... RestViews>
 constexpr auto select_tag(FirstView const&, RestViews const&...) -> select_tag_t<FirstView, RestViews...>
 {
   using tag_type = select_tag_t<FirstView, RestViews...>;
-  static_assert((std::is_convertible_v<default_tag_t<FirstView>, tag_type>)&&(
-                    ... && std::is_convertible_v<default_tag_t<RestViews>, tag_type>),
+  static_assert((std::is_convertible_v<default_tag_t<FirstView>, tag_type>) &&
+                    (... && std::is_convertible_v<default_tag_t<RestViews>, tag_type>),
                 "TensorView arguments must share a compatible backend tag");
   return tag_type{};
 }
@@ -268,7 +269,7 @@ auto scale(TensorView<T const, MatTraits> mat, Scalar const& scalar)
 /// \tparam Traits Trait bundle describing the matrix view.
 /// \param mat Matrix view whose norm is computed.
 /// \return The induced 1-norm of mat.
-template <typename T, typename Traits> double matrix_one_norm(TensorView<T const, Traits> mat)
+template <typename T, typename Traits> uni20::accumulation_real_t<T> matrix_one_norm(TensorView<T const, Traits> mat)
 {
   auto const tag = detail::select_tag(mat);
   return ::uni20::linalg::matrix_one_norm(mat, tag);
@@ -366,14 +367,15 @@ template <typename T, typename MatTraits> auto matrix_power(TensorView<T const, 
 /// \param power Non-negative integer exponent.
 /// \return Induced matrix 1-norm of mat^power.
 template <typename T, typename MatTraits, typename BackendTag>
-double matrix_one_norm_power(TensorView<T const, MatTraits> mat, unsigned int power, BackendTag tag)
+uni20::accumulation_real_t<T> matrix_one_norm_power(TensorView<T const, MatTraits> mat, unsigned int power,
+                                                    BackendTag tag)
 {
   auto powered = matrix_power(mat, power, tag);
   return ::uni20::linalg::matrix_one_norm(powered.view(), tag);
 }
 
 template <typename T, typename MatTraits>
-double matrix_one_norm_power(TensorView<T const, MatTraits> mat, unsigned int power)
+uni20::accumulation_real_t<T> matrix_one_norm_power(TensorView<T const, MatTraits> mat, unsigned int power)
 {
   auto const tag = detail::select_tag(mat);
   return matrix_one_norm_power(mat, power, tag);

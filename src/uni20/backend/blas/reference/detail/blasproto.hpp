@@ -16,7 +16,7 @@
 /// - `BLASCOMPLEX`: Either `0` (for real types) or `1` (for complex types).
 ///
 /// Each inclusion generates extern "C" declarations and inline C++ overloads,
-/// optionally including trace hooks via `UNI20_API_CALL`.
+/// optionally including trace hooks via `UNI20_EXTERNAL_API_CALL`.
 ///
 /// \note This file must not use `#pragma once` or include guards.
 ///
@@ -121,14 +121,15 @@ extern "C"
 inline void gemm(char transa, char transb, blas_int m, blas_int n, blas_int k, BLASTYPE alpha, BLASTYPE const* A,
                  blas_int lda, BLASTYPE const* B, blas_int ldb, BLASTYPE beta, BLASTYPE* C, blas_int ldc)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(gemm), transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(gemm), transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C,
+                          ldc);
   detail::UNI20_INTERNAL_BLAS_FN(gemm)(&transa, &transb, &m, &n, &k, &alpha, A, &lda, B, &ldb, &beta, C, &ldc);
 }
 
 inline void gemv(char trans, blas_int m, blas_int n, BLASTYPE alpha, BLASTYPE const* A, blas_int lda, BLASTYPE const* x,
                  blas_int incx, BLASTYPE beta, BLASTYPE* y, blas_int incy)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(gemv), trans, m, n, alpha, A, lda, x, incx, beta, y, incy);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(gemv), trans, m, n, alpha, A, lda, x, incx, beta, y, incy);
   detail::UNI20_INTERNAL_BLAS_FN(gemv)(&trans, &m, &n, &alpha, A, &lda, x, &incx, &beta, y, &incy);
 }
 
@@ -137,28 +138,28 @@ inline void gemv(char trans, blas_int m, blas_int n, BLASTYPE alpha, BLASTYPE co
 inline void geru(blas_int m, blas_int n, BLASTYPE alpha, BLASTYPE const* x, blas_int incx, BLASTYPE const* y,
                  blas_int incy, BLASTYPE* A, blas_int lda)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(geru), m, n, alpha, x, incx, y, incy, A, lda);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(geru), m, n, alpha, x, incx, y, incy, A, lda);
   detail::UNI20_INTERNAL_BLAS_FN(geru)(&m, &n, &alpha, x, &incx, y, &incy, A, &lda);
 }
 
 inline void gerc(blas_int m, blas_int n, BLASTYPE alpha, BLASTYPE const* x, blas_int incx, BLASTYPE const* y,
                  blas_int incy, BLASTYPE* A, blas_int lda)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(gerc), m, n, alpha, x, incx, y, incy, A, lda);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(gerc), m, n, alpha, x, incx, y, incy, A, lda);
   detail::UNI20_INTERNAL_BLAS_FN(gerc)(&m, &n, &alpha, x, &incx, y, &incy, A, &lda);
 }
 
 inline void herk(char uplo, char trans, blas_int n, blas_int k, BLASREALTYPE alpha, BLASTYPE const* A, blas_int lda,
                  BLASREALTYPE beta, BLASTYPE* C, blas_int ldc)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(herk), uplo, trans, n, k, alpha, A, lda, beta, C, ldc);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(herk), uplo, trans, n, k, alpha, A, lda, beta, C, ldc);
   detail::UNI20_INTERNAL_BLAS_FN(herk)(&uplo, &trans, &n, &k, &alpha, A, &lda, &beta, C, &ldc);
 }
 
 inline void her2k(char uplo, char trans, blas_int n, blas_int k, BLASTYPE alpha, BLASTYPE const* A, blas_int lda,
                   BLASTYPE const* B, blas_int ldb, BLASREALTYPE beta, BLASTYPE* C, blas_int ldc)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(her2k), uplo, trans, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(her2k), uplo, trans, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
   detail::UNI20_INTERNAL_BLAS_FN(her2k)(&uplo, &trans, &n, &k, &alpha, A, &lda, B, &ldb, &beta, C, &ldc);
 }
 
@@ -167,21 +168,21 @@ inline void her2k(char uplo, char trans, blas_int n, blas_int k, BLASTYPE alpha,
 inline void ger(blas_int m, blas_int n, BLASTYPE alpha, BLASTYPE const* x, blas_int incx, BLASTYPE const* y,
                 blas_int incy, BLASTYPE* A, blas_int lda)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(ger), m, n, alpha, x, incx, y, incy, A, lda);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(ger), m, n, alpha, x, incx, y, incy, A, lda);
   detail::UNI20_INTERNAL_BLAS_FN(ger)(&m, &n, &alpha, x, &incx, y, &incy, A, &lda);
 }
 
 inline void syrk(char uplo, char trans, blas_int n, blas_int k, BLASTYPE alpha, BLASTYPE const* A, blas_int lda,
                  BLASTYPE beta, BLASTYPE* C, blas_int ldc)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(syrk), uplo, trans, n, k, alpha, A, lda, beta, C, ldc);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(syrk), uplo, trans, n, k, alpha, A, lda, beta, C, ldc);
   detail::UNI20_INTERNAL_BLAS_FN(syrk)(&uplo, &trans, &n, &k, &alpha, A, &lda, &beta, C, &ldc);
 }
 
 inline void syr2k(char uplo, char trans, blas_int n, blas_int k, BLASTYPE alpha, BLASTYPE const* A, blas_int lda,
                   BLASTYPE const* B, blas_int ldb, BLASTYPE beta, BLASTYPE* C, blas_int ldc)
 {
-  UNI20_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(syr2k), uplo, trans, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+  UNI20_EXTERNAL_API_CALL(BLAS, UNI20_INTERNAL_BLAS_FN(syr2k), uplo, trans, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
   detail::UNI20_INTERNAL_BLAS_FN(syr2k)(&uplo, &trans, &n, &k, &alpha, A, &lda, B, &ldb, &beta, C, &ldc);
 }
 #endif

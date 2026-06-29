@@ -31,12 +31,17 @@ detect_blas_vendor()
 
 add_library(uni20_interface_blas INTERFACE)
 
-# Add the BLAS libraries to the interface link line
-target_link_libraries(uni20_interface_blas INTERFACE ${BLAS_LIBRARIES})
+# Add the BLAS/LAPACK libraries to the interface link line. The LAPACK headers
+# are currently header-only wrappers discovered with the BLAS backend.
+target_link_libraries(uni20_interface_blas INTERFACE ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 
 # If FindBLAS sets BLAS_LINKER_FLAGS, attach them to link options:
 if(BLAS_LINKER_FLAGS)
   target_link_options(uni20_interface_blas INTERFACE ${BLAS_LINKER_FLAGS})
+endif()
+
+if(LAPACK_LINKER_FLAGS)
+  target_link_options(uni20_interface_blas INTERFACE ${LAPACK_LINKER_FLAGS})
 endif()
 
 add_library(uni20_backend_blas STATIC

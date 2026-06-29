@@ -1,5 +1,6 @@
 #pragma once
 
+#include <uni20/core/scalar_traits.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/tags/cpu.hpp>
 #include <uni20/tensor/tensor_view.hpp>
@@ -228,16 +229,18 @@ void scale(TensorView<TMat const, MatTraits> mat, Scalar const& scalar, TensorVi
 /// \tparam Traits Trait bundle describing the matrix view.
 /// \param mat Matrix view whose norm is computed.
 /// \return The induced matrix 1-norm.
-template <typename T, typename Traits> double matrix_one_norm(TensorView<T const, Traits> mat)
+template <typename T, typename Traits> uni20::accumulation_real_t<T> matrix_one_norm(TensorView<T const, Traits> mat)
 {
   util::require_rank_two(mat);
 
+  using Real = uni20::accumulation_real_t<T>;
+
   auto mat_span = util::const_span(mat);
-  double result = 0.0;
+  Real result = Real{};
 
   for (index_type j = 0; j < mat.cols(); ++j)
   {
-    double column_sum = 0.0;
+    Real column_sum = Real{};
     for (index_type i = 0; i < mat.rows(); ++i)
     {
       column_sum += std::abs(mat_span[i, j]);
@@ -303,15 +306,22 @@ void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
   auto A_span = util::mutable_span(A);
   auto B_span = util::mutable_span(B);
 
-  using value_type = std::remove_cv_t<typename TensorView<TB, BTraits>::value_type>;
+  using coefficient_value_type = std::remove_cv_t<typename TensorView<TA, ATraits>::value_type>;
+  using rhs_value_type = std::remove_cv_t<typename TensorView<TB, BTraits>::value_type>;
+  using pivot_real = uni20::accumulation_real_t<coefficient_value_type>;
+
+  auto magnitude = [](auto const& value) -> pivot_real {
+    using std::abs;
+    return static_cast<pivot_real>(abs(value));
+  };
 
   for (index_type k = 0; k < n; ++k)
   {
     index_type pivot_row = k;
-    double pivot_value = std::abs(A_span[k, k]);
+    pivot_real pivot_value = magnitude(A_span[k, k]);
     for (index_type i = k + 1; i < n; ++i)
     {
-      double const candidate = std::abs(A_span[i, k]);
+      pivot_real const candidate = magnitude(A_span[i, k]);
       if (candidate > pivot_value)
       {
         pivot_value = candidate;
@@ -319,7 +329,7 @@ void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
       }
     }
 
-    if (pivot_value == 0.0)
+    if (pivot_value == pivot_real{})
     {
       throw std::runtime_error("singular matrix in solve_linear_system");
     }
@@ -332,15 +342,15 @@ void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
       B_span = util::mutable_span(B);
     }
 
-    value_type const pivot = A_span[k, k];
+    coefficient_value_type const pivot = A_span[k, k];
     for (index_type i = k + 1; i < n; ++i)
     {
-      value_type const factor = A_span[i, k] / pivot;
-      if (factor == value_type{})
+      coefficient_value_type const factor = A_span[i, k] / pivot;
+      if (factor == coefficient_value_type{})
       {
         continue;
       }
-      A_span[i, k] = value_type{};
+      A_span[i, k] = coefficient_value_type{};
       for (index_type j = k + 1; j < n; ++j)
       {
         A_span[i, j] -= factor * A_span[k, j];
@@ -354,10 +364,10 @@ void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
 
   for (index_type i = n; i-- > 0;)
   {
-    value_type const pivot = A_span[i, i];
+    coefficient_value_type const pivot = A_span[i, i];
     for (index_type j = 0; j < nrhs; ++j)
     {
-      value_type value = B_span[i, j];
+      rhs_value_type value = B_span[i, j];
       for (index_type k = i + 1; k < n; ++k)
       {
         value -= A_span[i, k] * B_span[k, j];
@@ -409,7 +419,8 @@ void scale_into(TensorView<TMat const, MatTraits> mat, Scalar const& scalar, Ten
   backends::cpu::detail::scale(mat, scalar, out);
 }
 
-template <typename T, typename Traits> double matrix_one_norm(TensorView<T const, Traits> mat, cpu_tag)
+template <typename T, typename Traits>
+uni20::accumulation_real_t<T> matrix_one_norm(TensorView<T const, Traits> mat, cpu_tag)
 {
   return backends::cpu::detail::matrix_one_norm(mat);
 }

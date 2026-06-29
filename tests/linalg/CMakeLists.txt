@@ -1,4 +1,18 @@
 add_test_module(linalg
-  SOURCES test_cpu_ops.cpp
+  SOURCES
+    test_cpu_ops.cpp
+    cpu/test_matrix_exponential.cpp
   LIBS uni20_linalg
 )
+
+if(UNI20_ENABLE_MPLAPACK)
+  add_executable(uni20_linalg_mplapack_binary128_tests test_mplapack_binary128_cpu_ops.cpp)
+  target_link_libraries(uni20_linalg_mplapack_binary128_tests
+    PRIVATE
+      uni20_linalg
+      mplapack::mplapack_binary128
+      GTest::gtest_main
+  )
+  target_compile_definitions(uni20_linalg_mplapack_binary128_tests PRIVATE UNIT_TEST)
+  gtest_discover_tests(uni20_linalg_mplapack_binary128_tests)
+endif()
