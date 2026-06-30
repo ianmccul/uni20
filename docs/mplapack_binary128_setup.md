@@ -15,15 +15,8 @@ The recommended workflow is:
 
 ## Build MPLAPACK
 
-From a Uni20 checkout with an MPLAPACK checkout next to it:
-
-```bash
-git -C ../mplapack apply "$PWD/docs/patches/mplapack-cmake-binary128-detection.patch"
-```
-
-This carries Uni20's current local MPLAPACK compatibility patch. If the patch no
-longer applies, inspect the upstream MPLAPACK changes before continuing; it may
-mean the issue has been fixed differently.
+From a Uni20 checkout with an MPLAPACK checkout next to it, build current
+MPLAPACK master or a release containing the binary128 CMake detection fixes:
 
 ```bash
 cmake -S ../mplapack -B ./build_codex/mplapack_binary128 \
@@ -50,9 +43,6 @@ The configure output should report a real binary128 backend, for example:
 
 ```text
 binary128: _Float128 + strfromf128
-MPLAPACK_HAVE_STD_ABS_FLOAT128=1
-MPLAPACK_HAVE_STD_MATH_FLOAT128=1
-MPLAPACK_HAVE_STD_COMPLEX_FLOAT128=1
 ```
 
 ## Configure Uni20
@@ -100,37 +90,19 @@ ctest --test-dir ./build_codex/build_gcc13_debug_mplapack \
   -R "MplapackBinary128"
 ```
 
-## Carried Local MPLAPACK Patch
+## Validated Upstream State
 
-On 2026-06-30, upstream MPLAPACK master configured and built correctly with
-GCC 13.3 through the autoconf path in GNU++23 mode. The resulting installed
-headers also compile cleanly from Uni20's strict C++23 translation units.
-
-The CMake path needed one local patch:
-[patches/mplapack-cmake-binary128-detection.patch](patches/mplapack-cmake-binary128-detection.patch).
-It makes the CMake binary128 detector match the newer autoconf checks by:
-
-- probing `std::abs(_Float128)` in `_Float128` mode instead of
-  `std::abs(__float128)`;
-- exporting `MPLAPACK_HAVE_STD_MATH_FLOAT128`;
-- exporting `MPLAPACK_HAVE_STD_COMPLEX_FLOAT128`;
-- exporting `MPLAPACK_HAVE_C_COMPLEX_FLOAT128`.
-
-Without that patch, an older CMake detector can suppress MPLAPACK's `_Float128`
-fallbacks based on `__float128` support and then fail in generated LAPACK
-sources such as `Rlaexc.cpp` and `Rlagts.cpp` with errors like:
-
-```text
-no matching function for call to 'max(__float128, __float128, __float128, __float128)'
-```
+On 2026-06-30 in the Asia/Taipei timezone, Uni20 was validated against
+MPLAPACK master commit `308abcccd5798f56a5a3cb033a8af035886b8823`.
+That checkout configured, built, installed, and passed Uni20's MPLAPACK-gated
+binary128 tests without any local MPLAPACK patch.
 
 Do not build MPLAPACK for Uni20 in GNU++17 mode. Current upstream autoconf and
-the patched CMake detector both build successfully in GNU++17 mode, but the
-installed headers record GNU++17 feature-test results. When those headers are
-later consumed from Uni20's C++23 build, the fallback global
-`abs(_Float128)` overload conflicts with libstdc++'s C++23
-`std::abs(_Float128)` overloads. Building MPLAPACK itself as GNU++23 avoids
-that mismatch.
+the current CMake detector may build successfully in GNU++17 mode, but the
+installed headers can record GNU++17 feature-test results. When those headers
+are later consumed from Uni20's C++23 build, fallback overload decisions may not
+match the consuming translation unit. Building MPLAPACK itself as GNU++23 keeps
+the installed configuration aligned with Uni20.
 
 ## Troubleshooting
 

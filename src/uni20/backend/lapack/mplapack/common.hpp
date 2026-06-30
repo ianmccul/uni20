@@ -52,6 +52,15 @@ inline void copy_from_mplapack_ints(std::vector<mplapackint> const& source, blas
   }
 }
 
+inline void copy_from_mplapack_query_int_work(std::vector<mplapackint> const& source, blas_int* target, blas_int lwork)
+{
+  if (target == nullptr || (lwork != -1 && lwork <= 0))
+  {
+    return;
+  }
+  copy_from_mplapack_ints(source, target, 1);
+}
+
 inline blas_int checked_blas_int(std::size_t value)
 {
   auto const converted = static_cast<blas_int>(value);

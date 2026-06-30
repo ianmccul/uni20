@@ -74,7 +74,6 @@ namespace uni20::lapack::unchecked
   Rgbcon(&norm, static_cast<mplapackint>(n), static_cast<mplapackint>(kl), static_cast<mplapackint>(ku), ab,
          static_cast<mplapackint>(ldab), mplapack_ipiv.data(), anorm, rcond, work, mplapack_iwork.data(),
          mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -93,7 +92,6 @@ namespace uni20::lapack::unchecked
          static_cast<mplapackint>(nrhs), ab, static_cast<mplapackint>(ldab), afb, static_cast<mplapackint>(ldafb),
          mplapack_ipiv.data(), b, static_cast<mplapackint>(ldb), x, static_cast<mplapackint>(ldx), forward_error,
          backward_error, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -115,7 +113,6 @@ namespace uni20::lapack::unchecked
          static_cast<mplapackint>(ldx), rcond, forward_error, backward_error, work, mplapack_iwork.data(),
          mplapack_info);
   uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ipiv, ipiv, n);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -180,7 +177,6 @@ namespace uni20::lapack::unchecked
   std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(n);
   Rpbcon(&uplo, static_cast<mplapackint>(n), static_cast<mplapackint>(kd), ab, static_cast<mplapackint>(ldab), anorm,
          rcond, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -196,7 +192,6 @@ namespace uni20::lapack::unchecked
   Rpbrfs(&uplo, static_cast<mplapackint>(n), static_cast<mplapackint>(kd), static_cast<mplapackint>(nrhs), ab,
          static_cast<mplapackint>(ldab), afb, static_cast<mplapackint>(ldafb), b, static_cast<mplapackint>(ldb), x,
          static_cast<mplapackint>(ldx), forward_error, backward_error, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -214,7 +209,6 @@ namespace uni20::lapack::unchecked
          static_cast<mplapackint>(ldab), afb, static_cast<mplapackint>(ldafb), &equed, scale, b,
          static_cast<mplapackint>(ldb), x, static_cast<mplapackint>(ldx), rcond, forward_error, backward_error, work,
          mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 

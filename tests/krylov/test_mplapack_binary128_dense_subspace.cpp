@@ -1,4 +1,5 @@
 #include <mplapack_config.h>
+#include <uni20/backend/lapack/lapack.hpp>
 #include <uni20/krylov/dense_subspace_unused.hpp>
 #include <uni20/krylov/tridiagonal.hpp>
 
@@ -3984,6 +3985,375 @@ TEST(MplapackBinary128DenseSubspaceTest, SchurConditionEstimatesUseBinary128Only
     min_vector_condition = std::min(min_vector_condition, result.reciprocal_eigenvector_condition_numbers[index]);
   }
   EXPECT_TRUE(min_vector_condition < Binary128{1} / binary_power_of_two(60));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, SchurConditionWorkspaceQueryAcceptsNullIntegerWork)
+{
+  std::vector<uni20::blas_int> select{1, 0};
+  std::vector<Binary128> schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> schur_vectors{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> wr(2);
+  std::vector<Binary128> wi(2);
+  std::vector<Binary128> work(1);
+  uni20::blas_int selected_dimension = 0;
+  Binary128 reciprocal_eigenvalue_cluster_condition{};
+  Binary128 reciprocal_invariant_subspace_condition{};
+
+  EXPECT_NO_THROW(uni20::lapack::trsen('B', 'V', select.data(), 2, schur_form.data(), 2, schur_vectors.data(), 2,
+                                       wr.data(), wi.data(), selected_dimension,
+                                       reciprocal_eigenvalue_cluster_condition, reciprocal_invariant_subspace_condition,
+                                       work.data(), -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, SchurConditionQuickReturnAcceptsNullSelection)
+{
+  std::vector<Binary128> schur_form(1);
+  std::vector<Binary128> schur_vectors(1);
+  std::vector<Binary128> wr(1);
+  std::vector<Binary128> wi(1);
+  std::vector<Binary128> work(1);
+  std::vector<uni20::blas_int> iwork(1);
+  uni20::blas_int selected_dimension = 0;
+  Binary128 reciprocal_eigenvalue_cluster_condition{};
+  Binary128 reciprocal_invariant_subspace_condition{};
+
+  EXPECT_NO_THROW(uni20::lapack::trsen('N', 'N', nullptr, 0, schur_form.data(), 1, schur_vectors.data(), 1, wr.data(),
+                                       wi.data(), selected_dimension, reciprocal_eigenvalue_cluster_condition,
+                                       reciprocal_invariant_subspace_condition, work.data(), 1, iwork.data(), 1));
+  EXPECT_EQ(selected_dimension, 0);
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, SchurEigenvectorsAllModeAcceptsNullSelection)
+{
+  std::vector<Binary128> schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> left_vectors(4);
+  std::vector<Binary128> right_vectors(4);
+  std::vector<Binary128> work(6);
+  uni20::blas_int computed_vectors = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::trevc('R', 'A', nullptr, 2, schur_form.data(), 2, left_vectors.data(), 2,
+                                       right_vectors.data(), 2, 2, computed_vectors, work.data()));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, SchurConditionAllModeAcceptsNullSelection)
+{
+  std::vector<Binary128> schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> left_vectors{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> right_vectors{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> reciprocal_eigenvalue_condition_numbers(2);
+  std::vector<Binary128> reciprocal_eigenvector_condition_numbers(2);
+  std::vector<Binary128> work(16);
+  std::vector<uni20::blas_int> iwork(2);
+  uni20::blas_int computed_estimates = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::trsna('B', 'A', nullptr, 2, schur_form.data(), 2, left_vectors.data(), 2,
+                                       right_vectors.data(), 2, reciprocal_eigenvalue_condition_numbers.data(),
+                                       reciprocal_eigenvector_condition_numbers.data(), 2, computed_estimates,
+                                       work.data(), 2, iwork.data()));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, GeneralizedEigensystemNoConditionModeAcceptsNullBooleanWork)
+{
+  std::vector<Binary128> matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> metric{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> alphar(2);
+  std::vector<Binary128> alphai(2);
+  std::vector<Binary128> beta(2);
+  std::vector<Binary128> left_vectors(1);
+  std::vector<Binary128> right_vectors(1);
+  std::vector<Binary128> lscale(2);
+  std::vector<Binary128> rscale(2);
+  std::vector<Binary128> rconde(2);
+  std::vector<Binary128> rcondv(2);
+  std::vector<Binary128> work(1);
+  std::vector<uni20::blas_int> iwork(1);
+  uni20::blas_int first = 0;
+  uni20::blas_int last = 0;
+  Binary128 matrix_norm{};
+  Binary128 metric_norm{};
+
+  EXPECT_NO_THROW(uni20::lapack::ggevx('N', 'N', 'N', 'N', 2, matrix.data(), 2, metric.data(), 2, alphar.data(),
+                                       alphai.data(), beta.data(), left_vectors.data(), 1, right_vectors.data(), 1,
+                                       first, last, lscale.data(), rscale.data(), matrix_norm, metric_norm,
+                                       rconde.data(), rcondv.data(), work.data(), -1, iwork.data(), nullptr));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurUnsortedModeAcceptsNullBooleanWork)
+{
+  std::vector<Binary128> matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> metric{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> alphar(2);
+  std::vector<Binary128> alphai(2);
+  std::vector<Binary128> beta(2);
+  std::vector<Binary128> left_schur_vectors(1);
+  std::vector<Binary128> right_schur_vectors(1);
+  std::vector<Binary128> work(1);
+  uni20::blas_int selected_dimension = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::gges('N', 'N', 'N', 2, matrix.data(), 2, metric.data(), 2, selected_dimension,
+                                      alphar.data(), alphai.data(), beta.data(), left_schur_vectors.data(), 1,
+                                      right_schur_vectors.data(), 1, work.data(), -1, nullptr));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, DivideAndConquerLeastSquaresDoesNotWritePastCallerIntegerWork)
+{
+  std::vector<Binary128> matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{}, Binary128{},  Binary128{1},
+                                Binary128{},  Binary128{}, Binary128{}, Binary128{}, Binary128{1}, Binary128{}};
+  std::vector<Binary128> rhs{Binary128{1}, Binary128{2}, Binary128{3}, Binary128{}};
+  std::vector<Binary128> singular_values(3);
+  std::vector<Binary128> work(1);
+  std::vector<uni20::blas_int> intentionally_tiny_iwork(1);
+  uni20::blas_int rank = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::gelsd(4, 3, 1, matrix.data(), 4, rhs.data(), 4, singular_values.data(), Binary128{-1},
+                                       rank, work.data(), -1, intentionally_tiny_iwork.data()));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, SymmetricDivideAndConquerWorkspaceQueryAcceptsNullIntegerWork)
+{
+  std::vector<Binary128> matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Binary128> work(1);
+
+  EXPECT_NO_THROW(
+      uni20::lapack::syevd('N', 'U', 2, matrix.data(), 2, eigenvalues.data(), work.data(), -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, QuerySizedIntegerWorkspaceOnlyCopiesFirstElementBack)
+{
+  std::vector<Binary128> query_matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> query_eigenvalues(2);
+  std::vector<Binary128> work_query(1);
+  std::vector<uni20::blas_int> iwork_query(1);
+
+  ASSERT_NO_THROW(uni20::lapack::syevd('V', 'U', 2, query_matrix.data(), 2, query_eigenvalues.data(), work_query.data(),
+                                       -1, iwork_query.data(), -1));
+
+  auto const lwork = static_cast<uni20::blas_int>(work_query[0]);
+  auto const liwork = iwork_query[0];
+  ASSERT_GT(lwork, 0);
+  ASSERT_GT(liwork, 1);
+
+  std::vector<Binary128> matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Binary128> work(static_cast<std::size_t>(lwork));
+  uni20::blas_int const sentinel = -12345;
+  std::vector<uni20::blas_int> iwork(static_cast<std::size_t>(liwork), sentinel);
+
+  ASSERT_NO_THROW(uni20::lapack::syevd('V', 'U', 2, matrix.data(), 2, eigenvalues.data(), work.data(), lwork,
+                                       iwork.data(), liwork));
+
+  for (std::size_t index = 1; index < iwork.size(); ++index)
+  {
+    EXPECT_EQ(iwork[index], sentinel);
+  }
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, SelectedSymmetricWorkspaceQueryAcceptsNullSupportAndIntegerWork)
+{
+  std::vector<Binary128> matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Binary128> eigenvectors(1);
+  std::vector<Binary128> work(1);
+  uni20::blas_int selected_count = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::syevr('N', 'A', 'U', 2, matrix.data(), 2, Binary128{}, Binary128{}, 0, 0, Binary128{},
+                                       selected_count, eigenvalues.data(), eigenvectors.data(), 1, nullptr, work.data(),
+                                       -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSymmetricDivideAndConquerWorkspaceQueryAcceptsNullIntegerWork)
+{
+  std::vector<Binary128> matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> metric{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Binary128> work(1);
+
+  EXPECT_NO_THROW(uni20::lapack::sygvd(1, 'N', 'U', 2, matrix.data(), 2, metric.data(), 2, eigenvalues.data(),
+                                       work.data(), -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSymmetricSelectedWorkspaceAcceptsNullIntegerOutputs)
+{
+  std::vector<Binary128> matrix{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> metric{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Binary128> eigenvectors(1);
+  std::vector<Binary128> work(1);
+  uni20::blas_int selected_count = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::sygvx(1, 'N', 'A', 'U', 2, matrix.data(), 2, metric.data(), 2, Binary128{},
+                                       Binary128{}, 0, 0, Binary128{}, selected_count, eigenvalues.data(),
+                                       eigenvectors.data(), 1, work.data(), -1, nullptr, nullptr));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, ComplexHermitianDivideAndConquerWorkspaceQueryAcceptsNullIntegerWork)
+{
+  using Complex = uni20::complex<Binary128>;
+
+  std::vector<Complex> matrix{Complex{Binary128{1}, Binary128{}}, Complex{}, Complex{},
+                              Complex{Binary128{2}, Binary128{}}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Complex> work(1);
+  std::vector<Binary128> rwork(1);
+
+  EXPECT_NO_THROW(uni20::lapack::heevd('N', 'U', 2, matrix.data(), 2, eigenvalues.data(), work.data(), -1, rwork.data(),
+                                       -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, SelectedComplexHermitianWorkspaceQueryAcceptsNullSupportAndIntegerWork)
+{
+  using Complex = uni20::complex<Binary128>;
+
+  std::vector<Complex> matrix{Complex{Binary128{1}, Binary128{}}, Complex{}, Complex{},
+                              Complex{Binary128{2}, Binary128{}}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Complex> eigenvectors(1);
+  std::vector<Complex> work(1);
+  std::vector<Binary128> rwork(1);
+  uni20::blas_int selected_count = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::heevr('N', 'A', 'U', 2, matrix.data(), 2, Binary128{}, Binary128{}, 0, 0, Binary128{},
+                                       selected_count, eigenvalues.data(), eigenvectors.data(), 1, nullptr, work.data(),
+                                       -1, rwork.data(), -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest,
+     ComplexGeneralizedHermitianDivideAndConquerWorkspaceQueryAcceptsNullIntegerWork)
+{
+  using Complex = uni20::complex<Binary128>;
+
+  std::vector<Complex> matrix{Complex{Binary128{1}, Binary128{}}, Complex{}, Complex{},
+                              Complex{Binary128{2}, Binary128{}}};
+  std::vector<Complex> metric{Complex{Binary128{1}, Binary128{}}, Complex{}, Complex{},
+                              Complex{Binary128{1}, Binary128{}}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Complex> work(1);
+  std::vector<Binary128> rwork(1);
+
+  EXPECT_NO_THROW(uni20::lapack::hegvd(1, 'N', 'U', 2, matrix.data(), 2, metric.data(), 2, eigenvalues.data(),
+                                       work.data(), -1, rwork.data(), -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, ComplexGeneralizedHermitianSelectedWorkspaceAcceptsNullIntegerOutputs)
+{
+  using Complex = uni20::complex<Binary128>;
+
+  std::vector<Complex> matrix{Complex{Binary128{1}, Binary128{}}, Complex{}, Complex{},
+                              Complex{Binary128{2}, Binary128{}}};
+  std::vector<Complex> metric{Complex{Binary128{1}, Binary128{}}, Complex{}, Complex{},
+                              Complex{Binary128{1}, Binary128{}}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Complex> eigenvectors(1);
+  std::vector<Complex> work(1);
+  std::vector<Binary128> rwork(7);
+  uni20::blas_int selected_count = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::hegvx(1, 'N', 'A', 'U', 2, matrix.data(), 2, metric.data(), 2, Binary128{},
+                                       Binary128{}, 0, 0, Binary128{}, selected_count, eigenvalues.data(),
+                                       eigenvectors.data(), 1, work.data(), -1, rwork.data(), nullptr, nullptr));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, TridiagonalDivideAndConquerWorkspaceQueryAcceptsNullIntegerWork)
+{
+  std::vector<Binary128> diagonal{Binary128{1}, Binary128{2}};
+  std::vector<Binary128> offdiagonal{Binary128{}};
+  std::vector<Binary128> eigenvectors(1);
+  std::vector<Binary128> work(1);
+
+  EXPECT_NO_THROW(uni20::lapack::stevd('N', 2, diagonal.data(), offdiagonal.data(), eigenvectors.data(), 1, work.data(),
+                                       -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, SelectedTridiagonalWorkspaceQueryAcceptsNullSupportAndIntegerWork)
+{
+  std::vector<Binary128> diagonal{Binary128{1}, Binary128{2}};
+  std::vector<Binary128> offdiagonal{Binary128{}};
+  std::vector<Binary128> eigenvalues(2);
+  std::vector<Binary128> eigenvectors(1);
+  std::vector<Binary128> work(1);
+  uni20::blas_int selected_count = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::stevr('N', 'A', 2, diagonal.data(), offdiagonal.data(), Binary128{}, Binary128{}, 0, 0,
+                                       Binary128{}, selected_count, eigenvalues.data(), eigenvectors.data(), 1, nullptr,
+                                       work.data(), -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurConditionWorkspaceQueryAcceptsNullIntegerWork)
+{
+  std::vector<uni20::blas_int> select{1, 0};
+  std::vector<Binary128> matrix_schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> metric_schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> alphar(2);
+  std::vector<Binary128> alphai(2);
+  std::vector<Binary128> beta(2);
+  std::vector<Binary128> left_schur_vectors{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> right_schur_vectors{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> dif(2);
+  std::vector<Binary128> work(1);
+  uni20::blas_int selected_dimension = 0;
+  Binary128 pl{};
+  Binary128 pr{};
+
+  EXPECT_NO_THROW(uni20::lapack::tgsen(1, true, true, select.data(), 2, matrix_schur_form.data(), 2,
+                                       metric_schur_form.data(), 2, alphar.data(), alphai.data(), beta.data(),
+                                       left_schur_vectors.data(), 2, right_schur_vectors.data(), 2, selected_dimension,
+                                       pl, pr, dif.data(), work.data(), -1, nullptr, -1));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurConditionQuickReturnAcceptsNullSelection)
+{
+  std::vector<Binary128> matrix_schur_form(1);
+  std::vector<Binary128> metric_schur_form(1);
+  std::vector<Binary128> alphar(1);
+  std::vector<Binary128> alphai(1);
+  std::vector<Binary128> beta(1);
+  std::vector<Binary128> left_schur_vectors(1);
+  std::vector<Binary128> right_schur_vectors(1);
+  std::vector<Binary128> dif(2);
+  std::vector<Binary128> work(1);
+  std::vector<uni20::blas_int> iwork(1);
+  uni20::blas_int selected_dimension = 0;
+  Binary128 pl{};
+  Binary128 pr{};
+
+  EXPECT_NO_THROW(uni20::lapack::tgsen(0, false, false, nullptr, 0, matrix_schur_form.data(), 1,
+                                       metric_schur_form.data(), 1, alphar.data(), alphai.data(), beta.data(),
+                                       left_schur_vectors.data(), 1, right_schur_vectors.data(), 1, selected_dimension,
+                                       pl, pr, dif.data(), work.data(), -1, iwork.data(), -1));
+  EXPECT_EQ(selected_dimension, 0);
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurEigenvectorsAllModeAcceptsNullSelection)
+{
+  std::vector<Binary128> matrix_schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> metric_schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> left_vectors(4);
+  std::vector<Binary128> right_vectors(4);
+  std::vector<Binary128> work(12);
+  uni20::blas_int computed_vectors = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::tgevc('R', 'A', nullptr, 2, matrix_schur_form.data(), 2, metric_schur_form.data(), 2,
+                                       left_vectors.data(), 2, right_vectors.data(), 2, 2, computed_vectors,
+                                       work.data()));
+}
+
+TEST(MplapackBinary128DenseSubspaceTest, GeneralizedSchurConditionAllModeAcceptsNullSelection)
+{
+  std::vector<Binary128> matrix_schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{2}};
+  std::vector<Binary128> metric_schur_form{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> left_vectors{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> right_vectors{Binary128{1}, Binary128{}, Binary128{}, Binary128{1}};
+  std::vector<Binary128> reciprocal_eigenvalue_condition_numbers(2);
+  std::vector<Binary128> reciprocal_eigenvector_condition_numbers(2);
+  std::vector<Binary128> work(32);
+  std::vector<uni20::blas_int> iwork(8);
+  uni20::blas_int computed_estimates = 0;
+
+  EXPECT_NO_THROW(uni20::lapack::tgsna(
+      'B', 'A', nullptr, 2, matrix_schur_form.data(), 2, metric_schur_form.data(), 2, left_vectors.data(), 2,
+      right_vectors.data(), 2, reciprocal_eigenvalue_condition_numbers.data(),
+      reciprocal_eigenvector_condition_numbers.data(), 2, computed_estimates, work.data(), 32, iwork.data()));
 }
 
 TEST(MplapackBinary128DenseSubspaceTest, SolvesNearlySingularDenseSystemBelowDoubleResolution)
