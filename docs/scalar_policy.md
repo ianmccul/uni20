@@ -22,6 +22,12 @@ configuration it aliases `mplapack_binary128_t`, whose concrete spelling is
 selected by the installed MPLAPACK package. Code that is not gated by
 `UNI20_HAS_FLOAT128` must not name `uni20::float128`.
 
+To enable this path, build MPLAPACK separately with its binary128 backend and
+then point Uni20 at the resulting CMake package. Uni20 deliberately does not
+download or build MPLAPACK as part of its own configure step. See
+[MPLAPACK Binary128 Setup](mplapack_binary128_setup.md) for the exact package
+build, install, Uni20 configure, and validation commands.
+
 `uni20::complex<T>` is intentionally a type alias to `std::complex<T>`, not a
 replacement class. This keeps standard-library ABI, layout expectations, and
 interop behavior unchanged while giving Uni20 a single project-level spelling

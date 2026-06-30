@@ -592,7 +592,7 @@ template DenseMatrix<uni20::complex<double>> matrix_exponential(DenseMatrix<uni2
 template DenseMatrix<uni20::complex<long double>> matrix_exponential(DenseMatrix<uni20::complex<long double>> const&,
                                                                      uni20::complex<long double>);
 
-#if defined(UNI20_ENABLE_MPLAPACK) && defined(MPLAPACK_BINARY128_MODE) &&                                              \
+#if UNI20_HAS_FLOAT128 && UNI20_FLOAT128_PROVIDER_MPLAPACK && defined(MPLAPACK_BINARY128_MODE) &&                      \
     (MPLAPACK_BINARY128_MODE != MPLAPACK_BINARY128_MODE_LDBL)
 template DenseMatrix<mplapack_binary128_t> matrix_exponential(DenseMatrix<mplapack_binary128_t> const&,
                                                               mplapack_binary128_t);

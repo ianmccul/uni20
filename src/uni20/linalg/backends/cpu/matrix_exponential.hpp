@@ -5,7 +5,9 @@
 
 #pragma once
 
-#if defined(UNI20_ENABLE_MPLAPACK)
+#include <uni20/config.hpp>
+
+#if UNI20_HAS_FLOAT128 && UNI20_FLOAT128_PROVIDER_MPLAPACK
 #include <mplapack_config.h>
 #endif
 #include <complex>
