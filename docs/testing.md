@@ -41,6 +41,7 @@ Primary CMake options:
 | `UNI20_BUILD_TESTS` | `ON` | Build and register C++ tests |
 | `UNI20_BUILD_COMBINED_TESTS` | `ON` | Build `tests/uni20_tests` combined test executable |
 | `UNI20_BUILD_PYTHON` | `ON` | Also enable `tests/python` CTest entries |
+| `UNI20_ENABLE_MPLAPACK` | `OFF` | Build optional binary128 probes; requires an external MPLAPACK package with `mplapack::mpblas_binary128` and `mplapack::mplapack_binary128` |
 
 Example configure:
 
@@ -52,6 +53,17 @@ To disable tests:
 
 ```bash
 cmake -S . -B build -DUNI20_BUILD_TESTS=OFF
+```
+
+To enable the optional MPLAPACK binary128 probes, configure MPLAPACK separately
+and point Uni20 at the resulting CMake package. See
+[MPLAPACK Binary128 Setup](mplapack_binary128_setup.md) for the full package
+build and validation workflow:
+
+```bash
+cmake -S . -B build \
+  -DUNI20_ENABLE_MPLAPACK=ON \
+  -Dmplapack_DIR=/path/to/mplapack-build-binary128
 ```
 
 ## Building Tests

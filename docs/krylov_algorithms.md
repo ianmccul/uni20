@@ -13,14 +13,19 @@ the project scalar policy in [scalar_policy.md](scalar_policy.md):
 | `d` | `double` |
 | `c` | `uni20::complex<float>` |
 | `z` | `uni20::complex<double>` |
+| `f128` | optional `uni20::float128` |
+| `cf128` | optional `uni20::complex<uni20::float128>` |
 
-With `UNI20_ENABLE_MPLAPACK=ON`, the spike branch also has experimental real
-binary128 coverage for scalar-generic dense projected kernels, matrix-free
-eigensolvers, and exponential actions. Ordinary typed Krylov tests instantiate
-`uni20::float128` and `uni20::complex<uni20::float128>` in MPLAPACK-enabled
-builds; dedicated `MplapackBinary128*` tests cover precision-specific stress
-cases. This is not part of the stable s/d/c/z support matrix yet; see
-[mplapack_binary128_spike.md](mplapack_binary128_spike.md).
+With `UNI20_ENABLE_MPLAPACK=ON`, Uni20 enables optional experimental binary128
+probes for scalar-generic dense projected kernels, matrix-free eigensolvers, and
+exponential actions. MPLAPACK is an external package dependency in this
+configuration; Uni20 does not download or build it. The
+ordinary typed Krylov tests remain focused on the stable `s`, `d`, `c`, and `z`
+paths; dedicated `MplapackBinary128*` targets cover binary128-specific stress
+cases. The main inventory tables below therefore list the ordinary `s`, `d`,
+`c`, and `z` coverage, followed by a separate optional binary128 inventory. See
+[krylov_precision_validation.md](krylov_precision_validation.md) for the
+test-level `f128` and `cf128` validation matrix.
 
 ## Matrix-Free Boundary
 
@@ -146,8 +151,45 @@ These are local host-side kernels for small Krylov subspace matrices.
 | Real Schur selected subspace condition estimates | yes | yes | n/a | n/a | Dense projected real Schur block selection through LAPACK `trsen`, returning reciprocal eigenvalue-cluster and invariant-subspace condition estimates. |
 | Real Schur right eigenvectors | yes | yes | n/a | n/a | Dense projected real Schur eigenvector extraction through LAPACK `trevc`, unpacked into complex columns. |
 | Real Schur eigenpair condition estimates | yes | yes | n/a | n/a | Dense projected real Schur eigenvalue/eigenvector conditioning through LAPACK `trsna`. |
-| Complex nonsymmetric eigensystem | n/a | n/a | yes | yes | Arnoldi Ritz extraction in complex arithmetic; MPLAPACK-gated `complex<binary128>` is probed separately. |
-| Complex Schur factorization and reordering | n/a | n/a | yes | yes | Complex nonsymmetric implicit restart; MPLAPACK-gated `complex<binary128>` is probed separately. |
+| Complex nonsymmetric eigensystem | n/a | n/a | yes | yes | Arnoldi Ritz extraction in complex arithmetic. |
+| Complex Schur factorization and reordering | n/a | n/a | yes | yes | Complex nonsymmetric implicit restart. |
+
+### Optional MPLAPACK Binary128 Inventory
+
+These paths are available only when `UNI20_ENABLE_MPLAPACK=ON` and the
+configured MPLAPACK package provides a real binary128 type. This table records
+the intended scalar coverage of the optional binary128 surface; the separate
+precision-validation matrix records which rows have dedicated stress tests.
+
+At the native solver entry-point level, binary128 mostly mirrors the ordinary
+`s`, `d`, `c`, and `z` coverage: real paths have `f128` analogues, complex
+paths have `cf128` analogues, and Hermitian paths support both. The broad dense
+projected helper inventory is intentionally split from the default-facing
+headers where possible, but it remains in-tree and is tested by the gated
+`MplapackBinary128DenseSubspaceTest` target. These wrappers are early
+infrastructure for the future mdspan/rank-2 tensor layer, not a stable public
+API commitment.
+
+| component or entry point | `f128` | `cf128` | notes |
+| --- | --- | --- | --- |
+| Dense vector and matrix primitives | yes | yes | Scalar-generic Krylov host-side helpers. |
+| MPBLAS wrapper surface | yes | yes | Current wrapper surface covers projected `gemm`, `gemv`, rank-update, symmetric-rank, and Hermitian-rank operations used by active paths. |
+| Tensor/linalg CPU helper probes | yes | n/a | Current probes cover real one-norm accumulation and real dense solve. |
+| Broad dense projected real helper inventory | yes | n/a | Gated tests cover norms, dense/band/tridiagonal solves and diagnostics, SPD and symmetric-indefinite helpers, QR/LQ/QL/RQ, bidiagonal/SVD helpers, real symmetric/generalized symmetric eigensystems, and real nonsymmetric/Schur/QZ helpers. |
+| Dense projected complex eigensystem and Schur helper inventory | n/a | yes | Gated tests cover complex Hermitian/generalized Hermitian eigensystems, complex nonsymmetric eigensystems, and complex Schur/reordering. |
+| Symmetric tridiagonal projected eigensystem | yes | n/a | Uses MPLAPACK `Rsterf`/`Rsteqr`; this is the projected problem behind real and complex Hermitian Lanczos. |
+| Real nonsymmetric projected eigensystem and Schur kernels | yes | n/a | Active wrapper surface covers `Rgeev`, `Rgees`, `Rhseqr`, and `Rtrexc`. |
+| Complex nonsymmetric projected eigensystem and Schur kernels | n/a | yes | Active wrapper surface covers `Cgeev`, `Cgees`, and `Ctrexc`. |
+| `symmetric_lanczos_standard` | yes | yes | `f128` is directly probed; `cf128` follows the same real tridiagonal projected eigensystem path but does not yet have a dedicated binary128 stress test. |
+| `symmetric_lanczos_restarted_standard` | yes | yes | Templated path; no dedicated binary128 restart stress test yet. |
+| `symmetric_lanczos_restarted_transformed` | yes | yes | Templated transformed path; no dedicated binary128 stress test yet. |
+| `symmetric_lanczos_restarted_generalized_transformed` | yes | yes | Templated generalized transformed path; no dedicated binary128 stress test yet. |
+| `real_nonsymmetric_arnoldi_standard` | yes | n/a | Full-projection real binary128 Arnoldi is directly probed. |
+| `real_nonsymmetric_arnoldi_restarted_standard` | yes | n/a | Restarted path uses the active real Schur wrapper surface; no dedicated binary128 restart stress test yet. |
+| `complex_nonsymmetric_arnoldi_standard` | n/a | yes | Full-projection complex binary128 Arnoldi is directly probed; restart uses the active complex Schur wrapper surface. |
+| `hermitian_krylov_exponential_action` | yes | yes | `f128` is directly probed; `cf128` uses the binary128 complex dense exponential instantiations but does not yet have a dedicated stress test. |
+| `nonsymmetric_krylov_exponential_action` | yes | yes | Templated path backed by binary128 real and complex dense exponential instantiations; no dedicated binary128 stress test yet. |
+| `taylor_exponential_action` | yes | yes | Scalar-generic validation path; no dedicated binary128 stress test yet. |
 
 ### Symmetric And Hermitian Lanczos
 

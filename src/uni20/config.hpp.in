@@ -36,6 +36,10 @@
 
 #cmakedefine01 UNI20_ILP64
 
+// Optional scalar precision configuration.
+#cmakedefine01 UNI20_HAS_FLOAT128
+#cmakedefine01 UNI20_FLOAT128_PROVIDER_MPLAPACK
+
 #define UNI20_BLAS_VENDOR "@UNI20_DETECTED_BLAS_VENDOR@"
 
 #define @UNI20_DETECTED_BLAS_VENDOR_MACRO@ 1

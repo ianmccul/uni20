@@ -14,37 +14,42 @@ tuning values, see [krylov_algorithms.md](krylov_algorithms.md).
 | `d` | `double` |
 | `c` | `uni20::complex<float>` |
 | `z` | `uni20::complex<double>` |
+| `f128` | `uni20::float128`, when `UNI20_HAS_FLOAT128=1` |
+| `cf128` | `uni20::complex<uni20::float128>`, also spelled `uni20::complex256`, when `UNI20_HAS_FLOAT128=1` |
 
 Experimental binary128 validation is gated by `UNI20_ENABLE_MPLAPACK=ON` and
-is tracked separately in
-[mplapack_binary128_spike.md](mplapack_binary128_spike.md). It currently covers
-selected dense projected kernels plus real and complex matrix-free eigensolver,
-projected exponential-action, Taylor validation, and TDVP Matrix Market stress
-paths. The gated probe also checks that selected scalar-generic helpers use
-Uni20's real scalar traits rather than relying only on `std::floating_point`.
+requires an external MPLAPACK package configured with the binary128 backend.
+Uni20 does not download or build MPLAPACK. The optional validation currently
+covers scalar aliases and I/O, BLAS/LAPACK wrapper surfaces, tensor linear
+algebra probes, broad dense projected helper coverage, real and complex
+matrix-free eigensolvers, and projected exponential action. The gated probes
+also check that selected scalar-generic helpers use Uni20's real scalar traits
+rather than relying only on `std::floating_point`.
 
 Most ordinary Krylov tests are typed through
 `tests/krylov/krylov_test_types.hpp`. In a normal build those aliases expand to
-the `s`, `d`, `c`, and `z` paths. In an MPLAPACK-enabled build they also include
-configured `uni20::float128` and `uni20::complex<uni20::float128>` where the
-algorithm is scalar-generic. The `MplapackBinary128*` tests remain for
-precision-specific stress cases such as below-double gaps, tiny pivots,
-underflow-sensitive residuals, and TDVP Matrix Market exponential diagnostics.
+the `s`, `d`, `c`, and `z` paths. The MPLAPACK-enabled binary128 coverage is
+kept in separate `MplapackBinary128*` targets. The broad dense-subspace wrappers
+are retained and tested there, but are not pulled into the ordinary typed solver
+matrix.
 
 ## Native Solver Coverage
+
+This table records the ordinary default-build coverage for `s`, `d`, `c`, and
+`z`. Optional binary128 probes are listed separately below.
 
 | algorithm | `s` | `d` | `c` | `z` | tests |
 | --- | --- | --- | --- | --- | --- |
 | Dense vector/matrix primitives | yes | yes | yes | yes | `KrylovDenseLinalgTypedTest` |
-| Dense real matrix norms | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.ComputesDenseReal*MatrixNorms`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.*MatrixNorm*` |
+| Dense real matrix norms | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.ComputesDenseReal*MatrixNorms` |
 | Dense matrix exponential, including complex multipliers | yes | yes | yes | yes | `MatrixExponentialTypedTest`, `MatrixExponentialTest.RealMatrixWithComplexMultiplierPromotesToComplex`, `MatrixExponentialTest.ComplexMatrixWithComplexMultiplierUsesComplexTime` |
 | Dense real linear solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseRealLinearSystemWithPivoting` |
 | Dense real refined linear solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.RefinesDenseRealLinearSystemWithDiagnostics` |
 | Dense real expert linear solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseRealExpertLinearSystemWithDiagnostics` |
 | Dense real equilibration | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.ComputesDenseRealEquilibration` |
 | Dense real LU factorization and solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesFromDenseRealLuFactorization` |
-| Dense real general-band norm, equilibration, solve, refined/expert solve, and condition estimate | yes | yes | n/a | n/a | MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.GeneralBand*` |
-| Dense real general tridiagonal solve, condition, and refinement | yes | yes | n/a | n/a | MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.GeneralTridiagonal*` |
+| Dense real general-band norm, equilibration, solve, refined/expert solve, and condition estimate | yes | yes | n/a | n/a | ordinary `s`/`d` dense-subspace tests; binary128 coverage is listed in the optional table below |
+| Dense real general tridiagonal solve, condition, and refinement | yes | yes | n/a | n/a | ordinary `s`/`d` dense-subspace tests; binary128 coverage is listed in the optional table below |
 | Dense real reciprocal condition estimate | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.EstimatesDenseRealReciprocalConditionNumber` |
 | Dense real triangular solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseRealTriangularSystem` |
 | Dense real triangular refined solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.RefinesDenseRealTriangularSystemWithDiagnostics` |
@@ -58,8 +63,8 @@ underflow-sensitive residuals, and TDVP Matrix Market exponential diagnostics.
 | Dense real rank-revealing least-squares solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseRankRevealingLeastSquaresProblem` |
 | Dense real symmetric positive definite solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseSymmetricPositiveDefiniteSystem` |
 | Dense real symmetric positive definite factorization and solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseSymmetricPositiveDefiniteSystemFromFactorization` |
-| Dense real symmetric positive definite band solve, condition, and refinement | yes | yes | n/a | n/a | MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.SymmetricPositiveDefiniteBand*` |
-| Dense real symmetric positive definite tridiagonal solve, condition, and refinement | yes | yes | n/a | n/a | MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.SymmetricPositiveDefiniteTridiagonal*` |
+| Dense real symmetric positive definite band solve, condition, and refinement | yes | yes | n/a | n/a | ordinary `s`/`d` dense-subspace tests; binary128 coverage is listed in the optional table below |
+| Dense real symmetric positive definite tridiagonal solve, condition, and refinement | yes | yes | n/a | n/a | ordinary `s`/`d` dense-subspace tests; binary128 coverage is listed in the optional table below |
 | Dense real symmetric positive definite refined solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.RefinesDenseSymmetricPositiveDefiniteSystemWithDiagnostics` |
 | Dense real symmetric positive definite expert solve | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseSymmetricPositiveDefiniteExpertSystemWithDiagnostics` |
 | Dense real symmetric positive definite equilibration | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.ComputesDenseSymmetricPositiveDefiniteEquilibration` |
@@ -103,12 +108,12 @@ underflow-sensitive residuals, and TDVP Matrix Market exponential diagnostics.
 | Dense generalized real symmetric eigensystem | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseGeneralizedRealSymmetricEigenvectors` |
 | Dense generalized real divide-and-conquer symmetric eigensystem | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesDenseGeneralizedRealSymmetricDivideAndConquerEigenvectors` |
 | Dense generalized real selected symmetric eigensystem | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesSelectedDenseGeneralizedRealSymmetricEigenvectors` |
-| Dense complex Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesDenseComplexHermitianEigenvectors`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.ComplexHermitianEigensystemResolvesGapBelowDoublePrecision` |
-| Dense complex divide-and-conquer Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesDenseComplexHermitianDivideAndConquerEigenvectors`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.ComplexHermitianDivideAndConquerEigensystemResolvesGapBelowDoublePrecision` |
-| Dense complex selected Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesSelectedDenseComplexHermitianEigenvectors`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.SelectedComplexHermitianEigensystemResolvesGapBelowDoublePrecision` |
-| Dense generalized complex Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesDenseGeneralizedComplexHermitianEigenvectors`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.ComplexGeneralizedHermitianEigensystemResolvesMetricGapBelowDoublePrecision` |
-| Dense generalized complex divide-and-conquer Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesDenseGeneralizedComplexHermitianDivideAndConquerEigenvectors`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.ComplexGeneralizedHermitianDivideAndConquerEigensystemResolvesMetricGapBelowDoublePrecision` |
-| Dense generalized complex selected Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesSelectedDenseGeneralizedComplexHermitianEigenvectors`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.SelectedComplexGeneralizedHermitianEigensystemResolvesMetricGapBelowDoublePrecision` |
+| Dense complex Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesDenseComplexHermitianEigenvectors` |
+| Dense complex divide-and-conquer Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesDenseComplexHermitianDivideAndConquerEigenvectors` |
+| Dense complex selected Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesSelectedDenseComplexHermitianEigenvectors` |
+| Dense generalized complex Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesDenseGeneralizedComplexHermitianEigenvectors` |
+| Dense generalized complex divide-and-conquer Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesDenseGeneralizedComplexHermitianDivideAndConquerEigenvectors` |
+| Dense generalized complex selected Hermitian eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesSelectedDenseGeneralizedComplexHermitianEigenvectors` |
 | Dense symmetric tridiagonal eigensystem | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesSymmetricTridiagonal*` |
 | Dense real nonsymmetric eigensystem | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesRealNonsymmetric*` |
 | Dense real nonsymmetric expert eigensystem | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SolvesRealNonsymmetricExpertEigenvectorsWithDiagnostics` |
@@ -128,8 +133,8 @@ underflow-sensitive residuals, and TDVP Matrix Market exponential diagnostics.
 | Dense real Schur selected subspace condition estimates | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.SelectsRealSchurSubspaceWithConditionEstimates` |
 | Dense real Schur right eigenvectors | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.ComputesRealSchurRightEigenvectors` |
 | Dense real Schur eigenpair condition estimates | yes | yes | n/a | n/a | `KrylovDenseSubspaceTypedTest.EstimatesRealSchurEigenpairConditioning` |
-| Dense complex nonsymmetric eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesComplexNonsymmetricEigenvalues`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.ComplexNonsymmetricEigensystemResolvesGapBelowDoublePrecision` |
-| Dense complex Schur and reordering | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.ComputesComplexSchur*`, `ReordersComplexSchur*`; MPLAPACK-gated `MplapackBinary128DenseSubspaceTest.ComplexSchur*` |
+| Dense complex nonsymmetric eigensystem | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.SolvesComplexNonsymmetricEigenvalues` |
+| Dense complex Schur and reordering | n/a | n/a | yes | yes | `KrylovDenseSubspaceComplexTypedTest.ComputesComplexSchur*`, `ReordersComplexSchur*` |
 | Symmetric/Hermitian Lanczos, full projection | yes | yes | yes | yes | `KrylovSymmetricLanczosRealTypedTest.SolvesDiagonalLargestAlgebraicProblem`, `KrylovHermitianLanczosComplexTypedTest.SolvesImaginaryOffDiagonalHermitianProblem` |
 | Symmetric/Hermitian Lanczos, restarted regular mode | yes | yes | yes | yes | `KrylovSymmetricLanczosRealTypedTest.RestartedSolveConvergesOnDiagonalLargestAlgebraicProblem`, `KrylovHermitianLanczosComplexTypedTest.RestartedSolveConvergesOnPhaseTwistedLaplacian` |
 | Symmetric/Hermitian Lanczos, transformed shift-invert mapping | yes | yes | yes | yes | `KrylovSymmetricLanczosRealTypedTest.ShiftInvertSmallestAlgebraicSelectorActsInTransformedSpace`, `KrylovHermitianLanczosComplexTypedTest.ShiftInvertSelectorMapsComplexHermitianVectorPath` |
@@ -143,10 +148,43 @@ underflow-sensitive residuals, and TDVP Matrix Market exponential diagnostics.
 | Taylor exponential action, scaled Taylor validation path | yes | yes | yes | yes | `KrylovExponentialRealTypedTest.TaylorActionMatchesDiagonalExponential`, `KrylovExponentialRealTypedTest.TaylorActionMatchesJordanExponential`, `KrylovExponentialComplexTypedTest.TaylorActionAcceptsComplexTime`, `KrylovExponentialComplexTypedTest.TaylorZeroVectorReturnsZeroWithoutMatvec`, `KrylovExponentialTaylorAction.ThrowsWhenTaylorDegreeCannotMeetTolerance` |
 | Lanczos-vs-Taylor exponential probe example | yes | yes | yes | yes | `KrylovExponentialProbeExample.Float`, `KrylovExponentialProbeExample.Double` |
 | Lanczos exponential orthogonality-floor example | yes | yes | n/a | n/a | `KrylovExponentialOrthogonalityExample.Float` |
-| TDVP Matrix Market exponential probe example | n/a | n/a | yes | yes | `KrylovExponentialMatrixMarketProbeExample.TdvpFloat`, `KrylovExponentialMatrixMarketProbeExample.TdvpDouble`; MPLAPACK-gated `MplapackBinary128KrylovSolversTest.TdvpMatrixMarketExponentialExposesOldTailCriterion` |
+| TDVP Matrix Market exponential probe example | n/a | n/a | yes | yes | `KrylovExponentialMatrixMarketProbeExample.TdvpFloat`, `KrylovExponentialMatrixMarketProbeExample.TdvpDouble` |
 
 `DenseHostVectorOps` also has compile-time `KrylovMatrixFreeOperator` assertions
 for `s`, `d`, `c`, and `z`.
+
+## Optional MPLAPACK Binary128 Coverage
+
+This table records the `UNI20_ENABLE_MPLAPACK=ON` probes. The entries are not
+part of the ordinary default test matrix. They check that the scalar-generic
+paths genuinely operate at the configured binary128 precision and do not
+silently collapse to double precision.
+
+The native solver entry points are intended to mirror the ordinary precision
+coverage where the scalar category makes sense: real solver paths gain `f128`,
+complex solver paths gain `cf128`, and Hermitian paths gain both. The dense
+projected helper inventory is intentionally broader than the active solver
+surface: wrappers that are not used by current solvers are split out of the
+default-facing headers where possible, but remain in-tree and tested.
+
+| algorithm or surface | `f128` | `cf128` | tests |
+| --- | --- | --- | --- |
+| Scalar aliases, numeric limits, scalar concepts, and scalar I/O | yes | yes | `MplapackBinary128Test.Uni20NumericLimitsSeesBackendScalar`, `Uni20ScalarConceptsSeeBackendScalar`, `Uni20ScalarIo*` |
+| MPBLAS wrapper surface | yes | yes | `MplapackBinary128Test.LinksMpblasTransitively`, `Uni20BlasWrappersPreserveBinary128OnlyIncrements` |
+| Tensor one-norm and dense linear solve through linalg CPU helpers | yes | n/a | `MplapackBinary128CpuOpsTest.TensorMatrixOneNormPreservesBinary128Accumulation`, `TensorSolveAcceptsPivotsBelowDoubleMinimum` |
+| Broad dense projected real helper inventory | yes | n/a | `MplapackBinary128DenseSubspaceTest.*` real rows: norms, dense/band/tridiagonal solves, SPD and symmetric-indefinite solves, factorizations, SVD, symmetric/generalized symmetric eigensystems, real Schur/QZ, and condition diagnostics |
+| Dense projected complex eigensystem and Schur helper inventory | n/a | yes | `MplapackBinary128DenseSubspaceTest.Complex*` rows for Hermitian/generalized Hermitian, nonsymmetric eigensystem, Schur, and Schur reordering |
+| Symmetric tridiagonal projected eigensystem | yes | n/a | `MplapackBinary128KrylovSolversTest.TridiagonalProjectionResolvesGapBelowDoublePrecision` |
+| Symmetric/Hermitian Lanczos, full projection | yes | no | `MplapackBinary128KrylovSolversTest.SymmetricLanczosResolvesDiagonalGapBelowDoublePrecision` |
+| Real nonsymmetric projected Schur kernels | yes | n/a | `MplapackBinary128KrylovSolversTest.RealSchurAndReorderUseBinary128ProjectedLAPACK`, `RealHessenbergSchurUsesBinary128ProjectedLAPACK` |
+| Real nonsymmetric Arnoldi, full projection | yes | n/a | `MplapackBinary128KrylovSolversTest.RealArnoldiResolvesTriangularGapBelowDoublePrecision` |
+| Complex nonsymmetric projected Schur kernels | n/a | yes | `MplapackBinary128KrylovSolversTest.ComplexSchurAndReorderUseBinary128ProjectedLAPACK` |
+| Complex nonsymmetric Arnoldi, full projection | n/a | yes | `MplapackBinary128KrylovSolversTest.ComplexArnoldiResolvesComplexGapBelowDoublePrecision` |
+| Hermitian Krylov exponential action, fixed subspace | yes | no | `MplapackBinary128KrylovSolversTest.HermitianExponentialActionPreservesBinary128OnlyIncrement` |
+
+`no` in this optional table means no dedicated binary128 probe exists yet. It
+does not necessarily mean the templated implementation cannot instantiate once
+the corresponding dense projected kernel and matrix-free operation are covered.
 
 ## External ARPACK Oracle Coverage
 

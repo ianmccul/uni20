@@ -28,9 +28,11 @@ inline constexpr bool has_builtin_lapack_complex_backend_v = std::same_as<T, cfl
 template <typename T> inline constexpr bool has_mplapack_lapack_complex_backend_v = false;
 
 #if UNI20_HAS_FLOAT128 && UNI20_FLOAT128_PROVIDER_MPLAPACK
+#if defined(MPLAPACK_BINARY128_MODE) && (MPLAPACK_BINARY128_MODE != MPLAPACK_BINARY128_MODE_LDBL)
 template <> inline constexpr bool has_mplapack_blas_real_backend_v<uni20::float128> = true;
 
 template <> inline constexpr bool has_mplapack_blas_complex_backend_v<uni20::complex<uni20::float128>> = true;
+#endif
 
 template <> inline constexpr bool has_mplapack_lapack_real_backend_v<uni20::float128> = true;
 

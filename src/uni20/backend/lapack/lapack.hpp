@@ -17,6 +17,13 @@
 #include <stdexcept>
 #include <string>
 
+#if UNI20_HAS_FLOAT128 && UNI20_FLOAT128_PROVIDER_MPLAPACK
+#include <uni20/backend/lapack/mplapack/band.hpp>
+#include <uni20/backend/lapack/mplapack/general.hpp>
+#include <uni20/backend/lapack/mplapack/norms.hpp>
+#include <uni20/backend/lapack/mplapack/tridiagonal.hpp>
+#endif
+
 namespace uni20::lapack
 {
 
