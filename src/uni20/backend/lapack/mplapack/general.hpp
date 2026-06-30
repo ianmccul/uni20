@@ -55,7 +55,6 @@ namespace uni20::lapack::unchecked
          static_cast<mplapackint>(ldb), x, static_cast<mplapackint>(ldx), rcond, forward_error, backward_error, work,
          mplapack_iwork.data(), mplapack_info);
   uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ipiv, ipiv, n);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -108,7 +107,6 @@ namespace uni20::lapack::unchecked
   Rgerfs(&trans, static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a, static_cast<mplapackint>(lda), factors,
          static_cast<mplapackint>(factor_lda), mplapack_ipiv.data(), b, static_cast<mplapackint>(ldb), x,
          static_cast<mplapackint>(ldx), forward_error, backward_error, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -132,7 +130,6 @@ namespace uni20::lapack::unchecked
   std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(n);
   Rgecon(&norm, static_cast<mplapackint>(n), const_cast<uni20::float128*>(a), static_cast<mplapackint>(lda), anorm,
          rcond, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -173,7 +170,6 @@ namespace uni20::lapack::unchecked
   Rgelsd(static_cast<mplapackint>(m), static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a,
          static_cast<mplapackint>(lda), b, static_cast<mplapackint>(ldb), s, rcond, mplapack_rank, work,
          static_cast<mplapackint>(lwork), mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
   rank = static_cast<blas_int>(mplapack_rank);
   return static_cast<blas_int>(mplapack_info);
 }
@@ -382,10 +378,10 @@ namespace uni20::lapack::unchecked
   UNI20_EXTERNAL_API_CALL(LAPACK, Rsyevd, jobz, uplo, n, a, lda, w, work, lwork, iwork, liwork);
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = std::max<blas_int>(1, liwork == -1 ? blas_int{1} : liwork);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Rsyevd(&jobz, &uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), w, work,
          static_cast<mplapackint>(lwork), mplapack_iwork.data(), static_cast<mplapackint>(liwork), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
+  uni20::lapack::mplapack::detail::copy_from_mplapack_query_int_work(mplapack_iwork, iwork, liwork);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -401,15 +397,22 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const support_size = 2 * std::max<blas_int>(1, n);
   blas_int const iwork_size = std::max<blas_int>(1, liwork == -1 ? blas_int{1} : liwork);
-  std::vector<mplapackint> mplapack_isuppz = uni20::lapack::mplapack::detail::to_mplapack_ints(isuppz, support_size);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_isuppz;
+  if (isuppz != nullptr)
+  {
+    mplapack_isuppz = uni20::lapack::mplapack::detail::make_mplapack_int_work(support_size);
+  }
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Rsyevr(&jobz, &range, &uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), vl, vu,
          static_cast<mplapackint>(il), static_cast<mplapackint>(iu), abstol, mplapack_selected_count, w, z,
-         static_cast<mplapackint>(ldz), mplapack_isuppz.data(), work, static_cast<mplapackint>(lwork),
-         mplapack_iwork.data(), static_cast<mplapackint>(liwork), mplapack_info);
+         static_cast<mplapackint>(ldz), isuppz == nullptr ? nullptr : mplapack_isuppz.data(), work,
+         static_cast<mplapackint>(lwork), mplapack_iwork.data(), static_cast<mplapackint>(liwork), mplapack_info);
   selected_count = static_cast<blas_int>(mplapack_selected_count);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_isuppz, isuppz, support_size);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
+  if (isuppz != nullptr)
+  {
+    uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_isuppz, isuppz, support_size);
+  }
+  uni20::lapack::mplapack::detail::copy_from_mplapack_query_int_work(mplapack_iwork, iwork, liwork);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -431,11 +434,11 @@ namespace uni20::lapack::unchecked
   UNI20_EXTERNAL_API_CALL(LAPACK, Rsygvd, itype, jobz, uplo, n, a, lda, b, ldb, w, work, lwork, iwork, liwork);
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = std::max<blas_int>(1, liwork == -1 ? blas_int{1} : liwork);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Rsygvd(static_cast<mplapackint>(itype), &jobz, &uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda),
          b, static_cast<mplapackint>(ldb), w, work, static_cast<mplapackint>(lwork), mplapack_iwork.data(),
          static_cast<mplapackint>(liwork), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
+  uni20::lapack::mplapack::detail::copy_from_mplapack_query_int_work(mplapack_iwork, iwork, liwork);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -451,15 +454,22 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = 5 * std::max<blas_int>(1, n);
   blas_int const fail_size = std::max<blas_int>(1, n);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
-  std::vector<mplapackint> mplapack_ifail = uni20::lapack::mplapack::detail::to_mplapack_ints(ifail, fail_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
+  std::vector<mplapackint> mplapack_ifail;
+  if (ifail != nullptr)
+  {
+    mplapack_ifail = uni20::lapack::mplapack::detail::make_mplapack_int_work(fail_size);
+  }
   Rsygvx(static_cast<mplapackint>(itype), &jobz, &range, &uplo, static_cast<mplapackint>(n), a,
          static_cast<mplapackint>(lda), b, static_cast<mplapackint>(ldb), vl, vu, static_cast<mplapackint>(il),
          static_cast<mplapackint>(iu), abstol, mplapack_selected_count, w, z, static_cast<mplapackint>(ldz), work,
-         static_cast<mplapackint>(lwork), mplapack_iwork.data(), mplapack_ifail.data(), mplapack_info);
+         static_cast<mplapackint>(lwork), mplapack_iwork.data(), ifail == nullptr ? nullptr : mplapack_ifail.data(),
+         mplapack_info);
   selected_count = static_cast<blas_int>(mplapack_selected_count);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ifail, ifail, fail_size);
+  if (ifail != nullptr)
+  {
+    uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ifail, ifail, fail_size);
+  }
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -481,11 +491,11 @@ namespace uni20::lapack::unchecked
   UNI20_EXTERNAL_API_CALL(LAPACK, Cheevd, jobz, uplo, n, a, lda, w, work, lwork, rwork, lrwork, iwork, liwork);
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = std::max<blas_int>(1, liwork == -1 ? blas_int{1} : liwork);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Cheevd(&jobz, &uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), w, work,
          static_cast<mplapackint>(lwork), rwork, static_cast<mplapackint>(lrwork), mplapack_iwork.data(),
          static_cast<mplapackint>(liwork), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
+  uni20::lapack::mplapack::detail::copy_from_mplapack_query_int_work(mplapack_iwork, iwork, liwork);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -502,15 +512,23 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const support_size = 2 * std::max<blas_int>(1, n);
   blas_int const iwork_size = std::max<blas_int>(1, liwork == -1 ? blas_int{1} : liwork);
-  std::vector<mplapackint> mplapack_isuppz = uni20::lapack::mplapack::detail::to_mplapack_ints(isuppz, support_size);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_isuppz;
+  if (isuppz != nullptr)
+  {
+    mplapack_isuppz = uni20::lapack::mplapack::detail::make_mplapack_int_work(support_size);
+  }
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Cheevr(&jobz, &range, &uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), vl, vu,
          static_cast<mplapackint>(il), static_cast<mplapackint>(iu), abstol, mplapack_selected_count, w, z,
-         static_cast<mplapackint>(ldz), mplapack_isuppz.data(), work, static_cast<mplapackint>(lwork), rwork,
-         static_cast<mplapackint>(lrwork), mplapack_iwork.data(), static_cast<mplapackint>(liwork), mplapack_info);
+         static_cast<mplapackint>(ldz), isuppz == nullptr ? nullptr : mplapack_isuppz.data(), work,
+         static_cast<mplapackint>(lwork), rwork, static_cast<mplapackint>(lrwork), mplapack_iwork.data(),
+         static_cast<mplapackint>(liwork), mplapack_info);
   selected_count = static_cast<blas_int>(mplapack_selected_count);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_isuppz, isuppz, support_size);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
+  if (isuppz != nullptr)
+  {
+    uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_isuppz, isuppz, support_size);
+  }
+  uni20::lapack::mplapack::detail::copy_from_mplapack_query_int_work(mplapack_iwork, iwork, liwork);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -535,11 +553,11 @@ namespace uni20::lapack::unchecked
                           liwork);
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = std::max<blas_int>(1, liwork == -1 ? blas_int{1} : liwork);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Chegvd(static_cast<mplapackint>(itype), &jobz, &uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda),
          b, static_cast<mplapackint>(ldb), w, work, static_cast<mplapackint>(lwork), rwork,
          static_cast<mplapackint>(lrwork), mplapack_iwork.data(), static_cast<mplapackint>(liwork), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
+  uni20::lapack::mplapack::detail::copy_from_mplapack_query_int_work(mplapack_iwork, iwork, liwork);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -557,15 +575,22 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = 5 * std::max<blas_int>(1, n);
   blas_int const fail_size = std::max<blas_int>(1, n);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
-  std::vector<mplapackint> mplapack_ifail = uni20::lapack::mplapack::detail::to_mplapack_ints(ifail, fail_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
+  std::vector<mplapackint> mplapack_ifail;
+  if (ifail != nullptr)
+  {
+    mplapack_ifail = uni20::lapack::mplapack::detail::make_mplapack_int_work(fail_size);
+  }
   Chegvx(static_cast<mplapackint>(itype), &jobz, &range, &uplo, static_cast<mplapackint>(n), a,
          static_cast<mplapackint>(lda), b, static_cast<mplapackint>(ldb), vl, vu, static_cast<mplapackint>(il),
          static_cast<mplapackint>(iu), abstol, mplapack_selected_count, w, z, static_cast<mplapackint>(ldz), work,
-         static_cast<mplapackint>(lwork), rwork, mplapack_iwork.data(), mplapack_ifail.data(), mplapack_info);
+         static_cast<mplapackint>(lwork), rwork, mplapack_iwork.data(),
+         ifail == nullptr ? nullptr : mplapack_ifail.data(), mplapack_info);
   selected_count = static_cast<blas_int>(mplapack_selected_count);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ifail, ifail, fail_size);
+  if (ifail != nullptr)
+  {
+    uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ifail, ifail, fail_size);
+  }
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -593,13 +618,12 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_ihi = static_cast<mplapackint>(ihi);
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = std::max<blas_int>(1, 2 * n - 2);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Rgeevx(&balanc, &jobvl, &jobvr, &sense, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), wr, wi, vl,
          static_cast<mplapackint>(ldvl), vr, static_cast<mplapackint>(ldvr), mplapack_ilo, mplapack_ihi, scale, abnrm,
          rconde, rcondv, work, static_cast<mplapackint>(lwork), mplapack_iwork.data(), mplapack_info);
   ilo = static_cast<blas_int>(mplapack_ilo);
   ihi = static_cast<blas_int>(mplapack_ihi);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -656,7 +680,7 @@ namespace uni20::lapack::unchecked
   if (bwork != nullptr)
   {
     mplapack_bwork = std::make_unique<bool[]>(static_cast<std::size_t>(bwork_size));
-    for (blas_int i = 0; i < bwork_size; ++i)
+    for (blas_int i = 0; i < n; ++i)
     {
       mplapack_bwork[static_cast<std::size_t>(i)] = bwork[i] != 0;
     }
@@ -667,7 +691,7 @@ namespace uni20::lapack::unchecked
   selected_dimension = static_cast<blas_int>(mplapack_selected_dimension);
   if (bwork != nullptr)
   {
-    for (blas_int i = 0; i < bwork_size; ++i)
+    for (blas_int i = 0; i < n; ++i)
     {
       bwork[i] = mplapack_bwork[static_cast<std::size_t>(i)] ? 1 : 0;
     }
@@ -690,7 +714,7 @@ namespace uni20::lapack::unchecked
   if (bwork != nullptr)
   {
     mplapack_bwork = std::make_unique<bool[]>(static_cast<std::size_t>(bwork_size));
-    for (blas_int i = 0; i < bwork_size; ++i)
+    for (blas_int i = 0; i < n; ++i)
     {
       mplapack_bwork[static_cast<std::size_t>(i)] = bwork[i] != 0;
     }
@@ -701,7 +725,7 @@ namespace uni20::lapack::unchecked
   selected_dimension = static_cast<blas_int>(mplapack_selected_dimension);
   if (bwork != nullptr)
   {
-    for (blas_int i = 0; i < bwork_size; ++i)
+    for (blas_int i = 0; i < n; ++i)
     {
       bwork[i] = mplapack_bwork[static_cast<std::size_t>(i)] ? 1 : 0;
     }
@@ -763,22 +787,29 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const select_size = std::max<blas_int>(1, n);
   blas_int const iwork_size = std::max<blas_int>(1, liwork == -1 ? blas_int{1} : liwork);
-  auto mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
-  for (blas_int i = 0; i < select_size; ++i)
+  std::unique_ptr<bool[]> mplapack_select;
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
+  if (select != nullptr)
   {
-    mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
+    for (blas_int i = 0; i < n; ++i)
+    {
+      mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    }
   }
   Rtrsen(&job, &compq, mplapack_select.get(), static_cast<mplapackint>(n), t, static_cast<mplapackint>(ldt), q,
          static_cast<mplapackint>(ldq), wr, wi, mplapack_selected_dimension, reciprocal_eigenvalue_cluster_condition,
          reciprocal_invariant_subspace_condition, work, static_cast<mplapackint>(lwork), mplapack_iwork.data(),
          static_cast<mplapackint>(liwork), mplapack_info);
   selected_dimension = static_cast<blas_int>(mplapack_selected_dimension);
-  for (blas_int i = 0; i < select_size; ++i)
+  if (select != nullptr)
   {
-    select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    for (blas_int i = 0; i < n; ++i)
+    {
+      select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
   }
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
+  uni20::lapack::mplapack::detail::copy_from_mplapack_query_int_work(mplapack_iwork, iwork, liwork);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -791,18 +822,25 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_computed_vectors = static_cast<mplapackint>(computed_vectors);
   mplapackint mplapack_info = 0;
   blas_int const select_size = std::max<blas_int>(1, n);
-  auto mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
-  for (blas_int i = 0; i < select_size; ++i)
+  std::unique_ptr<bool[]> mplapack_select;
+  if (select != nullptr)
   {
-    mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
+    for (blas_int i = 0; i < n; ++i)
+    {
+      mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    }
   }
   Rtrevc(&side, &howmny, mplapack_select.get(), static_cast<mplapackint>(n), t, static_cast<mplapackint>(ldt), vl,
          static_cast<mplapackint>(ldvl), vr, static_cast<mplapackint>(ldvr), static_cast<mplapackint>(mm),
          mplapack_computed_vectors, work, mplapack_info);
   computed_vectors = static_cast<blas_int>(mplapack_computed_vectors);
-  for (blas_int i = 0; i < select_size; ++i)
+  if (select != nullptr)
   {
-    select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    for (blas_int i = 0; i < n; ++i)
+    {
+      select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
   }
   return static_cast<blas_int>(mplapack_info);
 }
@@ -821,22 +859,28 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const select_size = std::max<blas_int>(1, n);
   blas_int const iwork_size = std::max<blas_int>(1, 2 * std::max<blas_int>(1, n) - 2);
-  auto mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
-  for (blas_int i = 0; i < select_size; ++i)
+  std::unique_ptr<bool[]> mplapack_select;
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
+  if (select != nullptr)
   {
-    mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
+    for (blas_int i = 0; i < n; ++i)
+    {
+      mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    }
   }
   Rtrsna(&job, &howmny, mplapack_select.get(), static_cast<mplapackint>(n), t, static_cast<mplapackint>(ldt), vl,
          static_cast<mplapackint>(ldvl), vr, static_cast<mplapackint>(ldvr), reciprocal_eigenvalue_condition_numbers,
          reciprocal_eigenvector_condition_numbers, static_cast<mplapackint>(mm), mplapack_computed_estimates, work,
          static_cast<mplapackint>(ldwork), mplapack_iwork.data(), mplapack_info);
   computed_estimates = static_cast<blas_int>(mplapack_computed_estimates);
-  for (blas_int i = 0; i < select_size; ++i)
+  if (select != nullptr)
   {
-    select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    for (blas_int i = 0; i < n; ++i)
+    {
+      select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
   }
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -870,11 +914,15 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = std::max<blas_int>(1, n + 6);
   blas_int const bwork_size = std::max<blas_int>(1, n);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
-  auto mplapack_bwork = std::make_unique<bool[]>(static_cast<std::size_t>(bwork_size));
-  for (blas_int i = 0; i < bwork_size; ++i)
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
+  std::unique_ptr<bool[]> mplapack_bwork;
+  if (bwork != nullptr)
   {
-    mplapack_bwork[static_cast<std::size_t>(i)] = bwork[i] != 0;
+    mplapack_bwork = std::make_unique<bool[]>(static_cast<std::size_t>(bwork_size));
+    for (blas_int i = 0; i < n; ++i)
+    {
+      mplapack_bwork[static_cast<std::size_t>(i)] = bwork[i] != 0;
+    }
   }
   Rggevx(&balanc, &jobvl, &jobvr, &sense, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), b,
          static_cast<mplapackint>(ldb), alphar, alphai, beta, vl, static_cast<mplapackint>(ldvl), vr,
@@ -882,10 +930,12 @@ namespace uni20::lapack::unchecked
          static_cast<mplapackint>(lwork), mplapack_iwork.data(), mplapack_bwork.get(), mplapack_info);
   ilo = static_cast<blas_int>(mplapack_ilo);
   ihi = static_cast<blas_int>(mplapack_ihi);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
-  for (blas_int i = 0; i < bwork_size; ++i)
+  if (bwork != nullptr)
   {
-    bwork[i] = mplapack_bwork[static_cast<std::size_t>(i)] ? 1 : 0;
+    for (blas_int i = 0; i < n; ++i)
+    {
+      bwork[i] = mplapack_bwork[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
   }
   return static_cast<blas_int>(mplapack_info);
 }
@@ -929,15 +979,22 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_selected_dimension = static_cast<mplapackint>(selected_dimension);
   mplapackint mplapack_info = 0;
   blas_int const bwork_size = std::max<blas_int>(1, n);
-  auto mplapack_bwork = std::make_unique<bool[]>(static_cast<std::size_t>(bwork_size));
+  std::unique_ptr<bool[]> mplapack_bwork;
+  if (bwork != nullptr)
+  {
+    mplapack_bwork = std::make_unique<bool[]>(static_cast<std::size_t>(bwork_size));
+  }
   Rgges(&jobvsl, &jobvsr, &sort, nullptr, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), b,
         static_cast<mplapackint>(ldb), mplapack_selected_dimension, alphar, alphai, beta, vsl,
         static_cast<mplapackint>(ldvsl), vsr, static_cast<mplapackint>(ldvsr), work, static_cast<mplapackint>(lwork),
         mplapack_bwork.get(), mplapack_info);
   selected_dimension = static_cast<blas_int>(mplapack_selected_dimension);
-  for (blas_int i = 0; i < bwork_size; ++i)
+  if (bwork != nullptr)
   {
-    bwork[i] = mplapack_bwork[static_cast<std::size_t>(i)] ? 1 : 0;
+    for (blas_int i = 0; i < n; ++i)
+    {
+      bwork[i] = mplapack_bwork[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
   }
   return static_cast<blas_int>(mplapack_info);
 }
@@ -1001,22 +1058,29 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const select_size = std::max<blas_int>(1, n);
   blas_int const iwork_size = std::max<blas_int>(1, liwork == -1 ? blas_int{1} : liwork);
-  auto mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
-  for (blas_int i = 0; i < select_size; ++i)
+  std::unique_ptr<bool[]> mplapack_select;
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
+  if (select != nullptr)
   {
-    mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
+    for (blas_int i = 0; i < n; ++i)
+    {
+      mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    }
   }
   Rtgsen(static_cast<mplapackint>(ijob), wantq, wantz, mplapack_select.get(), static_cast<mplapackint>(n), a,
          static_cast<mplapackint>(lda), b, static_cast<mplapackint>(ldb), alphar, alphai, beta, q,
          static_cast<mplapackint>(ldq), z, static_cast<mplapackint>(ldz), mplapack_selected_dimension, pl, pr, dif,
          work, static_cast<mplapackint>(lwork), mplapack_iwork.data(), static_cast<mplapackint>(liwork), mplapack_info);
   selected_dimension = static_cast<blas_int>(mplapack_selected_dimension);
-  for (blas_int i = 0; i < select_size; ++i)
+  if (select != nullptr)
   {
-    select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    for (blas_int i = 0; i < n; ++i)
+    {
+      select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
   }
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
+  uni20::lapack::mplapack::detail::copy_from_mplapack_query_int_work(mplapack_iwork, iwork, liwork);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1030,18 +1094,25 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_computed_vectors = static_cast<mplapackint>(computed_vectors);
   mplapackint mplapack_info = 0;
   blas_int const select_size = std::max<blas_int>(1, n);
-  auto mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
-  for (blas_int i = 0; i < select_size; ++i)
+  std::unique_ptr<bool[]> mplapack_select;
+  if (select != nullptr)
   {
-    mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
+    for (blas_int i = 0; i < n; ++i)
+    {
+      mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    }
   }
   Rtgevc(&side, &howmny, mplapack_select.get(), static_cast<mplapackint>(n), s, static_cast<mplapackint>(lds), p,
          static_cast<mplapackint>(ldp), vl, static_cast<mplapackint>(ldvl), vr, static_cast<mplapackint>(ldvr),
          static_cast<mplapackint>(mm), mplapack_computed_vectors, work, mplapack_info);
   computed_vectors = static_cast<blas_int>(mplapack_computed_vectors);
-  for (blas_int i = 0; i < select_size; ++i)
+  if (select != nullptr)
   {
-    select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    for (blas_int i = 0; i < n; ++i)
+    {
+      select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
   }
   return static_cast<blas_int>(mplapack_info);
 }
@@ -1061,11 +1132,15 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   blas_int const select_size = std::max<blas_int>(1, n);
   blas_int const iwork_size = std::max<blas_int>(1, n + 6);
-  auto mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
-  for (blas_int i = 0; i < select_size; ++i)
+  std::unique_ptr<bool[]> mplapack_select;
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
+  if (select != nullptr)
   {
-    mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    mplapack_select = std::make_unique<bool[]>(static_cast<std::size_t>(select_size));
+    for (blas_int i = 0; i < n; ++i)
+    {
+      mplapack_select[static_cast<std::size_t>(i)] = select[i] != 0;
+    }
   }
   Rtgsna(&job, &howmny, mplapack_select.get(), static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), b,
          static_cast<mplapackint>(ldb), vl, static_cast<mplapackint>(ldvl), vr, static_cast<mplapackint>(ldvr),
@@ -1073,11 +1148,13 @@ namespace uni20::lapack::unchecked
          static_cast<mplapackint>(mm), mplapack_computed_estimates, work, static_cast<mplapackint>(lwork),
          mplapack_iwork.data(), mplapack_info);
   computed_estimates = static_cast<blas_int>(mplapack_computed_estimates);
-  for (blas_int i = 0; i < select_size; ++i)
+  if (select != nullptr)
   {
-    select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    for (blas_int i = 0; i < n; ++i)
+    {
+      select[i] = mplapack_select[static_cast<std::size_t>(i)] ? 1 : 0;
+    }
   }
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1184,13 +1261,12 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_selected_count = static_cast<mplapackint>(selected_count);
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = 12 * std::max<blas_int>(1, std::min(m, n));
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Rgesvdx(&jobu, &jobvt, &range, static_cast<mplapackint>(m), static_cast<mplapackint>(n), a,
           static_cast<mplapackint>(lda), vl, vu, static_cast<mplapackint>(il), static_cast<mplapackint>(iu),
           mplapack_selected_count, singular_values, u, static_cast<mplapackint>(ldu), vt,
           static_cast<mplapackint>(ldvt), work, static_cast<mplapackint>(lwork), mplapack_iwork.data(), mplapack_info);
   selected_count = static_cast<blas_int>(mplapack_selected_count);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1215,11 +1291,10 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   std::vector<mplapackint> mplapack_iq = uni20::lapack::mplapack::detail::to_mplapack_ints(iq, 1);
   blas_int const iwork_size = 8 * std::max<blas_int>(1, n);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Rbdsdc(&uplo, &compq, static_cast<mplapackint>(n), d, e, u, static_cast<mplapackint>(ldu), vt,
          static_cast<mplapackint>(ldvt), q, mplapack_iq.data(), work, mplapack_iwork.data(), mplapack_info);
   uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iq, iq, 1);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1233,12 +1308,11 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_selected_count = static_cast<mplapackint>(selected_count);
   mplapackint mplapack_info = 0;
   blas_int const iwork_size = 12 * std::max<blas_int>(1, n);
-  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::to_mplapack_ints(iwork, iwork_size);
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
   Rbdsvdx(&uplo, &jobz, &range, static_cast<mplapackint>(n), d, e, vl, vu, static_cast<mplapackint>(il),
           static_cast<mplapackint>(iu), mplapack_selected_count, singular_values, z, static_cast<mplapackint>(ldz),
           work, mplapack_iwork.data(), mplapack_info);
   selected_count = static_cast<blas_int>(mplapack_selected_count);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, iwork_size);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1294,7 +1368,6 @@ namespace uni20::lapack::unchecked
   Rporfs(&uplo, static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a, static_cast<mplapackint>(lda), factors,
          static_cast<mplapackint>(factor_lda), b, static_cast<mplapackint>(ldb), x, static_cast<mplapackint>(ldx),
          forward_error, backward_error, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1312,7 +1385,6 @@ namespace uni20::lapack::unchecked
          af, static_cast<mplapackint>(ldaf), &equed, scale, b, static_cast<mplapackint>(ldb), x,
          static_cast<mplapackint>(ldx), rcond, forward_error, backward_error, work, mplapack_iwork.data(),
          mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1334,7 +1406,6 @@ namespace uni20::lapack::unchecked
   std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(n);
   Rpocon(&uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), matrix_one_norm, rcond, work,
          mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1386,7 +1457,6 @@ namespace uni20::lapack::unchecked
   Rsyrfs(&uplo, static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a, static_cast<mplapackint>(lda), factors,
          static_cast<mplapackint>(factor_lda), mplapack_ipiv.data(), b, static_cast<mplapackint>(ldb), x,
          static_cast<mplapackint>(ldx), forward_error, backward_error, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1406,7 +1476,6 @@ namespace uni20::lapack::unchecked
          static_cast<mplapackint>(ldx), rcond, forward_error, backward_error, work, static_cast<mplapackint>(lwork),
          mplapack_iwork.data(), mplapack_info);
   uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ipiv, ipiv, n);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1420,7 +1489,6 @@ namespace uni20::lapack::unchecked
   std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(n);
   Rsycon(&uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), mplapack_ipiv.data(), matrix_one_norm,
          rcond, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1446,7 +1514,6 @@ namespace uni20::lapack::unchecked
   Rtrrfs(&uplo, &trans, &diag, static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a,
          static_cast<mplapackint>(lda), b, static_cast<mplapackint>(ldb), x, static_cast<mplapackint>(ldx),
          forward_error, backward_error, work, mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1466,7 +1533,6 @@ namespace uni20::lapack::unchecked
   std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(n);
   Rtrcon(&norm, &uplo, &diag, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), rcond, work,
          mplapack_iwork.data(), mplapack_info);
-  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_iwork, iwork, n);
   return static_cast<blas_int>(mplapack_info);
 }
 
