@@ -638,7 +638,7 @@ if(NOT UNI20_DOCS_WEB)
   add_library(uni20_deps INTERFACE)
   target_link_libraries(uni20_deps INTERFACE fmt::fmt)
   if(UNI20_ENABLE_MPLAPACK)
-    target_link_libraries(uni20_deps INTERFACE mplapack::mplapack_binary128)
+    target_link_libraries(uni20_deps INTERFACE mplapack::mpblas_binary128 mplapack::mplapack_binary128)
   endif()
 
   # Add subdirectories
