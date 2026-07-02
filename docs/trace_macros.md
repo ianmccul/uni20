@@ -332,7 +332,9 @@ Module-specific overrides:
 
 ### Presentation Controls
 
-Trace diagnostics are rendered through the common [presentation formatting](presentation.md) layer. Plain/file output suppresses ANSI escapes, semantic glyph fallback follows the shared output policy, strict ASCII modes apply to whole trace lines, and container-style trace output aligns by display cells. Mdspan-like values and tensor/view-like objects render as presentation tensor art: vectors use a row form, matrices use aligned bracket art, and higher-rank tensors use labeled matrix slices.
+Trace diagnostics are rendered through the common [presentation formatting](presentation.md) layer. Plain/file output suppresses ANSI escapes, semantic glyph fallback follows the shared output policy, strict ASCII modes apply to whole trace lines, and container-style trace output aligns by display cells. Mdspan-like values and tensor/view-like objects render as bounded presentation tensor-art previews: vectors use a row form, matrices use aligned bracket art, higher-rank tensors use labeled matrix slices, and large values elide edge rows/columns/slices to respect the terminal width.
+
+Normal trace output never writes side files. Abort diagnostics (`CHECK*`, `PRECONDITION*`, `PANIC`, and `ERROR*` when abort mode is enabled) write a full mdspan/tensor dump when the visible preview had to elide data.
 
 | Variable | Default | Values | Effect |
 |---|---|---|---|
@@ -340,6 +342,8 @@ Trace diagnostics are rendered through the common [presentation formatting](pres
 | `UNI20_CHARSET` | `utf8` | `utf8`, `escape`, `replace` | Select fallback for non-ASCII text in all presentation output, including trace. `utf-8`, `ascii_escape`, and `ascii_replace` aliases are accepted. |
 | `UNI20_COLOR` | `auto` | `auto`, `yes`, `always`, `no`, `never`, plus boolean aliases | Control ANSI style emission globally. |
 | `COLUMNS` | terminal columns | positive integer | Override detected terminal width for trace layout and wrapping. |
+| `UNI20_TRACE_DUMP` | enabled | `never`, `no`, `off`, `false`, `0` disable | Control full mdspan/tensor dump files for abort diagnostics that elide preview output. |
+| `UNI20_TRACE_DUMP_DIR` | system temp dir under `uni20-trace` | directory path | Directory for full mdspan/tensor dump files written by abort diagnostics. |
 
 When `UNI20_COLOR=auto`, color output is used if `NO_COLOR` is unset or empty and the output stream is a terminal.
 Set `NO_COLOR` to any non-empty value to disable automatic color output by default. Explicit `UNI20_COLOR=yes`
@@ -490,6 +494,7 @@ Useful presentation policies:
 
 - `presentation_policy()` controls glyph, charset, width, and color rendering.
 - `mdspan_format_policy()` controls tensor-art shape labels, slice labels, and matrix axes for mdspan/tensor trace values.
+- `mdspan_preview_policy()` controls bounded tensor preview limits such as full-output element limit, edge item count, and maximum displayed slices.
 
 ## Expression Parsing Notes
 

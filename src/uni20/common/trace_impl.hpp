@@ -1,10 +1,21 @@
 #pragma once
 
-#include <fmt/core.h>
+#include "mdspan.hpp"
+
 #include <fmt/chrono.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 
+#include <atomic>
+#include <cctype>
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <format>
+#include <fstream>
+#include <functional>
 #include <ranges>
 #include <type_traits>
 
@@ -121,6 +132,9 @@ struct FormattingOptions
     /// Presentation tensor-art policy used for mdspan and tensor-like values.
     uni20::presentation::mdspan_format_options mdspanFormatPolicy;
 
+    /// Presentation preview policy used for mdspan and tensor-like trace values.
+    uni20::presentation::mdspan_preview_options mdspanPreviewPolicy;
+
     //--- Style map -------------------------------------------------------------
 
     /// Holds per-kind styles (keys like "TRACE", "TRACE_LINE", etc).
@@ -132,12 +146,12 @@ struct FormattingOptions
       using CO = ColorOptions::Enum;
       switch (mode)
       {
-      case uni20::presentation::color_mode::always:
-        return CO::yes;
-      case uni20::presentation::color_mode::never:
-        return CO::no;
-      case uni20::presentation::color_mode::automatic:
-        return CO::autocolor;
+        case uni20::presentation::color_mode::always:
+          return CO::yes;
+        case uni20::presentation::color_mode::never:
+          return CO::no;
+        case uni20::presentation::color_mode::automatic:
+          return CO::autocolor;
       }
       return CO::autocolor;
     }
@@ -336,6 +350,14 @@ struct FormattingOptions
     /// \return Immutable mdspan formatting policy.
     uni20::presentation::mdspan_format_options const& mdspan_format_policy() const { return mdspanFormatPolicy; }
 
+    /// \brief Return the shared mdspan/tensor preview policy used by this trace module.
+    /// \return Mutable mdspan preview policy.
+    uni20::presentation::mdspan_preview_options& mdspan_preview_policy() { return mdspanPreviewPolicy; }
+
+    /// \brief Return the shared mdspan/tensor preview policy used by this trace module.
+    /// \return Immutable mdspan preview policy.
+    uni20::presentation::mdspan_preview_options const& mdspan_preview_policy() const { return mdspanPreviewPolicy; }
+
     /// \brief Build numeric formatting controls from trace precision settings.
     /// \return Numeric presentation options preserving trace fixed-point behavior.
     uni20::presentation::numeric_format_options numeric_format_policy() const
@@ -520,7 +542,7 @@ concept HasStdFormatter = std::formattable<std::remove_cvref_t<T>, CharT>;
 
 // Formatted output of containers, if they look like a range and have no fmt formatter.
 template <typename T>
-concept Container = std::ranges::forward_range<T> &&(!HasFmtFormatter<T>);
+concept Container = std::ranges::forward_range<T> && (!HasFmtFormatter<T>);
 
 // formatValue: Converts a value to a string using fmt::format.
 // The generic version works for most types.
@@ -531,16 +553,15 @@ concept Container = std::ranges::forward_range<T> &&(!HasFmtFormatter<T>);
 /// \param opts          Formatting options (currently unused for this overload).
 /// \returns             The string produced by `fmt::format("{}", value)`.
 template <typename T>
-std::string formatValue(const T& value, FormattingOptions const& opts) requires(!Container<T> && HasFmtFormatter<T> &&
-                                                                                !std::floating_point<T>)
+std::string formatValue(const T& value, FormattingOptions const& opts)
+  requires(!Container<T> && HasFmtFormatter<T> && !std::floating_point<T>)
 {
   return fmt::format("{}", value);
 }
 
 template <typename T>
-std::string formatValue(const T& value,
-                        FormattingOptions const& /*opts*/) requires(!Container<T> && !HasFmtFormatter<T> &&
-                                                                    HasStdFormatter<T> && !std::floating_point<T>)
+std::string formatValue(const T& value, FormattingOptions const& /*opts*/)
+  requires(!Container<T> && !HasFmtFormatter<T> && HasStdFormatter<T> && !std::floating_point<T>)
 {
   return std::format("{}", value);
 }
@@ -605,8 +626,8 @@ inline std::string formatValue(const std::coroutine_handle<>& h, FormattingOptio
 /// \param opts            Formatting options forwarded to each element call.
 /// \returns               A `std::vector<std::string>` of the formatted elements.
 template <Container ContainerType>
-auto formatValue(const ContainerType& c, FormattingOptions const& opts)
-    -> std::vector<decltype(formatValue(*std::begin(c), opts))>
+auto formatValue(const ContainerType& c,
+                 FormattingOptions const& opts) -> std::vector<decltype(formatValue(*std::begin(c), opts))>
 {
   std::vector<decltype(formatValue(*std::begin(c), opts))> result;
   result.reserve(std::ranges::distance(c));
@@ -653,16 +674,202 @@ inline std::string formatValue(char* s, FormattingOptions const& opts)
 /// \requires `U` is not `char` or `const char`.
 /// \returns A string like `"MyType* @ 0x7fffdeadbeef"`.
 template <typename U>
-inline std::string formatValue(U* ptr, FormattingOptions const& /*opts*/) requires(!std::is_same_v<U, char> &&
-                                                                                   !std::is_same_v<U, const char>)
+inline std::string formatValue(U* ptr, FormattingOptions const& /*opts*/)
+  requires(!std::is_same_v<U, char> && !std::is_same_v<U, const char>)
 {
   return fmt::format("{}* @ {:p}", uni20::demangle::demangle(typeid(U).name()), fmt::ptr(ptr));
 }
 
 template <typename T>
-concept HasPresentationMdspanView =
-    (!uni20::presentation::mdspan_like<T>) && requires(T const& value) { value.mdspan(); } &&
-    uni20::presentation::mdspan_like<decltype(std::declval<T const&>().mdspan())>;
+concept HasPresentationMdspanView = (!uni20::presentation::mdspan_like<T>) && requires(T const& value) {
+  value.mdspan();
+} && uni20::presentation::mdspan_like<decltype(std::declval<T const&>().mdspan())>;
+
+enum class trace_format_context
+{
+  normal,
+  fatal
+};
+
+namespace detail
+{
+inline bool trace_dump_enabled()
+{
+  if (auto const* value = std::getenv("UNI20_TRACE_DUMP"))
+  {
+    std::string_view mode(value);
+    if (iequals(mode, "never") || iequals(mode, "no") || iequals(mode, "off") || iequals(mode, "false") ||
+        iequals(mode, "0"))
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline std::string sanitize_dump_label(std::string_view label)
+{
+  std::string out;
+  out.reserve(std::min<std::size_t>(label.size(), 80));
+  for (auto const ch : label)
+  {
+    auto const c = static_cast<unsigned char>(ch);
+    if (std::isalnum(c) || ch == '_' || ch == '-' || ch == '.')
+    {
+      out.push_back(ch);
+    }
+    else if (!out.empty() && out.back() != '_')
+    {
+      out.push_back('_');
+    }
+    if (out.size() >= 80) break;
+  }
+  if (out.empty()) out = "value";
+  return out;
+}
+
+inline std::filesystem::path trace_dump_directory()
+{
+  if (auto const* dir = std::getenv("UNI20_TRACE_DUMP_DIR"); dir != nullptr && std::strlen(dir) > 0)
+  {
+    return std::filesystem::path(dir);
+  }
+  return std::filesystem::temp_directory_path() / "uni20-trace";
+}
+
+inline std::filesystem::path next_trace_dump_path(std::string_view label)
+{
+  static std::atomic<std::uint64_t> counter = 0;
+  auto dir = trace_dump_directory();
+  std::filesystem::create_directories(dir);
+  auto const now = std::chrono::system_clock::now().time_since_epoch();
+  auto const stamp = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+  auto const id = counter.fetch_add(1, std::memory_order_relaxed);
+  return dir / fmt::format("uni20_trace_{}_{}_{}.txt", stamp, id, sanitize_dump_label(label));
+}
+
+template <typename MDS, std::size_t Rank>
+std::string dump_index_string(std::array<typename std::remove_cvref_t<MDS>::index_type, Rank> const& indices)
+{
+  if constexpr (Rank == 0)
+  {
+    return "[]";
+  }
+  else
+  {
+    std::string out = "[";
+    for (std::size_t i = 0; i < Rank; ++i)
+    {
+      if (i > 0) out += ", ";
+      out += std::to_string(static_cast<std::size_t>(indices[i]));
+    }
+    out += "]";
+    return out;
+  }
+}
+
+inline std::string dump_shape_string(std::vector<std::size_t> const& extents)
+{
+  std::string out = "shape=(";
+  for (std::size_t i = 0; i < extents.size(); ++i)
+  {
+    if (i > 0) out += ", ";
+    out += std::to_string(extents[i]);
+  }
+  out += ")";
+  return out;
+}
+
+template <typename MDS, typename ElementFormatter, std::size_t Rank>
+void write_mdspan_dump_recursive(std::ofstream& out, MDS const& mds,
+                                 std::array<typename std::remove_cvref_t<MDS>::index_type, Rank>& indices,
+                                 std::size_t axis, uni20::presentation::output_policy const& policy,
+                                 ElementFormatter& formatter)
+{
+  if (axis == Rank)
+  {
+    out << dump_index_string<MDS>(indices) << '\t'
+        << uni20::presentation::render_text(std::invoke(formatter, mds[indices]), policy) << '\n';
+    return;
+  }
+
+  auto const extent = static_cast<std::size_t>(mds.extent(axis));
+  for (std::size_t i = 0; i < extent; ++i)
+  {
+    indices[axis] = static_cast<typename std::remove_cvref_t<MDS>::index_type>(i);
+    write_mdspan_dump_recursive(out, mds, indices, axis + 1, policy, formatter);
+  }
+}
+
+template <uni20::presentation::mdspan_like MDS, typename ElementFormatter>
+std::string write_mdspan_dump(MDS const& mds, FormattingOptions const& opts, std::string_view label,
+                              std::vector<std::size_t> const& extents, std::size_t element_count,
+                              ElementFormatter&& formatter)
+{
+  if (!trace_dump_enabled()) return "full data dump disabled by UNI20_TRACE_DUMP";
+
+  try
+  {
+    auto path = next_trace_dump_path(label);
+    std::ofstream out(path);
+    if (!out) return "full data dump failed: could not open " + path.string();
+
+    auto dump_policy = opts.presentation_policy();
+    dump_policy.color = uni20::presentation::color_mode::never;
+    dump_policy.charset = uni20::presentation::text_charset::utf8;
+    dump_policy.wrap_width = std::nullopt;
+
+    out << "# Uni20 trace mdspan dump\n";
+    out << "# " << dump_shape_string(extents) << '\n';
+    out << "# elements=" << element_count << '\n';
+    out << "# index\tvalue\n";
+
+    constexpr std::size_t rank = std::remove_cvref_t<MDS>::rank();
+    using index_type = typename std::remove_cvref_t<MDS>::index_type;
+    auto element_formatter = std::forward<ElementFormatter>(formatter);
+    std::array<index_type, rank> indices{};
+    if constexpr (rank == 0)
+    {
+      out << "[]\t" << uni20::presentation::render_text(std::invoke(element_formatter, mds[indices]), dump_policy)
+          << '\n';
+    }
+    else
+    {
+      write_mdspan_dump_recursive(out, mds, indices, 0, dump_policy, element_formatter);
+    }
+
+    return "full data: " + path.string();
+  }
+  catch (std::exception const& ex)
+  {
+    return std::string("full data dump failed: ") + ex.what();
+  }
+}
+} // namespace detail
+
+template <uni20::presentation::mdspan_like MDS>
+inline std::string formatMdspanForTrace(MDS const& mds, FormattingOptions const& opts, int value_width,
+                                        trace_format_context context, std::string_view label)
+{
+  auto preview_options = opts.mdspan_preview_policy();
+  preview_options.format = opts.mdspan_format_policy();
+  preview_options.format.numeric = opts.numeric_format_policy();
+
+  auto policy = opts.presentation_policy();
+  if (value_width > 0)
+  {
+    policy.wrap_width = static_cast<std::size_t>(value_width);
+  }
+
+  auto formatter = [&opts](auto const& value) { return formatValue(value, opts); };
+  auto preview = uni20::presentation::format_mdspan_preview(mds, policy, formatter, preview_options);
+  if (context == trace_format_context::fatal && preview.elided)
+  {
+    preview.text += "\n";
+    preview.text += detail::write_mdspan_dump(mds, opts, label, preview.extents, preview.element_count, formatter);
+  }
+  return preview.text;
+}
 
 /// \brief Format an mdspan-like value as presentation-layer tensor art.
 /// \tparam MDS Mdspan-like object type.
@@ -672,10 +879,7 @@ concept HasPresentationMdspanView =
 template <uni20::presentation::mdspan_like MDS>
 inline std::string formatValue(MDS const& mds, FormattingOptions const& opts)
 {
-  auto formatter = [&opts](auto const& value) { return formatValue(value, opts); };
-  auto mdspan_options = opts.mdspan_format_policy();
-  mdspan_options.numeric = opts.numeric_format_policy();
-  return uni20::presentation::format_mdspan(mds, opts.presentation_policy(), formatter, mdspan_options);
+  return formatMdspanForTrace(mds, opts, opts.terminal_width, trace_format_context::normal, {});
 }
 
 /// \brief Format tensor/view-like values through their mdspan view.
@@ -686,6 +890,27 @@ inline std::string formatValue(MDS const& mds, FormattingOptions const& opts)
 template <HasPresentationMdspanView T> inline std::string formatValue(T const& value, FormattingOptions const& opts)
 {
   return formatValue(value.mdspan(), opts);
+}
+
+template <uni20::presentation::mdspan_like MDS>
+inline std::string formatValueForContext(MDS const& mds, FormattingOptions const& opts, int value_width,
+                                         trace_format_context context, std::string_view label)
+{
+  return formatMdspanForTrace(mds, opts, value_width, context, label);
+}
+
+template <HasPresentationMdspanView T>
+inline std::string formatValueForContext(T const& value, FormattingOptions const& opts, int value_width,
+                                         trace_format_context context, std::string_view label)
+{
+  return formatMdspanForTrace(value.mdspan(), opts, value_width, context, label);
+}
+
+template <typename T>
+auto formatValueForContext(T const& value, FormattingOptions const& opts, int /*value_width*/,
+                           trace_format_context /*context*/, std::string_view /*label*/)
+{
+  return formatValue(value, opts);
 }
 
 // Helper function to trim leading and trailing whitespace.
@@ -894,9 +1119,42 @@ template <typename T> size_t maxWidth(const std::vector<T>& elems)
   return maxWidth(elems, uni20::presentation::plain_policy());
 }
 
+inline bool canFormatAsPresentationMatrix(const std::vector<std::vector<std::string>>& elems)
+{
+  if (elems.empty()) return false;
+
+  auto const cols = elems.front().size();
+  if (cols == 0) return false;
+
+  for (auto const& row : elems)
+  {
+    if (row.size() != cols) return false;
+    if (isMultiline(row)) return false;
+  }
+  return true;
+}
+
+inline std::string formatRectangularContainerAsPresentationMatrix(const std::vector<std::vector<std::string>>& elems,
+                                                                  FormattingOptions const& opts)
+{
+  std::vector<std::string> flat;
+  flat.reserve(elems.size() * elems.front().size());
+  for (auto const& row : elems)
+  {
+    flat.insert(flat.end(), row.begin(), row.end());
+  }
+
+  using extents_type = stdex::extents<std::size_t, stdex::dynamic_extent, stdex::dynamic_extent>;
+  auto matrix = stdex::mdspan<std::string const, extents_type, stdex::layout_right>(flat.data(), elems.size(),
+                                                                                    elems.front().size());
+  auto options = opts.mdspan_format_policy();
+  options.numeric = opts.numeric_format_policy();
+  return uni20::presentation::format_mdspan(
+      matrix, opts.presentation_policy(), [](std::string const& value) { return value; }, options);
+}
+
 inline std::string formatContainerToStringImpl(const std::string& elem,
-                                               uni20::presentation::output_policy const& policy,
-                                               size_t max_width = 0)
+                                               uni20::presentation::output_policy const& policy, size_t max_width = 0)
 {
   return uni20::presentation::pad_left(elem, max_width, policy);
 }
@@ -906,15 +1164,13 @@ inline std::string formatContainerToString(const std::string& elem, size_t max_w
   return formatContainerToStringImpl(elem, uni20::presentation::plain_policy(), max_width);
 }
 
-inline std::string formatContainerToString(const std::string& elem, FormattingOptions const& opts,
-                                           size_t max_width = 0)
+inline std::string formatContainerToString(const std::string& elem, FormattingOptions const& opts, size_t max_width = 0)
 {
   return formatContainerToStringImpl(elem, opts.presentation_policy(), max_width);
 }
 
 inline std::string formatContainerToStringImpl(const std::vector<std::string>& elems,
-                                               uni20::presentation::output_policy const& policy,
-                                               size_t max_width = 0)
+                                               uni20::presentation::output_policy const& policy, size_t max_width = 0)
 {
   std::string inlineStr;
 
@@ -957,8 +1213,7 @@ inline std::string formatContainerToString(const std::vector<std::string>& elems
 
 // This probably works fine for arbitrary nesting
 inline std::string formatContainerToStringImpl(const std::vector<std::vector<std::string>>& elems,
-                                               uni20::presentation::output_policy const& policy,
-                                               size_t max_width = 0)
+                                               uni20::presentation::output_policy const& policy, size_t max_width = 0)
 {
   std::string inlineStr = "[ ";
   if (isMultiline(elems))
@@ -992,6 +1247,10 @@ inline std::string formatContainerToString(const std::vector<std::vector<std::st
 inline std::string formatContainerToString(const std::vector<std::vector<std::string>>& elems,
                                            FormattingOptions const& opts, size_t max_width = 0)
 {
+  if (canFormatAsPresentationMatrix(elems))
+  {
+    return formatRectangularContainerAsPresentationMatrix(elems, opts);
+  }
   return formatContainerToStringImpl(elems, opts.presentation_policy(), max_width);
 }
 
@@ -1081,8 +1340,15 @@ std::string formatItemString(const std::pair<std::string, bool>& name, const std
 
 // formatTrace: Recursively formats all trace items into one string.
 
-inline uni20::presentation::styled_text formatParametersText(
-    std::vector<std::pair<std::string, bool>>::const_iterator b, const FormattingOptions& opts)
+inline uni20::presentation::styled_text
+formatParametersText(std::vector<std::pair<std::string, bool>>::const_iterator b, const FormattingOptions& opts)
+{
+  return {};
+}
+
+inline uni20::presentation::styled_text
+formatParametersTextForContext(std::vector<std::pair<std::string, bool>>::const_iterator b,
+                               const FormattingOptions& opts, trace_format_context context)
 {
   return {};
 }
@@ -1094,20 +1360,38 @@ inline std::string formatParameters(std::vector<std::pair<std::string, bool>>::c
 }
 
 template <typename T, typename... Ts>
-uni20::presentation::styled_text formatParametersText(std::vector<std::pair<std::string, bool>>::const_iterator b,
-                                                      const FormattingOptions& opts, const T& first,
-                                                      const Ts&... rest)
+uni20::presentation::styled_text
+formatParametersTextForContext(std::vector<std::pair<std::string, bool>>::const_iterator b,
+                               const FormattingOptions& opts, trace_format_context context, const T& first,
+                               const Ts&... rest)
 {
+  auto value_width = opts.terminal_width;
+  if (value_width > 0 && !b->second)
+  {
+    auto const indent = displayWidth(b->first, opts) + 3;
+    if (indent < static_cast<std::size_t>(value_width))
+    {
+      value_width -= static_cast<int>(indent);
+    }
+  }
 
-  auto result = formatItemText(*b, formatValue(first, opts), opts, opts.terminal_width);
+  auto result =
+      formatItemText(*b, formatValueForContext(first, opts, value_width, context, b->first), opts, opts.terminal_width);
 
   ++b;
   if constexpr (sizeof...(rest) > 0)
   {
     result.append(", ");
-    result.append(formatParametersText(b, opts, rest...));
+    result.append(formatParametersTextForContext(b, opts, context, rest...));
   }
   return result;
+}
+
+template <typename T, typename... Ts>
+uni20::presentation::styled_text formatParametersText(std::vector<std::pair<std::string, bool>>::const_iterator b,
+                                                      const FormattingOptions& opts, const T& first, const Ts&... rest)
+{
+  return formatParametersTextForContext(b, opts, trace_format_context::normal, first, rest...);
 }
 
 template <typename T, typename... Ts>
@@ -1123,6 +1407,14 @@ uni20::presentation::styled_text formatParameterListText(const char* exprList, c
 {
   auto names = parseNames(exprList);
   return formatParametersText(names.begin(), opts, args...);
+}
+
+template <typename... Args>
+uni20::presentation::styled_text formatParameterListTextForContext(const char* exprList, const FormattingOptions& opts,
+                                                                   trace_format_context context, const Args&... args)
+{
+  auto names = parseNames(exprList);
+  return formatParametersTextForContext(names.begin(), opts, context, args...);
 }
 
 template <typename... Args>
@@ -1187,7 +1479,10 @@ inline uni20::presentation::styled_text format_trace_prefix_text(FormattingOptio
   return prefix;
 }
 
-inline std::string format_trace_prefix(FormattingOptions const& opts) { return opts.render(format_trace_prefix_text(opts)); }
+inline std::string format_trace_prefix(FormattingOptions const& opts)
+{
+  return opts.render(format_trace_prefix_text(opts));
+}
 
 inline void append_trace_location(uni20::presentation::styled_text& text, FormattingOptions const& opts,
                                   std::string_view label, std::string_view style_kind, const char* file, int line)
@@ -1552,7 +1847,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "CHECK", "CHECK", file, line);
   detail::append_condition_false(text, opts, cond);
   detail::append_diagnostic_parameters(text, opts, parameters, "CHECK");
@@ -1568,7 +1863,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_CHECK", "DEBUG_CHECK", file, line);
   detail::append_condition_false(text, opts, cond);
   detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_CHECK");
@@ -1584,7 +1879,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "CHECK_EQUAL", "CHECK", file, line);
   detail::append_not_equal(text, opts, a, b);
   detail::append_diagnostic_parameters(text, opts, parameters, "CHECK");
@@ -1600,7 +1895,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_CHECK_EQUAL", "DEBUG_CHECK", file, line);
   detail::append_not_equal(text, opts, a, b);
   detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_CHECK");
@@ -1616,7 +1911,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "CHECK_FLOATING_EQ", "CHECK", file, line);
   detail::append_not_approx_equal(text, opts, a, b, ulps);
   detail::append_diagnostic_parameters(text, opts, parameters, "CHECK");
@@ -1632,7 +1927,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_CHECK_FLOATING_EQ", "DEBUG_CHECK", file, line);
   detail::append_not_approx_equal(text, opts, a, b, ulps);
   detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_CHECK");
@@ -1648,7 +1943,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "PRECONDITION", "PRECONDITION", file, line);
   detail::append_condition_false(text, opts, cond);
   detail::append_diagnostic_parameters(text, opts, parameters, "PRECONDITION");
@@ -1664,7 +1959,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_PRECONDITION", "DEBUG_PRECONDITION", file, line);
   detail::append_condition_false(text, opts, cond);
   detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_PRECONDITION");
@@ -1680,7 +1975,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "PRECONDITION_EQUAL", "PRECONDITION", file, line);
   detail::append_not_equal(text, opts, a, b);
   detail::append_diagnostic_parameters(text, opts, parameters, "PRECONDITION");
@@ -1696,7 +1991,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_PRECONDITION_EQUAL", "DEBUG_PRECONDITION", file, line);
   detail::append_not_equal(text, opts, a, b);
   detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_PRECONDITION");
@@ -1712,7 +2007,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "PRECONDITION_FLOATING_EQ", "PRECONDITION", file, line);
   detail::append_not_approx_equal(text, opts, a, b, ulps);
   detail::append_diagnostic_parameters(text, opts, parameters, "PRECONDITION");
@@ -1728,7 +2023,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "DEBUG_PRECONDITION_FLOATING_EQ", "DEBUG_PRECONDITION", file, line);
   detail::append_not_approx_equal(text, opts, a, b, ulps);
   detail::append_diagnostic_parameters(text, opts, parameters, "DEBUG_PRECONDITION");
@@ -1743,7 +2038,7 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto parameters = formatParameterListTextForContext(exprList, opts, trace_format_context::fatal, args...);
   auto text = detail::make_diagnostic_header(opts, "PANIC", "PANIC", file, line);
   append_optional_parameters(text, opts, parameters, "PANIC");
   text.append("\n");
@@ -1758,7 +2053,8 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto const context = opts.errors_abort() ? trace_format_context::fatal : trace_format_context::normal;
+  auto parameters = formatParameterListTextForContext(exprList, opts, context, args...);
   auto text = detail::make_diagnostic_header(opts, "ERROR", "ERROR", file, line);
   append_optional_parameters(text, opts, parameters, "ERROR");
   text.append("\n");
@@ -1782,7 +2078,8 @@ template <typename... Args>
 {
   auto& opts = get_formatting_options();
 
-  auto parameters = formatParameterListText(exprList, opts, args...);
+  auto const context = opts.errors_abort() ? trace_format_context::fatal : trace_format_context::normal;
+  auto parameters = formatParameterListTextForContext(exprList, opts, context, args...);
   auto text = detail::make_diagnostic_header(opts, "ERROR", "ERROR", file, line);
   append_optional_parameters(text, opts, parameters, "ERROR");
   detail::append_condition_false(text, opts, cond);

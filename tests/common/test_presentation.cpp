@@ -31,6 +31,8 @@ using uni20::test::EnvVarGuard;
   return policy;
 }
 
+bool contains_ansi(std::string const& text) { return text.find("\033[") != std::string::npos; }
+
 } // namespace
 
 TEST(PresentationPolicies, DefaultPoliciesPreferEmojiGlyphs)
@@ -385,6 +387,27 @@ TEST(PresentationMdspan, DefaultFormatterHandlesRealAndComplexScalars)
   EXPECT_EQ(presentation::format_mdspan(complex_vector, policy, options), "shape=(2)\n[ 1.00-2.50i 3.12+0.00i ]");
 }
 
+TEST(PresentationMdspan, DefaultFormatterHighlightsNonFiniteScalarsWhenColorEnabled)
+{
+  auto policy = base_policy();
+  std::array<double, 4> data{1.0, std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::quiet_NaN()};
+  stdex::mdspan<double, stdex::extents<std::size_t, 2, 2>> matrix(data.data());
+
+  auto const plain = presentation::format_mdspan(matrix, policy);
+  EXPECT_FALSE(contains_ansi(plain));
+
+  auto color_policy = policy;
+  color_policy.color = presentation::color_mode::always;
+  auto const colored = presentation::format_mdspan(matrix, color_policy);
+
+  EXPECT_TRUE(contains_ansi(colored));
+  EXPECT_NE(colored.find("\033[1;31minf\033[0m"), std::string::npos);
+  EXPECT_NE(colored.find("\033[1;31m-inf\033[0m"), std::string::npos);
+  EXPECT_NE(colored.find("\033[1;31mnan\033[0m"), std::string::npos);
+  EXPECT_EQ(presentation::display_width(colored, color_policy), presentation::display_width(plain, policy));
+}
+
 TEST(PresentationMdspan, UnicodeMatrixUsesDisplayCellAlignedBrackets)
 {
   auto policy = base_policy();
@@ -530,6 +553,64 @@ TEST(PresentationMdspan, MatrixAxesRejectInvalidChoices)
 
   options.matrix_axes = presentation::mdspan_matrix_axes{0, 2};
   EXPECT_THROW((void)presentation::format_mdspan(matrix, policy, options), std::invalid_argument);
+}
+
+TEST(PresentationMdspan, PreviewElidesLargeMatrixWithinWrapWidth)
+{
+  auto policy = base_policy();
+  policy.glyphs = presentation::glyph_set::ascii;
+  policy.wrap_width = 28;
+
+  std::array<int, 36> data{};
+  for (std::size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<int>(i);
+
+  stdex::mdspan<int, stdex::extents<std::size_t, 6, 6>> matrix(data.data());
+  presentation::mdspan_preview_options options;
+  options.full_element_limit = 8;
+  options.edge_items = 2;
+
+  auto const preview = presentation::format_mdspan_preview(matrix, policy, options);
+
+  EXPECT_TRUE(preview.elided);
+  EXPECT_EQ(preview.element_count, 36U);
+  EXPECT_NE(preview.text.find("preview elided"), std::string::npos);
+  EXPECT_NE(preview.text.find("..."), std::string::npos);
+
+  std::size_t line_start = 0;
+  while (line_start <= preview.text.size())
+  {
+    auto const line_end = preview.text.find('\n', line_start);
+    auto const line = line_end == std::string::npos
+                          ? std::string_view(preview.text).substr(line_start)
+                          : std::string_view(preview.text).substr(line_start, line_end - line_start);
+    EXPECT_LE(presentation::display_width(line, policy), *policy.wrap_width) << line;
+    if (line_end == std::string::npos) break;
+    line_start = line_end + 1;
+  }
+}
+
+TEST(PresentationMdspan, PreviewDoesNotMarkElidedWhenAllPositionsAreSelected)
+{
+  auto policy = base_policy();
+  policy.glyphs = presentation::glyph_set::ascii;
+  policy.wrap_width = 200;
+
+  std::array<int, 36> data{};
+  for (std::size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<int>(i);
+
+  stdex::mdspan<int, stdex::extents<std::size_t, 6, 6>> matrix(data.data());
+  presentation::mdspan_preview_options options;
+  options.full_element_limit = 8;
+  options.edge_items = 8;
+
+  auto const preview = presentation::format_mdspan_preview(matrix, policy, options);
+
+  EXPECT_FALSE(preview.elided);
+  EXPECT_EQ(preview.text.find("preview elided"), std::string::npos);
+  EXPECT_EQ(preview.text.find("..."), std::string::npos);
+  EXPECT_NE(preview.text.find("35"), std::string::npos);
 }
 
 TEST(PresentationInvalidUtf8, InvalidBytesAreEscapedOrReplacedByPolicy)

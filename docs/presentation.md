@@ -184,11 +184,24 @@ auto text = uni20::presentation::format_mdspan(matrix, policy, [](auto const& va
 });
 ```
 
-Rank-1 values render as a row vector, rank-2 values render as aligned matrix art, and higher-rank values render as labeled rank-2 slices over every leading-axis coordinate. The default formatter is exhaustive: printing an actual tensor emits every element. Any future preview, clipping, or elision mode should be an explicit separate policy. Trace uses the same formatter for mdspan-like values and tensor/view-like objects, while still applying trace scalar formatting such as floating-point precision.
+Rank-1 values render as a row vector, rank-2 values render as aligned matrix art, and higher-rank values render as labeled rank-2 slices over every leading-axis coordinate. `format_mdspan(...)` is intentionally exhaustive: printing an actual tensor emits every element.
 
-Python and Jupyter tensor display must be preview-first rather than exhaustive by default. Before binding tensor `repr`, add a preview policy with explicit limits such as maximum elements, edge items, maximum rows/columns, maximum slices, selected matrix axes, and `full=true` opt-in behavior. This protects notebooks from accidentally rendering very large tensors while preserving an explicit path to exhaustive output when the user requests it.
+Use `format_mdspan_preview(...)` for bounded diagnostic output:
 
-Real and complex tensor elements use `numeric_format_options` when no custom element formatter is supplied. The defaults use general notation with 6 significant digits for `float`, 15 significant digits for `double`, normalized negative zero, and algebraic complex form such as `1.25-3.5i`. Non-finite real values render deterministically as `nan`, `inf`, and `-inf`; complex values use the same component spelling, for example `-inf+nani`. `mdspan_format_options::numeric` can switch to fixed or scientific notation and adjust the digit counts.
+```cpp
+uni20::presentation::mdspan_preview_options preview;
+preview.full_element_limit = 256;
+preview.edge_items = 3;
+preview.max_slices = 4;
+
+auto result = uni20::presentation::format_mdspan_preview(tensor, policy, preview);
+```
+
+The preview renderer first uses exhaustive output when the element count is small enough and the result fits `output_policy::wrap_width`. Otherwise it displays edge rows/columns/slices with the active semantic ellipsis glyph and records `mdspan_preview_result::elided = true`. Metadata lines are also width-aware; if the terminal is too narrow for even a one-cell preview, the renderer falls back to a shape/element-count summary plus an elision note.
+
+Trace uses bounded preview by default for mdspan-like values and tensor/view-like objects, while still applying trace scalar formatting such as floating-point precision. Python and Jupyter tensor display should also be preview-first rather than exhaustive by default, with explicit controls for selected axes, preview limits, and `full=true` opt-in behavior.
+
+Real and complex tensor elements use `numeric_format_options` when no custom element formatter is supplied. The defaults use general notation with 6 significant digits for `float`, 15 significant digits for `double`, normalized negative zero, and algebraic complex form such as `1.25-3.5i`. Non-finite real values render deterministically as `nan`, `inf`, and `-inf`; complex values use the same component spelling, for example `-inf+nani`. When color is enabled, mdspan/tensor rendering highlights non-finite real or complex elements with the default red-bold style while preserving display-cell alignment. `mdspan_format_options::numeric` can switch to fixed or scientific notation and adjust the digit counts.
 
 For rank-2-or-higher tensors, `mdspan_format_options::matrix_axes` can choose which axes form the displayed row and column dimensions:
 

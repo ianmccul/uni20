@@ -66,6 +66,7 @@ Scalar-generic code should prefer the scalar traits in `uni20/core`:
 | `uni20::make_complex_t<T>` | complexified scalar/container type |
 | `uni20::scalar_t<T>` | scalar extracted from a container-like type |
 | `uni20::numeric_limits<T>` | project-level numeric limits customization point |
+| `uni20::isfinite(x)` | project-level finite-value predicate for integer, real, and complex scalars |
 
 `Real`, `Complex`, and `RealOrComplex` describe scalar categories. `Blas*` and
 `Lapack*` describe configured backend support. This distinction matters for
@@ -108,6 +109,15 @@ continue to be the preferred spelling. If a future backend requires a different
 complex representation, that change should happen behind the project-level
 alias/traits boundary rather than by scattering backend-specific complex types
 through algorithms.
+
+## Scalar Math
+
+Scalar-generic code should use `uni20::isfinite(x)` instead of directly calling
+`std::isfinite(x)` when `x` may be a Uni20 scalar. Integers are always finite,
+real scalars are checked for NaN and positive/negative infinity through
+`uni20::numeric_limits<T>`, and complex scalars are finite only when both
+components are finite. This keeps extension scalar support behind the same
+project customization points as scalar spelling and numeric limits.
 
 ## Numeric Limits
 

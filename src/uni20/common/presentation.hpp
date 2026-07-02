@@ -2,6 +2,7 @@
 
 #include "terminal.hpp"
 
+#include <uni20/core/math.hpp>
 #include <uni20/core/scalar_io.hpp>
 
 #include <cmath>
@@ -714,6 +715,50 @@ template <typename T> [[nodiscard]] std::string format_scalar(T const& value, nu
   {
     return fmt::format("{}", value);
   }
+}
+
+namespace detail
+{
+[[nodiscard]] inline terminal::TerminalStyle nonfinite_scalar_style()
+{
+  return terminal::TerminalStyle(std::string_view("Red;Bold"));
+}
+} // namespace detail
+
+/// \brief Apply the default non-finite scalar style to already-formatted presentation text.
+/// \details Real and complex `nan`, `inf`, and `-inf` values are highlighted when the output policy permits
+///          color. Other value types and color-disabled policies leave the text unchanged.
+/// \tparam T Scalar value type.
+/// \param text Already-formatted scalar text.
+/// \param value Scalar value that produced \p text.
+/// \param policy Output policy controlling whether ANSI style may be emitted.
+/// \return Styled text when \p value is non-finite and color is enabled; otherwise \p text.
+template <typename T>
+[[nodiscard]] std::string style_nonfinite_scalar(std::string text, T const& value, output_policy const& policy)
+{
+  using value_type = std::remove_cvref_t<T>;
+  if constexpr (uni20::RealOrComplex<value_type>)
+  {
+    if (!uni20::isfinite(value) && should_emit_color(policy) && !text.empty())
+    {
+      return terminal::color_text(text, detail::nonfinite_scalar_style());
+    }
+  }
+  return text;
+}
+
+/// \brief Format a scalar for policy-aware presentation output.
+/// \details This is equivalent to `format_scalar(value, options)` followed by `style_nonfinite_scalar(...)`.
+/// \tparam T Value type.
+/// \param value Value to format.
+/// \param options Numeric formatting controls used for real and complex values.
+/// \param policy Output policy controlling whether non-finite values are styled.
+/// \return Formatted scalar text, with non-finite real or complex values highlighted when color is enabled.
+template <typename T>
+[[nodiscard]] std::string format_scalar_for_output(T const& value, numeric_format_options const& options,
+                                                   output_policy const& policy)
+{
+  return style_nonfinite_scalar(format_scalar(value, options), value, policy);
 }
 
 } // namespace uni20::presentation

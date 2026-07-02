@@ -1,13 +1,18 @@
-#include <uni20/common/trace.hpp>
 #include <uni20/common/mdspan.hpp>
+#include <uni20/common/trace.hpp>
 
 #include "env_var_guard.hpp"
 
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <fcntl.h>
+#include <filesystem>
+#include <fstream>
+#include <limits>
 #include <memory>
 #include <regex>
 #include <sstream>
@@ -21,13 +26,13 @@ using uni20::test::EnvVarGuard;
 
 struct FileCloser
 {
-  void operator()(std::FILE* file) const
-  {
-    if (file != nullptr)
+    void operator()(std::FILE* file) const
     {
-      std::fclose(file);
+      if (file != nullptr)
+      {
+        std::fclose(file);
+      }
     }
-  }
 };
 
 using FilePtr = std::unique_ptr<std::FILE, FileCloser>;
@@ -96,6 +101,25 @@ TEST(TraceFormatting, ContainerFormatting)
 
   auto formatted_multi = trace::formatItemString({"values", false}, multi_line, opts, 80);
   EXPECT_EQ("\nvalues = [\n         first\n           second,\n           third\n         ]", formatted_multi);
+}
+
+TEST(TraceFormatting, RectangularNestedContainersUsePresentationTensorArt)
+{
+  auto opts = make_test_options();
+  std::vector<std::vector<int>> matrix{{1, 20, 300}, {4000, 5, 60}};
+
+  EXPECT_EQ(trace::formatContainerToString(trace::formatValue(matrix, opts), opts),
+            "shape=(2, 3)\n"
+            "\xE2\x8E\xA1    1 20 300 \xE2\x8E\xA4\n"
+            "\xE2\x8E\xA3 4000  5  60 \xE2\x8E\xA6");
+}
+
+TEST(TraceFormatting, RaggedNestedContainersKeepListFormatting)
+{
+  auto opts = make_test_options();
+  std::vector<std::vector<int>> ragged{{1, 2}, {3}};
+
+  EXPECT_EQ(trace::formatContainerToString(trace::formatValue(ragged, opts), opts), "[ [ 1, 2 ],\n  [ 3 ] ]");
 }
 
 TEST(TraceFormatting, ContainerFormattingUsesDisplayCellWidth)
@@ -283,8 +307,7 @@ TEST(TraceFormatting, DiagnosticHeadersUseSemanticGlyphPolicy)
 
   opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
   auto error = trace::detail::make_diagnostic_header(opts, "ERROR", "ERROR", __FILE__, __LINE__);
-  auto precondition =
-      trace::detail::make_diagnostic_header(opts, "PRECONDITION", "PRECONDITION", __FILE__, __LINE__);
+  auto precondition = trace::detail::make_diagnostic_header(opts, "PRECONDITION", "PRECONDITION", __FILE__, __LINE__);
   EXPECT_NE(opts.render(error).find("[FAIL] ERROR at "), std::string::npos);
   EXPECT_NE(opts.render(precondition).find("[FATAL] PRECONDITION at "), std::string::npos);
 }
@@ -347,12 +370,12 @@ TEST(TraceFormatting, MdspanRealAndComplexValuesUseTracePrecision)
   stdex::mdspan<double, stdex::extents<std::size_t, 2, 2>> real_matrix(real_data.data());
 
   EXPECT_EQ(trace::formatValue(real_matrix, opts), "shape=(2, 2)\n"
-                                                  "\xE2\x8E\xA1  1.00  2.50 \xE2\x8E\xA4\n"
-                                                  "\xE2\x8E\xA3 10.25 -3.00 \xE2\x8E\xA6");
+                                                   "\xE2\x8E\xA1  1.00  2.50 \xE2\x8E\xA4\n"
+                                                   "\xE2\x8E\xA3 10.25 -3.00 \xE2\x8E\xA6");
 
   opts.fp_precision_float64 = 1;
   std::array<uni20::complex<double>, 2> complex_data{uni20::complex<double>{1.0, -2.5},
-                                                  uni20::complex<double>{0.0, 3.0}};
+                                                     uni20::complex<double>{0.0, 3.0}};
   stdex::mdspan<uni20::complex<double>, stdex::extents<std::size_t, 2>> complex_vector(complex_data.data());
 
   EXPECT_EQ(trace::formatValue(complex_vector, opts), "shape=(2)\n[ 1.0-2.5i 0.0+3.0i ]");
@@ -370,15 +393,136 @@ TEST(TraceFormatting, MdspanValuesCanSelectPresentationMatrixAxes)
   stdex::mdspan<int, stdex::extents<std::size_t, 2, 3, 2>> tensor(data.data());
 
   EXPECT_EQ(trace::formatValue(tensor, opts), "shape=(2, 3, 2)\n"
-                                             "slice [:, 0, :]\n"
-                                             "\xE2\x8E\xA1 0 1 \xE2\x8E\xA4\n"
-                                             "\xE2\x8E\xA3 6 7 \xE2\x8E\xA6\n"
-                                             "\n"
-                                             "slice [:, 1, :]\n"
-                                             "\xE2\x8E\xA1 2 3 \xE2\x8E\xA4\n"
-                                             "\xE2\x8E\xA3 8 9 \xE2\x8E\xA6\n"
-                                             "\n"
-                                             "slice [:, 2, :]\n"
-                                             "\xE2\x8E\xA1  4  5 \xE2\x8E\xA4\n"
-                                             "\xE2\x8E\xA3 10 11 \xE2\x8E\xA6");
+                                              "slice [:, 0, :]\n"
+                                              "\xE2\x8E\xA1 0 1 \xE2\x8E\xA4\n"
+                                              "\xE2\x8E\xA3 6 7 \xE2\x8E\xA6\n"
+                                              "\n"
+                                              "slice [:, 1, :]\n"
+                                              "\xE2\x8E\xA1 2 3 \xE2\x8E\xA4\n"
+                                              "\xE2\x8E\xA3 8 9 \xE2\x8E\xA6\n"
+                                              "\n"
+                                              "slice [:, 2, :]\n"
+                                              "\xE2\x8E\xA1  4  5 \xE2\x8E\xA4\n"
+                                              "\xE2\x8E\xA3 10 11 \xE2\x8E\xA6");
+}
+
+TEST(TraceFormatting, NormalMdspanPreviewFitsTerminalWidthWithoutDump)
+{
+  auto dump_dir =
+      std::filesystem::temp_directory_path() /
+      fmt::format("uni20-trace-format-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+  EnvVarGuard dump_dir_env("UNI20_TRACE_DUMP_DIR", dump_dir.string());
+  EnvVarGuard dump_env("UNI20_TRACE_DUMP");
+  dump_env.unset();
+
+  auto opts = make_test_options();
+  opts.terminal_width = 32;
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
+  opts.mdspan_preview_policy().full_element_limit = 4;
+  opts.mdspan_preview_policy().edge_items = 1;
+
+  std::array<int, 20> data{};
+  for (std::size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<int>(i);
+
+  stdex::mdspan<int, stdex::extents<std::size_t, 4, 5>> matrix(data.data());
+  auto text = trace::formatParameterListTextForContext("matrix", opts, trace::trace_format_context::normal, matrix);
+  auto const rendered = opts.render(text);
+
+  EXPECT_NE(rendered.find("preview elided"), std::string::npos) << rendered;
+  EXPECT_EQ(rendered.find("full data:"), std::string::npos) << rendered;
+
+  std::size_t line_start = 0;
+  while (line_start <= rendered.size())
+  {
+    auto const line_end = rendered.find('\n', line_start);
+    auto const line = line_end == std::string::npos
+                          ? std::string_view(rendered).substr(line_start)
+                          : std::string_view(rendered).substr(line_start, line_end - line_start);
+    if (!line.empty())
+    {
+      EXPECT_LE(uni20::presentation::display_width(line, opts.presentation_policy()),
+                static_cast<std::size_t>(opts.terminal_width))
+          << line;
+    }
+    if (line_end == std::string::npos) break;
+    line_start = line_end + 1;
+  }
+
+  if (std::filesystem::exists(dump_dir))
+  {
+    EXPECT_TRUE(std::filesystem::is_empty(dump_dir));
+    std::filesystem::remove_all(dump_dir);
+  }
+}
+
+TEST(TraceFormatting, FatalMdspanPreviewWritesFullDump)
+{
+  auto dump_dir =
+      std::filesystem::temp_directory_path() /
+      fmt::format("uni20-trace-format-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+  EnvVarGuard dump_dir_env("UNI20_TRACE_DUMP_DIR", dump_dir.string());
+  EnvVarGuard dump_env("UNI20_TRACE_DUMP");
+  dump_env.unset();
+
+  auto opts = make_test_options();
+  opts.terminal_width = 32;
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
+  opts.mdspan_preview_policy().full_element_limit = 4;
+  opts.mdspan_preview_policy().edge_items = 1;
+
+  std::array<int, 20> data{};
+  for (std::size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<int>(i);
+
+  stdex::mdspan<int, stdex::extents<std::size_t, 4, 5>> matrix(data.data());
+  auto text = trace::formatParameterListTextForContext("matrix", opts, trace::trace_format_context::fatal, matrix);
+  auto const rendered = opts.render(text);
+
+  EXPECT_NE(rendered.find("preview elided"), std::string::npos) << rendered;
+  auto const marker = std::string("full data: ");
+  auto const path_pos = rendered.find(marker);
+  ASSERT_NE(path_pos, std::string::npos) << rendered;
+
+  auto path = rendered.substr(path_pos + marker.size());
+  if (auto const newline = path.find('\n'); newline != std::string::npos) path.resize(newline);
+  while (!path.empty() && std::isspace(static_cast<unsigned char>(path.back())))
+    path.pop_back();
+
+  ASSERT_TRUE(std::filesystem::exists(path)) << path;
+  std::ifstream in(path);
+  std::stringstream buffer;
+  buffer << in.rdbuf();
+  auto const dump = buffer.str();
+  EXPECT_NE(dump.find("# shape=(4, 5)"), std::string::npos) << dump;
+  EXPECT_NE(dump.find("[3, 4]\t19"), std::string::npos) << dump;
+  EXPECT_FALSE(contains_ansi(dump)) << dump;
+
+  std::filesystem::remove_all(dump_dir);
+}
+
+TEST(TraceFormatting, MdspanPreviewHighlightsNonFiniteScalarsWhenColorEnabled)
+{
+  auto opts = make_test_options();
+  opts.set_color_output(uni20::presentation::color_mode::always);
+  opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
+
+  std::array<double, 4> data{1.0, std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::quiet_NaN()};
+  stdex::mdspan<double, stdex::extents<std::size_t, 2, 2>> matrix(data.data());
+
+  auto plain_opts = make_test_options();
+  plain_opts.set_color_output(uni20::presentation::color_mode::never);
+  plain_opts.presentation_policy().glyphs = uni20::presentation::glyph_set::ascii;
+
+  auto const plain = trace::formatValue(matrix, plain_opts);
+  auto const colored = trace::formatValue(matrix, opts);
+
+  EXPECT_FALSE(contains_ansi(plain));
+  EXPECT_TRUE(contains_ansi(colored));
+  EXPECT_NE(colored.find("\033[1;31minf\033[0m"), std::string::npos);
+  EXPECT_NE(colored.find("\033[1;31m-inf\033[0m"), std::string::npos);
+  EXPECT_NE(colored.find("\033[1;31mnan\033[0m"), std::string::npos);
+  EXPECT_EQ(uni20::presentation::display_width(colored, opts.presentation_policy()),
+            uni20::presentation::display_width(plain, plain_opts.presentation_policy()));
 }

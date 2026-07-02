@@ -1,8 +1,10 @@
 #pragma once
 
+#include "numeric_limits.hpp"
 #include "scalar_concepts.hpp"
 #include <complex>
 #include <numeric>
+#include <type_traits>
 
 namespace uni20
 {
@@ -65,6 +67,68 @@ template <HasIntegerScalar I> constexpr I conj(I const& x) { return x; }
 /// \return The result of calling `conj(x)`.
 /// \ingroup core_math
 template <HasScalar S> constexpr auto herm(S x) { return uni20::conj(x); }
+
+namespace detail
+{
+template <typename T, typename = void> struct numeric_limits_has_infinity : std::false_type
+{};
+
+template <typename T>
+struct numeric_limits_has_infinity<
+    T, std::void_t<decltype(uni20::numeric_limits<T>::has_infinity), decltype(uni20::numeric_limits<T>::infinity())>>
+    : std::bool_constant<static_cast<bool>(uni20::numeric_limits<T>::has_infinity)>
+{};
+
+template <typename T>
+inline constexpr bool numeric_limits_has_infinity_v = numeric_limits_has_infinity<std::remove_cvref_t<T>>::value;
+} // namespace detail
+
+/// \brief Returns whether an integer scalar is finite.
+/// \details Integer Uni20 scalars have no NaN or infinity representation, so every value is finite.
+/// \tparam I Integer scalar type.
+/// \param x Integer scalar to inspect.
+/// \return Always `true`.
+/// \ingroup core_math
+template <Integer I> constexpr bool isfinite(I const& x) noexcept
+{
+  (void)x;
+  return true;
+}
+
+/// \brief Returns whether a real scalar is neither NaN nor positive/negative infinity.
+/// \details This uses `uni20::numeric_limits<T>` so extension real scalar types can define their own infinity
+///         representation without depending on standard-library overload coverage for `std::isfinite`.
+/// \tparam R Real scalar type.
+/// \param x Real scalar to inspect.
+/// \return `true` when `x` is finite.
+/// \ingroup core_math
+template <Real R> constexpr bool isfinite(R const& x)
+{
+  using value_type = std::remove_cvref_t<R>;
+  if (!(x == x))
+  {
+    return false;
+  }
+  if constexpr (detail::numeric_limits_has_infinity_v<value_type>)
+  {
+    auto const infinity = uni20::numeric_limits<value_type>::infinity();
+    return x != infinity && x != -infinity;
+  }
+  else
+  {
+    return true;
+  }
+}
+
+/// \brief Returns whether both components of a complex scalar are finite.
+/// \tparam T Real component type.
+/// \param z Complex scalar to inspect.
+/// \return `true` when both the real and imaginary components are finite.
+/// \ingroup core_math
+template <typename T> constexpr bool isfinite(uni20::complex<T> const& z)
+{
+  return uni20::isfinite(z.real()) && uni20::isfinite(z.imag());
+}
 
 /// \brief Provides mutable access to the real component of a `uni20::complex` value.
 /// \details This helper mirrors the `std::real` overload for lvalues while remaining `constexpr` and
