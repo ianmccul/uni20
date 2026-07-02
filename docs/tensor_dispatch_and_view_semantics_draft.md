@@ -172,8 +172,8 @@ produces a mutable view:
 ```cpp
 ensure_shape(C.view(), shape);      // validate only
 ensure_shape(C.slice(...), shape);  // validate only
-gemm_into(A, B, C.view());      // C must already have the right shape
-gemm_into(A, B, C.slice(...));  // slice shape must already match
+gemm_into(C.view(), A, B);      // C must already have the right shape
+gemm_into(C.slice(...), A, B);  // slice shape must already match
 ```
 
 This is the natural mode for `TensorRef`, fixed adaptors, block views, and BLAS
@@ -185,14 +185,15 @@ A resizable output can prepare the requested shape by reuse or allocation:
 
 ```cpp
 ensure_shape(C, shape); // may resize BasicTensor
-matmul(A, B, C);   // C is a BasicTensor and may be resized
+matmul(C, A, B);   // C is a BasicTensor and may be resized
 auto C = matmul(A, B);
 ```
 
-Classic BLAS-style `gemm(alpha, A, B, beta, C)` is more subtle. When `beta != 0`,
+Uni20 uses output-first mutable parameters for linalg APIs, so the update form is
+`gemm(C, alpha, A, B, beta)`. When `beta != 0`,
 `C` is both input and output, so a fixed-output/update API is the clearer
 default. Reallocation is natural for overwrite/value-producing operations such
-as `C = A * B`, `matmul(A, B, C)`, or `beta == 0` APIs that explicitly define a
+as `C = A * B`, `matmul(C, A, B)`, or `beta == 0` APIs that explicitly define a
 fresh output.
 
 ## Examples Driving Concepts
@@ -223,7 +224,7 @@ Concept pressure:
 ### Value-Producing Operation
 
 ```cpp
-matmul(A, B, C);   // C may be resized
+matmul(C, A, B);   // C may be resized
 auto C = matmul(A, B);
 ```
 
@@ -244,8 +245,8 @@ Concept pressure:
 ### Fixed Update Operation
 
 ```cpp
-gemm(alpha, A, B, beta, C.view());
-gemm(alpha, A, B, beta, C.slice(...));
+gemm(C.view(), alpha, A, B, beta);
+gemm(C.slice(...), alpha, A, B, beta);
 ```
 
 Needed behavior:
@@ -263,7 +264,7 @@ Concept pressure:
 ### Explicit Backend On Mdspan
 
 ```cpp
-gemm(alpha, a_mdspan, b_mdspan, beta, c_mdspan,
+gemm(c_mdspan, alpha, a_mdspan, b_mdspan, beta,
      backend_list{BlasBackend{}, CpuGenericBackend{}});
 ```
 
@@ -480,13 +481,13 @@ Then a value-producing operation can be structured as:
 
 ```cpp
 template <class A, class B, class C>
-void matmul(A const& a, B const& b, C& c)
+void matmul(C& c, A const& a, B const& b)
 {
   auto selector = common_backend_selector(a, b, c);
   auto shape = matmul_shape(tensor_descriptor(a), tensor_descriptor(b));
 
   ensure_shape(c, shape);
-  dispatch_kernel(backend_list_t<decltype(selector)>{}, matmul_op{}, a, b, c);
+  dispatch_kernel(backend_list_t<decltype(selector)>{}, matmul_op{}, c, a, b);
 }
 ```
 
@@ -496,7 +497,7 @@ The selected backend eventually lowers operands to views:
 auto av = tensor_read_view(a);
 auto bv = tensor_read_view(b);
 auto cv = tensor_write_view(c);
-try_kernel(Backend{}, matmul_op{}, av, bv, cv);
+try_kernel(Backend{}, matmul_op{}, cv, av, bv);
 ```
 
 This keeps `SpanLike` at the leaf-kernel level and keeps backend selection at
@@ -571,7 +572,7 @@ Therefore direct mdspan calls that need temporaries should either use an
 adapter carrying a storage domain or pass an explicit domain/factory:
 
 ```cpp
-gemm(a_mdspan, b_mdspan, c_mdspan,
+gemm(c_mdspan, a_mdspan, b_mdspan,
      backend_list{BlasBackend{}, CpuGenericBackend{}},
      HostDomain{});
 
@@ -626,11 +627,11 @@ The selector can be overridden with either an ordered backend-list value or a
 singleton backend value:
 
 ```cpp
-gemm(alpha, A, B, beta, C);                                  // storage default
-gemm(alpha, A, B, beta, C, CpuGenericBackend{});              // one backend only
-gemm(alpha, A, B, beta, C,
+gemm(C, alpha, A, B, beta);                                  // storage default
+gemm(C, alpha, A, B, beta, CpuGenericBackend{});              // one backend only
+gemm(C, alpha, A, B, beta,
      backend_list{BlasBackend{}, CpuGenericBackend{}});       // ordered list
-gemm(alpha, A, B, beta, C,
+gemm(C, alpha, A, B, beta,
      make_backend_selector<backend_list<CublasBackend, CudaGenericBackend>>(
        CublasConfig{.device = {1}, .stream = {stream}, .math_mode = {tf32_allowed}}));
 ```
@@ -641,83 +642,56 @@ not get an implicit fallback.
 Plain mdspan entry points should require an explicit backend selector:
 
 ```cpp
-gemm(alpha, a_mdspan, b_mdspan, beta, c_mdspan,
+gemm(c_mdspan, alpha, a_mdspan, b_mdspan, beta,
      backend_list{BlasBackend{}, CpuGenericBackend{}});
 ```
 
 or an explicit backend helper:
 
 ```cpp
-BlasBackend::gemm_or_throw(alpha, a_mdspan, b_mdspan, beta, c_mdspan);
+BlasBackend::gemm_or_throw(c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 ```
 
 The reason is that mdspans do not carry Uni20 storage policy.
 
 The term `backend_list<...>` should be read as a shorthand for the static
 ordering of backend entries. The actual selector passed through dispatch should
-be a value, but backend entries can be stateless tags. Runtime state can be
-composed from type-level state requirements declared by those tags:
+be a value. Backend entries can be stateless tags, but they may also carry small
+runtime fields directly:
 
 ```cpp
-struct Device { int value; };
-struct Stream { cudaStream_t value; };
-struct CublasMathMode { math_mode_t value; };
-struct CpuThreads { thread_pool_t* value; };
-
 struct CublasBackend {
-  using state = std::tuple<Device, Stream, CublasMathMode>;
+  int device;
+  cudaStream_t stream;
+  math_mode_t math_mode;
 };
 
 struct CudaGenericBackend {
-  using state = std::tuple<Device, Stream>;
+  int device;
+  cudaStream_t stream;
 };
 
-struct CpuGenericBackend {
-  using state = std::tuple<CpuThreads>;
-};
+struct CpuGenericBackend {};
 ```
 
 For a selector such as:
 
 ```cpp
-backend_list<CublasBackend, CudaGenericBackend>
+backend_list{CublasBackend{device, stream, math_mode},
+             CudaGenericBackend{device, stream}}
 ```
 
-the selector state is the unique concatenation of all backend state lists:
-
-```cpp
-using state_t =
-  unique_tuple_cat_t<CublasBackend::state, CudaGenericBackend::state>;
-// std::tuple<Device, Stream, CublasMathMode>
-
-state_t state;
-```
-
-Each runtime state component is stored once. The backend tags remain the ordered
-candidate list, and dispatch obtains state by tag:
-
-```cpp
-auto device = std::get<Device>(state).value;
-auto stream = std::get<Stream>(state).value;
-auto math_mode = std::get<CublasMathMode>(state).value;
-```
-
-`std::get<T>(tuple)` requires `T` to appear exactly once in the tuple. This is
-a useful constraint: duplicate state tags are intentionally collapsed by
-`unique_tuple_cat_t`, and two semantically different state values must use
-different tag types.
+the list value supplies both ordering and the per-backend runtime state. A
+separate composed selector-state tuple was an earlier design option, inherited
+from the cytnx dispatch experiment. It may still be useful internally for a
+future selector implementation, but the leaf-kernel customization points should
+not require a separate `State&` parameter.
 
 For a hypothetical dense MPI-striped tensor, the structural context could be
 more detailed than a CUDA device: communicator, rank-local ownership, global
 shape, and a section map describing which tensor regions live on which ranks.
-Those pieces can be represented as global state tags as well, for example
-`MpiCommunicator`, `RankOwnership`, and `TensorSectionMap`.
-
-The tags are global names, so they need deliberate namespacing and semantics:
-`cuda::Device`, `cuda::Stream`, `cublas::MathMode`,
-`cutensornetwork::WorkspaceLimit`, and so on. This is manageable because
-backends in one fallback chain are already mutually aware at the integration
-boundary.
+Those pieces can be carried by the MPI backend value or by a storage-domain
+descriptor visible to that backend.
 
 Inheritance is still possible, but it should only help declare or share
 type-level requirements. It should not define the backend order. Simple
@@ -726,16 +700,14 @@ cuSOLVER backend *is* the CUDA generic backend, and it risks coupling capability
 inheritance to fallback ordering. The ordered backend list should remain the
 only thing that says "try cuTensorNetwork, then cuBLAS, then generic CUDA."
 
-An empty base can be a spelling for state requirements:
+An empty base can still be a spelling for shared type-level capabilities:
 
 ```cpp
-template <class... State>
-struct requires_state {
-  using state = std::tuple<State...>;
-};
+template <class... Capabilities>
+struct backend_capabilities {};
 
-struct CublasBackend : requires_state<cuda::Device, cuda::Stream, cublas::MathMode> {};
-struct CudaGenericBackend : requires_state<cuda::Device, cuda::Stream> {};
+struct CublasBackend : backend_capabilities<cuda_memory, blas_scalar_types> {};
+struct CudaGenericBackend : backend_capabilities<cuda_memory> {};
 ```
 
 A CRTP family base is another possible spelling:
@@ -746,7 +718,7 @@ struct Backend;
 
 template <class Derived>
 struct Backend<CublasTag, Derived>
-    : requires_state<cuda::Device, cuda::Stream, cublas::MathMode> {};
+    : backend_capabilities<cuda_memory, blas_scalar_types> {};
 ```
 
 That can factor common type-level traits or helper APIs across related backends,
@@ -756,13 +728,13 @@ not imply that `CublasBackend` inherits from `CudaGenericBackend` or that
 
 A construction convenience may still be useful for the initial implementation.
 For example, a user could provide a richer backend configuration object, and the
-selector can decompose it into state tags:
+selector can build ordered backend values from it:
 
 ```cpp
 struct CublasConfig {
-  cuda::Device device;
-  cuda::Stream stream;
-  cublas::MathMode math_mode;
+  int device;
+  cudaStream_t stream;
+  math_mode_t math_mode;
 };
 ```
 
@@ -773,39 +745,18 @@ auto selector = make_backend_selector<backend_list<CublasBackend, CudaGenericBac
     CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}});
 ```
 
-can populate the shared `backend_state_store<Device, Stream, CublasMathMode>`.
-This keeps the core model tag-based while allowing ergonomic construction from
-domain-specific config objects.
-
-If the automatically composed state store is not sufficient, it can still be a
-customization point:
+can produce a selector equivalent to:
 
 ```cpp
-template <class BackendList>
-struct backend_state;
-
-template <>
-struct backend_state<backend_list<CuSolverBackend, CublasBackend, CudaGenericBackend>> {
-  using type = std::tuple<cuda::Device, cuda::Stream,
-                          cusolver::Options, cublas::MathMode>;
-};
+backend_list{CublasBackend{device, stream, math_mode},
+             CudaGenericBackend{device, stream}};
 ```
 
-The default `backend_state<BackendList>` can be computed with ordinary C++23
-tuple-type concatenation and uniqueness:
-
-```cpp
-template <class... Backends>
-struct backend_state<backend_list<Backends...>> {
-  using type = unique_tuple_cat_t<typename Backends::state...>;
-};
-```
-
-`unique_tuple_cat_t` is not a standard metafunction. It would be a small Uni20
-helper equivalent to "concatenate these `std::tuple<...>` types, then remove
-duplicate element types while preserving first occurrence order." C++ has
-`std::tuple_cat` for values, but not a standard type-level unique tuple
-concatenation helper. No reflection is required.
+An implementation may still store shared state once inside the selector and hand
+each CPO a lightweight backend view. That is an optimization or implementation
+detail. The leaf CPO shape remains `kernel_accepts_types(backend, op, args...)`
+as a `consteval` tri-state function over ordinary reference parameters, and
+`try_kernel(backend, op, args...)` as the runtime attempt.
 
 Advisory state may vary by backend entry and may be ignored by a backend that
 does not understand it.
@@ -1019,24 +970,20 @@ kernels mostly use mdspan-like descriptors directly.
     backend list may be safe; raw pointer mdspan plus CUDA backend probably
     needs an explicit `CudaDomain{device}` or a device-aware accessor type.
 15. How much backend state may vary down an ordered backend list? Structural
-    state such as CUDA device and memory domain should likely be invariant
+    state such as CUDA device and memory domain should likely be consistent
     across compatible CUDA candidates, while advisory hints such as tile size,
     algorithm id, math mode, or workspace limit can vary by backend entry.
 16. Is temporary allocation driven by the full backend selector value, by the
-    selected backend tag after it accepts, or by the composed backend state tuple
+    selected backend after it accepts, or by a storage-domain descriptor
     containing structural state?
 17. What is the exact boundary between backend selector state and tensor
     storage-domain metadata? CUDA device can plausibly live in both; a
     hypothetical MPI-striped dense tensor would need a placement map that may
     belong more naturally to the tensor domain while still being visible to
     backend dispatch.
-18. How should backend entries declare state requirements? Current options
-    are a direct `using state = std::tuple<...>`, an empty base such as
-    `requires_state<cuda::Device, cuda::Stream>`, or a CRTP backend-family base.
-    This mechanism must not imply fallback order or duplicate runtime state.
-19. Should `unique_tuple_cat_t` live in a backend-specific detail namespace or
-    as a more general Uni20 detail helper? It is generic, but the expected use
-    is composing short backend state tuples.
+18. Should backend entries carry all small runtime fields directly, or should a
+    richer selector object share some state internally while presenting the same
+    backend-first CPO shape to kernels?
 
 ## Tentative Conclusions
 
@@ -1054,14 +1001,11 @@ kernels mostly use mdspan-like descriptors directly.
 - Temporary creation is a storage-domain/factory operation. Copying into or out
   of the temporary is an ordinary backend-dispatched copy kernel.
 - Backend selectors are values, not only type lists. Their type gives the
-  candidate order; stateless backend tags declare runtime state requirements
-  with `using state = std::tuple<...>`.
-- Shared structural state should live once in a composed backend state tuple or
-  storage-domain descriptor. Backend inheritance, if used, should declare
-  required state/capabilities only; it should not encode backend ordering.
-- `unique_tuple_cat_t` is the intended implementation helper for composing
-  backend state: concatenate backend `std::tuple<...>` state lists and remove
-  duplicate tag types so `std::get<Tag>` remains well-formed.
+  candidate order; backend values may be stateless tags or may carry small
+  runtime fields directly.
+- Shared structural state, if needed, should live in a selector implementation
+  detail or storage-domain descriptor. Backend inheritance, if used, should
+  declare capabilities only; it should not encode backend ordering.
 - Backend selectors and storage domains are related but distinct: the selector
   chooses compute backends and can carry state, while the storage domain chooses
   memory placement, allocator/resource, and CUDA device information.
@@ -1071,8 +1015,9 @@ kernels mostly use mdspan-like descriptors directly.
 - Explicit adaptors can choose semantics appropriate to the wrapped object. For
   example, `as_tensor(std::vector<T>&)` may be resizable even though slice and
   block-view adaptors are fixed/write-through.
-- Backend dispatch should use operation tags plus generic `try_kernel` /
-  optional `kernel_maybe_can` customization points.
+- Backend dispatch should use operation tags plus generic runtime-attempt and
+  optional type-level capability customization points. The current CPO names are
+  `try_kernel` and `kernel_accepts_types`.
 - Backend selectors should accept both singleton backend values and ordered
   backend-list values.
 - Concepts and CPOs are the preferred long-term dispatch abstraction. They make

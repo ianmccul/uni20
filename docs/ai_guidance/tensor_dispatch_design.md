@@ -18,6 +18,7 @@ view, backend-dispatch, and temporary-allocation design.
 - `../async_tensor_lifetime_and_dispatch_draft.md`
 - `../kernel_dispatch.md`
 - `../backend_dispatch.md`
+- `../mdspan_linalg_dispatch_plan.md`
 
 ### STATUS
 
@@ -79,58 +80,59 @@ Candidate concepts:
   default top-level dispatch unless an explicit backend selector and state/domain
   are supplied.
 
+### PARAMETER ORDER
+
+- New Uni20 linalg/kernel APIs use output-first mutable parameters, for example
+  `matvec(y, A, x)`, `gemm(C, alpha, A, B, beta)`, and
+  `try_kernel(backend, op, output, inputs...)`.
+- Backend selectors, policy objects, and optional debug controls remain trailing
+  parameters.
+- Older draft examples may still resemble BLAS/LAPACK output-last signatures.
+  Treat output-first as the current design direction unless an external ABI
+  boundary forces another order.
+
 ## Backend dispatch
 
 ### OPERATION-TAG MODEL
 
 - Backend dispatch is an ordered backend-list walk for an operation tag.
-- `kernel_maybe_can(...)` is the type-level capability check.
-- `try_kernel(...)` is the runtime attempt.
+- The static capability CPO is
+  `consteval KernelTypeAcceptance kernel_accepts_types(backend const&, op const&, args&...)`.
+  It checks type-level facts only and returns `no`, `maybe`, or `yes`. It must
+  not read argument values; the dispatcher may evaluate it with private
+  type-probe lvalues.
+- The runtime attempt CPO is `try_kernel(backend, op, args...)`. It performs
+  runtime checks such as strides, device placement, handles, and library
+  availability, then either runs the kernel and returns `true` or declines
+  before side effects and returns `false`.
 - A backend that lacks a usable `try_kernel(...)` overload is skipped by
   detection.
 
-### STATELESS BACKEND TAGS
+### BACKEND VALUES
 
-Current design direction: backend entries can be stateless tags.
+Current design direction: backend entries are values. They are often stateless
+tags, but they may also carry small runtime fields such as device, stream, math
+mode, communicator, or placement map.
 
 ```cpp
-struct Device { int value; };
-struct Stream { cudaStream_t value; };
-struct CublasMathMode { math_mode_t value; };
-
 struct CublasBackend {
-  using state = std::tuple<Device, Stream, CublasMathMode>;
+  int device;
+  cudaStream_t stream;
+  math_mode_t math_mode;
 };
 
 struct CudaGenericBackend {
-  using state = std::tuple<Device, Stream>;
+  int device;
+  cudaStream_t stream;
 };
+
+struct CpuGenericBackend {};
 ```
 
-The selector state is the unique concatenation of backend state tuples:
-
-```cpp
-using state_t =
-  unique_tuple_cat_t<CublasBackend::state, CudaGenericBackend::state>;
-// std::tuple<Device, Stream, CublasMathMode>
-```
-
-### `unique_tuple_cat_t`
-
-- `ROLE`: Uni20 helper, not standard C++.
-- `MEANING`: Concatenate `std::tuple<...>` types and remove duplicate element
-  types while preserving first occurrence order.
-- `WHY`: `std::get<T>(tuple)` is valid only when `T` appears exactly once.
-- `SCOPE`: Expected backend state tuples are short; simple implementation is
-  acceptable unless compile-time profiling shows otherwise.
-
-### STATE TAG RULES
-
-- State tags are global/namespaced semantic names.
-- Prefer specific tags: `cuda::Device`, `cuda::Stream`,
-  `cublas::MathMode`, `cutensornetwork::WorkspaceLimit`.
-- Do not reuse one tag type for semantically different state.
-- Duplicate identical tags imply shared state.
+A separate composed selector-state tuple was explored in earlier cytnx-derived
+drafts. It is not required for the first Uni20 dispatch layer. If shared backend
+state is introduced later, it should be hidden inside the selector value and not
+added as a required `State&` parameter to every leaf-kernel CPO.
 
 ## Temporaries
 
@@ -184,4 +186,3 @@ boundary exchange type, but this is not finalized.
 - `std::tuple` can store duplicate types, but `std::get<T>` by type requires
   `T` to be unique.
 - `std::type_list` does not exist in the C++ standard library.
-- `unique_tuple_cat_t` is not a standard metafunction.

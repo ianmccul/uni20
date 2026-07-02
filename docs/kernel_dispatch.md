@@ -8,10 +8,17 @@ mechanism that also covers device and distributed execution. Treat the code
 below as schematic — the type and helper names illustrate the shape, they are
 not a frozen API.
 
+The static capability CPO name used here is `kernel_accepts_types(...)`. The
+runtime attempt CPO is `try_kernel(...)`. Both put the backend value first, then
+the operation tag, then the operation arguments.
+
 Related notes:
 
 - [`backend_dispatch.md`](backend_dispatch.md) — the compile-time capability /
   runtime attempt / generic fallback pattern this note generalizes.
+- [`mdspan_linalg_dispatch_plan.md`](mdspan_linalg_dispatch_plan.md) — the
+  planned first concrete implementation slice of this model for dense linalg
+  leaf kernels over strided mdspan views.
 - [`ordering_and_backend_lowering.md`](ordering_and_backend_lowering.md) — the
   async scheduler owns all ordering; backends emit work, they do not order it.
 - [`execution_architecture.md`](execution_architecture.md) — mechanism/policy
@@ -28,18 +35,23 @@ dispatch mechanism is generic over an **operation tag** (`gemm_op`, `scale_op`,
 `assign_op`, ...), and discovers backend support with constrained customization
 points:
 
-- `kernel_maybe_can(state_type<State>, backend_type<Backend>, Op,
-  std::tuple<Args...>)` — optional compile-time facts about the C++ types;
-  prunes the candidate at zero runtime cost.
-- `try_kernel(state, backend, Op, args...)` — required for an implemented
-  operation; receives the composed backend state and backend tag value,
-  checks runtime facts, and either performs/emits the work or returns `false`.
+- `kernel_accepts_types(Backend const&, Op const&, Args&...)` — optional
+  `consteval` tri-state function for compile-time facts about the C++ types;
+  prunes the candidate at zero runtime cost. It is written as an ordinary
+  function with ordinary reference parameters, so this CPO does not need a tuple
+  or explicit type-pack token.
+- `try_kernel(Backend, Op, args...)` — required for an implemented operation;
+  receives the backend value, checks runtime facts, and either performs/emits
+  the work or returns `false`.
 
 A backend that does not provide a usable `try_kernel` overload for `(Op, Args...)`
-does not implement that operation and is skipped. This avoids one dispatcher and
-one pair of detection helpers per kernel. Backends may still provide an optional
-`kernel_maybe_can` overload when the `try_kernel` signature alone is not an
-adequate type-level eligibility test.
+does not implement that operation and is skipped, unless its
+`kernel_accepts_types(...)` overload returns `KernelTypeAcceptance::no`, in
+which case the dispatcher skips it without ever forming the `try_kernel`
+expression. This avoids one dispatcher and one pair of detection helpers per
+kernel. Backends may still provide an optional `kernel_accepts_types` overload
+when the `try_kernel` signature alone is not an adequate type-level eligibility
+test.
 
 Success means return `true` with the work done or correctly emitted. (For
 deferred device work, "correctly emitted" means the completion token — the CUDA
@@ -54,69 +66,33 @@ implemented in terms of other backends — which is how distributed and RPC
 execution layer on without a class hierarchy. This replaces the original
 tagged-dispatch-with-inheritance plan, which was too rigid.
 
-The ordered list has a static type order but is still used with runtime state.
-Backend entries can be stateless tags that declare the state they require:
+The ordered list has a static type order but can hold backend values, not only
+backend types. Backend entries can be stateless tags in the first pass, or
+values carrying context such as CUDA device and stream later:
 
 ```cpp
-struct Device { int value; };
-struct Stream { cudaStream_t value; };
-struct CublasMathMode { math_mode_t value; };
+struct BlasBackend {};
 
 struct CublasBackend {
-  using state = std::tuple<Device, Stream, CublasMathMode>;
-};
-
-struct CudaGenericBackend {
-  using state = std::tuple<Device, Stream>;
+  int device;
+  cudaStream_t stream;
+  math_mode_t math_mode;
 };
 ```
 
-For `backend_list<CublasBackend, CudaGenericBackend>`, the selector state is the
-unique concatenation of these tuples:
+The CPO signature remains backend-first:
 
 ```cpp
-using state_t =
-  unique_tuple_cat_t<CublasBackend::state, CudaGenericBackend::state>;
-// std::tuple<Device, Stream, CublasMathMode>
+try_kernel(selector.first(), op, args...);
 ```
 
-The CUDA device is then stored once in `state_t`, even though every CUDA backend
-declares it. `kernel_maybe_can(...)` uses the state and backend tag types for
-compile-time eligibility; `try_kernel(...)` receives the state tuple and a
-backend tag value and may inspect the runtime state it needs.
-
-The CUDA device is the common concrete case. A hypothetical dense MPI-striped
-tensor would need richer shared placement state: communicator, rank ownership,
-and a map from tensor sections to ranks. Those should be represented as state
-tags or tensor storage-domain metadata, not as duplicated fields in every
-candidate backend entry.
-
-Backend entries can declare their required state with a trait or empty base:
-
-```cpp
-template <class... State>
-struct requires_state {
-  using state = std::tuple<State...>;
-};
-
-struct CublasBackend : requires_state<Device, Stream, CublasMathMode> {};
-struct CudaGenericBackend : requires_state<Device, Stream> {};
-```
-
-The dispatch walk uses that declaration to build the selector state:
-
-```cpp
-auto& state = selector.state();
-try_kernel(state, selector.first(), op, args...);
-```
-
-This is deliberately separate from the backend order. `CublasBackend` need not
-derive from `CudaGenericBackend`; both simply require some of the same state
-tags.
+If several entries need shared structural state, the selector can store that
+state once and hand each CPO an appropriate backend value or lightweight backend
+view. Shared state is a selector implementation detail, not a required separate
+`State&` parameter in every leaf-kernel CPO.
 
 `normalize_backend_selector(selector)` is where a compact user override becomes
-the concrete selector used by the dispatch walk. It can use
-`backend_state<BackendList>` to synthesize the state tuple once:
+the concrete selector used by the dispatch walk:
 
 ```cpp
 auto selector =
@@ -124,9 +100,8 @@ auto selector =
       CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}});
 ```
 
-The config object is construction sugar. Internally the selector stores a
-`std::tuple<Device, Stream, CublasMathMode>` computed from the backend state
-requirements.
+The config object is construction sugar. Internally the selector may store
+deduplicated shared state, but that does not change the backend-first CPO shape.
 
 The two configuration rules:
 
@@ -143,6 +118,11 @@ The two configuration rules:
    Backend entries may still carry runtime state such as CUDA device or
    workspace pool. A `RuntimeSelectable` backend or a `std::variant` of backends
    can be layered on later if needed; it is just another list entry.
+
+New Uni20 kernel and linalg APIs use output-first mutable parameters. Backend
+selectors, backend-list overrides, and optional policy/debug objects remain
+trailing parameters. For example, write `gemm(c, alpha, a, b, beta, selector)`
+rather than the BLAS/LAPACK ABI order `gemm(alpha, a, b, beta, c, selector)`.
 
 ## Dispatch operands versus resolved spans
 
@@ -182,47 +162,77 @@ struct gemm_op
     static constexpr char const* name = "gemm";
 };
 
-template <class State> struct state_type {};
-template <class Backend> struct backend_type {};
+enum class KernelTypeAcceptance {
+  no,     // invalid for these types; do not form try_kernel
+  maybe, // runtime values decide
+  yes    // runtime attempt is expected to succeed for every instance
+};
 
-template <class State, class Backend, class Op, class... Args>
+template <class Backend, class Op, class... Args>
 consteval bool backend_has_try_kernel()
 {
-  return requires(State& state, Args&&... args) {
-    { try_kernel(state, Backend{}, Op{}, std::forward<Args>(args)...) } -> std::same_as<bool>;
+  return requires(Backend backend, Op op, Args&&... args) {
+    { try_kernel(backend, op, std::forward<Args>(args)...) } -> std::same_as<bool>;
   };
 }
 
-template <class State, class Backend, class Op, class... Args>
-consteval bool maybe_can_kernel()
+namespace detail {
+template <class T>
+extern std::remove_reference_t<T> kernel_type_probe_object;
+
+template <class T>
+constexpr std::remove_reference_t<T>& kernel_type_probe_arg() noexcept
 {
-  if constexpr (!backend_has_try_kernel<State, Backend, Op, Args...>())
-    return false;
-  else if constexpr (requires {
-             { kernel_maybe_can(state_type<State>{}, backend_type<Backend>{}, Op{},
-                                std::tuple<std::remove_cvref_t<Args>...>{}) }
-                 -> std::convertible_to<bool>;
-           })
-    return bool(kernel_maybe_can(state_type<State>{}, backend_type<Backend>{}, Op{},
-                                 std::tuple<std::remove_cvref_t<Args>...>{}));
+  return kernel_type_probe_object<T>;
+}
+} // namespace detail
+
+template <class Backend, class Op, class... Args>
+consteval KernelTypeAcceptance kernel_type_acceptance()
+{
+  if constexpr (requires {
+             kernel_accepts_types(detail::kernel_type_probe_arg<Backend const&>(),
+                                  detail::kernel_type_probe_arg<Op const&>(),
+                                  detail::kernel_type_probe_arg<Args>()...);
+           }) {
+    constexpr auto acceptance =
+        kernel_accepts_types(detail::kernel_type_probe_arg<Backend const&>(),
+                             detail::kernel_type_probe_arg<Op const&>(),
+                             detail::kernel_type_probe_arg<Args>()...);
+    if constexpr (acceptance == KernelTypeAcceptance::no) {
+      return KernelTypeAcceptance::no;
+    } else {
+      static_assert(backend_has_try_kernel<Backend, Op, Args...>(),
+                    "kernel_accepts_types accepted these types, but try_kernel is not available");
+      return acceptance;
+    }
+  }
+
+  if constexpr (backend_has_try_kernel<Backend, Op, Args...>())
+    return KernelTypeAcceptance::maybe; // constrained try_kernel is the type test
   else
-    return true; // constrained try_kernel overload is the compile-time eligibility test
+    return KernelTypeAcceptance::no;
 }
 
 template <class Backends, class Op, class... Args>
-inline constexpr bool any_maybe_can_kernel_v = false;
+inline constexpr bool any_kernel_type_eligible_v = false;
 
 template <class... Backends, class Op, class... Args>
-inline constexpr bool any_maybe_can_kernel_v<backend_list<Backends...>, Op, Args...> =
-    (maybe_can_kernel<backend_state_t<backend_list<Backends...>>, Backends, Op, Args...>() || ...);
+inline constexpr bool any_kernel_type_eligible_v<backend_list<Backends...>, Op, Args...> =
+    ((kernel_type_acceptance<Backends, Op, Args...>() != KernelTypeAcceptance::no) || ...);
 
 template <class Op, class First, class... Rest, class... Args>
 bool dispatch_kernel(backend_list<First, Rest...> backends, Op op, Args&&... args)
 {
-  using State = backend_state_t<std::remove_cvref_t<decltype(backends)>>;
-  if constexpr (maybe_can_kernel<State, First, Op, Args&&...>())
-    if (try_kernel(backends.state(), First{}, op, std::forward<Args>(args)...))
+  constexpr auto acceptance = kernel_type_acceptance<First, Op, Args&&...>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes) {
+    bool const success = try_kernel(backends.first(), op, std::forward<Args>(args)...);
+    UNI20_ASSERT(success);
+    return true;
+  } else if constexpr (acceptance == KernelTypeAcceptance::maybe) {
+    if (try_kernel(backends.first(), op, std::forward<Args>(args)...))
       return true;
+  }
 
   if constexpr (sizeof...(Rest) > 0)
     return dispatch_kernel(backends.rest(), op, std::forward<Args>(args)...);
@@ -233,8 +243,8 @@ bool dispatch_kernel(backend_list<First, Rest...> backends, Op op, Args&&... arg
 // gemm.hpp
 template <class C, class A, class B,
           class BackendSelector = default_backends_t<C, A, B>> // (1) default from storage
-void gemm(scalar_t<C> alpha, A const& a, B const& b,
-          scalar_t<C> beta, C& c, BackendSelector selector = {}) // (2) overridable parameter
+void gemm(C& c, scalar_t<C> alpha, A const& a, B const& b,
+          scalar_t<C> beta, BackendSelector selector = {}) // (2) overridable parameter
 {
   auto backends = normalize_backend_selector(selector);
   using Backends = std::remove_cvref_t<decltype(backends)>;
@@ -244,9 +254,9 @@ void gemm(scalar_t<C> alpha, A const& a, B const& b,
   // *tail* of the list, and a list like [Blas, Cublas] on host tensors would
   // static_assert when the walk instantiates the [Cublas] tail, even though
   // Blas is eligible.
-  static_assert(any_maybe_can_kernel_v<Backends, gemm_op, scalar_t<C>, A const&, B const&, scalar_t<C>, C&>,
+  static_assert(any_kernel_type_eligible_v<Backends, gemm_op, C&, scalar_t<C>, A const&, B const&, scalar_t<C>>,
                 "no backend in this list can ever service gemm");
-  if (!dispatch_kernel(backends, gemm_op{}, alpha, a, b, beta, c))
+  if (!dispatch_kernel(backends, gemm_op{}, c, alpha, a, b, beta))
     throw no_available_backend{"all eligible gemm backends declined at runtime"};
 }
 ```
@@ -257,8 +267,9 @@ should have:
 - Forcing `make_backend_selector<backend_list<CublasBackend>>(
   CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}})`
   on **host** tensors makes
-  `maybe_can_kernel<CublasBackend, gemm_op, ...>()` false, so the entry-point
-  `static_assert` fires — a **compile error**.
+  `kernel_type_acceptance<CublasBackend, gemm_op, ...>()` is
+  `KernelTypeAcceptance::no`, so the entry-point `static_assert` fires — a
+  **compile error**.
 - Forcing `backend_list{BlasBackend{}}` when libBLAS is not loaded at runtime
   makes `try_kernel(blas_entry, gemm_op{}, ...)` return false, the list is
   exhausted, and the kernel **throws**. The default lists always end in the
@@ -267,25 +278,30 @@ should have:
 ### Three local backends
 
 ```cpp
-struct CpuGenericBackend { using state = std::tuple<>; };   // the correctness oracle
+struct CpuGenericBackend {};                                // the correctness oracle
 
 template <class T>
 using operand_t = std::remove_cvref_t<T>;
 
 template <class Alpha, class A, class B, class Beta, class C>
-constexpr bool kernel_maybe_can(state_type<std::tuple<>>, backend_type<CpuGenericBackend>, gemm_op,
-                                std::tuple<Alpha, A, B, Beta, C>)
+consteval KernelTypeAcceptance
+kernel_accepts_types(CpuGenericBackend const&, gemm_op const&, C&,
+                     Alpha const&, A const&, B const&, Beta const&)
 {
-  return is_host_v<operand_t<C>> && is_host_v<operand_t<A>> &&
-         is_host_v<operand_t<B>>;                            // any scalar, any layout
+  if constexpr (is_host_v<operand_t<C>> &&
+                is_host_v<operand_t<A>> &&
+                is_host_v<operand_t<B>>) {
+    return KernelTypeAcceptance::yes;                          // any scalar, any layout
+  } else {
+    return KernelTypeAcceptance::no;
+  }
 }
 
 // a, b, c are resolved TensorViews — run the kernel immediately, no scheduler.
 template <class C, class A, class B>
-bool try_kernel(std::tuple<>& state, CpuGenericBackend, gemm_op, scalar_t<C> alpha, A const& a,
-                B const& b, scalar_t<C> beta, C& c)
+bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
+                A const& a, B const& b, scalar_t<C> beta)
 {
-  (void)state;
   using T = scalar_t<C>;
   for (size_t i = 0; i < c.extent(0); ++i)
     for (size_t j = 0; j < c.extent(1); ++j) {
@@ -298,42 +314,56 @@ bool try_kernel(std::tuple<>& state, CpuGenericBackend, gemm_op, scalar_t<C> alp
   return true;                                               // infallible
 }
 
-struct BlasBackend { using state = std::tuple<>; };
+struct BlasBackend {};
 
 template <class Alpha, class A, class B, class Beta, class C>
-constexpr bool kernel_maybe_can(state_type<std::tuple<>>, backend_type<BlasBackend>, gemm_op,
-                                std::tuple<Alpha, A, B, Beta, C>)
+consteval KernelTypeAcceptance
+kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
+                     A const&, B const&, Beta const&)
 {
-  return is_host_v<operand_t<C>> && is_host_v<operand_t<A>> && is_host_v<operand_t<B>> &&
-         same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
-         is_blas_scalar_v<scalar_t<operand_t<C>>>;           // f / d / cf / cd only
+  if constexpr (is_host_v<operand_t<C>> &&
+                is_host_v<operand_t<A>> &&
+                is_host_v<operand_t<B>> &&
+                same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
+                is_blas_scalar_v<scalar_t<operand_t<C>>>) {   // f / d / cf / cd only
+    return KernelTypeAcceptance::maybe;                       // strides/library are runtime facts
+  } else {
+    return KernelTypeAcceptance::no;
+  }
 }
 
 // a, b, c are resolved TensorViews — call BLAS immediately, no scheduler.
 template <class C, class A, class B>
-bool try_kernel(std::tuple<>& state, BlasBackend, gemm_op, scalar_t<C> alpha, A const& a,
-                B const& b, scalar_t<C> beta, C& c)
+bool try_kernel(BlasBackend, gemm_op, C& c, scalar_t<C> alpha,
+                A const& a, B const& b, scalar_t<C> beta)
 {
-  (void)state;
   if (!blas::available()) return false;                     // runtime capability
   auto plan = blas::as_gemm(a.layout(), b.layout(), c.layout());  // metadata only
   if (!plan) return false;                                  // strides not BLAS-expressible
-  blas::gemm(*plan, alpha, a, b, beta, c);                  // synchronous call
+  blas::gemm(*plan, c, alpha, a, b, beta);                  // synchronous call
   return true;
 }
 
-struct Device { int value; };
-struct Stream { cudaStream_t value; };
-struct CublasMathMode { math_mode_t value; };
-struct CublasBackend { using state = std::tuple<Device, Stream, CublasMathMode>; };
+struct CublasBackend {
+  int device;
+  cudaStream_t stream;
+  math_mode_t math_mode;
+};
 
 template <class Alpha, class A, class B, class Beta, class C>
-constexpr bool kernel_maybe_can(state_type<CublasBackend::state>, backend_type<CublasBackend>, gemm_op,
-                                std::tuple<Alpha, A, B, Beta, C>)
+consteval KernelTypeAcceptance
+kernel_accepts_types(CublasBackend const&, gemm_op const&, C&, Alpha const&,
+                     A const&, B const&, Beta const&)
 {
-  return is_device_v<operand_t<C>> && is_device_v<operand_t<A>> && is_device_v<operand_t<B>> &&
-         same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
-         is_blas_scalar_v<scalar_t<operand_t<C>>>;
+  if constexpr (is_device_v<operand_t<C>> &&
+                is_device_v<operand_t<A>> &&
+                is_device_v<operand_t<B>> &&
+                same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
+                is_blas_scalar_v<scalar_t<operand_t<C>>>) {
+    return KernelTypeAcceptance::maybe;                       // device placement is runtime
+  } else {
+    return KernelTypeAcceptance::no;
+  }
 }
 
 // Unlike the CPU backends, this *does* go through a scheduler: the CudaScheduler
@@ -341,17 +371,17 @@ constexpr bool kernel_maybe_can(state_type<CublasBackend::state>, backend_type<C
 // (A blocking variant on the default stream is also possible, but the scheduler
 // path is typical.)
 template <class C, class A, class B>
-bool try_kernel(CublasBackend::state& state, CublasBackend, gemm_op, scalar_t<C> alpha, A const& a,
-                B const& b, scalar_t<C> beta, C& c)
+bool try_kernel(CublasBackend backend, gemm_op, C& c, scalar_t<C> alpha,
+                A const& a, B const& b, scalar_t<C> beta)
 {
-  int dev = std::get<Device>(state).value;
-  cublas::set_math_mode(std::get<CublasMathMode>(state).value);
+  int dev = backend.device;
+  cublas::set_math_mode(backend.math_mode);
   if (c.device() != dev) return false;
   for (int other : {a.device(), b.device()})                // operands on another GPU?
     if (other != dev && !cuda::peer_access(dev, other))
       return false;                                         // let a staging backend handle it
-  gpu_scheduler(dev).submit(cublas_gemm_task<C,A,B>, alpha, beta,  // CudaScheduler: stream/event
-                            a.read(), b.read(), c.write());        //   sync is built in; per-GPU
+  gpu_scheduler(dev).submit(cublas_gemm_task<C,A,B>, c.write(),    // CudaScheduler: stream/event
+                            alpha, a.read(), b.read(), beta);      //   sync is built in; per-GPU
   return true;                                                     //   thread holds the cuBLAS handle
 }
 ```
@@ -382,10 +412,9 @@ A distributed backend handles only the distribution layer and recurses into the
 local kernel for the per-MPI-rank compute:
 
 ```cpp
-struct MpiCommunicator { mpi_comm_t value; };
-struct MpiPlacementMap { placement_map_t value; };
 struct MpiBackend {
-  using state = std::tuple<MpiCommunicator, MpiPlacementMap>;
+  mpi_comm_t comm;
+  placement_map_t placement;
 };                                                          // distribution layer only
 
 // is_distributed_v / is_replicated_v are traits of the container's
@@ -394,20 +423,28 @@ struct MpiBackend {
 // is the *common* case (a replicated MPO contracted with a distributed state),
 // so the predicate must not demand distribution of every operand.
 template <class Alpha, class A, class B, class Beta, class C>
-constexpr bool kernel_maybe_can(state_type<MpiBackend::state>, backend_type<MpiBackend>, gemm_op,
-                                std::tuple<Alpha, A, B, Beta, C>)
+consteval KernelTypeAcceptance
+kernel_accepts_types(MpiBackend const&, gemm_op const&, C&, Alpha const&,
+                     A const&, B const&, Beta const&)
 {
-  return (is_distributed_v<operand_t<C>> || is_distributed_v<operand_t<A>> ||
-          is_distributed_v<operand_t<B>>) &&
-         all_distributed_or_replicated_v<operand_t<C>, operand_t<A>, operand_t<B>>;
+  if constexpr ((is_distributed_v<operand_t<C>> ||
+                 is_distributed_v<operand_t<A>> ||
+                 is_distributed_v<operand_t<B>>) &&
+                all_distributed_or_replicated_v<operand_t<C>,
+                                                operand_t<A>,
+                                                operand_t<B>>) {
+    return KernelTypeAcceptance::maybe;                       // plan construction is runtime
+  } else {
+    return KernelTypeAcceptance::no;
+  }
 }
 
 template <class C, class A, class B>
-bool try_kernel(MpiBackend::state& state, MpiBackend, gemm_op, scalar_t<C> alpha, A const& a, B const& b,
-                scalar_t<C> beta, C& c)
+bool try_kernel(MpiBackend backend, gemm_op, C& c, scalar_t<C> alpha,
+                A const& a, B const& b, scalar_t<C> beta)
 {
-  auto& comm = std::get<MpiCommunicator>(state).value;
-  auto& placement = std::get<MpiPlacementMap>(state).value;
+  auto& comm = backend.comm;
+  auto& placement = backend.placement;
   auto plan = mpi::plan_gemm(a.distribution(), b.distribution(), c.distribution());
   (void)comm;
   (void)placement;
@@ -415,10 +452,10 @@ bool try_kernel(MpiBackend::state& state, MpiBackend, gemm_op, scalar_t<C> alpha
   for (auto const& edge : plan->exchanges)
     mpi::post(edge);              // Isend/Irecv first; unique tag per edge (ordering_and_backend_lowering.md)
   for (auto const& t : plan->local_tiles)                    // overlap compute with the exchanges
-    gemm(alpha, t.a_local, t.b_local, t.beta, t.c_local);    // recursion -> local default list
+    gemm(t.c_local, alpha, t.a_local, t.b_local, t.beta);    // recursion -> local default list
   for (auto const& t : plan->remote_tiles) {                 // contributions needing received data
     mpi::wait(t.recv);              // schematic: a real impl schedules these as tasks gated on the receives
-    gemm(alpha, t.a_recv, t.b_recv, scalar_t<C>{1}, t.c_local);  // accumulate into the local tile
+    gemm(t.c_local, alpha, t.a_recv, t.b_recv, scalar_t<C>{1});  // accumulate into the local tile
   }
   return true;
 }
@@ -457,11 +494,13 @@ block-sparse *container*'s `BlockTensorStorage` policy, not a dense memory kind
 off-roadmap). The dense rows dispatch on the leaf `TensorStorage` only.
 
 ```cpp
-gemm(alpha, a, b, beta, c);                                  // default for the storage
-gemm(alpha, a, b, beta, c, CpuGenericBackend{});             // force one backend, no fallback
-gemm(alpha, a, b, beta, c,
+gemm(c, alpha, a, b, beta);                                  // default for the storage
+gemm(c, alpha, a, b, beta, CpuGenericBackend{});             // force one backend, no fallback
+gemm(c, alpha, a, b, beta,
      backend_list{BlasBackend{}, CpuGenericBackend{}});      // pin BLAS-or-oracle
-gemm(alpha, a, b, beta, c,                                  // GPU only, no fallback - fail loudly
+gemm(c, alpha, a, b, beta,
+     BackendChain{BlasBackend{}, CpuGenericBackend{}});      // same idea, chain spelling
+gemm(c, alpha, a, b, beta,                                  // GPU only, no fallback - fail loudly
      make_backend_selector<backend_list<CublasBackend>>(
        CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}}));
 ```
@@ -470,14 +509,19 @@ Singleton backend overrides are syntax for a one-entry backend list. They do not
 get an implicit oracle fallback; if the backend declines at runtime, the
 operation throws just like an exhausted one-element list.
 
+`BackendChain<...>` or `BackendChain{...}` should be treated as selector
+spelling, not a new leaf-kernel protocol. Its acceptance is `no` only when every
+entry is `no`; it is `yes` only when the chain can guarantee success without an
+outer runtime decline; otherwise it is `maybe`.
+
 ## What this pins down
 
 - The dispatch mechanism is a backend-list value plus an operation tag and
-  detected backend customization points: optional `kernel_maybe_can(...)` for
-  compile-time pruning and required `try_kernel(...)` for runtime attempts. The
-  list's type gives static ordering; the list entries carry runtime backend
-  state. No inheritance, no public runtime tags, and no per-kernel dispatcher
-  boilerplate.
+  detected backend customization points: optional `kernel_accepts_types(...)`
+  for type-level no/maybe/yes pruning and required `try_kernel(...)` for runtime
+  attempts. The list's type gives static ordering; the list entries carry any
+  runtime backend state they need. No inheritance, no public runtime tags, and
+  no per-kernel dispatcher boilerplate.
 - The **dispatch-to-async seam is a separate layer above the backends, not the
   backends themselves.** When operands are `Async<T>`, that layer selects the
   backend (on synchronous metadata, before anything is scheduled) and schedules a
@@ -517,8 +561,8 @@ the async runtime:
    (`async_binary_op`, `async_compound_op`). Synchronization lives here, in the
    epoch-queue awaits; the kernel never sees it.
 3. **Backend selection** — the `backend_list` walk for an operation tag
-   (`kernel_maybe_can` / `try_kernel`) and, for a block tensor, the planner that
-   fans out per block. A CPU backend's `try_kernel` calls a layer-1 kernel
+   (`kernel_accepts_types` / `try_kernel`) and, for a block tensor, the planner
+   that fans out per block. A CPU backend's `try_kernel` calls a layer-1 kernel
    directly and synchronously; the CUDA backend submits to the `CudaScheduler`.
    Layer 2 sits *above* this walk in the layering, but the walk runs *first* in
    time: selection happens at submission, on synchronous metadata, and the

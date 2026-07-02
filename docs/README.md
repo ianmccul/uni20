@@ -40,6 +40,7 @@
 ## Krylov and Linear Algebra
 
 - [MPLAPACK Binary128 Setup](mplapack_binary128_setup.md)
+- [Mdspan Linear Algebra Dispatch Plan](mdspan_linalg_dispatch_plan.md)
 - [Krylov Algorithms](krylov_algorithms.md)
 - [Krylov Solver Defaults](krylov_solver_defaults.md)
 - [Krylov Precision Validation](krylov_precision_validation.md)
