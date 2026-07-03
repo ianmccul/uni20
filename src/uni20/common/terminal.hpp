@@ -264,6 +264,8 @@ class TerminalStyle {
     // Conversion from a string
     TerminalStyle(const std::string& s);
 
+    TerminalStyle(char const* s) : TerminalStyle(s != nullptr ? std::string_view(s) : std::string_view{}) {}
+
     TerminalStyle(std::string_view sv) : TerminalStyle(std::string(sv)) {}
 
     // Combine two TerminalStyle objects

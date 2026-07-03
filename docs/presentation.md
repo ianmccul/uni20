@@ -1,4 +1,4 @@
-# Presentation Formatting
+#Presentation Formatting
 
 Uni20 common presentation formatting lives in `uni20::presentation`:
 
@@ -59,17 +59,54 @@ auto rendered = presentation::render(text, policy);
 
 The default terminal and plain policies prefer emoji for semantic status glyphs. Use `glyph_set::unicode` for symbol-only output, or `glyph_set::ascii` when fixed-width terminal behavior matters more than rich status symbols. Central mappings cover status symbols, arrows, ellipsis, square and rounded box/table drawing, diagonal connector glyphs, and tree drawing. ASCII output uses these mappings automatically.
 
-Diagnostic code should choose semantic severity, not literal symbols:
+Diagnostic and display code should choose semantic severity or disposition, not literal symbols:
 
 | Semantic glyph | Intended use | Emoji policy | ASCII policy |
 |---|---|---|---|
+| `success` | Completed, passed, or converged status. | check mark button | `[OK]` |
 | `warning` | Non-fatal warning or advisory diagnostic. | warning sign | `[WARN]` |
+| `info` | Neutral information or progress status. | information sign | `[INFO]` |
 | `failure` | Recoverable error or exception-boundary diagnostic. | cross mark | `[FAIL]` |
 | `fatal` | Abort-path diagnostics such as `PANIC`, `CHECK`, and `PRECONDITION`. | siren | `[FATAL]` |
+| `partial` | Partly completed report status. | yellow circle | `[PARTIAL]` |
+| `deferred` | Intentionally postponed report status. | pause button | `[DEFER]` |
+| `skipped` | Not applicable, out of scope, or unavailable report status. | prohibited sign | `[SKIP]` |
 
-Trace diagnostics use this split so warnings, recoverable errors, and aborting
-assertions remain distinct while still rendering through the active glyph and
-charset policy.
+Trace diagnostics use the severity split so warnings, recoverable errors, and
+aborting assertions remain distinct while still rendering through the active
+glyph and charset policy. Human-facing reports and display output can also use
+the disposition glyphs when communicating progress or review state rather than
+diagnostic severity.
+
+## Styled Text
+
+Use `presentation::style(...)` to define a reusable callable style. The helper
+builds `styled_text`, not ANSI strings, so final rendering still respects
+`UNI20_COLOR`, `NO_COLOR`, `UNI20_CHARSET`, and `UNI20_GLYPHS`:
+
+```cpp
+auto RedBold = presentation::style("Red;Bold");
+
+auto message = RedBold("residual {:.3e}", residual);
+auto value = RedBold(residual);
+auto warning = RedBold(presentation::semantic_glyph::warning, "stagnated at {:.3e}", residual);
+```
+
+`terminal::TerminalStyle` remains the low -
+        level style carrier.It can be constructed from style strings such as `"Red;Bold"` or `"fg:#ff0000;Bold"`,
+    but ordinary presentation and display code should prefer `presentation::style(...)` so color is
+        not rendered too early.
+
+        Styled text can be inserted into table cells without pre
+        - rendering it :
+
+```cpp auto Warn = presentation::style("Yellow;Bold");
+
+report.table("Solver")
+    .column("quantity", presentation::table_alignment::left)
+    .column("value", presentation::table_alignment::left)
+    .row("residual", Warn(presentation::semantic_glyph::warning, "{:.3e}", residual));
+```
 
 ## Text Fallback
 
@@ -106,9 +143,7 @@ See `examples/presentation/` for runnable demonstrations of semantic Unicode/emo
 
 ```cpp
 presentation::report_builder report("Krylov solve");
-report.status(presentation::semantic_glyph::success, "converged")
-    .field("dimension", 128)
-    .field("tolerance", "1.0e-12");
+report.status(presentation::semantic_glyph::success, "converged").field("dimension", 128).field("tolerance", "1.0e-12");
 
 report.table("Solver Summary")
     .grid()
@@ -139,9 +174,24 @@ report.table("Grouped Summary")
     .row({{"solve", 1}, {"Krylov iterations and restart details", 2, presentation::table_alignment::left}});
 ```
 
-`separator()` inserts an explicit body rule without enabling global row separators; `top_separator()` inserts an explicit
-rule before the generated heading row. Automatic borders and separators use `table_border_options::rule_style`, set
-directly with `border_style(...)` or by calling `grid(presentation::table_rule_style::double_line)`.
+`presentation::cell(...)` builds the same `table_cell` explicitly and can carry styled content, spans,
+    and per - cell alignment :
+
+```cpp auto Note = presentation::style("Cyan;Bold");
+
+report.table("Notes")
+    .grid()
+    .column("label", presentation::table_alignment::left)
+    .column("detail", presentation::table_alignment::left)
+    .row({presentation::cell("solver"),
+          presentation::cell(Note("styled note"), 1, presentation::table_alignment::left)});
+```
+
+`separator()` inserts an explicit body rule without enabling global row separators;
+`top_separator()` inserts an explicit rule before the generated heading row
+    .Automatic borders and separators use `table_border_options::rule_style`,
+    set directly with `border_style(...)` or by calling `grid(presentation::table_rule_style::double_line)`
+                                                 .
 
 `table_alignment::decimal` aligns finite values on `.`; values without a decimal point align as if the point followed the
 rendered value. Non-finite spellings such as `nan`, `inf`, and `-inf` are centered in a decimal-aligned cell. A
@@ -179,9 +229,8 @@ Mdspan-like objects can be rendered through the presentation layer:
 #include <uni20/common/presentation_mdspan.hpp>
 
 auto policy = uni20::presentation::terminal_policy(stdout);
-auto text = uni20::presentation::format_mdspan(matrix, policy, [](auto const& value) {
-  return fmt::format("{}", value);
-});
+auto text =
+    uni20::presentation::format_mdspan(matrix, policy, [](auto const& value) { return fmt::format("{}", value); });
 ```
 
 Rank-1 values render as a row vector, rank-2 values render as aligned matrix art, and higher-rank values render as labeled rank-2 slices over every leading-axis coordinate. `format_mdspan(...)` is intentionally exhaustive: printing an actual tensor emits every element.
@@ -197,7 +246,11 @@ preview.max_slices = 4;
 auto result = uni20::presentation::format_mdspan_preview(tensor, policy, preview);
 ```
 
-The preview renderer first uses exhaustive output when the element count is small enough and the result fits `output_policy::wrap_width`. Otherwise it displays edge rows/columns/slices with the active semantic ellipsis glyph and records `mdspan_preview_result::elided = true`. Metadata lines are also width-aware; if the terminal is too narrow for even a one-cell preview, the renderer falls back to a shape/element-count summary plus an elision note.
+    The preview renderer first uses exhaustive output when the element count is small enough and the result
+        fits `output_policy::wrap_width`.Otherwise it displays edge rows /
+    columns / slices with the active semantic ellipsis glyph and records `mdspan_preview_result::elided =
+    true`.Metadata lines are also width - aware;
+if the terminal is too narrow for even a one-cell preview, the renderer falls back to a shape/element-count summary plus an elision note.
 
 Trace uses bounded preview by default for mdspan-like values and tensor/view-like objects, while still applying trace scalar formatting such as floating-point precision. Python and Jupyter tensor display should also be preview-first rather than exhaustive by default, with explicit controls for selected axes, preview limits, and `full=true` opt-in behavior.
 
@@ -212,4 +265,8 @@ options.matrix_axes = uni20::presentation::mdspan_matrix_axes{0, 2};
 auto text = uni20::presentation::format_mdspan(tensor, policy, options);
 ```
 
-Any remaining axes become exhaustive slice labels. With shape `(2, 3, 2)` and matrix axes `{0, 2}`, labels are `slice [:, 0, :]`, `slice [:, 1, :]`, and `slice [:, 2, :]`.
+    Any remaining axes become exhaustive slice labels.With shape `(2, 3, 2)` and matrix axes `
+{
+  0, 2
+}
+`, labels are `slice[:, 0, :]`, `slice[:, 1, :]`, and `slice[:, 2, :]`.

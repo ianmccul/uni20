@@ -155,10 +155,17 @@ TEST(PresentationGlyphs, EmojiPolicyUsesEmojiOnlyForSemanticMappings)
       .append(" ")
       .append(presentation::semantic_glyph::warning)
       .append(" ")
+      .append(presentation::semantic_glyph::partial)
+      .append(" ")
+      .append(presentation::semantic_glyph::deferred)
+      .append(" ")
+      .append(presentation::semantic_glyph::skipped)
+      .append(" ")
       .append(presentation::semantic_glyph::arrow_right);
 
-  EXPECT_EQ(presentation::render(text, policy),
-            "\xE2\x9C\x85 \xE2\x9D\x8C \xF0\x9F\x9A\xA8 \xE2\x9A\xA0\xEF\xB8\x8F \xE2\x9E\xA1\xEF\xB8\x8F");
+  EXPECT_EQ(presentation::render(text, policy), "\xE2\x9C\x85 \xE2\x9D\x8C \xF0\x9F\x9A\xA8 \xE2\x9A\xA0\xEF\xB8\x8F "
+                                                "\xF0\x9F\x9F\xA1 \xE2\x8F\xB8\xEF\xB8\x8F \xF0\x9F\x9A\xAB "
+                                                "\xE2\x9E\xA1\xEF\xB8\x8F");
 }
 
 TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
@@ -173,6 +180,12 @@ TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
       .append(" ")
       .append(presentation::semantic_glyph::warning)
       .append(" ")
+      .append(presentation::semantic_glyph::partial)
+      .append(" ")
+      .append(presentation::semantic_glyph::deferred)
+      .append(" ")
+      .append(presentation::semantic_glyph::skipped)
+      .append(" ")
       .append(presentation::semantic_glyph::arrow_right)
       .append(" ")
       .append(presentation::semantic_glyph::tree_branch)
@@ -181,7 +194,7 @@ TEST(PresentationGlyphs, AsciiPolicyUsesCentralFallbackMappings)
       .append(presentation::semantic_glyph::box_diagonal_forward)
       .append(presentation::semantic_glyph::box_diagonal_back);
 
-  EXPECT_EQ(presentation::render(text, policy), "[OK] [FATAL] [WARN] -> |- +/\\");
+  EXPECT_EQ(presentation::render(text, policy), "[OK] [FATAL] [WARN] [PARTIAL] [DEFER] [SKIP] -> |- +/\\");
 }
 
 TEST(PresentationTextFallback, RawSymbolFallbackCoversCommonNonLanguageSymbols)
@@ -634,7 +647,7 @@ TEST(PresentationInvalidUtf8, InvalidBytesAreEscapedOrReplacedByPolicy)
 TEST(PresentationRenderers, TerminalColorIsPolicyControlled)
 {
   presentation::styled_text text;
-  text.append("red", terminal::TerminalStyle(std::string("Red")));
+  text.append("red", terminal::TerminalStyle("Red"));
 
   auto policy = base_policy();
   policy.color = presentation::color_mode::always;
@@ -643,6 +656,57 @@ TEST(PresentationRenderers, TerminalColorIsPolicyControlled)
   policy.color = presentation::color_mode::never;
   EXPECT_EQ(presentation::render(text, policy), "red");
   EXPECT_EQ(presentation::render_plain(text, policy), "red");
+}
+
+TEST(PresentationStyles, CallableStyleBuildsPolicyAwareStyledText)
+{
+  auto const red_bold = presentation::style("Red;Bold");
+
+  auto literal = red_bold("residual");
+  auto formatted = red_bold("residual {:.2e}", 0.125);
+  auto value = red_bold(42);
+  auto warning = red_bold(presentation::semantic_glyph::warning, "stagnated at {:.1e}", 1.0e-4);
+
+  auto policy = base_policy();
+  policy.color = presentation::color_mode::always;
+  EXPECT_EQ(presentation::render(literal, policy), "\033[1;31mresidual\033[0m");
+  EXPECT_EQ(presentation::render(formatted, policy), "\033[1;31mresidual 1.25e-01\033[0m");
+  EXPECT_EQ(presentation::render(value, policy), "\033[1;31m42\033[0m");
+
+  policy.color = presentation::color_mode::never;
+  policy.glyphs = presentation::glyph_set::ascii;
+  EXPECT_EQ(presentation::render(literal, policy), "residual");
+  EXPECT_EQ(presentation::render(formatted, policy), "residual 1.25e-01");
+  EXPECT_EQ(presentation::render(value, policy), "42");
+  EXPECT_EQ(presentation::render(warning, policy), "[WARN] stagnated at 1.0e-04");
+}
+
+TEST(PresentationReportBuilder, RendersStyledTableCellsThroughPolicy)
+{
+  auto const red_bold = presentation::style("Red;Bold");
+
+  presentation::report_builder report("Styled cells");
+  report.table("Status")
+      .grid()
+      .column("quantity", presentation::table_alignment::left)
+      .column("value", presentation::table_alignment::left)
+      .row("residual", red_bold(presentation::semantic_glyph::warning, "stagnated at {:.1e}", 1.0e-4))
+      .row({presentation::cell("note"),
+            presentation::cell(red_bold("styled note"), 1, presentation::table_alignment::left)});
+
+  auto policy = base_policy();
+  policy.glyphs = presentation::glyph_set::ascii;
+  policy.color = presentation::color_mode::always;
+  auto const rendered = presentation::render_terminal(report, policy);
+
+  EXPECT_NE(rendered.find("\033[1;31m[WARN]\033[0m"), std::string::npos);
+  EXPECT_NE(rendered.find("\033[1;31mstagnated at 1.0e-04\033[0m"), std::string::npos);
+  EXPECT_NE(rendered.find("\033[1;31mstyled note\033[0m"), std::string::npos);
+
+  policy.color = presentation::color_mode::never;
+  auto const plain = presentation::render_plain(report, policy);
+  EXPECT_NE(plain.find("[WARN] stagnated at 1.0e-04"), std::string::npos);
+  EXPECT_EQ(plain.find("\033["), std::string::npos);
 }
 
 TEST(PresentationReportBuilder, RendersStatusFieldsAndAlignedTables)
@@ -686,7 +750,7 @@ TEST(PresentationReportBuilder, TableReferencesRemainStableWhenAddingTables)
   auto const* row = std::get_if<std::vector<presentation::table_cell>>(&entries.front());
   ASSERT_NE(row, nullptr);
   ASSERT_EQ(row->size(), 1U);
-  EXPECT_EQ(row->front().text, "alpha");
+  EXPECT_EQ(presentation::render_plain(row->front().content, presentation::plain_policy()), "alpha");
 }
 
 TEST(PresentationReportBuilder, UsesSemanticGlyphFallbackInAscii)

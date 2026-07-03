@@ -4,6 +4,13 @@ Status: design note, not current API behavior. This note records the intended
 direction for ordinary Uni20 diagnostics and logging beyond the current
 `trace.hpp` macros.
 
+This note predates the screen-display design in
+[Screen Display Layer Plan](display_layer_plan.md). The display layer is the
+primary plan for human-facing terminal/Python progress output. This document
+remains useful for durable logging, structured events, async queueing, and sink
+routing concerns that overlap with display but should not make ordinary screen
+output feel like a heavyweight logging framework.
+
 ## Motivation
 
 The existing trace/check/precondition macros are useful for local debugging,

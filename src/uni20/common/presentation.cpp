@@ -114,23 +114,29 @@ void append_codepoint_escape(std::string& out, char32_t value)
   out += buffer;
 }
 
-[[nodiscard]] terminal::TerminalStyle style(std::string_view spec) { return terminal::TerminalStyle(spec); }
+[[nodiscard]] terminal::TerminalStyle terminal_style(std::string_view spec) { return terminal::TerminalStyle(spec); }
 
 [[nodiscard]] terminal::TerminalStyle status_style(semantic_glyph glyph)
 {
   switch (glyph)
   {
     case semantic_glyph::success:
-      return style("Green;Bold");
+      return terminal_style("Green;Bold");
     case semantic_glyph::failure:
     case semantic_glyph::fatal:
-      return style("Red;Bold");
+      return terminal_style("Red;Bold");
     case semantic_glyph::warning:
-      return style("Yellow;Bold");
+      return terminal_style("Yellow;Bold");
     case semantic_glyph::info:
-      return style("LightBlue;Bold");
+      return terminal_style("LightBlue;Bold");
+    case semantic_glyph::partial:
+      return terminal_style("Yellow;Bold");
+    case semantic_glyph::deferred:
+      return terminal_style("LightMagenta;Bold");
+    case semantic_glyph::skipped:
+      return terminal_style("DarkGray;Bold");
     default:
-      return style("Bold");
+      return terminal_style("Bold");
   }
 }
 
@@ -585,6 +591,12 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "[WARN]";
     case semantic_glyph::info:
       return "[INFO]";
+    case semantic_glyph::partial:
+      return "[PARTIAL]";
+    case semantic_glyph::deferred:
+      return "[DEFER]";
+    case semantic_glyph::skipped:
+      return "[SKIP]";
     case semantic_glyph::arrow_right:
       return "->";
     case semantic_glyph::arrow_left:
@@ -679,6 +691,12 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "\xE2\x9A\xA0";
     case semantic_glyph::info:
       return "\xE2\x84\xB9";
+    case semantic_glyph::partial:
+      return "\xE2\x97\x90";
+    case semantic_glyph::deferred:
+      return "\xE2\x8F\xB8";
+    case semantic_glyph::skipped:
+      return "\xE2\x8A\x98";
     case semantic_glyph::arrow_right:
       return "\xE2\x86\x92";
     case semantic_glyph::arrow_left:
@@ -809,6 +827,12 @@ void append_codepoint_escape(std::string& out, char32_t value)
       return "\xE2\x9A\xA0\xEF\xB8\x8F";
     case semantic_glyph::info:
       return "\xE2\x84\xB9\xEF\xB8\x8F";
+    case semantic_glyph::partial:
+      return "\xF0\x9F\x9F\xA1";
+    case semantic_glyph::deferred:
+      return "\xE2\x8F\xB8\xEF\xB8\x8F";
+    case semantic_glyph::skipped:
+      return "\xF0\x9F\x9A\xAB";
     case semantic_glyph::arrow_right:
       return "\xE2\x9E\xA1\xEF\xB8\x8F";
     case semantic_glyph::arrow_left:
@@ -1450,7 +1474,14 @@ std::deque<report_table> const& report_builder::tables() const noexcept { return
 namespace
 {
 
-[[nodiscard]] std::string pad_table_cell(std::string_view text, std::size_t width, table_alignment alignment,
+[[nodiscard]] std::string render_plain_unwrapped(styled_text const& text, output_policy const& policy)
+{
+  auto render_policy = policy;
+  render_policy.wrap_width = std::nullopt;
+  return render_plain(text, render_policy);
+}
+
+[[nodiscard]] styled_text pad_table_cell(styled_text const& text, std::size_t width, table_alignment alignment,
                                          output_policy const& policy)
 {
   switch (alignment)
@@ -1467,9 +1498,8 @@ namespace
   return pad_right(text, width, policy);
 }
 
-[[nodiscard]] std::size_t decimal_position_width(std::string_view text, output_policy const& policy)
+[[nodiscard]] std::size_t decimal_position_width_rendered(std::string_view rendered, output_policy const& policy)
 {
-  auto const rendered = render_text(text, policy);
   auto const point = rendered.find('.');
   if (point == std::string::npos) return width_of_rendered(rendered, policy);
   return width_of_rendered(std::string_view(rendered).substr(0, point), policy);
@@ -1482,28 +1512,29 @@ namespace
   return false;
 }
 
-[[nodiscard]] std::string pad_decimal(std::string_view text, std::size_t target_width, std::size_t decimal_position,
+[[nodiscard]] styled_text pad_decimal(styled_text const& text, std::size_t target_width, std::size_t decimal_position,
                                       output_policy const& policy)
 {
-  auto rendered = render_text(text, policy);
+  auto const rendered = render_plain_unwrapped(text, policy);
   if (is_nonfinite_decimal_text(rendered))
   {
-    return pad_center(rendered, target_width, policy);
+    return pad_center(text, target_width, policy);
   }
 
-  auto const before_decimal = decimal_position_width(rendered, policy);
+  auto const before_decimal = decimal_position_width_rendered(rendered, policy);
   auto const rendered_width = width_of_rendered(rendered, policy);
   auto const desired_left_padding = decimal_position > before_decimal ? decimal_position - before_decimal : 0;
   auto const max_left_padding = target_width > rendered_width ? target_width - rendered_width : 0;
   std::size_t const left_padding = std::min(desired_left_padding, max_left_padding);
-  if (left_padding > 0) rendered.insert(0, left_padding, ' ');
-  auto const width = width_of_rendered(rendered, policy);
-  if (width >= target_width) return rendered;
-  rendered.append(target_width - width, ' ');
-  return rendered;
+  auto const width = rendered_width + left_padding;
+  styled_text result;
+  if (left_padding > 0) result.append(std::string(left_padding, ' '));
+  result.append(text);
+  if (width < target_width) result.append(std::string(target_width - width, ' '));
+  return result;
 }
 
-[[nodiscard]] std::string pad_table_cell(std::string_view text, std::size_t width, table_alignment alignment,
+[[nodiscard]] styled_text pad_table_cell(styled_text const& text, std::size_t width, table_alignment alignment,
                                          output_policy const& policy, std::optional<std::size_t> decimal_position)
 {
   if (alignment == table_alignment::decimal)
@@ -1561,7 +1592,7 @@ namespace
       auto const span = std::min(std::max<std::size_t>(cell.span, 1), widths.size() - column);
       if (span == 1)
       {
-        widths[column] = std::max(widths[column], display_width(cell.text, policy));
+        widths[column] = std::max(widths[column], display_width(cell.content, policy));
       }
       column += span;
     }
@@ -1592,11 +1623,11 @@ decimal_positions(report_table const& table, output_policy const& policy, std::s
       if (column >= column_count) break;
       auto const span = std::min(std::max<std::size_t>(cell.span, 1), column_count - column);
       auto const alignment = cell.alignment.value_or(column_alignment(table, column));
-      auto const rendered = render_text(cell.text, policy);
+      auto const rendered = render_plain_unwrapped(cell.content, policy);
       if (span == 1 && alignment == table_alignment::decimal && positions[column].has_value() &&
           !is_nonfinite_decimal_text(rendered))
       {
-        positions[column] = std::max(*positions[column], decimal_position_width(rendered, policy));
+        positions[column] = std::max(*positions[column], decimal_position_width_rendered(rendered, policy));
       }
       column += span;
     }
@@ -1621,13 +1652,13 @@ void fit_decimal_table_widths(std::vector<std::size_t>& widths, report_table con
       if (span == 1 && alignment == table_alignment::decimal && column < positions.size() &&
           positions[column].has_value())
       {
-        auto const rendered = render_text(cell.text, policy);
+        auto const rendered = render_plain_unwrapped(cell.content, policy);
         if (is_nonfinite_decimal_text(rendered))
         {
           column += span;
           continue;
         }
-        auto const before_decimal = decimal_position_width(rendered, policy);
+        auto const before_decimal = decimal_position_width_rendered(rendered, policy);
         auto const rendered_width = width_of_rendered(rendered, policy);
         auto const left_padding = *positions[column] > before_decimal ? *positions[column] - before_decimal : 0;
         widths[column] = std::max(widths[column], left_padding + rendered_width);
@@ -1690,7 +1721,7 @@ void fit_spanned_table_widths(std::vector<std::size_t>& widths, report_table con
       auto const span = std::min(std::max<std::size_t>(cell.span, 1), widths.size() - column);
       if (span > 1)
       {
-        grow_spanned_widths(widths, column, span, display_width(cell.text, policy), table.border_options(), ruled);
+        grow_spanned_widths(widths, column, span, display_width(cell.content, policy), table.border_options(), ruled);
       }
       column += span;
     }
@@ -1756,7 +1787,8 @@ void fit_spanned_table_widths(std::vector<std::size_t>& widths, report_table con
       auto const span = std::min(std::max<std::size_t>(cell.span, 1), widths.size() - column);
       if (span == 1)
       {
-        widths[column] = std::max(widths[column], longest_unbreakable_width(cell.text, policy));
+        widths[column] =
+            std::max(widths[column], longest_unbreakable_width(render_plain_unwrapped(cell.content, policy), policy));
       }
       column += span;
     }
@@ -1924,26 +1956,28 @@ struct table_rule_glyphs
   return widths;
 }
 
-[[nodiscard]] std::string padded_table_cell(std::string_view text, std::size_t width, table_alignment alignment,
+[[nodiscard]] styled_text padded_table_cell(styled_text const& text, std::size_t width, table_alignment alignment,
                                             table_border_options const& border_options, output_policy const& policy,
                                             std::optional<std::size_t> decimal_position)
 {
-  return std::string(border_options.horizontal_padding, ' ') +
-         pad_table_cell(text, width, alignment, policy, decimal_position) +
-         std::string(border_options.horizontal_padding, ' ');
+  styled_text result;
+  result.append(std::string(border_options.horizontal_padding, ' '))
+      .append(pad_table_cell(text, width, alignment, policy, decimal_position))
+      .append(std::string(border_options.horizontal_padding, ' '));
+  return result;
 }
 
-[[nodiscard]] std::vector<std::string> wrapped_table_cell(std::string_view text, std::size_t width,
+[[nodiscard]] std::vector<styled_text> wrapped_table_cell(styled_text const& text, std::size_t width,
                                                           output_policy const& policy)
 {
   auto lines = wrap_text(text, std::max<std::size_t>(width, 1), policy);
-  if (lines.empty()) lines.emplace_back();
+  if (lines.empty()) lines.emplace_back(styled_text{});
   return lines;
 }
 
 struct wrapped_table_cell_layout
 {
-    std::vector<std::string> lines;
+    std::vector<styled_text> lines;
     std::size_t width = 1;
     std::size_t span = 1;
     table_alignment alignment = table_alignment::right;
@@ -1967,7 +2001,7 @@ wrapped_table_cells(std::vector<table_cell> const& row, std::vector<std::size_t>
     auto const decimal_position = span == 1 && column < decimals.size() && alignment == table_alignment::decimal
                                       ? decimals[column]
                                       : std::nullopt;
-    cells.push_back(wrapped_table_cell_layout{wrapped_table_cell(cell.text, width, policy), width, span, alignment,
+    cells.push_back(wrapped_table_cell_layout{wrapped_table_cell(cell.content, width, policy), width, span, alignment,
                                               decimal_position});
     column += span;
   }
@@ -1976,8 +2010,8 @@ wrapped_table_cells(std::vector<table_cell> const& row, std::vector<std::size_t>
     auto const alignment = column_alignment(table, column);
     auto const decimal_position =
         column < decimals.size() && alignment == table_alignment::decimal ? decimals[column] : std::nullopt;
-    cells.push_back(wrapped_table_cell_layout{wrapped_table_cell({}, widths[column], policy), widths[column], 1,
-                                              alignment, decimal_position});
+    cells.push_back(wrapped_table_cell_layout{wrapped_table_cell(styled_text{}, widths[column], policy), widths[column],
+                                              1, alignment, decimal_position});
     ++column;
   }
   return cells;
@@ -2042,7 +2076,7 @@ void append_table_rule(styled_text& text, std::vector<std::size_t> const& cell_w
                        std::vector<std::optional<semantic_glyph>> const& junctions, semantic_glyph left,
                        semantic_glyph right)
 {
-  auto const line_style = style("LightGray");
+  auto const line_style = terminal_style("LightGray");
   auto const glyphs = glyphs_for_rule_style(rule_style);
   text.append("  ");
   if (border_options.outer)
@@ -2079,7 +2113,7 @@ void append_ruled_table_row(styled_text& text, report_table const& table, std::v
                             output_policy const& policy, bool heading = false)
 {
   auto const& border_options = table.border_options();
-  auto const line_style = style("LightGray");
+  auto const line_style = terminal_style("LightGray");
   auto const rule_glyphs = glyphs_for_rule_style(border_options.rule_style);
   auto const wrapped_cells = wrapped_table_cells(row, widths, decimals, border_options, true, table, policy);
   auto const height = wrapped_row_height(wrapped_cells);
@@ -2106,11 +2140,17 @@ void append_ruled_table_row(styled_text& text, report_table const& table, std::v
         }
       }
 
-      std::string_view const cell =
-          line < wrapped_cell.lines.size() ? std::string_view(wrapped_cell.lines[line]) : std::string_view{};
-      text.append(padded_table_cell(cell, wrapped_cell.width, wrapped_cell.alignment, border_options, policy,
-                                    wrapped_cell.decimal_position),
-                  heading ? style("LightGray") : terminal::TerminalStyle{});
+      auto const cell = line < wrapped_cell.lines.size() ? wrapped_cell.lines[line] : styled_text{};
+      auto padded = padded_table_cell(cell, wrapped_cell.width, wrapped_cell.alignment, border_options, policy,
+                                      wrapped_cell.decimal_position);
+      if (heading)
+      {
+        text.append(render_plain_unwrapped(padded, policy), terminal_style("LightGray"));
+      }
+      else
+      {
+        text.append(padded);
+      }
       column += wrapped_cell.span;
     }
 
@@ -2135,11 +2175,17 @@ void append_plain_table_row(styled_text& text, report_table const& table, std::v
     for (auto const& wrapped_cell : wrapped_cells)
     {
       if (column > 0) text.append("  ");
-      std::string_view const cell =
-          line < wrapped_cell.lines.size() ? std::string_view(wrapped_cell.lines[line]) : std::string_view{};
-      text.append(
-          pad_table_cell(cell, wrapped_cell.width, wrapped_cell.alignment, policy, wrapped_cell.decimal_position),
-          heading ? style("LightGray") : terminal::TerminalStyle{});
+      auto const cell = line < wrapped_cell.lines.size() ? wrapped_cell.lines[line] : styled_text{};
+      auto padded =
+          pad_table_cell(cell, wrapped_cell.width, wrapped_cell.alignment, policy, wrapped_cell.decimal_position);
+      if (heading)
+      {
+        text.append(render_plain_unwrapped(padded, policy), terminal_style("LightGray"));
+      }
+      else
+      {
+        text.append(padded);
+      }
       column += wrapped_cell.span;
     }
     text.append("\n");
@@ -2261,7 +2307,7 @@ void append_report_table(styled_text& text, report_table const& table, output_po
 {
   if (!table.title().empty())
   {
-    text.append(table.title(), style("Cyan")).append("\n");
+    text.append(table.title(), terminal_style("Cyan")).append("\n");
   }
 
   auto widths = table_widths(table, policy);
@@ -2287,7 +2333,7 @@ styled_text render_report(report_builder const& report, output_policy const& pol
   styled_text text;
   if (!report.title().empty())
   {
-    text.append(report.title(), style("Bold")).append("\n");
+    text.append(report.title(), terminal_style("Bold")).append("\n");
   }
 
   for (auto const& [glyph, label] : report.statuses())
@@ -2303,7 +2349,10 @@ styled_text render_report(report_builder const& report, output_policy const& pol
 
   for (auto const& [key, value] : report.fields())
   {
-    text.append("  ").append(pad_right(key, key_width + 2, policy), style("LightGray")).append(value).append("\n");
+    text.append("  ")
+        .append(pad_right(key, key_width + 2, policy), terminal_style("LightGray"))
+        .append(value)
+        .append("\n");
   }
 
   for (auto const& table : report.tables())
@@ -2329,6 +2378,137 @@ std::string render_plain(report_builder const& report, output_policy policy)
   return render_plain(render_report(report, policy), render_policy);
 }
 
+namespace
+{
+struct styled_unit
+{
+    std::string text;
+    terminal::TerminalStyle style;
+    std::optional<semantic_glyph> glyph;
+};
+
+[[nodiscard]] bool unit_is_breakable_space(styled_unit const& unit)
+{
+  if (unit.glyph.has_value()) return false;
+  auto const decoded = decode_next(unit.text, 0);
+  return decoded.valid && (decoded.value == U' ' || decoded.value == U'\t');
+}
+
+[[nodiscard]] std::size_t unit_width_at(styled_unit const& unit, std::size_t column, output_policy const& policy)
+{
+  if (unit.glyph.has_value()) return width_of_rendered(unit.text, policy, column);
+  auto const decoded = decode_next(unit.text, 0);
+  if (policy.width != width_mode::display_cells) return decoded.bytes;
+  if (!decoded.valid) return 1;
+  if (decoded.value == U'\t') return tab_advance(column, policy.tab_width);
+  if (decoded.value == U'\r') return 0;
+  return codepoint_width_at(unit.text, decoded, decoded.bytes, policy);
+}
+
+[[nodiscard]] styled_text styled_units_to_text(std::vector<styled_unit> const& units, std::size_t begin,
+                                               std::size_t end)
+{
+  styled_text text;
+  std::string current;
+  std::string current_style_key;
+  terminal::TerminalStyle current_style;
+  bool have_current = false;
+
+  auto flush_current = [&] {
+    if (!current.empty())
+    {
+      text.append(current, current_style);
+      current.clear();
+    }
+  };
+
+  for (std::size_t i = begin; i < end; ++i)
+  {
+    if (units[i].glyph.has_value())
+    {
+      flush_current();
+      text.append(*units[i].glyph, units[i].style);
+      have_current = false;
+      continue;
+    }
+
+    auto const style_key = units[i].style.to_string();
+    if (!have_current)
+    {
+      current_style = units[i].style;
+      current_style_key = style_key;
+      have_current = true;
+    }
+    else if (style_key != current_style_key)
+    {
+      flush_current();
+      current_style = units[i].style;
+      current_style_key = style_key;
+    }
+    current += units[i].text;
+  }
+  flush_current();
+  return text;
+}
+
+[[nodiscard]] std::size_t styled_units_width(std::vector<styled_unit> const& units, output_policy const& policy)
+{
+  std::size_t width = 0;
+  for (auto const& unit : units)
+  {
+    width += unit_width_at(unit, width, policy);
+  }
+  return width;
+}
+
+void refresh_styled_break(std::vector<styled_unit> const& units, std::optional<std::size_t>& last_break)
+{
+  last_break = std::nullopt;
+  for (std::size_t i = 0; i < units.size(); ++i)
+  {
+    if (unit_is_breakable_space(units[i])) last_break = i;
+  }
+}
+
+void trim_leading_styled_spaces(std::vector<styled_unit>& units)
+{
+  auto first_non_space = units.begin();
+  while (first_non_space != units.end() && unit_is_breakable_space(*first_non_space))
+  {
+    ++first_non_space;
+  }
+  units.erase(units.begin(), first_non_space);
+}
+
+void append_rendered_units(std::vector<styled_unit>& units, std::string rendered, terminal::TerminalStyle style)
+{
+  for (std::size_t offset = 0; offset < rendered.size();)
+  {
+    auto const decoded = decode_next(rendered, offset);
+    units.push_back(styled_unit{rendered.substr(offset, decoded.bytes), style, std::nullopt});
+    offset += decoded.bytes;
+  }
+}
+
+[[nodiscard]] std::vector<styled_unit> styled_units(styled_text const& text, output_policy const& policy)
+{
+  std::vector<styled_unit> units;
+  for (auto const& span : text.spans())
+  {
+    if (auto const* text_span = std::get_if<styled_text_span>(&span))
+    {
+      append_rendered_units(units, render_text(text_span->text, policy), text_span->style);
+    }
+    else if (auto const* glyph_span = std::get_if<semantic_glyph_span>(&span))
+    {
+      units.push_back(styled_unit{render_glyph(glyph_span->glyph, policy), glyph_span->style, glyph_span->glyph});
+    }
+  }
+  return units;
+}
+
+} // namespace
+
 std::size_t display_width(std::string_view text, output_policy const& policy, std::size_t initial_column)
 {
   auto const rendered = render_text(text, policy);
@@ -2337,7 +2517,7 @@ std::size_t display_width(std::string_view text, output_policy const& policy, st
 
 std::size_t display_width(styled_text const& text, output_policy const& policy, std::size_t initial_column)
 {
-  return width_of_rendered(render_plain(text, policy), policy, initial_column);
+  return width_of_rendered(render_plain_unwrapped(text, policy), policy, initial_column);
 }
 
 std::string pad_left(std::string_view text, std::size_t target_width, output_policy const& policy)
@@ -2346,6 +2526,15 @@ std::string pad_left(std::string_view text, std::size_t target_width, output_pol
   auto const width = width_of_rendered(rendered, policy);
   if (width >= target_width) return rendered;
   return std::string(target_width - width, ' ') + rendered;
+}
+
+styled_text pad_left(styled_text const& text, std::size_t target_width, output_policy const& policy)
+{
+  auto const width = display_width(text, policy);
+  if (width >= target_width) return text;
+  styled_text result;
+  result.append(std::string(target_width - width, ' ')).append(text);
+  return result;
 }
 
 std::string pad_right(std::string_view text, std::size_t target_width, output_policy const& policy)
@@ -2357,6 +2546,15 @@ std::string pad_right(std::string_view text, std::size_t target_width, output_po
   return rendered;
 }
 
+styled_text pad_right(styled_text const& text, std::size_t target_width, output_policy const& policy)
+{
+  auto const width = display_width(text, policy);
+  if (width >= target_width) return text;
+  styled_text result = text;
+  result.append(std::string(target_width - width, ' '));
+  return result;
+}
+
 std::string pad_center(std::string_view text, std::size_t target_width, output_policy const& policy)
 {
   auto rendered = render_text(text, policy);
@@ -2366,6 +2564,18 @@ std::string pad_center(std::string_view text, std::size_t target_width, output_p
   auto const left_padding = total_padding / 2;
   auto const right_padding = total_padding - left_padding;
   return std::string(left_padding, ' ') + rendered + std::string(right_padding, ' ');
+}
+
+styled_text pad_center(styled_text const& text, std::size_t target_width, output_policy const& policy)
+{
+  auto const width = display_width(text, policy);
+  if (width >= target_width) return text;
+  auto const total_padding = target_width - width;
+  auto const left_padding = total_padding / 2;
+  auto const right_padding = total_padding - left_padding;
+  styled_text result;
+  result.append(std::string(left_padding, ' ')).append(text).append(std::string(right_padding, ' '));
+  return result;
 }
 
 std::string clip_to_width(std::string_view text, std::size_t max_width, output_policy const& policy,
@@ -2563,6 +2773,73 @@ std::vector<std::string> wrap_text(std::string_view text, std::size_t max_width,
   }
 
   lines.push_back(current);
+  return lines;
+}
+
+std::vector<styled_text> wrap_text(styled_text const& text, std::size_t max_width, output_policy const& policy)
+{
+  auto const units = styled_units(text, policy);
+  if (max_width == 0) return {styled_units_to_text(units, 0, units.size())};
+
+  std::vector<styled_text> lines;
+  std::vector<styled_unit> current;
+  std::size_t used = 0;
+  std::size_t column = 0;
+  std::optional<std::size_t> last_break;
+
+  auto push_current = [&] {
+    lines.push_back(styled_units_to_text(current, 0, current.size()));
+    current.clear();
+    used = 0;
+    column = 0;
+    last_break = std::nullopt;
+  };
+
+  for (auto const& unit : units)
+  {
+    auto const decoded = decode_next(unit.text, 0);
+    if (decoded.valid && decoded.value == U'\n')
+    {
+      push_current();
+      continue;
+    }
+
+    auto const unit_width = unit_width_at(unit, column, policy);
+    if (used > 0 && used + unit_width > max_width)
+    {
+      if (unit_is_breakable_space(unit))
+      {
+        push_current();
+        continue;
+      }
+
+      if (last_break.has_value())
+      {
+        auto const break_index = *last_break;
+        lines.push_back(styled_units_to_text(current, 0, break_index));
+        std::vector<styled_unit> remainder(current.begin() + static_cast<std::ptrdiff_t>(break_index + 1),
+                                           current.end());
+        current = std::move(remainder);
+        trim_leading_styled_spaces(current);
+        used = styled_units_width(current, policy);
+        column = used;
+        refresh_styled_break(current, last_break);
+      }
+      else
+      {
+        push_current();
+      }
+    }
+
+    if (current.empty() && unit_is_breakable_space(unit)) continue;
+
+    current.push_back(unit);
+    used += unit_width_at(unit, column, policy);
+    column += unit_width_at(unit, column, policy);
+    if (unit_is_breakable_space(unit)) last_break = current.size() - 1;
+  }
+
+  lines.push_back(styled_units_to_text(current, 0, current.size()));
   return lines;
 }
 

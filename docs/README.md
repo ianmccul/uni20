@@ -12,6 +12,7 @@
 - [Trace Macros](trace_macros.md)
 - [Scalar Type Policy](scalar_policy.md)
 - [Presentation Formatting](presentation.md)
+- [Screen Display Layer Plan](display_layer_plan.md)
 - [Diagnostics and Logging Plan](diagnostics_logging_plan.md)
 - [Testing Infrastructure](testing.md)
 - [Architecture Diagram](architecture_diagram.md)

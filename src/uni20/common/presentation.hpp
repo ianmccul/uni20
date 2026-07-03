@@ -120,6 +120,9 @@ enum class semantic_glyph
   fatal,
   warning,
   info,
+  partial,
+  deferred,
+  skipped,
   arrow_right,
   arrow_left,
   arrow_up,
@@ -241,6 +244,140 @@ class styled_text {
     std::vector<presentation_span> spans_;
 };
 
+/// \brief Callable style wrapper that builds styled presentation text.
+/// \details `text_style` keeps style metadata attached to spans without rendering
+///          ANSI escape sequences. Final renderers still apply color, charset,
+///          glyph, and display-width policy.
+class text_style {
+  public:
+    /// \brief Construct an empty style wrapper.
+    text_style() = default;
+
+    /// \brief Construct from an existing terminal style.
+    /// \param style Terminal style metadata to apply to generated spans.
+    explicit text_style(terminal::TerminalStyle style) : style_(std::move(style)) {}
+
+    /// \brief Construct from a terminal style specification string.
+    /// \param spec Style specification such as `"Red;Bold"`.
+    explicit text_style(std::string_view spec) : style_(spec) {}
+
+    /// \brief Construct from a terminal style specification string.
+    /// \param spec Style specification such as `"Red;Bold"`.
+    explicit text_style(char const* spec) : text_style(spec != nullptr ? std::string_view(spec) : std::string_view{}) {}
+
+    /// \brief Return the terminal style metadata carried by this wrapper.
+    /// \return Terminal style metadata.
+    [[nodiscard]] terminal::TerminalStyle const& terminal_style() const noexcept { return style_; }
+
+    /// \brief Build a styled text span from literal text.
+    /// \param text Text payload encoded as UTF-8.
+    /// \return Styled presentation text.
+    [[nodiscard]] styled_text operator()(std::string_view text) const
+    {
+      styled_text result;
+      result.append(text, style_);
+      return result;
+    }
+
+    /// \brief Build a styled text span from literal text.
+    /// \param text Null-terminated text payload encoded as UTF-8.
+    /// \return Styled presentation text.
+    [[nodiscard]] styled_text operator()(char const* text) const
+    {
+      return (*this)(text != nullptr ? std::string_view(text) : std::string_view{});
+    }
+
+    /// \brief Build a styled semantic glyph span.
+    /// \param glyph Semantic glyph to render according to policy.
+    /// \return Styled presentation text.
+    [[nodiscard]] styled_text operator()(semantic_glyph glyph) const
+    {
+      styled_text result;
+      result.append(glyph, style_);
+      return result;
+    }
+
+    /// \brief Format one non-string value with `fmt` and apply this style.
+    /// \tparam T Value type.
+    /// \param value Value to format with the default `{}` formatter.
+    /// \return Styled presentation text.
+    template <typename T>
+      requires(!std::is_convertible_v<T &&, std::string_view> && !std::same_as<std::remove_cvref_t<T>, semantic_glyph>)
+    [[nodiscard]] styled_text operator()(T&& value) const
+    {
+      styled_text result;
+      result.append(fmt::format("{}", std::forward<T>(value)), style_);
+      return result;
+    }
+
+    /// \brief Format text with `fmt` and apply this style.
+    /// \tparam Args Format argument types.
+    /// \param format Compile-time checked format string.
+    /// \param args Format arguments.
+    /// \return Styled presentation text.
+    template <typename... Args>
+      requires(sizeof...(Args) > 0)
+    [[nodiscard]] styled_text operator()(fmt::format_string<Args...> format, Args&&... args) const
+    {
+      styled_text result;
+      result.append(fmt::format(format, std::forward<Args>(args)...), style_);
+      return result;
+    }
+
+    /// \brief Build a styled semantic glyph followed by styled literal text.
+    /// \param glyph Semantic glyph to render according to policy.
+    /// \param text Text payload encoded as UTF-8.
+    /// \return Styled presentation text.
+    [[nodiscard]] styled_text operator()(semantic_glyph glyph, std::string_view text) const
+    {
+      styled_text result;
+      result.append(glyph, style_).append(" ").append(text, style_);
+      return result;
+    }
+
+    /// \brief Build a styled semantic glyph followed by styled literal text.
+    /// \param glyph Semantic glyph to render according to policy.
+    /// \param text Null-terminated text payload encoded as UTF-8.
+    /// \return Styled presentation text.
+    [[nodiscard]] styled_text operator()(semantic_glyph glyph, char const* text) const
+    {
+      return (*this)(glyph, text != nullptr ? std::string_view(text) : std::string_view{});
+    }
+
+    /// \brief Build a styled semantic glyph followed by formatted styled text.
+    /// \tparam Args Format argument types.
+    /// \param glyph Semantic glyph to render according to policy.
+    /// \param format Compile-time checked format string.
+    /// \param args Format arguments.
+    /// \return Styled presentation text.
+    template <typename... Args>
+      requires(sizeof...(Args) > 0)
+    [[nodiscard]] styled_text operator()(semantic_glyph glyph, fmt::format_string<Args...> format, Args&&... args) const
+    {
+      styled_text result;
+      result.append(glyph, style_).append(" ").append(fmt::format(format, std::forward<Args>(args)...), style_);
+      return result;
+    }
+
+  private:
+    terminal::TerminalStyle style_;
+};
+
+/// \brief Create a callable style wrapper from terminal style metadata.
+/// \param style Terminal style metadata to apply to generated spans.
+/// \return Callable style wrapper.
+[[nodiscard]] inline text_style style(terminal::TerminalStyle style) { return text_style(std::move(style)); }
+
+/// \brief Create a callable style wrapper from a style specification.
+/// \param spec Style specification such as `"Red;Bold"`.
+/// \return Callable style wrapper.
+[[nodiscard]] inline text_style style(std::string_view spec) { return text_style(spec); }
+
+/// \brief Create a callable style wrapper from a style specification.
+/// \param spec Style specification such as `"Red;Bold"`.
+/// \return Callable style wrapper.
+[[nodiscard]] inline text_style style(char const* spec) { return text_style(spec); }
+
 /// \brief Column specification for report tables.
 struct table_column
 {
@@ -259,13 +396,76 @@ struct table_border_options
     std::size_t horizontal_padding = 1;
 };
 
-/// \brief Cell specification for table rows, including optional column span.
+/// \brief Cell specification for table rows, including optional style, column span, and alignment.
 struct table_cell
 {
-    std::string text;
+    styled_text content;
     std::size_t span = 1;
     std::optional<table_alignment> alignment = std::nullopt;
+
+    table_cell() = default;
+    table_cell(std::string_view text, std::size_t span_ = 1, std::optional<table_alignment> alignment_ = std::nullopt)
+        : span(span_), alignment(alignment_)
+    {
+      content.append(text);
+    }
+    table_cell(char const* text, std::size_t span_ = 1, std::optional<table_alignment> alignment_ = std::nullopt)
+        : table_cell(text != nullptr ? std::string_view(text) : std::string_view{}, span_, alignment_)
+    {}
+    table_cell(std::string text, std::size_t span_ = 1, std::optional<table_alignment> alignment_ = std::nullopt)
+        : table_cell(std::string_view(text), span_, alignment_)
+    {}
+    table_cell(styled_text text, std::size_t span_ = 1, std::optional<table_alignment> alignment_ = std::nullopt)
+        : content(std::move(text)), span(span_), alignment(alignment_)
+    {}
 };
+
+/// \brief Build a table cell from styled presentation text.
+/// \param content Styled content for the table cell.
+/// \param span Number of table columns spanned by the cell.
+/// \param alignment Optional per-cell alignment override.
+/// \return Table cell specification.
+[[nodiscard]] inline table_cell cell(styled_text content, std::size_t span = 1,
+                                     std::optional<table_alignment> alignment = std::nullopt)
+{
+  return table_cell(std::move(content), span, alignment);
+}
+
+/// \brief Build a table cell from literal text.
+/// \param text Text payload encoded as UTF-8.
+/// \param span Number of table columns spanned by the cell.
+/// \param alignment Optional per-cell alignment override.
+/// \return Table cell specification.
+[[nodiscard]] inline table_cell cell(std::string_view text, std::size_t span = 1,
+                                     std::optional<table_alignment> alignment = std::nullopt)
+{
+  return table_cell(text, span, alignment);
+}
+
+/// \brief Build a table cell from literal text.
+/// \param text Null-terminated text payload encoded as UTF-8.
+/// \param span Number of table columns spanned by the cell.
+/// \param alignment Optional per-cell alignment override.
+/// \return Table cell specification.
+[[nodiscard]] inline table_cell cell(char const* text, std::size_t span = 1,
+                                     std::optional<table_alignment> alignment = std::nullopt)
+{
+  return table_cell(text, span, alignment);
+}
+
+namespace detail
+{
+[[nodiscard]] inline table_cell make_table_cell(table_cell const& value) { return value; }
+[[nodiscard]] inline table_cell make_table_cell(styled_text const& value) { return table_cell(value); }
+[[nodiscard]] inline table_cell make_table_cell(std::string const& value) { return table_cell(value); }
+[[nodiscard]] inline table_cell make_table_cell(std::string_view value) { return table_cell(value); }
+[[nodiscard]] inline table_cell make_table_cell(char const* value) { return table_cell(value); }
+
+template <typename T> [[nodiscard]] table_cell make_table_cell(T const& value)
+{
+  return table_cell(fmt::format("{}", value));
+}
+} // namespace detail
 
 /// \brief Explicit separator row inserted between table data rows.
 struct table_separator
@@ -359,7 +559,7 @@ class report_table {
     /// \return Reference to this table for chaining.
     template <typename... Values> report_table& row(Values const&... values)
     {
-      return this->row(std::vector<std::string>{fmt::format("{}", values)...});
+      return this->row(std::vector<table_cell>{detail::make_table_cell(values)...});
     }
 
     /// \brief Return the table title.
@@ -556,6 +756,13 @@ class report_builder {
 /// \return Rendered text with leading spaces when needed.
 [[nodiscard]] std::string pad_left(std::string_view text, std::size_t target_width, output_policy const& policy);
 
+/// \brief Left-pad styled text to a target width.
+/// \param text Styled text document.
+/// \param target_width Target width in the selected width mode.
+/// \param policy Output policy controlling fallback and width mode.
+/// \return Styled text with leading spaces when needed.
+[[nodiscard]] styled_text pad_left(styled_text const& text, std::size_t target_width, output_policy const& policy);
+
 /// \brief Right-pad rendered text to a target width.
 /// \param text Input text.
 /// \param target_width Target width in the selected width mode.
@@ -563,12 +770,26 @@ class report_builder {
 /// \return Rendered text with trailing spaces when needed.
 [[nodiscard]] std::string pad_right(std::string_view text, std::size_t target_width, output_policy const& policy);
 
+/// \brief Right-pad styled text to a target width.
+/// \param text Styled text document.
+/// \param target_width Target width in the selected width mode.
+/// \param policy Output policy controlling fallback and width mode.
+/// \return Styled text with trailing spaces when needed.
+[[nodiscard]] styled_text pad_right(styled_text const& text, std::size_t target_width, output_policy const& policy);
+
 /// \brief Center rendered text within a target width.
 /// \param text Input text.
 /// \param target_width Target width in the selected width mode.
 /// \param policy Output policy controlling fallback and width mode.
 /// \return Rendered text padded on both sides when needed.
 [[nodiscard]] std::string pad_center(std::string_view text, std::size_t target_width, output_policy const& policy);
+
+/// \brief Center styled text within a target width.
+/// \param text Styled text document.
+/// \param target_width Target width in the selected width mode.
+/// \param policy Output policy controlling fallback and width mode.
+/// \return Styled text padded on both sides when needed.
+[[nodiscard]] styled_text pad_center(styled_text const& text, std::size_t target_width, output_policy const& policy);
 
 /// \brief Clip rendered text to a target width without appending a marker.
 /// \param text Input text.
@@ -624,6 +845,14 @@ class report_builder {
 /// \param policy Output policy controlling fallback and width mode.
 /// \return Wrapped rendered lines.
 [[nodiscard]] std::vector<std::string> wrap_text(std::string_view text, std::size_t max_width,
+                                                 output_policy const& policy);
+
+/// \brief Wrap styled text by display cells or bytes.
+/// \param text Styled text document.
+/// \param max_width Maximum width per line.
+/// \param policy Output policy controlling glyph, fallback, and width mode.
+/// \return Wrapped styled lines.
+[[nodiscard]] std::vector<styled_text> wrap_text(styled_text const& text, std::size_t max_width,
                                                  output_policy const& policy);
 
 /// \brief Select the configured precision for a Uni20 real scalar type.
