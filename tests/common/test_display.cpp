@@ -197,6 +197,7 @@ TEST(DisplayStreamingTable, EmitsHeaderOnceAndKeepsLaterRowsCompact)
 
   auto const second_lines = split_lines(render_ascii(events[1]));
   EXPECT_GT(second_lines.size(), 1U);
+  EXPECT_NE(second_lines[1].find("->"), std::string::npos);
   for (auto const& line : second_lines)
   {
     EXPECT_LE(presentation::display_width(line, ascii_policy()), 24U);
@@ -227,6 +228,225 @@ TEST(DisplayStreamingTable, VeryNarrowWidthUsesVerticalFallback)
   EXPECT_NE(rendered.find("sweep:"), std::string::npos);
   EXPECT_NE(rendered.find("status:"), std::string::npos);
   EXPECT_NE(rendered.find("bond"), std::string::npos);
+  EXPECT_NE(rendered.find("->"), std::string::npos);
+}
+
+TEST(DisplayStreamingTable, WideSchemaUsesVerticalFallbackInsteadOfTerminalWrap)
+{
+  std::vector<display::event> events;
+  display::scoped_sink capture([&](display::event const& event) { events.push_back(event); });
+
+  auto table = display::table("Wide");
+  table.wrap_width(28)
+      .column("sweep", display::width::fixed(5))
+      .column("energy", display::width::fixed(14), presentation::table_alignment::decimal)
+      .column("delta", display::width::fixed(10), presentation::table_alignment::decimal)
+      .column("bond", display::width::fixed(6))
+      .column("status", display::width::fixed(12), presentation::table_alignment::left);
+
+  table.row(2, "-12.456789", "-1.1e-1", 256, "accepted");
+
+  ASSERT_EQ(events.size(), 1U);
+  auto const rendered = render_ascii(events[0]);
+  EXPECT_NE(rendered.find("sweep:"), std::string::npos);
+  EXPECT_NE(rendered.find("energy:"), std::string::npos);
+  EXPECT_EQ(rendered.find("sweep  energy"), std::string::npos);
+  for (auto const& line : split_lines(rendered))
+  {
+    EXPECT_LE(presentation::display_width(line, ascii_policy()), 28U);
+  }
+  expect_no_trailing_spaces(rendered);
+}
+
+TEST(DisplayStreamingTable, LongTitleWrapsWithContinuationMarker)
+{
+  std::vector<display::event> events;
+  display::scoped_sink capture([&](display::event const& event) { events.push_back(event); });
+
+  auto table = display::table("Streaming diagnostics for an intentionally narrow terminal");
+  table.wrap_width(28).column("sweep", display::width::fixed(5)).column("status", display::width::fixed(12));
+
+  table.row(1, "ok");
+
+  ASSERT_EQ(events.size(), 1U);
+  auto const rendered = render_ascii(events[0]);
+  auto const lines = split_lines(rendered);
+  ASSERT_GE(lines.size(), 2U);
+  EXPECT_NE(lines[1].find("->"), std::string::npos);
+  for (auto const& line : lines)
+  {
+    EXPECT_LE(presentation::display_width(line, ascii_policy()), 28U);
+  }
+  expect_no_trailing_spaces(rendered);
+}
+
+TEST(DisplayStreamingTable, MarksWrappedCellEvenWhenFirstColumnWraps)
+{
+  std::vector<display::event> events;
+  display::scoped_sink capture([&](display::event const& event) { events.push_back(event); });
+
+  auto table = display::table("Labels");
+  table.wrap_width(24)
+      .column("label", display::width::fixed(10), presentation::table_alignment::left)
+      .column("status", display::width::fixed(8), presentation::table_alignment::left);
+
+  table.row("alpha beta gamma", "ok");
+
+  ASSERT_EQ(events.size(), 1U);
+  auto const lines = split_lines(render_ascii(events[0]));
+  ASSERT_GE(lines.size(), 4U);
+  EXPECT_NE(lines.back().find("->"), std::string::npos);
+  EXPECT_NE(lines.back().find("gamma"), std::string::npos);
+  for (auto const& line : lines)
+  {
+    EXPECT_LE(presentation::display_width(line, ascii_policy()), 24U);
+  }
+  expect_no_trailing_spaces(render_ascii(events[0]));
+}
+
+TEST(DisplayStreamingTable, DecimalAlignmentKeepsLaterShorterFractionsAligned)
+{
+  std::vector<display::event> events;
+  display::scoped_sink capture([&](display::event const& event) { events.push_back(event); });
+
+  auto table = display::table("Energy");
+  table.wrap_width(60)
+      .column("step", display::width::fixed(4))
+      .column("energy", display::width::fixed(18), presentation::table_alignment::decimal, display::format::number())
+      .column("state", display::width::fixed(6), presentation::table_alignment::left);
+
+  table.row(1, -12.345678901234, "base");
+  table.row(2, -12.467, "short");
+
+  ASSERT_EQ(events.size(), 2U);
+  auto const first_lines = split_lines(render_ascii(events[0]));
+  ASSERT_FALSE(first_lines.empty());
+  auto const first_row = first_lines.back();
+  auto const second_lines = split_lines(render_ascii(events[1]));
+  ASSERT_FALSE(second_lines.empty());
+  auto const second_row = second_lines.front();
+
+  ASSERT_NE(first_row.find('.'), std::string::npos);
+  ASSERT_NE(second_row.find('.'), std::string::npos);
+  EXPECT_EQ(first_row.find('.'), second_row.find('.'));
+  expect_no_trailing_spaces(render_ascii(events[0]));
+  expect_no_trailing_spaces(render_ascii(events[1]));
+}
+
+TEST(DisplayStreamingTable, ColumnNumericFormatAppliesToTypedValues)
+{
+  std::vector<display::event> events;
+  display::scoped_sink capture([&](display::event const& event) { events.push_back(event); });
+
+  auto table = display::table("Energy");
+  table.wrap_width(48)
+      .column("step", display::width::fixed(4))
+      .column("energy", display::width::fixed(12), display::format::fixed(3));
+
+  table.row(1, 1.25);
+
+  ASSERT_EQ(events.size(), 1U);
+  auto const rendered = render_ascii(events[0]);
+  EXPECT_NE(rendered.find("1.250"), std::string::npos);
+  EXPECT_EQ(rendered.find("1.25  "), std::string::npos);
+}
+
+TEST(DisplayStreamingTable, NumericFormatWithoutWidthUsesFitColumn)
+{
+  std::vector<display::event> events;
+  display::scoped_sink capture([&](display::event const& event) { events.push_back(event); });
+
+  auto table = display::table("Energy");
+  table.wrap_width(48)
+      .column("step", display::width::fixed(4))
+      .column("energy", display::format::fixed(2))
+      .column("state", display::width::fixed(5), presentation::table_alignment::left);
+
+  table.row(1, 1234.5, "base");
+  table.row(2, 1.25, "next");
+
+  ASSERT_EQ(events.size(), 2U);
+  auto const first_lines = split_lines(render_ascii(events[0]));
+  auto const second_lines = split_lines(render_ascii(events[1]));
+  ASSERT_FALSE(first_lines.empty());
+  ASSERT_FALSE(second_lines.empty());
+
+  auto const first_row = first_lines.back();
+  auto const second_row = second_lines.front();
+  ASSERT_NE(first_row.find('.'), std::string::npos);
+  ASSERT_NE(second_row.find('.'), std::string::npos);
+  EXPECT_EQ(first_row.find('.'), second_row.find('.'));
+  EXPECT_NE(first_row.find("1234.50"), std::string::npos);
+  EXPECT_NE(second_row.find("1.25"), std::string::npos);
+
+  auto const header = first_lines.size() > 1 ? first_lines[1] : std::string{};
+  auto const energy_position = header.find("energy");
+  auto const state_position = header.find("state");
+  ASSERT_NE(energy_position, std::string::npos);
+  ASSERT_NE(state_position, std::string::npos);
+  EXPECT_LT(state_position - energy_position, 14U);
+
+  expect_no_trailing_spaces(render_ascii(events[0]));
+  expect_no_trailing_spaces(render_ascii(events[1]));
+}
+
+TEST(DisplayStreamingTable, FitNumericColumnGrowsForLaterWideValues)
+{
+  std::vector<display::event> events;
+  display::scoped_sink capture([&](display::event const& event) { events.push_back(event); });
+
+  auto table = display::table("Residuals");
+  table.wrap_width(44)
+      .column("id", display::width::fixed(2))
+      .column("value", display::format::fixed(2))
+      .column("status", display::width::share(1, 8), presentation::table_alignment::left);
+
+  table.row(1, 1.25, "accepted");
+  table.row(2, 123456789.12, "accepted");
+
+  ASSERT_EQ(events.size(), 2U);
+  auto const second = render_ascii(events[1]);
+  EXPECT_NE(second.find("123456789.12"), std::string::npos);
+  EXPECT_EQ(second.find("->"), std::string::npos);
+  for (auto const& line : split_lines(second))
+  {
+    EXPECT_LE(presentation::display_width(line, ascii_policy()), 44U);
+  }
+  expect_no_trailing_spaces(second);
+}
+
+TEST(DisplayStreamingTable, NumericColumnTreatsTextAsExceptionalCell)
+{
+  std::vector<display::event> events;
+  display::scoped_sink capture([&](display::event const& event) { events.push_back(event); });
+
+  auto table = display::table("Energy");
+  table.wrap_width(64)
+      .column("step", display::width::fixed(4))
+      .column("energy", display::width::fixed(18), presentation::table_alignment::decimal, display::format::fixed(6))
+      .column("state", display::width::fixed(8), presentation::table_alignment::left);
+
+  table.row(1, -12.5, "base");
+  table.row(2, "non-converged", "fail");
+  table.row(3, -1.25, "after");
+
+  ASSERT_EQ(events.size(), 3U);
+  auto const first_lines = split_lines(render_ascii(events[0]));
+  auto const second_lines = split_lines(render_ascii(events[1]));
+  auto const third_lines = split_lines(render_ascii(events[2]));
+  ASSERT_FALSE(first_lines.empty());
+  ASSERT_FALSE(second_lines.empty());
+  ASSERT_FALSE(third_lines.empty());
+
+  auto const first_row = first_lines.back();
+  auto const second_row = second_lines.front();
+  auto const third_row = third_lines.front();
+
+  EXPECT_NE(second_row.find("non-converged"), std::string::npos);
+  EXPECT_EQ(second_row.find('.'), std::string::npos);
+  ASSERT_NE(first_row.find('.'), std::string::npos);
+  ASSERT_NE(third_row.find('.'), std::string::npos);
+  EXPECT_EQ(first_row.find('.'), third_row.find('.'));
 }
 
 TEST(DisplayStreamingTable, RejectsMismatchedRowsAndLateSchemaChanges)

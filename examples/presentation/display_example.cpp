@@ -58,16 +58,15 @@ int main()
 
   display::emit(std::move(summary), display::stream::out);
 
-  auto sweeps = display::table("Streaming DMRG sweeps");
-  sweeps.wrap_width(72)
-      .column("sweep", display::width::fixed(5))
-      .column("energy", display::width::fixed(18), presentation::table_alignment::decimal)
-      .column("dE", display::width::fixed(12), presentation::table_alignment::decimal)
+  auto sweeps = display::table("Streaming DMRG sweeps, terminal width");
+  sweeps.column("sweep", display::width::fixed(5))
+      .column("energy", display::format::fixed(12))
+      .column("dE", display::format::scientific(3))
       .column("bond", display::width::fixed(6))
       .column("status", display::width::share(1), presentation::table_alignment::left);
 
-  sweeps.row(1, "-12.345678901234", "-", 128, Good(presentation::semantic_glyph::success, "accepted"));
-  sweeps.row(2, "-12.456789012345", "-1.111e-1", 256,
+  sweeps.row(1, -12.345678901234, "-", 128, Good(presentation::semantic_glyph::success, "accepted"));
+  sweeps.row(2, -12.456789012345, -1.111e-1, 256,
              Caution(presentation::semantic_glyph::warning, "bond cap reached; truncation error 3.2e-7"));
-  sweeps.row(3, "-12.467000000000", "-1.021e-2", 256, Good(presentation::semantic_glyph::success, "accepted"));
+  sweeps.row(3, -12.467, -1.02155e-2, 256, Good(presentation::semantic_glyph::success, "accepted"));
 }

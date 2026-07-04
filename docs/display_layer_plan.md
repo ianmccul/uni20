@@ -221,10 +221,8 @@ streaming. A streaming table should be schema-first rather than data-first:
 ```cpp
 auto sweeps = display::table("DMRG sweeps")
   .column("sweep", display::width::fixed(5))
-  .column("energy", display::width::share(3),
-          presentation::table_alignment::decimal)
-  .column("delta", display::width::share(2),
-          presentation::table_alignment::decimal)
+  .column("energy", display::format::fixed(12))
+  .column("delta", display::format::scientific(3))
   .column("bond", display::width::fixed(6))
   .column("status", display::width::share(4));
 
@@ -268,12 +266,44 @@ This means one long status message may produce:
 sweep  energy             delta       bond  status
 1      -12.345678901234   -           128   accepted
 2      -12.456789012345   -1.111e-1   256   bond cap reached;
-                                             truncation error 3.2e-7
+                                             -> truncation error 3.2e-7
 3      -12.467000000000   -1.021e-2   256   accepted
 ```
 
 The table schema remains stable after row 2. Row 3 does not inherit row 2's
-wrapping.
+wrapping. Continuation lines should carry a visible marker, rendered from a
+semantic arrow glyph, inside the cell that wrapped so progress output is easy
+to scan without changing the chosen column widths or relying on a blank leading
+column.
+
+Streaming tables should not rely on terminal auto-wrap. The formatter should
+emit physical lines that fit the selected terminal width; if the configured
+schema cannot fit, it should switch to a vertical key/value fallback instead of
+letting a wide row spill into the next terminal line.
+
+Streaming columns can declare default value formatting as part of the schema.
+For example, a solver progress table can use fixed-point formatting for an
+energy column and scientific formatting for a residual column. Typed numeric
+values use the column formatter and participate in decimal alignment. If a
+numeric format such as `display::format::fixed(...)`,
+`display::format::scientific(...)`, or `display::format::general(...)` is
+supplied without an explicit alignment, the column defaults to decimal
+alignment. If the width is omitted for a numeric format, the column uses a
+non-greedy fit width: it starts from a format-specific minimum, does not absorb
+terminal slack, and can grow for later rows by using unused space or by
+shrinking shared columns toward their minimum widths. If the width is omitted
+for text or automatic columns, the column uses the ordinary shared-width
+terminal allocation. Use explicit fixed widths when a field should never change
+width; reserve shared-width columns for prose-like fields that should absorb
+terminal slack. Text sent to a numeric column, for example `"non-converged"`, is
+treated as exceptional text: it is displayed in the column but does not update
+the decimal anchor.
+
+Decimal-aligned numeric streaming columns keep a per-column decimal anchor based
+on numeric rows seen so far. This aligns later shorter values with earlier
+values in the common progress-output case. If a later row has more display cells
+before the decimal than any previous row, future rows can use the wider anchor,
+but already-emitted rows are not reflowed.
 
 The current streaming-table API accepts values that can be converted to strings
 through `fmt::format`, plus `presentation::styled_text` and
@@ -562,8 +592,8 @@ display::emit(report);
 
 ```cpp auto table = display::table("DMRG sweeps")
                          .column("sweep", display::width::fixed(5))
-                         .column("energy", display::width::share(3), presentation::table_alignment::decimal)
-                         .column("dE", display::width::share(2), presentation::table_alignment::decimal)
+                         .column("energy", display::format::fixed(12))
+                         .column("dE", display::format::scientific(3))
                          .column("m", display::width::fixed(5))
                          .column("status", display::width::share(3));
 

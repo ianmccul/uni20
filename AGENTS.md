@@ -48,6 +48,15 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 * Use `int const& x` style — `const` follows the type.
 * When calling member functions from within other members, use `this->foo()` to clarify scope.
 * Use trailing underscores (`_`) on private member variables, except for simple aggregates.
+* Use C++20 designated initializers for aggregate configuration objects when
+  they improve readability. For aggregate config structs intended for
+  designated initialization, give every optional/defaulted field an explicit
+  default member initializer (`= ...` or `= {}`). Treat fields without explicit
+  defaults as required. In C++ aggregate list-initialization, omitted
+  non-reference members are already initialized from `{}` when no default member
+  initializer exists, so `-Wmissing-field-initializers` is a style/API signal
+  rather than an uninitialized-memory warning: a warning should mean either a
+  required field was omitted or the aggregate should spell out its default.
 * Use `constexpr`, `consteval`, and concepts from C++23 wherever they simplify code or improve correctness.
 * Uni20 uses the Kokkos reference `mdspan` implementation, in namespace `stdex::`.
 * Uni20 uses square brackets `[]` for multi-dimensional indexing of tensors. **Do not** define `MDSPAN_USE_PAREN_OPERATOR`, use `[]` instead. This may mean adding brackets when code like `[a,b]` is used in a macro invocation, especially in TRACE and gtest macros.
