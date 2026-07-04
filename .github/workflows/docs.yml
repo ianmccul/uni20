@@ -37,10 +37,14 @@ jobs:
       - name: Verify generated site
         run: test -f build/docs/html/index.html
 
+      - name: Disable Jekyll processing
+        run: touch build/docs/html/.nojekyll
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: ./build/docs/html
+          include-hidden-files: true
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v5
