@@ -1,32 +1,397 @@
-/* Minimal stylesheet overrides for generated Doxygen HTML. */
+/* Site-level presentation overrides for generated Doxygen HTML. */
 
 :root {
-  --page-accent: #0b6e4f;
-  --page-accent-strong: #084c3a;
-  --page-surface: #f6f8f6;
+  --uni20-bg: #f4f6f8;
+  --uni20-panel: #ffffff;
+  --uni20-panel-muted: #f8fafb;
+  --uni20-text: #1c2733;
+  --uni20-muted: #5e6c7b;
+  --uni20-line: #d9e1e8;
+  --uni20-line-strong: #c3ced8;
+  --uni20-accent: #0b6f6a;
+  --uni20-accent-strong: #084d49;
+  --uni20-accent-soft: #e4f2f0;
+  --uni20-code-bg: #f0f4f7;
+  --uni20-code-text: #243447;
+  --uni20-code-border: #cfd9e2;
+  --uni20-fragment-bg: #f7f9fb;
+  --uni20-proto-bg: #eef4f7;
+  --uni20-shadow: 0 1px 2px rgba(22, 31, 44, 0.07), 0 10px 26px rgba(22, 31, 44, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --uni20-bg: #0f1419;
+    --uni20-panel: #151b22;
+    --uni20-panel-muted: #1b232c;
+    --uni20-text: #e6edf3;
+    --uni20-muted: #a8b4c0;
+    --uni20-line: #303b46;
+    --uni20-line-strong: #465461;
+    --uni20-accent: #35c2b6;
+    --uni20-accent-strong: #8be8df;
+    --uni20-accent-soft: #123c3c;
+    --uni20-code-bg: #101820;
+    --uni20-code-text: #dbe7f1;
+    --uni20-code-border: #354350;
+    --uni20-fragment-bg: #101820;
+    --uni20-proto-bg: #1c2630;
+    --uni20-shadow: 0 1px 2px rgba(0, 0, 0, 0.34), 0 16px 36px rgba(0, 0, 0, 0.28);
+
+    --page-background-color: var(--uni20-bg);
+    --page-foreground-color: var(--uni20-text);
+    --page-link-color: var(--uni20-accent-strong);
+    --page-visited-link-color: #b8c8ff;
+    --header-background-color: var(--uni20-panel);
+    --title-background-color: var(--uni20-panel);
+    --separator-color: var(--uni20-line);
+    --blockquote-background-color: var(--uni20-panel-muted);
+    --memdecl-background-color: var(--uni20-panel-muted);
+    --memdef-title-background-color: #202b35;
+    --memdef-proto-background-color: #1c2630;
+    --memdef-doc-background-color: var(--uni20-panel);
+    --nav-background-color: var(--uni20-panel);
+    --nav-menu-background-color: var(--uni20-panel);
+    --nav-text-normal-color: var(--uni20-text);
+    --nav-text-hover-color: var(--uni20-accent-strong);
+    --nav-text-active-color: var(--uni20-accent-strong);
+    --search-background-color: #101720;
+    --search-foreground-color: var(--uni20-text);
+    --search-filter-background-color: var(--uni20-panel-muted);
+    --search-results-background-color: var(--uni20-panel);
+    --fragment-background-color: #101820;
+    --fragment-foreground-color: var(--uni20-text);
+    --fragment-border-color: var(--uni20-code-border);
+    --table-cell-border-color: var(--uni20-line);
+    --table-header-background-color: #21313d;
+    --label-background-color: #1d524f;
+    --toc-background-color: var(--uni20-panel-muted);
+  }
+}
+
+html {
+  background: var(--uni20-bg);
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  background: var(--uni20-bg);
+  color: var(--uni20-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.58;
+}
+
+a {
+  color: var(--uni20-accent);
+}
+
+a:hover {
+  color: var(--uni20-accent-strong);
+  text-decoration-thickness: 2px;
+}
+
+#top {
+  background: var(--uni20-panel);
+  border-bottom: 1px solid var(--uni20-line);
+  box-shadow: 0 1px 10px rgba(22, 31, 44, 0.05);
 }
 
 #titlearea {
-  border-bottom: 3px solid var(--page-accent);
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 18px 28px 14px;
+  border-bottom: 0;
+}
+
+#titlearea table {
+  width: 100%;
 }
 
 #projectname {
-  color: var(--page-accent-strong);
-  letter-spacing: 0.02em;
+  color: var(--uni20-text);
+  font-size: 2rem;
+  font-weight: 740;
+  letter-spacing: 0;
+}
+
+#projectbrief {
+  margin-top: 2px;
+  color: var(--uni20-muted);
+  font-size: 0.95rem;
+}
+
+#main-nav {
+  border-top: 1px solid var(--uni20-line);
+}
+
+.sm-dox,
+.sm-dox ul {
+  background: var(--uni20-panel);
 }
 
 .sm-dox a,
-.contents a,
-.headertitle a {
-  color: var(--page-accent);
+.sm-dox a:focus,
+.sm-dox a:hover,
+.sm-dox a:active {
+  color: var(--uni20-text);
+  text-shadow: none;
+}
+
+.sm-dox a:hover,
+.sm-dox a:focus {
+  background: var(--uni20-accent-soft);
+}
+
+#MSearchBox {
+  border: 1px solid var(--uni20-line-strong);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+div.header {
+  margin: 0 0 18px;
+  padding: 20px 0 12px;
+  background: transparent;
+  border-bottom: 1px solid var(--uni20-line);
+}
+
+.headertitle {
+  padding: 0;
+}
+
+.title {
+  color: var(--uni20-text);
+  font-size: 2rem;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.contents {
+  box-sizing: border-box;
+  max-width: 1120px;
+  margin: 22px auto 42px;
+  padding: 0 28px;
+}
+
+.textblock {
+  box-sizing: border-box;
+  background: var(--uni20-panel);
+  border: 1px solid var(--uni20-line);
+  border-radius: 8px;
+  box-shadow: var(--uni20-shadow);
+  padding: 28px;
+}
+
+.contents h1,
+.contents h2,
+.contents h3 {
+  color: var(--uni20-text);
+  letter-spacing: 0;
+}
+
+.contents h1 {
+  margin-top: 0;
+  font-size: 2.15rem;
+  line-height: 1.15;
+}
+
+.contents h2 {
+  margin-top: 2rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--uni20-line);
+  font-size: 1.32rem;
+}
+
+.contents h3 {
+  font-size: 1.05rem;
+}
+
+.contents p,
+.contents li {
+  color: var(--uni20-text);
+}
+
+.contents ul {
+  padding-left: 1.25rem;
+}
+
+.contents li + li {
+  margin-top: 0.2rem;
+}
+
+.contents code,
+.contents tt {
+  padding: 0.12rem 0.28rem;
+  border: 1px solid var(--uni20-code-border);
+  border-radius: 4px;
+  background: var(--uni20-code-bg);
+  color: var(--uni20-code-text);
+  font-size: 0.92em;
 }
 
 .fragment,
 div.fragment {
-  border-radius: 6px;
+  border: 1px solid var(--uni20-code-border);
+  border-radius: 8px;
+  background: var(--uni20-fragment-bg);
+  box-shadow: none;
+}
+
+div.line {
+  line-height: 1.52;
+}
+
+table.directory,
+table.memberdecls {
+  border: 1px solid var(--uni20-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--uni20-panel);
 }
 
 table.directory tr:nth-child(even),
 table.memberdecls tr:nth-child(even) {
-  background: var(--page-surface);
+  background: var(--uni20-panel-muted);
+}
+
+.memtitle,
+.memproto,
+.memdoc {
+  border-color: var(--uni20-line);
+  box-shadow: none;
+}
+
+.memtitle {
+  background: var(--uni20-panel-muted);
+}
+
+.memproto {
+  background: var(--uni20-proto-bg);
+}
+
+.memdoc {
+  background: var(--uni20-panel);
+}
+
+.paramname,
+.paramtype,
+.mlabel {
+  color: var(--uni20-accent-strong);
+}
+
+hr.footer {
+  border: 0;
+  border-top: 1px solid var(--uni20-line);
+}
+
+address.footer {
+  max-width: 1120px;
+  margin: 0 auto 24px;
+  padding: 0 28px;
+  color: var(--uni20-muted);
+}
+
+table.uni20-home-grid {
+  box-sizing: border-box;
+  width: calc(100% + 28px);
+  margin: 22px -14px 28px;
+  border: 0;
+  border-collapse: separate;
+  border-spacing: 14px 0;
+  background: transparent;
+}
+
+table.uni20-home-grid td {
+  box-sizing: border-box;
+  width: 25%;
+  min-height: 132px;
+  padding: 18px;
+  vertical-align: top;
+  border: 1px solid var(--uni20-line);
+  border-radius: 8px;
+  background: var(--uni20-panel-muted);
+  color: var(--uni20-text);
+}
+
+table.uni20-home-grid td:hover {
+  border-color: var(--uni20-accent);
+  background: var(--uni20-accent-soft);
+}
+
+.uni20-home-card-title {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--uni20-accent-strong);
+  font-size: 1.02rem;
+  font-weight: 720;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.uni20-home-card-title:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+table.uni20-home-grid span {
+  display: block;
+  color: var(--uni20-muted);
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 920px) {
+  table.uni20-home-grid {
+    display: block;
+    width: 100%;
+    margin-right: 0;
+    margin-left: 0;
+    border-spacing: 0;
+  }
+
+  table.uni20-home-grid tbody {
+    display: block;
+  }
+
+  table.uni20-home-grid tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  table.uni20-home-grid td {
+    display: block;
+    width: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  #titlearea,
+  .contents,
+  address.footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .contents {
+    margin-top: 14px;
+  }
+
+  .textblock {
+    padding: 20px;
+  }
+
+  .title,
+  .contents h1 {
+    font-size: 1.7rem;
+  }
+
+  table.uni20-home-grid tr {
+    grid-template-columns: 1fr;
+  }
 }
