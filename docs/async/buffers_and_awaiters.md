@@ -13,7 +13,7 @@ Use this when implementing kernels or reviewing coroutine correctness.
 
 This makes dependency order explicit in function signatures.
 
-## `ReadBuffer<T>`
+## ReadBuffer<T>
 
 ### Lifetime and ownership notes
 
@@ -45,7 +45,7 @@ This makes dependency order explicit in function signatures.
 
 Use it when a coroutine reads first and later awaits a writer on a related timeline.
 
-## `WriteBuffer<T>`
+## WriteBuffer<T>
 
 ### Lifetime and ownership notes
 
@@ -105,7 +105,7 @@ For `write_through` types:
 - storage must already be constructed
 - use `proxy.rebind(...)` (or `proxy.emplace(...)`) for explicit retarget/reconstruction
 
-### Why `+=` / `-=` can initialize
+### Why += / -= can initialize
 
 Uni20 intentionally allows write-proxy `+=` and `-=` to initialize unconstructed storage.
 This differs from normal C++ value semantics, but it is useful for async dataflow accumulation:
@@ -145,7 +145,7 @@ Good first-write pattern:
 co_await writer = value;
 ```
 
-### Why you sometimes see `co_await out = value;`
+### Why you sometimes see co_await out = value;
 
 In C++, unary `co_await` binds tighter than assignment, so:
 
@@ -196,7 +196,7 @@ Buffers can register exception sinks with the current coroutine promise.
 
 This is how unhandled exceptions are forwarded to downstream epochs.
 
-## Helper Awaiters (`awaiters.hpp`)
+## Helper Awaiters (awaiters.hpp)
 
 | Helper | Purpose |
 |---|---|

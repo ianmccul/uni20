@@ -21,7 +21,7 @@ This layer is intentionally narrow.
 
 This is not the final long-term model hierarchy.
 
-## `SpinHalfSite`
+## SpinHalfSite
 
 `uni20::SpinHalfSite` bundles:
 

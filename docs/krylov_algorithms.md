@@ -315,7 +315,7 @@ benchmarking repository rather than in core Uni20.
 
 ## Public Parameters
 
-### `SymmetricEigenParams<Scalar>`
+### SymmetricEigenParams<Scalar>
 
 | parameter | default | applies to | meaning |
 | --- | --- | --- | --- |
@@ -332,7 +332,7 @@ benchmarking repository rather than in core Uni20.
 Supported symmetric selectors are `LargestMagnitude`, `SmallestMagnitude`,
 `LargestAlgebraic`, `SmallestAlgebraic`, and `BothEnds`.
 
-### `SymmetricTransformOptions<Scalar>`
+### SymmetricTransformOptions<Scalar>
 
 | parameter | default | meaning |
 | --- | --- | --- |
@@ -342,7 +342,7 @@ Supported symmetric selectors are `LargestMagnitude`, `SmallestMagnitude`,
 The caller supplies the transformed operation. The options only describe how to
 map converged Ritz values and residual diagnostics back to the original problem.
 
-### `NonsymmetricEigenParams<Scalar>`
+### NonsymmetricEigenParams<Scalar>
 
 | parameter | default | applies to | meaning |
 | --- | --- | --- | --- |
@@ -361,7 +361,7 @@ Supported nonsymmetric selectors are `LargestMagnitude`, `SmallestMagnitude`,
 `LargestReal`, `SmallestReal`, `LargestImaginary`, and `SmallestImaginary`.
 Algebraic and both-ends selectors are symmetric-only.
 
-### `KrylovExponentialParams<Scalar>`
+### KrylovExponentialParams<Scalar>
 
 | parameter | default | applies to | meaning |
 | --- | --- | --- | --- |
@@ -369,7 +369,7 @@ Algebraic and both-ends selectors are symmetric-only.
 | `breakdown_tolerance` | `0` | Hermitian and nonsymmetric exponential actions | Internal invariant-subspace threshold; zero selects `10 * epsilon`. |
 | `diagnostics` | `None` | Hermitian and nonsymmetric exponential actions | Optional projected-dimension, residual, and matvec diagnostics. |
 
-### `TaylorExponentialParams<Scalar>`
+### TaylorExponentialParams<Scalar>
 
 | parameter | default | applies to | meaning |
 | --- | --- | --- | --- |

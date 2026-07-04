@@ -42,7 +42,7 @@ Key ownership fact:
 
 - buffers keep queue/storage alive even if the originating `Async<T>` object is moved or destroyed
 
-## `Async<T>` Construction States
+## Async<T> Construction States
 
 `Async<T>()` and `Async<T>(args...)` are intentionally different.
 
@@ -89,7 +89,7 @@ Epoch n:     Writing  ->  Reading  ->  Finished
 Epoch n+1:   Pending  ->  Started  ->  Writing  -> ...
 ```
 
-## What `co_await` Means Here
+## What co_await Means Here
 
 When you `co_await` a buffer:
 
@@ -105,7 +105,7 @@ Practical mental model:
 - `co_await reader` means "do not run this line until the value is readable"
 - `co_await writer = value` means "do not run this line until I am the active writer, then commit a value"
 
-## Copy/Move Semantics of `Async<T>`
+## Copy/Move Semantics of Async<T>
 
 ### Move
 

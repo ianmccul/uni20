@@ -41,12 +41,12 @@ Rules:
 
 ## Read/Write Semantics
 
-### `Async<T>` initialization
+### Async<T> initialization
 
 - `Async<T>()`: storage exists, value is unconstructed
 - `Async<T>(args...)`: value is constructed immediately
 
-### `ReadBuffer<T>` await results
+### ReadBuffer<T> await results
 
 | Expression | Result |
 |---|---|
@@ -57,7 +57,7 @@ Rules:
 | `co_await reader.or_cancel()` | `T const&` or `task_cancelled` |
 | `co_await reader.transfer().or_cancel()` | `OwningReadAccessProxy<T>` or `task_cancelled` |
 
-### `WriteBuffer<T>` await results
+### WriteBuffer<T> await results
 
 | Expression | Result |
 |---|---|
@@ -82,7 +82,7 @@ Assignment semantics trait:
 - specialize to `assignment_semantics::write_through` for reference-proxy types
 - `write_through` requires already-constructed storage; use proxy `rebind(...)` for explicit retarget/reconstruction
 
-## Async Ops (`async_ops.hpp`)
+## Async Ops (async_ops.hpp)
 
 | Helper | Typical use |
 |---|---|

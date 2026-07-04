@@ -23,7 +23,7 @@ decision visible to the caller.
 > When a real nonsymmetric Arnoldi solve finds that a wanted Ritz value is not
 > numerically real, what should the real-arithmetic solver do?
 
-### `RequireRealEigenpairs`
+### RequireRealEigenpairs
 
 Use this when the caller expects a real fixed point.
 
@@ -32,7 +32,7 @@ solver should stop and report the condition rather than silently continue. This
 is the conservative default for real iDMRG calculations where the physical
 fixed point is expected to remain real.
 
-### `PromoteToComplexSuggested`
+### PromoteToComplexSuggested
 
 Use this when the caller is willing to restart the larger calculation in complex
 arithmetic, but the Krylov solver itself should not perform that promotion
@@ -42,7 +42,7 @@ For iDMRG this distinction matters because promotion affects tensors,
 environments, caches, and possibly symmetry handling. It should be an outer
 algorithm decision, not a hidden Krylov-side conversion.
 
-### `AllowRealSchurPairs`
+### AllowRealSchurPairs
 
 Use this when the caller can consume a real two-dimensional invariant subspace
 for a complex conjugate pair.

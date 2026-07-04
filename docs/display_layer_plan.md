@@ -419,7 +419,7 @@ Events should optionally carry task metadata:
 The default screen renderer may ignore most metadata. A debug sink or test sink
 can preserve it.
 
-## Relation To `trace.hpp`
+## Relation To trace.hpp
 
 `trace.hpp` remains the emergency and correctness-boundary layer:
 

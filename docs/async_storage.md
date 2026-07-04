@@ -7,7 +7,7 @@ For day-to-day usage details, see:
 - `docs/async/buffers_and_awaiters.md`
 - `docs/async/quick_reference.md`
 
-## 1. Storage Model (`shared_storage<T>`)
+## 1. Storage Model (shared_storage<T>)
 
 `Async<T>` uses `shared_storage<T>` as the underlying object container.
 
@@ -89,7 +89,7 @@ struct assignment_semantics_of<MyProxyType>
 - Keep rebinding explicit via `rebind(...)` to avoid ambiguous assignment behavior.
 - Prefer type-driven semantics (trait specialization) over runtime branching.
 
-## 6. Relation to `TensorView` and mdspan-like Types
+## 6. Relation to TensorView and mdspan-like Types
 
 `std::span` and `std::mdspan` generally have value/handle assignment semantics (rebind-style).
 Reference-proxy types (such as a write-through tensor view abstraction) should specialize

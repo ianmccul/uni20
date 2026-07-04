@@ -161,7 +161,7 @@ the layout metadata is shared across the bundle, and the storage can coalesce ac
 it. So `Dense` is both the dense-tensor degenerate case and the right tool for
 batched/bundled symmetric tensors.
 
-## 4. The `BlockTensor` template and its type family
+## 4. The BlockTensor template and its type family
 
 ```cpp
 template <class T, class LegSpec, class Storage = HostOnly, class Coupling = Trivial>
@@ -229,7 +229,7 @@ device); a block may acquire a location-set > 1 (replicated) only once committed
 immutable via `ReplicatedBlockTensor`. Taking a write handle requires a singleton
 location.
 
-## 5. `Storage`: the `BlockTensorStorage` policy
+## 5. Storage: the BlockTensorStorage policy
 
 `Storage` is the **container-level** policy (§1). At compile time it fixes (a) the
 form of the per-block metadata record (§6), (b) the `TensorStorage` of the dense

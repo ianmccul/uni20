@@ -12,7 +12,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - Release ordering is semantically important.
 - `Async<T>` does not solve aliasing across distinct objects.
 
-## `Async<T>`
+## Async<T>
 
 ### ROLE
 
@@ -57,7 +57,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `WriteBuffer<T>`
 - `assignment_semantics_of<T>`
 
-## `shared_storage<T>`
+## shared_storage<T>
 
 ### ROLE
 
@@ -92,7 +92,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `Async<T>`
 - unconstructed storage
 
-## `EpochQueue`
+## EpochQueue
 
 ### ROLE
 
@@ -128,7 +128,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `ReadBuffer<T>`
 - `WriteBuffer<T>`
 
-## `ReadBuffer<T>`
+## ReadBuffer<T>
 
 ### ROLE
 
@@ -172,7 +172,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `WriteBuffer<T>`
 - `or_cancel()`
 
-## `WriteBuffer<T>`
+## WriteBuffer<T>
 
 ### ROLE
 
@@ -219,7 +219,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `ReadBuffer<T>`
 - `assignment_semantics_of<T>`
 
-## `assignment_semantics_of<T>`
+## assignment_semantics_of<T>
 
 ### ROLE
 
@@ -247,7 +247,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `rebind`
 - `write_through`
 
-## `or_cancel()`
+## or_cancel()
 
 ### ROLE
 

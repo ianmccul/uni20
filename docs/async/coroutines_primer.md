@@ -16,7 +16,7 @@ For Uni20 async code you will mostly see:
 When a coroutine suspends, its state (locals, parameters, current line) lives in a coroutine frame allocated by the
 compiler/runtime. It does not live on the caller's stack.
 
-## What `AsyncTask` Means
+## What AsyncTask Means
 
 In Uni20, an `AsyncTask` is the move-only owner of a coroutine handle.
 
@@ -29,7 +29,7 @@ Key consequences:
 This is why Uni20 uses an `AsyncTask`-taking `await_suspend(...)` style rather than directly returning raw
 `std::coroutine_handle<>` from awaiters.
 
-## What `co_await` on a Buffer Does
+## What co_await on a Buffer Does
 
 Buffers are the bridge between data dependencies and coroutine suspension:
 

@@ -27,7 +27,7 @@ If you do not override it, the global scheduler defaults to an internal `DebugSc
 | `TbbScheduler` | parallel throughput | non-deterministic task interleaving | production parallel work |
 | `TbbNumaScheduler` | NUMA-aware dispatch over per-node TBB arenas | extra dispatch complexity | NUMA-sensitive workloads |
 
-## `DebugScheduler`
+## DebugScheduler
 
 Execution model:
 
@@ -42,7 +42,7 @@ Wait/deadlock behavior:
 
 Use `DebugScheduler` as the first tool for dependency bugs.
 
-## `TbbScheduler`
+## TbbScheduler
 
 Execution model:
 
@@ -60,7 +60,7 @@ Wait behavior:
 - if already inside a TBB arena thread, wait loop yields until ready
 - otherwise waits on condition variable notified by task completion
 
-## `TbbNumaScheduler`
+## TbbNumaScheduler
 
 `TbbNumaScheduler` manages multiple `TbbScheduler` arenas, one per NUMA node.
 

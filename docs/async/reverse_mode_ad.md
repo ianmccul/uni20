@@ -76,7 +76,7 @@ For holomorphic functions (`df_dz_conj = 0`), this reduces to:
 
 That is the pattern used by the `sin(Var<T>)` implementation.
 
-## Defining a Custom `Var` Operation
+## Defining a Custom Var Operation
 
 Recommended structure:
 
@@ -125,7 +125,7 @@ Important points:
 - use `x.grad.output()` for accumulation into inputs
 - use `or_cancel()` on upstream gradient reads when cancellation is a valid path
 
-## Notes on Current `ReverseValue` API
+## Notes on Current ReverseValue API
 
 The `ReverseValue` surface currently has overlap:
 

@@ -58,7 +58,7 @@ mdspan       // shallow non-owning descriptor; assignment rebinds descriptor
 adaptors     // unnamed concept-modeling wrappers, e.g. as_tensor(vector)
 ```
 
-### `BasicTensor`
+### BasicTensor
 
 `BasicTensor` is the owning dense tensor type. Assignment has value/replace
 semantics:
@@ -96,7 +96,7 @@ distribution is not a near-term requirement for dense tensors; dense tensors are
 expected to be local to one node, while block/MPI distribution belongs to
 `BlockTensor` storage policy.
 
-### `TensorRef`
+### TensorRef
 
 `TensorRef` is the proposed write-through non-owning tensor lvalue proxy:
 

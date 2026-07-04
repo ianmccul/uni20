@@ -150,7 +150,7 @@ backend list explicitly, or call a concrete backend helper such as
 `BlasBackend::gemm_or_throw(...)` if such a convenience wrapper exists. In that
 path the caller has already taken responsibility for storage compatibility.
 
-## Worked example: `gemm`
+## Worked example: gemm
 
 The contraction primitive `C <- alpha * A * B + beta * C` exercises every part of
 the model. The entry point derives a default list from storage and forwards to

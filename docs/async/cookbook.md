@@ -68,7 +68,7 @@ auto sum2 = [](ReadBuffer<int> a, ReadBuffer<int> b, WriteBuffer<int> out) stati
 };
 ```
 
-## 6) Why `co_await out = value;` Works
+## 6) Why co_await out = value; Works
 
 This is C++ operator precedence. Unary `co_await` binds tighter than assignment:
 

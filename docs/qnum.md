@@ -24,7 +24,7 @@ The relevant headers are:
 
 ## Implemented API
 
-### `Symmetry`
+### Symmetry
 
 `Symmetry` is constructed primarily from a string specification:
 
@@ -52,7 +52,7 @@ Current properties:
 - `to_string()`
 - `Symmetry::parse(...)`
 
-### `U1`
+### U1
 
 `U1` is the value-level irrep type for one U(1) factor:
 
@@ -75,7 +75,7 @@ Implemented operations:
 U(1) values are stored as `half_int`, so both integer and half-integer charges
 are supported.
 
-### `QNum`
+### QNum
 
 `QNum` is the packed irrep label used by the tensor code:
 
@@ -104,7 +104,7 @@ Implemented operations:
 For the current U(1) implementation, missing component assignments in
 `make_qnum(...)` default to the identity.
 
-### `QNumList`
+### QNumList
 
 `QNumList` is the explicit sparse tensor-space representation. It is also a
 small container with one important invariant: every entry must have the same
@@ -136,7 +136,7 @@ This makes it suitable for sparse physical legs, sparse MPO bond spaces, and
 other cases where the explicit outer-loop structure should remain visible to the
 contraction engine.
 
-### `BlockSpace`
+### BlockSpace
 
 `BlockSpace` is the coalesced tensor-space representation. It stores ordered
 blocks `(QNum, dim)`.

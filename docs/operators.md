@@ -14,7 +14,7 @@ This layer is intentionally narrow.
   path.
 - Concrete model helpers now live in `docs/models.md`.
 
-## `LocalSpace`
+## LocalSpace
 
 `uni20::LocalSpace`
 represents an explicit sparse state space used by the operator layer.
@@ -31,7 +31,7 @@ In the current first implementation, `LocalSpace` is used for both:
 - physical on-site spaces
 - MPO auxiliary / virtual bond spaces
 
-## `LocalOperator`
+## LocalOperator
 
 `uni20::LocalOperator`
 is conceptually the first realization of
@@ -50,7 +50,7 @@ It stores:
 
 The current coefficient storage is `SparseMatrix<double>`.
 
-## `OperatorComponent`
+## OperatorComponent
 
 `uni20::OperatorComponent` is the next level up.
 
@@ -69,7 +69,7 @@ local operators, not primarily a generic four-leg tensor.
 predicate on its virtual indices. For rectangular components, the current
 convention is that entries strictly below the main diagonal are forbidden.
 
-## `FiniteTriangularMPO`
+## FiniteTriangularMPO
 
 `uni20::FiniteTriangularMPO` is the first lattice-level MPO container.
 

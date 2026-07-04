@@ -9,7 +9,7 @@ This file is for questions about project maturity, active design seams, and what
 - Treat `src/uni20/async/` as the current center of gravity.
 - Treat other subsystems more cautiously unless specific files are inspected.
 
-## `src/uni20/async/`
+## src/uni20/async/
 
 ### STATUS
 
@@ -72,7 +72,7 @@ This file is for questions about project maturity, active design seams, and what
 
 - Do not use CPU / BLAS support as evidence that GPU support is equally mature.
 
-## tensor / `TensorView`
+## tensor / TensorView
 
 ### STATUS
 

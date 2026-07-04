@@ -114,7 +114,15 @@ AsyncTask assign(TbbScheduler& scheduler, WriteBuffer<Tensor>& destination,
                  ReadBuffer<Tensor> source);
 ```
 
-## 6. Validation
+## 6. Markdown Pages
+
+Keep Markdown headings as plain text. Do not use inline-code backticks in
+headings: Doxygen serializes those code spans as escaped `<tt>...</tt>` text in
+generated HTML headings and page anchors. Use plain names such as
+`DebugScheduler` in headings, and keep inline code styling for body text,
+tables, and examples.
+
+## 7. Validation
 
 For documentation builds, use an out-of-source build directory:
 
@@ -127,7 +135,7 @@ Fix real Doxygen warnings such as a `\param` whose name is not in the function
 signature. Do not add broad documentation churn simply to satisfy a coverage
 metric.
 
-## 7. Checklist
+## 8. Checklist
 
 | Category | Guidance |
 | --- | --- |

@@ -111,7 +111,7 @@ Debug-only assertion forms:
 - `DEBUG_PRECONDITION_EQUAL(...)`
 - `DEBUG_PRECONDITION_FLOATING_EQ(...)`
 
-### `CHECK_FLOATING_EQ` Examples
+### CHECK_FLOATING_EQ Examples
 
 `CHECK_FLOATING_EQ` is for floating-point values where exact bitwise equality is usually too strict.
 
@@ -199,7 +199,7 @@ By default these abort. You can switch to throw mode with:
 trace::get_formatting_options().set_errors_abort(false);
 ```
 
-## Stacktrace Configuration (`<stacktrace>`)
+## Stacktrace Configuration (<stacktrace>)
 
 C++23 introduced the `<stacktrace>` library, which was supported by GCC in version 13 but only well supported in version 14, and in Clang LLVM 16+. Support in Linux varies by distro. The Ubuntu `gcc-13` does not include `<stacktrace>` support. Ubuntu 26.04 LTS should include good support for `<stacktrace>` with the GCC 15 compiler.
 

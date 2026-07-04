@@ -30,14 +30,14 @@ view, backend-dispatch, and temporary-allocation design.
 
 ## Tensor roles
 
-### `BasicTensor`
+### BasicTensor
 
 - `ROLE`: Owning dense tensor value.
 - `ASSIGNMENT`: Value/replace semantics.
 - `OUTPUT`: May reuse storage or reallocate in `ensure_shape(...)`.
 - `DO NOT CLAIM`: Do not claim `BasicTensor` assignment is mdspan-style rebind.
 
-### `TensorRef`
+### TensorRef
 
 - `ROLE`: Proposed non-owning write-through tensor lvalue, for slices or block
   outputs.
@@ -50,7 +50,7 @@ view, backend-dispatch, and temporary-allocation design.
 - `ASSIGNMENT`: mdspan-style descriptor rebind.
 - `INVARIANT`: A resolved view is not enough for top-level Uni20 dispatch.
 
-### `TensorView`
+### TensorView
 
 - `ROLE`: Current non-owning tensor/view abstraction.
 - `STATUS`: Useful current type, but not necessarily the long-term central C++

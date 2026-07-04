@@ -70,13 +70,13 @@ Optional ranks dedicated to serving immutable persistent objects.
 
 Storage ranks are object servers, not algorithm masters.
 
-### `Async<T>`
+### Async<T>
 
 A causal, mutable epoch channel in Uni20’s async runtime.
 
 An `Async<T>` object is not itself persistent. A value produced at a specific completed epoch may be persisted.
 
-### `persistent_ptr<T>`
+### persistent_ptr<T>
 
 A small typed handle naming an immutable committed value.
 
@@ -87,7 +87,7 @@ A `persistent_ptr<T>`:
 - Does not allow mutation.
 - Should not provide `operator*` or `operator->` if those could load.
 
-### `pvalue_ptr<T>`
+### pvalue_ptr<T>
 
 A resident immutable materialization of a persistent object.
 
@@ -108,7 +108,7 @@ Alternative names considered:
 
 Current preference: keep `pvalue_ptr<T>` as the public alias or vocabulary type if continuity with the Matrix Product Toolkit model is useful.
 
-### `MpiStorage<LocalStorage>`
+### MpiStorage<LocalStorage>
 
 A distributed tensor storage type.
 
@@ -289,7 +289,7 @@ After commit succeeds:
 
 A global ID must not escape until the object is committed and servable.
 
-### `persist_copy`
+### persist_copy
 
 Non-destructive persistence from an async epoch.
 
@@ -305,7 +305,7 @@ Semantics:
 
 This may be expensive, but it is semantically simple.
 
-### `persist_take`
+### persist_take
 
 Destructive persistence from an async epoch.
 
@@ -351,7 +351,7 @@ co_await store.flush_all();
 
 But a `persistent_ptr<T>` must not be published until the store can serve it somehow.
 
-## Relationship between persistent storage and `Async<T>`
+## Relationship between persistent storage and Async<T>
 
 `Async<T>` and persistent storage are logically separate.
 

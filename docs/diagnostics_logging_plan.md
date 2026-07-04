@@ -29,7 +29,7 @@ from library code will become increasingly fragile:
 
 The core rule should be: ordinary library code does not print. It emits diagnostics into a context.
 
-## Separation from `trace.hpp`
+## Separation from trace.hpp
 
 Keep `trace.hpp` focused on correctness boundaries and emergency output:
 

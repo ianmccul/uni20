@@ -10,7 +10,7 @@ This file is for questions about `Var<T>`, `ReverseValue<T>`, `backprop()`, grad
 - Uni20 reverse mode is not tape-replay-based.
 - Current reverse accumulation is deterministic.
 
-## `Var<T>`
+## Var<T>
 
 ### ROLE
 
@@ -50,7 +50,7 @@ This file is for questions about `Var<T>`, `ReverseValue<T>`, `backprop()`, grad
 - `backprop()`
 - gradient materialization
 
-## `ReverseValue<T>`
+## ReverseValue<T>
 
 ### ROLE
 
@@ -91,7 +91,7 @@ This file is for questions about `Var<T>`, `ReverseValue<T>`, `backprop()`, grad
 - `backprop()`
 - `ReverseEpochQueue`
 
-## `backprop()`
+## backprop()
 
 ### ROLE
 
@@ -162,7 +162,7 @@ This file is for questions about `Var<T>`, `ReverseValue<T>`, `backprop()`, grad
 - `ReverseValue<T>`
 - `backprop()`
 
-## Wirtinger `dL/dz*`
+## Wirtinger dL/dz*
 
 ### ROLE
 
