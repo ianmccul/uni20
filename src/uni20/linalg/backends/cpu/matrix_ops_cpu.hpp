@@ -52,10 +52,10 @@ template <typename T, typename Traits> auto const_span(TensorView<T, Traits> vie
 /// \tparam SrcTraits Trait bundle describing the source view.
 /// \tparam TDst Element type stored by the destination view.
 /// \tparam DstTraits Trait bundle describing the destination view.
-/// \param src Source matrix view.
 /// \param dst Destination matrix view.
+/// \param src Source matrix view.
 template <typename TSrc, typename SrcTraits, typename TDst, typename DstTraits>
-void copy(TensorView<TSrc const, SrcTraits> src, TensorView<TDst, DstTraits> dst)
+void copy(TensorView<TDst, DstTraits> dst, TensorView<TSrc const, SrcTraits> src)
 {
   util::require_same_shape(src, dst);
 
@@ -98,12 +98,12 @@ template <typename T, typename Traits> void fill_identity(TensorView<T, Traits> 
 /// \tparam RhsTraits Trait bundle describing the right operand view.
 /// \tparam TOut Element type stored by the destination view.
 /// \tparam OutTraits Trait bundle describing the destination view.
+/// \param out View receiving the multiplication result.
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
-/// \param out View receiving the multiplication result.
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void multiply(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits> rhs,
-              TensorView<TOut, OutTraits> out)
+void multiply(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
+              TensorView<TRhs const, RhsTraits> rhs)
 {
   util::require_rank_two(lhs);
   util::require_rank_two(rhs);
@@ -146,11 +146,11 @@ void multiply(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsT
 /// \tparam RhsTraits Trait bundle describing the right operand view.
 /// \tparam TOut Element type stored by the destination view.
 /// \tparam OutTraits Trait bundle describing the destination view.
+/// \param out View receiving the addition result.
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
-/// \param out View receiving the addition result.
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void add(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits> rhs, TensorView<TOut, OutTraits> out)
+void add(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits> rhs)
 {
   util::require_same_shape(lhs, rhs);
   util::require_same_shape(lhs, out);
@@ -175,12 +175,12 @@ void add(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits
 /// \tparam RhsTraits Trait bundle describing the right operand view.
 /// \tparam TOut Element type stored by the destination view.
 /// \tparam OutTraits Trait bundle describing the destination view.
+/// \param out View receiving the subtraction result.
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
-/// \param out View receiving the subtraction result.
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void subtract(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits> rhs,
-              TensorView<TOut, OutTraits> out)
+void subtract(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
+              TensorView<TRhs const, RhsTraits> rhs)
 {
   util::require_same_shape(lhs, rhs);
   util::require_same_shape(lhs, out);
@@ -204,11 +204,11 @@ void subtract(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsT
 /// \tparam Scalar Scalar factor type.
 /// \tparam TOut Element type stored by the destination view.
 /// \tparam OutTraits Trait bundle describing the destination view.
+/// \param out View receiving the scaled matrix.
 /// \param mat Matrix view to scale.
 /// \param scalar Scalar factor applied to each element.
-/// \param out View receiving the scaled matrix.
 template <typename TMat, typename MatTraits, typename Scalar, typename TOut, typename OutTraits>
-void scale(TensorView<TMat const, MatTraits> mat, Scalar const& scalar, TensorView<TOut, OutTraits> out)
+void scale(TensorView<TOut, OutTraits> out, TensorView<TMat const, MatTraits> mat, Scalar const& scalar)
 {
   util::require_same_shape(mat, out);
 
@@ -382,57 +382,58 @@ void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
 namespace uni20::linalg
 {
 template <typename TSrc, typename SrcTraits, typename TDst, typename DstTraits>
-void copy(TensorView<TSrc const, SrcTraits> src, TensorView<TDst, DstTraits> dst, cpu_tag)
+void copy(cpu_tag, TensorView<TDst, DstTraits> dst, TensorView<TSrc const, SrcTraits> src)
 {
-  backends::cpu::detail::copy(src, dst);
+  backends::cpu::detail::copy(dst, src);
 }
 
-template <typename T, typename Traits> void fill_identity(TensorView<T, Traits> out, cpu_tag)
+template <typename T, typename Traits> void fill_identity(cpu_tag, TensorView<T, Traits> out)
 {
   backends::cpu::detail::fill_identity(out);
 }
 
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void multiply_into(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits> rhs,
-                   TensorView<TOut, OutTraits> out, cpu_tag)
+void multiply_into(cpu_tag, TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
+                   TensorView<TRhs const, RhsTraits> rhs)
 {
-  backends::cpu::detail::multiply(lhs, rhs, out);
+  backends::cpu::detail::multiply(out, lhs, rhs);
 }
 
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void add_into(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits> rhs,
-              TensorView<TOut, OutTraits> out, cpu_tag)
+void add_into(cpu_tag, TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
+              TensorView<TRhs const, RhsTraits> rhs)
 {
-  backends::cpu::detail::add(lhs, rhs, out);
+  backends::cpu::detail::add(out, lhs, rhs);
 }
 
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void subtract_into(TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits> rhs,
-                   TensorView<TOut, OutTraits> out, cpu_tag)
+void subtract_into(cpu_tag, TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
+                   TensorView<TRhs const, RhsTraits> rhs)
 {
-  backends::cpu::detail::subtract(lhs, rhs, out);
+  backends::cpu::detail::subtract(out, lhs, rhs);
 }
 
 template <typename TMat, typename MatTraits, typename Scalar, typename TOut, typename OutTraits>
-void scale_into(TensorView<TMat const, MatTraits> mat, Scalar const& scalar, TensorView<TOut, OutTraits> out, cpu_tag)
+void scale_into(cpu_tag, TensorView<TOut, OutTraits> out, TensorView<TMat const, MatTraits> mat, Scalar const& scalar)
 {
-  backends::cpu::detail::scale(mat, scalar, out);
+  backends::cpu::detail::scale(out, mat, scalar);
 }
 
 template <typename T, typename Traits>
-uni20::accumulation_real_t<T> matrix_one_norm(TensorView<T const, Traits> mat, cpu_tag)
+uni20::accumulation_real_t<T> matrix_one_norm(cpu_tag, TensorView<T const, Traits> mat)
 {
   return backends::cpu::detail::matrix_one_norm(mat);
 }
 
 template <typename T, typename Traits>
-void swap_rows(TensorView<T, Traits> mat, index_type lhs, index_type rhs, cpu_tag)
+void swap_rows(cpu_tag, TensorView<T, Traits> mat, index_type lhs, index_type rhs)
 {
   backends::cpu::detail::swap_rows(mat, lhs, rhs);
 }
 
 template <typename TA, typename ATraits, typename TB, typename BTraits>
-void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B, cpu_tag)
+  requires(!std::is_const_v<TA> && !std::is_const_v<TB>)
+void solve_linear_system(cpu_tag, TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
 {
   backends::cpu::detail::solve_linear_system(A, B);
 }

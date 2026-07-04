@@ -1,8 +1,8 @@
+#include <gtest/gtest.h>
+#include <memory>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_task.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include <gtest/gtest.h>
-#include <memory>
 
 using namespace uni20;
 using namespace uni20::async;
@@ -13,7 +13,7 @@ TEST(AsyncMoveTest, MoveConstructKeepsStorage)
   Async<int> moved(std::move(original));
 
   DebugScheduler sched;
-  sched.schedule([](ReadBuffer<int> reader) static->AsyncTask {
+  sched.schedule([](ReadBuffer<int> reader) static -> AsyncTask {
     auto& value = co_await reader;
     EXPECT_EQ(value, 7);
     co_return;
@@ -29,13 +29,13 @@ TEST(AsyncMoveTest, MoveAssignPreservesQueue)
   lhs = std::move(rhs);
 
   DebugScheduler sched;
-  sched.schedule([](WriteBuffer<int> writer) static->AsyncTask {
+  sched.schedule([](WriteBuffer<int> writer) static -> AsyncTask {
     auto value = co_await writer;
     value = 9;
     co_return;
   }(lhs.write()));
 
-  sched.schedule([](ReadBuffer<int> reader) static->AsyncTask {
+  sched.schedule([](ReadBuffer<int> reader) static -> AsyncTask {
     auto& value = co_await reader;
     EXPECT_EQ(value, 9);
     co_return;
@@ -53,7 +53,7 @@ TEST(AsyncMoveTest, DeferredViewRetainsExternalOwner)
   backing.reset();
 
   DebugScheduler sched;
-  sched.schedule([](ReadBuffer<int> reader) static->AsyncTask {
+  sched.schedule([](ReadBuffer<int> reader) static -> AsyncTask {
     auto& value = co_await reader;
     EXPECT_EQ(value, 5);
     co_return;
@@ -71,7 +71,7 @@ TEST(AsyncMoveTest, AsyncMoveTransfersValue)
   Async<Ptr> src = std::make_unique<int>(42);
   Async<Ptr> dst;
 
-  async_move(src, dst);
+  async_move(dst, src);
 
   sched.run_all();
 
@@ -92,7 +92,7 @@ TEST(AsyncMoveTest, AsyncMoveFromRvalueAsync)
   using Ptr = std::unique_ptr<int>;
   Async<Ptr> dst;
 
-  async_move(Async<Ptr>(std::make_unique<int>(11)), dst);
+  async_move(dst, Async<Ptr>(std::make_unique<int>(11)));
 
   sched.run_all();
 
@@ -112,7 +112,7 @@ TEST(AsyncMoveTest, AsyncMoveFromValueBuffersOnStack)
   Ptr payload = std::make_unique<int>(7);
   Async<Ptr> dst;
 
-  async_move(std::move(payload), dst);
+  async_move(dst, std::move(payload));
 
   sched.run_all();
 

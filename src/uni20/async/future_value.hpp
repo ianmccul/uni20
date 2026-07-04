@@ -40,7 +40,9 @@ template <typename T> class FutureValue {
     /// \tparam U Source type constructible as `T`.
     /// \param v Source value.
     /// \return Reference to `*this`.
-    template <typename U> FutureValue& operator=(U&& v) requires std::constructible_from<T, U&&>
+    template <typename U>
+    FutureValue& operator=(U&& v)
+      requires std::constructible_from<T, U&&>
     {
       write_buf_.emplace_assert(std::forward<U>(v));
       write_buf_.release();
@@ -53,7 +55,7 @@ template <typename T> class FutureValue {
     /// \return Reference to `*this`.
     template <typename U> FutureValue& operator=(Async<U> const& v)
     {
-      async_assign(v.read(), std::move(write_buf_));
+      async_assign(std::move(write_buf_), v.read());
       return *this;
     }
 
@@ -63,7 +65,7 @@ template <typename T> class FutureValue {
     /// \return Reference to `*this`.
     template <typename U> FutureValue& operator=(Async<U>&& v)
     {
-      async_move(std::move(v), std::move(write_buf_));
+      async_move(std::move(write_buf_), std::move(v));
       return *this;
     }
 
@@ -107,15 +109,21 @@ template <typename T> class Defer {
 
     /// \brief Write immediately without suspending — asserts write readiness.
     template <typename U>
-    requires std::constructible_from<T, U&&>
-    void write_assert(U&& val) { writer_.emplace_assert(std::forward<U>(val)); }
+      requires std::constructible_from<T, U&&>
+    void write_assert(U&& val)
+    {
+      writer_.emplace_assert(std::forward<U>(val));
+    }
 
     /// \brief Schedule assignment through the deferred writer.
     /// \tparam U Source type.
     /// \param val Source expression to assign.
     template <typename U>
-    requires std::assignable_from<T&, async_value_t<U>>
-    void operator=(U&& val) { async_assign(std::forward<U>(val), std::move(writer_)); }
+      requires std::assignable_from<T&, async_value_t<U>>
+    void operator=(U&& val)
+    {
+      async_assign(std::move(writer_), std::forward<U>(val));
+    }
 
     /// \brief Get the WriteBuffer for coroutine-based use.
     [[nodiscard]] WriteProxy<T> write() { return writer_.write(); }

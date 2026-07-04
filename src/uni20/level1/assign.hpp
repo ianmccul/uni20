@@ -14,14 +14,14 @@ namespace uni20
 {
 
 /// \brief Copy elements from a source mdspan into a destination mdspan.
-/// \tparam MDS1 Source mdspan type that models StridedMdspan.
-/// \tparam MDS2 Destination mdspan type that models StridedMdspan.
-/// \param src Source view providing the element values.
+/// \tparam MDSDst Destination mdspan type that models StridedMdspan.
+/// \tparam MDSSrc Source mdspan type that models StridedMdspan.
 /// \param dst Destination view receiving the copied elements.
+/// \param src Source view providing the element values.
 /// \ingroup level1_ops
-template <StridedMdspan MDS1, StridedMdspan MDS2> void assign(MDS1 const& src, MDS2 dst)
+template <StridedMdspan MDSDst, StridedMdspan MDSSrc> void assign(MDSDst dst, MDSSrc const& src)
 {
-  static_assert(MDS1::rank() == MDS2::rank(), "assign: rank mismatch");
+  static_assert(MDSDst::rank() == MDSSrc::rank(), "assign: rank mismatch");
   PRECONDITION_EQUAL(src.extents(), dst.extents(), "assign: shape mismatch");
 
   auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{dst.mapping(), src.mapping()});

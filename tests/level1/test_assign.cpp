@@ -1,8 +1,8 @@
 #include "../helpers.hpp"
-#include <uni20/level1/assign.hpp>
-#include <uni20/level1/zip_transform.hpp>
 #include "gtest/gtest.h"
 #include <numeric>
+#include <uni20/level1/assign.hpp>
+#include <uni20/level1/zip_transform.hpp>
 
 using namespace uni20;
 
@@ -89,7 +89,7 @@ TEST(Assign, Simple1D)
   auto src = make_mdspan_1d(src_data);
   auto dst = make_mdspan_1d(dst_data);
 
-  uni20::assign(src, dst);
+  uni20::assign(dst, src);
 
   for (int i = 0; i < 4; ++i)
     EXPECT_EQ(dst_data[i], src_data[i]);
@@ -106,7 +106,7 @@ TEST(Assign, Strided2D)
   auto m1 = make_mdspan_2d(buf1, 3, 3, {5, 2});
   auto m2 = make_mdspan_2d(buf2, 3, 3, {5, 2});
 
-  uni20::assign(m1, m2);
+  uni20::assign(m2, m1);
 
   for (int r = 0; r < 3; ++r)
     for (int c = 0; c < 3; ++c)
@@ -121,7 +121,7 @@ TEST(Assign, Reversed1D)
   auto src = make_reversed_1d(v);
   auto dst = make_mdspan_1d(result);
 
-  uni20::assign(src, dst);
+  uni20::assign(dst, src);
 
   for (int i = 0; i < 4; ++i)
     EXPECT_EQ(result[i], v[3 - i]);
@@ -136,7 +136,7 @@ TEST(Assign, TransformNegate)
   auto dst = make_mdspan_1d(out);
 
   auto neg = zip_transform([](double x) { return -x; }, src);
-  uni20::assign(neg, dst);
+  uni20::assign(dst, neg);
 
   for (int i = 0; i < 4; ++i)
     EXPECT_EQ(out[i], -v[i]);
@@ -152,7 +152,7 @@ TEST(Assign, TransformScaleShift)
 
   auto chain = zip_transform([](double x) { return x + 1; }, zip_transform([](double x) { return 2 * x; }, src));
 
-  uni20::assign(chain, dst);
+  uni20::assign(dst, chain);
 
   for (int i = 0; i < 4; ++i)
     EXPECT_EQ(out[i], 2 * v[i] + 1);
@@ -189,7 +189,7 @@ TEST(Assign, NonMergeable4DStridesUseDynamic)
   EXPECT_EQ(offsets[0], 0);
   EXPECT_EQ(offsets[1], 0);
 
-  uni20::assign(src, dst);
+  uni20::assign(dst, src);
 
   for (index_t i0 = 0; i0 < static_cast<index_t>(extents[0]); ++i0)
     for (index_t i1 = 0; i1 < static_cast<index_t>(extents[1]); ++i1)
@@ -226,7 +226,7 @@ TEST(Assign, ZeroExtentNoOp)
   EXPECT_EQ(offsets[0], 0);
   EXPECT_EQ(offsets[1], 0);
 
-  uni20::assign(src, dst);
+  uni20::assign(dst, src);
 
   EXPECT_EQ(dst_data, baseline);
 }

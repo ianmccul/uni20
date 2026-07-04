@@ -227,10 +227,11 @@ schur(schur_form, schur_vectors, eigenvalues, matrix_work);
 ```
 
 For update operations, the updated object is both input and output, but it still
-appears first. Backend selectors and optional policy objects remain trailing
-parameters. Older draft documents may still contain BLAS/LAPACK-style
-output-last examples; new code should use the output-first convention unless an
-external ABI boundary forces another order.
+appears first. API tags and backend selectors appear before outputs; options
+that are ordinary configuration values follow the required operands unless they
+must prefix a parameter pack. Older draft documents may still contain
+BLAS/LAPACK-style output-last examples; new code should use the prefix-tag,
+output-first convention unless an external ABI boundary forces another order.
 
 ## Runtime LAPACK View Checks
 
@@ -515,10 +516,14 @@ struct SelfAdjointEighOptions {
   MatrixTriangle triangle = MatrixTriangle::Upper;
 };
 
-template <class W, class A, class BackendSelector = backend_list<LapackBackend>>
+template <class W, class A>
 void self_adjoint_eigh(W&& eigenvalues, A&& matrix_work,
-                       SelfAdjointEighOptions options = {},
-                       BackendSelector selector = {});
+                       SelfAdjointEighOptions options = {});
+
+template <class BackendSelector, class W, class A>
+  requires BackendSelectorLike<BackendSelector>
+void self_adjoint_eigh(BackendSelector selector, W&& eigenvalues,
+                       A&& matrix_work, SelfAdjointEighOptions options = {});
 ```
 
 `matrix_work` is mutable because LAPACK overwrites its input. If

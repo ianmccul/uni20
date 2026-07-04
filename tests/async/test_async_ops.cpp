@@ -1,8 +1,8 @@
+#include "gtest/gtest.h"
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/async_task.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include "gtest/gtest.h"
 
 using namespace uni20::async;
 
@@ -52,7 +52,7 @@ TEST(AsyncOpsTest, WriteThroughAssignmentMutatesProxyTarget)
   int backing = 7;
   Async<async_test_types::IntWriteProxy> value{async_test_types::IntWriteProxy(backing)};
 
-  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out) static->AsyncTask {
+  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out) static -> AsyncTask {
     co_await out = 42;
     co_return;
   }(value.write()));
@@ -73,13 +73,13 @@ TEST(AsyncOpsTest, WriteThroughProxyCanRebindExplicitly)
 
   Async<async_test_types::IntWriteProxy> value{async_test_types::IntWriteProxy(first_target)};
 
-  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out, int& target) static->AsyncTask {
+  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out, int& target) static -> AsyncTask {
     auto writer = co_await out;
     writer.rebind(async_test_types::IntWriteProxy(target));
     co_return;
   }(value.write(), second_target));
 
-  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out) static->AsyncTask {
+  schedule([](WriteBuffer<async_test_types::IntWriteProxy> out) static -> AsyncTask {
     co_await out = 77;
     co_return;
   }(value.write()));
@@ -183,7 +183,7 @@ TEST(AsyncOpsTest, MoveOnlyType)
   Async<Ptr> dst;
 
   Ptr src = std::make_unique<std::string>("test-move");
-  async_move(std::move(src), dst);
+  async_move(dst, std::move(src));
 
   Ptr result = dst.move_from_wait(); // Must return by value
   ASSERT_TRUE(result);
@@ -198,7 +198,7 @@ TEST(AsyncOpsTest, AsyncAssignReadWriteSameAsyncDoesNotDeadlock)
   Async<int> value = 9;
   auto src = value.read();
   auto dst = value.write();
-  async_assign(std::move(src), std::move(dst));
+  async_assign(std::move(dst), std::move(src));
 
   sched.run_all();
   EXPECT_EQ(value.get_wait(), 9);

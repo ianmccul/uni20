@@ -24,7 +24,7 @@ For explanations, see:
 ## Canonical Coroutine Pattern
 
 ```cpp
-auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
+auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static -> AsyncTask {
   auto owned = co_await in.transfer();
   int v = owned.get();
   owned.release();
@@ -86,10 +86,10 @@ Assignment semantics trait:
 
 | Helper | Typical use |
 |---|---|
-| `async_assign(src, dst)` | copy-like value propagation |
-| `async_move(src, dst)` | move-like value transfer |
-| `async_binary_op(...)` | schedule `out = op(a, b)` |
-| `async_compound_op(...)` | schedule in-place-style update to async lhs |
+| `async_assign(dst, src)` | copy-like value propagation |
+| `async_move(dst, src)` | move-like value transfer |
+| `async_binary_op(out, a, b, op)` | schedule `out = op(a, b)` |
+| `async_compound_op(lhs, rhs, op)` | schedule in-place-style update to async lhs |
 
 Helper awaiters:
 

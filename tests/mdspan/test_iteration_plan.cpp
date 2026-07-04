@@ -1,8 +1,8 @@
 #include "../helpers.hpp"
+#include "gtest/gtest.h"
 #include <uni20/level1/apply_unary.hpp>
 #include <uni20/level1/assign.hpp>
 #include <uni20/mdspan/iteration_plan.hpp>
-#include "gtest/gtest.h"
 
 #include <array>
 #include <cstddef>
@@ -153,7 +153,7 @@ TEST(MakeIterationPlanTest, RankZeroMdspanIsScalar)
 
   double src_value = 11.0;
   stdex::mdspan<double, extents_t, stdex::layout_stride> src{&src_value, mapping};
-  assign(src, dst);
+  assign(dst, src);
   EXPECT_DOUBLE_EQ(dst_value, 11.0);
 }
 
@@ -180,7 +180,7 @@ TEST(AssignTest, ScalarEmptyPlanCopiesSingleElement)
   std::array<index_t, 2> strides{3, 5};
   auto s = make_mdspan_strided(src, extents, strides);
   auto d = make_mdspan_strided(dst, extents, strides);
-  assign(s, d);
+  assign(d, s);
   EXPECT_DOUBLE_EQ(dst[0], 7.0);  // copied
   EXPECT_DOUBLE_EQ(dst[1], 99.0); // untouched
 }

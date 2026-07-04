@@ -1,11 +1,11 @@
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include <uni20/async/var.hpp>
-#include <uni20/async/var_toys.hpp>
 #include <uni20/async/reverse_value.hpp>
 #include <uni20/async/task_registry.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
+#include <uni20/async/var.hpp>
+#include <uni20/async/var_toys.hpp>
 #include <uni20/config.hpp>
 
 #include "../common/env_var_guard.hpp"
@@ -116,15 +116,13 @@ TEST(TbbScheduler, CoroutineAndAsync)
   TbbScheduler sched{4};
   ScopedScheduler guard(&sched);
 
-  auto task = []() static->AsyncTask
-  {
+  auto task = []() static -> AsyncTask {
     Async<int> x = 10;
     Async<int> y = 32;
     Async<int> z = x + y;
     EXPECT_EQ(z.get_wait(), 42);
     co_return;
-  }
-  ();
+  }();
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -138,7 +136,7 @@ TEST(TbbScheduler, ManyTasks)
 
   for (int i = 0; i < 100; i++)
   {
-    sched.schedule([](std::atomic<int> & c) static->AsyncTask {
+    sched.schedule([](std::atomic<int>& c) static -> AsyncTask {
       c.fetch_add(1, std::memory_order_relaxed);
       co_return;
     }(counter));
@@ -158,7 +156,7 @@ TEST(TbbScheduler, Parallelism)
   auto start = clock::now();
   for (int i = 0; i < 8; i++)
   {
-    sched.schedule([]() static->AsyncTask {
+    sched.schedule([]() static -> AsyncTask {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
       co_return;
     }());
@@ -178,7 +176,7 @@ TEST(TbbScheduler, ReverseValue)
 
   ReverseValue<int> rv;
   Async<int> v;
-  async_assign(rv.last_value().read(), v.write());
+  async_assign(v.write(), rv.last_value().read());
 
   // At this point, v is not ready: rv hasn’t been written yet.
   // get_wait() must suspend/resume under the scheduler.
@@ -208,7 +206,7 @@ TEST(TbbScheduler, PausePreventsExecutionUntilResume)
   constexpr int kDirectTasks = 3;
   for (int i = 0; i < kDirectTasks; ++i)
   {
-    sched.schedule([](std::atomic<int> * counter) static->AsyncTask {
+    sched.schedule([](std::atomic<int>* counter) static -> AsyncTask {
       counter->fetch_add(1, std::memory_order_relaxed);
       co_return;
     }(&direct_counter));
@@ -217,7 +215,7 @@ TEST(TbbScheduler, PausePreventsExecutionUntilResume)
   constexpr int kWrittenValue = 42;
   constexpr int kDelayMs = 20;
   sched.schedule(
-      [](WriteBuffer<int> write_buffer, int value_to_write, int delay_ms, std::atomic<int>* runs) static->AsyncTask {
+      [](WriteBuffer<int> write_buffer, int value_to_write, int delay_ms, std::atomic<int>* runs) static -> AsyncTask {
         std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
         runs->fetch_add(1, std::memory_order_relaxed);
         co_await write_buffer = value_to_write;
@@ -225,7 +223,7 @@ TEST(TbbScheduler, PausePreventsExecutionUntilResume)
       }(value.write(), kWrittenValue, kDelayMs, &writer_runs));
 
   sched.schedule(
-      [](ReadBuffer<int> read_buffer, std::atomic<int> * counter, std::atomic<int> * runs) static->AsyncTask {
+      [](ReadBuffer<int> read_buffer, std::atomic<int>* counter, std::atomic<int>* runs) static -> AsyncTask {
         runs->fetch_add(1, std::memory_order_relaxed);
         auto& result = co_await read_buffer;
         counter->fetch_add(result, std::memory_order_relaxed);
@@ -289,7 +287,7 @@ TEST(TbbScheduler, StressConcurrentProducers)
     producers.emplace_back([&sched, &counter] {
       for (int i = 0; i < kTasksPerThread; ++i)
       {
-        sched.schedule([](std::atomic<int> * target) static->AsyncTask {
+        sched.schedule([](std::atomic<int>* target) static -> AsyncTask {
           target->fetch_add(1, std::memory_order_relaxed);
           co_return;
         }(&counter));

@@ -180,7 +180,7 @@ template <typename T> class ReverseValue {
     /// \return Reference to `*this`.
     template <typename U> ReverseValue& operator=(Async<U> const& v)
     {
-      async_assign(v.read(), this->write_buffer());
+      async_assign(this->write_buffer(), v.read());
       rqueue_.start();
       return *this;
     }
@@ -191,7 +191,7 @@ template <typename T> class ReverseValue {
     /// \return Reference to `*this`.
     template <typename U> ReverseValue& operator=(Async<U>&& v)
     {
-      async_move(std::move(v), this->write_buffer());
+      async_move(this->write_buffer(), std::move(v));
       rqueue_.start();
       return *this;
     }

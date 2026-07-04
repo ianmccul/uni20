@@ -119,10 +119,11 @@ The two configuration rules:
    workspace pool. A `RuntimeSelectable` backend or a `std::variant` of backends
    can be layered on later if needed; it is just another list entry.
 
-New Uni20 kernel and linalg APIs use output-first mutable parameters. Backend
-selectors, backend-list overrides, and optional policy/debug objects remain
-trailing parameters. For example, write `gemm(c, alpha, a, b, beta, selector)`
-rather than the BLAS/LAPACK ABI order `gemm(alpha, a, b, beta, c, selector)`.
+New Uni20 kernel and linalg APIs put API tags and explicit backend selectors
+first, then mutable outputs, then inputs and scalar operands. For example,
+write `gemm(selector, c, alpha, a, b, beta)` for an explicit override and
+`gemm(c, alpha, a, b, beta)` for the storage-default overload, rather than the
+BLAS/LAPACK ABI order `gemm(alpha, a, b, beta, c)`.
 
 ## Dispatch operands versus resolved spans
 
@@ -241,10 +242,17 @@ bool dispatch_kernel(backend_list<First, Rest...> backends, Op op, Args&&... arg
 }
 
 // gemm.hpp
-template <class C, class A, class B,
-          class BackendSelector = default_backends_t<C, A, B>> // (1) default from storage
-void gemm(C& c, scalar_t<C> alpha, A const& a, B const& b,
-          scalar_t<C> beta, BackendSelector selector = {}) // (2) overridable parameter
+template <class C, class A, class B>
+void gemm(C& c, scalar_t<C> alpha, A const& a, B const& b, scalar_t<C> beta)
+{
+  auto selector = default_backend_selector(c, a, b);
+  gemm(selector, c, alpha, a, b, beta);
+}
+
+template <class BackendSelector, class C, class A, class B>
+  requires BackendSelectorLike<BackendSelector>
+void gemm(BackendSelector selector, C& c, scalar_t<C> alpha, A const& a,
+          B const& b, scalar_t<C> beta)
 {
   auto backends = normalize_backend_selector(selector);
   using Backends = std::remove_cvref_t<decltype(backends)>;
@@ -495,14 +503,14 @@ off-roadmap). The dense rows dispatch on the leaf `TensorStorage` only.
 
 ```cpp
 gemm(c, alpha, a, b, beta);                                  // default for the storage
-gemm(c, alpha, a, b, beta, CpuGenericBackend{});             // force one backend, no fallback
-gemm(c, alpha, a, b, beta,
-     backend_list{BlasBackend{}, CpuGenericBackend{}});      // pin BLAS-or-oracle
-gemm(c, alpha, a, b, beta,
-     BackendChain{BlasBackend{}, CpuGenericBackend{}});      // same idea, chain spelling
-gemm(c, alpha, a, b, beta,                                  // GPU only, no fallback - fail loudly
-     make_backend_selector<backend_list<CublasBackend>>(
-       CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}}));
+gemm(CpuGenericBackend{}, c, alpha, a, b, beta);             // force one backend, no fallback
+gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
+     c, alpha, a, b, beta);                                  // pin BLAS-or-oracle
+gemm(BackendChain{BlasBackend{}, CpuGenericBackend{}},
+     c, alpha, a, b, beta);                                  // same idea, chain spelling
+gemm(make_backend_selector<backend_list<CublasBackend>>(
+       CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}}),
+     c, alpha, a, b, beta);                                  // GPU only, no fallback - fail loudly
 ```
 
 Singleton backend overrides are syntax for a one-entry backend list. They do not
@@ -686,16 +694,16 @@ type, which is what routes them to the CPU or GPU scheduler:
 
 ```cpp
 // host-async block kernel
-schedule([](auto a_, auto b_, auto c_) static -> AsyncTask {       // -> CPU scheduler
-  auto A_ = co_await a_;  auto B_ = co_await b_;  auto C_ = co_await c_;
+schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {         // -> CPU scheduler
+  auto C_ = co_await c_;  auto A_ = co_await a_;  auto B_ = co_await b_;
   gemm_kernel(C_, A_, B_);                                          // layer-1 kernel
-}(a.block(ai).read(), b.block(bi).read(), c.block(r).write()));
+}(c.block(r).write(), a.block(ai).read(), b.block(bi).read()));
 
 // device-async block kernel — identical but for the return type
-schedule([](auto a_, auto b_, auto c_) static -> CudaTask {        // -> GPU scheduler
-  auto A_ = co_await a_;  auto B_ = co_await b_;  auto C_ = co_await c_;
+schedule([](auto c_, auto a_, auto b_) static -> CudaTask {          // -> GPU scheduler
+  auto C_ = co_await c_;  auto A_ = co_await a_;  auto B_ = co_await b_;
   cublas_gemm(C_, A_, B_);                                          // thread-local handle + stream
-}(a.block(ai).read(), b.block(bi).read(), c.block(r).write()));
+}(c.block(r).write(), a.block(ai).read(), b.block(bi).read()));
 ```
 
 The accumulation `r += sum a*b` over multiple contributing `(a, b)` needs no
@@ -714,12 +722,12 @@ data:
 
 ```cpp
 // gemm on Async<BlockTensor>: await structure, then dispatch per block
-schedule([](auto a_, auto b_, auto c_) static -> AsyncTask {
-  auto const& A = co_await a_;     // structure + layout known
+schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {
+  auto&        C = co_await c_;     // structure + layout known
+  auto const& A = co_await a_;
   auto const& B = co_await b_;
-  auto&        C = co_await c_;
   block_gemm(C, A, B);             // inner per-block dispatch
-}(A.read(), B.read(), C.write()));
+}(C.write(), A.read(), B.read()));
 ```
 
 Awaiting the container guarantees the *structure*, not the block data. Block

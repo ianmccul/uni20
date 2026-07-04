@@ -82,14 +82,16 @@ Candidate concepts:
 
 ### PARAMETER ORDER
 
-- New Uni20 linalg/kernel APIs use output-first mutable parameters, for example
-  `matvec(y, A, x)`, `gemm(C, alpha, A, B, beta)`, and
-  `try_kernel(backend, op, output, inputs...)`.
-- Backend selectors, policy objects, and optional debug controls remain trailing
-  parameters.
+- New Uni20 linalg/kernel APIs put API tags and explicit backend selectors
+  first, then mutable outputs, then inputs. Examples: `matvec(y, A, x)`,
+  `gemm(C, alpha, A, B, beta)`, `gemm(selector, C, alpha, A, B, beta)`,
+  and `try_kernel(backend, op, output, inputs...)`.
+- Selector-prefix APIs need two overloads when the selector is optional:
+  one storage-default overload with no selector, and one constrained
+  selector-first overload.
 - Older draft examples may still resemble BLAS/LAPACK output-last signatures.
-  Treat output-first as the current design direction unless an external ABI
-  boundary forces another order.
+  Treat prefix-tag, output-first ordering as the current design direction unless
+  an external ABI boundary forces another order.
 
 ## Backend dispatch
 

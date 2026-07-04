@@ -152,7 +152,7 @@ template <typename T> class Async {
     ///          Coroutine handles, epoch queues, and computation histories are not copied.
     ///
     /// \see `async_assign` for explicit value-level copy scheduling.
-    Async(const Async& rhs) : Async() { async_assign(rhs, *this); }
+    Async(const Async& rhs) : Async() { async_assign(*this, rhs); }
 
     /// \brief Assign an optional debug label for task-registry graph output.
     /// \param label Human-readable label used only by debug diagnostics.
@@ -253,14 +253,14 @@ template <typename T> class Async {
     ///       It then schedules a coroutine that awaits `rhs` and writes its result to `*this`.
     ///
     /// \warning This operation does not preserve prior epochs or dependencies of `*this`.
-    ///          If you wish to serialize with prior writes, use `async_assign(rhs, *this)` directly.
+    ///          If you wish to serialize with prior writes, use `async_assign(*this, rhs)` directly.
     ///
     /// \code
     ///   Async<T> x, y;
     ///   x = y;              // copies value from y into x, resets x's causal history
     ///
     ///   x = Async<T>{};     // explicitly reset x
-    ///   async_assign(y, x); // equivalent to copy-assignment
+    ///   async_assign(x, y); // equivalent to copy-assignment
     /// \endcode
     ///
     /// \see Async::operator=(Async&&) for structural replacement
@@ -272,7 +272,7 @@ template <typename T> class Async {
       if (this != &rhs)
       {
         *this = Async<T>{}; // reset the epoch queue
-        async_assign(rhs, *this);
+        async_assign(*this, rhs);
       }
       return *this;
     }

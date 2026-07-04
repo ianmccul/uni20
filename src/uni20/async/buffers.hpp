@@ -1036,7 +1036,7 @@ template <typename T> class WriteBuffer {
     /// \brief Schedule assignment into this write buffer.
     /// \tparam U Source type.
     /// \param val Source expression.
-    template <typename U> void write(U&& val) { async_assign(std::forward<U>(val), std::move(*this)); }
+    template <typename U> void write(U&& val) { async_assign(std::move(*this), std::forward<U>(val)); }
 
     /// \brief Assign immediately when the writer is known to be ready.
     /// \tparam U Source type assignable to `T&`.
@@ -1067,7 +1067,7 @@ template <typename T> class WriteBuffer {
     /// \brief Schedule move-assignment into this write buffer.
     /// \tparam U Source type.
     /// \param val Source expression.
-    template <typename U> void write_move(U&& val) { async_move(std::move(val), std::move(*this)); }
+    template <typename U> void write_move(U&& val) { async_move(std::move(*this), std::move(val)); }
 
     /// \brief Enable `co_await` for lvalue write buffers.
     /// \return Reference to this buffer.
@@ -1661,7 +1661,7 @@ template <typename T> class WriteAssignProxy {
       requires(!std::same_as<std::remove_cvref_t<U>, WriteAssignProxy>)
     void operator=(U&& u)
     {
-      async_assign(std::forward<U>(u), WriteBuffer<T>(std::move(writer_)));
+      async_assign(WriteBuffer<T>(std::move(writer_)), std::forward<U>(u));
     }
 
   private:

@@ -57,6 +57,12 @@ TEST(CpuOpsTest, Multiply)
   EXPECT_DOUBLE_EQ((result[0, 1]), 64.0);
   EXPECT_DOUBLE_EQ((result[1, 0]), 139.0);
   EXPECT_DOUBLE_EQ((result[1, 1]), 154.0);
+
+  auto tagged_result = uni20::linalg::multiply(uni20::VectorStorage::default_tag{}, lhs.view(), rhs.view());
+  EXPECT_DOUBLE_EQ((tagged_result[0, 0]), 58.0);
+  EXPECT_DOUBLE_EQ((tagged_result[0, 1]), 64.0);
+  EXPECT_DOUBLE_EQ((tagged_result[1, 0]), 139.0);
+  EXPECT_DOUBLE_EQ((tagged_result[1, 1]), 154.0);
 }
 
 TEST(CpuOpsTest, SolveLinearSystem)

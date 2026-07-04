@@ -242,9 +242,9 @@ template <typename Scalar> bool in_selected_region(std::size_t row, std::size_t 
 
 /// \brief Copy a local dense vector.
 /// \tparam Scalar Element type.
-/// \param source Source vector.
 /// \param destination Destination vector overwritten with \p source.
-template <typename Scalar> void copy(std::span<Scalar const> source, std::span<Scalar> destination)
+/// \param source Source vector.
+template <typename Scalar> void copy(std::span<Scalar> destination, std::span<Scalar const> source)
 {
   detail::check_same_size(source, destination);
   std::ranges::copy(source, destination.begin());
@@ -264,10 +264,10 @@ template <typename Scalar> void scal(Scalar const& alpha, std::span<Scalar> vect
 
 /// \brief Add a scaled local dense vector to another vector.
 /// \tparam Scalar Element type.
+/// \param y Destination vector updated as `y += alpha * x`.
 /// \param alpha Scale factor.
 /// \param x Source vector.
-/// \param y Destination vector updated as `y += alpha * x`.
-template <typename Scalar> void axpy(Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar> y)
+template <typename Scalar> void axpy(std::span<Scalar> y, Scalar const& alpha, std::span<Scalar const> x)
 {
   detail::check_same_size(x, y);
   for (std::size_t i = 0; i < x.size(); ++i)
@@ -342,10 +342,10 @@ template <typename Scalar> accumulation_real_t<Scalar> nrm2(std::span<Scalar con
 
 /// \brief Copy a selected region of a local dense matrix.
 /// \tparam Scalar Element type.
-/// \param source Source matrix.
 /// \param destination Destination matrix with the same shape as \p source.
+/// \param source Source matrix.
 /// \param fill Region to copy.
-template <typename Scalar> void lacpy(Matrix<Scalar> const& source, Matrix<Scalar>& destination, MatrixFill fill)
+template <typename Scalar> void lacpy(Matrix<Scalar>& destination, Matrix<Scalar> const& source, MatrixFill fill)
 {
   if (source.rows() != destination.rows() || source.cols() != destination.cols())
   {
@@ -387,15 +387,15 @@ void laset(Matrix<Scalar>& matrix, Scalar const& diagonal, Scalar const& off_dia
 
 /// \brief Compute a dense matrix-vector product.
 /// \tparam Scalar Element type.
+/// \param y Output vector updated as `y = alpha * op(matrix) * x + beta * y`.
 /// \param alpha Scale factor for the matrix-vector product.
 /// \param matrix Input matrix.
 /// \param x Input vector.
 /// \param beta Scale factor for the original \p y value.
-/// \param y Output vector updated as `y = alpha * op(matrix) * x + beta * y`.
 /// \param transpose Matrix operation applied before multiplication.
 template <typename Scalar>
-void gemv(Scalar const& alpha, Matrix<Scalar> const& matrix, std::span<Scalar const> x, Scalar const& beta,
-          std::span<Scalar> y, MatrixTranspose transpose = MatrixTranspose::None)
+void gemv(std::span<Scalar> y, Scalar const& alpha, Matrix<Scalar> const& matrix, std::span<Scalar const> x,
+          Scalar const& beta, MatrixTranspose transpose = MatrixTranspose::None)
 {
   std::size_t const output_size = transpose == MatrixTranspose::None ? matrix.rows() : matrix.cols();
   std::size_t const input_size = transpose == MatrixTranspose::None ? matrix.cols() : matrix.rows();
@@ -440,12 +440,12 @@ void gemv(Scalar const& alpha, Matrix<Scalar> const& matrix, std::span<Scalar co
 
 /// \brief Apply a dense rank-one update.
 /// \tparam Scalar Element type.
+/// \param matrix Matrix updated as `matrix += alpha * x * y^T`.
 /// \param alpha Scale factor.
 /// \param x Left vector.
 /// \param y Right vector.
-/// \param matrix Matrix updated as `matrix += alpha * x * y^T`.
 template <typename Scalar>
-void geru(Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y, Matrix<Scalar>& matrix)
+void geru(Matrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y)
 {
   if (x.size() != matrix.rows() || y.size() != matrix.cols())
   {
@@ -464,12 +464,12 @@ void geru(Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const
 
 /// \brief Apply a conjugated dense rank-one update.
 /// \tparam Scalar Element type.
+/// \param matrix Matrix updated as `matrix += alpha * x * conj(y)^T`.
 /// \param alpha Scale factor.
 /// \param x Left vector.
 /// \param y Right vector, conjugated elementwise for complex scalar types.
-/// \param matrix Matrix updated as `matrix += alpha * x * conj(y)^T`.
 template <typename Scalar>
-void gerc(Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y, Matrix<Scalar>& matrix)
+void gerc(Matrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y)
 {
   if (x.size() != matrix.rows() || y.size() != matrix.cols())
   {

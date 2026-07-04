@@ -264,8 +264,8 @@ Concept pressure:
 ### Explicit Backend On Mdspan
 
 ```cpp
-gemm(c_mdspan, alpha, a_mdspan, b_mdspan, beta,
-     backend_list{BlasBackend{}, CpuGenericBackend{}});
+gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
+     c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 ```
 
 Needed behavior:
@@ -344,7 +344,7 @@ Concept pressure:
 
 ```cpp
 auto tmp = make_temporary_like(A, shape);
-copy(A, tmp);
+copy(tmp, A);
 ```
 
 Needed behavior:
@@ -528,7 +528,7 @@ its storage domain, not from the C++ name of the operand:
 auto selector = common_backend_selector(a, b);
 auto domain = temporary_storage_domain(selector, a, b);
 auto tmp = make_temporary_tensor(selector, domain, descriptor);
-copy(a, tmp); // ordinary backend-dispatched copy kernel
+copy(tmp, a); // ordinary backend-dispatched copy kernel
 ```
 
 For Uni20-owned tensors, the domain comes from the storage policy:
@@ -572,9 +572,8 @@ Therefore direct mdspan calls that need temporaries should either use an
 adapter carrying a storage domain or pass an explicit domain/factory:
 
 ```cpp
-gemm(c_mdspan, a_mdspan, b_mdspan,
-     backend_list{BlasBackend{}, CpuGenericBackend{}},
-     HostDomain{});
+gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
+     HostDomain{}, c_mdspan, a_mdspan, b_mdspan);
 
 auto A = as_tensor_view(a_mdspan, CudaDomain{device});
 auto tmp = make_temporary_like(A, descriptor);
@@ -628,12 +627,12 @@ singleton backend value:
 
 ```cpp
 gemm(C, alpha, A, B, beta);                                  // storage default
-gemm(C, alpha, A, B, beta, CpuGenericBackend{});              // one backend only
-gemm(C, alpha, A, B, beta,
-     backend_list{BlasBackend{}, CpuGenericBackend{}});       // ordered list
-gemm(C, alpha, A, B, beta,
-     make_backend_selector<backend_list<CublasBackend, CudaGenericBackend>>(
-       CublasConfig{.device = {1}, .stream = {stream}, .math_mode = {tf32_allowed}}));
+gemm(CpuGenericBackend{}, C, alpha, A, B, beta);              // one backend only
+gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
+     C, alpha, A, B, beta);                                  // ordered list
+gemm(make_backend_selector<backend_list<CublasBackend, CudaGenericBackend>>(
+       CublasConfig{.device = {1}, .stream = {stream}, .math_mode = {tf32_allowed}}),
+     C, alpha, A, B, beta);
 ```
 
 A singleton backend is normalized to a one-entry backend list value. It does
@@ -642,8 +641,8 @@ not get an implicit fallback.
 Plain mdspan entry points should require an explicit backend selector:
 
 ```cpp
-gemm(c_mdspan, alpha, a_mdspan, b_mdspan, beta,
-     backend_list{BlasBackend{}, CpuGenericBackend{}});
+gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
+     c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 ```
 
 or an explicit backend helper:

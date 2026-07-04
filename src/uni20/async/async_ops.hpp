@@ -22,25 +22,22 @@ namespace uni20::async
 /// \brief concept for a valid type that behaves as a read buffer awaitable
 ///        This requires that the awaiter has a value_type and await_resume() is available.
 template <typename Awaitable>
-concept read_buffer_awaitable = requires(Awaitable& a)
-{
+concept read_buffer_awaitable = requires(Awaitable& a) {
   typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type;
-  {get_awaiter(a).await_resume()};
+  { get_awaiter(a).await_resume() };
 };
 
 /// \brief concept for a valid type that behaves as a write buffer awaitable
 ///        This requires that `value_type x; co_await a = x` is valid.
 template <typename Awaitable>
-concept write_buffer_awaitable = requires(Awaitable& a, typename Awaitable::value_type v)
-{
+concept write_buffer_awaitable = requires(Awaitable& a, typename Awaitable::value_type v) {
   typename std::remove_cvref_t<decltype(get_awaiter(a))>::value_type;
-  {get_awaiter(a).await_resume() = std::move(v)};
+  { get_awaiter(a).await_resume() = std::move(v) };
 };
 
 /// \brief concept for a valid type that supports in-place construction via emplace(...)
 template <typename Awaitable>
-concept emplace_buffer_awaitable = requires(Awaitable& a, typename Awaitable::value_type v)
-{
+concept emplace_buffer_awaitable = requires(Awaitable& a, typename Awaitable::value_type v) {
   typename Awaitable::value_type;
   get_awaiter(a).await_resume().emplace(std::move(v));
 };
@@ -53,17 +50,14 @@ concept emplace_buffer_awaitable_of =
 ///        for type `T`.  That is, the expression
 ///        `T(co_await a)` is valid.
 template <typename Awaitable, typename T>
-concept read_buffer_awaitable_of = requires(Awaitable a)
-{
-  requires std::constructible_from<T, decltype(get_awaiter(a).await_resume())>;
-};
+concept read_buffer_awaitable_of =
+    requires(Awaitable a) { requires std::constructible_from<T, decltype(get_awaiter(a).await_resume())>; };
 
 /// \brief concept for a valid type that behaves as a write buffer awaitable
 ///        This requires that `T x; co_await a = x` is valid.
 template <typename Awaitable, typename T>
-concept write_buffer_awaitable_of = requires(Awaitable a)
-{
-  {get_awaiter(a).await_resume() = std::declval<T>()};
+concept write_buffer_awaitable_of = requires(Awaitable a) {
+  { get_awaiter(a).await_resume() = std::declval<T>() };
 };
 
 /// \brief concept for a valid type that behaves as a write buffer that is also readable
@@ -79,10 +73,7 @@ concept read_write_buffer_awaitable_of =
 
 /// \brief An async_reader is satisfied if `.read()` returns an async read buffer.
 template <typename T>
-concept async_reader = requires(T t)
-{
-  requires read_buffer_awaitable<decltype(t.read())>;
-};
+concept async_reader = requires(T t) { requires read_buffer_awaitable<decltype(t.read())>; };
 
 /// \brief Alias for the write-buffer type produced by `write()` on an lvalue.
 template <typename AsyncLike> using write_buffer_t = decltype(std::declval<AsyncLike&>().write());
@@ -91,23 +82,16 @@ template <typename AsyncLike> using take_awaiter_t = decltype(std::declval<write
 
 /// \brief An async_writer is satisfied if `.write()` returns a buffer supporting `emplace(...)`.
 template <typename AsyncLike>
-concept async_writer = requires(AsyncLike t)
-{
-  requires emplace_buffer_awaitable<decltype(t.write())>;
-};
+concept async_writer = requires(AsyncLike t) { requires emplace_buffer_awaitable<decltype(t.write())>; };
 
 template <typename AsyncLike, typename T>
-concept async_reader_of = requires
-{
-  requires read_buffer_awaitable_of<decltype(std::declval<AsyncLike&>().read()), T>;
-};
+concept async_reader_of =
+    requires { requires read_buffer_awaitable_of<decltype(std::declval<AsyncLike&>().read()), T>; };
 
 /// \brief Concept requiring an async writer that accepts values constructible from `T`.
 template <typename AsyncLike, typename T>
-concept async_writer_to = requires
-{
-  requires emplace_buffer_awaitable_of<decltype(std::declval<AsyncLike&>().write()), T>;
-};
+concept async_writer_to =
+    requires { requires emplace_buffer_awaitable_of<decltype(std::declval<AsyncLike&>().write()), T>; };
 
 static_assert(async_writer_to<Async<int>, int>);
 static_assert(!async_writer_to<Async<int> const, int>);
@@ -115,15 +99,13 @@ static_assert(!async_writer_to<Async<int> const, int>);
 /// \brief Concept for an Awaitable that yields a movable object that can be moved into T
 /// \note  Moving-from is a write operation
 template <typename AsyncLike, typename T>
-concept async_movable_to = requires
-{
+concept async_movable_to = requires {
   requires emplace_buffer_awaitable_of<write_buffer_t<AsyncLike>, T>;
   requires read_buffer_awaitable_of<take_awaiter_t<AsyncLike>, T>;
 };
 
 template <typename AsyncLike, typename T>
-concept async_mutable_writer_of = requires
-{
+concept async_mutable_writer_of = requires {
   requires emplace_buffer_awaitable_of<write_buffer_t<AsyncLike>, T>;
   requires read_buffer_awaitable_of<take_awaiter_t<AsyncLike>, T>;
 };
@@ -132,8 +114,7 @@ concept async_mutable_writer_of = requires
 ///        it has a write() function that returns an awaiter that can be assigned from the nested value_type,
 ///        and also read from
 template <typename T>
-concept async_read_writer = requires(T t)
-{
+concept async_read_writer = requires(T t) {
   requires async_reader<T>;
   requires async_writer<T>;
   requires emplace_buffer_awaitable<decltype(t.write())>;
@@ -174,14 +155,19 @@ template <typename T> struct ValueAwaiter
 ///
 /// Wraps a scalar value into an awaitable that can be co_awaited like an Async buffer.
 template <typename T>
-requires(!async_reader<std::remove_cvref_t<T>>) ValueAwaiter<std::remove_cvref_t<T>> read(T&& x)
+  requires(!async_reader<std::remove_cvref_t<T>>)
+ValueAwaiter<std::remove_cvref_t<T>> read(T&& x)
 {
   return ValueAwaiter<std::remove_cvref_t<T>>{std::forward<T>(x)};
 }
 
 /// \brief for a generic async reader, free function read() can forward to the member
 template <typename T>
-requires(async_reader<std::remove_cvref_t<T>>) auto read(T&& x) { return std::forward<T>(x).read(); }
+  requires(async_reader<std::remove_cvref_t<T>>)
+auto read(T&& x)
+{
+  return std::forward<T>(x).read();
+}
 
 /// \brief Strip Async<T> to T for type deduction
 template <typename T> struct async_value_type
@@ -204,32 +190,26 @@ using async_binary_result_t =
 
 /// \brief Concept to determine if Op(T,U) is a candidate for forwarding for Async
 template <typename T, typename U, typename Op>
-concept async_binary_applicable = (async_reader<std::remove_cvref_t<T>> ||
-                                   async_reader<std::remove_cvref_t<U>>)&&requires(Op op, async_value_t<T> t,
-                                                                                   async_value_t<U> u)
-{
-  {op(t, u)};
-};
+concept async_binary_applicable = (async_reader<std::remove_cvref_t<T>> || async_reader<std::remove_cvref_t<U>>) &&
+                                  requires(Op op, async_value_t<T> t, async_value_t<U> u) {
+                                    { op(t, u) };
+                                  };
 
 /// \brief concept for validating a binary operation
 ///        true if the operation result can be emplaced into the writer output type.
 template <typename A, typename B, typename Writer, typename Op>
-concept async_binary_assignable = async_writer<Writer> &&
-    requires(Op op, async_value_t<A> a, async_value_t<B> b, Writer& out)
-{
-  requires std::constructible_from < typename std::remove_cvref_t<decltype(out.write())>::value_type,
-  decltype(op(a, b)) > ;
+concept async_binary_assignable = async_writer<Writer> && requires(Op op, async_value_t<A> a, async_value_t<B> b,
+                                                                   Writer& out) {
+  requires std::constructible_from<typename std::remove_cvref_t<decltype(out.write())>::value_type, decltype(op(a, b))>;
 };
 
 template <typename T, typename U, typename Op>
-concept is_async_compound_applicable = async_like<std::remove_reference_t<T>> &&
-    requires(async_value_t<T> lhs, async_value_t<U>&& rhs, Op op)
-{
-  op(lhs, std::forward<async_value_t<U>>(rhs));
-};
+concept is_async_compound_applicable =
+    async_like<std::remove_reference_t<T>> &&
+    requires(async_value_t<T> lhs, async_value_t<U>&& rhs, Op op) { op(lhs, std::forward<async_value_t<U>>(rhs)); };
 
 // Example using move semantics
-// template <typename A, typename B, typename R, typename Op> void async_binary_op(A&& a, B&& b, Async<R>& out, Op op)
+// template <typename A, typename B, typename R, typename Op> void async_binary_op(Async<R>& out, A&& a, B&& b, Op op)
 // {
 //   schedule([](auto a_, auto b_, WriteBuffer<R> out_, Op op_) -> AsyncTask {
 //     auto [va, vb] = co_await all(std::move(a_), std::move(b_));
@@ -251,14 +231,14 @@ concept is_async_compound_applicable = async_like<std::remove_reference_t<T>> &&
 /// \tparam R Result value type
 /// \tparam Op Callable with signature R(op(A, B))
 template <typename A, typename B, async_writer Writer, typename Op>
-requires async_binary_applicable<A, B, Op>
-void async_binary_op(A&& a, B&& b, Writer& out, Op op)
+  requires async_binary_applicable<A, B, Op>
+void async_binary_op(Writer& out, A&& a, B&& b, Op op)
 {
   auto a_buf = read(std::forward<A>(a));
   auto b_buf = read(std::forward<B>(b));
   auto out_buf = out.write();
 
-  schedule([](auto a_, auto b_, auto out_, Op op_) static->AsyncTask {
+  schedule([](auto a_, auto b_, auto out_, Op op_) static -> AsyncTask {
     auto ab = co_await all(a_, b_);
     auto tmp = op_(std::get<0>(ab), std::get<1>(ab));
     a_.release();
@@ -278,16 +258,16 @@ void async_binary_op(A&& a, B&& b, Writer& out, Op op)
 /// \tparam U Right-hand operand type (scalar or Async<U>)
 /// \tparam T Value type of the Async<T> being modified
 /// \tparam Op Callable with signature void(T&, U const&)
-/// \param rhs Right-hand operand (either U or Async<U>)
 /// \param lhs Left-hand operand of the form Async<T>& — this is the value being modified
+/// \param rhs Right-hand operand (either U or Async<U>)
 /// \param op  In-place operation to apply (e.g., a lambda using operator+=)
-template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, Async<T>& lhs, Op op)
+template <typename T, typename U, typename Op> void async_compound_op(Async<T>& lhs, U&& rhs, Op op)
 {
   auto rhs_buf = read(std::forward<U>(rhs));
   auto lhs_in = lhs.read();
   auto lhs_out = lhs.write();
 
-  schedule([](auto lhs_in_, auto rhs_, WriteBuffer<T> out_, Op op_) static->AsyncTask {
+  schedule([](auto lhs_in_, auto rhs_, WriteBuffer<T> out_, Op op_) static -> AsyncTask {
     auto tmp = co_await all(lhs_in_, rhs_);
     auto& lhs_val = std::get<0>(tmp);
     auto& rhs_val = std::get<1>(tmp);
@@ -301,7 +281,7 @@ template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, A
 }
 
 // This version is correct, but does not use all() awaiter
-// template <typename A, typename B, typename R, typename Op> void async_binary_op(A&& a, B&& b, Async<R>& out, Op op)
+// template <typename A, typename B, typename R, typename Op> void async_binary_op(Async<R>& out, A&& a, B&& b, Op op)
 // {
 //   auto a_buf = read(std::forward<A>(a));
 //   auto b_buf = read(std::forward<B>(b));
@@ -320,15 +300,16 @@ template <typename U, typename T, typename Op> void async_compound_op(U&& rhs, A
 
 /// \brief Assigns an Async or scalar value into an Async destination.
 ///
-/// This schedules a coroutine that reads the value `rhs` (whether it's an
-/// Async or a scalar), and writes it into `lhs`.
+/// This schedules a coroutine that writes the value `rhs` into `lhs`.
 ///
 /// \tparam T The value type of the destination.
 /// \tparam U The source type, either a value or Async<U>.
-template <typename U, typename T> void async_assign(U&& rhs, WriteBuffer<T> lhs) requires read_buffer_awaitable_of<U, T>
+template <typename T, typename U>
+void async_assign(WriteBuffer<T> lhs, U&& rhs)
+  requires read_buffer_awaitable_of<U, T>
 // requires { T{std::declval<async_value_t<U>>()}; }
 {
-  schedule([](auto in_, WriteBuffer<T> out_) static->AsyncTask {
+  schedule([](auto in_, WriteBuffer<T> out_) static -> AsyncTask {
     T value(co_await in_);
     in_.release();
     co_await out_ = std::move(value);
@@ -337,42 +318,40 @@ template <typename U, typename T> void async_assign(U&& rhs, WriteBuffer<T> lhs)
 }
 
 /// \brief Assigns an Async or scalar value into an Async destination.
-/// \tparam U Source type (scalar or Async-like).
 /// \tparam T Destination value type.
-/// \param rhs Source expression.
+/// \tparam U Source type (scalar or Async-like).
 /// \param lhs Destination async value.
-template <typename U, typename T> void async_assign(U&& rhs, Async<T>& lhs) requires requires
+/// \param rhs Source expression.
+template <typename T, typename U>
+void async_assign(Async<T>& lhs, U&& rhs)
+  requires requires { T{std::declval<async_value_t<U>>()}; }
 {
-  T{std::declval<async_value_t<U>>()};
-}
-{
-  async_assign(read(std::forward<U>(rhs)), lhs.write());
+  async_assign(lhs.write(), read(std::forward<U>(rhs)));
 }
 
 /// \brief Assigns an Async or scalar value into a write buffer destination.
-/// \tparam U Source type (scalar or Async-like).
 /// \tparam T Destination value type.
-/// \param rhs Source expression.
+/// \tparam U Source type (scalar or Async-like).
 /// \param lhs Destination write buffer.
-template <typename U, typename T> void async_assign(U&& rhs, WriteBuffer<T> lhs) requires requires
+/// \param rhs Source expression.
+template <typename T, typename U>
+void async_assign(WriteBuffer<T> lhs, U&& rhs)
+  requires requires { T{std::declval<async_value_t<U>>()}; }
 {
-  T{std::declval<async_value_t<U>>()};
-}
-{
-  async_assign(read(std::forward<U>(rhs)), std::move(lhs));
+  async_assign(std::move(lhs), read(std::forward<U>(rhs)));
 }
 
-template <typename U, typename T>
-requires async_mutable_writer_of<U, T> && async_movable_to<U, T>
+template <typename T, typename U>
+  requires async_mutable_writer_of<U, T> && async_movable_to<U, T>
 /// \brief Move-assign from an async writer into a write buffer.
-/// \tparam U Source async-like type.
 /// \tparam T Destination value type.
-/// \param rhs Source expression.
+/// \tparam U Source async-like type.
 /// \param lhs Destination write buffer.
-void async_move(U&& rhs, WriteBuffer<T> lhs)
+/// \param rhs Source expression.
+void async_move(WriteBuffer<T> lhs, U&& rhs)
 {
   auto src = std::forward<U>(rhs).write();
-  schedule([](auto src, WriteBuffer<T> dst) static->AsyncTask {
+  schedule([](auto src, WriteBuffer<T> dst) static -> AsyncTask {
     T movable(co_await src.take());
     src.release();
     co_await dst = std::move(movable);
@@ -380,35 +359,35 @@ void async_move(U&& rhs, WriteBuffer<T> lhs)
   }(std::move(src), std::move(lhs)));
 }
 
-template <typename U, typename T>
-requires(!async_writer<std::remove_cvref_t<U>>) && std::constructible_from<T, U&&> void async_move(U&& rhs,
-                                                                                                   WriteBuffer<T> lhs)
+template <typename T, typename U>
+  requires(!async_writer<std::remove_cvref_t<U>>) && std::constructible_from<T, U&&>
+void async_move(WriteBuffer<T> lhs, U&& rhs)
 {
-  schedule([](T val, WriteBuffer<T> dst) static->AsyncTask {
+  schedule([](T val, WriteBuffer<T> dst) static -> AsyncTask {
     co_await dst = std::move(val);
     co_return;
   }(std::move(rhs), std::move(lhs)));
 }
 
 /// \brief Move-assign from a source expression into an Async destination.
-/// \tparam U Source type.
 /// \tparam T Destination value type.
-/// \param rhs Source expression.
+/// \tparam U Source type.
 /// \param lhs Destination async value.
-template <typename U, typename T> void async_move(U&& rhs, Async<T>& lhs)
+/// \param rhs Source expression.
+template <typename T, typename U> void async_move(Async<T>& lhs, U&& rhs)
 {
-  async_move(std::forward<U>(rhs), lhs.write());
+  async_move(lhs.write(), std::forward<U>(rhs));
 }
 
 // +, -, *, /
 #define UNI20_DEFINE_BINARY_OP(OPNAME, OP)                                                                             \
   template <typename T, typename U>                                                                                    \
-  requires async_binary_applicable<T, U, OP>                                                                           \
+    requires async_binary_applicable<T, U, OP>                                                                         \
   auto operator OPNAME(T&& a, U&& b)                                                                                   \
   {                                                                                                                    \
     using R = async_binary_result_t<T, U, OP>;                                                                         \
     Async<R> result;                                                                                                   \
-    async_binary_op(std::forward<T>(a), std::forward<U>(b), result, OP{});                                             \
+    async_binary_op(result, std::forward<T>(a), std::forward<U>(b), OP{});                                             \
     return result;                                                                                                     \
   }
 
@@ -437,10 +416,10 @@ UNI20_DEFINE_ASSIGN_OP(divides_assign, /=)
 
 #define UNI20_DEFINE_ASYNC_COMPOUND_OPERATOR(OPSYM, FUNCTOR)                                                           \
   template <typename T, typename U>                                                                                    \
-  requires uni20::async::is_async_compound_applicable < Async<T>                                                       \
-  &, U, uni20::async::FUNCTOR > Async<T>& operator OPSYM(Async<T>& lhs, U&& rhs)                                       \
+    requires uni20::async::is_async_compound_applicable<Async<T>&, U, uni20::async::FUNCTOR>                           \
+  Async<T>& operator OPSYM(Async<T>& lhs, U && rhs)                                                                    \
   {                                                                                                                    \
-    uni20::async::async_compound_op(std::forward<U>(rhs), lhs, uni20::async::FUNCTOR{});                               \
+    uni20::async::async_compound_op(lhs, std::forward<U>(rhs), uni20::async::FUNCTOR{});                               \
     return lhs;                                                                                                        \
   }
 
@@ -456,11 +435,13 @@ UNI20_DEFINE_ASYNC_COMPOUND_OPERATOR(/=, divides_assign)
 /// \brief Negate a source value asynchronously and write into a destination buffer.
 /// \tparam U Source type.
 /// \tparam T Destination value type.
-/// \param rhs Source expression.
 /// \param lhs Destination write buffer.
-template <typename U, typename T> void async_negate(U&& rhs, WriteBuffer<T> lhs) requires read_buffer_awaitable_of<U, T>
+/// \param rhs Source expression.
+template <typename T, typename U>
+void async_negate(WriteBuffer<T> lhs, U&& rhs)
+  requires read_buffer_awaitable_of<U, T>
 {
-  schedule([](auto in_, WriteBuffer<T> out_) static->AsyncTask {
+  schedule([](auto in_, WriteBuffer<T> out_) static -> AsyncTask {
     auto result = -co_await in_;
     in_.release();
     co_await out_ = std::move(result);
@@ -472,10 +453,12 @@ template <typename U, typename T> void async_negate(U&& rhs, WriteBuffer<T> lhs)
 /// \tparam T Value type.
 /// \param x Source async value.
 /// \return Async value representing `-x`.
-template <typename T> auto operator-(Async<T> const& x) requires requires(T t) { -t; }
+template <typename T>
+auto operator-(Async<T> const& x)
+  requires requires(T t) { -t; }
 {
   Async<T> result;
-  async_negate(x.read(), result.write());
+  async_negate(result.write(), x.read());
   return result;
 }
 

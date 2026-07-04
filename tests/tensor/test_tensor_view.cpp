@@ -126,7 +126,7 @@ TEST(TensorViewTest, ModelsSpanLikeAndWorksWithLevel1Kernels)
   EXPECT_EQ(src.extent(1), 3);
   EXPECT_TRUE(src.is_strided());
 
-  assign(src, dst);
+  assign(dst, src);
   EXPECT_EQ(dst_storage, src_storage);
 
   auto shifted = zip_transform([](int const& value) { return value + 10; }, src);

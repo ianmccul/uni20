@@ -1,11 +1,11 @@
 // tests/test_future_value.cpp
+#include <gtest/gtest.h>
+#include <memory>
+#include <string>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/reverse_value.hpp>
 #include <uni20/async/scheduler.hpp>
-#include <gtest/gtest.h>
-#include <memory>
-#include <string>
 
 using namespace uni20::async;
 
@@ -16,7 +16,7 @@ TEST(ReverseValue, BasicWriteRead)
 
   ReverseValue<int> fv;
   Async<int> v;
-  async_assign(fv.last_value().read(), v.write());
+  async_assign(v.write(), fv.last_value().read());
   fv = 42;
   EXPECT_EQ(v.read().get_wait(), 42);
 }
@@ -29,7 +29,7 @@ TEST(ReverseValue, MoveOnlyType)
   using Ptr = std::unique_ptr<std::string>;
   ReverseValue<Ptr> fv;
   Async<Ptr> v;
-  async_move(std::move(fv.last_value()), v);
+  async_move(v, std::move(fv.last_value()));
   // auto str_ptr = std::move(fv.last_value().move_from());
   fv = std::make_unique<std::string>("hello");
   EXPECT_EQ(*v.get_wait(), "hello");

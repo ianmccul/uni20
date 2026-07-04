@@ -30,7 +30,7 @@ For example:
 ```cpp
 Async<BasicTensor<double, 2>> A = make_tensor();
 auto S = async_slice(A, rows, cols);
-schedule([](auto s_) static->AsyncTask {
+schedule([](auto s_) static -> AsyncTask {
   auto s = co_await s_;
   kernel(s);
 }(S.read()));
@@ -192,25 +192,25 @@ The dispatch flow is:
 Schematic:
 
 ```cpp
-template <class A, class B, class C>
-auto gemm(A const& a, B const& b, C& c)
+template <class C, class A, class B>
+auto gemm(C& c, A const& a, B const& b)
 {
   auto shape = gemm_shape(tensor_descriptor(a), tensor_descriptor(b));
-  auto selector = common_backend_selector(a, b, c);
+  auto selector = common_backend_selector(c, a, b);
 
-  return dispatch_async_or_sync(selector, gemm_op{}, a, b, c, shape);
+  return dispatch_async_or_sync(selector, gemm_op{}, c, a, b, shape);
 }
 ```
 
 For an async path:
 
 ```cpp
-schedule([](auto a_, auto b_, auto c_) static->AsyncTask {
+schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {
+  auto C = co_await c_.write();
   auto A = co_await a_.read();
   auto B = co_await b_.read();
-  auto C = co_await c_.write();
-  selected_backend_gemm(A, B, C);
-}(a, b, c));
+  selected_backend_gemm(C, A, B);
+}(c, a, b));
 ```
 
 This is deliberately different from asking `Async<Tensor>` to satisfy the same
@@ -248,7 +248,7 @@ case for:
 For `Async<BasicTensor>`, resizing may require write access to the stored tensor:
 
 ```cpp
-schedule([](auto c_, shape_type shape) static->AsyncTask {
+schedule([](auto c_, shape_type shape) static -> AsyncTask {
   auto C_owner = co_await c_.write();
   ensure_shape(C_owner.get(), shape); // may reallocate BasicTensor storage
   auto C = tensor_write_view(C_owner.get());
@@ -306,7 +306,7 @@ evaluation kernel scheduled through the same dispatch path:
 
 ```cpp
 auto tmp = make_async_temporary_tensor(selector, domain, descriptor);
-schedule_copy(A.read(), tmp.write());
+schedule_copy(tmp.write(), A.read());
 schedule_compute(tmp.read(), C.write());
 ```
 
@@ -376,7 +376,7 @@ data is copied.
 Async<BasicTensor<double, 2>> A;
 BasicTensor<double, 2> B, C;
 
-gemm(A, B, C);
+gemm(C, A, B);
 ```
 
 Expected behavior:
@@ -391,7 +391,7 @@ Expected behavior:
 
 ```cpp
 auto S = async_slice(A, rows, cols);
-gemm(S, B, C);
+gemm(C, S, B);
 ```
 
 Expected behavior:
@@ -406,7 +406,7 @@ Expected behavior:
 ```cpp
 auto Ai = A.blocks().block(i);
 auto Cj = C.blocks().block(j);
-schedule_block_gemm(Ai, Bj, Cj);
+schedule_block_gemm(Cj, Ai, Bj);
 ```
 
 Expected behavior:

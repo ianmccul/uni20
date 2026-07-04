@@ -3034,7 +3034,7 @@ TEST(MplapackBinary128DenseSubspaceTest, LocalDenseOpsPreserveBinary128OnlyIncre
 
   std::vector<Binary128> axpy_source{delta};
   std::vector<Binary128> axpy_destination{Binary128{1}};
-  uni20::krylov::axpy(Binary128{1}, const_span(axpy_source), mutable_span(axpy_destination));
+  uni20::krylov::axpy(mutable_span(axpy_destination), Binary128{1}, const_span(axpy_source));
   EXPECT_TRUE(abs_error(axpy_destination[0], one_plus_delta) <= tolerance());
 
   uni20::krylov::Matrix<Binary128> matrix(1, 2);
@@ -3042,13 +3042,13 @@ TEST(MplapackBinary128DenseSubspaceTest, LocalDenseOpsPreserveBinary128OnlyIncre
   matrix[0, 1] = Binary128{-1};
   std::vector<Binary128> vector{Binary128{1}, Binary128{1}};
   std::vector<Binary128> output{Binary128{}};
-  uni20::krylov::gemv(Binary128{1}, matrix, const_span(vector), Binary128{}, mutable_span(output));
+  uni20::krylov::gemv(mutable_span(output), Binary128{1}, matrix, const_span(vector), Binary128{});
   EXPECT_TRUE(abs_error(output[0], delta) <= tolerance());
 
   uni20::krylov::Matrix<Binary128> rank_one(1, 1);
   std::vector<Binary128> left{one_plus_delta};
   std::vector<Binary128> right{Binary128{1}};
-  uni20::krylov::geru(Binary128{1}, const_span(left), const_span(right), rank_one);
+  uni20::krylov::geru(rank_one, Binary128{1}, const_span(left), const_span(right));
   EXPECT_TRUE(abs_error(rank_one[0, 0], one_plus_delta) <= tolerance());
 }
 
