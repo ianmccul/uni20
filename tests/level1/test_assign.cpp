@@ -218,7 +218,11 @@ TEST(Assign, ZeroExtentNoOp)
   auto const baseline = dst_data;
 
   auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{dst.mapping(), src.mapping()});
-  EXPECT_TRUE(plan.empty());
+  // Zero-extent => 0 elements, carried as a single retained extent-0 dim (which
+  // the driver loops zero times). An *empty* plan now means a rank-0 scalar (1
+  // element), so this must NOT be empty.
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 0);
   EXPECT_EQ(offsets[0], 0);
   EXPECT_EQ(offsets[1], 0);
 

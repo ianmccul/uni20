@@ -18,10 +18,12 @@ template <typename MDS, typename Op> void apply_unary_inplace(MDS a, Op&& op)
   auto data = a.data_handle();
   auto [plan, offset] = make_iteration_plan_with_offset(map);
 
-  if (plan.empty()) return;
-
+  // No empty-plan short-circuit: an empty plan denotes a rank-0 scalar (exactly
+  // one element at offset), which run() handles via its 0-dim terminal. A
+  // zero-size iteration is instead carried as a retained extent-0 dim, so it
+  // loops zero times. depth is the dim count, i.e. plan.size().
   detail::UnrollHelper helper{data, acc, op};
-  helper.run(offset, plan.data(), plan.size() - 1);
+  helper.run(offset, plan.data(), plan.size());
 }
 
 } // namespace uni20

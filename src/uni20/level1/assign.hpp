@@ -26,8 +26,9 @@ template <StridedMdspan MDS1, StridedMdspan MDS2> void assign(MDS1 const& src, M
 
   auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{dst.mapping(), src.mapping()});
 
-  if (plan.empty()) return;
-
+  // No empty-plan short-circuit: an empty plan denotes a rank-0 scalar (assign
+  // the single element), which MultiUnrollHelper::run handles via its 0-dim
+  // terminal. A zero-size iteration is carried as a retained extent-0 dim.
   detail::MultiUnrollHelper helper{[](auto&& dst_v, auto&& src_v) { return src_v; }, dst, src};
   helper.run(plan, offsets);
 }

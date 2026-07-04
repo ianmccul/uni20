@@ -78,19 +78,38 @@ template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& 
   for (size_type i = 0; i < Rank; ++i)
   {
     size_type const extent = mapping.extents().extent(i);
-    index_type stride = mapping.stride(i);
 
+    // A zero-extent dimension makes the whole iteration empty (0 elements).
+    // Encode that as a single retained extent-0 dim so the loop nest runs it
+    // zero times; no other dimension's stride matters. This is deliberately
+    // distinct from an *empty* plan, which denotes a single element at the base
+    // offset (a rank-0 scalar) -- see the empty-plan return below.
+    if (extent == 0)
+    {
+      plan.emplace_back(size_type{0}, index_type{0});
+      return std::pair{plan, index_type{0}};
+    }
+
+    // A size-1 dimension spans index 0 only: it adds 0*stride to every offset
+    // and a factor of 1 to the element count, so it coalesces with anything by
+    // simply vanishing. Drop it here rather than leaving it to the arithmetic
+    // merge, whose merge_with_inner would otherwise adopt this dim's
+    // meaningless stride.
+    if (extent == 1) continue;
+
+    index_type stride = mapping.stride(i);
     if (stride < 0)
     {
       offset += stride * static_cast<index_type>(extent - 1);
       stride = -stride;
     }
 
-    if (extent == 0) continue;
-
     raw_plan.emplace_back(extent, std::array<index_type, 1>{stride});
   }
 
+  // An empty plan denotes a single element at the base offset (rank-0 scalar):
+  // every dimension was size-1, or the mapping is rank-0, so there is exactly
+  // one element to visit.
   if (raw_plan.empty()) return std::pair{plan, offset};
 
   std::sort(raw_plan.begin(), raw_plan.end(),
@@ -137,7 +156,22 @@ auto make_multi_iteration_plan_with_offset(std::array<Mapping, N> const& mapping
   for (size_type i = 0; i < Rank; ++i)
   {
     size_type const extent = base_extents.extent(i);
-    if (extent == 0) continue;
+
+    // A zero-extent dimension makes the whole iteration empty (0 elements):
+    // retain a single extent-0 dim so the loop nest runs zero times, and reset
+    // the offset corrections (unused once nothing is visited). Distinct from an
+    // empty plan, which denotes a single element (rank-0 scalar).
+    if (extent == 0)
+    {
+      raw_plan.clear();
+      raw_plan.emplace_back(size_type{0}, std::array<index_type, N>{});
+      offsets = std::array<index_type, N>{};
+      return std::pair{raw_plan, offsets};
+    }
+
+    // Size-1 dimensions span index 0 only (0*stride, count factor 1), so drop
+    // them; they coalesce with anything by vanishing.
+    if (extent == 1) continue;
 
     std::array<index_type, N> strides{};
     for (std::size_t k = 0; k < N; ++k)
@@ -157,6 +191,7 @@ auto make_multi_iteration_plan_with_offset(std::array<Mapping, N> const& mapping
     raw_plan.emplace_back(extent, strides);
   }
 
+  // Empty plan => single element at the base offset (rank-0 scalar).
   if (raw_plan.empty()) return std::pair{raw_plan, offsets};
 
   std::sort(raw_plan.begin(), raw_plan.end(),
@@ -183,7 +218,17 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
 
     using idx_t = std::ptrdiff_t;
 
-    void run(idx_t Offset, extent_stride<std::size_t, idx_t> const* plan, std::integral_constant<std::size_t, 0>)
+    // 0 dims => rank-0 scalar: apply the op to the single element at Offset. No
+    // loop, and plan is not dereferenced -- this is reached for an empty plan
+    // (e.g. a rank-0 mapping, whose static_vector plan has capacity 0 and can
+    // carry no dim). An empty plan therefore means "one element", never "none".
+    void run(idx_t Offset, extent_stride<std::size_t, idx_t> const*, std::integral_constant<std::size_t, 0>)
+    {
+      acc_.access(data_, Offset) = op_(acc_.access(data_, Offset));
+    }
+
+    // 1 dim => innermost loop, with a unit-stride fast path.
+    void run(idx_t Offset, extent_stride<std::size_t, idx_t> const* plan, std::integral_constant<std::size_t, 1>)
     {
       auto const this_extent = plan->extent;
       auto const this_stride = plan->stride;
@@ -220,11 +265,14 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
       auto const this_extent = plan->extent;
       auto const this_stride = plan->stride;
       ++plan;
-      if (depth == 3)
+      // depth is the number of dims still to process. Once exactly 3 remain
+      // (depth == 4 here, before peeling this one) hand off to the static
+      // 3-dim unroll; otherwise peel one more dynamically.
+      if (depth == 4)
       {
         for (idx_t i = 0; i < idx_t(this_extent); ++i)
         {
-          this->run(Offset + i * this_stride, plan, std::integral_constant<std::size_t, 2>{});
+          this->run(Offset + i * this_stride, plan, std::integral_constant<std::size_t, 3>{});
         }
       }
       else
@@ -236,6 +284,8 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
       }
     }
 
+    // depth == plan.size() == number of dims. 0 dispatches to the rank-0 scalar
+    // terminal; 1..3 are statically unrolled; deeper nests peel dynamically.
     void run(idx_t Offset, extent_stride<std::size_t, idx_t> const* plan, std::size_t depth)
     {
       switch (depth)
@@ -248,6 +298,9 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
           return;
         case 2:
           this->run(Offset, plan, std::integral_constant<std::size_t, 2>{});
+          return;
+        case 3:
+          this->run(Offset, plan, std::integral_constant<std::size_t, 3>{});
           return;
         default:
           this->run_dynamic(Offset, plan, depth);
@@ -284,7 +337,7 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
 
     template <typename Plan> void run(Plan const& plan, offset_type offsets) noexcept
     {
-      std::size_t depth = plan.size() - 1;
+      std::size_t depth = plan.size();  // number of dims; 0 => rank-0 scalar
       switch (depth)
       {
         case 0:
@@ -295,6 +348,9 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
           return;
         case 2:
           run_unrolled(offsets, plan.data(), std::integral_constant<std::size_t, 2>{});
+          return;
+        case 3:
+          run_unrolled(offsets, plan.data(), std::integral_constant<std::size_t, 3>{});
           return;
         default:
           this->run_dynamic(offsets, plan.data(), depth);
@@ -310,9 +366,12 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
       index_type const N = plan->extent;
       for (index_type i = 0; i < N; ++i)
       {
-        if (depth == MaxUnrollDepth)
+        // depth is the number of dims still to process. Once exactly
+        // MaxUnrollDepth remain (depth == MaxUnrollDepth + 1 before peeling this
+        // one) hand off to the static unroll; otherwise peel one more.
+        if (depth == MaxUnrollDepth + 1)
         {
-          this->run_unrolled(offsets, plan + 1, std::integral_constant<std::size_t, MaxUnrollDepth - 1>{});
+          this->run_unrolled(offsets, plan + 1, std::integral_constant<std::size_t, MaxUnrollDepth>{});
         }
         else
         {
@@ -326,8 +385,22 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
       }
     }
 
-    void run_unrolled(offset_type offsets, const extent_strides<num_spans>* plan,
+    // 0 dims => rank-0 scalar: apply the op once at the given offsets. No loop,
+    // and plan is not dereferenced (reached for an empty plan / rank-0 mapping).
+    void run_unrolled(offset_type offsets, const extent_strides<num_spans>*,
                       std::integral_constant<std::size_t, 0>) noexcept
+    {
+      [&]<std::size_t... I>(std::index_sequence<I...>)
+      {
+        std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]) =
+            op_(std::get<I>(accs_).access(std::get<I>(dh_), offsets[I])...);
+      }
+      (std::make_index_sequence<num_spans>{});
+    }
+
+    // 1 dim => innermost loop.
+    void run_unrolled(offset_type offsets, const extent_strides<num_spans>* plan,
+                      std::integral_constant<std::size_t, 1>) noexcept
     {
       index_type const N = plan->extent;
       for (index_type i = 0; i < N; ++i)
