@@ -4,8 +4,8 @@
 #define NDEBUG
 #endif
 
-#include <uni20/common/trace.hpp>
 #include <gtest/gtest.h>
+#include <uni20/common/trace.hpp>
 
 // Disable ANSI colors so death‑tests see plain text
 namespace

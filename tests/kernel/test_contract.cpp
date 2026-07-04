@@ -1,8 +1,8 @@
 #include "../helpers.hpp"
-#include <uni20/common/mdspan.hpp>
-#include <uni20/kernel/contract.hpp>
 #include "gtest/gtest.h"
 #include <numeric>
+#include <uni20/common/mdspan.hpp>
+#include <uni20/kernel/contract.hpp>
 
 using namespace uni20;
 using uni20::cpu_tag; // our tag‐dispatch for now

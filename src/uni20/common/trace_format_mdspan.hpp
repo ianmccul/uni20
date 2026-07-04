@@ -15,7 +15,8 @@ concept MdspanLike = uni20::presentation::mdspan_like<MDS>;
 /// \param mds Mdspan-like object to render.
 /// \param opts Trace formatting options.
 /// \return Display-cell-aligned matrix or higher-order tensor art.
-template <MdspanLike MDS> [[nodiscard]] std::string format_mdspan_to_string(MDS const& mds, FormattingOptions const& opts)
+template <MdspanLike MDS>
+[[nodiscard]] std::string format_mdspan_to_string(MDS const& mds, FormattingOptions const& opts)
 {
   return formatValue(mds, opts);
 }

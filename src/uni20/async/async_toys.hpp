@@ -178,7 +178,7 @@ template <typename T> Async<T> herm(Async<T> const& x)
 /// \param x Async value to print.
 template <typename T> void async_print(std::string Format, Async<T> x)
 {
-  schedule([](std::string Format, ReadBuffer<T> in) static->AsyncTask {
+  schedule([](std::string Format, ReadBuffer<T> in) static -> AsyncTask {
     auto x = co_await in;
     fmt::print(fmt::runtime(Format), x);
   }(std::move(Format), x.read()));
@@ -190,7 +190,7 @@ template <typename T> void async_print(std::string Format, Async<T> x)
 /// \param x Async destination value.
 template <typename T> void async_read(std::string Prompt, Async<T>& x)
 {
-  schedule([](std::string Prompt, WriteBuffer<T> out) static->AsyncTask {
+  schedule([](std::string Prompt, WriteBuffer<T> out) static -> AsyncTask {
     fmt::print("{}", Prompt);
     T value{};
     std::cin >> value;

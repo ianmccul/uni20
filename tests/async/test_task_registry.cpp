@@ -74,10 +74,7 @@ struct ShapeLikeExtents
 {
     static constexpr std::size_t rank() noexcept { return 3; }
 
-    [[nodiscard]] std::size_t extent(std::size_t axis) const noexcept
-    {
-      return axis == 0 ? 2U : axis == 1 ? 3U : 4U;
-    }
+    [[nodiscard]] std::size_t extent(std::size_t axis) const noexcept { return axis == 0 ? 2U : axis == 1 ? 3U : 4U; }
 };
 
 struct ShapeLikeValue
@@ -93,10 +90,7 @@ struct CustomDebugValue
 struct OpaqueValue
 {};
 
-std::string uni20_async_debug_value(CustomDebugValue const& value)
-{
-  return "custom id=" + std::to_string(value.id);
-}
+std::string uni20_async_debug_value(CustomDebugValue const& value) { return "custom id=" + std::to_string(value.id); }
 
 std::filesystem::path make_temp_dir(std::string_view name)
 {
@@ -177,9 +171,8 @@ int dependency_cycle_probe()
   bool const ok = dot.find("DAG diagnostics") != std::string::npos &&
                   dot.find("dependency cycle") != std::string::npos &&
                   dot.find("diagnostic: dependency cycle") != std::string::npos &&
-                  dot.find("cycle task 1") != std::string::npos &&
-                  dot.find("cycle task 2") != std::string::npos && dot.find("cycle a") != std::string::npos &&
-                  dot.find("cycle b") != std::string::npos;
+                  dot.find("cycle task 1") != std::string::npos && dot.find("cycle task 2") != std::string::npos &&
+                  dot.find("cycle a") != std::string::npos && dot.find("cycle b") != std::string::npos;
   return ok ? 0 : 1;
 }
 #endif
@@ -451,9 +444,8 @@ TEST(TaskRegistryDebugTest, StacktraceOptionsSuppressSnapshotStacktraceText)
   sched.run();
 
   auto const snapshot = TaskRegistry::snapshot();
-  auto const task_it = std::find_if(snapshot.tasks.begin(), snapshot.tasks.end(), [](auto const& record) {
-    return record.label == "hidden stacktrace reader";
-  });
+  auto const task_it = std::find_if(snapshot.tasks.begin(), snapshot.tasks.end(),
+                                    [](auto const& record) { return record.label == "hidden stacktrace reader"; });
 
   ASSERT_NE(task_it, snapshot.tasks.end());
   EXPECT_TRUE(task_it->creation_site.stacktrace.empty());
@@ -484,15 +476,13 @@ TEST(TaskRegistryDebugTest, GraphSnapshotCapturesAllAwaiterDependencies)
   sched.run();
 
   auto const snapshot = TaskRegistry::snapshot();
-  auto const task_it = std::find_if(snapshot.tasks.begin(), snapshot.tasks.end(), [](auto const& record) {
-    return record.label == "all awaiter kernel";
-  });
+  auto const task_it = std::find_if(snapshot.tasks.begin(), snapshot.tasks.end(),
+                                    [](auto const& record) { return record.label == "all awaiter kernel"; });
 
   ASSERT_NE(task_it, snapshot.tasks.end());
   auto const read_await_count =
-      std::count_if(task_it->await_dependencies.begin(), task_it->await_dependencies.end(), [](auto const& dependency) {
-        return dependency.role == TaskRegistryGraphRole::Reader;
-      });
+      std::count_if(task_it->await_dependencies.begin(), task_it->await_dependencies.end(),
+                    [](auto const& dependency) { return dependency.role == TaskRegistryGraphRole::Reader; });
   EXPECT_GE(read_await_count, 2);
 
   auto const dot = TaskRegistry::graphviz_dot(snapshot);
@@ -518,13 +508,12 @@ TEST(TaskRegistryDebugTest, GraphSnapshotExposesStructuredRecords)
   auto const snapshot = TaskRegistry::snapshot();
   auto const diagnostics = TaskRegistry::diagnose_snapshot(snapshot);
   auto const find_named_data = [&](std::string_view label) {
-    return std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [&](auto const& node) {
-      return node.label == label;
-    });
+    return std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(),
+                        [&](auto const& node) { return node.label == label; });
   };
   auto const has_named_task = std::any_of(snapshot.tasks.begin(), snapshot.tasks.end(), [](auto const& record) {
-    return record.label == "structured copy" && record.state == "suspended" &&
-           !record.read_dependencies.empty() && !record.write_dependencies.empty();
+    return record.label == "structured copy" && record.state == "suspended" && !record.read_dependencies.empty() &&
+           !record.write_dependencies.empty();
   });
   auto const input_node = find_named_data("structured input");
   auto const output_node = find_named_data("structured output");
@@ -562,10 +551,8 @@ TEST(TaskRegistryDebugTest, GraphSnapshotExposesStructuredRecords)
   sched.run_all();
 
   auto const after_snapshot = TaskRegistry::snapshot();
-  auto const after_output_node =
-      std::find_if(after_snapshot.data_nodes.begin(), after_snapshot.data_nodes.end(), [](auto const& node) {
-        return node.label == "structured output";
-      });
+  auto const after_output_node = std::find_if(after_snapshot.data_nodes.begin(), after_snapshot.data_nodes.end(),
+                                              [](auto const& node) { return node.label == "structured output"; });
   ASSERT_NE(after_output_node, after_snapshot.data_nodes.end());
   EXPECT_TRUE(after_output_node->value_constructed);
   EXPECT_NE(after_output_node->address, "(unconstructed)");
@@ -581,10 +568,8 @@ TEST(TaskRegistryDebugTest, GraphSnapshotSummarizesShapeLikeValues)
   tensor.debug_name("shape-like value");
 
   auto const snapshot = TaskRegistry::snapshot();
-  auto const tensor_node =
-      std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [](auto const& node) {
-        return node.label == "shape-like value";
-      });
+  auto const tensor_node = std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(),
+                                        [](auto const& node) { return node.label == "shape-like value"; });
 
   ASSERT_NE(tensor_node, snapshot.data_nodes.end());
   EXPECT_EQ(tensor_node->state, "constructed");
@@ -602,10 +587,8 @@ TEST(TaskRegistryDebugTest, GraphSnapshotUsesCustomDebugValueHook)
   value.debug_name("custom value");
 
   auto const snapshot = TaskRegistry::snapshot();
-  auto const value_node =
-      std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [](auto const& node) {
-        return node.label == "custom value";
-      });
+  auto const value_node = std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(),
+                                       [](auto const& node) { return node.label == "custom value"; });
 
   ASSERT_NE(value_node, snapshot.data_nodes.end());
   EXPECT_EQ(value_node->state, "constructed");
@@ -622,10 +605,8 @@ TEST(TaskRegistryDebugTest, GraphSnapshotOmitsValueForOpaqueConstructedTypes)
   value.debug_name("opaque value");
 
   auto const snapshot = TaskRegistry::snapshot();
-  auto const value_node =
-      std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(), [](auto const& node) {
-        return node.label == "opaque value";
-      });
+  auto const value_node = std::find_if(snapshot.data_nodes.begin(), snapshot.data_nodes.end(),
+                                       [](auto const& node) { return node.label == "opaque value"; });
 
   ASSERT_NE(value_node, snapshot.data_nodes.end());
   EXPECT_EQ(value_node->state, "constructed");

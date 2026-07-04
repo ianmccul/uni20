@@ -1,7 +1,7 @@
 #pragma once
 
-#include <uni20/common/mdspan.hpp>
 #include <array>
+#include <uni20/common/mdspan.hpp>
 #include <vector>
 
 // Convenience typedefs

@@ -1,10 +1,10 @@
 // tests/test_var.cpp
+#include <complex>
+#include <gtest/gtest.h>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/var.hpp>
 #include <uni20/async/var_toys.hpp>
-#include <complex>
-#include <gtest/gtest.h>
 
 using namespace uni20::async;
 

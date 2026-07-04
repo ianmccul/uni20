@@ -47,32 +47,32 @@ class Symmetry {
     /// \return Number of named factors.
     auto factor_count() const -> std::size_t
     {
-        this->ensure_valid();
-        return impl_->factor_count();
+      this->ensure_valid();
+      return impl_->factor_count();
     }
 
     /// \brief Return the named factor list.
     /// \return Read-only view of the factor specifications.
     auto factors() const -> std::span<detail::SymmetryFactorSpec const>
     {
-        this->ensure_valid();
-        return impl_->factors();
+      this->ensure_valid();
+      return impl_->factors();
     }
 
     /// \brief Return the canonical string spelling of this symmetry.
     /// \return Canonical string form.
     auto to_string() const -> std::string
     {
-        this->ensure_valid();
-        return impl_->to_string();
+      this->ensure_valid();
+      return impl_->to_string();
     }
 
     /// \brief Return the internal canonical symmetry implementation pointer.
     /// \return Canonical implementation pointer used for equality and dispatch.
     auto impl() const -> detail::SymmetryImpl const*
     {
-        this->ensure_valid();
-        return impl_;
+      this->ensure_valid();
+      return impl_;
     }
 
     /// \brief Compare two symmetry handles for canonical identity.
@@ -84,10 +84,10 @@ class Symmetry {
     /// \brief Throw if the symmetry handle is invalid.
     void ensure_valid() const
     {
-        if (!this->valid())
-        {
-            throw std::logic_error("Symmetry handle is not initialized");
-        }
+      if (!this->valid())
+      {
+        throw std::logic_error("Symmetry handle is not initialized");
+      }
     }
 
     detail::SymmetryImpl const* impl_ = nullptr;

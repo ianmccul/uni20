@@ -1,5 +1,5 @@
-#include <uni20/async/shared_storage.hpp>
 #include <gtest/gtest.h>
+#include <uni20/async/shared_storage.hpp>
 #include <utility>
 
 using namespace uni20::async;

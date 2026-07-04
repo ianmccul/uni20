@@ -1,8 +1,8 @@
+#include <cmath>
+#include <fmt/core.h>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include <fmt/core.h>
-#include <cmath>
 
 using namespace uni20::async;
 
@@ -30,15 +30,15 @@ Async<double> explicit_kernel_form(Async<double> const& x, Async<double> const& 
   Async<double> z;
   Async<double> u;
 
-  schedule([](ReadBuffer<double> x_in, ReadBuffer<double> y_in, WriteBuffer<double> z_out) static->AsyncTask {
+  schedule([](ReadBuffer<double> x_in, ReadBuffer<double> y_in, WriteBuffer<double> z_out) static -> AsyncTask {
     co_await z_out = f(co_await x_in, co_await y_in);
   }(x.read(), y.read(), z.write()));
 
-  schedule([](ReadBuffer<double> y_in, WriteBuffer<double> u_out) static->AsyncTask {
+  schedule([](ReadBuffer<double> y_in, WriteBuffer<double> u_out) static -> AsyncTask {
     co_await u_out = g(co_await y_in);
   }(y.read(), u.write()));
 
-  schedule([](ReadBuffer<double> u_in, WriteBuffer<double> z_io) static->AsyncTask {
+  schedule([](ReadBuffer<double> u_in, WriteBuffer<double> z_io) static -> AsyncTask {
     auto [uval, zval] = co_await all(u_in, z_io);
     zval += h(uval, zval);
   }(u.read(), z.write()));

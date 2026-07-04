@@ -1,7 +1,7 @@
 #include "../helpers.hpp"
-#include <uni20/level1/sum.hpp>
 #include "gtest/gtest.h"
 #include <numeric>
+#include <uni20/level1/sum.hpp>
 
 using namespace uni20;
 

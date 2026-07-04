@@ -77,7 +77,7 @@ template <typename Q> class SymmetryFactor final : public SymmetryFactorBase {
     /// \return Packed factor-local code of the dual irrep.
     auto dual_code(std::uint64_t code) const -> std::uint64_t override
     {
-        return this->encode(dual(this->decode(code)));
+      return this->encode(dual(this->decode(code)));
     }
 
     /// \brief Return the quantum dimension of a packed factor-local irrep.
@@ -96,7 +96,7 @@ template <typename Q> class SymmetryFactor final : public SymmetryFactorBase {
     /// \return Packed factor-local code of the unique sum.
     auto add_codes(std::uint64_t lhs, std::uint64_t rhs) const -> std::uint64_t override
     {
-        return this->encode(this->decode(lhs) + this->decode(rhs));
+      return this->encode(this->decode(lhs) + this->decode(rhs));
     }
 
     /// \brief Format a packed factor-local irrep code.
@@ -109,8 +109,8 @@ template <typename Q> class SymmetryFactor final : public SymmetryFactorBase {
 /// \return Mapping from canonical factor type names to concrete factor adapters.
 inline auto symmetry_factor_registry() -> std::unordered_map<std::string, SymmetryFactorBase const*>&
 {
-    static std::unordered_map<std::string, SymmetryFactorBase const*> registry;
-    return registry;
+  static std::unordered_map<std::string, SymmetryFactorBase const*> registry;
+  return registry;
 }
 
 /// \brief Register a concrete symmetry factor adapter in the process-local registry.
@@ -118,8 +118,8 @@ inline auto symmetry_factor_registry() -> std::unordered_map<std::string, Symmet
 /// \return The registered factor pointer.
 inline auto register_symmetry_factor(SymmetryFactorBase const* factor) -> SymmetryFactorBase const*
 {
-    symmetry_factor_registry().emplace(std::string{factor->type_name()}, factor);
-    return factor;
+  symmetry_factor_registry().emplace(std::string{factor->type_name()}, factor);
+  return factor;
 }
 
 /// \brief Look up a registered symmetry factor by its canonical type name.
@@ -127,12 +127,12 @@ inline auto register_symmetry_factor(SymmetryFactorBase const* factor) -> Symmet
 /// \return Registered factor adapter.
 inline auto find_symmetry_factor(std::string_view type_name) -> SymmetryFactorBase const*
 {
-    auto const it = symmetry_factor_registry().find(std::string{type_name});
-    if (it == symmetry_factor_registry().end())
-    {
-        throw std::invalid_argument("unsupported symmetry factor type: " + std::string{type_name});
-    }
-    return it->second;
+  auto const it = symmetry_factor_registry().find(std::string{type_name});
+  if (it == symmetry_factor_registry().end())
+  {
+    throw std::invalid_argument("unsupported symmetry factor type: " + std::string{type_name});
+  }
+  return it->second;
 }
 
 } // namespace uni20::detail

@@ -1,6 +1,6 @@
 
-#include <uni20/backend/blas/blas_vendor.hpp>
 #include <fmt/core.h>
+#include <uni20/backend/blas/blas_vendor.hpp>
 
 int main()
 {

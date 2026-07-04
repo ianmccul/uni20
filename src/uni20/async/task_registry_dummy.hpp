@@ -277,7 +277,10 @@ class TaskRegistry {
     static constexpr void reset_stacktrace_options() noexcept {}
     /// \brief Builds a dummy default Graphviz dump path.
     /// \return Path using the default directory and prefix.
-    static std::string default_graphviz_dump_path() { return default_graphviz_dump_path(default_graphviz_dump_options()); }
+    static std::string default_graphviz_dump_path()
+    {
+      return default_graphviz_dump_path(default_graphviz_dump_options());
+    }
     /// \brief Builds a dummy default Graphviz dump path.
     /// \param options File-output options.
     /// \return Path using the configured directory and prefix.

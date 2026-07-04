@@ -44,16 +44,16 @@ class QNum {
     /// \return Symmetry handle corresponding to this quantum number.
     auto symmetry() const -> Symmetry
     {
-        this->ensure_valid();
-        return Symmetry{sym_};
+      this->ensure_valid();
+      return Symmetry{sym_};
     }
 
     /// \brief Return the packed irrep code.
     /// \return Canonical packed code.
     auto raw_code() const -> std::uint64_t
     {
-        this->ensure_valid();
-        return code_;
+      this->ensure_valid();
+      return code_;
     }
 
     /// \brief Compare two quantum numbers for exact identity.
@@ -80,10 +80,10 @@ class QNum {
     /// \brief Throw if this quantum number is invalid.
     void ensure_valid() const
     {
-        if (!this->valid())
-        {
-            throw std::logic_error("QNum is not initialized");
-        }
+      if (!this->valid())
+      {
+        throw std::logic_error("QNum is not initialized");
+      }
     }
 
     detail::SymmetryImpl const* sym_ = nullptr;
@@ -103,10 +103,10 @@ class QNumList {
     /// \param values Initial list contents.
     QNumList(Symmetry sym, std::initializer_list<QNum> values) : sym_(sym), values_(values)
     {
-        for (QNum const& q : values_)
-        {
-            this->verify_symmetry(q);
-        }
+      for (QNum const& q : values_)
+      {
+        this->verify_symmetry(q);
+      }
     }
 
     /// \brief Return the symmetry shared by all entries.
@@ -125,8 +125,8 @@ class QNumList {
     /// \param q Quantum number to append.
     void push_back(QNum q)
     {
-        this->verify_symmetry(q);
-        values_.push_back(q);
+      this->verify_symmetry(q);
+      values_.push_back(q);
     }
 
     /// \brief Remove all quantum numbers while keeping the list symmetry.
@@ -137,22 +137,22 @@ class QNumList {
     /// \return `true` if the quantum number is present.
     auto contains(QNum q) const -> bool
     {
-        this->verify_symmetry(q);
-        return std::find(values_.begin(), values_.end(), q) != values_.end();
+      this->verify_symmetry(q);
+      return std::find(values_.begin(), values_.end(), q) != values_.end();
     }
 
     /// \brief Sort entries by canonical packed order.
     void sort()
     {
-        std::sort(values_.begin(), values_.end(),
-                  [](QNum const& lhs, QNum const& rhs) { return lhs.raw_code() < rhs.raw_code(); });
+      std::sort(values_.begin(), values_.end(),
+                [](QNum const& lhs, QNum const& rhs) { return lhs.raw_code() < rhs.raw_code(); });
     }
 
     /// \brief Sort entries and remove duplicates.
     void normalize()
     {
-        this->sort();
-        values_.erase(std::unique(values_.begin(), values_.end()), values_.end());
+      this->sort();
+      values_.erase(std::unique(values_.begin(), values_.end()), values_.end());
     }
 
     /// \brief Return indexed element access.
@@ -178,10 +178,10 @@ class QNumList {
     /// \param q Quantum number to validate.
     void verify_symmetry(QNum const& q) const
     {
-        if (q.symmetry() != sym_)
-        {
-            throw std::invalid_argument("QNumList element has the wrong symmetry");
-        }
+      if (q.symmetry() != sym_)
+      {
+        throw std::invalid_argument("QNumList element has the wrong symmetry");
+      }
     }
 
     Symmetry sym_;
@@ -194,33 +194,33 @@ class QNumList {
 /// \return Packed quantum number in the requested symmetry.
 inline auto make_qnum(Symmetry sym, std::initializer_list<std::pair<std::string_view, U1>> values) -> QNum
 {
-    auto const* impl = sym.impl();
-    std::vector<std::uint64_t> codes(impl->factor_count(), 0);
-    std::vector<bool> seen(impl->factor_count(), false);
+  auto const* impl = sym.impl();
+  std::vector<std::uint64_t> codes(impl->factor_count(), 0);
+  std::vector<bool> seen(impl->factor_count(), false);
 
-    for (auto const& [name, value] : values)
+  for (auto const& [name, value] : values)
+  {
+    auto const index = impl->find_factor(name);
+    if (!index.has_value())
     {
-        auto const index = impl->find_factor(name);
-        if (!index.has_value())
-        {
-            throw std::invalid_argument("unknown symmetry component name: " + std::string{name});
-        }
-        if (seen[*index])
-        {
-            throw std::invalid_argument("duplicate symmetry component assignment: " + std::string{name});
-        }
-        seen[*index] = true;
-
-        auto const& factor = impl->factors()[*index];
-        auto const* typed_factor = dynamic_cast<detail::SymmetryFactor<U1> const*>(factor.factor);
-        if (typed_factor == nullptr)
-        {
-            throw std::invalid_argument("make_qnum(U1) used with a non-U(1) symmetry component");
-        }
-        codes[*index] = typed_factor->encode(value);
+      throw std::invalid_argument("unknown symmetry component name: " + std::string{name});
     }
+    if (seen[*index])
+    {
+      throw std::invalid_argument("duplicate symmetry component assignment: " + std::string{name});
+    }
+    seen[*index] = true;
 
-    return QNum(sym, impl->pack(codes));
+    auto const& factor = impl->factors()[*index];
+    auto const* typed_factor = dynamic_cast<detail::SymmetryFactor<U1> const*>(factor.factor);
+    if (typed_factor == nullptr)
+    {
+      throw std::invalid_argument("make_qnum(U1) used with a non-U(1) symmetry component");
+    }
+    codes[*index] = typed_factor->encode(value);
+  }
+
+  return QNum(sym, impl->pack(codes));
 }
 
 /// \brief Return the dual irrep of a quantum number.
@@ -228,13 +228,13 @@ inline auto make_qnum(Symmetry sym, std::initializer_list<std::pair<std::string_
 /// \return Dual quantum number in the same symmetry.
 inline auto dual(QNum const& q) -> QNum
 {
-    auto const* impl = q.sym_;
-    auto codes = impl->unpack(q.code_);
-    for (std::size_t i = 0; i < codes.size(); ++i)
-    {
-        codes[i] = impl->factors()[i].factor->dual_code(codes[i]);
-    }
-    return QNum(q.symmetry(), impl->pack(codes));
+  auto const* impl = q.sym_;
+  auto codes = impl->unpack(q.code_);
+  for (std::size_t i = 0; i < codes.size(); ++i)
+  {
+    codes[i] = impl->factors()[i].factor->dual_code(codes[i]);
+  }
+  return QNum(q.symmetry(), impl->pack(codes));
 }
 
 /// \brief Return whether a quantum number is the identity irrep.
@@ -247,14 +247,14 @@ inline auto is_identity(QNum const& q) -> bool { return q.raw_code() == 0; }
 /// \return Product of factor quantum dimensions.
 inline auto qdim(QNum const& q) -> double
 {
-    auto const* impl = q.sym_;
-    auto const codes = impl->unpack(q.code_);
-    double result = 1.0;
-    for (std::size_t i = 0; i < codes.size(); ++i)
-    {
-        result *= impl->factors()[i].factor->qdim_code(codes[i]);
-    }
-    return result;
+  auto const* impl = q.sym_;
+  auto const codes = impl->unpack(q.code_);
+  double result = 1.0;
+  for (std::size_t i = 0; i < codes.size(); ++i)
+  {
+    result *= impl->factors()[i].factor->qdim_code(codes[i]);
+  }
+  return result;
 }
 
 /// \brief Return the integral degree of a quantum number.
@@ -262,14 +262,14 @@ inline auto qdim(QNum const& q) -> double
 /// \return Product of factor degrees.
 inline auto degree(QNum const& q) -> int
 {
-    auto const* impl = q.sym_;
-    auto const codes = impl->unpack(q.code_);
-    int result = 1;
-    for (std::size_t i = 0; i < codes.size(); ++i)
-    {
-        result *= impl->factors()[i].factor->degree_code(codes[i]);
-    }
-    return result;
+  auto const* impl = q.sym_;
+  auto const codes = impl->unpack(q.code_);
+  int result = 1;
+  for (std::size_t i = 0; i < codes.size(); ++i)
+  {
+    result *= impl->factors()[i].factor->degree_code(codes[i]);
+  }
+  return result;
 }
 
 /// \brief Read one named U(1) component from a quantum number.
@@ -278,22 +278,22 @@ inline auto degree(QNum const& q) -> int
 /// \return U(1) charge for that component.
 inline auto u1_component(QNum const& q, std::string_view name) -> U1
 {
-    auto const* impl = q.sym_;
-    auto const index = impl->find_factor(name);
-    if (!index.has_value())
-    {
-        throw std::invalid_argument("unknown symmetry component name: " + std::string{name});
-    }
+  auto const* impl = q.sym_;
+  auto const index = impl->find_factor(name);
+  if (!index.has_value())
+  {
+    throw std::invalid_argument("unknown symmetry component name: " + std::string{name});
+  }
 
-    auto const& factor = impl->factors()[*index];
-    auto const* typed_factor = dynamic_cast<detail::SymmetryFactor<U1> const*>(factor.factor);
-    if (typed_factor == nullptr)
-    {
-        throw std::invalid_argument("requested U(1) component from a non-U(1) factor");
-    }
+  auto const& factor = impl->factors()[*index];
+  auto const* typed_factor = dynamic_cast<detail::SymmetryFactor<U1> const*>(factor.factor);
+  if (typed_factor == nullptr)
+  {
+    throw std::invalid_argument("requested U(1) component from a non-U(1) factor");
+  }
 
-    auto const codes = impl->unpack(q.code_);
-    return typed_factor->decode(codes[*index]);
+  auto const codes = impl->unpack(q.code_);
+  return typed_factor->decode(codes[*index]);
 }
 
 /// \brief Coerce a quantum number into a related symmetry by named components.
@@ -302,46 +302,46 @@ inline auto u1_component(QNum const& q, std::string_view name) -> U1
 /// \return Coerced quantum number in the target symmetry.
 inline auto coerce(QNum const& q, Symmetry target) -> QNum
 {
-    auto const source = q.symmetry();
-    if (source == target)
+  auto const source = q.symmetry();
+  if (source == target)
+  {
+    return q;
+  }
+
+  auto const* source_impl = source.impl();
+  auto const* target_impl = target.impl();
+  auto const source_codes = source_impl->unpack(q.code_);
+
+  std::vector<std::uint64_t> target_codes(target_impl->factor_count(), 0);
+  for (std::size_t i = 0; i < target_impl->factor_count(); ++i)
+  {
+    auto const& target_factor = target_impl->factors()[i];
+    auto const source_index = source_impl->find_factor(target_factor.name);
+    if (!source_index.has_value())
     {
-        return q;
+      target_codes[i] = 0;
+      continue;
     }
 
-    auto const* source_impl = source.impl();
-    auto const* target_impl = target.impl();
-    auto const source_codes = source_impl->unpack(q.code_);
-
-    std::vector<std::uint64_t> target_codes(target_impl->factor_count(), 0);
-    for (std::size_t i = 0; i < target_impl->factor_count(); ++i)
+    auto const& source_factor = source_impl->factors()[*source_index];
+    if (source_factor.factor != target_factor.factor)
     {
-        auto const& target_factor = target_impl->factors()[i];
-        auto const source_index = source_impl->find_factor(target_factor.name);
-        if (!source_index.has_value())
-        {
-            target_codes[i] = 0;
-            continue;
-        }
-
-        auto const& source_factor = source_impl->factors()[*source_index];
-        if (source_factor.factor != target_factor.factor)
-        {
-            throw std::invalid_argument("cannot coerce between differently typed symmetry components");
-        }
-        target_codes[i] = source_codes[*source_index];
+      throw std::invalid_argument("cannot coerce between differently typed symmetry components");
     }
+    target_codes[i] = source_codes[*source_index];
+  }
 
-    for (std::size_t i = 0; i < source_impl->factor_count(); ++i)
+  for (std::size_t i = 0; i < source_impl->factor_count(); ++i)
+  {
+    auto const& source_factor = source_impl->factors()[i];
+    auto const target_index = target_impl->find_factor(source_factor.name);
+    if (!target_index.has_value() && source_codes[i] != 0)
     {
-        auto const& source_factor = source_impl->factors()[i];
-        auto const target_index = target_impl->find_factor(source_factor.name);
-        if (!target_index.has_value() && source_codes[i] != 0)
-        {
-            throw std::invalid_argument("cannot drop a non-identity symmetry component during coercion");
-        }
+      throw std::invalid_argument("cannot drop a non-identity symmetry component during coercion");
     }
+  }
 
-    return QNum(target, target_impl->pack(target_codes));
+  return QNum(target, target_impl->pack(target_codes));
 }
 
 /// \brief Add two quantum numbers when the fusion result is uniquely defined.
@@ -350,23 +350,23 @@ inline auto coerce(QNum const& q, Symmetry target) -> QNum
 /// \return Sum in the shared symmetry context.
 inline auto operator+(QNum const& lhs, QNum const& rhs) -> QNum
 {
-    if (lhs.symmetry() != rhs.symmetry())
-    {
-        throw std::invalid_argument("QNum operator+ requires identical symmetry contexts");
-    }
+  if (lhs.symmetry() != rhs.symmetry())
+  {
+    throw std::invalid_argument("QNum operator+ requires identical symmetry contexts");
+  }
 
-    auto const* impl = lhs.sym_;
-    auto const lhs_codes = impl->unpack(lhs.code_);
-    auto const rhs_codes = impl->unpack(rhs.code_);
-    std::vector<std::uint64_t> out_codes(impl->factor_count(), 0);
+  auto const* impl = lhs.sym_;
+  auto const lhs_codes = impl->unpack(lhs.code_);
+  auto const rhs_codes = impl->unpack(rhs.code_);
+  std::vector<std::uint64_t> out_codes(impl->factor_count(), 0);
 
-    for (std::size_t i = 0; i < out_codes.size(); ++i)
-    {
-        auto const* factor = impl->factors()[i].factor;
-        out_codes[i] = factor->add_codes(lhs_codes[i], rhs_codes[i]);
-    }
+  for (std::size_t i = 0; i < out_codes.size(); ++i)
+  {
+    auto const* factor = impl->factors()[i].factor;
+    out_codes[i] = factor->add_codes(lhs_codes[i], rhs_codes[i]);
+  }
 
-    return QNum(lhs.symmetry(), impl->pack(out_codes));
+  return QNum(lhs.symmetry(), impl->pack(out_codes));
 }
 
 /// \brief Format a quantum number as comma-separated named components.
@@ -374,20 +374,20 @@ inline auto operator+(QNum const& lhs, QNum const& rhs) -> QNum
 /// \return Human-readable string form.
 inline auto to_string(QNum const& q) -> std::string
 {
-    auto const* impl = q.sym_;
-    auto const codes = impl->unpack(q.code_);
-    std::string result;
-    for (std::size_t i = 0; i < codes.size(); ++i)
+  auto const* impl = q.sym_;
+  auto const codes = impl->unpack(q.code_);
+  std::string result;
+  for (std::size_t i = 0; i < codes.size(); ++i)
+  {
+    if (!result.empty())
     {
-        if (!result.empty())
-        {
-            result += ',';
-        }
-        result += impl->factors()[i].name;
-        result += '=';
-        result += impl->factors()[i].factor->format_code(codes[i]);
+      result += ',';
     }
-    return result;
+    result += impl->factors()[i].name;
+    result += '=';
+    result += impl->factors()[i].factor->format_code(codes[i]);
+  }
+  return result;
 }
 
 } // namespace uni20
@@ -401,9 +401,9 @@ template <> struct hash<uni20::QNum>
     /// \return Combined hash value.
     auto operator()(uni20::QNum const& q) const noexcept -> std::size_t
     {
-        auto const sym_hash = std::hash<void const*>{}(q.valid() ? q.symmetry().impl() : nullptr);
-        auto const code_hash = std::hash<std::uint64_t>{}(q.valid() ? q.raw_code() : 0);
-        return sym_hash ^ (code_hash + 0x9e3779b97f4a7c15ULL + (sym_hash << 6) + (sym_hash >> 2));
+      auto const sym_hash = std::hash<void const*>{}(q.valid() ? q.symmetry().impl() : nullptr);
+      auto const code_hash = std::hash<std::uint64_t>{}(q.valid() ? q.raw_code() : 0);
+      return sym_hash ^ (code_hash + 0x9e3779b97f4a7c15ULL + (sym_hash << 6) + (sym_hash >> 2));
     }
 };
 } // namespace std

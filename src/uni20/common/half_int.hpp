@@ -53,10 +53,7 @@ template <std::signed_integral T> class basic_half_int {
     /// \brief Construct directly from the doubled representation.
     /// \param twice_value Stored doubled value.
     /// \param tag Selects the direct doubled-value constructor.
-    constexpr basic_half_int(T twice_value, twice_tag tag) : twice_(twice_value)
-    {
-        static_cast<void>(tag);
-    }
+    constexpr basic_half_int(T twice_value, twice_tag tag) : twice_(twice_value) { static_cast<void>(tag); }
 
     /// \brief Return the doubled representation.
     /// \return Stored doubled value.
@@ -75,11 +72,11 @@ template <std::signed_integral T> class basic_half_int {
     /// \throws std::runtime_error If the value is not integral.
     constexpr auto to_int() const -> T
     {
-        if (!this->is_integral())
-        {
-            throw std::runtime_error("basic_half_int cannot be converted to an integer exactly");
-        }
-        return twice_ / T{2};
+      if (!this->is_integral())
+      {
+        throw std::runtime_error("basic_half_int cannot be converted to an integer exactly");
+      }
+      return twice_ / T{2};
     }
 
     /// \brief Convert to the underlying integral type assuming exact integrality.
@@ -87,8 +84,8 @@ template <std::signed_integral T> class basic_half_int {
     /// \pre `is_integral()`
     constexpr auto to_int_assert() const -> T
     {
-        DEBUG_PRECONDITION(this->is_integral());
-        return twice_ / T{2};
+      DEBUG_PRECONDITION(this->is_integral());
+      return twice_ / T{2};
     }
 
     /// \brief Add another half-integer value.
@@ -96,8 +93,8 @@ template <std::signed_integral T> class basic_half_int {
     /// \return Reference to `*this`.
     constexpr auto operator+=(basic_half_int other) -> basic_half_int&
     {
-        twice_ += other.twice_;
-        return *this;
+      twice_ += other.twice_;
+      return *this;
     }
 
     /// \brief Subtract another half-integer value.
@@ -105,42 +102,42 @@ template <std::signed_integral T> class basic_half_int {
     /// \return Reference to `*this`.
     constexpr auto operator-=(basic_half_int other) -> basic_half_int&
     {
-        twice_ -= other.twice_;
-        return *this;
+      twice_ -= other.twice_;
+      return *this;
     }
 
     /// \brief Prefix increment by one.
     /// \return Reference to `*this`.
     constexpr auto operator++() -> basic_half_int&
     {
-        twice_ += T{2};
-        return *this;
+      twice_ += T{2};
+      return *this;
     }
 
     /// \brief Prefix decrement by one.
     /// \return Reference to `*this`.
     constexpr auto operator--() -> basic_half_int&
     {
-        twice_ -= T{2};
-        return *this;
+      twice_ -= T{2};
+      return *this;
     }
 
     /// \brief Postfix increment by one.
     /// \return Previous value.
     constexpr auto operator++(int) -> basic_half_int
     {
-        auto const old = *this;
-        ++(*this);
-        return old;
+      auto const old = *this;
+      ++(*this);
+      return old;
     }
 
     /// \brief Postfix decrement by one.
     /// \return Previous value.
     constexpr auto operator--(int) -> basic_half_int
     {
-        auto const old = *this;
-        --(*this);
-        return old;
+      auto const old = *this;
+      --(*this);
+      return old;
     }
 
     /// \brief Compare two half-integer values.
@@ -153,44 +150,44 @@ template <std::signed_integral T> class basic_half_int {
     /// \return Parsed half-integer value.
     static auto parse(std::string_view text) -> basic_half_int
     {
-        if (text.empty())
-        {
-            throw std::runtime_error("basic_half_int parse failed: empty string");
-        }
+      if (text.empty())
+      {
+        throw std::runtime_error("basic_half_int parse failed: empty string");
+      }
 
-        auto const slash = text.find('/');
-        if (slash != std::string_view::npos)
+      auto const slash = text.find('/');
+      if (slash != std::string_view::npos)
+      {
+        auto const numerator = parse_integral<T>(text.substr(0, slash));
+        auto const denominator = text.substr(slash + 1);
+        if (denominator != "2")
         {
-            auto const numerator = parse_integral<T>(text.substr(0, slash));
-            auto const denominator = text.substr(slash + 1);
-            if (denominator != "2")
-            {
-                throw std::runtime_error("basic_half_int parse failed: expected denominator 2");
-            }
-            return from_twice(numerator);
+          throw std::runtime_error("basic_half_int parse failed: expected denominator 2");
         }
+        return from_twice(numerator);
+      }
 
-        auto const dot = text.find('.');
-        if (dot == std::string_view::npos)
-        {
-            return basic_half_int(parse_integral<T>(text));
-        }
+      auto const dot = text.find('.');
+      if (dot == std::string_view::npos)
+      {
+        return basic_half_int(parse_integral<T>(text));
+      }
 
-        auto const whole = text.substr(0, dot);
-        auto const fractional = text.substr(dot + 1);
-        if (fractional.empty())
-        {
-            return basic_half_int(parse_integral<T>(whole));
-        }
-        if (fractional != "0" && fractional != "5")
-        {
-            throw std::runtime_error("basic_half_int parse failed: expected decimal .0 or .5");
-        }
+      auto const whole = text.substr(0, dot);
+      auto const fractional = text.substr(dot + 1);
+      if (fractional.empty())
+      {
+        return basic_half_int(parse_integral<T>(whole));
+      }
+      if (fractional != "0" && fractional != "5")
+      {
+        throw std::runtime_error("basic_half_int parse failed: expected decimal .0 or .5");
+      }
 
-        auto const sign = (!whole.empty() && whole.front() == '-') ? T{-1} : T{1};
-        auto const twice_whole = checked_double(parse_integral<T>(whole));
-        auto const half = (fractional == "5") ? sign : T{0};
-        return from_twice(twice_whole + half);
+      auto const sign = (!whole.empty() && whole.front() == '-') ? T{-1} : T{1};
+      auto const twice_whole = checked_double(parse_integral<T>(whole));
+      auto const half = (fractional == "5") ? sign : T{0};
+      return from_twice(twice_whole + half);
     }
 
   private:
@@ -199,7 +196,7 @@ template <std::signed_integral T> class basic_half_int {
     /// \return Half-integer value with that doubled representation.
     static constexpr auto from_twice(T twice_value) -> basic_half_int
     {
-        return basic_half_int(twice_value, twice_tag{});
+      return basic_half_int(twice_value, twice_tag{});
     }
 
     /// \brief Double an integral value with overflow checking.
@@ -207,11 +204,11 @@ template <std::signed_integral T> class basic_half_int {
     /// \return Doubled representation.
     static constexpr auto checked_double(T value) -> T
     {
-        if (value > std::numeric_limits<T>::max() / T{2} || value < std::numeric_limits<T>::min() / T{2})
-        {
-            throw std::overflow_error("basic_half_int doubled representation overflow");
-        }
-        return value * T{2};
+      if (value > std::numeric_limits<T>::max() / T{2} || value < std::numeric_limits<T>::min() / T{2})
+      {
+        throw std::overflow_error("basic_half_int doubled representation overflow");
+      }
+      return value * T{2};
     }
 
     /// \brief Round a floating-point value to the nearest doubled representation.
@@ -219,13 +216,13 @@ template <std::signed_integral T> class basic_half_int {
     /// \return Rounded doubled representation.
     template <std::floating_point U> static auto rounded_twice(U value) -> T
     {
-        auto const doubled = std::round(static_cast<long double>(value) * 2.0L);
-        if (doubled > static_cast<long double>(std::numeric_limits<T>::max()) ||
-            doubled < static_cast<long double>(std::numeric_limits<T>::min()))
-        {
-            throw std::overflow_error("basic_half_int rounded representation overflow");
-        }
-        return static_cast<T>(doubled);
+      auto const doubled = std::round(static_cast<long double>(value) * 2.0L);
+      if (doubled > static_cast<long double>(std::numeric_limits<T>::max()) ||
+          doubled < static_cast<long double>(std::numeric_limits<T>::min()))
+      {
+        throw std::overflow_error("basic_half_int rounded representation overflow");
+      }
+      return static_cast<T>(doubled);
     }
 
     /// \brief Parse an integral value from a string view.
@@ -234,19 +231,19 @@ template <std::signed_integral T> class basic_half_int {
     /// \return Parsed integral value.
     template <std::integral Int> static auto parse_integral(std::string_view text) -> Int
     {
-        if (text.empty())
-        {
-            throw std::runtime_error("basic_half_int parse failed: missing integer component");
-        }
-        auto const begin = text.data();
-        auto const end = text.data() + text.size();
-        Int value{};
-        auto const [ptr, ec] = std::from_chars(begin, end, value);
-        if (ec != std::errc{} || ptr != end)
-        {
-            throw std::runtime_error("basic_half_int parse failed: invalid integer component");
-        }
-        return value;
+      if (text.empty())
+      {
+        throw std::runtime_error("basic_half_int parse failed: missing integer component");
+      }
+      auto const begin = text.data();
+      auto const end = text.data() + text.size();
+      Int value{};
+      auto const [ptr, ec] = std::from_chars(begin, end, value);
+      if (ec != std::errc{} || ptr != end)
+      {
+        throw std::runtime_error("basic_half_int parse failed: invalid integer component");
+      }
+      return value;
     }
 
     T twice_ = 0;
@@ -259,10 +256,9 @@ using half_int = basic_half_int<std::int64_t>;
 /// \tparam T Signed storage type.
 /// \param twice_value Doubled representation.
 /// \return Half-integer value with that doubled representation.
-template <std::signed_integral T>
-constexpr auto from_twice(T twice_value) -> basic_half_int<T>
+template <std::signed_integral T> constexpr auto from_twice(T twice_value) -> basic_half_int<T>
 {
-    return basic_half_int<T>(twice_value, typename basic_half_int<T>::twice_tag{});
+  return basic_half_int<T>(twice_value, typename basic_half_int<T>::twice_tag{});
 }
 
 /// \brief Add two half-integer values.
@@ -273,8 +269,8 @@ constexpr auto from_twice(T twice_value) -> basic_half_int<T>
 template <std::signed_integral T>
 constexpr auto operator+(basic_half_int<T> lhs, basic_half_int<T> rhs) -> basic_half_int<T>
 {
-    lhs += rhs;
-    return lhs;
+  lhs += rhs;
+  return lhs;
 }
 
 /// \brief Subtract two half-integer values.
@@ -285,8 +281,8 @@ constexpr auto operator+(basic_half_int<T> lhs, basic_half_int<T> rhs) -> basic_
 template <std::signed_integral T>
 constexpr auto operator-(basic_half_int<T> lhs, basic_half_int<T> rhs) -> basic_half_int<T>
 {
-    lhs -= rhs;
-    return lhs;
+  lhs -= rhs;
+  return lhs;
 }
 
 /// \brief Negate a half-integer value.
@@ -295,7 +291,7 @@ constexpr auto operator-(basic_half_int<T> lhs, basic_half_int<T> rhs) -> basic_
 /// \return Negated value.
 template <std::signed_integral T> constexpr auto operator-(basic_half_int<T> value) -> basic_half_int<T>
 {
-    return from_twice<T>(-value.twice());
+  return from_twice<T>(-value.twice());
 }
 
 /// \brief Multiply a half-integer value by an integral scalar.
@@ -307,7 +303,7 @@ template <std::signed_integral T> constexpr auto operator-(basic_half_int<T> val
 template <std::signed_integral T, std::integral U>
 constexpr auto operator*(basic_half_int<T> lhs, U rhs) -> basic_half_int<T>
 {
-    return from_twice<T>(lhs.twice() * static_cast<T>(rhs));
+  return from_twice<T>(lhs.twice() * static_cast<T>(rhs));
 }
 
 /// \brief Multiply an integral scalar by a half-integer value.
@@ -319,7 +315,7 @@ constexpr auto operator*(basic_half_int<T> lhs, U rhs) -> basic_half_int<T>
 template <std::integral U, std::signed_integral T>
 constexpr auto operator*(U lhs, basic_half_int<T> rhs) -> basic_half_int<T>
 {
-    return rhs * lhs;
+  return rhs * lhs;
 }
 
 /// \brief Multiply a half-integer value by a floating-point scalar.
@@ -328,10 +324,9 @@ constexpr auto operator*(U lhs, basic_half_int<T> rhs) -> basic_half_int<T>
 /// \param lhs Half-integer value.
 /// \param rhs Floating-point multiplier.
 /// \return Product as a floating-point value.
-template <std::signed_integral T, std::floating_point U>
-constexpr auto operator*(basic_half_int<T> lhs, U rhs) -> U
+template <std::signed_integral T, std::floating_point U> constexpr auto operator*(basic_half_int<T> lhs, U rhs) -> U
 {
-    return static_cast<U>(lhs.to_double()) * rhs;
+  return static_cast<U>(lhs.to_double()) * rhs;
 }
 
 /// \brief Multiply a floating-point scalar by a half-integer value.
@@ -340,10 +335,9 @@ constexpr auto operator*(basic_half_int<T> lhs, U rhs) -> U
 /// \param lhs Floating-point multiplier.
 /// \param rhs Half-integer value.
 /// \return Product as a floating-point value.
-template <std::floating_point U, std::signed_integral T>
-constexpr auto operator*(U lhs, basic_half_int<T> rhs) -> U
+template <std::floating_point U, std::signed_integral T> constexpr auto operator*(U lhs, basic_half_int<T> rhs) -> U
 {
-    return lhs * static_cast<U>(rhs.to_double());
+  return lhs * static_cast<U>(rhs.to_double());
 }
 
 /// \brief Multiply two half-integer values as floating-point numbers.
@@ -353,7 +347,7 @@ constexpr auto operator*(U lhs, basic_half_int<T> rhs) -> U
 /// \return Product as `double`.
 template <std::signed_integral T> constexpr auto operator*(basic_half_int<T> lhs, basic_half_int<T> rhs) -> double
 {
-    return lhs.to_double() * rhs.to_double();
+  return lhs.to_double() * rhs.to_double();
 }
 
 /// \brief Divide a half-integer value by a floating-point scalar.
@@ -362,10 +356,9 @@ template <std::signed_integral T> constexpr auto operator*(basic_half_int<T> lhs
 /// \param lhs Half-integer value.
 /// \param rhs Floating-point divisor.
 /// \return Quotient as a floating-point value.
-template <std::signed_integral T, std::floating_point U>
-constexpr auto operator/(basic_half_int<T> lhs, U rhs) -> U
+template <std::signed_integral T, std::floating_point U> constexpr auto operator/(basic_half_int<T> lhs, U rhs) -> U
 {
-    return static_cast<U>(lhs.to_double()) / rhs;
+  return static_cast<U>(lhs.to_double()) / rhs;
 }
 
 /// \brief Return the absolute value of a half-integer.
@@ -374,7 +367,7 @@ constexpr auto operator/(basic_half_int<T> lhs, U rhs) -> U
 /// \return Absolute value.
 template <std::signed_integral T> constexpr auto abs(basic_half_int<T> value) -> basic_half_int<T>
 {
-    return (value.twice() < 0) ? -value : value;
+  return (value.twice() < 0) ? -value : value;
 }
 
 /// \brief Return whether a half-integer value is integral.
@@ -383,17 +376,14 @@ template <std::signed_integral T> constexpr auto abs(basic_half_int<T> value) ->
 /// \return `true` if the value is integral.
 template <std::signed_integral T> constexpr auto is_integral(basic_half_int<T> value) -> bool
 {
-    return value.is_integral();
+  return value.is_integral();
 }
 
 /// \brief Convert a half-integer to its integral value.
 /// \tparam T Signed storage type.
 /// \param value Value to convert.
 /// \return Integral representation.
-template <std::signed_integral T> constexpr auto to_int(basic_half_int<T> value) -> T
-{
-    return value.to_int();
-}
+template <std::signed_integral T> constexpr auto to_int(basic_half_int<T> value) -> T { return value.to_int(); }
 
 /// \brief Convert a half-integer to its integral value assuming exact integrality.
 /// \tparam T Signed storage type.
@@ -401,7 +391,7 @@ template <std::signed_integral T> constexpr auto to_int(basic_half_int<T> value)
 /// \return Integral representation.
 template <std::signed_integral T> constexpr auto to_int_assert(basic_half_int<T> value) -> T
 {
-    return value.to_int_assert();
+  return value.to_int_assert();
 }
 
 /// \brief Format a half-integer as an integer or `n/2`.
@@ -410,11 +400,11 @@ template <std::signed_integral T> constexpr auto to_int_assert(basic_half_int<T>
 /// \return Fractional string form.
 template <std::signed_integral T> inline auto to_string_fraction(basic_half_int<T> value) -> std::string
 {
-    if (value.is_integral())
-    {
-        return std::to_string(value.to_int_assert());
-    }
-    return std::to_string(value.twice()) + "/2";
+  if (value.is_integral())
+  {
+    return std::to_string(value.to_int_assert());
+  }
+  return std::to_string(value.twice()) + "/2";
 }
 
 /// \brief Format a half-integer as an integer or decimal `.5`.
@@ -423,14 +413,14 @@ template <std::signed_integral T> inline auto to_string_fraction(basic_half_int<
 /// \return Decimal string form.
 template <std::signed_integral T> inline auto to_string(basic_half_int<T> value) -> std::string
 {
-    if (value.is_integral())
-    {
-        return std::to_string(value.to_int_assert());
-    }
+  if (value.is_integral())
+  {
+    return std::to_string(value.to_int_assert());
+  }
 
-    auto const whole = value.twice() / T{2};
-    auto const fractional = (value.twice() < 0 && whole == 0) ? "-0.5" : std::to_string(whole) + ".5";
-    return fractional;
+  auto const whole = value.twice() / T{2};
+  auto const fractional = (value.twice() < 0 && whole == 0) ? "-0.5" : std::to_string(whole) + ".5";
+  return fractional;
 }
 
 /// \brief Return `(-1)^x` for an integral exponent.
@@ -439,7 +429,7 @@ template <std::signed_integral T> inline auto to_string(basic_half_int<T> value)
 /// \return `1` for even `x`, `-1` for odd `x`.
 template <std::integral T> constexpr auto minus1pow(T value) -> int
 {
-    return 1 - static_cast<int>((value & T{1}) << 1);
+  return 1 - static_cast<int>((value & T{1}) << 1);
 }
 
 /// \brief Return whether three nonnegative half-integers satisfy the triangle condition.
@@ -451,7 +441,7 @@ template <std::integral T> constexpr auto minus1pow(T value) -> int
 template <std::signed_integral T>
 constexpr auto is_triangle(basic_half_int<T> a, basic_half_int<T> b, basic_half_int<T> c) -> bool
 {
-    return (b >= abs(a - c)) && (b <= a + c) && (a + b + c).is_integral();
+  return (b >= abs(a - c)) && (b <= a + c) && (a + b + c).is_integral();
 }
 
 /// \brief Stream a half-integer in integer or `.5` decimal form.
@@ -459,11 +449,10 @@ constexpr auto is_triangle(basic_half_int<T> a, basic_half_int<T> b, basic_half_
 /// \param out Output stream.
 /// \param value Value to format.
 /// \return Output stream.
-template <std::signed_integral T>
-inline auto operator<<(std::ostream& out, basic_half_int<T> value) -> std::ostream&
+template <std::signed_integral T> inline auto operator<<(std::ostream& out, basic_half_int<T> value) -> std::ostream&
 {
-    out << to_string(value);
-    return out;
+  out << to_string(value);
+  return out;
 }
 
 /// \brief Parse a half-integer from integer, `.0`, `.5`, or `n/2` form.
@@ -471,25 +460,24 @@ inline auto operator<<(std::ostream& out, basic_half_int<T> value) -> std::ostre
 /// \param in Input stream.
 /// \param value Parsed result.
 /// \return Input stream.
-template <std::signed_integral T>
-inline auto operator>>(std::istream& in, basic_half_int<T>& value) -> std::istream&
+template <std::signed_integral T> inline auto operator>>(std::istream& in, basic_half_int<T>& value) -> std::istream&
 {
-    std::string token;
-    in >> token;
-    if (!in)
-    {
-        return in;
-    }
-
-    try
-    {
-        value = basic_half_int<T>::parse(token);
-    }
-    catch (std::runtime_error const&)
-    {
-        in.setstate(std::ios::failbit);
-    }
+  std::string token;
+  in >> token;
+  if (!in)
+  {
     return in;
+  }
+
+  try
+  {
+    value = basic_half_int<T>::parse(token);
+  }
+  catch (std::runtime_error const&)
+  {
+    in.setstate(std::ios::failbit);
+  }
+  return in;
 }
 
 } // namespace uni20
@@ -498,10 +486,9 @@ template <std::signed_integral T, typename CharT> struct std::formatter<uni20::b
 {
     constexpr auto parse(std::basic_format_parse_context<CharT>& ctx) { return ctx.begin(); }
 
-    template <typename FormatContext>
-    auto format(uni20::basic_half_int<T> const& value, FormatContext& ctx) const
+    template <typename FormatContext> auto format(uni20::basic_half_int<T> const& value, FormatContext& ctx) const
     {
-        return std::format_to(ctx.out(), "{}", uni20::to_string(value));
+      return std::format_to(ctx.out(), "{}", uni20::to_string(value));
     }
 };
 
@@ -512,6 +499,6 @@ template <std::signed_integral T> struct std::hash<uni20::basic_half_int<T>>
     /// \return Hash of the doubled representation.
     auto operator()(uni20::basic_half_int<T> const& value) const noexcept -> std::size_t
     {
-        return std::hash<T>{}(value.twice());
+      return std::hash<T>{}(value.twice());
     }
 };

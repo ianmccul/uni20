@@ -1,18 +1,15 @@
+#include <exception>
+#include <fmt/core.h>
+#include <stdexcept>
 #include <uni20/async/async.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include <fmt/core.h>
-#include <exception>
-#include <stdexcept>
 
 using namespace uni20::async;
 
 namespace
 {
 
-void print_section(char const* title)
-{
-  fmt::print("\n=== {} ===\n", title);
-}
+void print_section(char const* title) { fmt::print("\n=== {} ===\n", title); }
 
 void print_async_status(char const* name, Async<int>& value)
 {
@@ -36,7 +33,7 @@ int main()
   print_section("Read/Write ownership and explicit release");
   Async<int> source_value = 10;
   Async<int> transformed_value;
-  auto transform = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
+  auto transform = [](ReadBuffer<int> in, WriteBuffer<int> out) static -> AsyncTask {
     auto input = co_await in.transfer();
     int const value = input.get();
     input.release();
@@ -49,7 +46,7 @@ int main()
 
   print_section("First write and accumulation");
   Async<int> accum;
-  auto accumulate = [](WriteBuffer<int> out) static->AsyncTask {
+  auto accumulate = [](WriteBuffer<int> out) static -> AsyncTask {
     co_await out += 5;
     co_await out += 7;
     co_await out -= 2;
@@ -69,7 +66,7 @@ int main()
   bool maybe_empty = false;
   bool saw_cancel = false;
 
-  auto maybe_probe = [](ReadBuffer<int> in, bool& maybe_empty) static->AsyncTask {
+  auto maybe_probe = [](ReadBuffer<int> in, bool& maybe_empty) static -> AsyncTask {
     auto maybe = co_await in.transfer().maybe();
     maybe_empty = !maybe.has_value();
     if (maybe) maybe->release();
@@ -77,7 +74,7 @@ int main()
   }(cancelled.read(), maybe_empty);
   sched.schedule(std::move(maybe_probe));
 
-  auto cancel_probe = [](ReadBuffer<int> in, bool& saw_cancel) static->AsyncTask {
+  auto cancel_probe = [](ReadBuffer<int> in, bool& saw_cancel) static -> AsyncTask {
     try
     {
       auto value = co_await in.transfer().or_cancel();
@@ -100,14 +97,15 @@ int main()
   Async<int> sink_auto;
   Async<int> sink_explicit;
 
-  auto fail_source = [](WriteBuffer<int> source_writer) static->AsyncTask {
+  auto fail_source = [](WriteBuffer<int> source_writer) static -> AsyncTask {
     (void)source_writer;
     throw std::runtime_error("source failure");
     co_return;
   }(source.write());
   sched.schedule(std::move(fail_source));
 
-  auto route_failures = [](ReadBuffer<int> in, WriteBuffer<int> auto_sink, WriteBuffer<int> explicit_sink) static->AsyncTask {
+  auto route_failures = [](ReadBuffer<int> in, WriteBuffer<int> auto_sink,
+                           WriteBuffer<int> explicit_sink) static -> AsyncTask {
     co_await propagate_exceptions_to(explicit_sink);
     (void)co_await in;
     co_await auto_sink = 0;

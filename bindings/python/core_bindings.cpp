@@ -59,15 +59,15 @@ nb::dict buildinfo()
 /// \brief Returns a human-readable Python rendering of the current build metadata.
 std::string buildinfo_pretty()
 {
-  nb::object formatted =
-      nb::module_::import_("pprint").attr("pformat")(buildinfo(), "sort_dicts"_a = false);
+  nb::object formatted = nb::module_::import_("pprint").attr("pformat")(buildinfo(), "sort_dicts"_a = false);
   return nb::cast<std::string>(formatted);
 }
 
 void register_core(nb::module_& module)
 {
   module.def("buildinfo", &buildinfo, "Return build system metadata for the current uni20 build.");
-  module.def("buildinfo_pretty", &buildinfo_pretty, "Return formatted build system metadata for the current uni20 build.");
+  module.def("buildinfo_pretty", &buildinfo_pretty,
+             "Return formatted build system metadata for the current uni20 build.");
 
   // Any other core utilities can go here
   // e.g., module.def("set_log_level", &set_log_level);

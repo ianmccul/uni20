@@ -33,9 +33,7 @@ namespace presentation = uni20::presentation;
   return 100;
 }
 
-void append_rule(presentation::styled_text& text,
-                 std::size_t width,
-                 presentation::semantic_glyph glyph,
+void append_rule(presentation::styled_text& text, std::size_t width, presentation::semantic_glyph glyph,
                  terminal::TerminalStyle line_style)
 {
   for (std::size_t i = 0; i < width; ++i)
@@ -55,8 +53,7 @@ void append_rule(presentation::styled_text& text,
   return 2 + key_width + 1 + glyph_width(presentation::semantic_glyph::arrow_right, policy) + 1;
 }
 
-[[nodiscard]] std::string clipped_key(std::string_view value,
-                                      std::size_t width,
+[[nodiscard]] std::string clipped_key(std::string_view value, std::size_t width,
                                       presentation::output_policy const& policy)
 {
   if (presentation::display_width(value, policy) <= width)
@@ -76,17 +73,17 @@ void append_rule(presentation::styled_text& text,
 {
   switch (ch)
   {
-  case ' ':
-  case '/':
-  case '\\':
-  case '-':
-  case '_':
-  case ',':
-  case ';':
-  case ':':
-    return true;
-  default:
-    return false;
+    case ' ':
+    case '/':
+    case '\\':
+    case '-':
+    case '_':
+    case ',':
+    case ';':
+    case ':':
+      return true;
+    default:
+      return false;
   }
 }
 
@@ -99,8 +96,7 @@ void append_rule(presentation::styled_text& text,
   return text;
 }
 
-[[nodiscard]] std::size_t preferred_break_position(std::string_view value,
-                                                   std::size_t width,
+[[nodiscard]] std::size_t preferred_break_position(std::string_view value, std::size_t width,
                                                    presentation::output_policy const& policy)
 {
   std::size_t best = 0;
@@ -120,8 +116,7 @@ void append_rule(presentation::styled_text& text,
   return best >= minimum_preferred_break ? best : 0;
 }
 
-[[nodiscard]] std::vector<std::string> wrapped(std::string_view value,
-                                               std::size_t width,
+[[nodiscard]] std::vector<std::string> wrapped(std::string_view value, std::size_t width,
                                                presentation::output_policy const& policy)
 {
   std::vector<std::string> lines;
@@ -163,12 +158,8 @@ void append_rule(presentation::styled_text& text,
   return lines;
 }
 
-void append_field(presentation::styled_text& text,
-                  std::string_view key,
-                  std::string_view value,
-                  std::size_t key_width,
-                  std::size_t value_width,
-                  presentation::output_policy const& policy,
+void append_field(presentation::styled_text& text, std::string_view key, std::string_view value, std::size_t key_width,
+                  std::size_t value_width, presentation::output_policy const& policy,
                   terminal::TerminalStyle value_style = style("White"))
 {
   auto const lines = wrapped(value, value_width, policy);
@@ -188,8 +179,7 @@ void append_field(presentation::styled_text& text,
   }
 }
 
-[[nodiscard]] std::size_t key_width_for(std::span<uni20::build_info::Entry const> entries,
-                                        std::size_t width,
+[[nodiscard]] std::size_t key_width_for(std::span<uni20::build_info::Entry const> entries, std::size_t width,
                                         presentation::output_policy const& policy)
 {
   std::size_t longest_key = 14;
@@ -202,10 +192,8 @@ void append_field(presentation::styled_text& text,
   return std::min(longest_key, std::max<std::size_t>(14, maximum_key_width));
 }
 
-void append_entries(presentation::styled_text& text,
-                    std::string_view title,
-                    std::span<uni20::build_info::Entry const> entries,
-                    std::size_t width,
+void append_entries(presentation::styled_text& text, std::string_view title,
+                    std::span<uni20::build_info::Entry const> entries, std::size_t width,
                     presentation::output_policy const& policy)
 {
   std::size_t constexpr minimum_value_width = 16;

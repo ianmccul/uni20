@@ -65,10 +65,10 @@ class BlockSpace {
     /// \param sectors Initial block list.
     BlockSpace(Symmetry sym, std::initializer_list<BlockSector> sectors) : sym_(sym), sectors_(sectors)
     {
-        for (BlockSector const& sector : sectors_)
-        {
-            this->verify_sector(sector);
-        }
+      for (BlockSector const& sector : sectors_)
+      {
+        this->verify_sector(sector);
+      }
     }
 
     /// \brief Return the symmetry shared by all blocks.
@@ -87,32 +87,32 @@ class BlockSpace {
     /// \return Sum of all block dimensions.
     auto total_dim() const -> std::size_t
     {
-        return std::accumulate(sectors_.begin(), sectors_.end(), std::size_t{0},
-                               [](std::size_t total, BlockSector const& sector) { return total + sector.dim; });
+      return std::accumulate(sectors_.begin(), sectors_.end(), std::size_t{0},
+                             [](std::size_t total, BlockSector const& sector) { return total + sector.dim; });
     }
 
     /// \brief Return whether each quantum number appears at most once.
     /// \return `true` if the block space is already regularized.
     auto is_regular() const -> bool
     {
-        std::unordered_set<QNum> seen;
-        for (BlockSector const& sector : sectors_)
+      std::unordered_set<QNum> seen;
+      for (BlockSector const& sector : sectors_)
+      {
+        auto const [_, inserted] = seen.insert(sector.q);
+        if (!inserted)
         {
-            auto const [_, inserted] = seen.insert(sector.q);
-            if (!inserted)
-            {
-                return false;
-            }
+          return false;
         }
-        return true;
+      }
+      return true;
     }
 
     /// \brief Append a new block.
     /// \param sector Block to append.
     void push_back(BlockSector sector)
     {
-        this->verify_sector(sector);
-        sectors_.push_back(sector);
+      this->verify_sector(sector);
+      sectors_.push_back(sector);
     }
 
     /// \brief Remove all blocks while keeping the symmetry.
@@ -123,9 +123,9 @@ class BlockSpace {
     /// \return `true` if a matching block exists.
     auto contains(QNum q) const -> bool
     {
-        this->verify_symmetry(q);
-        return std::find_if(sectors_.begin(), sectors_.end(),
-                            [&](BlockSector const& sector) { return sector.q == q; }) != sectors_.end();
+      this->verify_symmetry(q);
+      return std::find_if(sectors_.begin(), sectors_.end(), [&](BlockSector const& sector) { return sector.q == q; }) !=
+             sectors_.end();
     }
 
     /// \brief Return indexed block access.
@@ -155,21 +155,21 @@ class BlockSpace {
     /// \param q Quantum number to validate.
     void verify_symmetry(QNum const& q) const
     {
-        if (q.symmetry() != sym_)
-        {
-            throw std::invalid_argument("BlockSpace sector has the wrong symmetry");
-        }
+      if (q.symmetry() != sym_)
+      {
+        throw std::invalid_argument("BlockSpace sector has the wrong symmetry");
+      }
     }
 
     /// \brief Throw if a block is invalid for this space.
     /// \param sector Block to validate.
     void verify_sector(BlockSector const& sector) const
     {
-        this->verify_symmetry(sector.q);
-        if (sector.dim == 0)
-        {
-            throw std::invalid_argument("BlockSpace sectors must have positive dimension");
-        }
+      this->verify_symmetry(sector.q);
+      if (sector.dim == 0)
+      {
+        throw std::invalid_argument("BlockSpace sectors must have positive dimension");
+      }
     }
 
     Symmetry sym_;
@@ -223,17 +223,17 @@ inline auto qnum_code_less(QNum const& lhs, QNum const& rhs) -> bool { return lh
 /// \return Sorted unique quantum numbers in canonical packed order.
 template <typename Range> inline auto unique_qnums(Range const& range) -> std::vector<QNum>
 {
-    std::unordered_set<QNum> seen;
-    std::vector<QNum> qnums;
-    for (QNum const& q : range)
+  std::unordered_set<QNum> seen;
+  std::vector<QNum> qnums;
+  for (QNum const& q : range)
+  {
+    if (seen.insert(q).second)
     {
-        if (seen.insert(q).second)
-        {
-            qnums.push_back(q);
-        }
+      qnums.push_back(q);
     }
-    std::sort(qnums.begin(), qnums.end(), qnum_code_less);
-    return qnums;
+  }
+  std::sort(qnums.begin(), qnums.end(), qnum_code_less);
+  return qnums;
 }
 
 } // namespace detail
@@ -243,44 +243,44 @@ template <typename Range> inline auto unique_qnums(Range const& range) -> std::v
 /// \return Regularization result with block-to-block range mappings.
 inline auto regularize(BlockSpace const& space) -> BlockSpaceRegularization
 {
-    std::vector<QNum> original_qnums;
-    original_qnums.reserve(space.size());
-    for (BlockSector const& sector : space)
-    {
-        original_qnums.push_back(sector.q);
-    }
-    auto const qnums = detail::unique_qnums(original_qnums);
+  std::vector<QNum> original_qnums;
+  original_qnums.reserve(space.size());
+  for (BlockSector const& sector : space)
+  {
+    original_qnums.push_back(sector.q);
+  }
+  auto const qnums = detail::unique_qnums(original_qnums);
 
-    std::unordered_map<QNum, std::size_t> dim_by_q;
-    for (BlockSector const& sector : space)
-    {
-        dim_by_q[sector.q] += sector.dim;
-    }
+  std::unordered_map<QNum, std::size_t> dim_by_q;
+  for (BlockSector const& sector : space)
+  {
+    dim_by_q[sector.q] += sector.dim;
+  }
 
-    BlockSpace regular(space.symmetry());
-    std::unordered_map<QNum, std::size_t> index_by_q;
-    for (QNum const& q : qnums)
-    {
-        index_by_q.emplace(q, regular.size());
-        regular.push_back({q, dim_by_q[q]});
-    }
+  BlockSpace regular(space.symmetry());
+  std::unordered_map<QNum, std::size_t> index_by_q;
+  for (QNum const& q : qnums)
+  {
+    index_by_q.emplace(q, regular.size());
+    regular.push_back({q, dim_by_q[q]});
+  }
 
-    std::unordered_map<QNum, std::size_t> offset_by_q;
-    std::vector<std::size_t> block_index;
-    std::vector<BlockRange> block_range;
-    block_index.reserve(space.size());
-    block_range.reserve(space.size());
+  std::unordered_map<QNum, std::size_t> offset_by_q;
+  std::vector<std::size_t> block_index;
+  std::vector<BlockRange> block_range;
+  block_index.reserve(space.size());
+  block_range.reserve(space.size());
 
-    for (BlockSector const& sector : space)
-    {
-        auto const index = index_by_q.at(sector.q);
-        auto& offset = offset_by_q[sector.q];
-        block_index.push_back(index);
-        block_range.push_back({offset, offset + sector.dim});
-        offset += sector.dim;
-    }
+  for (BlockSector const& sector : space)
+  {
+    auto const index = index_by_q.at(sector.q);
+    auto& offset = offset_by_q[sector.q];
+    block_index.push_back(index);
+    block_range.push_back({offset, offset + sector.dim});
+    offset += sector.dim;
+  }
 
-    return {space, std::move(regular), std::move(block_index), std::move(block_range)};
+  return {space, std::move(regular), std::move(block_index), std::move(block_range)};
 }
 
 /// \brief Regularize a sparse `QNumList` into one block per quantum number.
@@ -288,36 +288,36 @@ inline auto regularize(BlockSpace const& space) -> BlockSpaceRegularization
 /// \return Regularization result with per-entry block indices and offsets.
 inline auto regularize(QNumList const& list) -> QNumListRegularization
 {
-    auto const qnums = detail::unique_qnums(list);
+  auto const qnums = detail::unique_qnums(list);
 
-    std::unordered_map<QNum, std::size_t> count_by_q;
-    for (QNum const& q : list)
-    {
-        count_by_q[q] += 1;
-    }
+  std::unordered_map<QNum, std::size_t> count_by_q;
+  for (QNum const& q : list)
+  {
+    count_by_q[q] += 1;
+  }
 
-    BlockSpace regular(list.symmetry());
-    std::unordered_map<QNum, std::size_t> index_by_q;
-    for (QNum const& q : qnums)
-    {
-        index_by_q.emplace(q, regular.size());
-        regular.push_back({q, count_by_q[q]});
-    }
+  BlockSpace regular(list.symmetry());
+  std::unordered_map<QNum, std::size_t> index_by_q;
+  for (QNum const& q : qnums)
+  {
+    index_by_q.emplace(q, regular.size());
+    regular.push_back({q, count_by_q[q]});
+  }
 
-    std::unordered_map<QNum, std::size_t> offset_by_q;
-    std::vector<std::size_t> block_index;
-    std::vector<std::size_t> block_offset;
-    block_index.reserve(list.size());
-    block_offset.reserve(list.size());
+  std::unordered_map<QNum, std::size_t> offset_by_q;
+  std::vector<std::size_t> block_index;
+  std::vector<std::size_t> block_offset;
+  block_index.reserve(list.size());
+  block_offset.reserve(list.size());
 
-    for (QNum const& q : list)
-    {
-        block_index.push_back(index_by_q.at(q));
-        block_offset.push_back(offset_by_q[q]);
-        offset_by_q[q] += 1;
-    }
+  for (QNum const& q : list)
+  {
+    block_index.push_back(index_by_q.at(q));
+    block_offset.push_back(offset_by_q[q]);
+    offset_by_q[q] += 1;
+  }
 
-    return {list, std::move(regular), std::move(block_index), std::move(block_offset)};
+  return {list, std::move(regular), std::move(block_index), std::move(block_offset)};
 }
 
 /// \brief Return the coalesced block-space representation of a sparse `QNumList`.

@@ -1,7 +1,7 @@
+#include <gtest/gtest.h>
 #include <uni20/async/async.hpp>
 #include <uni20/async/awaiters.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include <gtest/gtest.h>
 
 using namespace uni20;
 using namespace uni20::async;
@@ -23,14 +23,12 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_NestedAssignment)
   int count = 0;
   DebugScheduler sched;
 
-  auto outer = [](ReadBuffer<int> a, WriteBuffer<int> b, int& count) static->AsyncTask
-  {
+  auto outer = [](ReadBuffer<int> a, WriteBuffer<int> b, int& count) static -> AsyncTask {
     auto task = assign_task(a, std::move(b), count);
     co_await task;
     ++count; // count this coroutine
     co_return;
-  }
-  (a.read(), b.write(), count);
+  }(a.read(), b.write(), count);
 
   sched.schedule(std::move(outer));
   sched.run_all();
@@ -50,16 +48,14 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_IntermediateChannel)
   Async<int> output;
 
   // Stage 1: compute an intermediate result into a temporary async channel.
-  auto kernel = [](ReadBuffer<int> a, WriteBuffer<int> b, int& count) static->AsyncTask
-  {
+  auto kernel = [](ReadBuffer<int> a, WriteBuffer<int> b, int& count) static -> AsyncTask {
     auto& val = co_await a;
     co_await b = val * 2;
     ++count;
     co_return;
   };
 
-  auto outer = [](ReadBuffer<int> in, WriteBuffer<int> final_out, auto kernel_fn, int& count) static->AsyncTask
-  {
+  auto outer = [](ReadBuffer<int> in, WriteBuffer<int> final_out, auto kernel_fn, int& count) static -> AsyncTask {
     // This test checks `co_await AsyncTask` sequencing with a local intermediate channel.
     // The outer coroutine awaits an inner coroutine that writes `tmp`, then consumes `tmp`
     // and writes `final_out`.
@@ -74,8 +70,7 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_IntermediateChannel)
     co_await final_out = mid + 1;
     ++count;
     co_return;
-  }
-  (input.read(), output.write(), kernel, count);
+  }(input.read(), output.write(), kernel, count);
 
   sched.schedule(std::move(outer));
   sched.run_all();

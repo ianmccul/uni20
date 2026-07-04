@@ -1,12 +1,12 @@
 #pragma once
 /// \file shared_storage.hpp
 /// \brief Reference-counted optional in-place storage used by async buffers.
-#include <uni20/common/trace.hpp>
 #include <atomic>
 #include <cstddef>
 #include <memory>
 #include <new>
 #include <type_traits>
+#include <uni20/common/trace.hpp>
 #include <utility>
 
 namespace uni20::async
@@ -173,7 +173,10 @@ template <typename T> class shared_storage {
 
     /// \brief Reports whether a value is currently constructed.
     /// \return `true` if the control block exists and holds a constructed value.
-    [[nodiscard]] bool constructed() const noexcept { return ctrl_ && ctrl_->constructed.load(std::memory_order_acquire); }
+    [[nodiscard]] bool constructed() const noexcept
+    {
+      return ctrl_ && ctrl_->constructed.load(std::memory_order_acquire);
+    }
 
     /// \brief Reports whether a control block is present.
     /// \return `true` when this handle owns or shares storage metadata.
@@ -195,7 +198,8 @@ template <typename T> class shared_storage {
     /// \param args Constructor arguments forwarded to `T`.
     /// \return Reference to the newly constructed value.
     template <typename... Args>
-    requires std::constructible_from<T, Args...> T& emplace(Args&&... args)
+      requires std::constructible_from<T, Args...>
+    T& emplace(Args&&... args)
     {
       DEBUG_CHECK(ctrl_, "shared_storage must be initialized with make_shared_storage()");
       if (this->constructed()) ctrl_->destroy_object();
@@ -205,7 +209,7 @@ template <typename T> class shared_storage {
 
     /// \brief Returns `true` when no control block is present.
     /// \return Negation of `valid()`.
-    bool operator!() const noexcept { return !ctrl_; };              // no control block
+    bool operator!() const noexcept { return !ctrl_; }; // no control block
     /// \brief Returns `true` when a control block is present.
     /// \return Equivalent to `valid()`.
     explicit operator bool() const noexcept { return bool(ctrl_); }; // has control block

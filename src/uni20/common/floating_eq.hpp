@@ -1,13 +1,13 @@
 #pragma once
 
-#include <uni20/core/scalar_concepts.hpp>
-#include <uni20/core/scalar_traits.hpp>
 #include <bit>
 #include <cmath>
 #include <complex>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
+#include <uni20/core/scalar_concepts.hpp>
+#include <uni20/core/scalar_traits.hpp>
 
 namespace uni20::check
 {
@@ -63,7 +63,7 @@ template <std::floating_point T> inline long long float_distance(T a, T b)
 template <typename T> struct FloatingULP;
 
 template <typename T>
-requires std::floating_point<T>
+  requires std::floating_point<T>
 struct FloatingULP<T>
 {
     static bool eq(T a, T b, std::int64_t max_ulps = 4)
@@ -75,7 +75,7 @@ struct FloatingULP<T>
 
 /// \brief ULP comparator for complex numbers over floating point.
 template <typename T>
-requires uni20::is_complex_v<T>
+  requires uni20::is_complex_v<T>
 struct FloatingULP<T>
 {
     static bool eq(T const& a, T const& b, std::int64_t max_ulps = 4)
@@ -87,16 +87,13 @@ struct FloatingULP<T>
 
 /// \brief Concept satisfied if T can be compared in ULPs.
 template <typename T>
-concept is_ulp_comparable = requires(T a, T b)
-{
-  {
-    FloatingULP<T>::eq(a, b)
-    } -> std::same_as<bool>;
+concept is_ulp_comparable = requires(T a, T b) {
+  { FloatingULP<T>::eq(a, b) } -> std::same_as<bool>;
 };
 
 /// Absolute ULP distance for scalars
 template <typename T>
-requires requires(T x) { float_distance(x, x); }
+  requires requires(T x) { float_distance(x, x); }
 inline long long float_abs_distance(T a, T b)
 {
   auto dist = float_distance(a, b);
@@ -104,7 +101,7 @@ inline long long float_abs_distance(T a, T b)
 }
 
 template <uni20::Complex T>
-requires requires(T x) { float_distance(x.real(), x.real()); }
+  requires requires(T x) { float_distance(x.real(), x.real()); }
 inline long long float_abs_distance(T a, T b)
 {
   auto dr = float_abs_distance(a.real(), b.real());

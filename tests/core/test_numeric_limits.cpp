@@ -1,6 +1,6 @@
-#include <uni20/core/numeric_limits.hpp>
 #include <gtest/gtest.h>
 #include <limits>
+#include <uni20/core/numeric_limits.hpp>
 
 namespace
 {

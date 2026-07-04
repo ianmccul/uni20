@@ -98,7 +98,8 @@ void print_rebuild_hint()
   fmt::print("    -DUNI20_DEBUG_DAG=ON\n");
   fmt::print("  cmake --build ./build_codex/build_gcc13_debug_dag --target async_dag_deadlock_tbb_example\n\n");
   fmt::print("Then run:\n");
-  fmt::print("  ./build_codex/build_gcc13_debug_dag/examples/async_dag_deadlock_tbb_example /tmp/uni20-dag-deadlock 2\n");
+  fmt::print(
+      "  ./build_codex/build_gcc13_debug_dag/examples/async_dag_deadlock_tbb_example /tmp/uni20-dag-deadlock 2\n");
 }
 
 void print_diagnostics(uni20::TaskRegistry::GraphDiagnostics const& diagnostics)
@@ -178,7 +179,8 @@ int main(int argc, char** argv)
   auto const after_sleep = write_dot_snapshot(dot_path(output_dir, "02-after-sleep"));
   print_diagnostics(after_sleep.diagnostics);
 
-  fmt::print("\nThis example intentionally does not call get_wait() or run_all(); the dataflow cycle cannot complete.\n");
+  fmt::print(
+      "\nThis example intentionally does not call get_wait() or run_all(); the dataflow cycle cannot complete.\n");
   print_graph_legend(output_dir);
   return after_sleep.diagnostics.cycle_task_ids.empty() ? 2 : 0;
 }

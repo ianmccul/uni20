@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include <uni20/common/trace.hpp>
 #include "task_registry.hpp"
 #include <atomic>
 #include <coroutine>
 #include <exception>
 #include <optional>
 #include <string>
+#include <uni20/common/trace.hpp>
 
 namespace uni20::async
 {

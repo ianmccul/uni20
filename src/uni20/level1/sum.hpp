@@ -1,12 +1,12 @@
 #pragma once
 
 #include "apply_unary.hpp"
+#include <ranges>
+#include <tuple>
 #include <uni20/common/mdspan.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/mdspan/zip_layout.hpp>
-#include <ranges>
-#include <tuple>
 
 namespace uni20
 {

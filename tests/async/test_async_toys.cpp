@@ -1,9 +1,9 @@
+#include <cmath>
+#include <complex>
+#include <gtest/gtest.h>
 #include <uni20/async/async_toys.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/scheduler.hpp>
-#include <gtest/gtest.h>
-#include <cmath>
-#include <complex>
 
 using namespace uni20::async;
 

@@ -1,9 +1,9 @@
-#include <uni20/async/async.hpp>
-#include <uni20/async/async_task.hpp>
-#include <uni20/async/debug_scheduler.hpp>
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
+#include <uni20/async/async.hpp>
+#include <uni20/async/async_task.hpp>
+#include <uni20/async/debug_scheduler.hpp>
 #include <utility>
 #include <vector>
 
@@ -19,7 +19,7 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
   Async<bool> view_consumed(false);
 
   // schedule a task that modifies the data
-  sched.schedule([](WriteBuffer<std::vector<int>> b) static->AsyncTask {
+  sched.schedule([](WriteBuffer<std::vector<int>> b) static -> AsyncTask {
     std::vector<int>& writer = co_await b;
     writer = std::vector<int>{3, 4, 5, 6, 7, 8, 9, 10};
   }(data.write()));
@@ -29,13 +29,13 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
   {
     // create a view
     Async<int const*> view;
-    sched.schedule([](ReadBuffer<std::vector<int>> r, WriteBuffer<int const*> view) static->AsyncTask {
+    sched.schedule([](ReadBuffer<std::vector<int>> r, WriteBuffer<int const*> view) static -> AsyncTask {
       auto const& vec = co_await r;
       co_await view = vec.data();
     }(data.read(), view.write()));
 
     // read the data via the view
-    sched.schedule([](ReadBuffer<int const*> r, int& v, WriteBuffer<bool> ready) static->AsyncTask {
+    sched.schedule([](ReadBuffer<int const*> r, int& v, WriteBuffer<bool> ready) static -> AsyncTask {
       v = (co_await r)[0];
       auto consumed = co_await ready;
       consumed = true;
@@ -43,7 +43,7 @@ TEST(AsyncDeferredTest, InitializesAfterScheduling)
   }
 
   // schedule a task that modifies the data again
-  sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b) static->AsyncTask {
+  sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b) static -> AsyncTask {
     (void)co_await ready;
     std::vector<int>& writer = co_await b;
     writer.resize(1024);
@@ -126,7 +126,7 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
     Async<TrackingView> view;
 
     sched.schedule(
-        [](WriteBuffer<std::vector<int>> b, std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+        [](WriteBuffer<std::vector<int>> b, std::shared_ptr<std::vector<std::string>> log) static -> AsyncTask {
           log->push_back("write start");
           std::vector<int>& writer = co_await b;
           writer[0] = 7;
@@ -134,7 +134,7 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
         }(data.write(), log));
 
     sched.schedule([](ReadBuffer<std::vector<int>> r, WriteBuffer<TrackingView> v,
-                      std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+                      std::shared_ptr<std::vector<std::string>> log) static -> AsyncTask {
       auto const& vec = co_await r;
       auto view_log = log;
       (co_await v).emplace(std::move(view_log), vec.data(), 1);
@@ -142,7 +142,7 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
     }(data.read(), view.write(), log));
 
     sched.schedule([](ReadBuffer<TrackingView> r, int& result, std::shared_ptr<std::vector<std::string>> log,
-                      WriteBuffer<bool> ready_signal) static->AsyncTask {
+                      WriteBuffer<bool> ready_signal) static -> AsyncTask {
       auto const& view = co_await r;
       result = view.value();
       log->push_back("consume");
@@ -151,7 +151,7 @@ TEST(AsyncDeferredTest, NonTrivialViewConstructsAndDestroysInOrder)
     }(view.read(), observed_value, log, view_consumed.write()));
 
     sched.schedule([](ReadBuffer<bool> ready, WriteBuffer<std::vector<int>> b,
-                      std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+                      std::shared_ptr<std::vector<std::string>> log) static -> AsyncTask {
       (void)co_await ready;
       log->push_back("post-write start");
       std::vector<int>& writer = co_await b;
@@ -184,7 +184,7 @@ TEST(AsyncDeferredTest, MutableViewCanModifyUnderlyingData)
     Async<MutableTrackingView> view;
 
     sched.schedule([](WriteBuffer<std::vector<int>> b, WriteBuffer<MutableTrackingView> v,
-                      std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+                      std::shared_ptr<std::vector<std::string>> log) static -> AsyncTask {
       log->push_back("emplace start");
       std::vector<int>& vec = co_await b;
       auto view_log = log;
@@ -193,7 +193,7 @@ TEST(AsyncDeferredTest, MutableViewCanModifyUnderlyingData)
     }(data.write(), view.write(), log));
 
     sched.schedule([](ReadBuffer<MutableTrackingView> r, int& observed, std::shared_ptr<std::vector<std::string>> log,
-                      WriteBuffer<bool> ready) static->AsyncTask {
+                      WriteBuffer<bool> ready) static -> AsyncTask {
       auto const& view = co_await r;
       view.set_value(11);
       observed = view.value();
@@ -203,7 +203,7 @@ TEST(AsyncDeferredTest, MutableViewCanModifyUnderlyingData)
     }(view.read(), observed_value, log, view_consumed.write()));
 
     sched.schedule([](ReadBuffer<bool> ready, ReadBuffer<std::vector<int>> data_view,
-                      std::shared_ptr<std::vector<std::string>> log) static->AsyncTask {
+                      std::shared_ptr<std::vector<std::string>> log) static -> AsyncTask {
       (void)co_await ready;
       auto const& vec = co_await data_view;
       log->push_back("post-read");

@@ -1,13 +1,13 @@
 #pragma once
 
-#include <uni20/common/mdspan.hpp>
-#include <uni20/core/types.hpp>
-#include <uni20/mdspan/concepts.hpp>
-#include <uni20/mdspan/zip_layout.hpp>
 #include <algorithm>
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
+#include <uni20/common/mdspan.hpp>
+#include <uni20/core/types.hpp>
+#include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/zip_layout.hpp>
 #include <utility>
 
 namespace uni20

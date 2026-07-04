@@ -1,11 +1,11 @@
 
 #define TRACE_DISABLE 1
 
+#include <fmt/core.h>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
-#include <fmt/core.h>
 
 using namespace uni20::async;
 

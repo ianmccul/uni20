@@ -1,8 +1,8 @@
+#include <coroutine>
+#include <cstdlib>
+#include <gtest/gtest.h>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_task.hpp>
-#include <cstdlib>
-#include <coroutine>
-#include <gtest/gtest.h>
 
 using namespace uni20;
 using namespace uni20::async;
@@ -17,11 +17,8 @@ AsyncTask make_suspended_task() { co_return; }
 TEST(AsyncTaskLifetimeDeathTest, DeathOnUncancelledDestruction)
 {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
-  EXPECT_DEATH(
-      []() {
-        auto task = make_suspended_task();
-      }(),
-      "unexpected destruction of an active AsyncTask without cancellation");
+  EXPECT_DEATH([]() { auto task = make_suspended_task(); }(),
+               "unexpected destruction of an active AsyncTask without cancellation");
 }
 
 TEST(AsyncTaskLifetimeTest, SetCancelOnResumeSetsPromiseFlag)
@@ -47,6 +44,5 @@ TEST(AsyncTaskLifetimeDeathTest, CancelOnResumeAllowsDestruction)
         }
         std::_Exit(0);
       }(),
-      ::testing::ExitedWithCode(0),
-      "");
+      ::testing::ExitedWithCode(0), "");
 }

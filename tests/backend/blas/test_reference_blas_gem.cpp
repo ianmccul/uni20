@@ -1,10 +1,10 @@
 // tests/backend/test_blas_reference_gem.cpp
 
-#include <uni20/backend/blas/backend_blas.hpp>
-#include <uni20/core/types.hpp>
 #include <cmath>
 #include <complex>
 #include <gtest/gtest.h>
+#include <uni20/backend/blas/backend_blas.hpp>
+#include <uni20/core/types.hpp>
 #include <vector>
 
 using namespace uni20;

@@ -337,7 +337,7 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
 
     template <typename Plan> void run(Plan const& plan, offset_type offsets) noexcept
     {
-      std::size_t depth = plan.size();  // number of dims; 0 => rank-0 scalar
+      std::size_t depth = plan.size(); // number of dims; 0 => rank-0 scalar
       switch (depth)
       {
         case 0:
@@ -390,12 +390,10 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
     void run_unrolled(offset_type offsets, const extent_strides<num_spans>*,
                       std::integral_constant<std::size_t, 0>) noexcept
     {
-      [&]<std::size_t... I>(std::index_sequence<I...>)
-      {
+      [&]<std::size_t... I>(std::index_sequence<I...>) {
         std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]) =
             op_(std::get<I>(accs_).access(std::get<I>(dh_), offsets[I])...);
-      }
-      (std::make_index_sequence<num_spans>{});
+      }(std::make_index_sequence<num_spans>{});
     }
 
     // 1 dim => innermost loop.
@@ -405,12 +403,10 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
       index_type const N = plan->extent;
       for (index_type i = 0; i < N; ++i)
       {
-        [&]<std::size_t... I>(std::index_sequence<I...>)
-        {
+        [&]<std::size_t... I>(std::index_sequence<I...>) {
           std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]) =
               op_(std::get<I>(accs_).access(std::get<I>(dh_), offsets[I])...);
-        }
-        (std::make_index_sequence<num_spans>{});
+        }(std::make_index_sequence<num_spans>{});
 
         for (std::size_t s = 0; s < num_spans; ++s)
         {

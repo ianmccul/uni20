@@ -1,8 +1,8 @@
-#include <uni20/common/aligned_buffer.hpp>
-#include <uni20/core/types.hpp>
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <type_traits>
+#include <uni20/common/aligned_buffer.hpp>
+#include <uni20/core/types.hpp>
 
 static_assert(uni20::uninitialized_ok<uni20::complex<double>>, "complex<double> should be trivially copyable");
 

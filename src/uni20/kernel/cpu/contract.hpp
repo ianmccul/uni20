@@ -1,7 +1,7 @@
 #pragma once
 
-#include <uni20/common/mdspan.hpp>
 #include "cpu.hpp"
+#include <uni20/common/mdspan.hpp>
 #include <uni20/mdspan/strides.hpp>
 
 namespace uni20::kernel

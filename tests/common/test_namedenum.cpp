@@ -1,5 +1,5 @@
-#include <uni20/common/namedenum.hpp>
 #include "gtest/gtest.h"
+#include <uni20/common/namedenum.hpp>
 
 #include <array>
 #include <format>

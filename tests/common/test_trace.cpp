@@ -1,6 +1,6 @@
-#include <uni20/common/trace.hpp>
 #include <gtest/gtest.h>
 #include <thread>
+#include <uni20/common/trace.hpp>
 
 using namespace trace;
 

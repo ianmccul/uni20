@@ -40,7 +40,7 @@ Async<T> branch_dynamic(Async<int> const& mode, Async<T> const& a, Async<T> cons
 {
   Async<T> out;
   auto task = [](ReadBuffer<int> mode_in, ReadBuffer<T> a_in, ReadBuffer<T> b_in, ReadBuffer<T> c_in,
-                 WriteBuffer<T> out_writer) static->AsyncTask {
+                 WriteBuffer<T> out_writer) static -> AsyncTask {
     auto [mode_value, av, bv, cv] = co_await all(mode_in, a_in, b_in, c_in);
     auto result = (mode_value == 1) ? av + bv * cv : (av + bv) * cv;
     mode_in.release();
@@ -112,21 +112,21 @@ Async<double> explicit_kernel_form(Async<double> const& x, Async<double> const& 
   Async<double> z;
   Async<double> u;
 
-  auto z_task = [](ReadBuffer<double> x_in, ReadBuffer<double> y_in, WriteBuffer<double> z_out) static->AsyncTask {
+  auto z_task = [](ReadBuffer<double> x_in, ReadBuffer<double> y_in, WriteBuffer<double> z_out) static -> AsyncTask {
     co_await z_out = f(co_await x_in, co_await y_in);
     co_return;
   }(x.read(), y.read(), z.write());
   z_task.debug_name("explicit z = f(x, y)");
   schedule(std::move(z_task));
 
-  auto u_task = [](ReadBuffer<double> y_in, WriteBuffer<double> u_out) static->AsyncTask {
+  auto u_task = [](ReadBuffer<double> y_in, WriteBuffer<double> u_out) static -> AsyncTask {
     co_await u_out = g(co_await y_in);
     co_return;
   }(y.read(), u.write());
   u_task.debug_name("explicit u = g(y)");
   schedule(std::move(u_task));
 
-  auto update_task = [](ReadBuffer<double> u_in, WriteBuffer<double> z_io) static->AsyncTask {
+  auto update_task = [](ReadBuffer<double> u_in, WriteBuffer<double> z_io) static -> AsyncTask {
     auto [uval, zval] = co_await all(u_in, z_io);
     zval += h(uval, zval);
     co_return;

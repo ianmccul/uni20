@@ -1,6 +1,6 @@
-#include <uni20/common/gtest.hpp>
 #include <gtest/gtest.h>
 #include <iostream>
+#include <uni20/common/gtest.hpp>
 
 // Demonstrates EXPECT_FLOATING_EQ
 TEST(FloatingEqExample, ExpectPass)

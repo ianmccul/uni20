@@ -1,9 +1,9 @@
+#include <cstddef>
+#include <gtest/gtest.h>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_task.hpp>
 #include <uni20/async/awaiters.hpp>
 #include <uni20/async/debug_scheduler.hpp>
-#include <gtest/gtest.h>
-#include <cstddef>
 
 using namespace uni20;
 using namespace uni20::async;
@@ -14,15 +14,13 @@ TEST(AsyncAwaitersTest, TryAwaitReady)
   DebugScheduler sched;
   int count = 0;
 
-  auto task = [](int& count, ReadBuffer<int> rbuf) static->AsyncTask
-  {
+  auto task = [](int& count, ReadBuffer<int> rbuf) static -> AsyncTask {
     auto opt = co_await try_await(rbuf);
     EXPECT_TRUE(opt.has_value());
     EXPECT_EQ(*opt, 123);
     ++count;
     co_return;
-  }
-  (count, a.read());
+  }(count, a.read());
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -34,16 +32,13 @@ TEST(AsyncAwaitersTest, TryAwaitReadBufferBeforeAndAfterInitialization)
   Async<int> value;
   DebugScheduler sched;
 
-  auto writer = [](WriteBuffer<int> writer) static->AsyncTask
-  {
+  auto writer = [](WriteBuffer<int> writer) static -> AsyncTask {
     co_await writer = 42;
     EXPECT_EQ(co_await writer, 42);
     co_return;
-  }
-  (value.write());
+  }(value.write());
 
-  auto reader = [](ReadBuffer<int> reader) static->AsyncTask
-  {
+  auto reader = [](ReadBuffer<int> reader) static -> AsyncTask {
     auto first = co_await try_await(reader);
     EXPECT_FALSE(first.has_value());
 
@@ -54,8 +49,7 @@ TEST(AsyncAwaitersTest, TryAwaitReadBufferBeforeAndAfterInitialization)
     EXPECT_TRUE(second.has_value());
     EXPECT_EQ(second->get(), 42);
     co_return;
-  }
-  (value.read());
+  }(value.read());
 
   sched.schedule(std::move(reader));
   sched.run_all();
@@ -69,25 +63,21 @@ TEST(AsyncAwaitersTest, TryAwaitFailsThenSucceeds)
   Async<int> a;
   DebugScheduler sched;
 
-  auto writer = [](int& count, WriteBuffer<int> w) static->AsyncTask
-  {
+  auto writer = [](int& count, WriteBuffer<int> w) static -> AsyncTask {
     co_await w = 99;
     EXPECT_EQ(co_await w, 99);
     ++count;
     co_return;
-  }
-  (count, a.write());
+  }(count, a.write());
 
-  auto task = [](int& count, ReadBuffer<int> rbuf) static->AsyncTask
-  {
+  auto task = [](int& count, ReadBuffer<int> rbuf) static -> AsyncTask {
     auto opt = co_await try_await(rbuf);
     EXPECT_FALSE(opt.has_value());
     auto& val = co_await rbuf;
     EXPECT_EQ(val, 99);
     ++count;
     co_return;
-  }
-  (count, a.read());
+  }(count, a.read());
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -104,14 +94,12 @@ TEST(AsyncAwaitersTest, AllAwaiterTwoBuffers)
   DebugScheduler sched;
 
   int sum = 0;
-  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count, int& sum) static->AsyncTask
-  {
+  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count, int& sum) static -> AsyncTask {
     auto [va, vb] = co_await all(a, b);
     sum = va + vb;
     ++count;
     co_return;
-  }
-  (a.read(), b.read(), count, sum);
+  }(a.read(), b.read(), count, sum);
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -126,33 +114,27 @@ TEST(AsyncAwaitersTest, AllAwaiterBlockedThenUnblocked)
   Async<int> b;
   DebugScheduler sched;
 
-  auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
-  {
+  auto writer_a = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
     co_await w = 42;
     EXPECT_EQ(co_await w, 42);
     ++count;
     co_return;
-  }
-  (a.write(), count);
+  }(a.write(), count);
 
-  auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
-  {
+  auto writer_b = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
     co_await w = 77;
     EXPECT_EQ(co_await w, 77);
     ++count;
     co_return;
-  }
-  (b.write(), count);
+  }(b.write(), count);
 
-  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static->AsyncTask
-  {
+  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static -> AsyncTask {
     auto [va, vb] = co_await all(a, b);
     EXPECT_EQ(va, 42);
     EXPECT_EQ(vb, 77);
     ++count;
     co_return;
-  }
-  (a.read(), b.read(), count);
+  }(a.read(), b.read(), count);
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -174,33 +156,27 @@ TEST(AsyncAwaitersTest, AllAwaiterOneUnblocksThenSecond)
   Async<int> b;
   DebugScheduler sched;
 
-  auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
-  {
+  auto writer_a = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
     co_await w = 42;
     EXPECT_EQ(co_await w, 42);
     ++count;
     co_return;
-  }
-  (a.write(), count);
+  }(a.write(), count);
 
-  auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
-  {
+  auto writer_b = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
     co_await w = 77;
     EXPECT_EQ(co_await w, 77);
     ++count;
     co_return;
-  }
-  (b.write(), count);
+  }(b.write(), count);
 
-  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static->AsyncTask
-  {
+  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static -> AsyncTask {
     auto [va, vb] = co_await all(a, b);
     EXPECT_EQ(va, 42);
     EXPECT_EQ(vb, 77);
     ++count;
     co_return;
-  }
-  (a.read(), b.read(), count);
+  }(a.read(), b.read(), count);
 
   sched.schedule(std::move(writer_b));
   sched.run_all();
@@ -223,33 +199,27 @@ TEST(AsyncAwaitersTest, AllAwaiterNoneBlocked)
   Async<int> b;
   DebugScheduler sched;
 
-  auto writer_a = [](WriteBuffer<int> w, int& count) static->AsyncTask
-  {
+  auto writer_a = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
     co_await w = 42;
     EXPECT_EQ(co_await w, 42);
     ++count;
     co_return;
-  }
-  (a.write(), count);
+  }(a.write(), count);
 
-  auto writer_b = [](WriteBuffer<int> w, int& count) static->AsyncTask
-  {
+  auto writer_b = [](WriteBuffer<int> w, int& count) static -> AsyncTask {
     co_await w = 77;
     EXPECT_EQ(co_await w, 77);
     ++count;
     co_return;
-  }
-  (b.write(), count);
+  }(b.write(), count);
 
-  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static->AsyncTask
-  {
+  auto task = [](ReadBuffer<int> a, ReadBuffer<int> b, int& count) static -> AsyncTask {
     auto [va, vb] = co_await all(a, b);
     EXPECT_EQ(va, 42);
     EXPECT_EQ(vb, 77);
     ++count;
     co_return;
-  }
-  (a.read(), b.read(), count);
+  }(a.read(), b.read(), count);
 
   sched.schedule(std::move(writer_b));
   sched.run_all();
@@ -275,8 +245,7 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
   int cancel_sum = 0;
   bool reader_finished = false;
 
-  auto writer = [](WriteBuffer<int> writer) static->AsyncTask
-  {
+  auto writer = [](WriteBuffer<int> writer) static -> AsyncTask {
     co_await writer = 1;
     EXPECT_EQ(co_await writer, 1);
 
@@ -312,12 +281,10 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
     co_await writer = 7;
     EXPECT_EQ(co_await writer, 7);
     co_return;
-  }
-  (value.write());
+  }(value.write());
 
-  auto reader =
-      [](ReadBuffer<int> reader, int& read_sum, int& maybe_value, int& cancel_sum, bool& finished) static->AsyncTask
-  {
+  auto reader = [](ReadBuffer<int> reader, int& read_sum, int& maybe_value, int& cancel_sum,
+                   bool& finished) static -> AsyncTask {
     auto const& first = co_await reader;
     auto const& second = co_await reader;
     read_sum = first + second;
@@ -335,8 +302,7 @@ TEST(AsyncAwaitersTest, BufferAwaitersSupportRepeatedCoAwait)
 
     finished = true;
     co_return;
-  }
-  (value.read(), read_sum, maybe_value, cancel_sum, reader_finished);
+  }(value.read(), read_sum, maybe_value, cancel_sum, reader_finished);
 
   sched.schedule(std::move(reader));
   sched.run_all();
@@ -359,15 +325,13 @@ TEST(AsyncAwaitersTest, TransferReadBufferReturnsOwningProxy)
   int result = 0;
   bool released = false;
 
-  auto reader = [](ReadBuffer<int> reader, int& result, bool& released) static->AsyncTask
-  {
+  auto reader = [](ReadBuffer<int> reader, int& result, bool& released) static -> AsyncTask {
     auto owned = co_await reader.transfer();
     result = owned.get();
     owned.release();
     released = true;
     co_return;
-  }
-  (value.read(), result, released);
+  }(value.read(), result, released);
 
   sched.schedule(std::move(reader));
   sched.run_all();
@@ -385,8 +349,7 @@ TEST(AsyncAwaitersTest, TransferReadBufferGetReleaseAllowsSameCoroutineWriteAcqu
   int observed = 0;
 
   auto const task_fn = [](ReadBuffer<int> reader, WriteBuffer<int> writer, bool& writer_ready_after_release,
-                          int& observed) static->AsyncTask
-  {
+                          int& observed) static -> AsyncTask {
     observed = (co_await reader.transfer()).get_release();
     writer_ready_after_release = writer.await_ready();
     co_await writer = observed + 1;
@@ -412,8 +375,7 @@ TEST(AsyncAwaitersTest, TransferReadBufferMaybeReturnsOwningProxy)
   bool has_value = false;
   int read_value = 0;
 
-  auto reader = [](ReadBuffer<int> reader, bool& has_value, int& read_value) static->AsyncTask
-  {
+  auto reader = [](ReadBuffer<int> reader, bool& has_value, int& read_value) static -> AsyncTask {
     auto maybe = co_await reader.transfer().maybe();
     has_value = static_cast<bool>(maybe);
     if (maybe)
@@ -422,8 +384,7 @@ TEST(AsyncAwaitersTest, TransferReadBufferMaybeReturnsOwningProxy)
       maybe->release();
     }
     co_return;
-  }
-  (value.read(), has_value, read_value);
+  }(value.read(), has_value, read_value);
 
   sched.schedule(std::move(reader));
   sched.run_all();
@@ -441,14 +402,12 @@ TEST(AsyncAwaitersTest, TransferReadBufferMaybeReportsCancelled)
   DebugScheduler sched;
   bool has_value = true;
 
-  auto reader = [](ReadBuffer<int> reader, bool& has_value) static->AsyncTask
-  {
+  auto reader = [](ReadBuffer<int> reader, bool& has_value) static -> AsyncTask {
     auto maybe = co_await reader.transfer().maybe();
     has_value = static_cast<bool>(maybe);
     if (maybe) maybe->release();
     co_return;
-  }
-  (value.read(), has_value);
+  }(value.read(), has_value);
 
   sched.schedule(std::move(reader));
   sched.run_all();
@@ -464,15 +423,13 @@ TEST(AsyncAwaitersTest, TransferReadBufferOrCancelReturnsOwningProxy)
   int result = 0;
   bool released = false;
 
-  auto reader = [](ReadBuffer<int> reader, int& result, bool& released) static->AsyncTask
-  {
+  auto reader = [](ReadBuffer<int> reader, int& result, bool& released) static -> AsyncTask {
     auto owned = co_await reader.transfer().or_cancel();
     result = owned.get();
     owned.release();
     released = true;
     co_return;
-  }
-  (value.read(), result, released);
+  }(value.read(), result, released);
 
   sched.schedule(std::move(reader));
   sched.run_all();
@@ -490,8 +447,7 @@ TEST(AsyncAwaitersTest, TransferReadBufferOrCancelThrowsOnCancelled)
   DebugScheduler sched;
   bool cancelled = false;
 
-  auto reader = [](ReadBuffer<int> reader, bool& cancelled) static->AsyncTask
-  {
+  auto reader = [](ReadBuffer<int> reader, bool& cancelled) static -> AsyncTask {
     try
     {
       auto owned = co_await reader.transfer().or_cancel();
@@ -502,8 +458,7 @@ TEST(AsyncAwaitersTest, TransferReadBufferOrCancelThrowsOnCancelled)
       cancelled = true;
     }
     co_return;
-  }
-  (value.read(), cancelled);
+  }(value.read(), cancelled);
 
   sched.schedule(std::move(reader));
   sched.run_all();
@@ -521,9 +476,7 @@ TEST(AsyncAwaitersTest, TransferReadBufferKeepsRefcountStableDuringOwnershipTran
   std::size_t count_after = 0;
 
   auto task = [](ReadBuffer<int> reader, shared_storage<int> const& storage, std::size_t& count_before,
-                 std::size_t& count_during,
-                 std::size_t& count_after) static->AsyncTask
-  {
+                 std::size_t& count_during, std::size_t& count_after) static -> AsyncTask {
     count_before = storage.use_count();
     {
       auto owned = co_await reader.transfer();
@@ -532,8 +485,7 @@ TEST(AsyncAwaitersTest, TransferReadBufferKeepsRefcountStableDuringOwnershipTran
     }
     count_after = storage.use_count();
     co_return;
-  }
-  (value.read(), value.storage(), count_before, count_during, count_after);
+  }(value.read(), value.storage(), count_before, count_during, count_after);
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -554,9 +506,7 @@ TEST(AsyncAwaitersTest, TransferReadMaybeKeepsRefcountStableDuringOwnershipTrans
   bool saw_value = false;
 
   auto task = [](ReadBuffer<int> reader, shared_storage<int> const& storage, std::size_t& count_before,
-                 std::size_t& count_during, std::size_t& count_after,
-                 bool& saw_value) static->AsyncTask
-  {
+                 std::size_t& count_during, std::size_t& count_after, bool& saw_value) static -> AsyncTask {
     count_before = storage.use_count();
     {
       auto maybe = co_await reader.transfer().maybe();
@@ -569,8 +519,7 @@ TEST(AsyncAwaitersTest, TransferReadMaybeKeepsRefcountStableDuringOwnershipTrans
     }
     count_after = storage.use_count();
     co_return;
-  }
-  (value.read(), value.storage(), count_before, count_during, count_after, saw_value);
+  }(value.read(), value.storage(), count_before, count_during, count_after, saw_value);
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -591,9 +540,7 @@ TEST(AsyncAwaitersTest, TransferReadOrCancelKeepsRefcountStableDuringOwnershipTr
   std::size_t count_after = 0;
 
   auto task = [](ReadBuffer<int> reader, shared_storage<int> const& storage, std::size_t& count_before,
-                 std::size_t& count_during,
-                 std::size_t& count_after) static->AsyncTask
-  {
+                 std::size_t& count_during, std::size_t& count_after) static -> AsyncTask {
     count_before = storage.use_count();
     {
       auto owned = co_await reader.transfer().or_cancel();
@@ -602,8 +549,7 @@ TEST(AsyncAwaitersTest, TransferReadOrCancelKeepsRefcountStableDuringOwnershipTr
     }
     count_after = storage.use_count();
     co_return;
-  }
-  (value.read(), value.storage(), count_before, count_during, count_after);
+  }(value.read(), value.storage(), count_before, count_during, count_after);
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -623,9 +569,7 @@ TEST(AsyncAwaitersTest, TransferWriteBufferKeepsRefcountStableDuringOwnershipTra
   std::size_t count_after = 0;
 
   auto task = [](WriteBuffer<int> writer, shared_storage<int> const& storage, std::size_t& count_before,
-                 std::size_t& count_during,
-                 std::size_t& count_after) static->AsyncTask
-  {
+                 std::size_t& count_during, std::size_t& count_after) static -> AsyncTask {
     count_before = storage.use_count();
     {
       auto owned = co_await writer.transfer();
@@ -634,8 +578,7 @@ TEST(AsyncAwaitersTest, TransferWriteBufferKeepsRefcountStableDuringOwnershipTra
     }
     count_after = storage.use_count();
     co_return;
-  }
-  (value.write(), value.storage(), count_before, count_during, count_after);
+  }(value.write(), value.storage(), count_before, count_during, count_after);
 
   sched.schedule(std::move(task));
   sched.run_all();
@@ -653,19 +596,15 @@ TEST(AsyncAwaitersTest, TransferWriteBufferTakeRvalueMovesValueAndReleasesWriter
 
   int taken = 0;
 
-  auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
-  {
+  auto take_task = [](WriteBuffer<int> writer, int& taken) static -> AsyncTask {
     taken = co_await writer.transfer().take();
     co_return;
-  }
-  (value.write(), taken);
+  }(value.write(), taken);
 
-  auto rewrite_task = [](WriteBuffer<int> writer) static->AsyncTask
-  {
+  auto rewrite_task = [](WriteBuffer<int> writer) static -> AsyncTask {
     co_await writer = 23;
     co_return;
-  }
-  (value.write());
+  }(value.write());
 
   sched.schedule(std::move(take_task));
   sched.schedule(std::move(rewrite_task));
@@ -682,19 +621,15 @@ TEST(AsyncAwaitersTest, WriteBufferTakeReleaseLvalueMovesValueAndReleasesWriter)
 
   int taken = 0;
 
-  auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
-  {
+  auto take_task = [](WriteBuffer<int> writer, int& taken) static -> AsyncTask {
     taken = co_await writer.take_release();
     co_return;
-  }
-  (value.write(), taken);
+  }(value.write(), taken);
 
-  auto rewrite_task = [](WriteBuffer<int> writer) static->AsyncTask
-  {
+  auto rewrite_task = [](WriteBuffer<int> writer) static -> AsyncTask {
     co_await writer = 41;
     co_return;
-  }
-  (value.write());
+  }(value.write());
 
   sched.schedule(std::move(take_task));
   sched.schedule(std::move(rewrite_task));
@@ -711,20 +646,16 @@ TEST(AsyncAwaitersTest, WriteProxyTakeReleaseMovesValueAndReleasesWriter)
 
   int taken = 0;
 
-  auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
-  {
+  auto take_task = [](WriteBuffer<int> writer, int& taken) static -> AsyncTask {
     auto proxy = co_await writer;
     taken = proxy.take_release();
     co_return;
-  }
-  (value.write(), taken);
+  }(value.write(), taken);
 
-  auto rewrite_task = [](WriteBuffer<int> writer) static->AsyncTask
-  {
+  auto rewrite_task = [](WriteBuffer<int> writer) static -> AsyncTask {
     co_await writer = 47;
     co_return;
-  }
-  (value.write());
+  }(value.write());
 
   sched.schedule(std::move(take_task));
   sched.schedule(std::move(rewrite_task));
@@ -741,20 +672,16 @@ TEST(AsyncAwaitersTest, TransferWriteProxyTakeReleaseMovesValueAndReleasesWriter
 
   int taken = 0;
 
-  auto take_task = [](WriteBuffer<int> writer, int& taken) static->AsyncTask
-  {
+  auto take_task = [](WriteBuffer<int> writer, int& taken) static -> AsyncTask {
     auto owned = co_await writer.transfer();
     taken = owned.take_release();
     co_return;
-  }
-  (value.write(), taken);
+  }(value.write(), taken);
 
-  auto rewrite_task = [](WriteBuffer<int> writer) static->AsyncTask
-  {
+  auto rewrite_task = [](WriteBuffer<int> writer) static -> AsyncTask {
     co_await writer = 31;
     co_return;
-  }
-  (value.write());
+  }(value.write());
 
   sched.schedule(std::move(take_task));
   sched.schedule(std::move(rewrite_task));
@@ -774,9 +701,7 @@ TEST(AsyncAwaitersTest, TransferWriteStorageKeepsRefcountStableDuringOwnershipTr
   std::size_t count_after = 0;
 
   auto task = [](WriteBuffer<int> writer, shared_storage<int> const& storage, std::size_t& count_before,
-                 std::size_t& count_during,
-                 std::size_t& count_after) static->AsyncTask
-  {
+                 std::size_t& count_during, std::size_t& count_after) static -> AsyncTask {
     count_before = storage.use_count();
     auto owned_storage = co_await writer.transfer().storage();
     count_during = storage.use_count();
@@ -784,8 +709,7 @@ TEST(AsyncAwaitersTest, TransferWriteStorageKeepsRefcountStableDuringOwnershipTr
     owned_storage.release();
     count_after = storage.use_count();
     co_return;
-  }
-  (value.write(), value.storage(), count_before, count_during, count_after);
+  }(value.write(), value.storage(), count_before, count_during, count_after);
 
   sched.schedule(std::move(task));
   sched.run_all();

@@ -1,7 +1,7 @@
 #include "../helpers.hpp"
-#include <uni20/level1/apply_unary.hpp>
 #include "gtest/gtest.h"
 #include <numeric>
+#include <uni20/level1/apply_unary.hpp>
 
 using namespace uni20;
 

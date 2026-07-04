@@ -64,8 +64,7 @@
       auto const dist = ::uni20::check::float_abs_distance(va, vb);                                                    \
       ::testing::Message msg;                                                                                          \
       msg << "EXPECT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
-          << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP"                                      \
-          << "\n  actual distance: ";                                                                                  \
+          << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP" << "\n  actual distance: ";          \
       if (dist == std::numeric_limits<long long>::max())                                                               \
         msg << "unrepresentable (NaN or mismatched infinity)";                                                         \
       else                                                                                                             \
@@ -92,8 +91,7 @@
       auto const dist = ::uni20::check::float_abs_distance(va, vb);                                                    \
       ::testing::Message msg;                                                                                          \
       msg << "ASSERT_FLOATING_EQ failed at " << __FILE__ << ":" << __LINE__ << "\n  " #a " = " << va                   \
-          << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP"                                      \
-          << "\n  actual distance: ";                                                                                  \
+          << "\n  " #b " = " << vb << "\n  allowed tolerance: " << ulps << " ULP" << "\n  actual distance: ";          \
       if (dist == std::numeric_limits<long long>::max())                                                               \
         msg << "unrepresentable (NaN or mismatched infinity)";                                                         \
       else                                                                                                             \

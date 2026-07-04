@@ -1,10 +1,10 @@
+#include <benchmark/benchmark.h>
+#include <numeric>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/async_task.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
-#include <benchmark/benchmark.h>
-#include <numeric>
 
 using namespace uni20::async;
 

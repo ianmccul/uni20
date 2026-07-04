@@ -1,6 +1,6 @@
 #include "../helpers.hpp"
-#include <uni20/mdspan/zip_layout.hpp>
 #include "gtest/gtest.h"
+#include <uni20/mdspan/zip_layout.hpp>
 
 using namespace uni20;
 

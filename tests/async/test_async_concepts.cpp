@@ -1,7 +1,7 @@
+#include "gtest/gtest.h"
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/awaiters.hpp>
-#include "gtest/gtest.h"
 
 using namespace uni20::async;
 

@@ -12,10 +12,10 @@
  * \brief Additional concepts, adaptors, and helpers that extend the reference mdspan implementation.
  */
 
-#include <uni20/common/mdspan.hpp>
 #include <cassert>
 #include <concepts>
 #include <fmt/format.h>
+#include <uni20/common/mdspan.hpp>
 
 namespace uni20
 {
@@ -55,21 +55,14 @@ template <typename AP> using span_offset_t = typename span_offset_type<AP>::type
 /// \tparam AP The accessor policy to test.
 /// \ingroup mdspan_ext
 template <class AP>
-concept AccessorPolicy = requires
-{
+concept AccessorPolicy = requires {
   typename AP::element_type;
   typename AP::data_handle_type;
   typename AP::offset_policy;
   typename AP::reference;
-}
-&&requires(AP a, typename AP::data_handle_type dh, span_offset_t<AP> off)
-{
-  {
-    a.offset(dh, off)
-    } -> std::convertible_to<typename AP::offset_policy::data_handle_type>;
-  {
-    a.access(dh, off)
-    } -> std::same_as<typename AP::reference>;
+} && requires(AP a, typename AP::data_handle_type dh, span_offset_t<AP> off) {
+  { a.offset(dh, off) } -> std::convertible_to<typename AP::offset_policy::data_handle_type>;
+  { a.access(dh, off) } -> std::same_as<typename AP::reference>;
 };
 
 /// \brief Generic adaptor that converts an AccessorPolicy’s reference type to a compatible const-qualified reference.
@@ -81,7 +74,7 @@ concept AccessorPolicy = requires
 /// \tparam NewReference The new reference type returned by \c access(); must be convertible from \c
 /// Accessor::reference. \ingroup mdspan_ext
 template <AccessorPolicy Accessor, typename NewReference>
-requires std::is_same_v<typename Accessor::reference, typename Accessor::element_type&>
+  requires std::is_same_v<typename Accessor::reference, typename Accessor::element_type&>
 class const_accessor_adaptor {
   public:
     using element_type = typename Accessor::element_type const;
@@ -128,7 +121,7 @@ constexpr stdex::default_accessor<T const> const_accessor(stdex::default_accesso
 /// \return A const-qualified accessor adaptor.
 /// \ingroup mdspan_ext
 template <AccessorPolicy Acc>
-requires std::is_same_v<typename Acc::reference, typename Acc::element_type&>
+  requires std::is_same_v<typename Acc::reference, typename Acc::element_type&>
 constexpr auto const_accessor(Acc const& acc)
 {
   return const_accessor_adaptor<Acc, typename Acc::element_type const&>{acc};
@@ -140,8 +133,11 @@ constexpr auto const_accessor(Acc const& acc)
 /// \return The original accessor policy.
 /// \ingroup mdspan_ext
 template <AccessorPolicy Acc>
-requires std::is_same_v<typename Acc::reference, typename Acc::element_type const&>
-constexpr Acc const_accessor(Acc const& acc) { return acc; }
+  requires std::is_same_v<typename Acc::reference, typename Acc::element_type const&>
+constexpr Acc const_accessor(Acc const& acc)
+{
+  return acc;
+}
 
 /// \brief If an accessor returns element_type by value, no change is required.
 /// \tparam Acc A read-only accessor policy with reference equal to \c element_type.
@@ -149,8 +145,11 @@ constexpr Acc const_accessor(Acc const& acc) { return acc; }
 /// \return The original accessor policy.
 /// \ingroup mdspan_ext
 template <AccessorPolicy Acc>
-requires std::is_same_v<typename Acc::reference, typename Acc::element_type>
-constexpr Acc const_accessor(Acc const& acc) { return acc; }
+  requires std::is_same_v<typename Acc::reference, typename Acc::element_type>
+constexpr Acc const_accessor(Acc const& acc)
+{
+  return acc;
+}
 
 /// \brief Type alias that produces the const-qualified version of an accessor policy.
 /// \tparam Acc An accessor policy.
@@ -172,8 +171,7 @@ template <AccessorPolicy Acc> using const_accessor_t = decltype(const_accessor(s
 /// \tparam S The type being tested for SpanLike requirements.
 /// \ingroup mdspan_ext
 template <class S>
-concept SpanLike = requires(S s)
-{
+concept SpanLike = requires(S s) {
   typename S::element_type;
   typename S::extents_type;
   typename S::layout_type;
@@ -181,21 +179,14 @@ concept SpanLike = requires(S s)
   typename S::reference;
   typename S::value_type;
   // mapping() must return something convertible to mapping_t
-  {
-    s.mapping()
-    } -> std::convertible_to<typename S::layout_type::template mapping<typename S::extents_type>>;
+  { s.mapping() } -> std::convertible_to<typename S::layout_type::template mapping<typename S::extents_type>>;
 
   // data_handle() must return something convertible to data_handle_type
-  {
-    s.data_handle()
-    } -> std::convertible_to<typename S::accessor_type::data_handle_type>;
+  { s.data_handle() } -> std::convertible_to<typename S::accessor_type::data_handle_type>;
 
   // accessor() must return something convertible to accessor_type
-  {
-    s.accessor()
-    } -> std::convertible_to<typename S::accessor_type>;
-}
-&&AccessorPolicy<typename S::accessor_type>;
+  { s.accessor() } -> std::convertible_to<typename S::accessor_type>;
+} && AccessorPolicy<typename S::accessor_type>;
 
 // ConstSpanLike
 // Not sure that we need this, and its hard to be definitive that it is actually const
@@ -227,42 +218,34 @@ concept SpanLike = requires(S s)
 /// \tparam S The type being evaluated for mutable access.
 /// \ingroup mdspan_ext
 template <class S>
-concept MutableSpanLike = requires(S s)
-{
-  typename S::element_type;
-  typename S::extents_type;
-  typename S::layout_type;
-  typename S::accessor_type;
-  typename S::reference;
-  typename S::value_type;
-  typename S::index_type;
-  // mapping() must return something convertible to mapping_t
-  {
-    s.mapping()
-    } -> std::convertible_to<typename S::layout_type::template mapping<typename S::extents_type>>;
+concept MutableSpanLike =
+    requires(S s) {
+      typename S::element_type;
+      typename S::extents_type;
+      typename S::layout_type;
+      typename S::accessor_type;
+      typename S::reference;
+      typename S::value_type;
+      typename S::index_type;
+      // mapping() must return something convertible to mapping_t
+      { s.mapping() } -> std::convertible_to<typename S::layout_type::template mapping<typename S::extents_type>>;
 
-  // data_handle() must return something convertible to data_handle_type
-  {
-    s.data_handle()
-    } -> std::convertible_to<typename S::accessor_type::data_handle_type>;
+      // data_handle() must return something convertible to data_handle_type
+      { s.data_handle() } -> std::convertible_to<typename S::accessor_type::data_handle_type>;
 
-  // accessor() must return something convertible to accessor_type
-  {
-    s.accessor()
-    } -> std::convertible_to<typename S::accessor_type>;
-}
-&&AccessorPolicy<typename S::accessor_type> &&
-    (!std::is_const_v<typename S::element_type>)&&requires(typename S::reference ref, typename S::value_type val)
-{
-  ref = val;
-}; // must be able to assign a value to a reference
+      // accessor() must return something convertible to accessor_type
+      { s.accessor() } -> std::convertible_to<typename S::accessor_type>;
+    } && AccessorPolicy<typename S::accessor_type> && (!std::is_const_v<typename S::element_type>) &&
+    requires(typename S::reference ref, typename S::value_type val) {
+      ref = val;
+    }; // must be able to assign a value to a reference
 
 /// \brief A “strided mdspan‐like” type that models SpanLike and reports layout_stride.
 /// \tparam MDS The mdspan-like type under test.
 /// \ingroup mdspan_ext
 template <class MDS>
 concept StridedMdspan = SpanLike<MDS> && // must satisfy our mdspan‐like protocol
-    MDS::is_always_strided();
+                        MDS::is_always_strided();
 
 /// \concept MutableStridedMdspan
 /// \brief Mutable span-like types whose layout reports they are always strided.
@@ -270,7 +253,7 @@ concept StridedMdspan = SpanLike<MDS> && // must satisfy our mdspan‐like proto
 /// \ingroup mdspan_ext
 template <class MDS>
 concept MutableStridedMdspan = MutableSpanLike<MDS> && // must satisfy our mdspan‐like protocol
-    MDS::is_always_strided();
+                               MDS::is_always_strided();
 
 namespace detail
 {

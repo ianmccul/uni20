@@ -193,7 +193,8 @@ int main(int argc, char** argv)
   }
 
   fmt::print("Final value: {}\n", late_scaled.get_wait(scheduler));
-  fmt::print("Render one DOT file with: dot -Tsvg {} -o async-dag.svg\n", dot_path(output_dir, "02-suspended").string());
+  fmt::print("Render one DOT file with: dot -Tsvg {} -o async-dag.svg\n",
+             dot_path(output_dir, "02-suspended").string());
   print_graph_legend(output_dir);
   return 0;
 }

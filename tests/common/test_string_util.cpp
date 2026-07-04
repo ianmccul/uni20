@@ -1,5 +1,5 @@
-#include <uni20/common/string_util.hpp>
 #include "gtest/gtest.h"
+#include <uni20/common/string_util.hpp>
 
 #include <stdexcept>
 

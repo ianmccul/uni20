@@ -27,6 +27,7 @@ template <typename T> struct numeric_limits<T const volatile> : numeric_limits<T
 /// \brief True when Uni20 has numeric limits for `T`.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_numeric_limits_v = numeric_limits<std::remove_cvref_t<T>>::is_specialized;
+template <typename T>
+inline constexpr bool has_numeric_limits_v = numeric_limits<std::remove_cvref_t<T>>::is_specialized;
 
 } // namespace uni20

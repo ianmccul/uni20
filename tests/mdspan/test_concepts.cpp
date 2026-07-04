@@ -1,6 +1,6 @@
+#include <gtest/gtest.h>
 #include <uni20/common/mdspan.hpp>
 #include <uni20/mdspan/concepts.hpp>
-#include <gtest/gtest.h>
 
 #include <cstddef>
 #include <type_traits>

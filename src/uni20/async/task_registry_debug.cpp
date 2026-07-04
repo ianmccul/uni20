@@ -435,8 +435,8 @@ bool stacktrace_frame_enabled(std::stacktrace_entry const& frame, StacktraceOpti
 
 std::string format_stacktrace_frame(std::stacktrace_entry const& frame)
 {
-  if (frame.source_line() > 0) return fmt::format("{} ({}:{})", frame.description(), frame.source_file(),
-                                                  frame.source_line());
+  if (frame.source_line() > 0)
+    return fmt::format("{} ({}:{})", frame.description(), frame.source_file(), frame.source_line());
   return frame.description();
 }
 

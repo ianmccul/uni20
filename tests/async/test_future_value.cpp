@@ -1,11 +1,11 @@
 // tests/test_future_value.cpp
+#include <gtest/gtest.h>
+#include <memory>
+#include <string>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/future_value.hpp>
 #include <uni20/async/scheduler.hpp>
-#include <gtest/gtest.h>
-#include <memory>
-#include <string>
 
 using namespace uni20::async;
 

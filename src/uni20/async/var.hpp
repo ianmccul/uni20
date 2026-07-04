@@ -68,7 +68,9 @@ template <typename T> class Var {
 
     /// \brief Constructs with a copy of an initial value that can be implicitly converted to T
     template <typename U>
-    requires std::convertible_to<U, T> Var(U&& val) : value(std::forward<U>(val)) {}
+      requires std::convertible_to<U, T>
+    Var(U&& val) : value(std::forward<U>(val))
+    {}
 
     /// \brief Finalize reverse propagation and return the gradient channel.
     /// \return Reference to the finalized gradient `Async<T>`.

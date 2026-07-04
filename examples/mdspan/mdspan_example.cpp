@@ -1,7 +1,7 @@
 
+#include <fmt/core.h>
 #include <uni20/common/mdspan.hpp>
 #include <uni20/common/presentation_mdspan.hpp>
-#include <fmt/core.h>
 
 #include <array>
 #include <complex>

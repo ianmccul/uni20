@@ -10,11 +10,11 @@
 
 #pragma once
 
-#include <uni20/common/trace.hpp>
 #include <cstddef>
 #include <iterator>
 #include <stdexcept>
 #include <type_traits>
+#include <uni20/common/trace.hpp>
 #include <utility>
 
 /// \brief A fixed-capacity vector with stack storage and `std::vector`-like API.

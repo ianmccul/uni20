@@ -6,8 +6,8 @@
  */
 
 #include "async_toys.hpp"
-#include <uni20/core/math.hpp>
 #include "var.hpp"
+#include <uni20/core/math.hpp>
 
 namespace uni20::async
 {
@@ -23,7 +23,7 @@ template <typename T> Var<T> sin(Var<T> x)
   schedule(co_sin(x.value.read(), Result.value.write()));
 
   // TRACE("Var Sin", Result.grad.value().queue().latest().get());
-  schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
+  schedule([](ReadBuffer<T> in, ReadBuffer<T> in_grad, WriteBuffer<T> out_grad) static -> AsyncTask {
     using std::cos;
     // GCC 13 workaround for `(co_await ...).get()`: use an explicit owning proxy.
     // GCC 14+ supports the one-liner form, e.g.
@@ -185,7 +185,7 @@ template <typename T> Var<uni20::make_real_t<T>> real(Var<T> z)
   using r_type = uni20::make_real_t<T>;
   Var<r_type> Result;
   Result.value = real(z.value);
-  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
+  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static -> AsyncTask {
     auto in_grad_buffer = co_await in_grad.transfer().or_cancel();
     auto const grad = in_grad_buffer.get();
     in_grad_buffer.release();
@@ -204,7 +204,7 @@ template <typename T> Var<uni20::make_real_t<T>> imag(Var<T> z)
   using r_type = uni20::make_real_t<T>;
   Var<r_type> Result;
   Result.value = imag(z.value);
-  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static->AsyncTask {
+  schedule([](ReadBuffer<r_type> in_grad, WriteBuffer<T> out_grad) static -> AsyncTask {
     auto in_grad_buffer = co_await in_grad.transfer().or_cancel();
     auto const grad = in_grad_buffer.get();
     in_grad_buffer.release();

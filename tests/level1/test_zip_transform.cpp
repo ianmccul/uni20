@@ -1,8 +1,8 @@
 #include "../helpers.hpp"
-#include <uni20/level1/zip_transform.hpp>
-#include <uni20/mdspan/zip_layout.hpp>
 #include "gtest/gtest.h"
 #include <numeric>
+#include <uni20/level1/zip_transform.hpp>
+#include <uni20/mdspan/zip_layout.hpp>
 
 using namespace uni20;
 

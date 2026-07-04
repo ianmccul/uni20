@@ -1,9 +1,9 @@
-#include <uni20/async/async.hpp>
-#include <uni20/async/async_task.hpp>
-#include <uni20/async/debug_scheduler.hpp>
 #include <gtest/gtest.h>
 #include <stdexcept>
 #include <string>
+#include <uni20/async/async.hpp>
+#include <uni20/async/async_task.hpp>
+#include <uni20/async/debug_scheduler.hpp>
 #include <vector>
 
 using namespace uni20;
@@ -13,7 +13,7 @@ namespace
 {
 void schedule_record_read(Async<int>& value, std::vector<int>& observed)
 {
-  schedule([](ReadBuffer<int> reader, std::vector<int> & out) static->AsyncTask {
+  schedule([](ReadBuffer<int> reader, std::vector<int>& out) static -> AsyncTask {
     out.push_back(co_await reader);
     co_return;
   }(value.read(), observed));
@@ -27,22 +27,18 @@ TEST(AsyncBasicTest, WriteThenRead)
   DebugScheduler sched;
 
   // Empty capture list: ensures safety if coroutine escapes the local scope (not possible here, but good style)
-  auto writer = [](WriteBuffer<int> wbuf) static->AsyncTask
-  {
+  auto writer = [](WriteBuffer<int> wbuf) static -> AsyncTask {
     co_await wbuf = 42;
     co_return;
-  }
-  (a.write());
+  }(a.write());
   sched.schedule(std::move(writer));
   sched.run_all();
 
-  auto reader = [](ReadBuffer<int> rbuf) static->AsyncTask
-  {
+  auto reader = [](ReadBuffer<int> rbuf) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 42);
     co_return;
-  }
-  (a.read());
+  }(a.read());
   sched.schedule(std::move(reader));
   sched.run_all();
 }
@@ -61,7 +57,7 @@ TEST(AsyncBasicTest, MultipleReaders)
   for (int i = 0; i < 3; ++i)
   {
     // Pass references explicitly as coroutine parameters so lifetimes are clear.
-    sched.schedule([](int i, ReadBuffer<int> rbuf, std::vector<int>& results) static->AsyncTask {
+    sched.schedule([](int i, ReadBuffer<int> rbuf, std::vector<int>& results) static -> AsyncTask {
       auto& r = co_await rbuf;
       // results outlives all scheduled coroutines in this test.
       results[i] = r;
@@ -78,7 +74,7 @@ TEST(AsyncBasicTest, InPlaceConstructsValue)
   Async<std::string> value(10, 'x');
   DebugScheduler sched;
 
-  sched.schedule([](ReadBuffer<std::string> reader) static->AsyncTask {
+  sched.schedule([](ReadBuffer<std::string> reader) static -> AsyncTask {
     auto& str = co_await reader;
     EXPECT_EQ(str, std::string(10, 'x'));
     co_return;
@@ -92,7 +88,7 @@ TEST(AsyncBasicTest, InPlaceConstructsFromInitializerList)
   Async<std::vector<int>> value({1, 2, 3, 4});
   DebugScheduler sched;
 
-  sched.schedule([](ReadBuffer<std::vector<int>> reader) static->AsyncTask {
+  sched.schedule([](ReadBuffer<std::vector<int>> reader) static -> AsyncTask {
     auto const& vec = co_await reader;
     EXPECT_EQ(vec.size(), std::size_t{4});
     EXPECT_EQ(vec[0], 1);
@@ -112,13 +108,13 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   DebugScheduler sched;
 
   // Schedule two readers that hold the value
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) static->AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 7);
     ++count;
     co_return;
   }(a.read(), count));
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) static->AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 7);
     ++count;
@@ -126,7 +122,7 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   }(a.read(), count));
 
   // Writer
-  sched.schedule([](WriteBuffer<int> wbuf, int& count) static->AsyncTask {
+  sched.schedule([](WriteBuffer<int> wbuf, int& count) static -> AsyncTask {
     auto w = co_await wbuf;
     w = 8;
     ++count;
@@ -134,13 +130,13 @@ TEST(AsyncBasicTest, WriterWaitsForReaders)
   }(a.write(), count));
 
   // Schedule two new readers that should observe the updated value
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) static->AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 8);
     ++count;
     co_return;
   }(a.read(), count));
-  sched.schedule([](ReadBuffer<int> rbuf, int& count) static->AsyncTask {
+  sched.schedule([](ReadBuffer<int> rbuf, int& count) static -> AsyncTask {
     auto& r = co_await rbuf;
     EXPECT_EQ(r, 8);
     ++count;
@@ -215,8 +211,7 @@ TEST(AsyncBasicDeathTest, RAII_NoAwaitTriggersDeath)
 
         auto r = a.read();
         auto w = a.write();
-        AsyncTask task = []() static->AsyncTask { co_return; }
-        ();
+        AsyncTask task = []() static -> AsyncTask { co_return; }();
         (void)r;
         (void)w;
         (void)task;
@@ -232,20 +227,16 @@ TEST(AsyncBasicTest, WriteProxyReleasesEpochs)
   // Initialization path should use WriteBuffer to populate the first value.
   Async<int> uninitialized_value;
 
-  auto init_writer = [](WriteBuffer<int> buf) static->AsyncTask
-  {
+  auto init_writer = [](WriteBuffer<int> buf) static -> AsyncTask {
     co_await buf = 42;
     co_return;
-  }
-  (uninitialized_value.write());
+  }(uninitialized_value.write());
 
-  auto init_reader = [](ReadBuffer<int> buf) static->AsyncTask
-  {
+  auto init_reader = [](ReadBuffer<int> buf) static -> AsyncTask {
     auto& value = co_await buf;
     EXPECT_EQ(value, 42);
     co_return;
-  }
-  (uninitialized_value.read());
+  }(uninitialized_value.read());
 
   sched.schedule(std::move(init_writer));
   sched.schedule(std::move(init_reader));
@@ -282,23 +273,19 @@ TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndTransfer)
   Async<int> mutable_value = 0;
   Async<int> write_only;
 
-  auto mutate_task = [](WriteBuffer<int> buffer) static->AsyncTask
-  {
+  auto mutate_task = [](WriteBuffer<int> buffer) static -> AsyncTask {
     auto ref = co_await buffer.transfer();
     ref = 17;
     co_return;
-  }
-  (mutable_value.write());
+  }(mutable_value.write());
 
-  auto write_task = [](WriteBuffer<int> buffer) static->AsyncTask
-  {
+  auto write_task = [](WriteBuffer<int> buffer) static -> AsyncTask {
     co_await buffer = 23;
     EXPECT_EQ(co_await buffer, 23);
     auto moved = std::move(buffer);
     (void)moved;
     co_return;
-  }
-  (write_only.write());
+  }(write_only.write());
 
   sched.schedule(std::move(mutate_task));
   sched.schedule(std::move(write_task));
@@ -317,7 +304,7 @@ TEST(AsyncBasicTest, WriterAwaitOnUninitializedStorageHandledExceptionDoesNotPro
   bool writer_saw_exception = false;
   int reader_status = 0;
 
-  schedule([](WriteBuffer<int> writer, bool& saw_exception) static->AsyncTask {
+  schedule([](WriteBuffer<int> writer, bool& saw_exception) static -> AsyncTask {
     try
     {
       int& ref = co_await writer;
@@ -330,7 +317,7 @@ TEST(AsyncBasicTest, WriterAwaitOnUninitializedStorageHandledExceptionDoesNotPro
     co_return;
   }(value.write(), writer_saw_exception));
 
-  schedule([](ReadBuffer<int> reader, int& status) static->AsyncTask {
+  schedule([](ReadBuffer<int> reader, int& status) static -> AsyncTask {
     try
     {
       (void)co_await reader;
@@ -365,14 +352,14 @@ TEST(AsyncBasicTest, WriterAwaitOnUninitializedStorageUnhandledExceptionPropagat
   Async<int> value;
   int reader_status = 0;
 
-  schedule([](WriteBuffer<int> writer) static->AsyncTask {
+  schedule([](WriteBuffer<int> writer) static -> AsyncTask {
     int& ref = co_await writer; // this will throw, since the buffer is uninitialized
     (void)ref;
     co_return;
   }(value.write()));
 
   // The exception will propagate into this coroutine
-  schedule([](ReadBuffer<int> reader, int& status) static->AsyncTask {
+  schedule([](ReadBuffer<int> reader, int& status) static -> AsyncTask {
     try
     {
       (void)co_await reader; // this will throw the pre-existing exception buffer_write_uninitialized
@@ -407,7 +394,7 @@ TEST(AsyncBasicTest, UnhandledExceptionAutoPropagatesToAllWriteParameters)
   Async<int> first;
   Async<int> second;
 
-  schedule([](WriteBuffer<int> first_writer, WriteBuffer<int> second_writer) static->AsyncTask {
+  schedule([](WriteBuffer<int> first_writer, WriteBuffer<int> second_writer) static -> AsyncTask {
     (void)first_writer;
     (void)second_writer;
     throw std::runtime_error("auto-propagate");
@@ -429,17 +416,18 @@ TEST(AsyncBasicTest, PropagateExceptionsToRoutesReadFailuresToWriters)
   Async<int> first;
   Async<int> second;
 
-  schedule([](WriteBuffer<int> source_writer) static->AsyncTask {
+  schedule([](WriteBuffer<int> source_writer) static -> AsyncTask {
     (void)source_writer;
     throw std::runtime_error("source read failure");
     co_return;
   }(source.write()));
 
-  schedule([](ReadBuffer<int> reader, WriteBuffer<int> first_writer, WriteBuffer<int> second_writer) static->AsyncTask {
-    co_await propagate_exceptions_to(first_writer, second_writer);
-    (void)co_await reader;
-    co_return;
-  }(source.read(), first.write(), second.write()));
+  schedule(
+      [](ReadBuffer<int> reader, WriteBuffer<int> first_writer, WriteBuffer<int> second_writer) static -> AsyncTask {
+        co_await propagate_exceptions_to(first_writer, second_writer);
+        (void)co_await reader;
+        co_return;
+      }(source.read(), first.write(), second.write()));
 
   sched.run_all();
 
@@ -455,13 +443,13 @@ TEST(AsyncBasicTest, PropagateExceptionsToReadBufferRoutesUnhandledException)
   Async<int> source;
   Async<int> sink = 7;
 
-  schedule([](WriteBuffer<int> source_writer) static->AsyncTask {
+  schedule([](WriteBuffer<int> source_writer) static -> AsyncTask {
     (void)source_writer;
     throw std::runtime_error("source failure");
     co_return;
   }(source.write()));
 
-  schedule([](ReadBuffer<int> source_reader, ReadBuffer<int> sink_reader) static->AsyncTask {
+  schedule([](ReadBuffer<int> source_reader, ReadBuffer<int> sink_reader) static -> AsyncTask {
     // Explicitly route unhandled exceptions from this coroutine into a read sink.
     co_await propagate_exceptions_to(sink_reader);
 
@@ -489,13 +477,13 @@ TEST(AsyncBasicTest, PropagateExceptionsToDuplicateWriteSinkIsHarmless)
   Async<int> source;
   Async<int> out;
 
-  schedule([](WriteBuffer<int> source_writer) static->AsyncTask {
+  schedule([](WriteBuffer<int> source_writer) static -> AsyncTask {
     (void)source_writer;
     throw std::runtime_error("source failure");
     co_return;
   }(source.write()));
 
-  schedule([](ReadBuffer<int> source_reader, WriteBuffer<int> out_writer) static->AsyncTask {
+  schedule([](ReadBuffer<int> source_reader, WriteBuffer<int> out_writer) static -> AsyncTask {
     // out_writer is already auto-registered as a write sink by coroutine argument processing.
     // Explicit registration should remain a no-op from the caller's perspective.
     co_await propagate_exceptions_to(out_writer);
@@ -517,7 +505,7 @@ TEST(AsyncBasicDeathTest, PropagateExceptionsToLocalSinkDestroyedDuringUnwindAbo
         DebugScheduler sched;
         ScopedScheduler scoped(&sched);
         Async<int> out;
-        schedule([](WriteBuffer<int> out_writer) static->AsyncTask {
+        schedule([](WriteBuffer<int> out_writer) static -> AsyncTask {
           (void)out_writer;
           Async<int> local;
           {
@@ -543,7 +531,7 @@ TEST(AsyncBasicTest, WriteBufferDisappears)
 
   {
     auto Buf = x.write(); // get a WriteBuffer from write(), but don't use it. Should be no problem.
-    schedule([](ReadBuffer<int> r, int& val) static->AsyncTask { val = co_await r; }(x.read(), val));
+    schedule([](ReadBuffer<int> r, int& val) static -> AsyncTask { val = co_await r; }(x.read(), val));
   }
   sched.run_all();
   EXPECT_EQ(val, 10);
@@ -560,13 +548,13 @@ TEST(AsyncBasicTest, UninitializedCancelTask)
 
   {
     // the .or_cancel() modifier cancels the coroutine if the buffer is invalid
-    schedule([](ReadBuffer<int> r, int& val) static->AsyncTask {
+    schedule([](ReadBuffer<int> r, int& val) static -> AsyncTask {
       val = co_await r.or_cancel();
       val = 4; // should never run, since the coroutine will be cancelled
     }(x.read(), val));
 
     // This doesn't affect subsequent accesses
-    schedule([](WriteBuffer<int> w, int& val) static->AsyncTask {
+    schedule([](WriteBuffer<int> w, int& val) static -> AsyncTask {
       try
       {
         val = 1;
@@ -581,7 +569,7 @@ TEST(AsyncBasicTest, UninitializedCancelTask)
   }
 
   // This one should succeed
-  schedule([](ReadBuffer<int> r, int& val) static->AsyncTask { val = co_await r.or_cancel(); }(x.read(), val));
+  schedule([](ReadBuffer<int> r, int& val) static -> AsyncTask { val = co_await r.or_cancel(); }(x.read(), val));
 
   sched.run_all();
   EXPECT_EQ(val, 2);

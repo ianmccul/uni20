@@ -1,6 +1,6 @@
 
-#include <uni20/common/trace.hpp>
 #include <thread>
+#include <uni20/common/trace.hpp>
 
 // To customize output colors, you can set environment variables like:
 // export UNI20_COLOR_TRACE_VALUE="fg:Green;Bold"
@@ -33,7 +33,7 @@ int main()
         "().",
         std::vector<int, std::allocator<int>>{1, 2, 3}, foo + 2);
 
-  TRACE(foo<32, foo> 32);
+  TRACE(foo < 32, foo > 32);
 
   // A trace that includes a template instantiation and a string literal.
   TRACE(std::vector<int>(5), "Hello, world", foo + 2);

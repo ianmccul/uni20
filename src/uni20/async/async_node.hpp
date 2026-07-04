@@ -4,8 +4,6 @@
 #pragma once
 
 #include "shared_storage.hpp"
-#include <uni20/common/demangle.hpp>
-#include <uni20/config.hpp>
 #include <atomic>
 #include <cstddef>
 #include <limits>
@@ -14,6 +12,8 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <uni20/common/demangle.hpp>
+#include <uni20/config.hpp>
 #include <unordered_map>
 
 namespace uni20::async
@@ -24,7 +24,7 @@ enum class NodeValueState
 {
   Invalid,       ///< No storage or fallback value is available.
   Unconstructed, ///< Storage exists but does not currently contain a value.
-  Constructed,  ///< A value is currently constructed.
+  Constructed,   ///< A value is currently constructed.
 };
 
 namespace detail
@@ -206,12 +206,12 @@ class NodeInfo {
     {
       switch (this->value_state())
       {
-      case NodeValueState::Invalid:
-        return "invalid";
-      case NodeValueState::Unconstructed:
-        return "unconstructed";
-      case NodeValueState::Constructed:
-        return "constructed";
+        case NodeValueState::Invalid:
+          return "invalid";
+        case NodeValueState::Unconstructed:
+          return "unconstructed";
+        case NodeValueState::Constructed:
+          return "constructed";
       }
       return "invalid";
     }
@@ -270,7 +270,10 @@ class NodeInfo {
     /// \return Pointer to the new NodeInfo (never deallocated).
     ///
     /// \post The returned NodeInfo outlives all references (process lifetime).
-    template <typename T> static NodeInfo const* create(shared_storage<T> const& storage) { return new NodeInfo(storage); }
+    template <typename T> static NodeInfo const* create(shared_storage<T> const& storage)
+    {
+      return new NodeInfo(storage);
+    }
 
   private:
     using ValueAddressObserver = void const* (*)(void const*) noexcept;
@@ -301,10 +304,10 @@ class NodeInfo {
     template <typename T>
     explicit NodeInfo(shared_storage<T> const& storage)
         : storage_address_(storage.control_address()), fallback_value_address_(static_cast<void const*>(storage.get())),
-          type_key_(typeid(T).name()), value_address_observer_(&shared_storage<T>::diagnostic_value_address_from_control),
+          type_key_(typeid(T).name()),
+          value_address_observer_(&shared_storage<T>::diagnostic_value_address_from_control),
           value_constructed_observer_(&shared_storage<T>::diagnostic_constructed_from_control),
-          value_text_observer_(&NodeInfo::text_for_storage_value<T>),
-          global_index_(next_global_++)
+          value_text_observer_(&NodeInfo::text_for_storage_value<T>), global_index_(next_global_++)
 #if 0 && UNI20_HAS_STACKTRACE
           ,
           stack_(std::stacktrace::current())
@@ -317,13 +320,13 @@ class NodeInfo {
     inline static std::atomic<uint64_t> next_global_ = 0;
 
     // Per-instance data:
-    void const* storage_address_{nullptr};                    ///< Address of the async storage control block.
-    void const* fallback_value_address_{nullptr};             ///< Value address used when no observer is available.
-    char const* type_key_;                                    ///< Mangled type name (from typeid).
-    ValueAddressObserver value_address_observer_{};           ///< Observer for current value address.
-    ValueConstructedObserver value_constructed_observer_{};   ///< Observer for current construction state.
-    ValueTextObserver value_text_observer_{};                 ///< Observer for one-line value text.
-    uint64_t global_index_;                                   ///< Globally unique node index.
+    void const* storage_address_{nullptr};                  ///< Address of the async storage control block.
+    void const* fallback_value_address_{nullptr};           ///< Value address used when no observer is available.
+    char const* type_key_;                                  ///< Mangled type name (from typeid).
+    ValueAddressObserver value_address_observer_{};         ///< Observer for current value address.
+    ValueConstructedObserver value_constructed_observer_{}; ///< Observer for current construction state.
+    ValueTextObserver value_text_observer_{};               ///< Observer for one-line value text.
+    uint64_t global_index_;                                 ///< Globally unique node index.
 #if 0 && UNI20_HAS_STACKTRACE
     std::stacktrace stack_; ///< stacktrace of where the node was constructed
 #endif

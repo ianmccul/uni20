@@ -25,11 +25,11 @@
 ///
 /// In principle the main thread can get to the last line of main() before any of the worker computations begin.
 
+#include <iostream>
+#include <numeric>
 #include <uni20/async/async.hpp>
 #include <uni20/async/buffers.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
-#include <iostream>
-#include <numeric>
 #include <vector>
 
 using namespace uni20::async;

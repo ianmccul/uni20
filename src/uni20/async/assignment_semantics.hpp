@@ -11,8 +11,8 @@ namespace uni20::async
 /// \brief Selects how write-proxy assignment updates a stored value.
 enum class assignment_semantics
 {
-    rebind,
-    write_through,
+  rebind,
+  write_through,
 };
 
 /// \brief Trait mapping a type to its async write-assignment behavior.

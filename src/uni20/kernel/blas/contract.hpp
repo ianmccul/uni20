@@ -1,7 +1,7 @@
 #pragma once
 
-#include <uni20/backend/blas/backend_blas.hpp>
 #include "blas.hpp"
+#include <uni20/backend/blas/backend_blas.hpp>
 #include <uni20/core/types.hpp>
 
 namespace uni20::kernel

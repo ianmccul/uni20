@@ -1,5 +1,5 @@
-#include <uni20/core/types.hpp>
 #include <gtest/gtest.h>
+#include <uni20/core/types.hpp>
 
 // Simulated proxy type
 template <typename T> struct MyProxy

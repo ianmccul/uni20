@@ -15,7 +15,6 @@
 
 #include <uni20/backend/backend.hpp>
 #include <uni20/config.hpp>
-#include <uni20/config.hpp>
 
 /// \brief Internal macro specifying the BLAS routine prefix for single-precision instantiations.
 /// \ingroup internal
