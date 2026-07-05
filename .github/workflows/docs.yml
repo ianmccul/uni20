@@ -4,6 +4,9 @@ on:
   schedule:
     # GitHub cron uses UTC. 16:00 UTC is midnight in Asia/Taipei.
     - cron: "0 16 * * *"
+    # Fresh-run retry at 00:30 Asia/Taipei. The preflight job skips this
+    # run when the midnight deploy already succeeded for the current SHA.
+    - cron: "30 16 * * *"
   workflow_dispatch:
 
 permissions:
