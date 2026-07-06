@@ -22,6 +22,8 @@
 - [BlockTensor: Symmetric Block-Sparse Tensor Design](block_tensor.md)
 - [Axis Labels, Contraction, and Braiding](axis_labels_and_braiding.md)
 - [Block Coalescing and GEMM Grouping](block_coalescing.md)
+- [Raw Primitives and Symmetric Lowering](raw_primitives_and_symmetric_lowering.md)
+- [Trace as a Dense Reduction Primitive](trace_as_reduction_primitive.md)
 - [Backend Dispatch Design](backend_dispatch.md)
 - [Kernel Dispatch Design](kernel_dispatch.md)
 - [MPI Persistent Object Store and Kernel Dispatch](uni20_mpi_persistent_dispatch_design.md)
