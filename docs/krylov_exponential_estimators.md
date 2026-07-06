@@ -28,7 +28,7 @@ against the true action error.
 | probe column | formula | purpose |
 | --- | --- | --- |
 | `tail coeff` | `abs(e_m^* exp(t H_m) e_1)` | Raw projected-exponential last coefficient. This mirrors the historical Cytnx-style `abs(B_mat(i,0))` stopping indicator. |
-| `defect/||v||` | `h_{m+1,m} abs(e_m^* exp(t H_m) e_1)` | Final-time defect norm per input norm. The native exponential result currently reports this quantity multiplied by `||v||` as `residual_estimate`. See the residual/defect framing in `[BotchevGrimmHochbruck2013]` and the `xi_2`-style discussion in `[JiaLv2015]`. |
+| `defect/||v||` | `h_{m+1,m} abs(e_m^* exp(t H_m) e_1)` | Final-time defect norm per input norm. The native exponential result reports this quantity multiplied by `||v||` as `endpoint_defect_estimate`; for Hermitian actions, `error_estimate` is instead the direct defect integral. See the residual/defect framing in `[BotchevGrimmHochbruck2013]` and the `xi_2`-style discussion in `[JiaLv2015]`. |
 | `Hquad/||v||` | `h_{m+1,m} |t| abs(e_m^* exp(t H_m) e_1) / m` | Hermite-quadrature defect-integral estimate from the `[HochbruckLubich1997]` / `[JaweckiAuzingerKoch2020]` line of analysis. |
 | `Saad phi1/||v||` | `h_{m+1,m} |t| abs(e_m^* phi_1(t H_m) e_1)` | First-term error expansion estimate from `[Saad1992]`, also used as an a posteriori estimate in `[JiaLv2015]`. Here `phi_1(z) = (exp(z)-1)/z`; the probe computes it by a small augmented matrix exponential. |
 | `HL bound/||v||` | `h_{m+1,m} gamma_m |t|^m / m!` | Nonexpansive-case leading upper bound/asymptotic term from `[HochbruckLubich1997]`, with computable forms in `[JaweckiAuzingerKoch2020]`; `gamma_m = prod_{j=1}^{m-1} h_{j+1,j}`. The probe evaluates this in log space to avoid artificial overflow/underflow in `float`. |
@@ -45,6 +45,115 @@ floor is dominated by loss of basis orthogonality rather than by the projected
 exponential estimator itself. Simple diagonal examples are intentionally limited:
 they are good for showing false stopping signals and basis loss, but real TDVP
 operators are much more likely to exhibit severe post-threshold residual rebound.
+
+## Defect-Integral Stopping Rule
+
+The Hermitian exponential action reports both the final-time defect norm,
+
+```text
+h_{m+1,m} |delta_m(t)| ||v||,
+delta_m(s) = e_m^* exp(sigma s H_m) e_1.
+```
+
+as `endpoint_defect_estimate`, and the direct defect integral as
+`defect_integral_estimate`. The top-level Hermitian `error_estimate` uses the
+direct integral, since endpoint sampling is often far too conservative and the
+raw tail coefficient is not reliable.
+
+For a nonexpansive exponential, JAK starts from
+
+```text
+L_m(t)v = int_0^t exp(sigma (t-s) A) D_m(s)v ds,
+D_m(s)v = sigma h_{m+1,m} delta_m(s) v_{m+1}.
+```
+
+This gives the computable bound
+
+```text
+||L_m(t)v|| <= h_{m+1,m} int_0^t |delta_m(s)| ds.
+```
+
+The direct integral is therefore the natural quantity to target for adaptive
+stopping. The cheap HL/JAK bound
+
+```text
+h_{m+1,m} gamma_m |t|^m / m!
+```
+
+is rigorous and asymptotically correct under the nonexpansive assumptions, but
+it can be far too conservative in hot TDVP loops.
+
+For the TDVP harmonic-oscillator fixture with `tau = -0.1968473663975394 i` and `||v|| = 1`, direct quadrature of the defect integral is much tighter:
+
+| m | true error | final defect | direct defect integral | HL bound |
+|---:|---:|---:|---:|---:|
+| 33 | `1.398e-8` | `1.136e-6` | `3.225e-8` | `2.364e2` |
+| 34 | `9.686e-9` | `7.735e-7` | `2.289e-8` | `1.753e2` |
+| 40 | `3.254e-9` | `1.726e-7` | `8.369e-9` | `1.828e1` |
+| 64 | `4.554e-12` | `1.105e-9` | `5.819e-12` | `8.160e-7` |
+
+For a `1e-8` target, the direct integral accepts `m=40` on this fixture. The
+endpoint-defect estimator accepts much later, around `m=64`, and the HL bound
+later still, around `m=69`.
+
+The native Hermitian action implements this direct-integral target for the
+nonexpansive path:
+
+1. Diagonalize the projected Hermitian matrix `H_m = Q Lambda Q^*`.
+2. Evaluate `delta_m(s) = e_m^* Q exp(sigma s Lambda) Q^* e_1`.
+3. Integrate `abs(delta_m(s))` on `[0, |t|]` with a deterministic 1024-panel
+   Simpson rule.
+4. Accept the first projected dimension whose direct integral is below
+   `relative_tolerance * ||v||`, after applying the configured safety factor.
+
+Pure-imaginary Hermitian time is recognized automatically as the unitary
+`exp(-i t H)` case. Other Hermitian nonexpansive actions require the caller to
+set `assume_nonexpansive`, since the Krylov layer cannot infer positivity or
+contractivity from the matrix-free operator alone. The raw tail, endpoint
+defect, and direct integral remain available as diagnostics; the probe also
+continues to report Hermite/trapezoid-style, effective-order, and HL-family
+quantities for comparison.
+
+### Non-Hermitian Defect Integrals
+
+The defect identity itself is not Hermitian-specific. For an Arnoldi projection,
+
+```text
+A V_m = V_m H_m + h_{m+1,m} v_{m+1} e_m^*,
+```
+
+the same residual/defect construction gives
+
+```text
+D_m(s)v = h_{m+1,m} e_m^* exp(s H_m) e_1 v_{m+1} ||v||.
+```
+
+The difference is the propagation factor in the error integral. The safe bound is
+
+```text
+||L_m(t)v|| <= h_{m+1,m} ||v||
+  int_0^t ||exp((t-s) A)|| |e_m^* exp(s H_m) e_1| ds.
+```
+
+For Hermitian unitary evolution, `||exp((t-s) A)|| = 1`, so this reduces to the
+projected scalar integral used above. For a general non-Hermitian or non-normal
+operator, that simplification is not available: transient growth in
+`||exp((t-s) A)||` can be large even when the spectrum looks stable. Therefore a
+future Arnoldi adaptive rule can use the projected defect integral only as a
+diagnostic unless the caller supplies, or the algorithm proves, a usable
+nonexpansive or semigroup-growth bound. `[WangYe2017]` is the current reference
+starting point for that non-Hermitian error-control work.
+
+The trapezoid estimate,
+
+```text
+h_{m+1,m} |t| |delta_m(t)| / 2,
+```
+
+is a useful simple fallback. On the same fixture it would accept around `m=48`.
+The Hermite estimate `h |t| |delta_m(t)| / m` is often too optimistic to use as
+a sole stopping criterion, while the effective-order estimate can be very tight
+but needs robust handling near roundoff and cancellation.
 
 ## References
 
@@ -65,21 +174,21 @@ The probe reports two local recurrence variants:
 
 | implementation | role |
 | --- | --- |
-| full reorthogonalized Lanczos | Mirrors the production exponential path closely enough to inspect estimator behavior using projected data that the public result does not expose. |
+| full reorthogonalized Lanczos | Mirrors the native Hermitian exponential path closely enough to inspect estimator behavior using projected data. |
 | legacy three-term Lanczos | Reproduces the simpler recurrence style used by older Lanczos exponential implementations, useful for detecting precision floors and loss-of-orthogonality sensitivity. |
 
-The example is diagnostic code, not the adaptive stepping implementation. The
-next adaptive exponential action should use these probes to choose conservative
-stopping rules, but it should not automatically fall back to Taylor or hide
-under-convergence.
+The example is diagnostic code, not a fallback policy. The native Hermitian
+action now uses the direct defect integral for adaptive nonexpansive acceptance,
+while the probe remains useful for comparing that choice against older tail,
+endpoint-defect, Hermite/quadrature, and HL-style indicators.
 
 ## Future Estimators
 
-Useful but not yet measured in the probe:
+Useful extensions not yet part of the native adaptive stopping rule:
 
 | estimator | reason deferred |
 | --- | --- |
-| Direct defect-integral quadrature `h int_0^t abs(e_m^* exp(s H_m)e_1) ds` | Requires many projected exponentials or a dedicated quadrature path. Good for validation, not cheap enough for the first probe. |
+| Trapezoid defect-integral estimate `h |t| abs(e_m^* exp(t H_m)e_1) / 2` | Cheap middle ground between the endpoint defect and direct quadrature. It is only justified under effective-order assumptions, but is less optimistic than the Hermite `1/m` factor. |
 | Improved Hermite quadrature from the defect derivative | Requires extra projected derivative terms and, in matrix-free form, may need one additional matvec. |
 | Effective-order quadrature | Useful for adaptive step-size control, but needs a robust definition of effective order near roundoff. |
-| Non-Hermitian defect/residual bounds | Needed for Arnoldi exponential actions; `[WangYe2017]` is the current starting point. The present probe focuses on Hermitian/Lanczos behavior. |
+| Non-Hermitian defect/residual bounds | Needed before Arnoldi exponential actions can use defect-integral stopping as a bound. The projected scalar integral is only diagnostic without a nonexpansive or semigroup-growth bound; `[WangYe2017]` is the current starting point. |

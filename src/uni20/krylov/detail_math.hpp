@@ -23,6 +23,12 @@ template <typename T> auto adl_pow(T const& value, T const& exponent)
   return pow(value, exponent);
 }
 
+template <typename T> auto adl_exp(T const& value)
+{
+  using std::exp;
+  return exp(value);
+}
+
 template <typename T> auto adl_real(T const& value)
 {
   using std::real;

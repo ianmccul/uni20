@@ -29,7 +29,6 @@ namespace presentation = uni20::presentation;
 using uni20::krylov::DenseHostVector;
 using uni20::krylov::DenseHostVectorOps;
 using uni20::krylov::KrylovDiagnosticsLevel;
-using uni20::krylov::KrylovExponentialParams;
 using uni20::krylov::TaylorExponentialParams;
 
 enum class ScalarPrecision
@@ -477,6 +476,77 @@ template <typename Scalar> void host_scale(DenseHostVector<Scalar>& vector, Scal
   }
 }
 
+template <typename Scalar> void host_set_zero(DenseHostVector<Scalar>& vector)
+{
+  for (auto& value : vector.values)
+  {
+    value = Scalar{};
+  }
+}
+
+template <typename Real> struct ProbeReorthogonalizationStats
+{
+    Real max_correction = Real{};
+    Real max_correction_ratio = Real{};
+    int max_passes = 0;
+};
+
+template <typename Real>
+void record_probe_reorthogonalization_pass(ProbeReorthogonalizationStats<Real>* stats, Real max_correction,
+                                           Real reference_norm, int pass_count)
+{
+  if (stats == nullptr)
+  {
+    return;
+  }
+
+  stats->max_correction = std::max(stats->max_correction, max_correction);
+  if (reference_norm > Real{})
+  {
+    stats->max_correction_ratio = std::max(stats->max_correction_ratio, max_correction / reference_norm);
+  }
+  stats->max_passes = std::max(stats->max_passes, pass_count);
+}
+
+template <typename Scalar>
+[[nodiscard]] RealOf<Scalar> orthogonalize_probe_residual(std::vector<DenseHostVector<Scalar>> const& basis,
+                                                          DenseHostVector<Scalar>& residual,
+                                                          ProbeReorthogonalizationStats<RealOf<Scalar>>* stats)
+{
+  using Real = RealOf<Scalar>;
+  auto norm = [&]() { return vector_norm(residual); };
+  auto orthogonalize_once = [&]() {
+    Real max_correction{};
+    for (auto const& basis_vector : basis)
+    {
+      Scalar const correction = host_inner_product(basis_vector, residual);
+      max_correction = std::max(max_correction, static_cast<Real>(std::abs(correction)));
+      host_axpy(residual, -correction, basis_vector);
+    }
+    return max_correction;
+  };
+
+  Real const original_norm = norm();
+  Real const first_max_correction = orthogonalize_once();
+  record_probe_reorthogonalization_pass(stats, first_max_correction, original_norm, 1);
+  Real residual_norm = norm();
+  if (original_norm == Real{} || residual_norm > Real{0.717} * original_norm)
+  {
+    return residual_norm;
+  }
+
+  Real const first_refined_norm = residual_norm;
+  Real const second_max_correction = orthogonalize_once();
+  record_probe_reorthogonalization_pass(stats, second_max_correction, first_refined_norm, 2);
+  residual_norm = norm();
+  if (first_refined_norm == Real{} || residual_norm <= Real{0.717} * first_refined_norm)
+  {
+    host_set_zero(residual);
+    return Real{};
+  }
+  return residual_norm;
+}
+
 template <typename Scalar>
 [[nodiscard]] DenseHostVector<Scalar> dense_matvec(DenseRealMatrix const& matrix, DenseHostVector<Scalar> const& x)
 {
@@ -510,6 +580,12 @@ template <typename Scalar>
   }
   return result;
 }
+
+enum class LanczosProbeVariant
+{
+  FullReorthogonalized,
+  LegacyThreeTerm
+};
 
 [[nodiscard]] std::vector<int> sweep_dimensions(int max_dimension, std::size_t matrix_dimension, bool all_dimensions)
 {
@@ -549,52 +625,18 @@ template <typename Real> struct RunRow
     int matvecs = 0;
     Real error_scaled = Real{};
     Real tail_coefficient = Real{};
-    Real estimate_scaled = Real{};
+    Real endpoint_defect_scaled = Real{};
+    Real defect_integral_scaled = Real{};
     Real orthogonality_offdiag = Real{};
     Real reorthogonalization_ratio = Real{};
     int reorthogonalization_passes = 0;
 };
 
 template <typename Scalar, typename ReferenceScalar>
-[[nodiscard]] RunRow<RealOf<Scalar>>
-run_full_reorthogonalized(DenseRealMatrix const& matrix, DenseHostVector<Scalar> const& initial,
-                          DenseHostVector<ReferenceScalar> const& reference, Scalar time, int krylov_dimension)
-{
-  using Real = RealOf<Scalar>;
-  using ReferenceReal = RealOf<ReferenceScalar>;
-
-  DenseHostVectorOps<Scalar> ops(matrix.rows, complex_matrix<Scalar>(matrix));
-  KrylovExponentialParams<Real> params;
-  params.krylov_dimension = krylov_dimension;
-  params.diagnostics = KrylovDiagnosticsLevel::Summary;
-
-  auto result = uni20::krylov::hermitian_krylov_exponential_action<Scalar>(ops, initial, time, params);
-  if (!result.diagnostics.has_value())
-  {
-    throw std::logic_error("full reorthogonalized Matrix Market run did not return diagnostics");
-  }
-
-  Real const initial_norm = vector_norm(initial);
-  Real const tail_coefficient = result.final_residual_norm > Real{}
-                                    ? (result.residual_estimate / initial_norm) / result.final_residual_norm
-                                    : Real{};
-  return RunRow<Real>{.method = "full reorth",
-                      .krylov_dimension = krylov_dimension,
-                      .projected_dimension = result.projected_dimension,
-                      .matvecs = result.matvec_count,
-                      .error_scaled = static_cast<Real>(difference_norm(result.action, reference) /
-                                                        static_cast<ReferenceReal>(initial_norm)),
-                      .tail_coefficient = tail_coefficient,
-                      .estimate_scaled = result.residual_estimate / initial_norm,
-                      .orthogonality_offdiag = result.diagnostics->basis_max_offdiag,
-                      .reorthogonalization_ratio = result.diagnostics->max_reorthogonalization_correction_ratio,
-                      .reorthogonalization_passes = result.diagnostics->max_reorthogonalization_passes};
-}
-
-template <typename Scalar, typename ReferenceScalar>
-[[nodiscard]] RunRow<RealOf<Scalar>>
-run_legacy_three_term(DenseRealMatrix const& matrix, DenseHostVector<Scalar> const& initial,
-                      DenseHostVector<ReferenceScalar> const& reference, Scalar time, int krylov_dimension)
+[[nodiscard]] RunRow<RealOf<Scalar>> run_lanczos_probe(DenseRealMatrix const& matrix,
+                                                       DenseHostVector<Scalar> const& initial,
+                                                       DenseHostVector<ReferenceScalar> const& reference, Scalar time,
+                                                       int krylov_dimension, LanczosProbeVariant variant)
 {
   using Real = RealOf<Scalar>;
   using ReferenceReal = RealOf<ReferenceScalar>;
@@ -612,6 +654,7 @@ run_legacy_three_term(DenseRealMatrix const& matrix, DenseHostVector<Scalar> con
   offdiagonal.reserve(static_cast<std::size_t>(krylov_dimension));
 
   Real residual_norm{};
+  ProbeReorthogonalizationStats<Real> reorthogonalization_stats;
   int matvecs = 0;
   for (int step = 0; step < krylov_dimension; ++step)
   {
@@ -619,15 +662,22 @@ run_legacy_three_term(DenseRealMatrix const& matrix, DenseHostVector<Scalar> con
     auto residual = dense_matvec(matrix, current);
     ++matvecs;
 
-    Real const alpha = static_cast<Real>(std::real(host_inner_product(current, residual)));
-    diagonal.push_back(alpha);
-    host_axpy(residual, Scalar{-alpha, Real{}}, current);
-    if (step > 0)
+    if (variant == LanczosProbeVariant::FullReorthogonalized && step > 0)
     {
       host_axpy(residual, Scalar{-offdiagonal.back(), Real{}}, previous);
     }
 
-    residual_norm = vector_norm(residual);
+    Real const alpha = static_cast<Real>(std::real(host_inner_product(current, residual)));
+    diagonal.push_back(alpha);
+    host_axpy(residual, Scalar{-alpha, Real{}}, current);
+    if (variant == LanczosProbeVariant::LegacyThreeTerm && step > 0)
+    {
+      host_axpy(residual, Scalar{-offdiagonal.back(), Real{}}, previous);
+    }
+
+    residual_norm = variant == LanczosProbeVariant::FullReorthogonalized
+                        ? orthogonalize_probe_residual(basis, residual, &reorthogonalization_stats)
+                        : vector_norm(residual);
     offdiagonal.push_back(residual_norm);
     if (residual_norm == Real{})
     {
@@ -660,22 +710,42 @@ run_legacy_three_term(DenseRealMatrix const& matrix, DenseHostVector<Scalar> con
     host_axpy(action, coefficients[row], basis[row]);
   }
 
-  Real const residual_estimate =
+  Real const endpoint_defect_estimate =
       coefficients.empty() ? Real{} : residual_norm * static_cast<Real>(std::abs(coefficients.back()));
   Real const tail_coefficient =
       coefficients.empty() ? Real{} : static_cast<Real>(std::abs(coefficients.back())) / initial_norm;
+  Real const defect_integral =
+      uni20::krylov::detail::hermitian_projected_defect_integral_estimate(projected, initial_norm, residual_norm, time);
 
   return RunRow<Real>{
-      .method = "three-term",
+      .method = variant == LanczosProbeVariant::FullReorthogonalized ? "full reorth" : "three-term",
       .krylov_dimension = krylov_dimension,
       .projected_dimension = static_cast<int>(projected_size),
       .matvecs = matvecs,
       .error_scaled = static_cast<Real>(difference_norm(action, reference) / static_cast<ReferenceReal>(initial_norm)),
       .tail_coefficient = tail_coefficient,
-      .estimate_scaled = residual_estimate / initial_norm,
+      .endpoint_defect_scaled = endpoint_defect_estimate / initial_norm,
+      .defect_integral_scaled = defect_integral / initial_norm,
       .orthogonality_offdiag = basis_max_offdiag(basis),
-      .reorthogonalization_ratio = Real{},
-      .reorthogonalization_passes = 0};
+      .reorthogonalization_ratio = reorthogonalization_stats.max_correction_ratio,
+      .reorthogonalization_passes = reorthogonalization_stats.max_passes};
+}
+
+template <typename Scalar, typename ReferenceScalar>
+[[nodiscard]] RunRow<RealOf<Scalar>>
+run_full_reorthogonalized(DenseRealMatrix const& matrix, DenseHostVector<Scalar> const& initial,
+                          DenseHostVector<ReferenceScalar> const& reference, Scalar time, int krylov_dimension)
+{
+  return run_lanczos_probe(matrix, initial, reference, time, krylov_dimension,
+                           LanczosProbeVariant::FullReorthogonalized);
+}
+
+template <typename Scalar, typename ReferenceScalar>
+[[nodiscard]] RunRow<RealOf<Scalar>>
+run_legacy_three_term(DenseRealMatrix const& matrix, DenseHostVector<Scalar> const& initial,
+                      DenseHostVector<ReferenceScalar> const& reference, Scalar time, int krylov_dimension)
+{
+  return run_lanczos_probe(matrix, initial, reference, time, krylov_dimension, LanczosProbeVariant::LegacyThreeTerm);
 }
 
 template <typename Real> [[nodiscard]] Real reference_taylor_tolerance()
@@ -721,8 +791,13 @@ template <typename Real> struct DemoResult
     bool all_dimensions = false;
     std::vector<RunRow<Real>> rows;
     bool old_indicator_false_pass = false;
-    bool residual_defect_false_pass = false;
+    bool endpoint_defect_false_pass = false;
+    bool defect_integral_false_pass = false;
     bool legacy_lost_orthogonality = false;
+    int first_full_reorth_error_pass_m = 0;
+    int first_full_reorth_tail_pass_m = 0;
+    int first_full_reorth_defect_pass_m = 0;
+    int first_full_reorth_integral_pass_m = 0;
 };
 
 template <typename Real> [[nodiscard]] DemoResult<Real> run_demo(Options const& options)
@@ -773,10 +848,31 @@ template <typename Real> [[nodiscard]] DemoResult<Real> run_demo(Options const& 
   for (auto const& row : result.rows)
   {
     bool const old_indicator_passes = row.tail_coefficient <= result.tolerance;
-    bool const residual_defect_passes = row.estimate_scaled <= result.tolerance;
+    bool const endpoint_defect_passes = row.endpoint_defect_scaled <= result.tolerance;
+    bool const defect_integral_passes = row.defect_integral_scaled <= result.tolerance;
     bool const error_passes = row.error_scaled <= result.tolerance;
     result.old_indicator_false_pass = result.old_indicator_false_pass || (old_indicator_passes && !error_passes);
-    result.residual_defect_false_pass = result.residual_defect_false_pass || (residual_defect_passes && !error_passes);
+    result.endpoint_defect_false_pass = result.endpoint_defect_false_pass || (endpoint_defect_passes && !error_passes);
+    result.defect_integral_false_pass = result.defect_integral_false_pass || (defect_integral_passes && !error_passes);
+    if (row.method == "full reorth")
+    {
+      if (error_passes && result.first_full_reorth_error_pass_m == 0)
+      {
+        result.first_full_reorth_error_pass_m = row.krylov_dimension;
+      }
+      if (old_indicator_passes && result.first_full_reorth_tail_pass_m == 0)
+      {
+        result.first_full_reorth_tail_pass_m = row.krylov_dimension;
+      }
+      if (endpoint_defect_passes && result.first_full_reorth_defect_pass_m == 0)
+      {
+        result.first_full_reorth_defect_pass_m = row.krylov_dimension;
+      }
+      if (defect_integral_passes && result.first_full_reorth_integral_pass_m == 0)
+      {
+        result.first_full_reorth_integral_pass_m = row.krylov_dimension;
+      }
+    }
     if (row.method == "three-term")
     {
       result.legacy_lost_orthogonality = result.legacy_lost_orthogonality || row.orthogonality_offdiag > Real{0.1};
@@ -836,6 +932,11 @@ template <typename Real> [[nodiscard]] std::string_view scalar_name()
   }
 }
 
+[[nodiscard]] std::string format_first_dimension(int dimension)
+{
+  return dimension == 0 ? "not observed" : fmt::format("{}", dimension);
+}
+
 template <typename Real> void print_demo(DemoResult<Real> const& result)
 {
   presentation::report_builder report("Krylov exponential Matrix Market probe");
@@ -859,8 +960,16 @@ template <typename Real> void print_demo(DemoResult<Real> const& result)
   auto& summary = report.table("Diagnostic Checks");
   summary.column("condition").column("observed");
   summary.row("old tail coeff <= tol while Taylor error > tol", result.old_indicator_false_pass ? "yes" : "no");
-  summary.row("defect <= tol while Taylor error > tol", result.residual_defect_false_pass ? "yes" : "no");
+  summary.row("defect <= tol while Taylor error > tol", result.endpoint_defect_false_pass ? "yes" : "no");
+  summary.row("defect integral <= tol while Taylor error > tol", result.defect_integral_false_pass ? "yes" : "no");
   summary.row("legacy three-term basis loses orthogonality", result.legacy_lost_orthogonality ? "yes" : "no");
+
+  auto& first_pass = report.table("First Full-Reorth Pass");
+  first_pass.column("criterion").column("requested m");
+  first_pass.row("Taylor error <= tol", format_first_dimension(result.first_full_reorth_error_pass_m));
+  first_pass.row("tail coeff <= tol", format_first_dimension(result.first_full_reorth_tail_pass_m));
+  first_pass.row("defect <= tol", format_first_dimension(result.first_full_reorth_defect_pass_m));
+  first_pass.row("defect integral <= tol", format_first_dimension(result.first_full_reorth_integral_pass_m));
 
   auto& table = report.table("Lanczos Dimension Sweep");
   table.column("method")
@@ -870,8 +979,10 @@ template <typename Real> void print_demo(DemoResult<Real> const& result)
       .column("err/||v||")
       .column("tail coeff")
       .column("defect/||v||")
+      .column("int defect/||v||")
       .column("tail<=tol")
       .column("defect<=tol")
+      .column("int<=tol")
       .column("err<=tol")
       .column("orth offdiag")
       .column("reorth ratio")
@@ -881,8 +992,10 @@ template <typename Real> void print_demo(DemoResult<Real> const& result)
   {
     table.row(row.method, fmt::format("{}", row.krylov_dimension), fmt::format("{}", row.projected_dimension),
               fmt::format("{}", row.matvecs), format_real(row.error_scaled), format_real(row.tail_coefficient),
-              format_real(row.estimate_scaled), row.tail_coefficient <= result.tolerance ? "yes" : "no",
-              row.estimate_scaled <= result.tolerance ? "yes" : "no",
+              format_real(row.endpoint_defect_scaled), format_real(row.defect_integral_scaled),
+              row.tail_coefficient <= result.tolerance ? "yes" : "no",
+              row.endpoint_defect_scaled <= result.tolerance ? "yes" : "no",
+              row.defect_integral_scaled <= result.tolerance ? "yes" : "no",
               row.error_scaled <= result.tolerance ? "yes" : "no", format_real(row.orthogonality_offdiag),
               format_real(row.reorthogonalization_ratio), fmt::format("{}", row.reorthogonalization_passes));
   }

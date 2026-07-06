@@ -117,6 +117,40 @@ TYPED_TEST(KrylovExponentialRealTypedTest, HermitianActionPreservesTinyNonzeroIn
   EXPECT_EQ(result.matvec_count, 1);
 }
 
+TYPED_TEST(KrylovExponentialRealTypedTest, HermitianDiagnosticsReportEndpointAndIntegralDefects)
+{
+  using Scalar = TypeParam;
+
+  std::vector<Scalar> matrix{Scalar{0}, Scalar{1}, Scalar{0}, Scalar{1}, Scalar{0},
+                             Scalar{1}, Scalar{0}, Scalar{1}, Scalar{0}};
+  DenseHostVectorOps<Scalar> ops(3, matrix);
+  DenseHostVector<Scalar> initial{{Scalar{1}, Scalar{0}, Scalar{0}}};
+
+  KrylovExponentialParams<Scalar> params;
+  params.krylov_dimension = 2;
+  params.diagnostics = KrylovDiagnosticsLevel::Summary;
+  Scalar const time = Scalar{0.7};
+
+  auto result = uni20::krylov::hermitian_krylov_exponential_action<Scalar>(ops, initial, time, params);
+
+  double const endpoint_defect = std::sinh(static_cast<double>(time));
+  double const defect_integral = std::cosh(static_cast<double>(time)) - 1.0;
+  double const tolerance = std::is_same_v<Scalar, float> ? 5.0e-5 : 1.0e-11;
+
+  EXPECT_EQ(result.projected_dimension, 2);
+  EXPECT_EQ(result.matvec_count, 2);
+  EXPECT_NEAR(static_cast<double>(result.final_residual_norm), 1.0, tolerance);
+  EXPECT_NEAR(static_cast<double>(result.endpoint_defect_estimate), endpoint_defect, tolerance);
+  EXPECT_NEAR(static_cast<double>(result.defect_integral_estimate), defect_integral, tolerance);
+  EXPECT_NEAR(static_cast<double>(result.error_estimate), defect_integral, tolerance);
+  EXPECT_GT(result.endpoint_defect_estimate, result.defect_integral_estimate);
+
+  ASSERT_TRUE(result.diagnostics.has_value());
+  EXPECT_NEAR(static_cast<double>(result.diagnostics->endpoint_defect_estimate), endpoint_defect, tolerance);
+  EXPECT_NEAR(static_cast<double>(result.diagnostics->defect_integral_estimate), defect_integral, tolerance);
+  EXPECT_NEAR(static_cast<double>(result.diagnostics->error_estimate), defect_integral, tolerance);
+}
+
 TYPED_TEST(KrylovExponentialRealTypedTest, NonsymmetricFullSubspaceMatchesJordanExponential)
 {
   using Scalar = TypeParam;
@@ -218,6 +252,88 @@ TYPED_TEST(KrylovExponentialComplexTypedTest, HermitianActionAcceptsComplexTime)
   EXPECT_LE(static_cast<double>(result.diagnostics->basis_frobenius_error),
             2.0 * orthogonality_diagnostic_tolerance<Scalar>());
   EXPECT_GE(result.diagnostics->max_reorthogonalization_passes, 1);
+}
+
+TYPED_TEST(KrylovExponentialComplexTypedTest, HermitianAdaptiveToleranceUsesUnitaryDefectIntegral)
+{
+  using Scalar = TypeParam;
+  using Real = uni20::make_real_t<Scalar>;
+
+  std::vector<Scalar> matrix{Scalar{},        Scalar{Real{1}}, Scalar{},        Scalar{Real{1}}, Scalar{},
+                             Scalar{Real{1}}, Scalar{},        Scalar{Real{1}}, Scalar{}};
+  DenseHostVectorOps<Scalar> ops(3, matrix);
+  DenseHostVector<Scalar> initial{{Scalar{Real{1}}, Scalar{}, Scalar{}}};
+
+  KrylovExponentialParams<Real> params;
+  params.krylov_dimension = 3;
+  params.relative_tolerance = Real{0.3};
+  params.diagnostics = KrylovDiagnosticsLevel::Summary;
+  Real const time = Real{0.7};
+  Scalar const imaginary_time{Real{}, -time};
+
+  auto result = uni20::krylov::hermitian_krylov_exponential_action<Scalar>(ops, initial, imaginary_time, params);
+
+  double const defect_integral = 1.0 - std::cos(static_cast<double>(time));
+  double const tolerance = std::is_same_v<Real, float> ? 5.0e-5 : 1.0e-11;
+
+  EXPECT_TRUE(result.converged);
+  EXPECT_EQ(result.projected_dimension, 2);
+  EXPECT_EQ(result.matvec_count, 2);
+  EXPECT_NEAR(static_cast<double>(result.target_error), 0.3, tolerance);
+  EXPECT_NEAR(static_cast<double>(result.defect_integral_estimate), defect_integral, tolerance);
+  EXPECT_NEAR(static_cast<double>(result.error_estimate), defect_integral, tolerance);
+  EXPECT_LE(result.error_estimate, result.target_error);
+
+  ASSERT_TRUE(result.diagnostics.has_value());
+  EXPECT_TRUE(result.diagnostics->converged);
+  EXPECT_NEAR(static_cast<double>(result.diagnostics->target_error), 0.3, tolerance);
+  EXPECT_NEAR(static_cast<double>(result.diagnostics->defect_integral_estimate), defect_integral, tolerance);
+}
+
+TYPED_TEST(KrylovExponentialComplexTypedTest, HermitianAdaptiveToleranceCanReportNonconvergence)
+{
+  using Scalar = TypeParam;
+  using Real = uni20::make_real_t<Scalar>;
+
+  std::vector<Scalar> matrix{Scalar{},        Scalar{Real{1}}, Scalar{},        Scalar{Real{1}}, Scalar{},
+                             Scalar{Real{1}}, Scalar{},        Scalar{Real{1}}, Scalar{}};
+  DenseHostVectorOps<Scalar> ops(3, matrix);
+  DenseHostVector<Scalar> initial{{Scalar{Real{1}}, Scalar{}, Scalar{}}};
+
+  KrylovExponentialParams<Real> params;
+  params.krylov_dimension = 2;
+  params.relative_tolerance = Real{0.1};
+  params.throw_on_nonconvergence = false;
+  params.diagnostics = KrylovDiagnosticsLevel::Summary;
+  Real const time = Real{0.7};
+  Scalar const imaginary_time{Real{}, -time};
+
+  auto result = uni20::krylov::hermitian_krylov_exponential_action<Scalar>(ops, initial, imaginary_time, params);
+
+  EXPECT_FALSE(result.converged);
+  EXPECT_EQ(result.projected_dimension, 2);
+  EXPECT_EQ(result.matvec_count, 2);
+  EXPECT_GT(result.error_estimate, result.target_error);
+
+  ASSERT_TRUE(result.diagnostics.has_value());
+  EXPECT_FALSE(result.diagnostics->converged);
+  EXPECT_GT(result.diagnostics->error_estimate, result.diagnostics->target_error);
+}
+
+TYPED_TEST(KrylovExponentialRealTypedTest, HermitianAdaptiveToleranceRequiresNonexpansiveModel)
+{
+  using Scalar = TypeParam;
+
+  std::vector<Scalar> matrix{Scalar{1}, Scalar{0}, Scalar{0}, Scalar{2}};
+  DenseHostVectorOps<Scalar> ops(2, matrix);
+  DenseHostVector<Scalar> initial{{Scalar{1}, Scalar{1}}};
+
+  KrylovExponentialParams<Scalar> params;
+  params.krylov_dimension = 2;
+  params.relative_tolerance = Scalar{1.0e-6};
+
+  EXPECT_THROW((uni20::krylov::hermitian_krylov_exponential_action<Scalar>(ops, initial, Scalar{0.2}, params)),
+               std::invalid_argument);
 }
 
 TYPED_TEST(KrylovExponentialComplexTypedTest, NonsymmetricActionAcceptsComplexTime)

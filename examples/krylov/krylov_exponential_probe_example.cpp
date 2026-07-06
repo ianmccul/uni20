@@ -485,7 +485,7 @@ enum class LanczosProbeVariant
 template <typename Scalar> struct LocalExponentialAction
 {
     DenseHostVector<Scalar> action;
-    RealOf<Scalar> residual_estimate = RealOf<Scalar>{};
+    RealOf<Scalar> endpoint_defect_estimate = RealOf<Scalar>{};
     RealOf<Scalar> final_residual_norm = RealOf<Scalar>{};
     RealOf<Scalar> tail_coefficient = RealOf<Scalar>{};
     RealOf<Scalar> hermite_quadrature_estimate = RealOf<Scalar>{};
@@ -607,10 +607,10 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
   Real const tail_coefficient =
       projected_size == 0 ? Real{} : static_cast<Real>(std::abs(exponential[projected_size - 1, 0]));
   Real const time_magnitude = static_cast<Real>(std::abs(static_cast<ProjectedScalar>(time)));
-  Real const residual_estimate =
+  Real const endpoint_defect_estimate =
       coefficients.empty() ? Real{} : residual_norm * static_cast<Real>(std::abs(coefficients.back()));
   Real const hermite_quadrature_estimate =
-      projected_size == 0 ? Real{} : residual_estimate * time_magnitude / static_cast<Real>(projected_size);
+      projected_size == 0 ? Real{} : endpoint_defect_estimate * time_magnitude / static_cast<Real>(projected_size);
   Real const phi1_tail = phi1_column.empty() ? Real{} : static_cast<Real>(std::abs(phi1_column.back()));
   Real const saad_phi1_estimate = initial_norm * residual_norm * time_magnitude * phi1_tail;
 
@@ -644,7 +644,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
   }
 
   return LocalExponentialAction<Scalar>{.action = std::move(action),
-                                        .residual_estimate = residual_estimate,
+                                        .endpoint_defect_estimate = endpoint_defect_estimate,
                                         .final_residual_norm = residual_norm,
                                         .tail_coefficient = tail_coefficient,
                                         .hermite_quadrature_estimate = hermite_quadrature_estimate,
@@ -666,7 +666,7 @@ template <typename Real> struct ProbeRow
     int lanczos_matvecs = 0;
     Real error_exact = Real{};
     Real error_taylor = Real{};
-    Real residual_estimate = Real{};
+    Real endpoint_defect_estimate = Real{};
     Real tail_coefficient = Real{};
     Real hermite_quadrature_estimate = Real{};
     Real saad_phi1_estimate = Real{};
@@ -758,7 +758,7 @@ template <typename Real>
   for (auto const& row : rows)
   {
     Real const error_scaled = row.error_exact / initial_norm;
-    Real const estimate_scaled = row.residual_estimate / initial_norm;
+    Real const estimate_scaled = row.endpoint_defect_estimate / initial_norm;
     if (trajectory.first_error_pass_m == 0 && row.error_pass)
     {
       trajectory.first_error_pass_m = row.krylov_dimension;
@@ -796,7 +796,7 @@ template <typename Real>
   Real running_min_coefficient = uni20::numeric_limits<Real>::infinity();
   for (auto const& row : rows)
   {
-    Real const estimate_scaled = row.residual_estimate / initial_norm;
+    Real const estimate_scaled = row.endpoint_defect_estimate / initial_norm;
     if (running_min_estimate < uni20::numeric_limits<Real>::infinity())
     {
       trajectory.max_estimate_rebound =
@@ -840,7 +840,7 @@ template <typename Real>
   auto const& final_row = rows.back();
   trajectory.final_m = final_row.krylov_dimension;
   trajectory.final_error_scaled = final_row.error_exact / initial_norm;
-  trajectory.final_estimate_scaled = final_row.residual_estimate / initial_norm;
+  trajectory.final_estimate_scaled = final_row.endpoint_defect_estimate / initial_norm;
   trajectory.final_coefficient = final_row.tail_coefficient;
   trajectory.final_error_over_estimate = safe_ratio(trajectory.final_error_scaled, trajectory.final_estimate_scaled);
   if (found_post_best)
@@ -905,16 +905,16 @@ run_probe_case(std::string name, LanczosProbeVariant variant, std::string scalar
 
     Real const error_exact = difference_norm(lanczos.action, exact);
     Real const error_taylor = difference_norm(lanczos.action, taylor.action);
-    Real const residual_estimate = lanczos.residual_estimate;
-    Real const estimate_ratio =
-        residual_estimate > Real{} ? error_exact / residual_estimate : uni20::numeric_limits<Real>::infinity();
+    Real const endpoint_defect_estimate = lanczos.endpoint_defect_estimate;
+    Real const estimate_ratio = endpoint_defect_estimate > Real{} ? error_exact / endpoint_defect_estimate
+                                                                  : uni20::numeric_limits<Real>::infinity();
 
     report.rows.push_back(
         ProbeRow<Real>{.krylov_dimension = dimension,
                        .lanczos_matvecs = lanczos.matvec_count,
                        .error_exact = error_exact,
                        .error_taylor = error_taylor,
-                       .residual_estimate = residual_estimate,
+                       .endpoint_defect_estimate = endpoint_defect_estimate,
                        .tail_coefficient = lanczos.tail_coefficient,
                        .hermite_quadrature_estimate = lanczos.hermite_quadrature_estimate,
                        .saad_phi1_estimate = lanczos.saad_phi1_estimate,
@@ -925,7 +925,7 @@ run_probe_case(std::string name, LanczosProbeVariant variant, std::string scalar
                        .max_reorthogonalization_passes = lanczos.max_reorthogonalization_passes,
                        .estimate_ratio = estimate_ratio,
                        .error_pass = error_exact <= target_absolute_tolerance,
-                       .estimate_pass = residual_estimate <= target_absolute_tolerance,
+                       .estimate_pass = endpoint_defect_estimate <= target_absolute_tolerance,
                        .coefficient_pass = lanczos.tail_coefficient <= relative_tolerance});
   }
 
@@ -1007,7 +1007,7 @@ void append_probe_report(presentation::styled_text& text, presentation::output_p
     Real const initial_norm = probe.initial_norm;
     rows.row(fmt::format("{}", row.krylov_dimension), fmt::format("{}", row.lanczos_matvecs),
              format_real(row.error_exact / initial_norm), format_real(row.tail_coefficient),
-             format_real(row.residual_estimate / initial_norm),
+             format_real(row.endpoint_defect_estimate / initial_norm),
              format_real(row.hermite_quadrature_estimate / initial_norm),
              format_real(row.saad_phi1_estimate / initial_norm), format_real(row.hochbruck_lubich_bound / initial_norm),
              format_real(row.basis_max_offdiag), format_real(row.max_reorthogonalization_correction_ratio),

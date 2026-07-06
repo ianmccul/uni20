@@ -296,7 +296,7 @@ run_full_reorthogonalized(std::vector<Scalar> const& eigenvalues, DenseHostVecto
                         .krylov_dimension = krylov_dimension,
                         .matvecs = result.matvec_count,
                         .error_scaled = difference_norm(result.action, exact) / initial_norm,
-                        .estimate_scaled = result.residual_estimate / initial_norm,
+                        .estimate_scaled = result.error_estimate / initial_norm,
                         .orthogonality_offdiag = result.diagnostics->basis_max_offdiag,
                         .reorthogonalization_ratio = result.diagnostics->max_reorthogonalization_correction_ratio,
                         .reorthogonalization_passes = result.diagnostics->max_reorthogonalization_passes};
@@ -379,14 +379,14 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
     host_axpy(action, coefficients[row], basis[row]);
   }
 
-  Real const residual_estimate =
+  Real const endpoint_defect_estimate =
       coefficients.empty() ? Real{} : residual_norm * static_cast<Real>(std::abs(coefficients.back()));
 
   return RunRow<Scalar>{.method = "three-term",
                         .krylov_dimension = krylov_dimension,
                         .matvecs = matvecs,
                         .error_scaled = difference_norm(action, exact) / initial_norm,
-                        .estimate_scaled = residual_estimate / initial_norm,
+                        .estimate_scaled = endpoint_defect_estimate / initial_norm,
                         .orthogonality_offdiag = basis_max_offdiag(basis),
                         .reorthogonalization_ratio = Real{},
                         .reorthogonalization_passes = 0};

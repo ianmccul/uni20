@@ -238,7 +238,7 @@ matrix infrastructure.
 
 | entry point | `s` | `d` | `c` | `z` | description |
 | --- | --- | --- | --- | --- | --- |
-| `hermitian_krylov_exponential_action` | yes | yes | yes | yes | Fixed-subspace Lanczos approximation `||v|| V_m exp(t T_m) e_1`. |
+| `hermitian_krylov_exponential_action` | yes | yes | yes | yes | Lanczos approximation `||v|| V_m exp(t T_m) e_1`, with optional adaptive relative tolerance for unitary/nonexpansive actions. |
 | `nonsymmetric_krylov_exponential_action` | yes | yes | yes | yes | Fixed-subspace Arnoldi approximation `||v|| V_m exp(t H_m) e_1`. |
 | `taylor_exponential_action` | yes | yes | yes | yes | Validation-oriented scaled Taylor action using a caller-supplied operator norm bound. |
 
@@ -251,25 +251,26 @@ uses scaled Taylor series steps with a geometric tail estimate and an explicit
 caller-supplied bound for `||A||`. Taylor scaling-step selection and
 tail-error amplification are computed in the solver real scalar type, so
 extended-precision real types are not silently rounded through `long double`.
-`examples/krylov/krylov_exponential_probe_example.cpp` compares Lanczos, Taylor, and
-exact diagonal exponential actions on deliberately awkward spectra. It reports
-both an example-local full-reorthogonalized Lanczos recurrence, mirroring the
-production path while exposing projected data, and an example-local legacy
-three-term recurrence so precision-floor and loss-of-orthogonality effects can
-be inspected side by side. The probe distinguishes the raw last
-projected exponential coefficient, matching the historical Cytnx
-`abs(B_mat(i,0))` stopping indicator, from the residual-scaled Krylov estimate
-used by the native result. It also reports Hermite-quadrature, Saad/Jia-Lv
-`phi_1`, and Hochbruck-Lubich/Jawecki-style leading-bound estimates; see
+`examples/krylov/krylov_exponential_probe_example.cpp` compares Lanczos, Taylor,
+and exact diagonal exponential actions on deliberately awkward spectra. It
+reports both an example-local full-reorthogonalized Lanczos recurrence,
+mirroring the native Hermitian path while exposing projected data, and an
+example-local legacy three-term recurrence so precision-floor and
+loss-of-orthogonality effects can be inspected side by side. The probe
+distinguishes the raw last projected exponential coefficient, matching the
+historical Cytnx `abs(B_mat(i,0))` stopping indicator, from the endpoint defect
+and direct defect-integral estimates used by the native Hermitian result. It
+also reports Hermite-quadrature, Saad/Jia-Lv `phi_1`, and
+Hochbruck-Lubich/Jawecki-style leading-bound estimates; see
 [krylov_exponential_estimators.md](krylov_exponential_estimators.md). Its
 rebound diagnostics are intended to expose cases where asking for an
 unrealistically small tolerance keeps increasing the Krylov dimension after the
 true action error has already reached the scalar precision floor. The probe
 also reports the final basis off-diagonal Gram defect and the largest
-reorthogonalization correction ratio, which help distinguish estimator
-underflow from loss of useful Lanczos orthogonality. Full Al-Mohy/Higham-style
-norm estimation, block right-hand sides, adaptive Lanczos time stepping,
-restart/error control, and broader benchmark examples are still future work.
+reorthogonalization correction ratio, which help distinguish estimator underflow
+from loss of useful Lanczos orthogonality. Full Al-Mohy/Higham-style norm
+estimation, block right-hand sides, adaptive Lanczos time stepping, restart
+control, and broader benchmark examples are still future work.
 
 `examples/krylov/krylov_exponential_orthogonality_example.cpp` is a smaller teaching
 example focused on this failure mode. Its default float run requests
@@ -277,7 +278,7 @@ example focused on this failure mode. Its default float run requests
 TDVP/Cytnx policy for non-reorthogonalized or lightly reorthogonalized Lanczos.
 It shows a case where the residual estimate falls below the requested tolerance
 while the exact diagonal reference error has already saturated. The same table
-contrasts the full-reorthogonalized production path with a legacy three-term
+contrasts the full-reorthogonalized Hermitian path with a legacy three-term
 recurrence, making the Gram defect and reorthogonalization correction pressure
 visible. This warning scale is not a hard limit for full-reorthogonalized double
 precision; it is a conservative default for Lanczos exponential actions that do
@@ -291,7 +292,7 @@ the initial vector from the same directory and the old problematic coefficient
 `t = -0.1968473663975394 i`. In `complex<double>`, the default run shows the
 old raw projected-tail indicator falling below `1e-8` while the independent
 Taylor reference action error is still above `1e-8`. This example is a
-convergence diagnostic and benchmark aid; it is not a production fallback
+convergence diagnostic and benchmark aid; it is not an automatic fallback
 policy.
 
 Real vector spaces accept real time/coefficient values. Complex vector spaces
@@ -365,8 +366,13 @@ Algebraic and both-ends selectors are symmetric-only.
 
 | parameter | default | applies to | meaning |
 | --- | --- | --- | --- |
-| `krylov_dimension` | `0` | Hermitian and nonsymmetric exponential actions | Projection dimension; zero selects the default policy. |
+| `krylov_dimension` | `0` | Hermitian and nonsymmetric exponential actions | Fixed projection dimension, or adaptive maximum when `relative_tolerance > 0`; zero selects the default policy. |
+| `minimum_krylov_dimension` | `0` | Hermitian adaptive exponential action | Minimum projection dimension before relative-tolerance acceptance; zero selects `1`. |
+| `relative_tolerance` | `0` | Hermitian adaptive exponential action | Relative error target for unitary/nonexpansive Hermitian actions; zero keeps fixed-dimension mode. |
+| `estimate_safety_factor` | `1` | Hermitian adaptive exponential action | Multiplier applied to the direct defect-integral estimate before comparing with `relative_tolerance * ||v||`. |
 | `breakdown_tolerance` | `0` | Hermitian and nonsymmetric exponential actions | Internal invariant-subspace threshold; zero selects `10 * epsilon`. |
+| `assume_nonexpansive` | `false` | Hermitian adaptive exponential action | Allows adaptive acceptance when the caller has verified nonexpansiveness but the time coefficient is not automatically recognized as unitary. |
+| `throw_on_nonconvergence` | `true` | Hermitian adaptive exponential action | Throw if the adaptive cap is reached before satisfying `relative_tolerance`. |
 | `diagnostics` | `None` | Hermitian and nonsymmetric exponential actions | Optional projected-dimension, residual, and matvec diagnostics. |
 
 ### TaylorExponentialParams<Scalar>
@@ -389,7 +395,8 @@ Explicit user parameters always win. Defaults are used only when
 | --- | --- | --- |
 | Symmetric Lanczos | `min(problem_dimension, max(20, 2*nev + 1))` | `nev` |
 | Nonsymmetric Arnoldi | `min(problem_dimension, max(20, 6*nev + 8))` | `min(ncv - 1, max(2*nev, nev + 4))` |
-| Exponential action | `min(problem_dimension, 30)` | n/a |
+| Fixed-dimension exponential action | `min(problem_dimension, 30)` | n/a |
+| Adaptive Hermitian exponential action | `min(problem_dimension, 64)` maximum cap; `1` minimum | n/a |
 | Taylor exponential action | n/a | n/a |
 
 Restarted native solvers require:
@@ -415,7 +422,9 @@ and should be changed deliberately.
 | Default complex-pair tolerance | `sqrt(epsilon)` | real nonsymmetric classification | Classifies nearly real Ritz values. |
 | Ambiguous complex-pair band | `10 * complex_pair_tolerance` | real nonsymmetric classification | Separates numerically real, ambiguous, and complex Ritz values. |
 | Symmetric restart shift count | `order - retained_count` | symmetric restart | Number of unwanted Ritz values used as implicit shifts. |
-| Exponential action breakdown threshold | `10 * epsilon` | fixed-subspace exponential actions | Treats a tiny expansion residual as invariant-subspace breakdown. |
+| Exponential action breakdown threshold | `10 * epsilon` | exponential actions | Treats a tiny expansion residual as invariant-subspace breakdown. |
+| Hermitian exponential adaptive acceptance | direct defect integral `<= relative_tolerance * ||v|| / estimate_safety_factor` | unitary/nonexpansive Hermitian exponential action | Stops at the first projected dimension satisfying the Jawecki-Auzinger-Koch defect-integral bound. |
+| Hermitian defect-integral quadrature | 1024-panel Simpson rule over the projected scalar defect | unitary/nonexpansive Hermitian exponential action | Deterministic projected-space integral; cheap relative to matrix-free tensor-network matvecs. |
 | Taylor action step norm limit | `0.5` | Taylor exponential action | Keeps each scaled Taylor step in the monotone tail-bound regime. |
 | Taylor action default tolerance | `100 * epsilon` | Taylor exponential action | Absolute tail tolerance when the user does not request one. |
 
@@ -443,10 +452,16 @@ Lanczos or Arnoldi residual norm, restart counts, and projected departure from
 normality where implemented.
 
 Exponential action results report the action vector, projected dimension,
-matvec count, initial norm, final Krylov residual norm, an inexpensive residual
-estimate, happy-breakdown state, and optional summary diagnostics. Hermitian
-exponential diagnostics additionally include final-basis Gram defects and
-reorthogonalization correction metrics when diagnostics are enabled.
+matvec count, initial norm, final Krylov residual norm, a top-level
+`error_estimate`, endpoint defect estimate, Hermitian defect-integral estimate,
+target error, convergence state, happy-breakdown state, and optional summary
+diagnostics. For Hermitian actions, `error_estimate` is the direct defect
+integral. For nonsymmetric Arnoldi actions, it is currently the endpoint defect
+estimate. A future Arnoldi defect-integral rule must include a nonexpansive or
+semigroup-growth bound; the projected scalar defect integral alone is only a
+diagnostic for general non-Hermitian operators. Hermitian exponential diagnostics
+additionally include final-basis Gram defects and reorthogonalization correction
+metrics when diagnostics are enabled.
 
 Taylor exponential action results report the action vector, scaling step count,
 maximum Taylor degree used, matvec count, estimated tail error, convergence
@@ -457,9 +472,9 @@ final step tail estimate.
 
 - Real nonsymmetric complex-pair output through real Schur two-planes is not a
   finished user-facing result path.
-- Krylov exponential actions are currently fixed-subspace only. A conservative
-  Taylor validation path and diagonal probe example exist, but adaptive
-  Krylov-exponential time stepping, restart/error control,
-  Al-Mohy/Higham-style norm estimation, and broader benchmark examples remain
-  future work.
+- Krylov exponential actions do not yet implement adaptive time stepping,
+  restart control, nonsymmetric Arnoldi semigroup/error bounds,
+  Al-Mohy/Higham-style norm estimation, or broad benchmark dashboards. The
+  Hermitian path does support adaptive relative tolerance for
+  unitary/nonexpansive single-step actions.
 - Type-specific stress hardening for `s`, `d`, `c`, and `z` remains ongoing.

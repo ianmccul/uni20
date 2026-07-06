@@ -38,6 +38,21 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 * Commit messages should clearly describe what changed and why.
 * Always run the tests, unless explicitly instructed otherwise.
 
+### 2.1 Development-Stage API Design
+
+* Uni20 is still in active design. Unless the user explicitly asks for
+  compatibility with a released interface, prefer the clearest correct design
+  over preserving existing development names, aliases, or field layouts.
+* Do not add compatibility shims, duplicate legacy fields, or vague transitional
+  names solely because current in-tree development code used them. Rename the
+  call sites, examples, tests, and docs in the same scoped change.
+* Avoid framing unfinished in-tree paths as "production" versus "prototype"
+  unless the repository already defines that boundary. Name the exact algorithm,
+  backend, or execution path instead.
+* If a better API shape becomes clear while implementing a feature, choose that
+  shape and update the nearby guidance/tests rather than layering a compatibility
+  wrapper around the older design.
+
 ---
 
 ## 3. Core Development Rules
