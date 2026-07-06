@@ -1,6 +1,7 @@
 # src/uni20/backend/CMakeLists.txt
 
 add_library(uni20_backend INTERFACE)
+target_link_libraries(uni20_backend INTERFACE uni20_common)
 
 if(UNI20_DOCS_WEB)
   return()

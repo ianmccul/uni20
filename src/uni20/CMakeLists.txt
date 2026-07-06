@@ -24,11 +24,11 @@ target_link_libraries(uni20 PUBLIC uni20_deps uni20_core uni20_common uni20_lina
 enable_ipo_if_supported(uni20)
 
 add_subdirectory(core)
+add_subdirectory(mdspan)
 add_subdirectory(common)
 add_subdirectory(symmetry)
 add_subdirectory(backend)
 add_subdirectory(level1)
-add_subdirectory(mdspan)
 add_subdirectory(async)
 add_subdirectory(kernel)
 add_subdirectory(linalg)

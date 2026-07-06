@@ -10,6 +10,7 @@ if(UNI20_ENABLE_MPLAPACK)
   target_link_libraries(uni20_mplapack_binary128_tests
     PRIVATE
       uni20_core
+      uni20_backend_blas
       mplapack::mplapack_binary128
       GTest::gtest_main
   )

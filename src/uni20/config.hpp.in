@@ -40,6 +40,11 @@
 #cmakedefine01 UNI20_HAS_FLOAT128
 #cmakedefine01 UNI20_FLOAT128_PROVIDER_MPLAPACK
 
+// Use the Kokkos reference mdspan implementation in the Uni20 extension namespace.
+#ifndef MDSPAN_IMPL_STANDARD_NAMESPACE
+#define MDSPAN_IMPL_STANDARD_NAMESPACE stdex
+#endif
+
 #define UNI20_BLAS_VENDOR "@UNI20_DETECTED_BLAS_VENDOR@"
 
 #define @UNI20_DETECTED_BLAS_VENDOR_MACRO@ 1

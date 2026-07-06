@@ -19,7 +19,7 @@ add_library(uni20_common STATIC
     presentation.cpp
     terminal.cpp
 )
-target_link_libraries(uni20_common PUBLIC mdspan uni20_deps)
+target_link_libraries(uni20_common PUBLIC uni20_mdspan uni20_deps)
 
 # If we are using GCC and havae stacktrace library available, then trace.hpp can make use of it.
 # But we also need to link against libstdc++exp.

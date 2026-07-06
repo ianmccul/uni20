@@ -49,7 +49,7 @@ add_library(uni20_backend_blas STATIC
 )
 
 add_subdirectory(reference)
-target_link_libraries(uni20_backend_blas PUBLIC uni20_backend_blas_reference)
+target_link_libraries(uni20_backend_blas PUBLIC uni20_common uni20_backend_blas_reference)
 
 # Handle optional MKL
 if(UNI20_BACKEND_MKL)
