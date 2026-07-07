@@ -21,6 +21,10 @@ above the raw provider facades in `src/uni20/backend/blas` and
   `src/uni20/backend/lapack`.
 - Keep tensor allocation, symmetry policy, and high-level fallback policy above
   this layer.
-- Direct wrappers decline unsupported layouts or transform combinations before
-  side effects. Prepared wrappers that allocate temporaries should make that
-  contract explicit in their names and documentation.
+- `try_*` direct wrappers decline layouts and ABI dimensions that cannot be
+  represented without copies. Checked wrappers treat inconsistent GEMM
+  dimensions or transforms as logic errors and abort through Uni20 checks.
+  Provider shims are responsible for the transform opcodes accepted by this
+  adapter, including conjugate-no-transpose. Prepared wrappers that allocate
+  temporaries should make that contract explicit in their names and
+  documentation.

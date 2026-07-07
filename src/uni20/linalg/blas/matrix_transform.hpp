@@ -6,7 +6,7 @@
  * \brief Matrix transform algebra used by BLAS-compatible linalg adapters.
  */
 
-#include <uni20/core/scalar_traits.hpp>
+#include <uni20/core/scalar_concepts.hpp>
 
 #include <optional>
 
@@ -89,7 +89,7 @@ constexpr MatrixTransform transpose_result_transform(MatrixTransform transform)
 }
 
 /// \brief Collapse conjugation-only distinctions for real scalar types.
-template <typename Scalar> constexpr MatrixTransform canonical_transform_for_scalar(MatrixTransform transform)
+template <uni20::BlasScalar Scalar> constexpr MatrixTransform canonical_transform_for_scalar(MatrixTransform transform)
 {
   if constexpr (uni20::is_complex_v<Scalar>)
   {
@@ -103,8 +103,8 @@ template <typename Scalar> constexpr MatrixTransform canonical_transform_for_sca
   }
 }
 
-/// \brief Lower a transform to a standard Fortran BLAS transpose character.
-template <typename Scalar> constexpr std::optional<char> standard_blas_trans_char(MatrixTransform transform)
+/// \brief Lower a transform to the provider BLAS transpose opcode.
+template <uni20::BlasScalar Scalar> constexpr std::optional<char> blas_trans_char(MatrixTransform transform)
 {
   switch (canonical_transform_for_scalar<Scalar>(transform))
   {
@@ -115,9 +115,20 @@ template <typename Scalar> constexpr std::optional<char> standard_blas_trans_cha
     case MatrixTransform::conjugate_transpose:
       return 'C';
     case MatrixTransform::conjugate:
-      return std::nullopt;
+      return 'R';
   }
   return std::nullopt;
+}
+
+/// \brief Lower a transform to the ordinary Fortran BLAS transpose character set.
+template <uni20::BlasScalar Scalar> constexpr std::optional<char> standard_blas_trans_char(MatrixTransform transform)
+{
+  auto const canonical = canonical_transform_for_scalar<Scalar>(transform);
+  if (canonical == MatrixTransform::conjugate)
+  {
+    return std::nullopt;
+  }
+  return blas_trans_char<Scalar>(canonical);
 }
 
 } // namespace uni20::linalg::blas

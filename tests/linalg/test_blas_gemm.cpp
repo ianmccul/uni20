@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <initializer_list>
 #include <vector>
 
@@ -60,7 +61,7 @@ TEST(BlasGemmTest, RewritesRowMajorOutput)
   fill_matrix(a, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
   fill_matrix(b, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
 
-  uni20::linalg::blas::gemm_or_throw(c, 1.0, a, b, 0.0);
+  uni20::linalg::blas::gemm(c, 1.0, a, b, 0.0);
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 58.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 64.0);
@@ -89,6 +90,42 @@ TEST(BlasGemmTest, HandlesRequestedTranspose)
   EXPECT_DOUBLE_EQ((c[1, 1]), 128.0);
 }
 
+TEST(BlasGemmTest, NormalizesUnobservedSingletonProviderColumnStride)
+{
+  std::vector<double> a_storage(3);
+  std::vector<double> b_storage(1, 4.0);
+  std::vector<double> c_storage(3);
+
+  stdex::layout_stride::mapping<extents_2d> vector_mapping(extents_2d{3, 1}, std::array<uni20::index_type, 2>{1, 0});
+  stdex::mdspan<double, extents_2d, stdex::layout_stride> a(a_storage.data(), vector_mapping);
+  stdex::mdspan<double, extents_2d, stdex::layout_left> b(b_storage.data(), 1, 1);
+  stdex::mdspan<double, extents_2d, stdex::layout_stride> c(c_storage.data(), vector_mapping);
+
+  fill_matrix(a, {1.0, 2.0, 3.0});
+
+  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0));
+
+  EXPECT_DOUBLE_EQ((c[0, 0]), 4.0);
+  EXPECT_DOUBLE_EQ((c[1, 0]), 8.0);
+  EXPECT_DOUBLE_EQ((c[2, 0]), 12.0);
+}
+
+TEST(BlasGemmTest, TryDeclinesUnsupportedStridePattern)
+{
+  std::vector<double> a_storage(16);
+  std::vector<double> b_storage(4, 1.0);
+  std::vector<double> c_storage(4, 7.0);
+
+  stdex::layout_stride::mapping<extents_2d> bad_mapping(extents_2d{2, 2}, std::array<uni20::index_type, 2>{2, 5});
+  stdex::mdspan<double, extents_2d, stdex::layout_stride> a(a_storage.data(), bad_mapping);
+  stdex::mdspan<double, extents_2d, stdex::layout_left> b(b_storage.data(), 2, 2);
+  stdex::mdspan<double, extents_2d, stdex::layout_left> c(c_storage.data(), 2, 2);
+
+  EXPECT_FALSE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0));
+  EXPECT_DOUBLE_EQ((c[0, 0]), 7.0);
+  EXPECT_DOUBLE_EQ((c[1, 1]), 7.0);
+}
+
 TEST(BlasGemmTest, CollapsesRealConjugateOnlyTransform)
 {
   std::vector<double> a_storage(1, 3.0);
@@ -101,19 +138,4 @@ TEST(BlasGemmTest, CollapsesRealConjugateOnlyTransform)
 
   EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0, MatrixTransform::conjugate));
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
-}
-
-TEST(BlasGemmTest, DeclinesComplexConjugateOnlyWithoutBackendExtension)
-{
-  using complex = uni20::complex<double>;
-
-  std::vector<complex> a_storage(1, complex{1.0, 2.0});
-  std::vector<complex> b_storage(1, complex{3.0, 4.0});
-  std::vector<complex> c_storage(1);
-
-  stdex::mdspan<complex, extents_2d, stdex::layout_left> a(a_storage.data(), 1, 1);
-  stdex::mdspan<complex, extents_2d, stdex::layout_left> b(b_storage.data(), 1, 1);
-  stdex::mdspan<complex, extents_2d, stdex::layout_left> c(c_storage.data(), 1, 1);
-
-  EXPECT_FALSE(uni20::linalg::blas::try_gemm(c, complex{1.0, 0.0}, a, b, complex{}, MatrixTransform::conjugate));
 }

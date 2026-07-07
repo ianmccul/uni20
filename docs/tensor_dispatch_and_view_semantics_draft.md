@@ -648,7 +648,7 @@ gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
 or an explicit backend helper:
 
 ```cpp
-BlasBackend::gemm_or_throw(c_mdspan, alpha, a_mdspan, b_mdspan, beta);
+BlasBackend::gemm(c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 ```
 
 The reason is that mdspans do not carry Uni20 storage policy.

@@ -139,8 +139,9 @@ conversion from a readable object to a common base would lose the transform.
 ### Mdspan Staging Descriptor
 
 The staging descriptor keeps the logical extents in mdspan axis order and
-records which mdspan axis has stride `1`. It does not store BLAS
-transposition state.
+records which mdspan axis has stride `1`. The non-unit stride is canonicalized
+for extent-1 axes so it also satisfies the BLAS leading-dimension rule. It does
+not store BLAS transposition state.
 
 This chooses the mdspan-storage-first policy rather than a BLAS-first policy.
 The alternative would store BLAS `rows`, `cols`, `leading_dimension`, and a
@@ -212,25 +213,33 @@ For a logical matrix `A(i, j)`:
 - `unit_stride_axis == 1` means `stride(1) == 1` and
   `nonunit_stride == stride(0)`. The BLAS ABI sees the logical transpose.
 
+When the corresponding extent is `1`, the non-unit stride is not observable in
+the logical mdspan mapping. The staging helper may therefore choose a canonical
+representative that satisfies BLAS, rather than preserving the arbitrary value
+reported by the mapping.
+
 Runtime descriptor construction should reject views where neither matrix stride
 is `1`. The first pass should also reject negative strides for direct
-BLAS/LAPACK calls.
+BLAS/LAPACK calls. Any extent or stride that cannot be represented by the
+configured signed `blas_int` ABI type must be rejected by the direct wrapper;
+larger logical problems require an ILP64 provider or a higher-level blocked
+operation.
 
-For non-degenerate matrices, the derived `BlasWritableMatrix::leading_dimension`
-must satisfy the provider ABI lower bound:
+For direct BLAS lowering, `MdspanMatrixStage::nonunit_stride` must satisfy the
+provider ABI lower bound:
 
 - `unit_stride_axis == 0`: `nonunit_stride >= max(1, extent0)`;
 - `unit_stride_axis == 1`: `nonunit_stride >= max(1, extent1)`.
 
-Degenerate dimensions need explicit tests because the stride of an extent-1
-axis may not describe a real next column. If both strides are `1`, choose an
-axis whose derived BLAS leading dimension satisfies the provider
-contract; prefer `unit_stride_axis == 0` only when both choices are valid. The
-first implementation may reject ambiguous degenerate layouts, but it must not
-silently construct a BLAS reference whose leading dimension violates the
+Degenerate dimensions need explicit tests because a non-unit stride may be
+arbitrary when it corresponds to an extent-1 provider column axis. If the
+provider column count is at most one, normalize `nonunit_stride` upward to
+`max(1, provider_rows)` instead of declining the view. If the provider would
+actually step through the non-unit stride, do not repair it by changing the
+address arithmetic; reject the view unless the stride already satisfies the
 provider contract.
 
-Provider-ready BLAS information is derived, not stored in the mdspan staging
+Provider-ready BLAS operands are still derived from the mdspan staging
 descriptor:
 
 ```cpp
@@ -266,14 +275,25 @@ The transform helper layer should provide:
 - `transpose_result_transform(MatrixTransform)`;
 - `compose(MatrixTransform, MatrixTransform)`;
 - `logical_rows(...)`, `logical_cols(...)`, `abi_rows(...)`, `abi_cols(...)`;
+- `blas_trans_char(MatrixTransform) -> std::optional<char>`;
 - `standard_blas_trans_char(MatrixTransform) -> std::optional<char>`.
 
 For readable operands, compose the requested logical transform, the storage
-transform, and `stage.needs_conjugation`. Standard BLAS can lower `normal`,
-`transpose`, and `conjugate_transpose` to `'N'`, `'T'`, and `'C'`. It should
-decline `conjugate` unless a higher layer materializes, or a backend-specific
-path uses an extension such as CBLAS `CblasConjNoTrans` or an MKL-style `'R'`
-where available.
+transform, and `stage.needs_conjugation`. The provider-facing linalg adapter
+requires a conjugate-no-transpose opcode for complex inputs, represented in the
+local helper as `'R'`. Backend shims are responsible for mapping that operation
+to the selected provider API, such as CBLAS `CblasConjNoTrans`, MKL-compatible
+extension paths, or a later Uni20 fallback. `standard_blas_trans_char(...)`
+remains available for code that must restrict itself to the ordinary Fortran
+`'N'`, `'T'`, and `'C'` character set.
+
+TODO: the current reference Fortran-style BLAS wrappers need an implementation
+path for the provider `'R'` opcode. If the selected provider API does not expose
+conjugate-no-transpose directly through the raw `gemm` entry point, the
+reference wrapper should detect `'R'`, materialize a conjugated temporary for
+that readable operand, and dispatch the remaining call through the ordinary
+`'N'`, `'T'`, and `'C'` path. This belongs in the backend wrapper layer, not in
+the mdspan staging or GEMM rewrite layer.
 
 `storage_transform(view)` returns `normal` when `unit_stride_axis == 0` and
 `transpose` when `unit_stride_axis == 1`. The helper name should describe the
@@ -313,10 +333,9 @@ C^T = alpha * op(B)^T * op(A)^T + beta * C^T
 
 The helper should swap readable operands and apply
 `transpose_result_transform(...)` to each requested operand transform. If the
-resulting plan cannot be represented by the selected backend's ordinary BLAS
-transpose characters, the operation planner can try a backend extension, an
-explicit output postprocess, or a temporary path. A strict direct wrapper that
-implements none of those should decline before side effects.
+output view is conjugated, conjugate `alpha`, `beta`, and both readable operand
+transforms before dispatching. This keeps the writable output untransformed
+while still describing the logical result.
 
 This rewrite is appropriate for BLAS update-style operations. It is not a
 general rule for LAPACK drivers that overwrite inputs with structured outputs.
@@ -324,23 +343,21 @@ general rule for LAPACK drivers that overwrite inputs with structured outputs.
 ## Output Postprocessing
 
 `BlasWritableMatrix` intentionally has no transform field. It is only the
-provider-writeable storage target. Some operation lowerings still need an
-output-side transform that cannot be expressed by standard BLAS transpose
-characters.
+provider-writeable storage target. Operation-specific wrappers normalize any
+output-side transform before dispatch.
 
 For example, after composing row-major storage, requested operand transforms,
-and input conjugation, the best standard-BLAS lowering may require a
-conjugate-only state. If the selected backend supports a conjugate-no-transpose
-extension for that operation, for example CBLAS `CblasConjNoTrans`, the
-backend-specific path may lower it directly.
-For a standard BLAS backend, a better generic plan may be:
+and input conjugation, the best lowering may require a conjugate-only state. The
+direct BLAS adapter assumes that the provider layer can represent this operation
+somehow. For a backend that lacks a direct extension, a later generic plan may
+be:
 
 1. call BLAS into the writable storage using the closest representable
    transpose/conjugate-transpose combination;
 2. explicitly conjugate the output matrix in place after the BLAS call.
 
-That postprocess is not part of `BlasWritableMatrix`; it belongs to the
-operation plan. A sketch is:
+That postprocess is not part of `BlasWritableMatrix`; it belongs to a backend
+or operation-specific fallback plan. A sketch is:
 
 ```cpp
 enum class MatrixOutputPostprocess {
@@ -355,9 +372,10 @@ struct BlasWritableMatrixPlan {
 };
 ```
 
-Direct no-copy wrappers may still decline if they do not implement the required
-postprocess. They should report that this particular lowering path does not
-support writable conjugation.
+Direct no-copy wrappers should not silently materialize output temporaries. If a
+future backend cannot implement the required provider transform directly, that
+backend-specific wrapper should either expose a clear fallback contract or
+decline before side effects.
 
 ## Worked GEMM Example
 
@@ -413,8 +431,8 @@ If `A` were row-major-like instead, its stage would derive a
 `BlasReadableMatrix` whose `rows` and `cols` describe the provider's
 untransformed `A^T` storage, and whose `transform` is `'T'` for a logical
 `normal` input. If composing the requested transform with storage layout
-produces `conjugate` for a standard BLAS backend, the direct wrapper must
-decline or use a prepared input temporary whose contract allows materialization.
+produces `conjugate`, the linalg adapter lowers it to the provider
+conjugate-no-transpose opcode.
 
 ## Direct And Prepared Wrappers
 
@@ -450,11 +468,17 @@ The wrapper layer can start with direct functions that are easy to test:
 
 ```cpp
 bool try_gemm(... mdspan-like operands ...);
-void gemm_or_throw(... mdspan-like operands ...);
+void gemm(... mdspan-like operands ...);
 
 bool try_lapack_self_adjoint_eigh(... mdspan-like operands ...);
 void lapack_self_adjoint_eigh_or_throw(... mdspan-like operands ...);
 ```
+
+`try_gemm(...)` returns `false` only when an operand cannot be staged as a
+direct no-copy BLAS matrix view. Once staging succeeds, transform and dimension
+consistency are checked preconditions: invalid GEMM parameters are logic errors
+and should abort through `CHECK`/`CHECK_EQUAL`, not report ordinary kernel
+non-acceptance.
 
 Once these are correct, operation-tag dispatch can wrap them:
 
@@ -498,8 +522,8 @@ Descriptor tests:
 - default/raw accessors derive `needs_conjugation == false`.
 - a fake conjugating accessor derives `needs_conjugation == true` and composes
   into readable transforms.
-- writable `needs_conjugation` is handled by an explicit output postprocess,
-  backend extension, temporary/copy-back path, or a clean runtime decline.
+- writable `needs_conjugation` is handled by conjugating scalars and readable
+  operand transforms before provider dispatch.
 - no implicit conversion erases readable metadata.
 
 GEMM tests:
@@ -508,8 +532,8 @@ GEMM tests:
 - row-major writable output rewrite.
 - readable row-major inputs handled by transform helpers.
 - complex transpose and conjugate-transpose combinations.
-- standard BLAS handles conjugate-only states through materialization, output
-  postprocessing, a backend extension, or a clean runtime decline.
+- conjugate-only states lower through the required provider
+  conjugate-no-transpose opcode.
 - CPU/reference fallback comparison for representative shapes and strides.
 
 LAPACK tests:

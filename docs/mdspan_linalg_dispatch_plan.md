@@ -21,6 +21,9 @@ Related notes:
   runtime attempt, and fallback contract.
 - [`kernel_dispatch.md`](kernel_dispatch.md) - operation tags and ordered
   backend lists.
+- [`mdspan_blas_lapack_wrapper_plan.md`](mdspan_blas_lapack_wrapper_plan.md) -
+  first concrete mdspan BLAS/LAPACK wrapper layer above the existing provider
+  facades.
 - [`tensor_dispatch_and_view_semantics_draft.md`](tensor_dispatch_and_view_semantics_draft.md)
   - tensor/front-end operation roles versus resolved mdspan leaf kernels.
 - [`matrix.md`](matrix.md) - sparse Matrix Market helpers and current matrix
@@ -97,8 +100,8 @@ The final layering should look like this:
    - Calls the first backend whose runtime `try_kernel(...)` succeeds.
 3. **Linalg leaf kernel**
    - Receives resolved mdspan-like views.
-   - Converts extents, strides, transpose flags, and triangle flags to the
-     vendor wrapper call.
+   - Converts extents, strides, storage orientation, matrix transforms, and
+     triangle flags to the vendor wrapper call.
 
 Bare mdspan calls are allowed as leaf-kernel calls, but they cannot derive a
 default Uni20 backend stack by themselves. They need an explicit backend
@@ -180,6 +183,19 @@ concept HostRawAddressableRankedView =
     raw_host_accessor_v<typename std::remove_cvref_t<View>::accessor_type> &&
     raw_data_handle_compatible_v<std::remove_cvref_t<View>>;
 
+template <class Accessor>
+inline constexpr bool accessor_applies_conjugation_v = false;
+
+template <class View>
+inline constexpr bool mdspan_needs_conjugation_v =
+    accessor_applies_conjugation_v<typename std::remove_cvref_t<View>::accessor_type>;
+
+template <class View, std::size_t Rank>
+concept BlasScalarRankedView =
+    HostRawAddressableRankedView<View, Rank> &&
+    uni20::BlasScalar<
+        std::remove_cv_t<typename std::remove_cvref_t<View>::element_type>>;
+
 template <class View, std::size_t Rank>
 concept LapackScalarRankedView =
     HostRawAddressableRankedView<View, Rank> &&
@@ -198,8 +214,16 @@ The exact names can change, but the split matters:
   `RealLinalgVectorView`, and `ComplexLinalgVectorView`: longer names for
   operations that need a specific scalar family.
 - `HostRawAddressableRankedView`: memory can be passed to a host pointer ABI.
-- `LapackScalarRankedView`: element type is exactly supported by the configured
-  LAPACK layer; this is a backend refinement, not the base linalg concept.
+- `BlasScalarRankedView` and `LapackScalarRankedView`: element type is exactly
+  supported by the configured BLAS or LAPACK layer. These are backend
+  refinements, not base linalg concepts. Keep both names because BLAS and LAPACK
+  coverage may diverge for extension scalar types.
+- `accessor_applies_conjugation_v` is the future hook for accessor-derived
+  conjugation metadata. Uni20 does not yet have a conjugating mdspan accessor;
+  the first BLAS wrapper should derive `false` for current raw/default
+  accessors. A future `conj(Tensor)` should return a tensor view whose mdspan
+  accessor advertises this trait, so the mdspan-to-BLAS adapter discovers
+  conjugation from the accessor instead of from tensor-specific side metadata.
 - mutability constraints belong to each operation.
 
 The implementation can add named mutable real/complex aliases such as
@@ -207,9 +231,11 @@ The implementation can add named mutable real/complex aliases such as
 policy is that the short names are real-or-complex and the longer names state a
 specific scalar family.
 
-The compile-time check should reject device accessors, transform accessors,
-unsupported scalar types, rank mismatches, and const outputs before the function
-body is instantiated.
+The compile-time check should reject device accessors, arbitrary transform
+accessors, unsupported scalar types, rank mismatches, and const outputs before
+the function body is instantiated. A transform accessor can still be eligible
+when it exposes raw host storage and declares a BLAS-lowerable operation such as
+accessor-level conjugation through a trait.
 
 ## Parameter Order
 
@@ -233,168 +259,33 @@ must prefix a parameter pack. Older draft documents may still contain
 BLAS/LAPACK-style output-last examples; new code should use the prefix-tag,
 output-first convention unless an external ABI boundary forces another order.
 
-## Runtime LAPACK View Checks
+## Mdspan BLAS/LAPACK Wrapper Layer
 
-LAPACK can operate directly only when a view instance is representable by the
-Fortran ABI call. This is a runtime property because dynamic extents and strides
-matter.
+The first concrete implementation target is a new mdspan wrapper layer above
+the existing BLAS/LAPACK backend facades. The detailed plan lives in
+[`mdspan_blas_lapack_wrapper_plan.md`](mdspan_blas_lapack_wrapper_plan.md).
 
-For a rank-2 matrix view, the direct adapter should compute a descriptor:
+The important split is:
 
-```cpp
-enum class LapackUnitStrideAxis { row, column };
+- `src/uni20/backend/blas` and `src/uni20/backend/lapack` remain provider and
+  ABI facades. They own vendor detection, LP64/ILP64 details, raw declarations,
+  checked LAPACK status handling, and MPLAPACK provider overloads.
+- the new `src/uni20/linalg` mdspan wrapper layer owns view interpretation:
+  ranked mdspan concepts, mdspan-storage-first `MdspanMatrixStage` descriptors,
+  derived provider-ready `BlasReadableMatrix` and `BlasWritableMatrix` objects,
+  transform helpers, direct no-copy runtime acceptance or decline, prepared
+  input temporaries, and operation-specific rewrites such as row-major GEMM
+  output handling.
+- future operation-tag dispatch wraps the mdspan wrappers; the descriptor
+  helpers should be testable before the generic backend-list dispatcher exists.
 
-template <class Scalar>
-struct LapackMatrixViewInfo {
-  Scalar* data;
-  blas_int rows;
-  blas_int cols;
-  blas_int leading_dimension;
-  LapackUnitStrideAxis unit_stride_axis;
-  static constexpr bool needs_conjugation = false;
-};
+This keeps dense linalg policy out of the raw provider wrappers while giving the
+kernel-dispatch design a real, testable leaf-kernel boundary.
 
-template <class Real>
-struct LapackMatrixViewInfo<uni20::complex<Real>> {
-  uni20::complex<Real>* data;
-  blas_int rows;
-  blas_int cols;
-  blas_int leading_dimension;
-  LapackUnitStrideAxis unit_stride_axis;
-  bool needs_conjugation = false;
-};
-```
-
-For real matrix element types, conjugation is a compile-time no-op. For complex
-matrix element types, `needs_conjugation` records whether the storage
-interpretation requires elementwise conjugation in addition to any transpose.
-Conjugating views are input-only. Uni20 should not expose a conjugate view as
-the left-hand side of an update or output expression; if an output/update would
-need conjugation, the backend must rewrite the operation, use an explicit
-temporary/copy-back path owned by the higher-level wrapper, or decline.
-
-Runtime checks:
-
-- rank is already a compile-time operation constraint.
-- `extent(0)` and `extent(1)` fit `blas_int`.
-- at least one matrix stride is `1`.
-- the non-unit stride fits `blas_int`.
-- the leading dimension is large enough for the interpretation used by the
-  operation.
-- vector lengths and increments fit the backend integer type.
-- writable outputs do not have const element type.
-- operation-specific aliasing restrictions are satisfied.
-
-The simple column-major case is:
-
-```text
-stride(0) == 1
-lda = stride(1)
-```
-
-The row-major-like case is:
-
-```text
-stride(1) == 1
-lda = stride(0)
-```
-
-Having `stride(1) == 1` means the same storage can often be interpreted as a
-column-major view of the transpose. Whether that is valid without copying is
-operation-specific:
-
-- Value-only operations may be able to flip transpose or triangle flags.
-- BLAS update operations may be representable through transpose flags.
-- In-place factorization and eigenvector-producing LAPACK drivers may need the
-  native column-major interpretation, or an explicit higher-level temporary.
-
-So "one stride is 1" is the baseline runtime representability test, but each
-operation still decides whether row-major-as-transposed semantics are valid for
-its outputs.
-
-### Direct Views And Prepared Views
-
-The low-level direct LAPACK view helper is non-owning. If the input mdspan is
-already representable by a BLAS/LAPACK ABI call, `LapackMatrixViewInfo::data`
-points at the original storage and no allocation occurs.
-
-For input-only operands, a higher-level prepared-view helper may own an optional
-scratch `Matrix`:
-
-```cpp
-template <class Scalar>
-struct PreparedLapackMatrixView {
-  Matrix<Scalar> scratch;              // empty when no copy is needed
-  LapackMatrixViewInfo<Scalar> info;   // points at original storage or scratch
-};
-```
-
-If the input view is not directly representable, the helper copies it into
-`scratch` in a supported layout and points `info.data` at the scratch storage.
-Constructing an empty `Matrix` for the direct case is acceptable; dense
-projected matrices are small in the Krylov use cases, and the LAPACK call will
-dominate.
-
-Mutable outputs and update operands are stricter. A helper may rewrite an
-operation algebraically, for example by interpreting a row-major output as the
-transpose of a column-major output and swapping/transposing the input operands,
-but this should be implemented through reusable preprocessing helpers rather
-than ad-hoc fixes inside each kernel. If a genuine temporary output is needed,
-the wrapper must own the copy-back semantics explicitly and reject unsupported
-aliasing or partial-overlap cases.
-
-Complex transpose state should be represented explicitly, for example:
-
-```cpp
-enum class MatrixTransform {
-  normal,
-  transpose,
-  conjugate_transpose,
-  conjugate
-};
-```
-
-Standard BLAS/LAPACK transpose flags cover `normal`, `transpose`, and
-`conjugate_transpose` (`'N'`, `'T'`, and `'C'`). MKL additionally supports
-`'R'` for conjugate-without-transpose in some BLAS interfaces. Uni20 should keep
-`conjugate` as a first-class internal transform state; the standard LAPACK
-backend can materialize or decline when it cannot express that state directly,
-while an MKL-specific backend can lower it to `'R'` where that extension is
-available.
-
-### Materialization Policy
-
-"No hidden copies" should mean "no copies that are invisible in the contract",
-not "copies are forbidden everywhere." There are three useful levels:
-
-1. **Direct leaf kernels**: `try_kernel(...)` over already-resolved views does
-   not allocate or copy as a fallback. It either accepts the instance and calls
-   the backend, or declines before side effects. This keeps backend dispatch
-   predictable and makes performance debugging straightforward.
-2. **Prepared linalg wrappers**: named helpers or public linalg functions may
-   document that they accept general strided input views and may materialize
-   input-only operands into scratch storage. This is often the ergonomic default
-   for dense projected Krylov matrices, where the copy cost is small compared
-   with the LAPACK call.
-3. **Output/update materialization**: copy-back is much more delicate because it
-   changes aliasing, lifetime, and failure semantics. It should be allowed only
-   when the wrapper explicitly owns that policy, checks aliasing before the
-   first side effect, and records the materialization in diagnostics.
-
-A public wrapper can expose this choice explicitly:
-
-```cpp
-enum class MaterializationPolicy {
-  direct_only,        // no allocation; decline or throw if not backend-ready
-  input_temporaries,  // may copy read-only operands into backend-ready storage
-  explicit_copy_back  // may use output temporaries with documented copy-back
-};
-```
-
-The likely default is `input_temporaries` for value-style high-level linalg
-wrappers and `direct_only` for low-level `try_kernel(...)` calls and in-place
-mdspan wrappers. `explicit_copy_back` should be opt-in until the aliasing and
-diagnostic behavior is well exercised.
+The staging object should store logical mdspan extents, the non-unit stride,
+and the integer mdspan axis whose stride is `1`. It should not store a BLAS
+transpose flag. Helpers derive the provider-ready BLAS rows, columns, leading
+dimension, and readable-input transform from those storage facts.
 
 ## Kernel Dispatch Interface
 
@@ -435,8 +326,8 @@ template <class W, class A>
 bool try_kernel(LapackBackend, self_adjoint_eigh_op op, W&& w, A&& a)
 {
   auto values = try_lapack_vector_view(w);
-  auto matrix = try_lapack_matrix_view(a);
-  if (!matrix || !values) {
+  auto matrix_stage = try_mdspan_matrix_stage(a);
+  if (!matrix_stage || !values) {
     return false;
   }
 
@@ -624,12 +515,15 @@ This rejects, at compile time:
 - const output views.
 - integer or unsupported scalar types.
 - complex eigenvalue output for a Hermitian problem.
-- device or transform accessors that cannot be passed to a host pointer ABI.
+- device accessors and arbitrary transform accessors that cannot be passed to a
+  host pointer ABI. Accessor-declared conjugation is allowed only when the
+  accessor still exposes raw storage and the BLAS wrapper knows how to lower or
+  postprocess it.
 
 ### Runtime Representability
 
-The strict first LAPACK implementation should require column-major direct
-representation:
+The strict first LAPACK implementation should require direct writable matrix
+representation with unit stride along mdspan axis `0`:
 
 ```text
 matrix_work.rank() == 2          // compile-time checked
@@ -642,7 +536,9 @@ eigenvalues.extent(0) == n
 eigenvalues.stride(0) == 1       // first pass; non-unit vector increments can be added later
 ```
 
-`stride(1) == 1` row-major-like matrices should initially decline. Real
+In descriptor terms, this is `unit_stride_axis == 0` and
+`nonunit_stride == stride(1)`. `stride(1) == 1` row-major-like matrices should
+initially decline. Real
 symmetric value-only solves can probably support row-major-as-transposed by
 flipping `uplo`, but complex Hermitian eigenvectors are easy to mishandle
 because row-major storage interpreted as column-major storage represents a
@@ -660,42 +556,45 @@ template <class W, class A>
 bool try_kernel(LapackBackend, self_adjoint_eigh_op op, W&& eigenvalues,
                 A&& matrix_work)
 {
-  auto matrix = try_lapack_column_major_matrix(matrix_work);
+  auto matrix_stage = try_blas_column_major_writable_stage(matrix_work);
   auto values = try_lapack_contiguous_vector(eigenvalues);
-  if (!matrix || !values) {
+  if (!matrix_stage || !values) {
     return false;
   }
 
-  if (matrix->rows != matrix->cols || values->size != matrix->rows) {
+  auto const matrix_blas = blas_writable_matrix(*matrix_stage);
+  blas_int const rows = matrix_blas.rows;
+  blas_int const cols = matrix_blas.cols;
+  if (rows != cols || values->size != rows) {
     return false;
   }
 
   char const jobz = op.compute_vectors ? 'V' : 'N';
   char const uplo = lapack_triangle(op.triangle);
-  blas_int const n = matrix->rows;
-  blas_int const lda = matrix->leading_dimension;
+  blas_int const n = rows;
+  blas_int const lda = matrix_blas.leading_dimension;
 
   using MatrixScalar = view_value_t<A>;
   using Real = view_value_t<W>;
 
   if constexpr (uni20::LapackReal<MatrixScalar>) {
     MatrixScalar work_query{};
-    uni20::lapack::syev(jobz, uplo, n, matrix->data, lda, values->data,
+    uni20::lapack::syev(jobz, uplo, n, matrix_blas.data, lda, values->data,
                         &work_query, -1);
 
     blas_int const lwork = checked_lwork(work_query);
     std::vector<MatrixScalar> work(static_cast<std::size_t>(lwork));
-    uni20::lapack::syev(jobz, uplo, n, matrix->data, lda, values->data,
+    uni20::lapack::syev(jobz, uplo, n, matrix_blas.data, lda, values->data,
                         work.data(), lwork);
   } else {
     MatrixScalar work_query{};
     std::vector<Real> rwork(heev_rwork_size(n));
-    uni20::lapack::heev(jobz, uplo, n, matrix->data, lda, values->data,
+    uni20::lapack::heev(jobz, uplo, n, matrix_blas.data, lda, values->data,
                         &work_query, -1, rwork.data());
 
     blas_int const lwork = checked_lwork(real_part(work_query));
     std::vector<MatrixScalar> work(static_cast<std::size_t>(lwork));
-    uni20::lapack::heev(jobz, uplo, n, matrix->data, lda, values->data,
+    uni20::lapack::heev(jobz, uplo, n, matrix_blas.data, lda, values->data,
                         work.data(), lwork, rwork.data());
   }
 
@@ -708,8 +607,8 @@ The actual helper names can differ, but the responsibilities should stay split:
 - `kernel_accepts_types(...)` says this backend can compile for these view
   types, returning `maybe` for direct LAPACK views because extents, strides,
   aliasing, and provider availability are runtime facts.
-- `try_lapack_column_major_matrix(...)` checks the particular extents and
-  strides.
+- `try_blas_column_major_writable_stage(...)` checks the particular extents,
+  strides, and writable storage orientation.
 - prepared-view helpers may materialize input-only matrices into an owned
   `Matrix` scratch before calling a direct LAPACK wrapper.
 - `uni20::lapack::syev/heev` perform the provider-dispatched LAPACK call.
@@ -724,8 +623,8 @@ Minimal tests:
 - binary128 real and complex when MPLAPACK is enabled.
 - rank and scalar rejection through `static_assert`.
 - runtime decline for a rank-2 view with neither stride equal to `1`.
-- runtime decline for row-major `stride(1) == 1` until that case is explicitly
-  implemented.
+- runtime decline for `unit_stride_axis == 1` row-major-like matrices until
+  that case is explicitly implemented.
 - eigenvalues agree with the current Krylov dense helper.
 - eigenvectors, when requested, satisfy
   `||A v_i - lambda_i v_i|| / scale` within the scalar-specific tolerance.
@@ -751,8 +650,10 @@ accessor kind.
 
 ## Initial Operation Set
 
-The first mdspan wrappers should cover operations already used by the native
-Krylov solvers:
+Use direct mdspan GEMM first to prove the BLAS matrix descriptor, transform
+helpers, and row-major writable output rewrite. After that, the first LAPACK
+mdspan wrappers should cover operations already used by the native Krylov
+solvers:
 
 | Operation | LAPACK routines | Reason |
 | --- | --- | --- |
@@ -769,51 +670,33 @@ separate tested header if we want to preserve prototype coverage.
 
 ## Implementation Phases
 
-### Phase 1: Concepts and View Descriptors
+### Phase 1: Mdspan BLAS/LAPACK Wrapper Layer
 
-Add linalg-specific mdspan concept refinements and runtime descriptor helpers.
+Implement the wrapper layer described in
+[`mdspan_blas_lapack_wrapper_plan.md`](mdspan_blas_lapack_wrapper_plan.md).
 
-Candidate files:
+The first slice is:
 
-- `src/uni20/linalg/mdspan_concepts.hpp`
-- `src/uni20/linalg/mdspan_lapack_view.hpp`
+1. linalg-specific mdspan concept refinements;
+2. mdspan-storage-first `MdspanMatrixStage` helpers, derived
+   `BlasReadableMatrix`/`BlasWritableMatrix` helpers, and transform helpers;
+3. direct mdspan GEMM over existing `uni20::blas::gemm`, including row-major
+   writable output rewrite tests;
+4. strict column-major writable descriptor helpers for LAPACK update operands;
+5. one direct mdspan LAPACK wrapper, likely self-adjoint eigensystem, over
+   existing `uni20::lapack::syev/heev`.
 
-Tests:
+This layer should call `uni20::blas::*` and `uni20::lapack::*`, never raw
+Fortran symbols, and should keep strict direct wrappers non-owning and no-copy.
+Prepared wrappers may later own input-only materialization by contract.
 
-- layout-left, layout-right, and layout-stride rank-1/rank-2 views.
-- const input versus mutable output.
-- unsupported scalar rejection through `static_assert`.
-- device or transform accessor rejection where test accessors exist.
-- runtime rejection when neither matrix stride is `1`.
-- runtime rejection when extents or strides do not fit `blas_int`.
-- complex input transform descriptors, including conjugate-only states.
-- prepared input matrix copies when no matrix stride is `1`.
-
-### Phase 2: LAPACK Operation Wrappers
-
-Implement a small direct mdspan LAPACK layer over existing checked wrappers.
-
-This layer should:
-
-- perform workspace queries internally.
-- derive `lda`, `ldu`, `ldv`, and vector increments from view descriptors.
-- call `uni20::lapack::*`, never raw Fortran symbols.
-- keep strict direct wrappers non-owning and no-copy.
-- provide reusable prepared-view helpers for input-only materialization and
-  algebraic transpose/conjugation rewrites.
-- document when an operation supports row-major-as-transposed or conjugated
-  views without copying.
-
-Start with Hermitian/symmetric eigensolvers and Schur routines because those are
-the highest-value Krylov dependencies.
-
-### Phase 3: Kernel Dispatch Skeleton
+### Phase 2: Kernel Dispatch Skeleton
 
 Implement the generic pieces from `kernel_dispatch.md` only as much as the
 mdspan LAPACK layer needs:
 
 - `backend_list<...>`.
-- backend values, usually empty stateless tags in the LAPACK first pass.
+- backend values, usually empty stateless tags in the first pass.
 - `kernel_accepts_types(backend const&, op const&, args&...)` detection using
   private type-probe lvalues.
 - ordered `dispatch_kernel(...)`.
@@ -826,7 +709,7 @@ Tests should use fake backends to verify:
 - forced single-backend dispatch reports a clean failure.
 - a later eligible backend prevents a whole-list static assertion.
 
-### Phase 4: Public Linalg Convenience API
+### Phase 3: Public Linalg Convenience API
 
 Add public convenience wrappers for explicit mdspan calls:
 
@@ -841,7 +724,7 @@ first. For in-place LAPACK-style wrappers, the overwritten work matrix is a
 mutable output/update operand and should be grouped with the other output
 operands before read-only inputs.
 
-### Phase 5: DenseMatrix and Tensor Integration
+### Phase 4: DenseMatrix and Tensor Integration
 
 Add mdspan views to the temporary dense matrix type and later to the final
 rank-2 tensor alias:
@@ -856,7 +739,7 @@ calls to mdspan linalg wrappers. This should remove most of the temporary
 `RightMatrix`/copy-left-copy-right glue used while the LAPACK wrappers were
 being brought up.
 
-### Phase 6: Tensor Front-End Dispatch
+### Phase 5: Tensor Front-End Dispatch
 
 Once the leaf mdspan path is stable, connect tensor-facing operations:
 
@@ -875,6 +758,9 @@ Use three classes of tests:
 
 1. **Compile-time concept tests**
    - Verify accepted and rejected scalar/accessor/rank/mutability combinations.
+   - Verify default/raw accessors derive `mdspan_needs_conjugation_v == false`.
+   - Use a fake conjugating accessor to verify accessor-derived conjugation
+     metadata without requiring a full view implementation yet.
 2. **Runtime view-representation tests**
    - Verify `layout_left`, `layout_right`, and `layout_stride` descriptors.
    - Check submatrix and padded views where one stride remains `1`.
@@ -912,6 +798,8 @@ decline behavior easy to test.
 - Which operations should support row-major-as-transposed views without copying?
 - Which operations should support conjugate-only input transforms directly, and
   should an MKL backend lower those to the `'R'` extension when available?
+- Which BLAS update operations should support output-side conjugation by
+  planning an explicit postprocess after the provider call?
 - Which public wrappers should default to `input_temporaries`, and which should
   require `direct_only` unless the caller opts into materialization?
 - What diagnostics should report materialization decisions: copied input,

@@ -19,3 +19,8 @@ BLAS interface targets used by higher layers.
   policy.
 - Keep LP64/ILP64 handling centralized here so callers do not duplicate BLAS
   integer assumptions.
+- The linalg BLAS adapter may request a provider conjugate-no-transpose opcode
+  (`'R'`) for readable complex operands. The reference wrappers should
+  eventually handle that opcode by using a provider CBLAS/MKL extension when
+  available, or by materializing a conjugated temporary and calling the ordinary
+  Fortran `N/T/C` GEMM path.

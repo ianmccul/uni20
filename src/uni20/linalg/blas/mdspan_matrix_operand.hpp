@@ -6,6 +6,7 @@
  * \brief Lower mdspan matrix stages to provider-ready BLAS operands.
  */
 
+#include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/blas/matrix_operand.hpp>
 #include <uni20/linalg/blas/mdspan_matrix_stage.hpp>
 
@@ -56,6 +57,7 @@ blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage,
 
 /// \brief Try to lower a mutable mdspan directly to a writable provider operand.
 template <uni20::MutableStridedMdspan Mdspan>
+  requires uni20::BlasScalar<std::remove_cv_t<typename Mdspan::element_type>>
 auto try_blas_writable_matrix(Mdspan const& span)
     -> std::optional<
         BlasWritableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
@@ -70,6 +72,7 @@ auto try_blas_writable_matrix(Mdspan const& span)
 
 /// \brief Try to lower an mdspan directly to a readable provider operand.
 template <uni20::StridedMdspan Mdspan>
+  requires uni20::BlasScalar<std::remove_cv_t<typename Mdspan::element_type>>
 auto try_blas_readable_matrix(Mdspan const& span, MatrixTransform requested = MatrixTransform::normal)
     -> std::optional<
         BlasReadableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
@@ -84,6 +87,7 @@ auto try_blas_readable_matrix(Mdspan const& span, MatrixTransform requested = Ma
 
 /// \brief Try to lower an mdspan to the strict column-major shape expected by LAPACK.
 template <uni20::MutableStridedMdspan Mdspan>
+  requires uni20::LapackScalar<std::remove_cv_t<typename Mdspan::element_type>>
 auto try_lapack_writable_matrix(Mdspan const& span)
     -> std::optional<
         BlasWritableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>

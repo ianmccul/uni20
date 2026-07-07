@@ -6,6 +6,7 @@
 
 #include <array>
 #include <complex>
+#include <limits>
 #include <type_traits>
 #include <vector>
 
@@ -25,6 +26,23 @@ struct ConjugatingAccessor
     constexpr reference access(data_handle_type ptr, offset_type offset) const { return std::conj(ptr[offset]); }
     constexpr data_handle_type offset(data_handle_type ptr, offset_type offset) const { return ptr + offset; }
 };
+
+template <class Scalar> using left_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left>;
+
+template <class Span>
+concept can_try_blas_writable_matrix =
+    requires(Span const& span) { uni20::linalg::blas::try_blas_writable_matrix(span); };
+
+template <class Span>
+concept can_try_blas_readable_matrix =
+    requires(Span const& span) { uni20::linalg::blas::try_blas_readable_matrix(span); };
+
+template <class Span>
+concept can_try_lapack_writable_matrix =
+    requires(Span const& span) { uni20::linalg::blas::try_lapack_writable_matrix(span); };
+
+template <class Scalar>
+concept can_lower_blas_trans_char = requires { uni20::linalg::blas::blas_trans_char<Scalar>(MatrixTransform::normal); };
 } // namespace
 
 template <> struct uni20::linalg::blas::accessor_applies_conjugation<ConjugatingAccessor> : std::true_type
@@ -32,6 +50,7 @@ template <> struct uni20::linalg::blas::accessor_applies_conjugation<Conjugating
 
 TEST(BlasMatrixTransformTest, ComposeAndTransposeResultTransform)
 {
+  using uni20::linalg::blas::blas_trans_char;
   using uni20::linalg::blas::compose;
   using uni20::linalg::blas::standard_blas_trans_char;
   using uni20::linalg::blas::transpose_result_transform;
@@ -49,6 +68,23 @@ TEST(BlasMatrixTransformTest, ComposeAndTransposeResultTransform)
   EXPECT_EQ(standard_blas_trans_char<double>(MatrixTransform::conjugate_transpose), 'T');
   EXPECT_FALSE(standard_blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate));
   EXPECT_EQ(standard_blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate_transpose), 'C');
+
+  EXPECT_EQ(blas_trans_char<double>(MatrixTransform::conjugate), 'N');
+  EXPECT_EQ(blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate), 'R');
+}
+
+TEST(BlasMatrixOperandTest, ConvenienceApisRequireConfiguredScalarBackends)
+{
+  static_assert(can_lower_blas_trans_char<double>);
+  static_assert(!can_lower_blas_trans_char<int>);
+
+  static_assert(can_try_blas_writable_matrix<left_mdspan<double>>);
+  static_assert(can_try_blas_readable_matrix<left_mdspan<double>>);
+  static_assert(can_try_lapack_writable_matrix<left_mdspan<double>>);
+
+  static_assert(!can_try_blas_writable_matrix<left_mdspan<int>>);
+  static_assert(!can_try_blas_readable_matrix<left_mdspan<int>>);
+  static_assert(!can_try_lapack_writable_matrix<left_mdspan<int>>);
 }
 
 TEST(BlasMatrixOperandTest, StagesColumnMajorMdspan)
@@ -106,6 +142,41 @@ TEST(BlasMatrixOperandTest, StagesRowMajorMdspanAsTransposedProviderMatrix)
   EXPECT_FALSE(uni20::linalg::blas::try_lapack_writable_matrix(span).has_value());
 }
 
+TEST(BlasMatrixOperandTest, NormalizesUnobservedSingletonProviderColumnStride)
+{
+  {
+    std::vector<double> storage(3);
+    stdex::layout_stride::mapping<extents_2d> mapping(extents_2d{3, 1}, std::array<uni20::index_type, 2>{1, 0});
+    stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
+
+    auto stage = uni20::linalg::blas::try_mdspan_matrix_stage(span);
+    ASSERT_TRUE(stage.has_value());
+    EXPECT_EQ(stage->unit_stride_axis, 0);
+    EXPECT_EQ(stage->nonunit_stride, 3);
+
+    auto writable = uni20::linalg::blas::blas_writable_matrix(*stage);
+    EXPECT_EQ(writable.rows, 3);
+    EXPECT_EQ(writable.cols, 1);
+    EXPECT_EQ(writable.leading_dimension, 3);
+  }
+
+  {
+    std::vector<double> storage(3);
+    stdex::layout_stride::mapping<extents_2d> mapping(extents_2d{1, 3}, std::array<uni20::index_type, 2>{0, 1});
+    stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
+
+    auto stage = uni20::linalg::blas::try_mdspan_matrix_stage(span);
+    ASSERT_TRUE(stage.has_value());
+    EXPECT_EQ(stage->unit_stride_axis, 1);
+    EXPECT_EQ(stage->nonunit_stride, 3);
+
+    auto writable = uni20::linalg::blas::blas_writable_matrix(*stage);
+    EXPECT_EQ(writable.rows, 3);
+    EXPECT_EQ(writable.cols, 1);
+    EXPECT_EQ(writable.leading_dimension, 3);
+  }
+}
+
 TEST(BlasMatrixOperandTest, DeclinesNonBlasMatrixStridePattern)
 {
   std::vector<double> storage(16);
@@ -113,6 +184,38 @@ TEST(BlasMatrixOperandTest, DeclinesNonBlasMatrixStridePattern)
   stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
 
   EXPECT_FALSE(uni20::linalg::blas::try_mdspan_matrix_stage(span).has_value());
+}
+
+TEST(BlasMatrixOperandTest, DeclinesValuesOutsideBlasIntegerRange)
+{
+  static_assert(std::is_signed_v<uni20::blas_int>);
+
+  if constexpr (std::numeric_limits<uni20::index_type>::max() > std::numeric_limits<uni20::blas_int>::max())
+  {
+    std::vector<double> storage(1);
+    auto const too_large =
+        static_cast<uni20::index_type>(std::numeric_limits<uni20::blas_int>::max()) + uni20::index_type{1};
+
+    {
+      stdex::layout_stride::mapping<extents_2d> mapping(extents_2d{too_large, 1},
+                                                        std::array<uni20::index_type, 2>{1, 0});
+      stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
+
+      EXPECT_FALSE(uni20::linalg::blas::try_mdspan_matrix_stage(span).has_value());
+    }
+
+    {
+      stdex::layout_stride::mapping<extents_2d> mapping(extents_2d{2, 2},
+                                                        std::array<uni20::index_type, 2>{1, too_large});
+      stdex::mdspan<double, extents_2d, stdex::layout_stride> span(storage.data(), mapping);
+
+      EXPECT_FALSE(uni20::linalg::blas::try_mdspan_matrix_stage(span).has_value());
+    }
+  }
+  else
+  {
+    GTEST_SKIP() << "index_type cannot represent values outside the configured BLAS integer range";
+  }
 }
 
 TEST(BlasMatrixOperandTest, AccessorTraitMarksConjugatingViews)

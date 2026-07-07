@@ -148,8 +148,8 @@ The layers are therefore:
 
 Passing mdspans directly is a lower-level escape hatch. The caller must provide a
 backend list explicitly, or call a concrete backend helper such as
-`BlasBackend::gemm_or_throw(...)` if such a convenience wrapper exists. In that
-path the caller has already taken responsibility for storage compatibility.
+`BlasBackend::gemm(...)` if such a convenience wrapper exists. In that path the
+caller has already taken responsibility for storage compatibility.
 
 ## Worked example: gemm
 

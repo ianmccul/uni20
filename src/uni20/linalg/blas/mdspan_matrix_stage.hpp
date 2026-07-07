@@ -9,12 +9,14 @@
 #include <uni20/backend/backend.hpp>
 #include <uni20/mdspan/concepts.hpp>
 
-#include <limits>
 #include <optional>
 #include <type_traits>
+#include <utility>
 
 namespace uni20::linalg::blas
 {
+
+static_assert(std::is_signed_v<blas_int>, "BLAS/LAPACK integer ABI type must be signed");
 
 /// \brief Trait used by mdspan accessors that conjugate values on read.
 template <class Accessor> struct accessor_applies_conjugation : std::false_type
@@ -36,6 +38,7 @@ template <class Scalar, class Handle> struct MdspanMatrixStage
     Handle data{};
     blas_int extent0 = 0;
     blas_int extent1 = 0;
+    /// \brief Mdspan stride orthogonal to the unit-stride axis.
     blas_int nonunit_stride = 0;
     int unit_stride_axis = 0;
     bool needs_conjugation = false;
@@ -43,28 +46,44 @@ template <class Scalar, class Handle> struct MdspanMatrixStage
 
 namespace detail
 {
-template <typename Value> std::optional<blas_int> try_blas_int(Value value)
+inline constexpr blas_int invalid_blas_int = blas_int{-1};
+
+constexpr bool is_valid_blas_int(blas_int value) noexcept { return value >= 0; }
+
+template <typename Value> constexpr blas_int try_blas_int(Value value) noexcept
 {
-  if constexpr (std::is_signed_v<Value>)
+  if (!std::in_range<blas_int>(value))
   {
-    if (value < Value{})
-    {
-      return std::nullopt;
-    }
+    return invalid_blas_int;
   }
 
-  auto constexpr max_value = static_cast<unsigned long long>(std::numeric_limits<blas_int>::max());
-  auto const unsigned_value = static_cast<unsigned long long>(value);
-  if (unsigned_value > max_value)
+  auto const converted = static_cast<blas_int>(value);
+  if (converted < 0)
   {
-    return std::nullopt;
+    return invalid_blas_int;
   }
-  return static_cast<blas_int>(value);
+  return converted;
 }
 
-inline bool leading_dimension_is_valid(blas_int leading_dimension, blas_int rows)
+inline blas_int minimum_leading_dimension(blas_int rows) { return rows > 1 ? rows : 1; }
+
+inline std::optional<blas_int> normalized_nonunit_stride(blas_int nonunit_stride, blas_int provider_rows,
+                                                         blas_int provider_cols)
 {
-  return leading_dimension >= (rows > 1 ? rows : 1);
+  blas_int const minimum = minimum_leading_dimension(provider_rows);
+  if (nonunit_stride >= minimum)
+  {
+    return nonunit_stride;
+  }
+
+  // If there is only one provider column, the stride between columns is
+  // unspecified by the logical view. Choose the BLAS-compatible representative.
+  if (provider_cols <= 1)
+  {
+    return minimum;
+  }
+
+  return std::nullopt;
 }
 } // namespace detail
 
@@ -89,7 +108,8 @@ auto try_mdspan_matrix_stage(Mdspan const& span)
   auto const extent1 = detail::try_blas_int(span.extent(1));
   auto const stride0 = detail::try_blas_int(mapping.stride(0));
   auto const stride1 = detail::try_blas_int(mapping.stride(1));
-  if (!extent0 || !extent1 || !stride0 || !stride1)
+  if (!detail::is_valid_blas_int(extent0) || !detail::is_valid_blas_int(extent1) ||
+      !detail::is_valid_blas_int(stride0) || !detail::is_valid_blas_int(stride1))
   {
     return std::nullopt;
   }
@@ -97,33 +117,37 @@ auto try_mdspan_matrix_stage(Mdspan const& span)
   int unit_stride_axis = -1;
   blas_int nonunit_stride = 0;
   blas_int provider_rows = 0;
+  blas_int provider_cols = 0;
 
-  if (*stride0 == 1)
+  if (stride0 == 1)
   {
     unit_stride_axis = 0;
-    nonunit_stride = *stride1;
-    provider_rows = *extent0;
+    nonunit_stride = stride1;
+    provider_rows = extent0;
+    provider_cols = extent1;
   }
-  else if (*stride1 == 1)
+  else if (stride1 == 1)
   {
     unit_stride_axis = 1;
-    nonunit_stride = *stride0;
-    provider_rows = *extent1;
+    nonunit_stride = stride0;
+    provider_rows = extent1;
+    provider_cols = extent0;
   }
   else
   {
     return std::nullopt;
   }
 
-  if (!detail::leading_dimension_is_valid(nonunit_stride, provider_rows))
+  auto const normalized_stride = detail::normalized_nonunit_stride(nonunit_stride, provider_rows, provider_cols);
+  if (!normalized_stride)
   {
     return std::nullopt;
   }
 
   return MdspanMatrixStage<scalar_type, handle_type>{.data = span.data_handle(),
-                                                     .extent0 = *extent0,
-                                                     .extent1 = *extent1,
-                                                     .nonunit_stride = nonunit_stride,
+                                                     .extent0 = extent0,
+                                                     .extent1 = extent1,
+                                                     .nonunit_stride = *normalized_stride,
                                                      .unit_stride_axis = unit_stride_axis,
                                                      .needs_conjugation = mdspan_needs_conjugation_v<Mdspan>};
 }
