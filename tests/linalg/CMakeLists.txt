@@ -5,6 +5,15 @@ add_test_module(linalg
   LIBS uni20_linalg
 )
 
+if(UNI20_BACKEND_BLAS)
+  add_test_module(linalg_blas
+    SOURCES
+      test_blas_matrix_operands.cpp
+      test_blas_gemm.cpp
+    LIBS uni20_linalg uni20_backend_blas
+  )
+endif()
+
 if(UNI20_ENABLE_MPLAPACK)
   add_executable(uni20_linalg_mplapack_binary128_tests test_mplapack_binary128_cpu_ops.cpp)
   target_link_libraries(uni20_linalg_mplapack_binary128_tests

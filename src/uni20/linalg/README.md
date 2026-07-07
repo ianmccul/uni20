@@ -8,6 +8,7 @@ before they lower to backend wrappers and kernels.
 
 - `linalg.hpp`: public include point for the dense linalg layer.
 - `backend_manifest.hpp`: backend availability and dispatch metadata.
+- `blas/`: mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - `ops/`: operation descriptors such as matrix-operation tags.
 - `backends/cpu/`: CPU dense matrix helpers and the current dense matrix
   exponential implementation.
