@@ -11,7 +11,6 @@
 namespace
 {
 using extents_2d = stdex::dextents<uni20::index_type, 2>;
-using uni20::linalg::blas::MatrixTransform;
 
 template <class Span> void fill_matrix(Span span, std::initializer_list<double> values)
 {
@@ -69,20 +68,23 @@ TEST(BlasGemmTest, RewritesRowMajorOutput)
   EXPECT_DOUBLE_EQ((c[1, 1]), 154.0);
 }
 
-TEST(BlasGemmTest, HandlesRequestedTranspose)
+TEST(BlasGemmTest, HandlesTransposedMdspanView)
 {
   std::vector<double> a_storage(6);
   std::vector<double> b_storage(6);
   std::vector<double> c_storage(4);
 
-  stdex::mdspan<double, extents_2d, stdex::layout_left> a(a_storage.data(), 3, 2);
+  stdex::mdspan<double, extents_2d, stdex::layout_left> a_base(a_storage.data(), 3, 2);
+  stdex::layout_stride::mapping<extents_2d> a_transposed_mapping(extents_2d{2, 3},
+                                                                 std::array<uni20::index_type, 2>{3, 1});
+  stdex::mdspan<double, extents_2d, stdex::layout_stride> a(a_storage.data(), a_transposed_mapping);
   stdex::mdspan<double, extents_2d, stdex::layout_left> b(b_storage.data(), 3, 2);
   stdex::mdspan<double, extents_2d, stdex::layout_left> c(c_storage.data(), 2, 2);
 
-  fill_matrix(a, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  fill_matrix(a_base, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
   fill_matrix(b, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
 
-  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0, MatrixTransform::transpose));
+  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 89.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 98.0);
@@ -126,7 +128,7 @@ TEST(BlasGemmTest, TryDeclinesUnsupportedStridePattern)
   EXPECT_DOUBLE_EQ((c[1, 1]), 7.0);
 }
 
-TEST(BlasGemmTest, CollapsesRealConjugateOnlyTransform)
+TEST(BlasGemmTest, AcceptsRealConjIdentityView)
 {
   std::vector<double> a_storage(1, 3.0);
   std::vector<double> b_storage(1, 4.0);
@@ -136,6 +138,23 @@ TEST(BlasGemmTest, CollapsesRealConjugateOnlyTransform)
   stdex::mdspan<double, extents_2d, stdex::layout_left> b(b_storage.data(), 1, 1);
   stdex::mdspan<double, extents_2d, stdex::layout_left> c(c_storage.data(), 1, 1);
 
-  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0, MatrixTransform::conjugate));
+  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, uni20::conj(a), b, 0.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
+}
+
+TEST(BlasGemmTest, UsesConjugatingMdspanInput)
+{
+  using Complex = uni20::complex<double>;
+
+  std::vector<Complex> a_storage(1, Complex{2.0, 1.0});
+  std::vector<Complex> b_storage(1, Complex{3.0, 1.0});
+  std::vector<Complex> c_storage(1);
+
+  stdex::mdspan<Complex, extents_2d, stdex::layout_left> a(a_storage.data(), 1, 1);
+  stdex::mdspan<Complex, extents_2d, stdex::layout_left> b(b_storage.data(), 1, 1);
+  stdex::mdspan<Complex, extents_2d, stdex::layout_left> c(c_storage.data(), 1, 1);
+
+  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, Complex{1.0, 0.0}, uni20::conj(a), b, Complex{0.0, 0.0}));
+  EXPECT_DOUBLE_EQ((c[0, 0]).real(), 7.0);
+  EXPECT_DOUBLE_EQ((c[0, 0]).imag(), -1.0);
 }

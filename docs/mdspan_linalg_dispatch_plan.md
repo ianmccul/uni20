@@ -100,8 +100,8 @@ The final layering should look like this:
    - Calls the first backend whose runtime `try_kernel(...)` succeeds.
 3. **Linalg leaf kernel**
    - Receives resolved mdspan-like views.
-   - Converts extents, strides, storage orientation, matrix transforms, and
-     triangle flags to the vendor wrapper call.
+   - Converts extents, strides, storage orientation, view-derived readable
+     transforms, and triangle flags to the vendor wrapper call.
 
 Bare mdspan calls are allowed as leaf-kernel calls, but they cannot derive a
 default Uni20 backend stack by themselves. They need an explicit backend
@@ -183,12 +183,9 @@ concept HostRawAddressableRankedView =
     raw_host_accessor_v<typename std::remove_cvref_t<View>::accessor_type> &&
     raw_data_handle_compatible_v<std::remove_cvref_t<View>>;
 
-template <class Accessor>
-inline constexpr bool accessor_applies_conjugation_v = false;
-
-template <class View>
-inline constexpr bool mdspan_needs_conjugation_v =
-    accessor_applies_conjugation_v<typename std::remove_cvref_t<View>::accessor_type>;
+// From src/uni20/mdspan/conjugate_accessor.hpp:
+// accessor_applies_conjugation_v<Accessor>
+// mdspan_needs_conjugation_v<View>
 
 template <class View, std::size_t Rank>
 concept BlasScalarRankedView =
@@ -218,13 +215,22 @@ The exact names can change, but the split matters:
   supported by the configured BLAS or LAPACK layer. These are backend
   refinements, not base linalg concepts. Keep both names because BLAS and LAPACK
   coverage may diverge for extension scalar types.
-- `accessor_applies_conjugation_v` is the future hook for accessor-derived
-  conjugation metadata. Uni20 does not yet have a conjugating mdspan accessor;
-  the first BLAS wrapper should derive `false` for current raw/default
-  accessors. A future `conj(Tensor)` should return a tensor view whose mdspan
-  accessor advertises this trait, so the mdspan-to-BLAS adapter discovers
+- `accessor_applies_conjugation_v` and `mdspan_needs_conjugation_v` live in
+  `src/uni20/mdspan/conjugate_accessor.hpp`. The generic mdspan `conj(...)`
+  helper returns a read-only conjugating accessor view for complex mdspans,
+  cancels to the const original view when applied twice, and is a no-op for
+  non-complex values while still returning a const identity mdspan view. A
+  future `conj(Tensor)` should return a tensor view whose mdspan accessor
+  advertises the same trait, so the mdspan-to-BLAS adapter discovers
   conjugation from the accessor instead of from tensor-specific side metadata.
 - mutability constraints belong to each operation.
+- Generic writable/LHS operands should be structural views with ordinary
+  raw/default-style accessors. Component views such as `real(x)` and `imag(x)`
+  are slice-like structural views with adjusted handles and strides, not proxy
+  accessor adaptors. Writable proxy or semantic-transform accessors are special
+  operation-specific cases that need an explicit assignment law and backend
+  lowering. The general policy is in
+  `docs/tensor_dispatch_and_view_semantics_draft.md`.
 
 The implementation can add named mutable real/complex aliases such as
 `MutableRealLinalgVectorView` when call sites become clearer, but the important
@@ -285,7 +291,8 @@ kernel-dispatch design a real, testable leaf-kernel boundary.
 The staging object should store logical mdspan extents, the non-unit stride,
 and the integer mdspan axis whose stride is `1`. It should not store a BLAS
 transpose flag. Helpers derive the provider-ready BLAS rows, columns, leading
-dimension, and readable-input transform from those storage facts.
+dimension, and readable-input transform from those storage facts plus accessor
+metadata such as conjugation.
 
 ## Kernel Dispatch Interface
 
@@ -759,8 +766,8 @@ Use three classes of tests:
 1. **Compile-time concept tests**
    - Verify accepted and rejected scalar/accessor/rank/mutability combinations.
    - Verify default/raw accessors derive `mdspan_needs_conjugation_v == false`.
-   - Use a fake conjugating accessor to verify accessor-derived conjugation
-     metadata without requiring a full view implementation yet.
+   - Use `uni20::conj(mdspan)` to verify accessor-derived conjugation metadata
+     and double-conjugation cancellation.
 2. **Runtime view-representation tests**
    - Verify `layout_left`, `layout_right`, and `layout_stride` descriptors.
    - Check submatrix and padded views where one stride remains `1`.
@@ -796,8 +803,8 @@ decline behavior easy to test.
 ## Open Questions
 
 - Which operations should support row-major-as-transposed views without copying?
-- Which operations should support conjugate-only input transforms directly, and
-  should an MKL backend lower those to the `'R'` extension when available?
+- Which provider backends can support accessor-derived conjugate-only operands
+  directly, and where should fallback materialization for the `'R'` path live?
 - Which BLAS update operations should support output-side conjugation by
   planning an explicit postprocess after the provider call?
 - Which public wrappers should default to `input_temporaries`, and which should

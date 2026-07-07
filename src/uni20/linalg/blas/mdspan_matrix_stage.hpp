@@ -7,7 +7,7 @@
  */
 
 #include <uni20/backend/backend.hpp>
-#include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/conjugate_accessor.hpp>
 
 #include <optional>
 #include <type_traits>
@@ -17,20 +17,6 @@ namespace uni20::linalg::blas
 {
 
 static_assert(std::is_signed_v<blas_int>, "BLAS/LAPACK integer ABI type must be signed");
-
-/// \brief Trait used by mdspan accessors that conjugate values on read.
-template <class Accessor> struct accessor_applies_conjugation : std::false_type
-{};
-
-/// \brief True when an mdspan accessor presents conjugated values.
-template <class Accessor>
-inline constexpr bool accessor_applies_conjugation_v =
-    accessor_applies_conjugation<std::remove_cvref_t<Accessor>>::value;
-
-/// \brief True when the mdspan's accessor presents conjugated values.
-template <class Mdspan>
-inline constexpr bool mdspan_needs_conjugation_v =
-    accessor_applies_conjugation_v<typename std::remove_cvref_t<Mdspan>::accessor_type>;
 
 /// \brief Logical mdspan matrix layout before provider-specific BLAS lowering.
 template <class Scalar, class Handle> struct MdspanMatrixStage

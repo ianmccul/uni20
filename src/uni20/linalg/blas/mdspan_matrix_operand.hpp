@@ -38,13 +38,12 @@ blas_writable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage) -> BlasWrit
 /// \brief Return the provider-ready readable operand for a staged mdspan matrix.
 template <class Scalar, class Handle>
 constexpr auto
-blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage,
-                     MatrixTransform requested = MatrixTransform::normal) -> BlasReadableMatrix<Scalar, Handle>
+blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage) -> BlasReadableMatrix<Scalar, Handle>
 {
-  MatrixTransform transform = compose(requested, storage_transform(stage));
+  MatrixTransform transform = storage_transform(stage);
   if (stage.needs_conjugation)
   {
-    transform = compose(transform, MatrixTransform::conjugate);
+    transform = compose(MatrixTransform::conjugate, transform);
   }
 
   auto writable = blas_writable_matrix(stage);
@@ -73,7 +72,7 @@ auto try_blas_writable_matrix(Mdspan const& span)
 /// \brief Try to lower an mdspan directly to a readable provider operand.
 template <uni20::StridedMdspan Mdspan>
   requires uni20::BlasScalar<std::remove_cv_t<typename Mdspan::element_type>>
-auto try_blas_readable_matrix(Mdspan const& span, MatrixTransform requested = MatrixTransform::normal)
+auto try_blas_readable_matrix(Mdspan const& span)
     -> std::optional<
         BlasReadableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
 {
@@ -82,7 +81,7 @@ auto try_blas_readable_matrix(Mdspan const& span, MatrixTransform requested = Ma
   {
     return std::nullopt;
   }
-  return blas_readable_matrix(*stage, requested);
+  return blas_readable_matrix(*stage);
 }
 
 /// \brief Try to lower an mdspan to the strict column-major shape expected by LAPACK.

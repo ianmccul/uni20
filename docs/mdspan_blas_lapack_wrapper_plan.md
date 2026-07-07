@@ -171,24 +171,17 @@ interpretation. For readable lowering, it composes into
 explicit output postprocess, a backend extension, or a temporary/copy-back path.
 
 The staging helper derives `needs_conjugation` from the mdspan accessor policy.
-It is not an independent option supplied by the BLAS adapter. Uni20 does not yet
-have a conjugating mdspan accessor, so the first implementation should derive
-`false` for `stdex::default_accessor` and the current raw tensor accessors.
-A future `conj(Tensor)` operation should return a tensor view whose mdspan uses
-a conjugation adaptor accessor rather than eagerly materializing conjugated
-storage. When that view reaches the BLAS staging helper,
-`try_mdspan_matrix_stage(...)` should inspect the accessor and set
-`needs_conjugation = true`. Future conjugating or Hermitian-view accessors
-should opt into a local trait or customization point, for example:
-
-```cpp
-template <class Accessor>
-inline constexpr bool accessor_applies_conjugation_v = false;
-
-template <class View>
-constexpr bool mdspan_needs_conjugation_v =
-  accessor_applies_conjugation_v<typename std::remove_cvref_t<View>::accessor_type>;
-```
+It is not an independent option supplied by the BLAS adapter. The generic
+mdspan `conj(...)` helper in `src/uni20/mdspan/conjugate_accessor.hpp` returns a
+read-only conjugating accessor view for complex mdspans, cancels to the const
+original view when applied twice, and returns a const identity view for
+non-complex mdspans. The same header defines
+`accessor_applies_conjugation_v<Accessor>` and
+`mdspan_needs_conjugation_v<View>`. A future `conj(Tensor)` operation should
+return a tensor view whose mdspan uses that conjugation adaptor accessor rather
+than eagerly materializing conjugated storage. When that view reaches the BLAS
+staging helper, `try_mdspan_matrix_stage(...)` inspects the accessor and sets
+`needs_conjugation = true`.
 
 The direct BLAS path should accept only accessors that can still expose the raw
 storage handle plus declarative metadata such as `needs_conjugation`. An
@@ -196,7 +189,10 @@ accessor that computes arbitrary transformed values by value is a generic
 transform view, not directly BLAS-addressable; it needs materialization or a
 non-BLAS fallback. This follows the mdspan accessor model: mapping and accessor
 describe how logical elements are read from the same handle, and the BLAS
-adapter may lower only the subset it understands.
+adapter may lower only the subset it understands. The broader view policy lives
+in `docs/tensor_dispatch_and_view_semantics_draft.md`: structural views such as
+`real(x)` and `imag(x)` are slice-like address transformations, while semantic
+transform views such as `conj(x)` are read-only by default.
 
 `unit_stride_axis` is deliberately an integer mdspan axis, not a row/column
 enum. Names such as `row` and `column` are easy to misread because
@@ -249,20 +245,21 @@ blas_writable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage);
 
 template <class Scalar, class Handle>
 BlasReadableMatrix<Scalar, Handle>
-blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage,
-                     MatrixTransform requested = MatrixTransform::normal);
+blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage);
 ```
 
 These helpers return provider-ready objects with `rows = extent0`,
 `cols = extent1`, and `leading_dimension = nonunit_stride` when
 `unit_stride_axis == 0`; they swap the extents when `unit_stride_axis == 1`.
 For readable operands, the returned `transform` is the effective transform after
-composing the requested logical transform, the storage transform, and
-`stage.needs_conjugation`. For writable operands, `blas_writable_matrix(...)`
-returns the provider-writeable storage shape only. A stage with
-`needs_conjugation == true` requires the caller's operation plan to account for
-that conjugation explicitly. This keeps the staging descriptor unambiguously
-mdspan-like while making the BLAS ABI conversion local and testable.
+composing the storage transform and `stage.needs_conjugation`. Callers should
+express logical conjugation by passing `uni20::conj(span)` and should express
+logical transpose by passing a transposed mdspan view. For writable operands,
+`blas_writable_matrix(...)` returns the provider-writeable storage shape only. A
+stage with `needs_conjugation == true` requires the caller's operation plan to
+account for that conjugation explicitly. This keeps the staging descriptor
+unambiguously mdspan-like while making the BLAS ABI conversion local and
+testable.
 
 ## Transform Helpers
 
@@ -278,14 +275,17 @@ The transform helper layer should provide:
 - `blas_trans_char(MatrixTransform) -> std::optional<char>`;
 - `standard_blas_trans_char(MatrixTransform) -> std::optional<char>`.
 
-For readable operands, compose the requested logical transform, the storage
-transform, and `stage.needs_conjugation`. The provider-facing linalg adapter
-requires a conjugate-no-transpose opcode for complex inputs, represented in the
-local helper as `'R'`. Backend shims are responsible for mapping that operation
-to the selected provider API, such as CBLAS `CblasConjNoTrans`, MKL-compatible
-extension paths, or a later Uni20 fallback. `standard_blas_trans_char(...)`
-remains available for code that must restrict itself to the ordinary Fortran
-`'N'`, `'T'`, and `'C'` character set.
+For readable operands, compose the storage transform and
+`stage.needs_conjugation`. Operation-specific rewrites, such as row-major GEMM
+output normalization, may compose additional internal transforms before the
+provider call. User-facing mdspan wrappers should not take `MatrixTransform`
+parameters; transform intent comes from the mdspan view/accessor itself. The
+provider-facing linalg adapter requires a conjugate-no-transpose opcode for
+complex inputs, represented in the local helper as `'R'`. Backend shims are
+responsible for mapping that operation to the selected provider API, such as
+CBLAS `CblasConjNoTrans`, MKL-compatible extension paths, or a later Uni20
+fallback. `standard_blas_trans_char(...)` remains available for code that must
+restrict itself to the ordinary Fortran `'N'`, `'T'`, and `'C'` character set.
 
 TODO: the current reference Fortran-style BLAS wrappers need an implementation
 path for the provider `'R'` opcode. If the selected provider API does not expose
@@ -302,17 +302,18 @@ There should be no stored `transposed` field.
 
 If `L` is the logical mdspan matrix and `S` is the untransformed
 `BlasWritableMatrix` shape derived from the same stage, then
-`L = storage_transform(stage)(S)`. A requested logical input transform is
-lowered into `BlasReadableMatrix::transform` as:
+`L = storage_transform(stage)(S)`. The readable provider operand is lowered as:
 
 ```text
-effective_blas_transform = requested_logical_transform o storage_transform(stage)
+effective_blas_transform = conjugation_from_accessor o storage_transform(stage)
 ```
 
-where `o` means function composition. For example, a row-major-like input
-stage has `storage_transform == transpose`. A requested logical `normal`
-therefore lowers to BLAS `'T'`, while a requested logical `transpose` lowers to
-BLAS `'N'`.
+where `o` means function composition. For example, a row-major-like input stage
+has `storage_transform == transpose`, so it lowers to BLAS `'T'`. If the same
+view is wrapped by `uni20::conj(...)`, the accessor contributes conjugation and
+the effective transform becomes conjugate-transpose. A caller that wants a
+logical transpose should pass a structural transposed mdspan view rather than a
+separate transform flag.
 
 ## Row-Major Writable GEMM
 
@@ -331,11 +332,11 @@ if `C` has `unit_stride_axis == 1`, rewrite to:
 C^T = alpha * op(B)^T * op(A)^T + beta * C^T
 ```
 
-The helper should swap readable operands and apply
-`transpose_result_transform(...)` to each requested operand transform. If the
-output view is conjugated, conjugate `alpha`, `beta`, and both readable operand
-transforms before dispatching. This keeps the writable output untransformed
-while still describing the logical result.
+The helper should swap readable operands and apply an internal transpose
+transform to both staged readable operands. If the output view is conjugated,
+conjugate `alpha`, `beta`, and both readable operand transforms before
+dispatching. This keeps the writable output untransformed while still
+describing the logical result.
 
 This rewrite is appropriate for BLAS update-style operations. It is not a
 general rule for LAPACK drivers that overwrite inputs with structured outputs.
@@ -346,8 +347,9 @@ general rule for LAPACK drivers that overwrite inputs with structured outputs.
 provider-writeable storage target. Operation-specific wrappers normalize any
 output-side transform before dispatch.
 
-For example, after composing row-major storage, requested operand transforms,
-and input conjugation, the best lowering may require a conjugate-only state. The
+For example, after composing row-major storage, input view conjugation, and
+operation-specific output normalization, the best lowering may require a
+conjugate-only state. The
 direct BLAS adapter assumes that the provider layer can represent this operation
 somehow. For a backend that lacks a direct extension, a later generic plan may
 be:
@@ -424,15 +426,15 @@ gemm(transa = 'T', transb = 'T',
 The intermediate staging layer is what made this rewrite possible: it knew that
 the output was row-major-like before constructing the final BLAS call. The
 final `BlasReadableMatrix` and `BlasWritableMatrix` operands alone are not
-enough to decide whether to swap operands, transpose requested transforms, or
-allocate temporaries.
+enough to decide whether to swap operands, apply output-normalization
+transforms, or allocate temporaries.
 
 If `A` were row-major-like instead, its stage would derive a
 `BlasReadableMatrix` whose `rows` and `cols` describe the provider's
 untransformed `A^T` storage, and whose `transform` is `'T'` for a logical
-`normal` input. If composing the requested transform with storage layout
-produces `conjugate`, the linalg adapter lowers it to the provider
-conjugate-no-transpose opcode.
+input. If composing storage layout, accessor conjugation, and any internal
+operation rewrite produces `conjugate`, the linalg adapter lowers it to the
+provider conjugate-no-transpose opcode.
 
 ## Direct And Prepared Wrappers
 
@@ -520,8 +522,8 @@ Descriptor tests:
 - const input and mutable output handle types.
 - `needs_conjugation` is derived from the accessor policy.
 - default/raw accessors derive `needs_conjugation == false`.
-- a fake conjugating accessor derives `needs_conjugation == true` and composes
-  into readable transforms.
+- `uni20::conj(mdspan)` derives `needs_conjugation == true` and composes into
+  readable transforms.
 - writable `needs_conjugation` is handled by conjugating scalars and readable
   operand transforms before provider dispatch.
 - no implicit conversion erases readable metadata.
@@ -551,8 +553,6 @@ LAPACK tests:
   caller, or return a small decline reason for better test messages?
 - Should prepared wrappers live beside direct wrappers or in a separate
   `prepared_*.hpp` namespace/header?
-- What should the accessor-derived conjugation trait/customization point be
-  called, and can it align with Kokkos/stdBLAS-style accessor conventions?
 - Which existing Krylov dense helpers should migrate first after the mdspan
   LAPACK wrapper exists?
 - Should the first GEMM wrapper use only the Fortran-style BLAS facade, or also

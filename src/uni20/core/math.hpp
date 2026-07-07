@@ -43,20 +43,20 @@ template <typename T> uni20::complex<T> conj(uni20::complex<T> x) { return std::
 /// \brief Returns the conjugate of a real-valued scalar.
 /// \details Real numbers are unchanged by conjugation, so the value is returned verbatim. The overload is
 ///         `constexpr`, enabling compile-time evaluation for literal arguments.
-/// \tparam R Real scalar type that satisfies \c HasRealScalar.
+/// \tparam R Real scalar type.
 /// \param x Real scalar to return.
 /// \return `x`, unchanged.
 /// \ingroup core_math
-template <HasRealScalar R> constexpr R conj(R const& x) { return x; }
+template <Real R> constexpr R conj(R const& x) { return x; }
 
 /// \brief Returns the conjugate of an integer scalar.
 /// \details Integer values are treated as reals for conjugation and therefore returned unchanged. The
 ///         overload is `constexpr`, enabling compile-time evaluation for literal arguments.
-/// \tparam I Integer scalar type that satisfies \c HasIntegerScalar.
+/// \tparam I Integer scalar type.
 /// \param x Integer scalar to return.
 /// \return `x`, unchanged.
 /// \ingroup core_math
-template <HasIntegerScalar I> constexpr I conj(I const& x) { return x; }
+template <Integer I> constexpr I conj(I const& x) { return x; }
 
 /// \brief Computes the Hermitian adjoint of a scalar value.
 /// \details For scalar inputs the Hermitian adjoint is equivalent to the complex conjugate, so this helper

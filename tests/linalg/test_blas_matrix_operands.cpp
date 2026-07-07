@@ -1,11 +1,11 @@
 #include <uni20/common/mdspan.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/linalg/blas/mdspan_matrix_operand.hpp>
+#include <uni20/mdspan/conjugate_accessor.hpp>
 
 #include <gtest/gtest.h>
 
 #include <array>
-#include <complex>
 #include <limits>
 #include <type_traits>
 #include <vector>
@@ -14,18 +14,6 @@ namespace
 {
 using extents_2d = stdex::dextents<uni20::index_type, 2>;
 using uni20::linalg::blas::MatrixTransform;
-
-struct ConjugatingAccessor
-{
-    using element_type = uni20::complex<double>;
-    using data_handle_type = element_type const*;
-    using offset_policy = ConjugatingAccessor;
-    using reference = element_type;
-    using offset_type = uni20::index_type;
-
-    constexpr reference access(data_handle_type ptr, offset_type offset) const { return std::conj(ptr[offset]); }
-    constexpr data_handle_type offset(data_handle_type ptr, offset_type offset) const { return ptr + offset; }
-};
 
 template <class Scalar> using left_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left>;
 
@@ -38,15 +26,16 @@ concept can_try_blas_readable_matrix =
     requires(Span const& span) { uni20::linalg::blas::try_blas_readable_matrix(span); };
 
 template <class Span>
+concept can_try_blas_readable_matrix_with_transform =
+    requires(Span const& span) { uni20::linalg::blas::try_blas_readable_matrix(span, MatrixTransform::normal); };
+
+template <class Span>
 concept can_try_lapack_writable_matrix =
     requires(Span const& span) { uni20::linalg::blas::try_lapack_writable_matrix(span); };
 
 template <class Scalar>
 concept can_lower_blas_trans_char = requires { uni20::linalg::blas::blas_trans_char<Scalar>(MatrixTransform::normal); };
 } // namespace
-
-template <> struct uni20::linalg::blas::accessor_applies_conjugation<ConjugatingAccessor> : std::true_type
-{};
 
 TEST(BlasMatrixTransformTest, ComposeAndTransposeResultTransform)
 {
@@ -80,6 +69,7 @@ TEST(BlasMatrixOperandTest, ConvenienceApisRequireConfiguredScalarBackends)
 
   static_assert(can_try_blas_writable_matrix<left_mdspan<double>>);
   static_assert(can_try_blas_readable_matrix<left_mdspan<double>>);
+  static_assert(!can_try_blas_readable_matrix_with_transform<left_mdspan<double>>);
   static_assert(can_try_lapack_writable_matrix<left_mdspan<double>>);
 
   static_assert(!can_try_blas_writable_matrix<left_mdspan<int>>);
@@ -105,11 +95,11 @@ TEST(BlasMatrixOperandTest, StagesColumnMajorMdspan)
   EXPECT_EQ(writable.cols, 3);
   EXPECT_EQ(writable.leading_dimension, 2);
 
-  auto readable = uni20::linalg::blas::blas_readable_matrix(*stage, MatrixTransform::transpose);
+  auto readable = uni20::linalg::blas::blas_readable_matrix(*stage);
   EXPECT_EQ(readable.rows, 2);
   EXPECT_EQ(readable.cols, 3);
   EXPECT_EQ(readable.leading_dimension, 2);
-  EXPECT_EQ(readable.transform, MatrixTransform::transpose);
+  EXPECT_EQ(readable.transform, MatrixTransform::normal);
 
   auto lapack_matrix = uni20::linalg::blas::try_lapack_writable_matrix(span);
   ASSERT_TRUE(lapack_matrix.has_value());
@@ -220,12 +210,12 @@ TEST(BlasMatrixOperandTest, DeclinesValuesOutsideBlasIntegerRange)
 
 TEST(BlasMatrixOperandTest, AccessorTraitMarksConjugatingViews)
 {
-  static_assert(uni20::linalg::blas::accessor_applies_conjugation_v<ConjugatingAccessor>);
-
   std::vector<uni20::complex<double>> storage(4);
-  stdex::mdspan<uni20::complex<double>, extents_2d, stdex::layout_left, ConjugatingAccessor> span(storage.data(), 2, 2);
+  stdex::mdspan<uni20::complex<double>, extents_2d, stdex::layout_left> span(storage.data(), 2, 2);
+  auto conjugated = uni20::conj(span);
+  static_assert(uni20::accessor_applies_conjugation_v<typename decltype(conjugated)::accessor_type>);
 
-  auto stage = uni20::linalg::blas::try_mdspan_matrix_stage(span);
+  auto stage = uni20::linalg::blas::try_mdspan_matrix_stage(conjugated);
   ASSERT_TRUE(stage.has_value());
   EXPECT_TRUE(stage->needs_conjugation);
 

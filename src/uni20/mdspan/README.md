@@ -8,6 +8,8 @@ small helpers used by dense kernels and layout-aware algorithms.
 
 - `concepts.hpp`: concepts for mdspan-like objects and related structural
   properties.
+- `conjugate_accessor.hpp`: read-only mdspan accessor adaptor and `conj(...)`
+  view helper for lazy complex conjugation.
 - `strides.hpp`: stride inspection and stride utility helpers.
 - `iteration_plan.hpp`: iteration planning over extents and layouts.
 - `zip_layout.hpp`: helpers for matching or combining view layouts.

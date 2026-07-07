@@ -114,6 +114,47 @@ An explicit adaptor such as `as_tensor(std::vector<T>&)` does not need to be a
 `TensorRef`. Since dispatch uses concepts, user code does not name the adaptor
 type. The adaptor can have semantics tailored to the wrapped object.
 
+## View Algebra Policy
+
+Uni20 should distinguish **structural views** from **semantic transform views**.
+This distinction controls which views may appear on the left-hand side of
+assignment and which views are only readable expression operands.
+
+Structural views change how storage is addressed without changing the write
+law. Examples include slices, block views, reshape/reindex views, and component
+views such as `real(x)` or `imag(x)` for complex storage. These views may change
+the element type, data handle, extents, and strides, but writes remain local:
+
+```cpp
+real(z)[i] = a; // writes the real component of z[i]
+```
+
+`real(x)` and `imag(x)` are therefore slice-like component views, not proxy
+accessor adaptors. They should be represented by adjusted handles and strides
+over the original complex storage when the scalar/storage policy guarantees that
+component layout. They can be writable because assignment writes one addressed
+component directly.
+
+Semantic transform views change the value read from storage. Examples include
+`conj(x)`, scaling views, and arbitrary elementwise `zip_transform(...)`
+expressions. These are read-only by default. A conjugating view is not an
+ordinary lvalue because assigning through it has a contravariant law:
+
+```cpp
+conj(x) = y; // would mean x = conj(y)
+```
+
+If Uni20 ever supports such a write, it should be introduced as a deliberate
+operation-specific rewrite or a separately named internal adaptor, not as the
+default behavior of `conj(x)`.
+
+Generic writable outputs should therefore require ordinary raw/default-style
+accessors over a structural view. Writable proxy accessors are special cases
+that must document their assignment law and backend lowering explicitly. The
+current mdspan `conj(...)` helper follows this rule: complex mdspans become
+read-only conjugating views, double conjugation cancels to a const original
+view, and non-complex mdspans become const identity views.
+
 ## Assignment Semantics
 
 The async assignment trait currently distinguishes rebind and write-through.
