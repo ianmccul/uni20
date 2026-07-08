@@ -215,23 +215,27 @@ This glossary is optimized for retrieval, not pedagogy.
 
 ### backend state tag
 
-- `ROLE`: Runtime state component required by one or more backend tags.
+- `ROLE`: Older draft term for runtime state required by one or more backend entries.
 - `EXAMPLES`: `cuda::Device`, `cuda::Stream`, `cublas::MathMode`.
-- `INVARIANT`: State tag types should have global/namespaced semantic meaning.
-- `MISCONCEPTION`: One generic tag name can safely mean different things for different backends.
+- `STATUS`: Superseded as the primary model by backend values and selector-owned state.
+- `GUIDANCE`: Do not add a required `State&` parameter to every leaf-kernel CPO.
+  Keep shared state inside the selector and pass backend values to CPOs.
 
 ### backend selector
 
-- `ROLE`: Value that combines ordered backend tags with composed runtime backend state.
+- `ROLE`: Value that describes the ordered backend walk and may hold runtime backend state.
 - `STATUS`: Design draft.
-- `INVARIANT`: Backend selector state is composed from backend tag `using state = std::tuple<...>` declarations.
+- `INVARIANT`: A single backend override is normalized to a one-entry backend list.
+- `GUIDANCE`: Backend entries may be stateless tags or small values carrying state
+  such as CUDA device, stream, math mode, communicator, or placement map.
 
 ### unique_tuple_cat_t
 
-- `ROLE`: Proposed Uni20 helper for composing backend state tuples.
-- `STATUS`: Not a standard C++ metafunction.
+- `ROLE`: Older draft helper idea for composing backend state tuples.
+- `STATUS`: Not a standard C++ metafunction; not the current dispatch model.
 - `MEANING`: Concatenate `std::tuple<...>` types and remove duplicate element types.
-- `WHY`: `std::get<T>(tuple)` by type requires `T` to appear exactly once.
+- `GUIDANCE`: Do not present this helper as implemented or required for the
+  current backend-value selector direction.
 
 ### std::type_list
 

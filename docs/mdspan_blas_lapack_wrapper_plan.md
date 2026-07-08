@@ -1,8 +1,10 @@
 # Mdspan BLAS/LAPACK Wrapper Layer Plan
 
-**Status:** implementation plan for the first concrete mdspan dense-linalg
-wrapper layer. This is below tensor front-end dispatch and above the existing
-raw BLAS/LAPACK provider facades.
+**Status:** implementation plan and checkpoint for the first concrete mdspan
+dense-linalg wrapper layer. This is below tensor front-end dispatch and above
+the existing raw BLAS/LAPACK provider facades. The BLAS descriptor helpers and
+direct mdspan GEMM wrapper exist; the next recommended milestone is an
+end-to-end GEMM dispatch path using the operation-tag backend walk.
 
 The immediate target is to add mdspan-facing BLAS/LAPACK wrappers that accept
 resolved strided views, build BLAS-compatible matrix descriptors, and then call
@@ -458,15 +460,34 @@ conjugate-no-transpose support later.
 
 There are two wrapper contracts:
 
-1. **Direct wrappers** do not allocate and do not copy as a fallback. They build
-   descriptors, call the provider wrapper if the instance is representable, or
-   decline before side effects.
+1. **Direct operand wrappers** do not materialize operands and do not copy as a
+   fallback. They build descriptors, call the provider wrapper if the instance
+   is representable, or decline before side effects.
 2. **Prepared wrappers** may materialize input-only operands into explicit
    scratch storage when their public contract says so.
 
 Output/update temporaries are stricter. They require explicit copy-back policy,
 aliasing checks before side effects, and diagnostics that report the
 materialization.
+
+LAPACK workspace is not operand materialization. Many LAPACK operations need
+work arrays whose size is chosen by a workspace query or by the wrapper's
+algorithm policy. A direct LAPACK operation wrapper may allocate and free those
+work arrays internally while still being a direct no-copy wrapper for its
+matrix/vector operands. The distinction is:
+
+- **Workspace allocation**: temporary storage that LAPACK uses internally and
+  whose contents are not part of any user-visible operand. This is allowed in a
+  direct LAPACK operation wrapper unless the API explicitly exposes
+  caller-managed workspace.
+- **Operand materialization**: copying, conjugating, transposing, or packing a
+  user-visible input/output/update operand into scratch storage. This is a
+  prepared-wrapper behavior and must be named or documented explicitly.
+
+For example, a direct `self_adjoint_eigh` wrapper may query and allocate
+`work`/`rwork` arrays before calling `syev` or `heev`. It may not silently copy a
+row-major matrix into a column-major temporary and copy eigenvectors back unless
+the wrapper contract says that operand materialization is allowed.
 
 Example prepared input shape:
 
@@ -483,8 +504,20 @@ scratch storage.
 
 ## Relation To Dispatch
 
-The first implementation does not need the full generic backend-list dispatcher.
-The wrapper layer can start with direct functions that are easy to test:
+The direct GEMM wrapper is now a useful leaf-kernel boundary for the generic
+backend-list dispatcher. There are two possible axes of progress:
+
+1. Add more direct BLAS/LAPACK operation wrappers over the same mdspan
+   descriptors.
+2. Wire the existing GEMM wrapper through the operation-tag dispatch path.
+
+The recommended next step is the second axis: use GEMM as the vertical slice
+that proves the dispatcher, backend selector, type acceptance CPO, runtime
+decline path, and CPU fallback shape. GEMM is already implemented at the direct
+mdspan level, so this tests the dispatch mechanism without mixing in LAPACK
+workspace policy, vector descriptors, or overwrite semantics.
+
+The direct wrapper layer still exposes functions that are easy to test:
 
 ```cpp
 bool try_gemm(... mdspan-like operands ...);
@@ -511,7 +544,15 @@ bool try_kernel(LapackBackend, self_adjoint_eigh_op, W&& w, A&& matrix_work);
 and host raw-addressability. Descriptor construction remains runtime:
 dynamic extents, strides, pointer values, and aliasing.
 
-## First Implementation Slice
+For the GEMM dispatch slice, `try_kernel(BlasBackend, gemm_op, ...)` should be a
+thin adapter over `uni20::linalg::blas::try_gemm(...)`. The operation-tag layer
+should not duplicate mdspan stride analysis. If the direct wrapper declines
+because an instance cannot be represented as a no-copy BLAS call, the dispatch
+walk should continue to the next backend, normally the CPU generic oracle.
+
+## Implementation Order
+
+Completed checkpoint:
 
 1. Add concept and descriptor helper tests.
 2. Implement `try_mdspan_matrix_stage(...)` and role-specific readable/writable
@@ -521,13 +562,28 @@ dynamic extents, strides, pointer values, and aliasing.
 5. Add row-major writable GEMM output rewrite tests.
 6. Add strict column-major writable descriptor helper for LAPACK update
    operands.
-7. Implement one LAPACK wrapper, likely self-adjoint eigensystem, over existing
-   `uni20::lapack::syev/heev`.
-8. Wrap the direct functions in operation-tag `try_kernel(...)` overloads after
-   the helper behavior is stable.
 
-This order deliberately tests descriptor mechanics before binding them to the
-generic dispatch machinery.
+Recommended next slice:
+
+1. Add the minimal operation-tag dispatch infrastructure needed by GEMM.
+2. Implement `gemm_op`, `BlasBackend`, and `CpuGenericBackend` dispatch tests.
+3. Implement `try_kernel(BlasBackend, gemm_op, ...)` by calling
+   `uni20::linalg::blas::try_gemm(...)`.
+4. Add a CPU generic GEMM fallback that is independently testable and respects
+   BLAS `beta == 0` no-read semantics.
+5. Add selector/default-list tests: BLAS accepts representable mdspans, BLAS
+   declines unsupported strides before side effects, and the fallback runs.
+
+After that vertical slice is stable, broaden the operation wrapper surface:
+
+1. Add vector/RHS descriptor helpers needed by LAPACK.
+2. Implement one LAPACK wrapper, likely self-adjoint eigensystem, over existing
+   `uni20::lapack::syev/heev`.
+3. Wrap LAPACK operations in `try_kernel(LapackBackend, op, ...)` overloads.
+
+This order proves the generic dispatch path with the already-working GEMM leaf
+kernel before adding LAPACK workspace, vector descriptors, and update-operand
+semantics.
 
 ## Tests
 

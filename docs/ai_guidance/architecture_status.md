@@ -86,8 +86,9 @@ This file is for questions about project maturity, active design seams, and what
 - Async-safe aliasing rules are not fully settled.
 - Current design discussion favors concept/CPO dispatch over making inheritance
   from `TensorView` the public dispatch contract.
-- Current backend-dispatch design discussion favors stateless backend tags plus
-  composed backend state tuples.
+- Current backend-dispatch design discussion favors backend values and selectors:
+  entries may be stateless tags or small values carrying state such as device or
+  stream; shared selector state should stay hidden inside the selector.
 
 ### DO NOT CLAIM
 
@@ -104,9 +105,10 @@ This file is for questions about project maturity, active design seams, and what
 - Candidate tensor roles are `BasicTensor` as owning value, `TensorRef` as
   proposed write-through non-owning lvalue, and resolved mdspan-like views as
   leaf-kernel arguments.
-- Candidate backend state model: each backend tag declares
-  `using state = std::tuple<...>`; selector state is composed with a Uni20
-  helper such as `unique_tuple_cat_t`.
+- Candidate backend state model: backend entries are values. Stateless tags are
+  fine for CPU/BLAS/LAPACK, while CUDA/MPI entries may carry device, stream, or
+  communicator state. A selector may deduplicate shared state internally, but
+  that should not appear as a required extra parameter in every leaf-kernel CPO.
 
 ### RELATED
 

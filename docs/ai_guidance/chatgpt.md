@@ -70,8 +70,8 @@ These are always active.
 - Reverse-mode AD is integrated with the async runtime and uses `Var<T>`.
 - Tensor/view semantics are still evolving.
 - Tensor/backend dispatch design is active and speculative. Do not present
-  candidate APIs such as `TensorRef`, backend state tags, or
-  `unique_tuple_cat_t` as implemented unless source inspection confirms it.
+  candidate APIs such as `TensorRef`, backend selectors, backend state helpers,
+  or `unique_tuple_cat_t` as implemented unless source inspection confirms it.
 - Build-system discussion should remain high-level unless relevant CMake files are actually inspected.
 
 ## How to reason about answers

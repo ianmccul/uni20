@@ -312,10 +312,46 @@ metadata such as conjugation.
 ## Kernel Dispatch Interface
 
 The mdspan linalg layer should be the first concrete user of the operation-tag
-model. Backend CPOs put the backend value first, then the operation tag, then
-ordinary reference parameters matching the public call order. A separate
+model. The recommended vertical slice is GEMM: the direct mdspan BLAS wrapper
+already exists, so `try_kernel(BlasBackend, gemm_op, ...)` can delegate to
+`uni20::linalg::blas::try_gemm(...)` and the dispatch walk can prove fallback
+behavior before LAPACK workspace and vector-descriptor policy enter the picture.
+
+Backend CPOs put the backend value first, then the operation tag, then ordinary
+reference parameters matching the public call order. A separate
 `state_type<State>` / `backend_type<Backend>` tag layer is not needed for the
-LAPACK first pass.
+first pass.
+
+```cpp
+struct gemm_op {};
+
+struct BlasBackend {};
+struct CpuGenericBackend {};
+
+template <class C, class Alpha, class A, class B, class Beta>
+consteval KernelTypeAcceptance
+kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
+                     A const&, B const&, Beta const&)
+{
+  if constexpr (/* host, same scalar, BLAS scalar, rank-2 writable/readable */) {
+    return KernelTypeAcceptance::maybe; // strides and transforms are runtime
+  } else {
+    return KernelTypeAcceptance::no;
+  }
+}
+
+template <class C, class Scalar, class A, class B>
+bool try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a, B&& b,
+                Scalar beta)
+{
+  return uni20::linalg::blas::try_gemm(std::forward<C>(c), alpha,
+                                      std::forward<A>(a), std::forward<B>(b),
+                                      beta);
+}
+```
+
+The first LAPACK wrapper can then use the same pattern with richer operand
+rules:
 
 ```cpp
 struct self_adjoint_eigh_op {
@@ -357,6 +393,10 @@ bool try_kernel(LapackBackend, self_adjoint_eigh_op op, W&& w, A&& a)
   return true;
 }
 ```
+
+The workspace query and allocation in this example are LAPACK work storage, not
+operand materialization. The wrapper still counts as direct if it does not copy,
+pack, transpose, or conjugate the user-visible matrix/vector operands.
 
 `kernel_accepts_types(...)` should stay type-level. It should not inspect
 runtime strides, sizes, pointer values, or backend state. The dispatcher may

@@ -75,8 +75,8 @@ Not every file uses every field. Use the fields that improve retrieval.
 - `reverse_mode_ad.md`: `Var<T>`, `ReverseValue<T>`, `backprop()`, gradient materialization, Wirtinger convention, reverse-kernel rules
 - `architecture_status.md`: mature areas, partial areas, design seams, and build-system cautions
 - `tensor_dispatch_design.md`: speculative tensor/view/backend dispatch design,
-  stateless backend tags, backend state tuples, `unique_tuple_cat_t`, and async
-  tensor alias cautions
+  backend values/selectors, operation-tag dispatch, and async tensor alias
+  cautions
 - `presentation_and_python.md`: presentation formatting, Python display, Jupyter display, tensor preview policy, and renderer boundaries
 - `glossary.md`: compact retrieval-first definitions for repeated Uni20 terms
 

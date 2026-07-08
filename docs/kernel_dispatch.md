@@ -157,6 +157,14 @@ The contraction primitive `C <- alpha * A * B + beta * C` exercises every part o
 the model. The entry point derives a default list from storage and forwards to
 the walk:
 
+This is also the recommended first end-to-end implementation slice. The
+low-level mdspan leaf already exists as
+`uni20::linalg::blas::try_gemm(c, alpha, a, b, beta)`. The next dispatch step
+should wrap that leaf in `try_kernel(BlasBackend, gemm_op, ...)`, then fall back
+to an independently tested CPU generic GEMM backend when BLAS declines. This
+proves the operation-tag walk without first solving the broader LAPACK surface,
+workspace policy, or vector descriptor layer.
+
 ```cpp
 struct gemm_op
 {
@@ -340,16 +348,13 @@ kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
   }
 }
 
-// a, b, c are resolved TensorViews — call BLAS immediately, no scheduler.
+// a, b, c are resolved mdspan-like views or TensorViews lowered to such views:
+// call BLAS immediately, no scheduler.
 template <class C, class A, class B>
 bool try_kernel(BlasBackend, gemm_op, C& c, scalar_t<C> alpha,
                 A const& a, B const& b, scalar_t<C> beta)
 {
-  if (!blas::available()) return false;                     // runtime capability
-  auto plan = blas::as_gemm(a.layout(), b.layout(), c.layout());  // metadata only
-  if (!plan) return false;                                  // strides not BLAS-expressible
-  blas::gemm(*plan, c, alpha, a, b, beta);                  // synchronous call
-  return true;
+  return uni20::linalg::blas::try_gemm(c, alpha, a, b, beta);
 }
 
 struct CublasBackend {

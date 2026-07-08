@@ -111,6 +111,11 @@ Candidate concepts:
 ### OPERATION-TAG MODEL
 
 - Backend dispatch is an ordered backend-list walk for an operation tag.
+- The next concrete linalg milestone is GEMM end-to-end dispatch:
+  `try_kernel(BlasBackend, gemm_op, ...)` should delegate to the existing
+  `uni20::linalg::blas::try_gemm(...)`, then fall through to a CPU generic GEMM
+  oracle when BLAS declines. Do not broaden BLAS/LAPACK wrappers mechanically
+  before this vertical slice proves the dispatch path.
 - The static capability CPO is
   `consteval KernelTypeAcceptance kernel_accepts_types(backend const&, op const&, args&...)`.
   It checks type-level facts only and returns `no`, `maybe`, or `yes`. It must
@@ -155,11 +160,17 @@ added as a required `State&` parameter to every leaf-kernel CPO.
 
 Temporary allocation is separate from computation.
 
-- Temporary type/storage comes from backend selector state plus storage domain
-  or allocator/factory.
-- Filling a temporary is an ordinary copy/evaluation kernel.
-- Direct mdspan entry points that need temporaries must provide explicit backend
-  selector state and storage-domain information.
+- Operand-temporary type/storage comes from backend selector state plus storage
+  domain or allocator/factory.
+- Filling an operand temporary is an ordinary copy/evaluation kernel.
+- Direct mdspan entry points that need operand temporaries must provide explicit
+  backend selector state and storage-domain information.
+- LAPACK work arrays are not operand materialization. A direct LAPACK operation
+  wrapper may allocate `work`/`rwork`/integer work arrays after a workspace query
+  while still being direct for its matrix/vector operands.
+- Copying, packing, transposing, or conjugating a user-visible operand into
+  scratch storage is operand materialization. That belongs in a prepared wrapper
+  or an explicitly documented higher-level API, not in a silent direct wrapper.
 
 ### SAFE CLAIM
 
