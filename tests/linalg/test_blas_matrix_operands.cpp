@@ -59,7 +59,8 @@ TEST(BlasMatrixTransformTest, ComposeAndTransposeResultTransform)
   EXPECT_EQ(standard_blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate_transpose), 'C');
 
   EXPECT_EQ(blas_trans_char<double>(MatrixTransform::conjugate), 'N');
-  EXPECT_EQ(blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate), 'R');
+  EXPECT_FALSE(blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate));
+  EXPECT_EQ(blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate_transpose), 'C');
 }
 
 TEST(BlasMatrixOperandTest, ConvenienceApisRequireConfiguredScalarBackends)

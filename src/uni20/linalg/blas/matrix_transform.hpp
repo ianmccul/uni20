@@ -103,7 +103,7 @@ template <uni20::BlasScalar Scalar> constexpr MatrixTransform canonical_transfor
   }
 }
 
-/// \brief Lower a transform to the provider BLAS transpose opcode.
+/// \brief Lower a transform to the ordinary Fortran BLAS transpose character set.
 template <uni20::BlasScalar Scalar> constexpr std::optional<char> blas_trans_char(MatrixTransform transform)
 {
   switch (canonical_transform_for_scalar<Scalar>(transform))
@@ -115,20 +115,15 @@ template <uni20::BlasScalar Scalar> constexpr std::optional<char> blas_trans_cha
     case MatrixTransform::conjugate_transpose:
       return 'C';
     case MatrixTransform::conjugate:
-      return 'R';
+      return std::nullopt;
   }
   return std::nullopt;
 }
 
-/// \brief Lower a transform to the ordinary Fortran BLAS transpose character set.
+/// \brief Alias for `blas_trans_char`, retained to make the standard-BLAS boundary explicit.
 template <uni20::BlasScalar Scalar> constexpr std::optional<char> standard_blas_trans_char(MatrixTransform transform)
 {
-  auto const canonical = canonical_transform_for_scalar<Scalar>(transform);
-  if (canonical == MatrixTransform::conjugate)
-  {
-    return std::nullopt;
-  }
-  return blas_trans_char<Scalar>(canonical);
+  return blas_trans_char<Scalar>(transform);
 }
 
 } // namespace uni20::linalg::blas

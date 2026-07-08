@@ -142,19 +142,38 @@ TEST(BlasGemmTest, AcceptsRealConjIdentityView)
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
 }
 
-TEST(BlasGemmTest, UsesConjugatingMdspanInput)
+TEST(BlasGemmTest, TryDeclinesConjugateOnlyComplexInput)
 {
   using Complex = uni20::complex<double>;
 
   std::vector<Complex> a_storage(1, Complex{2.0, 1.0});
   std::vector<Complex> b_storage(1, Complex{3.0, 1.0});
-  std::vector<Complex> c_storage(1);
+  std::vector<Complex> c_storage(1, Complex{-5.0, 2.0});
 
   stdex::mdspan<Complex, extents_2d, stdex::layout_left> a(a_storage.data(), 1, 1);
   stdex::mdspan<Complex, extents_2d, stdex::layout_left> b(b_storage.data(), 1, 1);
   stdex::mdspan<Complex, extents_2d, stdex::layout_left> c(c_storage.data(), 1, 1);
 
-  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, Complex{1.0, 0.0}, uni20::conj(a), b, Complex{0.0, 0.0}));
-  EXPECT_DOUBLE_EQ((c[0, 0]).real(), 7.0);
-  EXPECT_DOUBLE_EQ((c[0, 0]).imag(), -1.0);
+  EXPECT_FALSE(uni20::linalg::blas::try_gemm(c, Complex{1.0, 0.0}, uni20::conj(a), b, Complex{0.0, 0.0}));
+  EXPECT_DOUBLE_EQ((c[0, 0]).real(), -5.0);
+  EXPECT_DOUBLE_EQ((c[0, 0]).imag(), 2.0);
+}
+
+TEST(BlasGemmTest, UsesConjugateTransposedMdspanInput)
+{
+  using Complex = uni20::complex<double>;
+
+  std::vector<Complex> a_storage{Complex{2.0, 1.0}, Complex{3.0, 2.0}};
+  std::vector<Complex> b_storage{Complex{4.0, 0.0}, Complex{5.0, 0.0}};
+  std::vector<Complex> c_storage(1);
+
+  stdex::layout_stride::mapping<extents_2d> a_transposed_mapping(extents_2d{1, 2},
+                                                                 std::array<uni20::index_type, 2>{2, 1});
+  stdex::mdspan<Complex, extents_2d, stdex::layout_stride> a_transposed(a_storage.data(), a_transposed_mapping);
+  stdex::mdspan<Complex, extents_2d, stdex::layout_left> b(b_storage.data(), 2, 1);
+  stdex::mdspan<Complex, extents_2d, stdex::layout_left> c(c_storage.data(), 1, 1);
+
+  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, Complex{1.0, 0.0}, uni20::conj(a_transposed), b, Complex{0.0, 0.0}));
+  EXPECT_DOUBLE_EQ((c[0, 0]).real(), 23.0);
+  EXPECT_DOUBLE_EQ((c[0, 0]).imag(), -14.0);
 }

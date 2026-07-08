@@ -22,9 +22,10 @@ above the raw provider facades in `src/uni20/backend/blas` and
 - Keep tensor allocation, symmetry policy, and high-level fallback policy above
   this layer.
 - `try_*` direct wrappers decline layouts and ABI dimensions that cannot be
-  represented without copies. Checked wrappers treat inconsistent GEMM
-  dimensions or transforms as logic errors and abort through Uni20 checks.
-  Provider shims are responsible for the transform opcodes accepted by this
-  adapter, including conjugate-no-transpose. Prepared wrappers that allocate
-  temporaries should make that contract explicit in their names and
-  documentation.
+  represented without copies. They also decline complex conjugate-only GEMM
+  operands because the generic Fortran BLAS path only has `N/T/C` transpose
+  opcodes. Checked wrappers treat inconsistent GEMM dimensions or unsupported
+  direct transforms as logic errors and abort through Uni20 checks. Prepared
+  wrappers that allocate temporaries, or explicit provider extensions such as
+  OpenBLAS CBLAS conjugate-no-transpose, should make that contract explicit in
+  their names and documentation.

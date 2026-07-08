@@ -804,7 +804,8 @@ decline behavior easy to test.
 
 - Which operations should support row-major-as-transposed views without copying?
 - Which provider backends can support accessor-derived conjugate-only operands
-  directly, and where should fallback materialization for the `'R'` path live?
+  directly, for example through OpenBLAS CBLAS `CblasConjNoTrans`, and where
+  should fallback materialization live?
 - Which BLAS update operations should support output-side conjugation by
   planning an explicit postprocess after the provider call?
 - Which public wrappers should default to `input_temporaries`, and which should

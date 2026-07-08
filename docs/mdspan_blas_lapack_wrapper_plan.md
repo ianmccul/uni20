@@ -280,20 +280,13 @@ For readable operands, compose the storage transform and
 output normalization, may compose additional internal transforms before the
 provider call. User-facing mdspan wrappers should not take `MatrixTransform`
 parameters; transform intent comes from the mdspan view/accessor itself. The
-provider-facing linalg adapter requires a conjugate-no-transpose opcode for
-complex inputs, represented in the local helper as `'R'`. Backend shims are
-responsible for mapping that operation to the selected provider API, such as
-CBLAS `CblasConjNoTrans`, MKL-compatible extension paths, or a later Uni20
-fallback. `standard_blas_trans_char(...)` remains available for code that must
-restrict itself to the ordinary Fortran `'N'`, `'T'`, and `'C'` character set.
-
-TODO: the current reference Fortran-style BLAS wrappers need an implementation
-path for the provider `'R'` opcode. If the selected provider API does not expose
-conjugate-no-transpose directly through the raw `gemm` entry point, the
-reference wrapper should detect `'R'`, materialize a conjugated temporary for
-that readable operand, and dispatch the remaining call through the ordinary
-`'N'`, `'T'`, and `'C'` path. This belongs in the backend wrapper layer, not in
-the mdspan staging or GEMM rewrite layer.
+generic direct GEMM wrapper lowers only to the ordinary Fortran BLAS `'N'`,
+`'T'`, and `'C'` character set. Complex conjugate-only states are therefore not
+directly representable by the baseline provider wrapper and `try_gemm(...)`
+must decline before side effects. A later backend-specific fast path may use an
+extension such as OpenBLAS CBLAS `CblasConjNoTrans`; otherwise a prepared
+wrapper must materialize the conjugated readable operand and dispatch through
+the ordinary `N/T/C` path.
 
 `storage_transform(view)` returns `normal` when `unit_stride_axis == 0` and
 `transpose` when `unit_stride_axis == 1`. The helper name should describe the
@@ -349,14 +342,25 @@ output-side transform before dispatch.
 
 For example, after composing row-major storage, input view conjugation, and
 operation-specific output normalization, the best lowering may require a
-conjugate-only state. The
-direct BLAS adapter assumes that the provider layer can represent this operation
-somehow. For a backend that lacks a direct extension, a later generic plan may
+conjugate-only state. The direct no-copy wrapper must decline that state unless
+the selected backend exposes an explicit extension. A later prepared plan may
 be:
 
-1. call BLAS into the writable storage using the closest representable
-   transpose/conjugate-transpose combination;
-2. explicitly conjugate the output matrix in place after the BLAS call.
+1. conjugate the writable output in place before the BLAS call when `beta != 0`,
+   so the accumulated old-output term represents `conj(C_old)`;
+2. conjugate `alpha`, `beta`, and all readable operands logically, which flips
+   each readable transform's conjugation bit and may turn the unsupported
+   conjugate-only case into an ordinary `N`/`T`/`C` provider call;
+3. call BLAS into the writable storage using the representable transforms;
+4. conjugate the output matrix in place after the BLAS call to restore the
+   requested logical result.
+
+When `beta == 0`, the pre-call output conjugation can be skipped because the
+old output is not read. This fallback requires an explicit matrix-conjugation
+primitive and must only be used when the transformed readable operands are all
+representable by the selected provider. If conjugating everything merely moves
+an unsupported conjugate-only transform from one input to another, the prepared
+wrapper still needs input materialization or must decline.
 
 That postprocess is not part of `BlasWritableMatrix`; it belongs to a backend
 or operation-specific fallback plan. A sketch is:
@@ -433,8 +437,9 @@ If `A` were row-major-like instead, its stage would derive a
 `BlasReadableMatrix` whose `rows` and `cols` describe the provider's
 untransformed `A^T` storage, and whose `transform` is `'T'` for a logical
 input. If composing storage layout, accessor conjugation, and any internal
-operation rewrite produces `conjugate`, the linalg adapter lowers it to the
-provider conjugate-no-transpose opcode.
+operation rewrite produces `conjugate`, the generic direct wrapper declines.
+Provider-specific wrappers may add a fast path for OpenBLAS-style
+conjugate-no-transpose support later.
 
 ## Direct And Prepared Wrappers
 
@@ -534,8 +539,8 @@ GEMM tests:
 - row-major writable output rewrite.
 - readable row-major inputs handled by transform helpers.
 - complex transpose and conjugate-transpose combinations.
-- conjugate-only states lower through the required provider
-  conjugate-no-transpose opcode.
+- conjugate-only complex states are declined by the generic direct wrapper
+  before any provider call.
 - CPU/reference fallback comparison for representative shapes and strides.
 
 LAPACK tests:

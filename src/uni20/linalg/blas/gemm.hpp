@@ -48,6 +48,13 @@ constexpr auto with_transform(BlasReadableMatrix<Scalar, Handle> matrix,
   return matrix;
 }
 
+template <uni20::BlasScalar Scalar, class LhsHandle, class RhsHandle>
+constexpr bool provider_transforms_are_supported(BlasReadableMatrix<Scalar, LhsHandle> lhs,
+                                                 BlasReadableMatrix<Scalar, RhsHandle> rhs)
+{
+  return blas_trans_char<Scalar>(lhs.transform).has_value() && blas_trans_char<Scalar>(rhs.transform).has_value();
+}
+
 template <uni20::BlasScalar Scalar, class OutputHandle, class LhsHandle, class RhsHandle>
   requires std::convertible_to<OutputHandle, Scalar*> && std::convertible_to<LhsHandle, Scalar const*> &&
            std::convertible_to<RhsHandle, Scalar const*>
@@ -82,7 +89,7 @@ void gemm(BlasWritableMatrix<Scalar, OutputHandle> output, BlasReadableMatrix<Sc
 template <uni20::BlasScalar Scalar, class OutputHandle, class LhsHandle, class RhsHandle>
   requires std::convertible_to<OutputHandle, Scalar*> && std::convertible_to<LhsHandle, Scalar const*> &&
            std::convertible_to<RhsHandle, Scalar const*>
-void gemm_with_output_transform(BlasWritableMatrix<Scalar, OutputHandle> output,
+bool gemm_with_output_transform(BlasWritableMatrix<Scalar, OutputHandle> output,
                                 MdspanMatrixStage<Scalar, LhsHandle> const& lhs_stage,
                                 MdspanMatrixStage<Scalar, RhsHandle> const& rhs_stage, Scalar alpha, Scalar beta,
                                 MatrixTransform lhs_transform, MatrixTransform rhs_transform, bool conjugate_output)
@@ -100,26 +107,31 @@ void gemm_with_output_transform(BlasWritableMatrix<Scalar, OutputHandle> output,
     rhs = with_transform(rhs, MatrixTransform::conjugate);
   }
 
+  if (!provider_transforms_are_supported(lhs, rhs))
+  {
+    return false;
+  }
+
   detail::gemm(output, lhs, rhs, alpha, beta);
+  return true;
 }
 
 template <uni20::BlasScalar Scalar, class OutputHandle, class LhsHandle, class RhsHandle>
   requires std::convertible_to<OutputHandle, Scalar*> && std::convertible_to<LhsHandle, Scalar const*> &&
            std::convertible_to<RhsHandle, Scalar const*>
-void gemm_with_normalized_output(MdspanMatrixStage<Scalar, OutputHandle> const& output_stage,
+bool gemm_with_normalized_output(MdspanMatrixStage<Scalar, OutputHandle> const& output_stage,
                                  MdspanMatrixStage<Scalar, LhsHandle> const& lhs_stage,
                                  MdspanMatrixStage<Scalar, RhsHandle> const& rhs_stage, Scalar alpha, Scalar beta)
 {
   auto const output = blas_writable_matrix(output_stage);
   if (output_stage.unit_stride_axis == 0)
   {
-    gemm_with_output_transform(output, lhs_stage, rhs_stage, alpha, beta, MatrixTransform::normal,
-                               MatrixTransform::normal, output_stage.needs_conjugation);
-    return;
+    return gemm_with_output_transform(output, lhs_stage, rhs_stage, alpha, beta, MatrixTransform::normal,
+                                      MatrixTransform::normal, output_stage.needs_conjugation);
   }
 
-  gemm_with_output_transform(output, rhs_stage, lhs_stage, alpha, beta, MatrixTransform::transpose,
-                             MatrixTransform::transpose, output_stage.needs_conjugation);
+  return gemm_with_output_transform(output, rhs_stage, lhs_stage, alpha, beta, MatrixTransform::transpose,
+                                    MatrixTransform::transpose, output_stage.needs_conjugation);
 }
 } // namespace detail
 
@@ -138,8 +150,7 @@ bool try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& 
     return false;
   }
 
-  detail::gemm_with_normalized_output(*output_stage, *lhs_stage, *rhs_stage, alpha, beta);
-  return true;
+  return detail::gemm_with_normalized_output(*output_stage, *lhs_stage, *rhs_stage, alpha, beta);
 }
 
 /// \brief Direct no-copy BLAS GEMM from mdspan-like operands.
@@ -156,7 +167,7 @@ void gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs,
   CHECK(lhs_stage.has_value());
   CHECK(rhs_stage.has_value());
 
-  detail::gemm_with_normalized_output(*output_stage, *lhs_stage, *rhs_stage, alpha, beta);
+  CHECK(detail::gemm_with_normalized_output(*output_stage, *lhs_stage, *rhs_stage, alpha, beta));
 }
 
 } // namespace uni20::linalg::blas

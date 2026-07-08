@@ -339,15 +339,17 @@ library. We roll our own view adaptors so we own the lowering.
 - **Runtime part.** A lazy per-operand **op-state** and the per-block scalars. The
   op-state defers the actual data transpose/conjugate to the kernel.
 
-The op-state lowers directly to the backend BLAS `op`, for which we support the full
-set including MKL's conjugate-only extension:
+The op-state lowers directly to the backend BLAS `op` when the provider can
+represent it. The baseline Fortran BLAS set is `N`/`T`/`C`; conjugate-only is a
+provider extension, for example OpenBLAS CBLAS `CblasConjNoTrans`, or else
+requires materialization:
 
 | op | meaning |
 |---|---|
 | `N` | normal |
 | `T` | transpose |
 | `C` | conjugate-transpose |
-| `R` | conjugate only (no transpose) — MKL BLAS extension; required for completeness |
+| `R` | conjugate only (no transpose) — provider extension or prepared fallback |
 
 The per-block scalar lowers to the GEMM **`alpha`** — and it is genuinely
 **per-block**, not one uniform alpha as in stdBLAS `scaled`, because the phases are
@@ -452,8 +454,8 @@ without touching it.
   only ("not present" = omitted, no explicit label).
 - Transpose/conjugate/scale are views = compile-time `LegList` transform + lazy
   op-state + per-block scalars; **inspired by but not using** C++26 `std::linalg`;
-  op set `N`/`T`/`C`/`R` (including MKL conjugate-only); per-block `alpha`; scaled/
-  conjugated views read-only, transposed possibly assignable.
+  op set `N`/`T`/`C` plus provider-specific or prepared `R`; per-block `alpha`;
+  scaled/conjugated views read-only, transposed possibly assignable.
 - Six forward-compat seams; the per-block scalar is the abelian recoupling case;
   bake the `op`/`alpha` interface now with trivial values, add factors as data.
 
