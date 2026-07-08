@@ -9,7 +9,7 @@
 #include <uni20/backend/blas/backend_blas.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
-#include <uni20/linalg/blas/mdspan_matrix_operand.hpp>
+#include <uni20/linalg/blas/mdspan_matrix.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -21,12 +21,12 @@ namespace detail
 {
 template <class Mdspan, class Scalar>
 concept readable_blas_mdspan_for =
-    uni20::StridedMdspan<Mdspan> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar> &&
+    blas_readable_mdspan<Mdspan> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar> &&
     std::convertible_to<typename Mdspan::data_handle_type, Scalar const*>;
 
 template <class Mdspan, class Scalar>
 concept writable_blas_mdspan_for =
-    uni20::MutableStridedMdspan<Mdspan> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar> &&
+    blas_writable_mdspan<Mdspan> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar> &&
     std::convertible_to<typename Mdspan::data_handle_type, Scalar*>;
 
 constexpr blas_int logical_rows(blas_int rows, blas_int cols, MatrixTransform transform)
@@ -51,7 +51,7 @@ template <uni20::BlasScalar Scalar, class LhsHandle, class RhsHandle>
 constexpr bool provider_transforms_are_supported(BlasReadableMatrix<Scalar, LhsHandle> lhs,
                                                  BlasReadableMatrix<Scalar, RhsHandle> rhs)
 {
-  return blas_trans_char<Scalar>(lhs.transform).has_value() && blas_trans_char<Scalar>(rhs.transform).has_value();
+  return blas_trans_char_is_supported<Scalar>(lhs.transform) && blas_trans_char_is_supported<Scalar>(rhs.transform);
 }
 
 template <uni20::BlasScalar Scalar, class OutputHandle, class LhsHandle, class RhsHandle>
@@ -62,8 +62,6 @@ void gemm(BlasWritableMatrix<Scalar, OutputHandle> output, BlasReadableMatrix<Sc
 {
   auto const transa = blas_trans_char<Scalar>(lhs.transform);
   auto const transb = blas_trans_char<Scalar>(rhs.transform);
-  CHECK(transa.has_value());
-  CHECK(transb.has_value());
 
   blas_int const lhs_rows = logical_rows(lhs.rows, lhs.cols, lhs.transform);
   blas_int const lhs_cols = logical_cols(lhs.rows, lhs.cols, lhs.transform);
@@ -81,7 +79,7 @@ void gemm(BlasWritableMatrix<Scalar, OutputHandle> output, BlasReadableMatrix<Sc
   Scalar const* const lhs_data = lhs.data;
   Scalar const* const rhs_data = rhs.data;
   Scalar* const output_data = output.data;
-  ::uni20::blas::gemm(*transa, *transb, output.rows, output.cols, lhs_cols, alpha, lhs_data, lhs.leading_dimension,
+  ::uni20::blas::gemm(transa, transb, output.rows, output.cols, lhs_cols, alpha, lhs_data, lhs.leading_dimension,
                       rhs_data, rhs.leading_dimension, beta, output_data, output.leading_dimension);
 }
 

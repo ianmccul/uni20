@@ -109,12 +109,12 @@ selector, or a concrete convenience wrapper such as "use LAPACK for this view".
 
 ## Mdspan Concepts
 
-The first implementation should refine the existing Uni20 mdspan concepts
-instead of introducing unrelated concept names. The generic rank filter is not
-specific to linalg and should probably live with the mdspan concepts. The linalg
-layer should then add scalar-family and host-addressability refinements.
+The first implementation refines the existing Uni20 mdspan concepts instead of
+introducing unrelated concept names. Generic rank filters are not specific to
+linalg and live with the mdspan concepts. The linalg layer should then add
+scalar-family and host-addressability refinements.
 
-Candidate generic mdspan refinement:
+Implemented generic mdspan refinement:
 
 ```cpp
 template <class View, std::size_t Rank>
@@ -204,13 +204,25 @@ The exact names can change, but the split matters:
 
 - `StridedMdspan`: structural mdspan-like API with runtime strides.
 - `RankedStridedMdspan<View, Rank>`: structural mdspan-like API plus a static
-  rank requirement; this belongs in the generic mdspan layer.
+  rank requirement; this belongs in the generic mdspan layer and is implemented
+  in `src/uni20/mdspan/concepts.hpp`.
 - `LinalgMatrixView` and `LinalgVectorView`: rank-specific real-or-complex
   linalg operands.
 - `RealLinalgMatrixView`, `ComplexLinalgMatrixView`,
   `RealLinalgVectorView`, and `ComplexLinalgVectorView`: longer names for
   operations that need a specific scalar family.
 - `HostRawAddressableRankedView`: memory can be passed to a host pointer ABI.
+  A pointer-like `data_handle_type` alone is not enough to prove this. Accessor
+  semantics matter: a conjugating accessor can preserve the original pointer
+  handle while changing the values returned by `access(...)`. Provider-facing
+  direct concepts should therefore distinguish "storage handle can be passed to
+  the ABI" from "the accessor is identity-like or otherwise explicitly lowered
+  into provider transform metadata". The default direct-memory case is an
+  mdspan with `stdex::default_accessor<T>`. Other accessors are direct only when
+  the wrapper recognizes their semantics and lowers them deliberately. The BLAS
+  adapter currently treats Uni20's C++26-style `conjugated_accessor` as
+  lowerable for readable inputs because it maps to `MatrixTransform`; arbitrary
+  transform accessors still require materialization or a generic path.
 - `BlasScalarRankedView` and `LapackScalarRankedView`: element type is exactly
   supported by the configured BLAS or LAPACK layer. These are backend
   refinements, not base linalg concepts. Keep both names because BLAS and LAPACK
@@ -223,6 +235,9 @@ The exact names can change, but the split matters:
   future `conj(Tensor)` should return a tensor view whose mdspan accessor
   advertises the same trait, so the mdspan-to-BLAS adapter discovers
   conjugation from the accessor instead of from tensor-specific side metadata.
+  The accessor follows the C++26 `std::linalg::conjugated_accessor` direction
+  in WG21 P3050R3, but Uni20 keeps `uni20::conj` as the value-level
+  customization point instead of adopting `conj-if-needed` terminology.
 - mutability constraints belong to each operation.
 - Generic writable/LHS operands should be structural views with ordinary
   raw/default-style accessors. Component views such as `real(x)` and `imag(x)`
@@ -804,8 +819,8 @@ decline behavior easy to test.
 
 - Which operations should support row-major-as-transposed views without copying?
 - Which provider backends can support accessor-derived conjugate-only operands
-  directly, for example through OpenBLAS CBLAS `CblasConjNoTrans`, and where
-  should fallback materialization live?
+  directly, for example through OpenBLAS `CblasConjNoTrans` or its
+  Fortran-style `R` spelling, and where should fallback materialization live?
 - Which prepared BLAS wrappers should use internal output-storage conjugation as
   a workaround for otherwise unavailable readable transform combinations?
 - Which public wrappers should default to `input_temporaries`, and which should

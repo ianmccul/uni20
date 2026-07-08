@@ -1,6 +1,7 @@
 #include <uni20/common/mdspan.hpp>
 #include <uni20/core/types.hpp>
-#include <uni20/linalg/blas/mdspan_matrix_operand.hpp>
+#include <uni20/linalg/blas/blas_matrix.hpp>
+#include <uni20/linalg/blas/mdspan_matrix.hpp>
 #include <uni20/mdspan/conjugate_accessor.hpp>
 
 #include <gtest/gtest.h>
@@ -8,6 +9,7 @@
 #include <array>
 #include <limits>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace
@@ -16,6 +18,21 @@ using extents_2d = stdex::dextents<uni20::index_type, 2>;
 using uni20::linalg::blas::MatrixTransform;
 
 template <class Scalar> using left_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left>;
+
+template <class Scalar> struct ValueTransformAccessor
+{
+    using element_type = Scalar;
+    using data_handle_type = Scalar*;
+    using reference = Scalar;
+    using offset_policy = ValueTransformAccessor;
+
+    constexpr data_handle_type offset(data_handle_type ptr, std::size_t offset) const { return ptr + offset; }
+
+    constexpr reference access(data_handle_type ptr, std::size_t offset) const { return Scalar{2} * ptr[offset]; }
+};
+
+template <class Scalar>
+using value_transform_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left, ValueTransformAccessor<Scalar>>;
 
 template <class Span>
 concept can_try_blas_writable_matrix =
@@ -40,9 +57,26 @@ concept can_lower_blas_trans_char = requires { uni20::linalg::blas::blas_trans_c
 TEST(BlasMatrixTransformTest, ComposeAndTransposeResultTransform)
 {
   using uni20::linalg::blas::blas_trans_char;
+  using uni20::linalg::blas::blas_trans_char_is_supported;
   using uni20::linalg::blas::compose;
-  using uni20::linalg::blas::standard_blas_trans_char;
+  using uni20::linalg::blas::conjugates_values;
+  using uni20::linalg::blas::swaps_axes;
   using uni20::linalg::blas::transpose_result_transform;
+
+  EXPECT_EQ(std::to_underlying(MatrixTransform::normal), 0U);
+  EXPECT_EQ(std::to_underlying(MatrixTransform::transpose), 1U);
+  EXPECT_EQ(std::to_underlying(MatrixTransform::conjugate), 2U);
+  EXPECT_EQ(std::to_underlying(MatrixTransform::conjugate_transpose), 3U);
+
+  EXPECT_FALSE(swaps_axes(MatrixTransform::normal));
+  EXPECT_TRUE(swaps_axes(MatrixTransform::transpose));
+  EXPECT_FALSE(swaps_axes(MatrixTransform::conjugate));
+  EXPECT_TRUE(swaps_axes(MatrixTransform::conjugate_transpose));
+
+  EXPECT_FALSE(conjugates_values(MatrixTransform::normal));
+  EXPECT_FALSE(conjugates_values(MatrixTransform::transpose));
+  EXPECT_TRUE(conjugates_values(MatrixTransform::conjugate));
+  EXPECT_TRUE(conjugates_values(MatrixTransform::conjugate_transpose));
 
   EXPECT_EQ(compose(MatrixTransform::transpose, MatrixTransform::transpose), MatrixTransform::normal);
   EXPECT_EQ(compose(MatrixTransform::conjugate, MatrixTransform::transpose), MatrixTransform::conjugate_transpose);
@@ -53,13 +87,13 @@ TEST(BlasMatrixTransformTest, ComposeAndTransposeResultTransform)
   EXPECT_EQ(transpose_result_transform(MatrixTransform::conjugate_transpose), MatrixTransform::conjugate);
   EXPECT_EQ(transpose_result_transform(MatrixTransform::conjugate), MatrixTransform::conjugate_transpose);
 
-  EXPECT_EQ(standard_blas_trans_char<double>(MatrixTransform::conjugate), 'N');
-  EXPECT_EQ(standard_blas_trans_char<double>(MatrixTransform::conjugate_transpose), 'T');
-  EXPECT_FALSE(standard_blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate));
-  EXPECT_EQ(standard_blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate_transpose), 'C');
+  EXPECT_TRUE(blas_trans_char_is_supported<double>(MatrixTransform::conjugate));
+  EXPECT_TRUE(blas_trans_char_is_supported<uni20::complex<double>>(MatrixTransform::conjugate_transpose));
+  EXPECT_FALSE(blas_trans_char_is_supported<uni20::complex<double>>(MatrixTransform::conjugate));
 
   EXPECT_EQ(blas_trans_char<double>(MatrixTransform::conjugate), 'N');
-  EXPECT_FALSE(blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate));
+  EXPECT_EQ(blas_trans_char<double>(MatrixTransform::conjugate_transpose), 'T');
+  EXPECT_EQ(blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate), 'R');
   EXPECT_EQ(blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate_transpose), 'C');
 }
 
@@ -76,6 +110,13 @@ TEST(BlasMatrixOperandTest, ConvenienceApisRequireConfiguredScalarBackends)
   static_assert(!can_try_blas_writable_matrix<left_mdspan<int>>);
   static_assert(!can_try_blas_readable_matrix<left_mdspan<int>>);
   static_assert(!can_try_lapack_writable_matrix<left_mdspan<int>>);
+
+  static_assert(uni20::StridedMdspan<value_transform_mdspan<double>>);
+  static_assert(std::convertible_to<typename value_transform_mdspan<double>::data_handle_type, double*>);
+  static_assert(!uni20::DefaultAccessorMdspan<value_transform_mdspan<double>>);
+  static_assert(!can_try_blas_writable_matrix<value_transform_mdspan<double>>);
+  static_assert(!can_try_blas_readable_matrix<value_transform_mdspan<double>>);
+  static_assert(!can_try_lapack_writable_matrix<value_transform_mdspan<double>>);
 }
 
 TEST(BlasMatrixOperandTest, StagesColumnMajorMdspan)

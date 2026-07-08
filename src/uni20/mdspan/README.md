@@ -20,3 +20,9 @@ small helpers used by dense kernels and layout-aware algorithms.
   implementation itself.
 - This module should describe structure and layout, not ownership or backend
   dispatch policy.
+- A pointer `data_handle_type` is not enough to prove direct memory semantics.
+  Backends that bypass `access(...)` must check for `stdex::default_accessor`
+  or an explicitly lowerable accessor such as Uni20's `conjugated_accessor`.
+- `uni20::conj(span)` is the user-facing lazy conjugation helper. Its accessor
+  follows the C++26 `std::linalg::conjugated_accessor` direction while keeping
+  Uni20's value-level `conj` behavior for real scalar types.

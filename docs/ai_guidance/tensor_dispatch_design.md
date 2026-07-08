@@ -79,6 +79,19 @@ Candidate concepts:
 - A bare `stdex::mdspan` is suitable for a leaf kernel, but not enough for
   default top-level dispatch unless an explicit backend selector and state/domain
   are supplied.
+- `data_handle_type` being a pointer does not prove direct readability or
+  writeability. Mdspan accessors define value semantics. Direct BLAS/LAPACK
+  paths may bypass `access(...)` only for `stdex::default_accessor` or for
+  accessors whose semantics are explicitly recognized and lowered, such as
+  Uni20's C++26-style `conjugated_accessor` into BLAS transform metadata.
+- Do not claim arbitrary custom accessors, transform accessors, zip accessors,
+  or scaling accessors are BLAS-addressable merely because their data handle is
+  pointer-like. They require materialization, generic evaluation, or an
+  operation-specific lowering rule.
+- Uni20 uses `uni20::conj(span)` for lazy conjugating mdspan views. This follows
+  the C++26 `std::linalg::conjugated_accessor` model, but Uni20 does not adopt
+  `conj-if-needed`; `uni20::conj` is the project-level fix for real-scalar
+  conjugation semantics.
 
 ### PARAMETER ORDER
 

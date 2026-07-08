@@ -13,6 +13,21 @@ namespace
 {
 using extents_2d = stdex::dextents<uni20::index_type, 2>;
 
+template <class Scalar> struct ValueTransformAccessor
+{
+    using element_type = Scalar;
+    using data_handle_type = Scalar*;
+    using reference = Scalar;
+    using offset_policy = ValueTransformAccessor;
+
+    constexpr data_handle_type offset(data_handle_type ptr, std::size_t offset) const { return ptr + offset; }
+
+    constexpr reference access(data_handle_type ptr, std::size_t offset) const { return Scalar{2} * ptr[offset]; }
+};
+
+template <class Scalar>
+using value_transform_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left, ValueTransformAccessor<Scalar>>;
+
 template <class Span> void fill_matrix(Span span, std::initializer_list<double> values)
 {
   auto it = values.begin();
@@ -157,6 +172,7 @@ TEST(BlasGemmTest, ConjugatingMdspanIsReadableOnly)
 
   static_assert(can_call_try_gemm<Span&, Complex, ConjugatingSpan, Span&>);
   static_assert(!can_call_try_gemm<ConjugatingSpan, Complex, Span&, Span&>);
+  static_assert(!can_call_try_gemm<Span&, Complex, value_transform_mdspan<Complex>&, Span&>);
 }
 
 TEST(BlasGemmTest, TryDeclinesConjugateOnlyComplexInput)

@@ -56,14 +56,12 @@ symbols or include provider-specific headers directly.
 
 The first implementation lives under `src/uni20/linalg/blas/`:
 
-- `matrix_transform.hpp`
-  - backend-independent transform algebra and standard BLAS transpose lowering.
-- `matrix_operand.hpp`
-  - provider-ready `BlasReadableMatrix` and `BlasWritableMatrix` operands.
-- `mdspan_matrix_stage.hpp`
-  - `try_mdspan_matrix_stage(...)` and mdspan accessor conjugation traits.
-- `mdspan_matrix_operand.hpp`
-  - role-specific readable/writable lowering helpers and strict
+- `blas_matrix.hpp`
+  - provider-ready `BlasReadableMatrix` and `BlasWritableMatrix` operands,
+    backend-independent transform algebra, and BLAS transpose lowering.
+- `mdspan_matrix.hpp`
+  - `try_mdspan_matrix_stage(...)`, mdspan accessor conjugation traits,
+    role-specific readable/writable lowering helpers, and strict
     column-major-compatible helpers for LAPACK update operands.
 - `gemm.hpp`
   - direct mdspan GEMM wrappers.
@@ -102,11 +100,11 @@ character. They are not necessarily the logical mdspan dimensions.
 provider-ready input operand for BLAS calls.
 
 ```cpp
-enum class MatrixTransform {
-  normal,
-  transpose,
-  conjugate_transpose,
-  conjugate
+enum class MatrixTransform : unsigned {
+  normal = 0,
+  transpose = 1,
+  conjugate = 2,
+  conjugate_transpose = 3
 };
 
 template <class Scalar, class Handle = Scalar*>
@@ -180,10 +178,16 @@ original view when applied twice, and returns a const identity view for
 non-complex mdspans. The same header defines
 `accessor_applies_conjugation_v<Accessor>` and
 `mdspan_needs_conjugation_v<View>`. A future `conj(Tensor)` operation should
-return a tensor view whose mdspan uses that conjugation adaptor accessor rather
-than eagerly materializing conjugated storage. When that view reaches the BLAS
+return a tensor view whose mdspan uses that conjugation accessor rather than
+eagerly materializing conjugated storage. When that view reaches the BLAS
 staging helper, `try_mdspan_matrix_stage(...)` inspects the accessor and sets
 `needs_conjugation = true`.
+
+The conjugating accessor follows the C++26 `std::linalg::conjugated_accessor`
+direction in WG21 P3050R3. Uni20 deliberately keeps `uni20::conj(span)` as the
+user-facing operation and does not adopt `conj-if-needed` terminology: for
+non-complex values, `uni20::conj` is the identity on values and the mdspan
+helper returns a read-only identity view.
 
 The direct BLAS path should accept only accessors that can still expose the raw
 storage handle plus declarative metadata such as `needs_conjugation`. An
@@ -195,6 +199,14 @@ adapter may lower only the subset it understands. The broader view policy lives
 in `docs/tensor_dispatch_and_view_semantics_draft.md`: structural views such as
 `real(x)` and `imag(x)` are slice-like address transformations, while semantic
 transform views such as `conj(x)` are read-only by default.
+
+A pointer `data_handle_type` is not enough to prove direct BLAS readability or
+writeability. Direct BLAS/LAPACK wrappers may bypass `access(...)`; that is only
+correct for `stdex::default_accessor<T>` or for accessors whose semantics the
+wrapper explicitly lowers. For the current BLAS adapter, readable inputs may use
+`stdex::default_accessor<T>` or Uni20's `conjugated_accessor` over a default
+accessor. Writable outputs and LAPACK update operands require default-accessor
+views.
 
 `unit_stride_axis` is deliberately an integer mdspan axis, not a row/column
 enum. Names such as `row` and `column` are easy to misread because
@@ -276,21 +288,26 @@ The transform helper layer should provide:
 - `transpose_result_transform(MatrixTransform)`;
 - `compose(MatrixTransform, MatrixTransform)`;
 - `logical_rows(...)`, `logical_cols(...)`, `abi_rows(...)`, `abi_cols(...)`;
-- `blas_trans_char(MatrixTransform) -> std::optional<char>`;
-- `standard_blas_trans_char(MatrixTransform) -> std::optional<char>`.
+- `blas_trans_char_is_supported(MatrixTransform) -> bool`;
+- `blas_trans_char(MatrixTransform) -> char`.
 
 For readable operands, compose the storage transform and
 `stage.needs_conjugation`. Operation-specific rewrites, such as row-major GEMM
 output normalization, may compose additional internal transforms before the
 provider call. User-facing mdspan wrappers should not take `MatrixTransform`
 parameters; transform intent comes from the mdspan view/accessor itself. The
-generic direct GEMM wrapper lowers only to the ordinary Fortran BLAS `'N'`,
-`'T'`, and `'C'` character set. Complex conjugate-only states are therefore not
-directly representable by the baseline provider wrapper and `try_gemm(...)`
-must decline before side effects. A later backend-specific fast path may use an
-extension such as OpenBLAS CBLAS `CblasConjNoTrans`; otherwise a prepared
-wrapper must materialize the conjugated readable operand and dispatch through
-the ordinary `N/T/C` path.
+transform spelling helper maps the internal transform alphabet to `'N'`, `'T'`,
+`'C'`, and `'R'`, where `'R'` means conjugate without transpose. The current
+generic direct GEMM wrapper still gates provider calls to the portable `'N'`,
+`'T'`, and `'C'` subset, so complex conjugate-only states are declined before
+side effects. OpenBLAS documents the extension in its CBLAS enum as
+`CblasConjNoTrans`, and its `interface/gemm.c` dispatcher also recognizes the
+Fortran-style `'R'` spelling on the develop branch:
+<https://github.com/OpenMathLib/OpenBLAS/blob/develop/interface/gemm.c>. Intel
+MKL's Fortran GEMM rejected `'R'` in local testing, so any direct `'R'` fast
+path should be explicitly provider-gated rather than assumed as baseline BLAS.
+Otherwise a prepared wrapper must materialize the conjugated readable operand
+and dispatch through the ordinary `N/T/C` path.
 
 `storage_transform(view)` returns `normal` when `unit_stride_axis == 0` and
 `transpose` when `unit_stride_axis == 1`. The helper name should describe the

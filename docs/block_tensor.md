@@ -341,8 +341,8 @@ library. We roll our own view adaptors so we own the lowering.
 
 The op-state lowers directly to the backend BLAS `op` when the provider can
 represent it. The baseline Fortran BLAS set is `N`/`T`/`C`; conjugate-only is a
-provider extension, for example OpenBLAS CBLAS `CblasConjNoTrans`, or else
-requires materialization:
+provider extension, for example OpenBLAS `CblasConjNoTrans` or its
+develop-branch Fortran GEMM `R` spelling, or else requires materialization:
 
 | op | meaning |
 |---|---|

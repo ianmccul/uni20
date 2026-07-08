@@ -19,10 +19,10 @@ BLAS interface targets used by higher layers.
   policy.
 - Keep LP64/ILP64 handling centralized here so callers do not duplicate BLAS
   integer assumptions.
-- The generic Fortran-style BLAS wrappers must only receive the ordinary
-  `N/T/C` GEMM transpose opcodes. Some providers, notably OpenBLAS through its
-  CBLAS header, expose a conjugate-no-transpose extension. That is a
-  provider-specific fast path, not the baseline ABI contract. Higher linalg
-  wrappers should decline direct no-copy conjugate-only complex GEMM until a
-  prepared wrapper materializes the conjugated operand or an explicit backend
-  extension handles it.
+- The generic BLAS wrappers are currently gated to the portable `N/T/C` GEMM
+  transpose opcodes. Some providers expose a conjugate-no-transpose extension:
+  OpenBLAS defines `CblasConjNoTrans`, and its develop-branch Fortran GEMM
+  dispatcher recognizes `R`. This is a provider-specific fast path, not the
+  baseline ABI contract. Higher linalg wrappers should decline direct no-copy
+  conjugate-only complex GEMM until a prepared wrapper materializes the
+  conjugated operand or an explicit backend extension handles it.

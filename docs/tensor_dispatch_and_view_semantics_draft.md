@@ -155,6 +155,17 @@ current mdspan `conj(...)` helper follows this rule: complex mdspans become
 read-only conjugating views, double conjugation cancels to a const original
 view, and non-complex mdspans become const identity views.
 
+Do not treat a pointer `data_handle_type` as proof that a backend may read or
+write the storage directly. The data handle identifies storage; the accessor
+defines the value observed at that storage. A semantic accessor can keep the
+same pointer while changing the value returned by `access(...)`. Direct
+provider paths that bypass `access(...)` must require `stdex::default_accessor`
+or a specifically recognized accessor whose semantics are lowered into provider
+metadata. Uni20's conjugating mdspan accessor follows the C++26
+`std::linalg::conjugated_accessor` direction described in WG21 P3050R3, but
+Uni20 keeps `uni20::conj` as the operation that fixes real-scalar conjugation
+semantics instead of using standard `std::conj` behavior.
+
 ## Assignment Semantics
 
 The async assignment trait currently distinguishes rebind and write-through.

@@ -184,6 +184,33 @@ DMRG calculations.
 
 ---
 
+### 3.6 Mdspan Accessor Semantics
+
+* Do not infer direct memory readability or writeability from
+  `data_handle_type` alone. A pointer-shaped data handle only identifies a
+  storage handle; the mdspan accessor defines the value semantics of
+  `access(...)`.
+* Direct provider calls such as BLAS/LAPACK may bypass the accessor and read the
+  storage through raw pointers only when the accessor is known to be
+  `stdex::default_accessor<T>` or when the wrapper explicitly understands and
+  lowers the accessor semantics, for example Uni20's conjugating accessor into a
+  BLAS transpose/conjugation flag.
+* Treat custom accessors, transform accessors, scaling accessors, zip accessors,
+  and other proxy accessors as semantic views that require explicit lowering,
+  materialization, or a generic elementwise path. A pointer data handle does not
+  make them BLAS-addressable.
+* Uni20's lazy conjugation follows the C++26 `std::linalg::conjugated_accessor`
+  model from WG21 P3050R3, but the user-facing helper is `uni20::conj(span)`.
+  Do not use `std::conj` to decide real-mdspan behavior: `uni20::conj` is the
+  project customization point that preserves real scalar type semantics.
+
+**Why:**
+Mdspan layouts and accessors are not just tags. A view can preserve the original
+pointer while changing every value observed through `access(...)`; bypassing
+that accessor silently changes the mathematical operation.
+
+---
+
 ## 4. Testing
 
 ```bash

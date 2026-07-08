@@ -49,6 +49,9 @@ static_assert(std::is_same_v<span_offset_t<AccessorWithoutOffset>, std::size_t>)
 using MutableAccessor = AccessorWithoutOffset;
 using ExpectedConstAccessor = const_accessor_adaptor<MutableAccessor, MutableAccessor::element_type const&>;
 static_assert(std::is_same_v<const_accessor_t<MutableAccessor>, ExpectedConstAccessor>);
+static_assert(is_default_accessor_v<stdex::default_accessor<int>>);
+static_assert(is_default_accessor_v<stdex::default_accessor<int const>>);
+static_assert(!is_default_accessor_v<MutableAccessor>);
 
 TEST(MdspanConcepts, ConstAccessorAdaptorYieldsConstReference)
 {
@@ -67,10 +70,14 @@ TEST(MdspanConcepts, ConstAccessorAdaptorYieldsConstReference)
 }
 
 using DynamicExtent = stdex::extents<std::size_t, stdex::dynamic_extent>;
+using DynamicMatrixExtents = stdex::dextents<std::size_t, 2>;
 using StaticSpan = stdex::mdspan<int, stdex::extents<std::size_t, 2, 3>>;
 using ConstStaticSpan = stdex::mdspan<int const, stdex::extents<std::size_t, 2, 3>>;
 using StridedSpan = stdex::mdspan<int, DynamicExtent, stdex::layout_stride>;
 using ConstStridedSpan = stdex::mdspan<int const, DynamicExtent, stdex::layout_stride>;
+using StridedMatrixSpan = stdex::mdspan<int, DynamicMatrixExtents, stdex::layout_stride>;
+using ConstStridedMatrixSpan = stdex::mdspan<int const, DynamicMatrixExtents, stdex::layout_stride>;
+using CustomAccessorSpan = stdex::mdspan<int, DynamicMatrixExtents, stdex::layout_stride, MutableAccessor>;
 
 static_assert(SpanLike<StaticSpan>);
 static_assert(MutableSpanLike<StaticSpan>);
@@ -81,6 +88,17 @@ static_assert(StridedMdspan<StridedSpan>);
 static_assert(MutableStridedMdspan<StridedSpan>);
 static_assert(StridedMdspan<ConstStridedSpan>);
 static_assert(!MutableStridedMdspan<ConstStridedSpan>);
+static_assert(DefaultAccessorMdspan<StridedSpan>);
+static_assert(DefaultAccessorMdspan<ConstStridedSpan>);
+static_assert(!DefaultAccessorMdspan<CustomAccessorSpan>);
+
+static_assert(RankedStridedMdspan<StridedMatrixSpan, 2>);
+static_assert(RankedStridedMdspan<StridedMatrixSpan&, 2>);
+static_assert(!RankedStridedMdspan<StridedMatrixSpan, 1>);
+static_assert(MutableRankedStridedMdspan<StridedMatrixSpan, 2>);
+static_assert(MutableRankedStridedMdspan<StridedMatrixSpan&, 2>);
+static_assert(RankedStridedMdspan<ConstStridedMatrixSpan, 2>);
+static_assert(!MutableRankedStridedMdspan<ConstStridedMatrixSpan, 2>);
 
 struct NotSpanLike
 {};
@@ -89,3 +107,5 @@ static_assert(!SpanLike<NotSpanLike>);
 static_assert(!MutableSpanLike<NotSpanLike>);
 static_assert(!StridedMdspan<NotSpanLike>);
 static_assert(!MutableStridedMdspan<NotSpanLike>);
+static_assert(!RankedStridedMdspan<NotSpanLike, 2>);
+static_assert(!MutableRankedStridedMdspan<NotSpanLike, 2>);
