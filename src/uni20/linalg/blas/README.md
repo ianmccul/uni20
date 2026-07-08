@@ -28,4 +28,6 @@ above the raw provider facades in `src/uni20/backend/blas` and
   direct transforms as logic errors and abort through Uni20 checks. Prepared
   wrappers that allocate temporaries, or explicit provider extensions such as
   OpenBLAS CBLAS conjugate-no-transpose, should make that contract explicit in
-  their names and documentation.
+  their names and documentation. Prepared wrappers may also use internal
+  output-storage conjugation as a non-user-visible workaround for unsupported
+  readable transform combinations.

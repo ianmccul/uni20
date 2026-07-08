@@ -523,9 +523,9 @@ This rejects, at compile time:
 - integer or unsupported scalar types.
 - complex eigenvalue output for a Hermitian problem.
 - device accessors and arbitrary transform accessors that cannot be passed to a
-  host pointer ABI. Accessor-declared conjugation is allowed only when the
-  accessor still exposes raw storage and the BLAS wrapper knows how to lower or
-  postprocess it.
+  host pointer ABI. Accessor-declared conjugation is allowed for readable BLAS
+  operands only when the accessor still exposes raw storage and the BLAS
+  wrapper knows how to lower or materialize it.
 
 ### Runtime Representability
 
@@ -806,8 +806,8 @@ decline behavior easy to test.
 - Which provider backends can support accessor-derived conjugate-only operands
   directly, for example through OpenBLAS CBLAS `CblasConjNoTrans`, and where
   should fallback materialization live?
-- Which BLAS update operations should support output-side conjugation by
-  planning an explicit postprocess after the provider call?
+- Which prepared BLAS wrappers should use internal output-storage conjugation as
+  a workaround for otherwise unavailable readable transform combinations?
 - Which public wrappers should default to `input_temporaries`, and which should
   require `direct_only` unless the caller opts into materialization?
 - What diagnostics should report materialization decisions: copied input,

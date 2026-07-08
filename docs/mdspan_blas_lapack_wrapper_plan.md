@@ -167,8 +167,10 @@ There is only one staging descriptor. `needs_conjugation` defaults to `false`
 and records that the logical matrix is conjugated relative to the raw storage
 interpretation. For readable lowering, it composes into
 `BlasReadableMatrix::transform`. For writable lowering, it is not represented in
-`BlasWritableMatrix` itself; it must be handled by the operation plan through an
-explicit output postprocess, a backend extension, or a temporary/copy-back path.
+`BlasWritableMatrix` itself. The current direct GEMM wrapper rejects such a
+stage as a user-provided output view. This is separate from a prepared
+operation internally conjugating the output storage before and after a provider
+call as an implementation trick.
 
 The staging helper derives `needs_conjugation` from the mdspan accessor policy.
 It is not an independent option supplied by the BLAS adapter. The generic
@@ -256,10 +258,12 @@ composing the storage transform and `stage.needs_conjugation`. Callers should
 express logical conjugation by passing `uni20::conj(span)` and should express
 logical transpose by passing a transposed mdspan view. For writable operands,
 `blas_writable_matrix(...)` returns the provider-writeable storage shape only. A
-stage with `needs_conjugation == true` requires the caller's operation plan to
-account for that conjugation explicitly. This keeps the staging descriptor
-unambiguously mdspan-like while making the BLAS ABI conversion local and
-testable.
+stage with `needs_conjugation == true` is not accepted by the current direct
+GEMM wrappers: `try_gemm(...)` declines it and the checked `gemm(...)` wrapper
+aborts. In normal use this is unreachable because `uni20::conj(mdspan)` returns
+a const readable view, but the runtime guard keeps custom accessors honest. This
+keeps the staging descriptor unambiguously mdspan-like while making the BLAS ABI
+conversion local and testable.
 
 ## Transform Helpers
 
@@ -326,57 +330,49 @@ C^T = alpha * op(B)^T * op(A)^T + beta * C^T
 ```
 
 The helper should swap readable operands and apply an internal transpose
-transform to both staged readable operands. If the output view is conjugated,
-conjugate `alpha`, `beta`, and both readable operand transforms before
-dispatching. This keeps the writable output untransformed while still
-describing the logical result.
+transform to both staged readable operands. This keeps the writable output
+untransformed while still describing the logical result.
 
 This rewrite is appropriate for BLAS update-style operations. It is not a
 general rule for LAPACK drivers that overwrite inputs with structured outputs.
 
-## Output Postprocessing
+## Writable Output Conjugation
 
 `BlasWritableMatrix` intentionally has no transform field. It is only the
 provider-writeable storage target. Operation-specific wrappers normalize any
 output-side transform before dispatch.
 
-For example, after composing row-major storage, input view conjugation, and
-operation-specific output normalization, the best lowering may require a
-conjugate-only state. The direct no-copy wrapper must decline that state unless
-the selected backend exposes an explicit extension. A later prepared plan may
-be:
+There are two different notions that should stay separate:
 
-1. conjugate the writable output in place before the BLAS call when `beta != 0`,
-   so the accumulated old-output term represents `conj(C_old)`;
+- A conjugating output view supplied by the caller. The current direct mdspan
+  GEMM layer does not accept this. Logical conjugation is represented by
+  `uni20::conj(mdspan)`, and that view is read-only.
+- Manual conjugation of the output storage by an implementation-owned prepared
+  fallback. This can be a legitimate way to rewrite an otherwise unsupported
+  combination of readable BLAS transforms into the ordinary `N`/`T`/`C`
+  provider character set. It is not user-visible and does not require a
+  `conjugate_output` flag on the direct wrapper.
+
+For example, after composing row-major storage, input view conjugation, and
+operation-specific normalization, the best lowering may require a
+conjugate-only readable transform that the baseline provider cannot encode. A
+future prepared GEMM fallback may:
+
+1. conjugate the writable output storage in place before the BLAS call when
+   `beta != 0`, so the accumulated old-output term represents `conj(C_old)`;
 2. conjugate `alpha`, `beta`, and all readable operands logically, which flips
    each readable transform's conjugation bit and may turn the unsupported
    conjugate-only case into an ordinary `N`/`T`/`C` provider call;
-3. call BLAS into the writable storage using the representable transforms;
-4. conjugate the output matrix in place after the BLAS call to restore the
-   requested logical result.
+3. call BLAS into the same writable storage using the representable transforms;
+4. conjugate the output storage in place after the BLAS call to restore the
+   caller-visible result.
 
-When `beta == 0`, the pre-call output conjugation can be skipped because the
-old output is not read. This fallback requires an explicit matrix-conjugation
+When `beta == 0`, the pre-call output conjugation can be skipped because the old
+output is not read. This fallback requires an explicit matrix-conjugation
 primitive and must only be used when the transformed readable operands are all
 representable by the selected provider. If conjugating everything merely moves
 an unsupported conjugate-only transform from one input to another, the prepared
 wrapper still needs input materialization or must decline.
-
-That postprocess is not part of `BlasWritableMatrix`; it belongs to a backend
-or operation-specific fallback plan. A sketch is:
-
-```cpp
-enum class MatrixOutputPostprocess {
-  none,
-  conjugate
-};
-
-template <class Scalar, class Handle = Scalar*>
-struct BlasWritableMatrixPlan {
-  BlasWritableMatrix<Scalar, Handle> output;
-  MatrixOutputPostprocess postprocess = MatrixOutputPostprocess::none;
-};
-```
 
 Direct no-copy wrappers should not silently materialize output temporaries. If a
 future backend cannot implement the required provider transform directly, that
@@ -529,8 +525,7 @@ Descriptor tests:
 - default/raw accessors derive `needs_conjugation == false`.
 - `uni20::conj(mdspan)` derives `needs_conjugation == true` and composes into
   readable transforms.
-- writable `needs_conjugation` is handled by conjugating scalars and readable
-  operand transforms before provider dispatch.
+- writable `needs_conjugation` is rejected by the direct GEMM wrapper.
 - no implicit conversion erases readable metadata.
 
 GEMM tests:

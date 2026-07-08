@@ -6,6 +6,7 @@
 
 #include <array>
 #include <initializer_list>
+#include <utility>
 #include <vector>
 
 namespace
@@ -24,6 +25,12 @@ template <class Span> void fill_matrix(Span span, std::initializer_list<double> 
     }
   }
 }
+
+template <class Output, class Scalar, class Lhs, class Rhs>
+concept can_call_try_gemm = requires(Output&& output, Lhs&& lhs, Rhs&& rhs) {
+  uni20::linalg::blas::try_gemm(std::forward<Output>(output), Scalar{}, std::forward<Lhs>(lhs), std::forward<Rhs>(rhs),
+                                Scalar{});
+};
 } // namespace
 
 TEST(BlasGemmTest, MultipliesColumnMajorMdspans)
@@ -140,6 +147,16 @@ TEST(BlasGemmTest, AcceptsRealConjIdentityView)
 
   EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, uni20::conj(a), b, 0.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
+}
+
+TEST(BlasGemmTest, ConjugatingMdspanIsReadableOnly)
+{
+  using Complex = uni20::complex<double>;
+  using Span = stdex::mdspan<Complex, extents_2d, stdex::layout_left>;
+  using ConjugatingSpan = decltype(uni20::conj(std::declval<Span&>()));
+
+  static_assert(can_call_try_gemm<Span&, Complex, ConjugatingSpan, Span&>);
+  static_assert(!can_call_try_gemm<ConjugatingSpan, Complex, Span&, Span&>);
 }
 
 TEST(BlasGemmTest, TryDeclinesConjugateOnlyComplexInput)
