@@ -56,6 +56,11 @@ Scalar-generic code should prefer the scalar traits in `uni20/core`:
 | `uni20::Real<T>` | real scalar constraints |
 | `uni20::Complex<T>` | complex scalar constraints |
 | `uni20::RealOrComplex<T>` | real-or-complex scalar constraints |
+| `uni20::ScalarValued<T>` | scalar, container, or view whose recursive `value_type` resolves to a scalar |
+| `uni20::RealScalarValued<T>` | scalar-valued type whose extracted scalar is real |
+| `uni20::ComplexScalarValued<T>` | scalar-valued type whose extracted scalar is complex |
+| `uni20::IntegerScalarValued<T>` | scalar-valued type whose extracted scalar is integer |
+| `uni20::RealOrComplexScalarValued<T>` | scalar-valued type whose extracted scalar is real or complex |
 | `uni20::BlasReal<T>` | real scalar with a configured dense BLAS-style backend |
 | `uni20::BlasComplex<T>` | complex scalar with a configured dense BLAS-style backend |
 | `uni20::LapackReal<T>` | real scalar with a configured dense LAPACK-style backend |
@@ -68,10 +73,17 @@ Scalar-generic code should prefer the scalar traits in `uni20/core`:
 | `uni20::numeric_limits<T>` | project-level numeric limits customization point |
 | `uni20::isfinite(x)` | project-level finite-value predicate for integer, real, and complex scalars |
 
-`Real`, `Complex`, and `RealOrComplex` describe scalar categories. `Blas*` and
-`Lapack*` describe configured backend support. This distinction matters for
-extension scalar types: a type can be a valid Uni20 real scalar without having
-BLAS or LAPACK coverage in the current build.
+`Scalar`, `Real`, `Complex`, `Integer`, and `RealOrComplex` constrain the type
+itself. Use them for scalar-only helpers such as `uni20::conj`, `uni20::herm`,
+or scalar arithmetic kernels. The `ScalarValued` family follows `scalar_t<T>`
+through recursive `value_type` definitions, so it may match containers, views,
+mdspans, or future tensor types. Use scalar-valued concepts when an algorithm
+is generic over an object that carries scalar elements, not when the parameter
+must itself be the scalar value.
+
+`Blas*` and `Lapack*` describe configured backend support. This distinction
+matters for extension scalar types: a type can be a valid Uni20 real scalar
+without having BLAS or LAPACK coverage in the current build.
 
 For matrix-free algorithms, avoid duplicating scalar type information in
 interfaces when it can be inferred from the vector operations. For example, the

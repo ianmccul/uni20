@@ -29,7 +29,7 @@ namespace uni20
 ///         constant-expression contexts.
 /// \tparam T Scalar type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_trivial_conj = has_real_scalar_v<T> || has_integer_scalar_v<T>;
+template <typename T> inline constexpr bool has_trivial_conj = Real<T> || Integer<T>;
 
 /// \brief Returns the complex conjugate for complex-valued scalars.
 /// \details This overload forwards to `std::conj` and therefore returns a `uni20::complex<T>` copy of the
@@ -62,11 +62,11 @@ template <Integer I> constexpr I conj(I const& x) { return x; }
 /// \details For scalar inputs the Hermitian adjoint is equivalent to the complex conjugate, so this helper
 /// simply forwards to `conj`. When the selected `conj` overload is `constexpr`, this helper is as
 /// well, preserving compile-time evaluation.
-/// \tparam S Scalar type satisfying \c HasScalar.
+/// \tparam S Scalar type satisfying \c Scalar.
 /// \param x Scalar value whose Hermitian adjoint is requested.
 /// \return The result of calling `conj(x)`.
 /// \ingroup core_math
-template <HasScalar S> constexpr auto herm(S x) { return uni20::conj(x); }
+template <Scalar S> constexpr auto herm(S x) { return uni20::conj(x); }
 
 namespace detail
 {

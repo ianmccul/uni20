@@ -100,32 +100,35 @@ struct scalar_type<T> : scalar_type<typename T::value_type>
 
 template <typename T> using scalar_t = typename scalar_type<std::remove_cvref_t<T>>::type;
 
-/// \brief Trait to detect whether `scalar_t<T>` is well-formed.
-/// \details Allows guarded use of `scalar_t<T>` in templates without triggering substitution failures.
+/// \brief Trait to detect whether `T` is scalar-valued.
+/// \details A scalar-valued type is either a scalar itself or a type whose recursive `value_type` chain resolves to
+///          a Uni20 scalar. Use `is_scalar_v<T>` when constraining a type that must be the scalar value itself.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
-template <typename T> inline constexpr bool has_scalar_v = !std::same_as<scalar_t<T>, void>;
+template <typename T> inline constexpr bool is_scalar_valued_v = !std::same_as<scalar_t<T>, void>;
 
-/// \brief Trait to detect whether `scalar_t<T>` is an integer scalar.
-/// \tparam T Type to inspect.
-/// \ingroup core_math
-template <typename T> inline constexpr bool has_integer_scalar_v = has_scalar_v<T> && is_integer_v<scalar_t<T>>;
-
-/// \brief Trait to detect whether `scalar_t<T>` is a real scalar.
-/// \tparam T Type to inspect.
-/// \ingroup core_math
-template <typename T> inline constexpr bool has_real_scalar_v = has_scalar_v<T> && is_real_v<scalar_t<T>>;
-
-/// \brief Trait to detect whether `scalar_t<T>` is a complex scalar.
-/// \tparam T Type to inspect.
-/// \ingroup core_math
-template <typename T> inline constexpr bool has_complex_scalar_v = has_scalar_v<T> && is_complex_v<scalar_t<T>>;
-
-/// \brief Trait to detect whether a type has a scalar that is real or complex.
+/// \brief Trait to detect whether `T` is scalar-valued with an integer scalar.
 /// \tparam T Type to inspect.
 /// \ingroup core_math
 template <typename T>
-inline constexpr bool has_real_or_complex_scalar_v = has_scalar_v<T> && is_real_or_complex_v<scalar_t<T>>;
+inline constexpr bool is_integer_scalar_valued_v = is_scalar_valued_v<T> && is_integer_v<scalar_t<T>>;
+
+/// \brief Trait to detect whether `T` is scalar-valued with a real scalar.
+/// \tparam T Type to inspect.
+/// \ingroup core_math
+template <typename T> inline constexpr bool is_real_scalar_valued_v = is_scalar_valued_v<T> && is_real_v<scalar_t<T>>;
+
+/// \brief Trait to detect whether `T` is scalar-valued with a complex scalar.
+/// \tparam T Type to inspect.
+/// \ingroup core_math
+template <typename T>
+inline constexpr bool is_complex_scalar_valued_v = is_scalar_valued_v<T> && is_complex_v<scalar_t<T>>;
+
+/// \brief Trait to detect whether `T` is scalar-valued with a real or complex scalar.
+/// \tparam T Type to inspect.
+/// \ingroup core_math
+template <typename T>
+inline constexpr bool is_real_or_complex_scalar_valued_v = is_scalar_valued_v<T> && is_real_or_complex_v<scalar_t<T>>;
 
 /// \brief Metafunction to convert a type to its real-valued analog.
 /// \details If `T` is a complex scalar, this returns the underlying real type. For real types, it returns `T`
@@ -137,7 +140,7 @@ inline constexpr bool has_real_or_complex_scalar_v = has_scalar_v<T> && is_real_
 template <typename T> struct make_real;
 
 template <typename T>
-  requires has_real_scalar_v<T>
+  requires is_real_scalar_valued_v<T>
 struct make_real<T>
 {
     using type = T;
@@ -196,7 +199,7 @@ struct make_complex<T>
 /// \tparam T Type whose scalar component is already complex.
 /// \ingroup core_math
 template <typename T>
-  requires has_complex_scalar_v<T>
+  requires is_complex_scalar_valued_v<T>
 struct make_complex<T>
 {
     using type = T;

@@ -1,6 +1,16 @@
 #include <gtest/gtest.h>
+#include <string>
+#include <uni20/core/math.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <vector>
+
+namespace
+{
+
+template <typename T>
+concept HasHerm = requires(T value) { uni20::herm(value); };
+
+} // namespace
 
 // ----------------------------------------------------------------------------
 // Concepts Tests
@@ -93,21 +103,57 @@ TEST(ConceptTest, LapackScalarConcept)
   static_assert(!uni20::LapackScalar<int>);
 }
 
-TEST(ConceptTest, HasScalarConcept)
+TEST(ConceptTest, ScalarValuedConcept)
 {
-  static_assert(uni20::HasScalar<std::vector<float>>);
-  static_assert(uni20::HasScalar<std::vector<uni20::complex<double>>>);
-  static_assert(!uni20::HasScalar<std::vector<std::string>>);
+  static_assert(uni20::Scalar<float>);
+  static_assert(!uni20::Scalar<std::vector<float>>);
+
+  static_assert(uni20::ScalarValued<float>);
+  static_assert(uni20::ScalarValued<std::vector<float>>);
+  static_assert(uni20::ScalarValued<std::vector<uni20::complex<double>>>);
+  static_assert(!uni20::ScalarValued<std::vector<std::string>>);
 }
 
-TEST(ConceptTest, HasRealScalarConcept)
+TEST(ConceptTest, RealScalarValuedConcept)
 {
-  static_assert(uni20::HasRealScalar<std::vector<double>>);
-  static_assert(!uni20::HasRealScalar<std::vector<uni20::complex<double>>>);
+  static_assert(uni20::RealScalarValued<double>);
+  static_assert(uni20::RealScalarValued<std::vector<double>>);
+  static_assert(!uni20::RealScalarValued<std::vector<uni20::complex<double>>>);
 }
 
-TEST(ConceptTest, HasComplexScalarConcept)
+TEST(ConceptTest, ComplexScalarValuedConcept)
 {
-  static_assert(uni20::HasComplexScalar<std::vector<uni20::complex<float>>>);
-  static_assert(!uni20::HasComplexScalar<std::vector<float>>);
+  static_assert(uni20::ComplexScalarValued<uni20::complex<float>>);
+  static_assert(uni20::ComplexScalarValued<std::vector<uni20::complex<float>>>);
+  static_assert(!uni20::ComplexScalarValued<std::vector<float>>);
+}
+
+TEST(ConceptTest, IntegerScalarValuedConcept)
+{
+  static_assert(uni20::IntegerScalarValued<int>);
+  static_assert(uni20::IntegerScalarValued<std::vector<int>>);
+  static_assert(!uni20::IntegerScalarValued<std::vector<char>>);
+}
+
+TEST(ConceptTest, RealOrComplexScalarValuedConcept)
+{
+  static_assert(uni20::RealOrComplexScalarValued<float>);
+  static_assert(uni20::RealOrComplexScalarValued<uni20::complex<float>>);
+  static_assert(uni20::RealOrComplexScalarValued<std::vector<float>>);
+  static_assert(uni20::RealOrComplexScalarValued<std::vector<uni20::complex<float>>>);
+  static_assert(!uni20::RealOrComplexScalarValued<int>);
+  static_assert(!uni20::RealOrComplexScalarValued<std::vector<int>>);
+}
+
+TEST(ConceptTest, ScalarHermRejectsScalarValuedContainers)
+{
+  static_assert(uni20::has_trivial_conj<double>);
+  static_assert(uni20::has_trivial_conj<int>);
+  static_assert(!uni20::has_trivial_conj<uni20::complex<double>>);
+  static_assert(!uni20::has_trivial_conj<std::vector<double>>);
+
+  static_assert(HasHerm<double>);
+  static_assert(HasHerm<int>);
+  static_assert(HasHerm<uni20::complex<double>>);
+  static_assert(!HasHerm<std::vector<double>>);
 }

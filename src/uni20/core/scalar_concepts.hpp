@@ -148,28 +148,34 @@ concept LapackComplexReal = Real<T> && LapackComplex<uni20::complex<T>>;
 template <typename T>
 concept LapackScalar = LapackReal<T> || LapackComplex<T>;
 
-/// \brief Concept for a type that is a scalar, or has a scalar value_type.
+/// \brief Concept for scalar types or types whose recursive `value_type` resolves to a scalar.
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept HasScalar = has_scalar_v<T>;
+concept ScalarValued = is_scalar_valued_v<T>;
 
-/// \brief Concept for types whose `scalar_t<T>` is an integer.
+/// \brief Concept for scalar-valued types whose `scalar_t<T>` is an integer scalar.
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept HasIntegerScalar = has_integer_scalar_v<T>;
+concept IntegerScalarValued = is_integer_scalar_valued_v<T>;
 
-/// \brief Concept for types whose `scalar_t<T>` is real.
+/// \brief Concept for scalar-valued types whose `scalar_t<T>` is a real scalar.
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept HasRealScalar = has_real_scalar_v<T>;
+concept RealScalarValued = is_real_scalar_valued_v<T>;
 
-/// \brief Concept for types whose `scalar_t<T>` is complex.
+/// \brief Concept for scalar-valued types whose `scalar_t<T>` is a complex scalar.
 /// \tparam T Type to test.
 /// \ingroup core_math
 template <typename T>
-concept HasComplexScalar = has_complex_scalar_v<T>;
+concept ComplexScalarValued = is_complex_scalar_valued_v<T>;
+
+/// \brief Concept for scalar-valued types whose `scalar_t<T>` is real or complex.
+/// \tparam T Type to test.
+/// \ingroup core_math
+template <typename T>
+concept RealOrComplexScalarValued = is_real_or_complex_scalar_valued_v<T>;
 
 } // namespace uni20
