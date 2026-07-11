@@ -17,7 +17,7 @@ AsyncTask row_scale_add(tensor_type const* lhs, tensor_type const* rhs, tensor_t
 {
   auto lhs_view = lhs->mdspan();
   auto rhs_view = rhs->mdspan();
-  auto out_view = out->mutable_mdspan();
+  auto out_view = out->mdspan();
   auto const cols = static_cast<std::size_t>(out_view.extents().extent(1));
 
   for (std::size_t col = 0; col < cols; ++col)
@@ -43,7 +43,7 @@ AsyncTask row_sum_task(tensor_type const* tensor, WriteBuffer<float> out, std::s
 
 void initialize_tensor(tensor_type& tensor)
 {
-  auto view = tensor.mutable_mdspan();
+  auto view = tensor.mdspan();
   auto const rows = static_cast<std::size_t>(view.extents().extent(0));
   auto const cols = static_cast<std::size_t>(view.extents().extent(1));
 
