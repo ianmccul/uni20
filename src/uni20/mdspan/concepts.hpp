@@ -274,6 +274,20 @@ template <class MDS>
 concept MutableStridedMdspan = MutableSpanLike<MDS> && // must satisfy our mdspan‐like protocol
                                MDS::is_always_strided();
 
+/// \brief An mdspan-like type with a specified static rank.
+/// \tparam MDS The mdspan-like type under test.
+/// \tparam Rank Required rank.
+/// \ingroup mdspan_ext
+template <class MDS, std::size_t Rank>
+concept RankedSpanLike = SpanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+
+/// \brief A mutable mdspan-like type with a specified static rank.
+/// \tparam MDS The mdspan-like type under test.
+/// \tparam Rank Required rank.
+/// \ingroup mdspan_ext
+template <class MDS, std::size_t Rank>
+concept MutableRankedSpanLike = MutableSpanLike<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+
 /// \brief An mdspan-like type whose accessor is `stdex::default_accessor`.
 /// \tparam MDS The mdspan-like type under test.
 /// \ingroup mdspan_ext
@@ -286,15 +300,14 @@ concept DefaultAccessorMdspan =
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept RankedStridedMdspan = StridedMdspan<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+concept RankedStridedMdspan = RankedSpanLike<MDS, Rank> && StridedMdspan<std::remove_cvref_t<MDS>>;
 
 /// \brief A mutable strided mdspan-like type with a specified static rank.
 /// \tparam MDS The mdspan-like type under test.
 /// \tparam Rank Required rank.
 /// \ingroup mdspan_ext
 template <class MDS, std::size_t Rank>
-concept MutableRankedStridedMdspan =
-    MutableStridedMdspan<std::remove_cvref_t<MDS>> && (std::remove_cvref_t<MDS>::rank() == Rank);
+concept MutableRankedStridedMdspan = MutableRankedSpanLike<MDS, Rank> && MutableStridedMdspan<std::remove_cvref_t<MDS>>;
 
 namespace detail
 {

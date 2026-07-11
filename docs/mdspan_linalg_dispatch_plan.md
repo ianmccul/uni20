@@ -816,12 +816,17 @@ being brought up.
 
 ### Phase 5: Tensor Front-End Dispatch
 
-Once the leaf mdspan path is stable, connect tensor-facing operations:
+The fixed-output GEMM checkpoint now:
 
-- derive default backend selectors from tensor storage policy.
-- call `ensure_shape(...)` before materializing output views.
-- lower tensors, tensor refs, and adaptors to resolved mdspan-like views.
-- use the same operation tags and backend-list walk.
+- derives a default backend selector from tensor storage policy.
+- accepts rank-two `RankedTensorView` / `MutableRankedTensorView` operands.
+- lowers those operands through `mdspan()`; the generic CPU path does not
+  require stridedness, while BLAS lowering does.
+- uses the same operation tag and backend-list walk as explicit mdspan calls.
+
+Allocating and shape-changing operations still need to call `ensure_shape(...)`
+before resolving the writable mdspan. That policy does not belong in fixed-output
+GEMM.
 
 This is where CUDA, MPI/block tensor placement, async scheduling, and temporary
 allocation policy enter. They should not be forced into the first LAPACK mdspan

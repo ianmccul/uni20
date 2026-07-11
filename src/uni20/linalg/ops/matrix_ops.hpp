@@ -31,13 +31,13 @@ constexpr auto select_tag(FirstView const&, RestViews const&...) -> select_tag_t
   using tag_type = select_tag_t<FirstView, RestViews...>;
   static_assert((std::is_convertible_v<default_tag_t<FirstView>, tag_type>) &&
                     (... && std::is_convertible_v<default_tag_t<RestViews>, tag_type>),
-                "TensorView arguments must share a compatible backend tag");
+                "BasicTensorView arguments must share a compatible backend tag");
   return tag_type{};
 }
 
 template <typename View> constexpr void require_rank_two()
 {
-  static_assert(view_t<View>::rank() == 2, "TensorView must model a rank-2 matrix");
+  static_assert(view_t<View>::rank() == 2, "BasicTensorView must model a rank-2 matrix");
 }
 
 template <typename View> void require_square(View const& view)
@@ -65,7 +65,8 @@ template <typename View> auto make_extents(View view)
   return extents_type(view.rows(), view.cols());
 }
 
-template <typename BackendTag, typename T, typename Traits> auto clone(TensorView<T const, Traits> view, BackendTag tag)
+template <typename BackendTag, typename T, typename Traits>
+auto clone(BasicTensorView<T const, Traits> view, BackendTag tag)
 {
   using value_type = value_type_t<decltype(view)>;
   using tensor_type = uni20::BasicTensor<value_type, stdex::dextents<index_type, 2>, VectorStorage>;
@@ -82,7 +83,7 @@ template <typename BackendTag, typename T, typename Traits> auto clone(TensorVie
 /// \param dst Destination matrix view.
 /// \param src Source matrix view.
 template <typename T, typename DstTraits, typename SrcTraits>
-void copy(TensorView<T, DstTraits> dst, TensorView<T const, SrcTraits> src)
+void copy(BasicTensorView<T, DstTraits> dst, BasicTensorView<T const, SrcTraits> src)
 {
   auto const tag = detail::select_tag(src, dst);
   ::uni20::linalg::copy(tag, dst, src);
@@ -92,7 +93,7 @@ void copy(TensorView<T, DstTraits> dst, TensorView<T const, SrcTraits> src)
 /// \tparam T Element type stored by the matrix view.
 /// \tparam Traits Trait bundle describing the matrix view.
 /// \param out Destination matrix view to receive the identity.
-template <typename T, typename Traits> void fill_identity(TensorView<T, Traits> out)
+template <typename T, typename Traits> void fill_identity(BasicTensorView<T, Traits> out)
 {
   auto const tag = detail::select_tag(out);
   ::uni20::linalg::fill_identity(tag, out);
@@ -107,7 +108,8 @@ template <typename T, typename Traits> void fill_identity(TensorView<T, Traits> 
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
 template <typename T, typename LhsTraits, typename RhsTraits, typename OutTraits>
-void multiply_into(TensorView<T, OutTraits> out, TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+void multiply_into(BasicTensorView<T, OutTraits> out, BasicTensorView<T const, LhsTraits> lhs,
+                   BasicTensorView<T const, RhsTraits> rhs)
 {
   auto const tag = detail::select_tag(lhs, rhs, out);
   ::uni20::linalg::multiply_into(tag, out, lhs, rhs);
@@ -120,7 +122,7 @@ void multiply_into(TensorView<T, OutTraits> out, TensorView<T const, LhsTraits> 
 /// \tparam BackendTag Backend selection tag.
 /// \return Owning tensor containing the product.
 template <typename BackendTag, typename T, typename LhsTraits, typename RhsTraits>
-auto multiply(BackendTag tag, TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+auto multiply(BackendTag tag, BasicTensorView<T const, LhsTraits> lhs, BasicTensorView<T const, RhsTraits> rhs)
 {
   detail::require_rank_two<decltype(lhs)>();
   detail::require_rank_two<decltype(rhs)>();
@@ -139,7 +141,7 @@ auto multiply(BackendTag tag, TensorView<T const, LhsTraits> lhs, TensorView<T c
 }
 
 template <typename T, typename LhsTraits, typename RhsTraits>
-auto multiply(TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+auto multiply(BasicTensorView<T const, LhsTraits> lhs, BasicTensorView<T const, RhsTraits> rhs)
 {
   auto const tag = detail::select_tag(lhs, rhs);
   return multiply(tag, lhs, rhs);
@@ -154,7 +156,8 @@ auto multiply(TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits>
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
 template <typename T, typename LhsTraits, typename RhsTraits, typename OutTraits>
-void add_into(TensorView<T, OutTraits> out, TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+void add_into(BasicTensorView<T, OutTraits> out, BasicTensorView<T const, LhsTraits> lhs,
+              BasicTensorView<T const, RhsTraits> rhs)
 {
   auto const tag = detail::select_tag(lhs, rhs, out);
   ::uni20::linalg::add_into(tag, out, lhs, rhs);
@@ -167,7 +170,7 @@ void add_into(TensorView<T, OutTraits> out, TensorView<T const, LhsTraits> lhs, 
 /// \tparam BackendTag Backend selection tag.
 /// \return Owning tensor containing the sum.
 template <typename BackendTag, typename T, typename LhsTraits, typename RhsTraits>
-auto add(BackendTag tag, TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+auto add(BackendTag tag, BasicTensorView<T const, LhsTraits> lhs, BasicTensorView<T const, RhsTraits> rhs)
 {
   detail::require_same_shape(lhs, rhs);
   using value_type = detail::value_type_t<decltype(lhs)>;
@@ -179,7 +182,7 @@ auto add(BackendTag tag, TensorView<T const, LhsTraits> lhs, TensorView<T const,
 }
 
 template <typename T, typename LhsTraits, typename RhsTraits>
-auto add(TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+auto add(BasicTensorView<T const, LhsTraits> lhs, BasicTensorView<T const, RhsTraits> rhs)
 {
   auto const tag = detail::select_tag(lhs, rhs);
   return add(tag, lhs, rhs);
@@ -194,7 +197,8 @@ auto add(TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
 template <typename T, typename LhsTraits, typename RhsTraits, typename OutTraits>
-void subtract_into(TensorView<T, OutTraits> out, TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+void subtract_into(BasicTensorView<T, OutTraits> out, BasicTensorView<T const, LhsTraits> lhs,
+                   BasicTensorView<T const, RhsTraits> rhs)
 {
   auto const tag = detail::select_tag(lhs, rhs, out);
   ::uni20::linalg::subtract_into(tag, out, lhs, rhs);
@@ -207,7 +211,7 @@ void subtract_into(TensorView<T, OutTraits> out, TensorView<T const, LhsTraits> 
 /// \tparam BackendTag Backend selection tag.
 /// \return Owning tensor containing the difference.
 template <typename BackendTag, typename T, typename LhsTraits, typename RhsTraits>
-auto subtract(BackendTag tag, TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+auto subtract(BackendTag tag, BasicTensorView<T const, LhsTraits> lhs, BasicTensorView<T const, RhsTraits> rhs)
 {
   detail::require_same_shape(lhs, rhs);
   using value_type = detail::value_type_t<decltype(lhs)>;
@@ -219,7 +223,7 @@ auto subtract(BackendTag tag, TensorView<T const, LhsTraits> lhs, TensorView<T c
 }
 
 template <typename T, typename LhsTraits, typename RhsTraits>
-auto subtract(TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits> rhs)
+auto subtract(BasicTensorView<T const, LhsTraits> lhs, BasicTensorView<T const, RhsTraits> rhs)
 {
   auto const tag = detail::select_tag(lhs, rhs);
   return subtract(tag, lhs, rhs);
@@ -234,7 +238,7 @@ auto subtract(TensorView<T const, LhsTraits> lhs, TensorView<T const, RhsTraits>
 /// \param mat Matrix view to scale.
 /// \param scalar Scalar factor applied to each element.
 template <typename T, typename Scalar, typename MatTraits, typename OutTraits>
-void scale_into(TensorView<T, OutTraits> out, TensorView<T const, MatTraits> mat, Scalar const& scalar)
+void scale_into(BasicTensorView<T, OutTraits> out, BasicTensorView<T const, MatTraits> mat, Scalar const& scalar)
 {
   auto const tag = detail::select_tag(mat, out);
   ::uni20::linalg::scale_into(tag, out, mat, scalar);
@@ -247,7 +251,7 @@ void scale_into(TensorView<T, OutTraits> out, TensorView<T const, MatTraits> mat
 /// \tparam BackendTag Backend selection tag.
 /// \return Owning tensor containing the scaled matrix.
 template <typename BackendTag, typename T, typename Scalar, typename MatTraits>
-auto scale(BackendTag tag, TensorView<T const, MatTraits> mat, Scalar const& scalar)
+auto scale(BackendTag tag, BasicTensorView<T const, MatTraits> mat, Scalar const& scalar)
 {
   using value_type = detail::value_type_t<decltype(mat)>;
   using tensor_type = uni20::BasicTensor<value_type, stdex::dextents<index_type, 2>, VectorStorage>;
@@ -258,7 +262,7 @@ auto scale(BackendTag tag, TensorView<T const, MatTraits> mat, Scalar const& sca
 }
 
 template <typename T, typename Scalar, typename MatTraits>
-auto scale(TensorView<T const, MatTraits> mat, Scalar const& scalar)
+auto scale(BasicTensorView<T const, MatTraits> mat, Scalar const& scalar)
 {
   auto const tag = detail::select_tag(mat);
   return scale(tag, mat, scalar);
@@ -269,7 +273,8 @@ auto scale(TensorView<T const, MatTraits> mat, Scalar const& scalar)
 /// \tparam Traits Trait bundle describing the matrix view.
 /// \param mat Matrix view whose norm is computed.
 /// \return The induced 1-norm of mat.
-template <typename T, typename Traits> uni20::accumulation_real_t<T> matrix_one_norm(TensorView<T const, Traits> mat)
+template <typename T, typename Traits>
+uni20::accumulation_real_t<T> matrix_one_norm(BasicTensorView<T const, Traits> mat)
 {
   auto const tag = detail::select_tag(mat);
   return ::uni20::linalg::matrix_one_norm(tag, mat);
@@ -284,7 +289,7 @@ template <typename T, typename Traits> uni20::accumulation_real_t<T> matrix_one_
 /// \param mat Matrix to exponentiate.
 /// \param power Non-negative integer exponent.
 template <typename BackendTag, typename T, typename MatTraits, typename OutTraits>
-void matrix_power_into(BackendTag tag, TensorView<T, OutTraits> out, TensorView<T const, MatTraits> mat,
+void matrix_power_into(BackendTag tag, BasicTensorView<T, OutTraits> out, BasicTensorView<T const, MatTraits> mat,
                        unsigned int power)
 {
   detail::require_square(mat);
@@ -329,7 +334,7 @@ void matrix_power_into(BackendTag tag, TensorView<T, OutTraits> out, TensorView<
 }
 
 template <typename T, typename MatTraits, typename OutTraits>
-void matrix_power_into(TensorView<T, OutTraits> out, TensorView<T const, MatTraits> mat, unsigned int power)
+void matrix_power_into(BasicTensorView<T, OutTraits> out, BasicTensorView<T const, MatTraits> mat, unsigned int power)
 {
   auto const tag = detail::select_tag(mat, out);
   matrix_power_into(tag, out, mat, power);
@@ -343,7 +348,7 @@ void matrix_power_into(TensorView<T, OutTraits> out, TensorView<T const, MatTrai
 /// \param power Non-negative integer exponent.
 /// \return Owning tensor containing the exponentiated matrix.
 template <typename BackendTag, typename T, typename MatTraits>
-auto matrix_power(BackendTag tag, TensorView<T const, MatTraits> mat, unsigned int power)
+auto matrix_power(BackendTag tag, BasicTensorView<T const, MatTraits> mat, unsigned int power)
 {
   using value_type = detail::value_type_t<decltype(mat)>;
   using tensor_type = uni20::BasicTensor<value_type, stdex::dextents<index_type, 2>, VectorStorage>;
@@ -353,7 +358,7 @@ auto matrix_power(BackendTag tag, TensorView<T const, MatTraits> mat, unsigned i
   return result;
 }
 
-template <typename T, typename MatTraits> auto matrix_power(TensorView<T const, MatTraits> mat, unsigned int power)
+template <typename T, typename MatTraits> auto matrix_power(BasicTensorView<T const, MatTraits> mat, unsigned int power)
 {
   auto const tag = detail::select_tag(mat);
   return matrix_power(tag, mat, power);
@@ -367,7 +372,7 @@ template <typename T, typename MatTraits> auto matrix_power(TensorView<T const, 
 /// \param power Non-negative integer exponent.
 /// \return Induced matrix 1-norm of mat^power.
 template <typename BackendTag, typename T, typename MatTraits>
-uni20::accumulation_real_t<T> matrix_one_norm_power(BackendTag tag, TensorView<T const, MatTraits> mat,
+uni20::accumulation_real_t<T> matrix_one_norm_power(BackendTag tag, BasicTensorView<T const, MatTraits> mat,
                                                     unsigned int power)
 {
   auto powered = matrix_power(tag, mat, power);
@@ -375,7 +380,7 @@ uni20::accumulation_real_t<T> matrix_one_norm_power(BackendTag tag, TensorView<T
 }
 
 template <typename T, typename MatTraits>
-uni20::accumulation_real_t<T> matrix_one_norm_power(TensorView<T const, MatTraits> mat, unsigned int power)
+uni20::accumulation_real_t<T> matrix_one_norm_power(BasicTensorView<T const, MatTraits> mat, unsigned int power)
 {
   auto const tag = detail::select_tag(mat);
   return matrix_one_norm_power(tag, mat, power);
@@ -387,7 +392,7 @@ uni20::accumulation_real_t<T> matrix_one_norm_power(TensorView<T const, MatTrait
 /// \param mat Matrix whose rows will be swapped.
 /// \param lhs Index of the first row.
 /// \param rhs Index of the second row.
-template <typename T, typename Traits> void swap_rows(TensorView<T, Traits> mat, index_type lhs, index_type rhs)
+template <typename T, typename Traits> void swap_rows(BasicTensorView<T, Traits> mat, index_type lhs, index_type rhs)
 {
   auto const tag = detail::select_tag(mat);
   ::uni20::linalg::swap_rows(tag, mat, lhs, rhs);
@@ -402,7 +407,7 @@ template <typename T, typename Traits> void swap_rows(TensorView<T, Traits> mat,
 /// \param B Right-hand side matrix view.
 /// \return Owning tensor containing the solution X.
 template <typename BackendTag, typename T, typename MatTraits, typename RhsTraits>
-auto solve_linear_system(BackendTag tag, TensorView<T const, MatTraits> A, TensorView<T const, RhsTraits> B)
+auto solve_linear_system(BackendTag tag, BasicTensorView<T const, MatTraits> A, BasicTensorView<T const, RhsTraits> B)
 {
   detail::require_square(A);
   detail::require_rank_two<decltype(B)>();
@@ -422,7 +427,7 @@ auto solve_linear_system(BackendTag tag, TensorView<T const, MatTraits> A, Tenso
 }
 
 template <typename T, typename MatTraits, typename RhsTraits>
-auto solve_linear_system(TensorView<T const, MatTraits> A, TensorView<T const, RhsTraits> B)
+auto solve_linear_system(BasicTensorView<T const, MatTraits> A, BasicTensorView<T const, RhsTraits> B)
 {
   auto const tag = detail::select_tag(A, B);
   return solve_linear_system(tag, A, B);
@@ -438,16 +443,16 @@ auto solve_linear_system(TensorView<T const, MatTraits> A, TensorView<T const, R
 /// \param A Coefficient matrix view.
 /// \param B Right-hand side matrix view.
 template <typename BackendTag, typename T, typename MatTraits, typename RhsTraits, typename OutTraits>
-void solve_linear_system_into(BackendTag tag, TensorView<T, OutTraits> out, TensorView<T const, MatTraits> A,
-                              TensorView<T const, RhsTraits> B)
+void solve_linear_system_into(BackendTag tag, BasicTensorView<T, OutTraits> out, BasicTensorView<T const, MatTraits> A,
+                              BasicTensorView<T const, RhsTraits> B)
 {
   auto solution = solve_linear_system(tag, A, B);
   ::uni20::linalg::copy(tag, out, solution.view());
 }
 
 template <typename T, typename MatTraits, typename RhsTraits, typename OutTraits>
-void solve_linear_system_into(TensorView<T, OutTraits> out, TensorView<T const, MatTraits> A,
-                              TensorView<T const, RhsTraits> B)
+void solve_linear_system_into(BasicTensorView<T, OutTraits> out, BasicTensorView<T const, MatTraits> A,
+                              BasicTensorView<T const, RhsTraits> B)
 {
   auto const tag = detail::select_tag(A, B, out);
   solve_linear_system_into(tag, out, A, B);

@@ -2,6 +2,9 @@
 
 #include "basic_tensor.hpp"
 
+namespace uni20
+{
+
 /// \brief Owning tensor alias with compile-time rank convenience.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the tensor.
@@ -13,3 +16,5 @@ template <typename ElementType, std::size_t Rank, typename StoragePolicy = Vecto
           typename LayoutPolicy = stdex::layout_stride, typename AccessorFactory = DefaultAccessorFactory>
 using Tensor =
     BasicTensor<ElementType, stdex::dextents<index_type, Rank>, StoragePolicy, LayoutPolicy, AccessorFactory>;
+
+} // namespace uni20

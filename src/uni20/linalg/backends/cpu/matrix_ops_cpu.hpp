@@ -17,12 +17,12 @@ namespace uni20::linalg::backends::cpu::detail
 
 namespace util
 {
-template <typename T, typename Traits> constexpr void require_rank_two(TensorView<T, Traits> const&)
+template <typename T, typename Traits> constexpr void require_rank_two(BasicTensorView<T, Traits> const&)
 {
-  static_assert(TensorView<T, Traits>::rank() == 2, "TensorView must model a rank-2 matrix");
+  static_assert(BasicTensorView<T, Traits>::rank() == 2, "BasicTensorView must model a rank-2 matrix");
 }
 
-template <typename T, typename Traits> void require_square(TensorView<T, Traits> view)
+template <typename T, typename Traits> void require_square(BasicTensorView<T, Traits> view)
 {
   require_rank_two(view);
   if (view.rows() != view.cols())
@@ -32,7 +32,7 @@ template <typename T, typename Traits> void require_square(TensorView<T, Traits>
 }
 
 template <typename TLhs, typename TraitsLhs, typename TRhs, typename TraitsRhs>
-void require_same_shape(TensorView<TLhs, TraitsLhs> lhs, TensorView<TRhs, TraitsRhs> rhs)
+void require_same_shape(BasicTensorView<TLhs, TraitsLhs> lhs, BasicTensorView<TRhs, TraitsRhs> rhs)
 {
   require_rank_two(lhs);
   require_rank_two(rhs);
@@ -42,9 +42,9 @@ void require_same_shape(TensorView<TLhs, TraitsLhs> lhs, TensorView<TRhs, Traits
   }
 }
 
-template <typename T, typename Traits> auto mutable_span(TensorView<T, Traits> view) { return view.mutable_mdspan(); }
+template <typename T, typename Traits> auto mutable_span(BasicTensorView<T, Traits> view) { return view.mdspan(); }
 
-template <typename T, typename Traits> auto const_span(TensorView<T, Traits> view) { return view.mdspan(); }
+template <typename T, typename Traits> auto const_span(BasicTensorView<T, Traits> view) { return view.mdspan(); }
 } // namespace util
 
 /// \brief Copy the contents of one matrix view into another.
@@ -55,7 +55,7 @@ template <typename T, typename Traits> auto const_span(TensorView<T, Traits> vie
 /// \param dst Destination matrix view.
 /// \param src Source matrix view.
 template <typename TSrc, typename SrcTraits, typename TDst, typename DstTraits>
-void copy(TensorView<TDst, DstTraits> dst, TensorView<TSrc const, SrcTraits> src)
+void copy(BasicTensorView<TDst, DstTraits> dst, BasicTensorView<TSrc const, SrcTraits> src)
 {
   util::require_same_shape(src, dst);
 
@@ -75,11 +75,11 @@ void copy(TensorView<TDst, DstTraits> dst, TensorView<TSrc const, SrcTraits> src
 /// \tparam T Element type stored by the destination view.
 /// \tparam Traits Trait bundle describing the destination view.
 /// \param out Destination matrix view which will be overwritten with the identity matrix.
-template <typename T, typename Traits> void fill_identity(TensorView<T, Traits> out)
+template <typename T, typename Traits> void fill_identity(BasicTensorView<T, Traits> out)
 {
   util::require_square(out);
 
-  using value_type = std::remove_cv_t<typename TensorView<T, Traits>::value_type>;
+  using value_type = std::remove_cv_t<typename BasicTensorView<T, Traits>::value_type>;
   auto out_span = util::mutable_span(out);
 
   for (index_type i = 0; i < out.rows(); ++i)
@@ -102,8 +102,8 @@ template <typename T, typename Traits> void fill_identity(TensorView<T, Traits> 
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void multiply(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
-              TensorView<TRhs const, RhsTraits> rhs)
+void multiply(BasicTensorView<TOut, OutTraits> out, BasicTensorView<TLhs const, LhsTraits> lhs,
+              BasicTensorView<TRhs const, RhsTraits> rhs)
 {
   util::require_rank_two(lhs);
   util::require_rank_two(rhs);
@@ -119,7 +119,7 @@ void multiply(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits>
     throw std::invalid_argument("output matrix has incompatible dimensions for multiplication");
   }
 
-  using value_type = std::remove_cv_t<typename TensorView<TOut, OutTraits>::value_type>;
+  using value_type = std::remove_cv_t<typename BasicTensorView<TOut, OutTraits>::value_type>;
 
   auto lhs_span = util::const_span(lhs);
   auto rhs_span = util::const_span(rhs);
@@ -150,7 +150,8 @@ void multiply(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits>
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void add(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs, TensorView<TRhs const, RhsTraits> rhs)
+void add(BasicTensorView<TOut, OutTraits> out, BasicTensorView<TLhs const, LhsTraits> lhs,
+         BasicTensorView<TRhs const, RhsTraits> rhs)
 {
   util::require_same_shape(lhs, rhs);
   util::require_same_shape(lhs, out);
@@ -179,8 +180,8 @@ void add(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
 /// \param lhs Left-hand operand view.
 /// \param rhs Right-hand operand view.
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void subtract(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
-              TensorView<TRhs const, RhsTraits> rhs)
+void subtract(BasicTensorView<TOut, OutTraits> out, BasicTensorView<TLhs const, LhsTraits> lhs,
+              BasicTensorView<TRhs const, RhsTraits> rhs)
 {
   util::require_same_shape(lhs, rhs);
   util::require_same_shape(lhs, out);
@@ -208,7 +209,7 @@ void subtract(TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits>
 /// \param mat Matrix view to scale.
 /// \param scalar Scalar factor applied to each element.
 template <typename TMat, typename MatTraits, typename Scalar, typename TOut, typename OutTraits>
-void scale(TensorView<TOut, OutTraits> out, TensorView<TMat const, MatTraits> mat, Scalar const& scalar)
+void scale(BasicTensorView<TOut, OutTraits> out, BasicTensorView<TMat const, MatTraits> mat, Scalar const& scalar)
 {
   util::require_same_shape(mat, out);
 
@@ -229,7 +230,8 @@ void scale(TensorView<TOut, OutTraits> out, TensorView<TMat const, MatTraits> ma
 /// \tparam Traits Trait bundle describing the matrix view.
 /// \param mat Matrix view whose norm is computed.
 /// \return The induced matrix 1-norm.
-template <typename T, typename Traits> uni20::accumulation_real_t<T> matrix_one_norm(TensorView<T const, Traits> mat)
+template <typename T, typename Traits>
+uni20::accumulation_real_t<T> matrix_one_norm(BasicTensorView<T const, Traits> mat)
 {
   util::require_rank_two(mat);
 
@@ -257,7 +259,7 @@ template <typename T, typename Traits> uni20::accumulation_real_t<T> matrix_one_
 /// \param mat Matrix view to modify.
 /// \param lhs Index of the first row.
 /// \param rhs Index of the second row.
-template <typename T, typename Traits> void swap_rows(TensorView<T, Traits> mat, index_type lhs, index_type rhs)
+template <typename T, typename Traits> void swap_rows(BasicTensorView<T, Traits> mat, index_type lhs, index_type rhs)
 {
   util::require_rank_two(mat);
 
@@ -287,7 +289,7 @@ template <typename T, typename Traits> void swap_rows(TensorView<T, Traits> mat,
 /// \param A Coefficient matrix (modified in-place to its LU factorisation).
 /// \param B Right-hand side matrix; overwritten with the solution.
 template <typename TA, typename ATraits, typename TB, typename BTraits>
-void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
+void solve_linear_system(BasicTensorView<TA, ATraits> A, BasicTensorView<TB, BTraits> B)
 {
   static_assert(!std::is_const_v<TA>, "Coefficient matrix must be mutable");
   static_assert(!std::is_const_v<TB>, "Right-hand side matrix must be mutable");
@@ -306,8 +308,8 @@ void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
   auto A_span = util::mutable_span(A);
   auto B_span = util::mutable_span(B);
 
-  using coefficient_value_type = std::remove_cv_t<typename TensorView<TA, ATraits>::value_type>;
-  using rhs_value_type = std::remove_cv_t<typename TensorView<TB, BTraits>::value_type>;
+  using coefficient_value_type = std::remove_cv_t<typename BasicTensorView<TA, ATraits>::value_type>;
+  using rhs_value_type = std::remove_cv_t<typename BasicTensorView<TB, BTraits>::value_type>;
   using pivot_real = uni20::accumulation_real_t<coefficient_value_type>;
 
   auto magnitude = [](auto const& value) -> pivot_real {
@@ -382,58 +384,59 @@ void solve_linear_system(TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
 namespace uni20::linalg
 {
 template <typename TSrc, typename SrcTraits, typename TDst, typename DstTraits>
-void copy(cpu_tag, TensorView<TDst, DstTraits> dst, TensorView<TSrc const, SrcTraits> src)
+void copy(cpu_tag, BasicTensorView<TDst, DstTraits> dst, BasicTensorView<TSrc const, SrcTraits> src)
 {
   backends::cpu::detail::copy(dst, src);
 }
 
-template <typename T, typename Traits> void fill_identity(cpu_tag, TensorView<T, Traits> out)
+template <typename T, typename Traits> void fill_identity(cpu_tag, BasicTensorView<T, Traits> out)
 {
   backends::cpu::detail::fill_identity(out);
 }
 
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void multiply_into(cpu_tag, TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
-                   TensorView<TRhs const, RhsTraits> rhs)
+void multiply_into(cpu_tag, BasicTensorView<TOut, OutTraits> out, BasicTensorView<TLhs const, LhsTraits> lhs,
+                   BasicTensorView<TRhs const, RhsTraits> rhs)
 {
   backends::cpu::detail::multiply(out, lhs, rhs);
 }
 
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void add_into(cpu_tag, TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
-              TensorView<TRhs const, RhsTraits> rhs)
+void add_into(cpu_tag, BasicTensorView<TOut, OutTraits> out, BasicTensorView<TLhs const, LhsTraits> lhs,
+              BasicTensorView<TRhs const, RhsTraits> rhs)
 {
   backends::cpu::detail::add(out, lhs, rhs);
 }
 
 template <typename TLhs, typename LhsTraits, typename TRhs, typename RhsTraits, typename TOut, typename OutTraits>
-void subtract_into(cpu_tag, TensorView<TOut, OutTraits> out, TensorView<TLhs const, LhsTraits> lhs,
-                   TensorView<TRhs const, RhsTraits> rhs)
+void subtract_into(cpu_tag, BasicTensorView<TOut, OutTraits> out, BasicTensorView<TLhs const, LhsTraits> lhs,
+                   BasicTensorView<TRhs const, RhsTraits> rhs)
 {
   backends::cpu::detail::subtract(out, lhs, rhs);
 }
 
 template <typename TMat, typename MatTraits, typename Scalar, typename TOut, typename OutTraits>
-void scale_into(cpu_tag, TensorView<TOut, OutTraits> out, TensorView<TMat const, MatTraits> mat, Scalar const& scalar)
+void scale_into(cpu_tag, BasicTensorView<TOut, OutTraits> out, BasicTensorView<TMat const, MatTraits> mat,
+                Scalar const& scalar)
 {
   backends::cpu::detail::scale(out, mat, scalar);
 }
 
 template <typename T, typename Traits>
-uni20::accumulation_real_t<T> matrix_one_norm(cpu_tag, TensorView<T const, Traits> mat)
+uni20::accumulation_real_t<T> matrix_one_norm(cpu_tag, BasicTensorView<T const, Traits> mat)
 {
   return backends::cpu::detail::matrix_one_norm(mat);
 }
 
 template <typename T, typename Traits>
-void swap_rows(cpu_tag, TensorView<T, Traits> mat, index_type lhs, index_type rhs)
+void swap_rows(cpu_tag, BasicTensorView<T, Traits> mat, index_type lhs, index_type rhs)
 {
   backends::cpu::detail::swap_rows(mat, lhs, rhs);
 }
 
 template <typename TA, typename ATraits, typename TB, typename BTraits>
   requires(!std::is_const_v<TA> && !std::is_const_v<TB>)
-void solve_linear_system(cpu_tag, TensorView<TA, ATraits> A, TensorView<TB, BTraits> B)
+void solve_linear_system(cpu_tag, BasicTensorView<TA, ATraits> A, BasicTensorView<TB, BTraits> B)
 {
   backends::cpu::detail::solve_linear_system(A, B);
 }

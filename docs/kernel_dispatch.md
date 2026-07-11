@@ -114,41 +114,37 @@ The two configuration rules:
 2. There is **no runtime type-erased backend selection in the first pass.**
    Python bindings are compiled against a fixed target list (for example
    `[Blas, CpuGeneric]`, or `[Cublas, Blas, CpuGeneric]`) baked in at build time.
-   Backend entries may still carry runtime state such as CUDA device or
-   workspace pool. A `RuntimeSelectable` backend or a `std::variant` of backends
+   Explicit overrides may still carry operation context such as a stream,
+   workspace pool, communicator, or precision setting. Operand placement stays
+   in storage/accessor-defined data handles. A `RuntimeSelectable` backend or a `std::variant` of backends
    can be layered on later if needed; it is just another list entry.
 
 New Uni20 kernel and linalg APIs put API tags and explicit backend selectors
 first, then mutable outputs, then inputs and scalar operands. For example,
 write `gemm(selector, c, alpha, a, b, beta)` for an explicit override and
-`gemm(c, alpha, a, b, beta)` for the storage-default overload, rather than the
-BLAS/LAPACK ABI order `gemm(alpha, a, b, beta, c)`.
+`gemm(c, alpha, a, b, beta)` for the storage-default Tensor overload, rather
+than the BLAS/LAPACK ABI order `gemm(alpha, a, b, beta, c)`.
 
 ## Dispatch operands versus resolved spans
 
-The main dispatch entry points operate on Uni20 tensor/storage operands, not on
-bare mdspans. Backend lists come from tensor storage policy: host/device memory,
-block storage, MPI replication/distribution, async data handles, and scheduler
-requirements. A plain `stdex::mdspan` or generic `SpanLike` view has enough
-information to run a leaf kernel, but it does not carry the Uni20 storage policy
-needed to select the default backend stack.
+Tensor operations derive backend candidates from Uni20 Tensor-view operands.
+They then resolve `mdspan()` before calling the backend
+walk. A plain `stdex::mdspan` has enough information to run a leaf kernel but
+does not carry the storage policy needed to choose a default backend stack.
 
 The layers are therefore:
 
-1. **Tensor operation wrapper** — accepts tensor-like operands, output policy,
-   and an optional backend list override. It computes the default `Backends` from
-   storage policy and prepares resizable or fixed outputs.
-2. **Backend dispatch** — walks the backend list for the operation tag. It reads
-   synchronous metadata and, for async/block tensors, schedules the await/lowering
-   wrapper selected by the backend.
-3. **Leaf kernel** — receives resolved mdspan-like views (`TensorView`,
-   `stdex::mdspan`, transform views, etc.) after backend compatibility has
-   already been decided.
+1. **Tensor operation wrapper** — accepts `TensorView` / `MutableTensorView`
+   concept operands, derives or receives a selector, decides fixed versus owning
+   output policy, and resolves mdspans.
+2. **Backend dispatch** — walks the backend list for an operation tag over the
+   resolved mdspan operands.
+3. **Leaf kernel** — receives rank-constrained mdspans and either calls a
+   provider or runs a generic implementation.
 
-Passing mdspans directly is a lower-level escape hatch. The caller must provide a
-backend list explicitly, or call a concrete backend helper such as
-`BlasBackend::gemm(...)` if such a convenience wrapper exists. In that path the
-caller has already taken responsibility for storage compatibility.
+Passing mdspans directly is the lower-level interface. The caller must provide
+a backend list explicitly. Raw GEMM overloads require rank-two writable/readable
+mdspan concepts; Tensor-view wrappers themselves are not mdspan-like.
 
 ## Worked example: gemm
 
@@ -248,31 +244,22 @@ bool dispatch_kernel(backend_list<First, Rest...> backends, Op op, Args&&... arg
     return false;
 }
 
-// gemm.hpp
-template <class C, class A, class B>
-void gemm(C& c, scalar_t<C> alpha, A const& a, B const& b, scalar_t<C> beta)
+// gemm.hpp: Tensor-view convenience overload
+template <MutableRankedTensorView<2> C, RankedTensorView<2> A,
+          RankedTensorView<2> B>
+void gemm(C&& c, scalar_t<C> alpha, A const& a, B const& b, scalar_t<C> beta)
 {
-  auto selector = default_backend_selector(c, a, b);
+  auto selector = common_tensor_backend_selector(c, a, b);
   gemm(selector, c, alpha, a, b, beta);
 }
 
-template <class BackendSelector, class C, class A, class B>
-  requires BackendSelectorLike<BackendSelector>
+// Tensor adapter: resolve views before entering kernel dispatch.
+template <class BackendSelector, MutableRankedTensorView<2> C,
+          RankedTensorView<2> A, RankedTensorView<2> B>
 void gemm(BackendSelector selector, C& c, scalar_t<C> alpha, A const& a,
           B const& b, scalar_t<C> beta)
 {
-  auto backends = normalize_backend_selector(selector);
-  using Backends = std::remove_cvref_t<decltype(backends)>;
-
-  // The whole-list eligibility check lives here, at the entry point. It must
-  // not live in the recursive walk: there it would see only the remaining
-  // *tail* of the list, and a list like [Blas, Cublas] on host tensors would
-  // static_assert when the walk instantiates the [Cublas] tail, even though
-  // Blas is eligible.
-  static_assert(any_kernel_type_eligible_v<Backends, gemm_op, C&, scalar_t<C>, A const&, B const&, scalar_t<C>>,
-                "no backend in this list can ever service gemm");
-  if (!dispatch_kernel(backends, gemm_op{}, c, alpha, a, b, beta))
-    throw no_available_backend{"all eligible gemm backends declined at runtime"};
+  gemm(selector, c.mdspan(), alpha, a.mdspan(), b.mdspan(), beta);
 }
 ```
 
@@ -315,7 +302,7 @@ kernel_accepts_types(CpuGenericBackend const&, gemm_op const&, C&,
   }
 }
 
-// a, b, c are resolved TensorViews — run the kernel immediately, no scheduler.
+// a, b, c are resolved mdspans — run the kernel immediately, no scheduler.
 template <class C, class A, class B>
 bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
                 A const& a, B const& b, scalar_t<C> beta)
@@ -354,7 +341,7 @@ kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
   }
 }
 
-// a, b, c are resolved mdspan-like views or TensorViews lowered to such views:
+// a, b, c are resolved mdspan-like views:
 // call BLAS immediately, no scheduler.
 template <class C, class A, class B>
 bool try_kernel(BlasBackend, gemm_op, C& c, scalar_t<C> alpha,
@@ -410,7 +397,7 @@ Three invariants this surfaces:
 
 - **Dispatch reads only metadata.** `layout()`, `device()`, dtype, and extents
   are all available synchronously, so `try_kernel` can decide before any data is
-  read. The kernel then runs on the resolved `TensorView`s.
+  read. The kernel then runs on the resolved mdspans.
 - **CPU backends are synchronous; they do not touch a scheduler.** `BlasBackend`
   and `CpuGenericBackend` call the kernel immediately on resolved views. Async
   execution of CPU work comes from wrapping the tensors in `Async<T>`, whose epoch
@@ -546,7 +533,7 @@ outer runtime decline; otherwise it is `maybe`.
   backends themselves.** When operands are `Async<T>`, that layer selects the
   backend (on synchronous metadata, before anything is scheduled) and schedules a
   coroutine which `co_await`s the operand buffers (the epoch queues, not the
-  scheduler, are what order the work), resolves them to `TensorView`s, and then
+  scheduler, are what order the work), resolves them to mdspans, and then
   runs the already-selected synchronous backend — exactly the shape of the
   existing `Async<T>` operations in `async_ops.hpp`. The CPU *backends* never name a scheduler; the
   CUDA path is the exception, submitting to the `CudaScheduler` whose streams and
@@ -567,14 +554,14 @@ This section records how kernel dispatch sits on top of the async runtime
 Dispatch separates into three layers, and the bottom layer knows nothing about
 the async runtime:
 
-1. **Kernels** — plain functions over resolved mdspan-like views (`TensorView`,
-   `stdex::mdspan`, transform views). `cblas_dgemm`, a cuBLAS call on a given
+1. **Kernels** — plain functions over resolved mdspan-like views
+   (`stdex::mdspan`, transform views). `cblas_dgemm`, a cuBLAS call on a given
    stream, a generic triple loop. CPU kernels are entirely async-unaware; they
    compute and return. A CUDA kernel takes a stream or handle but does not know
    about the async runtime.
 2. **Async dispatch wrappers** — run backend selection at submission time (it
    reads only metadata, which is synchronous), then schedule a coroutine that
-   `co_await`s the operand buffers, resolves them to `TensorView`s, and calls the
+   `co_await`s the operand buffers, resolves them to mdspans, and calls the
    already-selected kernel. By the time a coroutine is scheduled, dispatch has
    succeeded: the coroutine is a thin wrapper around the raw backend kernel call.
    This is the shape of the existing `Async<T>` operations in `async_ops.hpp`
@@ -599,14 +586,14 @@ all of it must be readable *without awaiting*, or the planner serializes behind
 the producer of every operand. So the boundary is:
 
 > Descriptor synchronous, bytes async. The kernel dispatch point is a
-> `TensorView` synthesized from a synchronous descriptor plus an awaited pointer.
+> resolved mdspan synthesized from a synchronous descriptor plus an awaited pointer.
 
 Three things stay distinct:
 
 - **Descriptor** — per-block dims/strides/coord; lives on the container; always
   synchronous.
 - **Data handle** — the per-block async-like object; `co_await` it for ready data.
-- **`TensorView`** — descriptor + awaited pointer; what every kernel sees.
+- **Resolved mdspan** — descriptor + awaited pointer; what every kernel sees.
 
 ### The async-block concept
 
@@ -617,8 +604,8 @@ single wrapper serves both a whole-value `Async<T>` and one element of an
 ```cpp
 template <class H>
 concept async_block = requires(H h) {
-  { h.read()  };   // co_await -> TensorView<S> const   (ready data)
-  { h.write() };   // co_await -> TensorView<S>          (ready, writable)
+  { h.read()  };   // co_await -> readable resolved mdspan
+  { h.write() };   // co_await -> writable resolved mdspan
 };
 ```
 
@@ -626,7 +613,7 @@ concept async_block = requires(H h) {
 synchronous descriptor table, and a per-element epoch queue for independent
 ordering. Its element handle models `async_block` and shares a common public
 interface with `Async<T>`; it does not allocate a full `Async` per block. (For
-code that genuinely wants an `Async<TensorView>` from an element, the existing
+code that genuinely wants an async resolved view from an element, the existing
 deferred/aliasing `Async` constructors — `async.hpp:216`, `:239` — alias the
 shared backing with the element's queue.)
 
@@ -639,7 +626,7 @@ shared backing with the element's queue.)
   as `Async<BlockTensor>` makes the structure async (e.g. a truncation output).
 - **Per-block data** — each block's data is immediate, async (host), or async
   (device). This is the async facet of the container's `BlockTensorStorage`
-  policy (`block_tensor.md` §5): a `TensorView` itself has no async-ness, so
+  policy (`block_tensor.md` §5): a resolved mdspan itself has no async-ness, so
   whether block data sits behind async handles is the container policy's
   decision, not a property of the dense leaf.
 
@@ -661,7 +648,7 @@ class BlockTensor {
   public:
     size_t          num_blocks()         const;          // sync
     BlockDescriptor descriptor(size_t i) const;          // sync: dims/strides/coord
-    auto            block(size_t i);                      // -> async_block (or TensorView)
+    auto            block(size_t i);                      // -> async_block (or resolved mdspan)
 };
 ```
 

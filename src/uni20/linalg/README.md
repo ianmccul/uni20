@@ -7,6 +7,8 @@ before they lower to backend wrappers and kernels.
 ## Contents
 
 - `linalg.hpp`: public include point for the dense linalg layer.
+- `backend_selector.hpp`: ordered backend selector values and the stateless
+  host backend entries shared with tensor storage.
 - `backend_manifest.hpp`: backend availability and dispatch metadata.
 - `dispatch.hpp`: operation-tag backend-list dispatch helpers.
 - `blas/`: mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
@@ -22,8 +24,8 @@ before they lower to backend wrappers and kernels.
 - Keep dense linalg APIs separate from matrix-free Krylov APIs in `krylov/`.
 - Backend-specific code should stay in `backends/` and call through the lower
   `backend/` and `kernel/` layers where appropriate.
-- Mdspan GEMM dispatch is currently explicit-selector only: call
-  `gemm(backend_list{...}, output, alpha, lhs, rhs, beta)` or force one backend
-  with `gemm(BlasBackend{}, ...)` / `gemm(CpuGenericBackend{}, ...)`.
+- Bare-mdspan GEMM dispatch requires an explicit selector. Tensor-view operands
+  may omit it and use their common storage-derived selector, or supply an
+  explicit selector override.
 - Scalar-generic code should use Uni20 scalar traits and numeric limits from
   `core/`.

@@ -15,10 +15,6 @@
 namespace uni20::linalg
 {
 
-/// \brief Backend value for BLAS dense linalg kernels.
-struct BlasBackend
-{};
-
 namespace detail
 {
 template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>

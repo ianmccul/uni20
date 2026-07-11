@@ -88,27 +88,27 @@ spirit to an ordered backend-list selector: try LAPACK first, then the CPU
 fallback. It should not introduce a separate state parameter or a second
 dispatch protocol.
 
-The list has a static type order, but it is not only a type list. Backend
-entries can be stateless tags, or small values carrying backend context:
+The list has a static type order, but it is not only a type list. Default
+selectors should normally contain stateless backend tags. Explicit overrides
+may carry operation context that is not intrinsic to an operand:
 
 ```cpp
 struct BlasBackend {};
 struct CublasBackend {
-  int device;
   cudaStream_t stream;
   math_mode_t math_mode;
 };
 ```
 
-For the LAPACK/mdspan first pass, backends are likely stateless tags. CUDA,
-MPI, and temporary allocation may require backend values or a richer selector
-object later. That later design should still keep the CPO call shape
+Memory kind and runtime placement belong to the operand's accessor-defined data
+handle, not its default selector. CUDA streams, MPI communicators, workspace
+policy, algorithm options, or multiprecision settings may justify stateful
+explicit selectors. That later design should still keep the CPO call shape
 backend-first.
 
-If several backend-list entries share structural state, such as CUDA device and
-stream, the selector can store that state once and hand an appropriate backend
-view/value to the CPO. This is a selector implementation detail, not part of the
-leaf-kernel CPO signature.
+If several backend-list entries share operation context, the selector can store
+that state once and hand an appropriate backend view/value to the CPO. This is a
+selector implementation detail, not part of the leaf-kernel CPO signature.
 
 For a backend chain, the conservative type acceptance rule is:
 
@@ -201,16 +201,19 @@ semantic contract of the public operation.
 
 Backend state has two broad categories:
 
-- **Structural state** changes semantics of compatibility and allocation:
-  memory domain, CUDA device, stream/scheduler target, allocator/resource, and
-  workspace ownership. Prefer storing shared structural state once in the
-  composed selector state when several backend tags need it.
+- **Operand state** describes storage semantics and placement: memory domain,
+  CUDA device, and allocator/resource. It belongs to the tensor storage and its
+  accessor-defined data handle.
+- **Operation context** affects execution rather than operand identity: a stream,
+  communicator, workspace ownership, precision setting, or forced algorithm.
+  It may be carried by an explicit selector override.
 - **Advisory state** guides optimization only: preferred algorithm, tile shape,
   math mode, fusion hint, workspace budget, or "try this path first".
 
-Structural state should be checked before side effects and before scratch
-allocation where practical. Advisory state may vary across backend-list entries
-and may be ignored by backends that do not understand it.
+Operand compatibility and operation context should be checked before side
+effects and before scratch allocation where practical. Advisory state may vary
+across backend-list entries and may be ignored by backends that do not
+understand it.
 
 ## Fallback Semantics
 

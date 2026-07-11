@@ -16,20 +16,16 @@
 namespace uni20::linalg
 {
 
-/// \brief Backend value for the generic host CPU dense linalg oracle.
-struct CpuGenericBackend
-{};
-
 namespace detail
 {
 template <class Mdspan, class Scalar>
 concept readable_cpu_gemm_mdspan_for =
-    uni20::RankedStridedMdspan<Mdspan, 2> &&
+    uni20::RankedSpanLike<Mdspan, 2> &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>, Scalar>;
 
 template <class Mdspan, class Scalar>
 concept writable_cpu_gemm_mdspan_for =
-    uni20::MutableRankedStridedMdspan<Mdspan, 2> &&
+    uni20::MutableRankedSpanLike<Mdspan, 2> &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>, Scalar>;
 
 template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>

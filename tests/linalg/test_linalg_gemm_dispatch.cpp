@@ -2,6 +2,7 @@
 #include <uni20/core/types.hpp>
 #include <uni20/linalg/blas/gemm.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
+#include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>
 
@@ -34,14 +35,42 @@ using value_transform_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_l
 
 template <class Scalar> using left_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left>;
 
-template <class Span> void fill_matrix(Span span, std::initializer_list<double> values)
+template <class Scalar> class NonStridedMatrixView {
+  public:
+    using element_type = Scalar;
+    using value_type = std::remove_cv_t<element_type>;
+    using extents_type = extents_2d;
+    using layout_type = stdex::layout_left;
+    using mapping_type = typename layout_type::template mapping<extents_type>;
+    using accessor_type = stdex::default_accessor<element_type>;
+    using data_handle_type = typename accessor_type::data_handle_type;
+    using reference = typename accessor_type::reference;
+    using index_type = typename extents_type::index_type;
+
+    NonStridedMatrixView(data_handle_type data, index_type rows, index_type cols) : span_(data, rows, cols) {}
+
+    static constexpr std::size_t rank() noexcept { return 2; }
+    static constexpr bool is_always_strided() noexcept { return false; }
+
+    [[nodiscard]] auto mapping() const noexcept -> mapping_type const& { return span_.mapping(); }
+    [[nodiscard]] auto data_handle() const noexcept -> data_handle_type { return span_.data_handle(); }
+    [[nodiscard]] auto accessor() const noexcept -> accessor_type const& { return span_.accessor(); }
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept { return span_.extent(axis); }
+
+    reference operator[](index_type row, index_type col) const { return span_[row, col]; }
+
+  private:
+    left_mdspan<element_type> span_;
+};
+
+template <class Matrix> void fill_matrix(Matrix&& matrix, std::initializer_list<double> values)
 {
   auto it = values.begin();
-  for (uni20::index_type row = 0; row < static_cast<uni20::index_type>(span.extent(0)); ++row)
+  for (uni20::index_type row = 0; row < static_cast<uni20::index_type>(matrix.extent(0)); ++row)
   {
-    for (uni20::index_type col = 0; col < static_cast<uni20::index_type>(span.extent(1)); ++col)
+    for (uni20::index_type col = 0; col < static_cast<uni20::index_type>(matrix.extent(1)); ++col)
     {
-      span[row, col] = *it;
+      matrix[row, col] = *it;
       ++it;
     }
   }
@@ -64,6 +93,18 @@ static_assert(uni20::linalg::kernel_type_acceptance<BlasBackend, gemm_op, left_m
 static_assert(uni20::linalg::kernel_type_acceptance<CpuGenericBackend, gemm_op, left_mdspan<double>&, double&,
                                                     value_transform_mdspan<double>&, left_mdspan<double>&, double&>() ==
               KernelTypeAcceptance::yes);
+
+static_assert(uni20::RankedSpanLike<NonStridedMatrixView<double>, 2>);
+static_assert(uni20::MutableRankedSpanLike<NonStridedMatrixView<double>, 2>);
+static_assert(!uni20::StridedMdspan<NonStridedMatrixView<double>>);
+static_assert(
+    uni20::linalg::kernel_type_acceptance<BlasBackend, gemm_op, NonStridedMatrixView<double>&, double&,
+                                          NonStridedMatrixView<double>&, NonStridedMatrixView<double>&, double&>() ==
+    KernelTypeAcceptance::no);
+static_assert(
+    uni20::linalg::kernel_type_acceptance<CpuGenericBackend, gemm_op, NonStridedMatrixView<double>&, double&,
+                                          NonStridedMatrixView<double>&, NonStridedMatrixView<double>&, double&>() ==
+    KernelTypeAcceptance::yes);
 
 static_assert(requires(BlasBackend backend, gemm_op op, left_mdspan<double>& output, double scalar,
                        value_transform_mdspan<double>& lhs, left_mdspan<double>& rhs) {
@@ -171,4 +212,66 @@ TEST(LinalgGemmDispatchTest, CpuFallbackDoesNotReadOutputWhenBetaIsZero)
 
   EXPECT_TRUE(uni20::linalg::try_gemm(CpuGenericBackend{}, c, 1.0, a, b, 0.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
+}
+
+TEST(LinalgGemmDispatchTest, CpuFallbackAcceptsNonStridedAddressableViews)
+{
+  std::vector<double> a_storage(4);
+  std::vector<double> b_storage(4);
+  std::vector<double> c_storage(4);
+
+  NonStridedMatrixView<double> a(a_storage.data(), 2, 2);
+  NonStridedMatrixView<double> b(b_storage.data(), 2, 2);
+  NonStridedMatrixView<double> c(c_storage.data(), 2, 2);
+
+  fill_matrix(a, {1.0, 2.0, 3.0, 4.0});
+  fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
+
+  auto selector = backend_list{BlasBackend{}, CpuGenericBackend{}};
+  EXPECT_TRUE(uni20::linalg::try_gemm(selector, c, 1.0, a, b, 0.0));
+
+  EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
+  EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
+  EXPECT_DOUBLE_EQ((c[1, 0]), 43.0);
+  EXPECT_DOUBLE_EQ((c[1, 1]), 50.0);
+}
+
+TEST(LinalgGemmDispatchTest, TensorOperandsUseStorageDefaultSelector)
+{
+  using tensor_type = uni20::Tensor<double, 2>;
+  using tensor_extents = typename tensor_type::extents_type;
+
+  tensor_type a(tensor_extents{2, 3});
+  tensor_type b(tensor_extents{3, 2});
+  tensor_type c(tensor_extents{2, 2});
+
+  fill_matrix(a, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+  fill_matrix(b, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
+
+  uni20::linalg::gemm(c, 1.0, a, b, 0.0);
+
+  EXPECT_DOUBLE_EQ((c[0, 0]), 58.0);
+  EXPECT_DOUBLE_EQ((c[0, 1]), 64.0);
+  EXPECT_DOUBLE_EQ((c[1, 0]), 139.0);
+  EXPECT_DOUBLE_EQ((c[1, 1]), 154.0);
+}
+
+TEST(LinalgGemmDispatchTest, TensorOperandsAcceptExplicitSelectorOverride)
+{
+  using tensor_type = uni20::Tensor<double, 2>;
+  using tensor_extents = typename tensor_type::extents_type;
+
+  tensor_type a(tensor_extents{2, 2});
+  tensor_type b(tensor_extents{2, 2});
+  tensor_type c(tensor_extents{2, 2});
+
+  fill_matrix(a, {1.0, 2.0, 3.0, 4.0});
+  fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
+
+  uni20::linalg::gemm(CpuGenericBackend{}, c, 1.0, a, b, 0.0);
+
+  EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
+  EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
+  EXPECT_DOUBLE_EQ((c[1, 0]), 43.0);
+  EXPECT_DOUBLE_EQ((c[1, 1]), 50.0);
 }

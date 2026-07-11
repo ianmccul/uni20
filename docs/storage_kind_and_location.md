@@ -24,8 +24,10 @@ collapsed into one:
   storage type. It selects which kernels are legal and drives the `maybe_can_*`
   capability traits in `backend_dispatch.md`. It is also what keeps symmetry/QNum
   type guarantees intact.
-- **Location** — which device ordinal, which MPI rank. A **runtime** value attached
-  to the storage. It drives scheduling, placement, and communication.
+- **Location** — which device ordinal or process owns a storage object. A
+  **runtime** value attached to storage. For dense device spans, the accessor's
+  data handle should carry the device identity. Distributed block placement is
+  container metadata rather than a dense mdspan accessor concern.
 
 Conflating them breaks the design in one of two ways:
 
@@ -44,8 +46,9 @@ So: kind is a type, location is a value.
   the intended mechanism for device-resident tensors, and `backend_dispatch.md`
   already lists "memory-space or storage policy" as a compile-time capability and
   "memory is resident on the required device" as a runtime check.
-- **Location axis is missing.** There is no runtime location field on Uni20 storage
-  today. This is the concrete gap.
+- **Location axis is not yet implemented.** The chosen direction for dense
+  device tensors is an accessor-defined data handle that includes runtime device
+  identity. The default backend selector remains normally stateless.
 - **The prototype validates the runtime-location model.** The vendored
   TensorContraction engine models location entirely at runtime:
   `DeviceMatrixView::deviceId_` (an `int`), `CudaDeviceContext`, and a
@@ -99,13 +102,19 @@ Unified memory, if supported later, is a distinct **kind** (e.g.
 `Tensor<T, UnifiedStorage>`) with its own coherence rules — not an implicit behavior
 of device storage.
 
+## Selector Boundary
+
+The backend selector chooses an ordered set of implementations. It does not
+duplicate intrinsic operand placement. Explicit selector overrides may still
+carry genuine operation context such as a CUDA stream, MPI communicator,
+workspace policy, algorithm option, or multiprecision setting.
+
 ## Open questions
 
 - How is location represented? Candidates: an `(MPI rank, device_ordinal)` pair, or
   an opaque `Device` handle that the scheduler resolves. The representation must be
   cheap to attach to every block.
-- How does a compile-time `GpuStorage` policy carry a runtime device id — a policy
-  type with a runtime member, versus a separate location field on the storage object?
+- What is the exact device data-handle and accessor type used by `GpuStorage`?
 - How does per-block location coexist with whole-tensor APIs that today assume a
   single storage (slicing, views, assignment semantics)?
 - How does location participate in (de)serialization for checkpointing and for the

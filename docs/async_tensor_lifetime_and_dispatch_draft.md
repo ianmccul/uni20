@@ -21,9 +21,10 @@ Related notes:
 
 ## Problem Statement
 
-A raw `TensorView` or `stdex::mdspan` is only a descriptor plus a data handle.
-That is sufficient after a buffer has been awaited and while the owning access
-proxy remains alive. It is not sufficient as an async tensor value.
+A raw `BasicTensorView` adaptor or resolved `stdex::mdspan` does not carry the
+ownership and epoch state required by an async tensor value. Such a descriptor
+is sufficient only after a buffer has been awaited and while the owning access
+proxy remains alive.
 
 For example:
 
@@ -84,7 +85,7 @@ AsyncTensorView
 ```
 
 The name is open, but the role is not. An async alias is not just
-`Async<mdspan>` and not just `Async<TensorView>`. It is a small handle that
+`Async<mdspan>` and not just `Async<BasicTensorView>`. It is a small handle that
 contains enough information to materialize a view safely later:
 
 ```cpp
@@ -214,7 +215,7 @@ schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {
 ```
 
 This is deliberately different from asking `Async<Tensor>` to satisfy the same
-immediate `TensorReadable` concept as `BasicTensor`. A synchronous tensor can
+immediate `TensorView` concept as `BasicTensor`. A synchronous tensor can
 produce an immediate read view. An async tensor produces a read handle that must
 be awaited.
 
@@ -420,10 +421,10 @@ Expected behavior:
 
 - Async tensor views need a durable alias handle that combines descriptor,
   owner token, epoch/hazard token, and backend/domain metadata.
-- A raw resolved `TensorView`/mdspan is not a safe async tensor value. It is a
+- A raw resolved mdspan is not a safe async tensor value. It is a
   leaf-kernel argument materialized after await.
 - `Async<Tensor>` should not be forced to satisfy the immediate synchronous
-  `SpanLike`/`TensorReadable` concept. It should satisfy an async operand/access
+  `TensorView` concept. It should satisfy an async operand/access
   concept whose reads and writes are awaitable.
 - `AsyncArray::block(i)` should return the same kind of async tensor alias
   handle, backed by shared allocation lifetime and per-block hazard state.

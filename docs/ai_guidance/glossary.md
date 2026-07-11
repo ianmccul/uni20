@@ -178,14 +178,44 @@ This glossary is optimized for retrieval, not pedagogy.
 ### BasicTensor
 
 - `ROLE`: Owning dense tensor value.
-- `STATUS`: Current type, but long-term relation to `TensorView` is still design work.
+- `STATUS`: Current composition-based owner; models `TensorView` and
+  `MutableTensorView` without inheriting a view descriptor.
 - `ASSIGNMENT`: Should be reasoned about as value/replace semantics, not mdspan-style descriptor rebind.
 
 ### TensorView
 
-- `ROLE`: Non-owning tensor/view abstraction.
-- `INVARIANT`: `TensorView` is important, but its ownership and async interaction rules are still evolving.
-- `MISCONCEPTION`: `TensorView` being important means every top-level tensor dispatch API should name `TensorView`.
+- `ROLE`: Concept requiring `mdspan()` and `backend_selector()`.
+- `INVARIANT`: May be modeled by an owning tensor or a non-owning adaptor.
+- `INVARIANT`: Does not itself imply `SpanLike` or another mdspan concept.
+- `MISCONCEPTION`: `TensorView` names a concrete base class.
+
+### MutableTensorView
+
+- `ROLE`: `TensorView` refinement whose `mdspan()` result is writable.
+- `INVARIANT`: Fixed-update operations may accept this concept without gaining
+  permission to resize or replace the operand's storage.
+
+### RankedTensorView / MutableRankedTensorView
+
+- `ROLE`: Rank-constrained refinements of the readable and mutable Tensor-view
+  concepts.
+- `INVARIANT`: The rank applies to the resolved mdspan, not to an mdspan-like
+  interface on the Tensor-view object.
+- `INVARIANT`: Rank does not imply stridedness.
+
+### StridedTensorView concept family
+
+- `ROLE`: Refinements for tensor views whose resolved spans are strided.
+- `INVARIANT`: Stridedness is independent of addressability, rank, and
+  mutability.
+- `EXAMPLE`: Direct BLAS/LAPACK lowering requires ranked strided spans, while
+  generic CPU GEMM accepts rank-two addressable spans.
+
+### BasicTensorView
+
+- `ROLE`: Concrete non-owning descriptor adaptor that models the Tensor view
+  concepts and resolves to mdspan.
+- `ASSIGNMENT`: Rebinds the descriptor; does not copy tensor elements.
 
 ### TensorRef
 

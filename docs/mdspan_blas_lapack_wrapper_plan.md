@@ -519,20 +519,21 @@ scratch storage.
 ## Relation To Dispatch
 
 The direct GEMM wrapper is now wired through the generic backend-list
-dispatcher for explicit mdspan selectors. There are two remaining axes of
-progress:
+dispatcher for explicit mdspan selectors and through fixed-output Tensor
+overloads that derive the default selector from tensor storage. The remaining
+axes of progress are:
 
 1. Add more direct BLAS/LAPACK operation wrappers over the same mdspan
    descriptors.
-2. Lift GEMM dispatch from explicit mdspan selectors to tensor/storage default
-   backend selection.
+2. Add higher-level allocating or shape-changing tensor operations above the
+   fixed-output GEMM interface.
 
 The implemented GEMM dispatch slice proves the dispatcher, backend selector,
 type acceptance CPO, runtime decline path, and CPU fallback shape without
 mixing in LAPACK workspace policy, vector descriptors, or overwrite semantics.
-Bare mdspans still use explicit selectors such as
+Bare mdspans use explicit selectors such as
 `backend_list{BlasBackend{}, CpuGenericBackend{}}`; storage-derived default
-backend lists belong in the tensor front end.
+backend lists are implemented in the tensor front end.
 
 The direct wrapper layer still exposes functions that are easy to test:
 

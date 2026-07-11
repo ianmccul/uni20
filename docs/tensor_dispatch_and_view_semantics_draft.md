@@ -1,11 +1,10 @@
 # Tensor Dispatch And View Semantics Draft
 
-**Status:** design notes for review. This is not a finalized API contract.
+**Status:** implemented dense Tensor/GEMM checkpoint plus design notes for the
+remaining allocation, async, CUDA, and external-adaptor work.
 
-This note summarizes the current discussion about dense tensor/view semantics,
-output assignment, and how front-end tensor operations relate to backend kernel
-dispatch. The goal is to make the tentative design reviewable before changing
-the core tensor API.
+This note records the implemented dense tensor/view boundary and the remaining
+design questions around output assignment and higher-level dispatch.
 
 Related notes:
 
@@ -21,7 +20,7 @@ Related notes:
 
 ## Core Distinction
 
-The design is converging on a strict layer split:
+The implemented dense GEMM path uses a strict layer split:
 
 1. **Front-end tensor operations** accept actual Uni20 tensor-like objects. They
    need storage policy, output policy, synchronous metadata, async/block
@@ -36,26 +35,29 @@ A plain `stdex::mdspan` or structural `SpanLike` is sufficient for a leaf kernel
 but is not sufficient for top-level Uni20 dispatch. It does not carry the
 storage policy needed to derive the default backend stack.
 
-For local dense tensors, a useful model is:
+For local dense tensors, the tensor-level concepts are intentionally not
+mdspan-like:
 
 ```cpp
-dispatchable dense tensor = SpanLike + backend selector
+TensorView        = backend selector + readable mdspan() result
+MutableTensorView = TensorView + writable mdspan() result
 ```
 
-The backend selector may be derived from owning storage (`BasicTensor`) or
-carried by a non-owning adaptor. A bare mdspan remains only `SpanLike`; it
-becomes dispatchable only when an explicit backend selector is supplied by the
-call or by an adapter.
+The tensor object itself does not model `SpanLike`. This keeps policy selection
+at the tensor layer and makes the lowering boundary explicit. A bare mdspan is
+accepted by raw kernels only when the caller supplies a backend selector.
 
 ## Tentative Type Roles
 
 The current semantic split is:
 
 ```cpp
-BasicTensor  // owning dense tensor value
-TensorRef    // non-owning tensor lvalue proxy, such as a slice or block view
-mdspan       // shallow non-owning descriptor; assignment rebinds descriptor
-adaptors     // unnamed concept-modeling wrappers, e.g. as_tensor(vector)
+BasicTensor      // owning dense tensor value; models the TensorView concepts
+BasicTensorView  // concrete non-owning tensor adaptor; also models the concepts
+TensorView       // readable tensor-level concept, not an mdspan-like type
+MutableTensorView // writable refinement of TensorView
+mdspan           // resolved leaf-kernel operand
+TensorRef        // future non-owning tensor lvalue proxy
 ```
 
 ### BasicTensor
@@ -83,11 +85,10 @@ auto v = tensor_view(A);
 v = tensor_view(B); // rebind v's descriptor; no element assignment
 ```
 
-The design may not need a central C++ `TensorView` class at all. For C++ leaf
-kernels, a copied mdspan-like descriptor plus a separate backend selector/domain
-may be enough. A `TensorView` class may still be useful as a named adaptor type,
-for Python bindings, or for cases where mdspan alone cannot carry enough
-metadata ergonomically.
+`TensorView` is a concept, not a central base class. `BasicTensorView` is the
+current concrete adaptor for a mapping, handle, accessor, and default backend
+selector. Leaf kernels never receive that adaptor directly; tensor operation
+wrappers resolve its `mdspan()` first.
 
 For dense CUDA data, the tensor/adaptor object must carry enough dispatch
 information to identify device memory. At minimum that means a storage/backend
@@ -288,15 +289,15 @@ Needed behavior:
 
 Concept pressure:
 
-- `TensorReadable<A>`
-- `TensorReadable<B>`
+- `TensorView<A>`
+- `TensorView<B>`
 - `TensorOutput<C, Shape>`
-- `TensorBackendSelectable<T>` or equivalent requirement on all dispatch
-  operands
+- compatible backend selectors on all dispatch operands
 
 ### Fixed Update Operation
 
 ```cpp
+gemm(C, alpha, A, B, beta);
 gemm(C.view(), alpha, A, B, beta);
 gemm(C.slice(...), alpha, A, B, beta);
 ```
@@ -304,14 +305,13 @@ gemm(C.slice(...), alpha, A, B, beta);
 Needed behavior:
 
 - `C` is both input and output when `beta != 0`
-- `ensure_shape(C, shape)` validates only
-- write view must be materialized after `ensure_shape`
+- shape is already fixed and validated by GEMM
+- the writable `mdspan()` is resolved only after tensor-level dispatch policy is known
 
 Concept pressure:
 
-- `TensorReadWrite<C, Shape>` or `TensorOutput<C, Shape> + TensorReadable<C>`
-- fixedness may be a trait such as `!tensor_can_resize_v<C>` rather than a
-  separate concept
+- `MutableTensorView<C>`
+- `TensorView<A>` and `TensorView<B>`
 
 ### Explicit Backend On Mdspan
 
@@ -421,80 +421,42 @@ Concept pressure:
 - an explicit mdspan adapter may need to carry both backend selector and memory
   domain if temporaries are required
 
-## Candidate Concept Names
+## Implemented Dense Concepts
 
-The naming should distinguish dispatch participation from mdspan-like leaf
-views.
-
-```cpp
-template <class T>
-concept TensorBackendSelectable =
-  requires(T const& t) {
-    tensor_backend_selector(t);
-  };
-
-template <class T>
-concept TensorStorageDomain =
-  requires(T const& t) {
-    tensor_storage_domain(t); // memory kind, device ordinal, allocator/resource
-  };
-
-template <class T>
-concept TensorDescribed =
-  requires(T const& t) {
-    tensor_descriptor(t); // shape/layout/domain metadata, sync
-  };
-
-template <class T>
-concept TensorReadable =
-  TensorDescribed<T> &&
-  TensorBackendSelectable<T> &&
-  TensorStorageDomain<T> &&
-  requires(T const& t) {
-    tensor_read_view(t); // mdspan-like view or awaitable handle
-  };
-
-template <class T, class Shape>
-concept TensorOutput =
-  TensorDescribed<T> &&
-  TensorBackendSelectable<T> &&
-  TensorStorageDomain<T> &&
-  requires(T&& t, Shape const& shape) {
-    ensure_shape(t, shape);
-    tensor_write_view(t); // materialized after ensure_shape
-  };
-
-template <class T, class Shape>
-concept TensorReadWrite =
-  TensorReadable<T> && TensorOutput<T, Shape>;
-```
-
-For local dense tensors, a narrower concept may be useful:
+The dense checkpoint distinguishes tensor dispatch participation from
+mdspan-like leaf views directly:
 
 ```cpp
 template <class T>
-concept DenseTensor =
-  SpanLike<T> &&
-  TensorBackendSelectable<T>;
+concept TensorView = requires(T const& tensor) {
+  tensor.backend_selector();
+  { tensor.mdspan() } -> SpanLike;
+};
+
+template <class T>
+concept MutableTensorView = TensorView<T> &&
+  MutableSpanLike<decltype(std::declval<T&>().mdspan())>;
+
+template <class T>
+concept StridedTensorView = TensorView<T> &&
+  StridedMdspan<decltype(std::declval<T const&>().mdspan())>;
+
+template <class T, size_t Rank>
+concept RankedTensorView = TensorView<T> &&
+  RankedSpanLike<decltype(std::declval<T const&>().mdspan()), Rank>;
+
+template <class T, size_t Rank>
+concept MutableRankedTensorView = MutableTensorView<T> && RankedTensorView<T, Rank>;
 ```
 
-Naming alternatives:
-
-| Candidate | Meaning | Concern |
-|---|---|---|
-| `TensorOperand` | any top-level dispatch operand | too vague unless split into read/write |
-| `TensorReadable` | dispatchable tensor read input | clear for inputs |
-| `TensorOutput` | output that supports `ensure_shape` and write view | hides fixed vs resizable behind behavior |
-| `TensorReadWrite` | update operand, both readable and writable | useful for BLAS `beta != 0` |
-| `DenseTensor` | local dense `SpanLike + backend selector` | should not imply block/MPI support |
-| `TensorStorageDomain` | memory domain for allocation and placement | name may sound too much like ownership |
-| `TensorTemporaryFactory` | can allocate compatible scratch/output storage | may be a CPO/trait rather than a concept |
-| `TensorLike` | broad umbrella | probably too imprecise for constraints |
+`TensorOutput` or a separate owner/resizable concept may still be useful for
+allocating operations. It is not part of fixed-output GEMM, where allocation
+policy has already been decided by the caller.
 
 ## Dispatch Interface And Adaptors
 
-The top-level dispatch API should use concepts plus an adaptor/customization
-layer rather than base-class conversion to `TensorView`.
+The top-level dispatch API uses concepts plus ordinary members rather than
+base-class conversion. External customization remains future work.
 
 The customization layer can be implemented as free CPOs that call member
 functions when present. Uni20's own tensor and adaptor classes can therefore use
@@ -654,10 +616,11 @@ Backend selection belongs to tensor/storage operands:
 - Block/MPI tensor: likely a container-level backend such as `[Mpi]`, which
   recurses into local dense backends per block or coalesced group.
 
-For dense local tensors, `SpanLike + backend selector` may be sufficient. The
-selector is the extra information that distinguishes a host span from a CUDA
-device span. A raw mdspan has no such selector; a `TensorView` over CUDA memory
-must carry it explicitly.
+For dense local tensors, `TensorView` requires a backend selector and a readable
+mdspan result; `MutableTensorView` additionally requires a writable mdspan
+result. The tensor object is not `SpanLike`. Memory kind and runtime device
+placement are properties of the returned mdspan's accessor-defined data handle,
+not of the default selector.
 
 Storage and backend selection should remain separate concepts. A storage policy
 owns or describes how bytes are stored, and one of its traits is the default
@@ -667,7 +630,7 @@ still needs a backend selector or storage-domain descriptor. For example:
 ```cpp
 BasicTensor<T, HostStorage> -> backend_list{BlasBackend{}, CpuGenericBackend{}}
 TensorAdaptor<T, HostDomain> -> backend_list{BlasBackend{}, CpuGenericBackend{}}
-TensorAdaptor<T, CudaDomain> -> backend_list{CublasBackend{device}, CudaGenericBackend{device}}
+TensorAdaptor<T, CudaDomain> -> backend_list{CublasBackend{}, CudaGenericBackend{}}
 ```
 
 For CUDA views, the selector/domain must distinguish device memory from host
@@ -707,18 +670,16 @@ The reason is that mdspans do not carry Uni20 storage policy.
 
 The term `backend_list<...>` should be read as a shorthand for the static
 ordering of backend entries. The actual selector passed through dispatch should
-be a value. Backend entries can be stateless tags, but they may also carry small
-runtime fields directly:
+be a value. Default backend entries should normally be stateless tags. An
+explicit override may carry operation context:
 
 ```cpp
 struct CublasBackend {
-  int device;
   cudaStream_t stream;
   math_mode_t math_mode;
 };
 
 struct CudaGenericBackend {
-  int device;
   cudaStream_t stream;
 };
 
@@ -728,8 +689,8 @@ struct CpuGenericBackend {};
 For a selector such as:
 
 ```cpp
-backend_list{CublasBackend{device, stream, math_mode},
-             CudaGenericBackend{device, stream}}
+backend_list{CublasBackend{stream, math_mode},
+             CudaGenericBackend{stream}}
 ```
 
 the list value supplies both ordering and the per-backend runtime state. A
@@ -738,11 +699,9 @@ from the cytnx dispatch experiment. It may still be useful internally for a
 future selector implementation, but the leaf-kernel customization points should
 not require a separate `State&` parameter.
 
-For a hypothetical dense MPI-striped tensor, the structural context could be
-more detailed than a CUDA device: communicator, rank-local ownership, global
-shape, and a section map describing which tensor regions live on which ranks.
-Those pieces can be carried by the MPI backend value or by a storage-domain
-descriptor visible to that backend.
+For distributed block tensors, communicator and operation policy may belong in
+an explicit backend value, while rank-local ownership and section maps belong to
+the container's placement metadata.
 
 Inheritance is still possible, but it should only help declare or share
 type-level requirements. It should not define the backend order. Simple
@@ -783,7 +742,6 @@ selector can build ordered backend values from it:
 
 ```cpp
 struct CublasConfig {
-  int device;
   cudaStream_t stream;
   math_mode_t math_mode;
 };
@@ -793,14 +751,14 @@ Then:
 
 ```cpp
 auto selector = make_backend_selector<backend_list<CublasBackend, CudaGenericBackend>>(
-    CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}});
+    CublasConfig{.stream = {stream}, .math_mode = {tf32_allowed}});
 ```
 
 can produce a selector equivalent to:
 
 ```cpp
-backend_list{CublasBackend{device, stream, math_mode},
-             CudaGenericBackend{device, stream}};
+backend_list{CublasBackend{stream, math_mode},
+             CudaGenericBackend{stream}};
 ```
 
 An implementation may still store shared state once inside the selector and hand
@@ -812,71 +770,17 @@ as a `consteval` tri-state function over ordinary reference parameters, and
 Advisory state may vary by backend entry and may be ignored by a backend that
 does not understand it.
 
-Whether structural state may vary across fallback entries is an operation-level
-policy question. Different CUDA kernel implementations for the same device
-should share the same device/domain state. A staging backend may deliberately
-change domains by allocating temporaries and copying. A fallback from CUDA to
-CPU is therefore not just "next backend in the list"; it is either a declared
-staging path or an error if the operands cannot be read by the CPU backend.
+Operand placement does not vary across fallback entries because it comes from
+the operand accessors and data handles. Operation context may vary by candidate.
+A staging backend may deliberately change domains by allocating temporaries and
+copying. A fallback from CUDA to CPU is therefore not just "next backend in the
+list"; it is either a declared staging path or an error if the operands cannot
+be read by the CPU backend.
 
-## Inheritance Question
+## Owner And Adaptor Composition
 
-The main open design question is whether `BasicTensor` should continue to
-inherit from `TensorView`, or whether `TensorView` should stop being a central
-C++ abstraction.
-
-### Keeping Inheritance
-
-Benefits:
-
-- Convenient base-class conversion to a view-like object.
-- Some existing code can call APIs that name `TensorView` parameters.
-- The owning tensor can reuse view implementation details.
-
-Costs:
-
-- `BasicTensor` and `TensorView` have different assignment semantics.
-- A mutable `TensorView` base subobject can be rebound independently unless the
-  inherited `TensorView` is specially configured to delete assignment.
-- Top-level dispatch no longer wants "is a view"; it wants "has Uni20 storage
-  policy and backend selector".
-- Structural concepts may accidentally treat `BasicTensor` as `SpanLike` when
-  that is not the intended dispatch layer.
-
-If inheritance is kept temporarily, the embedded view should probably be a
-non-rebindable `TensorView` specialization controlled by traits. `BasicTensor`
-would need protected descriptor-reset hooks for its own copy/move/resize logic,
-while external code could not assign through the base view.
-
-### Abandoning Inheritance
-
-Benefits:
-
-- Cleaner semantic split: owner, view, and reference are separate types.
-- Resolved view assignment can simply be mdspan-like without threatening
-  `BasicTensor` invariants.
-- Top-level tensor dispatch becomes pluggable through CPOs and concepts.
-- External tensor-like objects can opt into Uni20 dispatch without inheriting
-  from Uni20 classes.
-- Non-owning rebinding views can be represented by copying an mdspan-like
-  descriptor plus a backend selector/domain adaptor.
-
-Costs:
-
-- Existing APIs that name `TensorView` parameters need an adapter/lowering layer
-  or should be generalized to resolved `SpanLike`/mdspan-like views.
-- More explicit CPO surface must be designed and documented.
-- Some temporary mdspan-like descriptors may be materialized at the backend
-  lowering boundary.
-
-The current tentative recommendation is to avoid relying on inheritance for the
-dispatch contract. `BasicTensor` can keep inheritance as a short-term internal
-implementation detail if useful, but front-end dispatch should be expressed in
-terms of tensor operand concepts/CPOs.
-
-If adaptor/concept dispatch is adopted, the long-term design probably does not
-need `BasicTensor : TensorView`. It may not need a central C++ `TensorView`
-class at all. A cleaner concrete layout is:
+`BasicTensor` no longer inherits from a view. It owns storage, mapping, and
+accessor state directly, and constructs resolved views on demand:
 
 ```cpp
 class BasicTensor {
@@ -890,11 +794,10 @@ public:
 };
 ```
 
-`BasicTensor` owns storage with value/replace assignment. Dispatch obtains an
-mdspan-like resolved view through the adaptor layer when it needs one. A named
-`TensorView` type remains optional: it may be useful as an adaptor object that
-combines an mdspan-like descriptor with a backend selector/domain, but C++ code
-does not necessarily need it as the canonical non-owning view.
+This avoids base-class conversion and keeps owner copy/move semantics independent
+of descriptor rebinding. `BasicTensorView` provides the concrete non-owning
+adaptor where one is useful. Both types satisfy the `TensorView` concept and
+neither satisfies `SpanLike`; their returned mdspans satisfy the leaf concepts.
 
 ## External And Pluggable Operands
 
@@ -979,72 +882,59 @@ object. `TensorRef::operator=` corresponds to slice/adaptor assignment.
 
 Python bindings may still choose to expose NumPy/nanobind arrays at the
 boundary, with Uni20 tensor/adaptor objects used internally for dispatch. A
-named `TensorView` type may still be valuable in the bindings even if C++ leaf
-kernels mostly use mdspan-like descriptors directly.
+named `BasicTensorView` adaptor may still be valuable in the bindings even if
+C++ leaf kernels mostly use mdspan-like descriptors directly.
 
 ## Open Questions
 
-1. What are the exact concept names? Current candidates are
-   `TensorDescribed`, `TensorBackendSelectable`, `TensorReadable`,
-   `TensorOutput`, `TensorReadWrite`, and possibly `DenseTensor`.
-2. What are the exact CPO names and signatures?
+1. What additional concepts are needed for allocating/resizable operations
+   beyond the implemented `TensorView` and `MutableTensorView` concepts?
+2. What external-adaptor CPO names and signatures are needed, if member-based
+   adaptation is insufficient?
 3. Does `assignment_semantics` gain a `value` semantic, or does async storage
    split semantic meaning from unconstructed-storage behavior?
-4. Should `BasicTensor` drop public inheritance immediately, or keep a
-   non-rebindable embedded view during migration?
-5. What are the public API names for fixed-output versus resizable-output
+4. What are the public API names for fixed-output versus resizable-output
    operations?
-6. Is backend compatibility "same backend selector" or "common dispatch domain"?
+5. Is backend compatibility "same backend selector" or "common dispatch domain"?
    Block/MPI paths likely need the latter.
-7. Do we need a central C++ `TensorView` type at all, or is an mdspan-like view
-   plus a backend-selector adaptor enough? For CUDA, any adaptor/view must at
-   least distinguish device memory from host memory and carry or recover the
-   device ordinal.
-8. What lifetime/epoch token does `TensorRef` need for slices of async or shared
+6. What lifetime/epoch token does `TensorRef` need for slices of async or shared
    owning tensors?
-9. Which external types should get built-in CPO adapters (`std::vector`,
+7. Which external types should get built-in CPO adapters (`std::vector`,
    `stdex::mdspan`, nanobind arrays), and which should require explicit
    adapters?
-10. Should the dispatch customization layer be implemented as named CPO objects,
+8. Should the dispatch customization layer be implemented as named CPO objects,
    ADL free functions, or a small trait class that forwards to members?
-11. Should fixed/resizable output be represented as separate concepts, or as one
+9. Should fixed/resizable output be represented as separate concepts, or as one
     `TensorOutput` concept plus a trait controlling `ensure_shape` behavior?
-12. Which explicit adaptors should expose resizable behavior through
+10. Which explicit adaptors should expose resizable behavior through
     `ensure_shape`? `as_tensor(std::vector<T>&)` is a plausible resizable
     adaptor, while slices and block views should remain fixed/write-through.
-13. What is the exact storage-domain/factory API for temporaries? Current
+11. What is the exact storage-domain/factory API for temporaries? Current
     candidates are `tensor_storage_domain(x)`,
     `make_temporary_tensor(selector, domain, descriptor)`, and
     `make_temporary_like(x, descriptor)`.
-14. When only mdspan-like information is available, which combinations are
+12. When only mdspan-like information is available, which combinations are
     acceptable without an explicit storage domain? Host mdspan plus host
     backend list may be safe; raw pointer mdspan plus CUDA backend probably
     needs an explicit `CudaDomain{device}` or a device-aware accessor type.
-15. How much backend state may vary down an ordered backend list? Structural
-    state such as CUDA device and memory domain should likely be consistent
-    across compatible CUDA candidates, while advisory hints such as tile size,
-    algorithm id, math mode, or workspace limit can vary by backend entry.
-16. Is temporary allocation driven by the full backend selector value, by the
+13. How much operation context may vary down an ordered backend list? Hints such
+    as tile size, algorithm id, math mode, or workspace limit can vary by backend
+    entry, while operand placement remains in the operands.
+14. Is temporary allocation driven by the full backend selector value, by the
     selected backend after it accepts, or by a storage-domain descriptor
     containing structural state?
-17. What is the exact boundary between backend selector state and tensor
-    storage-domain metadata? CUDA device can plausibly live in both; a
-    hypothetical MPI-striped dense tensor would need a placement map that may
-    belong more naturally to the tensor domain while still being visible to
-    backend dispatch.
-18. Should backend entries carry all small runtime fields directly, or should a
+15. How should distributed placement metadata be exposed to backend dispatch
+    without duplicating it in selector state?
+16. Should backend entries carry all small runtime fields directly, or should a
     richer selector object share some state internally while presenting the same
     backend-first CPO shape to kernels?
 
 ## Tentative Conclusions
 
-- Top-level kernel dispatch should require tensor/storage operands, not bare
-  mdspan-like views.
-- For local dense tensors, `SpanLike + backend selector` is a plausible minimal
-  dispatchable tensor concept.
-- The likely dispatch concept set is `TensorDescribed`,
-  `TensorBackendSelectable`, `TensorReadable`, `TensorOutput`, and
-  `TensorReadWrite`, with `DenseTensor` as an optional local dense refinement.
+- Default-selector dispatch requires tensor-level operands; bare mdspans use an
+  explicit selector.
+- `TensorView` and `MutableTensorView` are tensor-level concepts. Their objects
+  deliberately do not model `SpanLike`; they produce resolved mdspans.
 - Leaf kernels should operate on resolved mdspan-like views.
 - Storage policy and backend selector should be split: storage provides a
   default backend selector, but non-owning views can carry a selector/domain
@@ -1054,12 +944,13 @@ kernels mostly use mdspan-like descriptors directly.
 - Backend selectors are values, not only type lists. Their type gives the
   candidate order; backend values may be stateless tags or may carry small
   runtime fields directly.
-- Shared structural state, if needed, should live in a selector implementation
-  detail or storage-domain descriptor. Backend inheritance, if used, should
-  declare capabilities only; it should not encode backend ordering.
+- Shared operation context, if needed, may live in a selector implementation
+  detail. Backend inheritance, if used, should declare capabilities only; it
+  should not encode backend ordering.
 - Backend selectors and storage domains are related but distinct: the selector
-  chooses compute backends and can carry state, while the storage domain chooses
-  memory placement, allocator/resource, and CUDA device information.
+  chooses compute backends and may carry explicit operation context, while the
+  storage/accessor-defined data handle carries memory placement and device
+  information.
 - `BasicTensor`, mdspan-like resolved views, and `TensorRef` should have
   distinct assignment semantics: value/replace, rebind descriptor, and
   write-through.
@@ -1071,9 +962,6 @@ kernels mostly use mdspan-like descriptors directly.
   `try_kernel` and `kernel_accepts_types`.
 - Backend selectors should accept both singleton backend values and ordered
   backend-list values.
-- Concepts and CPOs are the preferred long-term dispatch abstraction. They make
-  Uni20 tensor dispatch pluggable and avoid making inheritance from a view type
-  part of the API contract.
-- If adaptor/concept dispatch is adopted, `BasicTensor : TensorView` is likely
-  unnecessary in the long-term design, and a central C++ `TensorView` type may be
-  optional rather than fundamental.
+- Concepts are the tensor dispatch abstraction. `BasicTensor` uses composition,
+  while `BasicTensorView` is a concrete non-owning adaptor; neither relationship
+  depends on inheritance.

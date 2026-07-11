@@ -1,7 +1,9 @@
 #pragma once
 
 #include <uni20/common/mdspan.hpp>
+#include <uni20/config.hpp>
 #include <uni20/kernel/cpu/cpu.hpp>
+#include <uni20/linalg/backend_selector.hpp>
 #include <uni20/tensor/layout.hpp>
 
 #include <vector>
@@ -28,6 +30,22 @@ struct VectorStorage
     }
 
     using default_tag = cpu_tag;
+
+#if UNI20_BACKEND_BLAS
+    using backend_selector_type = linalg::backend_list<linalg::BlasBackend, linalg::CpuGenericBackend>;
+#else
+    using backend_selector_type = linalg::backend_list<linalg::CpuGenericBackend>;
+#endif
+
+    /// \brief Return the default ordered linalg backends for host vector storage.
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+#if UNI20_BACKEND_BLAS
+      return backend_selector_type{linalg::BlasBackend{}, linalg::CpuGenericBackend{}};
+#else
+      return backend_selector_type{linalg::CpuGenericBackend{}};
+#endif
+    }
 };
 
 } // namespace uni20

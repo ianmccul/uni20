@@ -18,8 +18,26 @@ namespace
 using index_t = index_type;
 using extents_2d = stdex::dextents<index_t, 2>;
 using tensor_type = BasicTensor<int, extents_2d, VectorStorage>;
+using mutable_view_type =
+    BasicTensorView<int,
+                    mutable_tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
+using const_view_type =
+    BasicTensorView<int const, tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
 
-template <typename T> constexpr bool has_mutable_mdspan_v = requires(T&& t) { std::forward<T>(t).mutable_mdspan(); };
+static_assert(TensorView<tensor_type>);
+static_assert(MutableTensorView<tensor_type>);
+static_assert(RankedTensorView<tensor_type, 2>);
+static_assert(MutableRankedTensorView<tensor_type, 2>);
+static_assert(StridedTensorView<tensor_type>);
+static_assert(MutableStridedTensorView<tensor_type>);
+static_assert(RankedStridedTensorView<tensor_type, 2>);
+static_assert(MutableRankedStridedTensorView<tensor_type, 2>);
+static_assert(!RankedTensorView<tensor_type, 1>);
+static_assert(!MutableRankedTensorView<tensor_type, 1>);
+static_assert(!MutableTensorView<tensor_type const>);
+static_assert(!SpanLike<tensor_type>);
+static_assert(!StridedMdspan<tensor_type>);
+static_assert(!std::is_base_of_v<mutable_view_type, tensor_type>);
 
 template <typename T> constexpr bool has_mutable_handle_v = requires(T&& t) { std::forward<T>(t).mutable_handle(); };
 
@@ -132,7 +150,7 @@ TEST(BasicTensorTest, CopyConstructionOwnsIndependentStorage)
   EXPECT_EQ((copy[0, 0]), 99);
 }
 
-TEST(BasicTensorTest, CopyAssignmentRebindsViewToOwnedStorage)
+TEST(BasicTensorTest, CopyAssignmentOwnsIndependentStorageAndMapping)
 {
   tensor_type source(extents_2d{2, 3}, std::array<index_t, 2>{4, 1});
   source[0, 0] = 3;
@@ -154,7 +172,7 @@ TEST(BasicTensorTest, CopyAssignmentRebindsViewToOwnedStorage)
   EXPECT_EQ((target[1, 2]), 42);
 }
 
-TEST(BasicTensorTest, MoveConstructionRebindsViewToMovedStorage)
+TEST(BasicTensorTest, MoveConstructionRetainsOwnedMapping)
 {
   tensor_type source(extents_2d{2, 3});
   source[0, 1] = 7;
@@ -168,7 +186,7 @@ TEST(BasicTensorTest, MoveConstructionRebindsViewToMovedStorage)
   EXPECT_EQ((moved[1, 2]), 8);
 }
 
-TEST(BasicTensorTest, MoveAssignmentRebindsViewToMovedStorage)
+TEST(BasicTensorTest, MoveAssignmentRetainsOwnedMapping)
 {
   tensor_type source(extents_2d{2, 3});
   source[0, 1] = 11;
@@ -190,7 +208,7 @@ TEST(BasicTensorTest, MdspanFromConstTensorIsReadOnly)
   extents_2d exts{2, 3};
   tensor_type tensor(exts);
 
-  auto mutable_span = tensor.mutable_mdspan();
+  auto mutable_span = tensor.mdspan();
   static_assert(std::is_same_v<typename decltype(mutable_span)::reference, int&>);
   mutable_span[0, 0] = 5;
   mutable_span[1, 2] = 17;
@@ -201,13 +219,11 @@ TEST(BasicTensorTest, MdspanFromConstTensorIsReadOnly)
   static_assert(!can_assign_element_v<const_span_type const&>);
 
   auto span_from_mdspan = tensor.mdspan();
-  static_assert(std::is_same_v<typename decltype(span_from_mdspan)::reference, int const&>);
-  static_assert(!can_assign_element_v<decltype(span_from_mdspan) const&>);
+  static_assert(std::is_same_v<typename decltype(span_from_mdspan)::reference, int&>);
+  static_assert(can_assign_element_v<decltype(span_from_mdspan) const&>);
 
   EXPECT_EQ((span_from_mdspan[0, 0]), 5);
   EXPECT_EQ((span_from_mdspan[1, 2]), 17);
-
-  static_assert(!has_mutable_mdspan_v<tensor_type const&>);
 }
 
 TEST(BasicTensorTest, ViewsShareStorageAndRespectConstness)
@@ -215,15 +231,10 @@ TEST(BasicTensorTest, ViewsShareStorageAndRespectConstness)
   extents_2d exts{2, 3};
   tensor_type tensor(exts);
 
-  using mutable_view_type =
-      TensorView<int, mutable_tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
-  using const_view_type =
-      TensorView<int const, tensor_traits<extents_2d, VectorStorage, stdex::layout_stride, DefaultAccessorFactory>>;
-
   auto view = tensor.view();
   static_assert(std::is_same_v<decltype(view), mutable_view_type>);
   static_assert(has_mutable_handle_v<decltype(view)&>);
-  static_assert(has_mutable_mdspan_v<decltype(view)&>);
+  static_assert(MutableTensorView<decltype(view)>);
 
   view[0, 0] = 9;
   view[1, 2] = 42;
@@ -248,6 +259,7 @@ TEST(BasicTensorTest, ViewsShareStorageAndRespectConstness)
   EXPECT_EQ(view.handle(), tensor.handle());
   EXPECT_EQ(cview.handle(), static_cast<int const*>(tensor.handle()));
   EXPECT_EQ(const_view_from_const.handle(), static_cast<int const*>(tensor.handle()));
+  EXPECT_EQ(tensor.backend_selector(), VectorStorage::backend_selector());
 }
 
 TEST(BasicTensorTest, TraceFormattingUsesPresentationTensorArt)

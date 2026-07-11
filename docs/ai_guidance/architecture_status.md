@@ -76,25 +76,27 @@ This file is for questions about project maturity, active design seams, and what
 
 ### STATUS
 
-- Tensor and view semantics are still evolving.
-- Tensor/backend dispatch is active design work, not a settled API.
+- Synchronous dense Tensor/view dispatch has an implemented first slice.
+- Async aliasing, CUDA storage, and distributed tensor semantics remain active
+  design work.
 
 ### SAFE CLAIMS
 
-- `TensorView` is conceptually important.
+- Readable, mutable, and rank-constrained Tensor-view concepts are implemented.
+- `BasicTensor` owns storage by composition and models both concepts.
+- `BasicTensorView` is the concrete non-owning descriptor adaptor.
 - Ownership and lifetime sharing are not fully settled.
 - Async-safe aliasing rules are not fully settled.
-- Current design discussion favors concept/CPO dispatch over making inheritance
-  from `TensorView` the public dispatch contract.
-- Current backend-dispatch design discussion favors backend values and selectors:
-  entries may be stateless tags or small values carrying state such as device or
-  stream; shared selector state should stay hidden inside the selector.
+- Default backend selectors are storage-derived candidate lists. Backend values
+  may still carry explicit operation options, but operand location belongs to
+  the mdspan accessor/handle rather than the selector.
 
 ### DO NOT CLAIM
 
 - Do not claim that tensor/view lifetime semantics are finalized.
 - Do not claim that aliasing is solved by the async runtime.
-- Do not claim that the speculative tensor dispatch APIs are implemented.
+- Do not generalize the synchronous dense GEMM slice to async, CUDA, or MPI
+  tensor dispatch.
 - Do not claim that `std::type_list` exists or that `unique_tuple_cat_t` is a
   standard C++ metafunction.
 

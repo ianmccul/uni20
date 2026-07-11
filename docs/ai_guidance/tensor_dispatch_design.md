@@ -22,11 +22,12 @@ view, backend-dispatch, and temporary-allocation design.
 
 ### STATUS
 
-- Tensor/view/backend dispatch semantics are not finalized.
-- The current design direction is concept/CPO-based dispatch, not inheritance
-  from a central view type.
-- `BasicTensor : TensorView` exists in current code, but it is not necessarily
-  the long-term API contract.
+- The first synchronous dense implementation is concept-based rather than
+  inheritance-based.
+- `BasicTensor` owns storage by composition and models `TensorView` and
+  `MutableTensorView`.
+- `BasicTensorView` is the current concrete non-owning descriptor adaptor; it is
+  not a dispatch base class.
 
 ## Tensor roles
 
@@ -34,7 +35,8 @@ view, backend-dispatch, and temporary-allocation design.
 
 - `ROLE`: Owning dense tensor value.
 - `ASSIGNMENT`: Value/replace semantics.
-- `OUTPUT`: May reuse storage or reallocate in `ensure_shape(...)`.
+- `OUTPUT`: Allocation/reallocation policy belongs to operations that explicitly
+  take or return an owning `BasicTensor`.
 - `DO NOT CLAIM`: Do not claim `BasicTensor` assignment is mdspan-style rebind.
 
 ### TensorRef
@@ -50,32 +52,40 @@ view, backend-dispatch, and temporary-allocation design.
 - `ASSIGNMENT`: mdspan-style descriptor rebind.
 - `INVARIANT`: A resolved view is not enough for top-level Uni20 dispatch.
 
-### TensorView
+### TensorView Concepts
 
-- `ROLE`: Current non-owning tensor/view abstraction.
-- `STATUS`: Useful current type, but not necessarily the long-term central C++
-  abstraction.
-- `DO NOT CLAIM`: Do not claim every tensor should inherit from `TensorView`.
+- `ROLE`: Implemented concepts for synchronous dense tensor operands.
+- `TensorView`: requires an addressable `mdspan()` and `backend_selector()`.
+- `MutableTensorView`: refines `TensorView` when `mdspan()` is writable.
+- `StridedTensorView` / `MutableStridedTensorView`: require affine strided
+  resolved spans for providers such as BLAS/LAPACK.
+- `RankedTensorView<T, Rank>` and `MutableRankedTensorView<T, Rank>` constrain
+  rank independently of stridedness.
+- `RankedStridedTensorView<T, Rank>` and its mutable refinement combine these
+  properties where a provider boundary needs both.
+- `INVARIANT`: Owning tensors and non-owning adaptors may both model these
+  concepts; neither must inherit from a common base class.
+- `INVARIANT`: A Tensor-view object is not mdspan-like. Its returned mdspan is
+  the leaf-kernel operand.
 
 ## Candidate tensor concepts
 
 ### DESIGN DIRECTION
 
-Top-level tensor operations should use concepts/customization points instead of
-base-class conversion to `TensorView`.
-
-Candidate concepts:
-
-- `TensorDescribed`: synchronous shape/layout/domain metadata.
-- `TensorBackendSelectable`: default backend selector can be derived.
-- `TensorReadable`: dispatchable tensor input.
-- `TensorOutput`: output supports `ensure_shape(...)` and write access.
-- `TensorReadWrite`: update operand that is both input and output.
+Top-level synchronous dense operations use the Tensor-view concept family.
+Operations with a fixed rank constrain it directly; GEMM uses rank two.
+Allocation is deliberately outside these concepts: fixed updates accept mutable
+Tensor views, while allocating/value-producing operations take or return a
+concrete owning tensor.
 
 ### IMPORTANT DISTINCTION
 
 - Leaf kernels use `SpanLike` / mdspan-like resolved views.
-- Front-end Uni20 dispatch needs storage/backend/output metadata.
+- Raw linalg overloads constrain their operands with the weakest applicable
+  ranked readable/writable span concepts. GEMM accepts non-strided addressable
+  spans because the generic CPU backend supports them; BLAS lowering separately
+  requires strided spans.
+- Front-end Uni20 dispatch needs a storage-derived backend selector.
 - A bare `stdex::mdspan` is suitable for a leaf kernel, but not enough for
   default top-level dispatch unless an explicit backend selector and state/domain
   are supplied.
@@ -115,8 +125,9 @@ Candidate concepts:
   `try_kernel(BlasBackend, gemm_op, ...)` delegates to
   `uni20::linalg::blas::try_gemm(...)`, then falls through to the
   `CpuGenericBackend` GEMM oracle when BLAS declines.
-- Do not claim that tensor/storage default backend selection is implemented for
-  GEMM until the tensor front end supplies storage-derived selectors.
+- Fixed-storage Tensor GEMM is also implemented. `VectorStorage` supplies
+  `[BlasBackend, CpuGenericBackend]` when BLAS is configured, and
+  `[CpuGenericBackend]` otherwise. Explicit selectors override that default.
 - The static capability CPO is
   `consteval KernelTypeAcceptance kernel_accepts_types(backend const&, op const&, args&...)`.
   It checks type-level facts only and returns `no`, `maybe`, or `yes`. It must
@@ -135,29 +146,23 @@ Candidate concepts:
 
 ### BACKEND VALUES
 
-Current design direction: backend entries are values. They are often stateless
-tags, but they may also carry small runtime fields such as device, stream, math
-mode, communicator, or placement map.
+Backend entries are values, but default storage selectors should normally be
+stateless candidate lists. Operand location is not selector state: memory kind
+belongs to the accessor/handle type, and runtime location such as a CUDA device
+belongs to the accessor-defined data handle. This keeps transformed and sliced
+views from duplicating location state.
 
 ```cpp
-struct CublasBackend {
-  int device;
-  cudaStream_t stream;
-  math_mode_t math_mode;
-};
-
-struct CudaGenericBackend {
-  int device;
-  cudaStream_t stream;
-};
+struct CublasBackend {};
+struct CudaGenericBackend {};
 
 struct CpuGenericBackend {};
 ```
 
-A separate composed selector-state tuple was explored in earlier cytnx-derived
-drafts. It is not required for the first Uni20 dispatch layer. If shared backend
-state is introduced later, it should be hidden inside the selector value and not
-added as a required `State&` parameter to every leaf-kernel CPO.
+Stateful selector entries remain an explicit override mechanism for genuine
+operation context or options, such as a selected stream, MPI communicator,
+workspace policy, math mode, or multiprecision setting. They should not become a
+second source of truth for operand location.
 
 ## Temporaries
 
@@ -165,8 +170,9 @@ added as a required `State&` parameter to every leaf-kernel CPO.
 
 Temporary allocation is separate from computation.
 
-- Operand-temporary type/storage comes from backend selector state plus storage
-  domain or allocator/factory.
+- Operand-temporary type/storage comes from an owning storage domain or explicit
+  allocator/factory. A stateful selector override may contribute options but is
+  not the primary owner of operand location.
 - Filling an operand temporary is an ordinary copy/evaluation kernel.
 - Direct mdspan entry points that need operand temporaries must provide explicit
   backend selector state and storage-domain information.
@@ -210,8 +216,9 @@ boundary exchange type, but this is not finalized.
 
 ## Misconceptions
 
-- `TensorView` being important today does not mean it must be the central
-  long-term dispatch abstraction.
+- `TensorView` is a concept, not a concrete base class.
+- `BasicTensorView` is a non-owning adaptor, not the owner base subobject of
+  `BasicTensor`.
 - Backend fallback order should not be encoded by inheritance.
 - A CUDA backend tag by itself is not enough to allocate CUDA temporary storage.
 - `std::tuple` can store duplicate types, but `std::get<T>` by type requires
