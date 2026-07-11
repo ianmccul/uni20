@@ -67,14 +67,28 @@ Runtime dispatch has separate trial and checked front ends:
   returns `false` when every runtime candidate declines before side effects.
   It is constrained out when the aggregate type probe is `no`.
 - `dispatch_kernel(backends, op, args...)` performs the same walk and reports an
-  exhausted list through `ERROR`. Native C++ therefore aborts with a stacktrace,
-  while importing the Python extension selects exception mode for recoverable
-  errors. Like the trial form, it is not callable when the aggregate type probe
-  is `no`.
+  exhausted list by raising `KernelDispatchError`. Native C++ therefore renders
+  its presentation report and aborts with a stacktrace, while importing the
+  Python extension selects exception mode for recoverable errors. Like the
+  trial form, it is not callable when the aggregate type probe is `no`.
 - `dynamic_dispatch_kernel(backends, op, args...)` is the language-binding and
   runtime-erased boundary. It remains callable when the type probe is `no` and
-  converts that rejection into `ERROR`, so Python receives an exception when a
-  kernel was not compiled into the active backend list.
+  converts that rejection into `KernelDispatchError`, so Python receives an
+  exception when a kernel was not compiled into the active backend list.
+
+Operation tags and backend values define stable `static constexpr
+std::string_view name` members. These names are diagnostic metadata only; C++
+types remain the dispatch identity and the names are not serialization or ABI
+keys.
+
+Runnable examples under `examples/linalg/` cover the main dispatch behaviors:
+
+- `kernel_dispatch_example.cpp` defines a small operation and two backends,
+  demonstrating type probing, clean runtime decline, and ordered fallback.
+- `gemm_dispatch_example.cpp` performs tensor GEMM through the selector supplied
+  by `VectorStorage` and shows the mdspan-level type probe.
+- `kernel_dispatch_error_example.cpp` catches and renders structured errors for
+  both runtime exhaustion and a type-level hard `no` at a dynamic boundary.
 
 Success means return `true` with the work done or correctly emitted. (For
 deferred device work, "correctly emitted" means the completion token — the CUDA
@@ -187,7 +201,7 @@ LAPACK surface, workspace policy, or vector descriptor layer.
 ```cpp
 struct gemm_op
 {
-    static constexpr char const* name = "gemm";
+    static constexpr std::string_view name = "gemm";
 };
 
 enum class KernelTypeAcceptance {
@@ -285,7 +299,8 @@ template <class... Backends, class Op, class... Args>
 void dynamic_dispatch_kernel(backend_list<Backends...> backends, Op op, Args&&... args)
 {
   if constexpr (!detail::KernelDispatchTypesAccepted<backend_list<Backends...>, Op, Args...>)
-    ERROR("no backend accepts the kernel operation for these argument types");
+    trace::raise(detail::make_kernel_dispatch_error<KernelDispatchFailure::no_eligible_backend>(
+        backends, op, args...));
   else
     dispatch_kernel(backends, op, std::forward<Args>(args)...);
 }
@@ -322,9 +337,10 @@ should have:
   into a Python exception.
 - Forcing `backend_list{BlasBackend{}}` when libBLAS is not loaded at runtime
   makes `try_kernel(blas_entry, gemm_op{}, ...)` return false, the list is
-  exhausted, and checked dispatch reports an `ERROR`: native C++ aborts with a
-  stacktrace, while Python receives an exception. The default lists always end
-  in the infallible oracle, so the default path never exhausts the list.
+  exhausted, and checked dispatch raises `KernelDispatchError`: native C++
+  renders the structured report and aborts with a stacktrace, while Python
+  receives the concrete exception. The default lists always end in the
+  infallible oracle, so the default path never exhausts the list.
 
 ### Three local backends
 
@@ -549,7 +565,8 @@ gemm(make_backend_selector<backend_list<CublasBackend>>(
 
 Singleton backend overrides are syntax for a one-entry backend list. They do not
 get an implicit oracle fallback; if the backend declines at runtime, the
-checked operation reports an `ERROR` just like any exhausted backend list.
+checked operation raises `KernelDispatchError` just like any exhausted backend
+list.
 
 `BackendChain<...>` or `BackendChain{...}` should be treated as selector
 spelling, not a new leaf-kernel protocol. Its acceptance is `no` only when every

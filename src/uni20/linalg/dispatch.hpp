@@ -8,22 +8,19 @@
 
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/backend_selector.hpp>
+#include <uni20/linalg/dispatch_error.hpp>
+#include <uni20/linalg/dispatch_error_presentation.hpp>
 
 #include <concepts>
+#include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace uni20::linalg
 {
-
-/// \brief Type-level backend eligibility for an operation and argument set.
-enum class KernelTypeAcceptance
-{
-  no,
-  maybe,
-  yes
-};
 
 namespace detail
 {
@@ -113,6 +110,34 @@ concept KernelDispatchTypesAccepted =
                           kernel_type_probe_arg<std::remove_cvref_t<Op> const&>(),
                           kernel_type_probe_arg<Args>()...) != KernelTypeAcceptance::no;
 
+template <class Entity>
+concept NamedKernelDispatchEntity = requires {
+  { std::remove_cvref_t<Entity>::name } -> std::convertible_to<std::string_view>;
+};
+
+template <KernelDispatchFailure Failure, class... Backends, class Op, class... Args>
+KernelDispatchError make_kernel_dispatch_error(backend_list<Backends...> const&, Op const&, Args&&...)
+{
+  static_assert(NamedKernelDispatchEntity<Op>, "kernel operation tags must define a static name");
+  static_assert((NamedKernelDispatchEntity<Backends> && ...), "kernel backends must define a static name");
+
+  std::vector<KernelBackendAttempt> attempts;
+  attempts.reserve(sizeof...(Backends));
+  auto append_attempt = [&]<class Backend>() {
+    constexpr auto acceptance = backend_type_acceptance(
+        kernel_type_probe_arg<Backend const&>(), kernel_type_probe_arg<Op const&>(), kernel_type_probe_arg<Args>()...);
+    attempts.push_back(KernelBackendAttempt{
+        .backend = std::string(std::remove_cvref_t<Backend>::name),
+        .type_acceptance = acceptance,
+        .attempted =
+            Failure == KernelDispatchFailure::all_candidates_declined && acceptance != KernelTypeAcceptance::no,
+    });
+  };
+  (append_attempt.template operator()<Backends>(), ...);
+
+  return KernelDispatchError(std::string(std::remove_cvref_t<Op>::name), Failure, std::move(attempts));
+}
+
 template <std::size_t Index, class... Backends, class Op, class... Args>
 bool try_dispatch_kernel_at(backend_list<Backends...> const& backends, Op op, Args&&... args)
 {
@@ -159,11 +184,14 @@ template <class... Backends, class Op, class... Args>
   requires detail::KernelDispatchTypesAccepted<backend_list<Backends...>, Op, Args...>
 void dispatch_kernel(backend_list<Backends...> const& backends, Op op, Args&&... args)
 {
-  ERROR_IF(!try_dispatch_kernel(backends, op, std::forward<Args>(args)...),
-           "every eligible backend declined the kernel operation");
+  if (!try_dispatch_kernel(backends, op, std::forward<Args>(args)...))
+  {
+    trace::raise(
+        detail::make_kernel_dispatch_error<KernelDispatchFailure::all_candidates_declined>(backends, op, args...));
+  }
 }
 
-/// \brief Dynamically dispatch an operation, reporting even type-level rejection through `ERROR`.
+/// \brief Dynamically dispatch an operation, raising even type-level rejection at runtime.
 /// \details This boundary is intended for Python bindings and runtime-erased interfaces that must remain callable
 ///          when the configured backend list has no implementation for the concrete argument types.
 template <class... Backends, class Op, class... Args>
@@ -171,7 +199,7 @@ void dynamic_dispatch_kernel(backend_list<Backends...> const& backends, Op op, A
 {
   if constexpr (!detail::KernelDispatchTypesAccepted<backend_list<Backends...>, Op, Args...>)
   {
-    ERROR("no backend accepts the kernel operation for these argument types");
+    trace::raise(detail::make_kernel_dispatch_error<KernelDispatchFailure::no_eligible_backend>(backends, op, args...));
   }
   else
   {

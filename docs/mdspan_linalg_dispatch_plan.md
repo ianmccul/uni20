@@ -712,19 +712,18 @@ Minimal tests:
 Low-level `try_kernel(...)` functions should return `false` for clean runtime
 decline before side effects. They should throw only for errors after the backend
 operation has been selected and called, such as LAPACK convergence failures or
-invalid vendor status codes.
+invalid vendor status codes. Backend-specific decline strings are deliberately
+not part of this protocol.
 
-Public convenience wrappers should turn "all backends declined" into a clear
-exception:
+Public convenience wrappers turn "all backends declined" into a structured
+`KernelDispatchError`. Its presentation report lists the operation and each
+backend's `no`/`maybe`/`yes` type acceptance, together with whether that backend
+was attempted or was not eligible. This records the dispatch decision without
+requiring each backend to construct a textual decline reason.
 
-```text
-no available backend for self_adjoint_eigh: LAPACK requires a host raw-addressable
-rank-2 matrix with at least one unit stride
-```
-
-The diagnostic machinery from the cytnx prototype is worth adapting later:
-operation name, argument rank, extents, strides, scalar type, layout type, and
-accessor kind.
+Operand metadata such as extents, strides, scalar type, layout type, and
+accessor kind may be added to the structured exception later. It remains
+operation-level context rather than a backend-specific textual decline reason.
 
 ## Initial Operation Set
 

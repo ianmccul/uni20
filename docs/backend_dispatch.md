@@ -65,11 +65,11 @@ bool try_dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
 
 template <class... Backends, class Op, class... Args>
 void dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
-// constrained out for type-level no; reports ERROR on runtime exhaustion
+// constrained out for type-level no; raises KernelDispatchError on exhaustion
 
 template <class... Backends, class Op, class... Args>
 void dynamic_dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
-// always callable; converts both type rejection and runtime exhaustion to ERROR
+// always callable; converts type rejection and exhaustion to KernelDispatchError
 
 template <class Backend, class Op, class... Args>
 bool try_kernel(Backend, Op, Args&&...); // implemented only for supported operations

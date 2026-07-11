@@ -10,7 +10,9 @@
 #include <concepts>
 #include <initializer_list>
 #include <limits>
+#include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -86,15 +88,21 @@ using uni20::linalg::gemm_op;
 using uni20::linalg::KernelTypeAcceptance;
 
 struct TryKernelOnlyBackend
-{};
+{
+    static constexpr std::string_view name = "try_kernel_only";
+};
 
 template <class... Args> bool try_kernel(TryKernelOnlyBackend, gemm_op const&, Args&&...) { return true; }
 
 struct DecliningBackend
-{};
+{
+    static constexpr std::string_view name = "declining";
+};
 
 struct test_dispatch_op
-{};
+{
+    static constexpr std::string_view name = "test_dispatch";
+};
 
 consteval KernelTypeAcceptance kernel_accepts_types(DecliningBackend const&, test_dispatch_op const&, int&)
 {
@@ -156,17 +164,58 @@ TEST(LinalgGemmDispatchTest, MissingOrNonViableTypeGateIsHardNo)
 TEST(LinalgGemmDispatchTest, TryAndCheckedDispatchDistinguishRuntimeDecline)
 {
   int argument = 0;
-  auto backends = backend_list{DecliningBackend{}};
+  auto backends = backend_list{TryKernelOnlyBackend{}, DecliningBackend{}};
 
   EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(backends, test_dispatch_op{}, argument));
 
   bool const previous_errors_abort = trace::get_formatting_options().errors_abort();
   trace::get_formatting_options().set_errors_abort(false);
-  EXPECT_THROW(uni20::linalg::dispatch_kernel(backends, test_dispatch_op{}, argument), std::runtime_error);
+
+  std::optional<uni20::linalg::KernelDispatchError> captured_error;
+  try
+  {
+    uni20::linalg::dispatch_kernel(backends, test_dispatch_op{}, argument);
+    ADD_FAILURE() << "dispatch_kernel should have raised KernelDispatchError";
+  }
+  catch (uni20::linalg::KernelDispatchError const& error)
+  {
+    captured_error = error;
+  }
+  catch (std::exception const& error)
+  {
+    ADD_FAILURE() << "dispatch_kernel raised the wrong exception type: " << error.what();
+  }
+
   EXPECT_THROW(
       uni20::linalg::dynamic_dispatch_kernel(backend_list{TryKernelOnlyBackend{}}, test_dispatch_op{}, argument),
-      std::runtime_error);
+      uni20::linalg::KernelDispatchError);
   trace::get_formatting_options().set_errors_abort(previous_errors_abort);
+
+  ASSERT_TRUE(captured_error.has_value());
+  EXPECT_EQ(captured_error->operation(), "test_dispatch");
+  EXPECT_EQ(captured_error->failure(), uni20::linalg::KernelDispatchFailure::all_candidates_declined);
+  ASSERT_EQ(captured_error->backend_attempts().size(), 2);
+  EXPECT_EQ(captured_error->backend_attempts()[0].backend, "try_kernel_only");
+  EXPECT_EQ(captured_error->backend_attempts()[0].type_acceptance, KernelTypeAcceptance::no);
+  EXPECT_FALSE(captured_error->backend_attempts()[0].attempted);
+  EXPECT_EQ(captured_error->backend_attempts()[1].backend, "declining");
+  EXPECT_EQ(captured_error->backend_attempts()[1].type_acceptance, KernelTypeAcceptance::maybe);
+  EXPECT_TRUE(captured_error->backend_attempts()[1].attempted);
+  ASSERT_TRUE(captured_error->source_location().has_value());
+  EXPECT_GT(captured_error->source_location()->line(), 0);
+#if UNI20_HAS_STACKTRACE
+  EXPECT_TRUE(captured_error->stacktrace().has_value());
+#endif
+}
+
+TEST(LinalgGemmDispatchDeathTest, CheckedDispatchRendersStructuredBackendReport)
+{
+  GTEST_FLAG_SET(death_test_style, "fast");
+  int argument = 0;
+  auto backends = backend_list{TryKernelOnlyBackend{}, DecliningBackend{}};
+
+  trace::get_formatting_options().set_errors_abort(true);
+  EXPECT_DEATH(uni20::linalg::dispatch_kernel(backends, test_dispatch_op{}, argument), "try_kernel_only");
 }
 
 TEST(LinalgGemmDispatchTest, ForcedBlasBackendRunsRepresentableMdspans)
@@ -216,7 +265,7 @@ TEST(LinalgGemmDispatchTest, ForcedBlasBackendDeclinesUnsupportedStrideBeforeSid
 
   bool const previous_errors_abort = trace::get_formatting_options().errors_abort();
   trace::get_formatting_options().set_errors_abort(false);
-  EXPECT_THROW(uni20::linalg::gemm(BlasBackend{}, c, 1.0, a, b, 0.0), std::runtime_error);
+  EXPECT_THROW(uni20::linalg::gemm(BlasBackend{}, c, 1.0, a, b, 0.0), uni20::linalg::KernelDispatchError);
   trace::get_formatting_options().set_errors_abort(previous_errors_abort);
 
   EXPECT_DOUBLE_EQ((c[0, 0]), -7.0);

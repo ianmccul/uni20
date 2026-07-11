@@ -3,6 +3,7 @@
 #include <uni20/config.hpp>
 
 #include "demangle.hpp"
+#include "diagnostic_error.hpp"
 #include "floating_eq.hpp"
 #include "namedenum.hpp"
 #include "presentation.hpp"
@@ -14,12 +15,15 @@
 #include <cctype>
 #include <chrono>
 #include <complex>
+#include <concepts>
 #include <coroutine>
 #include <cstdio>
+#include <exception>
 #include <fmt/chrono.h>
 #include <fmt/core.h>
 #include <functional>
 #include <map>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <thread>

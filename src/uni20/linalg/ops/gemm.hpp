@@ -14,6 +14,7 @@
 #include <uni20/linalg/backends/blas/gemm.hpp>
 #endif
 
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -22,7 +23,9 @@ namespace uni20::linalg
 
 /// \brief Dense matrix multiplication operation tag.
 struct gemm_op
-{};
+{
+    static constexpr std::string_view name = "gemm";
+};
 
 /// \brief Try `output = alpha * lhs * rhs + beta * output` through an explicit backend selector.
 template <class BackendSelector, uni20::MutableRankedSpanLike<2> OutputMdspan, class Scalar,

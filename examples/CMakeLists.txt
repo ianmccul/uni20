@@ -13,6 +13,18 @@ if(TARGET uni20_backend_blas)
   uni20_add_example(blas_example linalg/blas_example.cpp fmt::fmt uni20_backend_blas)
 endif()
 
+uni20_add_example(kernel_dispatch_example linalg/kernel_dispatch_example.cpp fmt::fmt uni20_common)
+uni20_add_example(kernel_dispatch_error_example linalg/kernel_dispatch_error_example.cpp fmt::fmt uni20_common)
+if(TARGET uni20_backend_blas)
+  uni20_add_example(gemm_dispatch_example linalg/gemm_dispatch_example.cpp fmt::fmt uni20_linalg
+                    uni20_backend_blas)
+else()
+  uni20_add_example(gemm_dispatch_example linalg/gemm_dispatch_example.cpp fmt::fmt uni20_linalg)
+endif()
+add_test(NAME KernelDispatchExample.OrderedFallback COMMAND kernel_dispatch_example)
+add_test(NAME KernelDispatchExample.ErrorReporting COMMAND kernel_dispatch_error_example)
+add_test(NAME KernelDispatchExample.TensorGemm COMMAND gemm_dispatch_example)
+
 uni20_add_example(krylov_matrix_market_example krylov/krylov_matrix_market_example.cpp fmt::fmt uni20_common
                   uni20_krylov)
 target_compile_definitions(krylov_matrix_market_example

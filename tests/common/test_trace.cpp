@@ -316,6 +316,14 @@ TEST(ErrorIfMacro, ErrorIfFalseDoesNotThrowWhenAbortDisabled)
   ERROR_IF(false, "no throw");
 }
 
+TEST(RaiseFunction, PreservesConcreteExceptionType)
+{
+  bool const previous_errors_abort = trace::get_formatting_options().errors_abort();
+  trace::get_formatting_options().set_errors_abort(false);
+  EXPECT_THROW(trace::raise(std::logic_error("structured failure")), std::logic_error);
+  trace::get_formatting_options().set_errors_abort(previous_errors_abort);
+}
+
 // CHECK_FLOATING_EQ
 TEST(CheckFloatingEq, EqualScalarsPass)
 {

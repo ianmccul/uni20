@@ -10,6 +10,8 @@ If you are new to the trace/assert system, this is the shortest useful model:
 - Use `CHECK...` macros for invariants that must always hold inside correct code.
 - Use `PRECONDITION...` macros for caller/input contract checks.
 - Use `ERROR...` when you want to report an error and then abort or throw (configurable).
+- Use `trace::raise(exception)` for a structured exception that must preserve
+  its concrete type and presentation metadata.
 - Use `..._STACK` variants when you also want an immediate stacktrace.
 - Use `DEBUG_...` variants for diagnostics/asserts that should compile out when `NDEBUG` is set.
 
@@ -200,6 +202,23 @@ trace::get_formatting_options().set_errors_abort(false);
 ```
 
 The Python extension selects throw mode process-wide when the module is initialized. This also covers C++ calls made on behalf of Python after the immediate binding function has returned. Worker-thread and asynchronous task boundaries must catch such exceptions and propagate them to the Python-facing result; an exception escaping a C++ thread still invokes `std::terminate`.
+
+### Structured Exceptions
+
+`trace::raise(exception)` is the ordinary-function counterpart for structured
+exceptions. Its default `std::source_location` captures the raise site, so no
+macro is required:
+
+```cpp
+trace::raise(KernelDispatchError{operation, failure, backend_attempts});
+```
+
+Throw mode preserves the concrete exception type. Exceptions derived from
+`uni20::diagnostic_error` also receive the source location and, when available,
+the captured `std::stacktrace`. Abort mode asks ADL for
+`diagnostic_report(exception)` returning a `presentation::report_builder`; when
+that customization is absent, it renders `exception.what()`. Both abort paths
+then emit the usual stacktrace before terminating.
 
 ## Stacktrace Configuration (<stacktrace>)
 

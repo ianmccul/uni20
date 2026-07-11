@@ -4,7 +4,7 @@ The `uni20` extension exposes a subset of the Uni20 C++ API to Python via [nanob
 
 Importing the extension configures recoverable Uni20 `ERROR` diagnostics to throw exceptions process-wide. Nanobind translates exceptions crossing a synchronous binding boundary into Python exceptions. Internal invariant failures reported by `CHECK`, `PRECONDITION`, or `PANIC` still abort. Future asynchronous bindings must catch exceptions at their C++ task boundaries and deliver them through the Python-facing result rather than allowing them to escape a worker thread.
 
-Future kernel bindings should lower through `dynamic_dispatch_kernel(...)` when a concrete operation may be unavailable in a particular build. Normal C++ `try_dispatch_kernel(...)` and `dispatch_kernel(...)` calls are intentionally ill-formed when their aggregate type probe is `no`; the dynamic boundary instead converts that static rejection into `ERROR`, and therefore into a Python exception. Python argument validation should still reject invalid user values before entering C++ code whose internal contracts are enforced by `CHECK` or `PRECONDITION`.
+Future kernel bindings should lower through `dynamic_dispatch_kernel(...)` when a concrete operation may be unavailable in a particular build. Normal C++ `try_dispatch_kernel(...)` and `dispatch_kernel(...)` calls are intentionally ill-formed when their aggregate type probe is `no`; the dynamic boundary instead converts that static rejection into structured `KernelDispatchError`. Python argument validation should still reject invalid user values before entering C++ code whose internal contracts are enforced by `CHECK` or `PRECONDITION`.
 
 ## Prerequisites
 

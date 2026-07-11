@@ -2088,6 +2088,62 @@ template <typename... Args>
   throw std::runtime_error(opts.render(text));
 }
 
+namespace detail
+{
+template <class Error>
+concept HasDiagnosticReport = requires(Error const& error) {
+  { diagnostic_report(error) } -> std::same_as<uni20::presentation::report_builder>;
+};
+
+template <class Error>
+uni20::presentation::styled_text raised_error_text(FormattingOptions const& opts, Error const& error,
+                                                   std::source_location where)
+{
+  auto text = make_diagnostic_header(opts, "ERROR", "ERROR", where.file_name(), static_cast<int>(where.line()));
+  text.append("\n");
+
+  if constexpr (HasDiagnosticReport<Error>)
+  {
+    text.append(uni20::presentation::render_report(diagnostic_report(error), opts.presentation_policy()));
+  }
+  else
+  {
+    opts.append_style(text, error.what(), "TRACE_VALUE");
+    text.append("\n");
+  }
+  return text;
+}
+} // namespace detail
+
+/// \brief Raise a concrete exception through Uni20's configured error boundary.
+/// \details Throw mode preserves the concrete exception type. Abort mode renders
+///          its presentation report, when available, and emits a stacktrace.
+/// \tparam Exception Type derived from `std::exception`.
+/// \param exception Exception object to enrich and raise.
+/// \param where Source location at which the error is raised.
+template <class Exception>
+  requires std::derived_from<std::remove_cvref_t<Exception>, std::exception>
+[[noreturn]] void raise(Exception&& exception, std::source_location where = std::source_location::current())
+{
+  using error_type = std::remove_cvref_t<Exception>;
+  error_type error(std::forward<Exception>(exception));
+
+  if constexpr (std::derived_from<error_type, uni20::diagnostic_error>)
+  {
+    error.set_source_location(where);
+#if TRACE_HAS_STACKTRACE
+    error.set_stacktrace(std::stacktrace::current(1));
+#endif
+  }
+
+  auto& opts = get_formatting_options();
+  if (opts.errors_abort())
+  {
+    detail::abort_with_stacktrace(opts, detail::raised_error_text(opts, error, where), "ERROR", 2);
+  }
+  throw error;
+}
+
 } // namespace trace
 /// \brief Format a non-container, non-floating-point type using `std::format` when only a
 ///        standard formatter is available.

@@ -147,13 +147,15 @@ concrete owning tensor.
   contributes `no`. The safe single-backend query is an implementation detail.
 - Use `try_dispatch_kernel(...)` when exhausting all runtime candidates is an
   expected result that the caller will handle. Use `dispatch_kernel(...)` for
-  checked execution; it reports exhaustion through `ERROR`, which aborts in
-  native C++ and becomes a Python exception after module initialization. Both
-  normal C++ entry points are constrained out when the aggregate type probe is
-  `no`, preserving compile-time diagnosis.
+  checked execution; it raises structured `KernelDispatchError`, which the
+  presentation layer renders before aborting in native C++ and which propagates
+  as an exception after Python module initialization. Both normal C++ entry
+  points are constrained out when the aggregate type probe is `no`, preserving
+  compile-time diagnosis.
 - Use `dynamic_dispatch_kernel(...)` only at Python, plugin, or runtime-erased
   boundaries that must remain callable for a statically unavailable kernel. It
-  converts both a type-level `no` and runtime backend exhaustion into `ERROR`.
+  converts both a type-level `no` and runtime backend exhaustion into
+  `KernelDispatchError`.
 - Keep the matching `try_kernel(...)` broadly callable instead of repeating its
   type test in a long `requires` clause. Dispatch is the contract boundary:
   `try_kernel(...)` may assume the type gate accepted. Do not add a redundant

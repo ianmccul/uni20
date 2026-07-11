@@ -6,6 +6,7 @@
  * \brief Ordered backend selector values shared by tensor storage and linalg dispatch.
  */
 
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -16,12 +17,14 @@ namespace uni20::linalg
 /// \brief Backend value for BLAS dense linalg kernels.
 struct BlasBackend
 {
+    static constexpr std::string_view name = "blas";
     friend constexpr bool operator==(BlasBackend const&, BlasBackend const&) = default;
 };
 
 /// \brief Backend value for the generic host CPU dense linalg oracle.
 struct CpuGenericBackend
 {
+    static constexpr std::string_view name = "cpu_generic";
     friend constexpr bool operator==(CpuGenericBackend const&, CpuGenericBackend const&) = default;
 };
 
