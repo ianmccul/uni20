@@ -311,11 +311,11 @@ metadata such as conjugation.
 
 ## Kernel Dispatch Interface
 
-The mdspan linalg layer should be the first concrete user of the operation-tag
-model. The recommended vertical slice is GEMM: the direct mdspan BLAS wrapper
-already exists, so `try_kernel(BlasBackend, gemm_op, ...)` can delegate to
-`uni20::linalg::blas::try_gemm(...)` and the dispatch walk can prove fallback
-behavior before LAPACK workspace and vector-descriptor policy enter the picture.
+The mdspan linalg layer is the first concrete user of the operation-tag model.
+The explicit-selector GEMM vertical slice exists: the direct mdspan BLAS wrapper
+delegates through `try_kernel(BlasBackend, gemm_op, ...)`, and the dispatch walk
+falls back to `CpuGenericBackend` before LAPACK workspace and vector-descriptor
+policy enter the picture.
 
 Backend CPOs put the backend value first, then the operation tag, then ordinary
 reference parameters matching the public call order. A separate
@@ -344,10 +344,19 @@ template <class C, class Scalar, class A, class B>
 bool try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a, B&& b,
                 Scalar beta)
 {
+  static_assert(blas_gemm_types_supported<C, Scalar, A, B>);
   return uni20::linalg::blas::try_gemm(std::forward<C>(c), alpha,
                                       std::forward<A>(a), std::forward<B>(b),
                                       beta);
 }
+```
+
+The public mdspan dispatch entry point is selector-first:
+
+```cpp
+gemm(backend_list{BlasBackend{}, CpuGenericBackend{}}, c, alpha, a, b, beta);
+gemm(BlasBackend{}, c, alpha, a, b, beta);       // force BLAS, no fallback
+gemm(CpuGenericBackend{}, c, alpha, a, b, beta); // force the oracle
 ```
 
 The first LAPACK wrapper can then use the same pattern with richer operand
@@ -448,9 +457,13 @@ consteval KernelTypeAcceptance kernel_type_acceptance()
 }
 ```
 
-The fallback to a constrained `try_kernel(...)` overload keeps simple backends
-from having to define a separate static CPO when the runtime-attempt signature is
-already specific enough.
+When a backend provides `kernel_accepts_types(...)`, that CPO owns the complete
+type-level eligibility test. `try_kernel(...)` can remain unconstrained and use
+a local `static_assert` against the same backend-local support predicate; the
+dispatcher does not instantiate it for rejected types. This avoids duplicating
+long constraints on both CPOs. The fallback to detecting a constrained
+`try_kernel(...)` remains useful for simple backends whose runtime-attempt
+signature is already a complete type-level test.
 
 ## Worked Example: Self-Adjoint Eigensolver
 

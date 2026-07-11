@@ -10,6 +10,7 @@ if(UNI20_BACKEND_BLAS)
     SOURCES
       test_blas_matrix_operands.cpp
       test_blas_gemm.cpp
+      test_linalg_gemm_dispatch.cpp
     LIBS uni20_linalg uni20_backend_blas
   )
 endif()

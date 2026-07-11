@@ -32,8 +32,7 @@ Related notes:
 
 A **backend** is a uniform thing with two ways to decline an operation. The
 dispatch mechanism is generic over an **operation tag** (`gemm_op`, `scale_op`,
-`assign_op`, ...), and discovers backend support with constrained customization
-points:
+`assign_op`, ...), and discovers backend support with customization points:
 
 - `kernel_accepts_types(Backend const&, Op const&, Args&...)` — optional
   `consteval` tri-state function for compile-time facts about the C++ types;
@@ -44,14 +43,14 @@ points:
   receives the backend value, checks runtime facts, and either performs/emits
   the work or returns `false`.
 
-A backend that does not provide a usable `try_kernel` overload for `(Op, Args...)`
-does not implement that operation and is skipped, unless its
-`kernel_accepts_types(...)` overload returns `KernelTypeAcceptance::no`, in
-which case the dispatcher skips it without ever forming the `try_kernel`
-expression. This avoids one dispatcher and one pair of detection helpers per
-kernel. Backends may still provide an optional `kernel_accepts_types` overload
-when the `try_kernel` signature alone is not an adequate type-level eligibility
-test.
+A backend that provides `kernel_accepts_types(...)` should put its complete
+type-level eligibility test there. Its `try_kernel(...)` overload can then be
+deliberately unconstrained: dispatch never instantiates it for rejected types,
+and a local `static_assert` can diagnose accidental direct misuse. This keeps
+the runtime CPO focused on instance facts rather than duplicating a long
+constraint expression. A backend without a static CPO may instead use a
+constrained `try_kernel(...)`; detection then treats that overload as
+`KernelTypeAcceptance::maybe`.
 
 Success means return `true` with the work done or correctly emitted. (For
 deferred device work, "correctly emitted" means the completion token — the CUDA
@@ -157,13 +156,13 @@ The contraction primitive `C <- alpha * A * B + beta * C` exercises every part o
 the model. The entry point derives a default list from storage and forwards to
 the walk:
 
-This is also the recommended first end-to-end implementation slice. The
-low-level mdspan leaf already exists as
-`uni20::linalg::blas::try_gemm(c, alpha, a, b, beta)`. The next dispatch step
-should wrap that leaf in `try_kernel(BlasBackend, gemm_op, ...)`, then fall back
-to an independently tested CPU generic GEMM backend when BLAS declines. This
-proves the operation-tag walk without first solving the broader LAPACK surface,
-workspace policy, or vector descriptor layer.
+The first end-to-end mdspan implementation slice exists for explicit backend
+selectors. The low-level mdspan leaf is
+`uni20::linalg::blas::try_gemm(c, alpha, a, b, beta)`;
+`try_kernel(BlasBackend, gemm_op, ...)` wraps that leaf, and
+`CpuGenericBackend` provides an independently tested fallback when BLAS
+declines. This proves the operation-tag walk without first solving the broader
+LAPACK surface, workspace policy, or vector descriptor layer.
 
 ```cpp
 struct gemm_op
@@ -299,14 +298,17 @@ struct CpuGenericBackend {};                                // the correctness o
 template <class T>
 using operand_t = std::remove_cvref_t<T>;
 
+template <class C, class Alpha, class A, class B, class Beta>
+concept cpu_gemm_types_supported =
+    is_host_v<operand_t<C>> && is_host_v<operand_t<A>> &&
+    is_host_v<operand_t<B>>;
+
 template <class Alpha, class A, class B, class Beta, class C>
 consteval KernelTypeAcceptance
 kernel_accepts_types(CpuGenericBackend const&, gemm_op const&, C&,
                      Alpha const&, A const&, B const&, Beta const&)
 {
-  if constexpr (is_host_v<operand_t<C>> &&
-                is_host_v<operand_t<A>> &&
-                is_host_v<operand_t<B>>) {
+  if constexpr (cpu_gemm_types_supported<C, Alpha, A, B, Beta>) {
     return KernelTypeAcceptance::yes;                          // any scalar, any layout
   } else {
     return KernelTypeAcceptance::no;
@@ -318,6 +320,7 @@ template <class C, class A, class B>
 bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
                 A const& a, B const& b, scalar_t<C> beta)
 {
+  static_assert(cpu_gemm_types_supported<C, scalar_t<C>, A, B, scalar_t<C>>);
   using T = scalar_t<C>;
   for (size_t i = 0; i < c.extent(0); ++i)
     for (size_t j = 0; j < c.extent(1); ++j) {
@@ -332,16 +335,19 @@ bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
 
 struct BlasBackend {};
 
+template <class C, class Alpha, class A, class B, class Beta>
+concept blas_gemm_types_supported =
+    is_host_v<operand_t<C>> && is_host_v<operand_t<A>> &&
+    is_host_v<operand_t<B>> &&
+    same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
+    is_blas_scalar_v<scalar_t<operand_t<C>>>;
+
 template <class Alpha, class A, class B, class Beta, class C>
 consteval KernelTypeAcceptance
 kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
                      A const&, B const&, Beta const&)
 {
-  if constexpr (is_host_v<operand_t<C>> &&
-                is_host_v<operand_t<A>> &&
-                is_host_v<operand_t<B>> &&
-                same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
-                is_blas_scalar_v<scalar_t<operand_t<C>>>) {   // f / d / cf / cd only
+  if constexpr (blas_gemm_types_supported<C, Alpha, A, B, Beta>) {
     return KernelTypeAcceptance::maybe;                       // strides/library are runtime facts
   } else {
     return KernelTypeAcceptance::no;
@@ -354,6 +360,7 @@ template <class C, class A, class B>
 bool try_kernel(BlasBackend, gemm_op, C& c, scalar_t<C> alpha,
                 A const& a, B const& b, scalar_t<C> beta)
 {
+  static_assert(blas_gemm_types_supported<C, scalar_t<C>, A, B, scalar_t<C>>);
   return uni20::linalg::blas::try_gemm(c, alpha, a, b, beta);
 }
 

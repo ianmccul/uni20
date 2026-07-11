@@ -111,11 +111,12 @@ Candidate concepts:
 ### OPERATION-TAG MODEL
 
 - Backend dispatch is an ordered backend-list walk for an operation tag.
-- The next concrete linalg milestone is GEMM end-to-end dispatch:
-  `try_kernel(BlasBackend, gemm_op, ...)` should delegate to the existing
-  `uni20::linalg::blas::try_gemm(...)`, then fall through to a CPU generic GEMM
-  oracle when BLAS declines. Do not broaden BLAS/LAPACK wrappers mechanically
-  before this vertical slice proves the dispatch path.
+- The concrete linalg GEMM mdspan slice exists for explicit selectors:
+  `try_kernel(BlasBackend, gemm_op, ...)` delegates to
+  `uni20::linalg::blas::try_gemm(...)`, then falls through to the
+  `CpuGenericBackend` GEMM oracle when BLAS declines.
+- Do not claim that tensor/storage default backend selection is implemented for
+  GEMM until the tensor front end supplies storage-derived selectors.
 - The static capability CPO is
   `consteval KernelTypeAcceptance kernel_accepts_types(backend const&, op const&, args&...)`.
   It checks type-level facts only and returns `no`, `maybe`, or `yes`. It must
@@ -125,6 +126,10 @@ Candidate concepts:
   runtime checks such as strides, device placement, handles, and library
   availability, then either runs the kernel and returns `true` or declines
   before side effects and returns `false`.
+- When `kernel_accepts_types(...)` exists, keep the matching `try_kernel(...)`
+  broadly callable instead of repeating its type test in a long `requires`
+  clause. Share a backend-local support predicate and `static_assert` it inside
+  `try_kernel(...)` to diagnose accidental direct misuse.
 - A backend that lacks a usable `try_kernel(...)` overload is skipped by
   detection.
 

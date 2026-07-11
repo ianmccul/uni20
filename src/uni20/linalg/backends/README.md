@@ -7,6 +7,7 @@ the raw external-library wrappers in `src/uni20/backend`.
 ## Contents
 
 - `cpu/`: CPU dense matrix helpers and CPU matrix exponential implementation.
+- `blas/`: operation-tag backend adapters that delegate to mdspan BLAS helpers.
 - `lapack/`: LAPACK-backed matrix operation entry points.
 - `cusolver/`: cuSOLVER-backed matrix operation entry points.
 

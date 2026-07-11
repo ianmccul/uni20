@@ -8,8 +8,10 @@ before they lower to backend wrappers and kernels.
 
 - `linalg.hpp`: public include point for the dense linalg layer.
 - `backend_manifest.hpp`: backend availability and dispatch metadata.
+- `dispatch.hpp`: operation-tag backend-list dispatch helpers.
 - `blas/`: mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - `ops/`: operation descriptors such as matrix-operation tags.
+- `backends/blas/`: operation-tag BLAS backend adapters.
 - `backends/cpu/`: CPU dense matrix helpers and the current dense matrix
   exponential implementation.
 - `backends/lapack/`: LAPACK-backed linalg entry points.
@@ -20,5 +22,8 @@ before they lower to backend wrappers and kernels.
 - Keep dense linalg APIs separate from matrix-free Krylov APIs in `krylov/`.
 - Backend-specific code should stay in `backends/` and call through the lower
   `backend/` and `kernel/` layers where appropriate.
+- Mdspan GEMM dispatch is currently explicit-selector only: call
+  `gemm(backend_list{...}, output, alpha, lhs, rhs, beta)` or force one backend
+  with `gemm(BlasBackend{}, ...)` / `gemm(CpuGenericBackend{}, ...)`.
 - Scalar-generic code should use Uni20 scalar traits and numeric limits from
   `core/`.
