@@ -13,7 +13,7 @@ If you are new to the trace/assert system, this is the shortest useful model:
 - Use `..._STACK` variants when you also want an immediate stacktrace.
 - Use `DEBUG_...` variants for diagnostics/asserts that should compile out when `NDEBUG` is set.
 
-Generally, use `CHECK...` and `PRECONDITION...` to test logical conditions that would indicate coding bugs, and use `ERROR...` where user input is involved. In Python bindings, `CHECK` and `PRECONDITION` will immediately halt the interpreter, whereas `ERROR` can be configured to propagate an exception into Python.
+Generally, use `CHECK...` and `PRECONDITION...` to test logical conditions that would indicate coding bugs, and use `ERROR...` where user input is involved. Importing the Python extension configures `ERROR` to throw, allowing nanobind to translate the failure into a Python exception. `CHECK`, `PRECONDITION`, and `PANIC` remain invariant failures that immediately halt the interpreter.
 
 ## Quick Start
 
@@ -193,11 +193,13 @@ ASSERT_FLOATING_EQ(value, reference, 2); // explicit tolerance
 - `ERROR(...)`
 - `ERROR_IF(cond, ...)`
 
-By default these abort. You can switch to throw mode with:
+By default these emit a stacktrace and abort. You can switch to throw mode with:
 
 ```cpp
 trace::get_formatting_options().set_errors_abort(false);
 ```
+
+The Python extension selects throw mode process-wide when the module is initialized. This also covers C++ calls made on behalf of Python after the immediate binding function has returned. Worker-thread and asynchronous task boundaries must catch such exceptions and propagate them to the Python-facing result; an exception escaping a C++ thread still invokes `std::terminate`.
 
 ## Stacktrace Configuration (<stacktrace>)
 

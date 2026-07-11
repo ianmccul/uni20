@@ -11,35 +11,23 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/mdspan/concepts.hpp>
 
+#include <concepts>
 #include <type_traits>
 
 namespace uni20::linalg
 {
 
-namespace detail
-{
-template <class Mdspan, class Scalar>
-concept readable_cpu_gemm_mdspan_for =
-    uni20::RankedSpanLike<Mdspan, 2> &&
-    std::same_as<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>, Scalar>;
-
-template <class Mdspan, class Scalar>
-concept writable_cpu_gemm_mdspan_for =
-    uni20::MutableRankedSpanLike<Mdspan, 2> &&
-    std::same_as<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>, Scalar>;
-
-template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
-concept cpu_gemm_types_supported =
-    uni20::Scalar<Scalar> && writable_cpu_gemm_mdspan_for<OutputMdspan, Scalar> &&
-    readable_cpu_gemm_mdspan_for<LhsMdspan, Scalar> && readable_cpu_gemm_mdspan_for<RhsMdspan, Scalar>;
-} // namespace detail
-
 /// \brief Report compile-time eligibility for generic CPU GEMM dispatch.
-template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
+template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> LhsMdspan,
+          uni20::RankedSpanLike<2> RhsMdspan>
 consteval KernelTypeAcceptance kernel_accepts_types(CpuGenericBackend const&, struct gemm_op const&, OutputMdspan&,
                                                     Scalar const&, LhsMdspan&, RhsMdspan&, Scalar const&)
 {
-  if constexpr (detail::cpu_gemm_types_supported<OutputMdspan, Scalar, LhsMdspan, RhsMdspan>)
+  using output_scalar = std::remove_cv_t<typename OutputMdspan::element_type>;
+  using lhs_scalar = std::remove_cv_t<typename LhsMdspan::element_type>;
+  using rhs_scalar = std::remove_cv_t<typename RhsMdspan::element_type>;
+  if constexpr (std::same_as<output_scalar, Scalar> && std::same_as<lhs_scalar, Scalar> &&
+                std::same_as<rhs_scalar, Scalar>)
   {
     return KernelTypeAcceptance::yes;
   }
@@ -54,10 +42,6 @@ template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
 bool try_kernel(CpuGenericBackend, struct gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
                 RhsMdspan&& rhs, Scalar beta)
 {
-  static_assert(detail::cpu_gemm_types_supported<std::remove_cvref_t<OutputMdspan>, Scalar,
-                                                 std::remove_cvref_t<LhsMdspan>, std::remove_cvref_t<RhsMdspan>>,
-                "CPU GEMM try_kernel called for types rejected by kernel_accepts_types");
-
   using output_type = std::remove_cvref_t<OutputMdspan>;
   using index_type = typename output_type::index_type;
 

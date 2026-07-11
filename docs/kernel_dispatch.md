@@ -34,7 +34,7 @@ A **backend** is a uniform thing with two ways to decline an operation. The
 dispatch mechanism is generic over an **operation tag** (`gemm_op`, `scale_op`,
 `assign_op`, ...), and discovers backend support with customization points:
 
-- `kernel_accepts_types(Backend const&, Op const&, Args&...)` — optional
+- `kernel_accepts_types(Backend const&, Op const&, Args&...)` — required
   `consteval` tri-state function for compile-time facts about the C++ types;
   prunes the candidate at zero runtime cost. It is written as an ordinary
   function with ordinary reference parameters, so this CPO does not need a tuple
@@ -43,14 +43,38 @@ dispatch mechanism is generic over an **operation tag** (`gemm_op`, `scale_op`,
   receives the backend value, checks runtime facts, and either performs/emits
   the work or returns `false`.
 
-A backend that provides `kernel_accepts_types(...)` should put its complete
-type-level eligibility test there. Its `try_kernel(...)` overload can then be
-deliberately unconstrained: dispatch never instantiates it for rejected types,
-and a local `static_assert` can diagnose accidental direct misuse. This keeps
-the runtime CPO focused on instance facts rather than duplicating a long
-constraint expression. A backend without a static CPO may instead use a
-constrained `try_kernel(...)`; detection then treats that overload as
-`KernelTypeAcceptance::maybe`.
+The gate may be narrowly constrained. If it is not callable for the exact
+backend, operation, and argument types, acceptance is a hard `no`; a callable
+gate returns `no`, `maybe`, or `yes`. Its `try_kernel(...)` overload may remain
+deliberately unconstrained because dispatch never instantiates it for rejected
+types. This keeps the runtime CPO focused on instance facts rather than
+duplicating type constraints.
+
+Generic callers should normally use the safe value-shaped front end:
+
+```cpp
+probe_dispatch_kernel(backends, op, args...);
+```
+
+It deduces but does not inspect argument values. The result is `yes` if any
+candidate is `yes`, otherwise `maybe` if any candidate is `maybe`, otherwise
+`no`. A backend whose `kernel_accepts_types(...)` customization is not callable
+contributes `no`.
+
+Runtime dispatch has separate trial and checked front ends:
+
+- `try_dispatch_kernel(backends, op, args...)` walks the eligible backends and
+  returns `false` when every runtime candidate declines before side effects.
+  It is constrained out when the aggregate type probe is `no`.
+- `dispatch_kernel(backends, op, args...)` performs the same walk and reports an
+  exhausted list through `ERROR`. Native C++ therefore aborts with a stacktrace,
+  while importing the Python extension selects exception mode for recoverable
+  errors. Like the trial form, it is not callable when the aggregate type probe
+  is `no`.
+- `dynamic_dispatch_kernel(backends, op, args...)` is the language-binding and
+  runtime-erased boundary. It remains callable when the type probe is `no` and
+  converts that rejection into `ERROR`, so Python receives an exception when a
+  kernel was not compiled into the active backend list.
 
 Success means return `true` with the work done or correctly emitted. (For
 deferred device work, "correctly emitted" means the completion token — the CUDA
@@ -192,46 +216,51 @@ constexpr std::remove_reference_t<T>& kernel_type_probe_arg() noexcept
 } // namespace detail
 
 template <class Backend, class Op, class... Args>
-consteval KernelTypeAcceptance kernel_type_acceptance()
+constexpr KernelTypeAcceptance
+backend_type_acceptance(Backend const&, Op const&, Args&&...)
 {
+  using backend_type = std::remove_cvref_t<Backend>;
+  using op_type = std::remove_cvref_t<Op>;
   if constexpr (requires {
-             kernel_accepts_types(detail::kernel_type_probe_arg<Backend const&>(),
-                                  detail::kernel_type_probe_arg<Op const&>(),
+             kernel_accepts_types(detail::kernel_type_probe_arg<backend_type const&>(),
+                                  detail::kernel_type_probe_arg<op_type const&>(),
                                   detail::kernel_type_probe_arg<Args>()...);
            }) {
     constexpr auto acceptance =
-        kernel_accepts_types(detail::kernel_type_probe_arg<Backend const&>(),
-                             detail::kernel_type_probe_arg<Op const&>(),
+        kernel_accepts_types(detail::kernel_type_probe_arg<backend_type const&>(),
+                             detail::kernel_type_probe_arg<op_type const&>(),
                              detail::kernel_type_probe_arg<Args>()...);
     if constexpr (acceptance == KernelTypeAcceptance::no) {
       return KernelTypeAcceptance::no;
     } else {
-      static_assert(backend_has_try_kernel<Backend, Op, Args...>(),
+      static_assert(backend_has_try_kernel<backend_type, op_type, Args...>(),
                     "kernel_accepts_types accepted these types, but try_kernel is not available");
       return acceptance;
     }
   }
 
-  if constexpr (backend_has_try_kernel<Backend, Op, Args...>())
-    return KernelTypeAcceptance::maybe; // constrained try_kernel is the type test
-  else
-    return KernelTypeAcceptance::no;
+  return KernelTypeAcceptance::no; // a non-callable type gate is a hard rejection
 }
 
-template <class Backends, class Op, class... Args>
-inline constexpr bool any_kernel_type_eligible_v = false;
-
 template <class... Backends, class Op, class... Args>
-inline constexpr bool any_kernel_type_eligible_v<backend_list<Backends...>, Op, Args...> =
-    ((kernel_type_acceptance<Backends, Op, Args...>() != KernelTypeAcceptance::no) || ...);
+constexpr KernelTypeAcceptance
+probe_dispatch_kernel(backend_list<Backends...> const&, Op const&, Args&&...)
+{
+  // Query detail::backend_type_acceptance for every candidate using probe
+  // lvalues. Return yes if any candidate is yes, then maybe, otherwise no.
+}
 
 template <class Op, class First, class... Rest, class... Args>
-bool dispatch_kernel(backend_list<First, Rest...> backends, Op op, Args&&... args)
+  requires detail::KernelDispatchTypesAccepted<backend_list<First, Rest...>, Op, Args...>
+bool try_dispatch_kernel(backend_list<First, Rest...> backends, Op op, Args&&... args)
 {
-  constexpr auto acceptance = kernel_type_acceptance<First, Op, Args&&...>();
+  constexpr auto acceptance = detail::backend_type_acceptance(
+      detail::kernel_type_probe_arg<First const&>(),
+      detail::kernel_type_probe_arg<Op const&>(),
+      detail::kernel_type_probe_arg<Args>()...);
   if constexpr (acceptance == KernelTypeAcceptance::yes) {
     bool const success = try_kernel(backends.first(), op, std::forward<Args>(args)...);
-    UNI20_ASSERT(success);
+    CHECK(success);
     return true;
   } else if constexpr (acceptance == KernelTypeAcceptance::maybe) {
     if (try_kernel(backends.first(), op, std::forward<Args>(args)...))
@@ -239,9 +268,26 @@ bool dispatch_kernel(backend_list<First, Rest...> backends, Op op, Args&&... arg
   }
 
   if constexpr (sizeof...(Rest) > 0)
-    return dispatch_kernel(backends.rest(), op, std::forward<Args>(args)...);
+    return try_dispatch_kernel(backends.rest(), op, std::forward<Args>(args)...);
   else
     return false;
+}
+
+template <class... Backends, class Op, class... Args>
+  requires detail::KernelDispatchTypesAccepted<backend_list<Backends...>, Op, Args...>
+void dispatch_kernel(backend_list<Backends...> backends, Op op, Args&&... args)
+{
+  ERROR_IF(!try_dispatch_kernel(backends, op, std::forward<Args>(args)...),
+           "every eligible backend declined the kernel operation");
+}
+
+template <class... Backends, class Op, class... Args>
+void dynamic_dispatch_kernel(backend_list<Backends...> backends, Op op, Args&&... args)
+{
+  if constexpr (!detail::KernelDispatchTypesAccepted<backend_list<Backends...>, Op, Args...>)
+    ERROR("no backend accepts the kernel operation for these argument types");
+  else
+    dispatch_kernel(backends, op, std::forward<Args>(args)...);
 }
 
 // gemm.hpp: Tensor-view convenience overload
@@ -269,13 +315,16 @@ should have:
 - Forcing `make_backend_selector<backend_list<CublasBackend>>(
   CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}})`
   on **host** tensors makes
-  `kernel_type_acceptance<CublasBackend, gemm_op, ...>()` is
+  `probe_dispatch_kernel(cublas_only, gemm_op{}, host_operands...)` is
   `KernelTypeAcceptance::no`, so the entry-point `static_assert` fires — a
-  **compile error**.
+  **compile error**. A Python binding calls `dynamic_dispatch_kernel` for its
+  concrete binding instantiation instead, converting the same static rejection
+  into a Python exception.
 - Forcing `backend_list{BlasBackend{}}` when libBLAS is not loaded at runtime
   makes `try_kernel(blas_entry, gemm_op{}, ...)` return false, the list is
-  exhausted, and the kernel **throws**. The default lists always end in the
-  infallible oracle, so the default path never throws.
+  exhausted, and checked dispatch reports an `ERROR`: native C++ aborts with a
+  stacktrace, while Python receives an exception. The default lists always end
+  in the infallible oracle, so the default path never exhausts the list.
 
 ### Three local backends
 
@@ -285,17 +334,12 @@ struct CpuGenericBackend {};                                // the correctness o
 template <class T>
 using operand_t = std::remove_cvref_t<T>;
 
-template <class C, class Alpha, class A, class B, class Beta>
-concept cpu_gemm_types_supported =
-    is_host_v<operand_t<C>> && is_host_v<operand_t<A>> &&
-    is_host_v<operand_t<B>>;
-
 template <class Alpha, class A, class B, class Beta, class C>
 consteval KernelTypeAcceptance
 kernel_accepts_types(CpuGenericBackend const&, gemm_op const&, C&,
                      Alpha const&, A const&, B const&, Beta const&)
 {
-  if constexpr (cpu_gemm_types_supported<C, Alpha, A, B, Beta>) {
+  if constexpr (/* rank-2 addressable operands with compatible scalar types */) {
     return KernelTypeAcceptance::yes;                          // any scalar, any layout
   } else {
     return KernelTypeAcceptance::no;
@@ -307,7 +351,6 @@ template <class C, class A, class B>
 bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
                 A const& a, B const& b, scalar_t<C> beta)
 {
-  static_assert(cpu_gemm_types_supported<C, scalar_t<C>, A, B, scalar_t<C>>);
   using T = scalar_t<C>;
   for (size_t i = 0; i < c.extent(0); ++i)
     for (size_t j = 0; j < c.extent(1); ++j) {
@@ -322,19 +365,12 @@ bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
 
 struct BlasBackend {};
 
-template <class C, class Alpha, class A, class B, class Beta>
-concept blas_gemm_types_supported =
-    is_host_v<operand_t<C>> && is_host_v<operand_t<A>> &&
-    is_host_v<operand_t<B>> &&
-    same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
-    is_blas_scalar_v<scalar_t<operand_t<C>>>;
-
 template <class Alpha, class A, class B, class Beta, class C>
 consteval KernelTypeAcceptance
 kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
                      A const&, B const&, Beta const&)
 {
-  if constexpr (blas_gemm_types_supported<C, Alpha, A, B, Beta>) {
+  if constexpr (/* rank-2 strided BLAS-compatible operands */) {
     return KernelTypeAcceptance::maybe;                       // strides/library are runtime facts
   } else {
     return KernelTypeAcceptance::no;
@@ -347,7 +383,6 @@ template <class C, class A, class B>
 bool try_kernel(BlasBackend, gemm_op, C& c, scalar_t<C> alpha,
                 A const& a, B const& b, scalar_t<C> beta)
 {
-  static_assert(blas_gemm_types_supported<C, scalar_t<C>, A, B, scalar_t<C>>);
   return uni20::linalg::blas::try_gemm(c, alpha, a, b, beta);
 }
 
@@ -514,7 +549,7 @@ gemm(make_backend_selector<backend_list<CublasBackend>>(
 
 Singleton backend overrides are syntax for a one-entry backend list. They do not
 get an implicit oracle fallback; if the backend declines at runtime, the
-operation throws just like an exhausted one-element list.
+checked operation reports an `ERROR` just like any exhausted backend list.
 
 `BackendChain<...>` or `BackendChain{...}` should be treated as selector
 spelling, not a new leaf-kernel protocol. Its acceptance is `no` only when every
@@ -524,9 +559,9 @@ outer runtime decline; otherwise it is `maybe`.
 ## What this pins down
 
 - The dispatch mechanism is a backend-list value plus an operation tag and
-  detected backend customization points: optional `kernel_accepts_types(...)`
-  for type-level no/maybe/yes pruning and required `try_kernel(...)` for runtime
-  attempts. The list's type gives static ordering; the list entries carry any
+  detected backend customization points: required `kernel_accepts_types(...)`
+  for type-level no/maybe/yes eligibility and required `try_kernel(...)` for
+  runtime attempts. The list's type gives static ordering; the list entries carry any
   runtime backend state they need. No inheritance, no public runtime tags, and
   no per-kernel dispatcher boilerplate.
 - The **dispatch-to-async seam is a separate layer above the backends, not the

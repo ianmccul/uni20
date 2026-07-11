@@ -10,6 +10,7 @@
 #include <concepts>
 #include <initializer_list>
 #include <limits>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -17,6 +18,7 @@
 namespace
 {
 using extents_2d = stdex::dextents<uni20::index_type, 2>;
+using extents_1d = stdex::dextents<uni20::index_type, 1>;
 
 template <class Scalar> struct ValueTransformAccessor
 {
@@ -34,6 +36,7 @@ template <class Scalar>
 using value_transform_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left, ValueTransformAccessor<Scalar>>;
 
 template <class Scalar> using left_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left>;
+template <class Scalar> using vector_mdspan = stdex::mdspan<Scalar, extents_1d, stdex::layout_left>;
 
 template <class Scalar> class NonStridedMatrixView {
   public:
@@ -82,35 +85,89 @@ using uni20::linalg::CpuGenericBackend;
 using uni20::linalg::gemm_op;
 using uni20::linalg::KernelTypeAcceptance;
 
-static_assert(uni20::linalg::kernel_type_acceptance<BlasBackend, gemm_op, left_mdspan<double>&, double&,
-                                                    left_mdspan<double>&, left_mdspan<double>&, double&>() ==
-              KernelTypeAcceptance::maybe);
+struct TryKernelOnlyBackend
+{};
 
-static_assert(uni20::linalg::kernel_type_acceptance<BlasBackend, gemm_op, left_mdspan<double>&, double&,
-                                                    value_transform_mdspan<double>&, left_mdspan<double>&, double&>() ==
-              KernelTypeAcceptance::no);
+template <class... Args> bool try_kernel(TryKernelOnlyBackend, gemm_op const&, Args&&...) { return true; }
 
-static_assert(uni20::linalg::kernel_type_acceptance<CpuGenericBackend, gemm_op, left_mdspan<double>&, double&,
-                                                    value_transform_mdspan<double>&, left_mdspan<double>&, double&>() ==
-              KernelTypeAcceptance::yes);
+struct DecliningBackend
+{};
+
+struct test_dispatch_op
+{};
+
+consteval KernelTypeAcceptance kernel_accepts_types(DecliningBackend const&, test_dispatch_op const&, int&)
+{
+  return KernelTypeAcceptance::maybe;
+}
+
+bool try_kernel(DecliningBackend, test_dispatch_op, int&) { return false; }
+
+template <class Backends, class Op, class... Args>
+concept HasTryDispatchKernel = requires(Backends const& backends, Op op, Args&&... args) {
+  { uni20::linalg::try_dispatch_kernel(backends, op, std::forward<Args>(args)...) } -> std::same_as<bool>;
+};
+
+template <class Backends, class Op, class... Args>
+concept HasDispatchKernel = requires(Backends const& backends, Op op, Args&&... args) {
+  { uni20::linalg::dispatch_kernel(backends, op, std::forward<Args>(args)...) } -> std::same_as<void>;
+};
+
+template <class Backends, class Op, class... Args>
+concept HasDynamicDispatchKernel = requires(Backends const& backends, Op op, Args&&... args) {
+  { uni20::linalg::dynamic_dispatch_kernel(backends, op, std::forward<Args>(args)...) } -> std::same_as<void>;
+};
+
+using declining_backends = backend_list<DecliningBackend>;
+using unavailable_backends = backend_list<TryKernelOnlyBackend>;
+
+static_assert(HasTryDispatchKernel<declining_backends, test_dispatch_op, int&>);
+static_assert(HasDispatchKernel<declining_backends, test_dispatch_op, int&>);
+static_assert(!HasTryDispatchKernel<unavailable_backends, test_dispatch_op, int&>);
+static_assert(!HasDispatchKernel<unavailable_backends, test_dispatch_op, int&>);
+static_assert(HasDynamicDispatchKernel<unavailable_backends, test_dispatch_op, int&>);
 
 static_assert(uni20::RankedSpanLike<NonStridedMatrixView<double>, 2>);
 static_assert(uni20::MutableRankedSpanLike<NonStridedMatrixView<double>, 2>);
 static_assert(!uni20::StridedMdspan<NonStridedMatrixView<double>>);
-static_assert(
-    uni20::linalg::kernel_type_acceptance<BlasBackend, gemm_op, NonStridedMatrixView<double>&, double&,
-                                          NonStridedMatrixView<double>&, NonStridedMatrixView<double>&, double&>() ==
-    KernelTypeAcceptance::no);
-static_assert(
-    uni20::linalg::kernel_type_acceptance<CpuGenericBackend, gemm_op, NonStridedMatrixView<double>&, double&,
-                                          NonStridedMatrixView<double>&, NonStridedMatrixView<double>&, double&>() ==
-    KernelTypeAcceptance::yes);
 
 static_assert(requires(BlasBackend backend, gemm_op op, left_mdspan<double>& output, double scalar,
                        value_transform_mdspan<double>& lhs, left_mdspan<double>& rhs) {
   { try_kernel(backend, op, output, scalar, lhs, rhs, scalar) } -> std::same_as<bool>;
 });
 } // namespace
+
+TEST(LinalgGemmDispatchTest, MissingOrNonViableTypeGateIsHardNo)
+{
+  std::vector<double> storage(1);
+  vector_mdspan<double> vector(storage.data(), 1);
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{TryKernelOnlyBackend{}}, gemm_op{}, vector, 1.0, vector,
+                                                 vector, 0.0),
+            KernelTypeAcceptance::no);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{CpuGenericBackend{}}, gemm_op{}, vector, 1.0, vector,
+                                                 vector, 0.0),
+            KernelTypeAcceptance::no);
+  EXPECT_EQ(
+      uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}}, gemm_op{}, vector, 1.0, vector, vector, 0.0),
+      KernelTypeAcceptance::no);
+}
+
+TEST(LinalgGemmDispatchTest, TryAndCheckedDispatchDistinguishRuntimeDecline)
+{
+  int argument = 0;
+  auto backends = backend_list{DecliningBackend{}};
+
+  EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(backends, test_dispatch_op{}, argument));
+
+  bool const previous_errors_abort = trace::get_formatting_options().errors_abort();
+  trace::get_formatting_options().set_errors_abort(false);
+  EXPECT_THROW(uni20::linalg::dispatch_kernel(backends, test_dispatch_op{}, argument), std::runtime_error);
+  EXPECT_THROW(
+      uni20::linalg::dynamic_dispatch_kernel(backend_list{TryKernelOnlyBackend{}}, test_dispatch_op{}, argument),
+      std::runtime_error);
+  trace::get_formatting_options().set_errors_abort(previous_errors_abort);
+}
 
 TEST(LinalgGemmDispatchTest, ForcedBlasBackendRunsRepresentableMdspans)
 {
@@ -121,6 +178,14 @@ TEST(LinalgGemmDispatchTest, ForcedBlasBackendRunsRepresentableMdspans)
   left_mdspan<double> a(a_storage.data(), 2, 3);
   left_mdspan<double> b(b_storage.data(), 3, 2);
   left_mdspan<double> c(c_storage.data(), 2, 2);
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
+            KernelTypeAcceptance::maybe);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{TryKernelOnlyBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
+            KernelTypeAcceptance::no);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}}, gemm_op{}, c, 1.0, a,
+                                                 b, 0.0),
+            KernelTypeAcceptance::yes);
 
   fill_matrix(a, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
   fill_matrix(b, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
@@ -148,6 +213,12 @@ TEST(LinalgGemmDispatchTest, ForcedBlasBackendDeclinesUnsupportedStrideBeforeSid
   fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
 
   EXPECT_FALSE(uni20::linalg::try_gemm(BlasBackend{}, c, 1.0, a, b, 0.0));
+
+  bool const previous_errors_abort = trace::get_formatting_options().errors_abort();
+  trace::get_formatting_options().set_errors_abort(false);
+  EXPECT_THROW(uni20::linalg::gemm(BlasBackend{}, c, 1.0, a, b, 0.0), std::runtime_error);
+  trace::get_formatting_options().set_errors_abort(previous_errors_abort);
+
   EXPECT_DOUBLE_EQ((c[0, 0]), -7.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), -7.0);
   EXPECT_DOUBLE_EQ((c[1, 0]), -7.0);
@@ -188,6 +259,11 @@ TEST(LinalgGemmDispatchTest, BackendListFallsThroughForAccessorOnlyReadableInput
   left_mdspan<double> b(b_storage.data(), 2, 2);
   left_mdspan<double> c(c_storage.data(), 2, 2);
 
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
+            KernelTypeAcceptance::no);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{CpuGenericBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
+            KernelTypeAcceptance::yes);
+
   fill_matrix(a_raw, {1.0, 2.0, 3.0, 4.0});
   fill_matrix(b, {1.0, 0.0, 0.0, 1.0});
 
@@ -223,6 +299,11 @@ TEST(LinalgGemmDispatchTest, CpuFallbackAcceptsNonStridedAddressableViews)
   NonStridedMatrixView<double> a(a_storage.data(), 2, 2);
   NonStridedMatrixView<double> b(b_storage.data(), 2, 2);
   NonStridedMatrixView<double> c(c_storage.data(), 2, 2);
+
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
+            KernelTypeAcceptance::no);
+  EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{CpuGenericBackend{}}, gemm_op{}, c, 1.0, a, b, 0.0),
+            KernelTypeAcceptance::yes);
 
   fill_matrix(a, {1.0, 2.0, 3.0, 4.0});
   fill_matrix(b, {5.0, 6.0, 7.0, 8.0});

@@ -2059,15 +2059,11 @@ template <typename... Args>
   append_optional_parameters(text, opts, parameters, "ERROR");
   text.append("\n");
 
-  std::string msg = opts.render(text);
-
   if (opts.errors_abort())
   {
-    opts.sink(msg);
-    std::fflush(nullptr); // flush all output streams
-    std::abort();
+    detail::abort_with_stacktrace(opts, text, "ERROR", 2);
   }
-  throw std::runtime_error(msg);
+  throw std::runtime_error(opts.render(text));
 }
 
 //------------------------------------------------------------------------------
@@ -2085,15 +2081,11 @@ template <typename... Args>
   detail::append_condition_false(text, opts, cond);
   text.append("\n");
 
-  std::string msg = opts.render(text);
-
   if (opts.errors_abort())
   {
-    opts.sink(msg);
-    std::fflush(nullptr); // flush all output streams
-    std::abort();
+    detail::abort_with_stacktrace(opts, text, "ERROR", 2);
   }
-  throw std::runtime_error(msg);
+  throw std::runtime_error(opts.render(text));
 }
 
 } // namespace trace

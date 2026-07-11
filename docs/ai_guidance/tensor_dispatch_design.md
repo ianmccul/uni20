@@ -137,10 +137,28 @@ concrete owning tensor.
   runtime checks such as strides, device placement, handles, and library
   availability, then either runs the kernel and returns `true` or declines
   before side effects and returns `false`.
-- When `kernel_accepts_types(...)` exists, keep the matching `try_kernel(...)`
-  broadly callable instead of repeating its type test in a long `requires`
-  clause. Share a backend-local support predicate and `static_assert` it inside
-  `try_kernel(...)` to diagnose accidental direct misuse.
+- `kernel_accepts_types(...)` is the mandatory type gate and may be narrowly
+  constrained. If it is not callable for the exact argument types, acceptance
+  is a hard `no`, even when `try_kernel(...)` is broadly callable.
+- Generic code may use
+  `probe_dispatch_kernel(backends, op, args...)`. It inspects only deduced types
+  and aggregates the candidate list: any `yes` gives `yes`, otherwise any
+  `maybe` gives `maybe`, otherwise `no`. A non-callable backend type gate
+  contributes `no`. The safe single-backend query is an implementation detail.
+- Use `try_dispatch_kernel(...)` when exhausting all runtime candidates is an
+  expected result that the caller will handle. Use `dispatch_kernel(...)` for
+  checked execution; it reports exhaustion through `ERROR`, which aborts in
+  native C++ and becomes a Python exception after module initialization. Both
+  normal C++ entry points are constrained out when the aggregate type probe is
+  `no`, preserving compile-time diagnosis.
+- Use `dynamic_dispatch_kernel(...)` only at Python, plugin, or runtime-erased
+  boundaries that must remain callable for a statically unavailable kernel. It
+  converts both a type-level `no` and runtime backend exhaustion into `ERROR`.
+- Keep the matching `try_kernel(...)` broadly callable instead of repeating its
+  type test in a long `requires` clause. Dispatch is the contract boundary:
+  `try_kernel(...)` may assume the type gate accepted. Do not add a redundant
+  `static_assert` merely to diagnose unsupported direct calls; backend
+  `try_kernel` functions are not direct APIs.
 - A backend that lacks a usable `try_kernel(...)` overload is skipped by
   detection.
 

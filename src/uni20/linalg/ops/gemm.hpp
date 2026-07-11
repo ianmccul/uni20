@@ -32,12 +32,16 @@ bool try_gemm(BackendSelector&& selector, OutputMdspan&& output, Scalar alpha, L
 {
   auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
   using backends_type = std::remove_cvref_t<decltype(backends)>;
-  static_assert(
-      any_kernel_type_eligible_v<backends_type, gemm_op, OutputMdspan&&, Scalar&, LhsMdspan&&, RhsMdspan&&, Scalar&>,
-      "no backend in this selector can ever service gemm for these argument types");
+  constexpr auto acceptance = probe_dispatch_kernel(
+      detail::kernel_type_probe_arg<backends_type const&>(), detail::kernel_type_probe_arg<gemm_op const&>(),
+      detail::kernel_type_probe_arg<OutputMdspan&&>(), detail::kernel_type_probe_arg<Scalar&>(),
+      detail::kernel_type_probe_arg<LhsMdspan&&>(), detail::kernel_type_probe_arg<RhsMdspan&&>(),
+      detail::kernel_type_probe_arg<Scalar&>());
+  static_assert(acceptance != KernelTypeAcceptance::no,
+                "no backend in this selector can ever service gemm for these argument types");
 
-  return dispatch_kernel(backends, gemm_op{}, std::forward<OutputMdspan>(output), alpha, std::forward<LhsMdspan>(lhs),
-                         std::forward<RhsMdspan>(rhs), beta);
+  return try_dispatch_kernel(backends, gemm_op{}, std::forward<OutputMdspan>(output), alpha,
+                             std::forward<LhsMdspan>(lhs), std::forward<RhsMdspan>(rhs), beta);
 }
 
 /// \brief Checked `output = alpha * lhs * rhs + beta * output` through an explicit backend selector.
@@ -46,8 +50,18 @@ template <class BackendSelector, uni20::MutableRankedSpanLike<2> OutputMdspan, c
 void gemm(BackendSelector&& selector, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs,
           Scalar beta)
 {
-  CHECK(try_gemm(std::forward<BackendSelector>(selector), std::forward<OutputMdspan>(output), alpha,
-                 std::forward<LhsMdspan>(lhs), std::forward<RhsMdspan>(rhs), beta));
+  auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
+  using backends_type = std::remove_cvref_t<decltype(backends)>;
+  constexpr auto acceptance = probe_dispatch_kernel(
+      detail::kernel_type_probe_arg<backends_type const&>(), detail::kernel_type_probe_arg<gemm_op const&>(),
+      detail::kernel_type_probe_arg<OutputMdspan&&>(), detail::kernel_type_probe_arg<Scalar&>(),
+      detail::kernel_type_probe_arg<LhsMdspan&&>(), detail::kernel_type_probe_arg<RhsMdspan&&>(),
+      detail::kernel_type_probe_arg<Scalar&>());
+  static_assert(acceptance != KernelTypeAcceptance::no,
+                "no backend in this selector can ever service gemm for these argument types");
+
+  dispatch_kernel(backends, gemm_op{}, std::forward<OutputMdspan>(output), alpha, std::forward<LhsMdspan>(lhs),
+                  std::forward<RhsMdspan>(rhs), beta);
 }
 
 /// \brief Try fixed-storage tensor GEMM through an explicit backend selector.
@@ -65,7 +79,7 @@ template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor,
 void gemm(BackendSelector&& selector, OutputTensor&& output, Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs,
           Scalar beta)
 {
-  CHECK(try_gemm(std::forward<BackendSelector>(selector), std::forward<OutputTensor>(output), alpha, lhs, rhs, beta));
+  gemm(std::forward<BackendSelector>(selector), output.mdspan(), alpha, lhs.mdspan(), rhs.mdspan(), beta);
 }
 
 namespace detail
@@ -97,7 +111,8 @@ template <uni20::MutableRankedTensorView<2> OutputTensor, class Scalar, uni20::R
           uni20::RankedTensorView<2> RhsTensor>
 void gemm(OutputTensor&& output, Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
-  CHECK(try_gemm(std::forward<OutputTensor>(output), alpha, lhs, rhs, beta));
+  auto selector = detail::common_tensor_backend_selector(output, lhs, rhs);
+  gemm(selector, std::forward<OutputTensor>(output), alpha, lhs, rhs, beta);
 }
 
 } // namespace uni20::linalg

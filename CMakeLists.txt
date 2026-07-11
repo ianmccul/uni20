@@ -148,6 +148,14 @@ if(UNI20_DOCS_WEB)
   set(UNI20_ENABLE_MPLAPACK OFF CACHE BOOL "Enable optional MPLAPACK binary128 integration probes" FORCE)
 endif()
 
+# The nanobind extension links Uni20's static libraries into a shared module.
+# Initialize every subsequently-created target with position-independent code so
+# any project component can be exposed through Python without target-by-target
+# linkage fixes.
+if(UNI20_BUILD_PYTHON)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 if(UNI20_ENABLE_COVERAGE)
   message(STATUS "Enabling coverage instrumentation")
 

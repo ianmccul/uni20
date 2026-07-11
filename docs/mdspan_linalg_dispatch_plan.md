@@ -344,12 +344,14 @@ template <class C, class Scalar, class A, class B>
 bool try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a, B&& b,
                 Scalar beta)
 {
-  static_assert(blas_gemm_types_supported<C, Scalar, A, B>);
   return uni20::linalg::blas::try_gemm(std::forward<C>(c), alpha,
                                       std::forward<A>(a), std::forward<B>(b),
                                       beta);
 }
 ```
+
+`try_kernel(...)` assumes dispatch has already obtained a non-`no` result from
+`kernel_accepts_types(...)`; it does not repeat that type predicate.
 
 The public mdspan dispatch entry point is selector-first:
 
@@ -431,39 +433,40 @@ constexpr std::remove_reference_t<T>& kernel_type_probe_arg() noexcept
 } // namespace detail
 
 template <class Backend, class Op, class... Args>
-consteval KernelTypeAcceptance kernel_type_acceptance()
+constexpr KernelTypeAcceptance
+backend_type_acceptance(Backend const&, Op const&, Args&&...)
 {
+  using backend_type = std::remove_cvref_t<Backend>;
+  using op_type = std::remove_cvref_t<Op>;
   if constexpr (requires {
-                  kernel_accepts_types(detail::kernel_type_probe_arg<Backend const&>(),
-                                       detail::kernel_type_probe_arg<Op const&>(),
+                  kernel_accepts_types(detail::kernel_type_probe_arg<backend_type const&>(),
+                                       detail::kernel_type_probe_arg<op_type const&>(),
                                        detail::kernel_type_probe_arg<Args>()...);
                 }) {
     constexpr auto acceptance =
-        kernel_accepts_types(detail::kernel_type_probe_arg<Backend const&>(),
-                             detail::kernel_type_probe_arg<Op const&>(),
+        kernel_accepts_types(detail::kernel_type_probe_arg<backend_type const&>(),
+                             detail::kernel_type_probe_arg<op_type const&>(),
                              detail::kernel_type_probe_arg<Args>()...);
     if constexpr (acceptance == KernelTypeAcceptance::no) {
       return KernelTypeAcceptance::no;
     } else {
-      static_assert(backend_has_try_kernel<Backend, Op, Args...>());
+      static_assert(backend_has_try_kernel<backend_type, op_type, Args...>());
       return acceptance;
     }
   }
 
-  if constexpr (backend_has_try_kernel<Backend, Op, Args...>())
-    return KernelTypeAcceptance::maybe;
-  else
-    return KernelTypeAcceptance::no;
+  return KernelTypeAcceptance::no;
 }
 ```
 
-When a backend provides `kernel_accepts_types(...)`, that CPO owns the complete
-type-level eligibility test. `try_kernel(...)` can remain unconstrained and use
-a local `static_assert` against the same backend-local support predicate; the
-dispatcher does not instantiate it for rejected types. This avoids duplicating
-long constraints on both CPOs. The fallback to detecting a constrained
-`try_kernel(...)` remains useful for simple backends whose runtime-attempt
-signature is already a complete type-level test.
+`kernel_accepts_types(...)` owns type eligibility and may be narrowly
+constrained. If it is not callable for the exact argument types, that backend is
+a hard `no`; a callable `try_kernel(...)` does not change the result.
+`try_kernel(...)` can therefore remain unconstrained, and the dispatcher does
+not instantiate it for rejected types. This single-backend query remains a
+detail helper. Public code uses
+`probe_dispatch_kernel(backends, op, args...)`, which returns `yes` if any
+candidate is `yes`, otherwise `maybe` if any is `maybe`, otherwise `no`.
 
 ## Worked Example: Self-Adjoint Eigensolver
 
@@ -774,7 +777,11 @@ mdspan LAPACK layer needs:
 - backend values, usually empty stateless tags in the first pass.
 - `kernel_accepts_types(backend const&, op const&, args&...)` detection using
   private type-probe lvalues.
-- ordered `dispatch_kernel(...)`.
+- ordered `try_dispatch_kernel(...)` returning whether a runtime candidate ran.
+- checked `dispatch_kernel(...)`, which reports an exhausted list through
+  `ERROR`.
+- `dynamic_dispatch_kernel(...)` for Python and runtime-erased boundaries that
+  must convert a type-level `no` into a runtime `ERROR`.
 - whole-list entry-point `static_assert`, not recursive-tail assertions.
 
 Tests should use fake backends to verify:

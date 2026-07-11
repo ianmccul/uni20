@@ -273,11 +273,23 @@ TEST(ErrorMacroDeathTest, ErrorAlwaysAbortsWhenConfigured)
   trace::get_formatting_options().set_errors_abort(true);
   EXPECT_DEATH({ ERROR("fatal error"); }, "fatal error");
 }
+TEST(ErrorMacroDeathTest, ErrorAbortIncludesStacktraceDiagnostic)
+{
+  GTEST_FLAG_SET(death_test_style, "fast");
+  trace::get_formatting_options().set_errors_abort(true);
+  EXPECT_DEATH({ ERROR("fatal error"); }, kStacktraceDiagnosticRegex);
+}
 TEST(ErrorIfMacroDeathTest, ErrorIfTrueAbortsWhenConfigured)
 {
   GTEST_FLAG_SET(death_test_style, "fast");
   trace::get_formatting_options().set_errors_abort(true);
   EXPECT_DEATH({ ERROR_IF(true, "conditional error"); }, "conditional error");
+}
+TEST(ErrorIfMacroDeathTest, ErrorIfAbortIncludesStacktraceDiagnostic)
+{
+  GTEST_FLAG_SET(death_test_style, "fast");
+  trace::get_formatting_options().set_errors_abort(true);
+  EXPECT_DEATH({ ERROR_IF(true, "conditional error"); }, kStacktraceDiagnosticRegex);
 }
 TEST(ErrorIfMacro, ErrorIfFalseDoesNotAbort)
 {

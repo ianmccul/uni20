@@ -53,16 +53,33 @@ through an operation tag and customization points:
 ```cpp
 struct gemm_op {};
 
-template <class Backend, class Op, class... Args>
-consteval KernelTypeAcceptance kernel_type_acceptance();
-// detects optional kernel_accepts_types(...) and constrained try_kernel(...)
+template <class... Backends, class Op, class... Args>
+constexpr KernelTypeAcceptance
+probe_dispatch_kernel(backend_list<Backends...> const&, Op const&, Args&&...);
+// aggregates the backends' kernel_accepts_types(...) results
+
+template <class... Backends, class Op, class... Args>
+bool try_dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
+// constrained out for type-level no; otherwise returns false when every
+// runtime candidate declines before side effects
+
+template <class... Backends, class Op, class... Args>
+void dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
+// constrained out for type-level no; reports ERROR on runtime exhaustion
+
+template <class... Backends, class Op, class... Args>
+void dynamic_dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
+// always callable; converts both type rejection and runtime exhaustion to ERROR
 
 template <class Backend, class Op, class... Args>
 bool try_kernel(Backend, Op, Args&&...); // implemented only for supported operations
 ```
 
-A backend that does not provide a usable `try_kernel(Backend, Op, ...)`
-overload does not implement that operation and is skipped. A backend may provide
+A backend is eligible only when `kernel_accepts_types(...)` is callable for the
+exact argument types and does not return `no`. A non-callable gate is a hard
+`no`, regardless of whether a broad `try_kernel(...)` happens to be callable.
+For accepted types, `try_kernel(...)` may remain broadly callable and assume
+dispatch has already applied the type gate. A backend may provide
 `consteval KernelTypeAcceptance kernel_accepts_types(Backend const&, Op const&,
 Args&...)` for extra type-level eligibility. The CPO is written as an ordinary
 compile-time function, so it does not need a tuple or explicit type-pack
