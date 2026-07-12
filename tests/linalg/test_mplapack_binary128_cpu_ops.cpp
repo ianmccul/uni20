@@ -1,6 +1,5 @@
 #include <mplapack_config.h>
-#include <uni20/linalg/linalg.hpp>
-#include <uni20/tensor/basic_tensor.hpp>
+#include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 
 #include <gtest/gtest.h>
 
@@ -20,9 +19,7 @@ namespace
 {
 
 using Binary128 = mplapack_binary128_t;
-using index_t = uni20::index_type;
-using extents_2d = stdex::dextents<index_t, 2>;
-using tensor_type = uni20::BasicTensor<Binary128, extents_2d, uni20::VectorStorage>;
+using matrix_type = uni20::linalg::backends::cpu::DenseMatrix<Binary128>;
 
 Binary128 abs_error(Binary128 actual, Binary128 expected) { return std::abs(actual - expected); }
 
@@ -66,19 +63,19 @@ void expect_value_underflows_to_double_zero(Binary128 value)
 
 } // namespace
 
-TEST(MplapackBinary128CpuOpsTest, TensorMatrixOneNormPreservesBinary128Accumulation)
+TEST(MplapackBinary128CpuOpsTest, MatrixOneNormPreservesBinary128Accumulation)
 {
   Binary128 const delta = below_double_resolution_gap();
   Binary128 const one_plus_delta = Binary128{1} + delta;
   expect_gap_is_binary128_only(delta);
 
-  tensor_type matrix(extents_2d{2, 2});
+  matrix_type matrix(2, 2);
   matrix[0, 0] = one_plus_delta;
   matrix[1, 0] = Binary128{1};
   matrix[0, 1] = Binary128{1};
   matrix[1, 1] = Binary128{};
 
-  auto const norm = uni20::linalg::matrix_one_norm(matrix.const_view());
+  auto const norm = uni20::linalg::backends::cpu::matrix_one_norm(matrix);
   static_assert(std::same_as<decltype(norm), Binary128 const>);
 
   EXPECT_EQ(static_cast<double>(norm), 2.0);
@@ -86,25 +83,25 @@ TEST(MplapackBinary128CpuOpsTest, TensorMatrixOneNormPreservesBinary128Accumulat
   EXPECT_TRUE(abs_error(norm, Binary128{2} + delta) <= tolerance());
 }
 
-TEST(MplapackBinary128CpuOpsTest, TensorSolveAcceptsPivotsBelowDoubleMinimum)
+TEST(MplapackBinary128CpuOpsTest, SolveAcceptsPivotsBelowDoubleMinimum)
 {
   Binary128 const tiny = below_double_minimum_value();
   expect_value_underflows_to_double_zero(tiny);
 
-  tensor_type matrix(extents_2d{2, 2});
+  matrix_type matrix(2, 2);
   matrix[0, 0] = tiny;
   matrix[0, 1] = Binary128{};
   matrix[1, 0] = Binary128{};
   matrix[1, 1] = tiny;
 
-  tensor_type rhs(extents_2d{2, 1});
+  matrix_type rhs(2, 1);
   rhs[0, 0] = tiny;
   rhs[1, 0] = Binary128{2} * tiny;
 
-  auto solution = uni20::linalg::solve_linear_system(matrix.const_view(), rhs.const_view());
+  auto solution = uni20::linalg::backends::cpu::solve_linear_system(matrix, rhs);
 
-  ASSERT_EQ(solution.extents().extent(0), 2);
-  ASSERT_EQ(solution.extents().extent(1), 1);
+  ASSERT_EQ(solution.rows(), 2);
+  ASSERT_EQ(solution.cols(), 1);
   EXPECT_TRUE(abs_error(solution[0, 0], Binary128{1}) <= tolerance());
   EXPECT_TRUE(abs_error(solution[1, 0], Binary128{2}) <= tolerance());
 }

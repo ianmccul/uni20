@@ -8,6 +8,15 @@ Uni20 common presentation formatting lives in `uni20::presentation`:
 
 The layer is intentionally independent of trace, async, tensor, AD, and scheduler semantics. It renders styled text spans and semantic glyph tokens into terminal, plain, or strict ASCII output. Trace uses this layer for diagnostic line assembly, styled/color output, charset fallback, and display-cell container alignment, but presentation does not depend on trace.
 
+When `UNI20_HAS_STACKTRACE` is enabled,
+`presentation_stacktrace.hpp` provides `format_stacktrace(...)`. It converts a
+`std::stacktrace` into policy-aware `styled_text` with semantic tree connectors.
+Terminal, plain, strict-ASCII, and future adapters therefore render the same
+document model. If `output_policy::wrap_width` is set, long frames wrap by
+display width with continuation lines aligned beneath the frame description.
+`stacktrace_format_options` controls indentation and span styles without
+choosing the final glyph or color policy.
+
 ## Output Policy
 
 `output_policy` controls rendering:

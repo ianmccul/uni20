@@ -7,6 +7,7 @@
  */
 
 #include <uni20/backend/backend.hpp>
+#include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 
 #include <utility>
@@ -31,6 +32,14 @@ namespace detail
 constexpr unsigned transform_mask = std::to_underlying(MatrixTransform::conjugate_transpose);
 constexpr unsigned transpose_bit = std::to_underlying(MatrixTransform::transpose);
 constexpr unsigned conjugate_bit = std::to_underlying(MatrixTransform::conjugate);
+
+constexpr void require_valid_transform(MatrixTransform transform)
+{
+  if (std::to_underlying(transform) > transform_mask)
+  {
+    PANIC("invalid MatrixTransform", std::to_underlying(transform));
+  }
+}
 } // namespace detail
 
 /// \brief Return whether a matrix transform swaps the logical axes.
@@ -60,6 +69,7 @@ constexpr MatrixTransform transpose_result_transform(MatrixTransform transform)
 /// \brief Collapse conjugation-only distinctions for real scalar types.
 template <uni20::BlasScalar Scalar> constexpr MatrixTransform canonical_transform_for_scalar(MatrixTransform transform)
 {
+  detail::require_valid_transform(transform);
   if constexpr (uni20::is_complex_v<Scalar>)
   {
     return transform;
@@ -82,7 +92,7 @@ template <uni20::BlasScalar Scalar> constexpr bool blas_trans_char_is_supported(
     case MatrixTransform::conjugate:
       return false;
   }
-  return false;
+  PANIC("invalid canonical MatrixTransform", std::to_underlying(transform));
 }
 
 /// \brief Lower a transform to the BLAS transpose character spelling used by selected providers.
@@ -99,7 +109,7 @@ template <uni20::BlasScalar Scalar> constexpr char blas_trans_char(MatrixTransfo
     case MatrixTransform::conjugate_transpose:
       return 'C';
   }
-  return 'N';
+  PANIC("invalid canonical MatrixTransform", std::to_underlying(transform));
 }
 
 /// \brief Writable matrix shape as seen by a BLAS/LAPACK provider.

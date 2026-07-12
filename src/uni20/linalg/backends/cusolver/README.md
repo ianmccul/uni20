@@ -1,14 +1,9 @@
 # `src/uni20/linalg/backends/cusolver`
 
-This directory contains cuSOLVER-backed dense linalg front-end declarations.
-
-## Contents
-
-- `linalg_cusolver.hpp`: cuSOLVER linalg include point.
-- `matrix_ops_cusolver.hpp`: cuSOLVER matrix operation entry points.
+This directory is reserved for cuSOLVER operation-tag backend adapters.
 
 ## Notes
 
-- Gate operations through backend capability checks before committing to a
-  cuSOLVER path.
+- Gate operations through `kernel_accepts_types` and `try_kernel` before
+  committing to a cuSOLVER path.
 - Keep CUDA library ABI details in `src/uni20/backend/cusolver`.

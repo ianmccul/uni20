@@ -10,6 +10,7 @@
 
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -23,6 +24,18 @@ enum class KernelTypeAcceptance
   maybe,
   yes
 };
+
+/// \brief Type-level result returned by `kernel_accepts_types` customizations.
+template <KernelTypeAcceptance Value> using KernelAcceptance = std::integral_constant<KernelTypeAcceptance, Value>;
+
+/// \brief Report that a backend rejects the argument types.
+inline constexpr KernelAcceptance<KernelTypeAcceptance::no> kernel_types_no{};
+
+/// \brief Report that runtime operand values determine backend acceptance.
+inline constexpr KernelAcceptance<KernelTypeAcceptance::maybe> kernel_types_maybe{};
+
+/// \brief Report that a backend accepts every instance of the argument types.
+inline constexpr KernelAcceptance<KernelTypeAcceptance::yes> kernel_types_yes{};
 
 /// \brief Classify why an ordered kernel-dispatch walk failed.
 enum class KernelDispatchFailure

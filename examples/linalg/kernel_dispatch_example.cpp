@@ -7,6 +7,8 @@
 
 namespace example
 {
+using uni20::linalg::kernel_types_maybe;
+using uni20::linalg::kernel_types_yes;
 using uni20::linalg::KernelTypeAcceptance;
 
 struct scale_in_place_op
@@ -24,10 +26,9 @@ struct scalar_backend
     static constexpr std::string_view name = "scalar";
 };
 
-consteval KernelTypeAcceptance kernel_accepts_types(blocked_backend const&, scale_in_place_op const&,
-                                                    std::span<double>&, double const&)
+consteval auto kernel_accepts_types(blocked_backend const&, scale_in_place_op const&, std::span<double>&, double const&)
 {
-  return KernelTypeAcceptance::maybe;
+  return kernel_types_maybe;
 }
 
 bool try_kernel(blocked_backend, scale_in_place_op, std::span<double> values, double factor)
@@ -45,10 +46,9 @@ bool try_kernel(blocked_backend, scale_in_place_op, std::span<double> values, do
   return true;
 }
 
-consteval KernelTypeAcceptance kernel_accepts_types(scalar_backend const&, scale_in_place_op const&, std::span<double>&,
-                                                    double const&)
+consteval auto kernel_accepts_types(scalar_backend const&, scale_in_place_op const&, std::span<double>&, double const&)
 {
-  return KernelTypeAcceptance::yes;
+  return kernel_types_yes;
 }
 
 bool try_kernel(scalar_backend, scale_in_place_op, std::span<double> values, double factor)

@@ -454,6 +454,15 @@ struct FormattingOptions
       text.append(glyph, it->second);
     }
 
+    /// \brief Return the terminal style associated with a trace style-map key.
+    /// \param kind Style-map key such as `TRACE` or `TRACE_LINE`.
+    /// \return Configured style, or an empty style when the key is unknown.
+    [[nodiscard]] terminal::TerminalStyle presentation_style(std::string_view kind) const
+    {
+      auto const it = Styles.find(std::string(kind));
+      return it == Styles.end() ? terminal::TerminalStyle{} : it->second;
+    }
+
     /// \brief Render a presentation document through this trace module's policy.
     /// \param text Presentation document to render.
     /// \return Rendered string.
@@ -1624,50 +1633,27 @@ void DebugTraceModuleCall(const char* module, const char* exprList, const char* 
 
 namespace detail
 {
-#if TRACE_HAS_STACKTRACE
-inline std::string format_stacktrace(FormattingOptions& opts, std::stacktrace const& stacktrace)
+inline uni20::presentation::output_policy diagnostic_presentation_policy(FormattingOptions const& opts)
 {
-  uni20::presentation::styled_text out;
-  std::size_t frame_index = 0;
-
-  auto const frame_count = stacktrace.size();
-  for (auto const& frame : stacktrace)
+  auto policy = opts.presentation_policy();
+  if (!policy.wrap_width.has_value() && opts.terminal_width > 0)
   {
-    std::string index_str = fmt::format("#{}", frame_index);
-    std::string description = frame.description();
-    if (description.empty()) description = "(unknown)";
-
-    std::string source_file = frame.source_file();
-    auto source_line = frame.source_line();
-
-    out.append("  ");
-    opts.append_glyph(out,
-                      frame_index + 1 == frame_count ? uni20::presentation::semantic_glyph::tree_last
-                                                     : uni20::presentation::semantic_glyph::tree_branch,
-                      "TRACE_LINE");
-    out.append(" ");
-    opts.append_style(out, index_str, "TRACE_LINE");
-    out.append(" ");
-    opts.append_style(out, description, "TRACE");
-    if (!source_file.empty())
-    {
-      out.append(" at ");
-      opts.append_style(out, source_file, "TRACE_FILENAME");
-      opts.append_style(out, fmt::format(":{}", source_line), "TRACE_LINE");
-    }
-    out.append("\n");
-
-    ++frame_index;
+    policy.wrap_width = static_cast<std::size_t>(opts.terminal_width);
   }
+  return policy;
+}
 
-  if (frame_index == 0)
-  {
-    out.append("  ");
-    opts.append_style(out, "(empty stacktrace)", "TRACE_VALUE");
-    out.append("\n");
-  }
-
-  return opts.render(out);
+#if TRACE_HAS_STACKTRACE
+inline uni20::presentation::stacktrace_format_options stacktrace_presentation_options(FormattingOptions const& opts)
+{
+  return uni20::presentation::stacktrace_format_options{
+      .indent = 2,
+      .tree_style = opts.presentation_style("TRACE_LINE"),
+      .index_style = opts.presentation_style("TRACE_LINE"),
+      .description_style = opts.presentation_style("TRACE"),
+      .source_file_style = opts.presentation_style("TRACE_FILENAME"),
+      .source_line_style = opts.presentation_style("TRACE_LINE"),
+  };
 }
 #endif
 
@@ -1678,7 +1664,9 @@ inline void emit_stacktrace(FormattingOptions& opts, std::string_view style_kind
   opts.append_style(heading, "Stacktrace:", std::string(style_kind));
   heading.append("\n");
   opts.sink(opts.render(heading));
-  opts.sink(format_stacktrace(opts, std::stacktrace::current(skip_frames)));
+  auto const policy = diagnostic_presentation_policy(opts);
+  opts.sink(opts.render(uni20::presentation::format_stacktrace(std::stacktrace::current(skip_frames), policy,
+                                                               stacktrace_presentation_options(opts))));
 #else
   uni20::presentation::styled_text warning;
   opts.append_glyph(warning, uni20::presentation::semantic_glyph::warning, std::string(style_kind));
@@ -1705,6 +1693,14 @@ inline void emit_stacktrace(FormattingOptions& opts, std::string_view style_kind
   opts.sink(opts.render(message));
   emit_stacktrace(opts, style_kind, skip_frames);
   std::fflush(nullptr); // flush all output streams
+  std::abort();
+}
+
+[[noreturn]] inline void abort_after_diagnostic(FormattingOptions& opts,
+                                                uni20::presentation::styled_text const& message)
+{
+  opts.sink(opts.render(message));
+  std::fflush(nullptr);
   std::abort();
 }
 
@@ -2095,25 +2091,90 @@ concept HasDiagnosticReport = requires(Error const& error) {
   { diagnostic_report(error) } -> std::same_as<uni20::presentation::report_builder>;
 };
 
+inline void append_diagnostic_context(uni20::presentation::styled_text& text, FormattingOptions const& opts,
+                                      uni20::diagnostic_error const& error,
+                                      uni20::presentation::output_policy const& policy)
+{
+  if (error.source_location().has_value())
+  {
+    auto const& location = *error.source_location();
+    opts.append_style(text, "Source location:", "ERROR");
+    text.append("\n  ");
+    opts.append_style(text, location.file_name(), "TRACE_FILENAME");
+    opts.append_style(text, fmt::format(":{}", location.line()), "TRACE_LINE");
+    text.append("\n");
+  }
+
+#if TRACE_HAS_STACKTRACE
+  if (error.stacktrace().has_value())
+  {
+    opts.append_style(text, "Stacktrace:", "ERROR");
+    text.append("\n");
+    text.append(
+        uni20::presentation::format_stacktrace(*error.stacktrace(), policy, stacktrace_presentation_options(opts)));
+  }
+#endif
+}
+
+template <class Error>
+  requires std::derived_from<std::remove_cvref_t<Error>, uni20::diagnostic_error> && HasDiagnosticReport<Error>
+uni20::presentation::styled_text format_diagnostic_text(FormattingOptions const& opts, Error const& error,
+                                                        uni20::presentation::output_policy const& policy)
+{
+  auto text = uni20::presentation::render_report(diagnostic_report(error), policy);
+  append_diagnostic_context(text, opts, error, policy);
+  return text;
+}
+
 template <class Error>
 uni20::presentation::styled_text raised_error_text(FormattingOptions const& opts, Error const& error,
                                                    std::source_location where)
 {
-  auto text = make_diagnostic_header(opts, "ERROR", "ERROR", where.file_name(), static_cast<int>(where.line()));
-  text.append("\n");
-
   if constexpr (HasDiagnosticReport<Error>)
   {
-    text.append(uni20::presentation::render_report(diagnostic_report(error), opts.presentation_policy()));
+    if constexpr (std::derived_from<std::remove_cvref_t<Error>, uni20::diagnostic_error>)
+    {
+      return format_diagnostic_text(opts, error, diagnostic_presentation_policy(opts));
+    }
+    else
+    {
+      return uni20::presentation::render_report(diagnostic_report(error), opts.presentation_policy());
+    }
   }
   else
   {
+    auto text = make_diagnostic_header(opts, "ERROR", "ERROR", where.file_name(), static_cast<int>(where.line()));
+    text.append("\n");
     opts.append_style(text, error.what(), "TRACE_VALUE");
     text.append("\n");
+    return text;
   }
-  return text;
 }
 } // namespace detail
+
+/// \brief Format a structured diagnostic using its ADL presentation report and attached context.
+/// \tparam Error Concrete diagnostic exception type with a `diagnostic_report` customization.
+/// \param error Error whose report, source location, and stacktrace are formatted.
+/// \param policy Presentation policy controlling report layout and stacktrace wrapping.
+/// \return Styled diagnostic document ready for terminal or plain rendering.
+template <class Error>
+  requires std::derived_from<std::remove_cvref_t<Error>, uni20::diagnostic_error> && detail::HasDiagnosticReport<Error>
+uni20::presentation::styled_text format_diagnostic(Error const& error, uni20::presentation::output_policy const& policy)
+{
+  return detail::format_diagnostic_text(get_formatting_options(), error, policy);
+}
+
+/// \brief Format a structured diagnostic using the active trace presentation policy.
+/// \tparam Error Concrete diagnostic exception type with a `diagnostic_report` customization.
+/// \param error Error whose report, source location, and stacktrace are formatted.
+/// \return Styled diagnostic document wrapped to the configured terminal width.
+template <class Error>
+  requires std::derived_from<std::remove_cvref_t<Error>, uni20::diagnostic_error> && detail::HasDiagnosticReport<Error>
+uni20::presentation::styled_text format_diagnostic(Error const& error)
+{
+  auto& opts = get_formatting_options();
+  return detail::format_diagnostic_text(opts, error, detail::diagnostic_presentation_policy(opts));
+}
 
 /// \brief Raise a concrete exception through Uni20's configured error boundary.
 /// \details Throw mode preserves the concrete exception type. Abort mode renders
@@ -2139,7 +2200,17 @@ template <class Exception>
   auto& opts = get_formatting_options();
   if (opts.errors_abort())
   {
-    detail::abort_with_stacktrace(opts, detail::raised_error_text(opts, error, where), "ERROR", 2);
+    auto text = detail::raised_error_text(opts, error, where);
+#if TRACE_HAS_STACKTRACE
+    if constexpr (std::derived_from<error_type, uni20::diagnostic_error> && detail::HasDiagnosticReport<error_type>)
+    {
+      if (error.stacktrace().has_value())
+      {
+        detail::abort_after_diagnostic(opts, text);
+      }
+    }
+#endif
+    detail::abort_with_stacktrace(opts, text, "ERROR", 2);
   }
   throw error;
 }

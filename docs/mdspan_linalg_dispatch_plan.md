@@ -329,14 +329,14 @@ struct BlasBackend {};
 struct CpuGenericBackend {};
 
 template <class C, class Alpha, class A, class B, class Beta>
-consteval KernelTypeAcceptance
+consteval auto
 kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
                      A const&, B const&, Beta const&)
 {
   if constexpr (/* host, same scalar, BLAS scalar, rank-2 writable/readable */) {
-    return KernelTypeAcceptance::maybe; // strides and transforms are runtime
+    return kernel_types_maybe; // strides and transforms are runtime
   } else {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 
@@ -353,12 +353,13 @@ bool try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a, B&& b,
 `try_kernel(...)` assumes dispatch has already obtained a non-`no` result from
 `kernel_accepts_types(...)`; it does not repeat that type predicate.
 
-The public mdspan dispatch entry point is selector-first:
+The public mdspan dispatch entry point is the generic dispatcher:
 
 ```cpp
-gemm(backend_list{BlasBackend{}, CpuGenericBackend{}}, c, alpha, a, b, beta);
-gemm(BlasBackend{}, c, alpha, a, b, beta);       // force BLAS, no fallback
-gemm(CpuGenericBackend{}, c, alpha, a, b, beta); // force the oracle
+dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}},
+                gemm_op{}, c, alpha, a, b, beta);
+dispatch_kernel(BlasBackend{}, gemm_op{}, c, alpha, a, b, beta);
+dispatch_kernel(CpuGenericBackend{}, gemm_op{}, c, alpha, a, b, beta);
 ```
 
 The first LAPACK wrapper can then use the same pattern with richer operand
@@ -378,16 +379,16 @@ struct gees_op {
 struct LapackBackend {};
 
 template <class W, class A>
-consteval KernelTypeAcceptance
+consteval auto
 kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&,
                      W&, A&)
 {
   if constexpr (mutable_lapack_candidate_real_vector<W> &&
                 mutable_lapack_candidate_matrix<A> &&
                 same_real_value_type<A, W>) {
-    return KernelTypeAcceptance::maybe; // extents, strides, and aliasing are runtime
+    return kernel_types_maybe; // extents, strides, and aliasing are runtime
   } else {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 
@@ -410,43 +411,29 @@ operand materialization. The wrapper still counts as direct if it does not copy,
 pack, transpose, or conjugate the user-visible matrix/vector operands.
 
 `kernel_accepts_types(...)` should stay type-level. It should not inspect
-runtime strides, sizes, pointer values, or backend state. The dispatcher may
-call it with private type-probe lvalues, not real operands. The runtime attempt
-does the value checks and returns `false` if the selected backend cannot
-represent this particular view.
+runtime strides, sizes, pointer values, or backend state. The dispatcher
+inspects its result type through unevaluated `decltype` and `std::declval`
+expressions. The runtime attempt does the value checks and returns `false` if
+the selected backend cannot represent this particular view.
 
-The dispatch helper can call this consteval function using probe lvalues, so
-the CPO does not need a tuple or explicit type-pack token:
+The acceptance constants encode the decision in their types, so the dispatcher
+does not need synthetic objects, a tuple, or an explicit type-pack token:
 
 ```cpp
-enum class KernelTypeAcceptance { no, maybe, yes };
-
-namespace detail {
-template <class T>
-extern std::remove_reference_t<T> kernel_type_probe_object;
-
-template <class T>
-constexpr std::remove_reference_t<T>& kernel_type_probe_arg() noexcept
-{
-  return kernel_type_probe_object<T>;
-}
-} // namespace detail
-
 template <class Backend, class Op, class... Args>
-constexpr KernelTypeAcceptance
-backend_type_acceptance(Backend const&, Op const&, Args&&...)
+consteval KernelTypeAcceptance backend_type_acceptance()
 {
   using backend_type = std::remove_cvref_t<Backend>;
   using op_type = std::remove_cvref_t<Op>;
   if constexpr (requires {
-                  kernel_accepts_types(detail::kernel_type_probe_arg<backend_type const&>(),
-                                       detail::kernel_type_probe_arg<op_type const&>(),
-                                       detail::kernel_type_probe_arg<Args>()...);
+                  kernel_accepts_types(std::declval<backend_type const&>(),
+                                       std::declval<op_type const&>(),
+                                       std::declval<std::remove_reference_t<Args>&>()...);
                 }) {
-    constexpr auto acceptance =
-        kernel_accepts_types(detail::kernel_type_probe_arg<backend_type const&>(),
-                             detail::kernel_type_probe_arg<op_type const&>(),
-                             detail::kernel_type_probe_arg<Args>()...);
+    using result_type = std::remove_cvref_t<decltype(kernel_accepts_types(
+        std::declval<backend_type const&>(), std::declval<op_type const&>(),
+        std::declval<std::remove_reference_t<Args>&>()...))>;
+    constexpr auto acceptance = result_type::value;
     if constexpr (acceptance == KernelTypeAcceptance::no) {
       return KernelTypeAcceptance::no;
     } else {
@@ -574,14 +561,14 @@ Then the backend type check is concise:
 
 ```cpp
 template <class W, class A>
-consteval KernelTypeAcceptance
+consteval auto
 kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&,
                      W&, A&)
 {
   if constexpr (LapackSelfAdjointEighOperands<A, W>) {
-    return KernelTypeAcceptance::maybe;
+    return kernel_types_maybe;
   } else {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 ```
@@ -781,7 +768,7 @@ mdspan LAPACK layer needs:
   `ERROR`.
 - `dynamic_dispatch_kernel(...)` for Python and runtime-erased boundaries that
   must convert a type-level `no` into a runtime `ERROR`.
-- whole-list entry-point `static_assert`, not recursive-tail assertions.
+- a whole-selector entry-point constraint, not recursive-tail assertions.
 
 Tests should use fake backends to verify:
 
@@ -790,20 +777,21 @@ Tests should use fake backends to verify:
 - forced single-backend dispatch reports a clean failure.
 - a later eligible backend prevents a whole-list static assertion.
 
-### Phase 3: Public Linalg Convenience API
+### Phase 3: Tensor Linalg Convenience API
 
-Add public convenience wrappers for explicit mdspan calls:
+Bare mdspans call generic dispatch directly:
 
 ```cpp
-self_adjoint_eigh(w, a, backend_list<LapackBackend>{});
-schur(t, q, w, a, backend_list<LapackBackend>{});
+dispatch_kernel(LapackBackend{}, self_adjoint_eigh_op{}, w, a);
+dispatch_kernel(LapackBackend{}, schur_op{}, t, q, w, a);
 ```
 
-The exact function names should be chosen at implementation time, but the call
-surface should make output ownership explicit. Mutable outputs should appear
-first. For in-place LAPACK-style wrappers, the overwritten work matrix is a
-mutable output/update operand and should be grouped with the other output
-operands before read-only inputs.
+Add operation-specific convenience functions only where the Tensor layer has
+real policy work to perform, such as allocating results, selecting storage
+backends, or resolving Tensor mdspans. Mutable outputs should appear first. For
+in-place LAPACK-style operations, the overwritten work matrix is a mutable
+output/update operand and should be grouped with the other output operands
+before read-only inputs.
 
 ### Phase 4: DenseMatrix and Tensor Integration
 

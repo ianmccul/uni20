@@ -5,11 +5,12 @@ operation wrappers.
 
 ## Contents
 
-- `matrix_ops.hpp`: copy, identity fill, matrix arithmetic, multiplication, and
-  dense matrix exponential wrappers over rank-2 tensor views.
+- `gemm.hpp`: the GEMM operation tag and fixed-output Tensor front end.
 
 ## Notes
 
 - Operation wrappers should validate linalg-level shape requirements before
   dispatching to a backend.
+- Bare mdspans call `dispatch_kernel(selector, operation, operands...)`
+  directly; do not add operation-specific aliases for generic dispatch.
 - Keep backend-specific implementation details in `../backends`.

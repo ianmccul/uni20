@@ -80,10 +80,11 @@ exact argument types and does not return `no`. A non-callable gate is a hard
 `no`, regardless of whether a broad `try_kernel(...)` happens to be callable.
 For accepted types, `try_kernel(...)` may remain broadly callable and assume
 dispatch has already applied the type gate. A backend may provide
-`consteval KernelTypeAcceptance kernel_accepts_types(Backend const&, Op const&,
-Args&...)` for extra type-level eligibility. The CPO is written as an ordinary
-compile-time function, so it does not need a tuple or explicit type-pack
-argument. This keeps the backend walk generic and avoids a separate
+`consteval auto kernel_accepts_types(Backend const&, Op const&, Args&...)` for
+extra type-level eligibility, returning `kernel_types_no`,
+`kernel_types_maybe`, or `kernel_types_yes`. Their distinct result types let
+dispatch inspect the decision through `decltype` without constructing operand
+objects. This keeps the backend walk generic and avoids a separate
 `dispatch_gemm`, `dispatch_scale`, `dispatch_svd`, etc. implementation for
 every kernel.
 

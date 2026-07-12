@@ -85,7 +85,47 @@ using uni20::linalg::backend_list;
 using uni20::linalg::BlasBackend;
 using uni20::linalg::CpuGenericBackend;
 using uni20::linalg::gemm_op;
+using uni20::linalg::kernel_types_maybe;
+using uni20::linalg::kernel_types_yes;
 using uni20::linalg::KernelTypeAcceptance;
+
+namespace selector_customization_test
+{
+struct StoragePolicy
+{};
+
+struct Backend
+{
+    static constexpr std::string_view name = "selector_customization";
+    int selected_id = 0;
+    int* observed_id = nullptr;
+};
+
+struct TensorAdapter
+{
+    using storage_policy = StoragePolicy;
+
+    left_mdspan<double> span;
+    backend_list<Backend> selector;
+
+    [[nodiscard]] auto mdspan() const noexcept { return span; }
+    [[nodiscard]] auto backend_selector() const noexcept { return selector; }
+};
+
+template <class... Args> consteval auto kernel_accepts_types(Backend const&, gemm_op const&, Args&...)
+{
+  return kernel_types_yes;
+}
+
+template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
+bool try_kernel(Backend backend, gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs,
+                Scalar beta)
+{
+  *backend.observed_id = backend.selected_id;
+  return try_kernel(CpuGenericBackend{}, gemm_op{}, std::forward<OutputMdspan>(output), alpha,
+                    std::forward<LhsMdspan>(lhs), std::forward<RhsMdspan>(rhs), beta);
+}
+} // namespace selector_customization_test
 
 struct TryKernelOnlyBackend
 {
@@ -104,9 +144,9 @@ struct test_dispatch_op
     static constexpr std::string_view name = "test_dispatch";
 };
 
-consteval KernelTypeAcceptance kernel_accepts_types(DecliningBackend const&, test_dispatch_op const&, int&)
+consteval auto kernel_accepts_types(DecliningBackend const&, test_dispatch_op const&, int&)
 {
-  return KernelTypeAcceptance::maybe;
+  return kernel_types_maybe;
 }
 
 bool try_kernel(DecliningBackend, test_dispatch_op, int&) { return false; }
@@ -144,6 +184,19 @@ static_assert(requires(BlasBackend backend, gemm_op op, left_mdspan<double>& out
   { try_kernel(backend, op, output, scalar, lhs, rhs, scalar) } -> std::same_as<bool>;
 });
 } // namespace
+
+template <>
+struct uni20::linalg::backend_selector_override<uni20::linalg::gemm_op, selector_customization_test::StoragePolicy>
+{
+    static auto select(uni20::linalg::gemm_op const&, selector_customization_test::TensorAdapter const& output,
+                       selector_customization_test::TensorAdapter const&,
+                       selector_customization_test::TensorAdapter const&)
+    {
+      auto backend = std::get<0>(output.selector.entries);
+      backend.selected_id = 42;
+      return uni20::linalg::backend_list{backend};
+    }
+};
 
 TEST(LinalgGemmDispatchTest, MissingOrNonViableTypeGateIsHardNo)
 {
@@ -206,6 +259,22 @@ TEST(LinalgGemmDispatchTest, TryAndCheckedDispatchDistinguishRuntimeDecline)
 #if UNI20_HAS_STACKTRACE
   EXPECT_TRUE(captured_error->stacktrace().has_value());
 #endif
+
+  auto const report = diagnostic_report(*captured_error);
+  EXPECT_TRUE(report.title().empty());
+  ASSERT_EQ(report.statuses().size(), 1);
+  EXPECT_EQ(report.statuses()[0].first, uni20::presentation::semantic_glyph::failure);
+  EXPECT_EQ(report.statuses()[0].second, "Kernel dispatch failed for 'test_dispatch'");
+  ASSERT_EQ(report.tables().size(), 1);
+  EXPECT_EQ(report.tables()[0].title(), "No available backend accepted this runtime instance");
+
+  auto const diagnostic = trace::format_diagnostic(*captured_error);
+  auto const rendered_diagnostic =
+      uni20::presentation::render_plain(diagnostic, trace::get_formatting_options().presentation_policy());
+  EXPECT_NE(rendered_diagnostic.find("Source location:"), std::string::npos);
+#if UNI20_HAS_STACKTRACE
+  EXPECT_NE(rendered_diagnostic.find("Stacktrace:"), std::string::npos);
+#endif
 }
 
 TEST(LinalgGemmDispatchDeathTest, CheckedDispatchRendersStructuredBackendReport)
@@ -215,7 +284,8 @@ TEST(LinalgGemmDispatchDeathTest, CheckedDispatchRendersStructuredBackendReport)
   auto backends = backend_list{TryKernelOnlyBackend{}, DecliningBackend{}};
 
   trace::get_formatting_options().set_errors_abort(true);
-  EXPECT_DEATH(uni20::linalg::dispatch_kernel(backends, test_dispatch_op{}, argument), "try_kernel_only");
+  EXPECT_DEATH(uni20::linalg::dispatch_kernel(backends, test_dispatch_op{}, argument),
+               "Kernel dispatch failed for 'test_dispatch'");
 }
 
 TEST(LinalgGemmDispatchTest, ForcedBlasBackendRunsRepresentableMdspans)
@@ -239,7 +309,7 @@ TEST(LinalgGemmDispatchTest, ForcedBlasBackendRunsRepresentableMdspans)
   fill_matrix(a, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
   fill_matrix(b, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
 
-  EXPECT_TRUE(uni20::linalg::try_gemm(BlasBackend{}, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(BlasBackend{}, gemm_op{}, c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 58.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 64.0);
@@ -261,11 +331,12 @@ TEST(LinalgGemmDispatchTest, ForcedBlasBackendDeclinesUnsupportedStrideBeforeSid
   fill_matrix(a, {1.0, 2.0, 3.0, 4.0});
   fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
 
-  EXPECT_FALSE(uni20::linalg::try_gemm(BlasBackend{}, c, 1.0, a, b, 0.0));
+  EXPECT_FALSE(uni20::linalg::try_dispatch_kernel(BlasBackend{}, gemm_op{}, c, 1.0, a, b, 0.0));
 
   bool const previous_errors_abort = trace::get_formatting_options().errors_abort();
   trace::get_formatting_options().set_errors_abort(false);
-  EXPECT_THROW(uni20::linalg::gemm(BlasBackend{}, c, 1.0, a, b, 0.0), uni20::linalg::KernelDispatchError);
+  EXPECT_THROW(uni20::linalg::dispatch_kernel(BlasBackend{}, gemm_op{}, c, 1.0, a, b, 0.0),
+               uni20::linalg::KernelDispatchError);
   trace::get_formatting_options().set_errors_abort(previous_errors_abort);
 
   EXPECT_DOUBLE_EQ((c[0, 0]), -7.0);
@@ -289,7 +360,7 @@ TEST(LinalgGemmDispatchTest, BackendListFallsThroughWhenBlasDeclinesStride)
   fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
 
   auto selector = backend_list{BlasBackend{}, CpuGenericBackend{}};
-  EXPECT_TRUE(uni20::linalg::try_gemm(selector, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, gemm_op{}, c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
@@ -317,7 +388,7 @@ TEST(LinalgGemmDispatchTest, BackendListFallsThroughForAccessorOnlyReadableInput
   fill_matrix(b, {1.0, 0.0, 0.0, 1.0});
 
   auto selector = backend_list{BlasBackend{}, CpuGenericBackend{}};
-  EXPECT_TRUE(uni20::linalg::try_gemm(selector, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, gemm_op{}, c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 2.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 4.0);
@@ -335,7 +406,7 @@ TEST(LinalgGemmDispatchTest, CpuFallbackDoesNotReadOutputWhenBetaIsZero)
   left_mdspan<double> b(b_storage.data(), 1, 1);
   left_mdspan<double> c(c_storage.data(), 1, 1);
 
-  EXPECT_TRUE(uni20::linalg::try_gemm(CpuGenericBackend{}, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(CpuGenericBackend{}, gemm_op{}, c, 1.0, a, b, 0.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
 }
 
@@ -358,7 +429,7 @@ TEST(LinalgGemmDispatchTest, CpuFallbackAcceptsNonStridedAddressableViews)
   fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
 
   auto selector = backend_list{BlasBackend{}, CpuGenericBackend{}};
-  EXPECT_TRUE(uni20::linalg::try_gemm(selector, c, 1.0, a, b, 0.0));
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, gemm_op{}, c, 1.0, a, b, 0.0));
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
@@ -404,4 +475,30 @@ TEST(LinalgGemmDispatchTest, TensorOperandsAcceptExplicitSelectorOverride)
   EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
   EXPECT_DOUBLE_EQ((c[1, 0]), 43.0);
   EXPECT_DOUBLE_EQ((c[1, 1]), 50.0);
+}
+
+TEST(LinalgGemmDispatchTest, TensorOperandsUseGlobalStoragePolicyOverride)
+{
+  using selector_customization_test::Backend;
+  using selector_customization_test::TensorAdapter;
+
+  std::vector<double> a_storage(4);
+  std::vector<double> b_storage(4);
+  std::vector<double> c_storage(4);
+  int observed_id = 0;
+
+  TensorAdapter a{left_mdspan<double>(a_storage.data(), 2, 2), backend_list{Backend{.observed_id = &observed_id}}};
+  TensorAdapter b{left_mdspan<double>(b_storage.data(), 2, 2), backend_list{Backend{.observed_id = &observed_id}}};
+  TensorAdapter c{left_mdspan<double>(c_storage.data(), 2, 2), backend_list{Backend{.observed_id = &observed_id}}};
+
+  fill_matrix(a.span, {1.0, 2.0, 3.0, 4.0});
+  fill_matrix(b.span, {5.0, 6.0, 7.0, 8.0});
+
+  uni20::linalg::gemm(c, 1.0, a, b, 0.0);
+
+  EXPECT_EQ(observed_id, 42);
+  EXPECT_DOUBLE_EQ((c.span[0, 0]), 19.0);
+  EXPECT_DOUBLE_EQ((c.span[0, 1]), 22.0);
+  EXPECT_DOUBLE_EQ((c.span[1, 0]), 43.0);
+  EXPECT_DOUBLE_EQ((c.span[1, 1]), 50.0);
 }

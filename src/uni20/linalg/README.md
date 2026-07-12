@@ -9,13 +9,12 @@ before they lower to backend wrappers and kernels.
 - `linalg.hpp`: public include point for the dense linalg layer.
 - `backend_selector.hpp`: ordered backend selector values and the stateless
   host backend entries shared with tensor storage.
-- `backend_manifest.hpp`: backend availability and dispatch metadata.
 - `dispatch.hpp`: operation-tag backend-list dispatch helpers.
 - `blas/`: mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - `ops/`: operation descriptors such as matrix-operation tags.
 - `backends/blas/`: operation-tag BLAS backend adapters.
-- `backends/cpu/`: CPU dense matrix helpers and the current dense matrix
-  exponential implementation.
+- `backends/cpu/`: generic CPU operation-tag kernels, dense matrix helpers, and
+  the current dense matrix exponential implementation.
 - `backends/lapack/`: LAPACK-backed linalg entry points.
 - `backends/cusolver/`: cuSOLVER-backed linalg entry points.
 
@@ -24,8 +23,12 @@ before they lower to backend wrappers and kernels.
 - Keep dense linalg APIs separate from matrix-free Krylov APIs in `krylov/`.
 - Backend-specific code should stay in `backends/` and call through the lower
   `backend/` and `kernel/` layers where appropriate.
-- Bare-mdspan GEMM dispatch requires an explicit selector. Tensor-view operands
-  may omit it and use their common storage-derived selector, or supply an
-  explicit selector override.
+- Bare-mdspan GEMM calls `dispatch_kernel` with `gemm_op` and an explicit
+  selector. Tensor-view operands use the `gemm` front end so it can derive their
+  common storage selector, or they may supply an explicit selector override.
+- New dense linalg operations use operation tags, `kernel_accepts_types`, and
+  `try_kernel`. The former `cpu_tag`/`lapack_tag` matrix-operation front end has
+  been removed; those tags remain only in older, separate kernel lineages that
+  have not yet migrated to operation-tag dispatch.
 - Scalar-generic code should use Uni20 scalar traits and numeric limits from
   `core/`.

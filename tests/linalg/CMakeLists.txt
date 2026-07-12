@@ -1,6 +1,5 @@
 add_test_module(linalg
   SOURCES
-    test_cpu_ops.cpp
     cpu/test_matrix_exponential.cpp
   LIBS uni20_linalg
 )

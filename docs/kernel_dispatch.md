@@ -36,16 +36,18 @@ dispatch mechanism is generic over an **operation tag** (`gemm_op`, `scale_op`,
 
 - `kernel_accepts_types(Backend const&, Op const&, Args&...)` — required
   `consteval` tri-state function for compile-time facts about the C++ types;
-  prunes the candidate at zero runtime cost. It is written as an ordinary
-  function with ordinary reference parameters, so this CPO does not need a tuple
-  or explicit type-pack token.
+  prunes the candidate at zero runtime cost. It returns `kernel_types_no`,
+  `kernel_types_maybe`, or `kernel_types_yes`, whose distinct types let the
+  dispatcher inspect the result through `decltype` without manufacturing
+  operand objects. The CPO keeps ordinary reference parameters, so it does not
+  need a tuple or explicit type-pack token.
 - `try_kernel(Backend, Op, args...)` — required for an implemented operation;
   receives the backend value, checks runtime facts, and either performs/emits
   the work or returns `false`.
 
 The gate may be narrowly constrained. If it is not callable for the exact
 backend, operation, and argument types, acceptance is a hard `no`; a callable
-gate returns `no`, `maybe`, or `yes`. Its `try_kernel(...)` overload may remain
+gate returns the corresponding acceptance constant. Its `try_kernel(...)` overload may remain
 deliberately unconstrained because dispatch never instantiates it for rejected
 types. This keeps the runtime CPO focused on instance facts rather than
 duplicating type constraints.
@@ -80,6 +82,11 @@ Operation tags and backend values define stable `static constexpr
 std::string_view name` members. These names are diagnostic metadata only; C++
 types remain the dispatch identity and the names are not serialization or ABI
 keys.
+
+The rendered diagnostic begins with a failure-styled line naming the operation,
+followed by the failure category and ordered backend candidate table. It then
+includes the `trace::raise(...)` source location and, in builds with
+`std::stacktrace` support, the captured stacktrace.
 
 Runnable examples under `examples/linalg/` cover the main dispatch behaviors:
 
@@ -158,10 +165,11 @@ The two configuration rules:
    can be layered on later if needed; it is just another list entry.
 
 New Uni20 kernel and linalg APIs put API tags and explicit backend selectors
-first, then mutable outputs, then inputs and scalar operands. For example,
-write `gemm(selector, c, alpha, a, b, beta)` for an explicit override and
-`gemm(c, alpha, a, b, beta)` for the storage-default Tensor overload, rather
-than the BLAS/LAPACK ABI order `gemm(alpha, a, b, beta, c)`.
+first, then mutable outputs, then inputs and scalar operands. Tensor front ends
+use `gemm(selector, c, alpha, a, b, beta)` for an explicit override and
+`gemm(c, alpha, a, b, beta)` for the storage default. Bare mdspans use
+`dispatch_kernel(selector, gemm_op{}, c, alpha, a, b, beta)` directly rather
+than adding a second operation-specific dispatch alias.
 
 ## Dispatch operands versus resolved spans
 
@@ -180,9 +188,9 @@ The layers are therefore:
 3. **Leaf kernel** — receives rank-constrained mdspans and either calls a
    provider or runs a generic implementation.
 
-Passing mdspans directly is the lower-level interface. The caller must provide
-a backend list explicitly. Raw GEMM overloads require rank-two writable/readable
-mdspan concepts; Tensor-view wrappers themselves are not mdspan-like.
+Passing mdspans directly is the lower-level interface. The caller provides an
+explicit backend selector and operation tag to `dispatch_kernel` or
+`try_dispatch_kernel`; Tensor-view wrappers themselves are not mdspan-like.
 
 ## Worked example: gemm
 
@@ -218,32 +226,23 @@ consteval bool backend_has_try_kernel()
   };
 }
 
-namespace detail {
 template <class T>
-extern std::remove_reference_t<T> kernel_type_probe_object;
-
-template <class T>
-constexpr std::remove_reference_t<T>& kernel_type_probe_arg() noexcept
-{
-  return kernel_type_probe_object<T>;
-}
-} // namespace detail
+using kernel_type_probe_arg_t = std::remove_reference_t<T>&;
 
 template <class Backend, class Op, class... Args>
-constexpr KernelTypeAcceptance
-backend_type_acceptance(Backend const&, Op const&, Args&&...)
+consteval KernelTypeAcceptance backend_type_acceptance()
 {
   using backend_type = std::remove_cvref_t<Backend>;
   using op_type = std::remove_cvref_t<Op>;
   if constexpr (requires {
-             kernel_accepts_types(detail::kernel_type_probe_arg<backend_type const&>(),
-                                  detail::kernel_type_probe_arg<op_type const&>(),
-                                  detail::kernel_type_probe_arg<Args>()...);
+             kernel_accepts_types(std::declval<backend_type const&>(),
+                                  std::declval<op_type const&>(),
+                                  std::declval<kernel_type_probe_arg_t<Args>>()...);
            }) {
-    constexpr auto acceptance =
-        kernel_accepts_types(detail::kernel_type_probe_arg<backend_type const&>(),
-                             detail::kernel_type_probe_arg<op_type const&>(),
-                             detail::kernel_type_probe_arg<Args>()...);
+    using result_type = std::remove_cvref_t<decltype(kernel_accepts_types(
+        std::declval<backend_type const&>(), std::declval<op_type const&>(),
+        std::declval<kernel_type_probe_arg_t<Args>>()...))>;
+    constexpr auto acceptance = result_type::value;
     if constexpr (acceptance == KernelTypeAcceptance::no) {
       return KernelTypeAcceptance::no;
     } else {
@@ -310,7 +309,7 @@ template <MutableRankedTensorView<2> C, RankedTensorView<2> A,
           RankedTensorView<2> B>
 void gemm(C&& c, scalar_t<C> alpha, A const& a, B const& b, scalar_t<C> beta)
 {
-  auto selector = common_tensor_backend_selector(c, a, b);
+  auto selector = select_backend(gemm_op{}, c, a, b);
   gemm(selector, c, alpha, a, b, beta);
 }
 
@@ -320,9 +319,17 @@ template <class BackendSelector, MutableRankedTensorView<2> C,
 void gemm(BackendSelector selector, C& c, scalar_t<C> alpha, A const& a,
           B const& b, scalar_t<C> beta)
 {
-  gemm(selector, c.mdspan(), alpha, a.mdspan(), b.mdspan(), beta);
+  dispatch_kernel(selector, gemm_op{}, c.mdspan(), alpha,
+                  a.mdspan(), b.mdspan(), beta);
 }
 ```
+
+`select_backend(operation, operands...)` first requires a common tensor storage
+policy. The default returns the first operand's storage-provided selector. A
+global `backend_selector_override<Operation, StoragePolicy>` specialization may
+replace that default for a particular operation/storage combination and may
+inspect all operands when selector state must be validated or composed. Passing
+an explicit selector bypasses this default-selection customization point.
 
 Two distinct failure modes fall out, which is exactly the behaviour an override
 should have:
@@ -331,7 +338,7 @@ should have:
   CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}})`
   on **host** tensors makes
   `probe_dispatch_kernel(cublas_only, gemm_op{}, host_operands...)` is
-  `KernelTypeAcceptance::no`, so the entry-point `static_assert` fires — a
+  `KernelTypeAcceptance::no`, so checked dispatch is constrained out — a
   **compile error**. A Python binding calls `dynamic_dispatch_kernel` for its
   concrete binding instantiation instead, converting the same static rejection
   into a Python exception.
@@ -351,14 +358,14 @@ template <class T>
 using operand_t = std::remove_cvref_t<T>;
 
 template <class Alpha, class A, class B, class Beta, class C>
-consteval KernelTypeAcceptance
+consteval auto
 kernel_accepts_types(CpuGenericBackend const&, gemm_op const&, C&,
                      Alpha const&, A const&, B const&, Beta const&)
 {
   if constexpr (/* rank-2 addressable operands with compatible scalar types */) {
-    return KernelTypeAcceptance::yes;                          // any scalar, any layout
+    return kernel_types_yes;                                  // any scalar, any layout
   } else {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 
@@ -382,14 +389,14 @@ bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
 struct BlasBackend {};
 
 template <class Alpha, class A, class B, class Beta, class C>
-consteval KernelTypeAcceptance
+consteval auto
 kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
                      A const&, B const&, Beta const&)
 {
   if constexpr (/* rank-2 strided BLAS-compatible operands */) {
-    return KernelTypeAcceptance::maybe;                       // strides/library are runtime facts
+    return kernel_types_maybe;                               // strides/library are runtime facts
   } else {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 
@@ -409,7 +416,7 @@ struct CublasBackend {
 };
 
 template <class Alpha, class A, class B, class Beta, class C>
-consteval KernelTypeAcceptance
+consteval auto
 kernel_accepts_types(CublasBackend const&, gemm_op const&, C&, Alpha const&,
                      A const&, B const&, Beta const&)
 {
@@ -418,9 +425,9 @@ kernel_accepts_types(CublasBackend const&, gemm_op const&, C&, Alpha const&,
                 is_device_v<operand_t<B>> &&
                 same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
                 is_blas_scalar_v<scalar_t<operand_t<C>>>) {
-    return KernelTypeAcceptance::maybe;                       // device placement is runtime
+    return kernel_types_maybe;                               // device placement is runtime
   } else {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 
@@ -481,7 +488,7 @@ struct MpiBackend {
 // is the *common* case (a replicated MPO contracted with a distributed state),
 // so the predicate must not demand distribution of every operand.
 template <class Alpha, class A, class B, class Beta, class C>
-consteval KernelTypeAcceptance
+consteval auto
 kernel_accepts_types(MpiBackend const&, gemm_op const&, C&, Alpha const&,
                      A const&, B const&, Beta const&)
 {
@@ -491,9 +498,9 @@ kernel_accepts_types(MpiBackend const&, gemm_op const&, C&, Alpha const&,
                 all_distributed_or_replicated_v<operand_t<C>,
                                                 operand_t<A>,
                                                 operand_t<B>>) {
-    return KernelTypeAcceptance::maybe;                       // plan construction is runtime
+    return kernel_types_maybe;                               // plan construction is runtime
   } else {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 
@@ -552,12 +559,13 @@ block-sparse *container*'s `BlockTensorStorage` policy, not a dense memory kind
 off-roadmap). The dense rows dispatch on the leaf `TensorStorage` only.
 
 ```cpp
-gemm(c, alpha, a, b, beta);                                  // default for the storage
-gemm(CpuGenericBackend{}, c, alpha, a, b, beta);             // force one backend, no fallback
-gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
-     c, alpha, a, b, beta);                                  // pin BLAS-or-oracle
+gemm(c, alpha, a, b, beta);                                  // Tensor storage default
+gemm(CpuGenericBackend{}, c, alpha, a, b, beta);             // Tensor override
+dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}},
+                gemm_op{}, c_span, alpha, a_span, b_span,
+                beta);                                       // bare mdspans
 gemm(BackendChain{BlasBackend{}, CpuGenericBackend{}},
-     c, alpha, a, b, beta);                                  // same idea, chain spelling
+     c, alpha, a, b, beta);                                  // Tensor override
 gemm(make_backend_selector<backend_list<CublasBackend>>(
        CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}}),
      c, alpha, a, b, beta);                                  // GPU only, no fallback - fail loudly

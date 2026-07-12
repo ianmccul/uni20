@@ -21,10 +21,9 @@ Related notes:
 
 ## Problem Statement
 
-A raw `BasicTensorView` adaptor or resolved `stdex::mdspan` does not carry the
-ownership and epoch state required by an async tensor value. Such a descriptor
-is sufficient only after a buffer has been awaited and while the owning access
-proxy remains alive.
+A resolved `stdex::mdspan` does not carry the ownership and epoch state required
+by an async tensor value. Such a descriptor is sufficient only after a buffer
+has been awaited and while the owning access proxy remains alive.
 
 For example:
 
@@ -85,8 +84,8 @@ AsyncTensorView
 ```
 
 The name is open, but the role is not. An async alias is not just
-`Async<mdspan>` and not just `Async<BasicTensorView>`. It is a small handle that
-contains enough information to materialize a view safely later:
+`Async<mdspan>`. It is a small handle that contains enough information to
+materialize a view safely later:
 
 ```cpp
 template <class Parent, class Descriptor, class Hazard>
@@ -197,7 +196,7 @@ template <class C, class A, class B>
 auto gemm(C& c, A const& a, B const& b)
 {
   auto shape = gemm_shape(tensor_descriptor(a), tensor_descriptor(b));
-  auto selector = common_backend_selector(c, a, b);
+  auto selector = select_backend(gemm_op{}, c, a, b);
 
   return dispatch_async_or_sync(selector, gemm_op{}, c, a, b, shape);
 }

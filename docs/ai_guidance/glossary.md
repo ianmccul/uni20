@@ -211,12 +211,6 @@ This glossary is optimized for retrieval, not pedagogy.
 - `EXAMPLE`: Direct BLAS/LAPACK lowering requires ranked strided spans, while
   generic CPU GEMM accepts rank-two addressable spans.
 
-### BasicTensorView
-
-- `ROLE`: Concrete non-owning descriptor adaptor that models the Tensor view
-  concepts and resolves to mdspan.
-- `ASSIGNMENT`: Rebinds the descriptor; does not copy tensor elements.
-
 ### TensorRef
 
 - `ROLE`: Proposed non-owning write-through tensor lvalue for slices or block outputs.

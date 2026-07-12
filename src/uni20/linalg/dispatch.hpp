@@ -24,76 +24,81 @@ namespace uni20::linalg
 
 namespace detail
 {
-template <class T> extern std::remove_reference_t<T> kernel_type_probe_object;
+template <class T> using kernel_type_probe_arg_t = std::remove_reference_t<T>&;
 
-template <class T> constexpr std::remove_reference_t<T>& kernel_type_probe_arg() noexcept
-{
-  return kernel_type_probe_object<T>;
-}
+template <class T> struct is_kernel_acceptance : std::false_type
+{};
+
+template <KernelTypeAcceptance Acceptance> struct is_kernel_acceptance<KernelAcceptance<Acceptance>> : std::true_type
+{};
 
 template <class Backend, class Op, class... Args> consteval bool backend_has_try_kernel()
 {
-  return requires(Backend backend, Op op) {
-    { try_kernel(backend, op, kernel_type_probe_arg<Args>()...) } -> std::same_as<bool>;
+  return requires {
+    {
+      try_kernel(std::declval<Backend const&>(), std::declval<Op const&>(),
+                 std::declval<kernel_type_probe_arg_t<Args>>()...)
+    } -> std::same_as<bool>;
   };
 }
 
 /// \brief Query one backend's type-level acceptance.
 /// \details Argument values are not inspected. Their deduced types are queried
-///          through probe lvalues so narrowly constrained backend gates can be
-///          detected safely.
-template <class Backend, class Op, class... Args>
-constexpr KernelTypeAcceptance backend_type_acceptance(Backend const&, Op const&, Args&&...)
+///          through unevaluated lvalue expressions so narrowly constrained
+///          backend gates can be detected safely.
+template <class Backend, class Op, class... Args> consteval KernelTypeAcceptance backend_type_acceptance()
 {
   using backend_type = std::remove_cvref_t<Backend>;
   using op_type = std::remove_cvref_t<Op>;
   if constexpr (requires {
-                  {
-                    kernel_accepts_types(kernel_type_probe_arg<backend_type const&>(),
-                                         kernel_type_probe_arg<op_type const&>(), kernel_type_probe_arg<Args>()...)
-                  } -> std::same_as<KernelTypeAcceptance>;
+                  kernel_accepts_types(std::declval<backend_type const&>(), std::declval<op_type const&>(),
+                                       std::declval<kernel_type_probe_arg_t<Args>>()...);
                 })
   {
-    constexpr auto acceptance =
-        kernel_accepts_types(kernel_type_probe_arg<backend_type const&>(), kernel_type_probe_arg<op_type const&>(),
-                             kernel_type_probe_arg<Args>()...);
-    if constexpr (acceptance == KernelTypeAcceptance::no)
+    using result_type = std::remove_cvref_t<decltype(kernel_accepts_types(
+        std::declval<backend_type const&>(), std::declval<op_type const&>(),
+        std::declval<kernel_type_probe_arg_t<Args>>()...))>;
+    if constexpr (!is_kernel_acceptance<result_type>::value)
     {
+      static_assert(is_kernel_acceptance<result_type>::value,
+                    "kernel_accepts_types must return kernel_types_no, kernel_types_maybe, or kernel_types_yes");
       return KernelTypeAcceptance::no;
     }
     else
     {
-      static_assert(backend_has_try_kernel<backend_type, op_type, Args...>(),
-                    "kernel_accepts_types accepted these types, but try_kernel is not available");
-      return acceptance;
+      constexpr auto acceptance = result_type::value;
+      if constexpr (acceptance == KernelTypeAcceptance::no)
+      {
+        return KernelTypeAcceptance::no;
+      }
+      else
+      {
+        static_assert(backend_has_try_kernel<backend_type, op_type, Args...>(),
+                      "kernel_accepts_types accepted these types, but try_kernel is not available");
+        return acceptance;
+      }
     }
   }
   return KernelTypeAcceptance::no;
 }
 } // namespace detail
 
-/// \brief Probe whether an ordered backend list can dispatch an operation for the argument types.
-/// \details Returns `yes` if any backend accepts all runtime instances, `maybe`
-///          if at least one backend may accept an instance, and `no` otherwise.
-///          Argument values and backend state are not inspected.
-template <class... Backends, class Op, class... Args>
-constexpr KernelTypeAcceptance probe_dispatch_kernel(backend_list<Backends...> const&, Op const&, Args&&...)
+namespace detail
 {
-  constexpr bool any_yes =
-      ((detail::backend_type_acceptance(detail::kernel_type_probe_arg<Backends const&>(),
-                                        detail::kernel_type_probe_arg<std::remove_cvref_t<Op> const&>(),
-                                        detail::kernel_type_probe_arg<Args>()...) == KernelTypeAcceptance::yes) ||
-       ...);
+template <class BackendSelector>
+using normalized_backend_selector_t =
+    std::remove_cvref_t<decltype(normalize_backend_selector(std::declval<BackendSelector>()))>;
+
+template <class Op, class... Args, class... Backends>
+consteval KernelTypeAcceptance probe_backend_list_types(std::type_identity<backend_list<Backends...>>)
+{
+  constexpr bool any_yes = ((backend_type_acceptance<Backends, Op, Args...>() == KernelTypeAcceptance::yes) || ...);
   if constexpr (any_yes)
   {
     return KernelTypeAcceptance::yes;
   }
 
-  constexpr bool any_maybe =
-      ((detail::backend_type_acceptance(detail::kernel_type_probe_arg<Backends const&>(),
-                                        detail::kernel_type_probe_arg<std::remove_cvref_t<Op> const&>(),
-                                        detail::kernel_type_probe_arg<Args>()...) == KernelTypeAcceptance::maybe) ||
-       ...);
+  constexpr bool any_maybe = ((backend_type_acceptance<Backends, Op, Args...>() == KernelTypeAcceptance::maybe) || ...);
   if constexpr (any_maybe)
   {
     return KernelTypeAcceptance::maybe;
@@ -101,14 +106,27 @@ constexpr KernelTypeAcceptance probe_dispatch_kernel(backend_list<Backends...> c
 
   return KernelTypeAcceptance::no;
 }
+} // namespace detail
+
+/// \brief Probe whether a backend selector can dispatch an operation for the argument types.
+/// \details Returns `yes` if any backend accepts all runtime instances, `maybe`
+///          if at least one backend may accept an instance, and `no` otherwise.
+///          Argument values and backend state are not inspected. A single backend
+///          value is normalized to a one-entry backend list.
+template <class BackendSelector, class Op, class... Args>
+constexpr KernelTypeAcceptance probe_dispatch_kernel(BackendSelector&&, Op const&, Args&&...)
+{
+  using backends_type = detail::normalized_backend_selector_t<BackendSelector>;
+  static_assert(is_backend_list_v<backends_type>, "backend selectors must normalize to backend_list");
+  return detail::probe_backend_list_types<std::remove_cvref_t<Op>, Args...>(std::type_identity<backends_type>{});
+}
 
 namespace detail
 {
 template <class BackendList, class Op, class... Args>
 concept KernelDispatchTypesAccepted =
-    probe_dispatch_kernel(kernel_type_probe_arg<BackendList const&>(),
-                          kernel_type_probe_arg<std::remove_cvref_t<Op> const&>(),
-                          kernel_type_probe_arg<Args>()...) != KernelTypeAcceptance::no;
+    probe_backend_list_types<std::remove_cvref_t<Op>, Args...>(std::type_identity<BackendList>{}) !=
+    KernelTypeAcceptance::no;
 
 template <class Entity>
 concept NamedKernelDispatchEntity = requires {
@@ -124,8 +142,7 @@ KernelDispatchError make_kernel_dispatch_error(backend_list<Backends...> const&,
   std::vector<KernelBackendAttempt> attempts;
   attempts.reserve(sizeof...(Backends));
   auto append_attempt = [&]<class Backend>() {
-    constexpr auto acceptance = backend_type_acceptance(
-        kernel_type_probe_arg<Backend const&>(), kernel_type_probe_arg<Op const&>(), kernel_type_probe_arg<Args>()...);
+    constexpr auto acceptance = backend_type_acceptance<Backend, Op, Args...>();
     attempts.push_back(KernelBackendAttempt{
         .backend = std::string(std::remove_cvref_t<Backend>::name),
         .type_acceptance = acceptance,
@@ -148,9 +165,7 @@ bool try_dispatch_kernel_at(backend_list<Backends...> const& backends, Op op, Ar
   else
   {
     using backend_type = std::tuple_element_t<Index, std::tuple<Backends...>>;
-    constexpr auto acceptance =
-        backend_type_acceptance(kernel_type_probe_arg<backend_type const&>(), kernel_type_probe_arg<Op const&>(),
-                                kernel_type_probe_arg<Args>()...);
+    constexpr auto acceptance = backend_type_acceptance<backend_type, Op, Args...>();
 
     if constexpr (acceptance == KernelTypeAcceptance::yes)
     {
@@ -169,41 +184,50 @@ bool try_dispatch_kernel_at(backend_list<Backends...> const& backends, Op op, Ar
     return try_dispatch_kernel_at<Index + 1>(backends, op, std::forward<Args>(args)...);
   }
 }
+
+template <class... Backends, class Op, class... Args>
+void dispatch_backend_list(backend_list<Backends...> const& backends, Op op, Args&&... args)
+{
+  if (!try_dispatch_kernel_at<0>(backends, op, std::forward<Args>(args)...))
+  {
+    trace::raise(make_kernel_dispatch_error<KernelDispatchFailure::all_candidates_declined>(backends, op, args...));
+  }
+}
 } // namespace detail
 
-/// \brief Try each eligible backend until one performs the operation.
-template <class... Backends, class Op, class... Args>
-  requires detail::KernelDispatchTypesAccepted<backend_list<Backends...>, Op, Args...>
-bool try_dispatch_kernel(backend_list<Backends...> const& backends, Op op, Args&&... args)
+/// \brief Normalize a selector and try each eligible backend until one performs the operation.
+template <class BackendSelector, class Op, class... Args>
+  requires detail::KernelDispatchTypesAccepted<detail::normalized_backend_selector_t<BackendSelector>, Op, Args...>
+bool try_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
 {
+  auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
   return detail::try_dispatch_kernel_at<0>(backends, op, std::forward<Args>(args)...);
 }
 
-/// \brief Dispatch an operation or report that every eligible backend declined it.
-template <class... Backends, class Op, class... Args>
-  requires detail::KernelDispatchTypesAccepted<backend_list<Backends...>, Op, Args...>
-void dispatch_kernel(backend_list<Backends...> const& backends, Op op, Args&&... args)
+/// \brief Normalize a selector and dispatch or report that every eligible backend declined.
+template <class BackendSelector, class Op, class... Args>
+  requires detail::KernelDispatchTypesAccepted<detail::normalized_backend_selector_t<BackendSelector>, Op, Args...>
+void dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
 {
-  if (!try_dispatch_kernel(backends, op, std::forward<Args>(args)...))
-  {
-    trace::raise(
-        detail::make_kernel_dispatch_error<KernelDispatchFailure::all_candidates_declined>(backends, op, args...));
-  }
+  auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
+  detail::dispatch_backend_list(backends, op, std::forward<Args>(args)...);
 }
 
 /// \brief Dynamically dispatch an operation, raising even type-level rejection at runtime.
 /// \details This boundary is intended for Python bindings and runtime-erased interfaces that must remain callable
 ///          when the configured backend list has no implementation for the concrete argument types.
-template <class... Backends, class Op, class... Args>
-void dynamic_dispatch_kernel(backend_list<Backends...> const& backends, Op op, Args&&... args)
+template <class BackendSelector, class Op, class... Args>
+void dynamic_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
 {
-  if constexpr (!detail::KernelDispatchTypesAccepted<backend_list<Backends...>, Op, Args...>)
+  using backends_type = detail::normalized_backend_selector_t<BackendSelector>;
+  auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
+  if constexpr (!detail::KernelDispatchTypesAccepted<backends_type, Op, Args...>)
   {
     trace::raise(detail::make_kernel_dispatch_error<KernelDispatchFailure::no_eligible_backend>(backends, op, args...));
   }
   else
   {
-    dispatch_kernel(backends, op, std::forward<Args>(args)...);
+    detail::dispatch_backend_list(backends, op, std::forward<Args>(args)...);
   }
 }
 

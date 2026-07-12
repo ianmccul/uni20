@@ -1,6 +1,7 @@
 #include <uni20/common/mdspan.hpp>
 #include <uni20/common/presentation.hpp>
 #include <uni20/common/presentation_mdspan.hpp>
+#include <uni20/common/presentation_stacktrace.hpp>
 
 #include "env_var_guard.hpp"
 
@@ -295,6 +296,35 @@ TEST(PresentationLayout, PadsClipsTruncatesAndWrapsByDisplayCells)
   EXPECT_EQ(lines[0], "alpha");
   EXPECT_EQ(lines[1], "beta");
 }
+
+#if UNI20_HAS_STACKTRACE
+TEST(PresentationStacktrace, WrapsFramesToPolicyWidth)
+{
+  auto policy = base_policy();
+  policy.glyphs = presentation::glyph_set::ascii;
+  policy.wrap_width = 48;
+
+  auto const document = presentation::format_stacktrace(std::stacktrace::current(), policy);
+  auto render_policy = policy;
+  render_policy.wrap_width = std::nullopt;
+  auto const rendered = presentation::render_plain(document, render_policy);
+
+  std::size_t line_start = 0;
+  while (line_start < rendered.size())
+  {
+    auto const line_end = rendered.find('\n', line_start);
+    auto const line = line_end == std::string::npos
+                          ? std::string_view(rendered).substr(line_start)
+                          : std::string_view(rendered).substr(line_start, line_end - line_start);
+    EXPECT_LE(presentation::display_width(line, policy), *policy.wrap_width) << line;
+    if (line_end == std::string::npos)
+    {
+      break;
+    }
+    line_start = line_end + 1;
+  }
+}
+#endif
 
 TEST(PresentationLayout, LeftTruncationPreservesDisplayCellSuffix)
 {

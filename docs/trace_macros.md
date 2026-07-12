@@ -218,7 +218,13 @@ Throw mode preserves the concrete exception type. Exceptions derived from
 the captured `std::stacktrace`. Abort mode asks ADL for
 `diagnostic_report(exception)` returning a `presentation::report_builder`; when
 that customization is absent, it renders `exception.what()`. Both abort paths
-then emit the usual stacktrace before terminating.
+then emit the usual stacktrace before terminating. `trace::format_diagnostic(...)`
+uses the same report and tree-formatted stacktrace path without emitting it,
+which is useful when a binding, example, or other recoverable boundary catches
+the exception. An overload accepts an explicit presentation policy for
+non-terminal render targets. Stacktrace frames use the policy width, wrapping
+continuation lines beneath the frame description. Structured abort mode does
+not emit a second stacktrace when one is already attached.
 
 ## Stacktrace Configuration (<stacktrace>)
 

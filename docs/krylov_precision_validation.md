@@ -171,7 +171,7 @@ default-facing headers where possible, but remain in-tree and tested.
 | --- | --- | --- | --- |
 | Scalar aliases, numeric limits, scalar concepts, and scalar I/O | yes | yes | `MplapackBinary128Test.Uni20NumericLimitsSeesBackendScalar`, `Uni20ScalarConceptsSeeBackendScalar`, `Uni20ScalarIo*` |
 | MPBLAS wrapper surface | yes | yes | `MplapackBinary128Test.LinksMpblasTransitively`, `Uni20BlasWrappersPreserveBinary128OnlyIncrements` |
-| Tensor one-norm and dense linear solve through linalg CPU helpers | yes | n/a | `MplapackBinary128CpuOpsTest.TensorMatrixOneNormPreservesBinary128Accumulation`, `TensorSolveAcceptsPivotsBelowDoubleMinimum` |
+| Dense one-norm and linear solve through CPU helpers | yes | n/a | `MplapackBinary128CpuOpsTest.MatrixOneNormPreservesBinary128Accumulation`, `SolveAcceptsPivotsBelowDoubleMinimum` |
 | Broad dense projected real helper inventory | yes | n/a | `MplapackBinary128DenseSubspaceTest.*` real rows: norms, dense/band/tridiagonal solves, SPD and symmetric-indefinite solves, factorizations, SVD, symmetric/generalized symmetric eigensystems, real Schur/QZ, and condition diagnostics |
 | Dense projected complex eigensystem and Schur helper inventory | n/a | yes | `MplapackBinary128DenseSubspaceTest.Complex*` rows for Hermitian/generalized Hermitian, nonsymmetric eigensystem, Schur, and Schur reordering |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | `MplapackBinary128KrylovSolversTest.TridiagonalProjectionResolvesGapBelowDoublePrecision` |

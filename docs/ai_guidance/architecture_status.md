@@ -84,7 +84,8 @@ This file is for questions about project maturity, active design seams, and what
 
 - Readable, mutable, and rank-constrained Tensor-view concepts are implemented.
 - `BasicTensor` owns storage by composition and models both concepts.
-- `BasicTensorView` is the concrete non-owning descriptor adaptor.
+- `BasicTensor` resolves mutable or const mdspans directly; there is currently
+  no general concrete non-owning tensor adaptor.
 - Ownership and lifetime sharing are not fully settled.
 - Async-safe aliasing rules are not fully settled.
 - Default backend selectors are storage-derived candidate lists. Backend values

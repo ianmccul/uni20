@@ -20,8 +20,8 @@ namespace uni20::linalg
 /// \brief Report compile-time eligibility for generic CPU GEMM dispatch.
 template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> LhsMdspan,
           uni20::RankedSpanLike<2> RhsMdspan>
-consteval KernelTypeAcceptance kernel_accepts_types(CpuGenericBackend const&, struct gemm_op const&, OutputMdspan&,
-                                                    Scalar const&, LhsMdspan&, RhsMdspan&, Scalar const&)
+consteval auto kernel_accepts_types(CpuGenericBackend const&, struct gemm_op const&, OutputMdspan&, Scalar const&,
+                                    LhsMdspan&, RhsMdspan&, Scalar const&)
 {
   using output_scalar = std::remove_cv_t<typename OutputMdspan::element_type>;
   using lhs_scalar = std::remove_cv_t<typename LhsMdspan::element_type>;
@@ -29,11 +29,11 @@ consteval KernelTypeAcceptance kernel_accepts_types(CpuGenericBackend const&, st
   if constexpr (std::same_as<output_scalar, Scalar> && std::same_as<lhs_scalar, Scalar> &&
                 std::same_as<rhs_scalar, Scalar>)
   {
-    return KernelTypeAcceptance::yes;
+    return kernel_types_yes;
   }
   else
   {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 

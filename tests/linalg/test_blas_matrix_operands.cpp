@@ -97,6 +97,15 @@ TEST(BlasMatrixTransformTest, ComposeAndTransposeResultTransform)
   EXPECT_EQ(blas_trans_char<uni20::complex<double>>(MatrixTransform::conjugate_transpose), 'C');
 }
 
+TEST(BlasMatrixTransformDeathTest, InvalidTransformPanics)
+{
+  GTEST_FLAG_SET(death_test_style, "fast");
+  auto const invalid = static_cast<MatrixTransform>(4U);
+
+  EXPECT_DEATH((void)uni20::linalg::blas::blas_trans_char<uni20::complex<double>>(invalid), "invalid MatrixTransform");
+  EXPECT_DEATH((void)uni20::linalg::blas::blas_trans_char<double>(invalid), "invalid MatrixTransform");
+}
+
 TEST(BlasMatrixOperandTest, ConvenienceApisRequireConfiguredScalarBackends)
 {
   static_assert(can_lower_blas_trans_char<double>);

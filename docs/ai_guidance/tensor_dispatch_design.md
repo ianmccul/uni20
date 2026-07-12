@@ -26,8 +26,8 @@ view, backend-dispatch, and temporary-allocation design.
   inheritance-based.
 - `BasicTensor` owns storage by composition and models `TensorView` and
   `MutableTensorView`.
-- `BasicTensorView` is the current concrete non-owning descriptor adaptor; it is
-  not a dispatch base class.
+- There is currently no general concrete non-owning tensor adaptor. Add one only
+  with explicit slice/external-storage lifetime and assignment semantics.
 
 ## Tensor roles
 
@@ -108,7 +108,8 @@ concrete owning tensor.
 - New Uni20 linalg/kernel APIs put API tags and explicit backend selectors
   first, then mutable outputs, then inputs. Examples: `matvec(y, A, x)`,
   `gemm(C, alpha, A, B, beta)`, `gemm(selector, C, alpha, A, B, beta)`,
-  and `try_kernel(backend, op, output, inputs...)`.
+  `dispatch_kernel(selector, op, output_mdspan, inputs...)`, and
+  `try_kernel(backend, op, output, inputs...)`.
 - Selector-prefix APIs need two overloads when the selector is optional:
   one storage-default overload with no selector, and one constrained
   selector-first overload.
@@ -121,7 +122,7 @@ concrete owning tensor.
 ### OPERATION-TAG MODEL
 
 - Backend dispatch is an ordered backend-list walk for an operation tag.
-- The concrete linalg GEMM mdspan slice exists for explicit selectors:
+- The concrete linalg GEMM mdspan slice uses generic dispatch with explicit selectors:
   `try_kernel(BlasBackend, gemm_op, ...)` delegates to
   `uni20::linalg::blas::try_gemm(...)`, then falls through to the
   `CpuGenericBackend` GEMM oracle when BLAS declines.
@@ -129,10 +130,11 @@ concrete owning tensor.
   `[BlasBackend, CpuGenericBackend]` when BLAS is configured, and
   `[CpuGenericBackend]` otherwise. Explicit selectors override that default.
 - The static capability CPO is
-  `consteval KernelTypeAcceptance kernel_accepts_types(backend const&, op const&, args&...)`.
-  It checks type-level facts only and returns `no`, `maybe`, or `yes`. It must
-  not read argument values; the dispatcher may evaluate it with private
-  type-probe lvalues.
+  `consteval auto kernel_accepts_types(backend const&, op const&, args&...)`.
+  It checks type-level facts only and returns `kernel_types_no`,
+  `kernel_types_maybe`, or `kernel_types_yes`. The dispatcher inspects the
+  result type with `decltype` and `std::declval`; it does not construct or read
+  argument objects.
 - The runtime attempt CPO is `try_kernel(backend, op, args...)`. It performs
   runtime checks such as strides, device placement, handles, and library
   availability, then either runs the kernel and returns `true` or declines
@@ -237,8 +239,8 @@ boundary exchange type, but this is not finalized.
 ## Misconceptions
 
 - `TensorView` is a concept, not a concrete base class.
-- `BasicTensorView` is a non-owning adaptor, not the owner base subobject of
-  `BasicTensor`.
+- A resolved mdspan is a leaf-kernel operand, not a tensor-level owner or durable
+  asynchronous alias.
 - Backend fallback order should not be encoded by inheritance.
 - A CUDA backend tag by itself is not enough to allocate CUDA temporary storage.
 - `std::tuple` can store duplicate types, but `std::get<T>` by type requires

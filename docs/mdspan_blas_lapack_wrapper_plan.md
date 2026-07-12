@@ -78,7 +78,8 @@ The first operation-tag dispatch slice adds:
   - `KernelTypeAcceptance`, `backend_list`, selector normalization, type
     acceptance detection, and the runtime backend walk.
 - `ops/gemm.hpp`
-  - `gemm_op`, selector-first `try_gemm(...)`, and checked `gemm(...)`.
+  - `gemm_op` and fixed-output Tensor `gemm(...)`; bare mdspans use the generic
+    dispatch API directly.
 - `backends/blas/gemm.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemm_op, ...)`.
 - `backends/cpu/gemm.hpp`
@@ -223,6 +224,26 @@ wrapper explicitly lowers. For the current BLAS adapter, readable inputs may use
 `stdex::default_accessor<T>` or Uni20's `conjugated_accessor` over a default
 accessor. Writable outputs and LAPACK update operands require default-accessor
 views.
+
+### Aliasing Contract
+
+Fixed-output GEMM requires the output element addresses to be disjoint from
+both readable inputs. The two readable inputs may overlap each other. This is a
+leaf-kernel precondition: supporting an aliased output requires an explicit
+temporary and copy-back policy above the direct GEMM wrapper.
+
+Do not reject operands merely because their enclosing allocation or bounding
+address ranges overlap. Two slices of one matrix may still address disjoint
+elements. A directly BLAS-compatible matrix is an ordered union of contiguous
+unit-stride intervals, one per provider column, so a diagnostic or binding layer
+can test exact overlap in linear time in the number of provider columns. Generic
+accessor-respecting CPU views do not necessarily admit an equally cheap exact
+test.
+
+The C++ leaf API may rely on this documented precondition. Python and other
+runtime-erased front ends should validate overlap whenever it is exactly
+representable and should reject or materialize uncertain cases according to
+their user-facing policy.
 
 `unit_stride_axis` is deliberately an integer mdspan axis, not a row/column
 enum. Names such as `row` and `column` are easy to misread because
@@ -518,10 +539,10 @@ scratch storage.
 
 ## Relation To Dispatch
 
-The direct GEMM wrapper is now wired through the generic backend-list
-dispatcher for explicit mdspan selectors and through fixed-output Tensor
-overloads that derive the default selector from tensor storage. The remaining
-axes of progress are:
+The direct GEMM wrapper is wired into the generic backend-list dispatcher as a
+leaf kernel. Bare mdspans call `dispatch_kernel` or `try_dispatch_kernel`
+directly with `gemm_op`; fixed-output Tensor overloads derive the default
+selector from tensor storage. The remaining axes of progress are:
 
 1. Add more direct BLAS/LAPACK operation wrappers over the same mdspan
    descriptors.
@@ -596,12 +617,16 @@ Completed checkpoint:
 
 Recommended next slice:
 
-1. Add tensor/storage default backend selection for GEMM, or keep explicit
-   mdspan selectors and broaden the operation wrapper surface.
-2. Add vector/RHS descriptor helpers needed by LAPACK.
-3. Implement one LAPACK wrapper, likely self-adjoint eigensystem, over existing
+1. Add vector/RHS descriptor helpers with explicit readable, writable, and
+   update roles.
+2. Add checked scalar-generic conversion of LAPACK workspace-query results to
+   `blas_int`, including real, complex, and extension precision coverage.
+3. Define operation-specific aliasing and overwrite contracts before side
+   effects.
+4. Implement one LAPACK wrapper, likely self-adjoint eigensystem, over existing
    `uni20::lapack::syev/heev`.
-4. Wrap LAPACK operations in `try_kernel(LapackBackend, op, ...)` overloads.
+5. Wrap the operation in `try_kernel(LapackBackend, op, ...)` and use it to
+   validate the vocabulary before adding further LAPACK families.
 
 This order keeps the generic dispatch path tested by the GEMM leaf kernel while
 separating tensor default-backend policy from LAPACK workspace, vector

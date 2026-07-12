@@ -20,8 +20,7 @@ Current code shape:
 
 - `BasicTensor` owns storage by composition and exposes resolved mdspans.
 - The Tensor-view concept family includes readable, mutable, and rank-constrained
-  forms; `BasicTensorView` is the concrete non-owning descriptor adaptor
-  (`src/uni20/tensor/tensor_view.hpp`).
+  forms in `src/uni20/tensor/concepts.hpp`.
 - mdspan integration and concepts live in `src/uni20/mdspan/`.
 - Level-1 tensor kernels live in `src/uni20/level1/`.
 
@@ -61,9 +60,9 @@ Current code shape:
 
 ### 3.1 Tensor/view lifetime model
 
-Today, `BasicTensor` is storage-owning and models the Tensor view concepts.
-`BasicTensorView` is non-owning.
-For more advanced async and slicing workflows, we still need a clearer long-term lifetime-sharing strategy.
+Today, `BasicTensor` owns storage and models the tensor-level concepts directly.
+There is no general concrete non-owning tensor adaptor yet. Advanced async and
+slicing workflows still need an explicit lifetime-sharing design.
 
 ### 3.2 Assignment semantics for reference-like tensor views
 

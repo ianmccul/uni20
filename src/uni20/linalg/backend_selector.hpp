@@ -6,6 +6,7 @@
  * \brief Ordered backend selector values shared by tensor storage and linalg dispatch.
  */
 
+#include <concepts>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -47,6 +48,58 @@ template <class... Backends> struct is_backend_list<backend_list<Backends...>> :
 {};
 
 template <class T> inline constexpr bool is_backend_list_v = is_backend_list<std::remove_cvref_t<T>>::value;
+
+/// \brief Optional global backend-selector override for an operation and storage policy.
+/// \details Specializations may define a static `select(operation, operands...)`
+///          function. When no such function is available, tensor dispatch uses
+///          the storage policy's selector exposed by the first operand.
+template <class Operation, class StoragePolicy> struct backend_selector_override
+{};
+
+namespace detail
+{
+template <class Tensor>
+concept HasStoragePolicy = requires { typename std::remove_cvref_t<Tensor>::storage_policy; };
+
+template <class FirstTensor, class... RestTensors>
+[[nodiscard]] constexpr auto storage_default_backend_selector(FirstTensor const& first, RestTensors const&... rest)
+{
+  using selector_type = std::remove_cvref_t<decltype(first.backend_selector())>;
+  static_assert((std::same_as<selector_type, std::remove_cvref_t<decltype(rest.backend_selector())>> && ...),
+                "tensor operands must provide compatible default backend selector types");
+  return first.backend_selector();
+}
+} // namespace detail
+
+/// \brief Select the default backend list for an operation on tensor operands.
+/// \details Operands with storage policies must use one common policy. A global
+///          `backend_selector_override<Operation, StoragePolicy>` specialization
+///          may replace the storage-provided default. Tensor adaptors without a
+///          storage-policy type fall back directly to their member selectors.
+template <class Operation, class FirstTensor, class... RestTensors>
+[[nodiscard]] constexpr auto select_backend(Operation const& operation, FirstTensor const& first,
+                                            RestTensors const&... rest)
+{
+  if constexpr (detail::HasStoragePolicy<FirstTensor> && (detail::HasStoragePolicy<RestTensors> && ...))
+  {
+    using storage_policy = typename std::remove_cvref_t<FirstTensor>::storage_policy;
+    static_assert((std::same_as<storage_policy, typename std::remove_cvref_t<RestTensors>::storage_policy> && ...),
+                  "tensor operands with different storage policies require an explicit selector or transfer");
+    using override_type = backend_selector_override<std::remove_cvref_t<Operation>, storage_policy>;
+    if constexpr (requires { override_type::select(operation, first, rest...); })
+    {
+      return override_type::select(operation, first, rest...);
+    }
+    else
+    {
+      return detail::storage_default_backend_selector(first, rest...);
+    }
+  }
+  else
+  {
+    return detail::storage_default_backend_selector(first, rest...);
+  }
+}
 
 /// \brief Return an explicit backend list unchanged.
 template <class... Backends>

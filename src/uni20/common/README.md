@@ -13,7 +13,7 @@ high-level tensor, linalg, async, or symmetry layers.
 - `mdspan.hpp`: project include point for the Kokkos reference mdspan
   implementation in the `stdex` namespace.
 - `presentation*`, `display*`, `terminal*`: user-facing formatting and terminal
-  helpers.
+  helpers, including policy-aware stacktrace presentation when available.
 - `aligned_buffer.hpp`, `static_vector.hpp`: small storage utilities.
 - `floating_eq.hpp`, `half_int.hpp`, `namedenum.hpp`, `string_util.hpp`,
   `demangle.hpp`: common scalar, enum, string, and type-name helpers.

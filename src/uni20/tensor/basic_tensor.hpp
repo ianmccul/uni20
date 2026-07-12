@@ -1,7 +1,10 @@
 #pragma once
 
+#include "concepts.hpp"
 #include "layout.hpp"
-#include "tensor_view.hpp"
+
+#include <uni20/common/mdspan.hpp>
+#include <uni20/storage/vectorstorage.hpp>
 
 #include <array>
 #include <concepts>
@@ -11,6 +14,18 @@
 
 namespace uni20
 {
+
+/// \brief Factory that provides default accessors for tensor storage containers.
+struct DefaultAccessorFactory
+{
+    template <typename ElementType> using accessor_t = stdex::default_accessor<ElementType>;
+
+    template <typename ElementType, typename Storage>
+    [[nodiscard]] constexpr auto make_accessor(Storage const&) const noexcept -> accessor_t<ElementType>
+    {
+      return accessor_t<ElementType>{};
+    }
+};
 
 /// \brief Owning tensor that allocates storage and exposes mdspan-based access.
 /// \ingroup tensor
@@ -22,12 +37,6 @@ namespace uni20
 template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
           typename LayoutPolicy = stdex::layout_stride, typename AccessorFactory = DefaultAccessorFactory>
 class BasicTensor {
-  private:
-    using traits_type = mutable_tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
-    using const_traits = tensor_traits<Extents, StoragePolicy, LayoutPolicy, AccessorFactory>;
-    using mutable_view_type = BasicTensorView<ElementType, traits_type>;
-    using const_view_type = BasicTensorView<ElementType const, const_traits>;
-
   public:
     using element_type = ElementType;
     using value_type = std::remove_cv_t<element_type>;
@@ -35,17 +44,17 @@ class BasicTensor {
     using layout_policy = LayoutPolicy;
     using layout_type = layout_policy;
     using accessor_factory_type = AccessorFactory;
-    using accessor_policy = typename traits_type::accessor_policy;
-    using accessor_type = typename mutable_view_type::accessor_type;
-    using const_accessor_type = typename const_view_type::accessor_type;
+    using accessor_type = typename accessor_factory_type::template accessor_t<element_type>;
+    using const_accessor_type = typename accessor_factory_type::template accessor_t<element_type const>;
     using extents_type = Extents;
-    using handle_type = typename const_view_type::handle_type;
-    using mutable_handle_type = typename mutable_view_type::handle_type;
+    using handle_type = typename const_accessor_type::data_handle_type;
+    using mutable_handle_type = typename accessor_type::data_handle_type;
     using index_type = typename extents_type::index_type;
     using mapping_type = typename layout_policy::template mapping<extents_type>;
     using size_type = uni20::size_type;
     using backend_selector_type = typename storage_policy::backend_selector_type;
-    using default_tag = typename storage_policy::default_tag;
+    using mdspan_type = stdex::mdspan<element_type, extents_type, layout_policy, accessor_type>;
+    using const_mdspan_type = stdex::mdspan<element_type const, extents_type, layout_policy, const_accessor_type>;
 
     using storage_type = typename storage_policy::template storage_t<element_type>;
 
@@ -53,8 +62,9 @@ class BasicTensor {
     BasicTensor() = default;
 
     /// \brief Copy-construct a tensor with independent owned storage.
-    /// \details Tensor elements, mapping, and accessor state are copied. Resolved
-    ///          views are constructed on demand from this tensor's own storage.
+    /// \details Tensor elements, mapping, and accessor-factory state are copied.
+    ///          Resolved mdspans are constructed on demand from this tensor's
+    ///          own storage.
     /// \param other Source tensor to copy.
     BasicTensor(BasicTensor const& other) = default;
 
@@ -117,31 +127,19 @@ class BasicTensor {
       return storage_policy::backend_selector();
     }
 
-    /// \brief Create a mutable tensor view referencing the owned storage.
-    /// \return BasicTensorView exposing mutable element access with the current mapping and accessor.
-    [[nodiscard]] auto view() noexcept -> mutable_view_type
-    {
-      return mutable_view_type(mutable_handle(), mapping_, accessor_);
-    }
-
-    /// \brief Create a const tensor view referencing the owned storage.
-    /// \return BasicTensorView exposing read-only access with the current mapping and accessor.
-    [[nodiscard]] auto view() const noexcept -> const_view_type
-    {
-      return const_view_type(handle(), mapping_, accessor_);
-    }
-
-    /// \brief Create a const tensor view alias for readability.
-    /// \return BasicTensorView exposing read-only access with the current mapping and accessor.
-    [[nodiscard]] auto const_view() const noexcept -> const_view_type { return view(); }
-
     /// \brief Resolve a writable mdspan over the owned storage.
     /// \return Mutable mdspan preserving the tensor mapping and accessor semantics.
-    [[nodiscard]] auto mdspan() noexcept { return this->view().mdspan(); }
+    [[nodiscard]] auto mdspan() noexcept -> mdspan_type
+    {
+      return mdspan_type(this->mutable_handle(), mapping_, this->accessor());
+    }
 
     /// \brief Resolve a read-only mdspan over the owned storage.
     /// \return Const mdspan preserving the tensor mapping and accessor semantics.
-    [[nodiscard]] auto mdspan() const noexcept { return this->const_view().mdspan(); }
+    [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type
+    {
+      return const_mdspan_type(this->handle(), mapping_, this->accessor());
+    }
 
     /// \brief Return the tensor's const storage handle.
     /// \return Handle addressing the beginning of the owned storage.
@@ -164,13 +162,19 @@ class BasicTensor {
     /// \return Extent of the requested axis.
     [[nodiscard]] auto extent(size_type axis) const noexcept { return this->extents().extent(axis); }
 
-    /// \brief Return the tensor's mutable accessor.
-    /// \return Accessor used to construct writable resolved views.
-    [[nodiscard]] auto accessor() noexcept -> accessor_type& { return accessor_; }
+    /// \brief Construct the tensor's mutable accessor.
+    /// \return Accessor used to construct writable resolved mdspans.
+    [[nodiscard]] auto accessor() noexcept -> accessor_type
+    {
+      return accessor_factory_.template make_accessor<element_type>(data_);
+    }
 
-    /// \brief Return the tensor's accessor state.
-    /// \return Accessor used to construct resolved views.
-    [[nodiscard]] auto accessor() const noexcept -> accessor_type const& { return accessor_; }
+    /// \brief Construct the tensor's read-only accessor.
+    /// \return Accessor used to construct read-only resolved mdspans.
+    [[nodiscard]] auto accessor() const noexcept -> const_accessor_type
+    {
+      return accessor_factory_.template make_accessor<element_type const>(data_);
+    }
 
     /// \brief Return the number of elements in the mapped storage span.
     /// \return Required span size of the tensor mapping.
@@ -221,7 +225,10 @@ class BasicTensor {
     /// \return Mutable element reference.
     decltype(auto) operator[](std::array<index_type, extents_type::rank()> const& indices) noexcept
     {
-      return this->view()[indices];
+      auto span = this->mdspan();
+      return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
+        return span[indices[I]...];
+      }(std::make_index_sequence<extents_type::rank()>{});
     }
 
     /// \brief Access a const tensor element through an index array.
@@ -229,7 +236,10 @@ class BasicTensor {
     /// \return Const element reference.
     decltype(auto) operator[](std::array<index_type, extents_type::rank()> const& indices) const noexcept
     {
-      return this->const_view()[indices];
+      auto span = this->mdspan();
+      return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
+        return span[indices[I]...];
+      }(std::make_index_sequence<extents_type::rank()>{});
     }
 
   private:
@@ -245,7 +255,7 @@ class BasicTensor {
 
     BasicTensor(internal_tag, ctor_payload payload)
         : mapping_(std::move(payload.mapping)), data_(std::move(payload.storage)),
-          accessor_(payload.accessor_factory.template make_accessor<element_type>(data_))
+          accessor_factory_(std::move(payload.accessor_factory))
     {}
 
     static ctor_payload make_payload(mapping_type mapping, accessor_factory_type accessor_factory)
@@ -309,7 +319,7 @@ class BasicTensor {
 
     [[no_unique_address]] mapping_type mapping_{};
     storage_type data_{};
-    [[no_unique_address]] accessor_type accessor_{};
+    [[no_unique_address]] accessor_factory_type accessor_factory_{};
 };
 
 } // namespace uni20

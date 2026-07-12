@@ -18,18 +18,18 @@ namespace uni20::linalg
 /// \brief Report compile-time eligibility for direct BLAS GEMM dispatch.
 template <uni20::MutableRankedStridedMdspan<2> OutputMdspan, class Scalar, uni20::RankedStridedMdspan<2> LhsMdspan,
           uni20::RankedStridedMdspan<2> RhsMdspan>
-consteval KernelTypeAcceptance kernel_accepts_types(BlasBackend const&, struct gemm_op const&, OutputMdspan&,
-                                                    Scalar const&, LhsMdspan&, RhsMdspan&, Scalar const&)
+consteval auto kernel_accepts_types(BlasBackend const&, struct gemm_op const&, OutputMdspan&, Scalar const&, LhsMdspan&,
+                                    RhsMdspan&, Scalar const&)
 {
   if constexpr (requires(OutputMdspan& output, Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs) {
                   { uni20::linalg::blas::try_gemm(output, alpha, lhs, rhs, alpha) } -> std::same_as<bool>;
                 })
   {
-    return KernelTypeAcceptance::maybe;
+    return kernel_types_maybe;
   }
   else
   {
-    return KernelTypeAcceptance::no;
+    return kernel_types_no;
   }
 }
 

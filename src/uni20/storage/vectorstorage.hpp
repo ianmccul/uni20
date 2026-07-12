@@ -2,7 +2,6 @@
 
 #include <uni20/common/mdspan.hpp>
 #include <uni20/config.hpp>
-#include <uni20/kernel/cpu/cpu.hpp>
 #include <uni20/linalg/backend_selector.hpp>
 #include <uni20/tensor/layout.hpp>
 
@@ -28,8 +27,6 @@ struct VectorStorage
     {
       return storage.data();
     }
-
-    using default_tag = cpu_tag;
 
 #if UNI20_BACKEND_BLAS
     using backend_selector_type = linalg::backend_list<linalg::BlasBackend, linalg::CpuGenericBackend>;

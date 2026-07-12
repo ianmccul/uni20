@@ -1,8 +1,6 @@
 #pragma once
 
-#include "backend_manifest.hpp"
 #include <uni20/linalg/ops/gemm.hpp>
-#include <uni20/linalg/ops/matrix_ops.hpp>
 
 namespace uni20::linalg
 {

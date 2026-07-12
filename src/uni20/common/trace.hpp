@@ -8,6 +8,7 @@
 #include "namedenum.hpp"
 #include "presentation.hpp"
 #include "presentation_mdspan.hpp"
+#include "presentation_stacktrace.hpp"
 #include "terminal.hpp"
 
 #include <algorithm>

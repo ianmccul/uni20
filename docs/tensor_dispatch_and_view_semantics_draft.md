@@ -53,7 +53,6 @@ The current semantic split is:
 
 ```cpp
 BasicTensor      // owning dense tensor value; models the TensorView concepts
-BasicTensorView  // concrete non-owning tensor adaptor; also models the concepts
 TensorView       // readable tensor-level concept, not an mdspan-like type
 MutableTensorView // writable refinement of TensorView
 mdspan           // resolved leaf-kernel operand
@@ -85,10 +84,10 @@ auto v = tensor_view(A);
 v = tensor_view(B); // rebind v's descriptor; no element assignment
 ```
 
-`TensorView` is a concept, not a central base class. `BasicTensorView` is the
-current concrete adaptor for a mapping, handle, accessor, and default backend
-selector. Leaf kernels never receive that adaptor directly; tensor operation
-wrappers resolve its `mdspan()` first.
+`TensorView` is a concept, not a central base class. There is currently no
+general concrete non-owning tensor adaptor. Leaf kernels receive the mdspan
+resolved by an owning tensor or a future adaptor with explicit storage-policy
+and lifetime semantics.
 
 For dense CUDA data, the tensor/adaptor object must carry enough dispatch
 information to identify device memory. At minimum that means a storage/backend
@@ -223,9 +222,8 @@ A fixed output cannot reallocate parent storage. It validates shape and then
 produces a mutable view:
 
 ```cpp
-ensure_shape(C.view(), shape);      // validate only
 ensure_shape(C.slice(...), shape);  // validate only
-gemm_into(C.view(), A, B);      // C must already have the right shape
+gemm_into(C, A, B);             // C must already have the right shape
 gemm_into(C.slice(...), A, B);  // slice shape must already match
 ```
 
@@ -259,7 +257,7 @@ current target surface.
 ```cpp
 BasicTensor C;
 C = A + B;
-C = tensor_view(rhs);
+C = rhs;
 ```
 
 Needed behavior:
@@ -298,7 +296,6 @@ Concept pressure:
 
 ```cpp
 gemm(C, alpha, A, B, beta);
-gemm(C.view(), alpha, A, B, beta);
 gemm(C.slice(...), alpha, A, B, beta);
 ```
 
@@ -316,8 +313,8 @@ Concept pressure:
 ### Explicit Backend On Mdspan
 
 ```cpp
-gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
-     c_mdspan, alpha, a_mdspan, b_mdspan, beta);
+dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}}, gemm_op{},
+                c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 ```
 
 Needed behavior:
@@ -463,10 +460,26 @@ functions when present. Uni20's own tensor and adaptor classes can therefore use
 ordinary members for locality and documentation, while external types can still
 opt in through wrappers or ADL/customization.
 
+The implemented `select_backend(operation, operands...)` uses a global
+`backend_selector_override<Operation, StoragePolicy>` customization trait. Its
+fallback requires a common storage policy and returns the first operand's
+storage-provided selector. A specialization may globally replace the backend
+list for an operation/storage combination or inspect all operand values when
+selector state must be checked or composed. Explicit-selector operation
+overloads bypass this default-selection step.
+
+The default path rejects mixed storage policies at compile time. In particular,
+a host tensor and a CUDA tensor do not acquire an implicit transfer merely
+because some backend appears in both selector lists. The caller must request an
+explicit transfer or use an operation-specific higher-level path whose global
+policy explicitly defines the mixed-domain semantics. Mixed-policy global
+selection is intentionally left open rather than inferred by the current
+single-policy override.
+
 For example:
 
 ```cpp
-tensor_view(x);              // may call x.view()
+tensor_mdspan(x);            // may call x.mdspan()
 tensor_backend_selector(x);  // may call x.backend_selector()
 tensor_descriptor(x);        // may call x.descriptor()
 ```
@@ -497,7 +510,7 @@ Then a value-producing operation can be structured as:
 template <class A, class B, class C>
 void matmul(C& c, A const& a, B const& b)
 {
-  auto selector = common_backend_selector(a, b, c);
+  auto selector = select_backend(matmul_op{}, a, b, c);
   auto shape = matmul_shape(tensor_descriptor(a), tensor_descriptor(b));
 
   ensure_shape(c, shape);
@@ -539,7 +552,7 @@ The temporary type should be selected from the backend selector/list value and
 its storage domain, not from the C++ name of the operand:
 
 ```cpp
-auto selector = common_backend_selector(a, b);
+auto selector = select_backend(copy_op{}, a, b);
 auto domain = temporary_storage_domain(selector, a, b);
 auto tmp = make_temporary_tensor(selector, domain, descriptor);
 copy(tmp, a); // ordinary backend-dispatched copy kernel
@@ -586,8 +599,8 @@ Therefore direct mdspan calls that need temporaries should either use an
 adapter carrying a storage domain or pass an explicit domain/factory:
 
 ```cpp
-gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
-     HostDomain{}, c_mdspan, a_mdspan, b_mdspan);
+dispatch_kernel(make_host_selector(HostDomain{}), gemm_op{},
+                c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 
 auto A = as_tensor_view(a_mdspan, CudaDomain{device});
 auto tmp = make_temporary_like(A, descriptor);
@@ -656,8 +669,8 @@ not get an implicit fallback.
 Plain mdspan entry points should require an explicit backend selector:
 
 ```cpp
-gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
-     c_mdspan, alpha, a_mdspan, b_mdspan, beta);
+dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}}, gemm_op{},
+                c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 ```
 
 or an explicit backend helper:
@@ -777,10 +790,10 @@ copying. A fallback from CUDA to CPU is therefore not just "next backend in the
 list"; it is either a declared staging path or an error if the operands cannot
 be read by the CPU backend.
 
-## Owner And Adaptor Composition
+## Owning Tensor Composition
 
-`BasicTensor` no longer inherits from a view. It owns storage, mapping, and
-accessor state directly, and constructs resolved views on demand:
+`BasicTensor` owns storage, mapping, and accessor-factory state directly, and
+constructs resolved mdspans on demand:
 
 ```cpp
 class BasicTensor {
@@ -788,16 +801,16 @@ class BasicTensor {
   descriptor_type descriptor_;
 
 public:
-  auto view() &;
-  auto view() const&;
+  auto mdspan() &;
+  auto mdspan() const&;
   auto backend_selector() const;
 };
 ```
 
-This avoids base-class conversion and keeps owner copy/move semantics independent
-of descriptor rebinding. `BasicTensorView` provides the concrete non-owning
-adaptor where one is useful. Both types satisfy the `TensorView` concept and
-neither satisfies `SpanLike`; their returned mdspans satisfy the leaf concepts.
+This keeps owner copy/move semantics independent of mdspan descriptor rebinding.
+`BasicTensor` satisfies the tensor-level concepts but not `SpanLike`; its
+returned mdspans satisfy the leaf concepts. A future slice or external-storage
+adaptor must carry storage/execution policy and explicit lifetime semantics.
 
 ## External And Pluggable Operands
 
@@ -881,9 +894,9 @@ object. `TensorRef::operator=` corresponds to slice/adaptor assignment.
 `BasicTensor::operator=` corresponds to replacing the owning tensor value.
 
 Python bindings may still choose to expose NumPy/nanobind arrays at the
-boundary, with Uni20 tensor/adaptor objects used internally for dispatch. A
-named `BasicTensorView` adaptor may still be valuable in the bindings even if
-C++ leaf kernels mostly use mdspan-like descriptors directly.
+boundary, with Uni20 tensor/adaptor objects used internally for dispatch. Such
+adaptors must retain their Python owner and storage/execution policy rather than
+being raw mdspan descriptors.
 
 ## Open Questions
 
@@ -962,6 +975,6 @@ C++ leaf kernels mostly use mdspan-like descriptors directly.
   `try_kernel` and `kernel_accepts_types`.
 - Backend selectors should accept both singleton backend values and ordered
   backend-list values.
-- Concepts are the tensor dispatch abstraction. `BasicTensor` uses composition,
-  while `BasicTensorView` is a concrete non-owning adaptor; neither relationship
-  depends on inheritance.
+- Concepts are the tensor dispatch abstraction. `BasicTensor` uses composition;
+  future non-owning adaptors must define lifetime and assignment semantics
+  explicitly rather than relying on inheritance.

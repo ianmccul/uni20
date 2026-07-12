@@ -8,6 +8,7 @@
 
 namespace example
 {
+using uni20::linalg::kernel_types_maybe;
 using uni20::linalg::KernelTypeAcceptance;
 
 struct demo_op
@@ -25,10 +26,7 @@ struct declining_backend
     static constexpr std::string_view name = "declining";
 };
 
-consteval KernelTypeAcceptance kernel_accepts_types(declining_backend const&, demo_op const&, int&)
-{
-  return KernelTypeAcceptance::maybe;
-}
+consteval auto kernel_accepts_types(declining_backend const&, demo_op const&, int&) { return kernel_types_maybe; }
 
 bool try_kernel(declining_backend, demo_op, int&) { return false; }
 
@@ -36,7 +34,7 @@ void print_error(std::string_view heading, uni20::linalg::KernelDispatchError co
 {
   fmt::print("\n{}\n", heading);
   auto policy = trace::get_formatting_options().presentation_policy();
-  fmt::print("{}\n", uni20::presentation::render_terminal(diagnostic_report(error), policy, stdout));
+  fmt::print("{}\n", uni20::presentation::render_terminal(trace::format_diagnostic(error), policy, stdout));
 }
 
 } // namespace example
