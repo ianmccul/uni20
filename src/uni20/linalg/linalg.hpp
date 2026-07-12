@@ -1,6 +1,7 @@
 #pragma once
 
 #include <uni20/linalg/ops/gemm.hpp>
+#include <uni20/linalg/ops/gemv.hpp>
 
 namespace uni20::linalg
 {

@@ -37,6 +37,23 @@ add_subdirectory(krylov)
 target_link_libraries(uni20 PUBLIC uni20_krylov)
 
 # Configure the header file. We need to do this last, because subdirectories may set their own variables.
+if(NOT UNI20_BACKEND_BLAS OR
+   NOT DEFINED UNI20_DETECTED_BLAS_VENDOR OR
+   UNI20_DETECTED_BLAS_VENDOR STREQUAL "")
+  set(UNI20_DETECTED_BLAS_VENDOR "None")
+endif()
+if(NOT UNI20_BACKEND_BLAS OR NOT DEFINED UNI20_DETECTED_BLAS_VENDOR_MACRO OR
+   UNI20_DETECTED_BLAS_VENDOR_MACRO STREQUAL "")
+  set(UNI20_DETECTED_BLAS_VENDOR_MACRO "UNI20_BLAS_VENDOR_NONE")
+endif()
+if(NOT UNI20_BACKEND_BLAS OR NOT DEFINED BLA_SIZEOF_INTEGER OR BLA_SIZEOF_INTEGER STREQUAL "")
+  if(UNI20_ILP64)
+    set(BLA_SIZEOF_INTEGER 8)
+  else()
+    set(BLA_SIZEOF_INTEGER 4)
+  endif()
+endif()
+
 file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/src/uni20")
 configure_file(
   config.hpp.in

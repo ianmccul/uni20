@@ -1,5 +1,6 @@
 #pragma once
 
+#include <uni20/backend/blas/blas_int.hpp>
 #include <uni20/backend/lapack/lapack.hpp>
 #include <uni20/common/mdspan.hpp>
 #include <uni20/config.hpp>
@@ -159,15 +160,7 @@ enum class MatrixNorm
 namespace detail
 {
 
-inline blas_int checked_blas_int(std::size_t value)
-{
-  auto const converted = static_cast<blas_int>(value);
-  if (static_cast<std::size_t>(converted) != value)
-  {
-    throw std::overflow_error("dense Krylov dimension does not fit BLAS integer type");
-  }
-  return converted;
-}
+using uni20::blas::checked_blas_int;
 
 inline char lapack_norm(MatrixNorm norm)
 {

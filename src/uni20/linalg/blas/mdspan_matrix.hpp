@@ -7,9 +7,10 @@
  */
 
 #include <uni20/backend/backend.hpp>
+#include <uni20/backend/blas/blas_int.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/blas/blas_matrix.hpp>
-#include <uni20/mdspan/conjugate_accessor.hpp>
+#include <uni20/linalg/blas/mdspan_access.hpp>
 
 #include <optional>
 #include <type_traits>
@@ -17,8 +18,6 @@
 
 namespace uni20::linalg::blas
 {
-
-static_assert(std::is_signed_v<blas_int>, "BLAS/LAPACK integer ABI type must be signed");
 
 /// \brief Logical mdspan matrix layout before provider-specific BLAS lowering.
 template <class Scalar, class Handle> struct MdspanMatrixStage
@@ -34,25 +33,6 @@ template <class Scalar, class Handle> struct MdspanMatrixStage
 
 namespace detail
 {
-inline constexpr blas_int invalid_blas_int = blas_int{-1};
-
-constexpr bool is_valid_blas_int(blas_int value) noexcept { return value >= 0; }
-
-template <typename Value> constexpr blas_int try_blas_int(Value value) noexcept
-{
-  if (!std::in_range<blas_int>(value))
-  {
-    return invalid_blas_int;
-  }
-
-  auto const converted = static_cast<blas_int>(value);
-  if (converted < 0)
-  {
-    return invalid_blas_int;
-  }
-  return converted;
-}
-
 inline blas_int minimum_leading_dimension(blas_int rows) { return rows > 1 ? rows : 1; }
 
 inline std::optional<blas_int> normalized_nonunit_stride(blas_int nonunit_stride, blas_int provider_rows,
@@ -73,31 +53,6 @@ inline std::optional<blas_int> normalized_nonunit_stride(blas_int nonunit_stride
 
   return std::nullopt;
 }
-
-template <class Accessor>
-struct is_blas_direct_read_accessor : std::bool_constant<uni20::is_default_accessor_v<Accessor>>
-{};
-
-template <uni20::AccessorPolicy Accessor>
-struct is_blas_direct_read_accessor<uni20::conjugated_accessor<Accessor>>
-    : std::bool_constant<uni20::is_default_accessor_v<Accessor>>
-{};
-
-template <class Accessor>
-inline constexpr bool is_blas_direct_read_accessor_v =
-    is_blas_direct_read_accessor<std::remove_cvref_t<Accessor>>::value;
-
-template <class Mdspan>
-concept blas_readable_mdspan =
-    uni20::RankedStridedMdspan<Mdspan, 2> &&
-    uni20::BlasScalar<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>> &&
-    is_blas_direct_read_accessor_v<typename std::remove_cvref_t<Mdspan>::accessor_type>;
-
-template <class Mdspan>
-concept blas_writable_mdspan =
-    uni20::MutableRankedStridedMdspan<Mdspan, 2> &&
-    uni20::BlasScalar<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>> &&
-    uni20::DefaultAccessorMdspan<Mdspan>;
 
 template <class Mdspan>
 concept lapack_writable_mdspan =
@@ -121,12 +76,12 @@ auto try_mdspan_matrix_stage(Mdspan const& span)
     return std::nullopt;
   }
 
-  auto const extent0 = detail::try_blas_int(span.extent(0));
-  auto const extent1 = detail::try_blas_int(span.extent(1));
-  auto const stride0 = detail::try_blas_int(mapping.stride(0));
-  auto const stride1 = detail::try_blas_int(mapping.stride(1));
-  if (!detail::is_valid_blas_int(extent0) || !detail::is_valid_blas_int(extent1) ||
-      !detail::is_valid_blas_int(stride0) || !detail::is_valid_blas_int(stride1))
+  auto const extent0 = uni20::blas::try_blas_int(span.extent(0));
+  auto const extent1 = uni20::blas::try_blas_int(span.extent(1));
+  auto const stride0 = uni20::blas::try_blas_int(mapping.stride(0));
+  auto const stride1 = uni20::blas::try_blas_int(mapping.stride(1));
+  if (!uni20::blas::is_valid_blas_int(extent0) || !uni20::blas::is_valid_blas_int(extent1) ||
+      !uni20::blas::is_valid_blas_int(stride0) || !uni20::blas::is_valid_blas_int(stride1))
   {
     return std::nullopt;
   }
@@ -209,7 +164,8 @@ blas_readable_matrix(MdspanMatrixStage<Scalar, Handle> const& stage) -> BlasRead
 }
 
 /// \brief Try to lower a mutable mdspan directly to a writable provider operand.
-template <detail::blas_writable_mdspan Mdspan>
+template <class Mdspan>
+  requires detail::blas_writable_mdspan<Mdspan, 2>
 auto try_blas_writable_matrix(Mdspan const& span)
     -> std::optional<
         BlasWritableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
@@ -223,7 +179,8 @@ auto try_blas_writable_matrix(Mdspan const& span)
 }
 
 /// \brief Try to lower an mdspan directly to a readable provider operand.
-template <detail::blas_readable_mdspan Mdspan>
+template <class Mdspan>
+  requires detail::blas_readable_mdspan<Mdspan, 2>
 auto try_blas_readable_matrix(Mdspan const& span)
     -> std::optional<
         BlasReadableMatrix<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>

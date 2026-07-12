@@ -8,9 +8,14 @@ above the raw provider facades in `src/uni20/backend/blas` and
 
 - `blas_matrix.hpp`: provider-ready readable and writable BLAS matrix operands
   plus backend-independent transform algebra.
+- `blas_vector.hpp`: provider-ready readable and writable BLAS vector operands.
+- `mdspan_access.hpp`: shared direct-accessor eligibility for ranked BLAS
+  mdspan operands.
 - `mdspan_matrix.hpp`: mdspan-axis staging descriptor construction and lowering
   to provider-ready operands.
+- `mdspan_vector.hpp`: rank-one stride and accessor staging for BLAS increments.
 - `gemm.hpp`: direct no-copy GEMM wrappers over the configured BLAS provider.
+- `gemv.hpp`: direct no-copy GEMV wrappers over matrix and vector operands.
 - `blas.hpp`: include point for this adapter layer.
 
 ## Notes
@@ -21,12 +26,14 @@ above the raw provider facades in `src/uni20/backend/blas` and
   this layer.
 - `try_*` direct wrappers decline layouts and ABI dimensions that cannot be
   represented without copies. They also decline complex conjugate-only GEMM
-  operands because the generic provider path is currently gated to the portable
-  `N/T/C` transpose opcodes. The transform helper can spell conjugate-only as
-  `R`; OpenBLAS exposes this through `CblasConjNoTrans` and its develop-branch
-  Fortran GEMM dispatcher, while MKL Fortran GEMM rejected `R` in local
-  testing. Checked wrappers treat inconsistent GEMM dimensions or unsupported
-  direct transforms as logic errors and abort through Uni20 checks. Prepared
+  matrix operands and conjugating GEMV input vectors because the generic
+  provider path is currently gated to the portable `N/T/C` matrix transpose
+  opcodes and GEMV has no vector-conjugation opcode. The transform helper can
+  spell conjugate-only as `R`; OpenBLAS exposes this through
+  `CblasConjNoTrans` and its develop-branch Fortran GEMM dispatcher, while MKL
+  Fortran GEMM rejected `R` in local testing. Checked wrappers treat
+  inconsistent operation dimensions or unsupported direct transforms as logic
+  errors and abort through Uni20 checks. Prepared
   wrappers that allocate temporaries, or explicit provider extensions such as
   OpenBLAS conjugate-no-transpose, should make that contract explicit in their
   names and documentation. Prepared wrappers may also use internal
@@ -36,3 +43,12 @@ above the raw provider facades in `src/uni20/backend/blas` and
   enough for raw BLAS access. Writable outputs require default-accessor views.
   Readable inputs require default accessors or explicitly lowerable accessors,
   currently Uni20's `conjugated_accessor` over a default accessor.
+- GEMV explicitly scales its output when `alpha == 0` or the logical input is
+  empty. This preserves `y = alpha*A*x + beta*y` semantics without depending on
+  provider-specific quick-return behavior, and `beta == 0` does not read the
+  previous output values.
+- Direct rank-one lowering accepts positive mdspan strides and canonicalizes an
+  unobserved empty or singleton stride to increment `1`. A negative stride on a
+  multi-element view declines: the Fortran BLAS negative-increment convention
+  adjusts its starting element and cannot use the mdspan logical-origin handle
+  unchanged.

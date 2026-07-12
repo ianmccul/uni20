@@ -312,10 +312,11 @@ metadata such as conjugation.
 ## Kernel Dispatch Interface
 
 The mdspan linalg layer is the first concrete user of the operation-tag model.
-The explicit-selector GEMM vertical slice exists: the direct mdspan BLAS wrapper
-delegates through `try_kernel(BlasBackend, gemm_op, ...)`, and the dispatch walk
-falls back to `CpuReferenceBackend` before LAPACK workspace and vector-descriptor
-policy enter the picture.
+The explicit-selector GEMM and GEMV vertical slices exist: direct mdspan BLAS
+wrappers delegate through `try_kernel(BlasBackend, operation, ...)`, and the
+dispatch walk falls back to `CpuReferenceBackend`. GEMV adds rank-one BLAS
+increments and Tensor-to-mdspan forwarding before LAPACK workspace policy enters
+the picture.
 
 Backend CPOs put the backend value first, then the operation tag, then ordinary
 reference parameters matching the public call order. A separate
@@ -717,10 +718,10 @@ accessor kind may be added to optional structured diagnostics later.
 
 ## Initial Operation Set
 
-Use direct mdspan GEMM first to prove the BLAS matrix descriptor, transform
-helpers, and row-major writable output rewrite. After that, the first LAPACK
-mdspan wrappers should cover operations already used by the native Krylov
-solvers:
+Direct mdspan GEMM proves the BLAS matrix descriptor, transform helpers, and
+row-major writable output rewrite. GEMV additionally proves rank-one descriptors
+and mixed-rank dispatch. The first LAPACK mdspan wrappers should now cover
+operations already used by the native Krylov solvers:
 
 | Operation | LAPACK routines | Reason |
 | --- | --- | --- |
@@ -742,16 +743,20 @@ separate tested header if we want to preserve prototype coverage.
 Implement the wrapper layer described in
 [`mdspan_blas_lapack_wrapper_plan.md`](mdspan_blas_lapack_wrapper_plan.md).
 
-The first slice is:
+The completed BLAS slices are:
 
 1. linalg-specific mdspan concept refinements;
 2. mdspan-storage-first `MdspanMatrixStage` helpers, derived
    `BlasReadableMatrix`/`BlasWritableMatrix` helpers, and transform helpers;
 3. direct mdspan GEMM over existing `uni20::blas::gemm`, including row-major
    writable output rewrite tests;
-4. strict column-major writable descriptor helpers for LAPACK update operands;
-5. one direct mdspan LAPACK wrapper, likely self-adjoint eigensystem, over
-   existing `uni20::lapack::syev/heev`.
+4. rank-one `MdspanVectorStage` and provider-ready vector operands;
+5. direct mdspan GEMV, accessor-respecting CPU fallback, and fixed-output Tensor
+   forwarding;
+6. strict column-major writable descriptor helpers for LAPACK update operands.
+
+The next slice is one direct mdspan LAPACK wrapper, likely self-adjoint
+eigensystem, over existing `uni20::lapack::syev/heev`.
 
 This layer should call `uni20::blas::*` and `uni20::lapack::*`, never raw
 Fortran symbols, and should keep strict direct wrappers non-owning and no-copy.
@@ -813,17 +818,17 @@ being brought up.
 
 ### Phase 5: Tensor Front-End Dispatch
 
-The fixed-output GEMM checkpoint now:
+The fixed-output GEMM and GEMV checkpoints now:
 
 - derives a default backend selector from tensor storage policy.
-- accepts rank-two `RankedTensorView` / `MutableRankedTensorView` operands.
+- enforce operation-specific rank-two matrix and rank-one vector Tensor views.
 - lowers those operands through `mdspan()`; the generic CPU path does not
   require stridedness, while BLAS lowering does.
 - uses the same operation tag and backend-list walk as explicit mdspan calls.
 
 Allocating and shape-changing operations still need to call `ensure_shape(...)`
 before resolving the writable mdspan. That policy does not belong in fixed-output
-GEMM.
+GEMM or GEMV.
 
 This is where CUDA, MPI/block tensor placement, async scheduling, and temporary
 allocation policy enter. They should not be forced into the first LAPACK mdspan

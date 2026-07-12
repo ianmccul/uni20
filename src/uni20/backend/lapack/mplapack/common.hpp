@@ -6,6 +6,7 @@
  * \brief Shared helpers for MPLAPACK LAPACK wrappers.
  */
 
+#include <uni20/backend/blas/blas_int.hpp>
 #include <uni20/config.hpp>
 
 #if UNI20_HAS_FLOAT128 && UNI20_FLOAT128_PROVIDER_MPLAPACK
@@ -16,7 +17,6 @@
 #endif
 
 #include <algorithm>
-#include <stdexcept>
 #include <vector>
 
 namespace uni20::lapack::mplapack::detail
@@ -61,15 +61,7 @@ inline void copy_from_mplapack_query_int_work(std::vector<mplapackint> const& so
   copy_from_mplapack_ints(source, target, 1);
 }
 
-inline blas_int checked_blas_int(std::size_t value)
-{
-  auto const converted = static_cast<blas_int>(value);
-  if (static_cast<std::size_t>(converted) != value)
-  {
-    throw std::overflow_error("LAPACK workspace dimension does not fit BLAS integer type");
-  }
-  return converted;
-}
+using uni20::blas::checked_blas_int;
 
 inline blas_int gelsd_iwork_size(blas_int m, blas_int n)
 {

@@ -1,9 +1,10 @@
 # Kernel Dispatch Design
 
-**Status: implemented dense GEMM checkpoint plus forward design.** Uni20 has an
-operation-tag dispatch walk, structured failure reporting, Tensor-to-mdspan
-GEMM forwarding, and direct BLAS/reference CPU backends. The CUDA, distributed,
-prepared-operand, and broader BLAS/LAPACK portions remain design work. This note
+**Status: implemented dense GEMM and GEMV checkpoints plus forward design.**
+Uni20 has an operation-tag dispatch walk, structured failure reporting,
+Tensor-to-mdspan forwarding for fixed-output GEMM and GEMV, and direct
+BLAS/reference CPU backends. The CUDA, distributed, prepared-operand, and
+broader BLAS/LAPACK portions remain design work. This note
 captures both the implemented contract and that direction. It generalizes the
 three-stage pattern in
 [`backend_dispatch.md`](backend_dispatch.md) into a single configurable
@@ -34,8 +35,9 @@ Related notes:
 ## The model in one paragraph
 
 A **backend** is a uniform thing with two ways to decline an operation. The
-dispatch mechanism is generic over an **operation tag** (`gemm_op`, `scale_op`,
-`assign_op`, ...), and discovers backend support with customization points:
+dispatch mechanism is generic over an **operation tag** (`gemm_op`, `gemv_op`,
+`scale_op`, `assign_op`, ...), and discovers backend support with customization
+points:
 
 - `kernel_accepts_types(Backend const&, Op const&, Args&...)` — required
   `consteval` tri-state function for compile-time facts about the C++ types;
@@ -193,10 +195,11 @@ The two configuration rules:
 
 New Uni20 kernel and linalg APIs put API tags and explicit backend selectors
 first, then mutable outputs, then inputs and scalar operands. Tensor front ends
-use `gemm(selector, c, alpha, a, b, beta)` for an explicit override and
-`gemm(c, alpha, a, b, beta)` for the storage default. Bare mdspans use
-`dispatch_kernel(selector, gemm_op{}, c, alpha, a, b, beta)` directly rather
-than adding a second operation-specific dispatch alias.
+use `gemm(selector, c, alpha, a, b, beta)` or
+`gemv(selector, y, alpha, a, x, beta)` for an explicit override and omit the
+selector for the storage default. Bare mdspans use `dispatch_kernel` directly
+with `gemm_op` or `gemv_op` rather than adding operation-specific dispatch
+aliases.
 
 ## Dispatch operands versus resolved spans
 
@@ -230,8 +233,10 @@ selectors. The low-level mdspan leaf is
 `uni20::linalg::blas::try_gemm(c, alpha, a, b, beta)`;
 `try_kernel(BlasBackend, gemm_op, ...)` wraps that leaf, and
 `CpuReferenceBackend` provides an independently tested fallback when BLAS
-declines. This proves the operation-tag walk without first solving the broader
-LAPACK surface, workspace policy, or vector descriptor layer.
+declines. GEMV applies the same layering to rank-one vector descriptors and
+BLAS increments, including fallback for conjugating input accessors. Together
+they prove the operation-tag walk without first solving the broader LAPACK
+surface or workspace policy.
 
 ```cpp
 struct gemm_op

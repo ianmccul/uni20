@@ -2,11 +2,10 @@
 
 **Status:** implementation plan and checkpoint for the first concrete mdspan
 dense-linalg wrapper layer. This is below tensor front-end dispatch and above
-the existing raw BLAS/LAPACK provider facades. The BLAS descriptor helpers and
-direct mdspan GEMM wrapper exist. The explicit-selector mdspan GEMM dispatch
-slice also exists: `try_kernel(BlasBackend, gemm_op, ...)` delegates to
-`uni20::linalg::blas::try_gemm(...)`, and `CpuReferenceBackend` is the
-accessor-respecting fallback.
+the existing raw BLAS/LAPACK provider facades. The BLAS matrix/vector descriptor
+helpers and direct mdspan GEMM/GEMV wrappers exist. Their explicit-selector
+dispatch slices delegate `try_kernel(BlasBackend, operation, ...)` to the direct
+BLAS adapter, with `CpuReferenceBackend` as the accessor-respecting fallback.
 
 The immediate target is to add mdspan-facing BLAS/LAPACK wrappers that accept
 resolved strided views, build BLAS-compatible matrix descriptors, and then call
@@ -63,12 +62,21 @@ The direct BLAS descriptor implementation lives under `src/uni20/linalg/blas/`:
 - `blas_matrix.hpp`
   - provider-ready `BlasReadableMatrix` and `BlasWritableMatrix` operands,
     backend-independent transform algebra, and BLAS transpose lowering.
+- `blas_vector.hpp`
+  - provider-ready `BlasReadableVector` and `BlasWritableVector` operands.
+- `mdspan_access.hpp`
+  - direct BLAS accessor eligibility shared across operand ranks.
 - `mdspan_matrix.hpp`
-  - `try_mdspan_matrix_stage(...)`, mdspan accessor conjugation traits,
-    role-specific readable/writable lowering helpers, and strict
+  - `try_mdspan_matrix_stage(...)`, role-specific readable/writable lowering
+    helpers, and strict
     column-major-compatible helpers for LAPACK update operands.
+- `mdspan_vector.hpp`
+  - `try_mdspan_vector_stage(...)`, BLAS increment lowering, and readable or
+    writable rank-one descriptors.
 - `gemm.hpp`
   - direct mdspan GEMM wrappers.
+- `gemv.hpp`
+  - direct mdspan GEMV wrappers.
 - `blas.hpp`
   - include point for the adapter layer.
 
@@ -80,10 +88,17 @@ The first operation-tag dispatch slice adds:
 - `ops/gemm.hpp`
   - `gemm_op` and fixed-output Tensor `gemm(...)`; bare mdspans use the generic
     dispatch API directly.
+- `ops/gemv.hpp`
+  - `gemv_op` and fixed-output Tensor `gemv(...)` with rank-1 output/input and a
+    rank-2 matrix.
 - `backends/blas/gemm.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemm_op, ...)`.
+- `backends/blas/gemv.hpp`
+  - `BlasBackend` and `try_kernel(BlasBackend, gemv_op, ...)`.
 - `backends/cpu/gemm.hpp`
   - `CpuReferenceBackend` and the accessor-respecting fallback GEMM oracle.
+- `backends/cpu/gemv.hpp`
+  - `CpuReferenceBackend` and the accessor-respecting fallback GEMV oracle.
 
 Future LAPACK operation wrappers should either live under this directory when
 they are shared BLAS/LAPACK adapter utilities, or under
@@ -94,14 +109,15 @@ or running a LAPACK operation.
 
 ## Two Descriptor Levels
 
-Keep two structures separate:
+Keep two descriptor levels separate:
 
-1. Minimal provider-ready BLAS matrix operands. These describe the
-   column-major matrix that the BLAS/LAPACK ABI sees, plus any readable-input
-   transform.
-2. An mdspan staging descriptor. This describes the logical mdspan matrix and
-   is used to decide whether direct lowering, a transpose rewrite, or a
-   temporary is needed.
+1. Minimal provider-ready BLAS matrix/vector operands. Matrix operands describe
+   the column-major matrix that the BLAS/LAPACK ABI sees, plus any
+   readable-input transform. Vector operands carry a logical size and BLAS
+   increment.
+2. Mdspan staging descriptors. These describe logical mdspan extents, strides,
+   and accessor conjugation before deciding whether direct lowering, a
+   transpose rewrite, or a temporary is needed.
 
 Do not merge these roles. The first one is an ABI object; the second one is a
 planning object.
@@ -150,6 +166,11 @@ temporary with copy-back policy.
 Do not use inheritance or a common contained base for these two objects. The
 duplicated fields are intentional: the objects are small, and implicit
 conversion from a readable object to a common base would lose the transform.
+
+`BlasReadableVector` and `BlasWritableVector` similarly duplicate `data`,
+`size`, and `increment`. The readable vector has no transform field because
+portable GEMV cannot conjugate `x`; `MdspanVectorStage::needs_conjugation`
+therefore causes a direct GEMV decline instead of being discarded.
 
 ### Mdspan Staging Descriptor
 
@@ -228,9 +249,10 @@ views.
 ### Aliasing Contract
 
 Fixed-output GEMM requires the output element addresses to be disjoint from
-both readable inputs. The two readable inputs may overlap each other. This is a
-leaf-kernel precondition: supporting an aliased output requires an explicit
-temporary and copy-back policy above the direct GEMM wrapper.
+both readable inputs. Fixed-output GEMV similarly requires the output vector to
+be disjoint from the matrix and input vector. Readable operands may overlap each
+other. These are leaf-kernel preconditions: supporting an aliased output
+requires an explicit temporary and copy-back policy above the direct wrapper.
 
 Do not reject operands merely because their enclosing allocation or bounding
 address ranges overlap. Two slices of one matrix may still address disjoint
@@ -539,19 +561,20 @@ scratch storage.
 
 ## Relation To Dispatch
 
-The direct GEMM wrapper is wired into the generic backend-list dispatcher as a
-leaf kernel. Bare mdspans call `dispatch_kernel` or `try_dispatch_kernel`
-directly with `gemm_op`; fixed-output Tensor overloads derive the default
-selector from tensor storage. The remaining axes of progress are:
+The direct GEMM and GEMV wrappers are wired into the generic backend-list
+dispatcher as leaf kernels. Bare mdspans call `dispatch_kernel` or
+`try_dispatch_kernel` directly with the operation tag; fixed-output Tensor
+overloads derive the default selector from tensor storage. The remaining axes
+of progress are:
 
 1. Add more direct BLAS/LAPACK operation wrappers over the same mdspan
    descriptors.
 2. Add higher-level allocating or shape-changing tensor operations above the
    fixed-output GEMM interface.
 
-The implemented GEMM dispatch slice proves the dispatcher, backend selector,
-type acceptance CPO, runtime decline path, and CPU fallback shape without
-mixing in LAPACK workspace policy, vector descriptors, or overwrite semantics.
+The implemented GEMM/GEMV slices prove the dispatcher, backend selector, type
+acceptance CPO, runtime decline path, matrix/vector descriptors, and CPU
+fallback shape without mixing in LAPACK workspace or overwrite semantics.
 Bare mdspans use explicit selectors such as
 `backend_list{BlasBackend{}, CpuReferenceBackend{}}`; storage-derived default
 backend lists are implemented in the tensor front end.
@@ -562,22 +585,28 @@ The direct wrapper layer still exposes functions that are easy to test:
 KernelAttempt try_gemm(... mdspan-like operands ...);
 void gemm(... mdspan-like operands ...);
 
+KernelAttempt try_gemv(... mdspan-like operands ...);
+void gemv(... mdspan-like operands ...);
+
 KernelAttempt try_lapack_self_adjoint_eigh(... mdspan-like operands ...);
 void lapack_self_adjoint_eigh_or_throw(... mdspan-like operands ...);
 ```
 
-`try_gemm(...)` returns `unsupported_layout` when an operand cannot be staged
-as a direct no-copy BLAS matrix view and `unsupported_transform` when the
-provider cannot express the required transform. Once staging succeeds,
-dimension consistency is a checked precondition: invalid GEMM parameters are
-logic errors and should abort through `CHECK`/`CHECK_EQUAL`, not report ordinary
-kernel non-acceptance.
+`try_gemm(...)` and `try_gemv(...)` return `unsupported_layout` when an operand
+cannot be staged as a direct no-copy BLAS view and `unsupported_transform` when
+the provider cannot express the required transform. GEMV therefore declines a
+conjugating input vector, while a conjugating row-major matrix can lower to
+conjugate-transpose. Once staging succeeds, dimension consistency is a checked
+precondition: invalid operation parameters are logic errors and should abort
+through `CHECK`/`CHECK_EQUAL`, not report ordinary kernel non-acceptance.
 
 Operation-tag dispatch wraps the direct GEMM leaf like this:
 
 ```cpp
 KernelAttempt try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a,
                           B&& b, Scalar beta);
+KernelAttempt try_kernel(BlasBackend, gemv_op, Y&& y, Scalar alpha, A&& a,
+                          X&& x, Scalar beta);
 KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op, W&& w,
                           A&& matrix_work);
 ```
@@ -591,11 +620,11 @@ The corresponding `try_kernel(...)` should not repeat the same long `requires`
 clause; it may use a local `static_assert` against the shared support predicate
 to catch accidental direct calls with rejected types.
 
-For GEMM, `try_kernel(BlasBackend, gemm_op, ...)` is a thin adapter over
-`uni20::linalg::blas::try_gemm(...)`. The operation-tag layer does not duplicate
-mdspan stride analysis. If the direct wrapper declines because an instance
-cannot be represented as a no-copy BLAS call, the dispatch walk continues to the
-next backend, normally the CPU reference oracle.
+For GEMM and GEMV, `try_kernel(BlasBackend, operation, ...)` is a thin adapter
+over the corresponding direct wrapper. The operation-tag layer does not
+duplicate mdspan stride analysis. If the direct wrapper declines because an
+instance cannot be represented as a no-copy BLAS call, the dispatch walk
+continues to the next backend, normally the CPU reference oracle.
 
 ## Implementation Order
 
@@ -617,11 +646,16 @@ Completed checkpoint:
    BLAS `beta == 0` no-read semantics.
 11. Add selector-list tests: BLAS accepts representable mdspans, BLAS
    declines unsupported strides before side effects, and the fallback runs.
+12. Add provider-ready vector operands and rank-one mdspan staging.
+13. Implement direct mdspan GEMV, including strided vectors and explicit
+    zero/empty-product scaling semantics.
+14. Implement `gemv_op`, BLAS and CPU backend adapters, Tensor forwarding, and
+    clean fallback for conjugating vector accessors.
 
 Recommended next slice:
 
-1. Add vector/RHS descriptor helpers with explicit readable, writable, and
-   update roles.
+1. Extend vector/RHS descriptors with LAPACK-specific update roles where a
+   concrete routine needs them.
 2. Add checked scalar-generic conversion of LAPACK workspace-query results to
    `blas_int`, including real, complex, and extension precision coverage.
 3. Define operation-specific aliasing and overwrite contracts before side
@@ -631,9 +665,9 @@ Recommended next slice:
 5. Wrap the operation in `try_kernel(LapackBackend, op, ...)` and use it to
    validate the vocabulary before adding further LAPACK families.
 
-This order keeps the generic dispatch path tested by the GEMM leaf kernel while
-separating tensor default-backend policy from LAPACK workspace, vector
-descriptor, and update-operand semantics.
+This order keeps the generic dispatch path tested by the GEMM and GEMV leaf
+kernels while separating tensor default-backend policy from LAPACK workspace
+and update-operand semantics.
 
 ## Tests
 
@@ -660,6 +694,18 @@ GEMM tests:
 - conjugate-only complex states are declined by the generic direct wrapper
   before any provider call.
 - CPU/reference fallback comparison for representative shapes and strides.
+
+GEMV tests:
+
+- direct column-major and row-major matrix lowering;
+- positive-stride input and output vectors;
+- singleton increment normalization;
+- negative multi-element strides decline until lowering adjusts the provider
+  starting pointer explicitly;
+- conjugate-transpose matrix lowering and conjugating-vector decline;
+- clean CPU fallback after a direct BLAS decline;
+- `alpha == 0`, `beta == 0`, and empty-inner-dimension no-read semantics;
+- Tensor storage-default and explicit-selector forwarding.
 
 LAPACK tests:
 

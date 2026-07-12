@@ -1,6 +1,7 @@
 add_test_module(linalg
   SOURCES
     cpu/test_matrix_exponential.cpp
+    test_linalg_gemv_cpu.cpp
   LIBS uni20_linalg
 )
 
@@ -8,8 +9,11 @@ if(UNI20_BACKEND_BLAS)
   add_test_module(linalg_blas
     SOURCES
       test_blas_matrix_operands.cpp
+      test_blas_vector_operands.cpp
       test_blas_gemm.cpp
+      test_blas_gemv.cpp
       test_linalg_gemm_dispatch.cpp
+      test_linalg_gemv_dispatch.cpp
     LIBS uni20_linalg uni20_backend_blas
   )
 endif()

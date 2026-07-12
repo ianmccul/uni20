@@ -7,6 +7,8 @@ BLAS interface targets used by higher layers.
 ## Contents
 
 - `backend_blas.hpp`: aggregate include point for BLAS backend support.
+- `blas_int.hpp`: shared checked and non-throwing conversion to the configured
+  signed BLAS integer ABI.
 - `blas_vendor.*`: detected BLAS vendor reporting.
 - `mplapack_binary128.hpp`: binary128 hooks for MPLAPACK-backed scalar support.
 - `reference/`: raw reference BLAS declarations and interface target.

@@ -1,7 +1,7 @@
 # Tensor Dispatch And View Semantics Draft
 
-**Status:** implemented dense Tensor/GEMM checkpoint plus design notes for the
-remaining allocation, async, CUDA, and external-adaptor work.
+**Status:** implemented dense Tensor GEMM/GEMV checkpoints plus design notes for
+the remaining allocation, async, CUDA, and external-adaptor work.
 
 This note records the implemented dense tensor/view boundary and the remaining
 design questions around output assignment and higher-level dispatch.
@@ -20,7 +20,7 @@ Related notes:
 
 ## Core Distinction
 
-The implemented dense GEMM path uses a strict layer split:
+The implemented dense GEMM and GEMV paths use a strict layer split:
 
 1. **Front-end tensor operations** accept actual Uni20 tensor-like objects. They
    need storage policy, output policy, synchronous metadata, async/block

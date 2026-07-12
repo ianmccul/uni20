@@ -22,12 +22,12 @@ namespace detail
 {
 template <class Mdspan, class Scalar>
 concept readable_blas_mdspan_for =
-    blas_readable_mdspan<Mdspan> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar> &&
+    blas_readable_mdspan<Mdspan, 2> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar> &&
     std::convertible_to<typename Mdspan::data_handle_type, Scalar const*>;
 
 template <class Mdspan, class Scalar>
 concept writable_blas_mdspan_for =
-    blas_writable_mdspan<Mdspan> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar> &&
+    blas_writable_mdspan<Mdspan, 2> && std::same_as<std::remove_cv_t<typename Mdspan::element_type>, Scalar> &&
     std::convertible_to<typename Mdspan::data_handle_type, Scalar*>;
 
 constexpr blas_int logical_rows(blas_int rows, blas_int cols, MatrixTransform transform)

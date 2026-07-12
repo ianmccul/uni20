@@ -6,6 +6,7 @@ operation wrappers.
 ## Contents
 
 - `gemm.hpp`: the GEMM operation tag and fixed-output Tensor front end.
+- `gemv.hpp`: the GEMV operation tag and fixed-output Tensor front end.
 
 ## Notes
 
