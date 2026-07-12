@@ -19,7 +19,9 @@ namespace uni20
 /// \param dst Destination view receiving the copied elements.
 /// \param src Source view providing the element values.
 /// \ingroup level1_ops
-template <StridedMdspan MDSDst, StridedMdspan MDSSrc> void assign(MDSDst dst, MDSSrc const& src)
+template <MutableStridedMdspan MDSDst, StridedMdspan MDSSrc>
+  requires requires(typename MDSDst::reference destination, typename MDSSrc::reference source) { destination = source; }
+void assign(MDSDst dst, MDSSrc const& src)
 {
   static_assert(MDSDst::rank() == MDSSrc::rank(), "assign: rank mismatch");
   PRECONDITION_EQUAL(src.extents(), dst.extents(), "assign: shape mismatch");

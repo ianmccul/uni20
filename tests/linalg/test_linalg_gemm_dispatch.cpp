@@ -57,6 +57,7 @@ template <class Scalar> class NonStridedMatrixView {
     static constexpr std::size_t rank() noexcept { return 2; }
     static constexpr bool is_always_strided() noexcept { return false; }
 
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return span_.extents(); }
     [[nodiscard]] auto mapping() const noexcept -> mapping_type const& { return span_.mapping(); }
     [[nodiscard]] auto data_handle() const noexcept -> data_handle_type { return span_.data_handle(); }
     [[nodiscard]] auto accessor() const noexcept -> accessor_type const& { return span_.accessor(); }

@@ -34,6 +34,7 @@ template <StridedMdspan... Spans> struct SumAccessor
 
     // True element type (handles proxy references)
     using element_type = uni20::remove_proxy_reference_t<reference>;
+    using offset_policy = SumAccessor;
 
     /// \brief Store each span's accessor instance.
     /// \param accs Accessor objects sourced from each input span.
@@ -106,7 +107,7 @@ template <typename T> inline constexpr bool is_sum_accessor_v = is_sum_accessor<
 /// \tparam MDS Mdspan type to inspect.
 /// \ingroup internal
 template <class MDS>
-concept SumMdspan = is_sum_accessor_v<typename MDS::accessor_type>;
+concept SumMdspan = SpanLike<MDS> && is_sum_accessor_v<typename MDS::accessor_type>;
 
 /// \brief Element-wise sum of one or more strided mdspans.
 /// \details For each index tuple (i₀,…,i{Rank−1}) the resulting view evaluates to
@@ -133,7 +134,7 @@ template <StridedMdspan First, StridedMdspan... Rest> auto sum_view(First const&
   std::array<std::array<typename CE::index_type, R>, N> strides_pack{};
   {
     auto fill = [&](auto const& md, std::size_t s) {
-      auto st = md.mapping().strides();
+      auto st = uni20::strides(md);
       for (std::size_t d = 0; d < R; ++d)
         strides_pack[s][d] = st[d];
     };
@@ -200,7 +201,7 @@ template <StridedMdspan A, SumMdspan B> auto sum_view(A const& a, B const& b)
 
   using NewLayout = StridedZipLayout<M + 1>;
   using Mapping = NewLayout::template mapping<CE>;
-  Mapping map(a.mapping().strides(), b.mapping());
+  Mapping map(uni20::strides(a), b.mapping());
 
   // Build the new accessor by prepending A’s accessor onto B’s SumAccessor
   using accessor_type = detail::join_sum_acc_t<A, typename B::accessor_type>;
@@ -238,7 +239,7 @@ template <SumMdspan A, StridedMdspan B> auto sum_view(A const& a, B const& b)
 
   // this ctor was added to StridedZipLayout::mapping:
   //   mapping(old_mapping, new_strides)
-  Mapping map(a.mapping(), b.mapping().strides());
+  Mapping map(a.mapping(), uni20::strides(b));
 
   using accessor_type = detail::join_sum_acc_t<typename A::accessor_type, B>;
 

@@ -62,16 +62,6 @@ TEST(MergeStrides, RightOrdersDescendingAndPreservesPairs)
   EXPECT_EQ(dims[2].strides[1], 10);
 }
 
-namespace
-{
-template <class Mdspan> struct StaticRankMdspan : Mdspan
-{
-    using Mdspan::Mdspan;
-
-    static constexpr std::size_t rank = Mdspan::rank();
-};
-} // namespace
-
 TEST(MergeStridesLeft, MergesAllBroadcastDimensions)
 {
   static_vector<extent_strides<2>, 3> dims;
@@ -178,8 +168,8 @@ TEST(StridesHelpers, StridesOverloadsReturnExpectedArrays)
   using layout_left_extents = stdex::extents<std::size_t, 2, 3>;
   using layout_left_base = stdex::mdspan<int, layout_left_extents, stdex::layout_left>;
   std::array<int, 6> contiguous{};
-  StaticRankMdspan<layout_right_base> layout_right(contiguous.data());
-  StaticRankMdspan<layout_left_base> layout_left(contiguous.data());
+  layout_right_base layout_right(contiguous.data());
+  layout_left_base layout_left(contiguous.data());
 
   auto right_strides = strides(layout_right);
   EXPECT_EQ(right_strides[0], 3);
@@ -196,7 +186,7 @@ TEST(StridesHelpers, StridesOverloadsReturnExpectedArrays)
   auto mapping = stdex::layout_stride::mapping<dyn_extents>(dynamic_shape, custom);
 
   std::array<int, 16> storage{};
-  StaticRankMdspan<strided_base> strided(storage.data(), mapping);
+  strided_base strided(storage.data(), mapping);
 
   auto stride_array = strides(strided);
   EXPECT_EQ(stride_array[0], custom[0]);

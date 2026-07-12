@@ -111,7 +111,7 @@ TransformAccessor(Func&&, Spans const&...) -> TransformAccessor<std::decay_t<Fun
 /// \return        An mdspan whose element at multi-index I is
 ///                f(spans0(I), spans1(I), …).
 /// \ingroup level1_ops
-template <typename Func, typename... Spans> auto zip_transform(Func&& f, Spans const&... spans)
+template <typename Func, SpanLike... Spans> auto zip_transform(Func&& f, Spans const&... spans)
 {
   static_assert(sizeof...(Spans) >= 1, "zip_transform needs at least one span");
 
@@ -145,7 +145,7 @@ template <typename Func, typename... Spans> auto zip_transform(Func&& f, Spans c
 /// \return       An mdspan view whose element(i…) == f(span(i…)), with the same layout_type and extents_type as \p
 /// span.
 /// \ingroup level1_ops
-template <typename Func, typename Span> auto zip_transform(Func&& f, Span const& span)
+template <typename Func, SpanLike Span> auto zip_transform(Func&& f, Span const& span)
 {
   // build the transform‐accessor
   TransformAccessor<std::decay_t<Func>, Span> acc{std::forward<Func>(f), span};

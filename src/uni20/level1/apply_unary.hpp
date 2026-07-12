@@ -11,7 +11,9 @@ namespace uni20
 /// \param a    Target span whose elements are mutated.
 /// \param op   Unary functor invoked for each element.
 /// \ingroup level1_ops
-template <typename MDS, typename Op> void apply_unary_inplace(MDS a, Op&& op)
+template <MutableStridedMdspan MDS, typename Op>
+  requires requires(typename MDS::reference element, Op& operation) { element = operation(element); }
+void apply_unary_inplace(MDS a, Op&& op)
 {
   auto const& map = a.mapping();
   auto const& acc = a.accessor();

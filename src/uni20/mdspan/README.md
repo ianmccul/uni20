@@ -20,6 +20,13 @@ small helpers used by dense kernels and layout-aware algorithms.
   implementation itself.
 - This module should describe structure and layout, not ownership or backend
   dispatch policy.
+- `SpanLike` is the complete readable mdspan protocol used by leaf kernels: its
+  descriptor aliases must agree, it exposes rank and extent observers, and its
+  rank-dimensional `operator[]` returns the declared `reference` type.
+  `MutableSpanLike` additionally proves assignment through that indexed result.
+- `StridedMdspan` refines `SpanLike` by requiring both mdspan and mapping stride
+  observers. Code constrained by these concepts should not assume additional
+  structural operations without adding the corresponding refinement.
 - A pointer `data_handle_type` is not enough to prove direct memory semantics.
   Backends that bypass `access(...)` must check for `stdex::default_accessor`
   or an explicitly lowerable accessor such as Uni20's `conjugated_accessor`.

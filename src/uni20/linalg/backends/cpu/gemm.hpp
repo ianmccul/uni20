@@ -27,7 +27,18 @@ consteval auto kernel_accepts_types(CpuGenericBackend const&, struct gemm_op con
   using lhs_scalar = std::remove_cv_t<typename LhsMdspan::element_type>;
   using rhs_scalar = std::remove_cv_t<typename RhsMdspan::element_type>;
   if constexpr (std::same_as<output_scalar, Scalar> && std::same_as<lhs_scalar, Scalar> &&
-                std::same_as<rhs_scalar, Scalar>)
+                std::same_as<rhs_scalar, Scalar> &&
+                requires(OutputMdspan& output, LhsMdspan& lhs, RhsMdspan& rhs, typename OutputMdspan::index_type index,
+                         Scalar value) {
+                  static_cast<Scalar>(output.operator[](index, index));
+                  static_cast<Scalar>(lhs.operator[](index, index));
+                  static_cast<Scalar>(rhs.operator[](index, index));
+                  output.operator[](index, index) = value;
+                  value += value * value;
+                  {
+                    value == Scalar {}
+                  } -> std::convertible_to<bool>;
+                })
   {
     return kernel_types_yes;
   }

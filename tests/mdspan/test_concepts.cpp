@@ -79,6 +79,43 @@ using StridedMatrixSpan = stdex::mdspan<int, DynamicMatrixExtents, stdex::layout
 using ConstStridedMatrixSpan = stdex::mdspan<int const, DynamicMatrixExtents, stdex::layout_stride>;
 using CustomAccessorSpan = stdex::mdspan<int, DynamicMatrixExtents, stdex::layout_stride, MutableAccessor>;
 
+struct SpanDescriptorWithoutSubscript
+{
+    using storage_span = StaticSpan;
+    using element_type = typename storage_span::element_type;
+    using value_type = typename storage_span::value_type;
+    using index_type = typename storage_span::index_type;
+    using extents_type = typename storage_span::extents_type;
+    using layout_type = typename storage_span::layout_type;
+    using mapping_type = typename storage_span::mapping_type;
+    using accessor_type = typename storage_span::accessor_type;
+    using data_handle_type = typename storage_span::data_handle_type;
+    using reference = typename storage_span::reference;
+
+    static constexpr std::size_t rank() noexcept { return extents_type::rank(); }
+
+    extents_type const& extents() const;
+    index_type extent(std::size_t axis) const;
+    mapping_type const& mapping() const;
+    data_handle_type data_handle() const;
+    accessor_type const& accessor() const;
+};
+
+struct CompleteSpanFacade : SpanDescriptorWithoutSubscript
+{
+    reference operator[](index_type row, index_type column) const;
+};
+
+struct MissingExtentSpan : CompleteSpanFacade
+{
+    index_type extent(std::size_t axis) const = delete;
+};
+
+struct ClaimedStridedSpanWithoutStride : CompleteSpanFacade
+{
+    static constexpr bool is_always_strided() noexcept { return true; }
+};
+
 static_assert(SpanLike<StaticSpan>);
 static_assert(MutableSpanLike<StaticSpan>);
 static_assert(SpanLike<ConstStaticSpan>);
@@ -105,6 +142,12 @@ static_assert(MutableRankedStridedMdspan<StridedMatrixSpan, 2>);
 static_assert(MutableRankedStridedMdspan<StridedMatrixSpan&, 2>);
 static_assert(RankedStridedMdspan<ConstStridedMatrixSpan, 2>);
 static_assert(!MutableRankedStridedMdspan<ConstStridedMatrixSpan, 2>);
+
+static_assert(!SpanLike<SpanDescriptorWithoutSubscript>);
+static_assert(SpanLike<CompleteSpanFacade>);
+static_assert(MutableSpanLike<CompleteSpanFacade>);
+static_assert(!SpanLike<MissingExtentSpan>);
+static_assert(!StridedMdspan<ClaimedStridedSpanWithoutStride>);
 
 struct NotSpanLike
 {};
