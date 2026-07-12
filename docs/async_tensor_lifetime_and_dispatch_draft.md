@@ -28,7 +28,7 @@ has been awaited and while the owning access proxy remains alive.
 For example:
 
 ```cpp
-Async<BasicTensor<double, 2>> A = make_tensor();
+Async<Tensor<double, 2>> A = Tensor<double, 2>{rows, cols};
 auto S = async_slice(A, rows, cols);
 schedule([](auto s_) static -> AsyncTask {
   auto s = co_await s_;
@@ -45,7 +45,7 @@ schedule([](auto s_) static -> AsyncTask {
 - the storage domain/backend selector, including CUDA device placement when
   applicable
 
-This is the async version of the synchronous split between `BasicTensor`,
+This is the async version of the synchronous split between `Tensor`,
 `TensorRef`, and resolved mdspan-like views. The async handle has to be more
 than a resolved view.
 
@@ -64,8 +64,8 @@ The resolved view is a short-lived object used by a leaf kernel. The async
 tensor handle or alias is the durable object that can be stored, copied, and
 passed to dispatch.
 
-For `Async<BasicTensor>`, the owner token is the `Async` value's
-`shared_storage<BasicTensor>` control block. For a slice/view of that tensor,
+For `Async<Tensor>`, the owner token is the `Async` value's
+`shared_storage<Tensor>` control block. For a slice/view of that tensor,
 the alias must share that same owner token, or an equivalent subobject alias
 token that keeps the parent control block alive.
 
@@ -214,7 +214,7 @@ schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {
 ```
 
 This is deliberately different from asking `Async<Tensor>` to satisfy the same
-immediate `TensorView` concept as `BasicTensor`. A synchronous tensor can
+immediate `TensorView` concept as `Tensor`. A synchronous tensor can
 produce an immediate read view. An async tensor produces a read handle that must
 be awaited.
 
@@ -245,19 +245,19 @@ case for:
 - fixed async tensor aliases
 - block/coalesced views with known descriptors
 
-For `Async<BasicTensor>`, resizing may require write access to the stored tensor:
+For `Async<Tensor>`, resizing may require write access to the stored tensor:
 
 ```cpp
 schedule([](auto c_, shape_type shape) static -> AsyncTask {
   auto C_owner = co_await c_.write();
-  ensure_shape(C_owner.get(), shape); // may reallocate BasicTensor storage
+  ensure_shape(C_owner.get(), shape); // may reallocate Tensor storage
   auto C = tensor_write_view(C_owner.get());
   kernel(C);
 }(C.write(), shape));
 ```
 
 That means a value-producing operation on an unconstructed or resizable
-`Async<BasicTensor>` may not be able to materialize the output view until after
+`Async<Tensor>` may not be able to materialize the output view until after
 the write await. If backend selection needs output shape/domain metadata before
 awaiting, the async tensor object must carry a synchronous descriptor or the
 operation must be treated as structure-async.
@@ -270,7 +270,7 @@ structure-async tensor      // descriptor becomes known only after await
 ```
 
 `AsyncArray` and most block-tensor per-block data should live in the first
-category. `Async<BasicTensor>` as the result of a truncation or shape-changing
+category. `Async<Tensor>` as the result of a truncation or shape-changing
 operation may live in the second.
 
 ## Async Temporaries
@@ -323,7 +323,7 @@ proxy assignment into `Async<T>` storage. Tensor types then choose the meaning
 of `T::operator=`:
 
 ```cpp
-Async<BasicTensor>     // value/replace: construct if empty, otherwise assign tensor value
+Async<Tensor>     // value/replace: construct if empty, otherwise assign tensor value
 Async<TensorRef>       // write-through: target must already refer to parent storage
 Async<mdspan-like>     // rebind descriptor: copy/emplace descriptor, no element copy
 AsyncTensorAlias       // handle semantics: copy aliases owner/hazard/descriptor
@@ -373,8 +373,8 @@ data is copied.
 ### Async Dense Input
 
 ```cpp
-Async<BasicTensor<double, 2>> A;
-BasicTensor<double, 2> B, C;
+Async<Tensor<double, 2>> A;
+Tensor<double, 2> B, C;
 
 gemm(C, A, B);
 ```
@@ -428,7 +428,7 @@ Expected behavior:
 - `AsyncArray::block(i)` should return the same kind of async tensor alias
   handle, backed by shared allocation lifetime and per-block hazard state.
 - `ensure_shape` remains the right output hook, but resizable
-  `Async<BasicTensor>` outputs may need write access before shape preparation.
+  `Async<Tensor>` outputs may need write access before shape preparation.
 - Async temporaries need explicit backend-selector/storage-domain/factory
   information when that information cannot be recovered from the operand. The
   copy/evaluation into the temporary is an ordinary scheduled kernel.
@@ -452,16 +452,16 @@ Expected behavior:
    queues, or should `AsyncArray` have a parent/coalesced queue that composes
    with element queues?
 6. **Structure-async dispatch.** How should backend selection work when an
-   `Async<BasicTensor>` result does not have a descriptor until after awaiting
+   `Async<Tensor>` result does not have a descriptor until after awaiting
    the producer?
 7. **Assignment trait.** Is the existing `rebind` versus `write_through` split
-   sufficient once `BasicTensor::operator=` has value/replace semantics, or is
+   sufficient once `Tensor::operator=` has value/replace semantics, or is
    a separate `value` assignment-semantic name still useful for documentation?
 8. **Python view lifetime.** Should Python-facing views reuse the same alias
    handle type as C++ async tensor refs, or should they have a separate
    nanobind/DLPack owner-token wrapper?
 9. **Async temporary type.** Should async temporaries be represented as ordinary
-   `Async<BasicTensor<...>>`, as an `AsyncTensorAlias` over scratch storage, or
+   `Async<Tensor<...>>`, as an `AsyncTensorAlias` over scratch storage, or
    as a separate scratch-buffer handle owned by the scheduler?
 10. **Backend state.** Should async temporary allocation consume the same
     backend selector value used by dispatch, or only the composed backend state

@@ -3,8 +3,9 @@
 **Status:** implemented BLAS and initial LAPACK checkpoints plus forward plan.
 This layer is below tensor front-end dispatch and above the existing raw
 BLAS/LAPACK provider facades. Direct mdspan GEMM/GEMV, accessor-respecting CPU
-fallbacks, and strict LAPACK projected eigensystem/Schur adapters now use the
-operation-tag dispatcher.
+fallbacks, explicit Tensor copy/materialization, and strict LAPACK projected
+eigensystem/Schur plus dense self-adjoint adapters now use the operation-tag
+dispatcher.
 
 The implemented mdspan-facing wrappers accept resolved views, build
 provider-compatible descriptors, and call the existing Uni20 BLAS/LAPACK
@@ -71,7 +72,8 @@ The direct BLAS descriptor implementation lives under `src/uni20/linalg/blas/`:
     column-major-compatible helpers for LAPACK update operands.
 - `mdspan_vector.hpp`
   - `try_mdspan_vector_stage(...)`, BLAS increment lowering, and readable or
-    writable rank-one descriptors.
+    writable rank-one descriptors, including strict contiguous writable LAPACK
+    vectors.
 - `gemm.hpp`
   - direct mdspan GEMM wrappers.
 - `gemv.hpp`
@@ -102,9 +104,10 @@ The first operation-tag dispatch slice adds:
 
 LAPACK operation adapters live under `src/uni20/linalg/backends/lapack/`;
 currently this includes tridiagonal and nonsymmetric eigensystems, Schur and
-Hessenberg Schur decomposition, and Schur reordering. Shared provider-descriptor
-construction remains under `src/uni20/linalg/blas/`. Keep that division so
-descriptor helpers remain testable without running a LAPACK operation.
+Hessenberg Schur decomposition, Schur reordering, and real symmetric/complex
+Hermitian `syev`/`heev`. Shared provider-descriptor construction remains under
+`src/uni20/linalg/blas/`. Keep that division so descriptor helpers remain
+testable without running a LAPACK operation.
 
 ## Two Descriptor Levels
 
@@ -214,8 +217,8 @@ read-only conjugating accessor view for complex mdspans, cancels to the const
 original view when applied twice, and returns a const identity view for
 non-complex mdspans. The same header defines
 `accessor_applies_conjugation_v<Accessor>` and
-`mdspan_needs_conjugation_v<View>`. A future `conj(Tensor)` operation should
-return a tensor view whose mdspan uses that conjugation accessor rather than
+`mdspan_needs_conjugation_v<View>`. The implemented `conj(Tensor)` operation
+returns a tensor view whose mdspan uses that conjugation accessor rather than
 eagerly materializing conjugated storage. When that view reaches the BLAS
 staging helper, `try_mdspan_matrix_stage(...)` inspects the accessor and sets
 `needs_conjugation = true`.
@@ -659,6 +662,9 @@ Completed LAPACK checkpoint:
    pre-mutation layout decline.
 3. Implement `sterf`/`steqr`, `geev`, `gees`, `hseqr`, and `trexc` adapters.
 4. Route the active Krylov projected operations through those adapters.
+5. Add strict contiguous eigenvalue-vector lowering and the in-place
+   `self_adjoint_eigh` adapter over `syev`/`heev`; the preserving `eigh` value
+   API explicitly copies to a column-major work matrix first.
 
 The next wrapper should be driven by an active algorithm or example. It must
 define overwrite, aliasing, workspace, and any operand-materialization policy

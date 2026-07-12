@@ -115,8 +115,8 @@ A distributed tensor storage type.
 Examples:
 
 ```cpp
-Tensor<double, MpiStorage<Cpu>> A;
-Tensor<double, MpiStorage<Gpu>> B;
+Tensor<double, Rank, MpiStorage<Cpu>> A;
+Tensor<double, Rank, MpiStorage<Gpu>> B;
 ```
 
 `MpiStorage` is distribution. `Cpu` / `Gpu` are local placement/execution backends. In a later naming pass this may become something like:
@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
 Ordinary user code:
 
 ```cpp
-using MpiTensor = Tensor<double, MpiStorage<Cpu>>;
+using MpiTensor = Tensor<double, Rank, MpiStorage<Cpu>>;
 
 MpiTensor A, B, C;
 // initialize A and B
@@ -819,15 +819,15 @@ compatible distributed storage unless the operation explicitly permits otherwise
 Valid:
 
 ```cpp
-Tensor<double, MpiStorage<Cpu>> A, B, C;
+Tensor<double, Rank, MpiStorage<Cpu>> A, B, C;
 contract(A, B, C);
 ```
 
 Suspicious / rejected by default:
 
 ```cpp
-Tensor<double, MpiStorage<Cpu>> A, C;
-Tensor<double, Cpu> B;
+Tensor<double, Rank, MpiStorage<Cpu>> A, C;
+Tensor<double, Rank, Cpu> B;
 contract(A, B, C);
 ```
 
@@ -978,7 +978,7 @@ Diagnostics should include:
 
 ### Stage 6: First real distributed tensor operation
 
-- Implement `contract` over `Tensor<double, MpiStorage<Cpu>>`.
+- Implement `contract` over `Tensor<double, Rank, MpiStorage<Cpu>>`.
 - Use persistent IDs / manifests for inputs and outputs.
 - Validate root user code does not require rank guards.
 
@@ -1006,7 +1006,7 @@ root user program
 This keeps user-facing code mostly ordinary:
 
 ```cpp
-Tensor<double, MpiStorage<Cpu>> A, B, C;
+Tensor<double, Rank, MpiStorage<Cpu>> A, B, C;
 contract(A, B, C);
 ```
 

@@ -66,7 +66,8 @@ template <class Operation, class StoragePolicy> struct backend_selector_override
 namespace detail
 {
 template <class Tensor>
-concept HasStoragePolicy = requires { typename std::remove_cvref_t<Tensor>::storage_policy; };
+concept HasStoragePolicy = requires { typename std::remove_cvref_t<Tensor>::storage_policy; } &&
+                           (!std::same_as<typename std::remove_cvref_t<Tensor>::storage_policy, void>);
 
 template <class FirstTensor, class... RestTensors>
 [[nodiscard]] constexpr auto storage_default_backend_selector(FirstTensor const& first, RestTensors const&... rest)

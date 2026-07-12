@@ -1,14 +1,24 @@
 #pragma once
 
+/**
+ * \file tensor.hpp
+ * \ingroup tensor
+ * \brief General-purpose owning tensors with runtime extents.
+ */
+
 #include "basic_tensor.hpp"
+#include "conjugate.hpp"
+#include "output.hpp"
+
+#include <cstddef>
 
 namespace uni20
 {
 
-/// \brief Owning tensor alias with compile-time rank convenience.
+/// \brief General-purpose owning tensor with runtime extents and compile-time rank.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the tensor.
-/// \tparam Rank Static rank of the tensor extents.
+/// \tparam Rank Static rank of the tensor.
 /// \tparam StoragePolicy Policy controlling ownership and allocation of the buffer.
 /// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.

@@ -101,8 +101,9 @@ job — an async-capable policy frees a device buffer only after the event signa
 the buffer is no longer in use, and then frees asynchronously.
 
 `BlockTensor` sits directly on the buffer-with-subviews foundation, not on the
-user-facing dense `Tensor`/`BasicTensor`. The dense `Tensor` is a sibling owning
-view over the same buffer kind, not the thing the container is made of.
+user-facing dense `Tensor` owner or its Tensor-view concepts. Dense `Tensor` is
+a sibling owner over the same buffer kind, not the thing the container is made
+of.
 
 ## 3. Leg-kind taxonomy
 
@@ -205,7 +206,7 @@ deferred to when each capability is actually added. It is the compile-time selec
 for the §8 seams.
 
 A small type family shares `LegSpec`/`Storage`, varying only on ownership and
-view-state (mirroring the existing `BasicTensor` / `TensorView` split):
+view-state (mirroring the existing `Tensor` / `TensorView` split):
 
 - **`BlockTensor`** — owning; holds the buffers.
 - **`BlockTensorView`** — non-owning; carries op-state (§7) and possibly rebound

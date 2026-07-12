@@ -112,6 +112,8 @@ struct TensorAdapter
 
     [[nodiscard]] auto mdspan() const noexcept { return span; }
     [[nodiscard]] auto backend_selector() const noexcept { return selector; }
+    [[nodiscard]] auto extents() const noexcept { return span.extents(); }
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept { return span.extent(axis); }
 };
 
 template <class... Args> consteval auto kernel_accepts_types(Backend const&, gemm_op const&, Args&...)

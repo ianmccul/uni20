@@ -204,7 +204,7 @@ isolate the issue.
 The CPU async scheduler owns logical causality.  The GPU epoch scheduler owns
 device-side memory hazards for work that is already causally ready to submit.
 
-For `Tensor<T, GpuStorage>`, CPU-side validity means:
+For `Tensor<T, Rank, GpuStorage>`, CPU-side validity means:
 
 - the tensor object is logically constructed;
 - metadata such as shape, layout, and index structure is valid on the CPU;
@@ -253,24 +253,24 @@ readback is modeled as a GPU read followed by an asynchronous transfer or
 conversion into CPU storage:
 
 ```text
-Tensor<T, GpuStorage>
+Tensor<T, Rank, GpuStorage>
   -> acquire GPU read epoch
   -> enqueue cudaMemcpyAsync D2H or conversion kernel
   -> co_await host completion
-  -> Tensor<T, CpuStorage>
+  -> Tensor<T, Rank, CpuStorage>
 ```
 
 Likewise, CPU-to-GPU materialization is an explicit upload/write operation:
 
 ```text
-Tensor<T, CpuStorage>
-  -> allocate/acquire Tensor<T, GpuStorage>
+Tensor<T, Rank, CpuStorage>
+  -> allocate/acquire Tensor<T, Rank, GpuStorage>
   -> enqueue cudaMemcpyAsync H2D or conversion kernel
   -> publish GPU write epoch
 ```
 
 Unified memory should not be implicit in `GpuStorage`.  If uni20 supports it
-later, it should be a distinct storage type such as `Tensor<T, UnifiedStorage>`
+later, it should be a distinct storage type such as `Tensor<T, Rank, UnifiedStorage>`
 with its own coherence and ownership rules.  Randomly accessing the same storage
 from CPU and GPU is not part of the `GpuStorage` model.
 

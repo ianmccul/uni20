@@ -4,6 +4,7 @@
 add_executable(uni20_benchmarks
 #    benchmark_dummy.cpp
     benchmark_coroutine_overhead.cpp
+    benchmark_linalg_dispatch.cpp
     benchmark_tensor_tbb_scaling.cpp
 )
 
@@ -13,6 +14,7 @@ target_link_libraries(uni20_benchmarks
             benchmark::benchmark
             TBB::tbb
             uni20_async
+            uni20_linalg
 )
 
 # Disable TRACE for benchmark builds

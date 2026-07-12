@@ -29,10 +29,14 @@ before they lower to backend wrappers and kernels.
   `backend/` and `kernel/` layers where appropriate.
 - Backend implementations include `operation_tags.hpp`; do not redeclare
   operation identities locally.
-- Bare-mdspan GEMM and GEMV calls use `dispatch_kernel` with their operation tag
-  and an explicit selector. Tensor-view operands use the fixed-output `gemm` or
-  `gemv` front end so it can derive their common storage selector, or they may
-  supply an explicit selector override.
+- Bare-mdspan GEMM, GEMV, and copy calls use `dispatch_kernel` with their
+  operation tag and an explicit selector. Tensor-view operands use the
+  fixed-output `gemm` or `gemv` front end so it can derive their common storage
+  selector, or they may supply an explicit selector override.
+- `copy_op` is the semantic element-copy operation used by Tensor `copy` and
+  `make_tensor`. Its CPU backend respects accessors. Future BLAS matrix-copy
+  extensions may accept representable rank-two layouts and conjugating views;
+  strict BLAS/LAPACK compute wrappers still do not materialize implicitly.
 - New dense linalg operations use operation tags, `kernel_accepts_types`, and
   `try_kernel`. The former `cpu_tag`/`lapack_tag` matrix-operation front end has
   been removed; those tags remain only in older, separate kernel lineages that

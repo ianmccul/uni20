@@ -38,6 +38,10 @@ concept can_try_blas_readable_vector =
 template <class Mdspan>
 concept can_try_blas_writable_vector =
     requires(Mdspan const& span) { uni20::linalg::blas::try_blas_writable_vector(span); };
+
+template <class Mdspan>
+concept can_try_lapack_writable_vector =
+    requires(Mdspan const& span) { uni20::linalg::blas::try_lapack_writable_vector(span); };
 } // namespace
 
 TEST(BlasVectorOperandTest, ConstrainsDirectAccessorAndScalarTypes)
@@ -49,6 +53,10 @@ TEST(BlasVectorOperandTest, ConstrainsDirectAccessorAndScalarTypes)
   static_assert(!can_try_blas_readable_vector<left_mdspan<int>>);
   static_assert(!can_try_blas_readable_vector<value_transform_mdspan<double>>);
   static_assert(!can_try_blas_writable_vector<value_transform_mdspan<double>>);
+  static_assert(can_try_lapack_writable_vector<left_mdspan<double>>);
+  static_assert(!can_try_lapack_writable_vector<left_mdspan<double const>>);
+  static_assert(!can_try_lapack_writable_vector<left_mdspan<int>>);
+  static_assert(!can_try_lapack_writable_vector<value_transform_mdspan<double>>);
 }
 
 TEST(BlasVectorOperandTest, StagesPositiveStridedVector)
@@ -79,6 +87,21 @@ TEST(BlasVectorOperandTest, NormalizesUnobservedSingletonStride)
   ASSERT_TRUE(stage.has_value());
   EXPECT_EQ(stage->extent, 1);
   EXPECT_EQ(stage->increment, 1);
+}
+
+TEST(BlasVectorOperandTest, LapackRequiresContiguousWritableVector)
+{
+  std::vector<double> contiguous_storage(3);
+  left_mdspan<double> contiguous(contiguous_storage.data(), 3);
+  auto operand = uni20::linalg::blas::try_lapack_writable_vector(contiguous);
+  ASSERT_TRUE(operand.has_value());
+  EXPECT_EQ(operand->size, 3);
+  EXPECT_EQ(operand->increment, 1);
+
+  std::vector<double> strided_storage(5);
+  stdex::layout_stride::mapping<extents_1d> mapping(extents_1d{3}, std::array<uni20::index_type, 1>{2});
+  stdex::mdspan<double, extents_1d, stdex::layout_stride> strided(strided_storage.data(), mapping);
+  EXPECT_FALSE(uni20::linalg::blas::try_lapack_writable_vector(strided).has_value());
 }
 
 TEST(BlasVectorOperandTest, ConjugatingViewRequiresOperationSpecificLowering)

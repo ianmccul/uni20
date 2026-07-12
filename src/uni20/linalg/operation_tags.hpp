@@ -12,6 +12,12 @@
 namespace uni20::linalg
 {
 
+/// \brief Accessor-respecting element copy operation tag.
+struct copy_op
+{
+    static constexpr std::string_view name = "copy";
+};
+
 /// \brief Dense matrix multiplication operation tag.
 struct gemm_op
 {
@@ -43,6 +49,28 @@ struct matrix_set_op
 {
     static constexpr std::string_view name = "matrix_set";
     MatrixRegion region = MatrixRegion::All;
+};
+
+/// \brief Triangle of a symmetric or Hermitian matrix supplied to an operation.
+enum class MatrixTriangle
+{
+  Upper,
+  Lower
+};
+
+/// \brief Options for a dense symmetric or Hermitian eigensystem.
+struct SelfAdjointEighOptions
+{
+    bool compute_vectors = true;
+    MatrixTriangle triangle = MatrixTriangle::Upper;
+};
+
+/// \brief Dense symmetric or Hermitian eigensystem operation tag.
+struct self_adjoint_eigh_op
+{
+    static constexpr std::string_view name = "self_adjoint_eigh";
+    bool compute_vectors = true;
+    MatrixTriangle triangle = MatrixTriangle::Upper;
 };
 
 /// \brief Symmetric tridiagonal eigensystem operation tag.

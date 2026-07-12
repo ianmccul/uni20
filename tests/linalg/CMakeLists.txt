@@ -4,6 +4,9 @@ add_test_module(linalg
     test_dispatch_diagnostics.cpp
     test_dense_ops_dispatch.cpp
     test_linalg_gemv_cpu.cpp
+    test_matrix_product.cpp
+    test_self_adjoint_eigh.cpp
+    test_tensor_copy.cpp
   LIBS uni20_linalg
 )
 

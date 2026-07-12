@@ -10,7 +10,7 @@ It consolidates and replaces the old local design drafts:
 
 - `docs/tensor_design.md`
 - `docs/Uni20TensorArchitecture.md`
-- `docs/ReferenceCountingBasicTensor.md`
+- `docs/ReferenceCountingTensor.md`
 
 ## 1. Current Architecture Snapshot (2026-03)
 
@@ -18,9 +18,12 @@ It consolidates and replaces the old local design drafts:
 
 Current code shape:
 
-- `BasicTensor` owns storage by composition and exposes resolved mdspans.
+- `BasicTensor` owns storage by composition and exposes resolved mdspans;
+  `Tensor<T, Rank, ...>` is its general-purpose runtime-extents alias.
 - The Tensor-view concept family includes readable, mutable, and rank-constrained
   forms in `src/uni20/tensor/concepts.hpp`.
+- `conj(tensor)` provides a lazy read-only transform view; `copy` and
+  `make_tensor` are explicit backend-dispatched materialization boundaries.
 - mdspan integration and concepts live in `src/uni20/mdspan/`.
 - Level-1 tensor kernels live in `src/uni20/level1/`.
 
@@ -60,7 +63,8 @@ Current code shape:
 
 ### 3.1 Tensor/view lifetime model
 
-Today, `BasicTensor` owns storage and models the tensor-level concepts directly.
+Today, `Tensor` aliases an owning `BasicTensor` and models the tensor-level
+concepts directly.
 There is no general concrete non-owning tensor adaptor yet. Advanced async and
 slicing workflows still need an explicit lifetime-sharing design.
 

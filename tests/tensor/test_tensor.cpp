@@ -1,5 +1,4 @@
 #include <uni20/common/trace.hpp>
-#include <uni20/tensor/basic_tensor.hpp>
 #include <uni20/tensor/layout.hpp>
 #include <uni20/tensor/tensor.hpp>
 
@@ -18,7 +17,9 @@ namespace
 
 using index_t = index_type;
 using extents_2d = stdex::dextents<index_t, 2>;
-using tensor_type = BasicTensor<int, extents_2d, VectorStorage>;
+using tensor_type = Tensor<int, 2, VectorStorage>;
+
+static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage>>);
 
 static_assert(TensorView<tensor_type>);
 static_assert(MutableTensorView<tensor_type>);
@@ -39,7 +40,7 @@ constexpr bool can_assign_element_v =
     std::is_assignable_v<typename std::remove_reference_t<Span>::reference,
                          std::remove_const_t<typename std::remove_reference_t<Span>::value_type>>;
 
-TEST(BasicTensorTest, DefaultMappingUsesVectorStorage)
+TEST(TensorTest, DefaultMappingUsesVectorStorage)
 {
   extents_2d exts{2, 3};
   tensor_type tensor(exts);
@@ -71,7 +72,7 @@ TEST(BasicTensorTest, DefaultMappingUsesVectorStorage)
   EXPECT_EQ(tensor.mapping().stride(1), 1);
 }
 
-TEST(BasicTensorTest, DynamicExtentsConstructorAcceptsOneExtentPerAxis)
+TEST(TensorTest, DynamicExtentsConstructorAcceptsOneExtentPerAxis)
 {
   tensor_type tensor(2, 3);
 
@@ -80,7 +81,19 @@ TEST(BasicTensorTest, DynamicExtentsConstructorAcceptsOneExtentPerAxis)
   EXPECT_EQ(tensor.size(), 6);
 }
 
-TEST(BasicTensorTest, DenseMatrixDefaultsToColumnMajor)
+TEST(BasicTensorTest, SupportsStaticMdspanExtents)
+{
+  using fixed_extents = stdex::extents<index_t, 2, 3>;
+  BasicTensor<int, fixed_extents> tensor(fixed_extents{});
+
+  static_assert(decltype(tensor)::rank() == 2);
+  static_assert(decltype(tensor)::rank_dynamic() == 0);
+  EXPECT_EQ(tensor.rows(), 2);
+  EXPECT_EQ(tensor.cols(), 3);
+  EXPECT_EQ(tensor.size(), 6);
+}
+
+TEST(TensorTest, DenseMatrixDefaultsToColumnMajor)
 {
   DenseMatrix<int> matrix(2, 3);
 
@@ -91,7 +104,7 @@ TEST(BasicTensorTest, DenseMatrixDefaultsToColumnMajor)
   EXPECT_EQ(matrix.mapping().stride(1), 2);
 }
 
-TEST(BasicTensorTest, DenseMatrixSupportsRowMajorOwnership)
+TEST(TensorTest, DenseMatrixSupportsRowMajorOwnership)
 {
   DenseMatrix<int, RowMajor> matrix(2, 3);
 
@@ -99,7 +112,7 @@ TEST(BasicTensorTest, DenseMatrixSupportsRowMajorOwnership)
   EXPECT_EQ(matrix.mapping().stride(1), 1);
 }
 
-TEST(BasicTensorTest, CustomStridesAllocateFullSpan)
+TEST(TensorTest, CustomStridesAllocateFullSpan)
 {
   extents_2d exts{2, 2};
   std::array<index_t, 2> strides{3, 1};
@@ -123,7 +136,7 @@ TEST(BasicTensorTest, CustomStridesAllocateFullSpan)
   EXPECT_EQ((tensor[1, 1]), 13);
 }
 
-TEST(BasicTensorTest, MappingBuilderSupportsLayoutLeft)
+TEST(TensorTest, MappingBuilderSupportsLayoutLeft)
 {
   extents_2d exts{2, 3};
   tensor_type tensor(exts, layout::LayoutLeft());
@@ -151,7 +164,7 @@ TEST(BasicTensorTest, MappingBuilderSupportsLayoutLeft)
   EXPECT_EQ((tensor[1, 2]), 21);
 }
 
-TEST(BasicTensorTest, CopyConstructionOwnsIndependentStorage)
+TEST(TensorTest, CopyConstructionOwnsIndependentStorage)
 {
   tensor_type source(extents_2d{2, 3});
   source[0, 0] = 1;
@@ -171,7 +184,7 @@ TEST(BasicTensorTest, CopyConstructionOwnsIndependentStorage)
   EXPECT_EQ((copy[0, 0]), 99);
 }
 
-TEST(BasicTensorTest, CopyAssignmentOwnsIndependentStorageAndMapping)
+TEST(TensorTest, CopyAssignmentOwnsIndependentStorageAndMapping)
 {
   tensor_type source(extents_2d{2, 3}, std::array<index_t, 2>{4, 1});
   source[0, 0] = 3;
@@ -193,7 +206,7 @@ TEST(BasicTensorTest, CopyAssignmentOwnsIndependentStorageAndMapping)
   EXPECT_EQ((target[1, 2]), 42);
 }
 
-TEST(BasicTensorTest, MoveConstructionRetainsOwnedMapping)
+TEST(TensorTest, MoveConstructionRetainsOwnedMapping)
 {
   tensor_type source(extents_2d{2, 3});
   source[0, 1] = 7;
@@ -207,7 +220,7 @@ TEST(BasicTensorTest, MoveConstructionRetainsOwnedMapping)
   EXPECT_EQ((moved[1, 2]), 8);
 }
 
-TEST(BasicTensorTest, MoveAssignmentRetainsOwnedMapping)
+TEST(TensorTest, MoveAssignmentRetainsOwnedMapping)
 {
   tensor_type source(extents_2d{2, 3});
   source[0, 1] = 11;
@@ -224,7 +237,7 @@ TEST(BasicTensorTest, MoveAssignmentRetainsOwnedMapping)
   EXPECT_EQ((target[1, 2]), 12);
 }
 
-TEST(BasicTensorTest, MdspanFromConstTensorIsReadOnly)
+TEST(TensorTest, MdspanFromConstTensorIsReadOnly)
 {
   extents_2d exts{2, 3};
   tensor_type tensor(exts);
@@ -247,7 +260,7 @@ TEST(BasicTensorTest, MdspanFromConstTensorIsReadOnly)
   EXPECT_EQ((span_from_mdspan[1, 2]), 17);
 }
 
-TEST(BasicTensorTest, ResolvedMdspansShareOwnedStorage)
+TEST(TensorTest, ResolvedMdspansShareOwnedStorage)
 {
   extents_2d exts{2, 3};
   tensor_type tensor(exts);
@@ -270,7 +283,7 @@ TEST(BasicTensorTest, ResolvedMdspansShareOwnedStorage)
   EXPECT_EQ(tensor.backend_selector(), VectorStorage::backend_selector());
 }
 
-TEST(BasicTensorTest, TraceFormattingUsesPresentationTensorArt)
+TEST(TensorTest, TraceFormattingUsesPresentationTensorArt)
 {
   tensor_type tensor(extents_2d{2, 2});
   tensor[0, 0] = 1;

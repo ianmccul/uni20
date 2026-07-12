@@ -9,10 +9,14 @@ Operation values and diagnostic names are defined centrally in
 - `gemm.hpp`: fixed-output Tensor GEMM front end.
 - `gemv.hpp`: fixed-output Tensor GEMV front end.
 - `matrix_exponential.hpp`: fixed-output matrix exponential dispatch.
+- `matrix_product.hpp`: fixed-update and resizable-overwrite Tensor matrix
+  products over GEMM dispatch.
 - `matrix_set.hpp`: structured matrix initialization over accessor-respecting
   CPU kernels.
 - `nonsymmetric_eigen.hpp`: fixed-output nonsymmetric eigensystem dispatch.
 - `schur.hpp`: fixed-output Schur decomposition and block-reordering dispatch.
+- `self_adjoint_eigh.hpp`: destructive in-place and preserving value forms for
+  dense symmetric/Hermitian eigensystems.
 - `tridiagonal_eigen.hpp`: symmetric tridiagonal eigensystem dispatch.
 
 ## Notes

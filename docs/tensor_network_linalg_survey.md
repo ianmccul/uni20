@@ -40,9 +40,10 @@ The complex dense surface is intentionally narrower today:
   binary128 probes;
 - complex nonsymmetric projected eigen and Schur helpers exist for Arnoldi
   (`geev`, `gees`, `trexc`);
-- complex Hermitian dense eigensystems, complex SVD, complex QR/LQ, complex
-  solves, and complex conditioning/refinement wrappers are the main missing
-  pieces for tensor-network work.
+- standard complex Hermitian `heev` is available through the active
+  `self_adjoint_eigh`/`eigh` path; divide-and-conquer, selected, generalized,
+  SVD, QR/LQ, solve, and conditioning/refinement wrappers remain the main
+  missing pieces for tensor-network work.
 
 The native Krylov matrix-free boundary already matches the tensor-network
 direction: vectors are opaque, and solvers require allocation, copy, `axpy`,
@@ -54,7 +55,7 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 
 | group | examples | why |
 | --- | --- | --- |
-| Complex Hermitian and generalized Hermitian eigensystems | `heev`, `heevd`, `heevr`, `hegv`, `hegvd`, `hegvx` | Needed for complex Hermitian dense references, canonicalization checks, blockwise Hermitian tensor factorizations, metric problems, tangent-space experiments, and validation of complex Krylov paths. |
+| Advanced and generalized complex Hermitian eigensystems | `heevd`, `heevr`, `hegv`, `hegvd`, `hegvx` | Standard `heev` is implemented. The remaining variants are needed for selected spectra, faster full decompositions, metric problems, tangent-space experiments, and broader validation. |
 | Complex SVD | `gesvd`, `gesdd`, and eventually selected SVD | Core tensor truncation operation for complex tensors and transfer-matrix workflows. Return truncation-ready singular values and reconstruction diagnostics above the raw wrapper. |
 | Complex QR/LQ | `geqrf`/`ungqr`, `gelqf`/`unglq`, plus apply-unitary helpers | Needed for MPS canonical forms, orthogonalization, gauge moves, and stable factorization paths when no truncation is requested. |
 | Complex dense solves | `gesv`, `getrf`/`getrs`, `gesvx`, `gerfs`, `gecon`, triangular solves | Needed for tensor-network local linear solves, gauge fixing, implicit methods, and diagnostics. Include condition/refinement data where available. |
@@ -69,7 +70,7 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 | Real Krylov projected kernels | Broad enough for current real symmetric and real nonsymmetric eigensolver work. |
 | Real linear solvers | Enough to prototype dense projected solves and condition diagnostics, including binary128 probes. |
 | Real SVD/eigh/QR/LQ | Enough to prototype real tensor factorizations and validation cases. |
-| Complex Hermitian and generalized Hermitian eigensystems | Enough to try dense complex Hermitian and type-1 generalized Hermitian problems in `c`/`z` arithmetic. |
+| Complex Hermitian eigensystems | Active `heev` support covers full dense `c`/`z` eigensystems; generalized variants remain future work. |
 | Complex nonsymmetric Schur/eigen helpers | Enough for current complex Arnoldi restart and Ritz extraction work. |
 | Matrix-free Krylov interface | The right boundary for opaque CPU/GPU/MPI vectors; no workspace-array or reverse-communication API should leak into higher layers. |
 

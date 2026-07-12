@@ -26,6 +26,15 @@ template <class Scalar, class Handle> struct MdspanVectorStage
     bool needs_conjugation = false;
 };
 
+namespace detail
+{
+template <class Mdspan>
+concept lapack_writable_vector_mdspan =
+    uni20::MutableRankedStridedMdspan<Mdspan, 1> &&
+    uni20::LapackScalar<std::remove_cv_t<typename std::remove_cvref_t<Mdspan>::element_type>> &&
+    uni20::DefaultAccessorMdspan<Mdspan>;
+} // namespace detail
+
 /// \brief Build an mdspan vector staging descriptor when direct BLAS lowering is possible.
 template <uni20::RankedStridedMdspan<1> Mdspan>
 auto try_mdspan_vector_stage(Mdspan const& span)
@@ -114,6 +123,20 @@ auto try_blas_readable_vector(Mdspan const& span)
     return std::nullopt;
   }
   return blas_readable_vector(*stage);
+}
+
+/// \brief Try to lower an mdspan to the contiguous writable vector shape expected by LAPACK.
+template <detail::lapack_writable_vector_mdspan Mdspan>
+auto try_lapack_writable_vector(Mdspan const& span)
+    -> std::optional<
+        BlasWritableVector<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
+{
+  auto stage = try_mdspan_vector_stage(span);
+  if (!stage || stage->increment != 1 || stage->needs_conjugation)
+  {
+    return std::nullopt;
+  }
+  return blas_writable_vector(*stage);
 }
 
 } // namespace uni20::linalg::blas

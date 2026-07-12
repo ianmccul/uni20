@@ -2,9 +2,10 @@
 
 **Status:** implemented first vertical slices plus forward plan. The mdspan
 linalg dispatch layer now covers GEMM/GEMV, accessor-respecting CPU fallbacks,
+Tensor output-shape preparation, matrix products, explicit copy/materialization,
 matrix initialization and exponential front ends, and the LAPACK projected
 eigensystem/Schur operations used by native Krylov. Broader BLAS/LAPACK
-coverage, prepared operands, and allocating front ends remain design work.
+coverage and domain-aware prepared operands remain design work.
 
 This note records the implemented mdspan wrappers over the existing Uni20
 BLAS/LAPACK backend layer and the next steps for extending them. These wrappers
@@ -234,8 +235,8 @@ The exact names can change, but the split matters:
   helper returns a read-only conjugating accessor view for complex mdspans,
   cancels to the const original view when applied twice, and is a no-op for
   non-complex values while still returning a const identity mdspan view. A
-  future `conj(Tensor)` should return a tensor view whose mdspan accessor
-  advertises the same trait, so the mdspan-to-BLAS adapter discovers
+  `conj(Tensor)` returns a tensor view whose mdspan accessor advertises the
+  same trait, so the mdspan-to-BLAS adapter discovers
   conjugation from the accessor instead of from tensor-specific side metadata.
   The accessor follows the C++26 `std::linalg::conjugated_accessor` direction
   in WG21 P3050R3, but Uni20 keeps `uni20::conj` as the value-level
@@ -452,12 +453,11 @@ detail helper. Public code uses
 `probe_dispatch_kernel(backends, op, args...)`, which returns `yes` if any
 candidate is `yes`, otherwise `maybe` if any is `maybe`, otherwise `no`.
 
-## Worked Example: Self-Adjoint Eigensolver
+## Implemented Example: Self-Adjoint Eigensolver
 
-The first LAPACK mdspan wrapper should probably be the standard dense
-symmetric/Hermitian eigensolver. It is used by projected Lanczos problems, it
-exercises real and complex scalar paths, and it shows the distinction between
-type eligibility and runtime view representability.
+The standard dense symmetric/Hermitian eigensolver is now implemented. It
+exercises real and complex scalar paths and shows the distinction between type
+eligibility and runtime view representability.
 
 ### Public Shape
 
@@ -724,7 +724,7 @@ candidates to add only when an algorithm or example needs them:
 | symmetric tridiagonal eigensystem | `sterf`, `steqr` | Implemented for Lanczos projected diagonalization. |
 | real and complex Schur decomposition | `gees`, `hseqr`, `trexc` | Implemented for Arnoldi restarts and reordering. |
 | nonsymmetric eigensystem | `geev` | Implemented for projected Ritz extraction and validation. |
-| symmetric/Hermitian dense eigensystem | `syev`, `heev`, then `syevd`/`heevd` | Candidate for dense Hermitian utilities. |
+| symmetric/Hermitian dense eigensystem | `syev`, `heev`, then `syevd`/`heevd` | `syev`/`heev` implemented with in-place and preserving value APIs; divide-and-conquer variants remain future work. |
 | QR/LQ factorization | `geqrf`, `orgqr`/`ungqr`, `gelqf`, `orglq`/`unglq` | Candidate for future dense utilities. |
 | SVD and least squares | `gesvd`, `gesvdx`, `gelsd` | Candidate for future linalg API coverage. |
 
@@ -814,17 +814,21 @@ a differently ordered representation.
 
 ### Phase 5: Tensor Front-End Dispatch
 
-The fixed-output GEMM and GEMV checkpoints now:
+The Tensor front-end checkpoints now:
 
-- derives a default backend selector from tensor storage policy.
-- enforce operation-specific rank-two matrix and rank-one vector Tensor views.
-- lowers those operands through `mdspan()`; the generic CPU path does not
+- derive a default backend selector from tensor storage policy.
+- enforce operation-specific ranked Tensor views.
+- lower those operands through `mdspan()`; the generic CPU path does not
   require stridedness, while BLAS lowering does.
-- uses the same operation tag and backend-list walk as explicit mdspan calls.
+- use the same operation tag and backend-list walk as explicit mdspan calls.
+- distinguish fixed `gemm`/`gemv` and `add_product` updates from resizable
+  `assign_product` overwrites.
+- provide lazy read-only `conj(tensor)` views and explicit eager `copy` and
+  `make_tensor` operations. `make_tensor(conj(input))` allocates first and then
+  dispatches `copy_op`.
 
-Allocating and shape-changing operations still need to call `ensure_shape(...)`
-before resolving the writable mdspan. That policy does not belong in fixed-output
-GEMM or GEMV.
+Shape-changing operations call `ensure_shape(...)` before resolving the
+writable mdspan. That policy does not belong in fixed-output GEMM or GEMV.
 
 This is where CUDA, MPI/block tensor placement, async scheduling, and temporary
 allocation policy enter. They should not be forced into the first LAPACK mdspan
@@ -870,10 +874,15 @@ decline behavior easy to test.
 - Materialization policy is part of the wrapper contract: direct-only for leaf
   dispatch, input temporaries for ergonomic value wrappers, and output copy-back
   only when explicitly requested or documented.
+- `conj(...)` remains a view. Explicit `copy_op` observes accessor and layout
+  semantics; a future BLAS implementation may lower rank-two copy to provider
+  `omatcopy`-style extensions without making conjugation eager.
 
 ## Open Questions
 
 - Which operations should support row-major-as-transposed views without copying?
+- Which BLAS providers and extension ABIs should implement rank-two `copy_op`
+  for transpose/conjugate combinations (`omatcopy`, `omatcopy2`, or equivalent)?
 - Which provider backends can support accessor-derived conjugate-only operands
   directly, for example through OpenBLAS `CblasConjNoTrans` or its
   Fortran-style `R` spelling, and where should fallback materialization live?

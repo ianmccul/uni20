@@ -3,8 +3,9 @@
 **Status: implemented dense BLAS, CPU-reference, and initial LAPACK slices plus
 forward design.** Uni20 has an operation-tag dispatch walk, structured failure
 reporting, opt-in runtime dispatch diagnostics, Tensor-to-mdspan forwarding,
-direct BLAS/reference CPU backends, and LAPACK adapters used by the native
-Krylov projected problems. The CUDA,
+output-shape preparation, accessor-respecting copy/materialization, direct
+BLAS/reference CPU backends, and LAPACK adapters used by the native Krylov
+projected problems. The CUDA,
 distributed, prepared-operand, and broader BLAS/LAPACK portions remain design
 work. This note
 captures both the implemented contract and that direction. It generalizes the
@@ -37,8 +38,8 @@ Related notes:
 ## The model in one paragraph
 
 A **backend** is a uniform thing with two ways to decline an operation. The
-dispatch mechanism is generic over an **operation tag** (`gemm_op`, `gemv_op`,
-`scale_op`, `assign_op`, ...), and discovers backend support with customization
+dispatch mechanism is generic over an **operation tag** (`copy_op`, `gemm_op`,
+`gemv_op`, ...), and discovers backend support with customization
 points. Concrete dense-linalg operation tags and their diagnostic names live in
 the central `src/uni20/linalg/operation_tags.hpp` catalogue; backend headers use
 that catalogue rather than redeclaring an operation locally:
@@ -106,6 +107,12 @@ Operation tags and backend values define stable `static constexpr
 std::string_view name` members. These names are diagnostic metadata only; C++
 types remain the dispatch identity and the names are not serialization or ABI
 keys.
+
+Tensor `conj(...)` is a lazy read-only view whose resolved mdspan uses the
+conjugating accessor. Explicit `copy(...)` and `make_tensor(...)` dispatch
+`copy_op`; the current CPU reference backend reads through accessor semantics.
+This leaves rank-two copy open to a future BLAS `omatcopy`-style backend without
+turning view construction into eager work.
 
 The rendered diagnostic begins with a failure-styled line naming the operation,
 followed by the failure category and ordered backend candidate table. It then
@@ -635,8 +642,8 @@ ships with the local backends only.
 
 | storage mode | `default_backends_t` | effective stack |
 |---|---|---|
-| `Tensor<T, Host>` | `[Blas, CpuGeneric]` | BLAS then oracle |
-| `Tensor<T, Device>` | `[Cublas, DeviceGeneric]` | cuBLAS then device oracle |
+| `Tensor<T, Rank, HostStorage>` | `[Blas, CpuGeneric]` | BLAS then oracle |
+| `Tensor<T, Rank, DeviceStorage>` | `[Cublas, DeviceGeneric]` | cuBLAS then device oracle |
 | `BlockTensor<…, Mpi<Host>>` | `[Mpi]` | Mpi composed with `[Blas, CpuGeneric]` per MPI rank |
 | `BlockTensor<…, Mpi<Cuda>>` | `[Mpi]` | Mpi composed with `[Cublas, DeviceGeneric]` per MPI rank |
 

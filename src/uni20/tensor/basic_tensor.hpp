@@ -1,5 +1,11 @@
 #pragma once
 
+/**
+ * \file basic_tensor.hpp
+ * \ingroup tensor
+ * \brief Configurable owning tensors parameterized by mdspan extents.
+ */
+
 #include "concepts.hpp"
 #include "layout.hpp"
 
@@ -27,7 +33,7 @@ struct DefaultAccessorFactory
     }
 };
 
-/// \brief Owning tensor that allocates storage and exposes mdspan-based access.
+/// \brief Configurable owning tensor that exposes mdspan-based access.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the tensor.
 /// \tparam Extents Extents type describing the tensor shape.
@@ -124,6 +130,21 @@ class BasicTensor {
                          accessor_factory_type accessor_factory = accessor_factory_type{})
         : BasicTensor(internal_tag{}, make_payload(mapping_type{exts, strides}, std::move(accessor_factory)))
     {}
+
+    /// \brief Replace the tensor shape and discard its current values.
+    /// \details The replacement uses the storage policy's default mapping for
+    ///          the new extents and preserves accessor-factory state. The
+    ///          replacement is constructed before the current tensor changes;
+    ///          supported tensor state must be nothrow-swappable so the update
+    ///          provides the strong exception guarantee.
+    /// \param exts New tensor extents.
+    void reset_shape(extents_type const& exts)
+      requires(std::copy_constructible<accessor_factory_type> && std::is_nothrow_swappable_v<mapping_type> &&
+               std::is_nothrow_swappable_v<storage_type> && std::is_nothrow_swappable_v<accessor_factory_type>)
+    {
+      BasicTensor replacement(exts, accessor_factory_);
+      this->swap_state(replacement);
+    }
 
     /// \brief Access the owned storage container.
     /// \return Mutable reference to the underlying storage.
@@ -328,6 +349,16 @@ class BasicTensor {
       {
         return layout::make_mapping<layout_policy>(exts);
       }
+    }
+
+    void swap_state(BasicTensor& other) noexcept
+      requires(std::is_nothrow_swappable_v<mapping_type> && std::is_nothrow_swappable_v<storage_type> &&
+               std::is_nothrow_swappable_v<accessor_factory_type>)
+    {
+      using std::swap;
+      swap(mapping_, other.mapping_);
+      swap(data_, other.data_);
+      swap(accessor_factory_, other.accessor_factory_);
     }
 
     [[no_unique_address]] mapping_type mapping_{};

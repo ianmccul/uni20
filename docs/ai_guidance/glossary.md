@@ -175,16 +175,33 @@ This glossary is optimized for retrieval, not pedagogy.
 
 ## Tensor and aliasing terms
 
-### BasicTensor
+### Tensor
 
 - `ROLE`: Owning dense tensor value.
-- `STATUS`: Current composition-based owner; models `TensorView` and
-  `MutableTensorView` without inheriting a view descriptor.
+- `STATUS`: Alias for `BasicTensor<Element, dextents<index_type, Rank>, ...>`;
+  models `TensorView` and `MutableTensorView` without inheriting a view
+  descriptor.
+- `NAMING`: `Tensor<Element, Rank, ...>` is the ordinary runtime-extents owner;
+  use `DenseMatrix<T>` or `make_tensor(view)` when even that policy type need
+  not be named.
+- `INVARIANT`: Rank remains compile-time. A future runtime-rank tensor is a
+  separate type rather than a `Tensor` policy or a revived `DynamicTensor`
+  alias.
 - `ASSIGNMENT`: Should be reasoned about as value/replace semantics, not mdspan-style descriptor rebind.
+
+### BasicTensor
+
+- `ROLE`: Configurable owning dense tensor parameterized by an mdspan extents
+  type.
+- `USE`: Mixed/static extents and low-level data structures that intentionally
+  encode extent information in the type.
+- `MISCONCEPTION`: `BasicTensor` is a base class. It is the concrete owner to
+  which `Tensor` aliases, and the design does not use view inheritance.
 
 ### TensorView
 
-- `ROLE`: Concept requiring `mdspan()` and `backend_selector()`.
+- `ROLE`: Concept requiring synchronous extents metadata, `mdspan()`, and
+  `backend_selector()`.
 - `INVARIANT`: May be modeled by an owning tensor or a non-owning adaptor.
 - `INVARIANT`: Does not itself imply `SpanLike` or another mdspan concept.
 - `MISCONCEPTION`: `TensorView` names a concrete base class.

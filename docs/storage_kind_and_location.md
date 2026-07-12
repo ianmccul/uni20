@@ -41,7 +41,7 @@ So: kind is a type, location is a value.
 
 ## Current state
 
-- **Kind axis exists.** `BasicTensor` is parameterized by a `StoragePolicy`
+- **Kind axis exists.** `Tensor` is parameterized by a `StoragePolicy`
   (`VectorStorage` by default; see `src/uni20/tensor/`). A `GpuStorage` policy is
   the intended mechanism for device-resident tensors, and `backend_dispatch.md`
   already lists "memory-space or storage policy" as a compile-time capability and
@@ -99,8 +99,8 @@ likewise an explicit scheduled `D2H → host kernel → H2D` path, never a hidde
 blocking host round-trip (same principle as "no silent dense fallback").
 
 Unified memory, if supported later, is a distinct **kind** (e.g.
-`Tensor<T, UnifiedStorage>`) with its own coherence rules — not an implicit behavior
-of device storage.
+`Tensor<T, Rank, UnifiedStorage>`) with its own coherence rules — not an
+implicit behavior of device storage.
 
 ## Selector Boundary
 

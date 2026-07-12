@@ -1,7 +1,9 @@
 # Tensor Dispatch And View Semantics Draft
 
-**Status:** implemented dense Tensor GEMM/GEMV checkpoints plus design notes for
-the remaining allocation, async, CUDA, and external-adaptor work.
+**Status:** implemented dense Tensor GEMM/GEMV, output-shape preparation,
+matrix-product updates, lazy conjugation views, and backend-dispatched copy and
+host materialization. Async, CUDA, storage-domain factories, and external
+adaptors remain design work.
 
 This note records the implemented dense tensor/view boundary and the remaining
 design questions around output assignment and higher-level dispatch.
@@ -47,27 +49,41 @@ The tensor object itself does not model `SpanLike`. This keeps policy selection
 at the tensor layer and makes the lowering boundary explicit. A bare mdspan is
 accepted by raw kernels only when the caller supplies a backend selector.
 
-## Tentative Type Roles
+## Type Roles
 
 The current semantic split is:
 
 ```cpp
-BasicTensor      // owning dense tensor value; models the TensorView concepts
+BasicTensor      // configurable owner parameterized by an mdspan extents type
+Tensor           // ordinary owner with runtime extents and a static rank
 TensorView       // readable tensor-level concept, not an mdspan-like type
 MutableTensorView // writable refinement of TensorView
 mdspan           // resolved leaf-kernel operand
 TensorRef        // future non-owning tensor lvalue proxy
 ```
 
-### BasicTensor
+### Tensor and BasicTensor
 
-`BasicTensor` is the owning dense tensor type. Assignment has value/replace
-semantics:
+`BasicTensor<Element, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>`
+is the configurable owning dense tensor type. The ordinary
+`Tensor<Element, Rank, StoragePolicy, LayoutPolicy, AccessorFactory>` aliases a
+`BasicTensor` whose mdspan extents are dynamic on every axis. Most code should
+use `Tensor<T, Rank>`, deduction through `make_tensor(view)`, or a domain alias
+such as `DenseMatrix<T>` rather than spelling an extents type or every policy.
+Assignment has value/replace semantics:
 
 ```cpp
-BasicTensor C;
+Tensor<double, 2> C;
 C = rhs; // replace C's logical tensor value
 ```
+
+`make_tensor(view)` deliberately returns the runtime-extents `Tensor` form,
+even when the source mdspan has static or mixed extents. Code that intends to
+carry extent values in the C++ type names `BasicTensor` explicitly.
+
+Both forms retain compile-time rank because their resolved descriptor is an
+mdspan. A future runtime-rank tensor or `dynamic_mdspan` is a separate type and
+kernel-interface design; it is not another mode of `Tensor`.
 
 An implementation may reuse existing storage when shape/layout are compatible,
 or reallocate/rebuild the owned storage when needed. This is value assignment,
@@ -151,9 +167,23 @@ default behavior of `conj(x)`.
 Generic writable outputs should therefore require ordinary raw/default-style
 accessors over a structural view. Writable proxy accessors are special cases
 that must document their assignment law and backend lowering explicitly. The
-current mdspan `conj(...)` helper follows this rule: complex mdspans become
-read-only conjugating views, double conjugation cancels to a const original
-view, and non-complex mdspans become const identity views.
+implemented mdspan and Tensor `conj(...)` helpers follow this rule: complex
+inputs become read-only conjugating views, double conjugation cancels to a
+read-only identity view of the original storage, and non-complex inputs become
+const identity views. The Tensor adaptor resolves the existing mdspan
+`conjugated_accessor`; it does not allocate or run a kernel.
+
+Eager evaluation is explicit:
+
+```cpp
+copy(out, conj(in));             // copy into an existing/resizable output
+auto owned = make_tensor(conj(in)); // allocate, then dispatch copy_op
+```
+
+`copy_op` is backend-dispatched. Its reference CPU backend reads through
+accessor semantics. A future BLAS backend may lower rank-two layout and
+conjugation metadata to provider matrix-copy extensions such as `omatcopy`;
+this does not change the lazy semantics of `conj(in)` itself.
 
 Do not treat a pointer `data_handle_type` as proof that a backend may read or
 write the storage directly. The data handle identifies storage; the accessor
@@ -172,15 +202,15 @@ The async assignment trait currently distinguishes rebind and write-through.
 The tensor design suggests three semantic contracts:
 
 ```cpp
-BasicTensor -> value/replace
+Tensor -> value/replace
 mdspan/view  -> rebind descriptor
 TensorRef    -> write-through
 ```
 
 For async write proxies, this likely means:
 
-- `BasicTensor`: if unconstructed, emplace from the right-hand side; if
-  constructed, call `BasicTensor::operator=`, which may reuse or reallocate.
+- `Tensor`: if unconstructed, emplace from the right-hand side; if
+  constructed, call `Tensor::operator=`, which may reuse or reallocate.
 - A bare mdspan-like descriptor: if stored async, assignment/emplace copies or
   rebinds the descriptor; it does not copy elements.
 - `TensorRef`: require an already-constructed reference/proxy target; assignment
@@ -197,14 +227,16 @@ assignment means" from "what to do when storage is unconstructed".
 
 There are two broad output modes.
 
-Both can be expressed through one customization point:
+Both use the implemented shape helpers:
 
 ```cpp
-ensure_shape(out, shape);
+require_shape(out, shape); // fixed update
+ensure_shape(out, shape);  // overwrite may resize
 ```
 
-For an owning/resizable tensor such as `BasicTensor`, `ensure_shape` may reuse
-existing storage or reallocate/rebuild the tensor to match `shape`. For a
+For an owning/resizable `Tensor`, `ensure_shape` retains matching storage and
+otherwise calls `reset_shape`, which rebuilds the tensor using its default
+mapping. For a
 non-reallocatable output such as `TensorRef`, a block view, or a resolved
 mdspan-like output, `ensure_shape` validates that the current shape already
 matches and otherwise throws/asserts. For an adaptor such as
@@ -222,9 +254,9 @@ A fixed output cannot reallocate parent storage. It validates shape and then
 produces a mutable view:
 
 ```cpp
-ensure_shape(C.slice(...), shape);  // validate only
-gemm_into(C, A, B);             // C must already have the right shape
-gemm_into(C.slice(...), A, B);  // slice shape must already match
+require_shape(C, shape);            // validate only
+gemm(C, alpha, A, B, beta);         // fixed-output BLAS form
+add_product(C, A, B);               // reads and updates existing C
 ```
 
 This is the natural mode for `TensorRef`, fixed adaptors, block views, and BLAS
@@ -235,17 +267,17 @@ update forms where the output is also an input.
 A resizable output can prepare the requested shape by reuse or allocation:
 
 ```cpp
-ensure_shape(C, shape); // may resize BasicTensor
-matmul(C, A, B);   // C is a BasicTensor and may be resized
-auto C = matmul(A, B);
+assign_product(C, A, B);       // overwrite; C may be resized
+add_product(C, A, B);          // update; C must already match
+auto C = make_tensor(conj(A)); // explicit view materialization
 ```
 
 Uni20 uses output-first mutable parameters for linalg APIs, so the update form is
 `gemm(C, alpha, A, B, beta)`. When `beta != 0`,
 `C` is both input and output, so a fixed-output/update API is the clearer
 default. Reallocation is natural for overwrite/value-producing operations such
-as `C = A * B`, `matmul(C, A, B)`, or `beta == 0` APIs that explicitly define a
-fresh output.
+as `assign_product(C, A, B)` and explicit materialization through
+`make_tensor(view)`.
 
 ## Examples Driving Concepts
 
@@ -255,9 +287,8 @@ current target surface.
 ### Owning Assignment
 
 ```cpp
-BasicTensor C;
-C = A + B;
-C = rhs;
+auto C = make_tensor(rhs);
+C = same_concrete_tensor;
 ```
 
 Needed behavior:
@@ -268,15 +299,12 @@ Needed behavior:
 
 Concept pressure:
 
-- `TensorOutput<C, Shape>` for `ensure_shape` plus writable view
-- optional `tensor_can_resize_v<C>` for code that needs to know whether resize is
-  legal
+- `ResizableTensorOutput<C>` for `ensure_shape` plus writable view
 
 ### Value-Producing Operation
 
 ```cpp
-matmul(C, A, B);   // C may be resized
-auto C = matmul(A, B);
+assign_product(C, A, B); // C may be resized
 ```
 
 Needed behavior:
@@ -289,7 +317,7 @@ Concept pressure:
 
 - `TensorView<A>`
 - `TensorView<B>`
-- `TensorOutput<C, Shape>`
+- `ResizableTensorOutput<C>` for a shape-changing output
 - compatible backend selectors on all dispatch operands
 
 ### Fixed Update Operation
@@ -427,6 +455,8 @@ mdspan-like leaf views directly:
 template <class T>
 concept TensorView = requires(T const& tensor) {
   tensor.backend_selector();
+  tensor.extents();
+  tensor.extent(size_t{});
   { tensor.mdspan() } -> SpanLike;
 };
 
@@ -446,8 +476,8 @@ template <class T, size_t Rank>
 concept MutableRankedTensorView = MutableTensorView<T> && RankedTensorView<T, Rank>;
 ```
 
-`TensorOutput` or a separate owner/resizable concept may still be useful for
-allocating operations. It is not part of fixed-output GEMM, where allocation
+`ResizableTensorOutput` detects `reset_shape(extents)`. `ensure_shape` uses it
+for overwrite operations; it is not part of fixed-output GEMM, where allocation
 policy has already been decided by the caller.
 
 ## Dispatch Interface And Adaptors
@@ -530,16 +560,9 @@ try_kernel(Backend{}, matmul_op{}, cv, av, bv);
 This keeps `SpanLike` at the leaf-kernel level and keeps backend selection at
 the tensor/storage level.
 
-For local dense tensors, the concept may collapse to:
-
-```cpp
-dispatchable_dense_tensor = SpanLike + tensor_backend_selector
-```
-
-In that case `tensor_view(x)` can simply return `x` or a shallow wrapper around
-`x`, provided the backend selector is also available. This lets a `BasicTensor`
-or explicit tensor adaptor satisfy mdspan-like algorithms directly without
-making `SpanLike` alone sufficient for Uni20 dispatch.
+For local dense tensors, `TensorView` remains backend selector plus synchronous
+metadata plus a readable `mdspan()` result. `Tensor` itself deliberately does
+not satisfy `SpanLike`; the resolved result of `mdspan()` does.
 
 ## Temporaries
 
@@ -548,8 +571,18 @@ tensors, async tensors, block tensors, and direct mdspan entry points. This is
 not special assignment semantics; it is allocation plus a copy/evaluation
 kernel.
 
-The temporary type should be selected from the backend selector/list value and
-its storage domain, not from the C++ name of the operand:
+The current host implementation provides the first explicit form:
+
+```cpp
+auto tmp = make_tensor(conj(a));
+auto tmp_column_major = make_tensor<ColumnMajor>(conj(a));
+auto tmp_from_span = make_tensor<ColumnMajor>(CpuReferenceBackend{}, span);
+```
+
+The bare-mdspan overload requires an explicit selector because a mdspan does
+not provide storage policy. The more general temporary type should eventually
+be selected from the backend selector/list value and its storage domain, not
+from the C++ name of the operand:
 
 ```cpp
 auto selector = select_backend(copy_op{}, a, b);
@@ -561,8 +594,8 @@ copy(tmp, a); // ordinary backend-dispatched copy kernel
 For Uni20-owned tensors, the domain comes from the storage policy:
 
 ```cpp
-BasicTensor<T, HostStorage> -> HostDomain{allocator/resource}
-BasicTensor<T, CudaStorage> -> CudaDomain{device, allocator/resource}
+Tensor<T, Rank, HostStorage> -> HostDomain{allocator/resource}
+Tensor<T, Rank, CudaStorage> -> CudaDomain{device, allocator/resource}
 ```
 
 For non-owning views/adaptors, the domain must be carried explicitly or be
@@ -574,8 +607,8 @@ auto B = as_tensor_view(b_mdspan, CudaDomain{device});
 ```
 
 The resulting concrete temporary type can be internal and unnamed by user code.
-It might be `BasicTensor<T, HostStorage>` for host domains, a future
-`BasicTensor<T, CudaStorage>` for CUDA domains, or an async/block scratch handle
+It might be `Tensor<T, Rank, HostStorage>` for host domains, a future
+`Tensor<T, Rank, CudaStorage>` for CUDA domains, or an async/block scratch handle
 when the caller is already in an async/block path. The front-end algorithm
 should only rely on the returned object satisfying the tensor output/read-write
 concepts.
@@ -641,7 +674,7 @@ backend selector. A non-owning adaptor may have no storage object at all, but it
 still needs a backend selector or storage-domain descriptor. For example:
 
 ```cpp
-BasicTensor<T, HostStorage> -> backend_list{BlasBackend{}, CpuReferenceBackend{}}
+Tensor<T, Rank, HostStorage> -> backend_list{BlasBackend{}, CpuReferenceBackend{}}
 TensorAdaptor<T, HostDomain> -> backend_list{BlasBackend{}, CpuReferenceBackend{}}
 TensorAdaptor<T, CudaDomain> -> backend_list{CublasBackend{}, CudaGenericBackend{}}
 ```
@@ -792,8 +825,9 @@ be read by the CPU backend.
 
 ## Owning Tensor Composition
 
-`BasicTensor` owns storage, mapping, and accessor-factory state directly, and
-constructs resolved mdspans on demand:
+The `BasicTensor` implementation owns storage, mapping, and accessor-factory
+state directly, and constructs resolved mdspans on demand. `Tensor` aliases its
+fully runtime-extents specialization:
 
 ```cpp
 class BasicTensor {
@@ -808,7 +842,7 @@ public:
 ```
 
 This keeps owner copy/move semantics independent of mdspan descriptor rebinding.
-`BasicTensor` satisfies the tensor-level concepts but not `SpanLike`; its
+`Tensor` satisfies the tensor-level concepts but not `SpanLike`; its
 returned mdspans satisfy the leaf concepts. A future slice or external-storage
 adaptor must carry storage/execution policy and explicit lifetime semantics.
 
@@ -891,7 +925,7 @@ x[...] = b    # explicit write-through through the view
 
 In C++, mdspan-like descriptor assignment corresponds to rebinding the view
 object. `TensorRef::operator=` corresponds to slice/adaptor assignment.
-`BasicTensor::operator=` corresponds to replacing the owning tensor value.
+`Tensor::operator=` corresponds to replacing the owning tensor value.
 
 Python bindings may still choose to expose NumPy/nanobind arrays at the
 boundary, with Uni20 tensor/adaptor objects used internally for dispatch. Such
@@ -964,7 +998,7 @@ being raw mdspan descriptors.
   chooses compute backends and may carry explicit operation context, while the
   storage/accessor-defined data handle carries memory placement and device
   information.
-- `BasicTensor`, mdspan-like resolved views, and `TensorRef` should have
+- `Tensor`, mdspan-like resolved views, and `TensorRef` should have
   distinct assignment semantics: value/replace, rebind descriptor, and
   write-through.
 - Explicit adaptors can choose semantics appropriate to the wrapped object. For
@@ -975,6 +1009,6 @@ being raw mdspan descriptors.
   `try_kernel` and `kernel_accepts_types`.
 - Backend selectors should accept both singleton backend values and ordered
   backend-list values.
-- Concepts are the tensor dispatch abstraction. `BasicTensor` uses composition;
+- Concepts are the tensor dispatch abstraction. `Tensor` uses composition;
   future non-owning adaptors must define lifetime and assignment semantics
   explicitly rather than relying on inheritance.

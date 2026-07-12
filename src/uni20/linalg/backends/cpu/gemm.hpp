@@ -65,6 +65,23 @@ KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& out
   index_type const cols = static_cast<index_type>(output.extent(1));
   index_type const inner = static_cast<index_type>(lhs.extent(1));
 
+  if (alpha == Scalar{})
+  {
+    if (beta == Scalar{1}) return KernelAttempt::success;
+
+    for (index_type row = 0; row < rows; ++row)
+    {
+      for (index_type col = 0; col < cols; ++col)
+      {
+        if (beta == Scalar{})
+          output[row, col] = Scalar{};
+        else
+          output[row, col] = beta * static_cast<Scalar>(output[row, col]);
+      }
+    }
+    return KernelAttempt::success;
+  }
+
   for (index_type row = 0; row < rows; ++row)
   {
     for (index_type col = 0; col < cols; ++col)

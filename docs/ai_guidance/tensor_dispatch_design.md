@@ -26,18 +26,26 @@ view, backend-dispatch, and temporary-allocation design.
   inheritance-based.
 - `BasicTensor` owns storage by composition and models `TensorView` and
   `MutableTensorView`.
+- `BasicTensor<Element, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>`
+  is the configurable extents-based owner. `Tensor<T, Rank>` is the ordinary
+  alias with runtime extents on every axis; `DenseMatrix<T>` is its rank-two
+  host alias.
+- `make_tensor(view)` infers an owning host `Tensor` and deliberately does not
+  preserve static input extents.
+- `conj(tensor)` is an implemented read-only lazy Tensor view. `copy(...)` and
+  `make_tensor(...)` are the explicit eager boundaries.
 - There is currently no general concrete non-owning tensor adaptor. Add one only
   with explicit slice/external-storage lifetime and assignment semantics.
 
 ## Tensor roles
 
-### BasicTensor
+### Tensor
 
 - `ROLE`: Owning dense tensor value.
 - `ASSIGNMENT`: Value/replace semantics.
 - `OUTPUT`: Allocation/reallocation policy belongs to operations that explicitly
-  take or return an owning `BasicTensor`.
-- `DO NOT CLAIM`: Do not claim `BasicTensor` assignment is mdspan-style rebind.
+  take or return an owning `Tensor`.
+- `DO NOT CLAIM`: Do not claim `Tensor` assignment is mdspan-style rebind.
 
 ### TensorRef
 
@@ -55,7 +63,8 @@ view, backend-dispatch, and temporary-allocation design.
 ### TensorView Concepts
 
 - `ROLE`: Implemented concepts for synchronous dense tensor operands.
-- `TensorView`: requires an addressable `mdspan()` and `backend_selector()`.
+- `TensorView`: requires synchronous `extents()`/`extent(axis)` metadata, an
+  addressable `mdspan()`, and `backend_selector()`.
 - `MutableTensorView`: refines `TensorView` when `mdspan()` is writable.
 - `StridedTensorView` / `MutableStridedTensorView`: require affine strided
   resolved spans for providers such as BLAS/LAPACK.
@@ -98,7 +107,8 @@ concrete owning tensor.
   or scaling accessors are BLAS-addressable merely because their data handle is
   pointer-like. They require materialization, generic evaluation, or an
   operation-specific lowering rule.
-- Uni20 uses `uni20::conj(span)` for lazy conjugating mdspan views. This follows
+- Uni20 uses `uni20::conj(span)` and `uni20::conj(tensor)` for lazy conjugating
+  views. The Tensor adaptor resolves to the same mdspan accessor. This follows
   the C++26 `std::linalg::conjugated_accessor` model, but Uni20 does not adopt
   `conj-if-needed`; `uni20::conj` is the project-level fix for real-scalar
   conjugation semantics.
@@ -127,8 +137,14 @@ concrete owning tensor.
   `uni20::linalg::blas::try_gemm(...)`, then falls through to the
   `CpuReferenceBackend` GEMM oracle when BLAS declines.
 - Fixed-storage Tensor GEMM is also implemented. `VectorStorage` supplies
-  `[BlasBackend, CpuReferenceBackend]` when BLAS is configured, and
-  `[CpuReferenceBackend]` otherwise. Explicit selectors override that default.
+  `[LapackBackend, BlasBackend, CpuReferenceBackend]` when BLAS is configured,
+  and `[LapackBackend, CpuReferenceBackend]` otherwise. Ineligible operation
+  backends are skipped at compile time. Explicit selectors override that
+  default.
+- `copy_op` has an accessor-respecting CPU reference backend. It is the common
+  operation used by `copy` and `make_tensor`; future rank-two BLAS copy
+  extensions can accept the same operation by lowering layout and conjugating
+  accessor metadata.
 - The static capability CPO is
   `consteval auto kernel_accepts_types(backend const&, op const&, args&...)`.
   It checks type-level facts only and returns `kernel_types_no`,
@@ -207,6 +223,10 @@ second source of truth for operand location.
 
 Temporary allocation is separate from computation.
 
+- The current host API is `make_tensor(view)` or
+  `make_tensor<Layout>(selector, mdspan)`. The latter requires an explicit
+  selector because a bare mdspan does not carry storage-domain policy. Both
+  forms return a fixed-rank `Tensor` with runtime extents on every axis.
 - Operand-temporary type/storage comes from an owning storage domain or explicit
   allocator/factory. A stateful selector override may contribute options but is
   not the primary owner of operand location.

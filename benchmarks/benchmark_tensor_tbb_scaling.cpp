@@ -1,7 +1,7 @@
 #include <benchmark/benchmark.h>
 #include <uni20/async/async.hpp>
 #include <uni20/async/tbb_scheduler.hpp>
-#include <uni20/tensor/basic_tensor.hpp>
+#include <uni20/tensor/tensor.hpp>
 
 #include <vector>
 
@@ -10,8 +10,7 @@ using namespace uni20::async;
 
 namespace
 {
-using extents_type = stdex::dextents<index_type, 2>;
-using tensor_type = BasicTensor<float, extents_type>;
+using tensor_type = Tensor<float, 2>;
 
 AsyncTask row_scale_add(tensor_type const* lhs, tensor_type const* rhs, tensor_type* out, std::size_t row, float scale)
 {
@@ -59,9 +58,9 @@ static void TensorScaleAddTbb(benchmark::State& state)
   auto const rows = static_cast<std::size_t>(state.range(1));
   auto const cols = static_cast<std::size_t>(state.range(2));
 
-  tensor_type lhs{extents_type{rows, cols}};
-  tensor_type rhs{extents_type{rows, cols}};
-  tensor_type out{extents_type{rows, cols}};
+  tensor_type lhs{rows, cols};
+  tensor_type rhs{rows, cols};
+  tensor_type out{rows, cols};
   initialize_tensor(lhs);
   initialize_tensor(rhs);
 
@@ -93,7 +92,7 @@ static void TensorRowReductionTbb(benchmark::State& state)
   auto const rows = static_cast<std::size_t>(state.range(1));
   auto const cols = static_cast<std::size_t>(state.range(2));
 
-  tensor_type tensor{extents_type{rows, cols}};
+  tensor_type tensor{rows, cols};
   initialize_tensor(tensor);
 
   TbbScheduler sched{threads};

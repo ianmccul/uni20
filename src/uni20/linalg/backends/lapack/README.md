@@ -9,6 +9,8 @@ This directory contains LAPACK operation-tag backend adapters.
   through `sterf` and `steqr`.
 - `nonsymmetric_eigen.hpp`: real and complex nonsymmetric eigensystems through
   `geev`, including real conjugate-pair unpacking.
+- `self_adjoint_eigh.hpp`: real symmetric and complex Hermitian eigensystems
+  through `syev`/`heev`.
 - `schur.hpp`: real and complex Schur decomposition, real Hessenberg Schur
   reduction, and Schur block/entry reordering through `gees`, `hseqr`, and
   `trexc`.

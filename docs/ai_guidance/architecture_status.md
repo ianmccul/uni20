@@ -83,9 +83,13 @@ This file is for questions about project maturity, active design seams, and what
 ### SAFE CLAIMS
 
 - Readable, mutable, and rank-constrained Tensor-view concepts are implemented.
-- `BasicTensor` owns storage by composition and models both concepts.
-- `BasicTensor` resolves mutable or const mdspans directly; there is currently
-  no general concrete non-owning tensor adaptor.
+- `BasicTensor` owns storage by composition and models both concepts;
+  `Tensor<T, Rank, ...>` aliases its fully runtime-extents form.
+- `Tensor` resolves mutable or const mdspans directly. Read-only
+  `ConjugatedTensorView` and `ConstTensorView` adaptors are implemented; general
+  slice/external-storage adaptors are not.
+- `copy` and `make_tensor` dispatch `copy_op`; lazy `conj(tensor)` does not
+  allocate.
 - Ownership and lifetime sharing are not fully settled.
 - Async-safe aliasing rules are not fully settled.
 - Default backend selectors are storage-derived candidate lists. Backend values
@@ -105,7 +109,7 @@ This file is for questions about project maturity, active design seams, and what
 
 - `assignment_semantics_of<T>` is important for future tensor/view write semantics.
 - View-like types may need `write_through` rather than `rebind`.
-- Candidate tensor roles are `BasicTensor` as owning value, `TensorRef` as
+- Candidate tensor roles are `Tensor` as owning value, `TensorRef` as
   proposed write-through non-owning lvalue, and resolved mdspan-like views as
   leaf-kernel arguments.
 - Candidate backend state model: backend entries are values. Stateless tags are

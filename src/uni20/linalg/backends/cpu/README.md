@@ -5,6 +5,7 @@ vendor accelerator backend.
 
 ## Contents
 
+- `copy.hpp`: reference accessor-respecting element-copy kernel.
 - `gemm.hpp`: reference accessor-respecting GEMM kernel.
 - `gemv.hpp`: reference accessor-respecting GEMV kernel.
 - `dense_matrix.hpp`: small dense matrix container used by CPU linalg routines.
