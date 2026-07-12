@@ -22,7 +22,7 @@ consteval auto kernel_accepts_types(BlasBackend const&, struct gemm_op const&, O
                                     RhsMdspan&, Scalar const&)
 {
   if constexpr (requires(OutputMdspan& output, Scalar alpha, LhsMdspan& lhs, RhsMdspan& rhs) {
-                  { uni20::linalg::blas::try_gemm(output, alpha, lhs, rhs, alpha) } -> std::same_as<bool>;
+                  { uni20::linalg::blas::try_gemm(output, alpha, lhs, rhs, alpha) } -> std::same_as<KernelAttempt>;
                 })
   {
     return kernel_types_maybe;
@@ -35,8 +35,8 @@ consteval auto kernel_accepts_types(BlasBackend const&, struct gemm_op const&, O
 
 /// \brief Try GEMM through the direct mdspan BLAS wrapper.
 template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
-bool try_kernel(BlasBackend, struct gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
-                RhsMdspan&& rhs, Scalar beta)
+KernelAttempt try_kernel(BlasBackend, struct gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
+                         RhsMdspan&& rhs, Scalar beta)
 {
   return uni20::linalg::blas::try_gemm(std::forward<OutputMdspan>(output), alpha, std::forward<LhsMdspan>(lhs),
                                        std::forward<RhsMdspan>(rhs), beta);

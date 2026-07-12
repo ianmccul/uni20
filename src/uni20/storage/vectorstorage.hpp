@@ -29,18 +29,18 @@ struct VectorStorage
     }
 
 #if UNI20_BACKEND_BLAS
-    using backend_selector_type = linalg::backend_list<linalg::BlasBackend, linalg::CpuGenericBackend>;
+    using backend_selector_type = linalg::backend_list<linalg::BlasBackend, linalg::CpuReferenceBackend>;
 #else
-    using backend_selector_type = linalg::backend_list<linalg::CpuGenericBackend>;
+    using backend_selector_type = linalg::backend_list<linalg::CpuReferenceBackend>;
 #endif
 
     /// \brief Return the default ordered linalg backends for host vector storage.
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
 #if UNI20_BACKEND_BLAS
-      return backend_selector_type{linalg::BlasBackend{}, linalg::CpuGenericBackend{}};
+      return backend_selector_type{linalg::BlasBackend{}, linalg::CpuReferenceBackend{}};
 #else
-      return backend_selector_type{linalg::CpuGenericBackend{}};
+      return backend_selector_type{linalg::CpuReferenceBackend{}};
 #endif
     }
 };

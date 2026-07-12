@@ -5,7 +5,7 @@ dense-linalg wrapper layer. This is below tensor front-end dispatch and above
 the existing raw BLAS/LAPACK provider facades. The BLAS descriptor helpers and
 direct mdspan GEMM wrapper exist. The explicit-selector mdspan GEMM dispatch
 slice also exists: `try_kernel(BlasBackend, gemm_op, ...)` delegates to
-`uni20::linalg::blas::try_gemm(...)`, and `CpuGenericBackend` is the
+`uni20::linalg::blas::try_gemm(...)`, and `CpuReferenceBackend` is the
 accessor-respecting fallback.
 
 The immediate target is to add mdspan-facing BLAS/LAPACK wrappers that accept
@@ -83,7 +83,7 @@ The first operation-tag dispatch slice adds:
 - `backends/blas/gemm.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemm_op, ...)`.
 - `backends/cpu/gemm.hpp`
-  - `CpuGenericBackend` and the accessor-respecting fallback GEMM oracle.
+  - `CpuReferenceBackend` and the accessor-respecting fallback GEMM oracle.
 
 Future LAPACK operation wrappers should either live under this directory when
 they are shared BLAS/LAPACK adapter utilities, or under
@@ -553,30 +553,33 @@ The implemented GEMM dispatch slice proves the dispatcher, backend selector,
 type acceptance CPO, runtime decline path, and CPU fallback shape without
 mixing in LAPACK workspace policy, vector descriptors, or overwrite semantics.
 Bare mdspans use explicit selectors such as
-`backend_list{BlasBackend{}, CpuGenericBackend{}}`; storage-derived default
+`backend_list{BlasBackend{}, CpuReferenceBackend{}}`; storage-derived default
 backend lists are implemented in the tensor front end.
 
 The direct wrapper layer still exposes functions that are easy to test:
 
 ```cpp
-bool try_gemm(... mdspan-like operands ...);
+KernelAttempt try_gemm(... mdspan-like operands ...);
 void gemm(... mdspan-like operands ...);
 
-bool try_lapack_self_adjoint_eigh(... mdspan-like operands ...);
+KernelAttempt try_lapack_self_adjoint_eigh(... mdspan-like operands ...);
 void lapack_self_adjoint_eigh_or_throw(... mdspan-like operands ...);
 ```
 
-`try_gemm(...)` returns `false` only when an operand cannot be staged as a
-direct no-copy BLAS matrix view. Once staging succeeds, transform and dimension
-consistency are checked preconditions: invalid GEMM parameters are logic errors
-and should abort through `CHECK`/`CHECK_EQUAL`, not report ordinary kernel
-non-acceptance.
+`try_gemm(...)` returns `unsupported_layout` when an operand cannot be staged
+as a direct no-copy BLAS matrix view and `unsupported_transform` when the
+provider cannot express the required transform. Once staging succeeds,
+dimension consistency is a checked precondition: invalid GEMM parameters are
+logic errors and should abort through `CHECK`/`CHECK_EQUAL`, not report ordinary
+kernel non-acceptance.
 
 Operation-tag dispatch wraps the direct GEMM leaf like this:
 
 ```cpp
-bool try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a, B&& b, Scalar beta);
-bool try_kernel(LapackBackend, self_adjoint_eigh_op, W&& w, A&& matrix_work);
+KernelAttempt try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a,
+                          B&& b, Scalar beta);
+KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op, W&& w,
+                          A&& matrix_work);
 ```
 
 `kernel_accepts_types(...)` remains type-level: scalar family, rank, mutability,
@@ -592,7 +595,7 @@ For GEMM, `try_kernel(BlasBackend, gemm_op, ...)` is a thin adapter over
 `uni20::linalg::blas::try_gemm(...)`. The operation-tag layer does not duplicate
 mdspan stride analysis. If the direct wrapper declines because an instance
 cannot be represented as a no-copy BLAS call, the dispatch walk continues to the
-next backend, normally the CPU generic oracle.
+next backend, normally the CPU reference oracle.
 
 ## Implementation Order
 
@@ -607,10 +610,10 @@ Completed checkpoint:
 6. Add strict column-major writable descriptor helper for LAPACK update
    operands.
 7. Add the minimal operation-tag dispatch infrastructure needed by GEMM.
-8. Implement `gemm_op`, `BlasBackend`, and `CpuGenericBackend` dispatch tests.
+8. Implement `gemm_op`, `BlasBackend`, and `CpuReferenceBackend` dispatch tests.
 9. Implement `try_kernel(BlasBackend, gemm_op, ...)` by calling
    `uni20::linalg::blas::try_gemm(...)`.
-10. Add a CPU generic GEMM fallback that is independently testable and respects
+10. Add a CPU reference GEMM fallback that is independently testable and respects
    BLAS `beta == 0` no-read semantics.
 11. Add selector-list tests: BLAS accepts representable mdspans, BLAS
    declines unsupported strides before side effects, and the fallback runs.
@@ -669,8 +672,6 @@ LAPACK tests:
 
 ## Open Questions
 
-- Should direct BLAS wrappers return `bool` plus leave diagnostics to the
-  caller, or return a small decline reason for better test messages?
 - Should prepared wrappers live beside direct wrappers or in a separate
   `prepared_*.hpp` namespace/header?
 - Which existing Krylov dense helpers should migrate first after the mdspan

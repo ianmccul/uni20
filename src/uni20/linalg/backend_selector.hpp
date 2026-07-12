@@ -22,11 +22,11 @@ struct BlasBackend
     friend constexpr bool operator==(BlasBackend const&, BlasBackend const&) = default;
 };
 
-/// \brief Backend value for the generic host CPU dense linalg oracle.
-struct CpuGenericBackend
+/// \brief Backend value for the reference host CPU dense linalg oracle.
+struct CpuReferenceBackend
 {
-    static constexpr std::string_view name = "cpu_generic";
-    friend constexpr bool operator==(CpuGenericBackend const&, CpuGenericBackend const&) = default;
+    static constexpr std::string_view name = "cpu_reference";
+    friend constexpr bool operator==(CpuReferenceBackend const&, CpuReferenceBackend const&) = default;
 };
 
 /// \brief Ordered list of backend values tried by the dispatch walk.

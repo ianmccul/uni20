@@ -44,7 +44,7 @@ inline presentation::report_builder diagnostic_report(KernelDispatchError const&
   for (auto const& attempt : error.backend_attempts())
   {
     table.row(attempt.backend, detail::kernel_type_acceptance_name(attempt.type_acceptance),
-              attempt.attempted ? "declined" : "not eligible");
+              attempt.runtime_result ? kernel_attempt_name(*attempt.runtime_result) : "not eligible");
   }
   return report;
 }

@@ -61,7 +61,7 @@ probe_dispatch_kernel(backend_list<Backends...> const&, Op const&, Args&&...);
 template <class... Backends, class Op, class... Args>
 bool try_dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
 // constrained out for type-level no; otherwise returns false when every
-// runtime candidate declines before side effects
+// runtime candidate declines before side effects or argument consumption
 
 template <class... Backends, class Op, class... Args>
 void dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
@@ -72,7 +72,7 @@ void dynamic_dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
 // always callable; converts type rejection and exhaustion to KernelDispatchError
 
 template <class Backend, class Op, class... Args>
-bool try_kernel(Backend, Op, Args&&...); // implemented only for supported operations
+KernelAttempt try_kernel(Backend, Op, Args&&...); // implemented only for supported operations
 ```
 
 A backend is eligible only when `kernel_accepts_types(...)` is callable for the
@@ -87,6 +87,22 @@ dispatch inspect the decision through `decltype` without constructing operand
 objects. This keeps the backend walk generic and avoids a separate
 `dispatch_gemm`, `dispatch_scale`, `dispatch_svd`, etc. implementation for
 every kernel.
+
+A non-success `KernelAttempt` from `try_kernel(...)` has a strong decline
+guarantee: the backend has not consumed or moved from any argument, mutated
+semantic operand state, submitted work, committed scratch or output, or
+produced another externally visible side effect. Dispatch invokes every
+candidate with the same stable lvalue arguments. It does not copy operands or
+mdspan descriptors to enforce this contract. After a backend begins the
+operation, failure is an operation error rather than a request to try the next
+backend. A `kernel_types_yes` backend is total for its accepted type domain and
+returning anything other than `KernelAttempt::success` is a backend defect.
+
+`KernelAttempt` contains only success and clean-decline categories, such as
+`unsupported_layout`, `unsupported_transform`, `unavailable`, and
+`insufficient_resources`. Terminal failures are reported through the
+operation's ordinary exception, error, or result mechanism and never cause
+dispatch fallback.
 
 `KernelTypeAcceptance` is a tri-state:
 
@@ -160,8 +176,8 @@ The tri-state matters:
   strides, aliasing, device placement, library availability, or matrix shape
   still decide whether this instance can run.
 - `yes`: this backend is structurally guaranteed for these types. The dispatcher
-  can treat a `false` return from `try_kernel(...)` as a backend bug, and assert
-  in debug builds.
+  treats any `try_kernel(...)` result other than `KernelAttempt::success` as a
+  backend bug.
 
 Examples:
 
@@ -189,10 +205,10 @@ inline constexpr bool maybe_can_blas_scale_v =
 The purpose of this layer is to keep invalid backend code out of overload
 resolution and out of compiled control flow.
 
-Backend `try_kernel` overloads must be genuinely constrained. Do not rely on
-invalid statements inside the function body to reject unsupported types; the
-generic dispatcher can only skip a backend if overload resolution or a
-`kernel_accepts_types(...)` check makes the operation unavailable.
+Backend `kernel_accepts_types(...)` overloads must genuinely establish type
+eligibility. Do not rely on invalid statements inside the `try_kernel` body to
+reject unsupported types. The runtime overload may remain broad because the
+dispatcher forms it only after the type gate accepts.
 
 ## Runtime Attempt
 
@@ -214,8 +230,10 @@ Examples:
 - backend-specific status codes indicate success
 
 If the runtime checks pass, `try_kernel(...)` performs the backend call and
-reports success. If any check fails, it reports failure without changing the
-semantic contract of the public operation.
+returns `KernelAttempt::success`. If a preflight check rejects the instance, it
+returns a specific clean-decline reason without changing arguments or external
+state. Failures after accepting responsibility throw or use an
+operation-specific result; they do not return a decline reason.
 
 Backend state has two broad categories:
 
@@ -235,12 +253,20 @@ understand it.
 
 ## Fallback Semantics
 
-Every optimized path needs a semantic fallback. The fallback is the reference
-behavior for correctness and documentation. It may be a generic CPU loop, an
-existing Uni20 kernel, or another already-supported backend.
+Every optimized path needs a semantic fallback in the same storage and
+execution domain. The fallback is the reference behavior for correctness and
+documentation. It may be a CPU reference loop for host storage, a device
+reference implementation for CUDA storage, an existing Uni20 kernel, or another
+already-supported backend in that domain.
 
 The fallback should not be treated as an error path. It is the expected path for
 valid inputs that a specific backend cannot represent.
+
+An ordinary backend-list decline never transfers data to another storage
+domain. Cross-domain execution is an explicit composite kernel or higher-level
+operation. An operation-specific emergency CUDA-to-host route may be useful,
+but it must expose and own its copies and synchronization rather than appearing
+as a general host fallback in a CUDA selector.
 
 Vendor-library availability is also a runtime capability, not only a build
 configuration fact.  For CUDA libraries this includes the resolved shared

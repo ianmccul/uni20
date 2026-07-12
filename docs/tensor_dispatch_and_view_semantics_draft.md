@@ -313,7 +313,7 @@ Concept pressure:
 ### Explicit Backend On Mdspan
 
 ```cpp
-dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}}, gemm_op{},
+dispatch_kernel(backend_list{BlasBackend{}, CpuReferenceBackend{}}, gemm_op{},
                 c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 ```
 
@@ -641,8 +641,8 @@ backend selector. A non-owning adaptor may have no storage object at all, but it
 still needs a backend selector or storage-domain descriptor. For example:
 
 ```cpp
-BasicTensor<T, HostStorage> -> backend_list{BlasBackend{}, CpuGenericBackend{}}
-TensorAdaptor<T, HostDomain> -> backend_list{BlasBackend{}, CpuGenericBackend{}}
+BasicTensor<T, HostStorage> -> backend_list{BlasBackend{}, CpuReferenceBackend{}}
+TensorAdaptor<T, HostDomain> -> backend_list{BlasBackend{}, CpuReferenceBackend{}}
 TensorAdaptor<T, CudaDomain> -> backend_list{CublasBackend{}, CudaGenericBackend{}}
 ```
 
@@ -655,8 +655,8 @@ singleton backend value:
 
 ```cpp
 gemm(C, alpha, A, B, beta);                                  // storage default
-gemm(CpuGenericBackend{}, C, alpha, A, B, beta);              // one backend only
-gemm(backend_list{BlasBackend{}, CpuGenericBackend{}},
+gemm(CpuReferenceBackend{}, C, alpha, A, B, beta);            // one backend only
+gemm(backend_list{BlasBackend{}, CpuReferenceBackend{}},
      C, alpha, A, B, beta);                                  // ordered list
 gemm(make_backend_selector<backend_list<CublasBackend, CudaGenericBackend>>(
        CublasConfig{.device = {1}, .stream = {stream}, .math_mode = {tf32_allowed}}),
@@ -669,7 +669,7 @@ not get an implicit fallback.
 Plain mdspan entry points should require an explicit backend selector:
 
 ```cpp
-dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}}, gemm_op{},
+dispatch_kernel(backend_list{BlasBackend{}, CpuReferenceBackend{}}, gemm_op{},
                 c_mdspan, alpha, a_mdspan, b_mdspan, beta);
 ```
 
@@ -696,7 +696,7 @@ struct CudaGenericBackend {
   cudaStream_t stream;
 };
 
-struct CpuGenericBackend {};
+struct CpuReferenceBackend {};
 ```
 
 For a selector such as:

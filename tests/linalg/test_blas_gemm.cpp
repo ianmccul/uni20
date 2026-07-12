@@ -11,6 +11,8 @@
 
 namespace
 {
+using uni20::linalg::KernelAttempt;
+
 using extents_2d = stdex::dextents<uni20::index_type, 2>;
 
 template <class Scalar> struct ValueTransformAccessor
@@ -61,7 +63,7 @@ TEST(BlasGemmTest, MultipliesColumnMajorMdspans)
   fill_matrix(a, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
   fill_matrix(b, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
 
-  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0));
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0), KernelAttempt::success);
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 58.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 64.0);
@@ -106,7 +108,7 @@ TEST(BlasGemmTest, HandlesTransposedMdspanView)
   fill_matrix(a_base, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
   fill_matrix(b, {7.0, 8.0, 9.0, 10.0, 11.0, 12.0});
 
-  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0));
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0), KernelAttempt::success);
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 89.0);
   EXPECT_DOUBLE_EQ((c[0, 1]), 98.0);
@@ -127,7 +129,7 @@ TEST(BlasGemmTest, NormalizesUnobservedSingletonProviderColumnStride)
 
   fill_matrix(a, {1.0, 2.0, 3.0});
 
-  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0));
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0), KernelAttempt::success);
 
   EXPECT_DOUBLE_EQ((c[0, 0]), 4.0);
   EXPECT_DOUBLE_EQ((c[1, 0]), 8.0);
@@ -145,7 +147,7 @@ TEST(BlasGemmTest, TryDeclinesUnsupportedStridePattern)
   stdex::mdspan<double, extents_2d, stdex::layout_left> b(b_storage.data(), 2, 2);
   stdex::mdspan<double, extents_2d, stdex::layout_left> c(c_storage.data(), 2, 2);
 
-  EXPECT_FALSE(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0));
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0), KernelAttempt::unsupported_layout);
   EXPECT_DOUBLE_EQ((c[0, 0]), 7.0);
   EXPECT_DOUBLE_EQ((c[1, 1]), 7.0);
 }
@@ -160,7 +162,7 @@ TEST(BlasGemmTest, AcceptsRealConjIdentityView)
   stdex::mdspan<double, extents_2d, stdex::layout_left> b(b_storage.data(), 1, 1);
   stdex::mdspan<double, extents_2d, stdex::layout_left> c(c_storage.data(), 1, 1);
 
-  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, 1.0, uni20::conj(a), b, 0.0));
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, 1.0, uni20::conj(a), b, 0.0), KernelAttempt::success);
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
 }
 
@@ -187,7 +189,8 @@ TEST(BlasGemmTest, TryDeclinesConjugateOnlyComplexInput)
   stdex::mdspan<Complex, extents_2d, stdex::layout_left> b(b_storage.data(), 1, 1);
   stdex::mdspan<Complex, extents_2d, stdex::layout_left> c(c_storage.data(), 1, 1);
 
-  EXPECT_FALSE(uni20::linalg::blas::try_gemm(c, Complex{1.0, 0.0}, uni20::conj(a), b, Complex{0.0, 0.0}));
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, Complex{1.0, 0.0}, uni20::conj(a), b, Complex{0.0, 0.0}),
+            KernelAttempt::unsupported_transform);
   EXPECT_DOUBLE_EQ((c[0, 0]).real(), -5.0);
   EXPECT_DOUBLE_EQ((c[0, 0]).imag(), 2.0);
 }
@@ -206,7 +209,8 @@ TEST(BlasGemmTest, UsesConjugateTransposedMdspanInput)
   stdex::mdspan<Complex, extents_2d, stdex::layout_left> b(b_storage.data(), 2, 1);
   stdex::mdspan<Complex, extents_2d, stdex::layout_left> c(c_storage.data(), 1, 1);
 
-  EXPECT_TRUE(uni20::linalg::blas::try_gemm(c, Complex{1.0, 0.0}, uni20::conj(a_transposed), b, Complex{0.0, 0.0}));
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, Complex{1.0, 0.0}, uni20::conj(a_transposed), b, Complex{0.0, 0.0}),
+            KernelAttempt::success);
   EXPECT_DOUBLE_EQ((c[0, 0]).real(), 23.0);
   EXPECT_DOUBLE_EQ((c[0, 0]).imag(), -14.0);
 }

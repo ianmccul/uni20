@@ -314,7 +314,7 @@ metadata such as conjugation.
 The mdspan linalg layer is the first concrete user of the operation-tag model.
 The explicit-selector GEMM vertical slice exists: the direct mdspan BLAS wrapper
 delegates through `try_kernel(BlasBackend, gemm_op, ...)`, and the dispatch walk
-falls back to `CpuGenericBackend` before LAPACK workspace and vector-descriptor
+falls back to `CpuReferenceBackend` before LAPACK workspace and vector-descriptor
 policy enter the picture.
 
 Backend CPOs put the backend value first, then the operation tag, then ordinary
@@ -326,7 +326,7 @@ first pass.
 struct gemm_op {};
 
 struct BlasBackend {};
-struct CpuGenericBackend {};
+struct CpuReferenceBackend {};
 
 template <class C, class Alpha, class A, class B, class Beta>
 consteval auto
@@ -341,8 +341,8 @@ kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
 }
 
 template <class C, class Scalar, class A, class B>
-bool try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a, B&& b,
-                Scalar beta)
+KernelAttempt try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a,
+                          B&& b, Scalar beta)
 {
   return uni20::linalg::blas::try_gemm(std::forward<C>(c), alpha,
                                       std::forward<A>(a), std::forward<B>(b),
@@ -356,10 +356,10 @@ bool try_kernel(BlasBackend, gemm_op, C&& c, Scalar alpha, A&& a, B&& b,
 The public mdspan dispatch entry point is the generic dispatcher:
 
 ```cpp
-dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}},
+dispatch_kernel(backend_list{BlasBackend{}, CpuReferenceBackend{}},
                 gemm_op{}, c, alpha, a, b, beta);
 dispatch_kernel(BlasBackend{}, gemm_op{}, c, alpha, a, b, beta);
-dispatch_kernel(CpuGenericBackend{}, gemm_op{}, c, alpha, a, b, beta);
+dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c, alpha, a, b, beta);
 ```
 
 The first LAPACK wrapper can then use the same pattern with richer operand
@@ -393,16 +393,16 @@ kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&,
 }
 
 template <class W, class A>
-bool try_kernel(LapackBackend, self_adjoint_eigh_op op, W&& w, A&& a)
+KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op op, W&& w, A&& a)
 {
   auto values = try_lapack_vector_view(w);
   auto matrix_stage = try_mdspan_matrix_stage(a);
   if (!matrix_stage || !values) {
-    return false;
+    return KernelAttempt::unsupported_layout;
   }
 
   // Query workspace, then call uni20::lapack::syev/heev through checked wrappers.
-  return true;
+  return KernelAttempt::success;
 }
 ```
 
@@ -413,8 +413,9 @@ pack, transpose, or conjugate the user-visible matrix/vector operands.
 `kernel_accepts_types(...)` should stay type-level. It should not inspect
 runtime strides, sizes, pointer values, or backend state. The dispatcher
 inspects its result type through unevaluated `decltype` and `std::declval`
-expressions. The runtime attempt does the value checks and returns `false` if
-the selected backend cannot represent this particular view.
+expressions. The runtime attempt does the value checks and returns a specific
+non-success `KernelAttempt` if the selected backend cannot represent this
+particular view.
 
 The acceptance constants encode the decision in their types, so the dispatcher
 does not need synthetic objects, a tuple, or an explicit type-pack token:
@@ -618,21 +619,20 @@ The runtime attempt is schematic but should have this shape:
 
 ```cpp
 template <class W, class A>
-bool try_kernel(LapackBackend, self_adjoint_eigh_op op, W&& eigenvalues,
-                A&& matrix_work)
+KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op op,
+                          W&& eigenvalues, A&& matrix_work)
 {
   auto matrix_stage = try_blas_column_major_writable_stage(matrix_work);
   auto values = try_lapack_contiguous_vector(eigenvalues);
   if (!matrix_stage || !values) {
-    return false;
+    return KernelAttempt::unsupported_layout;
   }
 
   auto const matrix_blas = blas_writable_matrix(*matrix_stage);
   blas_int const rows = matrix_blas.rows;
   blas_int const cols = matrix_blas.cols;
-  if (rows != cols || values->size != rows) {
-    return false;
-  }
+  CHECK_EQUAL(rows, cols);
+  CHECK_EQUAL(values->size, rows);
 
   char const jobz = op.compute_vectors ? 'V' : 'N';
   char const uplo = lapack_triangle(op.triangle);
@@ -663,7 +663,7 @@ bool try_kernel(LapackBackend, self_adjoint_eigh_op op, W&& eigenvalues,
                         work.data(), lwork, rwork.data());
   }
 
-  return true;
+  return KernelAttempt::success;
 }
 ```
 
@@ -696,21 +696,20 @@ Minimal tests:
 
 ## Error Semantics
 
-Low-level `try_kernel(...)` functions should return `false` for clean runtime
-decline before side effects. They should throw only for errors after the backend
-operation has been selected and called, such as LAPACK convergence failures or
-invalid vendor status codes. Backend-specific decline strings are deliberately
-not part of this protocol.
+Low-level `try_kernel(...)` functions return a specific non-success
+`KernelAttempt` for clean runtime decline before side effects. They throw only
+for errors after the backend operation has been selected and called, such as
+LAPACK convergence failures or invalid vendor status codes. Decline categories
+are stable enum values rather than backend-constructed strings.
 
 Public convenience wrappers turn "all backends declined" into a structured
 `KernelDispatchError`. Its presentation report lists the operation and each
-backend's `no`/`maybe`/`yes` type acceptance, together with whether that backend
-was attempted or was not eligible. This records the dispatch decision without
-requiring each backend to construct a textual decline reason.
+backend's `no`/`maybe`/`yes` type acceptance, together with its structured
+runtime result or `not eligible`. This records the dispatch decision without
+requiring each backend to construct text.
 
 Operand metadata such as extents, strides, scalar type, layout type, and
-accessor kind may be added to the structured exception later. It remains
-operation-level context rather than a backend-specific textual decline reason.
+accessor kind may be added to optional structured diagnostics later.
 
 ## Initial Operation Set
 

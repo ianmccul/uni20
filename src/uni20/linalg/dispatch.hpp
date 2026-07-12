@@ -11,7 +11,10 @@
 #include <uni20/linalg/dispatch_error.hpp>
 #include <uni20/linalg/dispatch_error_presentation.hpp>
 
+#include <array>
 #include <concepts>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -38,14 +41,15 @@ template <class Backend, class Op, class... Args> consteval bool backend_has_try
     {
       try_kernel(std::declval<Backend const&>(), std::declval<Op const&>(),
                  std::declval<kernel_type_probe_arg_t<Args>>()...)
-    } -> std::same_as<bool>;
+    } -> std::same_as<KernelAttempt>;
   };
 }
 
 /// \brief Query one backend's type-level acceptance.
 /// \details Argument values are not inspected. Their deduced types are queried
 ///          through unevaluated lvalue expressions so narrowly constrained
-///          backend gates can be detected safely.
+///          backend gates can be detected safely. Runtime dispatch invokes
+///          candidates with the same stable lvalue arguments.
 template <class Backend, class Op, class... Args> consteval KernelTypeAcceptance backend_type_acceptance()
 {
   using backend_type = std::remove_cvref_t<Backend>;
@@ -134,29 +138,34 @@ concept NamedKernelDispatchEntity = requires {
 };
 
 template <KernelDispatchFailure Failure, class... Backends, class Op, class... Args>
-KernelDispatchError make_kernel_dispatch_error(backend_list<Backends...> const&, Op const&, Args&&...)
+KernelDispatchError make_kernel_dispatch_error(backend_list<Backends...> const&,
+                                               std::span<std::optional<KernelAttempt> const> runtime_results, Op const&,
+                                               Args&&...)
 {
   static_assert(NamedKernelDispatchEntity<Op>, "kernel operation tags must define a static name");
   static_assert((NamedKernelDispatchEntity<Backends> && ...), "kernel backends must define a static name");
+  CHECK(runtime_results.empty() || runtime_results.size() == sizeof...(Backends));
 
   std::vector<KernelBackendAttempt> attempts;
   attempts.reserve(sizeof...(Backends));
+  std::size_t index = 0;
   auto append_attempt = [&]<class Backend>() {
     constexpr auto acceptance = backend_type_acceptance<Backend, Op, Args...>();
     attempts.push_back(KernelBackendAttempt{
         .backend = std::string(std::remove_cvref_t<Backend>::name),
         .type_acceptance = acceptance,
-        .attempted =
-            Failure == KernelDispatchFailure::all_candidates_declined && acceptance != KernelTypeAcceptance::no,
+        .runtime_result = runtime_results.empty() ? std::nullopt : runtime_results[index],
     });
+    ++index;
   };
   (append_attempt.template operator()<Backends>(), ...);
 
   return KernelDispatchError(std::string(std::remove_cvref_t<Op>::name), Failure, std::move(attempts));
 }
 
-template <std::size_t Index, class... Backends, class Op, class... Args>
-bool try_dispatch_kernel_at(backend_list<Backends...> const& backends, Op op, Args&&... args)
+template <std::size_t Index, class... Backends, class Op, class RecordAttempt, class... Args>
+bool try_dispatch_kernel_at(backend_list<Backends...> const& backends, Op const& op, RecordAttempt& record_attempt,
+                            Args&&... args)
 {
   if constexpr (Index == sizeof...(Backends))
   {
@@ -169,42 +178,54 @@ bool try_dispatch_kernel_at(backend_list<Backends...> const& backends, Op op, Ar
 
     if constexpr (acceptance == KernelTypeAcceptance::yes)
     {
-      bool const success = try_kernel(std::get<Index>(backends.entries), op, std::forward<Args>(args)...);
-      CHECK(success);
+      KernelAttempt const attempt = try_kernel(std::get<Index>(backends.entries), op, args...);
+      record_attempt(Index, attempt);
+      CHECK(kernel_attempt_succeeded(attempt));
       return true;
     }
     else if constexpr (acceptance == KernelTypeAcceptance::maybe)
     {
-      if (try_kernel(std::get<Index>(backends.entries), op, std::forward<Args>(args)...))
+      KernelAttempt const attempt = try_kernel(std::get<Index>(backends.entries), op, args...);
+      record_attempt(Index, attempt);
+      if (kernel_attempt_succeeded(attempt))
       {
         return true;
       }
     }
 
-    return try_dispatch_kernel_at<Index + 1>(backends, op, std::forward<Args>(args)...);
+    return try_dispatch_kernel_at<Index + 1>(backends, op, record_attempt, args...);
   }
 }
 
 template <class... Backends, class Op, class... Args>
-void dispatch_backend_list(backend_list<Backends...> const& backends, Op op, Args&&... args)
+void dispatch_backend_list(backend_list<Backends...> const& backends, Op const& op, Args&&... args)
 {
-  if (!try_dispatch_kernel_at<0>(backends, op, std::forward<Args>(args)...))
+  std::array<std::optional<KernelAttempt>, sizeof...(Backends)> runtime_results{};
+  auto record_attempt = [&](std::size_t index, KernelAttempt attempt) { runtime_results[index] = attempt; };
+  if (!try_dispatch_kernel_at<0>(backends, op, record_attempt, args...))
   {
-    trace::raise(make_kernel_dispatch_error<KernelDispatchFailure::all_candidates_declined>(backends, op, args...));
+    trace::raise(make_kernel_dispatch_error<KernelDispatchFailure::all_candidates_declined>(
+        backends, std::span<std::optional<KernelAttempt> const>(runtime_results), op, args...));
   }
 }
 } // namespace detail
 
 /// \brief Normalize a selector and try each eligible backend until one performs the operation.
+/// \details A backend returning a decline result must preserve every argument
+///          and produce no externally visible side effect, so a later backend
+///          receives the original operation instance intact.
 template <class BackendSelector, class Op, class... Args>
   requires detail::KernelDispatchTypesAccepted<detail::normalized_backend_selector_t<BackendSelector>, Op, Args...>
 bool try_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
 {
   auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
-  return detail::try_dispatch_kernel_at<0>(backends, op, std::forward<Args>(args)...);
+  auto ignore_attempt = [](std::size_t, KernelAttempt) {};
+  return detail::try_dispatch_kernel_at<0>(backends, op, ignore_attempt, args...);
 }
 
 /// \brief Normalize a selector and dispatch or report that every eligible backend declined.
+/// \details Each runtime decline has the same argument-preservation and
+///          no-side-effect contract as `try_dispatch_kernel`.
 template <class BackendSelector, class Op, class... Args>
   requires detail::KernelDispatchTypesAccepted<detail::normalized_backend_selector_t<BackendSelector>, Op, Args...>
 void dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
@@ -223,7 +244,8 @@ void dynamic_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
   auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
   if constexpr (!detail::KernelDispatchTypesAccepted<backends_type, Op, Args...>)
   {
-    trace::raise(detail::make_kernel_dispatch_error<KernelDispatchFailure::no_eligible_backend>(backends, op, args...));
+    trace::raise(detail::make_kernel_dispatch_error<KernelDispatchFailure::no_eligible_backend>(
+        backends, std::span<std::optional<KernelAttempt> const>{}, op, args...));
   }
   else
   {

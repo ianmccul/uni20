@@ -3,7 +3,7 @@
 /**
  * \file gemm.hpp
  * \ingroup linalg
- * \brief Generic CPU GEMM backend for mdspan-like dense matrices.
+ * \brief Reference CPU GEMM backend for mdspan-like dense matrices.
  */
 
 #include <uni20/common/trace.hpp>
@@ -17,10 +17,10 @@
 namespace uni20::linalg
 {
 
-/// \brief Report compile-time eligibility for generic CPU GEMM dispatch.
+/// \brief Report compile-time eligibility for reference CPU GEMM dispatch.
 template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> LhsMdspan,
           uni20::RankedSpanLike<2> RhsMdspan>
-consteval auto kernel_accepts_types(CpuGenericBackend const&, struct gemm_op const&, OutputMdspan&, Scalar const&,
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, struct gemm_op const&, OutputMdspan&, Scalar const&,
                                     LhsMdspan&, RhsMdspan&, Scalar const&)
 {
   using output_scalar = std::remove_cv_t<typename OutputMdspan::element_type>;
@@ -48,10 +48,10 @@ consteval auto kernel_accepts_types(CpuGenericBackend const&, struct gemm_op con
   }
 }
 
-/// \brief Generic accessor-respecting GEMM fallback.
+/// \brief Reference accessor-respecting GEMM fallback.
 template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
-bool try_kernel(CpuGenericBackend, struct gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
-                RhsMdspan&& rhs, Scalar beta)
+KernelAttempt try_kernel(CpuReferenceBackend, struct gemm_op const&, OutputMdspan&& output, Scalar alpha,
+                         LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
   using index_type = typename output_type::index_type;
@@ -85,7 +85,7 @@ bool try_kernel(CpuGenericBackend, struct gemm_op const&, OutputMdspan&& output,
     }
   }
 
-  return true;
+  return KernelAttempt::success;
 }
 
 } // namespace uni20::linalg

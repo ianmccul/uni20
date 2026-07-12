@@ -51,11 +51,11 @@ In kernel-dispatch terms:
   library version, active device architecture, handle/context availability,
   peer-access availability, and backend-specific capability probes.
 
-A version conflict should therefore usually be a `try_kernel(...) == false`
-runtime decline, not a hard failure, when a later backend in the ordered list can
-provide the requested Uni20 semantics. A forced one-entry backend list, or an API
-that promises a specific backend, has no semantic fallback and should fail loudly
-when `try_kernel(...)` declines.
+A version conflict should therefore usually produce
+`KernelAttempt::unavailable`, not a hard failure, when a later backend in the
+ordered list can provide the requested Uni20 semantics. A forced one-entry
+backend list, or an API that promises a specific backend, has no semantic
+fallback and should fail loudly when `try_kernel(...)` declines.
 
 ## Strategy
 
@@ -155,8 +155,8 @@ For Uni20, prefer this default:
   wheels, or explicit runtime dependency policy;
 - runtime initialization should emit clear diagnostics when the loaded libraries
   do not match the configured expectations;
-- `try_kernel(...)` runtime checks should mark known incompatible combinations
-  unavailable before side effects, especially SM 7.0 with cuTENSOR >= 2.3 or
-  recent cuTensorNet;
+- `try_kernel(...)` runtime checks should return `KernelAttempt::unavailable`
+  for known incompatible combinations before side effects, especially SM 7.0
+  with cuTENSOR >= 2.3 or recent cuTensorNet;
 - forced backends and backend-promising operations should hard-fail with a clear
   diagnostic when the required runtime stack is incompatible.

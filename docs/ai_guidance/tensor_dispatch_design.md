@@ -125,10 +125,10 @@ concrete owning tensor.
 - The concrete linalg GEMM mdspan slice uses generic dispatch with explicit selectors:
   `try_kernel(BlasBackend, gemm_op, ...)` delegates to
   `uni20::linalg::blas::try_gemm(...)`, then falls through to the
-  `CpuGenericBackend` GEMM oracle when BLAS declines.
+  `CpuReferenceBackend` GEMM oracle when BLAS declines.
 - Fixed-storage Tensor GEMM is also implemented. `VectorStorage` supplies
-  `[BlasBackend, CpuGenericBackend]` when BLAS is configured, and
-  `[CpuGenericBackend]` otherwise. Explicit selectors override that default.
+  `[BlasBackend, CpuReferenceBackend]` when BLAS is configured, and
+  `[CpuReferenceBackend]` otherwise. Explicit selectors override that default.
 - The static capability CPO is
   `consteval auto kernel_accepts_types(backend const&, op const&, args&...)`.
   It checks type-level facts only and returns `kernel_types_no`,
@@ -137,8 +137,18 @@ concrete owning tensor.
   argument objects.
 - The runtime attempt CPO is `try_kernel(backend, op, args...)`. It performs
   runtime checks such as strides, device placement, handles, and library
-  availability, then either runs the kernel and returns `true` or declines
-  before side effects and returns `false`.
+  availability, then returns `KernelAttempt::success` or a structured clean
+  decline reason such as `unsupported_layout` or `unavailable`.
+- A non-success `KernelAttempt` has a strong decline guarantee. The backend must
+  preserve every argument and must not mutate operands, submit work, commit
+  storage, or produce another externally visible side effect. The dispatcher
+  invokes candidates with stable lvalue arguments and does not copy operands or
+  mdspan descriptors to conceal contract violations. Once work starts, failure
+  is an operation error rather than fallback. A backend returning
+  `kernel_types_yes` must return `KernelAttempt::success`.
+- Terminal provider failures throw, abort through a logic check, or appear in
+  an operation-specific result. They are not `KernelAttempt` values and must
+  never trigger fallback.
 - `kernel_accepts_types(...)` is the mandatory type gate and may be narrowly
   constrained. If it is not callable for the exact argument types, acceptance
   is a hard `no`, even when `try_kernel(...)` is broadly callable.
@@ -165,6 +175,11 @@ concrete owning tensor.
   `try_kernel` functions are not direct APIs.
 - A backend that lacks a usable `try_kernel(...)` overload is skipped by
   detection.
+- Keep storage-default backend lists in one storage and execution domain. Host
+  selectors may contain BLAS and CPU reference backends; future CUDA selectors
+  contain only CUDA-device backends. Ordinary decline must not copy operands to
+  another domain. Any emergency device-to-host route is an explicit
+  operation-specific composite kernel or higher-level policy.
 
 ### BACKEND VALUES
 
@@ -178,7 +193,7 @@ views from duplicating location state.
 struct CublasBackend {};
 struct CudaGenericBackend {};
 
-struct CpuGenericBackend {};
+struct CpuReferenceBackend {};
 ```
 
 Stateful selector entries remain an explicit override mechanism for genuine

@@ -1,12 +1,15 @@
 # Kernel Dispatch Design
 
-**Status: checkpoint of current thinking, not implemented.** This note captures
-a worked design direction for how Uni20 selects and runs a backend kernel for a
-tensor operation. It generalizes the three-stage pattern in
+**Status: implemented dense GEMM checkpoint plus forward design.** Uni20 has an
+operation-tag dispatch walk, structured failure reporting, Tensor-to-mdspan
+GEMM forwarding, and direct BLAS/reference CPU backends. The CUDA, distributed,
+prepared-operand, and broader BLAS/LAPACK portions remain design work. This note
+captures both the implemented contract and that direction. It generalizes the
+three-stage pattern in
 [`backend_dispatch.md`](backend_dispatch.md) into a single configurable
 mechanism that also covers device and distributed execution. Treat the code
-below as schematic — the type and helper names illustrate the shape, they are
-not a frozen API.
+below as schematic where it discusses unimplemented backends; the current CPO
+and dispatch names match the implementation but are not a frozen API.
 
 The static capability CPO name used here is `kernel_accepts_types(...)`. The
 runtime attempt CPO is `try_kernel(...)`. Both put the backend value first, then
@@ -43,14 +46,29 @@ dispatch mechanism is generic over an **operation tag** (`gemm_op`, `scale_op`,
   need a tuple or explicit type-pack token.
 - `try_kernel(Backend, Op, args...)` — required for an implemented operation;
   receives the backend value, checks runtime facts, and either performs/emits
-  the work or returns `false`.
+  the work or returns a structured clean-decline `KernelAttempt`.
 
-The gate may be narrowly constrained. If it is not callable for the exact
-backend, operation, and argument types, acceptance is a hard `no`; a callable
-gate returns the corresponding acceptance constant. Its `try_kernel(...)` overload may remain
-deliberately unconstrained because dispatch never instantiates it for rejected
-types. This keeps the runtime CPO focused on instance facts rather than
-duplicating type constraints.
+A non-success `KernelAttempt` has a strong decline guarantee. The backend must
+not consume or move from an argument, semantically mutate an input or output,
+commit an allocation, submit work, or produce another externally visible side
+effect. Dispatch invokes candidates with the same stable lvalue arguments and
+does not copy mdspan descriptors or operand objects to conceal contract
+violations. Once a backend changes externally visible state, later failure is
+an operation error rather than a dispatch decline. A backend whose type gate
+returns `kernel_types_yes` must return `KernelAttempt::success`; dispatch treats
+any decline as a backend logic error. Terminal execution failures throw, abort
+through a logic check, or use an operation-specific result and never trigger
+fallback.
+
+The gate may be narrowly constrained. Type probing uses unevaluated lvalue
+expressions for the underlying deduced argument types; it does not inspect
+runtime values. Runtime `try_kernel(...)` calls use the corresponding stable
+lvalue arguments.
+If the gate is not callable for the backend, operation, and argument types,
+acceptance is a hard `no`; a callable gate returns the corresponding acceptance
+constant. Its `try_kernel(...)` overload may remain deliberately unconstrained
+because dispatch never instantiates it for rejected types. This keeps the
+runtime CPO focused on instance facts rather than duplicating type constraints.
 
 Generic callers should normally use the safe value-shaped front end:
 
@@ -97,18 +115,27 @@ Runnable examples under `examples/linalg/` cover the main dispatch behaviors:
 - `kernel_dispatch_error_example.cpp` catches and renders structured errors for
   both runtime exhaustion and a type-level hard `no` at a dynamic boundary.
 
-Success means return `true` with the work done or correctly emitted. (For
+`KernelAttempt::success` means the work is done or correctly emitted. (For
 deferred device work, "correctly emitted" means the completion token — the CUDA
 event recorded at submission, per `ordering_and_backend_lowering.md` — is
 attached to the buffers' epochs before the backend returns. The token is
 buffer-lifetime machinery owned by the storage policy; it never travels through
 the dispatch interface.)
 Dispatch is a walk over an **ordered list of backends**: the first backend that
-does not decline wins. The old `generic` fallback is simply the last entry in
-the list, the correctness oracle. Backends **nest** — a backend may be
-implemented in terms of other backends — which is how distributed and RPC
-execution layer on without a class hierarchy. This replaces the original
-tagged-dispatch-with-inheritance plan, which was too rigid.
+does not decline wins. A reference implementation may be the last entry in a
+list and act as its correctness oracle over the types it accepts. Backends
+**nest** — a backend may be implemented in terms of other backends — which is
+how distributed and RPC execution layer on without a class hierarchy. This
+replaces the original tagged-dispatch-with-inheritance plan, which was too rigid.
+
+Default backend lists remain within one storage and execution domain. Host
+storage may select host BLAS followed by the host CPU reference backend; future
+CUDA storage selects CUDA-device backends and does not fall through to a host
+CPU backend. An ordinary runtime decline never transfers operands or changes
+execution domain. A deliberate emergency device-to-host implementation, if one
+is needed for an individual operation, must be an explicit composite kernel or
+higher-level route whose transfer and synchronization costs are visible in its
+policy. It is not a general fallback backend.
 
 The ordered list has a static type order but can hold backend values, not only
 backend types. Backend entries can be stateless tags in the first pass, or
@@ -202,7 +229,7 @@ The first end-to-end mdspan implementation slice exists for explicit backend
 selectors. The low-level mdspan leaf is
 `uni20::linalg::blas::try_gemm(c, alpha, a, b, beta)`;
 `try_kernel(BlasBackend, gemm_op, ...)` wraps that leaf, and
-`CpuGenericBackend` provides an independently tested fallback when BLAS
+`CpuReferenceBackend` provides an independently tested fallback when BLAS
 declines. This proves the operation-tag walk without first solving the broader
 LAPACK surface, workspace policy, or vector descriptor layer.
 
@@ -218,11 +245,22 @@ enum class KernelTypeAcceptance {
   yes    // runtime attempt is expected to succeed for every instance
 };
 
+enum class KernelAttempt {
+  success,
+  unsupported_instance,
+  unsupported_shape,
+  unsupported_layout,
+  unsupported_accessor,
+  unsupported_transform,
+  unavailable,
+  insufficient_resources
+};
+
 template <class Backend, class Op, class... Args>
 consteval bool backend_has_try_kernel()
 {
   return requires(Backend backend, Op op, Args&&... args) {
-    { try_kernel(backend, op, std::forward<Args>(args)...) } -> std::same_as<bool>;
+    { try_kernel(backend, op, args...) } -> std::same_as<KernelAttempt>;
   };
 }
 
@@ -272,16 +310,16 @@ bool try_dispatch_kernel(backend_list<First, Rest...> backends, Op op, Args&&...
       detail::kernel_type_probe_arg<Op const&>(),
       detail::kernel_type_probe_arg<Args>()...);
   if constexpr (acceptance == KernelTypeAcceptance::yes) {
-    bool const success = try_kernel(backends.first(), op, std::forward<Args>(args)...);
-    CHECK(success);
+    KernelAttempt const attempt = try_kernel(backends.first(), op, args...);
+    CHECK(kernel_attempt_succeeded(attempt));
     return true;
   } else if constexpr (acceptance == KernelTypeAcceptance::maybe) {
-    if (try_kernel(backends.first(), op, std::forward<Args>(args)...))
+    if (kernel_attempt_succeeded(try_kernel(backends.first(), op, args...)))
       return true;
   }
 
   if constexpr (sizeof...(Rest) > 0)
-    return try_dispatch_kernel(backends.rest(), op, std::forward<Args>(args)...);
+    return try_dispatch_kernel(backends.rest(), op, args...);
   else
     return false;
 }
@@ -342,24 +380,26 @@ should have:
   **compile error**. A Python binding calls `dynamic_dispatch_kernel` for its
   concrete binding instantiation instead, converting the same static rejection
   into a Python exception.
-- Forcing `backend_list{BlasBackend{}}` when libBLAS is not loaded at runtime
-  makes `try_kernel(blas_entry, gemm_op{}, ...)` return false, the list is
+- Forcing `backend_list{BlasBackend{}}` for an mdspan layout or accessor that
+  the direct BLAS adapter cannot represent makes `try_kernel(...)` return
+  `false`, the list is
   exhausted, and checked dispatch raises `KernelDispatchError`: native C++
   renders the structured report and aborts with a stacktrace, while Python
-  receives the concrete exception. The default lists always end in the
-  infallible oracle, so the default path never exhausts the list.
+  receives the concrete exception. The current host default ends in the CPU
+  reference backend, which is total only over its accepted semantic type
+  domain; no default list is required to accept arbitrary argument types.
 
 ### Three local backends
 
 ```cpp
-struct CpuGenericBackend {};                                // the correctness oracle
+struct CpuReferenceBackend {};                              // the correctness oracle
 
 template <class T>
 using operand_t = std::remove_cvref_t<T>;
 
 template <class Alpha, class A, class B, class Beta, class C>
 consteval auto
-kernel_accepts_types(CpuGenericBackend const&, gemm_op const&, C&,
+kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, C&,
                      Alpha const&, A const&, B const&, Beta const&)
 {
   if constexpr (/* rank-2 addressable operands with compatible scalar types */) {
@@ -371,8 +411,9 @@ kernel_accepts_types(CpuGenericBackend const&, gemm_op const&, C&,
 
 // a, b, c are resolved mdspans — run the kernel immediately, no scheduler.
 template <class C, class A, class B>
-bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
-                A const& a, B const& b, scalar_t<C> beta)
+KernelAttempt try_kernel(CpuReferenceBackend, gemm_op, C& c,
+                          scalar_t<C> alpha, A const& a, B const& b,
+                          scalar_t<C> beta)
 {
   using T = scalar_t<C>;
   for (size_t i = 0; i < c.extent(0); ++i)
@@ -383,7 +424,7 @@ bool try_kernel(CpuGenericBackend, gemm_op, C& c, scalar_t<C> alpha,
       for (size_t k = 0; k < a.extent(1); ++k) acc += alpha * a[i, k] * b[k, j];
       c[i, j] = acc;
     }
-  return true;                                               // infallible
+  return KernelAttempt::success;                             // infallible
 }
 
 struct BlasBackend {};
@@ -403,8 +444,8 @@ kernel_accepts_types(BlasBackend const&, gemm_op const&, C&, Alpha const&,
 // a, b, c are resolved mdspan-like views:
 // call BLAS immediately, no scheduler.
 template <class C, class A, class B>
-bool try_kernel(BlasBackend, gemm_op, C& c, scalar_t<C> alpha,
-                A const& a, B const& b, scalar_t<C> beta)
+KernelAttempt try_kernel(BlasBackend, gemm_op, C& c, scalar_t<C> alpha,
+                          A const& a, B const& b, scalar_t<C> beta)
 {
   return uni20::linalg::blas::try_gemm(c, alpha, a, b, beta);
 }
@@ -436,18 +477,19 @@ kernel_accepts_types(CublasBackend const&, gemm_op const&, C&, Alpha const&,
 // (A blocking variant on the default stream is also possible, but the scheduler
 // path is typical.)
 template <class C, class A, class B>
-bool try_kernel(CublasBackend backend, gemm_op, C& c, scalar_t<C> alpha,
-                A const& a, B const& b, scalar_t<C> beta)
+KernelAttempt try_kernel(CublasBackend backend, gemm_op, C& c,
+                          scalar_t<C> alpha, A const& a, B const& b,
+                          scalar_t<C> beta)
 {
   int dev = backend.device;
   cublas::set_math_mode(backend.math_mode);
-  if (c.device() != dev) return false;
+  if (c.device() != dev) return KernelAttempt::unsupported_instance;
   for (int other : {a.device(), b.device()})                // operands on another GPU?
     if (other != dev && !cuda::peer_access(dev, other))
-      return false;                                         // let a staging backend handle it
+      return KernelAttempt::unsupported_instance;           // let a staging backend handle it
   gpu_scheduler(dev).submit(cublas_gemm_task<C,A,B>, c.write(),    // CudaScheduler: stream/event
                             alpha, a.read(), b.read(), beta);      //   sync is built in; per-GPU
-  return true;                                                     //   thread holds the cuBLAS handle
+  return KernelAttempt::success;                                   //   thread holds the cuBLAS handle
 }
 ```
 
@@ -457,7 +499,7 @@ Three invariants this surfaces:
   are all available synchronously, so `try_kernel` can decide before any data is
   read. The kernel then runs on the resolved mdspans.
 - **CPU backends are synchronous; they do not touch a scheduler.** `BlasBackend`
-  and `CpuGenericBackend` call the kernel immediately on resolved views. Async
+  and `CpuReferenceBackend` call the kernel immediately on resolved views. Async
   execution of CPU work comes from wrapping the tensors in `Async<T>`, whose epoch
   queues provide the sequencing — submitting a bare CPU task to a scheduler with no
   buffer await would carry no ordering and never be correct. There is no point in a
@@ -505,15 +547,16 @@ kernel_accepts_types(MpiBackend const&, gemm_op const&, C&, Alpha const&,
 }
 
 template <class C, class A, class B>
-bool try_kernel(MpiBackend backend, gemm_op, C& c, scalar_t<C> alpha,
-                A const& a, B const& b, scalar_t<C> beta)
+KernelAttempt try_kernel(MpiBackend backend, gemm_op, C& c,
+                          scalar_t<C> alpha, A const& a, B const& b,
+                          scalar_t<C> beta)
 {
   auto& comm = backend.comm;
   auto& placement = backend.placement;
   auto plan = mpi::plan_gemm(a.distribution(), b.distribution(), c.distribution());
   (void)comm;
   (void)placement;
-  if (!plan) return false;        // decline *before* any side effect (see below)
+  if (!plan) return KernelAttempt::unsupported_instance; // before side effects
   for (auto const& edge : plan->exchanges)
     mpi::post(edge);              // Isend/Irecv first; unique tag per edge (ordering_and_backend_lowering.md)
   for (auto const& t : plan->local_tiles)                    // overlap compute with the exchanges
@@ -522,16 +565,16 @@ bool try_kernel(MpiBackend backend, gemm_op, C& c, scalar_t<C> alpha,
     mpi::wait(t.recv);              // schematic: a real impl schedules these as tasks gated on the receives
     gemm(t.c_local, alpha, t.a_recv, t.b_recv, scalar_t<C>{1});  // accumulate into the local tile
   }
-  return true;
+  return KernelAttempt::success;
 }
 ```
 
 One contract the composite backend makes explicit: **`try_kernel` declines
 before any side effect, or not at all.** Once a backend has posted a message or
-executed a tile, returning `false` would hand the next backend in the list a
-partially updated `c`. So all feasibility checks (here `mpi::plan_gemm`) come
-first, and past the first side effect the backend is committed — a later failure
-is an error to report, not a decline. The simple backends satisfy this trivially
+executed a tile, returning a decline result would hand the next backend in the
+list a partially updated `c`. So all feasibility checks (here
+`mpi::plan_gemm`) come first, and past the first side effect the backend is
+committed — a later failure is an error to report, not a decline. The simple backends satisfy this trivially
 (their checks are reads of metadata and library availability); any backend that
 composes other work must be written to it deliberately.
 
@@ -560,11 +603,11 @@ off-roadmap). The dense rows dispatch on the leaf `TensorStorage` only.
 
 ```cpp
 gemm(c, alpha, a, b, beta);                                  // Tensor storage default
-gemm(CpuGenericBackend{}, c, alpha, a, b, beta);             // Tensor override
-dispatch_kernel(backend_list{BlasBackend{}, CpuGenericBackend{}},
+gemm(CpuReferenceBackend{}, c, alpha, a, b, beta);           // Tensor override
+dispatch_kernel(backend_list{BlasBackend{}, CpuReferenceBackend{}},
                 gemm_op{}, c_span, alpha, a_span, b_span,
                 beta);                                       // bare mdspans
-gemm(BackendChain{BlasBackend{}, CpuGenericBackend{}},
+gemm(BackendChain{BlasBackend{}, CpuReferenceBackend{}},
      c, alpha, a, b, beta);                                  // Tensor override
 gemm(make_backend_selector<backend_list<CublasBackend>>(
        CublasConfig{.device = {0}, .stream = {stream}, .math_mode = {tf32_allowed}}),

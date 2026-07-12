@@ -9,6 +9,7 @@
 namespace example
 {
 using uni20::linalg::kernel_types_maybe;
+using uni20::linalg::KernelAttempt;
 using uni20::linalg::KernelTypeAcceptance;
 
 struct demo_op
@@ -28,7 +29,7 @@ struct declining_backend
 
 consteval auto kernel_accepts_types(declining_backend const&, demo_op const&, int&) { return kernel_types_maybe; }
 
-bool try_kernel(declining_backend, demo_op, int&) { return false; }
+KernelAttempt try_kernel(declining_backend, demo_op, int&) { return KernelAttempt::unsupported_instance; }
 
 void print_error(std::string_view heading, uni20::linalg::KernelDispatchError const& error)
 {

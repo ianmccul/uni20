@@ -7,7 +7,9 @@
  */
 
 #include <uni20/common/diagnostic_error.hpp>
+#include <uni20/linalg/kernel_attempt.hpp>
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -49,7 +51,7 @@ struct KernelBackendAttempt
 {
     std::string backend;
     KernelTypeAcceptance type_acceptance = KernelTypeAcceptance::no;
-    bool attempted = false;
+    std::optional<KernelAttempt> runtime_result = std::nullopt;
 };
 
 namespace detail

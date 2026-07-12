@@ -9,6 +9,7 @@ namespace example
 {
 using uni20::linalg::kernel_types_maybe;
 using uni20::linalg::kernel_types_yes;
+using uni20::linalg::KernelAttempt;
 using uni20::linalg::KernelTypeAcceptance;
 
 struct scale_in_place_op
@@ -31,11 +32,11 @@ consteval auto kernel_accepts_types(blocked_backend const&, scale_in_place_op co
   return kernel_types_maybe;
 }
 
-bool try_kernel(blocked_backend, scale_in_place_op, std::span<double> values, double factor)
+KernelAttempt try_kernel(blocked_backend, scale_in_place_op, std::span<double> values, double factor)
 {
   if (values.size() % 4 != 0)
   {
-    return false;
+    return KernelAttempt::unsupported_shape;
   }
 
   fmt::print("blocked backend accepted {} values\n", values.size());
@@ -43,7 +44,7 @@ bool try_kernel(blocked_backend, scale_in_place_op, std::span<double> values, do
   {
     value *= factor;
   }
-  return true;
+  return KernelAttempt::success;
 }
 
 consteval auto kernel_accepts_types(scalar_backend const&, scale_in_place_op const&, std::span<double>&, double const&)
@@ -51,14 +52,14 @@ consteval auto kernel_accepts_types(scalar_backend const&, scale_in_place_op con
   return kernel_types_yes;
 }
 
-bool try_kernel(scalar_backend, scale_in_place_op, std::span<double> values, double factor)
+KernelAttempt try_kernel(scalar_backend, scale_in_place_op, std::span<double> values, double factor)
 {
   fmt::print("scalar backend accepted {} values\n", values.size());
   for (double& value : values)
   {
     value *= factor;
   }
-  return true;
+  return KernelAttempt::success;
 }
 
 constexpr std::string_view acceptance_name(KernelTypeAcceptance acceptance)

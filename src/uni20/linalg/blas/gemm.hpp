@@ -10,6 +10,7 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/blas/mdspan_matrix.hpp>
+#include <uni20/linalg/kernel_attempt.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -86,18 +87,19 @@ void gemm(BlasWritableMatrix<Scalar, OutputHandle> output, BlasReadableMatrix<Sc
 } // namespace detail
 
 /// \brief Try a direct no-copy BLAS GEMM from mdspan-like operands.
+/// \return `success`, `unsupported_layout`, or `unsupported_transform`.
 template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
   requires detail::writable_blas_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
            detail::readable_blas_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
            detail::readable_blas_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
-bool try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
+KernelAttempt try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
 {
   auto output_stage = try_mdspan_matrix_stage(output);
   auto lhs_stage = try_mdspan_matrix_stage(lhs);
   auto rhs_stage = try_mdspan_matrix_stage(rhs);
   if (!output_stage || !lhs_stage || !rhs_stage)
   {
-    return false;
+    return KernelAttempt::unsupported_layout;
   }
 
   // The user-provided direct GEMM output must be ordinary writable storage.
@@ -105,7 +107,7 @@ bool try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& 
   // call as an internal workaround for unsupported readable transforms.
   if (output_stage->needs_conjugation)
   {
-    return false;
+    return KernelAttempt::unsupported_transform;
   }
 
   auto const output_matrix = blas_writable_matrix(*output_stage);
@@ -115,22 +117,22 @@ bool try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& 
     auto const rhs_matrix = blas_readable_matrix(*rhs_stage);
     if (!detail::provider_transforms_are_supported(lhs_matrix, rhs_matrix))
     {
-      return false;
+      return KernelAttempt::unsupported_transform;
     }
 
     detail::gemm(output_matrix, lhs_matrix, rhs_matrix, alpha, beta);
-    return true;
+    return KernelAttempt::success;
   }
 
   auto const lhs_matrix = detail::with_transform(blas_readable_matrix(*rhs_stage), MatrixTransform::transpose);
   auto const rhs_matrix = detail::with_transform(blas_readable_matrix(*lhs_stage), MatrixTransform::transpose);
   if (!detail::provider_transforms_are_supported(lhs_matrix, rhs_matrix))
   {
-    return false;
+    return KernelAttempt::unsupported_transform;
   }
 
   detail::gemm(output_matrix, lhs_matrix, rhs_matrix, alpha, beta);
-  return true;
+  return KernelAttempt::success;
 }
 
 /// \brief Direct no-copy BLAS GEMM from mdspan-like operands.
@@ -140,7 +142,7 @@ template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class R
            detail::readable_blas_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
 void gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
 {
-  CHECK(try_gemm(output, alpha, lhs, rhs, beta));
+  CHECK(kernel_attempt_succeeded(try_gemm(output, alpha, lhs, rhs, beta)));
 }
 
 } // namespace uni20::linalg::blas
