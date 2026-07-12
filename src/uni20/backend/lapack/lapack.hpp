@@ -7,15 +7,18 @@
  */
 
 #include <uni20/backend/lapack/common.hpp>
+#include <uni20/backend/lapack/lapack_error.hpp>
+#include <uni20/backend/lapack/lapack_error_presentation.hpp>
 #include <uni20/backend/lapack/reference/band.hpp>
 #include <uni20/backend/lapack/reference/general.hpp>
 #include <uni20/backend/lapack/reference/norms.hpp>
 #include <uni20/backend/lapack/reference/tridiagonal.hpp>
+#include <uni20/common/trace.hpp>
 #include <uni20/config.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 
+#include <source_location>
 #include <stdexcept>
-#include <string>
 
 #if UNI20_HAS_FLOAT128 && UNI20_FLOAT128_PROVIDER_MPLAPACK
 #include <uni20/backend/lapack/mplapack/band.hpp>
@@ -30,143 +33,147 @@ namespace uni20::lapack
 namespace detail
 {
 
-[[noreturn]] inline void throw_invalid_argument_info(char const* routine, blas_int info)
+[[noreturn]] inline void raise_terminal_info(char const* routine, char const* message, blas_int info,
+                                             std::source_location where = std::source_location::current())
 {
-  throw std::invalid_argument("LAPACK " + std::string(routine) + " received invalid argument " + std::to_string(-info));
-}
-
-[[noreturn]] inline void throw_runtime_info(char const* routine, char const* message, blas_int info)
-{
-  throw std::runtime_error("LAPACK " + std::string(routine) + " " + message + " (info=" + std::to_string(info) + ")");
+  trace::raise(LapackError(routine, info, message), where);
 }
 
 inline void check_invalid_argument(char const* routine, blas_int info)
 {
-  if (info < 0)
-  {
-    throw_invalid_argument_info(routine, info);
-  }
+  CHECK(info >= 0, routine, info, "LAPACK provider rejected a wrapper-generated argument");
 }
 
-inline void check_singular(char const* routine, blas_int info)
+inline void check_singular(char const* routine, blas_int info,
+                           std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0)
   {
-    throw_runtime_info(routine, "found a singular matrix", info);
+    raise_terminal_info(routine, "found a singular matrix", info, where);
   }
 }
 
-inline void check_positive_definite(char const* routine, blas_int info)
+inline void check_positive_definite(char const* routine, blas_int info,
+                                    std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0)
   {
-    throw_runtime_info(routine, "found a matrix that is not positive definite", info);
+    raise_terminal_info(routine, "found a matrix that is not positive definite", info, where);
   }
 }
 
-inline void check_singular_diagonal_block(char const* routine, blas_int info)
+inline void check_singular_diagonal_block(char const* routine, blas_int info,
+                                          std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0)
   {
-    throw_runtime_info(routine, "found a singular diagonal block", info);
+    raise_terminal_info(routine, "found a singular diagonal block", info, where);
   }
 }
 
-inline void check_singular_triangular(char const* routine, blas_int info)
+inline void check_singular_triangular(char const* routine, blas_int info,
+                                      std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0)
   {
-    throw_runtime_info(routine, "found a singular triangular matrix", info);
+    raise_terminal_info(routine, "found a singular triangular matrix", info, where);
   }
 }
 
-inline void check_convergence(char const* routine, blas_int info)
+inline void check_convergence(char const* routine, blas_int info,
+                              std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0)
   {
-    throw_runtime_info(routine, "failed to converge", info);
+    raise_terminal_info(routine, "failed to converge", info, where);
   }
 }
 
-inline void check_generalized_symmetric_eigensolver(char const* routine, blas_int n, blas_int info)
+inline void check_generalized_symmetric_eigensolver(char const* routine, blas_int n, blas_int info,
+                                                    std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > n)
   {
-    throw_runtime_info(routine, "found a metric matrix that is not positive definite", info);
+    raise_terminal_info(routine, "found a metric matrix that is not positive definite", info, where);
   }
   if (info > 0)
   {
-    throw_runtime_info(routine, "failed to converge", info);
+    raise_terminal_info(routine, "failed to converge", info, where);
   }
 }
 
-inline bool check_expert_solve(char const* routine, blas_int n, blas_int info)
+inline bool check_expert_solve(char const* routine, blas_int n, blas_int info,
+                               std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0 && info <= n)
   {
-    throw_runtime_info(routine, "found a singular matrix", info);
+    raise_terminal_info(routine, "found a singular matrix", info, where);
   }
   if (info > n + 1)
   {
-    throw_runtime_info(routine, "failed unexpectedly", info);
+    raise_terminal_info(routine, "failed unexpectedly", info, where);
   }
   return info == n + 1;
 }
 
-inline bool check_symmetric_indefinite_expert_solve(char const* routine, blas_int n, blas_int info)
+inline bool check_symmetric_indefinite_expert_solve(char const* routine, blas_int n, blas_int info,
+                                                    std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0 && info <= n)
   {
-    throw_runtime_info(routine, "found a singular diagonal block", info);
+    raise_terminal_info(routine, "found a singular diagonal block", info, where);
   }
   if (info > n + 1)
   {
-    throw_runtime_info(routine, "failed unexpectedly", info);
+    raise_terminal_info(routine, "failed unexpectedly", info, where);
   }
   return info == n + 1;
 }
 
-inline bool check_positive_definite_expert_solve(char const* routine, blas_int n, blas_int info)
+inline bool check_positive_definite_expert_solve(char const* routine, blas_int n, blas_int info,
+                                                 std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0 && info <= n)
   {
-    throw_runtime_info(routine, "found a matrix that is not positive definite", info);
+    raise_terminal_info(routine, "found a matrix that is not positive definite", info, where);
   }
   if (info > n + 1)
   {
-    throw_runtime_info(routine, "failed unexpectedly", info);
+    raise_terminal_info(routine, "failed unexpectedly", info, where);
   }
   return info == n + 1;
 }
 
-inline void check_equilibration(char const* routine, blas_int m, blas_int info)
+inline void check_equilibration(char const* routine, blas_int m, blas_int info,
+                                std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 0 && info <= m)
   {
-    throw_runtime_info(routine, "found an exactly zero row", info);
+    raise_terminal_info(routine, "found an exactly zero row", info, where);
   }
   if (info > m)
   {
-    throw_runtime_info(routine, "found an exactly zero column", info);
+    raise_terminal_info(routine, "found an exactly zero column", info, where);
   }
 }
 
-inline bool check_sylvester(char const* routine, blas_int info)
+inline bool check_sylvester(char const* routine, blas_int info,
+                            std::source_location where = std::source_location::current())
 {
   check_invalid_argument(routine, info);
   if (info > 1)
   {
-    throw_runtime_info(routine, "failed unexpectedly", info);
+    raise_terminal_info(routine, "failed unexpectedly", info, where);
   }
   return info == 1;
 }
@@ -295,7 +302,7 @@ void pbtrs(char uplo, blas_int n, blas_int kd, blas_int nrhs, Scalar* ab, blas_i
   detail::check_invalid_argument("pbtrs", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("pbtrs", "failed to solve the factored system", info);
+    detail::raise_terminal_info("pbtrs", "failed to solve the factored system", info);
   }
 }
 
@@ -414,7 +421,7 @@ void gels(char trans, blas_int m, blas_int n, blas_int nrhs, Scalar* a, blas_int
   detail::check_invalid_argument("gels", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("gels", "found a rank-deficient triangular factor", info);
+    detail::raise_terminal_info("gels", "found a rank-deficient triangular factor", info);
   }
 }
 
@@ -445,7 +452,7 @@ void gelsy(blas_int m, blas_int n, blas_int nrhs, Scalar* a, blas_int lda, Scala
   detail::check_invalid_argument("gelsy", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("gelsy", "failed to compute a rank-revealing least-squares solution", info);
+    detail::raise_terminal_info("gelsy", "failed to compute a rank-revealing least-squares solution", info);
   }
 }
 
@@ -734,7 +741,7 @@ void gebal(char job, blas_int n, Scalar* a, blas_int lda, blas_int& first, blas_
   detail::check_invalid_argument("gebal", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("gebal", "failed unexpectedly", info);
+    detail::raise_terminal_info("gebal", "failed unexpectedly", info);
   }
 }
 
@@ -747,7 +754,7 @@ void gebak(char job, char side, blas_int n, blas_int first, blas_int last, Scala
   detail::check_invalid_argument("gebak", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("gebak", "failed unexpectedly", info);
+    detail::raise_terminal_info("gebak", "failed unexpectedly", info);
   }
 }
 
@@ -771,7 +778,7 @@ void gees(char jobvs, char sort, blas_int n, Scalar* a, blas_int lda, blas_int& 
   detail::check_invalid_argument("gees", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("gees", "failed to compute a Schur form", info);
+    detail::raise_terminal_info("gees", "failed to compute a Schur form", info);
   }
 }
 
@@ -786,7 +793,7 @@ void gees(char jobvs, char sort, blas_int n, uni20::complex<Real>* a, blas_int l
   detail::check_invalid_argument("gees", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("gees", "failed to compute a Schur form", info);
+    detail::raise_terminal_info("gees", "failed to compute a Schur form", info);
   }
 }
 
@@ -799,7 +806,7 @@ void hseqr(char job, char compz, blas_int n, blas_int first, blas_int last, Scal
   detail::check_invalid_argument("hseqr", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("hseqr", "failed to compute a Schur form", info);
+    detail::raise_terminal_info("hseqr", "failed to compute a Schur form", info);
   }
 }
 
@@ -812,7 +819,7 @@ void trexc(char compq, blas_int n, Scalar* t, blas_int ldt, Scalar* q, blas_int 
   detail::check_invalid_argument("trexc", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("trexc", "failed to reorder adjacent Schur blocks", info);
+    detail::raise_terminal_info("trexc", "failed to reorder adjacent Schur blocks", info);
   }
 }
 
@@ -825,7 +832,7 @@ void trexc(char compq, blas_int n, uni20::complex<Real>* t, blas_int ldt, uni20:
   detail::check_invalid_argument("trexc", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("trexc", "failed to reorder adjacent Schur blocks", info);
+    detail::raise_terminal_info("trexc", "failed to reorder adjacent Schur blocks", info);
   }
 }
 
@@ -842,11 +849,11 @@ void trsen(char job, char compq, blas_int* select, blas_int n, Scalar* t, blas_i
   detail::check_invalid_argument("trsen", info);
   if (info == 1)
   {
-    detail::throw_runtime_info("trsen", "could not reorder the selected Schur blocks", info);
+    detail::raise_terminal_info("trsen", "could not reorder the selected Schur blocks", info);
   }
   if (info > 1)
   {
-    detail::throw_runtime_info("trsen", "failed unexpectedly", info);
+    detail::raise_terminal_info("trsen", "failed unexpectedly", info);
   }
 }
 
@@ -860,7 +867,7 @@ void trevc(char side, char howmny, blas_int* select, blas_int n, Scalar* t, blas
   detail::check_invalid_argument("trevc", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("trevc", "failed to compute all requested Schur eigenvectors", info);
+    detail::raise_terminal_info("trevc", "failed to compute all requested Schur eigenvectors", info);
   }
 }
 
@@ -877,7 +884,7 @@ void trsna(char job, char howmny, blas_int* select, blas_int n, Scalar* t, blas_
   detail::check_invalid_argument("trsna", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("trsna", "failed unexpectedly", info);
+    detail::raise_terminal_info("trsna", "failed unexpectedly", info);
   }
 }
 
@@ -914,7 +921,7 @@ void ggbal(char job, blas_int n, Scalar* a, blas_int lda, Scalar* b, blas_int ld
   detail::check_invalid_argument("ggbal", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("ggbal", "failed unexpectedly", info);
+    detail::raise_terminal_info("ggbal", "failed unexpectedly", info);
   }
 }
 
@@ -928,7 +935,7 @@ void ggbak(char job, char side, blas_int n, blas_int first, blas_int last, Scala
   detail::check_invalid_argument("ggbak", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("ggbak", "failed unexpectedly", info);
+    detail::raise_terminal_info("ggbak", "failed unexpectedly", info);
   }
 }
 
@@ -943,11 +950,11 @@ void gges(char jobvsl, char jobvsr, char sort, blas_int n, Scalar* a, blas_int l
   detail::check_invalid_argument("gges", info);
   if (info > 0 && info <= n)
   {
-    detail::throw_runtime_info("gges", "failed to compute a generalized Schur form", info);
+    detail::raise_terminal_info("gges", "failed to compute a generalized Schur form", info);
   }
   if (info > n)
   {
-    detail::throw_runtime_info("gges", "failed after generalized Schur convergence", info);
+    detail::raise_terminal_info("gges", "failed after generalized Schur convergence", info);
   }
 }
 
@@ -960,7 +967,7 @@ void gghrd(char compq, char compz, blas_int n, blas_int first, blas_int last, Sc
   detail::check_invalid_argument("gghrd", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("gghrd", "failed unexpectedly", info);
+    detail::raise_terminal_info("gghrd", "failed unexpectedly", info);
   }
 }
 
@@ -975,7 +982,7 @@ void hgeqz(char job, char compq, char compz, blas_int n, blas_int first, blas_in
   detail::check_invalid_argument("hgeqz", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("hgeqz", "failed to compute a generalized Schur form", info);
+    detail::raise_terminal_info("hgeqz", "failed to compute a generalized Schur form", info);
   }
 }
 
@@ -988,11 +995,11 @@ void tgexc(bool wantq, bool wantz, blas_int n, Scalar* a, blas_int lda, Scalar* 
   detail::check_invalid_argument("tgexc", info);
   if (info == 1)
   {
-    detail::throw_runtime_info("tgexc", "could not swap adjacent generalized Schur blocks", info);
+    detail::raise_terminal_info("tgexc", "could not swap adjacent generalized Schur blocks", info);
   }
   if (info > 1)
   {
-    detail::throw_runtime_info("tgexc", "failed unexpectedly", info);
+    detail::raise_terminal_info("tgexc", "failed unexpectedly", info);
   }
 }
 
@@ -1008,11 +1015,11 @@ void tgsen(blas_int ijob, bool wantq, bool wantz, blas_int* select, blas_int n, 
   detail::check_invalid_argument("tgsen", info);
   if (info == 1)
   {
-    detail::throw_runtime_info("tgsen", "could not reorder the selected generalized Schur blocks", info);
+    detail::raise_terminal_info("tgsen", "could not reorder the selected generalized Schur blocks", info);
   }
   if (info > 1)
   {
-    detail::throw_runtime_info("tgsen", "failed unexpectedly", info);
+    detail::raise_terminal_info("tgsen", "failed unexpectedly", info);
   }
 }
 
@@ -1026,7 +1033,7 @@ void tgevc(char side, char howmny, blas_int* select, blas_int n, Scalar* s, blas
   detail::check_invalid_argument("tgevc", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("tgevc", "failed to compute generalized Schur eigenvectors", info);
+    detail::raise_terminal_info("tgevc", "failed to compute generalized Schur eigenvectors", info);
   }
 }
 
@@ -1043,7 +1050,7 @@ void tgsna(char job, char howmny, blas_int* select, blas_int n, Scalar* a, blas_
   detail::check_invalid_argument("tgsna", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("tgsna", "failed unexpectedly", info);
+    detail::raise_terminal_info("tgsna", "failed unexpectedly", info);
   }
 }
 
@@ -1169,7 +1176,7 @@ template <uni20::LapackReal Scalar> void potrf(char uplo, blas_int n, Scalar* a,
   detail::check_invalid_argument("potrf", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("potrf", "found a matrix that is not positive definite", info);
+    detail::raise_terminal_info("potrf", "found a matrix that is not positive definite", info);
   }
 }
 
@@ -1182,7 +1189,7 @@ bool pstrf(char uplo, blas_int n, Scalar* a, blas_int lda, blas_int* pivots, bla
   detail::check_invalid_argument("pstrf", info);
   if (info > 1)
   {
-    detail::throw_runtime_info("pstrf", "failed unexpectedly", info);
+    detail::raise_terminal_info("pstrf", "failed unexpectedly", info);
   }
   return info == 1;
 }
@@ -1194,7 +1201,7 @@ template <uni20::LapackReal Scalar> void potri(char uplo, blas_int n, Scalar* a,
   detail::check_invalid_argument("potri", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("potri", "found a singular Cholesky factor", info);
+    detail::raise_terminal_info("potri", "found a singular Cholesky factor", info);
   }
 }
 
@@ -1228,11 +1235,11 @@ bool posvx(char fact, char uplo, blas_int n, blas_int nrhs, Scalar* a, blas_int 
   detail::check_invalid_argument("posvx", info);
   if (info > 0 && info <= n)
   {
-    detail::throw_runtime_info("posvx", "found a non-positive-definite leading minor", info);
+    detail::raise_terminal_info("posvx", "found a non-positive-definite leading minor", info);
   }
   if (info > n + 1)
   {
-    detail::throw_runtime_info("posvx", "failed unexpectedly", info);
+    detail::raise_terminal_info("posvx", "failed unexpectedly", info);
   }
   return info == n + 1;
 }
@@ -1245,7 +1252,7 @@ void poequ(blas_int n, Scalar* a, blas_int lda, Scalar* scale, Scalar& scale_con
   detail::check_invalid_argument("poequ", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("poequ", "found a non-positive diagonal entry", info);
+    detail::raise_terminal_info("poequ", "found a non-positive diagonal entry", info);
   }
 }
 
@@ -1441,7 +1448,7 @@ template <uni20::LapackReal Scalar> void pttrs(blas_int n, blas_int nrhs, Scalar
   detail::check_invalid_argument("pttrs", info);
   if (info > 0)
   {
-    detail::throw_runtime_info("pttrs", "failed to solve the factored system", info);
+    detail::raise_terminal_info("pttrs", "failed to solve the factored system", info);
   }
 }
 

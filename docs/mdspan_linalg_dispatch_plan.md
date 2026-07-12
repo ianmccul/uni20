@@ -697,10 +697,14 @@ Minimal tests:
 ## Error Semantics
 
 Low-level `try_kernel(...)` functions return a specific non-success
-`KernelAttempt` for clean runtime decline before side effects. They throw only
-for errors after the backend operation has been selected and called, such as
-LAPACK convergence failures or invalid vendor status codes. Decline categories
-are stable enum values rather than backend-constructed strings.
+`KernelAttempt` for clean runtime decline before side effects. Once a LAPACK
+routine has been called, a terminal positive `INFO` raises a structured
+`LapackError`; dispatch must not continue because update operands may already
+have been overwritten. A negative `INFO` is an unconditional invariant failure:
+it means the provider rejected arguments constructed by the checked Uni20
+wrapper. Positive values explicitly documented as usable operation statuses
+remain operation-specific return values. Decline categories are stable enum
+values rather than backend-constructed strings.
 
 Public convenience wrappers turn "all backends declined" into a structured
 `KernelDispatchError`. Its presentation report lists the operation and each
