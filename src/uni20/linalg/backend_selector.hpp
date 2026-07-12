@@ -15,6 +15,13 @@
 namespace uni20::linalg
 {
 
+/// \brief Backend value for configured dense LAPACK kernels.
+struct LapackBackend
+{
+    static constexpr std::string_view name = "lapack";
+    friend constexpr bool operator==(LapackBackend const&, LapackBackend const&) = default;
+};
+
 /// \brief Backend value for BLAS dense linalg kernels.
 struct BlasBackend
 {

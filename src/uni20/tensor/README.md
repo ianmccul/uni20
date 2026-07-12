@@ -9,7 +9,8 @@ kernels operate on resolved mdspans.
 - `basic_tensor.hpp`: composition-based owning tensor implementation
   parameterized by element, extents, storage policy, layout, and accessor
   factory.
-- `tensor.hpp`: rank-convenience alias for `BasicTensor`.
+- `tensor.hpp`: rank-convenience `Tensor` alias plus the column-major-by-default
+  host `DenseMatrix` alias and row/column-major layout names.
 - `concepts.hpp`: readable, mutable, strided, and rank-constrained tensor-level
   concepts.
 - `layout.hpp`: layout construction helpers.
@@ -24,6 +25,9 @@ kernels operate on resolved mdspans.
   owning tensors overload `mdspan()` on constness.
 - Tensor objects deliberately do not model Uni20's mdspan concepts. Leaf
   kernels receive the mdspans returned by those accessors.
+- `DenseMatrix<T>` is `Tensor<T, 2, VectorStorage, ColumnMajor>`; use
+  `DenseMatrix<T, RowMajor>` when row-major ownership is preferred. Matrix-level
+  linalg front ends accept either form and resolve mdspans internally.
 - Tensor operations should lower to dense primitives only after storage, layout,
   backend, and any symmetry metadata have been resolved by the appropriate
   higher layer.

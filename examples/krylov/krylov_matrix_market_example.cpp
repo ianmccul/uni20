@@ -180,7 +180,10 @@ template <typename Scalar> class DenseShiftInvertOps {
       this->factorize_coefficient();
     }
 
-    [[nodiscard]] std::size_t problem_dimension() const noexcept { return factorized_coefficient_.rows(); }
+    [[nodiscard]] std::size_t problem_dimension() const noexcept
+    {
+      return static_cast<std::size_t>(factorized_coefficient_.rows());
+    }
 
     [[nodiscard]] std::size_t vector_dimension(DenseHostVector<Scalar> const& x) const noexcept
     {
@@ -238,7 +241,8 @@ template <typename Scalar> class DenseShiftInvertOps {
 
     void matvec(DenseHostVector<Scalar>& y, DenseHostVector<Scalar> const& x)
     {
-      if (x.values.size() != factorized_coefficient_.cols() || y.values.size() != factorized_coefficient_.rows())
+      if (x.values.size() != static_cast<std::size_t>(factorized_coefficient_.cols()) ||
+          y.values.size() != static_cast<std::size_t>(factorized_coefficient_.rows()))
       {
         throw std::invalid_argument("Krylov shift-invert example vector has the wrong size");
       }
@@ -264,7 +268,7 @@ template <typename Scalar> class DenseShiftInvertOps {
       {
         return;
       }
-      for (std::size_t col = 0; col < factorized_coefficient_.cols(); ++col)
+      for (uni20::index_type col = 0; col < factorized_coefficient_.cols(); ++col)
       {
         std::swap(factorized_coefficient_[lhs, col], factorized_coefficient_[rhs, col]);
       }
@@ -274,7 +278,7 @@ template <typename Scalar> class DenseShiftInvertOps {
     {
       using std::abs;
 
-      std::size_t const n = factorized_coefficient_.rows();
+      std::size_t const n = static_cast<std::size_t>(factorized_coefficient_.rows());
       pivots_.resize(n);
       for (std::size_t k = 0; k < n; ++k)
       {
@@ -316,7 +320,7 @@ template <typename Scalar> class DenseShiftInvertOps {
 
     void apply_factorized_solve(std::vector<Scalar>& values) const
     {
-      std::size_t const n = factorized_coefficient_.rows();
+      std::size_t const n = static_cast<std::size_t>(factorized_coefficient_.rows());
       for (std::size_t k = 0; k < n; ++k)
       {
         if (pivots_[k] != k)

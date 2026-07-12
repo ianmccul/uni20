@@ -138,9 +138,9 @@ uni20::make_real_t<Scalar> arnoldi_compressed_relation_scale(Matrix<Scalar> cons
 {
   using Real = uni20::make_real_t<Scalar>;
   Real scale = std::max(Real{1}, residual_norm);
-  for (std::size_t col = 0; col < schur_form.cols(); ++col)
+  for (uni20::index_type col = 0; col < schur_form.cols(); ++col)
   {
-    for (std::size_t row = 0; row < schur_form.rows(); ++row)
+    for (uni20::index_type row = 0; row < schur_form.rows(); ++row)
     {
       scale = std::max(scale, static_cast<Real>(adl_abs(schur_form[row, col])));
     }
@@ -437,7 +437,7 @@ uni20::make_real_t<Scalar> projected_departure_from_normality(Matrix<Scalar> con
 
   using Real = uni20::make_real_t<Scalar>;
 
-  std::size_t const order = matrix.rows();
+  std::size_t const order = static_cast<std::size_t>(matrix.rows());
   Real norm_squared{};
   for (std::size_t col = 0; col < order; ++col)
   {
@@ -552,7 +552,8 @@ Matrix<Scalar> arnoldi_projected_hessenberg(ArnoldiFactorization<Scalar, Vector>
   }
 
   std::size_t const projected_dimension = static_cast<std::size_t>(factorization.step_count);
-  if (factorization.hessenberg.rows() < projected_dimension || factorization.hessenberg.cols() < projected_dimension)
+  auto const projected_extent = static_cast<uni20::index_type>(projected_dimension);
+  if (factorization.hessenberg.rows() < projected_extent || factorization.hessenberg.cols() < projected_extent)
   {
     throw std::invalid_argument("arnoldi_projected_hessenberg received an inconsistent Hessenberg projection");
   }
@@ -591,7 +592,8 @@ ArnoldiRitzExtraction<Scalar> extract_arnoldi_ritz(ArnoldiFactorization<Scalar, 
   }
 
   std::size_t const projected_dimension = static_cast<std::size_t>(factorization.step_count);
-  if (factorization.hessenberg.rows() < projected_dimension || factorization.hessenberg.cols() < projected_dimension)
+  auto const projected_extent = static_cast<uni20::index_type>(projected_dimension);
+  if (factorization.hessenberg.rows() < projected_extent || factorization.hessenberg.cols() < projected_extent)
   {
     throw std::invalid_argument("extract_arnoldi_ritz received an inconsistent Hessenberg projection");
   }
@@ -664,7 +666,8 @@ extract_complex_arnoldi_ritz(ArnoldiFactorization<uni20::complex<Real>, Vector> 
   using Complex = uni20::complex<Real>;
 
   std::size_t const projected_dimension = static_cast<std::size_t>(factorization.step_count);
-  if (factorization.hessenberg.rows() < projected_dimension || factorization.hessenberg.cols() < projected_dimension)
+  auto const projected_extent = static_cast<uni20::index_type>(projected_dimension);
+  if (factorization.hessenberg.rows() < projected_extent || factorization.hessenberg.cols() < projected_extent)
   {
     throw std::invalid_argument("extract_complex_arnoldi_ritz received an inconsistent Hessenberg projection");
   }
@@ -992,7 +995,8 @@ expand_real_schur_arnoldi_restart(Ops& ops, RealSchurCompressedArnoldiFactorizat
   {
     throw std::invalid_argument("real Schur Arnoldi expansion target is smaller than retained basis");
   }
-  if (compressed.schur_form.rows() != retained_count || compressed.schur_form.cols() != retained_count ||
+  auto const retained_extent = static_cast<uni20::index_type>(retained_count);
+  if (compressed.schur_form.rows() != retained_extent || compressed.schur_form.cols() != retained_extent ||
       compressed.residual_coupling.size() != retained_count)
   {
     throw std::invalid_argument("real Schur Arnoldi expansion received inconsistent compressed dimensions");
@@ -1204,7 +1208,8 @@ expand_complex_schur_arnoldi_restart(Ops& ops,
   {
     throw std::invalid_argument("complex Schur Arnoldi expansion target is smaller than retained basis");
   }
-  if (compressed.schur_form.rows() != retained_count || compressed.schur_form.cols() != retained_count ||
+  auto const retained_extent = static_cast<uni20::index_type>(retained_count);
+  if (compressed.schur_form.rows() != retained_extent || compressed.schur_form.cols() != retained_extent ||
       compressed.residual_coupling.size() != retained_count)
   {
     throw std::invalid_argument("complex Schur Arnoldi expansion received inconsistent compressed dimensions");

@@ -9,6 +9,7 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/dispatch.hpp>
+#include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
 
 #include <concepts>
@@ -20,7 +21,7 @@ namespace uni20::linalg
 /// \brief Report compile-time eligibility for reference CPU GEMM dispatch.
 template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> LhsMdspan,
           uni20::RankedSpanLike<2> RhsMdspan>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, struct gemm_op const&, OutputMdspan&, Scalar const&,
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, OutputMdspan&, Scalar const&,
                                     LhsMdspan&, RhsMdspan&, Scalar const&)
 {
   using output_scalar = std::remove_cv_t<typename OutputMdspan::element_type>;
@@ -50,8 +51,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, struct gemm_op c
 
 /// \brief Reference accessor-respecting GEMM fallback.
 template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
-KernelAttempt try_kernel(CpuReferenceBackend, struct gemm_op const&, OutputMdspan&& output, Scalar alpha,
-                         LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
+KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
+                         RhsMdspan&& rhs, Scalar beta)
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;
   using index_type = typename output_type::index_type;

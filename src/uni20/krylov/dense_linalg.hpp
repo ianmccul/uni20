@@ -9,6 +9,8 @@
 #include <uni20/krylov/detail_math.hpp>
 #include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
+#include <uni20/linalg/linalg.hpp>
+#include <uni20/tensor/tensor.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -23,73 +25,23 @@
 namespace uni20::krylov
 {
 
-/// \brief Prototype dense matrix type used for local Krylov subspace algebra.
-///
-/// \details This aliases the CPU dense linear algebra matrix while the final
-///          Uni20 rank-2 tensor layout policy is still being designed.
-template <typename Scalar> using Matrix = uni20::linalg::backends::cpu::DenseMatrix<Scalar>;
+/// \brief Owning column-major dense matrix used for local Krylov subspace algebra.
+template <typename Scalar> using Matrix = uni20::DenseMatrix<Scalar>;
 
-using uni20::linalg::backends::cpu::add;
-using uni20::linalg::backends::cpu::matrix_exponential;
-using uni20::linalg::backends::cpu::matrix_one_norm;
-using uni20::linalg::backends::cpu::matrix_one_norm_power;
-using uni20::linalg::backends::cpu::matrix_power;
-using uni20::linalg::backends::cpu::scale;
-using uni20::linalg::backends::cpu::solve_linear_system;
-using uni20::linalg::backends::cpu::subtract;
-
-/// \brief Prototype row-major dense matrix used by mdspan-style LAPACK wrappers.
-///
-/// \details This is intentionally separate from the current Krylov `Matrix`,
-///          which is column-major for direct Fortran LAPACK calls. `RightMatrix`
-///          gives the temporary mdspan wrapper layer a layout-right owning
-///          matrix while the final Uni20 rank-2 tensor layout policy is still
-///          being designed.
-template <typename Scalar> class RightMatrix {
-  public:
-    RightMatrix() = default;
-
-    RightMatrix(std::size_t rows, std::size_t cols) : rows_(rows), cols_(cols), data_(rows * cols) {}
-
-    [[nodiscard]] std::size_t rows() const noexcept { return rows_; }
-
-    [[nodiscard]] std::size_t cols() const noexcept { return cols_; }
-
-    [[nodiscard]] std::size_t size() const noexcept { return data_.size(); }
-
-    Scalar& operator[](std::size_t row, std::size_t col) { return data_[col + row * cols_]; }
-
-    Scalar const& operator[](std::size_t row, std::size_t col) const { return data_[col + row * cols_]; }
-
-    [[nodiscard]] Scalar* data() noexcept { return data_.data(); }
-
-    [[nodiscard]] Scalar const* data() const noexcept { return data_.data(); }
-
-  private:
-    std::size_t rows_ = 0;
-    std::size_t cols_ = 0;
-    std::vector<Scalar> data_;
-};
+/// \brief Owning row-major dense matrix retained for layout-specific Krylov helpers.
+template <typename Scalar> using RightMatrix = uni20::DenseMatrix<Scalar, uni20::RowMajor>;
 
 /// \brief Return a mutable layout-right mdspan view of a prototype right-layout matrix.
 /// \tparam Scalar Element type.
 /// \param matrix Matrix whose storage is exposed.
 /// \return Mutable rank-2 layout-right mdspan view.
-template <typename Scalar> auto right_mdspan(RightMatrix<Scalar>& matrix)
-{
-  using extents_type = stdex::extents<std::size_t, stdex::dynamic_extent, stdex::dynamic_extent>;
-  return stdex::mdspan<Scalar, extents_type, stdex::layout_right>(matrix.data(), matrix.rows(), matrix.cols());
-}
+template <typename Scalar> auto right_mdspan(RightMatrix<Scalar>& matrix) { return matrix.mdspan(); }
 
 /// \brief Return an immutable layout-right mdspan view of a prototype right-layout matrix.
 /// \tparam Scalar Element type.
 /// \param matrix Matrix whose storage is exposed.
 /// \return Immutable rank-2 layout-right mdspan view.
-template <typename Scalar> auto right_mdspan(RightMatrix<Scalar> const& matrix)
-{
-  using extents_type = stdex::extents<std::size_t, stdex::dynamic_extent, stdex::dynamic_extent>;
-  return stdex::mdspan<Scalar const, extents_type, stdex::layout_right>(matrix.data(), matrix.rows(), matrix.cols());
-}
+template <typename Scalar> auto right_mdspan(RightMatrix<Scalar> const& matrix) { return matrix.mdspan(); }
 
 /// \brief Copy a column-major Krylov matrix into a row-major prototype matrix.
 /// \tparam Scalar Element type.
@@ -98,9 +50,9 @@ template <typename Scalar> auto right_mdspan(RightMatrix<Scalar> const& matrix)
 template <typename Scalar> RightMatrix<Scalar> copy_left_to_right(Matrix<Scalar> const& matrix)
 {
   RightMatrix<Scalar> result(matrix.rows(), matrix.cols());
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       result[row, col] = matrix[row, col];
     }
@@ -115,9 +67,9 @@ template <typename Scalar> RightMatrix<Scalar> copy_left_to_right(Matrix<Scalar>
 template <typename Scalar> Matrix<Scalar> copy_right_to_left(RightMatrix<Scalar> const& matrix)
 {
   Matrix<Scalar> result(matrix.rows(), matrix.cols());
-  for (std::size_t row = 0; row < matrix.rows(); ++row)
+  for (uni20::index_type row = 0; row < matrix.rows(); ++row)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       result[row, col] = matrix[row, col];
     }
@@ -141,12 +93,7 @@ enum class MatrixSide
 };
 
 /// \brief Matrix region selected by LAPACK-style copy and set operations.
-enum class MatrixFill
-{
-  All,
-  Upper,
-  Lower
-};
+using MatrixFill = uni20::linalg::MatrixRegion;
 
 /// \brief LAPACK-compatible dense matrix norm selector.
 enum class MatrixNorm
@@ -345,9 +292,9 @@ template <typename Scalar> void lacpy(Matrix<Scalar>& destination, Matrix<Scalar
     throw std::invalid_argument("dense matrix sizes do not agree");
   }
 
-  for (std::size_t col = 0; col < source.cols(); ++col)
+  for (uni20::index_type col = 0; col < source.cols(); ++col)
   {
-    for (std::size_t row = 0; row < source.rows(); ++row)
+    for (uni20::index_type row = 0; row < source.rows(); ++row)
     {
       if (detail::in_selected_region<Scalar>(row, col, fill))
       {
@@ -366,16 +313,7 @@ template <typename Scalar> void lacpy(Matrix<Scalar>& destination, Matrix<Scalar
 template <typename Scalar>
 void laset(Matrix<Scalar>& matrix, Scalar const& diagonal, Scalar const& off_diagonal, MatrixFill fill)
 {
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
-  {
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
-    {
-      if (detail::in_selected_region<Scalar>(row, col, fill))
-      {
-        matrix[row, col] = (row == col) ? diagonal : off_diagonal;
-      }
-    }
-  }
+  uni20::linalg::set_matrix(matrix, diagonal, off_diagonal, fill);
 }
 
 /// \brief Compute a dense matrix-vector product.
@@ -404,10 +342,10 @@ void gemv(std::span<Scalar> y, Scalar const& alpha, Matrix<Scalar> const& matrix
 
   if (transpose == MatrixTranspose::None)
   {
-    for (std::size_t col = 0; col < matrix.cols(); ++col)
+    for (uni20::index_type col = 0; col < matrix.cols(); ++col)
     {
       Scalar const factor = alpha * x[col];
-      for (std::size_t row = 0; row < matrix.rows(); ++row)
+      for (uni20::index_type row = 0; row < matrix.rows(); ++row)
       {
         y[row] += factor * matrix[row, col];
       }
@@ -415,10 +353,10 @@ void gemv(std::span<Scalar> y, Scalar const& alpha, Matrix<Scalar> const& matrix
     return;
   }
 
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     Scalar sum{};
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       Scalar entry = matrix[row, col];
       if (transpose == MatrixTranspose::ConjugateTranspose)
@@ -440,15 +378,15 @@ void gemv(std::span<Scalar> y, Scalar const& alpha, Matrix<Scalar> const& matrix
 template <typename Scalar>
 void geru(Matrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y)
 {
-  if (x.size() != matrix.rows() || y.size() != matrix.cols())
+  if (x.size() != static_cast<std::size_t>(matrix.rows()) || y.size() != static_cast<std::size_t>(matrix.cols()))
   {
     throw std::invalid_argument("dense rank-one update sizes do not agree");
   }
 
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     Scalar const factor = alpha * y[col];
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       matrix[row, col] += x[row] * factor;
     }
@@ -464,15 +402,15 @@ void geru(Matrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x
 template <typename Scalar>
 void gerc(Matrix<Scalar>& matrix, Scalar const& alpha, std::span<Scalar const> x, std::span<Scalar const> y)
 {
-  if (x.size() != matrix.rows() || y.size() != matrix.cols())
+  if (x.size() != static_cast<std::size_t>(matrix.rows()) || y.size() != static_cast<std::size_t>(matrix.cols()))
   {
     throw std::invalid_argument("dense rank-one update sizes do not agree");
   }
 
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
     Scalar const factor = alpha * detail::conjugate_if_complex(y[col]);
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       matrix[row, col] += x[row] * factor;
     }

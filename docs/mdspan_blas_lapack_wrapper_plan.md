@@ -1,16 +1,15 @@
 # Mdspan BLAS/LAPACK Wrapper Layer Plan
 
-**Status:** implementation plan and checkpoint for the first concrete mdspan
-dense-linalg wrapper layer. This is below tensor front-end dispatch and above
-the existing raw BLAS/LAPACK provider facades. The BLAS matrix/vector descriptor
-helpers and direct mdspan GEMM/GEMV wrappers exist. Their explicit-selector
-dispatch slices delegate `try_kernel(BlasBackend, operation, ...)` to the direct
-BLAS adapter, with `CpuReferenceBackend` as the accessor-respecting fallback.
+**Status:** implemented BLAS and initial LAPACK checkpoints plus forward plan.
+This layer is below tensor front-end dispatch and above the existing raw
+BLAS/LAPACK provider facades. Direct mdspan GEMM/GEMV, accessor-respecting CPU
+fallbacks, and strict LAPACK projected eigensystem/Schur adapters now use the
+operation-tag dispatcher.
 
-The immediate target is to add mdspan-facing BLAS/LAPACK wrappers that accept
-resolved strided views, build BLAS-compatible matrix descriptors, and then call
-the existing Uni20 BLAS/LAPACK backend wrappers. This is a new linalg adapter
-layer, not a replacement for the current backend facades.
+The implemented mdspan-facing wrappers accept resolved views, build
+provider-compatible descriptors, and call the existing Uni20 BLAS/LAPACK
+backend wrappers. Future work extends this adapter layer operation by operation;
+it does not replace the backend facades.
 
 Related notes:
 
@@ -82,15 +81,16 @@ The direct BLAS descriptor implementation lives under `src/uni20/linalg/blas/`:
 
 The first operation-tag dispatch slice adds:
 
+- `operation_tags.hpp`
+  - the central catalogue of operation values and their diagnostic names.
 - `dispatch.hpp`
   - `KernelTypeAcceptance`, `backend_list`, selector normalization, type
     acceptance detection, and the runtime backend walk.
 - `ops/gemm.hpp`
-  - `gemm_op` and fixed-output Tensor `gemm(...)`; bare mdspans use the generic
-    dispatch API directly.
+  - fixed-output Tensor `gemm(...)`; bare mdspans use the generic dispatch API
+    directly.
 - `ops/gemv.hpp`
-  - `gemv_op` and fixed-output Tensor `gemv(...)` with rank-1 output/input and a
-    rank-2 matrix.
+  - fixed-output Tensor `gemv(...)` with rank-1 output/input and a rank-2 matrix.
 - `backends/blas/gemm.hpp`
   - `BlasBackend` and `try_kernel(BlasBackend, gemm_op, ...)`.
 - `backends/blas/gemv.hpp`
@@ -100,12 +100,11 @@ The first operation-tag dispatch slice adds:
 - `backends/cpu/gemv.hpp`
   - `CpuReferenceBackend` and the accessor-respecting fallback GEMV oracle.
 
-Future LAPACK operation wrappers should either live under this directory when
-they are shared BLAS/LAPACK adapter utilities, or under
-`src/uni20/linalg/backends/lapack/` when they are LAPACK-backend operation
-entry points. Keep the division between descriptor construction and operation
-wrappers. Tests should be able to exercise descriptor helpers without linking
-or running a LAPACK operation.
+LAPACK operation adapters live under `src/uni20/linalg/backends/lapack/`;
+currently this includes tridiagonal and nonsymmetric eigensystems, Schur and
+Hessenberg Schur decomposition, and Schur reordering. Shared provider-descriptor
+construction remains under `src/uni20/linalg/blas/`. Keep that division so
+descriptor helpers remain testable without running a LAPACK operation.
 
 ## Two Descriptor Levels
 
@@ -652,18 +651,18 @@ Completed checkpoint:
 14. Implement `gemv_op`, BLAS and CPU backend adapters, Tensor forwarding, and
     clean fallback for conjugating vector accessors.
 
-Recommended next slice:
+Completed LAPACK checkpoint:
 
-1. Extend vector/RHS descriptors with LAPACK-specific update roles where a
-   concrete routine needs them.
-2. Add checked scalar-generic conversion of LAPACK workspace-query results to
-   `blas_int`, including real, complex, and extension precision coverage.
-3. Define operation-specific aliasing and overwrite contracts before side
-   effects.
-4. Implement one LAPACK wrapper, likely self-adjoint eigensystem, over existing
-   `uni20::lapack::syev/heev`.
-5. Wrap the operation in `try_kernel(LapackBackend, op, ...)` and use it to
-   validate the vocabulary before adding further LAPACK families.
+1. Add checked scalar-generic conversion of LAPACK workspace-query results to
+   `blas_int`.
+2. Define strict direct column-major update-matrix contracts with clean
+   pre-mutation layout decline.
+3. Implement `sterf`/`steqr`, `geev`, `gees`, `hseqr`, and `trexc` adapters.
+4. Route the active Krylov projected operations through those adapters.
+
+The next wrapper should be driven by an active algorithm or example. It must
+define overwrite, aliasing, workspace, and any operand-materialization policy
+before its provider call is formed.
 
 This order keeps the generic dispatch path tested by the GEMM and GEMV leaf
 kernels while separating tensor default-backend policy from LAPACK workspace
@@ -720,7 +719,5 @@ LAPACK tests:
 
 - Should prepared wrappers live beside direct wrappers or in a separate
   `prepared_*.hpp` namespace/header?
-- Which existing Krylov dense helpers should migrate first after the mdspan
-  LAPACK wrapper exists?
-- Should the first GEMM wrapper use only the Fortran-style BLAS facade, or also
-  add a CBLAS-backed convenience path when available?
+- Should direct GEMM retain only the Fortran-style BLAS facade, or also add a
+  CBLAS-backed path when available?

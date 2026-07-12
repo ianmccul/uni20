@@ -422,8 +422,8 @@ Vector combine_exponential_basis(Ops& ops, Vector const& prototype, std::vector<
 
 template <typename Scalar> std::vector<Scalar> first_column_scaled(Matrix<Scalar> const& exponential, Scalar scale)
 {
-  std::vector<Scalar> coefficients(exponential.rows());
-  for (std::size_t row = 0; row < exponential.rows(); ++row)
+  std::vector<Scalar> coefficients(static_cast<std::size_t>(exponential.rows()));
+  for (uni20::index_type row = 0; row < exponential.rows(); ++row)
   {
     coefficients[row] = scale * exponential[row, 0];
   }
@@ -434,8 +434,8 @@ template <uni20::RealOrComplex Scalar>
 std::vector<Scalar> first_real_column_scaled(Matrix<uni20::make_real_t<Scalar>> const& exponential,
                                              uni20::make_real_t<Scalar> scale)
 {
-  std::vector<Scalar> coefficients(exponential.rows());
-  for (std::size_t row = 0; row < exponential.rows(); ++row)
+  std::vector<Scalar> coefficients(static_cast<std::size_t>(exponential.rows()));
+  for (uni20::index_type row = 0; row < exponential.rows(); ++row)
   {
     coefficients[row] = static_cast<Scalar>(scale * exponential[row, 0]);
   }
@@ -492,7 +492,7 @@ Real hermitian_projected_defect_integral_estimate(Matrix<Real> const& projected,
     return Real{};
   }
 
-  std::size_t const dimension = projected.rows();
+  std::size_t const dimension = static_cast<std::size_t>(projected.rows());
   std::vector<Real> diagonal(dimension);
   std::vector<Real> subdiagonal(dimension > 0 ? dimension - 1 : 0);
   for (std::size_t i = 0; i < dimension; ++i)
@@ -537,14 +537,16 @@ Matrix<OutputScalar> projected_exponential(Matrix<InputScalar> const& projected,
 {
   Matrix<OutputScalar> scaled(projected.rows(), projected.cols());
   OutputScalar const coefficient = static_cast<OutputScalar>(time);
-  for (std::size_t row = 0; row < projected.rows(); ++row)
+  for (uni20::index_type row = 0; row < projected.rows(); ++row)
   {
-    for (std::size_t col = 0; col < projected.cols(); ++col)
+    for (uni20::index_type col = 0; col < projected.cols(); ++col)
     {
       scaled[row, col] = coefficient * static_cast<OutputScalar>(projected[row, col]);
     }
   }
-  return matrix_exponential(scaled, uni20::make_real_t<OutputScalar>{1});
+  Matrix<OutputScalar> result(projected.rows(), projected.cols());
+  uni20::linalg::matrix_exponential(result, scaled, uni20::make_real_t<OutputScalar>{1});
+  return result;
 }
 
 template <uni20::RealOrComplex Scalar, typename Vector>

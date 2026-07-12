@@ -3,6 +3,10 @@
 This directory contains raw and checked LAPACK wrappers for configured CPU
 providers. It is the external-library boundary below dense linalg policy.
 
+`uni20_backend_lapack` owns LAPACK discovery and transitive provider linkage.
+It remains available when Uni20's BLAS operation backend is disabled; a
+conventional LAPACK provider may still link a BLAS implementation internally.
+
 ## Contents
 
 - `lapack.hpp`: checked wrappers that translate LAPACK `INFO` values into

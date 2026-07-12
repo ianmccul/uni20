@@ -93,7 +93,7 @@ template <typename T> [[nodiscard]] std::string fmt_real(T value, scalar_format_
   int const fixed_count = ::strfromf128(fixed_buffer, sizeof(fixed_buffer), format.c_str(), value);
   if (fixed_count < 0)
   {
-    throw std::runtime_error("failed to format _Float128 value");
+    throw std::runtime_error("failed to format uni20::float128 value");
   }
   if (static_cast<std::size_t>(fixed_count) < sizeof(fixed_buffer))
   {
@@ -104,7 +104,7 @@ template <typename T> [[nodiscard]] std::string fmt_real(T value, scalar_format_
   int const dynamic_count = ::strfromf128(dynamic_buffer.data(), dynamic_buffer.size(), format.c_str(), value);
   if (dynamic_count < 0)
   {
-    throw std::runtime_error("failed to format _Float128 value");
+    throw std::runtime_error("failed to format uni20::float128 value");
   }
   dynamic_buffer.resize(static_cast<std::size_t>(dynamic_count));
   return dynamic_buffer;
@@ -119,7 +119,7 @@ template <typename T> [[nodiscard]] std::string fmt_real(T value, scalar_format_
   char* end = nullptr;
   errno = 0;
 #if defined(MPLAPACK_BINARY128_MODE) && (MPLAPACK_BINARY128_MODE == MPLAPACK_BINARY128_MODE_FLOAT128)
-  _Float128 const parsed = ::strtof128(buffer.c_str(), &end);
+  uni20::float128 const parsed = ::strtof128(buffer.c_str(), &end);
 #else
   long double const parsed = std::strtold(buffer.c_str(), &end);
 #endif
@@ -276,7 +276,7 @@ template <Real T> [[nodiscard]] T parse_real(std::string_view text)
 
 /// \brief Read a Uni20 real scalar from a stream token.
 /// \details This helper exists because extension real aliases such as
-///          `_Float128` cannot portably receive ordinary overloaded stream
+///          `uni20::float128` cannot portably receive ordinary overloaded stream
 ///          extraction operators.
 /// \tparam T Real scalar type.
 /// \param stream Input stream.

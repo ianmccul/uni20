@@ -701,7 +701,8 @@ template <typename Scalar, typename ReferenceScalar>
     }
   }
 
-  auto const exponential = uni20::krylov::matrix_exponential(projected, time);
+  uni20::krylov::Matrix<Scalar> exponential(projected_size, projected_size);
+  uni20::linalg::matrix_exponential(exponential, projected, time);
   DenseHostVector<Scalar> action{{std::vector<Scalar>(initial.values.size(), Scalar{})}};
   std::vector<Scalar> coefficients(projected_size);
   for (std::size_t row = 0; row < projected_size; ++row)

@@ -1,6 +1,7 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/tensor/basic_tensor.hpp>
 #include <uni20/tensor/layout.hpp>
+#include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>
 
@@ -68,6 +69,34 @@ TEST(BasicTensorTest, DefaultMappingUsesVectorStorage)
   EXPECT_EQ((tensor[1, 2]), expected.back());
   EXPECT_EQ(tensor.mapping().stride(0), 3);
   EXPECT_EQ(tensor.mapping().stride(1), 1);
+}
+
+TEST(BasicTensorTest, DynamicExtentsConstructorAcceptsOneExtentPerAxis)
+{
+  tensor_type tensor(2, 3);
+
+  EXPECT_EQ(tensor.rows(), 2);
+  EXPECT_EQ(tensor.cols(), 3);
+  EXPECT_EQ(tensor.size(), 6);
+}
+
+TEST(BasicTensorTest, DenseMatrixDefaultsToColumnMajor)
+{
+  DenseMatrix<int> matrix(2, 3);
+
+  static_assert(std::same_as<typename DenseMatrix<int>::layout_type, ColumnMajor>);
+  EXPECT_EQ(matrix.rows(), 2);
+  EXPECT_EQ(matrix.cols(), 3);
+  EXPECT_EQ(matrix.mapping().stride(0), 1);
+  EXPECT_EQ(matrix.mapping().stride(1), 2);
+}
+
+TEST(BasicTensorTest, DenseMatrixSupportsRowMajorOwnership)
+{
+  DenseMatrix<int, RowMajor> matrix(2, 3);
+
+  EXPECT_EQ(matrix.mapping().stride(0), 3);
+  EXPECT_EQ(matrix.mapping().stride(1), 1);
 }
 
 TEST(BasicTensorTest, CustomStridesAllocateFullSpan)

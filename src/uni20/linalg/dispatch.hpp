@@ -8,6 +8,7 @@
 
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/backend_selector.hpp>
+#include <uni20/linalg/dispatch_diagnostics.hpp>
 #include <uni20/linalg/dispatch_error.hpp>
 #include <uni20/linalg/dispatch_error_presentation.hpp>
 
@@ -137,10 +138,10 @@ concept NamedKernelDispatchEntity = requires {
   { std::remove_cvref_t<Entity>::name } -> std::convertible_to<std::string_view>;
 };
 
-template <KernelDispatchFailure Failure, class... Backends, class Op, class... Args>
-KernelDispatchError make_kernel_dispatch_error(backend_list<Backends...> const&,
-                                               std::span<std::optional<KernelAttempt> const> runtime_results, Op const&,
-                                               Args&&...)
+template <class... Backends, class Op, class... Args>
+std::vector<KernelBackendAttempt>
+make_kernel_backend_attempts(backend_list<Backends...> const&,
+                             std::span<std::optional<KernelAttempt> const> runtime_results, Op const&, Args&&...)
 {
   static_assert(NamedKernelDispatchEntity<Op>, "kernel operation tags must define a static name");
   static_assert((NamedKernelDispatchEntity<Backends> && ...), "kernel backends must define a static name");
@@ -159,8 +160,28 @@ KernelDispatchError make_kernel_dispatch_error(backend_list<Backends...> const&,
     ++index;
   };
   (append_attempt.template operator()<Backends>(), ...);
+  return attempts;
+}
 
-  return KernelDispatchError(std::string(std::remove_cvref_t<Op>::name), Failure, std::move(attempts));
+template <class... Backends, class Op, class... Args>
+dispatch_diagnostics::event
+make_kernel_dispatch_diagnostic(backend_list<Backends...> const& backends,
+                                std::span<std::optional<KernelAttempt> const> runtime_results, Op const& op,
+                                Args&&... args)
+{
+  return dispatch_diagnostics::event{
+      .operation = std::string(std::remove_cvref_t<Op>::name),
+      .backend_attempts = make_kernel_backend_attempts(backends, runtime_results, op, args...),
+  };
+}
+
+template <KernelDispatchFailure Failure, class... Backends, class Op, class... Args>
+KernelDispatchError make_kernel_dispatch_error(backend_list<Backends...> const& backends,
+                                               std::span<std::optional<KernelAttempt> const> runtime_results,
+                                               Op const& op, Args&&... args)
+{
+  auto diagnostic = make_kernel_dispatch_diagnostic(backends, runtime_results, op, args...);
+  return KernelDispatchError(std::move(diagnostic.operation), Failure, std::move(diagnostic.backend_attempts));
 }
 
 template <std::size_t Index, class... Backends, class Op, class RecordAttempt, class... Args>
@@ -200,13 +221,32 @@ bool try_dispatch_kernel_at(backend_list<Backends...> const& backends, Op const&
 template <class... Backends, class Op, class... Args>
 void dispatch_backend_list(backend_list<Backends...> const& backends, Op const& op, Args&&... args)
 {
+  bool const diagnostics_enabled = dispatch_diagnostics::enabled();
   std::array<std::optional<KernelAttempt>, sizeof...(Backends)> runtime_results{};
   auto record_attempt = [&](std::size_t index, KernelAttempt attempt) { runtime_results[index] = attempt; };
-  if (!try_dispatch_kernel_at<0>(backends, op, record_attempt, args...))
+  bool const succeeded = try_dispatch_kernel_at<0>(backends, op, record_attempt, args...);
+  auto const results = std::span<std::optional<KernelAttempt> const>(runtime_results);
+
+  if (succeeded)
   {
-    trace::raise(make_kernel_dispatch_error<KernelDispatchFailure::all_candidates_declined>(
-        backends, std::span<std::optional<KernelAttempt> const>(runtime_results), op, args...));
+    if (diagnostics_enabled)
+    {
+      auto diagnostic = make_kernel_dispatch_diagnostic(backends, results, op, args...);
+      dispatch_diagnostics::detail::emit(diagnostic);
+    }
+    return;
   }
+
+  if (diagnostics_enabled)
+  {
+    auto diagnostic = make_kernel_dispatch_diagnostic(backends, results, op, args...);
+    dispatch_diagnostics::detail::emit(diagnostic);
+    trace::raise(KernelDispatchError(std::move(diagnostic.operation), KernelDispatchFailure::all_candidates_declined,
+                                     std::move(diagnostic.backend_attempts)));
+  }
+
+  trace::raise(
+      make_kernel_dispatch_error<KernelDispatchFailure::all_candidates_declined>(backends, results, op, args...));
 }
 } // namespace detail
 
@@ -219,6 +259,18 @@ template <class BackendSelector, class Op, class... Args>
 bool try_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
 {
   auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
+  if (dispatch_diagnostics::enabled())
+  {
+    constexpr auto backend_count = std::tuple_size_v<decltype(backends.entries)>;
+    std::array<std::optional<KernelAttempt>, backend_count> runtime_results{};
+    auto record_attempt = [&](std::size_t index, KernelAttempt attempt) { runtime_results[index] = attempt; };
+    bool const succeeded = detail::try_dispatch_kernel_at<0>(backends, op, record_attempt, args...);
+    auto diagnostic = detail::make_kernel_dispatch_diagnostic(
+        backends, std::span<std::optional<KernelAttempt> const>(runtime_results), op, args...);
+    dispatch_diagnostics::detail::emit(diagnostic);
+    return succeeded;
+  }
+
   auto ignore_attempt = [](std::size_t, KernelAttempt) {};
   return detail::try_dispatch_kernel_at<0>(backends, op, ignore_attempt, args...);
 }
@@ -244,6 +296,14 @@ void dynamic_dispatch_kernel(BackendSelector&& selector, Op op, Args&&... args)
   auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
   if constexpr (!detail::KernelDispatchTypesAccepted<backends_type, Op, Args...>)
   {
+    if (dispatch_diagnostics::enabled())
+    {
+      auto diagnostic = detail::make_kernel_dispatch_diagnostic(
+          backends, std::span<std::optional<KernelAttempt> const>{}, op, args...);
+      dispatch_diagnostics::detail::emit(diagnostic);
+      trace::raise(KernelDispatchError(std::move(diagnostic.operation), KernelDispatchFailure::no_eligible_backend,
+                                       std::move(diagnostic.backend_attempts)));
+    }
     trace::raise(detail::make_kernel_dispatch_error<KernelDispatchFailure::no_eligible_backend>(
         backends, std::span<std::optional<KernelAttempt> const>{}, op, args...));
   }

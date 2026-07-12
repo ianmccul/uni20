@@ -483,6 +483,7 @@ Global:
 
 - `UNI20_FP_PRECISION_FLOAT32`
 - `UNI20_FP_PRECISION_FLOAT64`
+- `UNI20_FP_PRECISION_FLOAT128`
 
 These control the number of digits after the decimal point for trace real values. Complex values use the same precision for real and imaginary components, and tensor/mdspan trace output applies the same scalar precision inside the presentation tensor-art renderer.
 
@@ -490,6 +491,7 @@ Module-specific:
 
 - `UNI20_FP_PRECISION_FLOAT32_MODULE_<MODULE>`
 - `UNI20_FP_PRECISION_FLOAT64_MODULE_<MODULE>`
+- `UNI20_FP_PRECISION_FLOAT128_MODULE_<MODULE>`
 
 ## Programmatic API
 

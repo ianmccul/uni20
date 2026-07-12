@@ -58,6 +58,9 @@ struct FormattingOptions
     /// Floating-point precision for formatting float64 values.
     int fp_precision_float64 = 15;
 
+    /// Floating-point precision for formatting configured float128 values.
+    int fp_precision_float128 = 36;
+
     //--- Output layout ---------------------------------------------------------
 
     /// Maximum width (in characters) before switching to multi-line.
@@ -223,6 +226,7 @@ struct FormattingOptions
       // Precision
       fp_precision_float32 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT32", 6);
       fp_precision_float64 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT64", 15);
+      fp_precision_float128 = terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT128", 36);
 
       // Global flags
       timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP", true);
@@ -290,6 +294,8 @@ struct FormattingOptions
           terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT32_MODULE_" + mod, fp_precision_float32);
       fp_precision_float64 =
           terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT64_MODULE_" + mod, fp_precision_float64);
+      fp_precision_float128 =
+          terminal::getenv_or_default<int>("UNI20_FP_PRECISION_FLOAT128_MODULE_" + mod, fp_precision_float128);
 
       // flags overrides
       timestamp = terminal::getenv_or_default<terminal::toggle>("UNI20_TRACE_TIMESTAMP_MODULE_" + mod, timestamp);
@@ -365,6 +371,7 @@ struct FormattingOptions
       auto policy = mdspanFormatPolicy.numeric;
       policy.float32_precision = fp_precision_float32;
       policy.float64_precision = fp_precision_float64;
+      policy.float128_precision = fp_precision_float128;
       policy.notation = uni20::presentation::real_notation::fixed;
       return policy;
     }
@@ -556,60 +563,43 @@ concept Container = std::ranges::forward_range<T> && (!HasFmtFormatter<T>);
 // formatValue: Converts a value to a string using fmt::format.
 // The generic version works for most types.
 
-/// \brief Format a non-container, non-floating-point type with an fmt::formatter specialization.
-/// \tparam T             Any type that has an fmt::formatter and is not a floating-point or container.
-/// \param value         The value to format.
-/// \param opts          Formatting options (currently unused for this overload).
-/// \returns             The string produced by `fmt::format("{}", value)`.
+/// \brief Format a non-container, non-Uni20-scalar type with an fmt formatter.
+/// \tparam T Type with an `fmt::formatter` specialization.
+/// \param value Value to format.
+/// \param opts Formatting options (unused by this overload).
+/// \return The string produced by `fmt::format("{}", value)`.
 template <typename T>
 std::string formatValue(const T& value, FormattingOptions const& opts)
-  requires(!Container<T> && HasFmtFormatter<T> && !std::floating_point<T>)
+  requires(!Container<T> && HasFmtFormatter<T> && !uni20::RealOrComplex<T>)
 {
   return fmt::format("{}", value);
 }
 
 template <typename T>
 std::string formatValue(const T& value, FormattingOptions const& /*opts*/)
-  requires(!Container<T> && !HasFmtFormatter<T> && HasStdFormatter<T> && !std::floating_point<T>)
+  requires(!Container<T> && !HasFmtFormatter<T> && HasStdFormatter<T> && !uni20::RealOrComplex<T>)
 {
   return std::format("{}", value);
 }
 
-/// \brief Format a 32-bit float using user-configured precision.
-/// \param value         The float to format.
-/// \param opts          Controls the precision via `opts.fp_precision_float32`.
-/// \returns             A string like `"3.14"` (precision configurable).
-inline std::string formatValue(float value, FormattingOptions const& opts)
+/// \brief Format any Uni20 real scalar using its configured trace precision.
+/// \tparam T Uni20 real scalar type, including configured extension types.
+/// \param value Real value to format.
+/// \param opts Trace numeric formatting options.
+/// \return Formatted real value.
+template <uni20::Real T> inline std::string formatValue(T value, FormattingOptions const& opts)
 {
-  // use the user-configurable float32 precision
   return uni20::presentation::format_real(value, opts.numeric_format_policy());
 }
 
-/// \brief Format a 64-bit float using user-configured precision.
-/// \param value         The double to format.
-/// \param opts          Controls the precision via `opts.fp_precision_float64`.
-/// \returns             A string like `"2.71828"` (precision configurable).
-inline std::string formatValue(double value, const FormattingOptions& opts)
-{
-  // use the user-configurable float64 precision
-  return uni20::presentation::format_real(value, opts.numeric_format_policy());
-}
-
-/// \brief Format a complex<float> as "a+bi" using the float32 precision.
-/// \param value the complex value
-/// \param opts   formatting options (controls precision)
-/// \returns a string like "1.23+4.56i"
-inline std::string formatValue(uni20::complex<float> const& value, FormattingOptions const& opts)
-{
-  // {:+.{}f} prints a leading +/-, "{:.{}f}" uses dynamic precision
-  return uni20::presentation::format_complex(value, opts.numeric_format_policy());
-}
-
-/// \brief Format a complex<double> as "a+bi" using the float64 precision.
-/// \param value the complex value
-/// \param opts   formatting options (controls precision)
-/// \returns a string like "1.234567+8.765432i"
-inline std::string formatValue(uni20::complex<double> const& value, FormattingOptions const& opts)
+/// \brief Format any Uni20 complex scalar using its real type's trace precision.
+/// \tparam T Uni20 complex scalar type.
+/// \param value Complex value to format.
+/// \param opts Trace numeric formatting options.
+/// \return Formatted complex value.
+template <uni20::Complex T>
+  requires uni20::Real<uni20::make_real_t<T>>
+inline std::string formatValue(T const& value, FormattingOptions const& opts)
 {
   return uni20::presentation::format_complex(value, opts.numeric_format_policy());
 }

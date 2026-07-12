@@ -266,10 +266,9 @@ std::vector<Scalar> symmetric_tridiagonal_eigenvalues(std::vector<Scalar> diagon
     return diagonal;
   }
 
-  blas_int const order = detail::checked_blas_int(n);
-  Scalar dummy{};
-  Scalar* e = subdiagonal.empty() ? &dummy : subdiagonal.data();
-  uni20::lapack::sterf(order, diagonal.data(), e);
+  Matrix<Scalar> no_eigenvectors(0, 0);
+  uni20::linalg::symmetric_tridiagonal_eigen(std::span<Scalar>(diagonal), std::span<Scalar>(subdiagonal),
+                                             no_eigenvectors, false);
   return diagonal;
 }
 
@@ -310,13 +309,9 @@ TridiagonalEigensystem<Scalar> symmetric_tridiagonal_eigensystem(std::vector<Sca
     return result;
   }
 
-  blas_int const order = detail::checked_blas_int(n);
   Matrix<Scalar> z(n, n);
-  blas_int const ldz = order;
-  std::vector<Scalar> work(n > 1 ? 2 * n - 2 : 1, Scalar{});
-  char const compz = 'I';
-
-  uni20::lapack::steqr(compz, order, result.eigenvalues.data(), subdiagonal.data(), z.data(), ldz, work.data());
+  uni20::linalg::symmetric_tridiagonal_eigen(std::span<Scalar>(result.eigenvalues), std::span<Scalar>(subdiagonal), z,
+                                             true);
 
   result.eigenvectors = std::move(z);
   return result;
@@ -343,7 +338,7 @@ RightRealSchurDecomposition<Scalar> real_schur_layout_right(RightMatrix<Scalar> 
     throw std::invalid_argument("real_schur_layout_right requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RightRealSchurDecomposition<Scalar> result;
   result.eigenvalues.resize(n);
   if (n == 0)
@@ -354,30 +349,10 @@ RightRealSchurDecomposition<Scalar> real_schur_layout_right(RightMatrix<Scalar> 
   }
 
   Matrix<Scalar> lapack_matrix = copy_right_to_left(matrix);
-  Matrix<Scalar> schur_vectors_left(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  std::vector<Scalar> wr(n, Scalar{});
-  std::vector<Scalar> wi(n, Scalar{});
-  std::vector<blas_int> bwork(std::max<std::size_t>(1, n), 0);
-  blas_int const order = detail::checked_blas_int(n);
-  blas_int const ldvs = compute_vectors ? order : 1;
-  blas_int selected_dimension = 0;
-  char const jobvs = compute_vectors ? 'V' : 'N';
-  char const sort = 'N';
+  Matrix<Scalar> schur_vectors_left(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  uni20::linalg::schur(lapack_matrix, std::span<uni20::complex<Scalar>>(result.eigenvalues), schur_vectors_left,
+                       compute_vectors);
 
-  Scalar work_query{};
-  blas_int const query_lwork = -1;
-  uni20::lapack::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, wr.data(), wi.data(),
-                      schur_vectors_left.data(), ldvs, &work_query, query_lwork, bwork.data());
-
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
-  std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  uni20::lapack::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, wr.data(), wi.data(),
-                      schur_vectors_left.data(), ldvs, work.data(), lwork, bwork.data());
-
-  for (std::size_t i = 0; i < n; ++i)
-  {
-    result.eigenvalues[i] = uni20::complex<Scalar>{wr[i], wi[i]};
-  }
   result.blocks = detail::real_schur_blocks(result.eigenvalues);
   result.schur_form = copy_left_to_right(lapack_matrix);
   result.schur_vectors = compute_vectors ? copy_left_to_right(schur_vectors_left) : RightMatrix<Scalar>(0, 0);
@@ -392,13 +367,22 @@ RightRealSchurDecomposition<Scalar> real_schur_layout_right(RightMatrix<Scalar> 
 template <uni20::LapackReal Scalar>
 RealSchurDecomposition<Scalar> real_schur(Matrix<Scalar> matrix, bool compute_vectors)
 {
-  auto right_result = real_schur_layout_right(copy_left_to_right(matrix), compute_vectors);
-
   RealSchurDecomposition<Scalar> result;
-  result.schur_form = copy_right_to_left(right_result.schur_form);
-  result.schur_vectors = copy_right_to_left(right_result.schur_vectors);
-  result.eigenvalues = std::move(right_result.eigenvalues);
-  result.blocks = std::move(right_result.blocks);
+  if (matrix.rows() != matrix.cols())
+  {
+    throw std::invalid_argument("real_schur requires a square matrix");
+  }
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
+
+  result.schur_form = std::move(matrix);
+  result.schur_vectors = Matrix<Scalar>(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  result.eigenvalues.resize(n);
+  if (n != 0)
+  {
+    uni20::linalg::schur(result.schur_form, std::span<uni20::complex<Scalar>>(result.eigenvalues), result.schur_vectors,
+                         compute_vectors);
+    result.blocks = detail::real_schur_blocks(result.eigenvalues);
+  }
   return result;
 }
 
@@ -418,7 +402,7 @@ RealSchurDecomposition<Scalar> real_hessenberg_schur(Matrix<Scalar> hessenberg, 
     throw std::invalid_argument("real_hessenberg_schur requires a square matrix");
   }
 
-  std::size_t const n = hessenberg.rows();
+  std::size_t const n = static_cast<std::size_t>(hessenberg.rows());
   RealSchurDecomposition<Scalar> result;
   result.eigenvalues.resize(n);
   if (n == 0)
@@ -428,38 +412,9 @@ RealSchurDecomposition<Scalar> real_hessenberg_schur(Matrix<Scalar> hessenberg, 
     return result;
   }
 
-  blas_int const order = detail::checked_blas_int(n);
-  Matrix<Scalar> schur_vectors(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  if (compute_vectors)
-  {
-    for (std::size_t diagonal = 0; diagonal < n; ++diagonal)
-    {
-      schur_vectors[diagonal, diagonal] = Scalar{1};
-    }
-  }
-
-  std::vector<Scalar> wr(n, Scalar{});
-  std::vector<Scalar> wi(n, Scalar{});
-  blas_int const first = 1;
-  blas_int const last = order;
-  blas_int const ldz = compute_vectors ? order : 1;
-  char const job = 'S';
-  char const compz = compute_vectors ? 'I' : 'N';
-
-  Scalar work_query{};
-  blas_int const query_lwork = -1;
-  uni20::lapack::hseqr(job, compz, order, first, last, hessenberg.data(), order, wr.data(), wi.data(),
-                       schur_vectors.data(), ldz, &work_query, query_lwork);
-
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
-  std::vector<Scalar> work(static_cast<std::size_t>(lwork), Scalar{});
-  uni20::lapack::hseqr(job, compz, order, first, last, hessenberg.data(), order, wr.data(), wi.data(),
-                       schur_vectors.data(), ldz, work.data(), lwork);
-
-  for (std::size_t i = 0; i < n; ++i)
-  {
-    result.eigenvalues[i] = uni20::complex<Scalar>{wr[i], wi[i]};
-  }
+  Matrix<Scalar> schur_vectors(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  uni20::linalg::hessenberg_schur(hessenberg, std::span<uni20::complex<Scalar>>(result.eigenvalues), schur_vectors,
+                                  compute_vectors);
   result.blocks = detail::real_schur_blocks(result.eigenvalues);
   result.schur_form = std::move(hessenberg);
   result.schur_vectors = compute_vectors ? std::move(schur_vectors) : Matrix<Scalar>(0, 0);
@@ -487,7 +442,7 @@ RightComplexSchurDecomposition<Real> complex_schur_layout_right(RightMatrix<uni2
 
   using Complex = uni20::complex<Real>;
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RightComplexSchurDecomposition<Real> result;
   result.eigenvalues.resize(n);
   if (n == 0)
@@ -498,24 +453,8 @@ RightComplexSchurDecomposition<Real> complex_schur_layout_right(RightMatrix<uni2
   }
 
   Matrix<Complex> lapack_matrix = copy_right_to_left(matrix);
-  Matrix<Complex> schur_vectors_left(compute_vectors ? n : 1, compute_vectors ? n : 1);
-  std::vector<Real> rwork(std::max<std::size_t>(1, n), Real{});
-  std::vector<blas_int> bwork(std::max<std::size_t>(1, n), 0);
-  blas_int const order = detail::checked_blas_int(n);
-  blas_int const ldvs = compute_vectors ? order : 1;
-  blas_int selected_dimension = 0;
-  char const jobvs = compute_vectors ? 'V' : 'N';
-  char const sort = 'N';
-
-  Complex work_query{};
-  blas_int const query_lwork = -1;
-  uni20::lapack::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, result.eigenvalues.data(),
-                      schur_vectors_left.data(), ldvs, &work_query, query_lwork, rwork.data(), bwork.data());
-
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
-  std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
-  uni20::lapack::gees(jobvs, sort, order, lapack_matrix.data(), order, selected_dimension, result.eigenvalues.data(),
-                      schur_vectors_left.data(), ldvs, work.data(), lwork, rwork.data(), bwork.data());
+  Matrix<Complex> schur_vectors_left(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  uni20::linalg::schur(lapack_matrix, std::span<Complex>(result.eigenvalues), schur_vectors_left, compute_vectors);
 
   result.schur_form = copy_left_to_right(lapack_matrix);
   result.schur_vectors = compute_vectors ? copy_left_to_right(schur_vectors_left) : RightMatrix<Complex>(0, 0);
@@ -530,12 +469,22 @@ RightComplexSchurDecomposition<Real> complex_schur_layout_right(RightMatrix<uni2
 template <uni20::LapackReal Real>
 ComplexSchurDecomposition<Real> complex_schur(Matrix<uni20::complex<Real>> matrix, bool compute_vectors)
 {
-  auto right_result = complex_schur_layout_right(copy_left_to_right(matrix), compute_vectors);
-
+  using Complex = uni20::complex<Real>;
   ComplexSchurDecomposition<Real> result;
-  result.schur_form = copy_right_to_left(right_result.schur_form);
-  result.schur_vectors = copy_right_to_left(right_result.schur_vectors);
-  result.eigenvalues = std::move(right_result.eigenvalues);
+  if (matrix.rows() != matrix.cols())
+  {
+    throw std::invalid_argument("complex_schur requires a square matrix");
+  }
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
+
+  result.schur_form = std::move(matrix);
+  result.schur_vectors = Matrix<Complex>(compute_vectors ? n : 0, compute_vectors ? n : 0);
+  result.eigenvalues.resize(n);
+  if (n != 0)
+  {
+    uni20::linalg::schur(result.schur_form, std::span<Complex>(result.eigenvalues), result.schur_vectors,
+                         compute_vectors);
+  }
   return result;
 }
 
@@ -560,17 +509,18 @@ RightRealSchurDecomposition<Scalar> reorder_real_schur_layout_right(RightRealSch
     throw std::invalid_argument("reorder_real_schur_layout_right requires a square Schur form");
   }
 
-  std::size_t const n = decomposition.schur_form.rows();
+  auto const order = decomposition.schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(order);
   if (n == 0 || leading_block_order.empty())
   {
     return decomposition;
   }
-  if (decomposition.schur_form.cols() != n)
+  if (decomposition.schur_form.cols() != order)
   {
     throw std::invalid_argument("reorder_real_schur_layout_right received an inconsistent Schur form");
   }
   bool const update_vectors = decomposition.schur_vectors.rows() != 0 || decomposition.schur_vectors.cols() != 0;
-  if (update_vectors && (decomposition.schur_vectors.rows() != n || decomposition.schur_vectors.cols() != n))
+  if (update_vectors && (decomposition.schur_vectors.rows() != order || decomposition.schur_vectors.cols() != order))
   {
     throw std::invalid_argument("reorder_real_schur_layout_right received inconsistent Schur vectors");
   }
@@ -583,11 +533,7 @@ RightRealSchurDecomposition<Scalar> reorder_real_schur_layout_right(RightRealSch
 
   Matrix<Scalar> schur_form = copy_right_to_left(decomposition.schur_form);
   Matrix<Scalar> schur_vectors =
-      update_vectors ? copy_right_to_left(decomposition.schur_vectors) : Matrix<Scalar>(1, 1);
-  blas_int const order = detail::checked_blas_int(n);
-  blas_int const ldq = update_vectors ? order : 1;
-  char const compq = update_vectors ? 'V' : 'N';
-  std::vector<Scalar> work(n, Scalar{});
+      update_vectors ? copy_right_to_left(decomposition.schur_vectors) : Matrix<Scalar>(0, 0);
 
   for (std::size_t target_position = 0; target_position < leading_block_order.size(); ++target_position)
   {
@@ -603,9 +549,8 @@ RightRealSchurDecomposition<Scalar> reorder_real_schur_layout_right(RightRealSch
       continue;
     }
 
-    blas_int first = detail::checked_blas_int(current_blocks[current_position].begin + 1);
-    blas_int last = detail::checked_blas_int(current_blocks[target_position].begin + 1);
-    uni20::lapack::trexc(compq, order, schur_form.data(), order, schur_vectors.data(), ldq, first, last, work.data());
+    uni20::linalg::reorder_schur(schur_form, schur_vectors, current_blocks[current_position].begin,
+                                 current_blocks[target_position].begin, update_vectors);
 
     std::size_t const moved_index = current_order[current_position];
     current_order.erase(current_order.begin() + static_cast<std::ptrdiff_t>(current_position));
@@ -665,17 +610,18 @@ reorder_complex_schur_layout_right(RightComplexSchurDecomposition<Real> decompos
 
   using Complex = uni20::complex<Real>;
 
-  std::size_t const n = decomposition.schur_form.rows();
+  auto const order = decomposition.schur_form.rows();
+  std::size_t const n = static_cast<std::size_t>(order);
   if (n == 0 || leading_order.empty())
   {
     return decomposition;
   }
-  if (decomposition.schur_form.cols() != n || decomposition.eigenvalues.size() != n)
+  if (decomposition.schur_form.cols() != order || decomposition.eigenvalues.size() != n)
   {
     throw std::invalid_argument("reorder_complex_schur_layout_right received inconsistent Schur data");
   }
   bool const update_vectors = decomposition.schur_vectors.rows() != 0 || decomposition.schur_vectors.cols() != 0;
-  if (update_vectors && (decomposition.schur_vectors.rows() != n || decomposition.schur_vectors.cols() != n))
+  if (update_vectors && (decomposition.schur_vectors.rows() != order || decomposition.schur_vectors.cols() != order))
   {
     throw std::invalid_argument("reorder_complex_schur_layout_right received inconsistent Schur vectors");
   }
@@ -686,10 +632,7 @@ reorder_complex_schur_layout_right(RightComplexSchurDecomposition<Real> decompos
 
   Matrix<Complex> schur_form = copy_right_to_left(decomposition.schur_form);
   Matrix<Complex> schur_vectors =
-      update_vectors ? copy_right_to_left(decomposition.schur_vectors) : Matrix<Complex>(1, 1);
-  blas_int const order = detail::checked_blas_int(n);
-  blas_int const ldq = update_vectors ? order : 1;
-  char const compq = update_vectors ? 'V' : 'N';
+      update_vectors ? copy_right_to_left(decomposition.schur_vectors) : Matrix<Complex>(0, 0);
 
   for (std::size_t target_position = 0; target_position < leading_order.size(); ++target_position)
   {
@@ -705,9 +648,7 @@ reorder_complex_schur_layout_right(RightComplexSchurDecomposition<Real> decompos
       continue;
     }
 
-    blas_int first = detail::checked_blas_int(current_position + 1);
-    blas_int last = detail::checked_blas_int(target_position + 1);
-    uni20::lapack::trexc(compq, order, schur_form.data(), order, schur_vectors.data(), ldq, first, last);
+    uni20::linalg::reorder_schur(schur_form, schur_vectors, current_position, target_position, update_vectors);
 
     std::size_t const moved_index = current_order[current_position];
     current_order.erase(current_order.begin() + static_cast<std::ptrdiff_t>(current_position));
@@ -758,7 +699,7 @@ RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> mat
     throw std::invalid_argument("real_nonsymmetric_eigensystem requires a square matrix");
   }
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   RealNonsymmetricEigensystem<Real> result;
   result.eigenvalues.resize(n);
   result.right_eigenvectors =
@@ -768,60 +709,8 @@ RealNonsymmetricEigensystem<Real> real_nonsymmetric_eigensystem(Matrix<Real> mat
     return result;
   }
 
-  blas_int const order = detail::checked_blas_int(n);
-  std::vector<Real> wr(n, Real{});
-  std::vector<Real> wi(n, Real{});
-  std::vector<Real> vl(1, Real{});
-  Matrix<Real> vr(compute_right_vectors ? n : 1, compute_right_vectors ? n : 1);
-  blas_int const ldvl = 1;
-  blas_int const ldvr = compute_right_vectors ? order : 1;
-  char const jobvl = 'N';
-  char const jobvr = compute_right_vectors ? 'V' : 'N';
-
-  Real work_query = Real{};
-  blas_int const query_lwork = -1;
-  uni20::lapack::geev(jobvl, jobvr, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl, vr.data(), ldvr,
-                      &work_query, query_lwork);
-
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(work_query));
-  std::vector<Real> work(static_cast<std::size_t>(lwork), Real{});
-  uni20::lapack::geev(jobvl, jobvr, order, matrix.data(), order, wr.data(), wi.data(), vl.data(), ldvl, vr.data(), ldvr,
-                      work.data(), lwork);
-
-  for (std::size_t i = 0; i < n; ++i)
-  {
-    result.eigenvalues[i] = uni20::complex<Real>{wr[i], wi[i]};
-  }
-
-  if (!compute_right_vectors)
-  {
-    return result;
-  }
-
-  for (std::size_t col = 0; col < n; ++col)
-  {
-    if (wi[col] == Real{})
-    {
-      for (std::size_t row = 0; row < n; ++row)
-      {
-        result.right_eigenvectors[row, col] = uni20::complex<Real>{vr[row, col], Real{}};
-      }
-    }
-    else if (wi[col] > Real{})
-    {
-      if (col + 1 >= n)
-      {
-        throw std::runtime_error("LAPACK geev returned an incomplete complex conjugate eigenvector pair");
-      }
-      for (std::size_t row = 0; row < n; ++row)
-      {
-        uni20::complex<Real> const vector_value{vr[row, col], vr[row, col + 1]};
-        result.right_eigenvectors[row, col] = vector_value;
-        result.right_eigenvectors[row, col + 1] = std::conj(vector_value);
-      }
-      ++col;
-    }
-  }
+  uni20::linalg::nonsymmetric_eigen(matrix, std::span<uni20::complex<Real>>(result.eigenvalues),
+                                    result.right_eigenvectors, compute_right_vectors);
 
   return result;
 }
@@ -854,7 +743,7 @@ ComplexNonsymmetricEigensystem<Real> complex_nonsymmetric_eigensystem(Matrix<uni
 
   using Complex = uni20::complex<Real>;
 
-  std::size_t const n = matrix.rows();
+  std::size_t const n = static_cast<std::size_t>(matrix.rows());
   ComplexNonsymmetricEigensystem<Real> result;
   result.eigenvalues.resize(n);
   result.right_eigenvectors = Matrix<Complex>(compute_right_vectors ? n : 0, compute_right_vectors ? n : 0);
@@ -863,29 +752,8 @@ ComplexNonsymmetricEigensystem<Real> complex_nonsymmetric_eigensystem(Matrix<uni
     return result;
   }
 
-  blas_int const order = detail::checked_blas_int(n);
-  std::vector<Complex> vl(1, Complex{});
-  Matrix<Complex> vr(compute_right_vectors ? n : 1, compute_right_vectors ? n : 1);
-  std::vector<Real> rwork(std::max<std::size_t>(1, 2 * n), Real{});
-  blas_int const ldvl = 1;
-  blas_int const ldvr = compute_right_vectors ? order : 1;
-  char const jobvl = 'N';
-  char const jobvr = compute_right_vectors ? 'V' : 'N';
-
-  Complex work_query{};
-  blas_int const query_lwork = -1;
-  uni20::lapack::geev(jobvl, jobvr, order, matrix.data(), order, result.eigenvalues.data(), vl.data(), ldvl, vr.data(),
-                      ldvr, &work_query, query_lwork, rwork.data());
-
-  blas_int const lwork = std::max<blas_int>(1, static_cast<blas_int>(std::real(work_query)));
-  std::vector<Complex> work(static_cast<std::size_t>(lwork), Complex{});
-  uni20::lapack::geev(jobvl, jobvr, order, matrix.data(), order, result.eigenvalues.data(), vl.data(), ldvl, vr.data(),
-                      ldvr, work.data(), lwork, rwork.data());
-
-  if (compute_right_vectors)
-  {
-    result.right_eigenvectors = std::move(vr);
-  }
+  uni20::linalg::nonsymmetric_eigen(matrix, std::span<Complex>(result.eigenvalues), result.right_eigenvectors,
+                                    compute_right_vectors);
   return result;
 }
 

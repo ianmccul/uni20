@@ -112,11 +112,11 @@ uni20::krylov::Matrix<double> multiply(uni20::krylov::Matrix<double> const& lhs,
     throw std::invalid_argument("test matrix multiplication size mismatch");
   }
   uni20::krylov::Matrix<double> result(lhs.rows(), rhs.cols());
-  for (std::size_t col = 0; col < rhs.cols(); ++col)
+  for (uni20::index_type col = 0; col < rhs.cols(); ++col)
   {
-    for (std::size_t k = 0; k < lhs.cols(); ++k)
+    for (uni20::index_type k = 0; k < lhs.cols(); ++k)
     {
-      for (std::size_t row = 0; row < lhs.rows(); ++row)
+      for (uni20::index_type row = 0; row < lhs.rows(); ++row)
       {
         result[row, col] += lhs[row, k] * rhs[k, col];
       }
@@ -128,9 +128,9 @@ uni20::krylov::Matrix<double> multiply(uni20::krylov::Matrix<double> const& lhs,
 uni20::krylov::Matrix<double> transpose(uni20::krylov::Matrix<double> const& matrix)
 {
   uni20::krylov::Matrix<double> result(matrix.cols(), matrix.rows());
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       result[col, row] = matrix[row, col];
     }
@@ -143,9 +143,9 @@ void expect_matrix_near(uni20::krylov::Matrix<double> const& actual, uni20::kryl
 {
   ASSERT_EQ(actual.rows(), expected.rows());
   ASSERT_EQ(actual.cols(), expected.cols());
-  for (std::size_t col = 0; col < actual.cols(); ++col)
+  for (uni20::index_type col = 0; col < actual.cols(); ++col)
   {
-    for (std::size_t row = 0; row < actual.rows(); ++row)
+    for (uni20::index_type row = 0; row < actual.rows(); ++row)
     {
       EXPECT_NEAR((actual[row, col]), (expected[row, col]), tolerance);
     }

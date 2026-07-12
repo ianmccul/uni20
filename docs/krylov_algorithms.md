@@ -17,11 +17,11 @@ the project scalar policy in [scalar_policy.md](scalar_policy.md):
 | `cf128` | optional `uni20::complex<uni20::float128>` |
 
 With `UNI20_ENABLE_MPLAPACK=ON`, Uni20 enables optional experimental binary128
-probes for scalar-generic dense projected kernels, matrix-free eigensolvers, and
-exponential actions. MPLAPACK is an external package dependency in this
+probes for maintained matrix-free eigensolvers and exponential actions.
+MPLAPACK is an external package dependency in this
 configuration; Uni20 does not download or build it. The
 ordinary typed Krylov tests remain focused on the stable `s`, `d`, `c`, and `z`
-paths; dedicated `MplapackBinary128*` targets cover binary128-specific stress
+paths; maintained `MplapackBinary128*` targets cover binary128-specific stress
 cases. The main inventory tables below therefore list the ordinary `s`, `d`,
 `c`, and `z` coverage, followed by a separate optional binary128 inventory. See
 [krylov_precision_validation.md](krylov_precision_validation.md) for the
@@ -40,18 +40,24 @@ When it is absent, the current wrapper applies `B*y` into backend-owned scratch
 and then calls the ordinary inner product.
 
 The matrix-free boundary does not remove the local dense projected problem.
-Entry points that solve projected eigensystems, Schur forms, or dense projected
-exponentials therefore use LAPACK-oriented scalar concepts: symmetric/Hermitian
-eigensolvers need real LAPACK coverage for the underlying real precision,
-complex nonsymmetric eigensolvers need dense complex LAPACK coverage, and
-exponential actions need dense coverage for the scalar used by the projected
-exponential.
+Active projected eigensystem and Schur entry points use matrix-level linalg
+operations backed by `LapackBackend`; projected exponentials use the same
+dispatch layer with the current CPU-reference matrix-exponential kernel.
+Symmetric/Hermitian eigensolvers need real LAPACK coverage for the underlying
+real precision, complex nonsymmetric eigensolvers need dense complex LAPACK
+coverage, and exponential actions need dense coverage for the projected scalar.
 
 ## Native Algorithm Inventory
 
 ### Dense Projected Problems
 
 These are local host-side kernels for small Krylov subspace matrices.
+
+The broad utility rows below also inventory experimental helpers retained in
+`dense_subspace_unused.hpp`. That header is quarantined and excluded from the
+active Krylov test target; those rows are not a supported linalg surface. The
+active solver path uses the compact primitives plus the dispatched
+tridiagonal/nonsymmetric eigensystem, Schur, reorder, and exponential rows.
 
 | component | `s` | `d` | `c` | `z` | role |
 | --- | --- | --- | --- | --- | --- |
@@ -132,8 +138,8 @@ These are local host-side kernels for small Krylov subspace matrices.
 | Dense generalized complex Hermitian eigensystem | n/a | n/a | yes | yes | Dense type-1 generalized Hermitian utility problem through LAPACK `hegv`. |
 | Dense generalized complex divide-and-conquer Hermitian eigensystem | n/a | n/a | yes | yes | Dense type-1 generalized Hermitian utility problem through LAPACK `hegvd`. |
 | Dense generalized complex selected Hermitian eigensystem | n/a | n/a | yes | yes | Dense type-1 generalized Hermitian utility problem through LAPACK `hegvx` using 0-based inclusive index ranges. |
-| Symmetric tridiagonal eigensystem | yes | yes | n/a | n/a | Lanczos projected eigensystem through LAPACK `sterf` for eigenvalues-only and `steqr` for eigenvectors. |
-| Real nonsymmetric eigensystem | yes | yes | n/a | n/a | Arnoldi Ritz extraction in real arithmetic. |
+| Symmetric tridiagonal eigensystem | yes | yes | n/a | n/a | Dispatched Lanczos projected eigensystem through LAPACK `sterf` for eigenvalues-only and `steqr` for eigenvectors. |
+| Real nonsymmetric eigensystem | yes | yes | n/a | n/a | Dispatched Arnoldi Ritz extraction through LAPACK `geev`, including complex-pair unpacking. |
 | Real nonsymmetric expert eigensystem | yes | yes | n/a | n/a | Dense projected real nonsymmetric eigensystem through LAPACK `geevx`, returning balancing data and reciprocal eigenvalue/eigenvector condition estimates. |
 | Real nonsymmetric balancing and right-vector backtransform | yes | yes | n/a | n/a | Dense projected real nonsymmetric balancing helpers through LAPACK `gebal` and `gebak`. |
 | Generalized real nonsymmetric eigensystem | yes | yes | n/a | n/a | Dense projected real nonsymmetric matrix pencil through LAPACK `ggev`, preserving `alpha`/`beta` data and finite ratios. |
@@ -146,13 +152,13 @@ These are local host-side kernels for small Krylov subspace matrices.
 | Generalized real Schur selected subspace condition estimates | yes | yes | n/a | n/a | Dense projected real generalized Schur/QZ selected deflating subspace through LAPACK `tgsen`, returning `PL`, `PR`, and F-norm `DIF` estimates. |
 | Generalized real Schur right eigenvectors | yes | yes | n/a | n/a | Dense projected real generalized Schur/QZ eigenvector extraction through LAPACK `tgevc`, unpacked into complex columns. |
 | Generalized real Schur eigenpair condition estimates | yes | yes | n/a | n/a | Dense projected real generalized Schur/QZ eigenvalue/eigenvector conditioning through LAPACK `tgsna`. |
-| Real Schur factorization and reordering | yes | yes | n/a | n/a | Real nonsymmetric implicit restart. |
-| Real Hessenberg Schur factorization | yes | yes | n/a | n/a | Dense projected upper-Hessenberg-to-real-Schur factorization through LAPACK `hseqr`. |
+| Real Schur factorization and reordering | yes | yes | n/a | n/a | Dispatched real nonsymmetric implicit restart through LAPACK `gees` and `trexc`. |
+| Real Hessenberg Schur factorization | yes | yes | n/a | n/a | Dispatched projected upper-Hessenberg-to-real-Schur factorization through LAPACK `hseqr`. |
 | Real Schur selected subspace condition estimates | yes | yes | n/a | n/a | Dense projected real Schur block selection through LAPACK `trsen`, returning reciprocal eigenvalue-cluster and invariant-subspace condition estimates. |
 | Real Schur right eigenvectors | yes | yes | n/a | n/a | Dense projected real Schur eigenvector extraction through LAPACK `trevc`, unpacked into complex columns. |
 | Real Schur eigenpair condition estimates | yes | yes | n/a | n/a | Dense projected real Schur eigenvalue/eigenvector conditioning through LAPACK `trsna`. |
-| Complex nonsymmetric eigensystem | n/a | n/a | yes | yes | Arnoldi Ritz extraction in complex arithmetic. |
-| Complex Schur factorization and reordering | n/a | n/a | yes | yes | Complex nonsymmetric implicit restart. |
+| Complex nonsymmetric eigensystem | n/a | n/a | yes | yes | Dispatched Arnoldi Ritz extraction through LAPACK `geev`. |
+| Complex Schur factorization and reordering | n/a | n/a | yes | yes | Dispatched complex nonsymmetric implicit restart through LAPACK `gees` and `trexc`. |
 
 ### Optional MPLAPACK Binary128 Inventory
 
@@ -164,19 +170,18 @@ precision-validation matrix records which rows have dedicated stress tests.
 At the native solver entry-point level, binary128 mostly mirrors the ordinary
 `s`, `d`, `c`, and `z` coverage: real paths have `f128` analogues, complex
 paths have `cf128` analogues, and Hermitian paths support both. The broad dense
-projected helper inventory is intentionally split from the default-facing
-headers where possible, but it remains in-tree and is tested by the gated
-`MplapackBinary128DenseSubspaceTest` target. These wrappers are early
-infrastructure for the future mdspan/rank-2 tensor layer, not a stable public
-API commitment.
+projected helper inventory remains quarantined in
+`dense_subspace_unused.hpp` and is no longer built by the Krylov test target.
+Binary128 validation applies to maintained active solver paths, not that
+experimental wrapper inventory.
 
 | component or entry point | `f128` | `cf128` | notes |
 | --- | --- | --- | --- |
 | Dense vector and matrix primitives | yes | yes | Scalar-generic Krylov host-side helpers. |
 | MPBLAS wrapper surface | yes | yes | Current wrapper surface covers projected `gemm`, `gemv`, rank-update, symmetric-rank, and Hermitian-rank operations used by active paths. |
 | Tensor/linalg CPU helper probes | yes | n/a | Current probes cover real one-norm accumulation and real dense solve. |
-| Broad dense projected real helper inventory | yes | n/a | Gated tests cover norms, dense/band/tridiagonal solves and diagnostics, SPD and symmetric-indefinite helpers, QR/LQ/QL/RQ, bidiagonal/SVD helpers, real symmetric/generalized symmetric eigensystems, and real nonsymmetric/Schur/QZ helpers. |
-| Dense projected complex eigensystem and Schur helper inventory | n/a | yes | Gated tests cover complex Hermitian/generalized Hermitian eigensystems, complex nonsymmetric eigensystems, and complex Schur/reordering. |
+| Broad dense projected real helper inventory | not active | n/a | Quarantined source inventory; excluded from maintained Krylov targets. |
+| Dense projected complex eigensystem and Schur helper inventory | n/a | not active | Quarantined source inventory; excluded from maintained Krylov targets. |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | Uses MPLAPACK `Rsterf`/`Rsteqr`; this is the projected problem behind real and complex Hermitian Lanczos. |
 | Real nonsymmetric projected eigensystem and Schur kernels | yes | n/a | Active wrapper surface covers `Rgeev`, `Rgees`, `Rhseqr`, and `Rtrexc`. |
 | Complex nonsymmetric projected eigensystem and Schur kernels | n/a | yes | Active wrapper surface covers `Cgeev`, `Cgees`, and `Ctrexc`. |
@@ -242,10 +247,11 @@ matrix infrastructure.
 | `nonsymmetric_krylov_exponential_action` | yes | yes | yes | yes | Fixed-subspace Arnoldi approximation `||v|| V_m exp(t H_m) e_1`. |
 | `taylor_exponential_action` | yes | yes | yes | yes | Validation-oriented scaled Taylor action using a caller-supplied operator norm bound. |
 
-The current projected exponential backend is the CPU dense
-scaling-and-squaring Padé implementation. It accepts real multipliers and
-complex multipliers; a real projected matrix with a complex multiplier promotes
-to a complex projected exponential. The Taylor action is an independent
+The projected exponential invokes `matrix_exponential_op` through the linalg
+dispatcher. Its current selected implementation is the CPU dense
+scaling-and-squaring Padé kernel. It accepts real multipliers and complex
+multipliers; a real projected matrix with a complex multiplier promotes to a
+complex projected exponential. The Taylor action is an independent
 reference/emergency path, not an automatic fallback from Lanczos or Arnoldi. It
 uses scaled Taylor series steps with a geometric tail estimate and an explicit
 caller-supplied bound for `||A||`. Taylor scaling-step selection and

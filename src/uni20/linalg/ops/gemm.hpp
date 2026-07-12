@@ -3,28 +3,22 @@
 /**
  * \file gemm.hpp
  * \ingroup linalg
- * \brief GEMM operation tag and fixed-output Tensor front end.
+ * \brief Fixed-output Tensor GEMM front end.
  */
 
 #include <uni20/linalg/backends/cpu/gemm.hpp>
 #include <uni20/linalg/dispatch.hpp>
+#include <uni20/linalg/operation_tags.hpp>
 #include <uni20/tensor/concepts.hpp>
 
 #if UNI20_BACKEND_BLAS
 #include <uni20/linalg/backends/blas/gemm.hpp>
 #endif
 
-#include <string_view>
 #include <utility>
 
 namespace uni20::linalg
 {
-
-/// \brief Dense matrix multiplication operation tag.
-struct gemm_op
-{
-    static constexpr std::string_view name = "gemm";
-};
 
 /// \brief Run fixed-storage tensor GEMM through an explicit backend selector.
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, class Scalar,

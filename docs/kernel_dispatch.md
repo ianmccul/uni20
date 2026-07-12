@@ -1,10 +1,12 @@
 # Kernel Dispatch Design
 
-**Status: implemented dense GEMM and GEMV checkpoints plus forward design.**
-Uni20 has an operation-tag dispatch walk, structured failure reporting,
-Tensor-to-mdspan forwarding for fixed-output GEMM and GEMV, and direct
-BLAS/reference CPU backends. The CUDA, distributed, prepared-operand, and
-broader BLAS/LAPACK portions remain design work. This note
+**Status: implemented dense BLAS, CPU-reference, and initial LAPACK slices plus
+forward design.** Uni20 has an operation-tag dispatch walk, structured failure
+reporting, opt-in runtime dispatch diagnostics, Tensor-to-mdspan forwarding,
+direct BLAS/reference CPU backends, and LAPACK adapters used by the native
+Krylov projected problems. The CUDA,
+distributed, prepared-operand, and broader BLAS/LAPACK portions remain design
+work. This note
 captures both the implemented contract and that direction. It generalizes the
 three-stage pattern in
 [`backend_dispatch.md`](backend_dispatch.md) into a single configurable
@@ -37,7 +39,9 @@ Related notes:
 A **backend** is a uniform thing with two ways to decline an operation. The
 dispatch mechanism is generic over an **operation tag** (`gemm_op`, `gemv_op`,
 `scale_op`, `assign_op`, ...), and discovers backend support with customization
-points:
+points. Concrete dense-linalg operation tags and their diagnostic names live in
+the central `src/uni20/linalg/operation_tags.hpp` catalogue; backend headers use
+that catalogue rather than redeclaring an operation locally:
 
 - `kernel_accepts_types(Backend const&, Op const&, Args&...)` — required
   `consteval` tri-state function for compile-time facts about the C++ types;
@@ -108,12 +112,48 @@ followed by the failure category and ordered backend candidate table. It then
 includes the `trace::raise(...)` source location and, in builds with
 `std::stacktrace` support, the captured stacktrace.
 
+## Runtime dispatch diagnostics
+
+Successful and trial dispatches can expose the same ordered backend information
+through `uni20::linalg::dispatch_diagnostics`. Diagnostics are disabled by
+default. A disabled dispatch performs one inline relaxed atomic flag load and
+branch; it does not construct a record, allocate, lock, or invoke a sink.
+
+Install a sink for structured `dispatch_diagnostics::event` values:
+
+```cpp
+uni20::linalg::dispatch_diagnostics::scoped_sink diagnostics(
+    [](uni20::linalg::dispatch_diagnostics::event const& event) {
+      uni20::display::emit(uni20::linalg::diagnostic_report(event),
+                           uni20::display::stream::out);
+    });
+```
+
+Each event contains the operation name and every ordered backend candidate.
+The candidate records distinguish:
+
+- a type-level hard `no`, rendered as `not eligible`;
+- an attempted runtime decline and its `KernelAttempt` reason;
+- the successful selected backend;
+- an eligible fallback after the selected backend, rendered as `not attempted`.
+
+`set_sink(...)` and `reset_sink()` support longer-lived application or binding
+configuration; `scoped_sink` is convenient for tests and local tools. The sink
+is process-wide and is invoked synchronously after the backend walk. Concurrent
+dispatches may invoke it concurrently, so a collecting sink must synchronize
+its own state. A sink can render through `display`, append structured data to a
+file, or hand the event to a Python-aware boundary. Diagnostic sinks must not
+throw: an enabled sink runs after a backend may already have completed and
+mutated its output.
+
 Runnable examples under `examples/linalg/` cover the main dispatch behaviors:
 
 - `kernel_dispatch_example.cpp` defines a small operation and two backends,
   demonstrating type probing, clean runtime decline, and ordered fallback.
 - `gemm_dispatch_example.cpp` performs tensor GEMM through the selector supplied
-  by `VectorStorage` and shows the mdspan-level type probe.
+  by `VectorStorage`, renders all matrices before and after the operation, shows
+  the runtime backend walk, and supports `fp32`, `fp64`, plus `fp128` when the
+  build enables MPLAPACK binary128 support.
 - `kernel_dispatch_error_example.cpp` catches and renders structured errors for
   both runtime exhaustion and a type-level hard `no` at a dynamic boundary.
 
@@ -234,15 +274,14 @@ selectors. The low-level mdspan leaf is
 `try_kernel(BlasBackend, gemm_op, ...)` wraps that leaf, and
 `CpuReferenceBackend` provides an independently tested fallback when BLAS
 declines. GEMV applies the same layering to rank-one vector descriptors and
-BLAS increments, including fallback for conjugating input accessors. Together
-they prove the operation-tag walk without first solving the broader LAPACK
-surface or workspace policy.
+BLAS increments, including fallback for conjugating input accessors. The first
+`LapackBackend` operations extend the same walk to symmetric tridiagonal and
+nonsymmetric eigensystems, Schur decomposition, Hessenberg Schur reduction, and
+Schur reordering. Their workspace is backend-owned LAPACK work storage rather
+than hidden operand materialization.
 
 ```cpp
-struct gemm_op
-{
-    static constexpr std::string_view name = "gemm";
-};
+#include <uni20/linalg/operation_tags.hpp>
 
 enum class KernelTypeAcceptance {
   no,     // invalid for these types; do not form try_kernel

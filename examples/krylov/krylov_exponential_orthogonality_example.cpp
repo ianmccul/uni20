@@ -370,7 +370,8 @@ run_legacy_three_term(std::vector<Scalar> const& eigenvalues, DenseHostVector<Sc
     }
   }
 
-  auto const exponential = uni20::krylov::matrix_exponential(scaled, Scalar{1});
+  uni20::krylov::Matrix<Scalar> exponential(projected_size, projected_size);
+  uni20::linalg::matrix_exponential(exponential, scaled, Scalar{1});
   DenseHostVector<Scalar> action{{std::vector<Scalar>(initial.values.size(), Scalar{})}};
   std::vector<Scalar> coefficients(projected_size);
   for (std::size_t row = 0; row < projected_size; ++row)

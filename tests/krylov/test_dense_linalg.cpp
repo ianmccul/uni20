@@ -110,9 +110,9 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
   uni20::krylov::Matrix<Scalar> matrix(3, 3);
   uni20::krylov::laset(matrix, Scalar{1}, Scalar{-2}, uni20::krylov::MatrixFill::All);
 
-  for (std::size_t col = 0; col < matrix.cols(); ++col)
+  for (uni20::index_type col = 0; col < matrix.cols(); ++col)
   {
-    for (std::size_t row = 0; row < matrix.rows(); ++row)
+    for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
       expect_near_value(matrix[row, col], row == col ? Scalar{1} : Scalar{-2});
     }
@@ -121,9 +121,9 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
   uni20::krylov::Matrix<Scalar> upper(3, 3);
   uni20::krylov::lacpy(upper, matrix, uni20::krylov::MatrixFill::Upper);
 
-  for (std::size_t col = 0; col < upper.cols(); ++col)
+  for (uni20::index_type col = 0; col < upper.cols(); ++col)
   {
-    for (std::size_t row = 0; row < upper.rows(); ++row)
+    for (uni20::index_type row = 0; row < upper.rows(); ++row)
     {
       Scalar const expected = row <= col ? matrix[row, col] : Scalar{};
       expect_near_value(upper[row, col], expected);
@@ -143,7 +143,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, StoresRightMatrixRowMajorAndCopiesToColum
   right[1, 1] = Scalar{5};
   right[1, 2] = Scalar{6};
 
-  expect_vector_near_values(std::vector<Scalar>(right.data(), right.data() + right.size()),
+  expect_vector_near_values(std::vector<Scalar>(right.storage().data(), right.storage().data() + right.size()),
                             std::vector<Scalar>{Scalar{1}, Scalar{2}, Scalar{3}, Scalar{4}, Scalar{5}, Scalar{6}});
 
   auto span = uni20::krylov::right_mdspan(right);
@@ -151,12 +151,13 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, StoresRightMatrixRowMajorAndCopiesToColum
   expect_near_value((span[1, 0]), Scalar{4});
 
   uni20::krylov::Matrix<Scalar> left = uni20::krylov::copy_right_to_left(right);
-  expect_vector_near_values(std::vector<Scalar>(left.data(), left.data() + left.size()),
+  expect_vector_near_values(std::vector<Scalar>(left.storage().data(), left.storage().data() + left.size()),
                             std::vector<Scalar>{Scalar{1}, Scalar{4}, Scalar{2}, Scalar{5}, Scalar{3}, Scalar{6}});
 
   uni20::krylov::RightMatrix<Scalar> round_trip = uni20::krylov::copy_left_to_right(left);
-  expect_vector_near_values(std::vector<Scalar>(round_trip.data(), round_trip.data() + round_trip.size()),
-                            std::vector<Scalar>(right.data(), right.data() + right.size()));
+  expect_vector_near_values(
+      std::vector<Scalar>(round_trip.storage().data(), round_trip.storage().data() + round_trip.size()),
+      std::vector<Scalar>(right.storage().data(), right.storage().data() + right.size()));
 }
 
 TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesMatrixVectorProducts)

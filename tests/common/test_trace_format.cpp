@@ -70,12 +70,35 @@ TEST(TraceFormatting, FloatingPointPrecision)
   auto opts = make_test_options();
   opts.fp_precision_float32 = 2;
   opts.fp_precision_float64 = 4;
+  opts.mdspan_format_policy().numeric.long_double_precision = 3;
 
   EXPECT_EQ("3.14", trace::formatValue(3.14159f, opts));
   EXPECT_EQ("2.7183", trace::formatValue(2.718281828, opts));
   EXPECT_EQ("1.23-6.79i", trace::formatValue(uni20::complex<float>{1.2345f, -6.789f}, opts));
   EXPECT_EQ("-0.1250+42.5000i", trace::formatValue(uni20::complex<double>{-0.125, 42.5}, opts));
+  EXPECT_EQ("1.250", trace::formatValue(1.25L, opts));
+  EXPECT_EQ("1.250-0.500i", trace::formatValue(uni20::complex<long double>{1.25L, -0.5L}, opts));
 }
+
+#if UNI20_HAS_FLOAT128
+TEST(TraceFormatting, Float128UsesUni20ScalarFormattingAndConfiguredPrecision)
+{
+  using Real = uni20::float128;
+  using Complex = uni20::complex<Real>;
+
+  auto opts = make_test_options();
+  opts.fp_precision_float128 = 36;
+  Real const value = uni20::parse_real<Real>("1.000000000000000000000000000000001");
+  std::string const formatted = trace::formatValue(value, opts);
+
+  EXPECT_EQ(formatted, uni20::presentation::format_real(value, opts.numeric_format_policy()));
+  EXPECT_EQ(uni20::parse_real<Real>(formatted), value);
+
+  Complex const complex_value{value, -value};
+  EXPECT_EQ(trace::formatValue(complex_value, opts),
+            uni20::presentation::format_complex(complex_value, opts.numeric_format_policy()));
+}
+#endif
 
 TEST(TraceFormatting, NullRepresentations)
 {
@@ -317,10 +340,12 @@ TEST(TraceFormatting, GlobalEnvironmentConfiguresPresentationPolicy)
   EnvVarGuard glyphs("UNI20_GLYPHS");
   EnvVarGuard charset("UNI20_CHARSET");
   EnvVarGuard columns("COLUMNS");
+  EnvVarGuard float128_precision("UNI20_FP_PRECISION_FLOAT128");
 
   glyphs.set("ascii");
   charset.set("ascii_escape");
   columns.set("12");
+  float128_precision.set("27");
 
   trace::FormattingOptions opts;
   opts.set_color_output(trace::FormattingOptions::ColorOptions::no);
@@ -328,6 +353,8 @@ TEST(TraceFormatting, GlobalEnvironmentConfiguresPresentationPolicy)
   EXPECT_EQ(opts.presentation_policy().glyphs, uni20::presentation::glyph_set::ascii);
   EXPECT_EQ(opts.presentation_policy().charset, uni20::presentation::text_charset::ascii_escape);
   EXPECT_EQ(opts.terminal_width, 12);
+  EXPECT_EQ(opts.fp_precision_float128, 27);
+  EXPECT_EQ(opts.numeric_format_policy().float128_precision, 27);
   EXPECT_EQ(opts.format_glyph(uni20::presentation::semantic_glyph::arrow_right, "TRACE"), "->");
   EXPECT_EQ(trace::formatItemString({"value", false}, "\xE4\xB8\xAD", opts, 80), "value = \\u4E2D");
   EXPECT_EQ(trace::formatItemString({"long_name", false}, "value", opts, opts.terminal_width), "\nlong_name = value");

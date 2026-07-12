@@ -18,10 +18,13 @@ norms and inner products.
   algorithms.
 - `taylor_exponential.hpp`: independent Taylor exponential-action reference
   algorithm used for validation and fallback experiments.
-- `dense_linalg.hpp`, `dense_subspace.hpp`, `dense_subspace_unused.hpp`,
-  `tridiagonal.hpp`: small dense projected-problem infrastructure used by the
-  Krylov solvers. These are prototype helpers and are expected to migrate toward
-  the final Uni20 rank-2 tensor/mdspan linear-algebra entry points.
+- `dense_linalg.hpp`, `dense_subspace.hpp`, `tridiagonal.hpp`: small dense
+  projected-problem infrastructure used by the Krylov solvers. Owning matrices
+  are `uni20::DenseMatrix` aliases, and active projected eigensystem, Schur, and
+  matrix-exponential paths use the operation-tag linalg dispatch layer.
+- `dense_subspace_unused.hpp`: quarantined experimental helper inventory. It is
+  retained for possible future mining but is not part of the active Krylov test
+  target or the supported projected-problem path.
 - `dense_host_vector.hpp`: simple host-vector adapter for tests, examples, and
   prototype callers.
 

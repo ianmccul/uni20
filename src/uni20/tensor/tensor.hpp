@@ -17,4 +17,18 @@ template <typename ElementType, std::size_t Rank, typename StoragePolicy = Vecto
 using Tensor =
     BasicTensor<ElementType, stdex::dextents<index_type, Rank>, StoragePolicy, LayoutPolicy, AccessorFactory>;
 
+/// \brief Conventional row-major contiguous mdspan layout.
+using RowMajor = stdex::layout_right;
+
+/// \brief Conventional column-major contiguous mdspan layout.
+using ColumnMajor = stdex::layout_left;
+
+/// \brief Owning dense host matrix with a compile-time contiguous layout.
+/// \ingroup tensor
+/// \tparam ElementType Value type stored by the matrix.
+/// \tparam LayoutPolicy Contiguous matrix layout; column-major by default for
+///                      direct LAPACK interoperability.
+template <typename ElementType, typename LayoutPolicy = ColumnMajor>
+using DenseMatrix = Tensor<ElementType, 2, VectorStorage, LayoutPolicy>;
+
 } // namespace uni20

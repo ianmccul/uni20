@@ -9,6 +9,7 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/linalg/dispatch.hpp>
+#include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
 
 #include <concepts>
@@ -20,7 +21,7 @@ namespace uni20::linalg
 /// \brief Report compile-time eligibility for reference CPU GEMV dispatch.
 template <uni20::MutableRankedSpanLike<1> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> MatrixMdspan,
           uni20::RankedSpanLike<1> InputMdspan>
-consteval auto kernel_accepts_types(CpuReferenceBackend const&, struct gemv_op const&, OutputMdspan&, Scalar const&,
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemv_op const&, OutputMdspan&, Scalar const&,
                                     MatrixMdspan&, InputMdspan&, Scalar const&)
 {
   using output_scalar = std::remove_cv_t<typename OutputMdspan::element_type>;
@@ -50,7 +51,7 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, struct gemv_op c
 
 /// \brief Reference accessor-respecting GEMV fallback.
 template <class OutputMdspan, class Scalar, class MatrixMdspan, class InputMdspan>
-KernelAttempt try_kernel(CpuReferenceBackend, struct gemv_op const&, OutputMdspan&& output, Scalar alpha,
+KernelAttempt try_kernel(CpuReferenceBackend, gemv_op const&, OutputMdspan&& output, Scalar alpha,
                          MatrixMdspan&& matrix, InputMdspan&& input, Scalar beta)
 {
   using output_type = std::remove_cvref_t<OutputMdspan>;

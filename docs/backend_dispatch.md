@@ -51,7 +51,7 @@ In the full kernel-dispatch design, this is expressed once for every operation
 through an operation tag and customization points:
 
 ```cpp
-struct gemm_op {};
+#include <uni20/linalg/operation_tags.hpp>
 
 template <class... Backends, class Op, class... Args>
 constexpr KernelTypeAcceptance
@@ -103,6 +103,13 @@ returning anything other than `KernelAttempt::success` is a backend defect.
 `insufficient_resources`. Terminal failures are reported through the
 operation's ordinary exception, error, or result mechanism and never cause
 dispatch fallback.
+
+The implemented dispatcher also has an opt-in structured diagnostic sink. It
+reports the ordered type acceptances, runtime declines, and selected backend
+after a walk. The sink is disabled by default; the hot path performs one relaxed
+atomic flag check and constructs no diagnostic data while disabled. See
+[`kernel_dispatch.md`](kernel_dispatch.md#runtime-dispatch-diagnostics) for the
+API and sink contract.
 
 `KernelTypeAcceptance` is a tri-state:
 

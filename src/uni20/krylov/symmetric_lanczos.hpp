@@ -158,7 +158,7 @@ template <uni20::Real Scalar> GivensRotation<Scalar> lartg_like(Scalar f, Scalar
 template <uni20::Real Scalar>
 void apply_givens_to_transform(Matrix<Scalar>& q, std::size_t lhs, std::size_t rhs, Scalar c, Scalar s)
 {
-  for (std::size_t row = 0; row < q.rows(); ++row)
+  for (uni20::index_type row = 0; row < q.rows(); ++row)
   {
     Scalar const q_lhs = q[row, lhs];
     Scalar const q_rhs = q[row, rhs];
@@ -753,7 +753,7 @@ SymmetricQrShiftResult<Scalar> apply_symmetric_qr_shifts(std::vector<Scalar> dia
       if (iend > 0 && subdiagonal[iend - 1] < Scalar{})
       {
         subdiagonal[iend - 1] = -subdiagonal[iend - 1];
-        for (std::size_t row = 0; row < result.transform.rows(); ++row)
+        for (uni20::index_type row = 0; row < result.transform.rows(); ++row)
         {
           result.transform[row, iend] = -result.transform[row, iend];
         }
@@ -820,7 +820,8 @@ compress_symmetric_lanczos_restart(Ops& ops, std::vector<Vector> const& basis, V
   {
     throw std::invalid_argument("symmetric restart compression received inconsistent tridiagonal sizes");
   }
-  if (shifted.transform.rows() != order || shifted.transform.cols() != order)
+  auto const order_extent = static_cast<uni20::index_type>(order);
+  if (shifted.transform.rows() != order_extent || shifted.transform.cols() != order_extent)
   {
     throw std::invalid_argument("symmetric restart compression received an inconsistent transform size");
   }

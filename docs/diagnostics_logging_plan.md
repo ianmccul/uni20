@@ -4,6 +4,11 @@ Status: design note, not current API behavior. This note records the intended
 direction for ordinary Uni20 diagnostics and logging beyond the current
 `trace.hpp` macros.
 
+Kernel dispatch has a narrower implemented diagnostic sink documented in
+[`kernel_dispatch.md`](kernel_dispatch.md#runtime-dispatch-diagnostics). That
+sink reports backend selection and decline records only; it does not replace
+the general event/context/logging design described here.
+
 This note predates the screen-display design in
 [Screen Display Layer Plan](display_layer_plan.md). The display layer is the
 primary plan for human-facing terminal/Python progress output. This document

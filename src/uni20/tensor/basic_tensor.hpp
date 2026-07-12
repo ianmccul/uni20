@@ -89,6 +89,19 @@ class BasicTensor {
         : BasicTensor(internal_tag{}, make_payload(make_default_mapping(exts), std::move(accessor_factory)))
     {}
 
+    /// \brief Construct a fully dynamic tensor from one extent per axis.
+    /// \details This convenience form is available when every extent is
+    ///          dynamic and keeps rank-specific aliases ergonomic without
+    ///          adding wrapper classes solely for constructors.
+    /// \tparam DynamicExtents Integral extent arguments, one per tensor axis.
+    /// \param dynamic_extents Tensor extents in axis order.
+    template <std::integral... DynamicExtents>
+      requires(extents_type::rank() > 0 && extents_type::rank_dynamic() == extents_type::rank() &&
+               sizeof...(DynamicExtents) == extents_type::rank())
+    explicit BasicTensor(DynamicExtents... dynamic_extents)
+        : BasicTensor(extents_type{static_cast<index_type>(dynamic_extents)...})
+    {}
+
     /// \brief Construct a tensor using a custom mapping builder.
     /// \tparam MappingBuilder Callable that returns a mapping compatible with the layout policy.
     /// \param exts Extents that describe the tensor shape.

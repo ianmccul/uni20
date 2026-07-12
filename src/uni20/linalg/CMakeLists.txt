@@ -1,5 +1,6 @@
 add_library(uni20_linalg STATIC
     backends/cpu/matrix_exponential.cpp
+    dispatch_diagnostics.cpp
 )
 
 target_include_directories(uni20_linalg
@@ -9,6 +10,7 @@ target_include_directories(uni20_linalg
 
 target_link_libraries(uni20_linalg
     PUBLIC
+        uni20_backend
         uni20_core
         uni20_common
 )

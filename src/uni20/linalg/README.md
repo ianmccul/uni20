@@ -7,9 +7,13 @@ before they lower to backend wrappers and kernels.
 ## Contents
 
 - `linalg.hpp`: public include point for the dense linalg layer.
+- `operation_tags.hpp`: central catalogue of dispatchable operation values and
+  their diagnostic names.
 - `backend_selector.hpp`: ordered backend selector values and the stateless
   host backend entries shared with tensor storage.
 - `dispatch.hpp`: operation-tag backend-list dispatch helpers.
+- `dispatch_diagnostics.hpp`: disabled-by-default structured observation of
+  ordered backend walks.
 - `blas/`: mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - `ops/`: operation descriptors such as matrix-operation tags.
 - `backends/blas/`: operation-tag BLAS backend adapters.
@@ -23,6 +27,8 @@ before they lower to backend wrappers and kernels.
 - Keep dense linalg APIs separate from matrix-free Krylov APIs in `krylov/`.
 - Backend-specific code should stay in `backends/` and call through the lower
   `backend/` and `kernel/` layers where appropriate.
+- Backend implementations include `operation_tags.hpp`; do not redeclare
+  operation identities locally.
 - Bare-mdspan GEMM and GEMV calls use `dispatch_kernel` with their operation tag
   and an explicit selector. Tensor-view operands use the fixed-output `gemm` or
   `gemv` front end so it can derive their common storage selector, or they may

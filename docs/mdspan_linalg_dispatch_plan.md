@@ -1,12 +1,14 @@
 # Mdspan Linear Algebra Dispatch Plan
 
-**Status:** design plan for the next linear algebra layer. The existing LAPACK
-wrappers and Krylov dense helpers are implemented, but the mdspan-based linalg
-dispatch layer described here is not yet the public API.
+**Status:** implemented first vertical slices plus forward plan. The mdspan
+linalg dispatch layer now covers GEMM/GEMV, accessor-respecting CPU fallbacks,
+matrix initialization and exponential front ends, and the LAPACK projected
+eigensystem/Schur operations used by native Krylov. Broader BLAS/LAPACK
+coverage, prepared operands, and allocating front ends remain design work.
 
-This note makes the next implementation step concrete: add mdspan-based wrappers
-over the existing Uni20 BLAS/LAPACK backend layer, then use those wrappers as the
-first real consumer of the kernel-dispatch design in
+This note records the implemented mdspan wrappers over the existing Uni20
+BLAS/LAPACK backend layer and the next steps for extending them. These wrappers
+are the first real consumer of the kernel-dispatch design in
 [`kernel_dispatch.md`](kernel_dispatch.md).
 
 The static CPO name in this note is `kernel_accepts_types(...)`. It returns a
@@ -324,7 +326,7 @@ reference parameters matching the public call order. A separate
 first pass.
 
 ```cpp
-struct gemm_op {};
+#include <uni20/linalg/operation_tags.hpp>
 
 struct BlasBackend {};
 struct CpuReferenceBackend {};
@@ -367,42 +369,35 @@ The first LAPACK wrapper can then use the same pattern with richer operand
 rules:
 
 ```cpp
-struct self_adjoint_eigh_op {
-  char jobz = 'N';
-  char uplo = 'U';
-};
+#include <uni20/linalg/backend_selector.hpp>
+#include <uni20/linalg/operation_tags.hpp>
 
-struct gees_op {
-  char jobvs = 'N';
-  char sort = 'N';
-};
-
-struct LapackBackend {};
-
-template <class W, class A>
+template <class D, class E, class Z>
 consteval auto
-kernel_accepts_types(LapackBackend const&, self_adjoint_eigh_op const&,
-                     W&, A&)
+kernel_accepts_types(LapackBackend const&,
+                     symmetric_tridiagonal_eigen_op const&,
+                     D&, E&, Z&)
 {
-  if constexpr (mutable_lapack_candidate_real_vector<W> &&
-                mutable_lapack_candidate_matrix<A> &&
-                same_real_value_type<A, W>) {
+  if constexpr (mutable_lapack_candidate_real_vector<D> &&
+                mutable_lapack_candidate_real_vector<E> &&
+                mutable_lapack_candidate_matrix<Z>) {
     return kernel_types_maybe; // extents, strides, and aliasing are runtime
   } else {
     return kernel_types_no;
   }
 }
 
-template <class W, class A>
-KernelAttempt try_kernel(LapackBackend, self_adjoint_eigh_op op, W&& w, A&& a)
+template <class D, class E, class Z>
+KernelAttempt try_kernel(LapackBackend,
+                          symmetric_tridiagonal_eigen_op op,
+                          D&& diagonal, E&& subdiagonal, Z&& eigenvectors)
 {
-  auto values = try_lapack_vector_view(w);
-  auto matrix_stage = try_mdspan_matrix_stage(a);
-  if (!matrix_stage || !values) {
+  auto vectors = try_lapack_writable_matrix(eigenvectors);
+  if (!vectors) {
     return KernelAttempt::unsupported_layout;
   }
 
-  // Query workspace, then call uni20::lapack::syev/heev through checked wrappers.
+  // Allocate LAPACK work and call sterf or steqr through the checked wrappers.
   return KernelAttempt::success;
 }
 ```
@@ -720,17 +715,18 @@ accessor kind may be added to optional structured diagnostics later.
 
 Direct mdspan GEMM proves the BLAS matrix descriptor, transform helpers, and
 row-major writable output rewrite. GEMV additionally proves rank-one descriptors
-and mixed-rank dispatch. The first LAPACK mdspan wrappers should now cover
-operations already used by the native Krylov solvers:
+and mixed-rank dispatch. The first LAPACK mdspan wrappers cover the operations
+needed by the active native Krylov projected problems. The remaining rows are
+candidates to add only when an algorithm or example needs them:
 
-| Operation | LAPACK routines | Reason |
+| Operation | LAPACK routines | Status/reason |
 | --- | --- | --- |
-| symmetric/Hermitian dense eigensystem | `syev`, `heev`, then `syevd`/`heevd` | Lanczos projected problems and complex Hermitian coverage |
-| symmetric tridiagonal eigensystem | `stevd`, `stedc`, `sterf` | Lanczos tridiagonal diagonalization |
-| real and complex Schur decomposition | `gees`, `hseqr`, `trexc`, `trsen` | Arnoldi restarts and reordering |
-| nonsymmetric eigensystem | `geev`, `geevx` | validation and examples |
-| QR/LQ factorization | `geqrf`, `orgqr`/`ungqr`, `gelqf`, `orglq`/`unglq` | Arnoldi and future dense utilities |
-| SVD and least squares | `gesvd`, `gesvdx`, `gelsd` | useful linalg API coverage and tests |
+| symmetric tridiagonal eigensystem | `sterf`, `steqr` | Implemented for Lanczos projected diagonalization. |
+| real and complex Schur decomposition | `gees`, `hseqr`, `trexc` | Implemented for Arnoldi restarts and reordering. |
+| nonsymmetric eigensystem | `geev` | Implemented for projected Ritz extraction and validation. |
+| symmetric/Hermitian dense eigensystem | `syev`, `heev`, then `syevd`/`heevd` | Candidate for dense Hermitian utilities. |
+| QR/LQ factorization | `geqrf`, `orgqr`/`ungqr`, `gelqf`, `orglq`/`unglq` | Candidate for future dense utilities. |
+| SVD and least squares | `gesvd`, `gesvdx`, `gelsd` | Candidate for future linalg API coverage. |
 
 Do not expose every backend wrapper through mdspan immediately. Add wrappers
 when a Uni20 algorithm or example needs them, and keep unused wrappers in a
@@ -755,8 +751,10 @@ The completed BLAS slices are:
    forwarding;
 6. strict column-major writable descriptor helpers for LAPACK update operands.
 
-The next slice is one direct mdspan LAPACK wrapper, likely self-adjoint
-eigensystem, over existing `uni20::lapack::syev/heev`.
+The completed LAPACK slice adds checked workspace conversion and strict direct
+column-major adapters for tridiagonal eigensystems, nonsymmetric eigensystems,
+Schur decomposition, Hessenberg Schur reduction, and Schur reordering. Runtime
+layout decline occurs before mutation; provider `INFO` failures are terminal.
 
 This layer should call `uni20::blas::*` and `uni20::lapack::*`, never raw
 Fortran symbols, and should keep strict direct wrappers non-owning and no-copy.
@@ -764,8 +762,8 @@ Prepared wrappers may later own input-only materialization by contract.
 
 ### Phase 2: Kernel Dispatch Skeleton
 
-Implement the generic pieces from `kernel_dispatch.md` only as much as the
-mdspan LAPACK layer needs:
+The generic pieces from `kernel_dispatch.md` are implemented for the mdspan
+dense-linalg layer:
 
 - `backend_list<...>`.
 - backend values, usually empty stateless tags in the first pass.
@@ -790,8 +788,11 @@ Tests should use fake backends to verify:
 Bare mdspans call generic dispatch directly:
 
 ```cpp
-dispatch_kernel(LapackBackend{}, self_adjoint_eigh_op{}, w, a);
-dispatch_kernel(LapackBackend{}, schur_op{}, t, q, w, a);
+dispatch_kernel(LapackBackend{},
+                symmetric_tridiagonal_eigen_op{.compute_vectors = true},
+                diagonal, subdiagonal, eigenvectors);
+dispatch_kernel(LapackBackend{}, schur_op{.compute_vectors = true},
+                matrix_work, eigenvalues, schur_vectors);
 ```
 
 Add operation-specific convenience functions only where the Tensor layer has
@@ -803,18 +804,13 @@ before read-only inputs.
 
 ### Phase 4: DenseMatrix and Tensor Integration
 
-Add mdspan views to the temporary dense matrix type and later to the final
-rank-2 tensor alias:
-
-```cpp
-auto view(DenseMatrix<T>& matrix) -> stdex::mdspan<T, ..., stdex::layout_left>;
-auto view(DenseMatrix<T> const& matrix) -> stdex::mdspan<T const, ..., stdex::layout_left>;
-```
-
-Then migrate Krylov dense subspace helpers from direct pointer-level LAPACK
-calls to mdspan linalg wrappers. This should remove most of the temporary
-`RightMatrix`/copy-left-copy-right glue used while the LAPACK wrappers were
-being brought up.
+This checkpoint is implemented. `uni20::DenseMatrix<T, LayoutPolicy>` is an
+owning rank-2 `Tensor` alias, column-major by default, and exposes its mdspan
+through the ordinary Tensor interface. The active Krylov projected eigensystem,
+Schur, reorder, matrix-set, and matrix-exponential paths now use matrix-level
+linalg front ends rather than raw pointer-level LAPACK calls. Explicit
+row/column layout conversion remains where a Krylov algorithm genuinely needs
+a differently ordered representation.
 
 ### Phase 5: Tensor Front-End Dispatch
 

@@ -162,18 +162,18 @@ silently collapse to double precision.
 
 The native solver entry points are intended to mirror the ordinary precision
 coverage where the scalar category makes sense: real solver paths gain `f128`,
-complex solver paths gain `cf128`, and Hermitian paths gain both. The dense
-projected helper inventory is intentionally broader than the active solver
-surface: wrappers that are not used by current solvers are split out of the
-default-facing headers where possible, but remain in-tree and tested.
+complex solver paths gain `cf128`, and Hermitian paths gain both. The broad
+dense projected helper inventory remains quarantined in
+`dense_subspace_unused.hpp`; it is not part of the maintained binary128 test
+matrix.
 
 | algorithm or surface | `f128` | `cf128` | tests |
 | --- | --- | --- | --- |
 | Scalar aliases, numeric limits, scalar concepts, and scalar I/O | yes | yes | `MplapackBinary128Test.Uni20NumericLimitsSeesBackendScalar`, `Uni20ScalarConceptsSeeBackendScalar`, `Uni20ScalarIo*` |
 | MPBLAS wrapper surface | yes | yes | `MplapackBinary128Test.LinksMpblasTransitively`, `Uni20BlasWrappersPreserveBinary128OnlyIncrements` |
 | Dense one-norm and linear solve through CPU helpers | yes | n/a | `MplapackBinary128CpuOpsTest.MatrixOneNormPreservesBinary128Accumulation`, `SolveAcceptsPivotsBelowDoubleMinimum` |
-| Broad dense projected real helper inventory | yes | n/a | `MplapackBinary128DenseSubspaceTest.*` real rows: norms, dense/band/tridiagonal solves, SPD and symmetric-indefinite solves, factorizations, SVD, symmetric/generalized symmetric eigensystems, real Schur/QZ, and condition diagnostics |
-| Dense projected complex eigensystem and Schur helper inventory | n/a | yes | `MplapackBinary128DenseSubspaceTest.Complex*` rows for Hermitian/generalized Hermitian, nonsymmetric eigensystem, Schur, and Schur reordering |
+| Broad dense projected real helper inventory | not active | n/a | Quarantined source inventory; no maintained binary128 target. |
+| Dense projected complex eigensystem and Schur helper inventory | n/a | not active | Quarantined source inventory; no maintained binary128 target. |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | `MplapackBinary128KrylovSolversTest.TridiagonalProjectionResolvesGapBelowDoublePrecision` |
 | Symmetric/Hermitian Lanczos, full projection | yes | no | `MplapackBinary128KrylovSolversTest.SymmetricLanczosResolvesDiagonalGapBelowDoublePrecision` |
 | Real nonsymmetric projected Schur kernels | yes | n/a | `MplapackBinary128KrylovSolversTest.RealSchurAndReorderUseBinary128ProjectedLAPACK`, `RealHessenbergSchurUsesBinary128ProjectedLAPACK` |

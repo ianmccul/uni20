@@ -439,11 +439,11 @@ template <typename Scalar>
 
 template <typename Scalar> [[nodiscard]] std::vector<Scalar> phi1_first_column(uni20::krylov::Matrix<Scalar> const& z)
 {
-  std::size_t const n = z.rows();
-  if (z.cols() != n)
+  if (z.rows() != z.cols())
   {
     throw std::invalid_argument("phi1_first_column requires a square matrix");
   }
+  std::size_t const n = static_cast<std::size_t>(z.rows());
 
   uni20::krylov::Matrix<Scalar> augmented(n + 1, n + 1);
   for (std::size_t row = 0; row < n; ++row)
@@ -455,7 +455,8 @@ template <typename Scalar> [[nodiscard]] std::vector<Scalar> phi1_first_column(u
   }
   augmented[0, n] = Scalar{1};
 
-  auto const exponential = uni20::krylov::matrix_exponential(augmented, uni20::make_real_t<Scalar>{1});
+  uni20::krylov::Matrix<Scalar> exponential(n + 1, n + 1);
+  uni20::linalg::matrix_exponential(exponential, augmented, uni20::make_real_t<Scalar>{1});
   std::vector<Scalar> column(n);
   for (std::size_t row = 0; row < n; ++row)
   {
@@ -588,7 +589,8 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
     }
   }
 
-  auto const exponential = uni20::krylov::matrix_exponential(scaled, uni20::make_real_t<ProjectedScalar>{1});
+  uni20::krylov::Matrix<ProjectedScalar> exponential(projected_size, projected_size);
+  uni20::linalg::matrix_exponential(exponential, scaled, uni20::make_real_t<ProjectedScalar>{1});
   auto const phi1_column = phi1_first_column(scaled);
   auto const orthogonality = probe_basis_orthogonality(basis);
 

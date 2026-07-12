@@ -131,6 +131,20 @@ real scalars are checked for NaN and positive/negative infinity through
 components are finite. This keeps extension scalar support behind the same
 project customization points as scalar spelling and numeric limits.
 
+## Scalar Formatting
+
+Scalar-generic diagnostics and presentation code should use
+`uni20::format_scalar` or the corresponding presentation helpers rather than
+assuming standard stream or formatter support. Trace formatting recognizes all
+types satisfying Uni20's `Real` and `Complex` concepts, including
+`uni20::float128` and `uni20::complex<uni20::float128>` when configured.
+
+Trace precision is independently configurable for float32, float64, and
+float128 values. The global environment variables are
+`UNI20_FP_PRECISION_FLOAT32`, `UNI20_FP_PRECISION_FLOAT64`, and
+`UNI20_FP_PRECISION_FLOAT128`; append `_MODULE_<MODULE>` for a module-specific
+override. Complex values use the precision of their real component type.
+
 ## Numeric Limits
 
 Scalar-generic Uni20 algorithms should use `uni20::numeric_limits<T>` rather
