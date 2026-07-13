@@ -26,38 +26,38 @@ namespace uni20::async
 
 class DebugScheduler;
 
-/// \brief Selects whether copying an `Async<T>` copies a value or an alias handle.
-enum class async_copy_semantics
+/// \brief Classifies an async payload as an independent value or a shared alias.
+enum class async_value_kind
 {
-  value,
-  shared_alias,
+  value,        ///< Independent storage and value-copy semantics.
+  shared_alias, ///< Shared descriptor storage, lifetime owner, and epoch queue.
 };
 
 namespace detail
 {
 
 template <typename T, typename = void>
-struct default_async_copy_semantics : std::integral_constant<async_copy_semantics, async_copy_semantics::value>
+struct default_async_value_kind : std::integral_constant<async_value_kind, async_value_kind::value>
 {};
 
 template <typename T>
-struct default_async_copy_semantics<T, std::void_t<typename std::remove_cvref_t<T>::async_alias_tag>>
-    : std::integral_constant<async_copy_semantics, async_copy_semantics::shared_alias>
+struct default_async_value_kind<T, std::void_t<typename std::remove_cvref_t<T>::async_alias_tag>>
+    : std::integral_constant<async_value_kind, async_value_kind::shared_alias>
 {};
 
 } // namespace detail
 
-/// \brief Trait selecting copy behavior for an async value type.
-/// \details Ordinary values use scheduled value-copy semantics. Durable alias
+/// \brief Trait classifying the payload represented by `Async<T>`.
+/// \details Ordinary values own an independent value timeline. Durable alias
 ///          descriptor types can declare an `async_alias_tag` member type, or
-///          specialize this trait with `async_copy_semantics::shared_alias`, so
-///          copies retain the same storage and epoch queue.
-template <typename T> struct async_copy_semantics_of : detail::default_async_copy_semantics<T>
+///          specialize this trait with `async_value_kind::shared_alias`, so
+///          construction and copying preserve alias ownership and queue identity.
+template <typename T> struct async_value_kind_of : detail::default_async_value_kind<T>
 {};
 
-/// \brief Convenience value for the async copy-semantics trait.
+/// \brief Convenience value for the async payload-kind trait.
 template <typename T>
-inline constexpr async_copy_semantics async_copy_semantics_v = async_copy_semantics_of<std::remove_cvref_t<T>>::value;
+inline constexpr async_value_kind async_value_kind_v = async_value_kind_of<std::remove_cvref_t<T>>::value;
 
 /// \brief Tag type to construct an Async without starting the queue object.
 struct async_do_not_start_t
@@ -81,7 +81,7 @@ template <typename Alias, typename Parent, typename... Args>
 /// selected epoch context, so they may outlive the owning Async container.
 ///
 /// \note Copy construction and copy assignment are value-level operations by
-///       default. Types opting into `async_copy_semantics::shared_alias` copy
+///       default. Types opting into `async_value_kind::shared_alias` copy
 ///       the storage handle and dependency timeline instead.
 ///
 /// \note Buffers maintain shared ownership of the internal state, so `ReadBuffer<T>` and
@@ -94,7 +94,7 @@ template <typename T> class Async {
 
     /// \brief Initializes async state without constructing the stored value.
     Async()
-      requires(async_copy_semantics_v<T> == async_copy_semantics::value)
+      requires(async_value_kind_v<T> == async_value_kind::value)
         : storage_(make_unconstructed_shared_storage<T>()), queue_(std::make_shared<EpochQueue>())
     {
       queue_->latest()->start();
@@ -106,7 +106,7 @@ template <typename T> class Async {
     /// \brief Initializes async state without constructing the stored value or starting the queue.
     /// \param tag Sentinel tag selecting non-starting construction.
     Async(async_do_not_start_t tag)
-      requires(async_copy_semantics_v<T> == async_copy_semantics::value)
+      requires(async_value_kind_v<T> == async_value_kind::value)
         : storage_(make_unconstructed_shared_storage<T>()), queue_(std::make_shared<EpochQueue>())
     {
       (void)tag;
@@ -119,7 +119,7 @@ template <typename T> class Async {
     /// \tparam U Value type convertible to T.
     /// \param val Initial value forwarded into the Async storage.
     template <typename U>
-      requires(std::convertible_to<U, T> && async_copy_semantics_v<T> == async_copy_semantics::value)
+      requires(std::convertible_to<U, T> && async_value_kind_v<T> == async_value_kind::value)
     Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_(std::make_shared<EpochQueue>())
     {
       queue_->latest()->start_reading();
@@ -133,7 +133,7 @@ template <typename T> class Async {
     /// \param u Value forwarded to construct the stored T instance.
     template <typename U>
       requires(std::constructible_from<T, U> && (!std::convertible_to<U, T>) &&
-               async_copy_semantics_v<T> == async_copy_semantics::value)
+               async_value_kind_v<T> == async_value_kind::value)
     explicit Async(U&& u)
         : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_(std::make_shared<EpochQueue>())
     {
@@ -147,7 +147,7 @@ template <typename T> class Async {
     /// \tparam Args Argument types forwarded to `T`'s constructor.
     /// \param args Arguments used to initialize the contained value.
     template <typename... Args>
-      requires(std::constructible_from<T, Args...> && async_copy_semantics_v<T> == async_copy_semantics::value)
+      requires(std::constructible_from<T, Args...> && async_value_kind_v<T> == async_value_kind::value)
     Async(Args&&... args)
         : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>())
     {
@@ -165,7 +165,7 @@ template <typename T> class Async {
     /// \note This mirrors similar constructors where std::in_place is used.
     template <typename U, typename... Args>
       requires(std::constructible_from<T, std::initializer_list<U>&, Args...> &&
-               async_copy_semantics_v<T> == async_copy_semantics::value)
+               async_value_kind_v<T> == async_value_kind::value)
     Async(std::initializer_list<U> init, Args&&... args)
         : storage_(make_shared_storage<T>(init, std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>())
     {
@@ -185,7 +185,7 @@ template <typename T> class Async {
     ///
     /// \see `async_assign` for explicit value-level copy scheduling.
     Async(Async const& rhs)
-      requires(async_copy_semantics_v<T> == async_copy_semantics::value)
+      requires(async_value_kind_v<T> == async_value_kind::value)
         : Async()
     {
       async_assign(*this, rhs);
@@ -195,7 +195,7 @@ template <typename T> class Async {
     /// \details Alias copies retain the same descriptor storage, lifetime owner,
     ///          and epoch queue.
     Async(Async const& rhs)
-      requires(async_copy_semantics_v<T> == async_copy_semantics::shared_alias)
+      requires(async_value_kind_v<T> == async_value_kind::shared_alias)
         : storage_(rhs.storage_), queue_(rhs.queue_)
     {}
 
@@ -246,7 +246,7 @@ template <typename T> class Async {
     /// \param rhs Source Async whose value timeline is copied.
     /// \return Reference to *this after scheduling the copy.
     Async& operator=(Async const& rhs)
-      requires(async_copy_semantics_v<T> == async_copy_semantics::value)
+      requires(async_value_kind_v<T> == async_value_kind::value)
     {
       if (this != &rhs)
       {
@@ -259,7 +259,7 @@ template <typename T> class Async {
     /// \brief Structurally assign an async alias handle.
     /// \return Reference to this alias handle.
     Async& operator=(Async const& rhs)
-      requires(async_copy_semantics_v<T> == async_copy_semantics::shared_alias)
+      requires(async_value_kind_v<T> == async_value_kind::shared_alias)
     {
       if (this != &rhs)
       {
@@ -422,8 +422,8 @@ template <typename T> class Async {
 template <typename Alias, typename Parent, typename... Args>
 [[nodiscard]] Async<Alias> make_async_alias(Async<Parent> const& parent, Args&&... args)
 {
-  static_assert(async_copy_semantics_v<Alias> == async_copy_semantics::shared_alias,
-                "Async aliases require shared-alias copy semantics");
+  static_assert(async_value_kind_v<Alias> == async_value_kind::shared_alias,
+                "Async aliases require async_value_kind::shared_alias");
   return Async<Alias>(make_shared_storage_alias<Alias>(parent.storage_, std::forward<Args>(args)...), parent.queue_);
 }
 

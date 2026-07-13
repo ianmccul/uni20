@@ -85,11 +85,15 @@ What happened:
 
 Default `Async<T>` does not default-construct `T`.
 
-First write is safe through proxy assignment:
+First write is safe through proxy assignment when the source can both construct
+and later assign `T`:
 
 ```cpp
 co_await writer = 42;
 ```
+
+If the value already exists, this evaluates `stored_value = source`. Use
+explicit `emplace(...)` when reconstruction rather than assignment is intended.
 
 What is unsafe is forcing mutable-reference style access before construction:
 

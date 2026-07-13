@@ -171,11 +171,13 @@ These are value-level operations for ordinary values.
 
 This is deliberate: copying does not clone dependency graph internals.
 
-Alias descriptor types declare `async_alias_tag`. Copying
-`Async<AliasDescriptor>` is instead a structural handle copy: storage,
-lifetime owner, and epoch queue remain shared. This exception is necessary
-because copying an alias onto a fresh timeline would lose ordering with the
-bytes it references.
+`async_value_kind_of<T>` classifies ordinary payloads as
+`async_value_kind::value`. Alias descriptor types declare `async_alias_tag`,
+which selects `async_value_kind::shared_alias`. Copying
+`Async<AliasDescriptor>` is then a structural handle copy: storage, lifetime
+owner, and epoch queue remain shared. This exception is necessary because
+copying an alias onto a fresh timeline would lose ordering with the bytes it
+references.
 
 ## Waiting and Blocking
 
@@ -192,7 +194,8 @@ Blocking API is a bridge for thread-bound callers; coroutine code should prefer 
 - default `Async<T>` has unconstructed value until first construction path
 - dereferencing or converting a write proxy to `T&` requires already-constructed storage
 - `writer.emplace(...)` is always valid construction/reconstruction path
-- proxy assignment (`co_await writer = value`) is also valid first-write construction path
+- proxy assignment constructs empty storage and otherwise evaluates
+  `stored_value = source`
 - `take_release()` is the explicit "move out and release writer" path
 - epoch ordering is deterministic regardless of scheduler execution order
 - TaskRegistry state transitions are tracked at coroutine handle/promise level

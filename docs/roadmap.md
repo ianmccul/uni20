@@ -68,10 +68,12 @@ concepts directly.
 There is no general concrete non-owning tensor adaptor yet. Advanced async and
 slicing workflows still need an explicit lifetime-sharing design.
 
-### 3.2 Assignment semantics for reference-like tensor views
+### 3.2 Mutable async aliases for tensor views
 
-Async write semantics now support trait-based dispatch (`assignment_semantics_of<T>`), but tensor-side
-specializations and conventions are not yet finalized.
+Async aliases retain their owner and exact epoch queue. The remaining design
+work is to expose exclusive mutation of referenced tensor data without allowing
+the stored alias descriptor to be retargeted independently of that owner and
+queue.
 
 ### 3.3 Expression-level execution model
 
@@ -157,17 +159,18 @@ Deliverables:
 - Design note + tests covering view lifetime guarantees.
 - Clear guidance for async-safe tensor/view handoff patterns.
 
-#### Phase B — Finalize async assignment behavior for tensor types
+#### Phase B — Finalize mutable async tensor aliases
 
 Goals:
 
-- Decide and document which tensor-related types are `rebind` vs `write_through`.
-- Ensure `co_await writer = rhs` behavior is unambiguous for tensor views.
+- Define writer access that mutates referenced tensor data while keeping the
+  alias descriptor, owner chain, and epoch queue fixed.
+- Keep backend-dispatched element copying as an explicit tensor operation.
 
 Deliverables:
 
-- Trait specializations for the chosen tensor proxy/view types.
-- Tests mirroring real tensor/view write-through and explicit `rebind(...)` paths.
+- A restricted mutable-alias writer API or equivalent capability model.
+- Tests covering owner lifetime, queue identity, and mutation through real tensor views.
 - Documentation update in `docs/async/`.
 
 #### Phase C — Introduce expression-layer roadmap implementation

@@ -85,8 +85,9 @@ This is C++ operator precedence. Unary `co_await` binds tighter than assignment:
 co_await out = value; // means: (co_await out) = value;
 ```
 
-In current Uni20 semantics this is also valid on first write to default-constructed `Async<T>`.
-Proxy assignment uses `emplace(...)` internally when needed.
+This is valid on first write to default-constructed `Async<T>` when the source
+can both construct and assign `T`. Once the value exists, proxy assignment
+evaluates `stored_value = value` instead of reconstructing it.
 
 ## 7) Route Exceptions to an Output
 

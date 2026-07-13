@@ -1,4 +1,4 @@
-# Async Storage and Assignment Semantics
+# Async Storage, Value Kinds, and Assignment
 
 This note documents how `Async<T>` stores values and how write-proxy assignment is interpreted.
 
@@ -52,73 +52,68 @@ Alias descriptor types declare `async_alias_tag`. Their `Async<T>` copies are
 structural handle copies that retain the same storage and queue. Ordinary
 `Async<T>` copies remain scheduled value copies.
 
-## 2. Why Assignment Semantics Need a Trait
+## 2. Async Value Kinds
 
-Not all `T` should interpret `co_await writer = rhs` the same way:
+`async_value_kind_of<T>` classifies what an `Async<T>` represents:
 
-- value-like types usually want rebind/reconstruct semantics
-- reference-proxy types may want write-through semantics
+| Kind | Construction and copy behavior |
+|---|---|
+| `async_value_kind::value` | root construction is allowed; copies create an independent value timeline and schedule a value copy |
+| `async_value_kind::shared_alias` | root construction is disabled; copies share descriptor storage, lifetime ownership, and the exact epoch queue |
 
-To make this explicit, async write proxies use:
+Ordinary types default to `value`. Durable alias descriptors declare
+`async_alias_tag`, which selects `shared_alias`; external descriptor types may
+specialize `async_value_kind_of<T>` instead.
 
-- `uni20::async::assignment_semantics_of<T>`
-- `uni20::async::assignment_semantics_v<T>`
+This policy belongs at the `Async<T>` wrapper level. It cannot be inferred from
+the stored type's assignment expression because it controls storage ownership
+and causal identity, not assignment to a constructed `T`.
 
-Defined in:
+## 3. Write-Proxy Assignment
 
-- `src/uni20/async/assignment_semantics.hpp`
-
-## 3. Available Semantics
-
-`assignment_semantics::rebind` (default):
-
-- `co_await writer = rhs` takes the rebind path (`emplace(...)`)
-- first write into default `Async<T>` is naturally supported
-
-`assignment_semantics::write_through`:
-
-- `co_await writer = rhs` assigns through the existing object (`writer.data() = rhs`)
-- requires already-constructed storage
-- if storage is unconstructed, debug builds trip a precondition check
-
-Write proxies always expose explicit structural replacement:
-
-- `proxy.rebind(args...)`
-- `proxy.emplace(args...)`
-
-So even for write-through types, rebinding remains available as an intentional operation.
-
-## 4. Specializing the Trait
-
-Default behavior:
+Write-proxy assignment follows the stored type's ordinary assignment semantics:
 
 ```cpp
-template <typename T>
-struct assignment_semantics_of
-    : std::integral_constant<assignment_semantics, assignment_semantics::rebind> {};
+co_await writer = rhs;
 ```
 
-Opt in to write-through for a proxy/reference-like type:
+- when storage is empty, construct `T` from `rhs`
+- when a `T` already exists, evaluate `stored_value = rhs`
+
+The expression is available only when `rhs` can both construct `T` and make
+`stored_value = rhs` a valid expression. This guarantees that it is valid in
+either runtime construction state.
+
+Consequences:
+
+- a `BasicTensor` uses its ordinary assignment expression once constructed
+- an mdspan-like descriptor uses its normal descriptor assignment
+- a reference-like type follows whatever assignment its own API defines
+- async storage does not override those semantics with a type trait
+
+## 4. Explicit Construction and Assignment
+
+Use the operation that states the intended precondition:
 
 ```cpp
-namespace uni20::async {
-template <>
-struct assignment_semantics_of<MyProxyType>
-    : std::integral_constant<assignment_semantics, assignment_semantics::write_through> {};
-}
+auto access = co_await writer;
+
+access.emplace(args...); // construct or explicitly reconstruct T
+access.rebind(args...);  // named synonym for explicit reconstruction
+access.get() = rhs;      // assign an object known to be constructed
 ```
 
-## 5. Practical Guidance
+Construct-only types use `emplace(...)`. Assign-only proxy types must already
+exist and use `get() = rhs`. Proxy `operator=` is the convenience path only
+when both initialization and later assignment are valid.
 
-- Use `rebind` for ordinary value/handle types where replacement is expected.
-- Use `write_through` only when `operator=` should mutate the referenced target.
-- Keep rebinding explicit via `rebind(...)` to avoid ambiguous assignment behavior.
-- Prefer type-driven semantics (trait specialization) over runtime branching.
+## 5. Tensor Views and Aliases
 
-## 6. Relation to TensorView and mdspan-like Types
+Assignment to a tensor or view remains defined by that type and by named tensor
+operations. Element copying that requires shape handling or backend dispatch
+should use `copy(...)`, not hidden async assignment policy.
 
-`std::span` and `std::mdspan` generally have value/handle assignment semantics (rebind-style).
-Reference-proxy types (such as a write-through tensor view abstraction) should specialize
-`assignment_semantics_of<T>` to `write_through` when assignment is intended to mutate pointee data.
-
-The trait intentionally describes async write assignment behavior only; it does not define ownership.
+A shared async alias has a descriptor tied to a specific lifetime owner and
+epoch queue. Reconstructing that descriptor to point elsewhere would not update
+its owner chain or queue and must not be used as a retargeting mechanism.
+Construct a new alias when the referenced region changes.

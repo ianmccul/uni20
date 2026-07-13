@@ -19,6 +19,9 @@ struct IntAlias
     int const* value;
 };
 
+static_assert(async_value_kind_v<int> == async_value_kind::value);
+static_assert(async_value_kind_v<IntAlias> == async_value_kind::shared_alias);
+
 } // namespace
 
 TEST(AsyncAliasTest, CopiesShareStorageOwnerAndEpochQueue)

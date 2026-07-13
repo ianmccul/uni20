@@ -107,8 +107,10 @@ This file is for questions about project maturity, active design seams, and what
 
 ### DESIGN SEAMS
 
-- `assignment_semantics_of<T>` is important for future tensor/view write semantics.
-- View-like types may need `write_through` rather than `rebind`.
+- Write-proxy assignment follows the stored type's ordinary assignment
+  expression; backend-dispatched tensor element copying remains explicit.
+- Shared async alias descriptors must remain consistent with their retained
+  lifetime owner and epoch queue; retargeting requires a new alias.
 - Candidate tensor roles are `Tensor` as owning value, `TensorRef` as
   proposed write-through non-owning lvalue, and resolved mdspan-like views as
   leaf-kernel arguments.

@@ -58,7 +58,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `EpochQueue`
 - `ReadBuffer<T>`
 - `WriteBuffer<T>`
-- `assignment_semantics_of<T>`
+- `async_value_kind_of<T>`
 
 ## shared_storage<T>
 
@@ -87,7 +87,8 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 - `make_async_alias(...)` shares the parent's exact `EpochQueue`.
 - A separate queue for storage that aliases parent bytes is a correctness bug.
-- Types declaring `async_alias_tag` receive structural `Async<T>` copy semantics.
+- Types declaring `async_alias_tag` select `async_value_kind::shared_alias` and
+  receive structural `Async<T>` copy semantics.
 
 ### QUEUE ENROLLMENT THREADING CONTRACT
 
@@ -207,7 +208,8 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `co_await writer.transfer()` returns `OwningWriteAccessProxy<T>`.
 - Direct `co_await` on a temporary `WriteBuffer<T>` also uses the owning rvalue path.
 - The write proxy may read and mutate an existing value without a separate `ReadBuffer<T>`.
-- Proxy assignment may construct first-write storage for `rebind` types.
+- Proxy assignment constructs empty storage and otherwise evaluates
+  `stored_value = source`.
 - `operator+=` and `operator-=` may initialize unconstructed storage.
 
 ### CAUSAL MODEL
@@ -241,35 +243,62 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `Async<T>`
 - `EpochQueue`
 - `ReadBuffer<T>`
-- `assignment_semantics_of<T>`
+- `async_value_kind_of<T>`
 
-## assignment_semantics_of<T>
+## async_value_kind_of<T>
 
 ### ROLE
 
-- `assignment_semantics_of<T>` controls what `co_await writer = rhs` means for `T`.
+- `async_value_kind_of<T>` classifies an async payload as an independent value
+  or a shared alias descriptor.
 
 ### INVARIANTS
 
-- Default semantics are `rebind`.
-- Opt-in semantics are `write_through`.
-- `rebind` means proxy assignment reconstructs or replaces the stored object.
-- `write_through` means proxy assignment writes through the existing object.
+- Ordinary types default to `async_value_kind::value`.
+- Types declaring `async_alias_tag` select `async_value_kind::shared_alias`.
+- Value copies create independent storage and a new queue, then schedule a value copy.
+- Shared-alias copies retain descriptor storage, lifetime ownership, and the exact queue.
 
 ### FAILURE MODES
 
-- Specializing `assignment_semantics_of<T>` for the wrong write behavior.
-- Using proxy assignment expecting reconstruction on a `write_through` type or write-through on a `rebind` type.
+- Giving aliased bytes an independent queue.
+- Reconstructing an alias descriptor so it no longer matches its retained owner and queue.
 
 ### MISCONCEPTIONS
 
-- `co_await writer = rhs` has one universal meaning for every `T`.
+- `async_value_kind` controls the stored type's assignment expression.
+- A shared alias is merely a copied raw pointer.
 
 ### RELATED
 
-- `WriteBuffer<T>`
-- `rebind`
-- `write_through`
+- `Async<T>`
+- `async_alias_tag`
+- `make_async_alias(...)`
+
+## Write-proxy assignment
+
+### ROLE
+
+- `co_await writer = rhs` initializes empty storage or assigns an existing `T`.
+
+### INVARIANTS
+
+- The source must both construct `T` and make `stored_value = source` valid.
+- Empty storage constructs `T` from the source.
+- Constructed storage evaluates the underlying assignment expression.
+- `emplace(...)` and `rebind(...)` are explicit reconstruction operations.
+
+### FAILURE MODES
+
+- Expecting proxy assignment to reconstruct an existing assignable object.
+- Using proxy assignment for a construct-only or assign-only source instead of
+  the corresponding explicit operation.
+
+### RELATED
+
+- `WriteAccessProxy<T>`
+- `emplace(...)`
+- `rebind(...)`
 
 ## or_cancel()
 

@@ -26,6 +26,12 @@ This glossary is optimized for retrieval, not pedagogy.
 - `INVARIANT`: Copying is structural when the descriptor declares `async_alias_tag`.
 - `FAILURE MODE`: Giving aliased storage an independent epoch queue.
 
+### async_value_kind_of<T>
+
+- `ROLE`: Classifies an `Async<T>` payload as an independent value or shared alias.
+- `INVARIANT`: Ordinary types are `async_value_kind::value`; descriptors declaring `async_alias_tag` are `async_value_kind::shared_alias`.
+- `INVARIANT`: Shared-alias copies retain descriptor storage, lifetime ownership, and queue identity.
+
 ### EpochQueue
 
 - `ROLE`: Causal timeline for one `Async<T>`.
@@ -101,25 +107,17 @@ This glossary is optimized for retrieval, not pedagogy.
 - `ROLE`: State of `Async<T>()` before first construction.
 - `INVARIANT`: Storage exists but the contained `T` value does not yet exist.
 
-### assignment_semantics_of<T>
+### write-proxy assignment
 
-- `ROLE`: Trait that controls what `WriteBuffer<T>` proxy assignment means for a type.
-- `INVARIANT`: Default is `rebind`; opt-in alternative is `write_through`.
-- `MISCONCEPTION`: `co_await writer = rhs` has one universal meaning for every `T`.
-
-### rebind
-
-- `ROLE`: Default proxy-assignment semantics.
-- `INVARIANT`: `co_await writer = rhs` reconstructs or replaces the stored object.
-
-### write_through
-
-- `ROLE`: Opt-in proxy-assignment semantics for reference-like or proxy-like types.
-- `INVARIANT`: Assignment writes through the existing object instead of reseating it.
+- `ROLE`: `co_await writer = rhs` initializes empty storage or assigns an existing value.
+- `INVARIANT`: Empty storage constructs `T`; constructed storage evaluates the
+  stored type's assignment expression.
+- `INVARIANT`: The source must support both operations.
+- `MISCONCEPTION`: Async storage replaces a constructed object's assignment semantics.
 
 ### rebind(...)
 
-- `ROLE`: Explicit write-proxy operation that reconstructs or retargets the stored object.
+- `ROLE`: Explicit write-proxy operation that reconstructs the stored object.
 
 ### take()
 

@@ -198,8 +198,7 @@ semantics instead of using standard `std::conj` behavior.
 
 ## Assignment Semantics
 
-The async assignment trait currently distinguishes rebind and write-through.
-The tensor design suggests three semantic contracts:
+Tensor types still have three useful semantic contracts:
 
 ```cpp
 Tensor -> value/replace
@@ -207,7 +206,9 @@ mdspan/view  -> rebind descriptor
 TensorRef    -> write-through
 ```
 
-For async write proxies, this likely means:
+Async write proxies do not add a second assignment policy. If storage is empty,
+proxy assignment constructs the stored type; otherwise it invokes that type's
+`operator=`. Consequently:
 
 - `Tensor`: if unconstructed, emplace from the right-hand side; if
   constructed, call `Tensor::operator=`, which may reuse or reallocate.
@@ -219,9 +220,9 @@ For async write proxies, this likely means:
   `as_tensor(std::vector<T>&)` may support resizing and element assignment,
   while a slice adaptor should remain fixed/write-through.
 
-Open naming question: whether `assignment_semantics` should gain a third value
-such as `value`, or whether the async storage policy should split "what
-assignment means" from "what to do when storage is unconstructed".
+Explicit `proxy.emplace(...)` or `proxy.rebind(...)` reconstructs async storage.
+Element copying that requires shape preparation or backend dispatch remains a
+named tensor operation rather than hidden proxy-assignment behavior.
 
 ## Output Parameters
 
@@ -938,41 +939,39 @@ being raw mdspan descriptors.
    beyond the implemented `TensorView` and `MutableTensorView` concepts?
 2. What external-adaptor CPO names and signatures are needed, if member-based
    adaptation is insufficient?
-3. Does `assignment_semantics` gain a `value` semantic, or does async storage
-   split semantic meaning from unconstructed-storage behavior?
-4. What are the public API names for fixed-output versus resizable-output
+3. What are the public API names for fixed-output versus resizable-output
    operations?
-5. Is backend compatibility "same backend selector" or "common dispatch domain"?
+4. Is backend compatibility "same backend selector" or "common dispatch domain"?
    Block/MPI paths likely need the latter.
-6. What lifetime/epoch token does `TensorRef` need for slices of async or shared
+5. What lifetime/epoch token does `TensorRef` need for slices of async or shared
    owning tensors?
-7. Which external types should get built-in CPO adapters (`std::vector`,
+6. Which external types should get built-in CPO adapters (`std::vector`,
    `stdex::mdspan`, nanobind arrays), and which should require explicit
    adapters?
-8. Should the dispatch customization layer be implemented as named CPO objects,
+7. Should the dispatch customization layer be implemented as named CPO objects,
    ADL free functions, or a small trait class that forwards to members?
-9. Should fixed/resizable output be represented as separate concepts, or as one
+8. Should fixed/resizable output be represented as separate concepts, or as one
     `TensorOutput` concept plus a trait controlling `ensure_shape` behavior?
-10. Which explicit adaptors should expose resizable behavior through
+9. Which explicit adaptors should expose resizable behavior through
     `ensure_shape`? `as_tensor(std::vector<T>&)` is a plausible resizable
     adaptor, while slices and block views should remain fixed/write-through.
-11. What is the exact storage-domain/factory API for temporaries? Current
+10. What is the exact storage-domain/factory API for temporaries? Current
     candidates are `tensor_storage_domain(x)`,
     `make_temporary_tensor(selector, domain, descriptor)`, and
     `make_temporary_like(x, descriptor)`.
-12. When only mdspan-like information is available, which combinations are
+11. When only mdspan-like information is available, which combinations are
     acceptable without an explicit storage domain? Host mdspan plus host
     backend list may be safe; raw pointer mdspan plus CUDA backend probably
     needs an explicit `CudaDomain{device}` or a device-aware accessor type.
-13. How much operation context may vary down an ordered backend list? Hints such
+12. How much operation context may vary down an ordered backend list? Hints such
     as tile size, algorithm id, math mode, or workspace limit can vary by backend
     entry, while operand placement remains in the operands.
-14. Is temporary allocation driven by the full backend selector value, by the
+13. Is temporary allocation driven by the full backend selector value, by the
     selected backend after it accepts, or by a storage-domain descriptor
     containing structural state?
-15. How should distributed placement metadata be exposed to backend dispatch
+14. How should distributed placement metadata be exposed to backend dispatch
     without duplicating it in selector state?
-16. Should backend entries carry all small runtime fields directly, or should a
+15. Should backend entries carry all small runtime fields directly, or should a
     richer selector object share some state internally while presenting the same
     backend-first CPO shape to kernels?
 
@@ -1000,7 +999,8 @@ being raw mdspan descriptors.
   information.
 - `Tensor`, mdspan-like resolved views, and `TensorRef` should have
   distinct assignment semantics: value/replace, rebind descriptor, and
-  write-through.
+  write-through. Async storage defers to those underlying semantics rather than
+  classifying them with another trait.
 - Explicit adaptors can choose semantics appropriate to the wrapped object. For
   example, `as_tensor(std::vector<T>&)` may be resizable even though slice and
   block-view adaptors are fixed/write-through.

@@ -14,9 +14,9 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
   `tbb_numa_scheduler.hpp`: scheduler interfaces and implementations.
 - `epoch_context.hpp`, `epoch_queue.hpp`: epoch ordering and causal execution
   support.
-- `buffers.hpp`, `storage_buffer.hpp`, `shared_storage.hpp`,
-  `assignment_semantics.hpp`: read and exclusive-mutable capabilities, their
-  await paths, and storage lifetime helpers.
+- `buffers.hpp`, `storage_buffer.hpp`, `shared_storage.hpp`: read and
+  exclusive-mutable capabilities, their await paths, and storage lifetime
+  helpers.
 - `var.hpp`, `future_value.hpp`, `reverse_value.hpp`: async dataflow values.
 - `task_registry_*`: optional debug task registry support.
 - `async_toys.hpp`, `var_toys.hpp`: experiments and examples; do not treat

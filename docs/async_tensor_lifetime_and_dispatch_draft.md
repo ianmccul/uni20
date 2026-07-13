@@ -10,8 +10,8 @@ with `AsyncArray`, and how async operands fit into kernel dispatch.
 
 Related notes:
 
-- [`async_storage.md`](async_storage.md) - `Async<T>` storage and write-proxy
-  assignment semantics.
+- [`async_storage.md`](async_storage.md) - `Async<T>` storage, value kinds, and
+  write-proxy assignment.
 - [`kernel_dispatch.md`](kernel_dispatch.md) - backend lists, operation tags,
   and the existing async/lowering split.
 - [`tensor_dispatch_and_view_semantics_draft.md`](tensor_dispatch_and_view_semantics_draft.md)
@@ -311,17 +311,25 @@ domain or temporary factory. A CUDA backend type by itself is not enough to
 choose a device or allocator for scratch storage; the backend selector value or
 adaptor must carry that state.
 
-## Assignment Semantics
+## Value Kinds and Assignment
 
-The async assignment trait in `async_storage.md` should remain about write
-proxy assignment into `Async<T>` storage. Tensor types then choose the meaning
-of `T::operator=`:
+Two independent mechanisms govern async values:
+
+- `async_value_kind_of<T>` controls whether copying `Async<T>` creates an
+  independent value timeline or structurally shares alias storage, lifetime
+  ownership, and the epoch queue.
+- The stored type's ordinary assignment expression controls write-proxy
+  assignment when async storage already contains a `T`. Empty storage is
+  constructed from the source instead.
+
+There is no separate async assignment policy. The stored type defines what its
+own assignment means:
 
 ```cpp
-Async<Tensor>     // value/replace: construct if empty, otherwise assign tensor value
-Async<TensorRef>       // write-through: target must already refer to parent storage
-Async<mdspan-like>     // rebind descriptor: copy/emplace descriptor, no element copy
-Async<TensorAlias>     // structural copy aliases owner/hazard/descriptor
+Async<Tensor>         // value kind: assignment follows Tensor's assignment expression
+Async<TensorRef>      // assignment follows TensorRef's assignment expression
+Async<mdspan-like>    // descriptor assignment; suitable only as a resolved temporary
+Async<TensorAlias>    // shared_alias kind: handle copies retain owner/queue/descriptor
 ```
 
 A persistent async tensor slice should probably be an alias handle, not a
@@ -331,7 +339,7 @@ borrowed pointer with unsafe async lifetime.
 
 This argues for distinguishing:
 
-- **resolved views**: mdspan-like, rebinding assignment, short-lived
+- **resolved views**: mdspan-like, descriptor assignment, short-lived
 - **tensor refs**: write-through lvalue proxies, owner token required if stored
 - **async aliases**: async handles whose `read()`/`write()` materialize resolved
   views after epoch synchronization
@@ -441,9 +449,9 @@ Expected behavior:
 3. **Structure-async dispatch.** How should backend selection work when an
    `Async<Tensor>` result does not have a descriptor until after awaiting
    the producer?
-4. **Assignment trait.** Is the existing `rebind` versus `write_through` split
-   sufficient once `Tensor::operator=` has value/replace semantics, or is
-   a separate `value` assignment-semantic name still useful for documentation?
+4. **Mutable alias surface.** How should a shared async alias expose mutation
+   of referenced tensor elements without allowing its descriptor to be
+   retargeted independently of the retained owner and epoch queue?
 5. **Python view materialization.** How should a Python wrapper materialize an
    owning `Tensor` when an `Async<View>` is accessed, while keeping bare C++
    proxy objects out of the Python API?

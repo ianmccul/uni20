@@ -169,34 +169,21 @@ For default `Async<T>`, first write is safe through proxy assignment:
 co_await writer = value;
 ```
 
-This calls proxy `operator=`, which uses `emplace(...)` semantics internally when needed.
+This calls proxy `operator=`, which constructs the value when storage is empty.
 
-### Assignment semantics trait
+When a value already exists, the same expression evaluates
+`stored_value = source` rather than destroying and reconstructing the object.
+The source must support both construction and that assignment expression, so
+the operation is valid in either storage state.
 
-Write-proxy assignment is type-driven via:
+For more specific requirements, use an explicit operation:
 
-- `uni20::async::assignment_semantics_of<T>`
-- `uni20::async::assignment_semantics_v<T>`
+- `proxy.emplace(args...)` or `proxy.rebind(args...)` always reconstructs
+- `proxy.get() = rhs` requires an existing value and uses its assignment operator
 
-Default behavior is `assignment_semantics::rebind`:
-
-- `co_await writer = rhs` reconstructs/rebinds the stored object (`emplace(...)` path).
-
-Types can opt into `assignment_semantics::write_through` by specialization:
-
-```cpp
-namespace uni20::async {
-template <>
-struct assignment_semantics_of<MyProxyType>
-    : std::integral_constant<assignment_semantics, assignment_semantics::write_through> {};
-}
-```
-
-For `write_through` types:
-
-- `co_await writer = rhs` assigns through the existing object
-- storage must already be constructed
-- use `proxy.rebind(...)` (or `proxy.emplace(...)`) for explicit retarget/reconstruction
+There is no async assignment-semantics trait. Reference, descriptor, and tensor
+assignment behavior belongs to the stored type itself or to an explicit tensor
+operation such as `copy(...)`.
 
 ### Why += / -= can initialize
 

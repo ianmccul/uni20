@@ -96,16 +96,19 @@ Awaiter/proxy distinction:
 
 Critical write rule:
 
-- first write on default `Async<T>` can use `co_await writer = value` for default `rebind` types
+- `co_await writer = value` constructs empty storage and otherwise evaluates
+  `stored_value = value`
+- proxy assignment requires the source to both construct `T` and make
+  `stored_value = source` valid
 - `co_await writer += x` and `co_await writer -= x` also emplace when unconstructed
 - write-proxy `get()`, `operator->`, or conversion to `T&` throws `buffer_write_uninitialized` before initialization
 - use one writer, without a separate reader, to inspect and mutate an existing value
 
-Assignment semantics trait:
+Explicit alternatives:
 
-- `assignment_semantics_of<T>` defaults to `assignment_semantics::rebind`
-- specialize to `assignment_semantics::write_through` for reference-proxy types
-- `write_through` requires already-constructed storage; use proxy `rebind(...)` for explicit retarget/reconstruction
+- `proxy.emplace(...)` and `proxy.rebind(...)` explicitly reconstruct the value
+- `proxy.get() = value` assigns a value known to be constructed
+- tensor element copying and backend dispatch use named operations such as `copy(...)`
 
 ## Async Ops (async_ops.hpp)
 

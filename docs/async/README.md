@@ -67,7 +67,7 @@ Runnable examples in `examples/` that pair well with this docs set:
 
 ## Related Top-Level Docs
 
-- `../async_storage.md`: storage and assignment semantics for async write paths
+- `../async_storage.md`: storage, async value kinds, and write-proxy assignment
 - `../roadmap.md`: broader architecture and roadmap context
 
 ## Ground Truth and Drift Policy
