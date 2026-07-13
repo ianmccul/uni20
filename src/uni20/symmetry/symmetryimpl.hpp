@@ -10,7 +10,6 @@
 
 #include <cctype>
 #include <cstdint>
-#include <limits>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -24,6 +23,12 @@
 
 namespace uni20::detail
 {
+
+/// \brief Tag reserved for a future process-local out-of-line `QNum` representation.
+inline constexpr std::uint64_t qnum_out_of_line_mask = std::uint64_t{1} << 63;
+
+/// \brief Largest `QNum` code that can be stored directly in the tagged payload.
+inline constexpr std::uint64_t qnum_inline_code_max = qnum_out_of_line_mask - 1;
 
 /// \brief Describe one named factor of a direct-product symmetry.
 struct SymmetryFactorSpec
@@ -170,6 +175,10 @@ class SymmetryImpl {
       }
 
       std::uint64_t combined = factor_codes.front();
+      if (combined > qnum_inline_code_max)
+      {
+        throw std::overflow_error("quantum number code requires the reserved out-of-line representation");
+      }
       for (std::size_t i = 1; i < factor_codes.size(); ++i)
       {
         combined = cantor_pair(combined, factor_codes[i]);
@@ -182,6 +191,10 @@ class SymmetryImpl {
     /// \return One packed local code per direct-product factor.
     auto unpack(std::uint64_t code) const -> std::vector<std::uint64_t>
     {
+      if (code > qnum_inline_code_max)
+      {
+        throw std::invalid_argument("cannot unpack a tagged out-of-line quantum number as an inline code");
+      }
       if (factors_.empty())
       {
         return {};
@@ -284,15 +297,15 @@ class SymmetryImpl {
     /// \return Combined packed code.
     static auto cantor_pair(std::uint64_t left, std::uint64_t right) -> std::uint64_t
     {
-      if (left > std::numeric_limits<std::uint64_t>::max() - right)
+      if (left > qnum_inline_code_max || right > qnum_inline_code_max || left > qnum_inline_code_max - right)
       {
-        throw std::overflow_error("quantum number code overflow while pairing direct-product components");
+        throw std::overflow_error("quantum number code requires the reserved out-of-line representation");
       }
 
       auto const sum = left + right;
-      if (!triangular_leq(sum, std::numeric_limits<std::uint64_t>::max() - right))
+      if (!triangular_leq(sum, qnum_inline_code_max - right))
       {
-        throw std::overflow_error("quantum number code overflow while pairing direct-product components");
+        throw std::overflow_error("quantum number code requires the reserved out-of-line representation");
       }
       return triangular(sum) + right;
     }

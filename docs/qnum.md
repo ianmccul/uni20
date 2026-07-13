@@ -181,7 +181,10 @@ without making coalescing automatic.
 ## Encoding and Ordering
 
 Each symmetry factor is encoded to a factor-local `uint64_t`, and `QNum`
-combines those factor-local codes into one packed `uint64_t`.
+combines those factor-local codes into one tagged `uint64_t` payload. Inline
+codes use the low 63 bits. Bit 63 is reserved for a future process-local,
+interned out-of-line representation; construction currently throws
+`std::overflow_error` when a combined code does not fit in the inline range.
 
 For U(1), the local encoding is chosen so that numerical order matches the
 natural display order:

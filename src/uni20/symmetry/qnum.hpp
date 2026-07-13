@@ -31,10 +31,16 @@ class QNum {
     /// \brief Construct an invalid quantum number.
     QNum() = default;
 
-    /// \brief Construct from a symmetry handle and a packed code.
+    /// \brief Construct from a symmetry handle and a 63-bit inline packed code.
     /// \param sym Symmetry context.
-    /// \param code Packed irrep code.
-    explicit QNum(Symmetry sym, std::uint64_t code) : sym_(sym.impl()), code_(code) {}
+    /// \param code Inline packed irrep code. Bit 63 is reserved for an out-of-line representation.
+    explicit QNum(Symmetry sym, std::uint64_t code) : sym_(sym.impl()), code_(code)
+    {
+      if (code_ > detail::qnum_inline_code_max)
+      {
+        throw std::overflow_error("QNum code uses the reserved out-of-line tag bit");
+      }
+    }
 
     /// \brief Return whether the quantum number carries a valid symmetry context.
     /// \return `true` if this quantum number is initialized.
@@ -48,8 +54,8 @@ class QNum {
       return Symmetry{sym_};
     }
 
-    /// \brief Return the packed irrep code.
-    /// \return Canonical packed code.
+    /// \brief Return the inline packed irrep code.
+    /// \return Canonical code in the low 63 bits.
     auto raw_code() const -> std::uint64_t
     {
       this->ensure_valid();
@@ -87,6 +93,7 @@ class QNum {
     }
 
     detail::SymmetryImpl const* sym_ = nullptr;
+    /// \brief Tagged payload; bit 63 is reserved for a future interned-pointer representation.
     std::uint64_t code_ = 0;
 };
 

@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <stdexcept>
+
 using namespace uni20;
 
 TEST(SymmetryTest, ParseCanonicalizesSpacing)
@@ -29,6 +32,29 @@ TEST(QNumTest, U1EncodingUsesCanonicalDisplayOrder)
   EXPECT_EQ(minus_half.raw_code(), 2);
   EXPECT_EQ(plus_one.raw_code(), 3);
   EXPECT_EQ(minus_one.raw_code(), 4);
+}
+
+TEST(QNumTest, ReservesHighBitForOutOfLineRepresentation)
+{
+  Symmetry const sym{"N:U(1)"};
+  constexpr auto out_of_line_mask = std::uint64_t{1} << 63;
+  constexpr auto boundary_twice = std::int64_t{1} << 62;
+
+  auto const last_inline = make_qnum(sym, {{"N", U1{from_twice(boundary_twice)}}});
+  EXPECT_EQ(last_inline.raw_code(), out_of_line_mask - 1);
+
+  auto const first_out_of_line = U1{from_twice(-boundary_twice)};
+  EXPECT_THROW(static_cast<void>(make_qnum(sym, {{"N", first_out_of_line}})), std::overflow_error);
+  EXPECT_THROW(static_cast<void>(QNum(sym, out_of_line_mask)), std::overflow_error);
+}
+
+TEST(QNumTest, DirectProductPackingAlsoReservesHighBit)
+{
+  Symmetry const sym{"N:U(1),Sz:U(1)"};
+  constexpr auto component_twice = (std::int64_t{1} << 30) + 1;
+  auto const component = U1{from_twice(component_twice)};
+
+  EXPECT_THROW(static_cast<void>(make_qnum(sym, {{"N", component}, {"Sz", component}})), std::overflow_error);
 }
 
 TEST(QNumTest, BasicU1OperationsWork)
