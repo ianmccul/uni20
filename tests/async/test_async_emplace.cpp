@@ -211,13 +211,13 @@ TEST(AsyncEmplaceTest, WriteBufferEmplaceReplacesObjectOnRepeatedCalls)
   EXPECT_EQ(CountedDefaultConstructible::destructions, 2);
 }
 
-TEST(AsyncEmplaceTest, DeferredControlBlockAndQueueAreInitialized)
+TEST(AsyncEmplaceTest, UnconstructedControlBlockAndQueueAreInitialized)
 {
   Async<NonDefault> value;
   DebugScheduler sched;
 
   auto initial_control = value.value_ptr();
-  auto queue = value.queue();
+  auto const& queue = value.queue();
   EXPECT_FALSE(queue.has_pending_writers());
   EXPECT_EQ(initial_control.get(), nullptr);
 

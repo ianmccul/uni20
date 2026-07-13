@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <new>
 #include <type_traits>
 #include <utility>
 
@@ -37,40 +38,47 @@ template <TensorView Tensor> class ConstTensorView {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
     using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
+    /// \brief Marks this descriptor as a structurally copied async alias.
+    using async_alias_tag = void;
 
     /// \brief Bind a read-only view to an existing tensor.
     explicit constexpr ConstTensorView(tensor_type const& tensor) noexcept : tensor_(std::addressof(tensor)) {}
+
+    /// \brief Bind a read-only view to externally retained tensor storage.
+    /// \warning The pointer may identify reserved but unconstructed storage;
+    ///          callers must not resolve the view until the tensor is constructed.
+    explicit constexpr ConstTensorView(tensor_type const* tensor) noexcept : tensor_(tensor) {}
 
     /// \brief Return the underlying tensor's backend selector.
     [[nodiscard]] constexpr decltype(auto) backend_selector() const
         noexcept(noexcept(std::declval<tensor_type const&>().backend_selector()))
     {
-      return tensor_->backend_selector();
+      return this->base().backend_selector();
     }
 
     /// \brief Resolve the underlying tensor's read-only mdspan.
     [[nodiscard]] constexpr decltype(auto) mdspan() const
         noexcept(noexcept(std::declval<tensor_type const&>().mdspan()))
     {
-      return tensor_->mdspan();
+      return this->base().mdspan();
     }
 
     /// \brief Return the underlying tensor extents.
     [[nodiscard]] constexpr decltype(auto) extents() const
         noexcept(noexcept(std::declval<tensor_type const&>().extents()))
     {
-      return tensor_->extents();
+      return this->base().extents();
     }
 
     /// \brief Return one underlying tensor extent.
     [[nodiscard]] constexpr decltype(auto) extent(std::size_t axis) const
         noexcept(noexcept(std::declval<tensor_type const&>().extent(axis)))
     {
-      return tensor_->extent(axis);
+      return this->base().extent(axis);
     }
 
     /// \brief Return the tensor referenced by this view.
-    [[nodiscard]] constexpr tensor_type const& base() const noexcept { return *tensor_; }
+    [[nodiscard]] constexpr tensor_type const& base() const noexcept { return *std::launder(tensor_); }
 
   private:
     tensor_type const* tensor_;
@@ -84,40 +92,47 @@ template <TensorView Tensor> class ConjugatedTensorView {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
     using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
+    /// \brief Marks this descriptor as a structurally copied async alias.
+    using async_alias_tag = void;
 
     /// \brief Bind a lazy conjugating view to an existing tensor.
     explicit constexpr ConjugatedTensorView(tensor_type const& tensor) noexcept : tensor_(std::addressof(tensor)) {}
+
+    /// \brief Bind a conjugating view to externally retained tensor storage.
+    /// \warning The pointer may identify reserved but unconstructed storage;
+    ///          callers must not resolve the view until the tensor is constructed.
+    explicit constexpr ConjugatedTensorView(tensor_type const* tensor) noexcept : tensor_(tensor) {}
 
     /// \brief Return the underlying tensor's backend selector.
     [[nodiscard]] constexpr decltype(auto) backend_selector() const
         noexcept(noexcept(std::declval<tensor_type const&>().backend_selector()))
     {
-      return tensor_->backend_selector();
+      return this->base().backend_selector();
     }
 
     /// \brief Resolve the conjugating mdspan view.
     [[nodiscard]] constexpr auto mdspan() const
         noexcept(noexcept(uni20::conj(std::declval<tensor_type const&>().mdspan())))
     {
-      return uni20::conj(tensor_->mdspan());
+      return uni20::conj(this->base().mdspan());
     }
 
     /// \brief Return the underlying tensor extents.
     [[nodiscard]] constexpr decltype(auto) extents() const
         noexcept(noexcept(std::declval<tensor_type const&>().extents()))
     {
-      return tensor_->extents();
+      return this->base().extents();
     }
 
     /// \brief Return one underlying tensor extent.
     [[nodiscard]] constexpr decltype(auto) extent(std::size_t axis) const
         noexcept(noexcept(std::declval<tensor_type const&>().extent(axis)))
     {
-      return tensor_->extent(axis);
+      return this->base().extent(axis);
     }
 
     /// \brief Return the tensor referenced by this view.
-    [[nodiscard]] constexpr tensor_type const& base() const noexcept { return *tensor_; }
+    [[nodiscard]] constexpr tensor_type const& base() const noexcept { return *std::launder(tensor_); }
 
   private:
     tensor_type const* tensor_;

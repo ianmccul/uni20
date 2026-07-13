@@ -26,6 +26,32 @@ Important operations:
 
 `Async<T>()` starts with valid storage but unconstructed value.
 
+### Alias storage
+
+`make_shared_storage_alias<T>(owner, args...)` constructs a local `T` value
+whose control block retains one strong reference to `owner`. This is a
+hierarchical reference count:
+
+- copies and buffer handles increment the alias control block's local count
+- the alias control block contributes exactly one reference to its owner
+- destroying the final alias handle destroys the local value, then releases
+  the owner reference
+
+An alias reports `constructed()` only when both its local value and its owner
+chain are constructed. This allows a tensor-view descriptor to be created over
+the stable address of an unconstructed `Async<Tensor>` while preventing access
+until the parent writer constructs the tensor.
+
+`make_async_alias<T>(parent, args...)` adds causal ordering to this lifetime
+relationship. The resulting `Async<T>` shares the parent's exact `EpochQueue`;
+using a fresh queue for aliased bytes is incorrect. Alias owners may themselves
+be aliases, so composed views form a recursive owner chain while retaining one
+common timeline.
+
+Alias descriptor types declare `async_alias_tag`. Their `Async<T>` copies are
+structural handle copies that retain the same storage and queue. Ordinary
+`Async<T>` copies remain scheduled value copies.
+
 ## 2. Why Assignment Semantics Need a Trait
 
 Not all `T` should interpret `co_await writer = rhs` the same way:

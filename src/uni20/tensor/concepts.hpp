@@ -26,8 +26,9 @@ template <class T> using tensor_mutable_mdspan_t = decltype(std::declval<tensor_
 } // namespace detail
 
 /// \brief Tensor-level object that exposes a readable mdspan and backend selector.
-/// \details A tensor owns storage or provides another durable storage policy.
-///          Leaf kernels receive the resolved result of `mdspan()`, not the
+/// \details A tensor view combines mdspan access with storage/execution policy.
+///          Non-owning views remain subject to their documented source lifetime;
+///          leaf kernels receive the resolved result of `mdspan()`, not the
 ///          tensor object itself.
 template <class T>
 concept TensorView = requires(std::remove_reference_t<T> const& tensor) {

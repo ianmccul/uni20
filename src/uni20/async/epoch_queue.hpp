@@ -15,10 +15,23 @@ namespace uni20::async
 {
 
 /// \brief Coordinates multiple epochs of read/write gates.
+/// \details Queue-head operations enroll accesses in one causal timeline and
+///          must be externally serialized across every `Async` handle sharing
+///          this queue. Once created, epoch contexts provide synchronization
+///          for concurrent task execution.
 class EpochQueue {
   public:
     /// \brief Construct a queue with one initial epoch.
     EpochQueue() : current_(std::make_shared<EpochContext>()) { TRACE_MODULE(ASYNC, "EpochQueue Constructor", this); }
+
+    /// \brief Queue identity is shared by handle, never copied.
+    EpochQueue(EpochQueue const&) = delete;
+    /// \brief Queue identity is shared by handle, never copy-assigned.
+    EpochQueue& operator=(EpochQueue const&) = delete;
+    /// \brief Queue identity is stable and is not transferred by value.
+    EpochQueue(EpochQueue&&) = delete;
+    /// \brief Queue identity is stable and is not move-assigned by value.
+    EpochQueue& operator=(EpochQueue&&) = delete;
 
     /// \brief Destroy the epoch queue.
     ~EpochQueue() { TRACE_MODULE(ASYNC, "EpochQueue Destructor", this); }

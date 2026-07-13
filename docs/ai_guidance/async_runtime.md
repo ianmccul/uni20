@@ -76,6 +76,23 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 - `shared_storage<T>` uses reference-counted shared ownership of the control block.
 - Construction state is a property of the contained object, not of handle validity.
+- Alias storage owns a local descriptor and retains one reference to a separate lifetime owner.
+- Copies of alias storage increment the alias shard, not the lifetime owner's count.
+- The last alias destroys its local descriptor before releasing the owner reference.
+
+### ALIAS ORDERING
+
+- `make_async_alias(...)` shares the parent's exact `EpochQueue`.
+- A separate queue for storage that aliases parent bytes is a correctness bug.
+- Types declaring `async_alias_tag` receive structural `Async<T>` copy semantics.
+
+### QUEUE ENROLLMENT THREADING CONTRACT
+
+- Calls to `Async::read()` and `Async::write()` that share an `EpochQueue` must be externally serialized.
+- This rule applies collectively to a parent and every alias using its queue.
+- After a buffer is created, its task may execute concurrently; synchronization then belongs to `EpochContext`.
+- Do not add queue-head locking merely to support concurrent enrollment unless the threading contract is deliberately redesigned.
+- Whole-parent queue sharing may over-serialize disjoint aliases; solve that later with explicit subrange hazards, never independent queues over aliased bytes.
 
 ### FAILURE MODES
 

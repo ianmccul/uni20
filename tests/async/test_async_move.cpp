@@ -44,24 +44,6 @@ TEST(AsyncMoveTest, MoveAssignPreservesQueue)
   sched.run_all();
 }
 
-TEST(AsyncMoveTest, DeferredViewRetainsExternalOwner)
-{
-  auto backing = std::make_shared<int>(5);
-  Async<int> view(deferred, backing);
-
-  Async<int> moved_view(std::move(view));
-  backing.reset();
-
-  DebugScheduler sched;
-  sched.schedule([](ReadBuffer<int> reader) static -> AsyncTask {
-    auto& value = co_await reader;
-    EXPECT_EQ(value, 5);
-    co_return;
-  }(moved_view.read()));
-
-  sched.run_all();
-}
-
 TEST(AsyncMoveTest, AsyncMoveTransfersValue)
 {
   DebugScheduler sched;

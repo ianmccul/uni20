@@ -16,7 +16,15 @@ This glossary is optimized for retrieval, not pedagogy.
 - `ROLE`: Internal reference-counted storage used by `Async<T>`.
 - `INVARIANT`: Control-block validity and object construction state are separate.
 - `INVARIANT`: `emplace(...)` replaces by destroy-then-construct; `take()` moves out and destroys.
+- `INVARIANT`: Alias storage retains one owner reference while copies increment a local reference-count shard.
 - `MISCONCEPTION`: Valid storage implies a live `T`.
+
+### async alias
+
+- `ROLE`: `Async<View>` handle whose descriptor aliases another async value's storage.
+- `LIFETIME / OWNERSHIP`: Owns its descriptor, retains its parent storage, and shares the parent's `EpochQueue`.
+- `INVARIANT`: Copying is structural when the descriptor declares `async_alias_tag`.
+- `FAILURE MODE`: Giving aliased storage an independent epoch queue.
 
 ### EpochQueue
 

@@ -12,13 +12,9 @@
 #include "async_node.hpp"
 #include "buffers.hpp"
 #include "epoch_queue.hpp"
-#include <atomic>
 #include <concepts>
 #include <initializer_list>
 #include <memory>
-#include <mutex>
-#include <new>
-#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <uni20/common/demangle.hpp>
@@ -30,12 +26,38 @@ namespace uni20::async
 
 class DebugScheduler;
 
-/// \brief Tag type to construct an Async without an initial value pointer.
-struct deferred_t
+/// \brief Selects whether copying an `Async<T>` copies a value or an alias handle.
+enum class async_copy_semantics
+{
+  value,
+  shared_alias,
+};
+
+namespace detail
+{
+
+template <typename T, typename = void>
+struct default_async_copy_semantics : std::integral_constant<async_copy_semantics, async_copy_semantics::value>
 {};
 
-/// \brief Tag constant for deferred Async construction.
-inline constexpr deferred_t deferred{};
+template <typename T>
+struct default_async_copy_semantics<T, std::void_t<typename std::remove_cvref_t<T>::async_alias_tag>>
+    : std::integral_constant<async_copy_semantics, async_copy_semantics::shared_alias>
+{};
+
+} // namespace detail
+
+/// \brief Trait selecting copy behavior for an async value type.
+/// \details Ordinary values use scheduled value-copy semantics. Durable alias
+///          descriptor types can declare an `async_alias_tag` member type, or
+///          specialize this trait with `async_copy_semantics::shared_alias`, so
+///          copies retain the same storage and epoch queue.
+template <typename T> struct async_copy_semantics_of : detail::default_async_copy_semantics<T>
+{};
+
+/// \brief Convenience value for the async copy-semantics trait.
+template <typename T>
+inline constexpr async_copy_semantics async_copy_semantics_v = async_copy_semantics_of<std::remove_cvref_t<T>>::value;
 
 /// \brief Tag type to construct an Async without starting the queue object.
 struct async_do_not_start_t
@@ -45,16 +67,22 @@ struct async_do_not_start_t
 inline constexpr async_do_not_start_t async_do_not_start{};
 
 template <typename T> class ReverseValue; // forward declaration so we can add it as a friend of Async<T>
+template <typename T> class Async;
+
+/// \brief Construct an async alias that retains a parent value and shares its epoch queue.
+template <typename Alias, typename Parent, typename... Args>
+[[nodiscard]] Async<Alias> make_async_alias(Async<Parent> const& parent, Args&&... args);
 
 /// \brief Async<T> is a container for coroutine-safe asynchronous read/write.
 ///
 /// `Async<T>` stores a value of type `T` and mediates access through
-/// epoch-based coordination. The value and access queue are jointly
-/// refcounted by internal shared state, allowing buffer handles
-/// to outlive the owning Async container.
+/// epoch-based coordination. The value, queue, and individual epoch contexts
+/// use shared ownership where required. Buffer handles retain their storage and
+/// selected epoch context, so they may outlive the owning Async container.
 ///
-/// \note Copy construction and copy assignment are value-level operations: they schedule a copy kernel and do not
-///       clone dependency history or internal queue state.
+/// \note Copy construction and copy assignment are value-level operations by
+///       default. Types opting into `async_copy_semantics::shared_alias` copy
+///       the storage handle and dependency timeline instead.
 ///
 /// \note Buffers maintain shared ownership of the internal state, so `ReadBuffer<T>` and
 ///       `WriteBuffer<T>` may safely outlive the Async.
@@ -65,21 +93,25 @@ template <typename T> class Async {
     using value_type = T;
 
     /// \brief Initializes async state without constructing the stored value.
-    Async() : storage_(make_unconstructed_shared_storage<T>()), queue_()
+    Async()
+      requires(async_copy_semantics_v<T> == async_copy_semantics::value)
+        : storage_(make_unconstructed_shared_storage<T>()), queue_(std::make_shared<EpochQueue>())
     {
-      queue_.latest()->start();
+      queue_->latest()->start();
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_);
+      queue_->initialize_node(storage_);
 #endif
     }
 
     /// \brief Initializes async state without constructing the stored value or starting the queue.
     /// \param tag Sentinel tag selecting non-starting construction.
-    Async(async_do_not_start_t tag) : storage_(make_unconstructed_shared_storage<T>()), queue_()
+    Async(async_do_not_start_t tag)
+      requires(async_copy_semantics_v<T> == async_copy_semantics::value)
+        : storage_(make_unconstructed_shared_storage<T>()), queue_(std::make_shared<EpochQueue>())
     {
       (void)tag;
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_);
+      queue_->initialize_node(storage_);
 #endif
     }
 
@@ -87,13 +119,12 @@ template <typename T> class Async {
     /// \tparam U Value type convertible to T.
     /// \param val Initial value forwarded into the Async storage.
     template <typename U>
-      requires std::convertible_to<U, T>
-    Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_()
+      requires(std::convertible_to<U, T> && async_copy_semantics_v<T> == async_copy_semantics::value)
+    Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_(std::make_shared<EpochQueue>())
     {
-      queue_.latest()->start_reading();
-      // queue_.initialize(true);
+      queue_->latest()->start_reading();
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_);
+      queue_->initialize_node(storage_);
 #endif
     }
 
@@ -101,13 +132,14 @@ template <typename T> class Async {
     /// \tparam U Source type that can explicitly construct T.
     /// \param u Value forwarded to construct the stored T instance.
     template <typename U>
-      requires std::constructible_from<T, U> && (!std::convertible_to<U, T>)
-    explicit Async(U&& u) : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_()
+      requires(std::constructible_from<T, U> && (!std::convertible_to<U, T>) &&
+               async_copy_semantics_v<T> == async_copy_semantics::value)
+    explicit Async(U&& u)
+        : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_(std::make_shared<EpochQueue>())
     {
-      queue_.latest()->start_reading();
-      // queue_.initialize(true);
+      queue_->latest()->start_reading();
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_);
+      queue_->initialize_node(storage_);
 #endif
     }
 
@@ -115,13 +147,13 @@ template <typename T> class Async {
     /// \tparam Args Argument types forwarded to `T`'s constructor.
     /// \param args Arguments used to initialize the contained value.
     template <typename... Args>
-      requires std::constructible_from<T, Args...>
-    Async(Args&&... args) : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_()
+      requires(std::constructible_from<T, Args...> && async_copy_semantics_v<T> == async_copy_semantics::value)
+    Async(Args&&... args)
+        : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>())
     {
-      queue_.latest()->start_reading();
-      // queue_.initialize(true);
+      queue_->latest()->start_reading();
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_);
+      queue_->initialize_node(storage_);
 #endif
     }
 
@@ -132,14 +164,14 @@ template <typename T> class Async {
     /// \param args Additional arguments forwarded to `T`.
     /// \note This mirrors similar constructors where std::in_place is used.
     template <typename U, typename... Args>
-      requires std::constructible_from<T, std::initializer_list<U>&, Args...>
+      requires(std::constructible_from<T, std::initializer_list<U>&, Args...> &&
+               async_copy_semantics_v<T> == async_copy_semantics::value)
     Async(std::initializer_list<U> init, Args&&... args)
-        : storage_(make_shared_storage<T>(init, std::forward<Args>(args)...)), queue_()
+        : storage_(make_shared_storage<T>(init, std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>())
     {
-      queue_.latest()->start_reading();
-      // queue_.initialize(true);
+      queue_->latest()->start_reading();
 #if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_);
+      queue_->initialize_node(storage_);
 #endif
     }
 
@@ -152,7 +184,20 @@ template <typename T> class Async {
     ///          Coroutine handles, epoch queues, and computation histories are not copied.
     ///
     /// \see `async_assign` for explicit value-level copy scheduling.
-    Async(const Async& rhs) : Async() { async_assign(*this, rhs); }
+    Async(Async const& rhs)
+      requires(async_copy_semantics_v<T> == async_copy_semantics::value)
+        : Async()
+    {
+      async_assign(*this, rhs);
+    }
+
+    /// \brief Structurally copy an async alias handle.
+    /// \details Alias copies retain the same descriptor storage, lifetime owner,
+    ///          and epoch queue.
+    Async(Async const& rhs)
+      requires(async_copy_semantics_v<T> == async_copy_semantics::shared_alias)
+        : storage_(rhs.storage_), queue_(rhs.queue_)
+    {}
 
     /// \brief Assign an optional debug label for task-registry graph output.
     /// \param label Human-readable label used only by debug diagnostics.
@@ -160,7 +205,7 @@ template <typename T> class Async {
     Async& debug_name(std::string const& label)
     {
 #if UNI20_DEBUG_DAG
-      TaskRegistry::name_async_value(queue_.debug_node(), label);
+      TaskRegistry::name_async_value(queue_->debug_node(), label);
 #else
       static_cast<void>(label);
 #endif
@@ -173,78 +218,11 @@ template <typename T> class Async {
     Async const& debug_name(std::string const& label) const
     {
 #if UNI20_DEBUG_DAG
-      TaskRegistry::name_async_value(queue_.debug_node(), label);
+      TaskRegistry::name_async_value(queue_->debug_node(), label);
 #else
       static_cast<void>(label);
 #endif
       return *this;
-    }
-
-    /// \brief Construct an Async that defers pointer initialization while sharing ownership.
-    ///
-    /// This constructor aliases the control block of \p control so that the lifetime of the
-    /// referenced object is tied to the same reference count as the source `std::shared_ptr`.
-    /// The stored pointer is installed from `control.get()` immediately so that deferred views
-    /// participate in the same sequencing as the originating Async value.
-    ///
-    /// \tparam Control Type of the shared pointer used for aliasing the control block.
-    /// \param tag `async::deferred` tag to select deferred construction.
-    /// \param control Shared pointer whose control block should be reused for this Async value.
-    /// \param queue Queue to reuse for sequencing; defaults to a fresh queue when omitted.
-    /// \throws std::invalid_argument if \p control is null.
-    /// \warning The caller must ensure that `control.get()` remains valid for the Async lifetime.
-    //     template <typename Control>
-    //       requires std::convertible_to<Control*, T*>
-    //     Async(deferred_t tag, std::shared_ptr<Control> control, std::shared_ptr<EpochQueue> queue)
-    //         : storage_(std::make_shared<detail::StorageBuffer<T>>()), queue_(std::move(queue))
-    //     {
-    //       (void)tag;
-    //       DEBUG_CHECK(storage_);
-    //       if (!control) throw std::invalid_argument("Async deferred control block cannot be null");
-    //       auto* ptr = control.get();
-    //       storage_->reset_external_pointer(ptr, control);
-    //       queue_.initialize(initial_value_initialized());
-    // #if UNI20_DEBUG_DAG
-    //       queue_.initialize_node(storage_);
-    // #endif
-    //     }
-
-    /// \brief Construct an Async that defers pointer initialization while sharing ownership.
-    /// \tparam Control Type of the shared pointer used for aliasing the control block.
-    /// \param tag `async::deferred` tag to select deferred construction.
-    /// \param control Shared pointer whose control block should be reused for this Async value.
-    template <typename Control>
-      requires std::convertible_to<Control*, T*>
-    Async(deferred_t tag, std::shared_ptr<Control> control) : storage_(make_unconstructed_shared_storage<T>()), queue_()
-    {
-      (void)tag;
-      if (!control) throw std::invalid_argument("Async deferred control block cannot be null");
-      storage_.emplace(*control);
-#if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_);
-#endif
-    }
-
-    /// \brief Construct a deferred Async that aliases another Async's storage while keeping a separate queue.
-    ///
-    /// The constructed Async retains the parent's storage lifetime via a shared
-    /// control block and installs the parent's pointer immediately so that the
-    /// view participates in the same storage without needing additional setup.
-    /// A fresh queue is created for the deferred view; if queue sharing is required,
-    /// use the overload that accepts an explicit queue pointer.
-    ///
-    /// \tparam U Value type of the parent Async whose storage is retained.
-    /// \param tag `async::deferred` tag to select deferred construction.
-    /// \param parent Async whose storage and queue lifetimes should be preserved.
-    template <typename U>
-      requires std::convertible_to<U*, T*>
-    Async(deferred_t tag, Async<U>& parent) : storage_(parent.storage()), queue_()
-    {
-      (void)tag;
-      (void)parent;
-#if UNI20_DEBUG_DAG
-      queue_.initialize_node(storage_);
-#endif
     }
 
     /// \brief Copy-assign from another Async<T>, overwriting this instance's value timeline.
@@ -267,12 +245,26 @@ template <typename T> class Async {
     /// \see async_assign for explicit value-copy semantics
     /// \param rhs Source Async whose value timeline is copied.
     /// \return Reference to *this after scheduling the copy.
-    Async& operator=(const Async& rhs)
+    Async& operator=(Async const& rhs)
+      requires(async_copy_semantics_v<T> == async_copy_semantics::value)
     {
       if (this != &rhs)
       {
         *this = Async<T>{}; // reset the epoch queue
         async_assign(*this, rhs);
+      }
+      return *this;
+    }
+
+    /// \brief Structurally assign an async alias handle.
+    /// \return Reference to this alias handle.
+    Async& operator=(Async const& rhs)
+      requires(async_copy_semantics_v<T> == async_copy_semantics::shared_alias)
+    {
+      if (this != &rhs)
+      {
+        storage_ = rhs.storage_;
+        queue_ = rhs.queue_;
       }
       return *this;
     }
@@ -301,11 +293,11 @@ template <typename T> class Async {
 
     /// \brief Begin an asynchronous read of the value.
     /// \return A ReadBuffer<T> which may be co_awaited.
-    ReadBuffer<T> read() const { return ReadBuffer<T>(queue_.create_read_context(storage_)); }
+    ReadBuffer<T> read() const { return ReadBuffer<T>(queue_->create_read_context(storage_)); }
 
     /// \brief Begin an asynchronous write of the value.
     /// \return A WriteBuffer<T> which may be co_awaited.
-    WriteBuffer<T> write() { return WriteBuffer<T>(queue_.create_write_context(storage_)); }
+    WriteBuffer<T> write() { return WriteBuffer<T>(queue_->create_write_context(storage_)); }
 
     // template <typename Sched> T& get_wait(Sched& sched)
     // {
@@ -369,19 +361,17 @@ template <typename T> class Async {
     T& unsafe_value_ref() { return *require_value(); }
 
     /// \brief Inspect the shared epoch queue.
-    /// \details
-    /// Buffer handles can outlive
-    /// the originating Async object, so they must retain the same queue instance to keep
-    /// epoch transitions and task lifetime semantics valid.
-    /// \return Shared access to the epoch queue implementation.
-    EpochQueue const& queue() const { return queue_; }
+    /// \details Parent values and aliases share this exact mutable queue.
+    ///          Individual buffers retain their selected epoch contexts.
+    /// \return Access to the epoch queue implementation.
+    EpochQueue const& queue() const { return *queue_; }
     /// \brief Access the shared storage control block.
     /// \return Shared storage object for the contained value.
     shared_storage<T> const& storage() const { return storage_; }
 
     /// \brief Access the stored value pointer with shared ownership semantics.
     ///
-    /// The returned pointer aliases the StorageBuffer control block so that the
+    /// The returned pointer retains the `shared_storage` control block so that the
     /// lifetime of the referenced value is tied to the same shared ownership as
     /// the Async container itself.
     std::shared_ptr<T> value_ptr() const
@@ -391,6 +381,14 @@ template <typename T> class Async {
     }
 
   private:
+    /// \brief Construct from alias storage and an existing epoch queue.
+    Async(shared_storage<T> storage, std::shared_ptr<EpochQueue> queue)
+        : storage_(std::move(storage)), queue_(std::move(queue))
+    {
+      CHECK(storage_.has_lifetime_owner());
+      CHECK(queue_);
+    }
+
     /// \brief Returns the raw stored pointer when available.
     /// \return Pointer to the stored value, or `nullptr` if unconstructed.
     /// \throws async_storage_missing when storage metadata is unavailable.
@@ -410,14 +408,23 @@ template <typename T> class Async {
     }
 
     friend class ReverseValue<T>;
+    template <typename Alias, typename Parent, typename... Args>
+    friend Async<Alias> make_async_alias(Async<Parent> const& parent, Args&&... args);
 
     mutable shared_storage<T> storage_;
-    /// \brief Shared queue state retained by Async and all derived buffers.
-    /// \details Kept as shared ownership (rather than value) so in-flight ReadBuffer/
-    ///          WriteBuffer objects remain valid even after the originating Async is moved
-    ///          or destroyed.
-    EpochQueue queue_;
+    /// \brief Mutable timeline shared by a parent `Async` and all of its aliases.
+    /// \details Buffers retain individual epoch contexts; sharing the queue object
+    ///          ensures future parent and alias buffers advance one timeline.
+    std::shared_ptr<EpochQueue> queue_;
 };
+
+template <typename Alias, typename Parent, typename... Args>
+[[nodiscard]] Async<Alias> make_async_alias(Async<Parent> const& parent, Args&&... args)
+{
+  static_assert(async_copy_semantics_v<Alias> == async_copy_semantics::shared_alias,
+                "Async aliases require shared-alias copy semantics");
+  return Async<Alias>(make_shared_storage_alias<Alias>(parent.storage_, std::forward<Args>(args)...), parent.queue_);
+}
 
 /// \brief Convenience helper that forwards to Async<T>::read().
 /// \tparam T Stored value type.

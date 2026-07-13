@@ -40,7 +40,27 @@ or concurrently with TBB schedulers.
 
 Key ownership fact:
 
-- buffers keep queue/storage alive even if the originating `Async<T>` object is moved or destroyed
+- buffers keep their storage and selected epoch context alive even if the originating `Async<T>` object is moved or destroyed
+- async aliases retain their parent storage and use the parent's exact queue
+
+## Queue Enrollment Threading Contract
+
+`EpochQueue` is one causal timeline, not a concurrent registration data
+structure. Calls that enroll a new access in that timeline must be externally
+serialized. This includes `Async<T>::read()` and `Async<T>::write()` calls made
+through the parent or through any alias sharing its queue.
+
+Once a read or write buffer has been created, the buffer and its task may run
+concurrently with other scheduled work. The selected `EpochContext` provides
+the synchronization needed during execution. Concurrently mutating the queue
+head to create buffers is outside the API contract; sharing a queue between
+aliases does not broaden that contract.
+
+Using one queue for a parent and its aliases is deliberately conservative. It
+may serialize operations on disjoint slices, but it prevents two independent
+timelines from authorizing conflicting access to the same storage. Finer-grain
+parallelism requires explicit subrange hazard tracking rather than independent
+queues over aliased bytes.
 
 ## Async<T> Construction States
 
@@ -114,12 +134,18 @@ It does not copy values.
 
 ### Copy construction/assignment
 
-These are value-level operations.
+These are value-level operations for ordinary values.
 
 - copy construction schedules transfer from source value into a fresh destination timeline
 - copy assignment resets destination timeline first, then schedules value transfer
 
 This is deliberate: copying does not clone dependency graph internals.
+
+Alias descriptor types declare `async_alias_tag`. Copying
+`Async<AliasDescriptor>` is instead a structural handle copy: storage,
+lifetime owner, and epoch queue remain shared. This exception is necessary
+because copying an alias onto a fresh timeline would lose ordering with the
+bytes it references.
 
 ## Waiting and Blocking
 

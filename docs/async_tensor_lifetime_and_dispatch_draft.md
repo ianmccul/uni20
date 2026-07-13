@@ -1,6 +1,8 @@
 # Async Tensor Lifetime And Dispatch Draft
 
-**Status:** design notes for review. This is not a finalized API contract.
+**Status:** design notes for review. Dense async aliases and conjugating tensor
+views are implemented; `AsyncArray`, slice descriptors, and Python integration
+remain future work.
 
 This note records the async-specific part of the tensor design discussion:
 how `Async<Tensor>` should produce safe views/refs, how those views interact
@@ -74,36 +76,28 @@ a descriptor table. Each element handle adds an element/block epoch token.
 
 ## Async Aliases
 
-The design likely needs an explicit async alias handle. Possible names:
+Dense aliases use ordinary `Async<View>` types. The view models `TensorView`,
+not mdspan, and therefore retains synchronous tensor metadata and exposes
+`backend_selector()` plus `mdspan()`:
 
 ```cpp
-AsyncTensorRef
-AsyncTensorAlias
-TensorAccess
-AsyncTensorView
+Async<Tensor<complex<double>, 2>> parent;
+Async<ConjugatedTensorView<Tensor<complex<double>, 2>>> view =
+    async::conj(parent);
 ```
 
-The name is open, but the role is not. An async alias is not just
-`Async<mdspan>`. It is a small handle that contains enough information to
-materialize a view safely later:
+The alias `shared_storage<View>` owns the descriptor in a local control block.
+That control block retains one reference to the parent storage, forming a
+hierarchical reference-count shard. `Async<View>` also shares the parent's
+exact `EpochQueue`. Alias descriptor types declare `async_alias_tag`, so copies
+of `Async<View>` are structural handle copies rather than value copies onto a
+new timeline. Alias-marked types cannot use ordinary root `Async<T>` value
+constructors; they must be created with `make_async_alias(...)` or copied/moved
+from an existing alias.
 
-```cpp
-template <class Parent, class Descriptor, class Hazard>
-class AsyncTensorAlias {
-  parent_owner_token owner_;
-  Descriptor descriptor_;
-  Hazard hazard_;
-  backend_selector_type selector_;
-
-public:
-  auto read() const;  // awaitable -> resolved const mdspan-like view
-  auto write();       // awaitable -> resolved mutable mdspan-like view/ref
-};
-```
-
-`read()` and `write()` do not return the final view immediately. They return
-buffer-like awaitables. Awaiting those objects performs the synchronization and
-then combines the current parent data pointer with the stored descriptor:
+`read()` and `write()` return buffer-like awaitables. Awaiting them performs
+the synchronization and then exposes the stored tensor-level descriptor. A
+leaf operation obtains the resolved mdspan by calling `mdspan()` on that view:
 
 ```cpp
 auto a = co_await A.read();       // resolved const view
@@ -129,17 +123,18 @@ build on:
   outlive the original buffer object.
 - `Async<T>::value_ptr()` creates a pointer-like owner token by capturing
   `shared_storage<T>`.
-- The existing `deferred` constructors sketch aliasing, but they currently do
-  not fully specify tensor subobject aliasing or queue sharing.
+- `make_shared_storage_alias(...)` owns a local descriptor while retaining one
+  parent-storage reference.
+- `make_async_alias(...)` combines that ownership with the parent's exact queue.
 
 That last point matters. A tensor slice/view alias must share the parent's
 lifetime and must use the correct hazard/epoch context. A fresh independent
 queue is not correct for a view that aliases the parent's bytes, because writes
 through the parent and writes through the view must be ordered together.
 
-The current `shared_storage` documentation also notes that there is not yet a
-facility for sharing ownership with subobjects. Async tensor aliases are the
-main use case for such a facility.
+The first dense implementation conservatively shares the whole parent queue.
+Subrange hazard records remain future work for independently schedulable
+slices and coalesced block views.
 
 ## AsyncArray
 
@@ -326,7 +321,7 @@ of `T::operator=`:
 Async<Tensor>     // value/replace: construct if empty, otherwise assign tensor value
 Async<TensorRef>       // write-through: target must already refer to parent storage
 Async<mdspan-like>     // rebind descriptor: copy/emplace descriptor, no element copy
-AsyncTensorAlias       // handle semantics: copy aliases owner/hazard/descriptor
+Async<TensorAlias>     // structural copy aliases owner/hazard/descriptor
 ```
 
 A persistent async tensor slice should probably be an alias handle, not a
@@ -437,33 +432,25 @@ Expected behavior:
 
 ## Open Questions
 
-1. **Names.** Should the durable async view handle be called `AsyncTensorRef`,
-   `AsyncTensorAlias`, `TensorAccess`, or something else?
-2. **Concept split.** Should the public concepts be `TensorReadAccess` /
+1. **Concept split.** Should the public concepts be `TensorReadAccess` /
    `TensorWriteAccess`, `AsyncTensorReadable` / `AsyncTensorWritable`, or a
    single operand concept with normalized `read()`/`write()` access?
-3. **Subobject owner token.** Should `shared_storage` gain an explicit aliasing
-   facility for subobjects, or should tensor aliases store a parent
-   `shared_storage<Parent>` plus an offset/descriptor?
-4. **Queue sharing.** For dense slices, should the first implementation share
-   the parent tensor's whole epoch queue, or introduce slice/subrange hazard
-   records immediately?
-5. **Coalesced hazards.** Should a coalesced `AsyncArray` view await many block
+2. **Coalesced hazards.** Should a coalesced `AsyncArray` view await many block
    queues, or should `AsyncArray` have a parent/coalesced queue that composes
    with element queues?
-6. **Structure-async dispatch.** How should backend selection work when an
+3. **Structure-async dispatch.** How should backend selection work when an
    `Async<Tensor>` result does not have a descriptor until after awaiting
    the producer?
-7. **Assignment trait.** Is the existing `rebind` versus `write_through` split
+4. **Assignment trait.** Is the existing `rebind` versus `write_through` split
    sufficient once `Tensor::operator=` has value/replace semantics, or is
    a separate `value` assignment-semantic name still useful for documentation?
-8. **Python view lifetime.** Should Python-facing views reuse the same alias
-   handle type as C++ async tensor refs, or should they have a separate
-   nanobind/DLPack owner-token wrapper?
-9. **Async temporary type.** Should async temporaries be represented as ordinary
-   `Async<Tensor<...>>`, as an `AsyncTensorAlias` over scratch storage, or
+5. **Python view materialization.** How should a Python wrapper materialize an
+   owning `Tensor` when an `Async<View>` is accessed, while keeping bare C++
+   proxy objects out of the Python API?
+6. **Async temporary type.** Should async temporaries be represented as ordinary
+   `Async<Tensor<...>>`, as an `Async<TensorAlias>` over scratch storage, or
    as a separate scratch-buffer handle owned by the scheduler?
-10. **Backend state.** Should async temporary allocation consume the same
+7. **Backend state.** Should async temporary allocation consume the same
     backend selector value used by dispatch, or only the composed backend state
     tuple fields that affect allocation, such as domain, device, scheduler
     target, allocator, communicator, and placement descriptor?

@@ -12,6 +12,8 @@ kernels operate on resolved mdspans.
   column-major-by-default host `DenseMatrix` alias.
 - `conjugate.hpp`: read-only tensor view backed by the lazy conjugating mdspan
   accessor.
+- `async.hpp`: async tensor aliases that retain parent storage and share its
+  epoch queue.
 - `copy.hpp`: backend-dispatched copies and `make_tensor(...)` materialization.
 - `concepts.hpp`: readable, mutable, strided, and rank-constrained tensor-level
   concepts.
@@ -44,3 +46,6 @@ kernels operate on resolved mdspans.
 - Tensor operations should lower to dense primitives only after storage, layout,
   backend, and any symmetry metadata have been resolved by the appropriate
   higher layer.
+- `async::conj(Async<Tensor>)` returns an `Async<ConjugatedTensorView>` rather
+  than materializing values. The alias remains a tensor-level object whose
+  `mdspan()` resolves the conjugating accessor after the shared epoch is ready.

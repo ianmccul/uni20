@@ -21,6 +21,14 @@ For explanations, see:
 | `AsyncTask` | Move-only coroutine handle owner | schedule via `schedule(...)` |
 | `IScheduler` | Scheduler interface | `schedule`, `pause`, `resume`, wait hooks |
 
+Async aliases:
+
+- `make_async_alias<View>(parent, args...)` constructs a durable view descriptor
+  that retains `parent` and shares its exact epoch queue
+- alias descriptor types declare `async_alias_tag`, making `Async<View>` copies
+  structural handle copies
+- ordinary `Async<T>` copies remain scheduled value copies
+
 ## Canonical Coroutine Pattern
 
 ```cpp

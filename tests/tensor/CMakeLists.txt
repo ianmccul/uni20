@@ -7,3 +7,8 @@ add_test_module(tensor
     test_tensor_output.cpp
   LIBS uni20_common uni20_core
 )
+
+add_test_module(tensor_async
+  SOURCES test_tensor_async.cpp
+  LIBS uni20_common uni20_core uni20_async
+)

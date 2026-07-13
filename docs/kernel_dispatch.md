@@ -767,9 +767,9 @@ concept async_block = requires(H h) {
 synchronous descriptor table, and a per-element epoch queue for independent
 ordering. Its element handle models `async_block` and shares a common public
 interface with `Async<T>`; it does not allocate a full `Async` per block. (For
-code that genuinely wants an async resolved view from an element, the existing
-deferred/aliasing `Async` constructors — `async.hpp:216`, `:239` — alias the
-shared backing with the element's queue.)
+code that genuinely wants an async tensor view, `make_async_alias(...)` owns a
+local view descriptor, retains the backing storage, and reuses the exact queue
+that orders access to those bytes.)
 
 ### BlockTensor: two async axes
 
