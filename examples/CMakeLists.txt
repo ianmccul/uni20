@@ -117,6 +117,9 @@ uni20_add_example(async_example async/async_example.cpp fmt::fmt uni20_common un
 uni20_add_example(async_example2 async/async_example2.cpp fmt::fmt uni20_common uni20_async)
 uni20_add_example(async_ops_example async/async_ops_example.cpp fmt::fmt uni20_common uni20_async)
 uni20_add_example(async_buffer_semantics_example async/async_buffer_semantics_example.cpp fmt::fmt uni20_common uni20_async)
+uni20_add_example(async_buffer_await_paths_example async/async_buffer_await_paths_example.cpp fmt::fmt uni20_common
+                  uni20_async)
+add_test(NAME AsyncBufferAwaitPathsExample COMMAND async_buffer_await_paths_example)
 uni20_add_example(async_kernel_shapes_example async/async_kernel_shapes_example.cpp fmt::fmt uni20_common uni20_async)
 uni20_add_example(async_tbb_reduction_example async/async_tbb_reduction_example.cpp fmt::fmt uni20_common uni20_async
                   TBB::tbb)

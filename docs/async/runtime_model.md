@@ -14,7 +14,9 @@ not from manual locking in kernel code.
 | scheduler | decides when *ready* tasks run (`DebugScheduler`, `TbbScheduler`, ...) |
 | storage | where the `T` object lives (`shared_storage<T>`) |
 | epoch | one "version step" of an `Async<T>` timeline: writer phase then reader phase |
-| buffer | a typed capability to read or write at a specific epoch (`ReadBuffer<T>`, `WriteBuffer<T>`) |
+| buffer | a typed capability for shared reading or exclusive mutation at a specific epoch (`ReadBuffer<T>`, `WriteBuffer<T>`) |
+| await path | the temporary adaptor selected by expressions such as `maybe()`, `storage()`, or `take()` |
+| access proxy | borrowed or owning result that exposes a ready value or its storage |
 | phase | internal epoch state (`Pending`, `Started`, `Writing`, `Reading`, `Finished`) |
 
 ## Design Intent
@@ -34,7 +36,7 @@ or concurrently with TBB schedulers.
 |---|---|---|
 | `Async<T>` | `shared_storage<T>`, `EpochQueue` handle | user-facing async value |
 | `ReadBuffer<T>` | `EpochContextReader<T>` | read gate for one epoch |
-| `WriteBuffer<T>` | `EpochContextWriter<T>` | write gate for one epoch |
+| `WriteBuffer<T>` | `EpochContextWriter<T>` | exclusive mutable gate for one epoch |
 | `AsyncTask` | coroutine handle ownership token | scheduler-managed coroutine lifetime |
 | `EpochContext` | phase state + waiter sets | enforces writer/read transitions |
 
@@ -42,6 +44,34 @@ Key ownership fact:
 
 - buffers keep their storage and selected epoch context alive even if the originating `Async<T>` object is moved or destroyed
 - async aliases retain their parent storage and use the parent's exact queue
+
+## Buffers Are Capabilities
+
+There are two ordinary buffer capabilities:
+
+- `ReadBuffer<T>` owns shared read participation in one epoch.
+- `WriteBuffer<T>` owns exclusive mutable participation in one epoch.
+
+`Write` describes the exclusive producer role in the epoch protocol, not a
+write-only memory permission. After awaiting a `WriteBuffer<T>`, a coroutine
+may inspect and mutate an existing `T`, construct or replace an absent value,
+or move the value out. Ordinary in-place mutation therefore needs one writer
+and no separate reader for the same queue.
+
+The several awaiter and proxy classes do not represent additional buffers.
+They implement choices such as borrowed versus owning lifetime, optional read,
+cancellation behavior, direct storage access, or consuming `take()`. Repeated
+awaits on one buffer continue to use the same selected epoch.
+
+For each queue used by an ordinary operation, the supported access set is:
+
+- one or more readers and no writer, or
+- one writer and no separate readers.
+
+A reader and writer from the same queue select different epochs. Advanced code
+can intentionally copy a read value, release that reader, and then await the
+later writer, but this is a sequential two-epoch transition rather than
+simultaneous read/write access.
 
 ## Queue Enrollment Threading Contract
 
@@ -91,7 +121,7 @@ Each epoch proceeds through phases:
 
 Operationally, think in this sequence:
 
-1. writer(s) acquire write phase
+1. the writer acquires the write phase
 2. active writer completes and releases
 3. readers run
 4. when readers drain, next epoch can advance
@@ -160,7 +190,7 @@ Blocking API is a bridge for thread-bound callers; coroutine code should prefer 
 ## Invariants You Can Rely On
 
 - default `Async<T>` has unconstructed value until first construction path
-- mutable write access (`co_await writer`) requires already-constructed storage
+- dereferencing or converting a write proxy to `T&` requires already-constructed storage
 - `writer.emplace(...)` is always valid construction/reconstruction path
 - proxy assignment (`co_await writer = value`) is also valid first-write construction path
 - `take_release()` is the explicit "move out and release writer" path
@@ -170,7 +200,8 @@ Blocking API is a bridge for thread-bound callers; coroutine code should prefer 
 ## Common Consequences in Real Code
 
 - first write can use `co_await writer = value`
-- read-modify-write kernels should release read gates before awaiting conflicting writes
+- read-modify-write kernels use one `WriteBuffer` for exclusive access
+- separate read and write buffers on one queue require an explicit two-epoch algorithm and early reader release
 - deadlocks are typically dependency-shape bugs, not scheduler bugs
 
 ## Related References

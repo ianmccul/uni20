@@ -4,33 +4,25 @@
 
 using namespace uni20::async;
 
-AsyncTask async_assign(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf)
+AsyncTask async_assign(ReadBuffer<int> read_buffer, WriteBuffer<int> write_buffer)
 {
-  // Snapshot-read src, and register as next writer on dst
-
   TRACE("starting coroutine");
-  TRACE("async_assign", &readBuf, &writeBuf);
+  TRACE("async_assign", &read_buffer, &write_buffer);
 
-  // Wait for src to be ready
-  auto tin = co_await try_await(readBuf);
-  int in;
-  if (tin)
-    in = *tin;
+  auto ready = co_await try_await(read_buffer);
+  int input;
+  if (ready)
+    input = *ready;
   else
-    in = co_await readBuf;
+    input = co_await read_buffer;
 
-  //  int in = co_await readBuf;
+  TRACE("Got the read_buffer");
 
-  TRACE("Got the readBuf");
+  // Proxy assignment also constructs an initially empty destination.
+  co_await write_buffer = input;
 
-  // Wait until it's our turn to write
-  int& out = co_await writeBuf;
-
-  TRACE("got the writeBuf");
-
-  // Perform the heavy copy
-  TRACE(out, in);
-  out = in;
+  TRACE("wrote the write_buffer");
+  TRACE(input);
 
   co_return;
 }
@@ -39,42 +31,29 @@ template <typename T> AsyncTask async_assign_sum(ReadBuffer<T> a, ReadBuffer<T> 
 {
   TRACE("starting async_assign_sum");
 
-  // auto [va, vb, vout] = co_await all(a, b, out);
-  // TRACE("got a, b, out");
-
-  // auto va = co_await a;
-  // auto vb = co_await b;
-
   auto [va, vb] = co_await all(a, b);
-  T& vout = co_await out;
+  T const result = va + vb;
+  co_await out = result;
 
-  // auto [va, vb] = co_await all(a, b);
-
-  //  auto [vout] = co_await all(out);
-
-  vout = va + vb;
-
-  TRACE(va, vb, vout);
+  TRACE(va, vb, result);
 
   co_return;
 }
 
 int main()
 {
-  DebugScheduler sched;
+  DebugScheduler scheduler;
 
   Async<int> i = 10;
   Async<int> j = 5;
   Async<int> k = 2;
 
-  // sched.schedule(async_assign(i.read(), j.write())); // j = i, but async
-  sched.schedule(async_assign(j.read(), k.write())); // k = j, but async
+  // scheduler.schedule(async_assign(i.read(), j.write())); // j = i, but async
+  scheduler.schedule(async_assign(j.read(), k.write())); // k = j, but async
 
-  sched.schedule(async_assign_sum(i.read(), j.read(), k.write())); // k = i + j;
+  scheduler.schedule(async_assign_sum(i.read(), j.read(), k.write())); // k = i + j;
 
-  auto kk = k.get_wait(sched);
-
-  //  sched.run_all();
+  auto kk = k.get_wait(scheduler);
 
   TRACE(kk);
 }

@@ -44,7 +44,7 @@ The docs are split into two groups:
 | [`getting_started.md`](getting_started.md) | First runnable mental model and code patterns | New contributors |
 | [`coroutines_primer.md`](coroutines_primer.md) | C++ coroutine background for this runtime | New contributors |
 | [`runtime_model.md`](runtime_model.md) | Core semantics of `Async<T>`, epochs, ownership, ordering | Everyone |
-| [`buffers_and_awaiters.md`](buffers_and_awaiters.md) | Exact behavior of `ReadBuffer`/`WriteBuffer` await forms | Runtime and kernel authors |
+| [`buffers_and_awaiters.md`](buffers_and_awaiters.md) | Two-capability buffer model, await paths, proxies, and exact await behavior | Runtime and kernel authors |
 | [`cookbook.md`](cookbook.md) | Common kernel patterns and debugging recipes | New and experienced contributors |
 | [`exceptions_and_cancellation.md`](exceptions_and_cancellation.md) | Exception hierarchy, sink routing, cancellation details | Runtime contributors |
 | [`schedulers.md`](schedulers.md) | `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler` behavior | Performance and integration work |
@@ -59,6 +59,7 @@ The docs are split into two groups:
 Runnable examples in `examples/` that pair well with this docs set:
 
 - `examples/async/async_buffer_semantics_example.cpp`: read/write ownership, release ordering, cancellation, and exception routing
+- `examples/async/async_buffer_await_paths_example.cpp`: borrowed and owning value, storage, and consuming await paths
 - `examples/async/async_example.cpp`: basic read/write and `try_await(...)`
 - `examples/async/async_ops_example.cpp`: expression DAG composition and `all(...)`
 - `examples/async/async_tbb_reduction_example.cpp`: parallel scheduling with `TbbScheduler`

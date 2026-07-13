@@ -39,6 +39,8 @@ Async<double> explicit_kernel_form(Async<double> const& x, Async<double> const& 
   }(y.read(), u.write()));
 
   schedule([](ReadBuffer<double> u_in, WriteBuffer<double> z_io) static -> AsyncTask {
+    // z_io is the sole capability for z in this operation. Its write proxy
+    // exposes the existing value as well as exclusive mutation.
     auto [uval, zval] = co_await all(u_in, z_io);
     zval += h(uval, zval);
   }(u.read(), z.write()));

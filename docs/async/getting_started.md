@@ -60,12 +60,12 @@ If you only need completion and do not need the value, use `b.wait()` instead.
 ```cpp
 Async<int> value;
 
-schedule([](WriteBuffer<int> writer) static->AsyncTask {
+schedule([](WriteBuffer<int> writer) static -> AsyncTask {
   co_await writer = 42;
   co_return;
 }(value.write()));
 
-schedule([](ReadBuffer<int> reader) static->AsyncTask {
+schedule([](ReadBuffer<int> reader) static -> AsyncTask {
   int v = co_await reader;
   TRACE("Read value =", v);
   co_return;
@@ -94,7 +94,7 @@ co_await writer = 42;
 What is unsafe is forcing mutable-reference style access before construction:
 
 ```cpp
-auto& out = co_await writer;
+int& out = co_await writer;
 out = 42;
 ```
 
@@ -102,8 +102,11 @@ This can throw `buffer_write_uninitialized`.
 
 ## Typical Read-Compute-Write Kernel
 
+When input and output are different timelines, use a reader for the input and a
+writer for the output:
+
 ```cpp
-auto increment = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
+auto increment = [](ReadBuffer<int> in, WriteBuffer<int> out) static -> AsyncTask {
   auto owned = co_await in.transfer();
   int v = owned.get();
   owned.release();
@@ -114,11 +117,30 @@ auto increment = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask 
 
 Why `owned.release()` is often useful:
 
-- it releases the reader gate before awaiting writer work on related timelines
-- this avoids self-deadlock patterns in read-modify-write compositions
+- it shortens the reader lifetime once the input value has been copied
+- it may allow later writers on the input timeline to begin sooner
 
 `transfer()` is the explicit owning form for named buffers. Direct `co_await`
 on a temporary buffer still uses the owning rvalue path.
+
+## In-Place Mutation Uses One Writer
+
+`WriteBuffer<T>` provides exclusive mutable access; it is not write-only. Use
+the existing value through the write proxy:
+
+```cpp
+auto increment_in_place = [](WriteBuffer<int> value) static -> AsyncTask {
+  auto access = co_await value;
+  access.get() += 1;
+  co_return;
+};
+```
+
+Do not model ordinary mutation by taking both `value.read()` and
+`value.write()`. Those buffers select different epochs and cannot be held as
+simultaneous read/write access. A deliberate read-then-write transition on one
+queue is an advanced pattern that must copy the required data and release the
+reader before awaiting the later writer.
 
 ## Quick Error Handling
 
@@ -147,7 +169,7 @@ For async coroutine lambdas (`AsyncTask` return type):
 Correct pattern:
 
 ```cpp
-auto task = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
+auto task = [](ReadBuffer<int> in, WriteBuffer<int> out) static -> AsyncTask {
   int v = co_await in;
   co_await out = v;
   co_return;

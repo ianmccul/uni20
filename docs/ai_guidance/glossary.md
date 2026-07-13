@@ -30,7 +30,8 @@ This glossary is optimized for retrieval, not pedagogy.
 
 - `ROLE`: Causal timeline for one `Async<T>`.
 - `INVARIANT`: Conceptual order is `writer_n -> readers_n -> writer_{n+1} -> ...`.
-- `FAILURE MODE`: Acquiring or awaiting buffers in the wrong order and expecting scheduler timing to recover correctness.
+- `INVARIANT`: One ordinary operation uses readers or one exclusive writer for each queue, not both.
+- `FAILURE MODE`: Expecting construction or await order to make a conflicting access set valid.
 - `MISCONCEPTION`: Scheduler timing defines legality.
 
 ### EpochContext
@@ -48,11 +49,17 @@ This glossary is optimized for retrieval, not pedagogy.
 
 ### WriteBuffer<T>
 
-- `ROLE`: Capability object for writing one epoch of an `Async<T>`.
+- `ROLE`: Exclusive mutable capability for one epoch of an `Async<T>`; it may read the existing value.
 - `CAUSAL MODEL`: Gates mutation until the write epoch is active.
 - `LIFETIME / OWNERSHIP`: Borrowed write is tied to the `WriteBuffer<T>` object. Owning write is tied to `OwningWriteAccessProxy<T>`.
-- `FAILURE MODE`: Awaiting a write before releasing a conflicting read in a self-dependent kernel.
+- `FAILURE MODE`: Taking a separate reader and writer on one queue to model ordinary mutation.
 - `MISCONCEPTION`: `WriteAccessProxy<T>` is just an ordinary `T&`.
+
+### await path
+
+- `ROLE`: Temporary adaptor selecting how one buffer capability suspends and what access result it returns.
+- `EXAMPLES`: `maybe()`, `or_cancel()`, `storage()`, `take()`, and the owning rvalue path selected by `transfer()`.
+- `INVARIANT`: An await path does not create another buffer, epoch, reader, or writer.
 
 ### borrowed read
 

@@ -127,6 +127,7 @@ Async<double> explicit_kernel_form(Async<double> const& x, Async<double> const& 
   schedule(std::move(u_task));
 
   auto update_task = [](ReadBuffer<double> u_in, WriteBuffer<double> z_io) static -> AsyncTask {
+    // The writer provides both inspection and exclusive mutation of z.
     auto [uval, zval] = co_await all(u_in, z_io);
     zval += h(uval, zval);
     co_return;

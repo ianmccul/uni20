@@ -9,7 +9,7 @@ If you are new to the runtime, start with `getting_started.md` and `coroutines_p
 Default `Async<T>` starts unconstructed. First write is usually simplest as proxy assignment.
 
 ```cpp
-auto produce = [](WriteBuffer<int> out) static->AsyncTask {
+auto produce = [](WriteBuffer<int> out) static -> AsyncTask {
   co_await out = 42;
   co_return;
 };
@@ -18,7 +18,7 @@ auto produce = [](WriteBuffer<int> out) static->AsyncTask {
 ## 2) Consume a Value
 
 ```cpp
-auto consume = [](ReadBuffer<int> in) static->AsyncTask {
+auto consume = [](ReadBuffer<int> in) static -> AsyncTask {
   int v = co_await in;
   (void)v;
   co_return;
@@ -30,7 +30,7 @@ auto consume = [](ReadBuffer<int> in) static->AsyncTask {
 When input and output are different `Async<T>` objects, this is the simplest kernel shape:
 
 ```cpp
-auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
+auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static -> AsyncTask {
   int v = co_await in;
   in.release();
   co_await out = v + 1;
@@ -40,26 +40,35 @@ auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
 
 ## 4) Read-Modify-Write (Same Timeline)
 
-When you read and then later write to the same logical timeline, release reader gates before waiting on a writer.
+Use one `WriteBuffer` for exclusive access to the existing value:
 
 ```cpp
-auto add_in_place = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
-  auto owned = co_await in.transfer();
-  int v = owned.get();
-  owned.release();
-
-  // `+=` now has emplace semantics on unconstructed storage.
-  co_await out += v;
-  co_await out += 1;
-
+auto add_in_place = [](WriteBuffer<int> value) static -> AsyncTask {
+  auto access = co_await value;
+  access.get() += 1;
   co_return;
 };
 ```
 
+The mutable-reference path requires an existing value. When initialize-or-add
+semantics are intended, proxy `+=` can construct an absent value:
+
+```cpp
+auto accumulate = [](WriteBuffer<int> value, int contribution) static -> AsyncTask {
+  auto access = co_await value;
+  access += contribution;
+  co_return;
+};
+```
+
+A `ReadBuffer` plus a `WriteBuffer` from the same queue denotes two epochs, not
+one read/write lock. Use that only for a deliberate read-then-write transition
+that copies its input and releases the reader before waiting for the writer.
+
 ## 5) Fan-In (Wait for Multiple Inputs)
 
 ```cpp
-auto sum2 = [](ReadBuffer<int> a, ReadBuffer<int> b, WriteBuffer<int> out) static->AsyncTask {
+auto sum2 = [](ReadBuffer<int> a, ReadBuffer<int> b, WriteBuffer<int> out) static -> AsyncTask {
   auto [va, vb] = co_await all(a, b);
   a.release();
   b.release();
@@ -86,7 +95,7 @@ Unhandled exceptions in a coroutine can be forwarded to registered sink epochs.
 Common pattern: a reader failure should invalidate the output writer epoch.
 
 ```cpp
-auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
+auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static -> AsyncTask {
   co_await propagate_exceptions_to(out);
   int v = co_await in;           // if this throws unhandled, out receives the exception
   co_await out = v + 1;
@@ -99,7 +108,7 @@ auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
 If you want "no value" to behave like cancellation, use `or_cancel()`:
 
 ```cpp
-auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
+auto kernel = [](ReadBuffer<int> in, WriteBuffer<int> out) static -> AsyncTask {
   int v = co_await in.or_cancel();  // throws task_cancelled if missing
   co_await out = v;
   co_return;

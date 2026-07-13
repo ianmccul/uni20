@@ -295,8 +295,9 @@ template <typename T> class Async {
     /// \return A ReadBuffer<T> which may be co_awaited.
     ReadBuffer<T> read() const { return ReadBuffer<T>(queue_->create_read_context(storage_)); }
 
-    /// \brief Begin an asynchronous write of the value.
-    /// \return A WriteBuffer<T> which may be co_awaited.
+    /// \brief Begin exclusive asynchronous mutable access to the value.
+    /// \return A `WriteBuffer<T>` for inspecting, mutating, constructing, or
+    ///         replacing the value.
     WriteBuffer<T> write() { return WriteBuffer<T>(queue_->create_write_context(storage_)); }
 
     // template <typename Sched> T& get_wait(Sched& sched)

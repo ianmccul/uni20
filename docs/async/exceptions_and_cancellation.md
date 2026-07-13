@@ -34,7 +34,8 @@ Defined in `src/uni20/async/async_errors.hpp`.
 
 ### Write side
 
-- `co_await writer` on unconstructed value: `buffer_write_uninitialized`
+- awaiting an unconstructed writer still returns `WriteAccessProxy<T>`
+- requesting `get()`, `operator->`, or conversion to `T&` from that proxy: `buffer_write_uninitialized`
 - preferred fix: `co_await writer = value` (or proxy `emplace(...)`)
 
 ## Unhandled Exception Flow in Coroutines

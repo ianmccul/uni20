@@ -6,6 +6,7 @@ code review, and AI-agent prompting.
 For explanations, see:
 
 - `getting_started.md`
+- `buffers_and_awaiters.md`
 - `coroutines_primer.md`
 - `cookbook.md`
 - `runtime_model.md`
@@ -17,9 +18,17 @@ For explanations, see:
 |---|---|---|
 | `Async<T>` | Async value + epoch queue | `read()`, `write()`, `wait()`, `get_wait()`, `move_from_wait()` |
 | `ReadBuffer<T>` | Read gate for one epoch | `co_await reader`, `transfer()`, `maybe()`, `or_cancel()`, `wait()`, `release()` |
-| `WriteBuffer<T>` | Write gate for one epoch | `co_await writer`, `transfer()`, `storage()`, `take()`, `take_release()`, `release()` |
+| `WriteBuffer<T>` | Exclusive mutable gate for one epoch | `co_await writer`, `transfer()`, `storage()`, `take()`, `take_release()`, `release()` |
 | `AsyncTask` | Move-only coroutine handle owner | schedule via `schedule(...)` |
 | `IScheduler` | Scheduler interface | `schedule`, `pause`, `resume`, wait hooks |
+
+Buffer model:
+
+- `ReadBuffer<T>` is shared read access to one epoch
+- `WriteBuffer<T>` is exclusive mutable access, including reading the old value
+- `maybe()`, `or_cancel()`, `storage()`, `take()`, and `transfer()` select await paths; they do not create new buffers or epochs
+- for one queue, an ordinary operation uses any number of readers or one writer, never a separate reader plus writer
+- mutation reads the existing value through its one `WriteBuffer<T>`
 
 Async aliases:
 
@@ -78,11 +87,19 @@ Rules:
 | `co_await writer.take_release()` | `T` moved out, then storage destroyed and writer released |
 | `co_await writer.transfer().take_release()` | `T` moved out, then storage destroyed and writer released |
 
+Awaiter/proxy distinction:
+
+- expressions such as `writer.storage()` and `writer.take()` create temporary awaiters
+- lvalue await paths return borrowed access tied to the original buffer
+- `transfer()` moves the epoch capability through the awaiter into an owning result
+- repeated awaits on one buffer use the same epoch; they do not enroll another writer
+
 Critical write rule:
 
 - first write on default `Async<T>` can use `co_await writer = value` for default `rebind` types
 - `co_await writer += x` and `co_await writer -= x` also emplace when unconstructed
-- `co_await writer` may still throw `buffer_write_uninitialized` if you request mutable-reference-style access before initialization
+- write-proxy `get()`, `operator->`, or conversion to `T&` throws `buffer_write_uninitialized` before initialization
+- use one writer, without a separate reader, to inspect and mutate an existing value
 
 Assignment semantics trait:
 

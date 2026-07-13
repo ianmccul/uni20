@@ -7,6 +7,8 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `Async<T>` uses `EpochQueue` for causality.
 - `Async<T>` construction state comes from `shared_storage<T>`.
 - `ReadBuffer<T>` and `WriteBuffer<T>` are the ordering primitives.
+- `WriteBuffer<T>` is exclusive mutable access, not write-only access.
+- Specialized awaiters are transport adaptors, not additional buffer capabilities.
 - Scheduler timing does not define legality.
 - Borrowed access and owning access are semantically different.
 - Release ordering is semantically important.
@@ -33,12 +35,13 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 - `read()` acquires `ReadBuffer<T>` for a specific epoch.
 - `write()` acquires `WriteBuffer<T>` for the next epoch.
-- Buffer acquisition order matters.
-- Await order matters.
+- For one queue, an ordinary operation uses any number of readers or one writer.
+- Mutation reads the old value through the one writer; it does not acquire a separate reader.
+- A separate reader and writer on one queue denote a deliberate two-epoch transition.
 
 ### LIFETIME / OWNERSHIP
 
-- Buffers keep storage and queue state alive even if the originating `Async<T>` is moved or destroyed.
+- Buffers keep storage and their selected epoch context alive even if the originating `Async<T>` is moved or destroyed.
 
 ### FAILURE MODES
 
@@ -125,14 +128,15 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 - `ReadBuffer<T>` refers to one `EpochContext` in the `EpochQueue`.
 - `WriteBuffer<T>` refers to one `EpochContext` in the `EpochQueue`.
-- A coroutine may await buffers in any order.
+- A coroutine may await a valid, non-conflicting set of buffers in the order required by its data dependencies.
 - `all(...)` may await several buffers together.
 - The scheduler only runs tasks whose awaited buffers are ready.
 
 ### FAILURE MODES
 
-- Acquiring or awaiting buffers in the wrong order and then expecting scheduler timing to recover correctness.
-- Holding a read gate longer than necessary and then awaiting a conflicting write.
+- Acquiring both a reader and writer on one queue to model ordinary mutation.
+- Expecting construction or await order to make a conflicting access set valid.
+- Holding a reader while awaiting a later writer from the same queue in a deliberate two-epoch transition.
 
 ### MISCONCEPTIONS
 
@@ -193,7 +197,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 ### ROLE
 
-- `WriteBuffer<T>` is the capability object for writing one epoch of `Async<T>`.
+- `WriteBuffer<T>` is the exclusive mutable capability for one epoch of `Async<T>`.
 
 ### INVARIANTS
 
@@ -202,6 +206,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `co_await writer` returns `WriteAccessProxy<T>`.
 - `co_await writer.transfer()` returns `OwningWriteAccessProxy<T>`.
 - Direct `co_await` on a temporary `WriteBuffer<T>` also uses the owning rvalue path.
+- The write proxy may read and mutate an existing value without a separate `ReadBuffer<T>`.
 - Proxy assignment may construct first-write storage for `rebind` types.
 - `operator+=` and `operator-=` may initialize unconstructed storage.
 
@@ -222,11 +227,13 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 - Using a borrowed write proxy after the `WriteBuffer<T>` lifetime ends.
 - Requesting mutable-reference-style access before construction and hitting `buffer_write_uninitialized`.
-- Awaiting a write before releasing a conflicting read in a self-dependent kernel.
+- Taking a separate reader and writer for the same queue when one writer should provide the mutation access.
+- Failing to release the reader before the writer in an intentionally sequential two-epoch transition.
 
 ### MISCONCEPTIONS
 
 - `WriteAccessProxy<T>` is just an ordinary `T&`.
+- `WriteBuffer<T>` grants write-only access and therefore needs a separate reader for mutation.
 - First write always requires a separate `emplace(...)` call.
 
 ### RELATED

@@ -34,7 +34,7 @@ This is why Uni20 uses an `AsyncTask`-taking `await_suspend(...)` style rather t
 Buffers are the bridge between data dependencies and coroutine suspension:
 
 - `ReadBuffer<T>` is an awaitable gate for reading the value of an `Async<T>` at a particular epoch.
-- `WriteBuffer<T>` is an awaitable gate for writing the value at a particular epoch.
+- `WriteBuffer<T>` is an awaitable gate for exclusive read/write access at a particular epoch.
 
 When you write:
 
@@ -62,7 +62,7 @@ Coroutine lambdas that return `AsyncTask` must be:
 Correct pattern:
 
 ```cpp
-schedule([](ReadBuffer<int> in, WriteBuffer<int> out) static->AsyncTask {
+schedule([](ReadBuffer<int> in, WriteBuffer<int> out) static -> AsyncTask {
   int v = co_await in;
   co_await out = v;
   co_return;

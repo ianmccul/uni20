@@ -1,5 +1,5 @@
 /// \file buffers.hpp
-/// \brief Awaitable gates for Async<T>: snapshot‐reads and in‐place writes.
+/// \brief Awaitable capabilities for shared reads and exclusive mutable access to `Async<T>`.
 
 #pragma once
 
@@ -840,10 +840,16 @@ template <typename T> class OwningTakeAwaiter {
     EpochContextWriter<T> writer_;
 };
 
-/// \brief Awaitable write buffer for one `Async<T>` epoch.
-/// \details `co_await writer` yields a borrowed proxy tied to the `WriteBuffer<T>`
-///          object. `co_await writer.transfer()` yields an owning proxy whose
-///          lifetime no longer depends on the original buffer object.
+/// \brief Exclusive mutable-access buffer for one `Async<T>` epoch.
+/// \details `Write` names the exclusive producer role, not write-only memory
+///          access. The writer may inspect and mutate an existing value,
+///          construct or replace an absent value, or move the value out.
+///          `co_await writer` yields a borrowed proxy tied to the
+///          `WriteBuffer<T>` object.
+///          `co_await writer.transfer()` yields an owning proxy whose lifetime
+///          no longer depends on the original buffer object. Specialized
+///          awaiters such as `storage()` and `take()` are paths through this one
+///          capability; they do not create additional writer epochs.
 template <typename T> class WriteBuffer {
   public:
     using value_type = T;
