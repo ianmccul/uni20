@@ -69,5 +69,6 @@
 - [Async Docs Index](async/README.md)
 - [Async Getting Started](async/getting_started.md)
 - [Async Coroutines Primer](async/coroutines_primer.md)
+- [oneTBB Execution Primer for Uni20](async/tbb_execution_primer.md)
 - [Async Cookbook](async/cookbook.md)
 - [Async Quick Reference](async/quick_reference.md)

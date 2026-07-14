@@ -24,7 +24,7 @@ If you do not override it, the global scheduler defaults to an internal `DebugSc
 | Scheduler | Strength | Tradeoff | Typical use |
 |---|---|---|---|
 | `DebugScheduler` | deterministic, simple deadlock diagnostics | single-threaded | semantics tests, debugging |
-| `TbbScheduler` | parallel throughput | non-deterministic task interleaving | production parallel work |
+| `TbbScheduler` | parallel throughput | non-deterministic task interleaving | parallel CPU workloads |
 | `TbbNumaScheduler` | NUMA-aware dispatch over per-node TBB arenas | extra dispatch complexity | NUMA-sensitive workloads |
 
 ## DebugScheduler
@@ -47,7 +47,8 @@ Use `DebugScheduler` as the first tool for dependency bugs.
 Execution model:
 
 - tasks are dispatched into oneTBB `task_arena` + `task_group`
-- ready coroutines resume on TBB worker threads
+- ready coroutines resume on threads participating in the arena, including
+  oneTBB workers and application threads that enter through `task_arena::execute()`
 - `run_all()` resumes if paused, then waits for task-group completion
 
 Pause/resume:
@@ -57,8 +58,23 @@ Pause/resume:
 
 Wait behavior:
 
-- if already inside a TBB arena thread, wait loop yields until ready
-- otherwise waits on condition variable notified by task completion
+- `get_wait()` enters the scheduler arena through `task_arena::execute()`
+- the epoch's transition to reader-ready state directly wakes its registered
+  suspension point
+- oneTBB resumable tasks release the arena slot while dependencies execute
+- nested synchronous waits work with one total arena participant
+- if runnable scheduler work reaches zero, the innermost suspended wait enters
+  the watchdog path
+- `TbbSchedulerWaitOptions::watchdog_timeout` defaults to 30 seconds;
+  `std::nullopt` disables the watchdog
+
+The watchdog raises `async_wait_timeout` after one continuous interval with no
+scheduler-visible runnable work. It emits a best-effort `TaskRegistry` and
+Graphviz diagnostic when async task tracking is compiled in. This is evidence
+of stalled progress, not proof of a dependency cycle, because external GPU,
+MPI, I/O, or application-thread activity may still produce the value. See
+[`tbb_execution_primer.md`](tbb_execution_primer.md) for the complete execution
+model and single-participant timeline.
 
 ## TbbNumaScheduler
 
@@ -86,6 +102,7 @@ missing releases, or lifetime bugs before suspecting scheduler implementation.
 ## Related References
 
 - Runtime semantics: `runtime_model.md`
+- oneTBB execution and waiting model: `tbb_execution_primer.md`
 - Buffer usage and release patterns: `buffers_and_awaiters.md`
 - Deadlock/debug output: `task_registry_debug.md`
 - Fast lookup: `quick_reference.md`

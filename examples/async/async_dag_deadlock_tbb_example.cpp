@@ -152,7 +152,7 @@ int main(int argc, char** argv)
   std::filesystem::create_directories(output_dir);
 
   fmt::print("Graphviz DOT output directory: {}\n", output_dir.string());
-  fmt::print("Main thread sleep before debug snapshot: {} second(s)\n", sleep_seconds);
+  fmt::print("Application thread sleep before debug snapshot: {} second(s)\n", sleep_seconds);
 
   TbbScheduler scheduler{2};
   scheduler.pause();

@@ -176,6 +176,10 @@ This glossary is optimized for retrieval, not pedagogy.
 ### TbbScheduler
 
 - `ROLE`: General parallel scheduler built on oneTBB.
+- `TERMINOLOGY`: An application thread is created by the application; a worker
+  thread is managed by oneTBB. Arena concurrency counts participants, not
+  workers. Use host thread only for host/device distinctions.
+- `RELATED`: `docs/async/tbb_execution_primer.md`.
 
 ### TbbNumaScheduler
 

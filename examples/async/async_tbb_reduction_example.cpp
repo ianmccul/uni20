@@ -9,9 +9,9 @@
 ///   1. **Map stage**: a parallel launch of `square` coroutines over all inputs
 ///   2. **Reduce stage**: a binary-tree reduction using `sum` coroutines
 ///
-/// The scheduler (`TbbScheduler`) manages coroutine resumption across worker threads,
-/// while `Async<int>`, `ReadBuffer<int>`, and `WriteBuffer<int>` handle dataflow and
-/// dependency tracking between tasks.
+/// The scheduler (`TbbScheduler`) manages coroutine resumption across threads
+/// participating in its arena, while `Async<int>`, `ReadBuffer<int>`, and
+/// `WriteBuffer<int>` handle dataflow and dependency tracking between tasks.
 ///
 /// This demonstrates:
 ///   - Expressing parallel computations as coroutines
@@ -23,7 +23,8 @@
 /// Sum of squares 1..N = 333833500
 /// \endcode
 ///
-/// In principle the main thread can get to the last line of main() before any of the worker computations begin.
+/// In principle the application thread can reach the last line of `main()`
+/// before any of the scheduled computations begin.
 
 #include <iostream>
 #include <numeric>
@@ -56,9 +57,9 @@ AsyncTask sum(ReadBuffer<int> a, ReadBuffer<int> b, WriteBuffer<int> out)
 
 int main()
 {
-  // Scheduler with 4 worker threads
+  // Scheduler with maximum arena concurrency 4
   TbbScheduler sched{4};
-  sched.pause(); // for demonstation purposes
+  sched.pause(); // for demonstration purposes
 
   const int N = 1000;
   std::vector<Async<int>> inputs, result;

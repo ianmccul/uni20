@@ -6,15 +6,15 @@ using namespace uni20::async;
 
 int main(int argc, char** argv)
 {
-  int threads = 4; // default
+  int max_concurrency = 4; // default
   if (argc > 1)
   {
-    threads = std::stoi(argv[1]);
+    max_concurrency = std::stoi(argv[1]);
   }
 
-  std::cout << "Running SimpleAsync with TbbScheduler(" << threads << " threads)\n";
+  std::cout << "Running SimpleAsync with TbbScheduler(max_concurrency=" << max_concurrency << ")\n";
 
-  TbbScheduler sched{threads};
+  TbbScheduler sched{max_concurrency};
   ScopedScheduler guard(&sched);
 
   Async<int> x = 0;

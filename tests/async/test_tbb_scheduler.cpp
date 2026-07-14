@@ -17,12 +17,29 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <oneapi/tbb/global_control.h>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 
 using namespace uni20::async;
+
+namespace
+{
+class ErrorModeGuard {
+  public:
+    ErrorModeGuard() : previous_(trace::get_formatting_options().errors_abort())
+    {
+      trace::get_formatting_options().set_errors_abort(false);
+    }
+
+    ~ErrorModeGuard() { trace::get_formatting_options().set_errors_abort(previous_); }
+
+  private:
+    bool previous_;
+};
+} // namespace
 
 #if UNI20_DEBUG_ASYNC_TASKS
 namespace
@@ -109,6 +126,111 @@ TEST(TbbScheduler, AsyncAccumulationGetWait)
   // Regression coverage: a historical bug dropped coroutines in linear chains
   // of tasks, so the final get_wait() never observed all increments.
   EXPECT_EQ(x.get_wait(), iterations);
+}
+
+TEST(TbbScheduler, OneParticipantTopLevelGetWaitExecutesDependency)
+{
+  oneapi::tbb::global_control single_participant(oneapi::tbb::global_control::max_allowed_parallelism, 1);
+  TbbScheduler sched{1};
+  ScopedScheduler guard(&sched);
+
+  Async<int> result;
+  std::thread::id execution_thread;
+  auto const application_thread = std::this_thread::get_id();
+  sched.schedule([](WriteBuffer<int> output, std::thread::id* observed_thread) static -> AsyncTask {
+    *observed_thread = std::this_thread::get_id();
+    co_await output = 42;
+    co_return;
+  }(result.write(), &execution_thread));
+
+  EXPECT_EQ(result.get_wait(), 42);
+  EXPECT_EQ(execution_thread, application_thread);
+}
+
+TEST(TbbScheduler, OneParticipantNestedGetWaitSupportsRepeatedSuspension)
+{
+  using namespace std::chrono_literals;
+
+  ErrorModeGuard error_mode;
+  oneapi::tbb::global_control single_participant(oneapi::tbb::global_control::max_allowed_parallelism, 1);
+  TbbScheduler sched{1, {.watchdog_timeout = 500ms}};
+  ScopedScheduler guard(&sched);
+
+  Async<int> result;
+  sched.schedule([](WriteBuffer<int> output) static -> AsyncTask {
+    Async<int> first = 1;
+    Async<int> first_result = first + 2;
+    int const first_value = first_result.get_wait();
+
+    Async<int> second = first_value;
+    Async<int> second_result = second * 4;
+    int const second_value = second_result.get_wait();
+
+    co_await output = second_value;
+    co_return;
+  }(result.write()));
+
+  EXPECT_EQ(result.get_wait(), 12);
+}
+
+TEST(TbbScheduler, IdleWaitAcceptsWorkSubmittedBeforeWatchdogDeadline)
+{
+  using namespace std::chrono_literals;
+
+  oneapi::tbb::global_control single_participant(oneapi::tbb::global_control::max_allowed_parallelism, 1);
+  TbbScheduler sched{1, {.watchdog_timeout = 500ms}};
+  ScopedScheduler guard(&sched);
+
+  Async<int> result;
+  auto writer = result.write();
+  std::jthread submitter([&sched, writer = std::move(writer)]() mutable {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    sched.schedule([](WriteBuffer<int> output) static -> AsyncTask {
+      co_await output = 17;
+      co_return;
+    }(std::move(writer)));
+  });
+
+  EXPECT_EQ(result.get_wait(), 17);
+}
+
+TEST(TbbScheduler, RunnableWorkGenerationResetsIdleWatchdog)
+{
+  using namespace std::chrono_literals;
+
+  oneapi::tbb::global_control single_participant(oneapi::tbb::global_control::max_allowed_parallelism, 1);
+  TbbScheduler sched{1, {.watchdog_timeout = 400ms}};
+  ScopedScheduler guard(&sched);
+
+  Async<int> result;
+  auto writer = result.write();
+  std::jthread submitter([&sched, writer = std::move(writer)]() mutable {
+    std::this_thread::sleep_for(200ms);
+    sched.schedule([]() static -> AsyncTask { co_return; }());
+
+    std::this_thread::sleep_for(300ms);
+    sched.schedule([](WriteBuffer<int> output) static -> AsyncTask {
+      co_await output = 23;
+      co_return;
+    }(std::move(writer)));
+  });
+
+  EXPECT_EQ(result.get_wait(), 23);
+}
+
+TEST(TbbScheduler, IdleWaitWatchdogRaisesTimeout)
+{
+  using namespace std::chrono_literals;
+
+  ErrorModeGuard error_mode;
+  oneapi::tbb::global_control single_participant(oneapi::tbb::global_control::max_allowed_parallelism, 1);
+  TbbScheduler sched{1, {.watchdog_timeout = 20ms}};
+  ScopedScheduler guard(&sched);
+
+  Async<int> result;
+  auto pending_writer = result.write();
+  EXPECT_THROW((void)result.get_wait(), async_wait_timeout);
+  pending_writer.release();
 }
 
 TEST(TbbScheduler, CoroutineAndAsync)

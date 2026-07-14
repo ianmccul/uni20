@@ -17,8 +17,8 @@ the existing async examples:
 - a small map/reduce tree from `examples/async/async_tbb_reduction_example.cpp`
 
 `examples/async/async_dag_deadlock_tbb_example.cpp` builds a deliberate two-task TBB
-dataflow cycle, lets the worker threads block, then has the main thread sleep and
-capture a best-effort DOT snapshot of the deadlocked DAG.
+dataflow cycle, lets the worker threads block, then has the application thread
+sleep and capture a best-effort DOT snapshot of the deadlocked DAG.
 
 Build with DAG instrumentation:
 

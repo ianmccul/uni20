@@ -170,7 +170,12 @@ template <typename T> void EpochContextReader<T>::wait() const
   if (!this->ready())
   {
     CHECK(sched);
-    sched->wait_for([this] { return this->ready(); });
+    auto epoch = epoch_;
+    sched->wait_for(IScheduler::WaitRequest{
+        .is_ready = [epoch] { return epoch->reader_ready(); },
+        .notify_when_ready =
+            [epoch](IScheduler::WaitWakeup notify) { epoch->reader_notify_when_ready(std::move(notify)); },
+    });
   }
 }
 
@@ -181,7 +186,12 @@ template <typename T> void EpochContextReader<T>::wait(IScheduler& sched) const
 {
   if (!this->ready())
   {
-    sched.wait_for([this] { return this->ready(); });
+    auto epoch = epoch_;
+    sched.wait_for(IScheduler::WaitRequest{
+        .is_ready = [epoch] { return epoch->reader_ready(); },
+        .notify_when_ready =
+            [epoch](IScheduler::WaitWakeup notify) { epoch->reader_notify_when_ready(std::move(notify)); },
+    });
   }
 }
 

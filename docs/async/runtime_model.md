@@ -185,7 +185,9 @@ references.
 `get_wait()` blocks until value is readable and returns the materialized value.
 
 - under `DebugScheduler`, waiting helps drive runnable tasks and can emit deadlock diagnostics
-- under TBB schedulers, waiting cooperates with TBB execution model
+- under `TbbScheduler`, waiting enters the arena, suspends its synchronous stack
+  while runnable dependencies execute, and uses a configurable no-progress
+  watchdog when the scheduler becomes idle; see `tbb_execution_primer.md`
 
 Blocking API is a bridge for thread-bound callers; coroutine code should prefer awaitable composition.
 

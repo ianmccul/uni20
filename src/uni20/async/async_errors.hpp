@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -32,6 +33,31 @@ class async_storage_missing : public async_state_error {
 class async_value_uninitialized : public async_state_error {
   public:
     async_value_uninitialized() : async_state_error("Async value requires initialization before access") {}
+};
+
+/// \brief Raised when a blocking async wait observes no scheduler-visible progress before its watchdog expires.
+class async_wait_timeout : public async_error {
+  public:
+    /// \brief Construct a no-progress timeout diagnostic.
+    /// \param timeout Idle interval that expired.
+    /// \param scheduler_paused Whether the scheduler was paused at the timeout.
+    async_wait_timeout(std::chrono::milliseconds timeout, bool scheduler_paused)
+        : async_error("Async wait made no scheduler-visible progress for " + std::to_string(timeout.count()) +
+                      " ms (scheduler " + (scheduler_paused ? "paused" : "running") + ")"),
+          timeout_(timeout), scheduler_paused_(scheduler_paused)
+    {}
+
+    /// \brief Return the expired idle interval.
+    /// \return Configured watchdog timeout.
+    [[nodiscard]] std::chrono::milliseconds timeout() const noexcept { return timeout_; }
+
+    /// \brief Report whether the scheduler was paused when the timeout was diagnosed.
+    /// \return `true` when the scheduler was paused.
+    [[nodiscard]] bool scheduler_paused() const noexcept { return scheduler_paused_; }
+
+  private:
+    std::chrono::milliseconds timeout_;
+    bool scheduler_paused_;
 };
 
 /// \brief Base class for cancellation-related async exceptions.

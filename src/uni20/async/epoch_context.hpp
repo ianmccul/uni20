@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <exception>
 #include <fmt/format.h>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -544,6 +545,23 @@ class EpochContext {
       return phase_ == Phase::Reading;
     }
 
+    /// \brief Register a callback for the transition to reader-ready state.
+    /// \param notify Non-throwing callback invoked once the epoch reaches Reading.
+    void reader_notify_when_ready(std::function<void()> notify)
+    {
+      std::unique_lock lock(mtx_);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_notify_when_ready", this, counter_, phase_);
+      DEBUG_CHECK(phase_ <= Phase::Reading);
+
+      if (phase_ == Phase::Reading)
+      {
+        lock.unlock();
+        notify();
+        return;
+      }
+      reader_ready_waiters_.push_back(std::move(notify));
+    }
+
     void reader_bind(AsyncTask&& h, bool cancel_on_exception)
     {
       std::unique_lock lock(mtx_);
@@ -689,7 +707,14 @@ class EpochContext {
       std::exception_ptr my_eptr = eptr_;
       std::vector<TaskState> my_reader_tasks;
       std::swap(reader_tasks_, my_reader_tasks);
+      std::vector<std::function<void()>> my_ready_waiters;
+      std::swap(reader_ready_waiters_, my_ready_waiters);
       lock.unlock();
+
+      for (auto& notify : my_ready_waiters)
+      {
+        notify();
+      }
 
       for (auto&& task : my_reader_tasks)
       {
@@ -731,6 +756,7 @@ class EpochContext {
     // Reader interface
     int num_readers_{0};
     std::vector<TaskState> reader_tasks_;
+    std::vector<std::function<void()>> reader_ready_waiters_;
 
 #if UNI20_DEBUG_DAG
     NodeInfo const* node_{nullptr};
@@ -910,6 +936,10 @@ template <typename T> class EpochContextReader {
     /// \brief Check whether the reader is ready to resume.
     /// \return True if all prerequisites for this epoch are satisfied.
     [[nodiscard]] bool ready() const noexcept { return epoch_->reader_ready(); }
+
+    /// \brief Register a callback for this reader becoming ready.
+    /// \param notify Non-throwing callback invoked when the epoch reaches Reading.
+    void notify_when_ready(std::function<void()> notify) const { epoch_->reader_notify_when_ready(std::move(notify)); }
 
     /// \brief Access the stored value inside the parent Async<T>.
     /// \return Reference to the T value.

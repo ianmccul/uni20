@@ -31,6 +31,17 @@ class IScheduler {
     virtual void resume() = 0;
 
     using WaitPredicate = std::function<bool()>;
+    using WaitWakeup = std::function<void()>;
+    using WaitWakeupRegistration = std::function<void(WaitWakeup)>;
+
+    /// \brief Readiness predicate and optional targeted wakeup registration for a blocking wait.
+    struct WaitRequest
+    {
+        /// Predicate that reports whether the requested value is available.
+        WaitPredicate is_ready;
+        /// Optional callback registration used to wake a suspended scheduler stack directly.
+        WaitWakeupRegistration notify_when_ready{};
+    };
 
     /// \brief Allow a scheduler to advance queued work while a thread is blocking.
     ///
@@ -60,6 +71,15 @@ class IScheduler {
         this->help_while_waiting(is_ready);
       }
     }
+
+    /// \brief Block until a structured wait request becomes ready.
+    /// \param request Readiness predicate and optional targeted notification registration.
+    ///
+    /// The default implementation preserves compatibility with schedulers that
+    /// advance work by polling the readiness predicate. Schedulers with a
+    /// suspend/resume mechanism can override this overload and register the
+    /// supplied wakeup callback.
+    virtual void wait_for(WaitRequest const& request) { this->wait_for(request.is_ready); }
 
   protected:
     // using promise_type = AsyncTask::promise_type;

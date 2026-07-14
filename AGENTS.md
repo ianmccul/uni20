@@ -125,6 +125,11 @@ cannot contain state that might have a shorter lifetime than the coroutine itsel
 * `Async<T>` is the canonical async value wrapper.
 * Task schedulers (`DebugScheduler`, `TbbScheduler`, etc.) manage task lifetimes.
 * **Do not** use raw `std::thread` or manual synchronization primitives.
+* In oneTBB contexts, use **application thread** for a thread created by the
+  application and **worker thread** for a thread managed by oneTBB. Use
+  **host thread** only for host/device distinctions. Mention oneTBB's
+  **external thread** or legacy **master thread** terminology only when
+  translating upstream documentation.
 
 **Why:**
 Schedulers coordinate task causality and epoch ordering.
