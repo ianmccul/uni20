@@ -5,7 +5,8 @@ forward design.** Uni20 has an operation-tag dispatch walk, structured failure
 reporting, opt-in runtime dispatch diagnostics, Tensor-to-mdspan forwarding,
 output-shape preparation, accessor-respecting copy/materialization, direct
 BLAS/reference CPU backends, and LAPACK adapters used by the native Krylov
-projected problems. The CUDA,
+projected problems. The first all-async Tensor matrix-product wrappers schedule
+these same synchronous Tensor operations after awaiting their values. The CUDA,
 distributed, prepared-operand, and broader BLAS/LAPACK portions remain design
 work. This note
 captures both the implemented contract and that direction. It generalizes the
@@ -21,6 +22,8 @@ the operation tag, then the operation arguments.
 
 Related notes:
 
+- [`async/kernel_authoring.md`](async/kernel_authoring.md) — implemented
+  all-async Tensor wrapper contract, lifetime rules, and output semantics.
 - [`backend_dispatch.md`](backend_dispatch.md) — the compile-time capability /
   runtime attempt / generic fallback pattern this note generalizes.
 - [`mdspan_linalg_dispatch_plan.md`](mdspan_linalg_dispatch_plan.md) — the
@@ -414,11 +417,12 @@ void gemm(BackendSelector selector, C& c, scalar_t<C> alpha, A const& a,
 ```
 
 `select_backend(operation, operands...)` first requires a common tensor storage
-policy. The default returns the first operand's storage-provided selector. A
-global `backend_selector_override<Operation, StoragePolicy>` specialization may
-replace that default for a particular operation/storage combination and may
-inspect all operands when selector state must be validated or composed. Passing
-an explicit selector bypasses this default-selection customization point.
+policy. Operand values are accepted for front-end ergonomics but are not
+inspected. The default returns the storage policy's static selector. A global
+`backend_selector_override<Operation, StoragePolicy>` specialization may define
+`select(operation)` to replace that default for a particular operation/storage
+combination. Passing an explicit selector bypasses this default-selection
+customization point.
 
 Two distinct failure modes fall out, which is exactly the behaviour an override
 should have:
@@ -684,12 +688,13 @@ outer runtime decline; otherwise it is `maybe`.
   runtime backend state they need. No inheritance, no public runtime tags, and
   no per-kernel dispatcher boilerplate.
 - The **dispatch-to-async seam is a separate layer above the backends, not the
-  backends themselves.** When operands are `Async<T>`, that layer selects the
-  backend (on synchronous metadata, before anything is scheduled) and schedules a
-  coroutine which `co_await`s the operand buffers (the epoch queues, not the
-  scheduler, are what order the work), resolves them to mdspans, and then
-  runs the already-selected synchronous backend — exactly the shape of the
-  existing `Async<T>` operations in `async_ops.hpp`. The CPU *backends* never name a scheduler; the
+  backends themselves.** The implemented whole-value `Async<Tensor>` wrappers
+  resolve the static storage selector, then schedule a coroutine which
+  `co_await`s the operand buffers and calls the ordinary synchronous Tensor
+  operation with that selector. Shape and mdspan descriptors remain part of the
+  awaited Tensor value, so the runtime backend walk occurs inside the coroutine.
+  In both cases the epoch queues, not the scheduler, order the work. The CPU
+  *backends* never name a scheduler; the
   CUDA path is the exception, submitting to the `CudaScheduler` whose streams and
   events carry the ordering. There the coroutine's *return type* selects the
   scheduler (`AsyncTask` → CPU, `CudaTask` → GPU). See *Scheduler and Async
@@ -713,34 +718,38 @@ the async runtime:
    stream, a generic triple loop. CPU kernels are entirely async-unaware; they
    compute and return. A CUDA kernel takes a stream or handle but does not know
    about the async runtime.
-2. **Async dispatch wrappers** — run backend selection at submission time (it
-   reads only metadata, which is synchronous), then schedule a coroutine that
-   `co_await`s the operand buffers, resolves them to mdspans, and calls the
-   already-selected kernel. By the time a coroutine is scheduled, dispatch has
-   succeeded: the coroutine is a thin wrapper around the raw backend kernel call.
-   This is the shape of the existing `Async<T>` operations in `async_ops.hpp`
-   (`async_binary_op`, `async_compound_op`). Synchronization lives here, in the
+2. **Async Tensor wrappers** — enroll operand buffers and schedule a coroutine
+   that awaits stored Tensor values before calling the synchronous Tensor
+   operation. The first implementation is the all-async matrix-product wrapper
+   in `src/uni20/linalg/async/`. Its static selector is resolved from the Tensor
+   and storage types before scheduling; mdspan resolution and the runtime
+   backend walk occur after the await. Synchronization lives here, in the
    epoch-queue awaits; the kernel never sees it.
 3. **Backend selection** — the `backend_list` walk for an operation tag
    (`kernel_accepts_types` / `try_kernel`) and, for a block tensor, the planner
    that fans out per block. A CPU backend's `try_kernel` calls a layer-1 kernel
    directly and synchronously; the CUDA backend submits to the `CudaScheduler`.
-   Layer 2 sits *above* this walk in the layering, but the walk runs *first* in
-   time: selection happens at submission, on synchronous metadata, and the
-   scheduled coroutine then awaits the buffers and runs the kernel that was
-   selected.
+   Layer 2 sits above this walk. Static selector resolution precedes scheduling,
+   but whole-value `Async<Tensor>` dispatches after awaiting. A future
+   descriptor-synchronous block planner may perform more of the runtime choice
+   before scheduling.
 
 The consequence: one layer-1 kernel is reused by every storage mode; only the
 wrapper changes.
 
 ### Metadata synchronous, data async
 
-Dispatch reads only metadata — extents, strides, device id, block structure — and
-all of it must be readable *without awaiting*, or the planner serializes behind
-the producer of every operand. So the boundary is:
+Block contraction planning should read only metadata — extents, strides, device
+id, and block structure — and that metadata should be available without
+awaiting. Whole `Async<Tensor>` deliberately has a different boundary because
+the descriptor is part of the stored value:
 
 > Descriptor synchronous, bytes async. The kernel dispatch point is a
 > resolved mdspan synthesized from a synchronous descriptor plus an awaited pointer.
+
+This rule describes the intended `AsyncArray`/block-handle path, not the first
+whole-value `Async<Tensor>` wrapper. That wrapper awaits the Tensor and then
+uses its descriptor and bytes together through the synchronous operation.
 
 Three things stay distinct:
 
@@ -749,24 +758,25 @@ Three things stay distinct:
 - **Data handle** — the per-block async-like object; `co_await` it for ready data.
 - **Resolved mdspan** — descriptor + awaited pointer; what every kernel sees.
 
-### The async-block concept
+### Future async-block concept
 
-The async dispatch path is written against a concept, not a concrete type, so a
-single wrapper serves both a whole-value `Async<T>` and one element of an
-`AsyncArray`:
+The first whole-value Tensor wrappers use exact `Async<T>` overloads. Once
+`AsyncArray` exists, its element handles may justify a shared access concept:
 
 ```cpp
 template <class H>
 concept async_block = requires(H h) {
-  { h.read()  };   // co_await -> readable resolved mdspan
-  { h.write() };   // co_await -> writable resolved mdspan
+  { h.read()  };   // co_await -> readable Tensor/block value
+  { h.write() };   // co_await -> mutable Tensor/block value
 };
 ```
 
 `AsyncArray<S>` is deliberately lightweight: one shared backing allocation, a
 synchronous descriptor table, and a per-element epoch queue for independent
 ordering. Its element handle models `async_block` and shares a common public
-interface with `Async<T>`; it does not allocate a full `Async` per block. (For
+access shape with `Async<T>`; it does not allocate a full `Async` per block.
+This access shape alone does not promise identical descriptor timing or justify
+one generic operation overload. (For
 code that genuinely wants an async tensor view, `make_async_alias(...)` owns a
 local view descriptor, retains the backing storage, and reuses the exact queue
 that orders access to those bytes.)
@@ -837,10 +847,12 @@ keeping its runtime fallbacks. A specialized planner — an optimized R/A/B/C
 Hamiltonian-apply (`rabc_contraction_scheduling.md`), say — may instead bind a
 whole list of CUDA sub-kernels at plan time, potentially as a CUDA graph, and
 never consult a walk per block. Both are legitimate shapes of layer 3. The one
-constraint is the order of decisions: **dispatch happens before scheduling**. By
-the time a coroutine is scheduled, dispatch has already succeeded — the coroutine
-is a thin wrapper around the chosen backend's raw kernel call plus its buffer
-awaits — so a scheduled kernel-coroutine never re-enters the walk.
+constraint for this descriptor-synchronous block path is the order of
+decisions: **dispatch happens before scheduling**. By the time one of these
+block coroutines is scheduled, dispatch has already succeeded, so it is a thin
+wrapper around the chosen backend's raw kernel call plus its buffer awaits.
+This does not apply to whole-value `Async<Tensor>` wrappers, which await the
+Tensor before entering ordinary synchronous dispatch.
 
 The host-async and device-async block kernels differ only in the coroutine return
 type, which is what routes them to the CPU or GPU scheduler:

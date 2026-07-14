@@ -212,10 +212,11 @@ struct CudaGenericBackend {};
 struct CpuReferenceBackend {};
 ```
 
-Stateful selector entries remain an explicit override mechanism for genuine
-operation context or options, such as a selected stream, MPI communicator,
-workspace policy, math mode, or multiprecision setting. They should not become a
-second source of truth for operand location.
+Immutable stateful selector entries remain an explicit-call mechanism for
+genuine operation context or options, such as a selected stream, MPI
+communicator, workspace policy, math mode, or multiprecision setting. They
+should not become a second source of truth for operand location. Storage-default
+selection remains static and does not inspect Tensor values.
 
 ## Temporaries
 
@@ -228,8 +229,8 @@ Temporary allocation is separate from computation.
   selector because a bare mdspan does not carry storage-domain policy. Both
   forms return a fixed-rank `Tensor` with runtime extents on every axis.
 - Operand-temporary type/storage comes from an owning storage domain or explicit
-  allocator/factory. A stateful selector override may contribute options but is
-  not the primary owner of operand location.
+  allocator/factory. An explicit selector may contribute immutable options but
+  is not the primary owner of operand location.
 - Filling an operand temporary is an ordinary copy/evaluation kernel.
 - Direct mdspan entry points that need operand temporaries must provide explicit
   backend selector state and storage-domain information.

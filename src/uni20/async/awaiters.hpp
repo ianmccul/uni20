@@ -7,6 +7,7 @@
 #include "buffers.hpp"
 
 #include <array>
+#include <concepts>
 #include <coroutine>
 #include <functional>
 #include <memory>
@@ -17,6 +18,62 @@
 
 namespace uni20::async
 {
+
+/// \brief Always-ready awaitable owning an immediate operation value.
+/// \details This gives immediate values the read-buffer shape expected by
+///          async kernels. The value is copied or moved into the coroutine and
+///          `release()` is a no-op.
+template <typename T> struct ValueAwaiter
+{
+    using value_type = T;
+
+    T value;
+
+    /// \brief Report that the immediate value never suspends.
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
+
+    /// \brief No-op suspension hook required by the awaiter protocol.
+    void await_suspend(AsyncTask) const noexcept {}
+
+    /// \brief Return a borrowed reference when the awaiter is retained.
+    [[nodiscard]] T const& await_resume() const& noexcept { return value; }
+
+    /// \brief Move the value when the awaiter itself is consumed.
+    [[nodiscard]] T await_resume() && noexcept { return std::move(value); }
+
+    /// \brief Match the read-buffer release surface without owning an epoch.
+    void release() const noexcept {}
+};
+
+namespace detail
+{
+template <typename T> using member_read_awaiter_t = std::remove_cvref_t<decltype(std::declval<T>().read())>;
+
+template <typename T>
+concept AsyncReadProvider = requires(T&& value) {
+  std::forward<T>(value).read();
+} && AsyncTaskAwaitable<member_read_awaiter_t<T>> && requires(member_read_awaiter_t<T>& awaiter) {
+  typename member_read_awaiter_t<T>::value_type;
+  { awaiter.await_ready() } -> std::convertible_to<bool>;
+  awaiter.await_resume();
+};
+} // namespace detail
+
+/// \brief Wrap an immediate value in an always-ready read awaiter.
+template <typename T>
+  requires(!detail::AsyncReadProvider<T>)
+[[nodiscard]] auto read(T&& value) -> ValueAwaiter<std::remove_cvref_t<T>>
+{
+  return ValueAwaiter<std::remove_cvref_t<T>>{std::forward<T>(value)};
+}
+
+/// \brief Obtain the read awaiter exposed by an async-like value.
+template <typename T>
+  requires detail::AsyncReadProvider<T>
+[[nodiscard]] decltype(auto) read(T&& value)
+{
+  return std::forward<T>(value).read();
+}
 
 /// \brief Awaitable that waits for *all* provided awaiters to complete. This meets the AsyncTaskFactoryAwaitable
 /// concept.

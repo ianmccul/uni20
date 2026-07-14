@@ -156,7 +156,7 @@ class BasicTensor {
 
     /// \brief Return the default backend selector associated with this tensor's storage.
     /// \return Ordered backend selector value for tensor-level dispatch.
-    [[nodiscard]] constexpr auto backend_selector() const noexcept -> backend_selector_type
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
       return storage_policy::backend_selector();
     }

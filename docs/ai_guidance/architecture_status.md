@@ -100,8 +100,8 @@ This file is for questions about project maturity, active design seams, and what
 
 - Do not claim that tensor/view lifetime semantics are finalized.
 - Do not claim that aliasing is solved by the async runtime.
-- Do not generalize the synchronous dense GEMM slice to async, CUDA, or MPI
-  tensor dispatch.
+- Do not generalize the implemented all-async dense matrix-product wrapper to
+  CUDA, MPI, mixed sync/async operands, or unrelated output semantics.
 - Do not claim that `std::type_list` exists or that `unique_tuple_cat_t` is a
   standard C++ metafunction.
 

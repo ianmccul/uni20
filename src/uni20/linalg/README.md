@@ -14,6 +14,8 @@ before they lower to backend wrappers and kernels.
 - `dispatch.hpp`: operation-tag backend-list dispatch helpers.
 - `dispatch_diagnostics.hpp`: disabled-by-default structured observation of
   ordered backend walks.
+- `async.hpp`: opt-in include point for scheduled `Async<Tensor>` operations.
+- `async/`: all-async Tensor wrappers over the synchronous operation layer.
 - `blas/`: mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - `ops/`: operation descriptors such as matrix-operation tags.
 - `backends/blas/`: operation-tag BLAS backend adapters.
@@ -33,6 +35,10 @@ before they lower to backend wrappers and kernels.
   operation tag and an explicit selector. Tensor-view operands use the
   fixed-output `gemm` or `gemv` front end so it can derive their common storage
   selector, or they may supply an explicit selector override.
+- Async Tensor operations live in the opt-in `async/` layer. They resolve the
+  static storage selector before scheduling, await Tensor values, and then call
+  these same synchronous Tensor front ends with that selector; backends do not
+  depend on the async runtime.
 - `copy_op` is the semantic element-copy operation used by Tensor `copy` and
   `make_tensor`. Its CPU backend respects accessors. Future BLAS matrix-copy
   extensions may accept representable rank-two layouts and conjugating views;

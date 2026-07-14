@@ -124,51 +124,6 @@ concept async_read_writer = requires(T t) {
 template <typename T>
 concept async_like = async_reader<T> && async_writer<T>;
 
-/// \brief Awaitable wrapper for scalar values used in async expressions.
-///
-/// Allows scalar values to participate in co_await expressions used by async kernels.
-/// This awaitable never suspends, and simply returns the value when resumed.
-/// We store a value here, which means that we necessarily copy (or move).
-/// This is fine, since we have have an expression involving an Async<T> x, and a concrete value y,
-/// we must copy (or move) y into the coroutine / scheduler anyway.
-///
-/// \tparam T Scalar type
-template <typename T> struct ValueAwaiter
-{
-    T value;
-
-    /// \brief Always ready — never suspends.
-    [[nodiscard]] bool await_ready() const noexcept { return true; }
-
-    /// \brief No-op suspension hook.
-    void await_suspend(AsyncTask) const noexcept {}
-
-    /// \brief Return the value.
-    [[nodiscard]] T const& await_resume() const& noexcept { return value; }
-    [[nodiscard]] T await_resume() && noexcept { return std::move(value); }
-
-    // no-op, simulating a ReadBuffer
-    void release() const noexcept {};
-};
-
-/// \brief Read adapter for scalar values.
-///
-/// Wraps a scalar value into an awaitable that can be co_awaited like an Async buffer.
-template <typename T>
-  requires(!async_reader<std::remove_cvref_t<T>>)
-ValueAwaiter<std::remove_cvref_t<T>> read(T&& x)
-{
-  return ValueAwaiter<std::remove_cvref_t<T>>{std::forward<T>(x)};
-}
-
-/// \brief for a generic async reader, free function read() can forward to the member
-template <typename T>
-  requires(async_reader<std::remove_cvref_t<T>>)
-auto read(T&& x)
-{
-  return std::forward<T>(x).read();
-}
-
 /// \brief Strip Async<T> to T for type deduction
 template <typename T> struct async_value_type
 {

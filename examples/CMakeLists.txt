@@ -121,6 +121,9 @@ uni20_add_example(async_buffer_await_paths_example async/async_buffer_await_path
                   uni20_async)
 add_test(NAME AsyncBufferAwaitPathsExample COMMAND async_buffer_await_paths_example)
 uni20_add_example(async_kernel_shapes_example async/async_kernel_shapes_example.cpp fmt::fmt uni20_common uni20_async)
+uni20_add_example(async_tensor_matrix_product_example async/async_tensor_matrix_product_example.cpp fmt::fmt
+                  uni20_linalg uni20_async)
+add_test(NAME AsyncTensorMatrixProductExample COMMAND async_tensor_matrix_product_example)
 uni20_add_example(async_tbb_reduction_example async/async_tbb_reduction_example.cpp fmt::fmt uni20_common uni20_async
                   TBB::tbb)
 uni20_add_example(async_fib_example async/async_fib_example.cpp fmt::fmt uni20_common uni20_async TBB::tbb)

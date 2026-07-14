@@ -13,6 +13,10 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - Borrowed access and owning access are semantically different.
 - Release ordering is semantically important.
 - `Async<T>` does not solve aliasing across distinct objects.
+- Async Tensor operation wrappers require every Tensor operand to be `Async<T>`;
+  do not silently mix immediate and async operands.
+- Scheduled Tensor wrappers move buffer handles and non-Tensor state into the
+  coroutine, then call an existing synchronous Tensor operation after awaiting.
 
 ## Async<T>
 
@@ -149,6 +153,44 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `Async<T>`
 - `ReadBuffer<T>`
 - `WriteBuffer<T>`
+
+## Async Tensor operation wrappers
+
+### ROLE
+
+- Lift an existing synchronous Tensor operation onto the async runtime.
+- Own synchronization and lifetime without making backend kernels async-aware.
+
+### INVARIANTS
+
+- Every caller-supplied Tensor operand is an exact `Async<T>`.
+- The non-coroutine wrapper creates buffers; the coroutine owns those buffers by value.
+- Immediate scalars become always-ready value awaiters; async scalars contribute
+  real read buffers. Both are owned by the coroutine.
+- Default selectors are resolved from Tensor/storage types before scheduling
+  and enter the coroutine by value.
+- The runtime backend walk occurs after the Tensor values are awaited and their
+  mdspans are available.
+- A one-output task carries its `WriteBuffer` as a coroutine parameter so
+  unhandled failures propagate to that output epoch.
+- Output/input queue identity may be rejected as an exact obvious-alias check;
+  this is not general deadlock analysis.
+
+### FAILURE MODES
+
+- Capturing an `Async<T>` reference or caller-local configuration in a coroutine.
+- Mixing synchronous Tensor operands into an async operation overload.
+- Acquiring a read and write buffer for one output instead of mutating through
+  its single writer.
+- Inspecting an `Async<Tensor>` value during static selector resolution.
+- Running layout- or accessor-dependent backend selection before awaited
+  mdspans are available.
+- Treating a by-value borrowed descriptor as owning storage.
+
+### RELATED
+
+- `docs/async/kernel_authoring.md`
+- `src/uni20/linalg/async/`
 
 ## ReadBuffer<T>
 

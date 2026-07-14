@@ -432,7 +432,7 @@ Needed behavior:
   placement
 - support the same path when `A` is only an mdspan-like view plus explicit
   backend/domain information
-- allow the backend selector value to carry composed runtime state, such as
+- allow an explicit backend selector value to carry immutable runtime state, such as
   CUDA device, workspace allocator, stream policy, or advisory hints
 - treat population of the temporary as an ordinary copy kernel
 
@@ -440,7 +440,7 @@ Concept pressure:
 
 - backend selection alone is not enough to allocate storage; the dispatch layer
   also needs a memory domain or storage factory
-- the backend selector must be a value, not only a backend tag list, when
+- an explicit backend selector must be a value, not only a backend tag list, when
   placement or allocation policy is runtime state
 - `TensorBackendSelectable` should stay separate from a possible
   `TensorStorageDomain` / `TensorTemporaryFactory` concept
@@ -494,10 +494,12 @@ opt in through wrappers or ADL/customization.
 The implemented `select_backend(operation, operands...)` uses a global
 `backend_selector_override<Operation, StoragePolicy>` customization trait. Its
 fallback requires a common storage policy and returns the first operand's
-storage-provided selector. A specialization may globally replace the backend
-list for an operation/storage combination or inspect all operand values when
-selector state must be checked or composed. Explicit-selector operation
-overloads bypass this default-selection step.
+storage-provided static selector. Operand values are present only for type
+deduction and front-end ergonomics. A specialization may define
+`select(operation)` to globally replace the backend list for an
+operation/storage combination. Explicit-selector operation overloads bypass
+this default-selection step and remain the route for caller-specific immutable
+context.
 
 The default path rejects mixed storage policies at compile time. In particular,
 a host tensor and a CUDA tensor do not acquire an implicit transfer merely

@@ -93,14 +93,21 @@ using uni20::linalg::KernelTypeAcceptance;
 
 namespace selector_customization_test
 {
-struct StoragePolicy
-{};
-
 struct Backend
 {
     static constexpr std::string_view name = "selector_customization";
-    int selected_id = 0;
-    int* observed_id = nullptr;
+};
+
+inline bool backend_was_called = false;
+
+struct StoragePolicy
+{
+    using backend_selector_type = backend_list<CpuReferenceBackend>;
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
+    {
+      return backend_selector_type{CpuReferenceBackend{}};
+    }
 };
 
 struct TensorAdapter
@@ -108,10 +115,9 @@ struct TensorAdapter
     using storage_policy = StoragePolicy;
 
     left_mdspan<double> span;
-    backend_list<Backend> selector;
 
     [[nodiscard]] auto mdspan() const noexcept { return span; }
-    [[nodiscard]] auto backend_selector() const noexcept { return selector; }
+    [[nodiscard]] static constexpr auto backend_selector() noexcept { return StoragePolicy::backend_selector(); }
     [[nodiscard]] auto extents() const noexcept { return span.extents(); }
     [[nodiscard]] auto extent(std::size_t axis) const noexcept { return span.extent(axis); }
 };
@@ -125,7 +131,8 @@ template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
 KernelAttempt try_kernel(Backend backend, gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
                          RhsMdspan&& rhs, Scalar beta)
 {
-  *backend.observed_id = backend.selected_id;
+  (void)backend;
+  backend_was_called = true;
   return try_kernel(CpuReferenceBackend{}, gemm_op{}, std::forward<OutputMdspan>(output), alpha,
                     std::forward<LhsMdspan>(lhs), std::forward<RhsMdspan>(rhs), beta);
 }
@@ -262,13 +269,9 @@ static_assert(requires(BlasBackend backend, gemm_op op, left_mdspan<double>& out
 template <>
 struct uni20::linalg::backend_selector_override<uni20::linalg::gemm_op, selector_customization_test::StoragePolicy>
 {
-    static auto select(uni20::linalg::gemm_op const&, selector_customization_test::TensorAdapter const& output,
-                       selector_customization_test::TensorAdapter const&,
-                       selector_customization_test::TensorAdapter const&)
+    static auto select(uni20::linalg::gemm_op const&)
     {
-      auto backend = std::get<0>(output.selector.entries);
-      backend.selected_id = 42;
-      return uni20::linalg::backend_list{backend};
+      return uni20::linalg::backend_list{selector_customization_test::Backend{}};
     }
 };
 
@@ -593,18 +596,17 @@ TEST(LinalgGemmDispatchTest, TensorOperandsUseGlobalStoragePolicyOverride)
   std::vector<double> a_storage(4);
   std::vector<double> b_storage(4);
   std::vector<double> c_storage(4);
-  int observed_id = 0;
-
-  TensorAdapter a{left_mdspan<double>(a_storage.data(), 2, 2), backend_list{Backend{.observed_id = &observed_id}}};
-  TensorAdapter b{left_mdspan<double>(b_storage.data(), 2, 2), backend_list{Backend{.observed_id = &observed_id}}};
-  TensorAdapter c{left_mdspan<double>(c_storage.data(), 2, 2), backend_list{Backend{.observed_id = &observed_id}}};
+  TensorAdapter a{left_mdspan<double>(a_storage.data(), 2, 2)};
+  TensorAdapter b{left_mdspan<double>(b_storage.data(), 2, 2)};
+  TensorAdapter c{left_mdspan<double>(c_storage.data(), 2, 2)};
+  selector_customization_test::backend_was_called = false;
 
   fill_matrix(a.span, {1.0, 2.0, 3.0, 4.0});
   fill_matrix(b.span, {5.0, 6.0, 7.0, 8.0});
 
   uni20::linalg::gemm(c, 1.0, a, b, 0.0);
 
-  EXPECT_EQ(observed_id, 42);
+  EXPECT_TRUE(selector_customization_test::backend_was_called);
   EXPECT_DOUBLE_EQ((c.span[0, 0]), 19.0);
   EXPECT_DOUBLE_EQ((c.span[0, 1]), 22.0);
   EXPECT_DOUBLE_EQ((c.span[1, 0]), 43.0);

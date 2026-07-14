@@ -57,9 +57,10 @@ template <class... Backends> struct is_backend_list<backend_list<Backends...>> :
 template <class T> inline constexpr bool is_backend_list_v = is_backend_list<std::remove_cvref_t<T>>::value;
 
 /// \brief Optional global backend-selector override for an operation and storage policy.
-/// \details Specializations may define a static `select(operation, operands...)`
-///          function. When no such function is available, tensor dispatch uses
-///          the storage policy's selector exposed by the first operand.
+/// \details Specializations may define a static `select(operation)` function.
+///          When no such function is available, Tensor dispatch uses the
+///          storage policy's static selector. Selector resolution does not
+///          inspect Tensor values.
 template <class Operation, class StoragePolicy> struct backend_selector_override
 {};
 
@@ -69,44 +70,59 @@ template <class Tensor>
 concept HasStoragePolicy = requires { typename std::remove_cvref_t<Tensor>::storage_policy; } &&
                            (!std::same_as<typename std::remove_cvref_t<Tensor>::storage_policy, void>);
 
-template <class FirstTensor, class... RestTensors>
-[[nodiscard]] constexpr auto storage_default_backend_selector(FirstTensor const& first, RestTensors const&... rest)
-{
-  using selector_type = std::remove_cvref_t<decltype(first.backend_selector())>;
-  static_assert((std::same_as<selector_type, std::remove_cvref_t<decltype(rest.backend_selector())>> && ...),
-                "tensor operands must provide compatible default backend selector types");
-  return first.backend_selector();
-}
+template <class Provider>
+concept HasStaticBackendSelector = requires { std::remove_cvref_t<Provider>::backend_selector(); };
 } // namespace detail
 
-/// \brief Select the default backend list for an operation on tensor operands.
+/// \brief Resolve the immutable backend selector for Tensor operand types.
 /// \details Operands with storage policies must use one common policy. A global
 ///          `backend_selector_override<Operation, StoragePolicy>` specialization
-///          may replace the storage-provided default. Tensor adaptors without a
-///          storage-policy type fall back directly to their member selectors.
-template <class Operation, class FirstTensor, class... RestTensors>
-[[nodiscard]] constexpr auto select_backend(Operation const& operation, FirstTensor const& first,
-                                            RestTensors const&... rest)
+///          may replace the storage-provided static default. Tensor adaptors
+///          without storage policies must expose a static `backend_selector()`.
+template <class FirstTensor, class... RestTensors, class Operation>
+[[nodiscard]] constexpr auto select_backend_for(Operation const& operation)
 {
   if constexpr (detail::HasStoragePolicy<FirstTensor> && (detail::HasStoragePolicy<RestTensors> && ...))
   {
     using storage_policy = typename std::remove_cvref_t<FirstTensor>::storage_policy;
     static_assert((std::same_as<storage_policy, typename std::remove_cvref_t<RestTensors>::storage_policy> && ...),
                   "tensor operands with different storage policies require an explicit selector or transfer");
+    static_assert(detail::HasStaticBackendSelector<storage_policy>,
+                  "tensor storage policy must provide a static backend_selector()");
+
     using override_type = backend_selector_override<std::remove_cvref_t<Operation>, storage_policy>;
-    if constexpr (requires { override_type::select(operation, first, rest...); })
+    if constexpr (requires { override_type::select(operation); })
     {
-      return override_type::select(operation, first, rest...);
+      return override_type::select(operation);
     }
     else
     {
-      return detail::storage_default_backend_selector(first, rest...);
+      return storage_policy::backend_selector();
     }
   }
   else
   {
-    return detail::storage_default_backend_selector(first, rest...);
+    using first_tensor = std::remove_cvref_t<FirstTensor>;
+    static_assert(detail::HasStaticBackendSelector<first_tensor> &&
+                      (detail::HasStaticBackendSelector<std::remove_cvref_t<RestTensors>> && ...),
+                  "tensor operands without storage policies must provide a static backend_selector()");
+    using selector_type = std::remove_cvref_t<decltype(first_tensor::backend_selector())>;
+    static_assert((std::same_as<selector_type,
+                                std::remove_cvref_t<decltype(std::remove_cvref_t<RestTensors>::backend_selector())>> &&
+                   ...),
+                  "tensor operands must provide compatible default backend selector types");
+    return first_tensor::backend_selector();
   }
+}
+
+/// \brief Select the default backend list for an operation on Tensor operands.
+/// \details Tensor values are accepted for operation-front-end ergonomics but
+///          selector resolution depends only on their static types and the
+///          operation value.
+template <class Operation, class FirstTensor, class... RestTensors>
+[[nodiscard]] constexpr auto select_backend(Operation const& operation, FirstTensor const&, RestTensors const&...)
+{
+  return select_backend_for<FirstTensor, RestTensors...>(operation);
 }
 
 /// \brief Return an explicit backend list unchanged.
