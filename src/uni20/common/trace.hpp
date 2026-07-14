@@ -315,7 +315,7 @@
     auto va = (a);                                                                                                     \
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
-    static_assert(::uni20::check::is_ulp_comparable<T>, "CHECK_FLOATING_EQ requires a scalar type");                   \
+    static_assert(::uni20::check::UlpComparable<T>, "CHECK_FLOATING_EQ requires a ULP-comparable scalar");             \
     ::std::int64_t ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                   \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
@@ -352,7 +352,7 @@
     auto va = (a);                                                                                                     \
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
-    static_assert(::uni20::check::is_ulp_comparable<T>, "PRECONDITION_FLOATING_EQ requires a scalar type");            \
+    static_assert(::uni20::check::UlpComparable<T>, "PRECONDITION_FLOATING_EQ requires a ULP-comparable scalar");      \
     ::std::int64_t ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                   \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
@@ -616,7 +616,7 @@
     auto va = (a);                                                                                                     \
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
-    static_assert(::uni20::check::is_ulp_comparable<T>, "DEBUG_CHECK_FLOATING_EQ requires a scalar type");             \
+    static_assert(::uni20::check::UlpComparable<T>, "DEBUG_CHECK_FLOATING_EQ requires a ULP-comparable scalar");       \
     ::std::int64_t ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                   \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \
@@ -653,7 +653,8 @@
     auto va = (a);                                                                                                     \
     auto vb = (b);                                                                                                     \
     using T = std::decay_t<decltype(va)>;                                                                              \
-    static_assert(::uni20::check::is_ulp_comparable<T>, "DEBUG_PRECONDITION_FLOATING_EQ requires a scalar type");      \
+    static_assert(::uni20::check::UlpComparable<T>,                                                                    \
+                  "DEBUG_PRECONDITION_FLOATING_EQ requires a ULP-comparable scalar");                                  \
     ::std::int64_t ulps = ::trace::detail::get_ulps(a, b __VA_OPT__(, __VA_ARGS__));                                   \
     if (!::uni20::check::FloatingULP<T>::eq(va, vb, ulps))                                                             \
     {                                                                                                                  \

@@ -128,7 +128,8 @@ ULP means "Unit in the Last Place":
 Practical guidance:
 
 - `CHECK_EQUAL(a, b)` for integers, enums, pointers, and exact-match logic.
-- `CHECK_FLOATING_EQ(a, b)` for float/double/complex comparisons.
+- `CHECK_FLOATING_EQ(a, b)` for IEEE binary32, binary64, configured binary128,
+  and corresponding complex comparisons.
 - Start with default tolerance (`4` ULP), then tighten only if needed.
 
 Near `1.0`, the step size is:
@@ -137,6 +138,11 @@ Near `1.0`, the step size is:
 |---|---|---|---|
 | `float` | `1.1920929e-07` | `1.00000012f` | `1.00000024f` |
 | `double` | `2.2204460492503131e-16` | `1.0000000000000002` | `1.0000000000000004` |
+| `uni20::float128` | `1.92592994438723585305597794258492732e-34` | provider-specific literal | provider-specific literal |
+
+`uni20::float128` support is present when Uni20 is configured with an IEEE
+binary128 provider. Padded x87 extended-precision `long double` is deliberately
+excluded because its object representation is not an IEEE interchange format.
 
 Equivalent exact hex-float literals:
 

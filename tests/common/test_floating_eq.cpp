@@ -8,6 +8,18 @@
 
 #include <gtest/gtest-spi.h>
 
+TEST(FloatDistance, CrossesSignedZeroWithoutCountingZeroTwice)
+{
+  float const gap = std::numeric_limits<float>::denorm_min();
+  EXPECT_EQ(uni20::check::float_distance(-gap, gap), 2);
+  EXPECT_EQ(uni20::check::float_distance(gap, -gap), -2);
+}
+
+TEST(FloatDistance, ClearlyDifferentSignsAreNotClose)
+{
+  EXPECT_FALSE(uni20::check::FloatingULP<float>::eq(-1.0f, 1.0f));
+}
+
 // --- EXPECT_FLOATING_EQ ---
 
 TEST(FloatingEqGTest, ExpectPassesWithinTolerance)
@@ -110,3 +122,54 @@ TEST(FloatingEqGTest, OppositeInfinityFails)
   static double const neg_inf = -std::numeric_limits<double>::infinity();
   EXPECT_FATAL_FAILURE(ASSERT_FLOATING_EQ(pos_inf, neg_inf), "unrepresentable");
 }
+
+#if UNI20_HAS_FLOAT128 && UNI20_FLOAT128_PROVIDER_MPLAPACK && defined(MPLAPACK_BINARY128_MODE) &&                      \
+    (MPLAPACK_BINARY128_MODE != MPLAPACK_BINARY128_MODE_LDBL)
+
+TEST(Float128FloatingEq, DistinguishesValuesWhoseLowWordsMatch)
+{
+  using Real = uni20::float128;
+  Real const one = Real{1};
+  Real const two = Real{2};
+
+  static_assert(uni20::check::IeeeBinaryReal<Real>);
+  static_assert(uni20::check::UlpComparable<Real>);
+  EXPECT_FALSE(uni20::check::FloatingULP<Real>::eq(one, two));
+  EXPECT_FALSE(uni20::check::FloatingULP<Real>::eq(one, two, std::numeric_limits<std::int64_t>::max()));
+  EXPECT_EQ(uni20::check::float_distance(one, two), std::numeric_limits<long long>::max());
+  EXPECT_EQ(uni20::check::float_distance(two, one), -std::numeric_limits<long long>::max());
+  EXPECT_EQ(uni20::check::float_abs_distance(one, two), std::numeric_limits<long long>::max());
+}
+
+TEST(Float128FloatingEq, AcceptsAdjacentRealAndComplexValues)
+{
+  using Real = uni20::float128;
+  using Complex = uni20::complex<Real>;
+  Real const one = Real{1};
+  auto const one_bits = std::bit_cast<__uint128_t>(one);
+  Real const next = std::bit_cast<Real>(one_bits + 1);
+  Complex const expected{one, Real{2}};
+  Complex const actual{next, Real{2}};
+
+  EXPECT_EQ(uni20::check::float_distance(one, next), 1);
+  EXPECT_FLOATING_EQ(one, next, 1);
+  EXPECT_FLOATING_EQ(expected, actual, 1);
+  CHECK_FLOATING_EQ(one, next, 1);
+  CHECK_FLOATING_EQ(expected, actual, 1);
+}
+
+TEST(Float128FloatingEqDeathTest, CheckRejectsClearlyDifferentRealAndComplexValues)
+{
+  GTEST_FLAG_SET(death_test_style, "fast");
+  using Real = uni20::float128;
+  using Complex = uni20::complex<Real>;
+  Real const one = Real{1};
+  Real const two = Real{2};
+  Complex const expected{one, one};
+  Complex const actual{one, two};
+
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(one, two); }, "CHECK_FLOATING_EQ");
+  EXPECT_DEATH({ CHECK_FLOATING_EQ(expected, actual); }, "CHECK_FLOATING_EQ");
+}
+
+#endif
