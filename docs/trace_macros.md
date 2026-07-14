@@ -228,20 +228,29 @@ not emit a second stacktrace when one is already attached.
 
 ## Stacktrace Configuration (<stacktrace>)
 
-C++23 introduced the `<stacktrace>` library, which was supported by GCC in version 13 but only well supported in version 14, and in Clang LLVM 16+. Support in Linux varies by distro. The Ubuntu `gcc-13` does not include `<stacktrace>` support. Ubuntu 26.04 LTS should include good support for `<stacktrace>` with the GCC 15 compiler.
+C++23 introduced the `<stacktrace>` library, but availability depends on the
+compiler, standard-library headers, and packaged support library rather than
+the compiler version alone. For example, libstdc++ may provide the implementation
+through a separately linked `stdc++exp` library. Uni20 therefore tests the
+complete compile-and-link capability instead of maintaining a compiler-version
+allowlist.
 
-Stacktrace support is controlled in two layers:
+During a fresh configure, CMake compiles and links a small `std::stacktrace`
+program. `UNI20_ENABLE_STACKTRACE` defaults to `ON` when that probe succeeds and
+to `OFF` otherwise. Some libstdc++ installations require the separately linked
+`stdc++exp` library; the same probe detects and records that dependency.
 
-1. CMake option:
+Disable otherwise available stacktraces explicitly with:
 
 ```bash
-cmake -DUNI20_ENABLE_STACKTRACE=ON ...
+cmake -DUNI20_ENABLE_STACKTRACE=OFF ...
 ```
 
-2. Standard library feature availability at compile time:
-   - `__cpp_lib_stacktrace >= 202011L`
+Forcing `UNI20_ENABLE_STACKTRACE=ON` with an unsupported compiler or standard
+library is a configuration error. The generated configuration also verifies
+`__cpp_lib_stacktrace >= 202011L` before compiling stacktrace-dependent code.
 
-If either is missing, trace code still compiles. `_STACK` macros and abort diagnostics print:
+When stacktraces are disabled, `_STACK` macros and abort diagnostics print:
 
 `🚨 WARNING: std::stacktrace is unavailable in this build; stacktrace omitted.`
 

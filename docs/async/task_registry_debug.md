@@ -11,10 +11,13 @@ This document explains what it tracks, how to enable it, and how to interpret du
 
 - `-DUNI20_DEBUG_ASYNC_TASKS=ON`
 - `-DUNI20_DEBUG_DAG=ON`
-- `-DUNI20_ENABLE_STACKTRACE=ON`
+- `-DUNI20_ENABLE_STACKTRACE=ON` when supported; this is the fresh-build default
 
-`UNI20_ENABLE_STACKTRACE` probes for `<stacktrace>`. If unavailable, build continues
-with degraded output and explicit warning.
+CMake defaults `UNI20_ENABLE_STACKTRACE` to the result of a compile-and-link
+probe. If unavailable, it defaults to `OFF` and the build continues with
+degraded output and an explicit warning. Forcing it `ON` with an unsupported
+toolchain is a configuration error; setting it `OFF` explicitly disables
+otherwise available stacktrace capture.
 
 `UNI20_DEBUG_DAG` enables async value nodes and coroutine argument dependency capture.
 It requires the task registry and therefore enables `UNI20_DEBUG_ASYNC_TASKS`.

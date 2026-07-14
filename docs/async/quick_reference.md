@@ -159,9 +159,11 @@ Sink registration:
 
 - `-DUNI20_DEBUG_ASYNC_TASKS=ON`
 - `-DUNI20_DEBUG_DAG=ON`
-- `-DUNI20_ENABLE_STACKTRACE=ON`
+- `-DUNI20_ENABLE_STACKTRACE=ON` when supported; this is the fresh-build default
 
-If `<stacktrace>` is unavailable, build continues with degraded stacktrace output.
+If `<stacktrace>` is unavailable, the option defaults to `OFF` and the build
+continues with degraded stacktrace output. Use `-DUNI20_ENABLE_STACKTRACE=OFF`
+to disable otherwise available support explicitly.
 `UNI20_DEBUG_DAG` adds Graphviz DOT snapshots and enables task-registry instrumentation.
 
 ### Runtime verbosity

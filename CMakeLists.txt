@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 cmake_policy(SET CMP0135 NEW)
 project(uni20 VERSION 0.1.0 LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 # Build-type support
 # For single-config generators (Makefile, Ninja), default to Release if none given.
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
@@ -35,6 +39,7 @@ endif()
 # Include extra CMake modules.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ClangFormat)
+include(DetectStacktrace)
 include(Uni20TestHelpers)
 include(Uni20Dependencies)
 #include(cmake/DetectBlasIntSize.cmake)
@@ -124,7 +129,14 @@ option(UNI20_ENABLE_WARNINGS      "Enable compiler warnings" ON)
 option(UNI20_ENABLE_LTO           "Enable LTO/IPO for optimized builds" ON)
 option(UNI20_BUILD_ASM            "Build stand-alone assembly dumps for snippets in asm/" ON)
 option(UNI20_DEBUG_DAG            "Enable DAG debug info (for Async buffer tracking and visualization)" ${_uni20_debug_default})
-option(UNI20_ENABLE_STACKTRACE    "Enable C++20 <stacktrace> header (requires library support)" OFF)
+uni20_detect_stacktrace()
+option(UNI20_ENABLE_STACKTRACE    "Enable C++23 <stacktrace> support when available" ${UNI20_STACKTRACE_AVAILABLE})
+if(UNI20_ENABLE_STACKTRACE AND NOT UNI20_STACKTRACE_AVAILABLE)
+  message(FATAL_ERROR
+    "UNI20_ENABLE_STACKTRACE=ON, but the active compiler and C++ standard library cannot compile and link "
+    "std::stacktrace. Configure with -DUNI20_ENABLE_STACKTRACE=OFF for degraded diagnostics or use a "
+    "toolchain with stacktrace support.")
+endif()
 option(UNI20_SANITIZE             "Enable sanitizers (comma-separated list: address,undefined,thread,memory,leak)" "")
 option(UNI20_EXTERNAL_NO_WERROR   "Disable -Werror for external libraries" ON)
 option(UNI20_EXTERNAL_NO_WARN     "Disable all warnings for external libraries" OFF)
@@ -284,10 +296,6 @@ if(UNI20_SANITIZE)
   add_compile_options(${SAN_FLAGS})
   add_link_options(${SAN_FLAGS})
 endif()
-
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Sub-modules, for detailed tracing/logging
 set(SUBMODULES BLAS LAPACK CUSOLVER ASYNC TESTMODULE)
