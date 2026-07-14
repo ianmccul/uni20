@@ -1,7 +1,6 @@
 #pragma once
 
 #include <uni20/config.hpp>
-#include <uni20/tags/blas.hpp>
 
 #include <mkl.h>
 #include <string>
@@ -9,7 +8,7 @@
 /**
  * \defgroup backend_blas_mkl Intel MKL BLAS backend
  * \ingroup backend_blas
- * \brief Tag types and helpers for integrating Intel MKL with Uni20 BLAS abstractions.
+ * \brief Runtime helpers for integrating Intel MKL with Uni20 BLAS abstractions.
  */
 
 #if !UNI20_BACKEND_MKL
@@ -18,16 +17,6 @@
 
 namespace uni20
 {
-/// \brief Tag type that selects the Intel MKL-backed BLAS implementation.
-/// \ingroup backend_blas_mkl
-struct mkl_sequential_tag : blas_tag
-{};
-
-/// \brief Tag type that selects the internally threaded Intel MKL-backed BLAS implementation.
-/// \ingroup backend_blas_mkl
-struct mkl_threaded_tag : blas_tag
-{};
-
 namespace blas::mkl
 {
 /// \brief Return whether this build links the sequential MKL backend.

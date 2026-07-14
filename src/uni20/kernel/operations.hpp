@@ -1,6 +1,6 @@
 #pragma once
 
 /**
- * \defgroup kernel_ops Tensor operation interfaces
- * \brief High-level operations that dispatch to specialised tensor kernels.
+ * \defgroup kernel_ops Tensor kernel interfaces
+ * \brief Low-level tensor operations over resolved views.
  */

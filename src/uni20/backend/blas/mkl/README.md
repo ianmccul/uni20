@@ -6,7 +6,7 @@ sequential or threaded target variants.
 
 ## Contents
 
-- `backend_mkl.hpp`: MKL backend tag/include point.
+- `backend_mkl.hpp`: MKL runtime query and thread-control helpers.
 - `reference_blas_mkl_direct.hpp`: direct MKL BLAS declarations/adapters.
 - `CMakeLists.txt`: MKL package discovery and target setup.
 

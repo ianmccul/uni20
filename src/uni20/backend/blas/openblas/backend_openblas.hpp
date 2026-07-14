@@ -1,14 +1,13 @@
 #pragma once
 
 #include <uni20/config.hpp>
-#include <uni20/tags/blas.hpp>
 
 #include <string>
 
 /**
  * \defgroup backend_blas_openblas OpenBLAS backend
  * \ingroup backend_blas
- * \brief Tag types and helpers for integrating OpenBLAS extensions with Uni20 BLAS abstractions.
+ * \brief Runtime helpers for integrating OpenBLAS extensions with Uni20 BLAS abstractions.
  */
 
 #if !UNI20_BACKEND_OPENBLAS
@@ -17,11 +16,6 @@
 
 namespace uni20
 {
-/// \brief Tag type that selects the OpenBLAS-backed BLAS implementation.
-/// \ingroup backend_blas_openblas
-struct openblas_tag : blas_tag
-{};
-
 namespace blas::openblas
 {
 namespace detail

@@ -1,8 +1,13 @@
 #pragma once
 
-#include "cpu.hpp"
 #include <uni20/common/mdspan.hpp>
 #include <uni20/mdspan/strides.hpp>
+
+/**
+ * \defgroup kernel_cpu CPU tensor kernels
+ * \ingroup kernel
+ * \brief Always-available CPU reference tensor kernels.
+ */
 
 namespace uni20::kernel
 {
@@ -138,14 +143,11 @@ template <typename T, std::size_t MR, std::size_t NR, std::size_t KR>
 /// \param B Pointer to the base of the right-hand operand.
 /// \param beta Scaling factor applied to the pre-existing contents of the destination tensor.
 /// \param C Pointer to the base of the destination tensor.
-/// \param tag Backend selector tag.
 /// \ingroup kernel_cpu
 void contract_strided(static_vector<extent_strides<2>, MR> const& Mgrp,
                       static_vector<extent_strides<2>, NR> const& Ngrp,
-                      static_vector<extent_strides<2>, KR> const& Kgrp, T alpha, T const* A, T const* B, T beta, T* C,
-                      cpu_tag tag)
+                      static_vector<extent_strides<2>, KR> const& Kgrp, T alpha, T const* A, T const* B, T beta, T* C)
 {
-  static_cast<void>(tag);
   cpu::GemmLoop Loop(Mgrp, Ngrp, Kgrp, alpha, beta);
   Loop.run(A, B, C);
 }

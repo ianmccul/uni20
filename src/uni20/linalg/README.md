@@ -27,8 +27,8 @@ before they lower to backend wrappers and kernels.
 ## Notes
 
 - Keep dense linalg APIs separate from matrix-free Krylov APIs in `krylov/`.
-- Backend-specific code should stay in `backends/` and call through the lower
-  `backend/` and `kernel/` layers where appropriate.
+- Backend-specific code should stay in `backends/` and call provider wrappers
+  under `backend/` where appropriate.
 - Backend implementations include `operation_tags.hpp`; do not redeclare
   operation identities locally.
 - Bare-mdspan GEMM, GEMV, and copy calls use `dispatch_kernel` with their
@@ -43,9 +43,7 @@ before they lower to backend wrappers and kernels.
   `make_tensor`. Its CPU backend respects accessors. Future BLAS matrix-copy
   extensions may accept representable rank-two layouts and conjugating views;
   strict BLAS/LAPACK compute wrappers still do not materialize implicitly.
-- New dense linalg operations use operation tags, `kernel_accepts_types`, and
-  `try_kernel`. The former `cpu_tag`/`lapack_tag` matrix-operation front end has
-  been removed; those tags remain only in older, separate kernel lineages that
-  have not yet migrated to operation-tag dispatch.
+- Dense linalg operations use operation tags, `kernel_accepts_types`, and
+  `try_kernel`; the former backend-tag selector hierarchy has been removed.
 - Scalar-generic code should use Uni20 scalar traits and numeric limits from
   `core/`.

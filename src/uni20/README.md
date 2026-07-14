@@ -17,12 +17,10 @@ logic. Keep these files brief; detailed design notes belong in `/docs`.
   `stdex::mdspan` integration, and common containers/utilities.
 - `mdspan/`: structural mdspan concepts, stride helpers, iteration plans, and
   layout utilities used by dense leaf kernels.
-- `tags/`: lightweight backend and library tags such as CPU, BLAS, CUDA,
-  cuBLAS, cuSOLVER, and LAPACK.
 - `backend/`: backend-library wrappers and manifests. Current subdirectories
   include BLAS/LAPACK support, CUDA placeholders, and cuSOLVER wiring.
-- `kernel/`: operation tags and low-level kernel entry points over resolved
-  views. Kernel code should remain below tensor/symmetry semantics.
+- `kernel/`: low-level tensor kernel entry points over resolved views. Kernel
+  code should remain below tensor/symmetry semantics.
 - `level1/`: dense elementwise and reduction-style primitives such as assign,
   unary apply, zip transform, and sum.
 - `linalg/`: dense linear-algebra front ends and operation descriptors built on
@@ -41,7 +39,7 @@ logic. Keep these files brief; detailed design notes belong in `/docs`.
 - Raw dense primitives operate on resolved storage/views and should not depend on
   quantum-number or block-sparse semantics. Symmetric tensor operations should
   lower into dense primitive programs after sector/block logic is resolved.
-- Backends and kernels should see explicit operation tags and resolved
+- Dense linear-algebra backends receive explicit operation tags and resolved
   mdspan-like views. Tensor, async, and symmetry layers own higher-level
   metadata such as storage policy, backend selection, and quantum numbers.
 - Krylov algorithms are matrix-free in application space: they use opaque vector

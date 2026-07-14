@@ -5,7 +5,6 @@
 #include <uni20/kernel/contract.hpp>
 
 using namespace uni20;
-using uni20::cpu_tag; // our tag‐dispatch for now
 
 using namespace uni20::kernel;
 
@@ -51,8 +50,7 @@ TEST(ContractKernel2D, RowMajorMatmul)
   std::vector<double> cref = cv;
   naive_matmul_2d(M, K, N, alpha, av.data(), K, 1, bv.data(), N, 1, beta, cref.data(), N, 1);
 
-  // **NEW** kernel call:
-  contract(alpha, A, B, Kdims, beta, C, cpu_tag{});
+  contract(alpha, A, B, Kdims, beta, C);
 
   for (size_t i = 0; i < M; ++i)
     for (size_t j = 0; j < N; ++j)
@@ -78,7 +76,7 @@ TEST(ContractKernel2D, ColumnMajorB)
   std::vector<double> cref(M * N, 0.0);
   naive_matmul_2d(M, K, N, alpha, av.data(), K, 1, bv.data(), 1, K, beta, cref.data(), N, 1);
 
-  contract(alpha, A, B, Kdims, beta, C, cpu_tag{});
+  contract(alpha, A, B, Kdims, beta, C);
 
   for (size_t i = 0; i < M; ++i)
     for (size_t j = 0; j < N; ++j)
@@ -103,7 +101,7 @@ TEST(ContractKernel2D, ReversedA)
 
   std::array<std::pair<size_t, size_t>, 1> Kdims{{{1, 0}}};
 
-  contract(1.0, A, B, Kdims, 0.0, C, cpu_tag{});
+  contract(1.0, A, B, Kdims, 0.0, C);
 
   // reference
   std::vector<double> cref = cv;
@@ -137,7 +135,7 @@ TEST(ContractKernel3D, DoubleContraction)
   auto C = make_mdspan_2d(vc, I, J);
   std::array<std::pair<size_t, size_t>, 2> Kdims{{{1, 1}, {2, 2}}};
 
-  contract(1.0, A, B, Kdims, 0.0, C, cpu_tag{});
+  contract(1.0, A, B, Kdims, 0.0, C);
 
   // reference
   std::vector<double> cref = vc;
@@ -192,7 +190,7 @@ TEST(ContractKernel3D, AlphaBeta)
     }
   }
 
-  contract(alpha, A, B, Kdims, beta, C, cpu_tag{});
+  contract(alpha, A, B, Kdims, beta, C);
 
   for (size_t i = 0; i < I; ++i)
     for (size_t j = 0; j < J; ++j)
@@ -236,7 +234,7 @@ TEST(ContractKernel2x2, AllLayoutCombinations)
   auto run_and_check = [&](auto A, auto B, auto C) {
     std::fill(C.data_handle(), C.data_handle() + C.size(), 0.0);
 
-    contract(1.0, A, B, {{1, 0}}, 1.0, C, cpu_tag{});
+    contract(1.0, A, B, {{1, 0}}, 1.0, C);
 
     EXPECT_DOUBLE_EQ((C[0, 0]), 19.0);
     EXPECT_DOUBLE_EQ((C[0, 1]), 22.0);

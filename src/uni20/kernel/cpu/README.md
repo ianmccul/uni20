@@ -6,11 +6,10 @@ are unavailable.
 
 ## Contents
 
-- `cpu.hpp`: CPU kernel include point and tag integration.
 - `contract.hpp`: CPU contraction entry points.
 - `CMakeLists.txt`: CPU kernel interface target.
 
 ## Notes
 
-- CPU kernels should operate on resolved views and explicit operation tags.
+- CPU kernels should operate on resolved views.
 - Keep high-level tensor, async, and symmetry decisions out of this layer.
