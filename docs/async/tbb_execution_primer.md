@@ -495,11 +495,17 @@ different.
 This watchdog diagnoses a lack of scheduler-visible progress; it does not prove
 that the dependency graph contains a cycle. Its timeout must remain configurable
 for applications that legitimately wait on slow external completion.
-`TbbSchedulerWaitOptions::watchdog_timeout` defaults to 30 seconds when
+`TbbSchedulerWaitOptions::watchdog_timeout` defaults to 5 seconds when
 `UNI20_ASYNC_DEBUG=ON` and to `std::nullopt` otherwise. Callers may explicitly
 provide either a timeout or `std::nullopt` in any build mode. A future Python
 binding may enable a timeout while using exception-mode error handling without
 making native optimized builds terminate on this diagnostic heuristic.
+
+The optional `TaskRegistry` diagnostics service provides a separate external
+trigger. It can consume a signal such as `SIGUSR1` and write a best-effort DAG
+snapshot without terminating the process. The signal must not force the
+watchdog failure path because it may arrive while scheduler-visible work is
+still making progress.
 
 Resumable stacks can themselves be nested. An idle transition wakes only the
 most recently registered nested wait, allowing suspended stacks to unwind from

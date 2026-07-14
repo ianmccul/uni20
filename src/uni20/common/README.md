@@ -15,6 +15,8 @@ high-level tensor, linalg, async, or symmetry layers.
 - `presentation*`, `display*`, `terminal*`: user-facing formatting and terminal
   helpers, including policy-aware stacktrace presentation when available.
 - `aligned_buffer.hpp`, `static_vector.hpp`: small storage utilities.
+- `nifty_counter.hpp`: ordered one-time initialization and finalization shared
+  by namespace-scope users across translation units.
 - `floating_eq.hpp`, `half_int.hpp`, `namedenum.hpp`, `string_util.hpp`,
   `demangle.hpp`: common scalar, enum, string, and type-name helpers.
 

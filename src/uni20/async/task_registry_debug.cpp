@@ -1762,7 +1762,45 @@ DiagnosticServiceState& diagnostic_service()
   return *service;
 }
 
+constinit bool environment_diagnostics_service_started = false;
+
 } // anonymous namespace
+
+namespace uni20::detail
+{
+
+void initialize_task_registry_diagnostics_from_environment() noexcept
+{
+  auto const* configured_signal = nonempty_env("UNI20_DEBUG_DAG_SIGNAL");
+  if (!configured_signal) return;
+
+  try
+  {
+    auto options = default_diagnostics_service_options();
+    if (options.signal_number <= 0) return;
+
+    if (!diagnostic_service().start(std::move(options)))
+    {
+      std::fprintf(stderr, "Uni20 could not start async diagnostics for UNI20_DEBUG_DAG_SIGNAL=%s\n",
+                   configured_signal);
+      return;
+    }
+    environment_diagnostics_service_started = true;
+  }
+  catch (...)
+  {
+    std::fprintf(stderr, "Uni20 could not start async diagnostics for UNI20_DEBUG_DAG_SIGNAL=%s\n", configured_signal);
+  }
+}
+
+void finalize_task_registry_diagnostics_from_environment() noexcept
+{
+  if (!environment_diagnostics_service_started) return;
+  diagnostic_service().stop();
+  environment_diagnostics_service_started = false;
+}
+
+} // namespace uni20::detail
 
 namespace uni20
 {

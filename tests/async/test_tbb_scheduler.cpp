@@ -135,7 +135,7 @@ TEST(TbbScheduler, WatchdogDefaultFollowsAsyncDebugMode)
   TbbSchedulerWaitOptions const options;
 #if UNI20_ASYNC_DEBUG
   ASSERT_TRUE(options.watchdog_timeout.has_value());
-  EXPECT_EQ(*options.watchdog_timeout, 30s);
+  EXPECT_EQ(*options.watchdog_timeout, 5s);
 #else
   EXPECT_FALSE(options.watchdog_timeout.has_value());
 #endif

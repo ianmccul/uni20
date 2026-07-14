@@ -65,7 +65,7 @@ Wait behavior:
 - nested synchronous waits work with one total arena participant
 - if runnable scheduler work reaches zero, the innermost suspended wait enters
   the watchdog path
-- `TbbSchedulerWaitOptions::watchdog_timeout` defaults to 30 seconds when
+- `TbbSchedulerWaitOptions::watchdog_timeout` defaults to 5 seconds when
   `UNI20_ASYNC_DEBUG=ON` and to `std::nullopt` otherwise
 - callers may explicitly provide a timeout or `std::nullopt` in either build mode
 
@@ -76,6 +76,11 @@ of stalled progress, not proof of a dependency cycle, because external GPU,
 MPI, I/O, or application-thread activity may still produce the value. See
 [`tbb_execution_primer.md`](tbb_execution_primer.md) for the complete execution
 model and single-participant timeline.
+
+For out-of-band inspection, an instrumented `TaskRegistry` diagnostics service
+can consume a signal such as `SIGUSR1` and write a best-effort DAG snapshot. A
+signal requests diagnostics but does not raise `async_wait_timeout`: it may
+arrive while valid work is still running.
 
 ## TbbNumaScheduler
 

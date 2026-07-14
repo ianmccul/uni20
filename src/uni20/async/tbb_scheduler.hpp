@@ -41,7 +41,7 @@ struct TbbSchedulerWaitOptions
 {
     /// Idle interval before a scheduler-visible no-progress wait raises `async_wait_timeout`; null disables it.
 #if UNI20_ASYNC_DEBUG
-    std::optional<std::chrono::milliseconds> watchdog_timeout{std::chrono::seconds{30}};
+    std::optional<std::chrono::milliseconds> watchdog_timeout{std::chrono::seconds{5}};
 #else
     std::optional<std::chrono::milliseconds> watchdog_timeout{std::nullopt};
 #endif

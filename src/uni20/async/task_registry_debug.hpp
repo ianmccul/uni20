@@ -7,6 +7,8 @@
 
 #include "task_registry_snapshot.hpp"
 
+#include <uni20/common/nifty_counter.hpp>
+
 #include <coroutine>
 #include <cstdio>
 #include <string>
@@ -234,3 +236,18 @@ class TaskRegistryDebug {
 };
 
 } // namespace uni20
+
+namespace uni20::detail
+{
+
+void initialize_task_registry_diagnostics_from_environment() noexcept;
+void finalize_task_registry_diagnostics_from_environment() noexcept;
+
+namespace
+{
+// One guard per translation unit gives later namespace-scope users ordered access to the diagnostics runtime.
+[[maybe_unused]] nifty_counter<initialize_task_registry_diagnostics_from_environment,
+                               finalize_task_registry_diagnostics_from_environment> task_registry_diagnostics_lifetime;
+} // namespace
+
+} // namespace uni20::detail

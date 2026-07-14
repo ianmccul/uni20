@@ -177,9 +177,11 @@ uni20::TaskRegistry::start_diagnostics_service(options);
 The service owns a background thread. It writes best-effort DOT files when a request
 file appears, when the configured signal is received, or when program code calls
 `request_graphviz_dump()`. A signal is consumed with `sigtimedwait` on Linux rather
-than by doing work inside a signal handler. For reliable process-directed signals,
-start the service early enough that the signal can be blocked in the calling thread
-before worker threads are created.
+than by doing work inside a signal handler. Setting `UNI20_DEBUG_DAG_SIGNAL`
+automatically starts the service during program initialization, allowing the signal
+to be blocked before namespace-scope users and worker threads are created. Without
+that environment variable, callers must start the service explicitly before creating
+threads that should inherit the blocked signal mask.
 
 Default output and service settings can be configured with environment variables:
 
@@ -188,7 +190,7 @@ Default output and service settings can be configured with environment variables
 | `UNI20_DEBUG_DAG_OUTPUT_DIR` | Default DOT output directory; defaults to `/tmp` |
 | `UNI20_DEBUG_DAG_FILE_PREFIX` | Default DOT filename prefix; defaults to `uni20-dag` |
 | `UNI20_DEBUG_DAG_REQUEST_FILE` | Control file consumed by `start_diagnostics_service()` |
-| `UNI20_DEBUG_DAG_SIGNAL` | Signal for the service, e.g. `SIGUSR1`, `USR2`, or a number |
+| `UNI20_DEBUG_DAG_SIGNAL` | Signal for the service, e.g. `SIGUSR1`, `USR2`, or a number; setting it starts the service during program initialization |
 | `UNI20_DEBUG_DAG_POLL_MS` | Diagnostics-service poll interval in milliseconds |
 | `UNI20_DEBUG_DAG_STACKTRACE_FRAMES` | Maximum stack frames shown in snapshots, DOT tooltips, and text dumps; `0` hides trace text, `all`/`full`/`unlimited`/`max` disables the cap |
 | `UNI20_DEBUG_DAG_STACKTRACE_INTERNAL_FRAMES` | Whether stacktrace text includes internal Uni20/libstdc++ frames; defaults to `true` |

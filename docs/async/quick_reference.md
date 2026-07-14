@@ -231,6 +231,11 @@ options.signal_number = SIGUSR1;
 uni20::TaskRegistry::start_diagnostics_service(options);
 ```
 
+Alternatively, setting `UNI20_DEBUG_DAG_SIGNAL=SIGUSR1` before launching the
+program starts the service during program initialization. Uni20 blocks and
+consumes the signal with `sigtimedwait`; it does not run diagnostics from an
+asynchronous signal handler.
+
 Useful environment defaults:
 
 - `UNI20_DEBUG_DAG_OUTPUT_DIR`
