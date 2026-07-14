@@ -182,8 +182,9 @@ For more specific requirements, use an explicit operation:
 - `proxy.get() = rhs` requires an existing value and uses its assignment operator
 
 The separate `async_assignment_kind_of<T>` trait controls whether direct
-assignment to the outer `Async<T>` handle creates a fresh timeline or schedules
-write-through assignment. It does not change these low-level write-proxy rules.
+assignment to the outer `Async<T>` handle creates a fresh independent timeline,
+schedules write-through assignment, or is unavailable for a read-only alias.
+It does not change these low-level write-proxy rules.
 
 ### Why += / -= can initialize
 

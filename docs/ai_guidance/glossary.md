@@ -34,11 +34,13 @@ This glossary is optimized for retrieval, not pedagogy.
 
 ### async_assignment_kind_of<T>
 
-- `ROLE`: Selects direct immediate or heterogeneous assignment semantics for `Async<T>`.
+- `ROLE`: Selects assignment semantics for every `Async<T>` source category.
 - `INVARIANT`: `rebind` detaches onto fresh storage and a fresh `EpochQueue`.
 - `INVARIANT`: `write_through` retains the current descriptor storage, owner chain, and queue.
+- `INVARIANT`: `not_assignable` rejects every assignment to a read-only alias.
 - `INVARIANT`: A `write_through` payload is also an `async_value_kind::shared_alias`.
-- `INVARIANT`: Exact `Async<T>` copy/move assignment is governed separately by `async_value_kind_of<T>`.
+- `INVARIANT`: Rebinding is valid only for an `async_value_kind::value`; no assignment retargets a shared alias.
+- `INVARIANT`: Exact `Async<T>` copy/move assignment follows the same assignment kind.
 - `MISCONCEPTION`: Rebinding means destroying and emplacing `T` inside the existing storage.
 
 ### EpochQueue
@@ -127,6 +129,7 @@ This glossary is optimized for retrieval, not pedagogy.
 ### async rebind
 
 - `ROLE`: Replace an `Async<T>` handle's storage and `EpochQueue` with a fresh timeline.
+- `INVARIANT`: Available only for independent values, never shared aliases.
 - `LIFETIME / OWNERSHIP`: Previously enrolled buffers retain the detached old timeline.
 - `MISCONCEPTION`: `proxy.emplace(...)` is an async rebind.
 
@@ -135,6 +138,13 @@ This glossary is optimized for retrieval, not pedagogy.
 - `ROLE`: Assign through a mutable alias or proxy without replacing its storage, owner, or queue.
 - `INVARIANT`: The stored descriptor must already exist and define the underlying assignment operation.
 - `INVARIANT`: Same-type assignment writes through; it must not retarget only the descriptor.
+
+### non-assignable async alias
+
+- `ROLE`: Read-only alias whose descriptor, owner chain, and queue may be copied only by constructing another handle.
+- `INVARIANT`: Copy assignment, move assignment, and heterogeneous assignment are all ill-formed.
+- `INVARIANT`: The alias models an async reader but not an async writer.
+- `EXAMPLES`: Const tensor views and conjugating tensor views.
 
 ### take()
 

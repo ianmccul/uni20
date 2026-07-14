@@ -34,7 +34,19 @@ static_assert(uni20::TensorView<const_real_view_type>);
 static_assert(!uni20::MutableTensorView<const_real_view_type>);
 static_assert(uni20::async::async_assignment_kind_v<matrix_type> == uni20::async::async_assignment_kind::rebind);
 static_assert(uni20::async::async_assignment_kind_v<conjugated_view_type> ==
-              uni20::async::async_assignment_kind::rebind);
+              uni20::async::async_assignment_kind::not_assignable);
+static_assert(std::is_copy_constructible_v<async_view_type>);
+static_assert(std::is_move_constructible_v<async_view_type>);
+static_assert(!std::is_copy_assignable_v<async_view_type>);
+static_assert(!std::is_move_assignable_v<async_view_type>);
+static_assert(!std::is_assignable_v<async_view_type&, matrix_type>);
+static_assert(!std::is_assignable_v<async_view_type&, uni20::async::Async<matrix_type> const&>);
+static_assert(!std::is_copy_assignable_v<async_const_real_view_type>);
+static_assert(!std::is_move_assignable_v<async_const_real_view_type>);
+static_assert(uni20::async::async_reader<async_view_type>);
+static_assert(!uni20::async::async_writer<async_view_type>);
+static_assert(uni20::async::async_reader<async_const_real_view_type>);
+static_assert(!uni20::async::async_writer<async_const_real_view_type>);
 
 matrix_type make_matrix()
 {

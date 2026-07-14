@@ -321,8 +321,8 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 ### ROLE
 
-- `async_assignment_kind_of<T>` selects direct assignment behavior for an
-  immediate value or a heterogeneous `Async<U>` source.
+- `async_assignment_kind_of<T>` selects assignment behavior for every source,
+  including exact and heterogeneous `Async<U>` sources.
 
 ### INVARIANTS
 
@@ -331,14 +331,21 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
   fresh `EpochQueue`.
 - Mutable alias descriptors may declare `async_write_through_tag`, selecting
   `async_assignment_kind::write_through`.
+- Shared aliases otherwise default to `async_assignment_kind::not_assignable`.
 - A `write_through` payload must also have `async_value_kind::shared_alias`.
+- A `rebind` payload must have `async_value_kind::value`.
 - `write_through` retains descriptor storage, lifetime ownership, and the exact
   queue while scheduling the stored descriptor's assignment operation.
 - A type opting into `write_through` must make every accepted assignment,
   including same-type assignment, mutate the referenced value rather than
   retarget only its descriptor.
-- Exact `Async<T>` copy/move assignment is still controlled by
-  `async_value_kind_of<T>` and its dedicated overloads.
+- Exact `Async<T>` copy/move assignment follows the same assignment kind.
+- `not_assignable` deletes exact copy/move assignment and provides no
+  heterogeneous assignment overload.
+- A `not_assignable` alias exposes no `.write()`, `move_from_wait()`, or
+  synchronous mutable-access operation.
+- Copy/move construction of a shared alias remains valid and preserves the
+  complete descriptor, owner, and queue identity.
 - `emplace(...)` reconstructs `T` inside existing storage and is not rebinding.
 
 ### MOTIVATING EXAMPLE
@@ -352,13 +359,17 @@ consume(x);
 auto y = async::reshape_view(x, rows, columns); // planned Async<View> API
 Async<Tensor> values = make_replacement_values();
 y = values;                                // heterogeneous Async<Tensor>: write through into x
-y = async::reshape_view(z, rows, columns); // exact Async<View>: rebind whole handle
+y = async::reshape_view(z, rows, columns); // exact Async<View>: also write through into x
+
+auto read_only = async::conj(x);
+read_only = async::conj(z); // ill-formed: read-only aliases are not assignable
 ```
 
 ### FAILURE MODES
 
 - Reconstructing only an alias descriptor so it no longer matches its retained
   owner and queue.
+- Rebinding any shared alias, including for an exact-type assignment source.
 - Implementing rebind by destroying and emplacing inside the old storage.
 - Giving a write-through alias an independent queue.
 - Marking a descriptor `write_through` while leaving shallow same-type

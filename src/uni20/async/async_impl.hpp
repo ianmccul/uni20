@@ -60,7 +60,12 @@ template <typename T> T const& Async<T>::get_wait(IScheduler& sched) const { ret
 /// \brief Waits for write access and moves the current value out.
 /// \tparam T Async value type.
 /// \return Moved value extracted from storage.
-template <typename T> T Async<T>::move_from_wait() { return this->write().move_from_wait(); }
+template <typename T>
+T Async<T>::move_from_wait()
+  requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+{
+  return this->write().move_from_wait();
+}
 
 /// \brief Transforms lvalue awaitables into task-aware awaiters.
 /// \tparam A Awaitable type.

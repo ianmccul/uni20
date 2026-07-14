@@ -222,10 +222,10 @@ proxy assignment constructs the stored type; otherwise it invokes that type's
   while a slice adaptor should remain fixed/write-through.
 
 At the outer handle level, `async_assignment_kind_of<T>` decides whether direct
-assignment to `Async<T>` detaches onto fresh storage and a fresh `EpochQueue` or
-writes through the current descriptor and timeline. This is independent of the
-write-proxy rule above and of `async_value_kind_of<T>`, which controls exact
-`Async<T>` copy behavior.
+assignment to `Async<T>` detaches an independent value onto fresh storage and a
+fresh `EpochQueue`, writes through a mutable alias, or is forbidden for a
+read-only alias. Exact and heterogeneous assignment follow the same kind.
+`async_value_kind_of<T>` separately controls copy construction.
 
 Explicit `proxy.emplace(...)` reconstructs the stored object inside the current
 async storage and queue. It is not a handle rebind.

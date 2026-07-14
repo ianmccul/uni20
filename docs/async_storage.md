@@ -1,7 +1,8 @@
 # Async Storage, Identity, and Assignment
 
-This note documents how `Async<T>` stores values and distinguishes two meanings
-of assignment: replacing an async timeline and writing through an existing one.
+This note documents how `Async<T>` stores values and distinguishes independent
+value rebinding, mutable-alias write-through, and read-only aliases for which
+assignment is forbidden.
 
 For day-to-day usage details, see:
 
@@ -49,15 +50,15 @@ using a fresh queue for aliased bytes is incorrect. Alias owners may themselves
 be aliases, so composed views form a recursive owner chain while retaining one
 common timeline.
 
-Alias descriptor types declare `async_alias_tag`. Their `Async<T>` copies are
-structural handle copies that retain the same storage and queue. Ordinary
-`Async<T>` copies remain scheduled value copies.
+Alias descriptor types declare `async_alias_tag`. Copy construction of their
+`Async<T>` handles retains the same storage and queue. Copy construction of an
+ordinary `Async<T>` remains a scheduled value copy.
 
 ## 2. Async Value Kinds
 
 `async_value_kind_of<T>` classifies what an `Async<T>` represents:
 
-| Kind | Construction and copy behavior |
+| Kind | Construction and copy-construction behavior |
 |---|---|
 | `async_value_kind::value` | root construction is allowed; copies create an independent value timeline and schedule a value copy |
 | `async_value_kind::shared_alias` | root construction is disabled; copies share descriptor storage, lifetime ownership, and the exact epoch queue |
@@ -86,7 +87,9 @@ consume(x);
 The second assignment should detach `x` from its first storage and
 `EpochQueue`, then bind it to fresh storage with a fresh queue. Operations that
 already retained buffers from the first `x` continue on the old branch and may
-run independently of operations using the second `x`.
+run independently of operations using the second `x`. This is analogous to
+register renaming: the C++ name is reused for a logically new value without
+adding a false causal dependency on the old value.
 
 The planned async reshape API has different requirements:
 
@@ -104,47 +107,56 @@ lifetime owner, and exact shared `EpochQueue`; replacing any of them would stop
 
 `async_assignment_kind_of<T>` records this distinction:
 
-| Kind | Direct immediate or heterogeneous assignment to `Async<T>` |
+| Kind | Assignment to `Async<T>` |
 |---|---|
 | `async_assignment_kind::rebind` | Detach the handle and construct a fresh value with fresh storage and a fresh `EpochQueue`. |
 | `async_assignment_kind::write_through` | Keep the destination storage, owner chain, and queue; schedule assignment through the existing descriptor. |
+| `async_assignment_kind::not_assignable` | Provide no copy, move, immediate-value, or heterogeneous assignment overload. |
 
-Ordinary values default to `rebind`. A mutable reference-like descriptor opts
-into `write_through` by declaring `async_write_through_tag`, or by specializing
-`async_assignment_kind_of<T>`. Write-through payloads must also be
-`shared_alias` values so their lifetime owner and queue are explicit. Read-only
-aliases do not opt in.
+Ordinary values default to `rebind`. Shared aliases default to
+`not_assignable`. A mutable reference-like descriptor opts into
+`write_through` by declaring `async_write_through_tag`, or by specializing
+`async_assignment_kind_of<T>`. Write-through payloads must be `shared_alias`
+values so their lifetime owner and queue are explicit. Rebinding is valid only
+for independent `value` payloads; an alias cannot detach its descriptor from
+the owner and queue that make the descriptor valid.
 
-These assignment kinds are independent of `async_value_kind_of<T>`:
+The value and assignment traits are distinct, but alias identity restricts the
+valid combinations:
 
 | Example payload | Value kind | Assignment kind |
 |---|---|---|
 | owning `Tensor` | `value` | `rebind` |
 | mutable reshape or slice descriptor | `shared_alias` | `write_through` |
-| const or conjugating descriptor | `shared_alias` | `rebind`, with no heterogeneous value-assignment overload |
+| const or conjugating descriptor | `shared_alias` | `not_assignable` |
 
-### Exact Async assignment
+### Exact Async sources
 
-Exact `Async<T>` copy and move assignment uses the dedicated copy/move
-overloads, not `async_assignment_kind_of<T>`:
+Exact `Async<T>` copy and move assignment follows the same assignment kind as
+heterogeneous assignment:
 
 ```cpp
 auto y = async::reshape_view(x, rows, columns);
 y = async::reshape_view(z, rows, columns);
+
+auto read_only = async::conj(x);
+read_only = async::conj(z); // ill-formed: the left-hand proxy is read-only
 ```
 
-For a shared alias, this replaces the complete alias handle: descriptor
-storage, lifetime owner, and queue move together. Buffers already obtained from
-the old `y` retain its old descriptor and queue. To write through from another
-view of the same type, use `async_assign(y, rhs)` or an explicit tensor
-operation such as `copy(y, rhs)`.
+The first assignment writes values through `y` into `x`; it does not retarget
+`y` toward `z`. The second assignment is rejected even though both operands
+happen to have the same proxy type. Copy and move construction remain valid for
+read-only aliases because constructing another handle does not use a proxy as
+an assignment destination. A `not_assignable` alias exposes `.read()` but not
+`.write()`, `move_from_wait()`, or synchronous mutable-access helpers.
 
 ### Explicit assignment into the current timeline
 
-`async_assign(destination, source)` always enrolls a writer in the
-destination's current queue. For an ordinary value it propagates a value into
-that timeline. For a `write_through` descriptor it invokes the descriptor's
-assignment operation without replacing its owner or queue.
+`async_assign(destination, source)` enrolls a writer in the destination's
+current queue when the destination is an ordinary value or a `write_through`
+descriptor. It is unavailable for `not_assignable` aliases. For a
+write-through descriptor it invokes the descriptor's assignment operation
+without replacing its owner or queue.
 
 A type declaring `async_write_through_tag` promises that every assignment
 accepted through this path mutates the referenced value rather than retargeting
@@ -201,5 +213,6 @@ timeline is retained.
 
 A shared async alias has a descriptor tied to a specific lifetime owner and
 epoch queue. Never reconstruct only that descriptor to point elsewhere: its
-owner chain and queue would then describe different storage. Rebind by assigning
-another complete `Async<Alias>`, so descriptor, owner, and queue move together.
+owner chain and queue would then describe different storage. Construct a new
+alias handle when a different region is required; assignment never retargets
+an existing async alias.

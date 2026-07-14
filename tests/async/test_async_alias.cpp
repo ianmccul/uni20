@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
+#include <memory>
+#include <type_traits>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_task.hpp>
 #include <uni20/async/debug_scheduler.hpp>
+#include <utility>
 
 using namespace uni20::async;
 
@@ -46,8 +49,26 @@ struct MutableIntAlias
 static_assert(async_value_kind_v<int> == async_value_kind::value);
 static_assert(async_value_kind_v<IntAlias> == async_value_kind::shared_alias);
 static_assert(async_assignment_kind_v<int> == async_assignment_kind::rebind);
-static_assert(async_assignment_kind_v<IntAlias> == async_assignment_kind::rebind);
+static_assert(async_assignment_kind_v<IntAlias> == async_assignment_kind::not_assignable);
 static_assert(async_assignment_kind_v<MutableIntAlias> == async_assignment_kind::write_through);
+static_assert(std::is_copy_constructible_v<Async<IntAlias>>);
+static_assert(std::is_move_constructible_v<Async<IntAlias>>);
+static_assert(!std::is_copy_assignable_v<Async<IntAlias>>);
+static_assert(!std::is_move_assignable_v<Async<IntAlias>>);
+static_assert(!std::is_assignable_v<Async<IntAlias>&, int>);
+static_assert(!std::is_assignable_v<Async<IntAlias>&, Async<int> const&>);
+static_assert(std::is_copy_assignable_v<Async<MutableIntAlias>>);
+static_assert(std::is_move_assignable_v<Async<MutableIntAlias>>);
+static_assert(std::is_assignable_v<Async<MutableIntAlias>&, int>);
+static_assert(std::is_assignable_v<Async<MutableIntAlias>&, Async<int> const&>);
+static_assert(async_reader<Async<IntAlias>>);
+static_assert(!async_writer<Async<IntAlias>>);
+static_assert(async_writer<Async<MutableIntAlias>>);
+static_assert(std::same_as<decltype(std::declval<Async<IntAlias>&>().storage_address()), IntAlias const*>);
+static_assert(std::same_as<decltype(std::declval<Async<IntAlias>&>().value_ptr()), std::shared_ptr<IntAlias const>>);
+static_assert(std::same_as<decltype(std::declval<Async<MutableIntAlias>&>().storage_address()), MutableIntAlias*>);
+static_assert(
+    std::same_as<decltype(std::declval<Async<MutableIntAlias>&>().value_ptr()), std::shared_ptr<MutableIntAlias>>);
 
 } // namespace
 
@@ -164,7 +185,7 @@ TEST(AsyncAliasTest, HeterogeneousAsyncAssignmentRebindsFreshTimeline)
   EXPECT_EQ(new_observation, 17);
 }
 
-TEST(AsyncAliasTest, ExactAliasAssignmentRebindsDescriptorOwnerAndQueue)
+TEST(AsyncAliasTest, ExactMutableAliasAssignmentWritesThrough)
 {
   DebugScheduler sched;
   ScopedScheduler scoped(&sched);
@@ -173,6 +194,8 @@ TEST(AsyncAliasTest, ExactAliasAssignmentRebindsDescriptorOwnerAndQueue)
   Async<int> second_parent = 8;
   auto alias = make_async_alias<MutableIntAlias>(first_parent, first_parent.storage_address());
   auto replacement = make_async_alias<MutableIntAlias>(second_parent, second_parent.storage_address());
+  auto* const alias_storage = alias.storage().control_address();
+  auto const* const alias_queue = &alias.queue();
   int old_observation = 0;
   int new_observation = 0;
 
@@ -183,8 +206,8 @@ TEST(AsyncAliasTest, ExactAliasAssignmentRebindsDescriptorOwnerAndQueue)
 
   alias = replacement;
 
-  EXPECT_EQ(alias.storage().control_address(), replacement.storage().control_address());
-  EXPECT_EQ(&alias.queue(), &second_parent.queue());
+  EXPECT_EQ(alias.storage().control_address(), alias_storage);
+  EXPECT_EQ(&alias.queue(), alias_queue);
 
   schedule([](ReadBuffer<MutableIntAlias> reader, int& observation) static -> AsyncTask {
     observation = (co_await reader).get();
@@ -194,6 +217,8 @@ TEST(AsyncAliasTest, ExactAliasAssignmentRebindsDescriptorOwnerAndQueue)
   sched.run_all();
   EXPECT_EQ(old_observation, 3);
   EXPECT_EQ(new_observation, 8);
+  EXPECT_EQ(first_parent.get_wait(), 8);
+  EXPECT_EQ(second_parent.get_wait(), 8);
 }
 
 TEST(AsyncAliasTest, ExplicitAsyncAssignWritesThroughExactAliasType)

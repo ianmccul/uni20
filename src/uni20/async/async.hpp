@@ -34,11 +34,12 @@ enum class async_value_kind
   shared_alias, ///< Shared descriptor storage, lifetime owner, and epoch queue.
 };
 
-/// \brief Selects whether direct value assignment replaces an async timeline or writes through it.
+/// \brief Selects the assignment behavior of an async value or alias.
 enum class async_assignment_kind
 {
-  rebind,        ///< Replace the destination with a fresh async value timeline.
-  write_through, ///< Schedule assignment through the destination's existing storage and timeline.
+  rebind,         ///< Replace an independent value with a fresh async timeline.
+  write_through,  ///< Assign through a mutable alias without replacing its timeline.
+  not_assignable, ///< Forbid assignment to a read-only alias.
 };
 
 namespace detail
@@ -51,15 +52,6 @@ struct default_async_value_kind : std::integral_constant<async_value_kind, async
 template <typename T>
 struct default_async_value_kind<T, std::void_t<typename std::remove_cvref_t<T>::async_alias_tag>>
     : std::integral_constant<async_value_kind, async_value_kind::shared_alias>
-{};
-
-template <typename T, typename = void>
-struct default_async_assignment_kind : std::integral_constant<async_assignment_kind, async_assignment_kind::rebind>
-{};
-
-template <typename T>
-struct default_async_assignment_kind<T, std::void_t<typename std::remove_cvref_t<T>::async_write_through_tag>>
-    : std::integral_constant<async_assignment_kind, async_assignment_kind::write_through>
 {};
 
 } // namespace detail
@@ -76,11 +68,29 @@ template <typename T> struct async_value_kind_of : detail::default_async_value_k
 template <typename T>
 inline constexpr async_value_kind async_value_kind_v = async_value_kind_of<std::remove_cvref_t<T>>::value;
 
+namespace detail
+{
+
+template <typename T, typename = void>
+struct default_async_assignment_kind
+    : std::integral_constant<async_assignment_kind, async_value_kind_v<T> == async_value_kind::value
+                                                        ? async_assignment_kind::rebind
+                                                        : async_assignment_kind::not_assignable>
+{};
+
+template <typename T>
+struct default_async_assignment_kind<T, std::void_t<typename std::remove_cvref_t<T>::async_write_through_tag>>
+    : std::integral_constant<async_assignment_kind, async_assignment_kind::write_through>
+{};
+
+} // namespace detail
+
 /// \brief Trait selecting direct value-assignment behavior for `Async<T>`.
-/// \details Ordinary values rebind to a fresh timeline. Mutable alias or proxy
-///          descriptors may declare an `async_write_through_tag` member type,
-///          or specialize this trait, so heterogeneous value assignment keeps
-///          the existing owner and epoch queue and assigns through the descriptor.
+/// \details Independent values rebind to a fresh timeline. Shared aliases are
+///          not assignable by default. Mutable aliases may declare an
+///          `async_write_through_tag` member type, or specialize this trait, so
+///          assignment keeps the existing owner and queue and writes through
+///          the descriptor.
 template <typename T> struct async_assignment_kind_of : detail::default_async_assignment_kind<T>
 {};
 
@@ -148,9 +158,10 @@ template <typename Alias, typename Parent, typename... Args>
 /// use shared ownership where required. Buffer handles retain their storage and
 /// selected epoch context, so they may outlive the owning Async container.
 ///
-/// \note Copy construction and copy assignment are value-level operations by
-///       default. Types opting into `async_value_kind::shared_alias` copy
-///       the storage handle and dependency timeline instead.
+/// \note Copy construction is a value-level operation by default. Types opting
+///       into `async_value_kind::shared_alias` copy the storage handle and
+///       dependency timeline instead. Assignment follows
+///       `async_assignment_kind_of<T>` independently.
 ///
 /// \note Buffers maintain shared ownership of the internal state, so `ReadBuffer<T>` and
 ///       `WriteBuffer<T>` may safely outlive the Async.
@@ -163,6 +174,12 @@ template <typename T> class Async {
     static_assert(async_assignment_kind_v<T> != async_assignment_kind::write_through ||
                       async_value_kind_v<T> == async_value_kind::shared_alias,
                   "write-through Async payloads must be shared aliases");
+    static_assert(async_assignment_kind_v<T> != async_assignment_kind::rebind ||
+                      async_value_kind_v<T> == async_value_kind::value,
+                  "shared Async aliases cannot rebind");
+    static_assert(async_assignment_kind_v<T> != async_assignment_kind::not_assignable ||
+                      async_value_kind_v<T> == async_value_kind::shared_alias,
+                  "non-assignable Async payloads must be shared aliases");
 
     /// \brief Initializes async state without constructing the stored value.
     Async()
@@ -301,8 +318,9 @@ template <typename T> class Async {
     /// \details Rebind assignment replaces this handle with a fresh value and
     ///          epoch queue. Write-through assignment schedules the stored
     ///          descriptor's assignment on the existing queue, preserving its
-    ///          lifetime owner. Exact `Async<T>` copy and move assignment use
-    ///          the dedicated overloads below and are not governed by this trait.
+    ///          lifetime owner. A read-only alias has no assignment overload.
+    ///          Exact `Async<T>` copy and move assignment use dedicated overloads
+    ///          with the same assignment-kind policy.
     /// \tparam U Immediate value or heterogeneous async source type.
     /// \param rhs Source expression.
     /// \return Reference to this async handle.
@@ -326,12 +344,12 @@ template <typename T> class Async {
     ///   async_assign(x, y); // equivalent to copy-assignment
     /// \endcode
     ///
-    /// \see Async::operator=(Async&&) for structural replacement
+    /// \see Async::operator=(Async&&) for independent-value move rebinding
     /// \see async_assign for explicit value-copy semantics
     /// \param rhs Source Async whose value timeline is copied.
     /// \return Reference to *this after scheduling the copy.
     Async& operator=(Async const& rhs)
-      requires(async_value_kind_v<T> == async_value_kind::value)
+      requires(async_assignment_kind_v<T> == async_assignment_kind::rebind)
     {
       if (this != &rhs)
       {
@@ -341,30 +359,32 @@ template <typename T> class Async {
       return *this;
     }
 
-    /// \brief Structurally assign an async alias handle.
-    /// \return Reference to this alias handle.
+    /// \brief Assign through a mutable async alias from another exact-type alias.
+    /// \details The destination descriptor, owner, and queue remain unchanged.
+    /// \param rhs Alias whose referenced value is the assignment source.
+    /// \return Reference to this alias.
     Async& operator=(Async const& rhs)
-      requires(async_value_kind_v<T> == async_value_kind::shared_alias)
+      requires(async_assignment_kind_v<T> == async_assignment_kind::write_through)
     {
-      if (this != &rhs)
-      {
-        storage_ = rhs.storage_;
-        queue_ = rhs.queue_;
-      }
+      if (this != &rhs) async_assign(*this, rhs);
       return *this;
     }
 
-    /// \note `Async<T>` supports standard move construction and assignment. These operations
-    ///       transfer the handle (logical reference to the async value), not the value itself.
-    ///       To schedule a value transfer from one async object to another, use `async_move(...)` explicitly.
-    ///       The results of both operations are rather similar.
+    /// \brief Forbid assignment to a read-only async alias.
+    Async& operator=(Async const&)
+      requires(async_assignment_kind_v<T> == async_assignment_kind::not_assignable)
+    = delete;
+
     /// \brief Move-construct from another Async<T> handle.
+    /// \note Move construction always transfers the handle. Move assignment
+    ///       follows the assignment kind: rebind, write through, or deleted.
     /// \param other Source Async.
     Async(Async&& other) noexcept = default;
-    /// \brief Move-assign from another Async<T> handle.
+    /// \brief Rebind an independent async value from another Async<T> handle.
     /// \param other Source Async.
     /// \return Reference to *this after ownership transfer.
     Async& operator=(Async&& other) noexcept
+      requires(async_assignment_kind_v<T> == async_assignment_kind::rebind)
     {
       if (this != &other)
       {
@@ -374,16 +394,36 @@ template <typename T> class Async {
       return *this;
     }
 
+    /// \brief Assign through a mutable async alias from an exact-type rvalue alias.
+    /// \param other Alias whose referenced value is the assignment source.
+    /// \return Reference to this alias.
+    Async& operator=(Async&& other)
+      requires(async_assignment_kind_v<T> == async_assignment_kind::write_through)
+    {
+      if (this != &other) async_assign(*this, std::move(other));
+      return *this;
+    }
+
+    /// \brief Forbid assignment to a read-only async alias.
+    Async& operator=(Async&&)
+      requires(async_assignment_kind_v<T> == async_assignment_kind::not_assignable)
+    = delete;
+
     ~Async() = default;
 
     /// \brief Begin an asynchronous read of the value.
     /// \return A ReadBuffer<T> which may be co_awaited.
     ReadBuffer<T> read() const { return ReadBuffer<T>(queue_->create_read_context(storage_)); }
 
-    /// \brief Begin exclusive asynchronous mutable access to the value.
+    /// \brief Begin exclusive asynchronous mutable access to an assignable payload.
+    /// \details This member is unavailable for `not_assignable` aliases.
     /// \return A `WriteBuffer<T>` for inspecting, mutating, constructing, or
     ///         replacing the value.
-    WriteBuffer<T> write() { return WriteBuffer<T>(queue_->create_write_context(storage_)); }
+    WriteBuffer<T> write()
+      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+    {
+      return WriteBuffer<T>(queue_->create_write_context(storage_));
+    }
 
     // template <typename Sched> T& get_wait(Sched& sched)
     // {
@@ -419,7 +459,8 @@ template <typename T> class Async {
 
     /// \brief Block until the value is available, then move it out of the Async.
     /// \return The stored value, moved out of the Async container.
-    T move_from_wait();
+    T move_from_wait()
+      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable);
 
     /// \brief Overwrite the stored value directly.
     /// Intended for debugging and test scaffolding where a synchronous update
@@ -427,6 +468,7 @@ template <typename T> class Async {
     /// performed.
     /// \param x New value to store.
     void unsafe_set(T const& x)
+      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
     {
       auto* ptr = require_value();
       *ptr = x;
@@ -444,7 +486,11 @@ template <typename T> class Async {
 
     /// \brief Access the stored value without synchronization.
     /// \return Mutable reference to the stored value for diagnostic use.
-    T& unsafe_value_ref() { return *require_value(); }
+    T& unsafe_value_ref()
+      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+    {
+      return *require_value();
+    }
 
     /// \brief Inspect the shared epoch queue.
     /// \details Parent values and aliases share this exact mutable queue.
@@ -460,7 +506,11 @@ template <typename T> class Async {
     ///          dereferenced outside an active buffer. It may identify
     ///          reserved but unconstructed storage.
     /// \return Mutable address reserved for the contained value.
-    [[nodiscard]] T* storage_address() noexcept { return storage_.storage_address(); }
+    [[nodiscard]] T* storage_address() noexcept
+      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+    {
+      return storage_.storage_address();
+    }
 
     /// \brief Return the const address reserved for the contained value when constructing an alias descriptor.
     /// \warning The pointer does not grant synchronized access and must not be
@@ -469,15 +519,26 @@ template <typename T> class Async {
     /// \return Const address reserved for the contained value.
     [[nodiscard]] T const* storage_address() const noexcept { return storage_.storage_address(); }
 
-    /// \brief Access the stored value pointer with shared ownership semantics.
+    /// \brief Access the mutable stored value pointer with shared ownership semantics.
+    /// \details This overload is unavailable for `not_assignable` aliases.
     ///
     /// The returned pointer retains the `shared_storage` control block so that the
     /// lifetime of the referenced value is tied to the same shared ownership as
     /// the Async container itself.
-    std::shared_ptr<T> value_ptr() const
+    /// \return Mutable pointer retaining the `shared_storage` control block.
+    std::shared_ptr<T> value_ptr()
+      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
     {
       if (!storage_.valid()) return {};
       return std::shared_ptr<T>(storage_.get(), [storage = storage_](T*) mutable { storage.reset(); });
+    }
+
+    /// \brief Access the const stored value pointer with shared ownership semantics.
+    /// \return Const pointer retaining the `shared_storage` control block.
+    std::shared_ptr<T const> value_ptr() const
+    {
+      if (!storage_.valid()) return {};
+      return std::shared_ptr<T const>(storage_.get(), [storage = storage_](T const*) mutable { storage.reset(); });
     }
 
   private:
@@ -535,7 +596,12 @@ template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
 /// \tparam T Stored value type.
 /// \param a Async container providing the write buffer.
 /// \return Write buffer obtained from the Async instance.
-template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
+template <typename T>
+  requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+WriteBuffer<T> write(Async<T>& a)
+{
+  return a.write();
+}
 
 } // namespace uni20::async
 

@@ -68,13 +68,14 @@ Rules:
 | Expression | Meaning |
 |---|---|
 | `owning = value` | Rebind: detach and create fresh storage plus a fresh `EpochQueue`. |
-| `mutable_alias = heterogeneous_value` | Write through: retain descriptor, owner, and queue. |
-| `alias = another_exact_alias` | Replace the complete alias handle according to `async_value_kind_of<T>`. |
+| `mutable_alias = value_or_alias` | Write through: retain descriptor, owner, and queue, including for an exact-type source. |
+| `read_only_alias = anything` | Ill-formed: assignment to const or transforming read-only proxies is forbidden. |
 | `async_assign(destination, source)` | Enroll assignment in the destination's current queue. |
 
-`async_assignment_kind_of<T>` selects rebind versus write-through for the first
-two cases. Exact `Async<T>` copy/move assignment is governed separately by
-`async_value_kind_of<T>`.
+`async_assignment_kind_of<T>` selects `rebind`, `write_through`, or
+`not_assignable` for every assignment source. `async_value_kind_of<T>` governs
+copy construction independently. A `not_assignable` alias is an async reader,
+not an async writer, and therefore has no `.write()` member.
 
 ### ReadBuffer<T> await results
 

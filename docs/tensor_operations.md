@@ -308,8 +308,10 @@ required.
 Direct assignment to the outer `Async<T>` handle is a separate decision.
 `async_assignment_kind_of<T>` makes owning tensors detach onto fresh storage
 and a fresh queue, while future mutable async tensor views can opt into
-write-through assignment that retains the parent's owner and queue. Exact
-`Async<View>` assignment still replaces the complete alias handle.
+write-through assignment that retains the parent's owner and queue. Const and
+conjugating async views are not assignable. Exact `Async<View>` assignment
+follows the same rule: mutable views write through and read-only views reject
+the expression.
 
 ### Async Views and Lifetime
 

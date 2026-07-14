@@ -157,14 +157,15 @@ Practical mental model:
 
 ## Copy/Move Semantics of Async<T>
 
-### Move
+### Move construction and assignment
 
-Move construction/assignment transfers handle ownership for storage + queue.
-It does not copy values.
+Move construction transfers handle ownership for storage and queue. Move
+assignment follows the assignment kind: independent values rebind, mutable
+aliases write through, and read-only aliases are not move-assignable.
 
-### Copy construction/assignment
+### Copy construction and assignment
 
-These are value-level operations for ordinary values.
+For ordinary values these are value-level operations:
 
 - copy construction schedules transfer from source value into a fresh destination timeline
 - copy assignment resets destination timeline first, then schedules value transfer
@@ -173,27 +174,26 @@ This is deliberate: copying does not clone dependency graph internals.
 
 `async_value_kind_of<T>` classifies ordinary payloads as
 `async_value_kind::value`. Alias descriptor types declare `async_alias_tag`,
-which selects `async_value_kind::shared_alias`. Copying
+which selects `async_value_kind::shared_alias`. Copy construction of
 `Async<AliasDescriptor>` is then a structural handle copy: storage, lifetime
-owner, and epoch queue remain shared. This exception is necessary because
-copying an alias onto a fresh timeline would lose ordering with the bytes it
-references.
+owner, and epoch queue remain shared. Assignment is governed separately below.
 
 ## Assignment Kinds
 
-`async_assignment_kind_of<T>` controls direct assignment from an immediate
-value or a different `Async<U>` type:
+`async_assignment_kind_of<T>` controls assignment from immediate, exact async,
+and heterogeneous async sources:
 
 - `rebind` detaches the destination handle and gives it fresh storage and a
   fresh `EpochQueue`
 - `write_through` retains the existing storage, lifetime owner, and queue and
   schedules assignment through the stored descriptor
+- `not_assignable` rejects assignment to a read-only alias at compile time
 
-This policy is independent of `async_value_kind_of<T>`. An owning tensor is a
-`value` that rebinds; a mutable reshape or slice is a `shared_alias` that writes
-through. Exact `Async<T>` copy/move assignment still follows the value-kind
-rules above, so assigning another exact async alias replaces the complete alias
-handle rather than writing elements.
+An owning tensor is a `value` that rebinds; a mutable reshape or slice is a
+`shared_alias` that writes through; a const or conjugating view is a
+`shared_alias` that is not assignable. Exact `Async<T>` copy/move assignment
+follows the same assignment kind. No assignment retargets an async alias;
+construct a new alias handle instead.
 
 See `../async_storage.md` for the motivating tensor/view examples and the full
 assignment table.
