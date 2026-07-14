@@ -154,6 +154,7 @@ template <class Scalar> int run(Options const& options)
   using matrix_type = uni20::DenseMatrix<Scalar>;
   using async_matrix_type = uni20::async::Async<matrix_type>;
 
+  auto const overall_start = std::chrono::steady_clock::now();
   auto const size = static_cast<uni20::index_type>(options.size);
   uni20::async::TbbScheduler scheduler(static_cast<int>(options.threads));
   scheduler.pause();
@@ -185,9 +186,21 @@ template <class Scalar> int run(Options const& options)
       uni20::linalg::assign_product(output[product], lhs[product], rhs[product], alpha);
   }
 
-  auto const start = std::chrono::steady_clock::now();
+  // Keep readers for the scheduled output epochs so run_all() quiescence is
+  // observable before the targeted get_wait() calls can make more progress.
+  std::vector<uni20::async::ReadBuffer<matrix_type>> output_readers;
+  output_readers.reserve(options.products);
+  for (auto const& value : output)
+    output_readers.push_back(value.read());
+
+  auto const execution_start = std::chrono::steady_clock::now();
+  auto const setup_elapsed = std::chrono::duration<double>(execution_start - overall_start).count();
   scheduler.run_all();
-  auto const elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+  auto const execution_end = std::chrono::steady_clock::now();
+  auto const execution_elapsed = std::chrono::duration<double>(execution_end - execution_start).count();
+  auto const ready_after_run_all =
+      std::ranges::count_if(output_readers, [](auto const& reader) { return reader.await_ready(); });
+  bool const all_outputs_ready = ready_after_run_all == static_cast<std::ptrdiff_t>(options.products);
 
   Scalar maximum_error{};
   Scalar maximum_expected{};
@@ -206,10 +219,13 @@ template <class Scalar> int run(Options const& options)
       }
     }
   }
+  auto const validation_end = std::chrono::steady_clock::now();
+  auto const validation_elapsed = std::chrono::duration<double>(validation_end - execution_end).count();
+  auto const measured_total = std::chrono::duration<double>(validation_end - overall_start).count();
 
   Scalar const tolerance = Scalar{64} * uni20::numeric_limits<Scalar>::epsilon() * static_cast<Scalar>(options.size) *
                            std::max(Scalar{1}, maximum_expected);
-  bool const correct = maximum_error <= tolerance;
+  bool const correct = all_outputs_ready && maximum_error <= tolerance;
   long double const operations = 2.0L * static_cast<long double>(options.products) *
                                  static_cast<long double>(options.size) * static_cast<long double>(options.size) *
                                  static_cast<long double>(options.size);
@@ -229,6 +245,7 @@ template <class Scalar> int run(Options const& options)
       .field("backend", options.backend == Backend::Cpu ? "cpu_reference" : "automatic")
       .field("matrix shape", fmt::format("{} x {}", options.size, options.size))
       .field("products", options.products)
+      .field("outputs ready after run_all", fmt::format("{} / {}", ready_after_run_all, options.products))
       .field("TBB concurrency", options.threads);
 
   report.table("Execution summary")
@@ -237,8 +254,12 @@ template <class Scalar> int run(Options const& options)
       .column("value", uni20::presentation::table_alignment::decimal)
       .column("unit", uni20::presentation::table_alignment::left)
       .row("matrix storage", fmt::format("{:.3f}", static_cast<double>(gibibytes)), "GiB")
-      .row("elapsed", fmt::format("{:.6f}", elapsed), "s")
-      .row("nominal rate", fmt::format("{:.3f}", static_cast<double>(operations / elapsed / 1.0e9L)), "GFLOP/s")
+      .row("setup and scheduling", fmt::format("{:.6f}", setup_elapsed), "s")
+      .row("run_all", fmt::format("{:.6f}", execution_elapsed), "s")
+      .row("validation", fmt::format("{:.6f}", validation_elapsed), "s")
+      .row("measured total", fmt::format("{:.6f}", measured_total), "s")
+      .row("nominal GEMM rate", fmt::format("{:.3f}", static_cast<double>(operations / execution_elapsed / 1.0e9L)),
+           "GFLOP/s")
       .row("maximum error", uni20::presentation::format_real(maximum_error, numeric_format), "")
       .row("tolerance", uni20::presentation::format_real(tolerance, numeric_format), "");
 
