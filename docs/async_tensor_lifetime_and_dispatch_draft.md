@@ -286,26 +286,42 @@ domain or temporary factory. A CUDA backend type by itself is not enough to
 choose a device or allocator for scratch storage; the backend selector value or
 adaptor must carry that state.
 
-## Value Kinds and Assignment
+## Value Kinds and Assignment Kinds
 
 Two independent mechanisms govern async values:
 
 - `async_value_kind_of<T>` controls whether copying `Async<T>` creates an
   independent value timeline or structurally shares alias storage, lifetime
   ownership, and the epoch queue.
-- The stored type's ordinary assignment expression controls write-proxy
-  assignment when async storage already contains a `T`. Empty storage is
-  constructed from the source instead.
+- `async_assignment_kind_of<T>` controls whether direct assignment from an
+  immediate or heterogeneous async value detaches onto a fresh timeline or
+  writes through the current storage and queue.
 
-There is no separate async assignment policy. The stored type defines what its
-own assignment means:
+The intended tensor classifications are:
 
 ```cpp
-Async<Tensor>         // value kind: assignment follows Tensor's assignment expression
-Async<TensorRef>      // assignment follows TensorRef's assignment expression
-Async<mdspan-like>    // descriptor assignment; suitable only as a resolved temporary
-Async<TensorAlias>    // shared_alias kind: handle copies retain owner/queue/descriptor
+Async<Tensor>         // value + rebind
+Async<MutableView>    // shared_alias + write_through
+Async<ConstView>      // shared_alias; no heterogeneous write-through assignment
 ```
+
+Here `rebind` means detaching the outer `Async` handle and creating fresh
+storage with a fresh `EpochQueue`. It does not mean destroying and emplacing a
+new object inside the old storage. `emplace(...)` is an explicit low-level
+reconstruction operation within the current timeline.
+
+Exact `Async<T>` copy/move assignment remains governed by the value kind. In
+particular, assigning another exact `Async<MutableView>` replaces the complete
+alias handle, including descriptor storage, owner chain, and queue. Assignment
+from a different tensor value writes through when the mutable view opts into
+`async_assignment_kind::write_through`.
+
+The stored type still defines the actual write-through expression. Direct
+write-proxy assignment constructs empty storage when possible and otherwise
+uses the stored type's ordinary assignment operator. A descriptor opting into
+`write_through` must therefore define same-type assignment as a pointee update,
+not a shallow descriptor retarget. Exact outer `Async<MutableView>` assignment
+still bypasses that operator and replaces the whole alias handle.
 
 A persistent async tensor slice should probably be an alias handle, not a
 stored resolved view. If a `TensorRef` type exists, an `Async<TensorRef>` value

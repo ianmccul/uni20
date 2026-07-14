@@ -12,6 +12,31 @@
 namespace uni20::async
 {
 
+template <typename T>
+template <typename U>
+  requires detail::async_assignment_source<T, U>
+Async<T>& Async<T>::operator=(U&& rhs)
+{
+  if constexpr (async_assignment_kind_v<T> == async_assignment_kind::rebind)
+  {
+    if constexpr (detail::async_source<U>)
+    {
+      Async<T> replacement;
+      async_assign(replacement, std::forward<U>(rhs));
+      *this = std::move(replacement);
+    }
+    else
+    {
+      *this = Async<T>(std::forward<U>(rhs));
+    }
+  }
+  else
+  {
+    async_assign(*this, std::forward<U>(rhs));
+  }
+  return *this;
+}
+
 /// \brief Waits for the latest readable value without retrieving it.
 /// \tparam T Async value type.
 template <typename T> void Async<T>::wait() const { this->read().wait(); }

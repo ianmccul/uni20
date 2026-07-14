@@ -32,6 +32,9 @@ static_assert(std::same_as<decltype(uni20::async::conj(std::declval<uni20::async
                            async_const_real_view_type>);
 static_assert(uni20::TensorView<const_real_view_type>);
 static_assert(!uni20::MutableTensorView<const_real_view_type>);
+static_assert(uni20::async::async_assignment_kind_v<matrix_type> == uni20::async::async_assignment_kind::rebind);
+static_assert(uni20::async::async_assignment_kind_v<conjugated_view_type> ==
+              uni20::async::async_assignment_kind::rebind);
 
 matrix_type make_matrix()
 {
@@ -60,6 +63,39 @@ TEST(TensorAsyncTest, ConjugatedAliasSharesOwnerAndQueue)
   EXPECT_EQ(alias.storage().use_count(), 2);
   EXPECT_EQ(copy.storage().control_address(), alias.storage().control_address());
   EXPECT_EQ(&copy.queue(), &parent.queue());
+}
+
+TEST(TensorAsyncTest, OwningTensorAssignmentRebindsFreshTimeline)
+{
+  uni20::async::Async<matrix_type> matrix(make_matrix());
+  uni20::async::DebugScheduler sched;
+  auto* const old_storage = matrix.storage().control_address();
+  auto const* const old_queue = &matrix.queue();
+  uni20::complex<double> old_value;
+  uni20::complex<double> new_value;
+
+  sched.schedule([](uni20::async::ReadBuffer<matrix_type> reader,
+                    uni20::complex<double>& observation) static -> uni20::async::AsyncTask {
+    observation = (co_await reader).mdspan()[0, 0];
+    co_return;
+  }(matrix.read(), old_value));
+
+  matrix_type replacement(1, 1);
+  replacement.mdspan()[0, 0] = {9.0, -2.0};
+  matrix = std::move(replacement);
+
+  EXPECT_NE(matrix.storage().control_address(), old_storage);
+  EXPECT_NE(&matrix.queue(), old_queue);
+
+  sched.schedule([](uni20::async::ReadBuffer<matrix_type> reader,
+                    uni20::complex<double>& observation) static -> uni20::async::AsyncTask {
+    observation = (co_await reader).mdspan()[0, 0];
+    co_return;
+  }(matrix.read(), new_value));
+
+  sched.run_all();
+  EXPECT_EQ(old_value, uni20::complex<double>(1.0, 2.0));
+  EXPECT_EQ(new_value, uni20::complex<double>(9.0, -2.0));
 }
 
 TEST(TensorAsyncTest, ConjugatedAliasOutlivesParentHandle)

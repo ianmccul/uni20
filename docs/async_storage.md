@@ -1,6 +1,7 @@
-# Async Storage, Value Kinds, and Assignment
+# Async Storage, Identity, and Assignment
 
-This note documents how `Async<T>` stores values and how write-proxy assignment is interpreted.
+This note documents how `Async<T>` stores values and distinguishes two meanings
+of assignment: replacing an async timeline and writing through an existing one.
 
 For day-to-day usage details, see:
 
@@ -69,7 +70,88 @@ This policy belongs at the `Async<T>` wrapper level. It cannot be inferred from
 the stored type's assignment expression because it controls storage ownership
 and causal identity, not assignment to a constructed `T`.
 
-## 3. Write-Proxy Assignment
+## 3. Assignment Kinds
+
+The motivating distinction is between an owning async value and a mutable view
+of another async value.
+
+```cpp
+Async<Tensor> x = make_first_tensor();
+consume(x);
+
+x = make_second_tensor();
+consume(x);
+```
+
+The second assignment should detach `x` from its first storage and
+`EpochQueue`, then bind it to fresh storage with a fresh queue. Operations that
+already retained buffers from the first `x` continue on the old branch and may
+run independently of operations using the second `x`.
+
+The planned async reshape API has different requirements:
+
+```cpp
+Async<Tensor> x = make_tensor();
+auto y = async::reshape_view(x, rows, columns); // planned: returns Async<View>
+Async<Tensor> values = make_replacement_values();
+
+y = values; // heterogeneous Async<Tensor>: write through y into x
+```
+
+Here `y` is an alias of `x`. Assignment must keep its descriptor storage,
+lifetime owner, and exact shared `EpochQueue`; replacing any of them would stop
+`y` from describing the same region of `x`.
+
+`async_assignment_kind_of<T>` records this distinction:
+
+| Kind | Direct immediate or heterogeneous assignment to `Async<T>` |
+|---|---|
+| `async_assignment_kind::rebind` | Detach the handle and construct a fresh value with fresh storage and a fresh `EpochQueue`. |
+| `async_assignment_kind::write_through` | Keep the destination storage, owner chain, and queue; schedule assignment through the existing descriptor. |
+
+Ordinary values default to `rebind`. A mutable reference-like descriptor opts
+into `write_through` by declaring `async_write_through_tag`, or by specializing
+`async_assignment_kind_of<T>`. Write-through payloads must also be
+`shared_alias` values so their lifetime owner and queue are explicit. Read-only
+aliases do not opt in.
+
+These assignment kinds are independent of `async_value_kind_of<T>`:
+
+| Example payload | Value kind | Assignment kind |
+|---|---|---|
+| owning `Tensor` | `value` | `rebind` |
+| mutable reshape or slice descriptor | `shared_alias` | `write_through` |
+| const or conjugating descriptor | `shared_alias` | `rebind`, with no heterogeneous value-assignment overload |
+
+### Exact Async assignment
+
+Exact `Async<T>` copy and move assignment uses the dedicated copy/move
+overloads, not `async_assignment_kind_of<T>`:
+
+```cpp
+auto y = async::reshape_view(x, rows, columns);
+y = async::reshape_view(z, rows, columns);
+```
+
+For a shared alias, this replaces the complete alias handle: descriptor
+storage, lifetime owner, and queue move together. Buffers already obtained from
+the old `y` retain its old descriptor and queue. To write through from another
+view of the same type, use `async_assign(y, rhs)` or an explicit tensor
+operation such as `copy(y, rhs)`.
+
+### Explicit assignment into the current timeline
+
+`async_assign(destination, source)` always enrolls a writer in the
+destination's current queue. For an ordinary value it propagates a value into
+that timeline. For a `write_through` descriptor it invokes the descriptor's
+assignment operation without replacing its owner or queue.
+
+A type declaring `async_write_through_tag` promises that every assignment
+accepted through this path mutates the referenced value rather than retargeting
+the descriptor. In particular, its same-type assignment must not silently copy
+only a pointer or mdspan descriptor.
+
+## 4. Write-Proxy Assignment
 
 Write-proxy assignment follows the stored type's ordinary assignment semantics:
 
@@ -89,9 +171,9 @@ Consequences:
 - a `BasicTensor` uses its ordinary assignment expression once constructed
 - an mdspan-like descriptor uses its normal descriptor assignment
 - a reference-like type follows whatever assignment its own API defines
-- async storage does not override those semantics with a type trait
+- the async assignment-kind trait does not change this low-level proxy rule
 
-## 4. Explicit Construction and Assignment
+## 5. Explicit Construction and Assignment
 
 Use the operation that states the intended precondition:
 
@@ -99,7 +181,6 @@ Use the operation that states the intended precondition:
 auto access = co_await writer;
 
 access.emplace(args...); // construct or explicitly reconstruct T
-access.rebind(args...);  // named synonym for explicit reconstruction
 access.get() = rhs;      // assign an object known to be constructed
 ```
 
@@ -107,13 +188,18 @@ Construct-only types use `emplace(...)`. Assign-only proxy types must already
 exist and use `get() = rhs`. Proxy `operator=` is the convenience path only
 when both initialization and later assignment are valid.
 
-## 5. Tensor Views and Aliases
+`emplace(...)` destroys and reconstructs `T` inside the same storage control
+block and the same `EpochQueue`. It is not an async rebind and should not be
+used to implement ordinary `Async<T>::operator=`.
 
-Assignment to a tensor or view remains defined by that type and by named tensor
-operations. Element copying that requires shape handling or backend dispatch
-should use `copy(...)`, not hidden async assignment policy.
+## 6. Tensor Views and Aliases
+
+Write-through assignment still delegates the actual element operation to the
+stored mutable view type. Shape handling and backend dispatch belong in that
+tensor-level operation; the async trait only decides whether the destination
+timeline is retained.
 
 A shared async alias has a descriptor tied to a specific lifetime owner and
-epoch queue. Reconstructing that descriptor to point elsewhere would not update
-its owner chain or queue and must not be used as a retargeting mechanism.
-Construct a new alias when the referenced region changes.
+epoch queue. Never reconstruct only that descriptor to point elsewhere: its
+owner chain and queue would then describe different storage. Rebind by assigning
+another complete `Async<Alias>`, so descriptor, owner, and queue move together.

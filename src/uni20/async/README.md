@@ -29,3 +29,7 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
   rationale.
 - Shared data should flow through the buffer/value abstractions in this module
   so scheduler ordering remains explicit.
+- `async_value_kind_of<T>` controls independent-value versus shared-alias copy
+  identity. `async_assignment_kind_of<T>` independently controls whether
+  direct value assignment detaches onto a fresh timeline or writes through the
+  existing one. See `docs/async_storage.md` for the motivating tensor examples.

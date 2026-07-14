@@ -124,20 +124,6 @@ concept async_read_writer = requires(T t) {
 template <typename T>
 concept async_like = async_reader<T> && async_writer<T>;
 
-/// \brief Strip Async<T> to T for type deduction
-template <typename T> struct async_value_type
-{
-    using type = T;
-};
-
-template <typename T> struct async_value_type<Async<T>>
-{
-    using type = T;
-};
-
-/// \brief Extract the underlying value type from scalar or Async<T>
-template <typename T> using async_value_t = typename async_value_type<std::remove_cvref_t<T>>::type;
-
 /// \brief Result type of applying binary op Op to async_value_t<T>, async_value_t<U>
 template <typename T, typename U, typename Op>
 using async_binary_result_t =
@@ -261,13 +247,39 @@ template <typename T, typename U, typename Op> void async_compound_op(Async<T>& 
 /// \tparam U The source type, either a value or Async<U>.
 template <typename T, typename U>
 void async_assign(WriteBuffer<T> lhs, U&& rhs)
-  requires read_buffer_awaitable_of<U, T>
+  requires(async_assignment_kind_v<T> == async_assignment_kind::rebind && read_buffer_awaitable_of<U, T>)
 // requires { T{std::declval<async_value_t<U>>()}; }
 {
   schedule([](auto in_, WriteBuffer<T> out_) static -> AsyncTask {
     T value(co_await in_);
     in_.release();
     co_await out_ = std::move(value);
+    co_return;
+  }(std::move(rhs), std::move(lhs)));
+}
+
+namespace detail
+{
+
+template <typename Awaitable, typename Target>
+concept write_through_awaitable = read_buffer_awaitable<Awaitable> && requires(Awaitable& source, Target& target) {
+  target = get_awaiter(source).await_resume();
+};
+
+} // namespace detail
+
+/// \brief Assign through an existing async proxy or alias descriptor.
+/// \details The destination object, owner chain, and epoch queue remain intact.
+///          Write-through values must therefore already be constructed.
+template <typename T, typename U>
+void async_assign(WriteBuffer<T> lhs, U&& rhs)
+  requires(async_assignment_kind_v<T> == async_assignment_kind::write_through && detail::write_through_awaitable<U, T>)
+{
+  schedule([](auto in_, WriteBuffer<T> out_) static -> AsyncTask {
+    auto&& source = co_await in_;
+    auto target = co_await out_;
+    target.get() = source;
+    in_.release();
     co_return;
   }(std::move(rhs), std::move(lhs)));
 }
@@ -279,7 +291,10 @@ void async_assign(WriteBuffer<T> lhs, U&& rhs)
 /// \param rhs Source expression.
 template <typename T, typename U>
 void async_assign(Async<T>& lhs, U&& rhs)
-  requires requires { T{std::declval<async_value_t<U>>()}; }
+  requires((async_assignment_kind_v<T> == async_assignment_kind::rebind &&
+            requires { T{std::declval<async_value_t<U>>()}; }) ||
+           (async_assignment_kind_v<T> == async_assignment_kind::write_through &&
+            detail::write_through_assignment_source<T, U>))
 {
   async_assign(lhs.write(), read(std::forward<U>(rhs)));
 }
@@ -291,7 +306,10 @@ void async_assign(Async<T>& lhs, U&& rhs)
 /// \param rhs Source expression.
 template <typename T, typename U>
 void async_assign(WriteBuffer<T> lhs, U&& rhs)
-  requires requires { T{std::declval<async_value_t<U>>()}; }
+  requires((async_assignment_kind_v<T> == async_assignment_kind::rebind &&
+            requires { T{std::declval<async_value_t<U>>()}; }) ||
+           (async_assignment_kind_v<T> == async_assignment_kind::write_through &&
+            detail::write_through_assignment_source<T, U>))
 {
   async_assign(std::move(lhs), read(std::forward<U>(rhs)));
 }

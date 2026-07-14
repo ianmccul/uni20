@@ -179,6 +179,25 @@ owner, and epoch queue remain shared. This exception is necessary because
 copying an alias onto a fresh timeline would lose ordering with the bytes it
 references.
 
+## Assignment Kinds
+
+`async_assignment_kind_of<T>` controls direct assignment from an immediate
+value or a different `Async<U>` type:
+
+- `rebind` detaches the destination handle and gives it fresh storage and a
+  fresh `EpochQueue`
+- `write_through` retains the existing storage, lifetime owner, and queue and
+  schedules assignment through the stored descriptor
+
+This policy is independent of `async_value_kind_of<T>`. An owning tensor is a
+`value` that rebinds; a mutable reshape or slice is a `shared_alias` that writes
+through. Exact `Async<T>` copy/move assignment still follows the value-kind
+rules above, so assigning another exact async alias replaces the complete alias
+handle rather than writing elements.
+
+See `../async_storage.md` for the motivating tensor/view examples and the full
+assignment table.
+
 ## Waiting and Blocking
 
 `wait()` blocks until value is readable.
@@ -196,6 +215,7 @@ Blocking API is a bridge for thread-bound callers; coroutine code should prefer 
 - default `Async<T>` has unconstructed value until first construction path
 - dereferencing or converting a write proxy to `T&` requires already-constructed storage
 - `writer.emplace(...)` is always valid construction/reconstruction path
+- `emplace(...)` reconstructs inside the existing timeline; it is not an async rebind
 - proxy assignment constructs empty storage and otherwise evaluates
   `stored_value = source`
 - `take_release()` is the explicit "move out and release writer" path

@@ -15,7 +15,7 @@ Related notes:
   and async/lowering layers.
 - [`backend_dispatch.md`](backend_dispatch.md) - compile-time capability,
   runtime attempt, and fallback behavior.
-- [`async_storage.md`](async_storage.md) - async write assignment semantics.
+- [`async_storage.md`](async_storage.md) - async value identity, timeline rebinding, and write-through assignment.
 - [`async_tensor_lifetime_and_dispatch_draft.md`](async_tensor_lifetime_and_dispatch_draft.md)
   - async tensor aliases, lifetimes, and async dispatch lowering.
 - [`block_tensor.md`](block_tensor.md) - block tensor storage and per-block
@@ -221,7 +221,14 @@ proxy assignment constructs the stored type; otherwise it invokes that type's
   `as_tensor(std::vector<T>&)` may support resizing and element assignment,
   while a slice adaptor should remain fixed/write-through.
 
-Explicit `proxy.emplace(...)` or `proxy.rebind(...)` reconstructs async storage.
+At the outer handle level, `async_assignment_kind_of<T>` decides whether direct
+assignment to `Async<T>` detaches onto fresh storage and a fresh `EpochQueue` or
+writes through the current descriptor and timeline. This is independent of the
+write-proxy rule above and of `async_value_kind_of<T>`, which controls exact
+`Async<T>` copy behavior.
+
+Explicit `proxy.emplace(...)` reconstructs the stored object inside the current
+async storage and queue. It is not a handle rebind.
 Element copying that requires shape preparation or backend dispatch remains a
 named tensor operation rather than hidden proxy-assignment behavior.
 

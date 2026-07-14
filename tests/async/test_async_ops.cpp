@@ -66,7 +66,7 @@ TEST(AsyncOpsTest, WriteProxyAssignmentConstructsThenUsesUnderlyingAssignment)
   EXPECT_EQ(async_test_types::AssignmentAware::destructions, 1);
 }
 
-TEST(AsyncOpsTest, WriteProxyRebindExplicitlyReconstructs)
+TEST(AsyncOpsTest, WriteProxyEmplaceExplicitlyReconstructs)
 {
   async_test_types::AssignmentAware::reset();
 
@@ -79,7 +79,7 @@ TEST(AsyncOpsTest, WriteProxyRebindExplicitlyReconstructs)
     schedule([](WriteBuffer<async_test_types::AssignmentAware> out) static -> AsyncTask {
       auto writer = co_await out;
       writer.emplace(3);
-      writer.rebind(9);
+      writer.emplace(9);
       co_return;
     }(value.write()));
 

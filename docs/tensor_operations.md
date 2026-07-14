@@ -305,6 +305,12 @@ as elementwise copy. Use explicit `emplace` when reconstruction is required and
 a named tensor operation when backend-dispatched element evaluation is
 required.
 
+Direct assignment to the outer `Async<T>` handle is a separate decision.
+`async_assignment_kind_of<T>` makes owning tensors detach onto fresh storage
+and a fresh queue, while future mutable async tensor views can opt into
+write-through assignment that retains the parent's owner and queue. Exact
+`Async<View>` assignment still replaces the complete alias handle.
+
 ### Async Views and Lifetime
 
 `async::conj(parent)` returns `Async<ConjugatedTensorView<...>>` for complex

@@ -178,12 +178,12 @@ the operation is valid in either storage state.
 
 For more specific requirements, use an explicit operation:
 
-- `proxy.emplace(args...)` or `proxy.rebind(args...)` always reconstructs
+- `proxy.emplace(args...)` always reconstructs inside the current storage and queue
 - `proxy.get() = rhs` requires an existing value and uses its assignment operator
 
-There is no async assignment-semantics trait. Reference, descriptor, and tensor
-assignment behavior belongs to the stored type itself or to an explicit tensor
-operation such as `copy(...)`.
+The separate `async_assignment_kind_of<T>` trait controls whether direct
+assignment to the outer `Async<T>` handle creates a fresh timeline or schedules
+write-through assignment. It does not change these low-level write-proxy rules.
 
 ### Why += / -= can initialize
 
@@ -203,7 +203,7 @@ Write proxies support:
 - `take()`: move out and destroy current stored value
 - `take_release()`: `take()` plus immediate writer release
 - `release()`: explicit early release when done writing
-- `rebind(...)`: explicit reconstruct/rebind path
+- `emplace(...)`: explicit construction or reconstruction in the current timeline
 
 This is available for both:
 

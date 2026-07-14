@@ -33,7 +33,6 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `Async<T>` construction state is implemented by `shared_storage<T>`.
 - First write may use `co_await writer = value`.
 - First write may use `emplace(...)`.
-- First write may use `rebind(...)`.
 
 ### CAUSAL MODEL
 
@@ -286,6 +285,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `EpochQueue`
 - `ReadBuffer<T>`
 - `async_value_kind_of<T>`
+- `async_assignment_kind_of<T>`
 
 ## async_value_kind_of<T>
 
@@ -317,6 +317,60 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `async_alias_tag`
 - `make_async_alias(...)`
 
+## async_assignment_kind_of<T>
+
+### ROLE
+
+- `async_assignment_kind_of<T>` selects direct assignment behavior for an
+  immediate value or a heterogeneous `Async<U>` source.
+
+### INVARIANTS
+
+- Ordinary values default to `async_assignment_kind::rebind`.
+- `rebind` detaches the destination handle and constructs fresh storage with a
+  fresh `EpochQueue`.
+- Mutable alias descriptors may declare `async_write_through_tag`, selecting
+  `async_assignment_kind::write_through`.
+- A `write_through` payload must also have `async_value_kind::shared_alias`.
+- `write_through` retains descriptor storage, lifetime ownership, and the exact
+  queue while scheduling the stored descriptor's assignment operation.
+- A type opting into `write_through` must make every accepted assignment,
+  including same-type assignment, mutate the referenced value rather than
+  retarget only its descriptor.
+- Exact `Async<T>` copy/move assignment is still controlled by
+  `async_value_kind_of<T>` and its dedicated overloads.
+- `emplace(...)` reconstructs `T` inside existing storage and is not rebinding.
+
+### MOTIVATING EXAMPLE
+
+```cpp
+Async<Tensor> x = make_first_tensor();
+consume(x);
+x = make_second_tensor(); // rebind: a new storage/queue branch
+consume(x);
+
+auto y = async::reshape_view(x, rows, columns); // planned Async<View> API
+Async<Tensor> values = make_replacement_values();
+y = values;                                // heterogeneous Async<Tensor>: write through into x
+y = async::reshape_view(z, rows, columns); // exact Async<View>: rebind whole handle
+```
+
+### FAILURE MODES
+
+- Reconstructing only an alias descriptor so it no longer matches its retained
+  owner and queue.
+- Implementing rebind by destroying and emplacing inside the old storage.
+- Giving a write-through alias an independent queue.
+- Marking a descriptor `write_through` while leaving shallow same-type
+  descriptor assignment in place.
+
+### RELATED
+
+- `Async<T>`
+- `async_value_kind_of<T>`
+- `async_write_through_tag`
+- `async_assign(...)`
+
 ## Write-proxy assignment
 
 ### ROLE
@@ -328,7 +382,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - The source must both construct `T` and make `stored_value = source` valid.
 - Empty storage constructs `T` from the source.
 - Constructed storage evaluates the underlying assignment expression.
-- `emplace(...)` and `rebind(...)` are explicit reconstruction operations.
+- `emplace(...)` is the explicit reconstruction operation inside the current timeline.
 
 ### FAILURE MODES
 
@@ -340,7 +394,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 - `WriteAccessProxy<T>`
 - `emplace(...)`
-- `rebind(...)`
+- `async_assignment_kind_of<T>`
 
 ## or_cancel()
 

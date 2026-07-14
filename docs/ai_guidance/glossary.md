@@ -32,6 +32,15 @@ This glossary is optimized for retrieval, not pedagogy.
 - `INVARIANT`: Ordinary types are `async_value_kind::value`; descriptors declaring `async_alias_tag` are `async_value_kind::shared_alias`.
 - `INVARIANT`: Shared-alias copies retain descriptor storage, lifetime ownership, and queue identity.
 
+### async_assignment_kind_of<T>
+
+- `ROLE`: Selects direct immediate or heterogeneous assignment semantics for `Async<T>`.
+- `INVARIANT`: `rebind` detaches onto fresh storage and a fresh `EpochQueue`.
+- `INVARIANT`: `write_through` retains the current descriptor storage, owner chain, and queue.
+- `INVARIANT`: A `write_through` payload is also an `async_value_kind::shared_alias`.
+- `INVARIANT`: Exact `Async<T>` copy/move assignment is governed separately by `async_value_kind_of<T>`.
+- `MISCONCEPTION`: Rebinding means destroying and emplacing `T` inside the existing storage.
+
 ### EpochQueue
 
 - `ROLE`: Causal timeline for one `Async<T>`.
@@ -115,9 +124,17 @@ This glossary is optimized for retrieval, not pedagogy.
 - `INVARIANT`: The source must support both operations.
 - `MISCONCEPTION`: Async storage replaces a constructed object's assignment semantics.
 
-### rebind(...)
+### async rebind
 
-- `ROLE`: Explicit write-proxy operation that reconstructs the stored object.
+- `ROLE`: Replace an `Async<T>` handle's storage and `EpochQueue` with a fresh timeline.
+- `LIFETIME / OWNERSHIP`: Previously enrolled buffers retain the detached old timeline.
+- `MISCONCEPTION`: `proxy.emplace(...)` is an async rebind.
+
+### write-through async assignment
+
+- `ROLE`: Assign through a mutable alias or proxy without replacing its storage, owner, or queue.
+- `INVARIANT`: The stored descriptor must already exist and define the underlying assignment operation.
+- `INVARIANT`: Same-type assignment writes through; it must not retarget only the descriptor.
 
 ### take()
 

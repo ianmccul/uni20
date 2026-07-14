@@ -1262,17 +1262,6 @@ template <typename T> class WriteAccessProxy {
       return this->writer().emplace(std::forward<Args>(args)...);
     }
 
-    /// \brief Explicitly reconstruct/rebind the stored object.
-    /// \tparam Args Constructor argument types.
-    /// \param args Constructor arguments.
-    /// \return Reference to the reconstructed value.
-    template <typename... Args>
-      requires std::constructible_from<T, Args...>
-    T& rebind(Args&&... args)
-    {
-      return this->emplace(std::forward<Args>(args)...);
-    }
-
     /// \brief In-place `+=` update; emplaces when storage is unconstructed.
     /// \tparam U Operand type.
     /// \param x Right-hand operand.
@@ -1458,17 +1447,6 @@ template <typename T> class OwningWriteAccessProxy {
     T& emplace(Args&&... args)
     {
       return writer_.emplace(std::forward<Args>(args)...);
-    }
-
-    /// \brief Explicitly reconstruct/rebind the stored object.
-    /// \tparam Args Constructor argument types.
-    /// \param args Constructor arguments.
-    /// \return Reference to the reconstructed value.
-    template <typename... Args>
-      requires std::constructible_from<T, Args...>
-    T& rebind(Args&&... args)
-    {
-      return this->emplace(std::forward<Args>(args)...);
     }
 
     /// \brief In-place `+=` update; emplaces when storage is unconstructed.

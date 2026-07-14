@@ -63,6 +63,19 @@ Rules:
 - `Async<T>()`: storage exists, value is unconstructed
 - `Async<T>(args...)`: value is constructed immediately
 
+### Async<T> assignment
+
+| Expression | Meaning |
+|---|---|
+| `owning = value` | Rebind: detach and create fresh storage plus a fresh `EpochQueue`. |
+| `mutable_alias = heterogeneous_value` | Write through: retain descriptor, owner, and queue. |
+| `alias = another_exact_alias` | Replace the complete alias handle according to `async_value_kind_of<T>`. |
+| `async_assign(destination, source)` | Enroll assignment in the destination's current queue. |
+
+`async_assignment_kind_of<T>` selects rebind versus write-through for the first
+two cases. Exact `Async<T>` copy/move assignment is governed separately by
+`async_value_kind_of<T>`.
+
 ### ReadBuffer<T> await results
 
 | Expression | Result |
@@ -106,7 +119,7 @@ Critical write rule:
 
 Explicit alternatives:
 
-- `proxy.emplace(...)` and `proxy.rebind(...)` explicitly reconstruct the value
+- `proxy.emplace(...)` explicitly reconstructs the value in the same timeline
 - `proxy.get() = value` assigns a value known to be constructed
 - tensor element copying and backend dispatch use named operations such as `copy(...)`
 

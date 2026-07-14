@@ -25,12 +25,20 @@ namespace uni20::async
 {
 
 class DebugScheduler;
+template <typename T> class Async;
 
 /// \brief Classifies an async payload as an independent value or a shared alias.
 enum class async_value_kind
 {
   value,        ///< Independent storage and value-copy semantics.
   shared_alias, ///< Shared descriptor storage, lifetime owner, and epoch queue.
+};
+
+/// \brief Selects whether direct value assignment replaces an async timeline or writes through it.
+enum class async_assignment_kind
+{
+  rebind,        ///< Replace the destination with a fresh async value timeline.
+  write_through, ///< Schedule assignment through the destination's existing storage and timeline.
 };
 
 namespace detail
@@ -43,6 +51,15 @@ struct default_async_value_kind : std::integral_constant<async_value_kind, async
 template <typename T>
 struct default_async_value_kind<T, std::void_t<typename std::remove_cvref_t<T>::async_alias_tag>>
     : std::integral_constant<async_value_kind, async_value_kind::shared_alias>
+{};
+
+template <typename T, typename = void>
+struct default_async_assignment_kind : std::integral_constant<async_assignment_kind, async_assignment_kind::rebind>
+{};
+
+template <typename T>
+struct default_async_assignment_kind<T, std::void_t<typename std::remove_cvref_t<T>::async_write_through_tag>>
+    : std::integral_constant<async_assignment_kind, async_assignment_kind::write_through>
 {};
 
 } // namespace detail
@@ -59,6 +76,19 @@ template <typename T> struct async_value_kind_of : detail::default_async_value_k
 template <typename T>
 inline constexpr async_value_kind async_value_kind_v = async_value_kind_of<std::remove_cvref_t<T>>::value;
 
+/// \brief Trait selecting direct value-assignment behavior for `Async<T>`.
+/// \details Ordinary values rebind to a fresh timeline. Mutable alias or proxy
+///          descriptors may declare an `async_write_through_tag` member type,
+///          or specialize this trait, so heterogeneous value assignment keeps
+///          the existing owner and epoch queue and assigns through the descriptor.
+template <typename T> struct async_assignment_kind_of : detail::default_async_assignment_kind<T>
+{};
+
+/// \brief Convenience value for the async assignment-kind trait.
+template <typename T>
+inline constexpr async_assignment_kind async_assignment_kind_v =
+    async_assignment_kind_of<std::remove_cvref_t<T>>::value;
+
 /// \brief Tag type to construct an Async without starting the queue object.
 struct async_do_not_start_t
 {};
@@ -67,7 +97,45 @@ struct async_do_not_start_t
 inline constexpr async_do_not_start_t async_do_not_start{};
 
 template <typename T> class ReverseValue; // forward declaration so we can add it as a friend of Async<T>
-template <typename T> class Async;
+
+/// \brief Strip `Async<T>` to `T` for assignment and expression type deduction.
+template <typename T> struct async_value_type
+{
+    using type = T;
+};
+
+template <typename T> struct async_value_type<Async<T>>
+{
+    using type = T;
+};
+
+/// \brief Extract the underlying value type from an immediate value or `Async<T>`.
+template <typename T> using async_value_t = typename async_value_type<std::remove_cvref_t<T>>::type;
+
+namespace detail
+{
+
+template <typename Source>
+concept async_source = std::same_as<std::remove_cvref_t<Source>, Async<async_value_t<Source>>>;
+
+template <typename Target, typename Source>
+concept rebind_assignment_source =
+    (async_source<Source> && std::constructible_from<Target, async_value_t<Source> const&>) ||
+    (!async_source<Source> && std::constructible_from<Target, Source&&>);
+
+template <typename Target, typename Source>
+concept write_through_assignment_source =
+    requires(Target& target, async_value_t<Source> const& source) { target = source; };
+
+template <typename Target, typename Source>
+concept async_assignment_source =
+    (!std::same_as<std::remove_cvref_t<Source>, Async<Target>>) &&
+    ((async_assignment_kind_v<Target> == async_assignment_kind::rebind &&
+      async_value_kind_v<Target> == async_value_kind::value && rebind_assignment_source<Target, Source>) ||
+     (async_assignment_kind_v<Target> == async_assignment_kind::write_through &&
+      write_through_assignment_source<Target, Source>));
+
+} // namespace detail
 
 /// \brief Construct an async alias that retains a parent value and shares its epoch queue.
 template <typename Alias, typename Parent, typename... Args>
@@ -91,6 +159,10 @@ template <typename Alias, typename Parent, typename... Args>
 template <typename T> class Async {
   public:
     using value_type = T;
+
+    static_assert(async_assignment_kind_v<T> != async_assignment_kind::write_through ||
+                      async_value_kind_v<T> == async_value_kind::shared_alias,
+                  "write-through Async payloads must be shared aliases");
 
     /// \brief Initializes async state without constructing the stored value.
     Async()
@@ -224,6 +296,19 @@ template <typename T> class Async {
 #endif
       return *this;
     }
+
+    /// \brief Assign an immediate or heterogeneous async value according to `async_assignment_kind_of<T>`.
+    /// \details Rebind assignment replaces this handle with a fresh value and
+    ///          epoch queue. Write-through assignment schedules the stored
+    ///          descriptor's assignment on the existing queue, preserving its
+    ///          lifetime owner. Exact `Async<T>` copy and move assignment use
+    ///          the dedicated overloads below and are not governed by this trait.
+    /// \tparam U Immediate value or heterogeneous async source type.
+    /// \param rhs Source expression.
+    /// \return Reference to this async handle.
+    template <typename U>
+      requires detail::async_assignment_source<T, U>
+    Async& operator=(U&& rhs);
 
     /// \brief Copy-assign from another Async<T>, overwriting this instance's value timeline.
     ///
@@ -369,6 +454,20 @@ template <typename T> class Async {
     /// \brief Access the shared storage control block.
     /// \return Shared storage object for the contained value.
     shared_storage<T> const& storage() const { return storage_; }
+
+    /// \brief Return the address reserved for the contained value when constructing an alias descriptor.
+    /// \warning The pointer does not grant synchronized access and must not be
+    ///          dereferenced outside an active buffer. It may identify
+    ///          reserved but unconstructed storage.
+    /// \return Mutable address reserved for the contained value.
+    [[nodiscard]] T* storage_address() noexcept { return storage_.storage_address(); }
+
+    /// \brief Return the const address reserved for the contained value when constructing an alias descriptor.
+    /// \warning The pointer does not grant synchronized access and must not be
+    ///          dereferenced outside an active buffer. It may identify
+    ///          reserved but unconstructed storage.
+    /// \return Const address reserved for the contained value.
+    [[nodiscard]] T const* storage_address() const noexcept { return storage_.storage_address(); }
 
     /// \brief Access the stored value pointer with shared ownership semantics.
     ///

@@ -71,7 +71,7 @@ Not every file uses every field. Use the fields that improve retrieval.
 
 ## File map
 
-- `async_runtime.md`: `Async<T>`, `async_value_kind_of<T>`, `EpochQueue`, buffers, release rules, and aliasing limits
+- `async_runtime.md`: `Async<T>`, value and assignment kinds, `EpochQueue`, buffers, release rules, and aliasing limits
 - `reverse_mode_ad.md`: `Var<T>`, `ReverseValue<T>`, `backprop()`, gradient materialization, Wirtinger convention, reverse-kernel rules
 - `architecture_status.md`: mature areas, partial areas, design seams, and build-system cautions
 - `tensor_dispatch_design.md`: speculative tensor/view/backend dispatch design,
