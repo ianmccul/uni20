@@ -19,6 +19,8 @@ template <class Tensor>
 concept ConjugatesRvalueTensor = requires(Tensor&& tensor) { uni20::conj(std::move(tensor)); };
 
 static_assert(uni20::TensorView<conjugated_matrix>);
+static_assert(!uni20::OwningTensor<conjugated_matrix>);
+static_assert(!uni20::OwningTensor<uni20::ConstTensorView<complex_matrix>>);
 static_assert(!uni20::MutableTensorView<conjugated_matrix>);
 static_assert(std::same_as<typename conjugated_matrix::storage_policy, uni20::VectorStorage>);
 static_assert(!ConjugatesRvalueTensor<complex_matrix>);

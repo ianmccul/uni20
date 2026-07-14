@@ -18,6 +18,12 @@ struct copy_op
     static constexpr std::string_view name = "copy";
 };
 
+/// \brief Accessor-respecting in-place scalar conjugation operation tag.
+struct conjugate_inplace_op
+{
+    static constexpr std::string_view name = "conjugate_inplace";
+};
+
 /// \brief Dense matrix multiplication operation tag.
 struct gemm_op
 {

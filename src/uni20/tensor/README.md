@@ -15,8 +15,10 @@ kernels operate on resolved mdspans.
 - `async.hpp`: async tensor aliases that retain parent storage and share its
   epoch queue.
 - `copy.hpp`: backend-dispatched copies and `make_tensor(...)` materialization.
-- `concepts.hpp`: readable, mutable, strided, and rank-constrained tensor-level
-  concepts.
+- `conjugate_inplace.hpp`: backend-dispatched eager conjugation of mutable
+  tensor storage.
+- `concepts.hpp`: readable, mutable, owning, strided, and rank-constrained
+  tensor-level concepts.
 - `output.hpp`: fixed-output validation and resizable-output shape preparation.
 - `layout.hpp`: layout construction helpers.
 
@@ -30,6 +32,26 @@ kernels operate on resolved mdspans.
   runtime-rank tensor requires a separate descriptor and type rather than a
   second meaning for `Tensor`.
 - Both owning forms model the tensor-level concepts directly.
+- `OwningTensor` is an explicit opt-in classification for types whose move
+  operation transfers the storage and lifetime exposed through `mdspan()`.
+  Non-owning descriptors such as `ConstTensorView` and
+  `ConjugatedTensorView` deliberately do not model it.
+- Ownership alone does not make an expression consumable. Value operations may
+  transfer storage only from a mutable owning rvalue. Passing such an rvalue
+  grants permission to reuse its allocation but does not guarantee reuse when
+  the layout, accessor, storage policy, or backend is incompatible.
+- Moving an owning tensor follows ordinary C++ lifetime rules: existing
+  non-owning tensor views and mdspans into the transferred storage must not be
+  used afterward. Uni20 does not track synchronous views to prevent this.
+- `BasicTensor::release_storage()` transfers the concrete policy-selected
+  container out of an owning rvalue. `BasicTensor::adopt_storage(...)` installs
+  a mapping over a transferred container without reallocating it. Adoption
+  requires `storage.size() >= mapping.required_span_size()`; padding and an
+  unused storage tail are preserved intentionally.
+- `rebind_layout_type<Layout>` preserves a `BasicTensor` element type, extents,
+  storage policy, and accessor factory while changing its mapping policy. This
+  is the type-level counterpart to releasing storage and adopting it under a
+  compatible mapping.
 - Use `make_tensor(view)` for inferred materialization rather than a
   view-taking `Tensor` constructor. Materialization is an operation and must
   remain eligible for backend dispatch, including future BLAS matrix-copy

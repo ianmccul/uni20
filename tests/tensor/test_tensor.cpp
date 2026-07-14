@@ -22,6 +22,8 @@ using tensor_type = Tensor<int, 2, VectorStorage>;
 static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage>>);
 
 static_assert(TensorView<tensor_type>);
+static_assert(OwningTensor<tensor_type>);
+static_assert(OwningTensor<tensor_type const>);
 static_assert(MutableTensorView<tensor_type>);
 static_assert(RankedTensorView<tensor_type, 2>);
 static_assert(MutableRankedTensorView<tensor_type, 2>);
@@ -34,6 +36,10 @@ static_assert(!MutableRankedTensorView<tensor_type, 1>);
 static_assert(!MutableTensorView<tensor_type const>);
 static_assert(!SpanLike<tensor_type>);
 static_assert(!StridedMdspan<tensor_type>);
+
+using row_major_matrix = DenseMatrix<int, RowMajor>;
+using strided_matrix = typename row_major_matrix::template rebind_layout_type<stdex::layout_stride>;
+static_assert(std::same_as<strided_matrix, Tensor<int, 2, VectorStorage, stdex::layout_stride>>);
 
 template <typename Span>
 constexpr bool can_assign_element_v =
@@ -134,6 +140,32 @@ TEST(TensorTest, CustomStridesAllocateFullSpan)
   EXPECT_EQ(storage[3], 12);
   EXPECT_EQ(storage[4], 13);
   EXPECT_EQ((tensor[1, 1]), 13);
+}
+
+TEST(TensorTest, AdoptedStorageMayRetainPaddingAndUnusedTail)
+{
+  extents_2d exts{2, 2};
+  tensor_type::mapping_type mapping(exts, std::array<index_t, 2>{1, 3});
+  tensor_type::storage_type storage(8, -1);
+  int* original_storage = storage.data();
+  storage[0] = 10;
+  storage[1] = 11;
+  storage[3] = 12;
+  storage[4] = 13;
+
+  auto tensor = tensor_type::adopt_storage(mapping, std::move(storage));
+
+  EXPECT_EQ(tensor.mutable_handle(), original_storage);
+  EXPECT_EQ(tensor.storage().size(), 8u);
+  EXPECT_EQ(tensor.size(), 5);
+  EXPECT_EQ((tensor[0, 0]), 10);
+  EXPECT_EQ((tensor[1, 0]), 11);
+  EXPECT_EQ((tensor[0, 1]), 12);
+  EXPECT_EQ((tensor[1, 1]), 13);
+
+  auto released = std::move(tensor).release_storage();
+  EXPECT_EQ(released.data(), original_storage);
+  EXPECT_EQ(released.size(), 8u);
 }
 
 TEST(TensorTest, MappingBuilderSupportsLayoutLeft)

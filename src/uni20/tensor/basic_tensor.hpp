@@ -10,6 +10,7 @@
 #include "layout.hpp"
 
 #include <uni20/common/mdspan.hpp>
+#include <uni20/common/trace.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 
 #include <array>
@@ -64,6 +65,11 @@ class BasicTensor {
 
     using storage_type = typename storage_policy::template storage_t<element_type>;
 
+    /// \brief Rebind this owning tensor configuration to another layout policy.
+    template <typename NewLayoutPolicy>
+    using rebind_layout_type =
+        BasicTensor<element_type, extents_type, storage_policy, NewLayoutPolicy, accessor_factory_type>;
+
     /// \brief Default-construct an empty tensor without allocated storage.
     BasicTensor() = default;
 
@@ -75,6 +81,8 @@ class BasicTensor {
     BasicTensor(BasicTensor const& other) = default;
 
     /// \brief Move-construct an owning tensor.
+    /// \details Existing non-owning views and mdspans into the source must not
+    ///          be used after ownership is transferred.
     /// \param other Source tensor to move from.
     BasicTensor(BasicTensor&& other) = default;
 
@@ -84,6 +92,8 @@ class BasicTensor {
     BasicTensor& operator=(BasicTensor const& other) = default;
 
     /// \brief Move-assign tensor storage and descriptor state.
+    /// \details Existing non-owning views and mdspans into either tensor must
+    ///          not be used after ownership is transferred.
     /// \param other Source tensor to move from.
     /// \return Reference to `*this`.
     BasicTensor& operator=(BasicTensor&& other) = default;
@@ -153,6 +163,35 @@ class BasicTensor {
     /// \brief Access the owned storage container.
     /// \return Constant reference to the underlying storage.
     [[nodiscard]] storage_type const& storage() const noexcept { return data_; }
+
+    /// \brief Transfer the underlying storage container out of this tensor.
+    /// \details The mapping and accessor-factory state remain in the moved-from
+    ///          tensor. Existing views and mdspans into this tensor must not be
+    ///          used after the transfer.
+    /// \return The concrete storage container selected by `storage_policy`.
+    [[nodiscard]] storage_type release_storage() && noexcept(std::is_nothrow_move_constructible_v<storage_type>)
+    {
+      return std::move(data_);
+    }
+
+    /// \brief Adopt an existing storage container without reallocating it.
+    /// \details The storage may contain padding or an unused tail, but its
+    ///          logical size must cover the mapping's required span. The
+    ///          caller is responsible for ensuring that the mapping and
+    ///          accessor factory are valid for the transferred allocation.
+    /// \param mapping Mapping to expose through the adopted tensor.
+    /// \param storage Storage container whose ownership is transferred.
+    /// \param accessor_factory Factory used to resolve mdspan accessors.
+    /// \return An owning tensor over the transferred storage.
+    [[nodiscard]] static BasicTensor adopt_storage(mapping_type mapping, storage_type storage,
+                                                   accessor_factory_type accessor_factory = accessor_factory_type{})
+      requires requires(storage_type const& value) { value.size(); }
+    {
+      ERROR_IF(std::cmp_less(storage.size(), mapping.required_span_size()),
+               "adopted tensor storage is smaller than the mapping's required span");
+      return BasicTensor(internal_tag{},
+                         ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)});
+    }
 
     /// \brief Return the default backend selector associated with this tensor's storage.
     /// \return Ordered backend selector value for tensor-level dispatch.
@@ -365,5 +404,10 @@ class BasicTensor {
     storage_type data_{};
     [[no_unique_address]] accessor_factory_type accessor_factory_{};
 };
+
+template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
+          typename AccessorFactory>
+inline constexpr bool
+    enable_owning_tensor<BasicTensor<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>> = true;
 
 } // namespace uni20

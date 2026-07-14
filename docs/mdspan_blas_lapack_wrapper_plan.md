@@ -446,8 +446,9 @@ future prepared GEMM fallback may:
    caller-visible result.
 
 When `beta == 0`, the pre-call output conjugation can be skipped because the old
-output is not read. This fallback requires an explicit matrix-conjugation
-primitive and must only be used when the transformed readable operands are all
+output is not read. Uni20 provides the accessor-respecting
+`conjugate_inplace_op` CPU kernel for this eager storage rewrite. The fallback
+must still be used only when the transformed readable operands are all
 representable by the selected provider. If conjugating everything merely moves
 an unsupported conjugate-only transform from one input to another, the prepared
 wrapper still needs input materialization or must decline.

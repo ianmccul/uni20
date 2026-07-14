@@ -13,6 +13,7 @@ namespace
 
 TEST(LinalgDenseOpsDispatchTest, OperationTagsProvideCentralDiagnosticNames)
 {
+  EXPECT_EQ(uni20::linalg::conjugate_inplace_op::name, "conjugate_inplace");
   EXPECT_EQ(uni20::linalg::gemm_op::name, "gemm");
   EXPECT_EQ(uni20::linalg::gemv_op::name, "gemv");
   EXPECT_EQ(uni20::linalg::matrix_set_op::name, "matrix_set");

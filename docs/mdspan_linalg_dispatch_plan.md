@@ -482,27 +482,23 @@ void self_adjoint_eigh(BackendSelector selector, W&& eigenvalues,
 `matrix_work` is mutable because LAPACK overwrites its input. If
 `compute_vectors` is true, `matrix_work` contains the eigenvectors on return.
 If `compute_vectors` is false, `matrix_work` should be treated as destroyed
-workspace. A higher-level value API can preserve an input matrix by copying it
-into an explicit temporary and then calling this in-place wrapper.
-
-Move-aware higher-level wrappers can also avoid that copy:
+workspace. The higher-level `eigh(matrix)` value API has a preserving lvalue
+form that copies into an explicit column-major temporary and a consuming owning
+rvalue form that may reuse the input allocation:
 
 ```cpp
-template <class Matrix>
-auto self_adjoint_eigh(Matrix matrix) -> SelfAdjointEighResult<Matrix>
-{
-  using Real = uni20::make_real_t<typename std::remove_cvref_t<Matrix>::value_type>;
-  std::vector<Real> eigenvalues(matrix.extent(0));
-  self_adjoint_eigh(mdspan(eigenvalues), mdspan(matrix));
-  return {.eigenvalues = std::move(eigenvalues),
-          .eigenvectors = std::move(matrix)};
-}
+auto preserved = eigh(matrix);
+auto consumed = eigh(std::move(matrix));
 ```
 
-That is valid because the matrix is a single update operand: LAPACK's `A`
+Reuse is valid because the matrix is a single update operand: LAPACK's `A`
 argument is both the input matrix and, for `jobz = 'V'`, the eigenvector output.
-The higher-level wrapper can transfer ownership with `std::move(M)`, call the
-in-place leaf wrapper, and return the same storage as the eigenvector matrix.
+For directly addressable column-major storage, the consuming wrapper transfers
+the allocation unchanged. For square row-major storage, it adopts the same
+allocation under a column-major `{1, LDA}` mapping, exchanges `Upper` and
+`Lower`, and conjugates complex eigenvectors after LAPACK. This preserves a
+padded leading dimension and any unused storage tail. A mapping without a
+unit-stride axis is copied into column-major work storage instead.
 
 This should not be represented as arbitrary aliasing between independent
 parameters. If a higher-level API has separate `input` and `eigenvectors`

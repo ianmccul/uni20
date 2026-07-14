@@ -141,6 +141,26 @@ for `Async<Tensor>`.
 
 Apply the same distinction to future overwrite and compound-update operations.
 
+## Consuming Owning Inputs
+
+An operation that may reuse an input allocation must accept only
+`Async<Tensor>` values whose stored type models `OwningTensor`. A tensor view,
+including a conjugating or slicing alias, never becomes consumable merely
+because its descriptor was passed by value.
+
+Enroll a consuming input with `WriteBuffer`, then obtain the value through
+`take()` or `take_release()`. Do not read the Tensor and subsequently move from
+the referenced object: that would leave the async storage marked constructed
+while exposing a moved-from owner to later epochs and aliases.
+
+`take()` moves out and destroys the stored value while retaining the writer;
+use it when the operation will reconstruct that same async value.
+`take_release()` also releases the writer and is appropriate when ownership is
+permanently transferred elsewhere. Existing views and async aliases of a
+consumed owner must not be used afterward. Epoch ordering prevents concurrent
+access, but it does not extend the lifetime of an object removed from its
+storage.
+
 ## Exceptions
 
 Passing the output `WriteBuffer` as a coroutine parameter automatically makes

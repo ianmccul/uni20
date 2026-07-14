@@ -43,6 +43,20 @@ concept TensorView = requires(std::remove_reference_t<T> const& tensor) {
   } -> std::convertible_to<typename std::remove_cvref_t<detail::tensor_const_mdspan_t<T>>::index_type>;
 } && SpanLike<decltype(std::declval<std::remove_reference_t<T> const&>().mdspan())>;
 
+/// \brief Opt-in marker for tensor types that own their storage and lifetime.
+/// \details Specialize this variable template for a tensor type only when
+///          moving an object transfers ownership of the storage observed by
+///          its resolved mdspan. Tensor view and proxy types must not opt in.
+template <class T> inline constexpr bool enable_owning_tensor = false;
+
+/// \brief Tensor-level object that owns the storage exposed by its mdspan.
+/// \details Ownership is a property of the cvref-stripped object type. The
+///          concept does not imply that a particular expression is mutable or
+///          may be consumed; consuming operations impose those requirements
+///          separately.
+template <class T>
+concept OwningTensor = TensorView<T> && enable_owning_tensor<std::remove_cvref_t<T>>;
+
 /// \brief Resolved readable mdspan type exposed by a tensor-level object.
 template <TensorView T> using tensor_mdspan_t = std::remove_cvref_t<detail::tensor_const_mdspan_t<T>>;
 

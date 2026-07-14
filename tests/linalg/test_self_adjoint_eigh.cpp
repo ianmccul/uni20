@@ -5,9 +5,11 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <type_traits>
+#include <utility>
 
 namespace
 {
@@ -47,6 +49,96 @@ TEST(SelfAdjointEighTest, ValueApiPreservesRealInputAndReturnsEigenvectors)
   EXPECT_DOUBLE_EQ((matrix[0, 1]), 1.0);
   check_eigenvector_residuals([](uni20::index_type row, uni20::index_type col) { return row == col ? 2.0 : 1.0; },
                               result.eigenvectors, result.eigenvalues, 1e-12);
+}
+
+TEST(SelfAdjointEighTest, ConsumingValueApiReusesCompatibleOwningStorage)
+{
+  uni20::DenseMatrix<double> matrix(2, 2);
+  matrix[0, 0] = 2.0;
+  matrix[0, 1] = 1.0;
+  matrix[1, 0] = 1.0;
+  matrix[1, 1] = 2.0;
+  double* original_storage = matrix.mutable_handle();
+
+  auto result = uni20::linalg::eigh(std::move(matrix));
+
+  static_assert(std::same_as<decltype(result.eigenvectors), uni20::DenseMatrix<double>>);
+  EXPECT_EQ(result.eigenvectors.mutable_handle(), original_storage);
+  EXPECT_NEAR(result.eigenvalues[0], 1.0, 1e-13);
+  EXPECT_NEAR(result.eigenvalues[1], 3.0, 1e-13);
+  check_eigenvector_residuals([](uni20::index_type row, uni20::index_type col) { return row == col ? 2.0 : 1.0; },
+                              result.eigenvectors, result.eigenvalues, 1e-12);
+}
+
+TEST(SelfAdjointEighTest, ConsumingValueApiReusesRowMajorOwningStorage)
+{
+  uni20::DenseMatrix<double, uni20::RowMajor> matrix(2, 2);
+  matrix[0, 0] = 2.0;
+  matrix[0, 1] = 1.0;
+  matrix[1, 0] = 1.0;
+  matrix[1, 1] = 2.0;
+  double* original_storage = matrix.mutable_handle();
+
+  auto result = uni20::linalg::eigh(std::move(matrix));
+
+  static_assert(std::same_as<typename decltype(result.eigenvectors)::layout_type, stdex::layout_stride>);
+  EXPECT_EQ(result.eigenvectors.mutable_handle(), original_storage);
+  EXPECT_EQ(result.eigenvectors.mapping().stride(0), 1);
+  EXPECT_EQ(result.eigenvectors.mapping().stride(1), 2);
+  EXPECT_NEAR(result.eigenvalues[0], 1.0, 1e-13);
+  EXPECT_NEAR(result.eigenvalues[1], 3.0, 1e-13);
+  check_eigenvector_residuals([](uni20::index_type row, uni20::index_type col) { return row == col ? 2.0 : 1.0; },
+                              result.eigenvectors, result.eigenvalues, 1e-12);
+}
+
+TEST(SelfAdjointEighTest, ConsumingValueApiPreservesPaddedLdaAndComplexRowMajorSemantics)
+{
+  using scalar_type = uni20::complex<double>;
+  using matrix_type = uni20::Tensor<scalar_type, 2>;
+  matrix_type matrix(matrix_type::extents_type{2, 2}, std::array<uni20::index_type, 2>{4, 1});
+  matrix.storage().resize(matrix.storage().size() + 3);
+  matrix[0, 0] = scalar_type{2.0, 0.0};
+  matrix[0, 1] = scalar_type{1.0, 1.0};
+  matrix[1, 0] = scalar_type{99.0, 17.0};
+  matrix[1, 1] = scalar_type{3.0, 0.0};
+  scalar_type* original_storage = matrix.mutable_handle();
+  auto const original_storage_size = matrix.storage().size();
+
+  auto result = uni20::linalg::eigh(std::move(matrix), uni20::linalg::MatrixTriangle::Upper);
+
+  static_assert(std::same_as<decltype(result.eigenvectors), matrix_type>);
+  EXPECT_EQ(result.eigenvectors.mutable_handle(), original_storage);
+  EXPECT_EQ(result.eigenvectors.storage().size(), original_storage_size);
+  EXPECT_EQ(result.eigenvectors.mapping().stride(0), 1);
+  EXPECT_EQ(result.eigenvectors.mapping().stride(1), 4);
+  EXPECT_NEAR(result.eigenvalues[0], 1.0, 1e-12);
+  EXPECT_NEAR(result.eigenvalues[1], 4.0, 1e-12);
+  auto matrix_element = [](uni20::index_type row, uni20::index_type col) {
+    if (row == 0 && col == 0) return scalar_type{2.0, 0.0};
+    if (row == 1 && col == 1) return scalar_type{3.0, 0.0};
+    if (row == 0) return scalar_type{1.0, 1.0};
+    return scalar_type{1.0, -1.0};
+  };
+  check_eigenvector_residuals(matrix_element, result.eigenvectors, result.eigenvalues, 1e-11);
+}
+
+TEST(SelfAdjointEighTest, ConsumingValueApiMaterializesMappingWithoutUnitStride)
+{
+  using matrix_type = uni20::Tensor<double, 2>;
+  matrix_type matrix(matrix_type::extents_type{2, 2}, std::array<uni20::index_type, 2>{3, 2});
+  matrix[0, 0] = 2.0;
+  matrix[0, 1] = 1.0;
+  matrix[1, 0] = 1.0;
+  matrix[1, 1] = 2.0;
+  double* original_storage = matrix.mutable_handle();
+
+  auto result = uni20::linalg::eigh(std::move(matrix));
+
+  EXPECT_NE(result.eigenvectors.mutable_handle(), original_storage);
+  EXPECT_EQ(result.eigenvectors.mapping().stride(0), 1);
+  EXPECT_EQ(result.eigenvectors.mapping().stride(1), 2);
+  EXPECT_NEAR(result.eigenvalues[0], 1.0, 1e-13);
+  EXPECT_NEAR(result.eigenvalues[1], 3.0, 1e-13);
 }
 
 TEST(SelfAdjointEighTest, ComplexValueApiUsesSelectedLowerTriangle)
@@ -143,5 +235,23 @@ TEST(SelfAdjointEighTest, MplapackFloat128RealAndComplexPaths)
   auto complex_result = uni20::linalg::eigh(complex_matrix);
   EXPECT_TRUE(complex_result.eigenvalues[0] == real_type{4});
   EXPECT_TRUE(complex_result.eigenvalues[1] == real_type{5});
+
+  uni20::DenseMatrix<complex_type, uni20::RowMajor> row_major_matrix(2, 2);
+  row_major_matrix[0, 0] = complex_type{real_type{2}, real_type{}};
+  row_major_matrix[0, 1] = complex_type{real_type{1}, real_type{1}};
+  row_major_matrix[1, 0] = complex_type{real_type{99}, real_type{17}};
+  row_major_matrix[1, 1] = complex_type{real_type{3}, real_type{}};
+  complex_type* original_storage = row_major_matrix.mutable_handle();
+  auto row_major_result = uni20::linalg::eigh(std::move(row_major_matrix), uni20::linalg::MatrixTriangle::Upper);
+  EXPECT_EQ(row_major_result.eigenvectors.mutable_handle(), original_storage);
+  EXPECT_TRUE(row_major_result.eigenvalues[0] == real_type{1});
+  EXPECT_TRUE(row_major_result.eigenvalues[1] == real_type{4});
+  auto matrix_element = [](uni20::index_type row, uni20::index_type col) {
+    if (row == 0 && col == 0) return complex_type{real_type{2}, real_type{}};
+    if (row == 1 && col == 1) return complex_type{real_type{3}, real_type{}};
+    if (row == 0) return complex_type{real_type{1}, real_type{1}};
+    return complex_type{real_type{1}, real_type{-1}};
+  };
+  check_eigenvector_residuals(matrix_element, row_major_result.eigenvectors, row_major_result.eigenvalues, 1e-20);
 }
 #endif
