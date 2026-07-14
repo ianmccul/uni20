@@ -67,6 +67,9 @@ Runnable examples in `examples/` that pair well with this docs set:
 - `examples/async/async_example.cpp`: basic read/write and `try_await(...)`
 - `examples/async/async_ops_example.cpp`: expression DAG composition and `all(...)`
 - `examples/async/async_tensor_matrix_product_example.cpp`: all-async Tensor matrix-product overwrite and update
+- `examples/async/async_tbb_matrix_product_batch_example.cpp`: configurable parallel batch of async Tensor matrix
+  products using `TbbScheduler`, with `fp32`, `fp64`, and configured `fp128` precision plus presentation-layer
+  reporting
 - `examples/async/async_tbb_reduction_example.cpp`: parallel scheduling with `TbbScheduler`
 - `examples/async/async_dag_deadlock_tbb_example.cpp`: Graphviz snapshot of a deliberate TBB dataflow deadlock
 

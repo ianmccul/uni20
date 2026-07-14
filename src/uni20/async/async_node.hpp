@@ -4,16 +4,16 @@
 #pragma once
 
 #include "shared_storage.hpp"
+#include <uni20/common/demangle.hpp>
+#include <uni20/config.hpp>
+#include <uni20/core/scalar_io.hpp>
+
 #include <atomic>
 #include <cstddef>
-#include <limits>
 #include <mutex>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <uni20/common/demangle.hpp>
-#include <uni20/config.hpp>
 #include <unordered_map>
 
 namespace uni20::async
@@ -83,7 +83,7 @@ inline std::string sanitize_debug_value(std::string value)
   return value;
 }
 
-/// \brief Format built-in scalar values for async DAG labels.
+/// \brief Format scalar values for async DAG labels.
 /// \tparam T Scalar value type.
 /// \param value Value to format.
 /// \return One-line scalar representation, or `constructed` for non-scalars.
@@ -105,12 +105,9 @@ template <typename T> std::string scalar_debug_info(T const& value)
     else
       return std::to_string(static_cast<unsigned long long>(value));
   }
-  else if constexpr (std::is_floating_point_v<value_type>)
+  else if constexpr (uni20::RealOrComplex<value_type>)
   {
-    std::ostringstream out;
-    out.precision(std::numeric_limits<value_type>::digits10);
-    out << value;
-    return out.str();
+    return uni20::format_scalar(value);
   }
   else if constexpr (std::is_enum_v<value_type>)
   {

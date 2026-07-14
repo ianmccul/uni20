@@ -9,6 +9,8 @@ layers such as tensor, linalg, backend, async, or symmetry.
 - `types.hpp`: project scalar aliases such as `uni20::complex<T>`.
 - `scalar_concepts.hpp`, `scalar_traits.hpp`, `scalar_io.hpp`: scalar
   classification, promotion, and formatting support.
+- `scalar_precision.hpp`: provider-neutral runtime selection of configured real
+  scalar precisions.
 - `numeric_limits.hpp`: Uni20 numeric-limits customization point for generic
   scalar algorithms.
 - `math.hpp`: small scalar math helpers.

@@ -1,7 +1,8 @@
 # tests/core/CMakeLists.txt
 
 add_test_module(core
-  SOURCES test_types.cpp test_numeric_limits.cpp test_scalar_traits.cpp test_scalar_concepts.cpp test_scalar_io.cpp test_math.cpp test_buildinfo.cpp
+  SOURCES test_types.cpp test_numeric_limits.cpp test_scalar_traits.cpp test_scalar_concepts.cpp test_scalar_io.cpp
+          test_scalar_precision.cpp test_math.cpp test_buildinfo.cpp
   LIBS uni20_core
 )
 

@@ -22,6 +22,16 @@ configuration it aliases `mplapack_binary128_t`, whose concrete spelling is
 selected by the installed MPLAPACK package. Code that is not gated by
 `UNI20_HAS_FLOAT128` must not name `uni20::float128`.
 
+Runtime-facing code should use `uni20::ScalarPrecision` and
+`uni20::visit_scalar_precision` from `uni20/core/scalar_precision.hpp` instead
+of repeating configuration guards. The precision enum always recognizes
+`fp32`, `fp64`, and `fp128`; the visitor throws when a recognized precision is
+not configured. The visitor is the central preprocessor boundary that maps a
+runtime precision to `uni20::float32`, `uni20::float64`, or the conditional
+`uni20::float128` type. `uni20::configured_scalar_precisions()` and
+`uni20::configured_scalar_precision_choices()` expose the available set for
+help text, diagnostics, examples, and future language bindings.
+
 To enable this path, build MPLAPACK separately with its binary128 backend and
 then point Uni20 at the resulting CMake package. Uni20 deliberately does not
 download or build MPLAPACK as part of its own configure step. See

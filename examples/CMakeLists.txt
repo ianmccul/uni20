@@ -124,6 +124,16 @@ uni20_add_example(async_kernel_shapes_example async/async_kernel_shapes_example.
 uni20_add_example(async_tensor_matrix_product_example async/async_tensor_matrix_product_example.cpp fmt::fmt
                   uni20_linalg uni20_async)
 add_test(NAME AsyncTensorMatrixProductExample COMMAND async_tensor_matrix_product_example)
+uni20_add_example(async_tbb_matrix_product_batch_example async/async_tbb_matrix_product_batch_example.cpp fmt::fmt
+                  uni20_linalg uni20_async TBB::tbb)
+add_test(NAME AsyncTbbMatrixProductBatchExample
+    COMMAND async_tbb_matrix_product_batch_example
+        --size=16 --products=6 --threads=3 --backend=cpu --precision=fp64)
+if(UNI20_HAS_FLOAT128)
+  add_test(NAME AsyncTbbMatrixProductBatchExample.Float128
+      COMMAND async_tbb_matrix_product_batch_example
+          --size=12 --products=4 --threads=3 --backend=auto --precision=fp128)
+endif()
 uni20_add_example(async_tbb_reduction_example async/async_tbb_reduction_example.cpp fmt::fmt uni20_common uni20_async
                   TBB::tbb)
 uni20_add_example(async_fib_example async/async_fib_example.cpp fmt::fmt uni20_common uni20_async TBB::tbb)

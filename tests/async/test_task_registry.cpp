@@ -16,6 +16,7 @@
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/task_registry.hpp>
 #include <uni20/config.hpp>
+#include <uni20/core/scalar_precision.hpp>
 
 #include "../common/env_var_guard.hpp"
 
@@ -616,6 +617,20 @@ TEST(TaskRegistryDebugTest, GraphSnapshotOmitsValueForOpaqueConstructedTypes)
   EXPECT_NE(dot.find("opaque value"), std::string::npos);
   EXPECT_NE(dot.find("state=constructed"), std::string::npos);
   EXPECT_EQ(dot.find("value=constructed"), std::string::npos);
+}
+
+TEST(TaskRegistryDebugTest, FormatsEveryConfiguredRealScalar)
+{
+  auto check = []<typename Scalar>() {
+    EXPECT_EQ(uni20::async::detail::scalar_debug_info(Scalar{5} / Scalar{4}), "1.25");
+  };
+
+  uni20::visit_scalar_precision(uni20::ScalarPrecision::fp32, check);
+  uni20::visit_scalar_precision(uni20::ScalarPrecision::fp64, check);
+  if (uni20::has_float128)
+  {
+    uni20::visit_scalar_precision(uni20::ScalarPrecision::fp128, check);
+  }
 }
 
 TEST(TaskRegistryDebugTest, GraphvizDotDiagnosesMissingWriter)

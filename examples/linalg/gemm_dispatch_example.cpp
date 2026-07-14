@@ -1,6 +1,7 @@
 #include <uni20/common/display.hpp>
 #include <uni20/common/presentation_mdspan.hpp>
 #include <uni20/core/numeric_limits.hpp>
+#include <uni20/core/scalar_precision.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
 #include <uni20/tensor/tensor.hpp>
@@ -15,16 +16,9 @@
 
 namespace
 {
-enum class Precision
-{
-  fp32,
-  fp64,
-  fp128
-};
-
 struct Options
 {
-    Precision precision = Precision::fp64;
+    uni20::ScalarPrecision precision = uni20::ScalarPrecision::fp64;
     bool diagnostics = true;
     bool show_help = false;
 };
@@ -43,12 +37,11 @@ constexpr std::string_view acceptance_name(uni20::linalg::KernelTypeAcceptance a
   return "unknown";
 }
 
-[[nodiscard]] Precision parse_precision(std::string_view value)
+[[nodiscard]] uni20::ScalarPrecision parse_precision(std::string_view value)
 {
-  if (value == "fp32") return Precision::fp32;
-  if (value == "fp64") return Precision::fp64;
-  if (value == "fp128") return Precision::fp128;
-  throw std::invalid_argument("unsupported precision '" + std::string(value) + "'");
+  auto const precision = uni20::parse_scalar_precision(value);
+  if (!precision) throw std::invalid_argument("unsupported precision '" + std::string(value) + "'");
+  return *precision;
 }
 
 [[nodiscard]] bool parse_diagnostics(std::string_view value)
@@ -86,12 +79,8 @@ constexpr std::string_view acceptance_name(uni20::linalg::KernelTypeAcceptance a
 
 void print_usage(char const* program)
 {
-#if UNI20_HAS_FLOAT128
-  constexpr std::string_view precisions = "fp32|fp64|fp128";
-#else
-  constexpr std::string_view precisions = "fp32|fp64";
-#endif
-  fmt::print("Usage: {} [--precision={}] [--diagnostics=on|off]\n", program, precisions);
+  fmt::print("Usage: {} [--precision={}] [--diagnostics=on|off]\n", program,
+             uni20::configured_scalar_precision_choices());
   fmt::print("  --precision       scalar type used by Tensor and GEMM; default fp64\n");
   fmt::print("  --diagnostics     emit the ordered runtime backend walk; default on\n");
 }
@@ -194,20 +183,9 @@ template <class Scalar> int run_gemm(std::string_view precision_name, bool diagn
 
 [[nodiscard]] int run_selected_precision(Options const& options)
 {
-  switch (options.precision)
-  {
-    case Precision::fp32:
-      return run_gemm<uni20::float32>("fp32", options.diagnostics);
-    case Precision::fp64:
-      return run_gemm<uni20::float64>("fp64", options.diagnostics);
-    case Precision::fp128:
-#if UNI20_HAS_FLOAT128
-      return run_gemm<uni20::float128>("fp128", options.diagnostics);
-#else
-      throw std::invalid_argument("fp128 requires a build configured with MPLAPACK binary128 support");
-#endif
-  }
-  throw std::logic_error("unhandled precision selection");
+  return uni20::visit_scalar_precision(options.precision, [&]<typename Scalar>() {
+    return run_gemm<Scalar>(uni20::scalar_precision_name(options.precision), options.diagnostics);
+  });
 }
 } // namespace
 
