@@ -75,6 +75,9 @@ void self_adjoint_eigh(EigenvalueTensor&& eigenvalues, MatrixTensor&& matrix_wor
 /// \brief Owning eigenvalues and eigenvectors returned by `eigh`.
 template <class EigenvalueTensor, class EigenvectorTensor> struct SelfAdjointEighResult
 {
+    using eigenvalue_tensor_type = EigenvalueTensor;
+    using eigenvector_tensor_type = EigenvectorTensor;
+
     EigenvalueTensor eigenvalues;
     EigenvectorTensor eigenvectors;
 };
@@ -159,20 +162,31 @@ template <class WorkMatrix, uni20::RankedTensorView<2> MatrixTensor>
   }
 }
 
-template <uni20::OwningTensor MatrixTensor>
+template <class MatrixTensor>
+  requires uni20::RankedTensorView<MatrixTensor, 2>
+[[nodiscard]] constexpr auto select_self_adjoint_eigh_backend(MatrixTriangle triangle)
+{
+  using real_type = uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>;
+  using eigenvalue_tensor = uni20::Tensor<real_type, 1>;
+  return select_backend_for<eigenvalue_tensor, std::remove_cvref_t<MatrixTensor>>(
+      self_adjoint_eigh_op{.compute_vectors = true, .triangle = triangle});
+}
+
+template <class BackendSelector, uni20::OwningTensor MatrixTensor>
   requires uni20::MutableRankedTensorView<MatrixTensor, 2>
-[[nodiscard]] auto eigh_from_work_matrix(MatrixTensor matrix_work, MatrixTriangle triangle)
+[[nodiscard]] auto eigh_from_work_matrix(BackendSelector&& selector, MatrixTensor matrix_work, MatrixTriangle triangle)
 {
   using real_type = uni20::make_real_t<uni20::tensor_element_t<MatrixTensor>>;
   uni20::Tensor<real_type, 1> eigenvalues;
-  self_adjoint_eigh(eigenvalues, matrix_work, SelfAdjointEighOptions{.compute_vectors = true, .triangle = triangle});
+  self_adjoint_eigh(std::forward<BackendSelector>(selector), eigenvalues, matrix_work,
+                    SelfAdjointEighOptions{.compute_vectors = true, .triangle = triangle});
   return SelfAdjointEighResult<decltype(eigenvalues), MatrixTensor>{.eigenvalues = std::move(eigenvalues),
                                                                     .eigenvectors = std::move(matrix_work)};
 }
 
-template <uni20::OwningTensor MatrixTensor>
+template <class BackendSelector, uni20::OwningTensor MatrixTensor>
   requires uni20::MutableRankedTensorView<MatrixTensor, 2>
-[[nodiscard]] auto eigh_from_consumed_matrix(MatrixTensor&& matrix, MatrixTriangle triangle)
+[[nodiscard]] auto eigh_from_consumed_matrix(BackendSelector&& selector, MatrixTensor&& matrix, MatrixTriangle triangle)
 {
   using matrix_type = std::remove_cvref_t<MatrixTensor>;
   using work_type = self_adjoint_eigh_reuse_matrix_t<matrix_type>;
@@ -186,7 +200,7 @@ template <uni20::OwningTensor MatrixTensor>
     auto work_mapping = column_major_reuse_mapping<work_type>(matrix, stage->nonunit_stride);
     auto storage = std::move(matrix).release_storage();
     auto work_matrix = work_type::adopt_storage(std::move(work_mapping), std::move(storage));
-    auto result = eigh_from_work_matrix(std::move(work_matrix), work_triangle);
+    auto result = eigh_from_work_matrix(std::forward<BackendSelector>(selector), std::move(work_matrix), work_triangle);
     if constexpr (uni20::Complex<uni20::tensor_element_t<matrix_type>>)
     {
       if (transpose_storage) uni20::conjugate_inplace(result.eigenvectors);
@@ -195,9 +209,21 @@ template <uni20::OwningTensor MatrixTensor>
   }
 
   auto work_matrix = materialize_self_adjoint_eigh_work_matrix<work_type>(matrix);
-  return eigh_from_work_matrix(std::move(work_matrix), triangle);
+  return eigh_from_work_matrix(std::forward<BackendSelector>(selector), std::move(work_matrix), triangle);
 }
 } // namespace detail
+
+/// \brief Preserve a matrix and return its complete self-adjoint eigensystem through an explicit selector.
+/// \details Materialization uses the tensors' copy selector; the supplied
+///          selector controls the destructive eigensolver dispatch.
+template <class BackendSelector, uni20::RankedTensorView<2> MatrixTensor>
+[[nodiscard]] auto eigh(BackendSelector&& selector, MatrixTensor const& matrix,
+                        MatrixTriangle triangle = MatrixTriangle::Upper)
+{
+  ERROR_IF(matrix.extent(0) != matrix.extent(1), "self-adjoint eigensystem requires a square matrix");
+  auto matrix_work = uni20::make_tensor<uni20::ColumnMajor>(matrix);
+  return detail::eigh_from_work_matrix(std::forward<BackendSelector>(selector), std::move(matrix_work), triangle);
+}
 
 /// \brief Preserve a matrix and return its complete self-adjoint eigensystem.
 /// \details This explicit value operation materializes a column-major work
@@ -208,7 +234,31 @@ template <uni20::RankedTensorView<2> MatrixTensor>
 {
   ERROR_IF(matrix.extent(0) != matrix.extent(1), "self-adjoint eigensystem requires a square matrix");
   auto matrix_work = uni20::make_tensor<uni20::ColumnMajor>(matrix);
-  return detail::eigh_from_work_matrix(std::move(matrix_work), triangle);
+  auto selector = detail::select_self_adjoint_eigh_backend<decltype(matrix_work)>(triangle);
+  return detail::eigh_from_work_matrix(std::move(selector), std::move(matrix_work), triangle);
+}
+
+/// \brief Consume an owning matrix and return its complete self-adjoint eigensystem through an explicit selector.
+/// \details This overload has the same storage-transfer semantics as the
+///          default consuming overload; the supplied selector controls the
+///          eigensolver dispatch.
+template <class BackendSelector, class MatrixTensor>
+  requires uni20::OwningTensor<MatrixTensor> && uni20::MutableRankedTensorView<MatrixTensor, 2> &&
+           (!std::is_lvalue_reference_v<MatrixTensor>) && (!std::is_const_v<std::remove_reference_t<MatrixTensor>>)
+[[nodiscard]] auto eigh(BackendSelector&& selector, MatrixTensor&& matrix,
+                        MatrixTriangle triangle = MatrixTriangle::Upper)
+{
+  ERROR_IF(matrix.extent(0) != matrix.extent(1), "self-adjoint eigensystem requires a square matrix");
+  if constexpr (detail::can_transfer_self_adjoint_eigh_storage<MatrixTensor>())
+  {
+    return detail::eigh_from_consumed_matrix(std::forward<BackendSelector>(selector),
+                                             std::forward<MatrixTensor>(matrix), triangle);
+  }
+  else
+  {
+    auto matrix_work = uni20::make_tensor<uni20::ColumnMajor>(matrix);
+    return detail::eigh_from_work_matrix(std::forward<BackendSelector>(selector), std::move(matrix_work), triangle);
+  }
 }
 
 /// \brief Consume an owning matrix and return its complete self-adjoint eigensystem.
@@ -230,12 +280,15 @@ template <class MatrixTensor>
   ERROR_IF(matrix.extent(0) != matrix.extent(1), "self-adjoint eigensystem requires a square matrix");
   if constexpr (detail::can_transfer_self_adjoint_eigh_storage<MatrixTensor>())
   {
-    return detail::eigh_from_consumed_matrix(std::forward<MatrixTensor>(matrix), triangle);
+    using work_type = detail::self_adjoint_eigh_reuse_matrix_t<std::remove_cvref_t<MatrixTensor>>;
+    auto selector = detail::select_self_adjoint_eigh_backend<work_type>(triangle);
+    return detail::eigh_from_consumed_matrix(std::move(selector), std::forward<MatrixTensor>(matrix), triangle);
   }
   else
   {
     auto matrix_work = uni20::make_tensor<uni20::ColumnMajor>(matrix);
-    return detail::eigh_from_work_matrix(std::move(matrix_work), triangle);
+    auto selector = detail::select_self_adjoint_eigh_backend<decltype(matrix_work)>(triangle);
+    return detail::eigh_from_work_matrix(std::move(selector), std::move(matrix_work), triangle);
   }
 }
 

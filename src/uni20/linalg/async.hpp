@@ -7,6 +7,7 @@
  */
 
 #include <uni20/linalg/async/matrix_product.hpp>
+#include <uni20/linalg/async/self_adjoint_eigh.hpp>
 
 namespace uni20::linalg
 {

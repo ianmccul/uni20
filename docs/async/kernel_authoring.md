@@ -1,9 +1,9 @@
 # Async Tensor Kernel Authoring
 
 This guide defines the first supported pattern for lifting synchronous Tensor
-operations onto Uni20's async runtime. The implemented reference is
-`uni20::linalg::assign_product` and `uni20::linalg::add_product` from
-`<uni20/linalg/async.hpp>`.
+operations onto Uni20's async runtime. The implemented references are
+`uni20::linalg::assign_product`, `uni20::linalg::add_product`, and the
+multi-output `uni20::linalg::eigh` overloads from `<uni20/linalg/async.hpp>`.
 
 ## Layer Boundary
 
@@ -141,6 +141,14 @@ for `Async<Tensor>`.
 
 Apply the same distinction to future overwrite and compound-update operations.
 
+`eigh` is an allocating multi-output operation. It returns
+`SelfAdjointEighResult<Async<Values>, Async<Vectors>>`, not an
+`Async<SelfAdjointEighResult<...>>`. The two independent output epochs can be
+structured-bound and passed directly to downstream async operations without an
+extra extraction coroutine. The preserving overload reads an
+`Async<Tensor> const&`; the consuming overload takes `Async<Tensor>&&` and may
+transfer the stored owning Tensor's allocation to the eigenvector output.
+
 ## Consuming Owning Inputs
 
 An operation that may reuse an input allocation must accept only
@@ -153,27 +161,37 @@ Enroll a consuming input with `WriteBuffer`, then obtain the value through
 the referenced object: that would leave the async storage marked constructed
 while exposing a moved-from owner to later epochs and aliases.
 
-`take()` moves out and destroys the stored value while retaining the writer;
-use it when the operation will reconstruct that same async value.
-`take_release()` also releases the writer and is appropriate when ownership is
-permanently transferred elsewhere. Existing views and async aliases of a
-consumed owner must not be used afterward. Epoch ordering prevents concurrent
-access, but it does not extend the lifetime of an object removed from its
-storage.
+`take()` moves out and destroys the stored value while retaining the writer.
+Use it when the operation will reconstruct that same async value or when the
+consumed epoch must remain gated until several outputs commit or receive an
+exception. `take_release()` also releases the writer and is appropriate only
+when ownership is permanently transferred elsewhere and early release is part
+of the operation contract. Existing views and async aliases of a consumed owner
+must not be used afterward. Epoch ordering prevents concurrent access, but it
+does not extend the lifetime of an object removed from its storage.
 
 ## Exceptions
 
-Passing the output `WriteBuffer` as a coroutine parameter automatically makes
-the output epoch an exception sink. Failures from input epochs, shape checks,
-backend dispatch, or the kernel are therefore observed when the output is read.
+Passing a `WriteBuffer` as a coroutine parameter automatically makes its epoch
+an exception sink. Failures from input epochs, shape checks, backend dispatch,
+or the kernel are therefore observed when each output is read.
 
 Do not convert a failed backend execution into a kernel decline. Backend
 declines happen inside ordinary synchronous dispatch before side effects. Once
 the selected synchronous operation fails to produce its result, the async task
 fails and propagates that exception to its output.
 
-For a task with multiple outputs, explicitly document and register every output
-that must receive failures.
+For a task with multiple outputs, pass every output `WriteBuffer` as a coroutine
+parameter and document that all output epochs receive failures. Automatic
+argument processing registers every such writer; use
+`propagate_exceptions_to(...)` only for an additional sink that is not already a
+writer parameter.
+
+A consuming input is also enrolled as a `WriteBuffer`. A multi-output operation
+that uses `take()` keeps that writer gate active through output commit and
+exception routing. If later work fails, reads from the invalidated input
+timeline observe the same exception as the outputs. On success, the consumed
+input has no readable value.
 
 ## Reference Shape
 

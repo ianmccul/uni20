@@ -6,6 +6,8 @@ linear-algebra operations over `Async<Tensor>` values.
 ## Contents
 
 - `matrix_product.hpp`: all-async `assign_product` and `add_product` wrappers.
+- `self_adjoint_eigh.hpp`: preserving and consuming `eigh` wrappers with
+  independent async eigenvalue and eigenvector outputs.
 
 ## Rules
 
@@ -18,8 +20,9 @@ linear-algebra operations over `Async<Tensor>` values.
   Tensor mdspans.
 - Immediate and async scalar operands are normalized with `async::read(...)`;
   the former uses an always-ready `ValueAwaiter` and the latter a real buffer.
-- A writer coroutine parameter is the normal exception sink for a one-output
-  operation.
+- Every writer coroutine parameter is an automatic exception sink. Multi-output
+  operations pass each output writer into the coroutine; a consuming input
+  writer also receives failures after its value has been taken.
 - Queue identity is used only for the cheap, exact output/input alias check.
   General dependency cycles are handled by runtime deadlock diagnostics.
 

@@ -2,6 +2,7 @@ add_test_module(linalg
   SOURCES
     cpu/test_matrix_exponential.cpp
     test_async_matrix_product.cpp
+    test_async_self_adjoint_eigh.cpp
     test_dispatch_diagnostics.cpp
     test_dense_ops_dispatch.cpp
     test_linalg_gemv_cpu.cpp
