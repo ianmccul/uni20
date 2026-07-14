@@ -70,6 +70,11 @@ class BasicTensor {
     using rebind_layout_type =
         BasicTensor<element_type, extents_type, storage_policy, NewLayoutPolicy, accessor_factory_type>;
 
+    /// \brief Rebind this owning tensor configuration to another extents type.
+    template <typename NewExtents>
+    using rebind_extents_type =
+        BasicTensor<element_type, NewExtents, storage_policy, layout_policy, accessor_factory_type>;
+
     /// \brief Default-construct an empty tensor without allocated storage.
     BasicTensor() = default;
 
@@ -174,6 +179,16 @@ class BasicTensor {
       return std::move(data_);
     }
 
+    /// \brief Transfer the accessor-factory state out of this tensor.
+    /// \details This accompanies storage transfer when an owning operation
+    ///          rebinds the allocation to a different tensor descriptor.
+    /// \return The factory used to resolve accessors for the transferred storage.
+    [[nodiscard]] accessor_factory_type
+    release_accessor_factory() && noexcept(std::is_nothrow_move_constructible_v<accessor_factory_type>)
+    {
+      return std::move(accessor_factory_);
+    }
+
     /// \brief Adopt an existing storage container without reallocating it.
     /// \details The storage may contain padding or an unused tail, but its
     ///          logical size must cover the mapping's required span. The
@@ -191,6 +206,20 @@ class BasicTensor {
                "adopted tensor storage is smaller than the mapping's required span");
       return BasicTensor(internal_tag{},
                          ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)});
+    }
+
+    /// \brief Replace the tensor mapping without moving or reallocating storage.
+    /// \details Existing values are reinterpreted through the replacement
+    ///          mapping. The mapping's required span must fit the current
+    ///          allocation; higher-level operations establish any stronger
+    ///          ordering or contiguity requirements.
+    /// \param mapping Replacement mapping over the existing allocation.
+    void replace_mapping(mapping_type mapping)
+      requires requires(storage_type const& value) { value.size(); }
+    {
+      ERROR_IF(std::cmp_less(data_.size(), mapping.required_span_size()),
+               "replacement tensor mapping exceeds the owned storage");
+      mapping_ = std::move(mapping);
     }
 
     /// \brief Return the default backend selector associated with this tensor's storage.

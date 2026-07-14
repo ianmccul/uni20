@@ -8,7 +8,9 @@
 
 #include "basic_tensor.hpp"
 #include "conjugate.hpp"
+#include "generated.hpp"
 #include "output.hpp"
+#include "reshape.hpp"
 
 #include <cstddef>
 

@@ -13,5 +13,8 @@ backend tags without owning tensor mathematics.
 
 - New storage policies should make handle creation, layout defaults, and default
   backend selection explicit.
+- `GeneratedStorage` marks compact read-only tensors whose accessors calculate
+  values instead of addressing an element allocation. It is backend-neutral
+  when combined with concrete storage operands.
 - Do not hide host/device transfers or synchronization inside storage policy
   hooks; higher layers need those effects to remain visible.

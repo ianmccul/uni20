@@ -12,6 +12,8 @@ kernels operate on resolved mdspans.
   column-major-by-default host `DenseMatrix` alias.
 - `conjugate.hpp`: read-only tensor view backed by the lazy conjugating mdspan
   accessor.
+- `generated.hpp`: compact generated tensors and the `full`, `zeros`, `ones`,
+  and generalized `eye` factories.
 - `async.hpp`: async tensor aliases that retain parent storage and share its
   epoch queue.
 - `copy.hpp`: backend-dispatched copies and `make_tensor(...)` materialization.
@@ -20,6 +22,8 @@ kernels operate on resolved mdspans.
 - `concepts.hpp`: readable, mutable, owning, strided, and rank-constrained
   tensor-level concepts.
 - `output.hpp`: fixed-output validation and resizable-output shape preparation.
+- `reshape.hpp`: explicit no-copy, in-place, and owning reshape operations.
+- `shape.hpp`: checked runtime-extents construction shared by tensor factories.
 - `layout.hpp`: layout construction helpers.
 
 ## Notes
@@ -62,12 +66,21 @@ kernels operate on resolved mdspans.
   owning tensors overload `mdspan()` on constness.
 - Tensor objects deliberately do not model Uni20's mdspan concepts. Leaf
   kernels receive the mdspans returned by those accessors.
+- Generated tensors own compact generator state rather than an element buffer.
+  They model readable `TensorView`, and their `GeneratedStorage` policy is
+  backend-neutral when an operation also has concrete storage operands.
+- `reshape_view` is the strict no-copy operation, `reshape_inplace` changes an
+  owning tensor descriptor without reallocating, and plain `reshape` returns
+  an owner with ordinary copy-or-move value semantics. See
+  `docs/tensor_creation_and_reshape.md` for the complete contracts.
 - `DenseMatrix<T>` is `Tensor<T, 2, VectorStorage, ColumnMajor>`; use
   `DenseMatrix<T, RowMajor>` when row-major ownership is preferred. Matrix-level
   linalg front ends accept either form and resolve mdspans internally.
 - Tensor operations should lower to dense primitives only after storage, layout,
   backend, and any symmetry metadata have been resolved by the appropriate
   higher layer.
+- See `docs/tensor_operations.md` for the canonical operation vocabulary,
+  ownership/output contracts, and current Async support matrix.
 - `async::conj(Async<Tensor>)` returns an `Async<ConjugatedTensorView>` rather
   than materializing values. The alias remains a tensor-level object whose
   `mdspan()` resolves the conjugating accessor after the shared epoch is ready.

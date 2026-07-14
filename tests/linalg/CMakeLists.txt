@@ -10,6 +10,8 @@ add_test_module(linalg
     test_self_adjoint_eigh.cpp
     test_tensor_conjugate_inplace.cpp
     test_tensor_copy.cpp
+    test_tensor_generated.cpp
+    test_tensor_reshape.cpp
   LIBS uni20_linalg uni20_async
 )
 

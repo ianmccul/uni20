@@ -34,6 +34,8 @@
 - [GPU Epoch Design Draft](gpu_epoch_design_draft.md)
 - [Ordering Ownership and Backend Lowering](ordering_and_backend_lowering.md)
 - [Storage Memory Kind vs Location](storage_kind_and_location.md)
+- [Tensor Operations, Semantics, and Async Support](tensor_operations.md)
+- [Generated Tensors and Reshape](tensor_creation_and_reshape.md)
 - [TensorContraction Integration: Findings and Lessons](tensorcontraction_integration_findings.md)
 - [R/A/B/C Contraction Scheduling](rabc_contraction_scheduling.md)
 - [R/A/B/C Lanczos Replay Fixtures](rabc_lanczos_fixtures.md)

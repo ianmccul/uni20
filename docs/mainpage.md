@@ -39,7 +39,9 @@ Krylov/LAPACK solver infrastructure.
 - [Async runtime model](async/runtime_model.md)
 - [Async buffers and awaiters](async/buffers_and_awaiters.md)
 - [Async schedulers](async/schedulers.md)
-- [Tensor dispatch and view semantics](tensor_dispatch_and_view_semantics_draft.md)
+- [Tensor operations, semantics, and Async support](tensor_operations.md)
+- [Tensor dispatch and view semantics (background draft)](tensor_dispatch_and_view_semantics_draft.md)
+- [Generated tensors and reshape](tensor_creation_and_reshape.md)
 - [Storage kind and location](storage_kind_and_location.md)
 - [Backend dispatch](backend_dispatch.md)
 

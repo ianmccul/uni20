@@ -64,6 +64,13 @@ template <class T> inline constexpr bool is_backend_list_v = is_backend_list<std
 template <class Operation, class StoragePolicy> struct backend_selector_override
 {};
 
+/// \brief Opt-in marker for storage policies that do not constrain backend selection.
+/// \details Backend-neutral operands may be evaluated by any backend that
+///          accepts their resolved accessor. When concrete storage operands
+///          are also present, their common storage policy selects the default
+///          backend list.
+template <class StoragePolicy> inline constexpr bool enable_backend_neutral_storage = false;
+
 namespace detail
 {
 template <class Tensor>
@@ -72,10 +79,34 @@ concept HasStoragePolicy = requires { typename std::remove_cvref_t<Tensor>::stor
 
 template <class Provider>
 concept HasStaticBackendSelector = requires { std::remove_cvref_t<Provider>::backend_selector(); };
+
+template <class Tensor> using tensor_storage_policy_t = typename std::remove_cvref_t<Tensor>::storage_policy;
+
+template <class... StoragePolicies> struct FirstBackendBoundStorage
+{
+    using type = void;
+};
+
+template <class StoragePolicy, class... Rest> struct FirstBackendBoundStorage<StoragePolicy, Rest...>
+{
+    using type = std::conditional_t<enable_backend_neutral_storage<StoragePolicy>,
+                                    typename FirstBackendBoundStorage<Rest...>::type, StoragePolicy>;
+};
+
+template <class... Tensors>
+using first_backend_bound_storage_t = typename FirstBackendBoundStorage<tensor_storage_policy_t<Tensors>...>::type;
+
+template <class StoragePolicy, class... Tensors>
+inline constexpr bool tensors_have_compatible_storage =
+    ((enable_backend_neutral_storage<tensor_storage_policy_t<Tensors>> ||
+      std::same_as<StoragePolicy, tensor_storage_policy_t<Tensors>>) &&
+     ...);
 } // namespace detail
 
 /// \brief Resolve the immutable backend selector for Tensor operand types.
-/// \details Operands with storage policies must use one common policy. A global
+/// \details Backend-bound operands with storage policies must use one common
+///          policy; backend-neutral storage operands are ignored when finding
+///          that policy. A global
 ///          `backend_selector_override<Operation, StoragePolicy>` specialization
 ///          may replace the storage-provided static default. Tensor adaptors
 ///          without storage policies must expose a static `backend_selector()`.
@@ -84,20 +115,39 @@ template <class FirstTensor, class... RestTensors, class Operation>
 {
   if constexpr (detail::HasStoragePolicy<FirstTensor> && (detail::HasStoragePolicy<RestTensors> && ...))
   {
-    using storage_policy = typename std::remove_cvref_t<FirstTensor>::storage_policy;
-    static_assert((std::same_as<storage_policy, typename std::remove_cvref_t<RestTensors>::storage_policy> && ...),
-                  "tensor operands with different storage policies require an explicit selector or transfer");
-    static_assert(detail::HasStaticBackendSelector<storage_policy>,
-                  "tensor storage policy must provide a static backend_selector()");
-
-    using override_type = backend_selector_override<std::remove_cvref_t<Operation>, storage_policy>;
-    if constexpr (requires { override_type::select(operation); })
+    using storage_policy = detail::first_backend_bound_storage_t<FirstTensor, RestTensors...>;
+    if constexpr (std::is_void_v<storage_policy>)
     {
-      return override_type::select(operation);
+      using first_storage = detail::tensor_storage_policy_t<FirstTensor>;
+      static_assert(detail::HasStaticBackendSelector<first_storage> &&
+                        (detail::HasStaticBackendSelector<detail::tensor_storage_policy_t<RestTensors>> && ...),
+                    "backend-neutral storage policies must provide a static backend_selector()");
+      using selector_type = std::remove_cvref_t<decltype(first_storage::backend_selector())>;
+      static_assert(
+          (std::same_as<
+               selector_type,
+               std::remove_cvref_t<decltype(detail::tensor_storage_policy_t<RestTensors>::backend_selector())>> &&
+           ...),
+          "backend-neutral storage policies must provide compatible default backend selector types");
+      return first_storage::backend_selector();
     }
     else
     {
-      return storage_policy::backend_selector();
+      static_assert(
+          detail::tensors_have_compatible_storage<storage_policy, FirstTensor, RestTensors...>,
+          "tensor operands with different backend-bound storage policies require an explicit selector or transfer");
+      static_assert(detail::HasStaticBackendSelector<storage_policy>,
+                    "tensor storage policy must provide a static backend_selector()");
+
+      using override_type = backend_selector_override<std::remove_cvref_t<Operation>, storage_policy>;
+      if constexpr (requires { override_type::select(operation); })
+      {
+        return override_type::select(operation);
+      }
+      else
+      {
+        return storage_policy::backend_selector();
+      }
     }
   }
   else

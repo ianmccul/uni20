@@ -75,6 +75,8 @@ Runnable examples in `examples/` that pair well with this docs set:
 
 ## Related Top-Level Docs
 
+- [Tensor operations, semantics, and Async support](../tensor_operations.md):
+  current operation contracts and support matrix
 - `../async_storage.md`: storage, async value kinds, and write-proxy assignment
 - `../roadmap.md`: broader architecture and roadmap context
 

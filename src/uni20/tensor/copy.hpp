@@ -126,4 +126,16 @@ template <class RequestedLayout = void, TensorView InputTensor> [[nodiscard]] au
   return result;
 }
 
+/// \brief Materialize an owning reshape of a non-owning or generated tensor view.
+/// \details The source is first represented by `reshape_view`; materialization
+///          then copies its logical values into an owning host tensor. Owning
+///          `BasicTensor` operands use the move-aware overload in `reshape.hpp`.
+template <StridedTensorView InputTensor, std::integral... Extents>
+  requires(!OwningTensor<InputTensor>)
+[[nodiscard]] auto reshape(InputTensor const& input, Extents... requested_extents)
+{
+  auto view = reshape_view(input, requested_extents...);
+  return make_tensor(view);
+}
+
 } // namespace uni20

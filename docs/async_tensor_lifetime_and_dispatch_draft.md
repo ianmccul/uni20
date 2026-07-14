@@ -1,8 +1,9 @@
 # Async Tensor Lifetime And Dispatch Draft
 
-**Status:** design notes for review. Dense async aliases, conjugating tensor
-views, and the first all-async dense matrix-product wrappers are implemented;
-`AsyncArray`, slice descriptors, and Python integration remain future work.
+**Status:** background design note. The canonical implemented operation
+contracts and current Async support matrix are in
+[`tensor_operations.md`](tensor_operations.md). This draft retains the deeper
+lifetime rationale and future `AsyncArray`, slice, and Python design work.
 
 This note records the async-specific part of the tensor design discussion:
 how `Async<Tensor>` should produce safe views/refs, how those views interact

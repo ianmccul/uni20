@@ -18,21 +18,6 @@
 
 namespace uni20
 {
-namespace detail
-{
-template <class Tensor, class = void> struct TensorStoragePolicy
-{
-    using type = void;
-};
-
-template <class Tensor> struct TensorStoragePolicy<Tensor, std::void_t<typename Tensor::storage_policy>>
-{
-    using type = typename Tensor::storage_policy;
-};
-
-template <class Tensor> using tensor_storage_policy_t = typename TensorStoragePolicy<Tensor>::type;
-} // namespace detail
-
 /// \brief Non-owning read-only view of a tensor-level object.
 template <TensorView Tensor> class ConstTensorView {
   public:

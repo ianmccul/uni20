@@ -20,6 +20,18 @@ namespace detail
 {
 template <class T> using tensor_type_t = std::remove_reference_t<T>;
 
+template <class Tensor, class = void> struct TensorStoragePolicy
+{
+    using type = void;
+};
+
+template <class Tensor> struct TensorStoragePolicy<Tensor, std::void_t<typename Tensor::storage_policy>>
+{
+    using type = typename Tensor::storage_policy;
+};
+
+template <class Tensor> using tensor_storage_policy_t = typename TensorStoragePolicy<Tensor>::type;
+
 template <class T> using tensor_const_mdspan_t = decltype(std::declval<tensor_type_t<T> const&>().mdspan());
 
 template <class T> using tensor_mutable_mdspan_t = decltype(std::declval<tensor_type_t<T>&>().mdspan());

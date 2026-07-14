@@ -1,9 +1,10 @@
 # Tensor Dispatch And View Semantics Draft
 
-**Status:** implemented dense Tensor GEMM/GEMV, output-shape preparation,
-matrix-product updates, lazy conjugation views, and backend-dispatched copy and
-host materialization. Async, CUDA, storage-domain factories, and external
-adaptors remain design work.
+**Status:** background design note. The canonical implemented operation
+contracts and current Async support matrix are in
+[`tensor_operations.md`](tensor_operations.md). This draft retains rationale
+and future design discussion; where the documents differ, the canonical guide
+and code are authoritative.
 
 This note records the implemented dense tensor/view boundary and the remaining
 design questions around output assignment and higher-level dispatch.
