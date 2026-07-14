@@ -65,8 +65,9 @@ Wait behavior:
 - nested synchronous waits work with one total arena participant
 - if runnable scheduler work reaches zero, the innermost suspended wait enters
   the watchdog path
-- `TbbSchedulerWaitOptions::watchdog_timeout` defaults to 30 seconds;
-  `std::nullopt` disables the watchdog
+- `TbbSchedulerWaitOptions::watchdog_timeout` defaults to 30 seconds when
+  `UNI20_ASYNC_DEBUG=ON` and to `std::nullopt` otherwise
+- callers may explicitly provide a timeout or `std::nullopt` in either build mode
 
 The watchdog raises `async_wait_timeout` after one continuous interval with no
 scheduler-visible runnable work. It emits a best-effort `TaskRegistry` and

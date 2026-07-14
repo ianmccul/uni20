@@ -128,6 +128,19 @@ TEST(TbbScheduler, AsyncAccumulationGetWait)
   EXPECT_EQ(x.get_wait(), iterations);
 }
 
+TEST(TbbScheduler, WatchdogDefaultFollowsAsyncDebugMode)
+{
+  using namespace std::chrono_literals;
+
+  TbbSchedulerWaitOptions const options;
+#if UNI20_ASYNC_DEBUG
+  ASSERT_TRUE(options.watchdog_timeout.has_value());
+  EXPECT_EQ(*options.watchdog_timeout, 30s);
+#else
+  EXPECT_FALSE(options.watchdog_timeout.has_value());
+#endif
+}
+
 TEST(TbbScheduler, OneParticipantTopLevelGetWaitExecutesDependency)
 {
   oneapi::tbb::global_control single_participant(oneapi::tbb::global_control::max_allowed_parallelism, 1);
