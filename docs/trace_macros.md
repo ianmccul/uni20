@@ -138,7 +138,7 @@ Near `1.0`, the step size is:
 |---|---|---|---|
 | `float` | `1.1920929e-07` | `1.00000012f` | `1.00000024f` |
 | `double` | `2.2204460492503131e-16` | `1.0000000000000002` | `1.0000000000000004` |
-| `uni20::float128` | `1.92592994438723585305597794258492732e-34` | provider-specific literal | provider-specific literal |
+| `uni20::float128` | `1.92592994438723585305597794258492732e-34` | see exact values below | see exact values below |
 
 `uni20::float128` support is present when Uni20 is configured with an IEEE
 binary128 provider. Padded x87 extended-precision `long double` is deliberately
@@ -148,6 +148,19 @@ Equivalent exact hex-float literals:
 
 - `float`: `0x1p+0f`, `0x1.000002p+0f`, `0x1.000004p+0f`
 - `double`: `0x1p+0`, `0x1.0000000000001p+0`, `0x1.0000000000002p+0`
+
+Binary128 needs 28 hexadecimal fractional digits, so its adjacent literals are
+clearer outside the table. C++23's standard `F128` suffix is available in the
+supported GNU MPLAPACK configuration:
+
+```cpp
+uni20::float128 const one = 0x1p+0F128;                                      // 1.0
+uni20::float128 const next = 0x1.0000000000000000000000000001p+0F128;       // 1.0 + 1 ULP
+uni20::float128 const next_next = 0x1.0000000000000000000000000002p+0F128;  // 1.0 + 2 ULP
+```
+
+The hexadecimal values are exact. For provider-independent runtime conversion
+from decimal or hexadecimal text, use `uni20::parse_real<uni20::float128>()`.
 
 Default tolerance is `4` ULP:
 

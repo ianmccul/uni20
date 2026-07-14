@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <sstream>
 #include <type_traits>
 #include <vector>
@@ -64,6 +65,16 @@ TEST(MplapackBinary128Test, Uni20NumericLimitsSeesBackendScalar)
   static_assert(std::is_same_v<uni20::complex256, uni20::complex<uni20::float128>>);
   static_assert(uni20::numeric_limits<Binary128>::is_specialized);
   EXPECT_GT(uni20::numeric_limits<Binary128>::epsilon(), Binary128{0});
+}
+
+TEST(MplapackBinary128Test, StandardTypedPiPreservesBinary128Precision)
+{
+  Binary128 const pi = std::numbers::pi_v<Binary128>;
+  Binary128 const widened_double_pi = static_cast<Binary128>(std::numbers::pi);
+
+  EXPECT_GT(pi, Binary128{3});
+  EXPECT_LT(pi, Binary128{4});
+  EXPECT_NE(pi, widened_double_pi);
 }
 
 TEST(MplapackBinary128Test, Uni20ScalarConceptsSeeBackendScalar)

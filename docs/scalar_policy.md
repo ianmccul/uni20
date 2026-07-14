@@ -141,6 +141,16 @@ real scalars are checked for NaN and positive/negative infinity through
 components are finite. This keeps extension scalar support behind the same
 project customization points as scalar spelling and numeric limits.
 
+Use the typed constants in `std::numbers`, such as
+`std::numbers::pi_v<Real>`, when a mathematical constant participates in
+scalar-generic arithmetic. Do not widen an untyped `double` constant or a
+decimal `double` literal into a higher-precision scalar. The supported GNU
+binary128 configuration provides full-precision typed constants for
+`uni20::float128`; its tests verify that the result retains precision beyond a
+widened `double`. Uni20 does not currently duplicate `std::numbers`. If a future
+scalar provider cannot supply suitable typed standard constants, introduce a
+project customization point when integrating that provider.
+
 ## Scalar Formatting
 
 Scalar-generic diagnostics and presentation code should use
