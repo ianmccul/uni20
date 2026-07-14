@@ -73,7 +73,7 @@ if(UNI20_HAS_FLOAT128)
       COMMAND krylov_nonsymmetric_matrix_market_example
           "${PROJECT_SOURCE_DIR}/tests/krylov/matrix_market/nep/stoch/lop163.mtx"
           --precision=float128 --which=LM --nev=3 --nkeep=6 --ncv=24 --tol=1e-20
-          --diagnostics=summary --eigenvectors=false)
+          --max-iters=500 --diagnostics=summary --eigenvectors=false)
 endif()
 
 uni20_add_example(krylov_exponential_probe_example krylov/krylov_exponential_probe_example.cpp fmt::fmt uni20_common
