@@ -396,13 +396,17 @@ Normal trace output never writes side files. Abort diagnostics (`CHECK*`, `PRECO
 | `UNI20_GLYPHS` | `emoji` | `unicode`, `emoji`, `ascii` | Select semantic glyph spelling for all presentation output, including trace. |
 | `UNI20_CHARSET` | `utf8` | `utf8`, `escape`, `replace` | Select fallback for non-ASCII text in all presentation output, including trace. `utf-8`, `ascii_escape`, and `ascii_replace` aliases are accepted. |
 | `UNI20_COLOR` | `auto` | `auto`, `yes`, `always`, `no`, `never`, plus boolean aliases | Control ANSI style emission globally. |
-| `COLUMNS` | terminal columns | positive integer | Override detected terminal width for trace layout and wrapping. |
+| `COLUMNS` | destination width or configured fallback | positive integer | Override detected terminal width for trace layout and wrapping. |
 | `UNI20_TRACE_DUMP` | enabled | `never`, `no`, `off`, `false`, `0` disable | Control full mdspan/tensor dump files for abort diagnostics that elide preview output. |
 | `UNI20_TRACE_DUMP_DIR` | system temp dir under `uni20-trace` | directory path | Directory for full mdspan/tensor dump files written by abort diagnostics. |
 
 When `UNI20_COLOR=auto`, color output is used if `NO_COLOR` is unset or empty and the output stream is a terminal.
 Set `NO_COLOR` to any non-empty value to disable automatic color output by default. Explicit `UNI20_COLOR=yes`
 or `UNI20_COLOR=no` overrides `NO_COLOR`.
+
+Width detection follows the selected `UNI20_TRACEFILE` destination. A terminal
+stream uses its detected columns; a regular file uses the CMake cache setting
+`UNI20_FALLBACK_TERMINAL_WIDTH` (132 by default). `COLUMNS` overrides both.
 
 ### Color Style Keys
 

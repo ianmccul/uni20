@@ -7,7 +7,7 @@
 #include "scheduler.hpp"
 #include "task_registry.hpp"
 #include <algorithm>
-#include <fmt/core.h>
+#include <uni20/common/display.hpp>
 #include <utility>
 #include <vector>
 
@@ -29,7 +29,7 @@ inline void dump_deadlock_graphviz_snapshot()
   auto const path = TaskRegistry::default_graphviz_dump_path();
   if (TaskRegistry::dump_graphviz_file_best_effort(path))
   {
-    fmt::print(stderr, "Async Graphviz DAG snapshot written to {}\n", path);
+    display::info("Async Graphviz DAG snapshot written to {}", path);
   }
 #endif
 }

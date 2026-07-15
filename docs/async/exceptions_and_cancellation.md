@@ -46,8 +46,16 @@ When a coroutine throws and does not catch:
 
 1. promise catches in `unhandled_exception()`
 2. if exception is `task_cancelled`, promise sets cancel-on-resume flag
-3. otherwise promise stores `std::exception_ptr`
-4. promise forwards exception to registered epoch sinks
+3. otherwise the debug registry marks the task failed and, when enabled, captures
+   live exception diagnostics before the task leaves the registry
+4. promise stores `std::exception_ptr`
+5. promise forwards exception to registered epoch sinks
+
+Set `UNI20_DEBUG_DAG_DUMP_ON_EXCEPTION=1`, or use
+`TaskRegistry::set_coroutine_exception_diagnostics_options(...)`, to emit the
+live registry report and optional DOT artifact. This policy is off by default
+because an exception escaping one coroutine may still be expected and observed
+at a downstream `Async<T>` boundary.
 
 At continuation/final-suspend boundaries, stored exceptions are forwarded to continuation promises.
 

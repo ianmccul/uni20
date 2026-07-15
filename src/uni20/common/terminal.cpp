@@ -2,6 +2,8 @@
 
 #include "terminal.hpp"
 
+#include <uni20/config.hpp>
+
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <unistd.h>
@@ -11,7 +13,10 @@
 #include <charconv>
 #include <cstdlib>
 #include <map>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 // Conditionally include system headers based on macros provided by CMake.
@@ -442,156 +447,70 @@ TerminalStyle parseTerminalStyle(const std::string& styleStr)
   return result;
 }
 
-#if 0
-
-TerminalStyle parseTerminalStyle(const std::string& styleStr)
-{
-  TerminalStyle result;
-
-  // Split the style string on top-level commas.
-  auto parts = splitTopLevel(styleStr, ',');
-  for (auto& part : parts)
-  {
-    part = trim(part);
-    if (part.empty()) continue;
-
-    // Determine the target ("fg" or "bg"). Default to "fg".
-    std::string target = "fg";
-    std::string tokenList;
-    size_t colonPos = part.find(':');
-    if (colonPos != std::string::npos)
-    {
-      target = to_lower(trim(part.substr(0, colonPos)));
-      tokenList = part.substr(colonPos + 1);
-    }
-    else
-    {
-      tokenList = part;
-    }
-
-    // Split tokenList on semicolons.
-    auto tokens = splitString(tokenList, ';');
-    bool colorSet = false; // Tracks whether we've successfully parsed a color.
-    for (auto& token : tokens)
-    {
-      token = trim(token);
-      if (token.empty()) continue;
-
-      // If a color hasn't been set yet, try to parse a color.
-      if (!colorSet)
-      {
-        bool parsedColor = false;
-        if (target == "fg")
-        {
-          if (token.rfind("rgb(", 0) == 0)
-          {
-            if (auto rgbOpt = parseRGBColor(token); rgbOpt.has_value())
-            {
-              result = result | TerminalStyle(rgbOpt.value(), true);
-              parsedColor = true;
-            }
-          }
-          else if (!token.empty() && token.front() == '#')
-          {
-            if (auto rgbOpt = parseHexColor(token); rgbOpt.has_value())
-            {
-              result = result | TerminalStyle(rgbOpt.value(), true);
-              parsedColor = true;
-            }
-          }
-          else if (auto fgOpt = parseForegroundColor(token); fgOpt.has_value())
-          {
-            result = result | TerminalStyle(fgOpt.value());
-            parsedColor = true;
-          }
-        }
-        else if (target == "bg")
-        {
-          if (token.rfind("rgb(", 0) == 0)
-          {
-            if (auto rgbOpt = parseRGBColor(token); rgbOpt.has_value())
-            {
-              result = result | TerminalStyle(rgbOpt.value(), false);
-              parsedColor = true;
-            }
-          }
-          else if (!token.empty() && token.front() == '#')
-          {
-            if (auto rgbOpt = parseHexColor(token); rgbOpt.has_value())
-            {
-              result = result | TerminalStyle(rgbOpt.value(), false);
-              parsedColor = true;
-            }
-          }
-          else if (auto bgOpt = parseBackgroundColor(token); bgOpt.has_value())
-          {
-            result = result | TerminalStyle(bgOpt.value());
-            parsedColor = true;
-          }
-        }
-        // If the token didn't parse as a color, treat it as an attribute.
-        if (parsedColor)
-        {
-          colorSet = true;
-          continue; // Color token handled.
-        }
-        // Fall through: if no color was parsed, attempt to parse as an attribute.
-      }
-      // Parse token as an attribute.
-      if (auto attrOpt = parseColorAttribute(token); attrOpt.has_value())
-      {
-        result = result | TerminalStyle(attrOpt.value());
-      }
-    }
-  }
-  return result;
-}
-
-#endif
-
 TerminalStyle::TerminalStyle(const std::string& s) { *this = parseTerminalStyle(s); }
 
-//
-// Terminal size routines
-//
-
-int rows()
+namespace
 {
-  // Primary option: environment variable "LINES"
-  if (const char* rows_str = std::getenv("LINES"))
-  {
-    int n = std::atoi(rows_str);
-    if (n > 0) return n;
-  }
-  // Fall back to ioctl (if available)
+
+[[nodiscard]] std::optional<int> positive_environment_integer(char const* name)
+{
+  char const* const raw = std::getenv(name);
+  if (!raw || raw[0] == '\0') return std::nullopt;
+
+  std::string_view const text(raw);
+  int value = 0;
+  auto const [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (error != std::errc{} || end != text.data() + text.size() || value <= 0) return std::nullopt;
+  return value;
+}
+
 #ifdef TIOCGWINSZ
-  winsize ws;
-  if (!ioctl(1, TIOCGWINSZ, &ws) && ws.ws_row) return ws.ws_row;
+[[nodiscard]] std::optional<winsize> detected_terminal_size(std::FILE* stream)
+{
+  if (!stream) return std::nullopt;
+  int const descriptor = ::fileno(stream);
+  if (descriptor < 0) return std::nullopt;
+
+  winsize size{};
+  if (::ioctl(descriptor, TIOCGWINSZ, &size) != 0) return std::nullopt;
+  return size;
+}
 #endif
-  // Last resort
+
+} // namespace
+
+int rows(std::FILE* stream)
+{
+  if (auto const configured = positive_environment_integer("LINES")) return *configured;
+#ifdef TIOCGWINSZ
+  if (auto const detected = detected_terminal_size(stream); detected && detected->ws_row > 0) return detected->ws_row;
+#endif
   return 25;
 }
 
-int columns()
+int rows() { return rows(stdout); }
+
+int columns(std::FILE* stream)
 {
-  // Primary option: environment variable "COLUMNS"
-  if (const char* cols_str = std::getenv("COLUMNS"))
-  {
-    int n = std::atoi(cols_str);
-    if (n > 0) return n;
-  }
-  // Fall back to ioctl (if available)
+  if (auto const configured = positive_environment_integer("COLUMNS")) return *configured;
 #ifdef TIOCGWINSZ
-  winsize ws;
-  if (!ioctl(1, TIOCGWINSZ, &ws) && ws.ws_col) return ws.ws_col;
+  if (auto const detected = detected_terminal_size(stream); detected && detected->ws_col > 0) return detected->ws_col;
 #endif
-  // Last resort
-  return 80;
+  return UNI20_FALLBACK_TERMINAL_WIDTH;
 }
 
-std::pair<int, int> size() { return {rows(), columns()}; }
+int columns() { return columns(stdout); }
 
-bool is_a_terminal(std::FILE* stream) { return stream && isatty(fileno(stream)); }
+std::pair<int, int> size(std::FILE* stream) { return {rows(stream), columns(stream)}; }
+
+std::pair<int, int> size() { return size(stdout); }
+
+bool is_a_terminal(std::FILE* stream)
+{
+  if (!stream) return false;
+  int const descriptor = ::fileno(stream);
+  return descriptor >= 0 && ::isatty(descriptor) != 0;
+}
 
 std::string expand_environment(std::string const& s)
 {

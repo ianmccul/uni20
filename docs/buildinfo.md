@@ -57,4 +57,5 @@ The example uses the common presentation layer for color, glyphs, display-cell w
 - `UNI20_CHARSET`: selects `utf8`, `escape`, or `replace` text rendering.
 - `UNI20_COLOR`: selects `auto`, forced color, or disabled color.
 - `NO_COLOR`: disables automatic ANSI color output when set to a non-empty value.
-- `COLUMNS`: overrides terminal width detection for wrapping when set to a positive integer.
+- `COLUMNS`: overrides destination-specific terminal width detection for wrapping when set to a positive integer.
+- `UNI20_FALLBACK_TERMINAL_WIDTH`: CMake cache setting for non-terminal output width; defaults to 132.

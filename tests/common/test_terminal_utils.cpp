@@ -1,9 +1,11 @@
 #include <uni20/common/terminal.hpp>
+#include <uni20/config.hpp>
 
 #include "env_var_guard.hpp"
 
 #include "gtest/gtest.h"
 
+#include <cstdio>
 #include <string>
 
 namespace
@@ -83,4 +85,39 @@ TEST(TerminalUtilsTest, ToggleUsesDefaultForUnknownToken)
 {
   EXPECT_TRUE(terminal::toggle("maybe", true));
   EXPECT_FALSE(terminal::toggle("maybe", false));
+}
+
+TEST(TerminalUtilsTest, ColumnsUsesConfiguredFallbackForRedirectedFile)
+{
+  EnvVarGuard columns("COLUMNS");
+  columns.unset();
+  std::FILE* const file = std::tmpfile();
+  ASSERT_NE(file, nullptr);
+
+  EXPECT_FALSE(terminal::is_a_terminal(file));
+  EXPECT_EQ(terminal::columns(file), UNI20_FALLBACK_TERMINAL_WIDTH);
+
+  std::fclose(file);
+}
+
+TEST(TerminalUtilsTest, ColumnsEnvironmentOverridesRedirectedFileFallback)
+{
+  EnvVarGuard columns("COLUMNS", "137");
+  std::FILE* const file = std::tmpfile();
+  ASSERT_NE(file, nullptr);
+
+  EXPECT_EQ(terminal::columns(file), 137);
+
+  std::fclose(file);
+}
+
+TEST(TerminalUtilsTest, ColumnsRejectsMalformedEnvironmentOverride)
+{
+  EnvVarGuard columns("COLUMNS", "137junk");
+  std::FILE* const file = std::tmpfile();
+  ASSERT_NE(file, nullptr);
+
+  EXPECT_EQ(terminal::columns(file), UNI20_FALLBACK_TERMINAL_WIDTH);
+
+  std::fclose(file);
 }

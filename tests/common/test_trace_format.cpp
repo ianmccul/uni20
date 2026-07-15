@@ -1,5 +1,6 @@
 #include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
+#include <uni20/config.hpp>
 
 #include "env_var_guard.hpp"
 
@@ -238,6 +239,19 @@ TEST(TraceFormatting, PlainFileModeSuppressesAutoColor)
 
   EXPECT_FALSE(opts.should_show_color());
   EXPECT_FALSE(contains_ansi(opts.format_style("ERROR", "ERROR")));
+}
+
+TEST(TraceFormatting, PlainFileUsesConfiguredFallbackWidth)
+{
+  EnvVarGuard columns("COLUMNS");
+  columns.unset();
+  auto file = FilePtr{std::tmpfile()};
+  ASSERT_NE(file, nullptr);
+
+  auto opts = trace::get_formatting_options("trace-format-plain-file-width");
+  opts.set_output_stream(file.get());
+
+  EXPECT_EQ(opts.terminal_width, UNI20_FALLBACK_TERMINAL_WIDTH);
 }
 
 TEST(TraceFormatting, TraceLineUsesPresentationCharsetPolicy)

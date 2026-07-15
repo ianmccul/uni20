@@ -203,5 +203,8 @@ The `examples/` folder contains runnable async demos that match current semantic
 - `examples/async/async_buffer_semantics_example.cpp`: read/write ownership, cancellation paths, and exception routing
 - `examples/async/async_tbb_reduction_example.cpp`: parallel map-reduce with `TbbScheduler`
 - `examples/async/async_dag_debug_example.cpp`: Graphviz snapshots of a blocked async DAG
+- `examples/async/async_diagnostics_guide_example.cpp`: guided task-registry, stacktrace, xdot, and presentation setup
+- `examples/async/async_coroutine_failure_example.cpp`: exception propagation from a failed coroutine to
+  `get_wait()`, including opt-in live registry and DOT diagnostics
 - `examples/async/async_dag_deadlock_tbb_example.cpp`: deliberate TBB dataflow deadlock with a best-effort DOT dump
 - `examples/async/async_fib_example.cpp`: recursive async composition

@@ -15,16 +15,36 @@
 namespace terminal
 {
 
-// return the size of the output terminal, as (rows, cols)
+/// \brief Return the output terminal size as `(rows, columns)`.
+/// \return Positive row and column counts, using configured fallbacks when detection is unavailable.
 std::pair<int, int> size();
 
-// return the number of rows of the output terminal
+/// \brief Return the terminal size associated with a C stream.
+/// \param stream Stream whose file descriptor should be queried.
+/// \return Positive row and column counts, using configured fallbacks when detection is unavailable.
+std::pair<int, int> size(std::FILE* stream);
+
+/// \brief Return the output terminal row count.
+/// \return `LINES`, the detected terminal height, or the built-in row fallback.
 int rows();
 
-// return the number of columns in the output terminal
+/// \brief Return the terminal row count associated with a C stream.
+/// \param stream Stream whose file descriptor should be queried.
+/// \return `LINES`, the detected terminal height, or the built-in row fallback.
+int rows(std::FILE* stream);
+
+/// \brief Return the output terminal column count.
+/// \return `COLUMNS`, the detected terminal width, or `UNI20_FALLBACK_TERMINAL_WIDTH`.
 int columns();
 
-// returns true if the given stream is a terminal, false otherwise
+/// \brief Return the terminal column count associated with a C stream.
+/// \param stream Stream whose file descriptor should be queried.
+/// \return `COLUMNS`, the detected terminal width, or `UNI20_FALLBACK_TERMINAL_WIDTH`.
+int columns(std::FILE* stream);
+
+/// \brief Test whether a C output stream refers to a terminal.
+/// \param stream Stream to inspect; a null stream is not a terminal.
+/// \return True when the stream has a valid terminal file descriptor.
 bool is_a_terminal(std::FILE* stream);
 
 /// \brief Return whether `NO_COLOR` requests suppressing default ANSI color output.

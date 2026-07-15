@@ -22,7 +22,7 @@ using presentation::table_alignment;
 [[nodiscard]] presentation::output_policy display_policy(std::FILE* file)
 {
   auto policy = presentation::terminal_policy(file);
-  if (auto const columns = terminal::columns(); columns > 0)
+  if (auto const columns = terminal::columns(file); columns > 0)
   {
     policy.wrap_width = static_cast<std::size_t>(columns);
   }
@@ -69,7 +69,7 @@ void emit_event(event item)
 
 [[nodiscard]] std::size_t effective_wrap_width(presentation::output_policy const& policy)
 {
-  return policy.wrap_width.value_or(terminal::columns() > 0 ? static_cast<std::size_t>(terminal::columns()) : 80U);
+  return policy.wrap_width.value_or(static_cast<std::size_t>(terminal::columns(policy.output_stream)));
 }
 
 [[nodiscard]] table_alignment default_column_alignment(column_format const& cell_format)

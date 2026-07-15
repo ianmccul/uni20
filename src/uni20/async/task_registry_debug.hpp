@@ -11,6 +11,7 @@
 
 #include <coroutine>
 #include <cstdio>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,7 @@ class TaskRegistryDebug {
       Constructed,
       Running,
       Suspended,
+      Failed,
       Leaked,
     };
 
@@ -61,6 +63,14 @@ class TaskRegistryDebug {
     {
         std::string output_dir{"/tmp"};
         std::string file_prefix{"uni20-dag"};
+    };
+
+    /// \brief Runtime policy for diagnostics captured when an exception escapes a coroutine.
+    struct CoroutineExceptionDiagnosticsOptions
+    {
+        bool enabled{false};
+        bool write_graphviz{true};
+        GraphvizDumpOptions dump_options{};
     };
 
     /// \brief Options for the opt-in background DAG diagnostics service.
@@ -97,6 +107,12 @@ class TaskRegistryDebug {
     /// \brief Marks a coroutine handle as suspended.
     /// \param h Coroutine handle that suspended execution.
     static void mark_suspended(std::coroutine_handle<> h);
+    /// \brief Records an exception escaping a coroutine and optionally captures its live DAG.
+    /// \param h Failing coroutine handle.
+    /// \param exception Exception escaping the coroutine body.
+    /// \param originating_failure Whether this coroutine originated rather than propagated the exception.
+    static void record_unhandled_exception(std::coroutine_handle<> h, std::exception_ptr exception,
+                                           bool originating_failure) noexcept;
     /// \brief Records the call stack where a coroutine was submitted to a scheduler.
     /// \param h Coroutine handle being scheduled.
     static void record_task_scheduled(std::coroutine_handle<> h);
@@ -192,6 +208,17 @@ class TaskRegistryDebug {
     /// \brief Returns default Graphviz file-output options.
     /// \return Options derived from environment variables when present.
     static GraphvizDumpOptions default_graphviz_dump_options();
+    /// \brief Returns the environment-derived automatic coroutine-exception diagnostics policy.
+    /// \return Policy using `UNI20_DEBUG_DAG_DUMP_ON_EXCEPTION` and the default Graphviz output settings.
+    static CoroutineExceptionDiagnosticsOptions default_coroutine_exception_diagnostics_options();
+    /// \brief Returns the active automatic coroutine-exception diagnostics policy.
+    /// \return Process-wide runtime policy.
+    static CoroutineExceptionDiagnosticsOptions coroutine_exception_diagnostics_options();
+    /// \brief Replaces the process-wide automatic coroutine-exception diagnostics policy.
+    /// \param options New runtime policy.
+    static void set_coroutine_exception_diagnostics_options(CoroutineExceptionDiagnosticsOptions const& options);
+    /// \brief Resets the automatic coroutine-exception diagnostics policy from the environment.
+    static void reset_coroutine_exception_diagnostics_options();
     /// \brief Returns default diagnostics-service options.
     /// \return Service options derived from environment variables when present.
     static DiagnosticsServiceOptions default_diagnostics_service_options();

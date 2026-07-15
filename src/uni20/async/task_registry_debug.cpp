@@ -1,5 +1,8 @@
 #include "epoch_context.hpp"
 #include "task_registry.hpp"
+#include "task_registry_presentation.hpp"
+#include <uni20/common/display.hpp>
+#include <uni20/common/presentation.hpp>
 #include <uni20/config.hpp>
 
 #include <algorithm>
@@ -44,6 +47,7 @@ using DumpMode = uni20::TaskRegistry::DumpMode;
 using EpochContext = uni20::async::EpochContext;
 using NodeInfo = uni20::async::NodeInfo;
 using GraphvizDumpOptions = uni20::TaskRegistry::GraphvizDumpOptions;
+using CoroutineExceptionDiagnosticsOptions = uni20::TaskRegistry::CoroutineExceptionDiagnosticsOptions;
 using DiagnosticsServiceOptions = uni20::TaskRegistry::DiagnosticsServiceOptions;
 using GraphSnapshot = uni20::TaskRegistry::GraphSnapshot;
 using GraphDiagnostics = uni20::TaskRegistry::GraphDiagnostics;
@@ -65,21 +69,10 @@ char const* to_string(TaskState state) noexcept
       return "running";
     case TaskState::Suspended:
       return "suspended";
+    case TaskState::Failed:
+      return "failed";
     case TaskState::Leaked:
       return "leaked";
-  }
-
-  return "unknown";
-}
-
-char const* to_string(EpochTaskRole role) noexcept
-{
-  switch (role)
-  {
-    case EpochTaskRole::Reader:
-      return "reader";
-    case EpochTaskRole::Writer:
-      return "writer";
   }
 
   return "unknown";
@@ -145,7 +138,39 @@ void append_tooltip_provenance(std::string& tooltip, std::string_view name, Grap
 
 std::string tooltip_attribute(std::string_view tooltip)
 {
-  return tooltip.empty() ? std::string{} : fmt::format(", tooltip=\"{}\"", dot_escape(tooltip));
+  if (tooltip.empty()) return {};
+
+  constexpr std::size_t TooltipWidth = 100;
+  auto const lines = uni20::presentation::wrap_text(tooltip, TooltipWidth, uni20::presentation::plain_policy());
+
+  // xdot renders tooltips as Pango markup but leaves Graphviz \n escapes
+  // untouched. Numeric newline entities survive DOT parsing and give Pango
+  // real line breaks. Escape all markup metacharacters from provenance text.
+  std::string markup_safe;
+  markup_safe.reserve(tooltip.size() + lines.size() * 5);
+  for (std::size_t line = 0; line < lines.size(); ++line)
+  {
+    if (line > 0) markup_safe += "&#10;";
+    for (char const c : lines[line])
+    {
+      switch (c)
+      {
+        case '&':
+          markup_safe += "&amp;";
+          break;
+        case '<':
+          markup_safe += "&lt;";
+          break;
+        case '>':
+          markup_safe += "&gt;";
+          break;
+        default:
+          markup_safe += c;
+          break;
+      }
+    }
+  }
+  return fmt::format(", tooltip=\"{}\"", dot_escape(markup_safe));
 }
 
 void append_unique_node(std::vector<NodeInfo const*>& nodes, NodeInfo const* node)
@@ -306,6 +331,14 @@ GraphvizDumpOptions default_graphviz_dump_options()
   return options;
 }
 
+CoroutineExceptionDiagnosticsOptions default_coroutine_exception_diagnostics_options()
+{
+  CoroutineExceptionDiagnosticsOptions options;
+  options.enabled = parse_bool_env(nonempty_env("UNI20_DEBUG_DAG_DUMP_ON_EXCEPTION"), false);
+  options.dump_options = default_graphviz_dump_options();
+  return options;
+}
+
 DiagnosticsServiceOptions default_diagnostics_service_options()
 {
   DiagnosticsServiceOptions options;
@@ -366,17 +399,23 @@ bool is_internal_source_file(std::string_view file) noexcept
 
 bool is_internal_description(std::string_view description) noexcept
 {
-  return contains_text(description, "uni20::TaskRegistry") || contains_text(description, "TaskRegistryImpl") ||
-         contains_text(description, "BasicAsyncTaskPromise") || contains_text(description, "BasicAsyncTask<") ||
-         contains_text(description, "AsyncTaskAwaiter") || contains_text(description, "AsyncTaskFactoryAwaiter") ||
-         contains_text(description, "AllAwaiter") || contains_text(description, "ReadBuffer<") ||
-         contains_text(description, "WriteBuffer<") || contains_text(description, "ReadMaybeAwaiter") ||
-         contains_text(description, "ReadOrCancelAwaiter") || contains_text(description, "StorageAwaiter") ||
-         contains_text(description, "TakeAwaiter") || contains_text(description, "OwningReadAwaiter") ||
-         contains_text(description, "OwningWriteAwaiter") || contains_text(description, "DebugScheduler::") ||
-         contains_text(description, "TbbScheduler::") || contains_text(description, "TbbNumaScheduler::") ||
-         contains_text(description, "uni20::async::schedule") || contains_text(description, "std::") ||
-         contains_text(description, "__gnu_cxx::");
+  constexpr std::string_view anonymous_namespace = "(anonymous namespace)::";
+  if (description.starts_with(anonymous_namespace)) description.remove_prefix(anonymous_namespace.size());
+
+  // Parameter types are user code, even when they are Uni20 buffers or standard-library types.
+  auto const parameter_list = description.find('(');
+  auto const callable = description.substr(0, parameter_list);
+  return contains_text(callable, "uni20::TaskRegistry") || contains_text(callable, "TaskRegistryImpl") ||
+         contains_text(callable, "BasicAsyncTaskPromise") || contains_text(callable, "BasicAsyncTask<") ||
+         contains_text(callable, "AsyncTaskAwaiter") || contains_text(callable, "AsyncTaskFactoryAwaiter") ||
+         contains_text(callable, "AllAwaiter") || contains_text(callable, "ReadBuffer<") ||
+         contains_text(callable, "WriteBuffer<") || contains_text(callable, "ReadMaybeAwaiter") ||
+         contains_text(callable, "ReadOrCancelAwaiter") || contains_text(callable, "StorageAwaiter") ||
+         contains_text(callable, "TakeAwaiter") || contains_text(callable, "OwningReadAwaiter") ||
+         contains_text(callable, "OwningWriteAwaiter") || contains_text(callable, "DebugScheduler::") ||
+         contains_text(callable, "TbbScheduler::") || contains_text(callable, "TbbNumaScheduler::") ||
+         contains_text(callable, "uni20::async::schedule") || contains_text(callable, "std::") ||
+         contains_text(callable, "__gnu_cxx::");
 }
 
 std::string shorten_source_file(std::string file)
@@ -497,27 +536,6 @@ GraphProvenance summarize_stacktrace(std::stacktrace const& trace, StacktraceOpt
   return provenance;
 }
 
-void print_stacktrace(std::stacktrace const& trace, StacktraceOptions const& options)
-{
-  auto formatted = format_stacktrace(trace, options);
-  if (formatted.empty())
-  {
-    fmt::print(stderr, "    (stacktrace hidden by options)\n");
-    return;
-  }
-
-  std::size_t line_start = 0;
-  while (line_start <= formatted.size())
-  {
-    auto const line_end = formatted.find('\n', line_start);
-    auto const line = line_end == std::string::npos
-                          ? std::string_view(formatted).substr(line_start)
-                          : std::string_view(formatted).substr(line_start, line_end - line_start);
-    fmt::print(stderr, "    {}\n", line);
-    if (line_end == std::string::npos) break;
-    line_start = line_end + 1;
-  }
-}
 #endif
 
 struct TaskNodeDependency
@@ -538,6 +556,7 @@ struct TaskDebugInfo
     std::chrono::system_clock::time_point last_state_change_timestamp{};
     std::string display_name{};
     std::string waiting_on{};
+    std::string failure{};
     std::vector<NodeInfo const*> read_dependencies{};
     std::vector<NodeInfo const*> write_dependencies{};
     std::vector<TaskNodeDependency> await_dependencies{};
@@ -556,12 +575,6 @@ struct EpochDebugInfo
 #if UNI20_HAS_STACKTRACE
     std::stacktrace creation_trace{};
 #endif
-};
-
-struct TaskEpochAssociation
-{
-    std::size_t epoch_id{0};
-    EpochTaskRole role{EpochTaskRole::Reader};
 };
 
 struct EpochDotRecord
@@ -599,6 +612,7 @@ GraphDiagnostics diagnose_snapshot(GraphSnapshot const& snapshot)
   std::unordered_set<std::uint64_t> cycle_nodes;
   std::unordered_set<std::uint64_t> missing_writer_nodes;
   std::unordered_set<std::size_t> missing_writer_epochs;
+  std::unordered_set<std::size_t> failed_tasks;
   std::unordered_map<std::uint64_t, std::vector<std::size_t>> producers_by_node;
   std::unordered_map<std::string, std::vector<std::string>> wait_graph_edges;
   std::unordered_map<std::string, std::size_t> task_id_by_key;
@@ -633,6 +647,7 @@ GraphDiagnostics diagnose_snapshot(GraphSnapshot const& snapshot)
 
   for (auto const& task_record : snapshot.tasks)
   {
+    if (task_record.state == "failed") failed_tasks.insert(task_record.id);
     auto const task = register_task_key(task_record.id);
     for (auto const node_id : task_record.read_dependencies)
       register_node_key(node_id);
@@ -739,6 +754,8 @@ GraphDiagnostics diagnose_snapshot(GraphSnapshot const& snapshot)
   }
 
   auto const blocked_tasks = blocked_read_tasks.size() + blocked_write_tasks.size();
+  if (!failed_tasks.empty())
+    diagnostics.notes.push_back(fmt::format("failed coroutine tasks: {}", failed_tasks.size()));
   if (blocked_tasks > 0) diagnostics.notes.push_back(fmt::format("blocked tasks: {}", blocked_tasks));
   if (!missing_writer_epochs.empty())
   {
@@ -756,6 +773,7 @@ GraphDiagnostics diagnose_snapshot(GraphSnapshot const& snapshot)
   diagnostics.cycle_node_ids = sorted_values(cycle_nodes);
   diagnostics.missing_writer_node_ids = sorted_values(missing_writer_nodes);
   diagnostics.missing_writer_epoch_ids = sorted_values(missing_writer_epochs);
+  diagnostics.failed_task_ids = sorted_values(failed_tasks);
   return diagnostics;
 }
 
@@ -853,19 +871,34 @@ std::string render_graphviz(GraphSnapshot const& snapshot, GraphDiagnostics cons
     if (contains_value(diagnostics.blocked_read_task_ids, task.id)) label += "\nblocked: read";
     if (contains_value(diagnostics.blocked_write_task_ids, task.id)) label += "\nblocked: write";
     if (contains_value(diagnostics.cycle_task_ids, task.id)) label += "\ndiagnostic: dependency cycle";
+    if (!task.failure.empty())
+    {
+      constexpr std::size_t LabelFailureLimit = 120;
+      auto const summary = task.failure.size() <= LabelFailureLimit
+                               ? task.failure
+                               : task.failure.substr(0, LabelFailureLimit - 3) + "...";
+      label += fmt::format("\nexception={}", summary);
+    }
     std::string tooltip;
     append_tooltip_provenance(tooltip, "task creation", task.creation_site);
     append_tooltip_provenance(tooltip, "task schedule", task.schedule_site);
     append_tooltip_provenance(tooltip, "last transition", task.last_transition_site);
     append_tooltip_provenance(tooltip, "last await", task.last_await_site);
-    auto const fillcolor = contains_value(diagnostics.cycle_task_ids, task.id)
+    if (!task.failure.empty())
+    {
+      if (!tooltip.empty()) tooltip += "\n\n";
+      tooltip += "exception:\n" + task.failure;
+    }
+    auto const failed = contains_value(diagnostics.failed_task_ids, task.id);
+    auto const fillcolor = failed ? "#ffd6d6"
+                           : contains_value(diagnostics.cycle_task_ids, task.id)
                                ? "#ffe1e1"
                                : ((contains_value(diagnostics.blocked_read_task_ids, task.id) ||
                                    contains_value(diagnostics.blocked_write_task_ids, task.id))
                                       ? "#fff0cc"
                                       : "#fff7e8");
-    auto const color = contains_value(diagnostics.cycle_task_ids, task.id) ? "#d62728" : "#c48b33";
-    auto const penwidth = (contains_value(diagnostics.cycle_task_ids, task.id) ||
+    auto const color = (failed || contains_value(diagnostics.cycle_task_ids, task.id)) ? "#d62728" : "#c48b33";
+    auto const penwidth = (failed || contains_value(diagnostics.cycle_task_ids, task.id) ||
                            contains_value(diagnostics.blocked_read_task_ids, task.id) ||
                            contains_value(diagnostics.blocked_write_task_ids, task.id))
                               ? "2"
@@ -986,6 +1019,72 @@ class TaskRegistryImpl {
 
     void mark_suspended(std::coroutine_handle<> h) { this->set_state(h, TaskState::Suspended); }
 
+    void record_unhandled_exception(std::coroutine_handle<> h, std::exception_ptr exception, bool originating_failure)
+    {
+      std::string failure = "non-standard exception";
+      try
+      {
+        if (exception) std::rethrow_exception(exception);
+        failure = "empty exception";
+      }
+      catch (std::exception const& error)
+      {
+        failure = error.what();
+      }
+      catch (...)
+      {}
+
+      {
+        std::lock_guard lock(mutex_);
+        auto it = tasks_.find(h.address());
+        if (it != tasks_.end())
+        {
+          it->second.failure = std::move(failure);
+          auto const now = std::chrono::system_clock::now();
+#if UNI20_HAS_STACKTRACE
+          auto const trace = std::stacktrace::current(2);
+          this->update_state_locked(it->second, TaskState::Failed, now, trace);
+#else
+          this->update_state_locked(it->second, TaskState::Failed, now);
+#endif
+        }
+      }
+
+      if (!originating_failure) return;
+      auto const options = this->coroutine_exception_diagnostics_options();
+      if (!options.enabled) return;
+
+      auto const graph = this->snapshot(true);
+      auto const diagnostics = diagnose_snapshot(graph);
+      std::string graphviz_path;
+      std::optional<bool> graphviz_written;
+      if (options.write_graphviz)
+      {
+        ensure_output_dir(options.dump_options.output_dir);
+        graphviz_path = default_dump_path(options.dump_options);
+        graphviz_written = write_text_file(graphviz_path, render_graphviz(graph, diagnostics));
+      }
+
+      uni20::display::emit(
+          uni20::task_registry_report(
+              graph, diagnostics,
+              {.title = "Async coroutine exception snapshot",
+               .reason = "captured before the originating exception was propagated to downstream async values"}),
+          uni20::display::stream::err, true);
+
+      if (!graphviz_written) return;
+      if (*graphviz_written)
+      {
+        uni20::display::failure("Exception escaped an async coroutine; Graphviz DAG snapshot written to {}",
+                                graphviz_path);
+      }
+      else
+      {
+        uni20::display::warning("Exception escaped an async coroutine; could not write Graphviz DAG snapshot to {}",
+                                graphviz_path);
+      }
+    }
+
     void record_task_scheduled(std::coroutine_handle<> h)
     {
       if (!h) return;
@@ -1101,173 +1200,9 @@ class TaskRegistryImpl {
 
     void dump()
     {
-      struct EpochDumpRecord
-      {
-          EpochContext const* epoch{nullptr};
-          EpochDebugInfo info{};
-          EpochContext::DebugSnapshot snapshot{};
-      };
-
-      std::unordered_map<void*, TaskDebugInfo> tasks_copy;
-      std::vector<EpochDumpRecord> epochs;
-      StacktraceOptions stacktrace_options;
-      {
-        std::lock_guard lock(mutex_);
-        tasks_copy = tasks_;
-        stacktrace_options = stacktrace_options_;
-        epochs.reserve(epoch_contexts_.size());
-        for (auto const& [epoch, info] : epoch_contexts_)
-        {
-          if (!epoch) continue;
-          epochs.push_back(EpochDumpRecord{epoch, info, epoch->debug_snapshot()});
-        }
-      }
-
-      std::sort(epochs.begin(), epochs.end(),
-                [](EpochDumpRecord const& lhs, EpochDumpRecord const& rhs) { return lhs.info.id < rhs.info.id; });
-
-      std::unordered_map<EpochContext const*, std::size_t> epoch_id_by_ptr;
-      epoch_id_by_ptr.reserve(epochs.size());
-      for (auto const& epoch : epochs)
-        epoch_id_by_ptr.emplace(epoch.epoch, epoch.info.id);
-
-      std::unordered_map<void*, std::vector<TaskEpochAssociation>> task_associations;
-      auto add_association = [&](std::coroutine_handle<> h, std::size_t epoch_id, EpochTaskRole role) {
-        if (!h) return;
-        task_associations[h.address()].push_back(TaskEpochAssociation{epoch_id, role});
-      };
-
-      for (auto const& epoch : epochs)
-      {
-        for (auto const& reader : epoch.snapshot.reader_tasks)
-          add_association(reader, epoch.info.id, EpochTaskRole::Reader);
-        for (auto const& writer : epoch.snapshot.writer_tasks)
-          add_association(writer, epoch.info.id, EpochTaskRole::Writer);
-      }
-
-      for (auto& [task_addr, associations] : task_associations)
-      {
-        (void)task_addr;
-        std::sort(associations.begin(), associations.end(),
-                  [](TaskEpochAssociation const& lhs, TaskEpochAssociation const& rhs) {
-                    if (lhs.epoch_id != rhs.epoch_id) return lhs.epoch_id < rhs.epoch_id;
-                    return static_cast<int>(lhs.role) < static_cast<int>(rhs.role);
-                  });
-        associations.erase(std::unique(associations.begin(), associations.end(),
-                                       [](TaskEpochAssociation const& lhs, TaskEpochAssociation const& rhs) {
-                                         return lhs.epoch_id == rhs.epoch_id && lhs.role == rhs.role;
-                                       }),
-                           associations.end());
-      }
-
-      std::vector<std::pair<void*, TaskDebugInfo const*>> sorted_tasks;
-      sorted_tasks.reserve(tasks_copy.size());
-      for (auto const& [addr, info] : tasks_copy)
-        sorted_tasks.emplace_back(addr, &info);
-
-      std::sort(sorted_tasks.begin(), sorted_tasks.end(),
-                [](auto const& lhs, auto const& rhs) { return lhs.second->id < rhs.second->id; });
-
-      fmt::print(stderr, "\n========== Async Task Registry Dump ==========\n");
-      fmt::print(stderr, "Total tracked epoch contexts: {}\n", epochs.size());
-      fmt::print(stderr, "Total tracked tasks: {}\n\n", sorted_tasks.size());
-#if !UNI20_HAS_STACKTRACE
-      fmt::print(stderr,
-                 "WARNING: std::stacktrace is unavailable; dump output is degraded to state-only information.\n\n");
-#endif
-
-      fmt::print(stderr, "EpochContext objects:\n");
-      if (epochs.empty())
-      {
-        fmt::print(stderr, "  (none)\n\n");
-      }
-      else
-      {
-        std::size_t epoch_number = 1;
-        for (auto const& epoch : epochs)
-        {
-          fmt::print(stderr, "EpochContext {}:\n", epoch_number);
-          fmt::print(stderr, "  epoch id: {}\n", epoch.info.id);
-          fmt::print(stderr, "  epoch pointer: {}\n", static_cast<void const*>(epoch.epoch));
-          fmt::print(stderr, "  creation timestamp: {}\n", format_timestamp(epoch.info.creation_timestamp));
-          fmt::print(stderr, "  generation: {}\n", epoch.snapshot.generation);
-          fmt::print(stderr, "  phase: {}\n", to_string(epoch.snapshot.phase));
-          if (epoch.snapshot.next_epoch)
-          {
-            auto next_it = epoch_id_by_ptr.find(epoch.snapshot.next_epoch);
-            if (next_it != epoch_id_by_ptr.end())
-              fmt::print(stderr, "  next epoch id: {}\n", next_it->second);
-            else
-              fmt::print(stderr, "  next epoch id: unknown ({})\n",
-                         static_cast<void const*>(epoch.snapshot.next_epoch));
-          }
-          else
-          {
-            fmt::print(stderr, "  next epoch id: none\n");
-          }
-#if UNI20_HAS_STACKTRACE
-          fmt::print(stderr, "  creation stacktrace:\n");
-          print_stacktrace(epoch.info.creation_trace, stacktrace_options);
-#else
-          fmt::print(stderr, "  creation stacktrace: unavailable\n");
-#endif
-          fmt::print(stderr, "\n");
-          ++epoch_number;
-        }
-      }
-
-      fmt::print(stderr, "Coroutine tasks:\n");
-      if (sorted_tasks.empty())
-      {
-        fmt::print(stderr, "  (none)\n");
-      }
-      else
-      {
-        std::size_t task_number = 1;
-        for (auto const& [addr, info_ptr] : sorted_tasks)
-        {
-          auto const& info = *info_ptr;
-          fmt::print(stderr, "Task {}:\n", task_number);
-          fmt::print(stderr, "  task id: {}\n", info.id);
-          if (!info.display_name.empty()) fmt::print(stderr, "  task name: {}\n", info.display_name);
-          fmt::print(stderr, "  task pointer: {}\n", addr);
-          fmt::print(stderr, "  transition count: {}\n", info.transition_count);
-          fmt::print(stderr, "  current state: {}\n", to_string(info.state));
-          fmt::print(stderr, "  creation timestamp: {}\n", format_timestamp(info.creation_timestamp));
-
-          if (!info.waiting_on.empty()) fmt::print(stderr, "  waiting on: {}\n", info.waiting_on);
-
-          auto association_it = task_associations.find(addr);
-          if (association_it == task_associations.end() || association_it->second.empty())
-          {
-            fmt::print(stderr, "  associated epoch contexts: none\n");
-          }
-          else
-          {
-            fmt::print(stderr, "  associated epoch contexts:\n");
-            for (auto const& association : association_it->second)
-              fmt::print(stderr, "    {} ({})\n", association.epoch_id, to_string(association.role));
-          }
-
-#if UNI20_HAS_STACKTRACE
-          fmt::print(stderr, "  creation stacktrace:\n");
-          print_stacktrace(info.creation_trace, stacktrace_options);
-          fmt::print(stderr, "  last state-change: {}\n", to_string(info.state));
-          fmt::print(stderr, "  last state-change timestamp: {}\n", format_timestamp(info.last_state_change_timestamp));
-          fmt::print(stderr, "  last state-change stacktrace:\n");
-          print_stacktrace(info.last_state_change_trace, stacktrace_options);
-#else
-          fmt::print(stderr, "  creation stacktrace: unavailable\n");
-          fmt::print(stderr, "  last state-change: {}\n", to_string(info.state));
-          fmt::print(stderr, "  last state-change timestamp: {}\n", format_timestamp(info.last_state_change_timestamp));
-          fmt::print(stderr, "  last state-change stacktrace: unavailable\n");
-#endif
-          fmt::print(stderr, "\n");
-          ++task_number;
-        }
-      }
-
-      fmt::print(stderr, "================================================\n");
+      auto const graph = this->snapshot(false);
+      auto const diagnostics = diagnose_snapshot(graph);
+      uni20::display::emit(uni20::task_registry_report(graph, diagnostics), uni20::display::stream::err, true);
     }
 
     GraphSnapshot snapshot(bool best_effort)
@@ -1375,6 +1310,10 @@ class TaskRegistryImpl {
         task.label = info.display_name;
         task.state = to_string(info.state);
         task.transition_count = info.transition_count;
+        task.creation_timestamp = format_timestamp(info.creation_timestamp);
+        task.last_transition_timestamp = format_timestamp(info.last_state_change_timestamp);
+        task.waiting_on = info.waiting_on;
+        task.failure = info.failure;
 #if UNI20_HAS_STACKTRACE
         task.creation_site = summarize_stacktrace(info.creation_trace, stacktrace_options, 1);
         task.schedule_site = summarize_stacktrace(info.schedule_trace, stacktrace_options);
@@ -1417,6 +1356,7 @@ class TaskRegistryImpl {
         record.id = epoch.info.id;
         record.address = fmt::format("{}", static_cast<void const*>(epoch.epoch));
         record.snapshot_available = epoch.snapshot_available;
+        record.creation_timestamp = format_timestamp(epoch.info.creation_timestamp);
 #if UNI20_HAS_STACKTRACE
         record.creation_site = summarize_stacktrace(epoch.info.creation_trace, stacktrace_options);
 #endif
@@ -1521,6 +1461,24 @@ class TaskRegistryImpl {
       stacktrace_options_ = options;
     }
 
+    CoroutineExceptionDiagnosticsOptions coroutine_exception_diagnostics_options()
+    {
+      std::lock_guard lock(mutex_);
+      return coroutine_exception_diagnostics_options_;
+    }
+
+    void set_coroutine_exception_diagnostics_options(CoroutineExceptionDiagnosticsOptions const& options)
+    {
+      std::lock_guard lock(mutex_);
+      coroutine_exception_diagnostics_options_ = options;
+    }
+
+    void reset_coroutine_exception_diagnostics_options()
+    {
+      std::lock_guard lock(mutex_);
+      coroutine_exception_diagnostics_options_ = default_coroutine_exception_diagnostics_options();
+    }
+
     void reset_stacktrace_options()
     {
       std::lock_guard lock(mutex_);
@@ -1529,89 +1487,57 @@ class TaskRegistryImpl {
 
     void dump_epoch_context(EpochContext const* epoch_context, char const* reason)
     {
-      fmt::print(stderr, "\n========== Async Task Registry Diagnostic ==========\n");
-      if (reason && reason[0] != '\0') fmt::print(stderr, "reason: {}\n", reason);
-
+      GraphSnapshot graph;
       if (!epoch_context)
       {
-        fmt::print(stderr, "epoch: null\n");
-        fmt::print(stderr, "====================================================\n");
-        return;
-      }
-
-      EpochContext::DebugSnapshot snapshot = epoch_context->debug_snapshot();
-      TaskDebugInfoMap tasks_copy;
-      bool found_epoch = false;
-      EpochDebugInfo epoch_info{};
-      StacktraceOptions stacktrace_options;
-      {
-        std::lock_guard lock(mutex_);
-        tasks_copy = tasks_;
-        stacktrace_options = stacktrace_options_;
-        auto const epoch_it = epoch_contexts_.find(epoch_context);
-        if (epoch_it != epoch_contexts_.end())
-        {
-          found_epoch = true;
-          epoch_info = epoch_it->second;
-        }
-      }
-
-      fmt::print(stderr, "epoch pointer: {}\n", static_cast<void const*>(epoch_context));
-      if (found_epoch)
-      {
-        fmt::print(stderr, "epoch id: {}\n", epoch_info.id);
-        fmt::print(stderr, "epoch creation timestamp: {}\n", format_timestamp(epoch_info.creation_timestamp));
+        graph.snapshot_available = false;
+        graph.unavailable_reason = "epoch context is null";
       }
       else
       {
-        fmt::print(stderr, "epoch id: unknown\n");
-        fmt::print(stderr, "epoch creation timestamp: unknown\n");
-      }
-
-      fmt::print(stderr, "epoch generation: {}\n", snapshot.generation);
-      fmt::print(stderr, "epoch phase: {}\n", to_string(snapshot.phase));
-      fmt::print(stderr, "next epoch pointer: {}\n", static_cast<void const*>(snapshot.next_epoch));
-
-      auto print_task_list = [&](char const* label, std::vector<std::coroutine_handle<>> const& handles) {
-        fmt::print(stderr, "{}: {}\n", label, handles.size());
-        for (auto const& handle : handles)
+        graph = this->snapshot(false);
+        auto const address = fmt::format("{}", static_cast<void const*>(epoch_context));
+        auto const epoch = std::ranges::find(graph.epochs, address, &GraphEpoch::address);
+        if (epoch == graph.epochs.end())
         {
-          if (!handle)
-          {
-            fmt::print(stderr, "  - null handle\n");
-            continue;
-          }
-
-          auto const it = tasks_copy.find(handle.address());
-          if (it == tasks_copy.end())
-          {
-            fmt::print(stderr, "  - {} (untracked)\n", static_cast<void const*>(handle.address()));
-            continue;
-          }
-
-          fmt::print(stderr, "  - id={} ptr={} state={}\n", it->second.id, static_cast<void const*>(handle.address()),
-                     to_string(it->second.state));
+          graph.snapshot_available = false;
+          graph.unavailable_reason = "epoch context is not tracked";
+          graph.data_nodes.clear();
+          graph.epochs.clear();
+          graph.tasks.clear();
         }
-      };
-
-      print_task_list("reader tasks", snapshot.reader_tasks);
-      print_task_list("writer tasks", snapshot.writer_tasks);
-
-      if (found_epoch)
-      {
-#if UNI20_HAS_STACKTRACE
-        fmt::print(stderr, "epoch creation stacktrace:\n");
-        print_stacktrace(epoch_info.creation_trace, stacktrace_options);
-#else
-        fmt::print(stderr, "epoch creation stacktrace: unavailable\n");
-#endif
+        else
+        {
+          auto const target = *epoch;
+          std::unordered_set<std::size_t> task_ids(target.reader_task_ids.begin(), target.reader_task_ids.end());
+          task_ids.insert(target.writer_task_ids.begin(), target.writer_task_ids.end());
+          if (target.has_node)
+          {
+            for (auto const& task : graph.tasks)
+            {
+              auto const has_read = contains_value(task.read_dependencies, target.node_id);
+              auto const has_write = contains_value(task.write_dependencies, target.node_id);
+              auto const has_await =
+                  std::ranges::any_of(task.await_dependencies, [&](GraphAwaitDependency const& dependency) {
+                    return dependency.node_id == target.node_id;
+                  });
+              if (has_read || has_write || has_await) task_ids.insert(task.id);
+            }
+            std::erase_if(graph.data_nodes, [&](GraphDataNode const& node) { return node.id != target.node_id; });
+          }
+          else
+          {
+            graph.data_nodes.clear();
+          }
+          graph.epochs.assign(1, target);
+          std::erase_if(graph.tasks, [&](GraphTask const& task) { return !task_ids.contains(task.id); });
+        }
       }
-      else
-      {
-        fmt::print(stderr, "epoch creation stacktrace: unknown\n");
-      }
 
-      fmt::print(stderr, "====================================================\n");
+      auto const diagnostics = diagnose_snapshot(graph);
+      auto const options = uni20::TaskRegistryReportOptions{
+          .title = "Async epoch diagnostic", .reason = reason && reason[0] != '\0' ? reason : "focused epoch snapshot"};
+      uni20::display::emit(uni20::task_registry_report(graph, diagnostics, options), uni20::display::stream::err, true);
     }
 
     static TaskRegistryImpl& instance()
@@ -1658,6 +1584,8 @@ class TaskRegistryImpl {
     std::unordered_map<NodeInfo const*, std::string> node_names_;
     std::unordered_map<EpochContext const*, EpochDebugInfo> epoch_contexts_;
     StacktraceOptions stacktrace_options_{default_stacktrace_options()};
+    CoroutineExceptionDiagnosticsOptions coroutine_exception_diagnostics_options_{
+        default_coroutine_exception_diagnostics_options()};
     std::size_t next_task_id_{1};
     std::size_t next_epoch_id_{1};
 };
@@ -1815,6 +1743,19 @@ void TaskRegistry::mark_running(std::coroutine_handle<> h) { TaskRegistryImpl::i
 
 void TaskRegistry::mark_suspended(std::coroutine_handle<> h) { TaskRegistryImpl::instance().mark_suspended(h); }
 
+void TaskRegistry::record_unhandled_exception(std::coroutine_handle<> h, std::exception_ptr exception,
+                                              bool originating_failure) noexcept
+{
+  try
+  {
+    TaskRegistryImpl::instance().record_unhandled_exception(h, std::move(exception), originating_failure);
+  }
+  catch (...)
+  {
+    std::fputs("Uni20 could not capture diagnostics for an exception escaping an async coroutine\n", stderr);
+  }
+}
+
 void TaskRegistry::record_task_scheduled(std::coroutine_handle<> h)
 {
   TaskRegistryImpl::instance().record_task_scheduled(h);
@@ -1922,6 +1863,26 @@ bool TaskRegistry::dump_graphviz_file_best_effort(std::string const& path)
 TaskRegistry::GraphvizDumpOptions TaskRegistry::default_graphviz_dump_options()
 {
   return ::default_graphviz_dump_options();
+}
+
+TaskRegistry::CoroutineExceptionDiagnosticsOptions TaskRegistry::default_coroutine_exception_diagnostics_options()
+{
+  return ::default_coroutine_exception_diagnostics_options();
+}
+
+TaskRegistry::CoroutineExceptionDiagnosticsOptions TaskRegistry::coroutine_exception_diagnostics_options()
+{
+  return TaskRegistryImpl::instance().coroutine_exception_diagnostics_options();
+}
+
+void TaskRegistry::set_coroutine_exception_diagnostics_options(CoroutineExceptionDiagnosticsOptions const& options)
+{
+  TaskRegistryImpl::instance().set_coroutine_exception_diagnostics_options(options);
+}
+
+void TaskRegistry::reset_coroutine_exception_diagnostics_options()
+{
+  TaskRegistryImpl::instance().reset_coroutine_exception_diagnostics_options();
 }
 
 TaskRegistry::DiagnosticsServiceOptions TaskRegistry::default_diagnostics_service_options()

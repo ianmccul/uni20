@@ -64,6 +64,9 @@ struct TaskRegistryGraphTask
     std::string label{};
     std::string state{};
     std::size_t transition_count{0};
+    std::string creation_timestamp{};
+    std::string last_transition_timestamp{};
+    std::string waiting_on{};
     TaskRegistryGraphProvenance creation_site{};
     TaskRegistryGraphProvenance schedule_site{};
     TaskRegistryGraphProvenance last_transition_site{};
@@ -71,6 +74,7 @@ struct TaskRegistryGraphTask
     std::vector<std::uint64_t> read_dependencies{};
     std::vector<std::uint64_t> write_dependencies{};
     std::vector<TaskRegistryGraphAwaitDependency> await_dependencies{};
+    std::string failure{};
 };
 
 /// \brief Epoch context captured in a task-registry graph snapshot.
@@ -79,6 +83,7 @@ struct TaskRegistryGraphEpoch
     std::size_t id{0};
     std::string address{};
     bool snapshot_available{true};
+    std::string creation_timestamp{};
     int generation{0};
     std::string phase{};
     bool has_next_epoch{false};
@@ -114,6 +119,7 @@ struct TaskRegistryGraphDiagnostics
     std::vector<std::uint64_t> cycle_node_ids{};
     std::vector<std::uint64_t> missing_writer_node_ids{};
     std::vector<std::size_t> missing_writer_epoch_ids{};
+    std::vector<std::size_t> failed_task_ids{};
 };
 
 } // namespace uni20

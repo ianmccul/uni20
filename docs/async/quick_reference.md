@@ -214,6 +214,12 @@ Use `TaskRegistry::snapshot()` for structured records, then
 `TaskRegistry::diagnose_snapshot(snapshot)` for blocked-task, missing-writer, and
 cycle annotations. `TaskRegistry::graphviz_dot(snapshot, diagnostics)` renders the
 same captured point in time as DOT without recapturing runtime state.
+`task_registry_report(snapshot, diagnostics)` renders the same data model through
+the common presentation layer.
+
+Open DOT snapshots with `xdot` and hover task, epoch, and `co_await` elements for
+complete captured provenance. Visible graph labels and terminal reports retain
+compact source locations.
 
 DOT snapshots also annotate common debug cases:
 
@@ -267,6 +273,20 @@ Useful environment defaults:
 - `UNI20_DEBUG_DAG_POLL_MS`
 - `UNI20_DEBUG_DAG_STACKTRACE_FRAMES`
 - `UNI20_DEBUG_DAG_STACKTRACE_INTERNAL_FRAMES`
+- `UNI20_DEBUG_DAG_DUMP_ON_EXCEPTION`
+
+Automatic coroutine-exception diagnostics are debug-registry-only and disabled by
+default. The environment switch enables both the live presentation report and DOT;
+code can use `TaskRegistry::set_coroutine_exception_diagnostics_options(...)` with
+`.write_graphviz = false` when it wants only the report.
+
+Presentation controls also apply to terminal task-registry reports:
+
+- `COLUMNS` overrides wrapping width
+- `UNI20_COLOR` and `NO_COLOR` control ANSI styles
+- `UNI20_GLYPHS` selects emoji, Unicode, or ASCII semantic glyphs
+- `UNI20_CHARSET` selects UTF-8 preservation or ASCII fallback
+- `UNI20_FALLBACK_TERMINAL_WIDTH` is the CMake-configured width for redirected output (132 by default)
 
 ## Fast Troubleshooting
 

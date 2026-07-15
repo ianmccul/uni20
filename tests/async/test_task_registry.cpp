@@ -15,6 +15,8 @@
 #include <uni20/async/buffers.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/task_registry.hpp>
+#include <uni20/async/task_registry_presentation.hpp>
+#include <uni20/common/presentation.hpp>
 #include <uni20/config.hpp>
 #include <uni20/core/scalar_precision.hpp>
 
@@ -43,6 +45,16 @@ class StacktraceOptionsGuard {
     TaskRegistry::StacktraceOptions old_;
 };
 
+class CoroutineExceptionDiagnosticsOptionsGuard {
+  public:
+    CoroutineExceptionDiagnosticsOptionsGuard() : old_(TaskRegistry::coroutine_exception_diagnostics_options()) {}
+
+    ~CoroutineExceptionDiagnosticsOptionsGuard() { TaskRegistry::set_coroutine_exception_diagnostics_options(old_); }
+
+  private:
+    TaskRegistry::CoroutineExceptionDiagnosticsOptions old_;
+};
+
 AsyncTask make_suspended_task() { co_return; }
 
 AsyncTask wait_for_reader(ReadBuffer<int> reader)
@@ -54,6 +66,13 @@ AsyncTask wait_for_reader(ReadBuffer<int> reader)
 AsyncTask write_value(WriteBuffer<int> writer, int value)
 {
   co_await writer = value;
+  co_return;
+}
+
+AsyncTask fail_writer(WriteBuffer<int> writer)
+{
+  static_cast<void>(writer);
+  throw std::runtime_error("deliberate task-registry failure");
   co_return;
 }
 
@@ -225,59 +244,34 @@ TEST(TaskRegistryDebugDeathTest, GraphvizDotHighlightsDependencyCycle)
 TEST(TaskRegistryDebugTest, DumpShowsTaskStateAndTransitions)
 {
   auto task = make_suspended_task();
+  auto const snapshot = TaskRegistry::snapshot();
+  ASSERT_EQ(snapshot.tasks.size(), 1U);
 
   testing::internal::CaptureStderr();
   TaskRegistry::dump();
   auto const dump = testing::internal::GetCapturedStderr();
 
-  EXPECT_NE(dump.find("Total tracked tasks: 1"), std::string::npos);
-  EXPECT_NE(dump.find("Task 1:"), std::string::npos);
-  EXPECT_NE(dump.find("task pointer:"), std::string::npos);
-  EXPECT_NE(dump.find("transition count:"), std::string::npos);
-  EXPECT_NE(dump.find("current state: suspended"), std::string::npos);
-  EXPECT_NE(dump.find("creation timestamp:"), std::string::npos);
-  EXPECT_NE(dump.find("last state-change: suspended"), std::string::npos);
-  EXPECT_NE(dump.find("last state-change timestamp:"), std::string::npos);
-  auto const task_pos = dump.find("Task 1:");
-  auto const pointer_pos = dump.find("task pointer:");
-  auto const transition_pos = dump.find("transition count:");
-  auto const state_pos = dump.find("current state:");
-  auto const creation_time_pos = dump.find("creation timestamp:");
-  EXPECT_LT(task_pos, pointer_pos);
-  EXPECT_LT(pointer_pos, transition_pos);
-  EXPECT_LT(transition_pos, state_pos);
-  EXPECT_LT(state_pos, creation_time_pos);
-#if UNI20_HAS_STACKTRACE
-  auto const creation_trace_pos = dump.find("creation stacktrace:");
-  auto const last_state_pos = dump.find("last state-change:");
-  auto const last_time_pos = dump.find("last state-change timestamp:");
-  auto const last_trace_pos = dump.find("last state-change stacktrace:");
-  EXPECT_NE(dump.find("creation stacktrace:"), std::string::npos);
-  EXPECT_NE(dump.find("last state-change stacktrace:"), std::string::npos);
-  EXPECT_LT(creation_time_pos, creation_trace_pos);
-  EXPECT_LT(creation_trace_pos, last_state_pos);
-  EXPECT_LT(last_state_pos, last_time_pos);
-  EXPECT_LT(last_time_pos, last_trace_pos);
-#else
-  EXPECT_NE(dump.find("WARNING: std::stacktrace is unavailable"), std::string::npos);
-  EXPECT_NE(dump.find("creation stacktrace: unavailable"), std::string::npos);
-  EXPECT_NE(dump.find("last state-change stacktrace: unavailable"), std::string::npos);
-  auto const last_state_pos = dump.find("last state-change:");
-  auto const last_time_pos = dump.find("last state-change timestamp:");
-  auto const creation_trace_pos = dump.find("creation stacktrace: unavailable");
-  auto const last_trace_pos = dump.find("last state-change stacktrace: unavailable");
-  EXPECT_LT(creation_time_pos, creation_trace_pos);
-  EXPECT_LT(creation_trace_pos, last_state_pos);
-  EXPECT_LT(last_state_pos, last_time_pos);
-  EXPECT_LT(last_time_pos, last_trace_pos);
+  EXPECT_NE(dump.find("Async task registry"), std::string::npos);
+  EXPECT_NE(dump.find("tracked coroutine tasks"), std::string::npos);
+  EXPECT_NE(dump.find("Coroutine tasks"), std::string::npos);
+  EXPECT_NE(dump.find("task " + std::to_string(snapshot.tasks.front().id)), std::string::npos);
+  EXPECT_NE(dump.find("suspended"), std::string::npos);
+  EXPECT_NE(dump.find("transitions"), std::string::npos);
+  EXPECT_NE(dump.find("source"), std::string::npos);
+#if !UNI20_HAS_STACKTRACE
+  EXPECT_NE(dump.find("std::stacktrace is unavailable"), std::string::npos);
 #endif
+
+  EXPECT_FALSE(snapshot.tasks.front().creation_timestamp.empty());
+  EXPECT_FALSE(snapshot.tasks.front().last_transition_timestamp.empty());
 
   task.resume();
 
   testing::internal::CaptureStderr();
   TaskRegistry::dump();
   auto const after_resume_dump = testing::internal::GetCapturedStderr();
-  EXPECT_NE(after_resume_dump.find("Total tracked tasks: 0"), std::string::npos);
+  EXPECT_NE(after_resume_dump.find("tracked coroutine tasks"), std::string::npos);
+  EXPECT_EQ(after_resume_dump.find("Coroutine tasks"), std::string::npos);
 }
 
 TEST(TaskRegistryDebugTest, DumpShowsEpochContextBindingsForSuspendedTask)
@@ -292,10 +286,10 @@ TEST(TaskRegistryDebugTest, DumpShowsEpochContextBindingsForSuspendedTask)
   TaskRegistry::dump();
   auto const dump = testing::internal::GetCapturedStderr();
 
-  EXPECT_NE(dump.find("Total tracked epoch contexts:"), std::string::npos);
-  EXPECT_NE(dump.find("EpochContext objects:"), std::string::npos);
-  EXPECT_NE(dump.find("associated epoch contexts:"), std::string::npos);
-  EXPECT_NE(dump.find("(reader)"), std::string::npos);
+  EXPECT_NE(dump.find("tracked epoch contexts"), std::string::npos);
+  EXPECT_NE(dump.find("Epoch contexts"), std::string::npos);
+  EXPECT_NE(dump.find("Coroutine tasks"), std::string::npos);
+  EXPECT_NE(dump.find("readers"), std::string::npos);
 
   sched.schedule(write_value(value.write(), 7));
   sched.run_all();
@@ -303,7 +297,8 @@ TEST(TaskRegistryDebugTest, DumpShowsEpochContextBindingsForSuspendedTask)
   testing::internal::CaptureStderr();
   TaskRegistry::dump();
   auto const after_completion_dump = testing::internal::GetCapturedStderr();
-  EXPECT_NE(after_completion_dump.find("Total tracked tasks: 0"), std::string::npos);
+  EXPECT_NE(after_completion_dump.find("tracked coroutine tasks"), std::string::npos);
+  EXPECT_EQ(after_completion_dump.find("Coroutine tasks"), std::string::npos);
 }
 
 TEST(TaskRegistryDebugTest, GraphvizDotShowsSuspendedTaskAndEpochReadEdges)
@@ -377,6 +372,7 @@ TEST(TaskRegistryDebugTest, GraphSnapshotCarriesOptionalStacktraceProvenance)
   DebugScheduler sched;
   Async<int> value;
 
+  auto const expected_creation_line = __LINE__ + 1;
   auto task = wait_for_reader(value.read());
   task.debug_name("provenance reader");
   sched.schedule(std::move(task));
@@ -400,6 +396,11 @@ TEST(TaskRegistryDebugTest, GraphSnapshotCarriesOptionalStacktraceProvenance)
   EXPECT_FALSE(task_it->last_transition_site.stacktrace.empty());
   EXPECT_FALSE(task_it->last_await_site.stacktrace.empty());
   EXPECT_FALSE(task_it->await_dependencies.front().await_site.stacktrace.empty());
+  if (!task_it->creation_site.location.empty())
+  {
+    auto const expected_suffix = ":" + std::to_string(expected_creation_line);
+    EXPECT_TRUE(task_it->creation_site.location.ends_with(expected_suffix)) << task_it->creation_site.location;
+  }
   EXPECT_NE(dot.find("tooltip=\""), std::string::npos);
   if (!task_it->creation_site.location.empty())
   {
@@ -426,6 +427,59 @@ TEST(TaskRegistryDebugTest, GraphSnapshotCarriesOptionalStacktraceProvenance)
 
   sched.schedule(write_value(value.write(), 7));
   sched.run_all();
+}
+
+TEST(TaskRegistryDebugTest, GraphvizTooltipsEscapeMarkupForXdot)
+{
+  TaskRegistry::GraphSnapshot snapshot;
+  TaskRegistryGraphTask task;
+  task.id = 7;
+  task.state = "suspended";
+  task.creation_site.function = "std::vector<int>& make_value<double>()";
+  task.creation_site.stacktrace = "std::vector<int>& make_value<double>()\noperator&<int>()\n" + std::string(105, 'x');
+  snapshot.tasks.push_back(std::move(task));
+
+  auto const dot = TaskRegistry::graphviz_dot(snapshot);
+  EXPECT_NE(dot.find("std::vector&lt;int&gt;&amp; make_value&lt;double&gt;()"), std::string::npos);
+  EXPECT_NE(dot.find("operator&amp;&lt;int&gt;()"), std::string::npos);
+  EXPECT_NE(dot.find("tooltip=\"task creation:&#10;"), std::string::npos);
+  EXPECT_NE(dot.find(std::string(100, 'x') + "&#10;" + std::string(5, 'x')), std::string::npos);
+  EXPECT_EQ(dot.find("std::vector<int>"), std::string::npos);
+}
+
+TEST(TaskRegistryDebugTest, SnapshotReportUsesPresentationDocument)
+{
+  TaskRegistry::GraphSnapshot snapshot;
+  snapshot.data_nodes.push_back(TaskRegistryGraphDataNode{.id = 3,
+                                                          .label = "input",
+                                                          .type = "int",
+                                                          .storage_address = "0x1234",
+                                                          .state = "unconstructed",
+                                                          .value_constructed = false});
+  snapshot.tasks.push_back(TaskRegistryGraphTask{.id = 5,
+                                                 .label = "blocked reader",
+                                                 .state = "suspended",
+                                                 .transition_count = 4,
+                                                 .creation_timestamp = "2026-07-15 18:00:00",
+                                                 .read_dependencies = {3}});
+
+  TaskRegistry::GraphDiagnostics diagnostics;
+  diagnostics.notes.push_back("missing writers: 1");
+  diagnostics.blocked_read_task_ids.push_back(5);
+  diagnostics.missing_writer_node_ids.push_back(3);
+
+  auto const report = task_registry_report(snapshot, diagnostics,
+                                           {.title = "Test async snapshot", .reason = "presentation regression"});
+  auto policy = presentation::strict_ascii_policy();
+  policy.wrap_width = 132;
+  auto const text = presentation::render_plain(report, policy);
+
+  EXPECT_NE(text.find("Test async snapshot"), std::string::npos);
+  EXPECT_NE(text.find("presentation regression"), std::string::npos);
+  EXPECT_NE(text.find("missing writer detected"), std::string::npos);
+  EXPECT_NE(text.find("data 3: input"), std::string::npos);
+  EXPECT_NE(text.find("task 5: blocked reader"), std::string::npos);
+  EXPECT_NE(text.find("blocked read"), std::string::npos);
 }
 
 #if UNI20_HAS_STACKTRACE
@@ -695,6 +749,55 @@ TEST(TaskRegistryDebugTest, DefaultGraphvizDumpOptionsReadEnvironment)
   auto const path = TaskRegistry::default_graphviz_dump_path();
   EXPECT_NE(path.find(dir.string()), std::string::npos);
   EXPECT_NE(path.find("env-default"), std::string::npos);
+  std::filesystem::remove_all(dir);
+}
+
+TEST(TaskRegistryDebugTest, DefaultCoroutineExceptionDiagnosticsOptionsReadEnvironment)
+{
+  EnvVarGuard enabled("UNI20_DEBUG_DAG_DUMP_ON_EXCEPTION", "true");
+  EnvVarGuard output_dir("UNI20_DEBUG_DAG_OUTPUT_DIR", "/tmp/uni20-exception-diagnostics-test");
+  EnvVarGuard prefix("UNI20_DEBUG_DAG_FILE_PREFIX", "exception-test");
+
+  auto const options = TaskRegistry::default_coroutine_exception_diagnostics_options();
+  EXPECT_TRUE(options.enabled);
+  EXPECT_TRUE(options.write_graphviz);
+  EXPECT_EQ(options.dump_options.output_dir, "/tmp/uni20-exception-diagnostics-test");
+  EXPECT_EQ(options.dump_options.file_prefix, "exception-test");
+}
+
+TEST(TaskRegistryDebugTest, OriginatingCoroutineExceptionWritesLiveFailedTaskSnapshot)
+{
+  CoroutineExceptionDiagnosticsOptionsGuard guard;
+  auto dir = make_temp_dir("uni20-dag-coroutine-exception-test");
+  TaskRegistry::set_coroutine_exception_diagnostics_options({
+      .enabled = true,
+      .write_graphviz = true,
+      .dump_options = {.output_dir = dir.string(), .file_prefix = "coroutine-exception"},
+  });
+
+  DebugScheduler scheduler;
+  Async<int> intermediate;
+  Async<int> output;
+  auto producer = fail_writer(intermediate.write());
+  producer.debug_name("deliberately failing writer");
+  scheduler.schedule(std::move(producer));
+  auto consumer = copy_value(intermediate.read(), output.write());
+  consumer.debug_name("downstream exception propagation");
+  scheduler.schedule(std::move(consumer));
+  scheduler.run_all();
+
+  EXPECT_THROW(static_cast<void>(output.get_wait(scheduler)), std::runtime_error);
+  std::size_t dot_file_count = 0;
+  for (auto const& entry : std::filesystem::directory_iterator(dir))
+    if (entry.path().extension() == ".dot") ++dot_file_count;
+  EXPECT_EQ(dot_file_count, 1U);
+  auto const path = find_dot_file(dir);
+  ASSERT_FALSE(path.empty());
+  auto const dot = read_file(path);
+  EXPECT_NE(dot.find("deliberately failing writer"), std::string::npos);
+  EXPECT_NE(dot.find("downstream exception propagation"), std::string::npos);
+  EXPECT_NE(dot.find("failed"), std::string::npos);
+  EXPECT_NE(dot.find("deliberate task-registry failure"), std::string::npos);
   std::filesystem::remove_all(dir);
 }
 

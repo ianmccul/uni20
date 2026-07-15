@@ -540,7 +540,10 @@ class BasicAsyncTaskPromise {
       }
       catch (...)
       {
+        bool const originating_failure = !exception_.load(std::memory_order_acquire);
         auto eptr = std::current_exception();
+        TaskRegistry::record_unhandled_exception(std::coroutine_handle<promise_type>::from_promise(*this), eptr,
+                                                 originating_failure);
         this->set_exception(eptr);
         for (auto* node = exception_sinks_head_; node; node = node->next)
           propagate_unhandled_writer_exception(node->epoch.get(), eptr);

@@ -149,6 +149,11 @@ option(UNI20_EXTERNAL_NO_WARN     "Disable all warnings for external libraries" 
 option(UNI20_ENABLE_COVERAGE      "Enable code coverage instrumentation" OFF)
 option(UNI20_DEBUG_ASYNC_TASKS    "Enable AsyncTask debug instrumentation" ${_uni20_debug_default})
 option(UNI20_DOCS_WEB             "Enable web-oriented Doxygen configuration for deployment" OFF)
+set(UNI20_FALLBACK_TERMINAL_WIDTH 132 CACHE STRING
+    "Terminal width used when COLUMNS and operating-system terminal detection are unavailable")
+if(NOT UNI20_FALLBACK_TERMINAL_WIDTH MATCHES "^[1-9][0-9]*$")
+  message(FATAL_ERROR "UNI20_FALLBACK_TERMINAL_WIDTH must be a positive integer")
+endif()
 
 if(UNI20_DEBUG_DAG AND NOT UNI20_DEBUG_ASYNC_TASKS)
   set(UNI20_DEBUG_ASYNC_TASKS ON CACHE BOOL "Enable AsyncTask debug instrumentation" FORCE)

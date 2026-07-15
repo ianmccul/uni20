@@ -42,8 +42,12 @@ choosing the final glyph or color policy.
 | `UNI20_COLOR` | `auto` | `auto`, `yes`, `always`, `no`, `never`, plus boolean aliases | Control ANSI style emission globally. |
 
 Automatic color follows terminal detection and honors `NO_COLOR`. Explicit `color_mode::always`, including
-`UNI20_COLOR=yes` or `UNI20_COLOR=always`, still forces color. Terminal width comes from
-`terminal::columns()`, which uses `COLUMNS` when it is set to a positive integer.
+`UNI20_COLOR=yes` or `UNI20_COLOR=always`, still forces color. Terminal and display sinks determine width from
+their actual `FILE*` destination. Width selection uses a positive `COLUMNS` value first, then terminal-size
+detection on that destination, then the configured `UNI20_FALLBACK_TERMINAL_WIDTH` value (132 by default).
+Consequently, output redirected to a regular file uses the configured fallback rather than inheriting an
+unrelated stdout terminal width. Configure a different non-terminal default with
+`-DUNI20_FALLBACK_TERMINAL_WIDTH=N`.
 
 Callers may deliberately override fields on a policy for a forced demonstration or a
 known output destination. For ordinary terminal output, prefer `terminal_policy(...)`

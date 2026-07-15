@@ -11,7 +11,6 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <fmt/core.h>
 #include <memory>
 #include <mutex>
 #include <oneapi/tbb/concurrent_queue.h>
@@ -19,6 +18,7 @@
 #include <oneapi/tbb/task_arena.h>
 #include <oneapi/tbb/task_group.h>
 #include <optional>
+#include <uni20/common/display.hpp>
 #include <uni20/config.hpp>
 #include <utility>
 #include <vector>
@@ -373,7 +373,7 @@ class TbbScheduler final : public IScheduler {
 #if UNI20_DEBUG_ASYNC_TASKS
       auto const path = TaskRegistry::default_graphviz_dump_path();
       if (TaskRegistry::dump_graphviz_file_best_effort(path))
-        fmt::print(stderr, "Async Graphviz DAG snapshot written to {}\n", path);
+        display::info("Async Graphviz DAG snapshot written to {}", path);
       TaskRegistry::dump();
 #endif
       trace::raise(async_wait_timeout(*wait_options_.watchdog_timeout, paused_.load(std::memory_order_acquire)));

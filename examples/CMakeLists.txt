@@ -145,6 +145,11 @@ uni20_add_example(async_dag_debug_example async/async_dag_debug_example.cpp fmt:
 uni20_add_example(async_dag_gallery_example async/async_dag_gallery_example.cpp fmt::fmt uni20_common uni20_async)
 uni20_add_example(async_dag_deadlock_tbb_example async/async_dag_deadlock_tbb_example.cpp fmt::fmt uni20_common
                   uni20_async TBB::tbb)
+uni20_add_example(async_diagnostics_guide_example async/async_diagnostics_guide_example.cpp fmt::fmt uni20_common
+                  uni20_async)
+uni20_add_example(async_coroutine_failure_example async/async_coroutine_failure_example.cpp fmt::fmt uni20_common
+                  uni20_async)
+add_test(NAME AsyncCoroutineFailureExample COMMAND async_coroutine_failure_example --no-dot)
 uni20_add_example(future_example async/future_example.cpp fmt::fmt uni20_common uni20_async)
 uni20_add_example(bug async/bug.cpp fmt::fmt uni20_common uni20_async TBB::tbb)
 

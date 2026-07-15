@@ -1,5 +1,20 @@
 # Async DAG Debug Examples
 
+`examples/async/async_diagnostics_guide_example.cpp` is the best entry point for
+the complete diagnostics surface. It reports the selected compiler and build
+capabilities, explains CMake and environment controls, renders a deliberately
+blocked DAG through the presentation layer, and writes a Graphviz snapshot. It
+also remains runnable in a build without task instrumentation, where it reports
+the facilities that are unavailable.
+
+`examples/async/async_coroutine_failure_example.cpp` deliberately violates a
+coroutine precondition, propagates the resulting structured exception through a
+dependent coroutine, and observes the original concrete exception at
+`get_wait()`. The task promise captures the live registry after marking the
+originating coroutine failed but before writer-sink propagation. It renders that
+snapshot immediately and, unless `--no-dot` is passed, writes the same snapshot
+as Graphviz DOT.
+
 `examples/async/async_dag_debug_example.cpp` demonstrates the Graphviz diagnostics path.
 It builds a small async graph, writes snapshots before execution, while a task is
 suspended, after partial progress, and after completion.
@@ -29,6 +44,8 @@ cmake -S . -B ./build_codex/build_gcc13_debug_dag \
 cmake --build ./build_codex/build_gcc13_debug_dag --target async_dag_debug_example
 cmake --build ./build_codex/build_gcc13_debug_dag --target async_dag_gallery_example
 cmake --build ./build_codex/build_gcc13_debug_dag --target async_dag_deadlock_tbb_example
+cmake --build ./build_codex/build_gcc13_debug_dag --target async_diagnostics_guide_example
+cmake --build ./build_codex/build_gcc13_debug_dag --target async_coroutine_failure_example
 ```
 
 `UNI20_DEBUG_DAG=ON` implies `UNI20_DEBUG_ASYNC_TASKS=ON`. New `Debug` build
@@ -42,6 +59,10 @@ Run the example:
 ./build_codex/build_gcc13_debug_dag/examples/async_dag_debug_example /tmp/uni20-dag-example
 ./build_codex/build_gcc13_debug_dag/examples/async_dag_gallery_example /tmp/uni20-dag-gallery
 ./build_codex/build_gcc13_debug_dag/examples/async_dag_deadlock_tbb_example /tmp/uni20-dag-deadlock 2
+./build_codex/build_gcc13_debug_dag/examples/async_diagnostics_guide_example \
+  --output=/tmp/uni20-diagnostics-guide.dot
+./build_codex/build_gcc13_debug_dag/examples/async_coroutine_failure_example \
+  --output-dir=/tmp/uni20-coroutine-failure
 ```
 
 The example writes DOT files similar to:
@@ -72,12 +93,34 @@ The deadlock example writes DOT files similar to:
 /tmp/uni20-dag-deadlock/async-dag-deadlock-tbb-02-after-sleep.dot
 ```
 
+The coroutine-failure example uses collision-safe process and sequence suffixes:
+
+```text
+/tmp/uni20-coroutine-failure/uni20-coroutine-failure.<pid>.<seq>.dot
+```
+
+Its failed task is highlighted in red, includes the exception summary in its
+label and tooltip, and remains connected to any downstream task that was
+suspended when the exception escaped.
+
 Render a snapshot with Graphviz:
 
 ```bash
 dot -Tsvg /tmp/uni20-dag-example/async-dag-02-suspended.dot \
   -o /tmp/uni20-dag-example/async-dag-02-suspended.svg
 ```
+
+For interactive provenance, open a snapshot with `xdot` and hover task, epoch,
+and `co_await` elements:
+
+```bash
+xdot /tmp/uni20-diagnostics-guide.dot
+```
+
+Uni20 escapes Graphviz tooltip text for xdot's Pango-markup renderer, so C++
+names containing `<`, `>`, and `&` remain readable. Tooltip lines are wrapped
+to 100 display cells because xdot does not wrap them itself. Visible labels stay
+compact; full captured stacktraces live in tooltips.
 
 ## Interpreting the Graph
 

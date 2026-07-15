@@ -3,7 +3,8 @@
 `TaskRegistry` is the async runtime introspection layer used for deadlock and
 lifecycle diagnostics.
 
-This document explains what it tracks, how to enable it, and how to interpret dumps.
+This document explains what it tracks, how to enable it, and how to interpret
+presentation reports and Graphviz snapshots.
 
 ## Enablement
 
@@ -21,6 +22,23 @@ otherwise available stacktrace capture.
 
 `UNI20_DEBUG_DAG` enables async value nodes and coroutine argument dependency capture.
 It requires the task registry and therefore enables `UNI20_DEBUG_ASYNC_TASKS`.
+
+For a complete build-capability check and guided demonstration, build and run:
+
+```bash
+cmake -S . -B ./build_codex/build_gcc14_debug_dag \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_COMPILER=g++-14 \
+  -DUNI20_DEBUG_DAG=ON \
+  -DUNI20_ENABLE_STACKTRACE=ON
+cmake --build ./build_codex/build_gcc14_debug_dag \
+  --target async_diagnostics_guide_example
+./build_codex/build_gcc14_debug_dag/examples/async_diagnostics_guide_example
+```
+
+GCC 14 is a useful baseline for libstdc++ `std::stacktrace`; CMake still performs
+the authoritative compile-and-link capability probe for the selected compiler and
+standard library.
 
 ### Runtime verbosity switch
 
@@ -115,9 +133,11 @@ When stacktrace support is available, task and epoch labels include compact
 source locations such as `created_at=examples/foo.cpp:31`,
 `scheduled_at=examples/foo.cpp:42`, and `awaiting_at=examples/foo.cpp:57`.
 Concrete `co_await` edges can also show the source line where the dependency was
-observed. Full stacktraces are kept out of the visible label and emitted as
-Graphviz tooltips. The number of frames serialized into snapshots, DOT tooltips,
-and text dumps is controlled by `TaskRegistry::StacktraceOptions`, which can be
+observed. Full stacktraces are kept out of visible labels and emitted as Graphviz
+tooltips. DOT tooltip lines are wrapped to 100 display cells because xdot does
+not wrap its Pango tooltip labels itself. The number of frames serialized into
+snapshots and DOT tooltips is controlled by `TaskRegistry::StacktraceOptions`,
+which can be
 set programmatically with `TaskRegistry::set_stacktrace_options(...)` or reset
 from environment defaults with `TaskRegistry::reset_stacktrace_options()`.
 Set `max_frames=0` to keep compact locations while omitting full stacktrace text;
@@ -141,9 +161,36 @@ is busy, the DOT output marks that part of the snapshot as unavailable.
 Use `TaskRegistry::snapshot()` when program code wants structured task, epoch, and
 async-value records. `TaskRegistry::diagnose_snapshot(snapshot)` derives blocked
 task, missing-writer, and dependency-cycle annotations from that immutable snapshot.
+`task_registry_report(snapshot, diagnostics)` produces a presentation-native
+terminal/plain-text report from the same records; it does not require parsing DOT.
 `TaskRegistry::graphviz_dot(snapshot, diagnostics)` renders a pre-captured snapshot,
 which is useful when another subsystem needs both structured diagnostics and a DOT
 artifact from the same point in time.
+
+An exception escaping an `AsyncTask` coroutine reaches
+`BasicAsyncTaskPromise::unhandled_exception()` while that task is still present in
+the registry. The promise marks the task failed and records the exception summary
+before propagating the exception to writer sinks. Automatic diagnostics are
+debug-registry-only and opt-in:
+
+```cpp
+auto previous = uni20::TaskRegistry::coroutine_exception_diagnostics_options();
+uni20::TaskRegistry::set_coroutine_exception_diagnostics_options({
+    .enabled = true,
+    .write_graphviz = true,
+    .dump_options = {.output_dir = "/tmp/uni20-failures", .file_prefix = "failure"},
+});
+
+// Schedule and observe the async work. Restore `previous` afterward.
+```
+
+The policy is process-wide rather than thread-local because a coroutine may resume
+on a different worker thread. Only the coroutine that originates an exception
+triggers automatic capture; downstream coroutines that merely rethrow the injected
+exception are still marked failed in later live snapshots but do not each write a
+duplicate file. “Unhandled” here has the standard coroutine meaning of escaping
+one coroutine body. The exception may still be intentionally observed later at an
+`Async<T>` boundary.
 
 The snapshot APIs are intended for diagnostics at normal program checkpoints,
 deadlock handlers, debugger calls, or controlled interruption paths. They are not
@@ -189,10 +236,11 @@ Default output and service settings can be configured with environment variables
 |---|---|
 | `UNI20_DEBUG_DAG_OUTPUT_DIR` | Default DOT output directory; defaults to `/tmp` |
 | `UNI20_DEBUG_DAG_FILE_PREFIX` | Default DOT filename prefix; defaults to `uni20-dag` |
+| `UNI20_DEBUG_DAG_DUMP_ON_EXCEPTION` | Enable a live registry report and DOT snapshot when an exception originates in an async coroutine; defaults to off |
 | `UNI20_DEBUG_DAG_REQUEST_FILE` | Control file consumed by `start_diagnostics_service()` |
 | `UNI20_DEBUG_DAG_SIGNAL` | Signal for the service, e.g. `SIGUSR1`, `USR2`, or a number; setting it starts the service during program initialization |
 | `UNI20_DEBUG_DAG_POLL_MS` | Diagnostics-service poll interval in milliseconds |
-| `UNI20_DEBUG_DAG_STACKTRACE_FRAMES` | Maximum stack frames shown in snapshots, DOT tooltips, and text dumps; `0` hides trace text, `all`/`full`/`unlimited`/`max` disables the cap |
+| `UNI20_DEBUG_DAG_STACKTRACE_FRAMES` | Maximum stack frames retained in snapshots and DOT tooltips; `0` hides trace text, `all`/`full`/`unlimited`/`max` disables the cap |
 | `UNI20_DEBUG_DAG_STACKTRACE_INTERNAL_FRAMES` | Whether stacktrace text includes internal Uni20/libstdc++ frames; defaults to `true` |
 
 `TaskRegistry::default_graphviz_dump_path()` produces paths of the form
@@ -202,8 +250,16 @@ Default output and service settings can be configured with environment variables
 
 - timestamps are local time with timezone offset
 - tasks and epochs are numbered to improve human scanability
-- stacktraces are printed when available; when unavailable, output is explicitly marked degraded
+- terminal reports use the common presentation layer and compact source locations
+- complete captured stacktraces are available in Graphviz tooltips; when stacktrace support is unavailable, output is explicitly marked degraded
 - Graphviz source provenance is optional; missing provenance does not mean missing dependency data
+- task, epoch, and edge tooltips escape Pango markup characters and encode real
+  line breaks so `xdot` can display wrapped C++ templates and references correctly
+
+Presentation output queries the actual destination stream. A terminal uses its
+detected width; redirected output uses `UNI20_FALLBACK_TERMINAL_WIDTH` (132 by
+default) unless `COLUMNS` overrides it. `UNI20_COLOR`, `NO_COLOR`,
+`UNI20_GLYPHS`, and `UNI20_CHARSET` provide the normal presentation controls.
 
 ## APIs
 
@@ -214,12 +270,16 @@ Default output and service settings can be configured with environment variables
 | `TaskRegistry::snapshot()` | captures the current task/epoch/value graph as structured records |
 | `TaskRegistry::snapshot_best_effort()` | captures a structured snapshot without indefinite lock waits |
 | `TaskRegistry::diagnose_snapshot(snapshot)` | derives blocked-task, missing-writer, and cycle annotations |
+| `task_registry_report(snapshot, diagnostics)` | builds a presentation-native report from a captured snapshot |
 | `TaskRegistry::graphviz_dot()` | returns current task/epoch/value DAG as Graphviz DOT |
 | `TaskRegistry::graphviz_dot_best_effort()` | returns a partial DOT snapshot without indefinite lock waits |
 | `TaskRegistry::graphviz_dot(snapshot, diagnostics)` | renders a captured snapshot and annotations as DOT |
 | `TaskRegistry::dump_graphviz(stream)` | writes DOT to a C stream, stderr by default |
 | `TaskRegistry::dump_graphviz_file(path)` | writes DOT to a file |
 | `TaskRegistry::dump_graphviz_file_best_effort(path)` | writes a best-effort DOT snapshot to a file |
+| `TaskRegistry::coroutine_exception_diagnostics_options()` | returns the active process-wide exception diagnostics policy |
+| `TaskRegistry::set_coroutine_exception_diagnostics_options(options)` | enables, disables, or redirects automatic exception diagnostics |
+| `TaskRegistry::reset_coroutine_exception_diagnostics_options()` | restores the environment-derived exception diagnostics policy |
 | `TaskRegistry::default_stacktrace_options()` | returns stacktrace formatting defaults from environment variables |
 | `TaskRegistry::stacktrace_options()` | returns active stacktrace formatting options |
 | `TaskRegistry::set_stacktrace_options(options)` | updates active stacktrace formatting options |
@@ -241,7 +301,7 @@ coroutine-handle operations, not high-level wrapper object usage.
 2. inspect suspended tasks and their associated epochs
 3. inspect epoch phases and next-epoch links
 4. check `created_at`, `scheduled_at`, and `awaiting_at` locations in DOT labels
-5. check full creation/transition stacktraces for mismatched writer/read ordering
+5. hover task, epoch, and `co_await` elements in `xdot` to inspect full captured provenance
 
 If output volume is too large during exception handling paths, use focused epoch dumps
 (`dump_epoch_context`) at throw sites and reserve full dump for deadlock endpoints.

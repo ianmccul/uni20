@@ -72,6 +72,10 @@ Runnable examples in `examples/` that pair well with this docs set:
   reporting
 - `examples/async/async_tbb_reduction_example.cpp`: parallel scheduling with `TbbScheduler`
 - `examples/async/async_dag_deadlock_tbb_example.cpp`: Graphviz snapshot of a deliberate TBB dataflow deadlock
+- `examples/async/async_diagnostics_guide_example.cpp`: presentation-layer guide to task-registry reports,
+  Graphviz/xdot provenance, stacktrace capability, and output customization
+- `examples/async/async_coroutine_failure_example.cpp`: structured exception propagation through two async
+  writer boundaries, with automatic live task-registry reporting and optional Graphviz capture
 
 ## Related Top-Level Docs
 

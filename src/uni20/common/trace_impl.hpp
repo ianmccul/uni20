@@ -64,7 +64,7 @@ struct FormattingOptions
     //--- Output layout ---------------------------------------------------------
 
     /// Maximum width (in characters) before switching to multi-line.
-    int terminal_width = terminal::columns();
+    int terminal_width = terminal::columns(stderr);
 
     //--- Color configuration --------------------------------------------------
 
@@ -309,6 +309,7 @@ struct FormattingOptions
     {
       sink = std::move(s);
       outputStream = nullptr;
+      terminal_width = terminal::columns(nullptr);
       updateShowColor();
     }
 
@@ -316,6 +317,7 @@ struct FormattingOptions
     void set_output_stream(FILE* f)
     {
       outputStream = f;
+      terminal_width = terminal::columns(f);
       sink = [f](std::string s) {
         std::fputs(s.c_str(), f);
         std::fflush(f);

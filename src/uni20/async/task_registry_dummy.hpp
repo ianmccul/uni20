@@ -9,6 +9,7 @@
 
 #include <coroutine>
 #include <cstdio>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,7 @@ class TaskRegistry {
       Constructed,
       Running,
       Suspended,
+      Failed,
       Leaked,
     };
 
@@ -53,6 +55,14 @@ class TaskRegistry {
     {
         std::string output_dir{"/tmp"};
         std::string file_prefix{"uni20-dag"};
+    };
+
+    /// \brief Automatic coroutine-exception dump policy mirrored from the debug registry.
+    struct CoroutineExceptionDiagnosticsOptions
+    {
+        bool enabled{false};
+        bool write_graphviz{true};
+        GraphvizDumpOptions dump_options{};
     };
 
     /// \brief Diagnostics-service options mirrored from the debug registry interface.
@@ -89,6 +99,14 @@ class TaskRegistry {
     /// \brief No-op suspended-state hook.
     /// \param h Coroutine handle ignored in dummy mode.
     static constexpr void mark_suspended(std::coroutine_handle<> h) noexcept { static_cast<void>(h); }
+    /// \brief No-op unhandled-exception hook.
+    static constexpr void record_unhandled_exception(std::coroutine_handle<> h, std::exception_ptr exception,
+                                                     bool originating_failure) noexcept
+    {
+      static_cast<void>(h);
+      static_cast<void>(exception);
+      static_cast<void>(originating_failure);
+    }
     /// \brief No-op scheduler submission provenance hook.
     /// \param h Coroutine handle ignored in dummy mode.
     static constexpr void record_task_scheduled(std::coroutine_handle<> h) noexcept { static_cast<void>(h); }
@@ -261,6 +279,24 @@ class TaskRegistry {
     /// \brief Builds default file-output options in dummy mode.
     /// \return Default Graphviz dump options.
     static GraphvizDumpOptions default_graphviz_dump_options() { return GraphvizDumpOptions{}; }
+    /// \brief Returns a disabled automatic exception-diagnostics policy in dummy mode.
+    static CoroutineExceptionDiagnosticsOptions default_coroutine_exception_diagnostics_options()
+    {
+      return CoroutineExceptionDiagnosticsOptions{};
+    }
+    /// \brief Returns a disabled automatic exception-diagnostics policy in dummy mode.
+    static CoroutineExceptionDiagnosticsOptions coroutine_exception_diagnostics_options()
+    {
+      return CoroutineExceptionDiagnosticsOptions{};
+    }
+    /// \brief Ignores automatic exception-diagnostics policy in dummy mode.
+    static void
+    set_coroutine_exception_diagnostics_options(CoroutineExceptionDiagnosticsOptions const& options) noexcept
+    {
+      static_cast<void>(options);
+    }
+    /// \brief No-op automatic exception-diagnostics policy reset in dummy mode.
+    static constexpr void reset_coroutine_exception_diagnostics_options() noexcept {}
     /// \brief Builds default diagnostics-service options in dummy mode.
     /// \return Default diagnostics-service options.
     static DiagnosticsServiceOptions default_diagnostics_service_options() { return DiagnosticsServiceOptions{}; }
