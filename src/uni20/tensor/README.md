@@ -6,9 +6,9 @@ kernels operate on resolved mdspans.
 
 ## Contents
 
-- `basic_tensor.hpp`: configurable composition-based owner parameterized by an
-  mdspan extents type.
-- `tensor.hpp`: column-major-default runtime-extents `Tensor`, named
+- `basic_tensor.hpp`: concrete composition-based `Tensor` owner and the
+  extents-first `BasicTensor` alias.
+- `tensor.hpp`: named
   `ColumnMajorTensor`, `RowMajorTensor`, and `StridedTensor` aliases, and the
   host `DenseMatrix` alias.
 - `conjugate.hpp`: read-only tensor view backed by the lazy conjugating mdspan
@@ -17,7 +17,8 @@ kernels operate on resolved mdspans.
   and generalized `eye` factories.
 - `async.hpp`: async tensor aliases that retain parent storage and share its
   epoch queue.
-- `copy.hpp`: backend-dispatched copies and `make_tensor(...)` materialization.
+- `copy_into.hpp`: backend-dispatched copies into existing mdspan or tensor outputs.
+- `copy.hpp`: inferred `make_tensor(...)` materialization and owning reshape support.
 - `conjugate_inplace.hpp`: backend-dispatched eager conjugation of mutable
   tensor storage.
 - `concepts.hpp`: readable, mutable, owning, strided, and rank-constrained
@@ -30,15 +31,16 @@ kernels operate on resolved mdspans.
 ## Notes
 
 - Keep dense tensor behavior distinct from symmetry-aware block tensor behavior.
-- `BasicTensor<Element, Extents, ...>` is the configurable owner for mixed or
-  static mdspan extents. `Tensor<Element, Rank, ...>` is the ordinary owning
-  tensor, has runtime extents on every axis, and defaults to `ColumnMajor`.
+- `Tensor<Element, Rank, ...>` is the concrete owning class, has runtime
+  extents on every axis by default, and defaults to `ColumnMajor`.
+  `BasicTensor<Element, Extents, ...>` is its extents-first alias for mixed or
+  static mdspan extents; it does not introduce another implementation type.
   Use the named layout aliases when the physical order is part of the local
   contract; use `StridedTensor` only when an explicit stride mapping is needed.
 - Both forms have compile-time rank because they are mdspan-based. A future
   runtime-rank tensor requires a separate descriptor and type rather than a
   second meaning for `Tensor`.
-- Both owning forms model the tensor-level concepts directly.
+- Every specialization models the tensor-level concepts directly.
 - `OwningTensor` is an explicit opt-in classification for types whose move
   operation transfers the storage and lifetime exposed through `mdspan()`.
   Non-owning descriptors such as `ConstTensorView` and
@@ -50,19 +52,24 @@ kernels operate on resolved mdspans.
 - Moving an owning tensor follows ordinary C++ lifetime rules: existing
   non-owning tensor views and mdspans into the transferred storage must not be
   used afterward. Uni20 does not track synchronous views to prevent this.
-- `BasicTensor::release_storage()` transfers the concrete policy-selected
-  container out of an owning rvalue. `BasicTensor::adopt_storage(...)` installs
+- `Tensor::release_storage()` transfers the concrete policy-selected container
+  out of an owning rvalue. `Tensor::adopt_storage(...)` installs
   a mapping over a transferred container without reallocating it. Adoption
   requires `storage.size() >= mapping.required_span_size()`; padding and an
   unused storage tail are preserved intentionally.
-- `rebind_layout_type<Layout>` preserves a `BasicTensor` element type, extents,
+- `rebind_layout_type<Layout>` preserves a tensor's element type, extents,
   storage policy, and accessor factory while changing its mapping policy. This
   is the type-level counterpart to releasing storage and adopting it under a
   compatible mapping.
-- Use `make_tensor(view)` for inferred materialization rather than a
-  view-taking `Tensor` constructor. `make_tensor<Layout>(view)` selects the
-  physical result layout at compile time. The inferred form preserves a
-  canonical physical source and otherwise uses column-major `Tensor` storage.
+- `Tensor(view)` and CTAD through `BasicTensor(view)` eagerly materialize a
+  readable tensor view through backend-dispatched copy and deduce runtime
+  extents. An explicitly specialized `BasicTensor<Element, Extents, ...>`
+  instead preserves those requested static or mixed extents. CTAD preserves a
+  canonical physical source layout and otherwise selects column-major storage.
+  A named layout alias is deducible only when that inferred layout matches it.
+- `make_tensor(view)` provides the same inferred materialization as an
+  operation, while `make_tensor<Layout>(view)` forces the physical result
+  layout at compile time. The selector-taking form also accepts a bare mdspan.
   Materialization is an operation and must remain eligible for backend
   dispatch, including future BLAS matrix-copy extensions.
 - A tensor-level object exposes a storage-derived backend selector plus

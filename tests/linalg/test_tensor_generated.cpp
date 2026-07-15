@@ -95,6 +95,19 @@ TEST(TensorGeneratedTest, MakeTensorMaterializesGeneratedValues)
       EXPECT_DOUBLE_EQ((materialized[row, col]), 2.5);
 }
 
+TEST(TensorGeneratedTest, CtadDefaultsLayoutNeutralInputToColumnMajorAlias)
+{
+  auto inferred = uni20::Tensor(uni20::eye<int>(2, 3));
+  auto named = uni20::ColumnMajorTensor(uni20::eye<int>(2, 3));
+
+  using expected_type = uni20::ColumnMajorTensor<int, 2>;
+  static_assert(std::same_as<decltype(inferred), expected_type>);
+  static_assert(std::same_as<decltype(named), expected_type>);
+  EXPECT_EQ((inferred[0, 0]), 1);
+  EXPECT_EQ((inferred[1, 2]), 0);
+  EXPECT_EQ((named[1, 1]), 1);
+}
+
 TEST(TensorGeneratedTest, MakeTensorAcceptsExplicitGeneratedDestinationLayout)
 {
   auto materialized = uni20::make_tensor<uni20::RowMajor>(uni20::eye<int>(2, 3));

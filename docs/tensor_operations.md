@@ -55,8 +55,8 @@ ordering have been handled by higher layers.
 
 | Type or concept | Role |
 |---|---|
-| `BasicTensor<Element, Extents, ...>` | Configurable owning tensor with compile-time rank and possibly static extents; column-major by default. |
-| `Tensor<Element, Rank, ...>` | Ordinary column-major owner with compile-time rank and runtime extents on every axis. |
+| `Tensor<Element, Rank, ...>` | Concrete column-major-default owner with compile-time rank and runtime extents on every axis by default. |
+| `BasicTensor<Element, Extents, ...>` | Extents-first alias for a `Tensor` specialization with mixed or static extents. |
 | `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor` | Named runtime-extents owner aliases for an explicit physical layout policy. |
 | `DenseMatrix<Element, Layout>` | Rank-two host `Tensor`; column-major by default. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
@@ -84,6 +84,7 @@ materially clearer.
 | `add_foo(out, ...)` | Compound update. Existing output values participate, so shape is fixed and the output must already exist. |
 | `foo(x)` returning an owner | Preserve lvalue inputs and allocate or materialize an owning result. |
 | `foo(std::move(x))` | Grant permission to consume an owning input and transfer its allocation. Reuse is not guaranteed. |
+| `Tensor(view)` | Eagerly materialize a readable tensor view using CTAD and the inferred physical layout. |
 | `make_tensor(view)` | Explicit eager materialization boundary for a view or generated expression. |
 
 There is no general rule that assignment to an arbitrary tensor view means
@@ -136,7 +137,8 @@ Materialization is explicit:
 
 ```cpp
 auto lazy = uni20::conj(matrix);
-auto owned = uni20::make_tensor(lazy);
+auto owned = uni20::Tensor(lazy);
+auto equivalent = uni20::make_tensor(lazy);
 
 uni20::Tensor<uni20::complex<double>, 2> output;
 uni20::copy(output, lazy);
@@ -149,10 +151,13 @@ auto inferred = uni20::make_tensor(view);
 auto row_major = uni20::make_tensor<uni20::RowMajor>(view);
 ```
 
-The inferred form preserves canonical row-major or column-major physical
-sources. Generated and other noncanonical sources use `Tensor`'s default
-column-major layout. A runtime optional layout is intentionally not used
-because layout is part of the concrete return type.
+The constructor and inferred `make_tensor` form preserve canonical row-major or
+column-major physical sources. Generated and other noncanonical sources use
+`Tensor`'s default column-major layout. `RowMajorTensor(view)` and
+`ColumnMajorTensor(view)` work when that inferred specialization belongs to the
+named alias; use `make_tensor<Layout>(view)` when the destination layout must be
+changed. A runtime optional layout is intentionally not used because layout is
+part of the concrete return type.
 
 `copy` observes accessor semantics. A raw pointer-shaped data handle is not
 enough to bypass an accessor; a provider backend may do so only for a default

@@ -221,9 +221,9 @@ This glossary is optimized for retrieval, not pedagogy.
 ### Tensor
 
 - `ROLE`: Owning dense tensor value.
-- `STATUS`: Alias for `BasicTensor<Element, dextents<index_type, Rank>, ...>`;
-  models `TensorView` and `MutableTensorView` without inheriting a view
-  descriptor.
+- `STATUS`: Concrete composition-based owner; models `TensorView` and
+  `MutableTensorView` without inheriting a view descriptor. Its final,
+  defaulted extents parameter is fully dynamic for the declared static rank.
 - `NAMING`: `Tensor<Element, Rank, ...>` is the ordinary runtime-extents owner;
   it defaults to column-major storage. Use `ColumnMajorTensor`,
   `RowMajorTensor`, or `StridedTensor` when the layout choice should be named,
@@ -240,8 +240,10 @@ This glossary is optimized for retrieval, not pedagogy.
   type.
 - `USE`: Mixed/static extents and low-level data structures that intentionally
   encode extent information in the type.
-- `MISCONCEPTION`: `BasicTensor` is a base class. It is the concrete owner to
-  which `Tensor` aliases, and the design does not use view inheritance.
+- `STATUS`: Extents-first alias for a specialization of the concrete `Tensor`
+  class. It introduces no base class, wrapper, or additional state.
+- `MISCONCEPTION`: `BasicTensor` is a base class or a second owner
+  implementation. The design does not use view inheritance.
 
 ### TensorView
 

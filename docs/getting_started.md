@@ -75,7 +75,9 @@ uni20/                              # Project root
 Before building the project, ensure you have the following installed:
 
 - **CMake 3.24+**.
-- A C++23-compliant compiler (e.g., GCC 13+, Clang 16+, MSVC 2022)
+- A supported C++23 compiler: GCC 13 or newer, or upstream Clang 19 or newer.
+  Clang 18 is not supported because its alias-template class template argument
+  deduction implementation is incomplete for Uni20's tensor aliases.
 - Git (for cloning the repository and fetching dependencies)
 - BLAS and LAPACK libraries are essential; any library that implements the standard Fortran interface will work.
 - Python 3 with development headers if you want to build the Python bindings.

@@ -23,18 +23,6 @@ using RowMajor = stdex::layout_right;
 /// \brief Conventional column-major contiguous mdspan layout.
 using ColumnMajor = stdex::layout_left;
 
-/// \brief General-purpose owning tensor with runtime extents and compile-time rank.
-/// \ingroup tensor
-/// \tparam ElementType Value type stored by the tensor.
-/// \tparam Rank Static rank of the tensor.
-/// \tparam StoragePolicy Policy controlling ownership and allocation of the buffer.
-/// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
-/// \tparam AccessorFactory Factory that produces accessors for the storage handle.
-template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = ColumnMajor, typename AccessorFactory = DefaultAccessorFactory>
-using Tensor =
-    BasicTensor<ElementType, stdex::dextents<index_type, Rank>, StoragePolicy, LayoutPolicy, AccessorFactory>;
-
 /// \brief Owning runtime-extents tensor with canonical column-major storage.
 template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
           typename AccessorFactory = DefaultAccessorFactory>

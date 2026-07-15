@@ -38,17 +38,17 @@ struct unreached_backend
     static constexpr std::string_view name = "unreached";
 };
 
-consteval auto kernel_accepts_types(declining_backend const&, diagnostic_test_op const&, int&)
+[[maybe_unused]] consteval auto kernel_accepts_types(declining_backend const&, diagnostic_test_op const&, int&)
 {
   return kernel_types_maybe;
 }
 
-consteval auto kernel_accepts_types(accepting_backend const&, diagnostic_test_op const&, int&)
+[[maybe_unused]] consteval auto kernel_accepts_types(accepting_backend const&, diagnostic_test_op const&, int&)
 {
   return kernel_types_yes;
 }
 
-consteval auto kernel_accepts_types(unreached_backend const&, diagnostic_test_op const&, int&)
+[[maybe_unused]] consteval auto kernel_accepts_types(unreached_backend const&, diagnostic_test_op const&, int&)
 {
   return kernel_types_yes;
 }

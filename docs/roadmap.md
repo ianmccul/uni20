@@ -18,8 +18,8 @@ It consolidates and replaces the old local design drafts:
 
 Current code shape:
 
-- `BasicTensor` owns storage by composition and exposes resolved mdspans;
-  `Tensor<T, Rank, ...>` is its column-major-default runtime-extents alias,
+- `Tensor<T, Rank, ...>` owns storage by composition and exposes resolved
+  mdspans; `BasicTensor<T, Extents, ...>` is its explicit-extents alias,
   with named row-major and strided variants.
 - The Tensor-view concept family includes readable, mutable, and rank-constrained
   forms in `src/uni20/tensor/concepts.hpp`.
@@ -64,8 +64,8 @@ Current code shape:
 
 ### 3.1 Tensor/view lifetime model
 
-Today, `Tensor` aliases an owning `BasicTensor` and models the tensor-level
-concepts directly.
+Today, `Tensor` is the concrete owner and models the tensor-level concepts
+directly. `BasicTensor` is its extents-first alias.
 Read-only conjugation and contiguous reshape have concrete non-owning tensor
 adaptors and owner-retaining Async aliases. General slicing still needs a
 concrete descriptor and must follow the established shared-lifetime design.

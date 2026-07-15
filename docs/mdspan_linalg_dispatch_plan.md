@@ -801,12 +801,12 @@ before read-only inputs.
 ### Phase 4: DenseMatrix and Tensor Integration
 
 This checkpoint is implemented. `uni20::DenseMatrix<T, LayoutPolicy>` is an
-owning rank-2 `Tensor` alias, column-major by default, and exposes its mdspan
-through the ordinary Tensor interface. The active Krylov projected eigensystem,
-Schur, reorder, matrix-set, and matrix-exponential paths now use matrix-level
-linalg front ends rather than raw pointer-level LAPACK calls. Explicit
-row/column layout conversion remains where a Krylov algorithm genuinely needs
-a differently ordered representation.
+owning rank-2 alias of the concrete `Tensor` class, column-major by default,
+and exposes its mdspan through the ordinary Tensor interface. The active Krylov
+projected eigensystem, Schur, reorder, matrix-set, and matrix-exponential paths
+now use matrix-level linalg front ends rather than raw pointer-level LAPACK
+calls. Explicit row/column layout conversion remains where a Krylov algorithm
+genuinely needs a differently ordered representation.
 
 ### Phase 5: Tensor Front-End Dispatch
 

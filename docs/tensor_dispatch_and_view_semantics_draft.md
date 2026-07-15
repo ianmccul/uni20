@@ -65,12 +65,13 @@ TensorRef        // future non-owning tensor lvalue proxy
 
 ### Tensor and BasicTensor
 
-`BasicTensor<Element, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>`
-is the configurable owning dense tensor type. The ordinary
-`Tensor<Element, Rank, StoragePolicy, LayoutPolicy, AccessorFactory>` aliases a
-`BasicTensor` whose mdspan extents are dynamic on every axis. Most code should
-use `Tensor<T, Rank>`, deduction through `make_tensor(view)`, or a domain alias
-such as `DenseMatrix<T>` rather than spelling an extents type or every policy.
+`Tensor<Element, Rank, StoragePolicy, LayoutPolicy, AccessorFactory>` is the
+concrete owning dense tensor class; its default mdspan extents are dynamic on
+every axis. `BasicTensor<Element, Extents, ...>` is an extents-first alias for
+the same class when static or mixed extents belong in the type. Most code should
+use `Tensor<T, Rank>`, deduction through `Tensor(view)` or `make_tensor(view)`,
+or a domain alias such as `DenseMatrix<T>` rather than spelling an extents type
+or every policy.
 Assignment has value/replace semantics:
 
 ```cpp
@@ -838,12 +839,12 @@ be read by the CPU backend.
 
 ## Owning Tensor Composition
 
-The `BasicTensor` implementation owns storage, mapping, and accessor-factory
-state directly, and constructs resolved mdspans on demand. `Tensor` aliases its
-fully runtime-extents specialization:
+The `Tensor` implementation owns storage, mapping, and accessor-factory state
+directly, and constructs resolved mdspans on demand. `BasicTensor` aliases a
+specialization with an explicit extents type:
 
 ```cpp
-class BasicTensor {
+class Tensor {
   storage_type data_;
   descriptor_type descriptor_;
 

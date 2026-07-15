@@ -83,8 +83,9 @@ This file is for questions about project maturity, active design seams, and what
 ### SAFE CLAIMS
 
 - Readable, mutable, and rank-constrained Tensor-view concepts are implemented.
-- `BasicTensor` owns storage by composition and models both concepts;
-  `Tensor<T, Rank, ...>` aliases its fully runtime-extents form.
+- `Tensor<T, Rank, ...>` is the concrete composition-based owner and models
+  both concepts; `BasicTensor<T, Extents, ...>` aliases a specialization with
+  explicit mixed or static extents.
 - `Tensor` resolves mutable or const mdspans directly. Read-only
   `ConjugatedTensorView` and `ConstTensorView` adaptors are implemented; general
   slice/external-storage adaptors are not.

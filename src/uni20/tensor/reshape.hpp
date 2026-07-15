@@ -36,6 +36,29 @@ template <class Span>
 concept CanonicallyLaidOutMdspan =
     StridedMdspan<Span> && CanonicalReshapeLayout<typename std::remove_cvref_t<Span>::layout_type>;
 
+template <class T>
+concept CanonicallyLaidOutOwningTensor =
+    OwningTensor<T> && MutableStridedTensorView<T> && CanonicalReshapeLayout<typename tensor_mdspan_t<T>::layout_type>;
+
+template <class T, class NewExtents>
+using reshape_rebind_t = typename std::remove_cvref_t<T>::template rebind_extents_type<NewExtents>;
+
+template <class T, class NewExtents>
+concept StorageTransferReshapableTensor =
+    CanonicallyLaidOutOwningTensor<T> &&
+    requires(std::remove_cvref_t<T>&& tensor, typename std::remove_cvref_t<T>::storage_type storage,
+             typename std::remove_cvref_t<T>::accessor_factory_type accessor_factory,
+             typename reshape_rebind_t<T, NewExtents>::mapping_type mapping) {
+      { std::move(tensor).release_storage() } -> std::same_as<typename std::remove_cvref_t<T>::storage_type>;
+      {
+        std::move(tensor).release_accessor_factory()
+      } -> std::same_as<typename std::remove_cvref_t<T>::accessor_factory_type>;
+      {
+        reshape_rebind_t<T, NewExtents>::adopt_storage(std::move(mapping), std::move(storage),
+                                                       std::move(accessor_factory))
+      } -> std::same_as<reshape_rebind_t<T, NewExtents>>;
+    };
+
 template <class Index> [[nodiscard]] constexpr bool positive_stride_equals(Index stride, std::size_t expected)
 {
   if constexpr (std::signed_integral<Index>)
@@ -369,33 +392,36 @@ template <TensorView Tensor, std::integral... Extents>
 /// \brief Change a canonical owning tensor's shape without reallocating storage.
 /// \details The compile-time rank is unchanged. Existing copied mdspan
 ///          descriptors retain their old mappings.
-template <Scalar ElementType, class TensorExtents, class StoragePolicy, detail::CanonicalReshapeLayout LayoutPolicy,
-          class AccessorFactory, std::integral... Extents>
-  requires(sizeof...(Extents) == TensorExtents::rank())
-void reshape_inplace(BasicTensor<ElementType, TensorExtents, StoragePolicy, LayoutPolicy, AccessorFactory>& tensor,
-                     Extents... requested_extents)
+template <detail::CanonicallyLaidOutOwningTensor TensorType, std::integral... Extents>
+  requires(sizeof...(Extents) == tensor_extents_t<TensorType>::rank() &&
+           requires(TensorType& tensor, typename TensorType::mapping_type mapping) {
+             tensor.replace_mapping(std::move(mapping));
+           })
+void reshape_inplace(TensorType& tensor, Extents... requested_extents)
 {
+  using tensor_extents = tensor_extents_t<TensorType>;
+  using layout_type = typename tensor_mdspan_t<TensorType>::layout_type;
   auto const source_size = detail::checked_element_count(tensor.extents());
   auto requested = detail::make_reshape_extents(source_size, requested_extents...);
-  auto new_extents = detail::convert_reshape_extents<TensorExtents>(requested);
-  using mapping_type = typename LayoutPolicy::template mapping<TensorExtents>;
+  auto new_extents = detail::convert_reshape_extents<tensor_extents>(requested);
+  using mapping_type = typename layout_type::template mapping<tensor_extents>;
   tensor.replace_mapping(mapping_type{new_extents});
 }
 
 /// \brief Return an owning reshape of a canonical dense tensor.
 /// \details Passing an lvalue copies its allocation; passing an rvalue transfers
 ///          it. The source's compile-time canonical layout is preserved.
-template <Scalar ElementType, class SourceExtents, class StoragePolicy, detail::CanonicalReshapeLayout LayoutPolicy,
-          class AccessorFactory, std::integral... Extents>
-[[nodiscard]] auto reshape(BasicTensor<ElementType, SourceExtents, StoragePolicy, LayoutPolicy, AccessorFactory> tensor,
-                           Extents... requested_extents)
+template <class TensorType, std::integral... Extents>
+  requires detail::StorageTransferReshapableTensor<TensorType, stdex::dextents<index_type, sizeof...(Extents)>>
+[[nodiscard]] auto reshape(TensorType tensor, Extents... requested_extents)
 {
   auto const source_size = detail::checked_element_count(tensor.extents());
   auto new_extents = detail::make_reshape_extents(source_size, requested_extents...);
 
-  using source_type = BasicTensor<ElementType, SourceExtents, StoragePolicy, LayoutPolicy, AccessorFactory>;
+  using source_type = std::remove_cvref_t<TensorType>;
   using result_type = typename source_type::template rebind_extents_type<decltype(new_extents)>;
-  using mapping_type = typename LayoutPolicy::template mapping<decltype(new_extents)>;
+  using layout_type = typename tensor_mdspan_t<TensorType>::layout_type;
+  using mapping_type = typename layout_type::template mapping<decltype(new_extents)>;
   auto accessor_factory = std::move(tensor).release_accessor_factory();
   auto storage = std::move(tensor).release_storage();
   return result_type::adopt_storage(mapping_type{new_extents}, std::move(storage), std::move(accessor_factory));

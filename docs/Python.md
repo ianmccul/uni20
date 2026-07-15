@@ -10,7 +10,7 @@ Future kernel bindings should lower through `dynamic_dispatch_kernel(...)` when 
 
 Before configuring the project ensure the following are available:
 
-- A C++23-capable compiler such as GCC 13+, Clang 16+, or MSVC 19.36+.
+- A supported C++23 compiler: GCC 13 or newer, or upstream Clang 19 or newer.
 - CMake 3.24 or newer.
 - Python 3.8 or newer with interpreter and development headers. On Debian-based systems:
   ```bash

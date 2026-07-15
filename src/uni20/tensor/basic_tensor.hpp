@@ -3,7 +3,7 @@
 /**
  * \file basic_tensor.hpp
  * \ingroup tensor
- * \brief Configurable owning tensors parameterized by mdspan extents.
+ * \brief Owning tensor implementation and configurable extents alias.
  */
 
 #include "concepts.hpp"
@@ -12,6 +12,7 @@
 #include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/storage/vectorstorage.hpp>
+#include <uni20/tensor/copy_into.hpp>
 
 #include <array>
 #include <concepts>
@@ -21,6 +22,18 @@
 
 namespace uni20
 {
+namespace detail
+{
+
+template <class RequestedLayout, class InputMdspan>
+using materialized_layout_t =
+    std::conditional_t<std::is_void_v<RequestedLayout>,
+                       std::conditional_t<std::same_as<typename InputMdspan::layout_type, stdex::layout_left> ||
+                                              std::same_as<typename InputMdspan::layout_type, stdex::layout_right>,
+                                          typename InputMdspan::layout_type, stdex::layout_left>,
+                       RequestedLayout>;
+
+} // namespace detail
 
 /// \brief Factory that provides default accessors for tensor storage containers.
 struct DefaultAccessorFactory
@@ -34,17 +47,21 @@ struct DefaultAccessorFactory
     }
 };
 
-/// \brief Configurable owning tensor that exposes mdspan-based access.
+/// \brief General-purpose owning tensor that exposes mdspan-based access.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the tensor.
-/// \tparam Extents Extents type describing the tensor shape.
+/// \tparam Rank Static rank of the tensor.
 /// \tparam StoragePolicy Policy controlling ownership and allocation of the buffer.
 /// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.
-template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = stdex::layout_left, typename AccessorFactory = DefaultAccessorFactory>
-class BasicTensor {
+/// \tparam Extents Extents type describing the tensor shape; fully dynamic by default.
+template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
+          typename LayoutPolicy = stdex::layout_left, typename AccessorFactory = DefaultAccessorFactory,
+          typename Extents = stdex::dextents<index_type, Rank>>
+class Tensor {
   public:
+    static_assert(Rank == Extents::rank());
+
     using element_type = ElementType;
     using value_type = std::remove_cv_t<element_type>;
     using storage_policy = StoragePolicy;
@@ -68,46 +85,60 @@ class BasicTensor {
     /// \brief Rebind this owning tensor configuration to another layout policy.
     template <typename NewLayoutPolicy>
     using rebind_layout_type =
-        BasicTensor<element_type, extents_type, storage_policy, NewLayoutPolicy, accessor_factory_type>;
+        Tensor<element_type, Rank, storage_policy, NewLayoutPolicy, accessor_factory_type, extents_type>;
 
     /// \brief Rebind this owning tensor configuration to another extents type.
     template <typename NewExtents>
     using rebind_extents_type =
-        BasicTensor<element_type, NewExtents, storage_policy, layout_policy, accessor_factory_type>;
+        Tensor<element_type, NewExtents::rank(), storage_policy, layout_policy, accessor_factory_type, NewExtents>;
 
     /// \brief Default-construct an empty tensor without allocated storage.
-    BasicTensor() = default;
+    Tensor() = default;
 
     /// \brief Copy-construct a tensor with independent owned storage.
     /// \details Tensor elements, mapping, and accessor-factory state are copied.
     ///          Resolved mdspans are constructed on demand from this tensor's
     ///          own storage.
     /// \param other Source tensor to copy.
-    BasicTensor(BasicTensor const& other) = default;
+    Tensor(Tensor const& other) = default;
 
     /// \brief Move-construct an owning tensor.
     /// \details Existing non-owning views and mdspans into the source must not
     ///          be used after ownership is transferred.
     /// \param other Source tensor to move from.
-    BasicTensor(BasicTensor&& other) = default;
+    Tensor(Tensor&& other) = default;
 
     /// \brief Copy-assign tensor storage and descriptor state.
     /// \param other Source tensor to copy.
     /// \return Reference to `*this`.
-    BasicTensor& operator=(BasicTensor const& other) = default;
+    Tensor& operator=(Tensor const& other) = default;
 
     /// \brief Move-assign tensor storage and descriptor state.
     /// \details Existing non-owning views and mdspans into either tensor must
     ///          not be used after ownership is transferred.
     /// \param other Source tensor to move from.
     /// \return Reference to `*this`.
-    BasicTensor& operator=(BasicTensor&& other) = default;
+    Tensor& operator=(Tensor&& other) = default;
+
+    /// \brief Materialize an independent owning tensor from a readable tensor view.
+    /// \details The destination's scalar, extents, storage, layout, and accessor
+    ///          policies are fixed by this specialization. Values are copied
+    ///          through the ordinary backend-dispatch path.
+    /// \tparam InputTensor Readable tensor-level source with matching static rank.
+    /// \param input Source tensor view whose values are materialized.
+    template <TensorView InputTensor>
+      requires(tensor_mdspan_t<InputTensor>::rank() == extents_type::rank() &&
+               std::default_initializable<accessor_factory_type>)
+    explicit Tensor(InputTensor const& input) : Tensor(detail::convert_tensor_extents<extents_type>(input.extents()))
+    {
+      copy(*this, input);
+    }
 
     /// \brief Construct a tensor with default layout and accessor factory.
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
-    explicit BasicTensor(extents_type const& exts, accessor_factory_type accessor_factory = accessor_factory_type{})
-        : BasicTensor(internal_tag{}, make_payload(make_default_mapping(exts), std::move(accessor_factory)))
+    explicit Tensor(extents_type const& exts, accessor_factory_type accessor_factory = accessor_factory_type{})
+        : Tensor(internal_tag{}, make_payload(make_default_mapping(exts), std::move(accessor_factory)))
     {}
 
     /// \brief Construct a fully dynamic tensor from one extent per axis.
@@ -119,8 +150,8 @@ class BasicTensor {
     template <std::integral... DynamicExtents>
       requires(extents_type::rank() > 0 && extents_type::rank_dynamic() == extents_type::rank() &&
                sizeof...(DynamicExtents) == extents_type::rank())
-    explicit BasicTensor(DynamicExtents... dynamic_extents)
-        : BasicTensor(extents_type{static_cast<index_type>(dynamic_extents)...})
+    explicit Tensor(DynamicExtents... dynamic_extents)
+        : Tensor(extents_type{static_cast<index_type>(dynamic_extents)...})
     {}
 
     /// \brief Construct a tensor using a custom mapping builder.
@@ -131,21 +162,21 @@ class BasicTensor {
     template <typename MappingBuilder>
       requires(layout::mapping_builder_for<MappingBuilder, layout_policy, extents_type> &&
                (!std::same_as<std::remove_cvref_t<MappingBuilder>, accessor_factory_type>))
-    explicit BasicTensor(extents_type const& exts, MappingBuilder&& mapping_builder,
-                         accessor_factory_type accessor_factory = accessor_factory_type{})
-        : BasicTensor(internal_tag{},
-                      make_payload(std::forward<MappingBuilder>(mapping_builder)(exts), std::move(accessor_factory)))
+    explicit Tensor(extents_type const& exts, MappingBuilder&& mapping_builder,
+                    accessor_factory_type accessor_factory = accessor_factory_type{})
+        : Tensor(internal_tag{},
+                 make_payload(std::forward<MappingBuilder>(mapping_builder)(exts), std::move(accessor_factory)))
     {}
 
     /// \brief Construct a tensor from explicit extents and strides.
     /// \param exts Extents that describe the tensor shape.
     /// \param strides Stride specification per dimension for the layout mapping.
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
-    explicit BasicTensor(extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
-                         accessor_factory_type accessor_factory = accessor_factory_type{})
+    explicit Tensor(extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
+                    accessor_factory_type accessor_factory = accessor_factory_type{})
       requires std::constructible_from<mapping_type, extents_type const&,
                                        std::array<index_type, extents_type::rank()> const&>
-        : BasicTensor(internal_tag{}, make_payload(mapping_type{exts, strides}, std::move(accessor_factory)))
+        : Tensor(internal_tag{}, make_payload(mapping_type{exts, strides}, std::move(accessor_factory)))
     {}
 
     /// \brief Replace the tensor shape and discard its current values.
@@ -159,7 +190,7 @@ class BasicTensor {
       requires(std::copy_constructible<accessor_factory_type> && std::is_nothrow_swappable_v<mapping_type> &&
                std::is_nothrow_swappable_v<storage_type> && std::is_nothrow_swappable_v<accessor_factory_type>)
     {
-      BasicTensor replacement(exts, accessor_factory_);
+      Tensor replacement(exts, accessor_factory_);
       this->swap_state(replacement);
     }
 
@@ -200,14 +231,13 @@ class BasicTensor {
     /// \param storage Storage container whose ownership is transferred.
     /// \param accessor_factory Factory used to resolve mdspan accessors.
     /// \return An owning tensor over the transferred storage.
-    [[nodiscard]] static BasicTensor adopt_storage(mapping_type mapping, storage_type storage,
-                                                   accessor_factory_type accessor_factory = accessor_factory_type{})
+    [[nodiscard]] static Tensor adopt_storage(mapping_type mapping, storage_type storage,
+                                              accessor_factory_type accessor_factory = accessor_factory_type{})
       requires requires(storage_type const& value) { value.size(); }
     {
       ERROR_IF(std::cmp_less(storage.size(), mapping.required_span_size()),
                "adopted tensor storage is smaller than the mapping's required span");
-      return BasicTensor(internal_tag{},
-                         ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)});
+      return Tensor(internal_tag{}, ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)});
     }
 
     /// \brief Replace the tensor mapping without moving or reallocating storage.
@@ -357,7 +387,7 @@ class BasicTensor {
         accessor_factory_type accessor_factory;
     };
 
-    BasicTensor(internal_tag, ctor_payload payload)
+    Tensor(internal_tag, ctor_payload payload)
         : mapping_(std::move(payload.mapping)), data_(std::move(payload.storage)),
           accessor_factory_(std::move(payload.accessor_factory))
     {}
@@ -421,7 +451,7 @@ class BasicTensor {
       }
     }
 
-    void swap_state(BasicTensor& other) noexcept
+    void swap_state(Tensor& other) noexcept
       requires(std::is_nothrow_swappable_v<mapping_type> && std::is_nothrow_swappable_v<storage_type> &&
                std::is_nothrow_swappable_v<accessor_factory_type>)
     {
@@ -436,9 +466,28 @@ class BasicTensor {
     [[no_unique_address]] accessor_factory_type accessor_factory_{};
 };
 
-template <typename ElementType, typename Extents, typename StoragePolicy, typename LayoutPolicy,
-          typename AccessorFactory>
+template <typename ElementType, std::size_t Rank, typename StoragePolicy, typename LayoutPolicy,
+          typename AccessorFactory, typename Extents>
 inline constexpr bool
-    enable_owning_tensor<BasicTensor<ElementType, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>> = true;
+    enable_owning_tensor<Tensor<ElementType, Rank, StoragePolicy, LayoutPolicy, AccessorFactory, Extents>> = true;
+
+/// \brief Deduce a runtime-extents host tensor that materializes a tensor view.
+/// \details Canonical source layout is preserved. Sources without canonical
+///          physical layout deduce the default column-major layout.
+template <TensorView InputTensor>
+Tensor(InputTensor const&)
+    -> Tensor<tensor_element_t<InputTensor>, tensor_mdspan_t<InputTensor>::rank(), VectorStorage,
+              detail::materialized_layout_t<void, tensor_mdspan_t<InputTensor>>, DefaultAccessorFactory>;
+
+/// \brief Configurable owning tensor with an explicit mdspan extents type.
+/// \ingroup tensor
+/// \tparam ElementType Value type stored by the tensor.
+/// \tparam Extents Extents type describing the tensor shape.
+/// \tparam StoragePolicy Policy controlling ownership and allocation of the buffer.
+/// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
+/// \tparam AccessorFactory Factory that produces accessors for the storage handle.
+template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
+          typename LayoutPolicy = stdex::layout_left, typename AccessorFactory = DefaultAccessorFactory>
+using BasicTensor = Tensor<ElementType, Extents::rank(), StoragePolicy, LayoutPolicy, AccessorFactory, Extents>;
 
 } // namespace uni20

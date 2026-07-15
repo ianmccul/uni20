@@ -158,7 +158,7 @@ struct test_dispatch_op
     static constexpr std::string_view name = "test_dispatch";
 };
 
-consteval auto kernel_accepts_types(DecliningBackend const&, test_dispatch_op const&, int&)
+[[maybe_unused]] consteval auto kernel_accepts_types(DecliningBackend const&, test_dispatch_op const&, int&)
 {
   return kernel_types_maybe;
 }
@@ -194,12 +194,13 @@ struct ObservingBackend
     int* observed_value = nullptr;
 };
 
-consteval auto kernel_accepts_types(PreservingDecliningBackend const&, test_dispatch_op const&, MoveObservable&)
+[[maybe_unused]] consteval auto kernel_accepts_types(PreservingDecliningBackend const&, test_dispatch_op const&,
+                                                     MoveObservable&)
 {
   return kernel_types_maybe;
 }
 
-consteval auto kernel_accepts_types(ObservingBackend const&, test_dispatch_op const&, MoveObservable&)
+[[maybe_unused]] consteval auto kernel_accepts_types(ObservingBackend const&, test_dispatch_op const&, MoveObservable&)
 {
   return kernel_types_yes;
 }
@@ -225,7 +226,7 @@ struct IncorrectTotalBackend
     static constexpr std::string_view name = "incorrect_total";
 };
 
-consteval auto kernel_accepts_types(IncorrectTotalBackend const&, test_dispatch_op const&, int&)
+[[maybe_unused]] consteval auto kernel_accepts_types(IncorrectTotalBackend const&, test_dispatch_op const&, int&)
 {
   return kernel_types_yes;
 }

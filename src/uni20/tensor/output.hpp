@@ -42,14 +42,20 @@ template <TensorExtentsLike LhsExtents, TensorExtentsLike RhsExtents>
 }
 
 template <class TargetExtents, TensorExtentsLike SourceExtents, std::size_t... Axis>
-[[nodiscard]] constexpr TargetExtents convert_tensor_extents(SourceExtents const& source, std::index_sequence<Axis...>)
+[[nodiscard]] TargetExtents convert_tensor_extents(SourceExtents const& source, std::index_sequence<Axis...>)
 {
+  for (std::size_t axis = 0; axis < TargetExtents::rank(); ++axis)
+  {
+    auto const fixed_extent = TargetExtents::static_extent(axis);
+    ERROR_IF(fixed_extent != stdex::dynamic_extent && !std::cmp_equal(source.extent(axis), fixed_extent),
+             "tensor extent does not match the destination's static extent");
+  }
   using index_type = typename TargetExtents::index_type;
   return TargetExtents(static_cast<index_type>(source.extent(Axis))...);
 }
 
 template <class TargetExtents, TensorExtentsLike SourceExtents>
-[[nodiscard]] constexpr TargetExtents convert_tensor_extents(SourceExtents const& source)
+[[nodiscard]] TargetExtents convert_tensor_extents(SourceExtents const& source)
 {
   static_assert(TargetExtents::rank() == std::remove_cvref_t<SourceExtents>::rank(),
                 "tensor output rank does not match the required shape");

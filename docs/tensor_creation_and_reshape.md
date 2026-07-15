@@ -28,15 +28,18 @@ Algorithms that need writable storage, such as destructive LAPACK routines,
 materialize a work tensor through the normal copy and backend-dispatch path:
 
 ```cpp
-auto default_owner = uni20::make_tensor(uni20::ones<double>(3, 4, 5));
+auto default_owner = uni20::Tensor(uni20::ones<double>(3, 4, 5));
+auto equivalent = uni20::make_tensor(uni20::ones<double>(3, 4, 5));
 auto row_owner =
     uni20::make_tensor<uni20::RowMajor>(uni20::ones<double>(3, 4, 5));
 ```
 
-The layout is an optional compile-time policy because it changes the concrete
-return type. Without an explicit policy, `make_tensor` preserves a canonical
+`Tensor(view)` and `make_tensor(view)` both eagerly materialize a tensor view.
+Without an explicit policy, CTAD and `make_tensor` preserve a canonical
 `layout_left` or `layout_right` physical source. A generated or otherwise
 noncanonical source uses the ordinary `Tensor` default, `ColumnMajor`.
+`make_tensor<Layout>(view)` is the explicit spelling when the output layout
+must differ from the inferred layout; layout changes the concrete return type.
 Materialization traverses canonical output storage in its native order, so a
 generated source does not impose strided writes on the destination.
 
@@ -116,15 +119,16 @@ parents whose order must be selected explicitly.
 
 ### `reshape_inplace`
 
-`reshape_inplace` replaces a canonically laid-out owning `BasicTensor` mapping
-without moving or reallocating its storage. Because mdspan rank is part of the
-C++ type, the new shape must have the same rank. Existing standalone mdspan
+`reshape_inplace` replaces a canonically laid-out owning tensor mapping without
+moving or reallocating its storage. The overload is capability-constrained
+rather than tied to a concrete tensor spelling. Because mdspan rank is part of
+the C++ type, the new shape must have the same rank. Existing standalone mdspan
 descriptors retain their old mappings, as normal for copied view descriptors.
 
 ### Owning `reshape`
 
-Plain `reshape` always returns an owning tensor. Its canonical owning
-`BasicTensor` overload takes the source by value:
+Plain `reshape` always returns an owning tensor. Its canonical, storage-
+transfer-capable overload takes the source by value:
 
 - passing an lvalue creates an independent copy;
 - passing an owning rvalue grants permission to transfer its allocation;

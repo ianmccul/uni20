@@ -24,19 +24,22 @@ view, backend-dispatch, and temporary-allocation design.
 
 - The first synchronous dense implementation is concept-based rather than
   inheritance-based.
-- `BasicTensor` owns storage by composition and models `TensorView` and
+- `Tensor` is the concrete composition-based owner and models `TensorView` and
   `MutableTensorView`.
-- `BasicTensor<Element, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>`
-  is the configurable extents-based owner. `Tensor<T, Rank>` is the ordinary
-  column-major alias with runtime extents on every axis; named row-major and
-  strided aliases are also available. `DenseMatrix<T>` is its rank-two host
-  alias.
+- `Tensor<Element, Rank, StoragePolicy, LayoutPolicy, AccessorFactory>` is the
+  ordinary column-major-default class with runtime extents on every axis.
+  `BasicTensor<Element, Extents, ...>` is its extents-first alias for mixed or
+  static extents; named row-major and strided aliases are also available.
+  `DenseMatrix<T>` is the rank-two host alias.
+- `Tensor(view)` performs eager backend-dispatched materialization. Alias CTAD
+  such as `RowMajorTensor(view)` is available only when the inferred concrete
+  specialization belongs to that alias.
 - `make_tensor(view)` infers an owning host `Tensor` and deliberately does not
   preserve static input extents. `make_tensor<Layout>(view)` selects the result
   layout at compile time. Inference preserves a canonical physical source and
   otherwise uses the column-major `Tensor` default.
-- `conj(tensor)` is an implemented read-only lazy Tensor view. `copy(...)` and
-  `make_tensor(...)` are the explicit eager boundaries.
+- `conj(tensor)` is an implemented read-only lazy Tensor view. `Tensor(view)`,
+  `copy(...)`, and `make_tensor(...)` are the explicit eager boundaries.
 - `GeneratedTensor` is layout-neutral and does not model `StridedTensorView`.
   Its synthetic mapping exists only to deliver logical indices to the
   generator accessor.

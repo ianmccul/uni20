@@ -60,6 +60,9 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 ### 3.1 C++ Standard
 
 * Uni20 requires **C++23**.
+* Supported compiler floors are **GCC 13** and upstream **Clang 19**. Clang 18
+  is not supported because its C++20 alias-template CTAD implementation is
+  incomplete for Uni20's tensor aliases.
 * Use `int const& x` style — `const` follows the type.
 * When calling member functions from within other members, use `this->foo()` to clarify scope.
 * Use trailing underscores (`_`) on private member variables, except for simple aggregates.

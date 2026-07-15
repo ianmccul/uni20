@@ -7,11 +7,25 @@
 
 #include <array>
 #include <concepts>
+#include <stdexcept>
 #include <type_traits>
 
 namespace
 {
 using complex_type = uni20::complex<double>;
+
+class ErrorModeGuard {
+  public:
+    ErrorModeGuard() : previous_(trace::get_formatting_options().errors_abort())
+    {
+      trace::get_formatting_options().set_errors_abort(false);
+    }
+
+    ~ErrorModeGuard() { trace::get_formatting_options().set_errors_abort(previous_); }
+
+  private:
+    bool previous_;
+};
 
 void fill_complex_matrix(uni20::DenseMatrix<complex_type, uni20::RowMajor>& matrix)
 {
@@ -53,6 +67,33 @@ TEST(TensorCopyTest, MakeTensorInfersScalarExtentsAndSourceLayout)
   EXPECT_EQ(result.mapping().stride(1), 1);
 }
 
+TEST(TensorCopyTest, CtadMaterializesConjugatedViewWithMatchingAliases)
+{
+  using complex_type = uni20::complex<double>;
+  uni20::RowMajorTensor<complex_type, 2> input(2, 2);
+  input[0, 0] = complex_type{1.0, 2.0};
+  input[0, 1] = complex_type{3.0, 4.0};
+  input[1, 0] = complex_type{5.0, 6.0};
+  input[1, 1] = complex_type{7.0, 8.0};
+  auto conjugated = uni20::conj(input);
+
+  auto inferred = uni20::Tensor(conjugated);
+  auto named = uni20::RowMajorTensor(conjugated);
+  auto matrix = uni20::DenseMatrix(conjugated);
+  auto basic = uni20::BasicTensor(conjugated);
+
+  using expected_type = uni20::RowMajorTensor<complex_type, 2>;
+  static_assert(std::same_as<decltype(inferred), expected_type>);
+  static_assert(std::same_as<decltype(named), expected_type>);
+  static_assert(std::same_as<decltype(matrix), expected_type>);
+  static_assert(std::same_as<decltype(basic), expected_type>);
+  EXPECT_NE(inferred.storage().data(), input.storage().data());
+  EXPECT_EQ((inferred[0, 1]), (complex_type{3.0, -4.0}));
+  EXPECT_EQ((named[1, 0]), (complex_type{5.0, -6.0}));
+  EXPECT_EQ((matrix[0, 0]), (complex_type{1.0, -2.0}));
+  EXPECT_EQ((basic[1, 1]), (complex_type{7.0, -8.0}));
+}
+
 TEST(TensorCopyTest, MakeTensorAcceptsExplicitLayoutAndBareMdspanSelector)
 {
   uni20::DenseMatrix<complex_type, uni20::RowMajor> input(2, 2);
@@ -83,6 +124,11 @@ TEST(TensorCopyTest, MakeTensorMaterializesStaticExtentsAsGeneralPurposeTensor)
   EXPECT_EQ(result.cols(), 3);
   EXPECT_DOUBLE_EQ((result[0, 0]), 1.0);
   EXPECT_DOUBLE_EQ((result[1, 2]), 6.0);
+
+  fixed_tensor generated(uni20::ones<double>(2, 3));
+  static_assert(std::same_as<decltype(generated), fixed_tensor>);
+  EXPECT_DOUBLE_EQ((generated[0, 2]), 1.0);
+  EXPECT_DOUBLE_EQ((generated[1, 1]), 1.0);
 }
 
 TEST(TensorCopyTest, MakeTensorUsesDefaultLayoutForNoncanonicalSourceType)
@@ -101,6 +147,15 @@ TEST(TensorCopyTest, MakeTensorUsesDefaultLayoutForNoncanonicalSourceType)
   EXPECT_EQ(result.mapping().stride(1), 2);
   EXPECT_DOUBLE_EQ((result[0, 1]), 2.0);
   EXPECT_DOUBLE_EQ((result[1, 0]), 3.0);
+}
+
+TEST(TensorCopyTest, ExplicitStaticExtentsRejectMismatchedSourceShape)
+{
+  using fixed_extents = stdex::extents<uni20::index_type, 2, 3>;
+  using fixed_tensor = uni20::BasicTensor<double, fixed_extents>;
+  ErrorModeGuard const error_mode;
+
+  EXPECT_THROW(static_cast<void>(fixed_tensor(uni20::ones<double>(2, 4))), std::runtime_error);
 }
 
 TEST(TensorCopyTest, CpuReferenceCopySupportsScalarConversion)
