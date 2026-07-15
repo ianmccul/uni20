@@ -1,4 +1,4 @@
-# `src/uni20/common`
+# src/uni20/common
 
 This directory contains shared infrastructure used across most Uni20 modules:
 diagnostics, presentation, lightweight containers, and configured mdspan access.
@@ -9,6 +9,8 @@ high-level tensor, linalg, async, or symmetry layers.
 
 - `trace.hpp`, `trace_impl.hpp`, `trace_format_mdspan.hpp`: checked diagnostics
   and trace formatting.
+- `diagnostic_error.hpp`: structured user/runtime error base with source and
+  stacktrace context.
 - `gtest.hpp`: test helper integration.
 - `mdspan.hpp`: project include point for the Kokkos reference mdspan
   implementation in the `stdex` namespace.
@@ -26,3 +28,10 @@ high-level tensor, linalg, async, or symmetry layers.
   local configuration checks for namespace and indexing policy.
 - Keep diagnostics usable from low-level code. Avoid making common utilities
   depend on module-specific types.
+
+## Related Documentation
+
+- [Source tree map](../README.md)
+- [Diagnostics and presentation](../../../docs/diagnostics/README.md)
+- [Presentation formatting](../../../docs/diagnostics/presentation.md)
+- [Trace macros and failure policy](../../../docs/diagnostics/trace_macros.md)

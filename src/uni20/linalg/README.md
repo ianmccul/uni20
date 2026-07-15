@@ -1,4 +1,4 @@
-# `src/uni20/linalg`
+# src/uni20/linalg
 
 This directory contains dense linear-algebra front ends and operation
 descriptors. It is the policy layer that selects or describes dense operations
@@ -14,15 +14,19 @@ before they lower to backend wrappers and kernels.
 - `dispatch.hpp`: operation-tag backend-list dispatch helpers.
 - `dispatch_diagnostics.hpp`: disabled-by-default structured observation of
   ordered backend walks.
+- `kernel_attempt.hpp`, `dispatch_error.hpp`,
+  `dispatch_error_presentation.hpp`: clean backend-decline results and terminal
+  dispatch-failure diagnostics.
 - `async.hpp`: opt-in include point for scheduled `Async<Tensor>` operations.
-- `async/`: all-async Tensor wrappers over the synchronous operation layer.
-- `blas/`: mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
-- `ops/`: operation descriptors such as matrix-operation tags.
-- `backends/blas/`: operation-tag BLAS backend adapters.
-- `backends/cpu/`: generic CPU operation-tag kernels, dense matrix helpers, and
+- [`async/`](async/README.md): all-async Tensor wrappers over the synchronous operation layer.
+- [`blas/`](blas/README.md): mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
+- [`ops/`](ops/README.md): Tensor-facing dense operation wrappers.
+- [`backends/`](backends/README.md): operation-tag backend implementations.
+- [`backends/blas/`](backends/blas/README.md): operation-tag BLAS backend adapters.
+- [`backends/cpu/`](backends/cpu/README.md): generic CPU operation-tag kernels, dense matrix helpers, and
   the current dense matrix exponential implementation.
-- `backends/lapack/`: LAPACK-backed linalg entry points.
-- `backends/cusolver/`: cuSOLVER-backed linalg entry points.
+- [`backends/lapack/`](backends/lapack/README.md): LAPACK-backed linalg entry points.
+- [`backends/cusolver/`](backends/cusolver/README.md): cuSOLVER-backed linalg entry points.
 
 ## Notes
 
@@ -47,3 +51,10 @@ before they lower to backend wrappers and kernels.
   `try_kernel`; the former backend-tag selector hierarchy has been removed.
 - Scalar-generic code should use Uni20 scalar traits and numeric limits from
   `core/`.
+
+## Related Documentation
+
+- [Source tree map](../README.md)
+- [Linear algebra documentation](../../../docs/linalg/README.md)
+- [Kernel dispatch](../../../docs/architecture/kernel_dispatch.md)
+- [Tensor operations](../../../docs/tensor/operations.md)

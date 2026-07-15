@@ -1,4 +1,4 @@
-# `src/uni20/core`
+# src/uni20/core
 
 This directory contains the smallest Uni20 type and scalar foundations. It is
 intended to be cheap to include from any module and should not depend on higher
@@ -23,3 +23,9 @@ layers such as tensor, linalg, backend, async, or symmetry.
 - Spell complex scalar types as `uni20::complex<T>` in Uni20 code.
 - Use `uni20::numeric_limits<T>` in scalar-generic algorithms so non-standard
   scalar types have one project-level customization point.
+
+## Related Documentation
+
+- [Source tree map](../README.md)
+- [Scalar policy](../../../docs/tensor/scalar_policy.md)
+- [Build information](../../../docs/development/build_information.md)

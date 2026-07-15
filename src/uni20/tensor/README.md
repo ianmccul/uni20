@@ -1,4 +1,4 @@
-# `src/uni20/tensor`
+# src/uni20/tensor
 
 This directory contains the owning dense tensor and tensor-level concepts.
 Tensor objects own shape, layout, storage, and execution policy, while lower
@@ -84,8 +84,9 @@ kernels operate on resolved mdspans.
   backend-neutral when an operation also has concrete storage operands.
 - `reshape_view` is the strict no-copy operation, `reshape_inplace` changes an
   owning tensor descriptor without reallocating, and plain `reshape` returns
-  an owner with ordinary copy-or-move value semantics. See
-  `docs/tensor/creation_and_reshape.md` for the complete contracts.
+  an owner with ordinary copy-or-move value semantics. See [Tensor Creation and
+  Reshape](../../../docs/tensor/creation_and_reshape.md) for the complete
+  contracts.
 - Automatic `reshape_view` preserves a static `ColumnMajor` or `RowMajor`
   source layout. `reshape_view_left` and `reshape_view_right` explicitly select
   the interpretation of a compatible `layout_stride` mapping; plain reshape
@@ -96,7 +97,7 @@ kernels operate on resolved mdspans.
 - Tensor operations should lower to dense primitives only after storage, layout,
   backend, and any symmetry metadata have been resolved by the appropriate
   higher layer.
-- See `docs/tensor/operations.md` for the canonical operation vocabulary,
+- See [Tensor Operations](../../../docs/tensor/operations.md) for the canonical operation vocabulary,
   ownership/output contracts, and current Async support matrix.
 - `async::conj(Async<Tensor>)` returns an `Async<ConjugatedTensorView>` rather
   than materializing values. The alias remains a tensor-level object whose
@@ -105,3 +106,10 @@ kernels operate on resolved mdspans.
   structural alias on the parent's exact epoch queue. It may be formed before
   the parent value is constructed and resolves its mdspan only after the shared
   epoch is readable.
+
+## Related Documentation
+
+- [Source tree map](../README.md)
+- [Tensor documentation index](../../../docs/tensor/README.md)
+- [Async storage and alias lifetime](../../../docs/async/storage.md)
+- [Kernel dispatch](../../../docs/architecture/kernel_dispatch.md)

@@ -1,4 +1,4 @@
-# `src/uni20/krylov`
+# src/uni20/krylov
 
 This directory contains native matrix-free Krylov algorithms for Uni20. The
 solvers operate through a small vector-operation interface rather than through
@@ -30,6 +30,8 @@ norms and inner products.
 
 ## Design Notes
 
+- The [Krylov documentation index](../../../docs/krylov/README.md) separates
+  canonical behavior, numerical rationale, and exploratory policy.
 - Core Uni20 does not vendor ARPACK. The native solvers intentionally follow
   useful ARPACK/IRAM/IRLM ideas, but ARPACK comparisons and larger benchmark
   dashboards belong in a separate validation repository.
@@ -47,3 +49,5 @@ norms and inner products.
 Unit tests live under [`/tests/krylov`](../../../tests/krylov), with Matrix
 Market fixtures under `/tests/krylov/matrix_market`. Example drivers live under
 [`/examples/krylov`](../../../examples/krylov).
+
+Return to the [source tree map](../README.md).

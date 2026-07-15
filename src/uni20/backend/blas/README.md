@@ -1,8 +1,9 @@
-# `src/uni20/backend/blas`
+# src/uni20/backend/blas
 
-This directory contains BLAS/LAPACK discovery and backend-library integration.
-It owns vendor selection, integer-width configuration, link flags, and the raw
-BLAS interface targets used by higher layers.
+This directory contains BLAS discovery and backend-library integration. It owns
+vendor selection, integer-width configuration, link flags, and the raw BLAS
+interface targets used by higher layers. LAPACK provider declarations live in
+the sibling [`lapack/`](../lapack/README.md) directory.
 
 ## Contents
 
@@ -11,9 +12,10 @@ BLAS interface targets used by higher layers.
   signed BLAS integer ABI.
 - `blas_vendor.*`: detected BLAS vendor reporting.
 - `mplapack_binary128.hpp`: binary128 hooks for MPLAPACK-backed scalar support.
-- `reference/`: raw reference BLAS declarations and interface target.
-- `mkl/`: MKL-specific target wiring.
-- `openblas/`: OpenBLAS extension target wiring.
+- [`reference/`](reference/README.md): raw configured-provider BLAS declarations
+  and interface target.
+- [`mkl/`](mkl/README.md): MKL-specific target wiring.
+- [`openblas/`](openblas/README.md): OpenBLAS extension target wiring.
 
 ## Notes
 
@@ -28,3 +30,10 @@ BLAS interface targets used by higher layers.
   baseline ABI contract. Higher linalg wrappers should decline direct no-copy
   conjugate-only complex GEMM until a prepared wrapper materializes the
   conjugated operand or an explicit backend extension handles it.
+
+## Related Documentation
+
+- [Backend source layer](../README.md)
+- [BLAS/LAPACK mdspan wrappers](../../../../docs/linalg/blas_lapack_wrappers.md)
+- [Mdspan linear algebra dispatch](../../../../docs/linalg/mdspan_dispatch.md)
+- [MPLAPACK binary128](../../../../docs/linalg/mplapack_binary128.md)

@@ -1,4 +1,4 @@
-# `src/uni20/async`
+# src/uni20/async
 
 This directory contains Uni20's coroutine-based async runtime. The runtime owns
 task lifetime, dependency ordering, and buffer access discipline; library code
@@ -9,6 +9,7 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 - `async.hpp`, `async_impl.hpp`, `async_node.hpp`, `async_ops.hpp`,
   `async_traits.hpp`: async value wrappers, payload capabilities, and dependency
   graph plumbing.
+- `async_errors.hpp`: async cancellation and deadlock exception types.
 - `async_task.hpp`, `async_task_impl.hpp`, `async_task_promise.hpp`,
   `awaiters.hpp`, `cuda_task.hpp`: coroutine task wrappers and await support.
 - `scheduler.hpp`, `debug_scheduler.hpp`, `tbb_scheduler.hpp`,
@@ -33,5 +34,12 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 - `is_async_alias_v<T>` controls independent-value versus shared-alias identity.
   Assignment to an alias is available only through an ADL-visible
   `assign_through` operation. `WriteBuffer<T>` remains the single exclusive
-  epoch capability, with proxy operations constrained by the payload. See
-  `docs/async/storage.md` for the motivating tensor examples.
+  epoch capability, with proxy operations constrained by the payload.
+
+## Related Documentation
+
+- [Source tree map](../README.md)
+- [Async documentation index](../../../docs/async/README.md)
+- [Async storage and identity](../../../docs/async/storage.md)
+- [Exceptions and cancellation](../../../docs/async/exceptions_and_cancellation.md)
+- [Task registry diagnostics](../../../docs/async/task_registry_debug.md)

@@ -1,4 +1,4 @@
-# `src/uni20/storage`
+# src/uni20/storage
 
 This directory contains storage policy types used by tensor objects and views.
 Storage policies describe allocation, handles, default layouts, and default
@@ -8,6 +8,8 @@ backend tags without owning tensor mathematics.
 
 - `vectorstorage.hpp`: host `std::vector` storage policy with layout-stride
   mapping and a CPU default backend tag.
+- `generated_storage.hpp`: compact backend-neutral policy for read-only values
+  calculated by an accessor instead of stored element-by-element.
 
 ## Notes
 
@@ -18,3 +20,10 @@ backend tags without owning tensor mathematics.
   when combined with concrete storage operands.
 - Do not hide host/device transfers or synchronization inside storage policy
   hooks; higher layers need those effects to remain visible.
+
+## Related Documentation
+
+- [Source tree map](../README.md)
+- [Storage kind and location](../../../docs/architecture/storage_kind_and_location.md)
+- [Tensor creation and reshape](../../../docs/tensor/creation_and_reshape.md)
+- [Async storage and identity](../../../docs/async/storage.md)

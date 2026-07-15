@@ -1,8 +1,9 @@
-# `src/uni20/linalg/blas`
+# src/uni20/linalg/blas
 
 This directory contains the BLAS-compatible dense linalg adapter layer. It sits
-above the raw provider facades in `src/uni20/backend/blas` and
-`src/uni20/backend/lapack`, and below tensor-level linalg front ends.
+above the raw [BLAS](../../backend/blas/README.md) and
+[LAPACK](../../backend/lapack/README.md) provider facades, and below
+tensor-level linalg front ends.
 
 ## Contents
 
@@ -20,8 +21,8 @@ above the raw provider facades in `src/uni20/backend/blas` and
 
 ## Notes
 
-- Keep raw provider ABI details in `src/uni20/backend/blas` and
-  `src/uni20/backend/lapack`.
+- Keep raw provider ABI details in the [BLAS](../../backend/blas/README.md) and
+  [LAPACK](../../backend/lapack/README.md) source layers.
 - Keep tensor allocation, symmetry policy, and high-level fallback policy above
   this layer.
 - `try_*` direct wrappers decline layouts and ABI dimensions that cannot be
@@ -52,3 +53,10 @@ above the raw provider facades in `src/uni20/backend/blas` and
   multi-element view declines: the Fortran BLAS negative-increment convention
   adjusts its starting element and cannot use the mdspan logical-origin handle
   unchanged.
+
+## Related Documentation
+
+- [Linalg source map](../README.md)
+- [BLAS/LAPACK mdspan wrappers](../../../../docs/linalg/blas_lapack_wrappers.md)
+- [Mdspan linear algebra dispatch](../../../../docs/linalg/mdspan_dispatch.md)
+- [Mdspan source utilities](../../mdspan/README.md)

@@ -1,4 +1,4 @@
-# `src/uni20/linalg/async`
+# src/uni20/linalg/async
 
 This directory contains opt-in wrappers that schedule synchronous Tensor
 linear-algebra operations over `Async<Tensor>` values.
@@ -26,11 +26,15 @@ linear-algebra operations over `Async<Tensor>` values.
 - Queue identity is used only for the cheap, exact output/input alias check.
   General dependency cycles are handled by runtime deadlock diagnostics.
 
-See [`docs/async/kernel_authoring.md`](../../../../docs/async/kernel_authoring.md)
-for the complete authoring contract.
+See [Async Tensor Kernel Authoring](../../../../docs/async/kernel_authoring.md)
+for the complete authoring contract and [Tensor Operations](../../../../docs/tensor/operations.md)
+for the current async-support matrix.
 
-`examples/async/async_tbb_matrix_product_batch_example.cpp` demonstrates these
+[The async TBB matrix-product batch example](../../../../examples/async/async_tbb_matrix_product_batch_example.cpp)
+demonstrates these
 wrappers as a parallel batch on `TbbScheduler`, with configurable matrix size,
 product count, scheduler concurrency, precision, and backend selection. It uses
 the normal kernel-dispatch path for `fp32`, `fp64`, and configured `fp128`
 operands, and renders the validated result through the presentation layer.
+
+Return to the [linalg source map](../README.md).

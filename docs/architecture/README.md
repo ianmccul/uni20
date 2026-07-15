@@ -26,3 +26,11 @@ When the two dispatch documents overlap, `kernel_dispatch.md` defines the
 implemented dispatcher and `backend_dispatch.md` supplies rationale and future
 backend guidance. The execution and lowering documents are active design notes,
 not claims that CUDA or MPI execution is complete.
+
+## Source Navigation
+
+- [Source tree map](../../src/uni20/README.md)
+- [Dense linalg and dispatch](../../src/uni20/linalg/README.md)
+- [Async runtime](../../src/uni20/async/README.md)
+- [Provider backends](../../src/uni20/backend/README.md)
+- [Storage policies](../../src/uni20/storage/README.md)

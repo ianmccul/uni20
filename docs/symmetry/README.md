@@ -23,3 +23,9 @@ symmetry-aware block-sparse Tensor path.
 These design documents do not imply that a complete symmetry-aware
 `BlockTensor` or DMRG path exists on the current branch. Loss of symmetry
 metadata remains a correctness error, not an acceptable fallback.
+
+## Source Navigation
+
+- [Implemented symmetry foundations](../../src/uni20/symmetry/README.md)
+- [Low-level tensor kernels](../../src/uni20/kernel/README.md)
+- [Dense elementwise primitives](../../src/uni20/level1/README.md)

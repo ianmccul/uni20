@@ -1,4 +1,4 @@
-# `src/uni20/mdspan`
+# src/uni20/mdspan
 
 This directory contains Uni20's mdspan-facing structural utilities. It works
 with the Kokkos reference mdspan implementation through `stdex::` and provides
@@ -41,3 +41,10 @@ small helpers used by dense kernels and layout-aware algorithms.
 - `uni20::conj(span)` is the user-facing lazy conjugation helper. Its accessor
   follows the C++26 `std::linalg::conjugated_accessor` direction while keeping
   Uni20's value-level `conj` behavior for real scalar types.
+
+## Related Documentation
+
+- [Source tree map](../README.md)
+- [Tensor dispatch and view semantics](../../../docs/tensor/dispatch_and_view_semantics_draft.md)
+- [BLAS/LAPACK mdspan wrappers](../../../docs/linalg/blas_lapack_wrappers.md)
+- [Mdspan linear algebra dispatch](../../../docs/linalg/mdspan_dispatch.md)

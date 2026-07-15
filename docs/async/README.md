@@ -94,9 +94,11 @@ selected behavior, and source records the current implementation. If they
 disagree, report and resolve the conflict rather than silently treating one as
 authoritative. This docs set is kept aligned to:
 
-- `src/uni20/async/`
-- `tests/async/`
-- async examples under `examples/`
+- [Async runtime source map](../../src/uni20/async/README.md)
+- [Async linalg wrappers](../../src/uni20/linalg/async/README.md)
+- [Async tensor aliases](../../src/uni20/tensor/README.md)
+- [Async tests](../../tests/async/)
+- [Async examples](../../examples/async/)
 
 If semantics change, update docs in this folder in the same PR.
 

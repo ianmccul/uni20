@@ -1,4 +1,4 @@
-# `src/uni20/backend/lapack`
+# src/uni20/backend/lapack
 
 This directory contains raw and checked LAPACK wrappers for configured CPU
 providers. It is the external-library boundary below dense linalg policy.
@@ -16,9 +16,9 @@ conventional LAPACK provider may still link a BLAS implementation internally.
 - `lapack_error_presentation.hpp`: terminal and plain-text presentation for
   structured LAPACK failures.
 - `common.hpp`: shared LAPACK backend helpers.
-- `reference/`: ordinary LAPACK provider declarations grouped by routine
+- [`reference/`](reference/README.md): ordinary LAPACK provider declarations grouped by routine
   family.
-- `mplapack/`: MPLAPACK-backed declarations for supported extended-precision
+- [`mplapack/`](mplapack/README.md): MPLAPACK-backed declarations for supported extended-precision
   scalar types.
 
 ## Notes
@@ -48,3 +48,10 @@ arguments:
 These terminal failures are not kernel declines. Once a backend calls LAPACK,
 the operands may have been overwritten and dispatch must not continue to a
 later backend.
+
+## Related Documentation
+
+- [Backend source layer](../README.md)
+- [BLAS/LAPACK mdspan wrappers](../../../../docs/linalg/blas_lapack_wrappers.md)
+- [Mdspan linear algebra dispatch](../../../../docs/linalg/mdspan_dispatch.md)
+- [Trace macros and failure policy](../../../../docs/diagnostics/trace_macros.md)

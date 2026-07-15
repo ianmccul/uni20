@@ -1,4 +1,4 @@
-# `src/uni20/linalg/backends/lapack`
+# src/uni20/linalg/backends/lapack
 
 This directory contains LAPACK operation-tag backend adapters.
 
@@ -19,7 +19,7 @@ This directory contains LAPACK operation-tag backend adapters.
 
 - Each operation should provide `kernel_accepts_types(LapackBackend, ...)` and
   `try_kernel(LapackBackend, ...)`, then call the raw wrappers under
-  `src/uni20/backend/lapack`.
+  [the LAPACK provider layer](../../../backend/lapack/README.md).
 - Return a non-success `KernelAttempt` only for clean preflight decline. LAPACK
   `INFO` failures after a provider call are terminal and must not trigger
   fallback.
@@ -27,3 +27,9 @@ This directory contains LAPACK operation-tag backend adapters.
   mdspan. Unsupported layouts decline before any operand is modified.
 - Keep copy/materialization behavior explicit when adapting tensor views to
   LAPACK-compatible storage.
+
+## Related Documentation
+
+- [Linalg backend source map](../README.md)
+- [BLAS/LAPACK mdspan wrappers](../../../../../docs/linalg/blas_lapack_wrappers.md)
+- [Mdspan linear algebra dispatch](../../../../../docs/linalg/mdspan_dispatch.md)

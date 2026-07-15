@@ -21,3 +21,10 @@ front-end operation semantics.
 Async ownership and alias lifetime are documented in
 [Async Storage](../async/storage.md). Backend execution starts at the
 [Kernel Dispatch](../architecture/kernel_dispatch.md) layer.
+
+## Source Navigation
+
+- [Tensor values, views, and operations](../../src/uni20/tensor/README.md)
+- [Storage policies](../../src/uni20/storage/README.md)
+- [Mdspan concepts and accessors](../../src/uni20/mdspan/README.md)
+- [Scalar foundations](../../src/uni20/core/README.md)

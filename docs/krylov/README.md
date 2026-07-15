@@ -24,3 +24,10 @@ validation evidence, and supporting estimator rationale.
 - [Real Nonsymmetric Arnoldi for iDMRG](real_nonsymmetric_idmrg_policy.md)
   records exploratory policy for real nonsymmetric transfer problems. It is not
   a statement that all proposed result forms are implemented.
+
+## Source Navigation
+
+- [Krylov source map](../../src/uni20/krylov/README.md)
+- [Dense linalg source map](../../src/uni20/linalg/README.md)
+- [Krylov tests](../../tests/krylov/)
+- [Krylov examples](../../examples/krylov/)

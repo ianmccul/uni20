@@ -23,3 +23,12 @@ evidence for exact backend coverage.
   lowering trace-like contractions.
 - [Tensor-Network Linear Algebra API Survey](tensor_network_api_survey.md) is
   background research, not a Uni20 API contract.
+
+## Source Navigation
+
+- [Dense linalg front ends and dispatch](../../src/uni20/linalg/README.md)
+- [Tensor-facing linalg operations](../../src/uni20/linalg/ops/README.md)
+- [BLAS descriptor lowering](../../src/uni20/linalg/blas/README.md)
+- [Operation-tag backends](../../src/uni20/linalg/backends/README.md)
+- [Raw BLAS providers](../../src/uni20/backend/blas/README.md)
+- [Raw LAPACK providers](../../src/uni20/backend/lapack/README.md)

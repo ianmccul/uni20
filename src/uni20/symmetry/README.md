@@ -1,4 +1,4 @@
-# `src/uni20/symmetry`
+# src/uni20/symmetry
 
 This directory contains quantum-number and block-sparse symmetry infrastructure.
 These types define which sectors and blocks exist; losing this metadata changes
@@ -19,3 +19,10 @@ the mathematical problem and is treated as a correctness bug.
 - Dense projections are allowed only as explicitly named diagnostics or
   reference conversions. They must not silently feed back into a symmetry-aware
   computation.
+
+## Related Documentation
+
+- [Source tree map](../README.md)
+- [Symmetry and block-sparse documentation](../../../docs/symmetry/README.md)
+- [Quantum numbers and symmetry](../../../docs/symmetry/qnum.md)
+- [Raw primitives and symmetric lowering](../../../docs/symmetry/raw_primitives_and_lowering.md)

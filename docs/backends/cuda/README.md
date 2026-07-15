@@ -19,3 +19,9 @@ Tensor operations.
   constraints.
 - [GPU Landscape](landscape.md) surveys tensor-network GPU libraries and
   implementation choices.
+
+## Source Navigation
+
+- [CUDA provider scaffolding](../../../src/uni20/backend/cuda/README.md)
+- [cuSOLVER provider scaffolding](../../../src/uni20/backend/cusolver/README.md)
+- [cuSOLVER operation-tag backend](../../../src/uni20/linalg/backends/cusolver/README.md)

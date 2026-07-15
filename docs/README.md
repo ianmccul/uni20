@@ -16,6 +16,8 @@ material.
   work.
 - [Contributor Guide](CONTRIBUTING.md): development workflow, evidence, and
   review expectations.
+- [Source Tree Map](../src/uni20/README.md): module ownership and local source
+  navigation.
 
 ## Document Status
 

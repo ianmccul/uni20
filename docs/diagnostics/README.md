@@ -18,3 +18,9 @@ diagnostics, and Graphviz output.
   and remaining sink, Python, async-queue, and context work.
 - [Diagnostics and Logging](logging_plan.md) is a design note for durable and
   structured diagnostics beyond terminal display.
+
+## Source Navigation
+
+- [Common diagnostics and presentation](../../src/uni20/common/README.md)
+- [Async task-registry diagnostics](../../src/uni20/async/README.md)
+- [Linalg dispatch diagnostics](../../src/uni20/linalg/README.md)

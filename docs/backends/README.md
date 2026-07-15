@@ -11,3 +11,10 @@ These directories describe planned heterogeneous execution unless a document
 explicitly identifies an implemented CPU/provider adapter. The current working
 backend path is summarized by [Kernel Dispatch](../architecture/kernel_dispatch.md)
 and [Linear Algebra](../linalg/README.md).
+
+## Source Navigation
+
+- [Provider wrapper source map](../../src/uni20/backend/README.md)
+- [Operation-tag backend source map](../../src/uni20/linalg/backends/README.md)
+
+There is no MPI source subtree yet; the MPI documentation is forward design.

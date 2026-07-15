@@ -1,4 +1,4 @@
-# `src/uni20/linalg/backends/cusolver`
+# src/uni20/linalg/backends/cusolver
 
 This directory is reserved for cuSOLVER operation-tag backend adapters.
 
@@ -6,4 +6,11 @@ This directory is reserved for cuSOLVER operation-tag backend adapters.
 
 - Gate operations through `kernel_accepts_types` and `try_kernel` before
   committing to a cuSOLVER path.
-- Keep CUDA library ABI details in `src/uni20/backend/cusolver`.
+- Keep CUDA library ABI details in the
+  [cuSOLVER provider layer](../../../backend/cusolver/README.md).
+
+## Related Documentation
+
+- [Linalg backend source map](../README.md)
+- [cuSOLVER architecture](../../../../../docs/backends/cuda/cusolver.md)
+- [CUDA runtime resolution](../../../../../docs/backends/cuda/runtime_resolution.md)

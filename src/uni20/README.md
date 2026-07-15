@@ -1,4 +1,4 @@
-# `src/uni20`
+# src/uni20
 
 This directory contains the C++ source for the Uni20 library. Headers under
 module subdirectories are developer-facing unless the owning module documents a
@@ -7,31 +7,32 @@ rather than leaking through the top-level namespace.
 
 ## Directory Map
 
-Most active source directories should have a short local `README.md` that
+Every active tracked source directory has a short local `README.md` that
 explains ownership, important entry points, and where not to put cross-layer
 logic. Keep these files brief; detailed design notes belong in `/docs`.
 
-- `core/`: scalar concepts, scalar aliases, scalar traits, numeric limits, and
+- [`core/`](core/README.md): scalar concepts, scalar aliases, scalar traits, numeric limits, and
   small math/type utilities.
-- `common/`: diagnostics, trace/check infrastructure, presentation helpers,
+- [`common/`](common/README.md): diagnostics, trace/check infrastructure, presentation helpers,
   `stdex::mdspan` integration, and common containers/utilities.
-- `mdspan/`: structural mdspan concepts, stride helpers, iteration plans, and
+- [`mdspan/`](mdspan/README.md): structural mdspan concepts, stride helpers, iteration plans, and
   layout utilities used by dense leaf kernels.
-- `backend/`: backend-library wrappers and manifests. Current subdirectories
+- [`backend/`](backend/README.md): backend-library wrappers and manifests. Current subdirectories
   include BLAS/LAPACK support, CUDA placeholders, and cuSOLVER wiring.
-- `kernel/`: low-level tensor kernel entry points over resolved views. Kernel
+- [`kernel/`](kernel/README.md): low-level tensor kernel entry points over resolved views. Kernel
   code should remain below tensor/symmetry semantics.
-- `level1/`: dense elementwise and reduction-style primitives such as assign,
+- [`level1/`](level1/README.md): dense elementwise and reduction-style primitives such as assign,
   unary apply, zip transform, and sum.
-- `linalg/`: dense linear-algebra front ends and operation descriptors built on
+- [`linalg/`](linalg/README.md): dense linear-algebra front ends and operation descriptors built on
   the backend/kernel layers.
-- `krylov/`: matrix-free Krylov eigensolvers, dense projected subspace helpers,
+- [`krylov/`](krylov/README.md): matrix-free Krylov eigensolvers, dense projected subspace helpers,
   and Krylov/Taylor exponential-action algorithms.
-- `async/`: epoch-ordered async runtime, schedulers, tasks, buffers, and async
+- [`async/`](async/README.md): epoch-ordered async runtime, schedulers, tasks, buffers, and async
   value/storage machinery.
-- `storage/`: storage abstractions used below tensor views and tensor objects.
-- `tensor/`: basic tensor, tensor view, and layout types.
-- `symmetry/`: quantum-number, block-space, U(1), and symmetry-factor
+- [`storage/`](storage/README.md): storage abstractions used below tensor views and tensor objects.
+- [`tensor/`](tensor/README.md): owning dense tensors, tensor views, factories,
+  and front-end operations.
+- [`symmetry/`](symmetry/README.md): quantum-number, block-space, U(1), and symmetry-factor
   infrastructure.
 
 ## Layering Notes

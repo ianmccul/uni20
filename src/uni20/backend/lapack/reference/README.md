@@ -1,4 +1,4 @@
-# `src/uni20/backend/lapack/reference`
+# src/uni20/backend/lapack/reference
 
 This directory contains declarations for the ordinary configured LAPACK
 provider.
@@ -14,3 +14,8 @@ provider.
 
 - Declarations should stay close to the provider ABI.
 - Checked wrappers and cross-provider selection live in `../lapack.hpp`.
+
+## Related Documentation
+
+- [LAPACK provider source layer](../README.md)
+- [BLAS/LAPACK mdspan wrappers](../../../../../docs/linalg/blas_lapack_wrappers.md)

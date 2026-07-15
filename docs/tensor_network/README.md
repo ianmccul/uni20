@@ -23,3 +23,7 @@ The R/A/B/C executables and fixture tooling described by the background notes
 are not runnable targets on the current main branch. Their durable architectural
 conclusions feed the [architecture](../architecture/README.md) and
 [symmetry](../symmetry/README.md) designs.
+
+Relevant source foundations are the [dense Tensor layer](../../src/uni20/tensor/README.md),
+[symmetry metadata](../../src/uni20/symmetry/README.md), and
+[low-level tensor kernels](../../src/uni20/kernel/README.md).

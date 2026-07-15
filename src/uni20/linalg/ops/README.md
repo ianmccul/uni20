@@ -1,4 +1,4 @@
-# `src/uni20/linalg/ops`
+# src/uni20/linalg/ops
 
 This directory contains public dense-matrix linalg operation wrappers.
 Operation values and diagnostic names are defined centrally in
@@ -37,3 +37,10 @@ Operation values and diagnostic names are defined centrally in
 - Bare mdspans call `dispatch_kernel(selector, operation, operands...)`
   directly; do not add operation-specific aliases for generic dispatch.
 - Keep backend-specific implementation details in `../backends`.
+
+## Related Documentation
+
+- [Linalg source map](../README.md)
+- [Tensor operations](../../../../docs/tensor/operations.md)
+- [Mdspan linear algebra dispatch](../../../../docs/linalg/mdspan_dispatch.md)
+- [Kernel dispatch](../../../../docs/architecture/kernel_dispatch.md)
