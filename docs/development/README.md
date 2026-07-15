@@ -12,8 +12,8 @@ documentation tooling guides.
 
 Run `scripts/check-docs.py` after adding, moving, or renaming documentation. It
 checks the topic hierarchy, subsystem indexes, local links, code fences,
-headings, repository-root `docs/...` references, and source-directory README
-coverage/navigation.
+headings, repository-root `docs/...` references, and source and example
+directory README coverage/navigation.
 
 Repository-wide coding and correctness rules remain in
 [`AGENTS.md`](../../AGENTS.md). Machine-specific build trees and compiler paths

@@ -125,8 +125,8 @@ tables, and examples.
 ## 7. Validation
 
 Validate the Markdown hierarchy, local links, subsystem indexes, explicit
-repository-root references, and source-directory README navigation before
-generating the API site:
+repository-root references, and source and example directory README navigation
+before generating the API site:
 
 ```bash
 scripts/check-docs.py

@@ -24,3 +24,5 @@ diagnostics, and Graphviz output.
 - [Common diagnostics and presentation](../../src/uni20/common/README.md)
 - [Async task-registry diagnostics](../../src/uni20/async/README.md)
 - [Linalg dispatch diagnostics](../../src/uni20/linalg/README.md)
+- [Presentation examples](../../examples/presentation/README.md)
+- [Common diagnostic examples](../../examples/common/README.md)

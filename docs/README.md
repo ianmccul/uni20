@@ -18,6 +18,8 @@ material.
   review expectations.
 - [Source Tree Map](../src/uni20/README.md): module ownership and local source
   navigation.
+- [Examples Index](../examples/README.md): runnable demonstrations, probes,
+  diagnostics, and retained experiments.
 
 ## Document Status
 

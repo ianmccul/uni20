@@ -13,6 +13,7 @@ import sys
 REPOSITORY = Path(__file__).resolve().parents[1]
 DOCS = REPOSITORY / "docs"
 SOURCE = REPOSITORY / "src" / "uni20"
+EXAMPLES = REPOSITORY / "examples"
 
 TOP_LEVEL_MARKDOWN = {
     "README.md",
@@ -56,15 +57,19 @@ def source_readmes() -> list[Path]:
     return sorted(SOURCE.rglob("README.md"))
 
 
+def example_readmes() -> list[Path]:
+    return sorted(EXAMPLES.rglob("README.md"))
+
+
 def tracked_existing_files() -> list[Path]:
     output = subprocess.check_output(["git", "ls-files", "-z"], cwd=REPOSITORY)
     paths = [REPOSITORY / value for value in output.decode().split("\0") if value]
     return [path for path in paths if path.is_file()]
 
 
-def tracked_source_directories() -> set[Path]:
+def tracked_directories(root: Path) -> set[Path]:
     output = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", repository_relative(SOURCE).as_posix()],
+        ["git", "ls-files", "-z", "--", repository_relative(root).as_posix()],
         cwd=REPOSITORY,
     )
     directories: set[Path] = set()
@@ -72,9 +77,9 @@ def tracked_source_directories() -> set[Path]:
         if not value:
             continue
         directory = (REPOSITORY / value).parent
-        while directory == SOURCE or SOURCE in directory.parents:
+        while directory == root or root in directory.parents:
             directories.add(directory)
-            if directory == SOURCE:
+            if directory == root:
                 break
             directory = directory.parent
     return directories
@@ -161,8 +166,10 @@ def validate_doc_indexes(problems: list[str]) -> None:
                 )
 
 
-def validate_source_indexes(readmes: list[Path], problems: list[str]) -> None:
-    directories = tracked_source_directories()
+def validate_directory_indexes(
+    root: Path, readmes: list[Path], kind: str, problems: list[str]
+) -> None:
+    directories = tracked_directories(root)
     readme_set = set(readmes)
 
     for directory in sorted(directories):
@@ -190,7 +197,9 @@ def validate_source_indexes(readmes: list[Path], problems: list[str]) -> None:
                 has_docs_link = True
                 break
         if not has_docs_link:
-            problems.append(f"{repository_relative(index)}: no link to relevant docs")
+            problems.append(
+                f"{repository_relative(index)}: no link to relevant docs from {kind} index"
+            )
 
 
 def validate_root_references(paths: list[Path], problems: list[str]) -> None:
@@ -213,16 +222,18 @@ def main() -> int:
     problems: list[str] = []
     documents = markdown_files()
     source_indexes = source_readmes()
+    example_indexes = example_readmes()
 
     top_level = {path.name for path in DOCS.glob("*.md")}
     unexpected = sorted(top_level - TOP_LEVEL_MARKDOWN)
     for name in unexpected:
         problems.append(f"docs/{name}: unclassified top-level Markdown document")
 
-    for path in documents + source_indexes:
+    for path in documents + source_indexes + example_indexes:
         validate_markdown(path, problems)
     validate_doc_indexes(problems)
-    validate_source_indexes(source_indexes, problems)
+    validate_directory_indexes(SOURCE, source_indexes, "source", problems)
+    validate_directory_indexes(EXAMPLES, example_indexes, "example", problems)
 
     root_reference_paths = set(tracked_existing_files()) | set(documents)
     validate_root_references(sorted(root_reference_paths), problems)
@@ -235,8 +246,8 @@ def main() -> int:
 
     print(
         f"Documentation validation passed: {len(documents)} Markdown files, "
-        f"{len(source_indexes)} source indexes, local links, hierarchy, and "
-        "repository-root references checked."
+        f"{len(source_indexes)} source indexes, {len(example_indexes)} example "
+        "indexes, local links, hierarchy, and repository-root references checked."
     )
     return 0
 

@@ -37,4 +37,4 @@ contract.
 - [Krylov source map](../../src/uni20/krylov/README.md)
 - [Dense linalg source map](../../src/uni20/linalg/README.md)
 - [Krylov tests](../../tests/krylov/)
-- [Krylov examples](../../examples/krylov/)
+- [Krylov examples](../../examples/krylov/README.md)

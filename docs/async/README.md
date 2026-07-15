@@ -62,7 +62,8 @@ The docs are split into two groups:
 
 ## Example Programs
 
-Runnable examples in `examples/` that pair well with this docs set:
+The [Async Examples Index](../../examples/async/README.md) classifies every
+program and identifies deliberate failure paths. Frequently used examples are:
 
 - `examples/async/async_buffer_semantics_example.cpp`: read/write ownership, release ordering, cancellation, and exception routing
 - `examples/async/async_buffer_await_paths_example.cpp`: borrowed and owning value, storage, and consuming await paths

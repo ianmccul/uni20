@@ -35,3 +35,4 @@ evidence for exact backend coverage.
 - [Operation-tag backends](../../src/uni20/linalg/backends/README.md)
 - [Raw BLAS providers](../../src/uni20/backend/blas/README.md)
 - [Raw LAPACK providers](../../src/uni20/backend/lapack/README.md)
+- [Linear algebra examples](../../examples/linalg/README.md)

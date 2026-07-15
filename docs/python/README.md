@@ -12,3 +12,6 @@ compiled backend must become a Python exception.
 Binding source lives under [`bindings/python`](../../bindings/python/); Tensor
 and scalar behavior originates in the [Tensor source layer](../../src/uni20/tensor/README.md)
 and [scalar foundations](../../src/uni20/core/README.md).
+
+The [Python example](../../examples/python/README.md) demonstrates loading the
+built module and rendering build information.
