@@ -62,6 +62,17 @@ void async_initialize(Async<T>& destination, U&& source);
 template <typename Alias, typename Parent, typename... Args>
 [[nodiscard]] Async<Alias> make_async_alias(Async<Parent> const& parent, Args&&... args);
 
+/// \brief Construct an async alias from a mutable parent descriptor.
+/// \details The alias constructor receives the address reserved for the parent
+///          value followed by \p args. The address may identify unconstructed
+///          storage and must not be dereferenced before the shared epoch is readable.
+template <typename Alias, typename Parent, typename... Args>
+[[nodiscard]] Async<Alias> make_async_alias_from_parent(Async<Parent>& parent, Args&&... args);
+
+/// \brief Construct a read-only async alias from a parent descriptor.
+template <typename Alias, typename Parent, typename... Args>
+[[nodiscard]] Async<Alias> make_async_alias_from_parent(Async<Parent> const& parent, Args&&... args);
+
 /// \brief Async<T> is a container for coroutine-safe asynchronous read/write.
 ///
 /// `Async<T>` stores a value of type `T` and mediates access through
@@ -484,6 +495,10 @@ template <typename T> class Async {
     friend class ReverseValue<T>;
     template <typename Alias, typename Parent, typename... Args>
     friend Async<Alias> make_async_alias(Async<Parent> const& parent, Args&&... args);
+    template <typename Alias, typename Parent, typename... Args>
+    friend Async<Alias> make_async_alias_from_parent(Async<Parent>& parent, Args&&... args);
+    template <typename Alias, typename Parent, typename... Args>
+    friend Async<Alias> make_async_alias_from_parent(Async<Parent> const& parent, Args&&... args);
 
     mutable shared_storage<T> storage_;
     /// \brief Mutable timeline shared by a parent `Async` and all of its aliases.
@@ -497,6 +512,25 @@ template <typename Alias, typename Parent, typename... Args>
 {
   static_assert(is_async_alias_v<Alias>, "Async aliases require is_async_alias_v<Alias>");
   return Async<Alias>(make_shared_storage_alias<Alias>(parent.storage_, std::forward<Args>(args)...), parent.queue_);
+}
+
+template <typename Alias, typename Parent, typename... Args>
+[[nodiscard]] Async<Alias> make_async_alias_from_parent(Async<Parent>& parent, Args&&... args)
+{
+  static_assert(is_async_alias_v<Alias>, "Async aliases require is_async_alias_v<Alias>");
+  return Async<Alias>(
+      make_shared_storage_alias<Alias>(parent.storage_, parent.storage_.storage_address(), std::forward<Args>(args)...),
+      parent.queue_);
+}
+
+template <typename Alias, typename Parent, typename... Args>
+[[nodiscard]] Async<Alias> make_async_alias_from_parent(Async<Parent> const& parent, Args&&... args)
+{
+  static_assert(is_async_alias_v<Alias>, "Async aliases require is_async_alias_v<Alias>");
+  return Async<Alias>(make_shared_storage_alias<Alias>(parent.storage_,
+                                                       std::as_const(parent.storage_).storage_address(),
+                                                       std::forward<Args>(args)...),
+                      parent.queue_);
 }
 
 /// \brief Convenience helper that forwards to Async<T>::read().

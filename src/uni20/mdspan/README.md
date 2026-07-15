@@ -10,6 +10,8 @@ small helpers used by dense kernels and layout-aware algorithms.
   properties.
 - `conjugate_accessor.hpp`: read-only mdspan accessor adaptor and `conj(...)`
   view helper for lazy complex conjugation.
+- `generated_accessor.hpp` and `generated_layout.hpp`: read-only generated
+  values with synthetic, non-strided logical offset mapping.
 - `strides.hpp`: stride inspection and stride utility helpers.
 - `iteration_plan.hpp`: iteration planning over extents and layouts.
 - `zip_layout.hpp`: helpers for matching or combining view layouts.

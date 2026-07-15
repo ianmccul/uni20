@@ -16,16 +16,35 @@ namespace
 using mutable_matrix = uni20::DenseMatrix<double, uni20::RowMajor>;
 using mutable_reshape = decltype(uni20::reshape_view(std::declval<mutable_matrix&>(), 3, 2));
 using const_reshape = decltype(uni20::reshape_view(std::declval<mutable_matrix const&>(), 3, 2));
+using strided_matrix = uni20::StridedTensor<double, 2>;
+using generated_matrix = decltype(uni20::ones<double>(2, 3));
+using const_strided_matrix = uni20::ConstTensorView<strided_matrix>;
 
 static_assert(uni20::MutableRankedTensorView<mutable_reshape, 2>);
 static_assert(uni20::RankedTensorView<const_reshape, 2>);
 static_assert(!uni20::MutableTensorView<const_reshape>);
 static_assert(!uni20::OwningTensor<mutable_reshape>);
+static_assert(std::same_as<typename mutable_reshape::layout_type, uni20::RowMajor>);
 
 template <class Tensor>
 concept CanReshapeViewRvalue = requires(Tensor tensor) { uni20::reshape_view(std::move(tensor), 6); };
 
 static_assert(!CanReshapeViewRvalue<mutable_matrix>);
+
+template <class Tensor>
+concept CanAutomaticallyReshapeView = requires(Tensor& tensor) { uni20::reshape_view(tensor, 6); };
+
+static_assert(!CanAutomaticallyReshapeView<strided_matrix>);
+static_assert(!CanAutomaticallyReshapeView<generated_matrix>);
+
+template <class Tensor>
+concept CanImplicitlyReshapeValue = requires(Tensor const& tensor) { uni20::reshape(tensor, 6); };
+
+template <class Tensor>
+concept CanExplicitlyReshapeValue = requires(Tensor const& tensor) { uni20::reshape<uni20::ColumnMajor>(tensor, 6); };
+
+static_assert(!CanImplicitlyReshapeValue<const_strided_matrix>);
+static_assert(CanExplicitlyReshapeValue<const_strided_matrix>);
 
 class ErrorModeGuard {
   public:
@@ -51,6 +70,7 @@ TEST(TensorReshapeTest, RowMajorViewAliasesSourceAcrossRanks)
 
   auto reshaped = uni20::reshape_view(input, 3, 2);
 
+  static_assert(std::same_as<typename decltype(reshaped)::layout_type, uni20::RowMajor>);
   EXPECT_DOUBLE_EQ((reshaped[0, 0]), 1.0);
   EXPECT_DOUBLE_EQ((reshaped[1, 0]), 3.0);
   EXPECT_DOUBLE_EQ((reshaped[2, 1]), 6.0);
@@ -70,12 +90,30 @@ TEST(TensorReshapeTest, ColumnMajorViewPreservesColumnMajorSequence)
 
   auto reshaped = uni20::reshape_view(input, 3, 2);
 
+  static_assert(std::same_as<typename decltype(reshaped)::layout_type, uni20::ColumnMajor>);
   EXPECT_DOUBLE_EQ((reshaped[0, 0]), 1.0);
   EXPECT_DOUBLE_EQ((reshaped[1, 0]), 4.0);
   EXPECT_DOUBLE_EQ((reshaped[2, 0]), 2.0);
   EXPECT_DOUBLE_EQ((reshaped[0, 1]), 5.0);
   EXPECT_DOUBLE_EQ((reshaped[1, 1]), 3.0);
   EXPECT_DOUBLE_EQ((reshaped[2, 1]), 6.0);
+}
+
+TEST(TensorReshapeTest, NestedViewPreservesStaticColumnMajorOrderAcrossSingletonExtent)
+{
+  uni20::DenseMatrix<double> input(2, 2);
+  input[0, 0] = 1.0;
+  input[0, 1] = 2.0;
+  input[1, 0] = 3.0;
+  input[1, 1] = 4.0;
+
+  auto flattened = uni20::reshape_view(input, 1, 4);
+  auto restored = uni20::reshape_view(flattened, 2, 2);
+
+  EXPECT_DOUBLE_EQ((restored[0, 0]), 1.0);
+  EXPECT_DOUBLE_EQ((restored[0, 1]), 2.0);
+  EXPECT_DOUBLE_EQ((restored[1, 0]), 3.0);
+  EXPECT_DOUBLE_EQ((restored[1, 1]), 4.0);
 }
 
 TEST(TensorReshapeTest, ViewInfersOneExtent)
@@ -104,24 +142,31 @@ TEST(TensorReshapeTest, ViewInfersZeroExtentForEmptySource)
   EXPECT_EQ(reshaped.extent(2), 3);
 }
 
-TEST(TensorReshapeTest, ViewPreservesGeneratedAccessorSemantics)
+TEST(TensorReshapeTest, ExplicitViewSelectsOrderForRankOneStridedSource)
 {
-  auto generated = uni20::eye<double>(2, 3);
-  auto reshaped = uni20::reshape_view(generated, 3, 2);
+  uni20::StridedTensor<int, 1> input(6);
+  for (uni20::index_type i = 0; i < 6; ++i)
+    input[i] = static_cast<int>(i + 1);
 
-  EXPECT_DOUBLE_EQ((reshaped[0, 0]), 1.0);
-  EXPECT_DOUBLE_EQ((reshaped[0, 1]), 0.0);
-  EXPECT_DOUBLE_EQ((reshaped[2, 0]), 1.0);
+  auto left = uni20::reshape_view_left(input, 2, 3);
+  auto right = uni20::reshape_view_right(input, 2, 3);
+
+  static_assert(std::same_as<typename decltype(left)::layout_type, uni20::ColumnMajor>);
+  static_assert(std::same_as<typename decltype(right)::layout_type, uni20::RowMajor>);
+  EXPECT_EQ((left[0, 0]), 1);
+  EXPECT_EQ((left[1, 0]), 2);
+  EXPECT_EQ((right[0, 0]), 1);
+  EXPECT_EQ((right[0, 1]), 2);
 }
 
 TEST(TensorReshapeTest, ViewAcceptsArbitrarySingletonStrideInContiguousMapping)
 {
-  using tensor_type = uni20::Tensor<int, 2>;
+  using tensor_type = uni20::StridedTensor<int, 2>;
   tensor_type input(typename tensor_type::extents_type{1, 6}, std::array<uni20::index_type, 2>{99, 1});
   for (uni20::index_type i = 0; i < 6; ++i)
     input.storage()[static_cast<std::size_t>(i)] = static_cast<int>(i + 1);
 
-  auto reshaped = uni20::reshape_view(input, 2, 3);
+  auto reshaped = uni20::reshape_view_right(input, 2, 3);
 
   EXPECT_EQ((reshaped[0, 0]), 1);
   EXPECT_EQ((reshaped[1, 2]), 6);
@@ -134,9 +179,9 @@ TEST(TensorReshapeTest, ViewRejectsInvalidShapeAndNoncontiguousMapping)
   EXPECT_THROW(static_cast<void>(uni20::reshape_view(contiguous, 5)), std::runtime_error);
   EXPECT_THROW(static_cast<void>(uni20::reshape_view(contiguous, -1, -1)), std::runtime_error);
 
-  using tensor_type = uni20::Tensor<int, 2>;
+  using tensor_type = uni20::StridedTensor<int, 2>;
   tensor_type noncontiguous(typename tensor_type::extents_type{2, 3}, std::array<uni20::index_type, 2>{4, 1});
-  EXPECT_THROW(static_cast<void>(uni20::reshape_view(noncontiguous, 6)), std::runtime_error);
+  EXPECT_THROW(static_cast<void>(uni20::reshape_view_right(noncontiguous, 6)), std::runtime_error);
 }
 
 TEST(TensorReshapeTest, InplaceReshapeKeepsAllocationAndChangesDescriptor)
@@ -194,6 +239,17 @@ TEST(TensorReshapeTest, OwningReshapeMaterializesGeneratedInput)
   auto result = uni20::reshape(uni20::eye<double>(2, 3), 3, 2);
 
   static_assert(uni20::OwningTensor<decltype(result)>);
+  static_assert(std::same_as<typename decltype(result)::layout_type, uni20::ColumnMajor>);
+  EXPECT_DOUBLE_EQ((result[0, 0]), 1.0);
+  EXPECT_DOUBLE_EQ((result[0, 1]), 1.0);
+  EXPECT_DOUBLE_EQ((result[2, 0]), 0.0);
+}
+
+TEST(TensorReshapeTest, OwningGeneratedReshapeAcceptsExplicitLayout)
+{
+  auto result = uni20::reshape<uni20::RowMajor>(uni20::eye<double>(2, 3), 3, 2);
+
+  static_assert(std::same_as<typename decltype(result)::layout_type, uni20::RowMajor>);
   EXPECT_DOUBLE_EQ((result[0, 0]), 1.0);
   EXPECT_DOUBLE_EQ((result[0, 1]), 0.0);
   EXPECT_DOUBLE_EQ((result[2, 0]), 1.0);

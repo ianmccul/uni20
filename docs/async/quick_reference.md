@@ -34,6 +34,9 @@ Async aliases:
 
 - `make_async_alias<View>(parent, args...)` constructs a durable view descriptor
   that retains `parent` and shares its exact epoch queue
+- `make_async_alias_from_parent<View>(parent, args...)` also passes the parent's
+  stable reserved address to a descriptor that resolves only after the shared
+  epoch is readable; `async::reshape_view` uses this form
 - alias descriptor types declare `async_alias_tag`, making `Async<View>` copies
   structural handle copies
 - ordinary `Async<T>` copies remain scheduled value copies

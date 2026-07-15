@@ -39,21 +39,22 @@ void copy_element(OutputMdspan& output, InputMdspan& input,
   output.operator[](index[Axis]...) = input.operator[](static_cast<input_index>(index[Axis])...);
 }
 
-template <std::size_t Axis, class OutputMdspan, class InputMdspan>
+template <std::size_t Depth, bool ColumnMajor, class OutputMdspan, class InputMdspan>
 void copy_elements(OutputMdspan& output, InputMdspan& input,
                    std::array<typename OutputMdspan::index_type, OutputMdspan::rank()>& index)
 {
-  if constexpr (Axis == OutputMdspan::rank())
+  if constexpr (Depth == OutputMdspan::rank())
   {
     copy_element(output, input, index, std::make_index_sequence<OutputMdspan::rank()>{});
   }
   else
   {
+    constexpr std::size_t axis = ColumnMajor ? OutputMdspan::rank() - Depth - 1 : Depth;
     using output_index = typename OutputMdspan::index_type;
-    for (output_index i = 0; i < static_cast<output_index>(output.extent(Axis)); ++i)
+    for (output_index i = 0; i < static_cast<output_index>(output.extent(axis)); ++i)
     {
-      index[Axis] = i;
-      copy_elements<Axis + 1>(output, input, index);
+      index[axis] = i;
+      copy_elements<Depth + 1, ColumnMajor>(output, input, index);
     }
   }
 }
@@ -87,7 +88,10 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& out
     CHECK_EQUAL(output.extent(axis), input.extent(axis));
 
   std::array<typename output_type::index_type, output_type::rank()> index{};
-  detail::copy_elements<0>(output, input, index);
+  if constexpr (std::same_as<typename output_type::layout_type, stdex::layout_left>)
+    detail::copy_elements<0, true>(output, input, index);
+  else
+    detail::copy_elements<0, false>(output, input, index);
   return KernelAttempt::success;
 }
 

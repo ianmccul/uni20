@@ -10,6 +10,7 @@
 #include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/mdspan/generated_accessor.hpp>
+#include <uni20/mdspan/generated_layout.hpp>
 #include <uni20/storage/generated_storage.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/shape.hpp>
@@ -77,7 +78,7 @@ template <Scalar ElementType, class Extents, class Generator> class GeneratedTen
     using storage_policy = GeneratedStorage;
     using backend_selector_type = typename storage_policy::backend_selector_type;
     using index_type = typename extents_type::index_type;
-    using layout_type = stdex::layout_right;
+    using layout_type = GeneratedLayout;
     using mapping_type = typename layout_type::template mapping<extents_type>;
     using accessor_type = generated_accessor<element_type, extents_type, generator_type>;
     using mdspan_type = stdex::mdspan<element_type const, extents_type, layout_type, accessor_type>;

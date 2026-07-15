@@ -45,10 +45,12 @@ the stable address of an unconstructed `Async<Tensor>` while preventing access
 until the parent writer constructs the tensor.
 
 `make_async_alias<T>(parent, args...)` adds causal ordering to this lifetime
-relationship. The resulting `Async<T>` shares the parent's exact `EpochQueue`;
-using a fresh queue for aliased bytes is incorrect. Alias owners may themselves
-be aliases, so composed views form a recursive owner chain while retaining one
-common timeline.
+relationship. `make_async_alias_from_parent<T>(parent, args...)` additionally
+passes the stable address reserved for the parent value to a descriptor that
+must defer dereferencing it. The resulting `Async<T>` shares the parent's exact
+`EpochQueue`; using a fresh queue for aliased bytes is incorrect. Alias owners
+may themselves be aliases, so composed views form a recursive owner chain while
+retaining one common timeline.
 
 Alias descriptor types declare `async_alias_tag`. Copy construction of their
 `Async<T>` handles retains the same storage and queue. Copy construction of an
@@ -64,7 +66,7 @@ ordinary independent values. Durable alias descriptors declare
 | Payload | Root construction | Copy construction |
 |---|---|---|
 | independent value | allowed | schedule a value copy into fresh storage and a fresh queue |
-| async alias | only through `make_async_alias` | share descriptor storage, lifetime ownership, and the exact queue |
+| async alias | only through an async alias factory | share descriptor storage, lifetime ownership, and the exact queue |
 
 This classification belongs at the `Async<T>` wrapper level. It cannot be
 inferred from `T::operator=` because it controls storage ownership and causal
@@ -90,11 +92,11 @@ run independently of operations using the second `x`. This is analogous to
 register renaming: the C++ name is reused for a logically new value without
 adding a false causal dependency on the old value.
 
-The planned async reshape API has different requirements:
+The async reshape API has different requirements:
 
 ```cpp
 Async<Tensor> x = make_tensor();
-auto y = async::reshape_view(x, rows, columns); // planned: returns Async<View>
+auto y = async::reshape_view(x, rows, columns); // returns Async<View>
 Async<Tensor> values = make_replacement_values();
 
 y = values; // heterogeneous Async<Tensor>: write through y into x

@@ -19,7 +19,8 @@ It consolidates and replaces the old local design drafts:
 Current code shape:
 
 - `BasicTensor` owns storage by composition and exposes resolved mdspans;
-  `Tensor<T, Rank, ...>` is its general-purpose runtime-extents alias.
+  `Tensor<T, Rank, ...>` is its column-major-default runtime-extents alias,
+  with named row-major and strided variants.
 - The Tensor-view concept family includes readable, mutable, and rank-constrained
   forms in `src/uni20/tensor/concepts.hpp`.
 - `conj(tensor)` provides a lazy read-only transform view; `copy` and
@@ -65,15 +66,17 @@ Current code shape:
 
 Today, `Tensor` aliases an owning `BasicTensor` and models the tensor-level
 concepts directly.
-There is no general concrete non-owning tensor adaptor yet. Advanced async and
-slicing workflows still need an explicit lifetime-sharing design.
+Read-only conjugation and contiguous reshape have concrete non-owning tensor
+adaptors and owner-retaining Async aliases. General slicing still needs a
+concrete descriptor and must follow the established shared-lifetime design.
 
-### 3.2 Mutable async aliases for tensor views
+### 3.2 General async aliases for tensor views
 
-Async aliases retain their owner and exact epoch queue. The remaining design
-work is to expose exclusive mutation of referenced tensor data without allowing
-the stored alias descriptor to be retargeted independently of that owner and
-queue.
+Async aliases retain their owner and exact epoch queue. Mutable reshape aliases
+write through without allowing the stored descriptor to be retargeted. The
+remaining work is to apply this model to slices and future structural views,
+with more precise subrange hazards only if whole-parent ordering becomes too
+conservative.
 
 ### 3.3 Expression-level execution model
 

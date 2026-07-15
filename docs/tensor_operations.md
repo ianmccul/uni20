@@ -16,7 +16,7 @@ The main entry points are:
 ```cpp
 #include <uni20/tensor/tensor.hpp>       // Tensor, DenseMatrix, generated values, views, reshape
 #include <uni20/tensor/copy.hpp>         // copy, make_tensor, materializing reshape
-#include <uni20/tensor/async.hpp>        // async::conj
+#include <uni20/tensor/async.hpp>        // async::conj, async::reshape_view
 #include <uni20/linalg/linalg.hpp>       // synchronous dense linalg operations
 #include <uni20/linalg/async.hpp>        // implemented Async linalg wrappers
 ```
@@ -55,10 +55,11 @@ ordering have been handled by higher layers.
 
 | Type or concept | Role |
 |---|---|
-| `BasicTensor<Element, Extents, ...>` | Configurable owning tensor with compile-time rank and possibly static extents. |
-| `Tensor<Element, Rank, ...>` | Ordinary owner with compile-time rank and runtime extents on every axis. |
+| `BasicTensor<Element, Extents, ...>` | Configurable owning tensor with compile-time rank and possibly static extents; column-major by default. |
+| `Tensor<Element, Rank, ...>` | Ordinary column-major owner with compile-time rank and runtime extents on every axis. |
+| `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor` | Named runtime-extents owner aliases for an explicit physical layout policy. |
 | `DenseMatrix<Element, Layout>` | Rank-two host `Tensor`; column-major by default. |
-| `GeneratedTensor` | Compact read-only tensor whose accessor computes values without dense element storage. |
+| `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
 | `TensorView` | Readable tensor-level object exposing extents, `mdspan()`, and a backend selector. It is a concept, not a base class. |
 | `MutableTensorView` | `TensorView` whose resolved mdspan permits writes. |
 | `OwningTensor` | Explicit opt-in classification whose move operation transfers the storage and lifetime exposed by `mdspan()`. |
@@ -141,6 +142,18 @@ uni20::Tensor<uni20::complex<double>, 2> output;
 uni20::copy(output, lazy);
 ```
 
+`make_tensor` accepts an optional compile-time layout policy:
+
+```cpp
+auto inferred = uni20::make_tensor(view);
+auto row_major = uni20::make_tensor<uni20::RowMajor>(view);
+```
+
+The inferred form preserves canonical row-major or column-major physical
+sources. Generated and other noncanonical sources use `Tensor`'s default
+column-major layout. A runtime optional layout is intentionally not used
+because layout is part of the concrete return type.
+
 `copy` observes accessor semantics. A raw pointer-shaped data handle is not
 enough to bypass an accessor; a provider backend may do so only for a default
 accessor or a recognized accessor whose semantics it lowers explicitly.
@@ -199,10 +212,12 @@ explicit-selector overload is available for backend-sensitive code and tests.
 Concrete backends may still decline after mdspans reveal unsupported layout or
 accessor details.
 
-`GeneratedStorage` is backend-neutral. In a mixed operation, concrete storage
-selects the backend list. With only generated operands, the host reference
-backend is the fallback. Each kernel still decides whether it understands the
-generated accessor.
+`GeneratedStorage` is backend-neutral. `GeneratedTensor` resolves a synthetic,
+non-strided `GeneratedLayout`; its offset encoding is an accessor implementation
+detail rather than a physical row-major claim. In a mixed operation, concrete
+storage selects the backend list. With only generated operands, the host
+reference backend is the fallback. Each kernel still decides whether it
+understands the generated accessor.
 
 ## Core Tensor Operation Support
 
@@ -216,9 +231,10 @@ later in this guide.
 |---|---|---|---|
 | `full`, `zeros`, `ones`, `eye` | Create readable generated tensors. | Compact generator state; no dense element allocation. | No Async-specific overload. |
 | `conj(x)` | Read-only lazy semantic view. | Aliases the source; no copy. | `async::conj(x)` returns an owner-retaining alias on the same epoch queue. |
-| `reshape_view(x, ...)` | No-copy structural reshape of a canonical contiguous mapping. | Aliases an lvalue source and preserves accessor semantics. | Not implemented. |
-| `reshape_inplace(x, ...)` | Replace an owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
-| `reshape(x, ...)` | Return an owning reshaped value. | Lvalue copies; owning rvalue may transfer; non-owning strided input materializes. | Not implemented. |
+| `reshape_view(x, ...)` | No-copy reshape of a static `layout_left` or `layout_right` source. | Aliases an lvalue source and preserves its canonical layout type and accessor. | `async::reshape_view(x, ...)` returns an owner-retaining alias on the same epoch queue. |
+| `reshape_view_left`, `reshape_view_right` | Explicitly ordered no-copy reshape of a general strided source. | Requires a unique, exhaustive canonical mapping in the selected order. | Matching async overloads retain the parent and queue. |
+| `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
+| `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; generated input materializes in the requested/default layout. | Not implemented. |
 | `copy(out, in)` | Overwrite while observing input accessor semantics. | Resizes a resizable output or validates a fixed output. | Not implemented. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
 | `conjugate_inplace(x)` | Eager element mutation. Real values are unchanged. | Reuses existing storage. | Not implemented. |
@@ -320,9 +336,22 @@ tensors and an async const identity view for real tensors. The alias owns its
 descriptor, retains the parent storage control block, and shares the parent's
 exact `EpochQueue`.
 
-A future async structural view such as reshape or slice must use the same
-owner-retaining alias mechanism. Wrapping a raw synchronous view in a fresh
-`Async` would create an independent queue for aliased bytes and is incorrect.
+`async::reshape_view(parent, extents...)` returns an owner-retaining structural
+alias for a statically canonical layout. The explicit `reshape_view_left` and
+`reshape_view_right` overloads select an order for a general strided parent. An
+alias can be created before the parent value is constructed; shape and layout
+validation occurs when the shared parent epoch is first readable. A mutable
+parent produces a mutable write-through alias, while a const parent produces a
+read-only alias.
+
+Nested async views retain the complete descriptor-owner chain and use one
+shared timeline. Reshape descriptors preserve the selected order in their
+static `layout_left` or `layout_right` result type. No runtime order metadata
+needs to be forwarded through semantic views such as conjugation.
+
+Future structural aliases such as slices must use the same owner-retaining
+mechanism. Wrapping a raw synchronous view in a fresh `Async` would create an
+independent queue for aliased bytes and is incorrect.
 
 ### Multiple Outputs and Consuming Inputs
 
@@ -382,7 +411,7 @@ a genuinely reusable output and lifetime pattern.
 The following are intentionally not implied by the current API:
 
 - no Async `copy` or `make_tensor`
-- no Async reshape or general slice alias
+- no Async general slice alias
 - no Async `gemv`, matrix exponential, or general LAPACK workspace operation
 - no allocating value API for most destructive LAPACK front ends
 - no general concrete synchronous `TensorRef` slice proxy

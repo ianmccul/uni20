@@ -33,6 +33,16 @@ struct MutableIntAlias
     int* value;
 };
 
+struct ConstParentAlias
+{
+    using async_alias_tag = void;
+
+    explicit ConstParentAlias(int const* value_in) : value(value_in) {}
+    ConstParentAlias(int*) = delete;
+
+    int const* value;
+};
+
 void assign_through(MutableIntAlias& target, MutableIntAlias const& source) { *target.value = *source.value; }
 
 void assign_through(MutableIntAlias& target, int const& source) { *target.value = source; }
@@ -147,6 +157,15 @@ TEST(AsyncAliasTest, CopiesShareStorageOwnerAndEpochQueue)
   EXPECT_EQ(alias.storage().use_count(), 2);
   EXPECT_EQ(copy.storage().control_address(), alias.storage().control_address());
   EXPECT_EQ(&copy.queue(), &parent.queue());
+}
+
+TEST(AsyncAliasTest, ConstParentFactoryPassesAConstReservedAddress)
+{
+  Async<int> parent = 5;
+  auto alias = make_async_alias_from_parent<ConstParentAlias>(std::as_const(parent));
+
+  EXPECT_EQ(alias.get_wait().value, parent.storage().storage_address());
+  EXPECT_EQ(&alias.queue(), &parent.queue());
 }
 
 TEST(AsyncAliasTest, AliasOutlivesParentHandle)

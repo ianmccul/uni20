@@ -14,6 +14,7 @@
 #include <uni20/tensor/output.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#include <concepts>
 #include <cstddef>
 #include <type_traits>
 #include <utility>
@@ -49,7 +50,11 @@ template <SpanLike Output, SpanLike Input>
 
 template <class RequestedLayout, class InputMdspan>
 using materialized_layout_t =
-    std::conditional_t<std::is_void_v<RequestedLayout>, typename InputMdspan::layout_type, RequestedLayout>;
+    std::conditional_t<std::is_void_v<RequestedLayout>,
+                       std::conditional_t<std::same_as<typename InputMdspan::layout_type, ColumnMajor> ||
+                                              std::same_as<typename InputMdspan::layout_type, RowMajor>,
+                                          typename InputMdspan::layout_type, ColumnMajor>,
+                       RequestedLayout>;
 } // namespace detail
 
 /// \brief Copy between fixed-shape mdspan-like operands through an explicit selector.
@@ -103,9 +108,10 @@ void assign_through(Output& output, Input const& input)
 /// \brief Materialize a bare mdspan-like view as an inferred owning host tensor.
 /// \details The caller supplies a backend selector because a bare mdspan does
 ///          not carry storage-domain policy. By default the output keeps the
-///          source layout type; an explicit `RequestedLayout` may request a
-///          different owning layout. The result has the input's compile-time
-///          rank with runtime extents on every axis.
+///          source's canonical layout type. Inputs without a canonical physical
+///          layout use the default column-major `Tensor` layout. An explicit
+///          `RequestedLayout` overrides either choice. The result has the
+///          input's compile-time rank with runtime extents on every axis.
 template <class RequestedLayout = void, class BackendSelector, SpanLike InputMdspan>
 [[nodiscard]] auto make_tensor(BackendSelector&& selector, InputMdspan&& input)
 {
@@ -122,9 +128,9 @@ template <class RequestedLayout = void, class BackendSelector, SpanLike InputMds
 
 /// \brief Materialize a tensor view as an inferred owning host tensor.
 /// \details This is the explicit eager boundary for lazy views such as
-///          `conj(input)`. The result preserves the resolved input layout type
-///          unless `RequestedLayout` is supplied, and uses runtime extents on
-///          every axis.
+///          `conj(input)`. A canonical resolved layout is preserved unless
+///          `RequestedLayout` is supplied. Generated and other noncanonical
+///          inputs use the default column-major `Tensor` layout.
 template <class RequestedLayout = void, TensorView InputTensor> [[nodiscard]] auto make_tensor(InputTensor const& input)
 {
   using input_mdspan = tensor_mdspan_t<InputTensor>;
@@ -137,15 +143,30 @@ template <class RequestedLayout = void, TensorView InputTensor> [[nodiscard]] au
 }
 
 /// \brief Materialize an owning reshape of a non-owning or generated tensor view.
-/// \details The source is first represented by `reshape_view`; materialization
-///          then copies its logical values into an owning host tensor. Owning
-///          `BasicTensor` operands use the move-aware overload in `reshape.hpp`.
-template <StridedTensorView InputTensor, std::integral... Extents>
-  requires(!OwningTensor<InputTensor>)
+/// \details Canonically laid-out strided sources are reshaped before copying,
+///          preserving their logical contiguous sequence. Layout-neutral and
+///          noncanonical sources are first materialized in the requested or
+///          default column-major layout, then reshaped by transferring that
+///          allocation. Owning `BasicTensor` operands use the move-aware
+///          overload in `reshape.hpp`.
+template <class RequestedLayout = void, TensorView InputTensor, std::integral... Extents>
+  requires(!OwningTensor<InputTensor> &&
+           (std::is_void_v<RequestedLayout> || detail::CanonicalReshapeLayout<RequestedLayout>) &&
+           (!std::is_void_v<RequestedLayout> || !StridedTensorView<InputTensor> ||
+            detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>))
 [[nodiscard]] auto reshape(InputTensor const& input, Extents... requested_extents)
 {
-  auto view = reshape_view(input, requested_extents...);
-  return make_tensor(view);
+  using input_layout = typename tensor_mdspan_t<InputTensor>::layout_type;
+  if constexpr (StridedTensorView<InputTensor> && detail::CanonicalReshapeLayout<input_layout>)
+  {
+    auto view = reshape_view(input, requested_extents...);
+    return make_tensor<RequestedLayout>(view);
+  }
+  else
+  {
+    auto materialized = make_tensor<RequestedLayout>(input);
+    return reshape(std::move(materialized), requested_extents...);
+  }
 }
 
 } // namespace uni20

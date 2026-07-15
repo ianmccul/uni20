@@ -12,7 +12,7 @@ namespace
 TEST(TensorConjugateInplaceTest, ConjugatesComplexStridedTensorThroughDefaultDispatch)
 {
   using scalar_type = uni20::complex<double>;
-  using matrix_type = uni20::Tensor<scalar_type, 2>;
+  using matrix_type = uni20::StridedTensor<scalar_type, 2>;
   matrix_type matrix(matrix_type::extents_type{2, 2}, std::array<uni20::index_type, 2>{3, 1});
   matrix[0, 0] = scalar_type{1.0, 2.0};
   matrix[0, 1] = scalar_type{3.0, -4.0};

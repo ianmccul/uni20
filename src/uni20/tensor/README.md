@@ -8,8 +8,9 @@ kernels operate on resolved mdspans.
 
 - `basic_tensor.hpp`: configurable composition-based owner parameterized by an
   mdspan extents type.
-- `tensor.hpp`: the general-purpose runtime-extents `Tensor` alias and the
-  column-major-by-default host `DenseMatrix` alias.
+- `tensor.hpp`: column-major-default runtime-extents `Tensor`, named
+  `ColumnMajorTensor`, `RowMajorTensor`, and `StridedTensor` aliases, and the
+  host `DenseMatrix` alias.
 - `conjugate.hpp`: read-only tensor view backed by the lazy conjugating mdspan
   accessor.
 - `generated.hpp`: compact generated tensors and the `full`, `zeros`, `ones`,
@@ -31,7 +32,9 @@ kernels operate on resolved mdspans.
 - Keep dense tensor behavior distinct from symmetry-aware block tensor behavior.
 - `BasicTensor<Element, Extents, ...>` is the configurable owner for mixed or
   static mdspan extents. `Tensor<Element, Rank, ...>` is the ordinary owning
-  tensor and has runtime extents on every axis.
+  tensor, has runtime extents on every axis, and defaults to `ColumnMajor`.
+  Use the named layout aliases when the physical order is part of the local
+  contract; use `StridedTensor` only when an explicit stride mapping is needed.
 - Both forms have compile-time rank because they are mdspan-based. A future
   runtime-rank tensor requires a separate descriptor and type rather than a
   second meaning for `Tensor`.
@@ -57,9 +60,11 @@ kernels operate on resolved mdspans.
   is the type-level counterpart to releasing storage and adopting it under a
   compatible mapping.
 - Use `make_tensor(view)` for inferred materialization rather than a
-  view-taking `Tensor` constructor. Materialization is an operation and must
-  remain eligible for backend dispatch, including future BLAS matrix-copy
-  extensions.
+  view-taking `Tensor` constructor. `make_tensor<Layout>(view)` selects the
+  physical result layout at compile time. The inferred form preserves a
+  canonical physical source and otherwise uses column-major `Tensor` storage.
+  Materialization is an operation and must remain eligible for backend
+  dispatch, including future BLAS matrix-copy extensions.
 - A tensor-level object exposes a storage-derived backend selector plus
   synchronous extents metadata and `mdspan()`.
   Element and accessor semantics determine whether the returned span is mutable;
@@ -67,12 +72,17 @@ kernels operate on resolved mdspans.
 - Tensor objects deliberately do not model Uni20's mdspan concepts. Leaf
   kernels receive the mdspans returned by those accessors.
 - Generated tensors own compact generator state rather than an element buffer.
-  They model readable `TensorView`, and their `GeneratedStorage` policy is
+  They model readable `TensorView` but not `StridedTensorView`; their synthetic
+  `GeneratedLayout` is not a physical storage order. `GeneratedStorage` is
   backend-neutral when an operation also has concrete storage operands.
 - `reshape_view` is the strict no-copy operation, `reshape_inplace` changes an
   owning tensor descriptor without reallocating, and plain `reshape` returns
   an owner with ordinary copy-or-move value semantics. See
   `docs/tensor_creation_and_reshape.md` for the complete contracts.
+- Automatic `reshape_view` preserves a static `ColumnMajor` or `RowMajor`
+  source layout. `reshape_view_left` and `reshape_view_right` explicitly select
+  the interpretation of a compatible `layout_stride` mapping; plain reshape
+  never guesses that order.
 - `DenseMatrix<T>` is `Tensor<T, 2, VectorStorage, ColumnMajor>`; use
   `DenseMatrix<T, RowMajor>` when row-major ownership is preferred. Matrix-level
   linalg front ends accept either form and resolve mdspans internally.
@@ -84,3 +94,7 @@ kernels operate on resolved mdspans.
 - `async::conj(Async<Tensor>)` returns an `Async<ConjugatedTensorView>` rather
   than materializing values. The alias remains a tensor-level object whose
   `mdspan()` resolves the conjugating accessor after the shared epoch is ready.
+- `async::reshape_view(Async<Tensor>, ...)` returns an owner-retaining
+  structural alias on the parent's exact epoch queue. It may be formed before
+  the parent value is constructed and resolves its mdspan only after the shared
+  epoch is readable.

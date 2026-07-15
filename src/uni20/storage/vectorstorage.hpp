@@ -3,8 +3,6 @@
 #include <uni20/common/mdspan.hpp>
 #include <uni20/config.hpp>
 #include <uni20/linalg/backend_selector.hpp>
-#include <uni20/tensor/layout.hpp>
-
 #include <vector>
 
 namespace uni20
@@ -13,9 +11,6 @@ namespace uni20
 struct VectorStorage
 {
     template <typename ElementType> using storage_t = std::vector<ElementType>;
-
-    using default_layout_policy = stdex::layout_stride;
-    using default_mapping_builder = layout::LayoutRight;
 
     template <typename ElementType> static auto make_handle(storage_t<ElementType>& storage) noexcept -> ElementType*
     {

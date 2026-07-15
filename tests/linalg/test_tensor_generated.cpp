@@ -6,19 +6,33 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <concepts>
 #include <tuple>
 #include <type_traits>
+#include <vector>
 
 namespace
 {
 using generated_matrix = decltype(uni20::ones<double>(2, 3));
 
+struct RecordingGenerator
+{
+    std::vector<std::array<uni20::index_type, 2>>* visits;
+
+    template <class Indices> [[nodiscard]] int operator()(Indices const& indices) const
+    {
+      visits->push_back(indices);
+      return static_cast<int>(indices[0] * 10 + indices[1]);
+    }
+};
+
 static_assert(uni20::RankedTensorView<generated_matrix, 2>);
-static_assert(uni20::RankedStridedTensorView<generated_matrix, 2>);
+static_assert(!uni20::RankedStridedTensorView<generated_matrix, 2>);
 static_assert(!uni20::MutableTensorView<generated_matrix>);
 static_assert(!uni20::OwningTensor<generated_matrix>);
 static_assert(std::same_as<typename generated_matrix::storage_policy, uni20::GeneratedStorage>);
+static_assert(std::same_as<typename generated_matrix::layout_type, uni20::GeneratedLayout>);
 } // namespace
 
 TEST(TensorGeneratedTest, ConstantFactoriesGenerateValuesWithoutDenseStorage)
@@ -73,11 +87,38 @@ TEST(TensorGeneratedTest, MakeTensorMaterializesGeneratedValues)
   auto materialized = uni20::make_tensor(uni20::full(2.5, 2, 3));
 
   static_assert(uni20::OwningTensor<decltype(materialized)>);
+  static_assert(std::same_as<typename decltype(materialized)::layout_type, uni20::ColumnMajor>);
   EXPECT_EQ(materialized.extent(0), 2);
   EXPECT_EQ(materialized.extent(1), 3);
   for (uni20::index_type row = 0; row < 2; ++row)
     for (uni20::index_type col = 0; col < 3; ++col)
       EXPECT_DOUBLE_EQ((materialized[row, col]), 2.5);
+}
+
+TEST(TensorGeneratedTest, MakeTensorAcceptsExplicitGeneratedDestinationLayout)
+{
+  auto materialized = uni20::make_tensor<uni20::RowMajor>(uni20::eye<int>(2, 3));
+
+  static_assert(std::same_as<typename decltype(materialized)::layout_type, uni20::RowMajor>);
+  EXPECT_EQ(materialized.mapping().stride(0), 3);
+  EXPECT_EQ(materialized.mapping().stride(1), 1);
+  EXPECT_EQ((materialized[0, 0]), 1);
+  EXPECT_EQ((materialized[1, 1]), 1);
+  EXPECT_EQ((materialized[1, 2]), 0);
+}
+
+TEST(TensorGeneratedTest, DefaultMaterializationTraversesColumnMajorDestinationOrder)
+{
+  using extents_type = stdex::dextents<uni20::index_type, 2>;
+  std::vector<std::array<uni20::index_type, 2>> visits;
+  uni20::GeneratedTensor<int, extents_type, RecordingGenerator> generated(extents_type{2, 3},
+                                                                          RecordingGenerator{&visits});
+
+  auto materialized = uni20::make_tensor(generated);
+
+  std::vector<std::array<uni20::index_type, 2>> const expected{{0, 0}, {1, 0}, {0, 1}, {1, 1}, {0, 2}, {1, 2}};
+  EXPECT_EQ(visits, expected);
+  EXPECT_EQ((materialized[1, 2]), 12);
 }
 
 TEST(TensorGeneratedTest, MatrixProductAcceptsGeneratedEye)

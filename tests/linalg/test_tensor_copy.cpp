@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <concepts>
 #include <type_traits>
 
@@ -82,6 +83,24 @@ TEST(TensorCopyTest, MakeTensorMaterializesStaticExtentsAsGeneralPurposeTensor)
   EXPECT_EQ(result.cols(), 3);
   EXPECT_DOUBLE_EQ((result[0, 0]), 1.0);
   EXPECT_DOUBLE_EQ((result[1, 2]), 6.0);
+}
+
+TEST(TensorCopyTest, MakeTensorUsesDefaultLayoutForNoncanonicalSourceType)
+{
+  using input_type = uni20::StridedTensor<double, 2>;
+  input_type input(input_type::extents_type{2, 2}, std::array<uni20::index_type, 2>{2, 1});
+  input[0, 0] = 1.0;
+  input[0, 1] = 2.0;
+  input[1, 0] = 3.0;
+  input[1, 1] = 4.0;
+
+  auto result = uni20::make_tensor(input);
+
+  static_assert(std::same_as<typename decltype(result)::layout_type, uni20::ColumnMajor>);
+  EXPECT_EQ(result.mapping().stride(0), 1);
+  EXPECT_EQ(result.mapping().stride(1), 2);
+  EXPECT_DOUBLE_EQ((result[0, 1]), 2.0);
+  EXPECT_DOUBLE_EQ((result[1, 0]), 3.0);
 }
 
 TEST(TensorCopyTest, CpuReferenceCopySupportsScalarConversion)

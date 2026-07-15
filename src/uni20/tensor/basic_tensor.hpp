@@ -42,7 +42,7 @@ struct DefaultAccessorFactory
 /// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.
 template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = stdex::layout_stride, typename AccessorFactory = DefaultAccessorFactory>
+          typename LayoutPolicy = stdex::layout_left, typename AccessorFactory = DefaultAccessorFactory>
 class BasicTensor {
   public:
     using element_type = ElementType;
@@ -143,6 +143,8 @@ class BasicTensor {
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
     explicit BasicTensor(extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
                          accessor_factory_type accessor_factory = accessor_factory_type{})
+      requires std::constructible_from<mapping_type, extents_type const&,
+                                       std::array<index_type, extents_type::rank()> const&>
         : BasicTensor(internal_tag{}, make_payload(mapping_type{exts, strides}, std::move(accessor_factory)))
     {}
 

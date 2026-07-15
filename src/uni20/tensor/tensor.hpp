@@ -17,6 +17,12 @@
 namespace uni20
 {
 
+/// \brief Conventional row-major contiguous mdspan layout.
+using RowMajor = stdex::layout_right;
+
+/// \brief Conventional column-major contiguous mdspan layout.
+using ColumnMajor = stdex::layout_left;
+
 /// \brief General-purpose owning tensor with runtime extents and compile-time rank.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the tensor.
@@ -25,15 +31,24 @@ namespace uni20
 /// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.
 template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = stdex::layout_stride, typename AccessorFactory = DefaultAccessorFactory>
+          typename LayoutPolicy = ColumnMajor, typename AccessorFactory = DefaultAccessorFactory>
 using Tensor =
     BasicTensor<ElementType, stdex::dextents<index_type, Rank>, StoragePolicy, LayoutPolicy, AccessorFactory>;
 
-/// \brief Conventional row-major contiguous mdspan layout.
-using RowMajor = stdex::layout_right;
+/// \brief Owning runtime-extents tensor with canonical column-major storage.
+template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
+          typename AccessorFactory = DefaultAccessorFactory>
+using ColumnMajorTensor = Tensor<ElementType, Rank, StoragePolicy, ColumnMajor, AccessorFactory>;
 
-/// \brief Conventional column-major contiguous mdspan layout.
-using ColumnMajor = stdex::layout_left;
+/// \brief Owning runtime-extents tensor with canonical row-major storage.
+template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
+          typename AccessorFactory = DefaultAccessorFactory>
+using RowMajorTensor = Tensor<ElementType, Rank, StoragePolicy, RowMajor, AccessorFactory>;
+
+/// \brief Owning runtime-extents tensor with an explicitly strided mapping.
+template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
+          typename AccessorFactory = DefaultAccessorFactory>
+using StridedTensor = Tensor<ElementType, Rank, StoragePolicy, stdex::layout_stride, AccessorFactory>;
 
 /// \brief Owning dense host matrix with a compile-time contiguous layout.
 /// \ingroup tensor

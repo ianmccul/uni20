@@ -1,3 +1,4 @@
+#include <array>
 #include <concepts>
 #include <gtest/gtest.h>
 #include <type_traits>
@@ -18,10 +19,20 @@ using async_view_type = uni20::async::Async<conjugated_view_type>;
 using double_conjugated_view_type = uni20::ConjugatedTensorView<conjugated_view_type>;
 using async_double_conjugated_view_type = uni20::async::Async<double_conjugated_view_type>;
 using real_matrix_type = uni20::DenseMatrix<double>;
+using strided_matrix_type = uni20::StridedTensor<uni20::complex<double>, 2>;
 using const_real_view_type = uni20::ConstTensorView<real_matrix_type>;
 using async_const_real_view_type = uni20::async::Async<const_real_view_type>;
-using reshaped_view_type = decltype(uni20::reshape_view(std::declval<matrix_type&>(), 1, 4));
-using async_reshaped_view_type = uni20::async::Async<reshaped_view_type>;
+using async_reshaped_view_type =
+    decltype(uni20::async::reshape_view(std::declval<uni20::async::Async<matrix_type>&>(), 1, 4));
+using reshaped_view_type = uni20::async::async_value_t<async_reshaped_view_type>;
+using async_const_reshaped_view_type =
+    decltype(uni20::async::reshape_view(std::declval<uni20::async::Async<matrix_type> const&>(), 1, 4));
+using const_reshaped_view_type = uni20::async::async_value_t<async_const_reshaped_view_type>;
+using async_explicit_left_reshape_type =
+    decltype(uni20::async::reshape_view_left(std::declval<uni20::async::Async<strided_matrix_type>&>(), 1, 4));
+
+struct AsyncReshapeFailure
+{};
 
 static_assert(uni20::TensorView<conjugated_view_type>);
 static_assert(!uni20::MutableTensorView<conjugated_view_type>);
@@ -39,6 +50,12 @@ static_assert(!uni20::async::is_async_alias_v<matrix_type>);
 static_assert(uni20::async::is_async_alias_v<conjugated_view_type>);
 static_assert(uni20::async::is_async_alias_v<const_real_view_type>);
 static_assert(uni20::async::is_async_alias_v<reshaped_view_type>);
+static_assert(
+    std::same_as<decltype(uni20::async::reshape_view(std::declval<uni20::async::Async<matrix_type>&>(), 1, 4)),
+                 async_reshaped_view_type>);
+static_assert(
+    std::same_as<decltype(uni20::async::reshape_view(std::declval<uni20::async::Async<matrix_type> const&>(), 1, 4)),
+                 async_const_reshaped_view_type>);
 static_assert(std::is_copy_constructible_v<async_view_type>);
 static_assert(std::is_move_constructible_v<async_view_type>);
 static_assert(!std::is_copy_assignable_v<async_view_type>);
@@ -58,6 +75,17 @@ static_assert(std::is_copy_assignable_v<async_reshaped_view_type>);
 static_assert(std::is_move_assignable_v<async_reshaped_view_type>);
 static_assert(std::is_assignable_v<async_reshaped_view_type&, uni20::async::Async<matrix_type> const&>);
 static_assert(!uni20::async::async_writer<async_reshaped_view_type>);
+static_assert(!uni20::MutableTensorView<const_reshaped_view_type>);
+static_assert(!std::is_copy_assignable_v<async_const_reshaped_view_type>);
+static_assert(!std::is_move_assignable_v<async_const_reshaped_view_type>);
+static_assert(std::same_as<typename uni20::async::async_value_t<async_explicit_left_reshape_type>::layout_type,
+                           uni20::ColumnMajor>);
+
+template <class Tensor>
+concept HasAutomaticAsyncReshape =
+    requires(uni20::async::Async<Tensor>& tensor) { uni20::async::reshape_view(tensor, 1, 4); };
+
+static_assert(!HasAutomaticAsyncReshape<strided_matrix_type>);
 
 matrix_type make_matrix()
 {
@@ -121,13 +149,46 @@ TEST(TensorAsyncTest, OwningTensorAssignmentRebindsFreshTimeline)
   EXPECT_EQ(new_value, uni20::complex<double>(9.0, -2.0));
 }
 
+TEST(TensorAsyncTest, MutableReshapeAliasSharesOwnerAndQueue)
+{
+  uni20::async::Async<matrix_type> parent(make_matrix());
+  auto alias = uni20::async::reshape_view(parent, 1, 4);
+
+  EXPECT_EQ(parent.storage().use_count(), 2);
+  EXPECT_EQ(alias.storage().use_count(), 1);
+  EXPECT_EQ(&alias.queue(), &parent.queue());
+
+  auto copy = alias;
+  EXPECT_EQ(alias.storage().use_count(), 2);
+  EXPECT_EQ(copy.storage().control_address(), alias.storage().control_address());
+  EXPECT_EQ(&copy.queue(), &parent.queue());
+}
+
+TEST(TensorAsyncTest, ExplicitAsyncReshapeSelectsCanonicalOrderForStridedParent)
+{
+  strided_matrix_type matrix(strided_matrix_type::extents_type{2, 2}, std::array<uni20::index_type, 2>{1, 2});
+  matrix[0, 0] = {1.0, 0.0};
+  matrix[1, 0] = {2.0, 0.0};
+  matrix[0, 1] = {3.0, 0.0};
+  matrix[1, 1] = {4.0, 0.0};
+  uni20::async::Async<strided_matrix_type> parent(std::move(matrix));
+
+  auto alias = uni20::async::reshape_view_left(parent, 1, 4);
+
+  EXPECT_EQ(&alias.queue(), &parent.queue());
+  auto const values = alias.get_wait().mdspan();
+  EXPECT_EQ((values[0, 0]), uni20::complex<double>(1.0, 0.0));
+  EXPECT_EQ((values[0, 1]), uni20::complex<double>(2.0, 0.0));
+  EXPECT_EQ((values[0, 2]), uni20::complex<double>(3.0, 0.0));
+  EXPECT_EQ((values[0, 3]), uni20::complex<double>(4.0, 0.0));
+}
+
 TEST(TensorAsyncTest, MutableReshapeAliasAssignmentCopiesValuesWithoutRetargeting)
 {
   uni20::async::DebugScheduler sched;
   uni20::async::ScopedScheduler scoped(&sched);
   uni20::async::Async<matrix_type> parent(make_matrix());
-  auto view = uni20::reshape_view(parent.unsafe_value_ref(), 1, 4);
-  auto alias = uni20::async::make_async_alias<decltype(view)>(parent, view);
+  auto alias = uni20::async::reshape_view(parent, 1, 4);
   auto* const alias_storage = alias.storage().control_address();
   auto const* const alias_queue = &alias.queue();
 
@@ -149,6 +210,99 @@ TEST(TensorAsyncTest, MutableReshapeAliasAssignmentCopiesValuesWithoutRetargetin
   EXPECT_EQ((values[0, 3]), uni20::complex<double>(40.0, 4.0));
   EXPECT_EQ(alias.storage().control_address(), alias_storage);
   EXPECT_EQ(&alias.queue(), alias_queue);
+}
+
+TEST(TensorAsyncTest, ReshapeAliasOutlivesParentHandle)
+{
+  auto make_alias = [] {
+    uni20::async::Async<matrix_type> parent(make_matrix());
+    return uni20::async::reshape_view(parent, 4, 1);
+  };
+
+  auto alias = make_alias();
+  auto const values = alias.get_wait().mdspan();
+  EXPECT_EQ((values[0, 0]), uni20::complex<double>(1.0, 2.0));
+  EXPECT_EQ((values[1, 0]), uni20::complex<double>(-5.0, 6.0));
+  EXPECT_EQ((values[2, 0]), uni20::complex<double>(3.0, -4.0));
+  EXPECT_EQ((values[3, 0]), uni20::complex<double>(7.0, 8.0));
+}
+
+TEST(TensorAsyncTest, PendingParentWriterPrecedesReshapeAliasReader)
+{
+  uni20::async::Async<matrix_type> parent;
+  auto alias = uni20::async::reshape_view(parent, 1, 4);
+  uni20::async::DebugScheduler sched;
+
+  sched.schedule([](uni20::async::WriteBuffer<matrix_type> writer) static -> uni20::async::AsyncTask {
+    auto& matrix = (co_await writer).emplace(make_matrix());
+    matrix.mdspan()[0, 0] = {11.0, -2.0};
+    co_return;
+  }(parent.write()));
+
+  auto const values = alias.get_wait(sched).mdspan();
+  EXPECT_EQ((values[0, 0]), uni20::complex<double>(11.0, -2.0));
+  EXPECT_EQ((values[0, 1]), uni20::complex<double>(-5.0, 6.0));
+  EXPECT_EQ((values[0, 2]), uni20::complex<double>(3.0, -4.0));
+  EXPECT_EQ((values[0, 3]), uni20::complex<double>(7.0, 8.0));
+}
+
+TEST(TensorAsyncTest, NestedReshapeAliasesRetainTheCompleteOwnerChain)
+{
+  auto make_nested_alias = [] {
+    uni20::async::Async<matrix_type> parent(make_matrix());
+    auto first = uni20::async::reshape_view(parent, 1, 4);
+    return uni20::async::reshape_view(first, 2, 2);
+  };
+
+  auto alias = make_nested_alias();
+  auto const values = alias.get_wait().mdspan();
+  EXPECT_EQ((values[0, 0]), uni20::complex<double>(1.0, 2.0));
+  EXPECT_EQ((values[0, 1]), uni20::complex<double>(3.0, -4.0));
+  EXPECT_EQ((values[1, 0]), uni20::complex<double>(-5.0, 6.0));
+  EXPECT_EQ((values[1, 1]), uni20::complex<double>(7.0, 8.0));
+}
+
+TEST(TensorAsyncTest, NestedReshapeThroughConjugationPreservesOrderAndOwnerChain)
+{
+  auto make_nested_alias = [] {
+    uni20::async::Async<matrix_type> parent(make_matrix());
+    auto flattened = uni20::async::reshape_view(parent, 1, 4);
+    auto conjugated = uni20::async::conj(flattened);
+    return uni20::async::reshape_view(conjugated, 2, 2);
+  };
+
+  auto alias = make_nested_alias();
+  auto const values = alias.get_wait().mdspan();
+  EXPECT_EQ((values[0, 0]), uni20::complex<double>(1.0, -2.0));
+  EXPECT_EQ((values[0, 1]), uni20::complex<double>(3.0, 4.0));
+  EXPECT_EQ((values[1, 0]), uni20::complex<double>(-5.0, -6.0));
+  EXPECT_EQ((values[1, 1]), uni20::complex<double>(7.0, -8.0));
+}
+
+TEST(TensorAsyncTest, ConstReshapeAliasIsReadOnly)
+{
+  uni20::async::Async<matrix_type> parent(make_matrix());
+  auto alias = uni20::async::reshape_view(std::as_const(parent), 4, 1);
+
+  EXPECT_EQ(&alias.queue(), &parent.queue());
+  auto const values = alias.get_wait().mdspan();
+  EXPECT_EQ((values[0, 0]), uni20::complex<double>(1.0, 2.0));
+  EXPECT_EQ((values[3, 0]), uni20::complex<double>(7.0, 8.0));
+}
+
+TEST(TensorAsyncTest, ReshapeAliasPropagatesParentFailure)
+{
+  uni20::async::Async<matrix_type> parent;
+  auto alias = uni20::async::reshape_view(parent, 1, 4);
+  uni20::async::DebugScheduler sched;
+
+  sched.schedule([](uni20::async::WriteBuffer<matrix_type> writer) static -> uni20::async::AsyncTask {
+    static_cast<void>(writer);
+    throw AsyncReshapeFailure{};
+    co_return;
+  }(parent.write()));
+
+  EXPECT_THROW(static_cast<void>(alias.get_wait(sched)), AsyncReshapeFailure);
 }
 
 TEST(TensorAsyncTest, ConjugatedAliasOutlivesParentHandle)

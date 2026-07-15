@@ -357,7 +357,7 @@ consume(x);
 x = make_second_tensor(); // rebind: a new storage/queue branch
 consume(x);
 
-auto y = async::reshape_view(x, rows, columns); // planned Async<View> API
+auto y = async::reshape_view(x, rows, columns); // owner-retaining Async<View>
 Async<Tensor> values = make_replacement_values();
 y = values;                                // heterogeneous Async<Tensor>: write through into x
 y = async::reshape_view(z, rows, columns); // exact Async<View>: also write through into x

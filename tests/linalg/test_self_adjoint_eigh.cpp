@@ -94,7 +94,7 @@ TEST(SelfAdjointEighTest, ConsumingValueApiReusesRowMajorOwningStorage)
 TEST(SelfAdjointEighTest, ConsumingValueApiPreservesPaddedLdaAndComplexRowMajorSemantics)
 {
   using scalar_type = uni20::complex<double>;
-  using matrix_type = uni20::Tensor<scalar_type, 2>;
+  using matrix_type = uni20::StridedTensor<scalar_type, 2>;
   matrix_type matrix(matrix_type::extents_type{2, 2}, std::array<uni20::index_type, 2>{4, 1});
   matrix.storage().resize(matrix.storage().size() + 3);
   matrix[0, 0] = scalar_type{2.0, 0.0};
@@ -124,7 +124,7 @@ TEST(SelfAdjointEighTest, ConsumingValueApiPreservesPaddedLdaAndComplexRowMajorS
 
 TEST(SelfAdjointEighTest, ConsumingValueApiMaterializesMappingWithoutUnitStride)
 {
-  using matrix_type = uni20::Tensor<double, 2>;
+  using matrix_type = uni20::StridedTensor<double, 2>;
   matrix_type matrix(matrix_type::extents_type{2, 2}, std::array<uni20::index_type, 2>{3, 2});
   matrix[0, 0] = 2.0;
   matrix[0, 1] = 1.0;

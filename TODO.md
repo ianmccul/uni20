@@ -12,15 +12,15 @@
   wrappers and backend logic. Decide whether Tensor-facing wrappers should use a
   distinct precondition facility so diagnostics identify the operation and the
   incompatible extents before dispatch.
-- Investigate whether failures inside scheduled operations should propagate as
-  structured exceptions through `Async<T>`. A useful exception should retain
-  the operation name, source location, relevant shape/value information, and
-  available task-creation or C++ stack traces.
-- Preserve the established terminal-value policy: cancellation is harmless
-  absent-value control flow; observed failures propagate; an unobserved failed
-  `Async<T>` is discarded. A sinkless bare `AsyncTask` has no result through
-  which a failure can be observed, so decide how the scheduler should report
-  such failures separately.
+- Extend async failure diagnostics with structured operation context. Observed
+  failures already propagate through `Async<T>`; the remaining work is to
+  retain the operation name, source location, relevant shape/value information,
+  and available task-creation or C++ stack traces.
+- Decide how the scheduler should report a failed sinkless bare `AsyncTask`,
+  which has no result through which its exception can be observed. Keep the
+  established terminal-value policy for `Async<T>`: cancellation is harmless
+  absent-value control flow, observed failures propagate, and an unobserved
+  failed value is discarded.
 - Reconcile synchronous abort semantics with coroutine failure propagation.
   Do not convert ordinary native C++ precondition violations into recoverable
   exceptions merely for consistency with Async or Python.
@@ -43,17 +43,17 @@
 - Preserve scalar-generic and binary128 behavior while removing the private
   dense-matrix implementation path.
 
-## Async Tensor Views and Aliases
+## Async Tensor Views and Materialization
 
-- Add public Async overloads for structural views, beginning with
-  `async::reshape_view` and then slices as those synchronous views are added.
-- Build these as owner-retaining `Async<TensorView>` aliases that share the
-  parent's exact `EpochQueue`; never wrap a bare mdspan or synchronous view in
-  an independent Async timeline.
-- Preserve the current semantic split: conjugating and const views are
-  read-only, while mutable structural views use explicit write-through
-  assignment without rebinding their owner or epoch queue.
-- Test parent lifetime retention, queue identity, pending writer ordering,
-  nested alias chains, write-through assignment, and failure propagation.
+- Use `async::reshape_view` as the reference implementation for future
+  structural aliases. It retains the complete parent chain, shares the exact
+  `EpochQueue`, defers descriptor resolution until the parent epoch is readable,
+  and preserves contiguous order in a canonical static layout type across
+  nested semantic views.
+- Add synchronous slice descriptors, then expose owner-retaining Async slice
+  aliases with the same mutable write-through versus read-only semantic split.
+- Extend alias-composition tests whenever a new view adaptor can appear between
+  structural views. Never wrap a bare mdspan or borrowed synchronous view in an
+  independent Async timeline.
 - Add Async materialization operations such as copy or `make_tensor` after the
   alias/view surface is established.

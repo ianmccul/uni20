@@ -24,7 +24,7 @@ struct generated_data_handle
     friend constexpr bool operator==(generated_data_handle const&, generated_data_handle const&) = default;
 };
 
-/// \brief Accessor that evaluates a generator at the row-major logical index for an offset.
+/// \brief Accessor that evaluates a generator at the logical index encoded by an offset.
 /// \tparam ElementType Scalar value returned by the generator.
 /// \tparam Extents Mdspan extents used to decode linear offsets.
 /// \tparam Generator Callable accepting an index array and returning an element value.
@@ -49,7 +49,7 @@ template <class ElementType, class Extents, class Generator> class generated_acc
         : extents_(std::move(extents)), generator_(std::move(generator))
     {}
 
-    /// \brief Generate the value at a handle-relative row-major offset.
+    /// \brief Generate the value at a handle-relative synthetic offset.
     [[nodiscard]] constexpr reference access(data_handle_type handle, offset_type offset) const
     {
       return generator_(this->decode(handle.base_offset + offset));

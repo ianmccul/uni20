@@ -28,12 +28,18 @@ view, backend-dispatch, and temporary-allocation design.
   `MutableTensorView`.
 - `BasicTensor<Element, Extents, StoragePolicy, LayoutPolicy, AccessorFactory>`
   is the configurable extents-based owner. `Tensor<T, Rank>` is the ordinary
-  alias with runtime extents on every axis; `DenseMatrix<T>` is its rank-two
-  host alias.
+  column-major alias with runtime extents on every axis; named row-major and
+  strided aliases are also available. `DenseMatrix<T>` is its rank-two host
+  alias.
 - `make_tensor(view)` infers an owning host `Tensor` and deliberately does not
-  preserve static input extents.
+  preserve static input extents. `make_tensor<Layout>(view)` selects the result
+  layout at compile time. Inference preserves a canonical physical source and
+  otherwise uses the column-major `Tensor` default.
 - `conj(tensor)` is an implemented read-only lazy Tensor view. `copy(...)` and
   `make_tensor(...)` are the explicit eager boundaries.
+- `GeneratedTensor` is layout-neutral and does not model `StridedTensorView`.
+  Its synthetic mapping exists only to deliver logical indices to the
+  generator accessor.
 - There is currently no general concrete non-owning tensor adaptor. Add one only
   with explicit slice/external-storage lifetime and assignment semantics.
 
@@ -228,6 +234,8 @@ Temporary allocation is separate from computation.
   `make_tensor<Layout>(selector, mdspan)`. The latter requires an explicit
   selector because a bare mdspan does not carry storage-domain policy. Both
   forms return a fixed-rank `Tensor` with runtime extents on every axis.
+- The optional layout is a template policy, never a runtime `std::optional`,
+  because it changes the concrete owning return type.
 - Operand-temporary type/storage comes from an owning storage domain or explicit
   allocator/factory. An explicit selector may contribute immutable options but
   is not the primary owner of operand location.

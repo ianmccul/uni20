@@ -56,8 +56,10 @@ The rules are:
   and other borrowed descriptors still need an owner whose lifetime covers the
   task.
 
-Async Tensor aliases such as `async::conj(tensor)` are valid input operands.
-Their `Async<View>` handles retain the parent storage and share its epoch queue.
+Async Tensor aliases such as `async::conj(tensor)` and
+`async::reshape_view(tensor, ...)` are valid input operands. Their
+`Async<View>` handles retain the complete parent storage chain and share its
+epoch queue.
 
 ## Submission and Coroutine Phases
 

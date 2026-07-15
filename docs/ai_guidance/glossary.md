@@ -225,8 +225,10 @@ This glossary is optimized for retrieval, not pedagogy.
   models `TensorView` and `MutableTensorView` without inheriting a view
   descriptor.
 - `NAMING`: `Tensor<Element, Rank, ...>` is the ordinary runtime-extents owner;
-  use `DenseMatrix<T>` or `make_tensor(view)` when even that policy type need
-  not be named.
+  it defaults to column-major storage. Use `ColumnMajorTensor`,
+  `RowMajorTensor`, or `StridedTensor` when the layout choice should be named,
+  and use `DenseMatrix<T>` or `make_tensor(view)` when even that policy type
+  need not be named.
 - `INVARIANT`: Rank remains compile-time. A future runtime-rank tensor is a
   separate type rather than a `Tensor` policy or a revived `DynamicTensor`
   alias.

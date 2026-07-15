@@ -18,8 +18,14 @@ namespace
 using index_t = index_type;
 using extents_2d = stdex::dextents<index_t, 2>;
 using tensor_type = Tensor<int, 2, VectorStorage>;
+using strided_tensor_type = StridedTensor<int, 2, VectorStorage>;
 
-static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage>>);
+static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage, ColumnMajor>>);
+static_assert(std::same_as<tensor_type, ColumnMajorTensor<int, 2>>);
+static_assert(std::same_as<RowMajorTensor<int, 2>, Tensor<int, 2, VectorStorage, RowMajor>>);
+static_assert(std::same_as<strided_tensor_type, Tensor<int, 2, VectorStorage, stdex::layout_stride>>);
+static_assert(!std::constructible_from<tensor_type, extents_2d const&, std::array<index_t, 2> const&>);
+static_assert(std::constructible_from<strided_tensor_type, extents_2d const&, std::array<index_t, 2> const&>);
 
 static_assert(TensorView<tensor_type>);
 static_assert(OwningTensor<tensor_type>);
@@ -39,14 +45,14 @@ static_assert(!StridedMdspan<tensor_type>);
 
 using row_major_matrix = DenseMatrix<int, RowMajor>;
 using strided_matrix = typename row_major_matrix::template rebind_layout_type<stdex::layout_stride>;
-static_assert(std::same_as<strided_matrix, Tensor<int, 2, VectorStorage, stdex::layout_stride>>);
+static_assert(std::same_as<strided_matrix, StridedTensor<int, 2>>);
 
 template <typename Span>
 constexpr bool can_assign_element_v =
     std::is_assignable_v<typename std::remove_reference_t<Span>::reference,
                          std::remove_const_t<typename std::remove_reference_t<Span>::value_type>>;
 
-TEST(TensorTest, DefaultMappingUsesVectorStorage)
+TEST(TensorTest, DefaultMappingUsesColumnMajorVectorStorage)
 {
   extents_2d exts{2, 3};
   tensor_type tensor(exts);
@@ -66,7 +72,7 @@ TEST(TensorTest, DefaultMappingUsesVectorStorage)
   }
 
   auto const& storage = tensor.storage();
-  std::vector<int> expected{0, 1, 2, 3, 4, 5};
+  std::vector<int> expected{0, 3, 1, 4, 2, 5};
   ASSERT_EQ(storage.size(), expected.size());
   for (std::size_t idx = 0; idx < expected.size(); ++idx)
   {
@@ -74,8 +80,8 @@ TEST(TensorTest, DefaultMappingUsesVectorStorage)
   }
 
   EXPECT_EQ((tensor[1, 2]), expected.back());
-  EXPECT_EQ(tensor.mapping().stride(0), 3);
-  EXPECT_EQ(tensor.mapping().stride(1), 1);
+  EXPECT_EQ(tensor.mapping().stride(0), 1);
+  EXPECT_EQ(tensor.mapping().stride(1), 2);
 }
 
 TEST(TensorTest, DynamicExtentsConstructorAcceptsOneExtentPerAxis)
@@ -122,7 +128,7 @@ TEST(TensorTest, CustomStridesAllocateFullSpan)
 {
   extents_2d exts{2, 2};
   std::array<index_t, 2> strides{3, 1};
-  tensor_type tensor(exts, strides);
+  strided_tensor_type tensor(exts, strides);
 
   EXPECT_EQ(tensor.mapping().stride(0), strides[0]);
   EXPECT_EQ(tensor.mapping().stride(1), strides[1]);
@@ -145,15 +151,15 @@ TEST(TensorTest, CustomStridesAllocateFullSpan)
 TEST(TensorTest, AdoptedStorageMayRetainPaddingAndUnusedTail)
 {
   extents_2d exts{2, 2};
-  tensor_type::mapping_type mapping(exts, std::array<index_t, 2>{1, 3});
-  tensor_type::storage_type storage(8, -1);
+  strided_tensor_type::mapping_type mapping(exts, std::array<index_t, 2>{1, 3});
+  strided_tensor_type::storage_type storage(8, -1);
   int* original_storage = storage.data();
   storage[0] = 10;
   storage[1] = 11;
   storage[3] = 12;
   storage[4] = 13;
 
-  auto tensor = tensor_type::adopt_storage(mapping, std::move(storage));
+  auto tensor = strided_tensor_type::adopt_storage(mapping, std::move(storage));
 
   EXPECT_EQ(tensor.mutable_handle(), original_storage);
   EXPECT_EQ(tensor.storage().size(), 8u);
@@ -171,7 +177,7 @@ TEST(TensorTest, AdoptedStorageMayRetainPaddingAndUnusedTail)
 TEST(TensorTest, MappingBuilderSupportsLayoutLeft)
 {
   extents_2d exts{2, 3};
-  tensor_type tensor(exts, layout::LayoutLeft());
+  strided_tensor_type tensor(exts, layout::LayoutLeft());
 
   EXPECT_EQ(tensor.mapping().stride(0), 1);
   EXPECT_EQ(tensor.mapping().stride(1), 2);
@@ -218,11 +224,11 @@ TEST(TensorTest, CopyConstructionOwnsIndependentStorage)
 
 TEST(TensorTest, CopyAssignmentOwnsIndependentStorageAndMapping)
 {
-  tensor_type source(extents_2d{2, 3}, std::array<index_t, 2>{4, 1});
+  strided_tensor_type source(extents_2d{2, 3}, std::array<index_t, 2>{4, 1});
   source[0, 0] = 3;
   source[1, 2] = 9;
 
-  tensor_type target(extents_2d{1, 1});
+  strided_tensor_type target(extents_2d{1, 1});
   target = source;
 
   EXPECT_EQ(target.handle(), static_cast<int const*>(target.storage().data()));
