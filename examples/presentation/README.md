@@ -14,5 +14,5 @@
 - `presentation_example_common.hpp` contains shared example-only policy and
   styling helpers; it is not an executable target.
 
-See the [examples index](../README.md), [Presentation Formatting](../../docs/diagnostics/presentation.md),
+See the [examples index](../), [Presentation Formatting](../../docs/diagnostics/presentation.md),
 and the [Display Layer](../../docs/diagnostics/display_layer.md).

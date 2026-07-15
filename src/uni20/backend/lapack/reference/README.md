@@ -17,5 +17,5 @@ provider.
 
 ## Related Documentation
 
-- [LAPACK provider source layer](../README.md)
+- [LAPACK provider source layer](../)
 - [BLAS/LAPACK mdspan wrappers](../../../../../docs/linalg/blas_lapack_wrappers.md)

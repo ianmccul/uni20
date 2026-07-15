@@ -12,10 +12,10 @@ target scaffolding for future cuSOLVER wrappers.
 - cuSOLVER support should be gated by both build-time availability and
   operation-specific runtime capability checks.
 - Higher-level entry points belong in the
-  [linalg backend layer](../../linalg/backends/README.md).
+  [linalg backend layer](../../linalg/backends/).
 
 ## Related Documentation
 
-- [Backend source layer](../README.md)
+- [Backend source layer](../)
 - [cuSOLVER architecture](../../../../docs/backends/cuda/cusolver.md)
 - [CUDA runtime resolution](../../../../docs/backends/cuda/runtime_resolution.md)

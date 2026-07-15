@@ -3,7 +3,7 @@
 This directory contains BLAS discovery and backend-library integration. It owns
 vendor selection, integer-width configuration, link flags, and the raw BLAS
 interface targets used by higher layers. LAPACK provider declarations live in
-the sibling [`lapack/`](../lapack/README.md) directory.
+the sibling [`lapack/`](../lapack/) directory.
 
 ## Contents
 
@@ -12,10 +12,10 @@ the sibling [`lapack/`](../lapack/README.md) directory.
   signed BLAS integer ABI.
 - `blas_vendor.*`: detected BLAS vendor reporting.
 - `mplapack_binary128.hpp`: binary128 hooks for MPLAPACK-backed scalar support.
-- [`reference/`](reference/README.md): raw configured-provider BLAS declarations
+- [`reference/`](reference/): raw configured-provider BLAS declarations
   and interface target.
-- [`mkl/`](mkl/README.md): MKL-specific target wiring.
-- [`openblas/`](openblas/README.md): OpenBLAS extension target wiring.
+- [`mkl/`](mkl/): MKL-specific target wiring.
+- [`openblas/`](openblas/): OpenBLAS extension target wiring.
 
 ## Notes
 
@@ -33,7 +33,7 @@ the sibling [`lapack/`](../lapack/README.md) directory.
 
 ## Related Documentation
 
-- [Backend source layer](../README.md)
+- [Backend source layer](../)
 - [BLAS/LAPACK mdspan wrappers](../../../../docs/linalg/blas_lapack_wrappers.md)
 - [Mdspan linear algebra dispatch](../../../../docs/linalg/mdspan_dispatch.md)
 - [MPLAPACK binary128](../../../../docs/linalg/mplapack_binary128.md)

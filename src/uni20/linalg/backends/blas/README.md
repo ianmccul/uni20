@@ -2,7 +2,7 @@
 
 This directory contains operation-tag backend adapters that route dense linalg
 operations to BLAS. These adapters sit above the
-[BLAS descriptor layer](../../blas/README.md), which owns mdspan-to-BLAS
+[BLAS descriptor layer](../../blas/), which owns mdspan-to-BLAS
 descriptor construction and direct provider calls.
 
 The implemented backend adapters are GEMM and GEMV. They delegate
@@ -13,6 +13,6 @@ errors.
 
 ## Related Documentation
 
-- [Linalg backend source map](../README.md)
+- [Linalg backend source map](../)
 - [BLAS/LAPACK mdspan wrappers](../../../../../docs/linalg/blas_lapack_wrappers.md)
 - [Mdspan linear algebra dispatch](../../../../../docs/linalg/mdspan_dispatch.md)

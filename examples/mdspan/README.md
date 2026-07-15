@@ -4,5 +4,5 @@
 views and renders integer, real, and complex values with axis and numeric-format
 options.
 
-See the [examples index](../README.md), [mdspan source guide](../../src/uni20/mdspan/README.md),
+See the [examples index](../), [mdspan source guide](../../src/uni20/mdspan/),
 and [Presentation Formatting](../../docs/diagnostics/presentation.md).

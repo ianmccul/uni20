@@ -109,7 +109,7 @@ kernels operate on resolved mdspans.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
-- [Tensor documentation index](../../../docs/tensor/README.md)
+- [Source tree map](../)
+- [Tensor documentation index](../../../docs/tensor/)
 - [Async storage and alias lifetime](../../../docs/async/storage.md)
 - [Kernel dispatch](../../../docs/architecture/kernel_dispatch.md)

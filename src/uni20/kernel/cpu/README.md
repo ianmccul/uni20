@@ -16,5 +16,5 @@ are unavailable.
 
 ## Related Documentation
 
-- [Kernel source layer](../README.md)
+- [Kernel source layer](../)
 - [Raw primitives and symmetric lowering](../../../../docs/symmetry/raw_primitives_and_lowering.md)

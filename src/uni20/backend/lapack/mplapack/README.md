@@ -17,5 +17,5 @@ that are not covered by the ordinary LAPACK provider.
 
 ## Related Documentation
 
-- [LAPACK provider source layer](../README.md)
+- [LAPACK provider source layer](../)
 - [MPLAPACK binary128](../../../../../docs/linalg/mplapack_binary128.md)

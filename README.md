@@ -20,6 +20,6 @@ Start with:
 - [About Uni20](docs/about.md) for implemented capabilities and runnable
   vertical slices.
 - [Getting Started](docs/getting_started.md) to configure, build, and test.
-- [Documentation Index](docs/README.md) for subsystem guides and design notes.
+- [Documentation Index](docs/) for subsystem guides and design notes.
 - [Roadmap](docs/roadmap.md) for current priorities and remaining work.
 - [Contributing](docs/CONTRIBUTING.md) for development and review expectations.

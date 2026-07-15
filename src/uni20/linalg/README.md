@@ -18,15 +18,15 @@ before they lower to backend wrappers and kernels.
   `dispatch_error_presentation.hpp`: clean backend-decline results and terminal
   dispatch-failure diagnostics.
 - `async.hpp`: opt-in include point for scheduled `Async<Tensor>` operations.
-- [`async/`](async/README.md): all-async Tensor wrappers over the synchronous operation layer.
-- [`blas/`](blas/README.md): mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
-- [`ops/`](ops/README.md): Tensor-facing dense operation wrappers.
-- [`backends/`](backends/README.md): operation-tag backend implementations.
-- [`backends/blas/`](backends/blas/README.md): operation-tag BLAS backend adapters.
-- [`backends/cpu/`](backends/cpu/README.md): generic CPU operation-tag kernels, dense matrix helpers, and
+- [`async/`](async/): all-async Tensor wrappers over the synchronous operation layer.
+- [`blas/`](blas/): mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
+- [`ops/`](ops/): Tensor-facing dense operation wrappers.
+- [`backends/`](backends/): operation-tag backend implementations.
+- [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.
+- [`backends/cpu/`](backends/cpu/): generic CPU operation-tag kernels, dense matrix helpers, and
   the current dense matrix exponential implementation.
-- [`backends/lapack/`](backends/lapack/README.md): LAPACK-backed linalg entry points.
-- [`backends/cusolver/`](backends/cusolver/README.md): cuSOLVER-backed linalg entry points.
+- [`backends/lapack/`](backends/lapack/): LAPACK-backed linalg entry points.
+- [`backends/cusolver/`](backends/cusolver/): cuSOLVER-backed linalg entry points.
 
 ## Notes
 
@@ -54,8 +54,8 @@ before they lower to backend wrappers and kernels.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
-- [Linear algebra documentation](../../../docs/linalg/README.md)
+- [Source tree map](../)
+- [Linear algebra documentation](../../../docs/linalg/)
 - [Dense BLAS/LAPACK wrapper coverage](../../../docs/linalg/dense_blas_lapack_coverage.md)
 - [Kernel dispatch](../../../docs/architecture/kernel_dispatch.md)
 - [Tensor operations](../../../docs/tensor/operations.md)

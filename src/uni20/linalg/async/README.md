@@ -37,4 +37,4 @@ product count, scheduler concurrency, precision, and backend selection. It uses
 the normal kernel-dispatch path for `fp32`, `fp64`, and configured `fp128`
 operands, and renders the validated result through the presentation layer.
 
-Return to the [linalg source map](../README.md).
+Return to the [linalg source map](../).

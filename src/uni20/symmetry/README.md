@@ -22,7 +22,7 @@ the mathematical problem and is treated as a correctness bug.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
-- [Symmetry and block-sparse documentation](../../../docs/symmetry/README.md)
+- [Source tree map](../)
+- [Symmetry and block-sparse documentation](../../../docs/symmetry/)
 - [Quantum numbers and symmetry](../../../docs/symmetry/qnum.md)
 - [Raw primitives and symmetric lowering](../../../docs/symmetry/raw_primitives_and_lowering.md)

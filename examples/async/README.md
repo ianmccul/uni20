@@ -48,6 +48,6 @@ diagnostics.
   filename is historical; use the canonical examples above for new code.
 
 The deadlock and coroutine-failure examples intentionally exercise failure
-paths. See the [examples index](../README.md), [Async Documentation](../../docs/async/README.md),
+paths. See the [examples index](../), [Async Documentation](../../docs/async/),
 [Async Kernel Authoring](../../docs/async/kernel_authoring.md), and
 [DAG Debug Examples](../../docs/async/dag_debug_examples.md).

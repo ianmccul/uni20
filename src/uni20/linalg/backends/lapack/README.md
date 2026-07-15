@@ -19,7 +19,7 @@ This directory contains LAPACK operation-tag backend adapters.
 
 - Each operation should provide `kernel_accepts_types(LapackBackend, ...)` and
   `try_kernel(LapackBackend, ...)`, then call the raw wrappers under
-  [the LAPACK provider layer](../../../backend/lapack/README.md).
+  [the LAPACK provider layer](../../../backend/lapack/).
 - Return a non-success `KernelAttempt` only for clean preflight decline. LAPACK
   `INFO` failures after a provider call are terminal and must not trigger
   fallback.
@@ -30,6 +30,6 @@ This directory contains LAPACK operation-tag backend adapters.
 
 ## Related Documentation
 
-- [Linalg backend source map](../README.md)
+- [Linalg backend source map](../)
 - [BLAS/LAPACK mdspan wrappers](../../../../../docs/linalg/blas_lapack_wrappers.md)
 - [Mdspan linear algebra dispatch](../../../../../docs/linalg/mdspan_dispatch.md)

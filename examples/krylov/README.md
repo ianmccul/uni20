@@ -12,6 +12,6 @@
   harmonic-oscillator convergence case from tracked Matrix Market fixtures.
 
 Several invocations are registered with CTest, including optional binary128
-runs when MPLAPACK is configured. See the [examples index](../README.md),
-[Krylov documentation](../../docs/krylov/README.md), and
+runs when MPLAPACK is configured. See the [examples index](../),
+[Krylov documentation](../../docs/krylov/), and
 [Krylov test matrices](../../docs/krylov/test_matrices.md).

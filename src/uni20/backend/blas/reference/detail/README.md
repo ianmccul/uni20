@@ -14,5 +14,5 @@ declaration layer.
 
 ## Related Documentation
 
-- [Reference BLAS source layer](../README.md)
+- [Reference BLAS source layer](../)
 - [BLAS/LAPACK mdspan wrappers](../../../../../../docs/linalg/blas_lapack_wrappers.md)

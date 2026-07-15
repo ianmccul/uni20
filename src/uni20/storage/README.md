@@ -23,7 +23,7 @@ backend tags without owning tensor mathematics.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
+- [Source tree map](../)
 - [Storage kind and location](../../../docs/architecture/storage_kind_and_location.md)
 - [Tensor creation and reshape](../../../docs/tensor/creation_and_reshape.md)
 - [Async storage and identity](../../../docs/async/storage.md)

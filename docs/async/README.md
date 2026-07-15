@@ -62,7 +62,7 @@ The docs are split into two groups:
 
 ## Example Programs
 
-The [Async Examples Index](../../examples/async/README.md) classifies every
+The [Async Examples Index](../../examples/async/) classifies every
 program and identifies deliberate failure paths. Frequently used examples are:
 
 - `examples/async/async_buffer_semantics_example.cpp`: read/write ownership, release ordering, cancellation, and exception routing
@@ -95,9 +95,9 @@ selected behavior, and source records the current implementation. If they
 disagree, report and resolve the conflict rather than silently treating one as
 authoritative. This docs set is kept aligned to:
 
-- [Async runtime source map](../../src/uni20/async/README.md)
-- [Async linalg wrappers](../../src/uni20/linalg/async/README.md)
-- [Async tensor aliases](../../src/uni20/tensor/README.md)
+- [Async runtime source map](../../src/uni20/async/)
+- [Async linalg wrappers](../../src/uni20/linalg/async/)
+- [Async tensor aliases](../../src/uni20/tensor/)
 - [Async tests](../../tests/async/)
 - [Async examples](../../examples/async/)
 

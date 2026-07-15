@@ -20,19 +20,19 @@ also registered with CTest as executable documentation.
 
 ## Directory Map
 
-- [AD](ad/README.md): early reverse-mode and gradient-descent experiments.
-- [Async](async/README.md): buffers, await paths, schedulers, Tensor kernels,
+- [AD](ad/): early reverse-mode and gradient-descent experiments.
+- [Async](async/): buffers, await paths, schedulers, Tensor kernels,
   failures, and DAG diagnostics.
-- [Common](common/README.md): build information, floating-point test helpers,
+- [Common](common/): build information, floating-point test helpers,
   and trace diagnostics.
-- [Krylov](krylov/README.md): symmetric/nonsymmetric Matrix Market drivers and
+- [Krylov](krylov/): symmetric/nonsymmetric Matrix Market drivers and
   exponential-action probes.
-- [Linear algebra](linalg/README.md): provider reporting, kernel dispatch, and
+- [Linear algebra](linalg/): provider reporting, kernel dispatch, and
   Tensor GEMM.
-- [Mdspan](mdspan/README.md): configured mdspan and formatting basics.
-- [Presentation](presentation/README.md): reports, tables, glyph policies,
+- [Mdspan](mdspan/): configured mdspan and formatting basics.
+- [Presentation](presentation/): reports, tables, glyph policies,
   text art, diagnostics, and mdspan previews.
-- [Python](python/README.md): Python build-information smoke example.
+- [Python](python/): Python build-information smoke example.
 
 ## Failure Examples
 
@@ -41,4 +41,4 @@ local README identifies this behavior; do not use a zero exit status as the
 expected result for those targets.
 
 See [Getting Started](../docs/getting_started.md) for the general build workflow
-and the [documentation index](../docs/README.md) for subsystem contracts.
+and the [documentation index](../docs/) for subsystem contracts.

@@ -8,5 +8,5 @@ or configure `PYTHONPATH` first:
 python3 examples/python/python_buildinfo_example.py build/bindings/python
 ```
 
-See the [examples index](../README.md), [Python Bindings](../../docs/python/bindings.md),
+See the [examples index](../), [Python Bindings](../../docs/python/bindings.md),
 and [Build Information](../../docs/development/build_information.md).

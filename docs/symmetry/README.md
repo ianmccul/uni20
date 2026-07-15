@@ -26,6 +26,6 @@ metadata remains a correctness error, not an acceptable fallback.
 
 ## Source Navigation
 
-- [Implemented symmetry foundations](../../src/uni20/symmetry/README.md)
-- [Low-level tensor kernels](../../src/uni20/kernel/README.md)
-- [Dense elementwise primitives](../../src/uni20/level1/README.md)
+- [Implemented symmetry foundations](../../src/uni20/symmetry/)
+- [Low-level tensor kernels](../../src/uni20/kernel/)
+- [Dense elementwise primitives](../../src/uni20/level1/)

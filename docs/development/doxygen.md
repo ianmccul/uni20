@@ -122,6 +122,14 @@ generated HTML headings and page anchors. Use plain names such as
 `DebugScheduler` in headings, and keep inline code styling for body text,
 tables, and examples.
 
+When a link is intended to navigate to a repository directory whose index is
+`README.md`, link to the directory, for example `[Async](../async/)`, rather
+than directly to `../async/README.md`. GitHub then shows the directory listing
+before its README. `scripts/doxygen-markdown-filter.py` resolves these directory
+links to the corresponding README pages while generating the flat Doxygen site.
+Direct README links remain appropriate when a fragment identifies a specific
+section.
+
 ## 7. Validation
 
 Validate the Markdown hierarchy, local links, subsystem indexes, explicit

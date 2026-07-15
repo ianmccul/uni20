@@ -15,6 +15,6 @@ target scaffolding rather than mature CUDA backend wrappers.
 
 ## Related Documentation
 
-- [Backend source layer](../README.md)
-- [CUDA backend documentation](../../../../docs/backends/cuda/README.md)
+- [Backend source layer](../)
+- [CUDA backend documentation](../../../../docs/backends/cuda/)
 - [Execution architecture](../../../../docs/architecture/execution.md)

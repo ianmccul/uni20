@@ -16,9 +16,9 @@ material.
   work.
 - [Contributor Guide](CONTRIBUTING.md): development workflow, evidence, and
   review expectations.
-- [Source Tree Map](../src/uni20/README.md): module ownership and local source
+- [Source Tree Map](../src/uni20/): module ownership and local source
   navigation.
-- [Examples Index](../examples/README.md): runnable demonstrations, probes,
+- [Examples Index](../examples/): runnable demonstrations, probes,
   diagnostics, and retained experiments.
 
 ## Document Status
@@ -38,19 +38,19 @@ rather than silently choosing one source.
 
 | Area | Entry point | Scope |
 |---|---|---|
-| Architecture | [Architecture docs](architecture/README.md) | Layering, backend selection, kernel dispatch, ordering, storage location, and heterogeneous execution design |
-| Tensor | [Tensor docs](tensor/README.md) | Dense Tensor values and views, scalar policy, creation, reshape, materialization, and operation semantics |
-| Linear algebra | [Linear algebra docs](linalg/README.md) | Mdspan lowering, BLAS/LAPACK adapters, dense operation dispatch, and MPLAPACK |
-| Async and AD | [Async docs](async/README.md) | `Async<T>`, epochs, buffers, schedulers, exceptions, DAG diagnostics, Tensor kernels, and value-level reverse AD |
-| Krylov | [Krylov docs](krylov/README.md) | Solvers, defaults, convergence, exponential estimators, precision validation, and fixtures |
-| Symmetry | [Symmetry docs](symmetry/README.md) | Quantum numbers and future symmetry-aware block-sparse Tensor design |
-| Tensor networks | [Tensor-network docs](tensor_network/README.md) | Sparse operators, models, finite MPS foundations, and TensorContraction integration findings |
-| Backends | [Backend docs](backends/README.md) | CUDA and MPI architecture, platform constraints, runtime design, and background surveys |
-| Diagnostics | [Diagnostics docs](diagnostics/README.md) | Presentation, display, trace diagnostics, logging plans, and Graphviz |
-| Python | [Python docs](python/README.md) | Current smoke bindings and future Tensor dtype/presentation policy |
-| Development | [Developer docs](development/README.md) | Testing, review, Doxygen, build information, and agent-assisted workflow |
-| AI guidance | [AI guidance](ai_guidance/README.md) | Non-normative retrieval summaries for automated assistants |
-| Design papers | [Long-form papers](latex/README.md) | Historical LaTeX sources and rendered background material |
+| Architecture | [Architecture docs](architecture/) | Layering, backend selection, kernel dispatch, ordering, storage location, and heterogeneous execution design |
+| Tensor | [Tensor docs](tensor/) | Dense Tensor values and views, scalar policy, creation, reshape, materialization, and operation semantics |
+| Linear algebra | [Linear algebra docs](linalg/) | Mdspan lowering, BLAS/LAPACK adapters, dense operation dispatch, and MPLAPACK |
+| Async and AD | [Async docs](async/) | `Async<T>`, epochs, buffers, schedulers, exceptions, DAG diagnostics, Tensor kernels, and value-level reverse AD |
+| Krylov | [Krylov docs](krylov/) | Solvers, defaults, convergence, exponential estimators, precision validation, and fixtures |
+| Symmetry | [Symmetry docs](symmetry/) | Quantum numbers and future symmetry-aware block-sparse Tensor design |
+| Tensor networks | [Tensor-network docs](tensor_network/) | Sparse operators, models, finite MPS foundations, and TensorContraction integration findings |
+| Backends | [Backend docs](backends/) | CUDA and MPI architecture, platform constraints, runtime design, and background surveys |
+| Diagnostics | [Diagnostics docs](diagnostics/) | Presentation, display, trace diagnostics, logging plans, and Graphviz |
+| Python | [Python docs](python/) | Current smoke bindings and future Tensor dtype/presentation policy |
+| Development | [Developer docs](development/) | Testing, review, Doxygen, build information, and agent-assisted workflow |
+| AI guidance | [AI guidance](ai_guidance/) | Non-normative retrieval summaries for automated assistants |
+| Design papers | [Long-form papers](latex/) | Historical LaTeX sources and rendered background material |
 
 ## Current Vertical Slices
 

@@ -29,10 +29,10 @@ evidence for exact backend coverage.
 
 ## Source Navigation
 
-- [Dense linalg front ends and dispatch](../../src/uni20/linalg/README.md)
-- [Tensor-facing linalg operations](../../src/uni20/linalg/ops/README.md)
-- [BLAS descriptor lowering](../../src/uni20/linalg/blas/README.md)
-- [Operation-tag backends](../../src/uni20/linalg/backends/README.md)
-- [Raw BLAS providers](../../src/uni20/backend/blas/README.md)
-- [Raw LAPACK providers](../../src/uni20/backend/lapack/README.md)
-- [Linear algebra examples](../../examples/linalg/README.md)
+- [Dense linalg front ends and dispatch](../../src/uni20/linalg/)
+- [Tensor-facing linalg operations](../../src/uni20/linalg/ops/)
+- [BLAS descriptor lowering](../../src/uni20/linalg/blas/)
+- [Operation-tag backends](../../src/uni20/linalg/backends/)
+- [Raw BLAS providers](../../src/uni20/backend/blas/)
+- [Raw LAPACK providers](../../src/uni20/backend/lapack/)
+- [Linear algebra examples](../../examples/linalg/)

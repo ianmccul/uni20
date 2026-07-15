@@ -137,7 +137,7 @@ a complete tensor-network application suite. In particular:
 - [Tensor Operations](tensor/operations.md): canonical ownership, output,
   layout, and async support matrix.
 - [Kernel Dispatch](architecture/kernel_dispatch.md): backend capability and decline model.
-- [Async Documentation](async/README.md): runtime semantics and kernel-authoring
+- [Async Documentation](async/): runtime semantics and kernel-authoring
   guides.
 - [Krylov Algorithms](krylov/algorithms.md): solver behavior and supported
   scalar types.

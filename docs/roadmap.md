@@ -73,7 +73,7 @@ See [Kernel Dispatch](architecture/kernel_dispatch.md),
 - Async matrix-product overwrite/update and preserving/consuming self-adjoint
   `eigh` wrappers schedule the existing synchronous Tensor operations.
 
-See the [Async Documentation Index](async/README.md) and
+See the [Async Documentation Index](async/) and
 [Async Tensor Kernel Authoring](async/kernel_authoring.md).
 
 ### Krylov and numerical validation

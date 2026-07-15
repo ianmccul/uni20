@@ -10,5 +10,5 @@
   reports backend diagnostics, and supports `fp32`, `fp64`, and configured
   `fp128` precision.
 
-See the [examples index](../README.md), [Kernel Dispatch](../../docs/architecture/kernel_dispatch.md),
-and [Linear Algebra](../../docs/linalg/README.md).
+See the [examples index](../), [Kernel Dispatch](../../docs/architecture/kernel_dispatch.md),
+and [Linear Algebra](../../docs/linalg/).

@@ -7,12 +7,12 @@ owning tensor semantics, symmetry metadata, or high-level operation policy.
 ## Contents
 
 - `backend.hpp`: common backend include point.
-- [`blas/`](blas/README.md): BLAS-family backend wrappers, vendor detection helpers, OpenBLAS/MKL
+- [`blas/`](blas/): BLAS-family backend wrappers, vendor detection helpers, OpenBLAS/MKL
   adapters, reference BLAS prototypes, and MPLAPACK binary128 hooks.
-- [`lapack/`](lapack/README.md): LAPACK-family declarations grouped by problem shape, with
+- [`lapack/`](lapack/): LAPACK-family declarations grouped by problem shape, with
   reference and MPLAPACK-backed variants.
-- [`cuda/`](cuda/README.md): CUDA backend target wiring and placeholders.
-- [`cusolver/`](cusolver/README.md): cuSOLVER backend target wiring and placeholders.
+- [`cuda/`](cuda/): CUDA backend target wiring and placeholders.
+- [`cusolver/`](cusolver/): cuSOLVER backend target wiring and placeholders.
 
 ## Notes
 
@@ -25,7 +25,7 @@ owning tensor semantics, symmetry metadata, or high-level operation policy.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
-- [Backend documentation](../../../docs/backends/README.md)
+- [Source tree map](../)
+- [Backend documentation](../../../docs/backends/)
 - [Kernel dispatch](../../../docs/architecture/kernel_dispatch.md)
-- [Linear algebra documentation](../../../docs/linalg/README.md)
+- [Linear algebra documentation](../../../docs/linalg/)

@@ -10,4 +10,4 @@ The paper is historical background. Its source paths, Tensor vocabulary, and
 kernel layering predate the current Tensor and operation-tag dispatcher. Use
 [Tensor Operations](../tensor/operations.md),
 [Kernel Dispatch](../architecture/kernel_dispatch.md), and the
-[documentation index](../README.md) for current contracts.
+[documentation index](../) for current contracts.

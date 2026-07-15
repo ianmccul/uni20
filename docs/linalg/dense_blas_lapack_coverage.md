@@ -9,7 +9,7 @@ Most broad utility rows below are retained in
 That header is quarantined and excluded from the active Krylov target, so those
 rows do not define a supported linalg API. Rows explicitly described as
 dispatched are active dependencies of the maintained Krylov path and lower
-through the [dense linalg layer](../../src/uni20/linalg/README.md).
+through the [dense linalg layer](../../src/uni20/linalg/).
 
 Keep this inventory synchronized with provider declarations and with any
 helpers promoted from the quarantined survey into operation-tag linalg
@@ -156,5 +156,5 @@ provider/helper support; algorithm-level binary128 coverage remains in
 - [Mdspan linear algebra dispatch](mdspan_dispatch.md)
 - [MPLAPACK binary128 setup](mplapack_binary128.md)
 - [Krylov precision validation](../krylov/precision_validation.md)
-- [Dense linalg source map](../../src/uni20/linalg/README.md)
-- [LAPACK provider source map](../../src/uni20/backend/lapack/README.md)
+- [Dense linalg source map](../../src/uni20/linalg/)
+- [LAPACK provider source map](../../src/uni20/backend/lapack/)

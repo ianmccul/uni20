@@ -17,5 +17,5 @@ sequential or threaded target variants.
 
 ## Related Documentation
 
-- [BLAS provider source layer](../README.md)
+- [BLAS provider source layer](../)
 - [BLAS/LAPACK mdspan wrappers](../../../../../docs/linalg/blas_lapack_wrappers.md)

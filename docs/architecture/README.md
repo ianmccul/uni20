@@ -29,8 +29,8 @@ not claims that CUDA or MPI execution is complete.
 
 ## Source Navigation
 
-- [Source tree map](../../src/uni20/README.md)
-- [Dense linalg and dispatch](../../src/uni20/linalg/README.md)
-- [Async runtime](../../src/uni20/async/README.md)
-- [Provider backends](../../src/uni20/backend/README.md)
-- [Storage policies](../../src/uni20/storage/README.md)
+- [Source tree map](../../src/uni20/)
+- [Dense linalg and dispatch](../../src/uni20/linalg/)
+- [Async runtime](../../src/uni20/async/)
+- [Provider backends](../../src/uni20/backend/)
+- [Storage policies](../../src/uni20/storage/)

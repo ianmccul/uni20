@@ -38,8 +38,8 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
-- [Async documentation index](../../../docs/async/README.md)
+- [Source tree map](../)
+- [Async documentation index](../../../docs/async/)
 - [Async storage and identity](../../../docs/async/storage.md)
 - [Exceptions and cancellation](../../../docs/async/exceptions_and_cancellation.md)
 - [Task registry diagnostics](../../../docs/async/task_registry_debug.md)

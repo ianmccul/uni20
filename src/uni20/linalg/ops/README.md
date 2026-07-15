@@ -40,7 +40,7 @@ Operation values and diagnostic names are defined centrally in
 
 ## Related Documentation
 
-- [Linalg source map](../README.md)
+- [Linalg source map](../)
 - [Tensor operations](../../../../docs/tensor/operations.md)
 - [Mdspan linear algebra dispatch](../../../../docs/linalg/mdspan_dispatch.md)
 - [Kernel dispatch](../../../../docs/architecture/kernel_dispatch.md)

@@ -140,6 +140,42 @@ def validate_markdown(path: Path, problems: list[str]) -> None:
         problems.append(f"{repository_relative(path)}: unclosed code fence")
 
 
+def validate_directory_readme_links(paths: list[Path], problems: list[str]) -> None:
+    for path in paths:
+        in_fence = False
+        fence_character: str | None = None
+
+        for line_number, line in enumerate(path.read_text().splitlines(), 1):
+            marker = FENCE.match(line.lstrip())
+            if marker:
+                character = marker.group(1)[0]
+                if not in_fence:
+                    in_fence = True
+                    fence_character = character
+                elif character == fence_character:
+                    in_fence = False
+                    fence_character = None
+                continue
+            if in_fence:
+                continue
+
+            for match in MARKDOWN_LINK.finditer(line):
+                target = split_link_target(match.group(1))
+                path_part = target.partition("#")[0].partition("?")[0]
+                if (
+                    path_part
+                    and not path_part.startswith(
+                        ("http://", "https://", "mailto:", "data:")
+                    )
+                    and Path(path_part).name == "README.md"
+                    and "#" not in target
+                ):
+                    problems.append(
+                        f"{repository_relative(path)}:{line_number}: "
+                        f"link to the directory instead of {target}"
+                    )
+
+
 def validate_doc_indexes(problems: list[str]) -> None:
     for directory in sorted(path for path in DOCS.rglob("*") if path.is_dir()):
         documents = sorted(directory.glob("*.md"))
@@ -159,7 +195,7 @@ def validate_doc_indexes(problems: list[str]) -> None:
                     f"{repository_relative(document)}: not named in {repository_relative(index)}"
                 )
         for child_index in child_indexes:
-            relative = child_index.relative_to(directory).as_posix()
+            relative = child_index.parent.relative_to(directory).as_posix() + "/"
             if relative not in content:
                 problems.append(
                     f"{repository_relative(child_index)}: not named in {repository_relative(index)}"
@@ -181,7 +217,7 @@ def validate_directory_indexes(
         content = index.read_text()
         for child in sorted(candidate for candidate in directories if candidate.parent == directory):
             child_index = child / "README.md"
-            relative = child_index.relative_to(directory).as_posix()
+            relative = child.relative_to(directory).as_posix() + "/"
             if relative not in content:
                 problems.append(
                     f"{repository_relative(child_index)}: not named in {repository_relative(index)}"
@@ -223,6 +259,8 @@ def main() -> int:
     documents = markdown_files()
     source_indexes = source_readmes()
     example_indexes = example_readmes()
+    tracked_files = tracked_existing_files()
+    tracked_markdown = sorted(path for path in tracked_files if path.suffix == ".md")
 
     top_level = {path.name for path in DOCS.glob("*.md")}
     unexpected = sorted(top_level - TOP_LEVEL_MARKDOWN)
@@ -231,11 +269,12 @@ def main() -> int:
 
     for path in documents + source_indexes + example_indexes:
         validate_markdown(path, problems)
+    validate_directory_readme_links(tracked_markdown, problems)
     validate_doc_indexes(problems)
     validate_directory_indexes(SOURCE, source_indexes, "source", problems)
     validate_directory_indexes(EXAMPLES, example_indexes, "example", problems)
 
-    root_reference_paths = set(tracked_existing_files()) | set(documents)
+    root_reference_paths = set(tracked_files) | set(documents)
     validate_root_references(sorted(root_reference_paths), problems)
 
     if problems:
@@ -247,7 +286,8 @@ def main() -> int:
     print(
         f"Documentation validation passed: {len(documents)} Markdown files, "
         f"{len(source_indexes)} source indexes, {len(example_indexes)} example "
-        "indexes, local links, hierarchy, and repository-root references checked."
+        "indexes, local links, directory navigation, hierarchy, and "
+        "repository-root references checked."
     )
     return 0
 

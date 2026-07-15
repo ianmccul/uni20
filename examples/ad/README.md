@@ -9,5 +9,5 @@ Tensor AD is future work.
 - `gradient_solver.cpp` builds a scalar `Var<double>` loss graph and performs
   repeated asynchronous gradient-descent updates with `DebugScheduler`.
 
-See the [examples index](../README.md), [Reverse-Mode AD](../../docs/async/reverse_mode_ad.md),
+See the [examples index](../), [Reverse-Mode AD](../../docs/async/reverse_mode_ad.md),
 and the [Async Runtime Model](../../docs/async/runtime_model.md).

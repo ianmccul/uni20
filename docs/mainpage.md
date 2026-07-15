@@ -71,6 +71,6 @@ scheduling through backend kernels and structured presentation.
 
 - [Agent-assisted development](development/agent_assisted_development.md)
 - [Reviewing changes](development/code_review.md)
-- [AI guidance](ai_guidance/README.md)
+- [AI guidance](ai_guidance/)
 - [Trace macros](diagnostics/trace_macros.md)
 - [Doxygen policy](development/doxygen.md)

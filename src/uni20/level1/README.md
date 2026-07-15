@@ -19,6 +19,6 @@ layout, and dispatch decisions have already been resolved.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
+- [Source tree map](../)
 - [Raw primitives and symmetric lowering](../../../docs/symmetry/raw_primitives_and_lowering.md)
 - [Trace as a dense reduction](../../../docs/linalg/trace_reduction.md)

@@ -44,7 +44,7 @@ small helpers used by dense kernels and layout-aware algorithms.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
+- [Source tree map](../)
 - [Tensor dispatch and view semantics](../../../docs/tensor/dispatch_and_view_semantics_draft.md)
 - [BLAS/LAPACK mdspan wrappers](../../../docs/linalg/blas_lapack_wrappers.md)
 - [Mdspan linear algebra dispatch](../../../docs/linalg/mdspan_dispatch.md)

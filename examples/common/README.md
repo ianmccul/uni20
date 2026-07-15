@@ -8,5 +8,5 @@
 - `trace_example.cpp` exercises trace formatting, module channels, containers,
   and thread annotations, then intentionally terminates with `PANIC`.
 
-See the [examples index](../README.md), [Build Information](../../docs/development/build_information.md),
+See the [examples index](../), [Build Information](../../docs/development/build_information.md),
 and [Trace Macros](../../docs/diagnostics/trace_macros.md).

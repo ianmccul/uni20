@@ -6,7 +6,7 @@ for the configured BLAS provider.
 ## Contents
 
 - `reference_blas.hpp`: reference BLAS include point.
-- [`detail/`](detail/README.md): low-level BLAS routine prototypes.
+- [`detail/`](detail/): low-level BLAS routine prototypes.
 - `CMakeLists.txt`: interface target linked to the discovered BLAS/LAPACK
   libraries.
 
@@ -18,5 +18,5 @@ for the configured BLAS provider.
 
 ## Related Documentation
 
-- [BLAS provider source layer](../README.md)
+- [BLAS provider source layer](../)
 - [BLAS/LAPACK mdspan wrappers](../../../../../docs/linalg/blas_lapack_wrappers.md)

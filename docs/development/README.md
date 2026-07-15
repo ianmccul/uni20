@@ -19,5 +19,5 @@ Repository-wide coding and correctness rules remain in
 [`AGENTS.md`](../../AGENTS.md). Machine-specific build trees and compiler paths
 belong in untracked local instructions, not these portable guides.
 
-Relevant implementations live in [scalar and build foundations](../../src/uni20/core/README.md)
-and [common diagnostics/documentation support](../../src/uni20/common/README.md).
+Relevant implementations live in [scalar and build foundations](../../src/uni20/core/)
+and [common diagnostics/documentation support](../../src/uni20/common/).

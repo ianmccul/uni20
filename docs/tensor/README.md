@@ -24,7 +24,7 @@ Async ownership and alias lifetime are documented in
 
 ## Source Navigation
 
-- [Tensor values, views, and operations](../../src/uni20/tensor/README.md)
-- [Storage policies](../../src/uni20/storage/README.md)
-- [Mdspan concepts and accessors](../../src/uni20/mdspan/README.md)
-- [Scalar foundations](../../src/uni20/core/README.md)
+- [Tensor values, views, and operations](../../src/uni20/tensor/)
+- [Storage policies](../../src/uni20/storage/)
+- [Mdspan concepts and accessors](../../src/uni20/mdspan/)
+- [Scalar foundations](../../src/uni20/core/)

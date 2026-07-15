@@ -19,11 +19,11 @@ vendor accelerator backend.
 
 - This is the home for CPU-specific dense algorithms that are above raw kernels
   but below public tensor workflows.
-- Keep matrix-free algorithms in the [Krylov source layer](../../../krylov/README.md);
+- Keep matrix-free algorithms in the [Krylov source layer](../../../krylov/);
   only small dense projected problems or direct dense linalg belong here.
 
 ## Related Documentation
 
-- [Linalg backend source map](../README.md)
-- [Linear algebra documentation](../../../../../docs/linalg/README.md)
+- [Linalg backend source map](../)
+- [Linear algebra documentation](../../../../../docs/linalg/)
 - [Krylov algorithms](../../../../../docs/krylov/algorithms.md)

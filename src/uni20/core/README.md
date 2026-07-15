@@ -26,6 +26,6 @@ layers such as tensor, linalg, backend, async, or symmetry.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
+- [Source tree map](../)
 - [Scalar policy](../../../docs/tensor/scalar_policy.md)
 - [Build information](../../../docs/development/build_information.md)

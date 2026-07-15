@@ -303,6 +303,10 @@ implicit `auto` setting for TensorContraction profiling.
 * All developer docs reside in `docs/`.
 * Use Markdown tables and fenced code blocks for clarity.
 * Sync all docs with behavior and API changes.
+* When linking to a repository directory whose index is `README.md`, link to
+  `directory/`, not `directory/README.md`, so GitHub shows the directory listing
+  before the rendered index. Link directly to `README.md` only when a fragment
+  identifies a specific section.
 * When changing scalar aliases, scalar traits, scalar numeric-limits behavior,
   or scalar spelling policy, update `docs/tensor/scalar_policy.md`.
 * When changing Krylov algorithms, supported scalar types, public Krylov

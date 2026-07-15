@@ -21,9 +21,9 @@ and background from the earlier TensorContraction integration work.
 
 The R/A/B/C executables and fixture tooling described by the background notes
 are not runnable targets on the current main branch. Their durable architectural
-conclusions feed the [architecture](../architecture/README.md) and
-[symmetry](../symmetry/README.md) designs.
+conclusions feed the [architecture](../architecture/) and
+[symmetry](../symmetry/) designs.
 
-Relevant source foundations are the [dense Tensor layer](../../src/uni20/tensor/README.md),
-[symmetry metadata](../../src/uni20/symmetry/README.md), and
-[low-level tensor kernels](../../src/uni20/kernel/README.md).
+Relevant source foundations are the [dense Tensor layer](../../src/uni20/tensor/),
+[symmetry metadata](../../src/uni20/symmetry/), and
+[low-level tensor kernels](../../src/uni20/kernel/).

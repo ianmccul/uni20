@@ -31,7 +31,7 @@ high-level tensor, linalg, async, or symmetry layers.
 
 ## Related Documentation
 
-- [Source tree map](../README.md)
-- [Diagnostics and presentation](../../../docs/diagnostics/README.md)
+- [Source tree map](../)
+- [Diagnostics and presentation](../../../docs/diagnostics/)
 - [Presentation formatting](../../../docs/diagnostics/presentation.md)
 - [Trace macros and failure policy](../../../docs/diagnostics/trace_macros.md)
