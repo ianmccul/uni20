@@ -42,11 +42,6 @@ diagnostics.
 - `async_coroutine_failure_example.cpp`: deliberate coroutine failure propagated
   through writer boundaries, with optional automatic Graphviz capture.
 
-## Retained Regression Program
-
-- `bug.cpp`: minimal TBB assignment-chain/get-wait regression program. The
-  filename is historical; use the canonical examples above for new code.
-
 The deadlock and coroutine-failure examples intentionally exercise failure
 paths. See the [examples index](../), [Async Documentation](../../docs/async/),
 [Async Kernel Authoring](../../docs/async/kernel_authoring.md), and

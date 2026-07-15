@@ -151,7 +151,6 @@ uni20_add_example(async_coroutine_failure_example async/async_coroutine_failure_
                   uni20_async)
 add_test(NAME AsyncCoroutineFailureExample COMMAND async_coroutine_failure_example --no-dot)
 uni20_add_example(future_example async/future_example.cpp fmt::fmt uni20_common uni20_async)
-uni20_add_example(bug async/bug.cpp fmt::fmt uni20_common uni20_async TBB::tbb)
 
 uni20_add_example(ad_example ad/ad_example.cpp fmt::fmt uni20_common uni20_async)
 uni20_add_example(gradient_solver ad/gradient_solver.cpp fmt::fmt uni20_common uni20_async)
