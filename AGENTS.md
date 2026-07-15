@@ -309,6 +309,10 @@ implicit `auto` setting for TensorContraction profiling.
   parameters, default values, or internal convergence/restart tuning, update
   `docs/krylov/algorithms.md`. If scalar support changes, also update
   `docs/krylov/precision_validation.md`.
+* When adding or removing dense BLAS/LAPACK wrappers, provider routine coverage,
+  or quarantined dense helper probes, update
+  `docs/linalg/dense_blas_lapack_coverage.md`. Keep provider-wide coverage
+  inventories out of the Krylov algorithm contract.
 
 ---
 

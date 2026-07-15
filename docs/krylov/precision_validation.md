@@ -165,7 +165,8 @@ coverage where the scalar category makes sense: real solver paths gain `f128`,
 complex solver paths gain `cf128`, and Hermitian paths gain both. The broad
 dense projected helper inventory remains quarantined in
 `dense_subspace_unused.hpp`; it is not part of the maintained binary128 test
-matrix.
+matrix. See [Dense BLAS/LAPACK Wrapper Coverage](../linalg/dense_blas_lapack_coverage.md)
+for that provider/helper inventory.
 
 | algorithm or surface | `f128` | `cf128` | tests |
 | --- | --- | --- | --- |

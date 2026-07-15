@@ -56,5 +56,6 @@ before they lower to backend wrappers and kernels.
 
 - [Source tree map](../README.md)
 - [Linear algebra documentation](../../../docs/linalg/README.md)
+- [Dense BLAS/LAPACK wrapper coverage](../../../docs/linalg/dense_blas_lapack_coverage.md)
 - [Kernel dispatch](../../../docs/architecture/kernel_dispatch.md)
 - [Tensor operations](../../../docs/tensor/operations.md)

@@ -41,6 +41,8 @@ norms and inner products.
   [`/docs/krylov/solver_defaults.md`](../../../docs/krylov/solver_defaults.md).
 - Precision validation status lives in
   [`/docs/krylov/precision_validation.md`](../../../docs/krylov/precision_validation.md).
+- Dense provider and quarantined helper coverage lives in [Dense BLAS/LAPACK
+  Wrapper Coverage](../../../docs/linalg/dense_blas_lapack_coverage.md).
 - Test matrix provenance and stress-test intent live in
   [`/docs/krylov/test_matrices.md`](../../../docs/krylov/test_matrices.md).
 

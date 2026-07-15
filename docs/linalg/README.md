@@ -9,6 +9,9 @@ optional multiprecision support, and linear-algebra design background.
   operation-tag vertical slices and the remaining dense-operation sequence.
 - [BLAS/LAPACK Mdspan Wrappers](blas_lapack_wrappers.md) describes the
   provider-ready operand layer below dispatch.
+- [Dense BLAS/LAPACK Wrapper Coverage](dense_blas_lapack_coverage.md) inventories
+  active dispatched dependencies and the quarantined experimental wrapper
+  survey separately from Krylov algorithm behavior.
 - [MPLAPACK Binary128](mplapack_binary128.md) is the build and validation guide
   for optional binary128 provider support.
 
