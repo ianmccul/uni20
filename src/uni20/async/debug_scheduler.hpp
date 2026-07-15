@@ -75,7 +75,7 @@ class DebugScheduler final : public IScheduler {
     /// \brief Run one batch of scheduled coroutines (in LIFO order).
     void run();
 
-    /// \brief Run until no pending tasks remain.
+    /// \brief Run until no runnable tasks remain.
     void run_all();
 
     /// \brief Block the scheduler from running.
@@ -103,8 +103,8 @@ class DebugScheduler final : public IScheduler {
       this->run();
     }
 
-    /// \brief Check if there are no pending tasks.
-    /// \return true if the scheduler queue is empty.
+    /// \brief Check whether the runnable queue is empty.
+    /// \return `true` if the scheduler has no queued tasks.
     [[nodiscard]] bool done() const noexcept { return Handles_.empty(); }
 
   private:

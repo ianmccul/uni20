@@ -221,17 +221,24 @@ TEST(AsyncEmplaceTest, UnconstructedControlBlockAndQueueAreInitialized)
   EXPECT_FALSE(queue.has_pending_writers());
   EXPECT_EQ(initial_control.get(), nullptr);
 
-  sched.schedule([](WriteBuffer<NonDefault> buffer, Async<NonDefault>& target) static -> AsyncTask {
-    auto& ref = (co_await buffer).emplace(123);
+  auto completed = std::make_shared<bool>(false);
+  sched.schedule([](WriteBuffer<NonDefault> buffer, Async<NonDefault>& target,
+                    std::shared_ptr<bool> completed) static -> AsyncTask {
+    auto access = co_await buffer;
+    auto& ref = access.emplace(123);
     EXPECT_EQ(ref.v, 123);
+    // The same queue cannot grant a reader while this coroutine still owns its writer epoch.
+    access.release();
 
     auto reader = target.read();
     auto& read_ref = co_await reader;
     EXPECT_EQ(read_ref.v, 123);
+    *completed = true;
     co_return;
-  }(value.write(), value));
+  }(value.write(), value, completed));
 
   sched.run_all();
+  EXPECT_TRUE(*completed);
 
   auto control_after = value.value_ptr();
   auto control_after_second = value.value_ptr();
