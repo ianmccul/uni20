@@ -6,8 +6,9 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 
 ## Contents
 
-- `async.hpp`, `async_impl.hpp`, `async_node.hpp`, `async_ops.hpp`: async value
-  wrappers and dependency graph plumbing.
+- `async.hpp`, `async_impl.hpp`, `async_node.hpp`, `async_ops.hpp`,
+  `async_traits.hpp`: async value wrappers, payload capabilities, and dependency
+  graph plumbing.
 - `async_task.hpp`, `async_task_impl.hpp`, `async_task_promise.hpp`,
   `awaiters.hpp`, `cuda_task.hpp`: coroutine task wrappers and await support.
 - `scheduler.hpp`, `debug_scheduler.hpp`, `tbb_scheduler.hpp`,
@@ -29,8 +30,8 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
   rationale.
 - Shared data should flow through the buffer/value abstractions in this module
   so scheduler ordering remains explicit.
-- `async_value_kind_of<T>` controls independent-value versus shared-alias copy
-  construction. `async_assignment_kind_of<T>` controls whether assignment
-  detaches an independent value onto a fresh timeline, writes through a mutable
-  alias, or is forbidden for a read-only alias. See `docs/async_storage.md` for
-  the motivating tensor examples.
+- `is_async_alias_v<T>` controls independent-value versus shared-alias identity.
+  Assignment to an alias is available only through an ADL-visible
+  `assign_through` operation. `WriteBuffer<T>` remains the single exclusive
+  epoch capability, with proxy operations constrained by the payload. See
+  `docs/async_storage.md` for the motivating tensor examples.

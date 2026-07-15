@@ -286,41 +286,40 @@ domain or temporary factory. A CUDA backend type by itself is not enough to
 choose a device or allocator for scratch storage; the backend selector value or
 adaptor must carry that state.
 
-## Value Kinds and Assignment Kinds
+## Value Identity and Assignment Capability
 
 Two related mechanisms govern async values:
 
-- `async_value_kind_of<T>` controls whether copying `Async<T>` creates an
+- `is_async_alias_v<T>` controls whether copying `Async<T>` creates an
   independent value timeline or structurally shares alias storage, lifetime
   ownership, and the epoch queue.
-- `async_assignment_kind_of<T>` controls whether assignment detaches an
-  independent value onto a fresh timeline, writes through a mutable alias, or
-  is forbidden for a read-only alias.
+- Independent values detach onto a fresh timeline on direct assignment. Alias
+  assignment is available only when ADL finds a matching `assign_through`
+  operation; otherwise the expression is ill-formed.
 
 The intended tensor classifications are:
 
 ```cpp
-Async<Tensor>         // value + rebind
-Async<MutableView>    // shared_alias + write_through
-Async<ConstView>      // shared_alias + not_assignable
+Async<Tensor>         // independent value; direct assignment rebinds
+Async<MutableView>    // shared alias with assign_through
+Async<ConstView>      // shared alias without assign_through
 ```
 
-Here `rebind` means detaching the outer `Async` handle and creating fresh
+Here rebinding means detaching the outer `Async` handle and creating fresh
 storage with a fresh `EpochQueue`. It does not mean destroying and emplacing a
 new object inside the old storage. `emplace(...)` is an explicit low-level
 reconstruction operation within the current timeline.
 
-Exact `Async<T>` copy/move assignment follows the same assignment kind. An
+Exact `Async<T>` copy/move assignment follows the same capability rule. An
 exact `Async<MutableView>` source writes through the destination view, while
 assignment to `Async<ConstView>` is ill-formed. Copy/move construction may
 still create another alias handle, but no assignment retargets an existing
 alias descriptor, owner chain, or queue.
 
-The stored type still defines the actual write-through expression. Direct
-write-proxy assignment constructs empty storage when possible and otherwise
-uses the stored type's ordinary assignment operator. A descriptor opting into
-`write_through` must therefore define same-type assignment as a pointee update,
-not a shallow descriptor retarget.
+An ADL-visible `assign_through(target, source)` defines the actual write-through
+operation. The capability-aware write proxy exposes an alias descriptor only as
+const and invokes that customization internally. It never uses ordinary
+descriptor assignment, `emplace`, storage access, or move-out for an alias.
 
 A persistent async tensor slice should probably be an alias handle, not a
 stored resolved view. If a `TensorRef` type exists, an `Async<TensorRef>` value
@@ -331,8 +330,8 @@ This argues for distinguishing:
 
 - **resolved views**: mdspan-like, descriptor assignment, short-lived
 - **tensor refs**: write-through lvalue proxies, owner token required if stored
-- **async aliases**: async handles whose `read()`/`write()` materialize resolved
-  views after epoch synchronization
+- **async aliases**: owner-retaining descriptors with one shared epoch timeline
+  and capability-aware `WriteBuffer` access
 
 ## CUDA Placement
 

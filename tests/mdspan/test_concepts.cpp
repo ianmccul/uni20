@@ -49,6 +49,7 @@ static_assert(std::is_same_v<span_offset_t<AccessorWithoutOffset>, std::size_t>)
 using MutableAccessor = AccessorWithoutOffset;
 using ExpectedConstAccessor = const_accessor_adaptor<MutableAccessor, MutableAccessor::element_type const&>;
 static_assert(std::is_same_v<const_accessor_t<MutableAccessor>, ExpectedConstAccessor>);
+static_assert(std::is_same_v<const_accessor_t<ExpectedConstAccessor>, ExpectedConstAccessor>);
 static_assert(is_default_accessor_v<stdex::default_accessor<int>>);
 static_assert(is_default_accessor_v<stdex::default_accessor<int const>>);
 static_assert(!is_default_accessor_v<MutableAccessor>);

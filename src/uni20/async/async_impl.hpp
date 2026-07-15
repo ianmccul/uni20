@@ -17,12 +17,12 @@ template <typename U>
   requires detail::async_assignment_source<T, U>
 Async<T>& Async<T>::operator=(U&& rhs)
 {
-  if constexpr (async_assignment_kind_v<T> == async_assignment_kind::rebind)
+  if constexpr (!is_async_alias_v<T>)
   {
     if constexpr (detail::async_source<U>)
     {
       Async<T> replacement;
-      async_assign(replacement, std::forward<U>(rhs));
+      async_initialize(replacement, std::forward<U>(rhs));
       *this = std::move(replacement);
     }
     else
@@ -62,7 +62,7 @@ template <typename T> T const& Async<T>::get_wait(IScheduler& sched) const { ret
 /// \return Moved value extracted from storage.
 template <typename T>
 T Async<T>::move_from_wait()
-  requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+  requires(!is_async_alias_v<T> && std::constructible_from<T, T &&>)
 {
   return this->write().move_from_wait();
 }

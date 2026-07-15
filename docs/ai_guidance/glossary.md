@@ -26,21 +26,20 @@ This glossary is optimized for retrieval, not pedagogy.
 - `INVARIANT`: Copying is structural when the descriptor declares `async_alias_tag`.
 - `FAILURE MODE`: Giving aliased storage an independent epoch queue.
 
-### async_value_kind_of<T>
+### is_async_alias<T>
 
 - `ROLE`: Classifies an `Async<T>` payload as an independent value or shared alias.
-- `INVARIANT`: Ordinary types are `async_value_kind::value`; descriptors declaring `async_alias_tag` are `async_value_kind::shared_alias`.
+- `INVARIANT`: Ordinary types make `is_async_alias_v<T>` false; descriptors declaring `async_alias_tag`, or specializing the trait, make it true.
 - `INVARIANT`: Shared-alias copies retain descriptor storage, lifetime ownership, and queue identity.
 
-### async_assignment_kind_of<T>
+### async alias assignment
 
-- `ROLE`: Selects assignment semantics for every `Async<T>` source category.
-- `INVARIANT`: `rebind` detaches onto fresh storage and a fresh `EpochQueue`.
-- `INVARIANT`: `write_through` retains the current descriptor storage, owner chain, and queue.
-- `INVARIANT`: `not_assignable` rejects every assignment to a read-only alias.
-- `INVARIANT`: A `write_through` payload is also an `async_value_kind::shared_alias`.
-- `INVARIANT`: Rebinding is valid only for an `async_value_kind::value`; no assignment retargets a shared alias.
-- `INVARIANT`: Exact `Async<T>` copy/move assignment follows the same assignment kind.
+- `ROLE`: Derives assignment semantics from alias identity and an ADL-visible `assign_through` operation.
+- `INVARIANT`: Independent values detach onto fresh storage and a fresh `EpochQueue`.
+- `INVARIANT`: Alias assignment retains the current descriptor storage, owner chain, and queue.
+- `INVARIANT`: An alias without matching `assign_through` rejects that assignment source.
+- `INVARIANT`: No assignment retargets a shared alias.
+- `INVARIANT`: Exact `Async<T>` copy/move assignment follows the same capability rule.
 - `MISCONCEPTION`: Rebinding means destroying and emplacing `T` inside the existing storage.
 
 ### EpochQueue
@@ -120,10 +119,10 @@ This glossary is optimized for retrieval, not pedagogy.
 
 ### write-proxy assignment
 
-- `ROLE`: `co_await writer = rhs` initializes empty storage or assigns an existing value.
-- `INVARIANT`: Empty storage constructs `T`; constructed storage evaluates the
-  stored type's assignment expression.
-- `INVARIANT`: The source must support both operations.
+- `ROLE`: For independent values, `co_await writer = rhs` initializes empty storage or assigns an existing value; for aliases it invokes `assign_through`.
+- `INVARIANT`: Value storage constructs `T` when empty and evaluates the stored
+  type's assignment expression when constructed.
+- `INVARIANT`: Alias assignment retains descriptor, owner, and queue identity.
 - `MISCONCEPTION`: Async storage replaces a constructed object's assignment semantics.
 
 ### async rebind
@@ -136,14 +135,14 @@ This glossary is optimized for retrieval, not pedagogy.
 ### write-through async assignment
 
 - `ROLE`: Assign through a mutable alias or proxy without replacing its storage, owner, or queue.
-- `INVARIANT`: The stored descriptor must already exist and define the underlying assignment operation.
-- `INVARIANT`: Same-type assignment writes through; it must not retarget only the descriptor.
+- `INVARIANT`: ADL must find `assign_through(target, source)`.
+- `INVARIANT`: The write proxy exposes the descriptor read-only and invokes the customization internally.
 
 ### non-assignable async alias
 
 - `ROLE`: Read-only alias whose descriptor, owner chain, and queue may be copied only by constructing another handle.
 - `INVARIANT`: Copy assignment, move assignment, and heterogeneous assignment are all ill-formed.
-- `INVARIANT`: The alias models an async reader but not an async writer.
+- `INVARIANT`: A `WriteBuffer` can still represent exclusive epoch access, but its proxy exposes no mutation operation for the unsupported source.
 - `EXAMPLES`: Const tensor views and conjugating tensor views.
 
 ### take()

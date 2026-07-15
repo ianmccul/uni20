@@ -8,6 +8,7 @@
 
 #include <uni20/async/async.hpp>
 #include <uni20/tensor/conjugate.hpp>
+#include <uni20/tensor/copy.hpp>
 
 namespace uni20::async
 {

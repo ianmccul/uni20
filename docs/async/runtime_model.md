@@ -172,28 +172,26 @@ For ordinary values these are value-level operations:
 
 This is deliberate: copying does not clone dependency graph internals.
 
-`async_value_kind_of<T>` classifies ordinary payloads as
-`async_value_kind::value`. Alias descriptor types declare `async_alias_tag`,
-which selects `async_value_kind::shared_alias`. Copy construction of
-`Async<AliasDescriptor>` is then a structural handle copy: storage, lifetime
-owner, and epoch queue remain shared. Assignment is governed separately below.
+`is_async_alias_v<T>` is false for ordinary payloads. Alias descriptor types
+declare `async_alias_tag`, or specialize `is_async_alias<T>`. Copy construction
+of `Async<AliasDescriptor>` is then a structural handle copy: storage, lifetime
+owner, and epoch queue remain shared.
 
-## Assignment Kinds
+## Assignment Capabilities
 
-`async_assignment_kind_of<T>` controls assignment from immediate, exact async,
-and heterogeneous async sources:
+Assignment is derived from payload identity and available operations:
 
-- `rebind` detaches the destination handle and gives it fresh storage and a
-  fresh `EpochQueue`
-- `write_through` retains the existing storage, lifetime owner, and queue and
-  schedules assignment through the stored descriptor
-- `not_assignable` rejects assignment to a read-only alias at compile time
-
-An owning tensor is a `value` that rebinds; a mutable reshape or slice is a
-`shared_alias` that writes through; a const or conjugating view is a
-`shared_alias` that is not assignable. Exact `Async<T>` copy/move assignment
-follows the same assignment kind. No assignment retargets an async alias;
+An owning tensor is an independent value, so direct assignment detaches onto a
+fresh storage/queue branch. A mutable reshape or slice is an alias with an
+ADL-visible `assign_through` operation. A const or conjugating view is an alias
+without that operation and is not assignable. Exact `Async<T>` copy/move
+assignment follows the same rules. No assignment retargets an async alias;
 construct a new alias handle instead.
+
+`WriteBuffer<T>` remains the single exclusive epoch capability for both values
+and aliases. Its write proxy permits replacement and move-out operations only
+for independent values. Alias proxies expose the descriptor read-only and
+route supported assignment through `assign_through`.
 
 See `../async_storage.md` for the motivating tensor/view examples and the full
 assignment table.
@@ -213,12 +211,13 @@ Blocking API is a bridge for thread-bound callers; coroutine code should prefer 
 ## Invariants You Can Rely On
 
 - default `Async<T>` has unconstructed value until first construction path
-- dereferencing or converting a write proxy to `T&` requires already-constructed storage
-- `writer.emplace(...)` is always valid construction/reconstruction path
+- dereferencing or converting an independent-value write proxy to `T&` requires already-constructed storage
+- `writer.emplace(...)` is the independent-value construction/reconstruction path
 - `emplace(...)` reconstructs inside the existing timeline; it is not an async rebind
-- proxy assignment constructs empty storage and otherwise evaluates
-  `stored_value = source`
-- `take_release()` is the explicit "move out and release writer" path
+- independent-value proxy assignment constructs empty storage and otherwise
+  evaluates `stored_value = source`
+- alias proxy assignment invokes `assign_through` and never replaces the descriptor
+- `take_release()` is the explicit value-only "move out and release writer" path
 - epoch ordering is deterministic regardless of scheduler execution order
 - TaskRegistry state transitions are tracked at coroutine handle/promise level
 

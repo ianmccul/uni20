@@ -61,7 +61,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `EpochQueue`
 - `ReadBuffer<T>`
 - `WriteBuffer<T>`
-- `async_value_kind_of<T>`
+- `is_async_alias<T>`
 
 ## shared_storage<T>
 
@@ -90,8 +90,8 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 - `make_async_alias(...)` shares the parent's exact `EpochQueue`.
 - A separate queue for storage that aliases parent bytes is a correctness bug.
-- Types declaring `async_alias_tag` select `async_value_kind::shared_alias` and
-  receive structural `Async<T>` copy semantics.
+- Types declaring `async_alias_tag` make `is_async_alias_v<T>` true and receive
+  structural `Async<T>` copy semantics.
 
 ### QUEUE ENROLLMENT THREADING CONTRACT
 
@@ -239,7 +239,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 ### ROLE
 
-- `WriteBuffer<T>` is the exclusive mutable capability for one epoch of `Async<T>`.
+- `WriteBuffer<T>` is the single exclusive-access capability for one epoch of `Async<T>`.
 
 ### INVARIANTS
 
@@ -248,10 +248,13 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `co_await writer` returns `WriteAccessProxy<T>`.
 - `co_await writer.transfer()` returns `OwningWriteAccessProxy<T>`.
 - Direct `co_await` on a temporary `WriteBuffer<T>` also uses the owning rvalue path.
-- The write proxy may read and mutate an existing value without a separate `ReadBuffer<T>`.
-- Proxy assignment constructs empty storage and otherwise evaluates
-  `stored_value = source`.
-- `operator+=` and `operator-=` may initialize unconstructed storage.
+- For independent values, the proxy may inspect, mutate, construct, replace, or
+  move the value without a separate `ReadBuffer<T>`.
+- For aliases, the proxy exposes the descriptor read-only and permits only
+  assignment supported by ADL `assign_through`.
+- Independent-value proxy assignment constructs empty storage and otherwise
+  evaluates `stored_value = source`.
+- Independent-value `operator+=` and `operator-=` may initialize unconstructed storage.
 
 ### CAUSAL MODEL
 
@@ -270,12 +273,15 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 - Using a borrowed write proxy after the `WriteBuffer<T>` lifetime ends.
 - Requesting mutable-reference-style access before construction and hitting `buffer_write_uninitialized`.
+- Exposing a mutable alias descriptor, `emplace`, storage access, or move-out
+  through an alias proxy and thereby permitting descriptor retargeting.
 - Taking a separate reader and writer for the same queue when one writer should provide the mutation access.
 - Failing to release the reader before the writer in an intentionally sequential two-epoch transition.
 
 ### MISCONCEPTIONS
 
 - `WriteAccessProxy<T>` is just an ordinary `T&`.
+- A mutable alias requires a different buffer type.
 - `WriteBuffer<T>` grants write-only access and therefore needs a separate reader for mutation.
 - First write always requires a separate `emplace(...)` call.
 
@@ -284,20 +290,20 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `Async<T>`
 - `EpochQueue`
 - `ReadBuffer<T>`
-- `async_value_kind_of<T>`
-- `async_assignment_kind_of<T>`
+- `is_async_alias<T>`
+- `assign_through(...)`
 
-## async_value_kind_of<T>
+## is_async_alias<T>
 
 ### ROLE
 
-- `async_value_kind_of<T>` classifies an async payload as an independent value
-  or a shared alias descriptor.
+- `is_async_alias<T>` classifies an async payload as an independent value or a
+  shared alias descriptor.
 
 ### INVARIANTS
 
-- Ordinary types default to `async_value_kind::value`.
-- Types declaring `async_alias_tag` select `async_value_kind::shared_alias`.
+- Ordinary types make `is_async_alias_v<T>` false.
+- Types declaring `async_alias_tag`, or specializing the trait, make it true.
 - Value copies create independent storage and a new queue, then schedule a value copy.
 - Shared-alias copies retain descriptor storage, lifetime ownership, and the exact queue.
 
@@ -308,7 +314,7 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 
 ### MISCONCEPTIONS
 
-- `async_value_kind` controls the stored type's assignment expression.
+- Alias classification controls the stored type's assignment expression.
 - A shared alias is merely a copied raw pointer.
 
 ### RELATED
@@ -317,36 +323,31 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - `async_alias_tag`
 - `make_async_alias(...)`
 
-## async_assignment_kind_of<T>
+## Async assignment capability
 
 ### ROLE
 
-- `async_assignment_kind_of<T>` selects assignment behavior for every source,
-  including exact and heterogeneous `Async<U>` sources.
+- Assignment behavior follows `is_async_alias_v<T>` and the operations
+  available for the source type.
 
 ### INVARIANTS
 
-- Ordinary values default to `async_assignment_kind::rebind`.
-- `rebind` detaches the destination handle and constructs fresh storage with a
-  fresh `EpochQueue`.
-- Mutable alias descriptors may declare `async_write_through_tag`, selecting
-  `async_assignment_kind::write_through`.
-- Shared aliases otherwise default to `async_assignment_kind::not_assignable`.
-- A `write_through` payload must also have `async_value_kind::shared_alias`.
-- A `rebind` payload must have `async_value_kind::value`.
-- `write_through` retains descriptor storage, lifetime ownership, and the exact
-  queue while scheduling the stored descriptor's assignment operation.
-- A type opting into `write_through` must make every accepted assignment,
-  including same-type assignment, mutate the referenced value rather than
-  retarget only its descriptor.
-- Exact `Async<T>` copy/move assignment follows the same assignment kind.
-- `not_assignable` deletes exact copy/move assignment and provides no
-  heterogeneous assignment overload.
-- A `not_assignable` alias exposes no `.write()`, `move_from_wait()`, or
-  synchronous mutable-access operation.
+- Ordinary values detach the destination handle and initialize fresh storage
+  with a fresh `EpochQueue`.
+- Mutable alias descriptors provide an ADL-visible
+  `assign_through(target, source)` operation.
+- Alias assignment retains descriptor storage, lifetime ownership, and the
+  exact queue while invoking that operation.
+- Exact `Async<T>` copy/move assignment follows the same capability rule.
+- An alias without matching `assign_through` rejects that assignment source.
+- Every `Async<T>` may expose `.write()` because it denotes exclusive epoch
+  access; unsupported proxy operations are constrained away.
+- `move_from_wait()` and synchronous mutable descriptor access remain
+  unavailable for aliases.
 - Copy/move construction of a shared alias remains valid and preserves the
   complete descriptor, owner, and queue identity.
-- `emplace(...)` reconstructs `T` inside existing storage and is not rebinding.
+- Alias proxies never expose `emplace`, storage access, arithmetic descriptor
+  mutation, or move-out.
 
 ### MOTIVATING EXAMPLE
 
@@ -372,21 +373,22 @@ read_only = async::conj(z); // ill-formed: read-only aliases are not assignable
 - Rebinding any shared alias, including for an exact-type assignment source.
 - Implementing rebind by destroying and emplacing inside the old storage.
 - Giving a write-through alias an independent queue.
-- Marking a descriptor `write_through` while leaving shallow same-type
-  descriptor assignment in place.
+- Implementing `assign_through` by retargeting the descriptor rather than
+  mutating the referenced value.
 
 ### RELATED
 
 - `Async<T>`
-- `async_value_kind_of<T>`
-- `async_write_through_tag`
+- `is_async_alias<T>`
+- `assign_through(...)`
 - `async_assign(...)`
 
 ## Write-proxy assignment
 
 ### ROLE
 
-- `co_await writer = rhs` initializes empty storage or assigns an existing `T`.
+- For values, `co_await writer = rhs` initializes empty storage or assigns an existing `T`.
+- For aliases, it invokes matching `assign_through` without replacing the descriptor.
 
 ### INVARIANTS
 
@@ -394,6 +396,7 @@ read_only = async::conj(z); // ill-formed: read-only aliases are not assignable
 - Empty storage constructs `T` from the source.
 - Constructed storage evaluates the underlying assignment expression.
 - `emplace(...)` is the explicit reconstruction operation inside the current timeline.
+- Alias proxy inspection returns `T const&`; replacement and move-out operations are absent.
 
 ### FAILURE MODES
 
@@ -405,7 +408,7 @@ read_only = async::conj(z); // ill-formed: read-only aliases are not assignable
 
 - `WriteAccessProxy<T>`
 - `emplace(...)`
-- `async_assignment_kind_of<T>`
+- `assign_through(...)`
 
 ## or_cancel()
 

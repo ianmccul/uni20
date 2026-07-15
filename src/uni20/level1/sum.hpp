@@ -3,6 +3,7 @@
 #include "apply_unary.hpp"
 #include <ranges>
 #include <tuple>
+#include <type_traits>
 #include <uni20/common/mdspan.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -32,8 +33,8 @@ template <StridedMdspan... Spans> struct SumAccessor
                                                  std::declval<typename Spans::data_handle_type>(), index_type()) +
                                              ...))>;
 
-    // True element type (handles proxy references)
-    using element_type = uni20::remove_proxy_reference_t<reference>;
+    // Calculated values are read-only even though their child spans may be mutable.
+    using element_type = std::add_const_t<uni20::remove_proxy_reference_t<reference>>;
     using offset_policy = SumAccessor;
 
     /// \brief Store each span's accessor instance.

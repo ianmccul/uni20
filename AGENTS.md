@@ -195,6 +195,14 @@ DMRG calculations.
   `data_handle_type` alone. A pointer-shaped data handle only identifies a
   storage handle; the mdspan accessor defines the value semantics of
   `access(...)`.
+* A Uni20 accessor that presents a read-only semantic view must declare a const
+  `element_type`, even when `access(...)` returns a calculated value rather than
+  a reference. Do not encode read-only behavior only in the handle type or
+  `reference` alias. `MutableSpanLike` uses const `element_type` together with
+  indexed assignment validity to reject mutation.
+* A tensor view's const interface must resolve an mdspan with const
+  `element_type`. Mutable access belongs on the non-const `mdspan()` overload;
+  shallow-const descriptors must not make `TensorView const&` writable.
 * Direct provider calls such as BLAS/LAPACK may bypass the accessor and read the
   storage through raw pointers only when the accessor is known to be
   `stdex::default_accessor<T>` or when the wrapper explicitly understands and

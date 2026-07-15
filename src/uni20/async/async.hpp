@@ -10,6 +10,7 @@
 
 #include "async_errors.hpp"
 #include "async_node.hpp"
+#include "async_traits.hpp"
 #include "buffers.hpp"
 #include "epoch_queue.hpp"
 #include <concepts>
@@ -25,79 +26,6 @@ namespace uni20::async
 {
 
 class DebugScheduler;
-template <typename T> class Async;
-
-/// \brief Classifies an async payload as an independent value or a shared alias.
-enum class async_value_kind
-{
-  value,        ///< Independent storage and value-copy semantics.
-  shared_alias, ///< Shared descriptor storage, lifetime owner, and epoch queue.
-};
-
-/// \brief Selects the assignment behavior of an async value or alias.
-enum class async_assignment_kind
-{
-  rebind,         ///< Replace an independent value with a fresh async timeline.
-  write_through,  ///< Assign through a mutable alias without replacing its timeline.
-  not_assignable, ///< Forbid assignment to a read-only alias.
-};
-
-namespace detail
-{
-
-template <typename T, typename = void>
-struct default_async_value_kind : std::integral_constant<async_value_kind, async_value_kind::value>
-{};
-
-template <typename T>
-struct default_async_value_kind<T, std::void_t<typename std::remove_cvref_t<T>::async_alias_tag>>
-    : std::integral_constant<async_value_kind, async_value_kind::shared_alias>
-{};
-
-} // namespace detail
-
-/// \brief Trait classifying the payload represented by `Async<T>`.
-/// \details Ordinary values own an independent value timeline. Durable alias
-///          descriptor types can declare an `async_alias_tag` member type, or
-///          specialize this trait with `async_value_kind::shared_alias`, so
-///          construction and copying preserve alias ownership and queue identity.
-template <typename T> struct async_value_kind_of : detail::default_async_value_kind<T>
-{};
-
-/// \brief Convenience value for the async payload-kind trait.
-template <typename T>
-inline constexpr async_value_kind async_value_kind_v = async_value_kind_of<std::remove_cvref_t<T>>::value;
-
-namespace detail
-{
-
-template <typename T, typename = void>
-struct default_async_assignment_kind
-    : std::integral_constant<async_assignment_kind, async_value_kind_v<T> == async_value_kind::value
-                                                        ? async_assignment_kind::rebind
-                                                        : async_assignment_kind::not_assignable>
-{};
-
-template <typename T>
-struct default_async_assignment_kind<T, std::void_t<typename std::remove_cvref_t<T>::async_write_through_tag>>
-    : std::integral_constant<async_assignment_kind, async_assignment_kind::write_through>
-{};
-
-} // namespace detail
-
-/// \brief Trait selecting direct value-assignment behavior for `Async<T>`.
-/// \details Independent values rebind to a fresh timeline. Shared aliases are
-///          not assignable by default. Mutable aliases may declare an
-///          `async_write_through_tag` member type, or specialize this trait, so
-///          assignment keeps the existing owner and queue and writes through
-///          the descriptor.
-template <typename T> struct async_assignment_kind_of : detail::default_async_assignment_kind<T>
-{};
-
-/// \brief Convenience value for the async assignment-kind trait.
-template <typename T>
-inline constexpr async_assignment_kind async_assignment_kind_v =
-    async_assignment_kind_of<std::remove_cvref_t<T>>::value;
 
 /// \brief Tag type to construct an Async without starting the queue object.
 struct async_do_not_start_t
@@ -108,20 +36,6 @@ inline constexpr async_do_not_start_t async_do_not_start{};
 
 template <typename T> class ReverseValue; // forward declaration so we can add it as a friend of Async<T>
 
-/// \brief Strip `Async<T>` to `T` for assignment and expression type deduction.
-template <typename T> struct async_value_type
-{
-    using type = T;
-};
-
-template <typename T> struct async_value_type<Async<T>>
-{
-    using type = T;
-};
-
-/// \brief Extract the underlying value type from an immediate value or `Async<T>`.
-template <typename T> using async_value_t = typename async_value_type<std::remove_cvref_t<T>>::type;
-
 namespace detail
 {
 
@@ -129,23 +43,20 @@ template <typename Source>
 concept async_source = std::same_as<std::remove_cvref_t<Source>, Async<async_value_t<Source>>>;
 
 template <typename Target, typename Source>
-concept rebind_assignment_source =
-    (async_source<Source> && std::constructible_from<Target, async_value_t<Source> const&>) ||
-    (!async_source<Source> && std::constructible_from<Target, Source&&>);
-
-template <typename Target, typename Source>
-concept write_through_assignment_source =
-    requires(Target& target, async_value_t<Source> const& source) { target = source; };
+concept value_rebind_source = (async_source<Source> && std::constructible_from<Target, async_value_t<Source> const&>) ||
+                              (!async_source<Source> && std::constructible_from<Target, Source&&>);
 
 template <typename Target, typename Source>
 concept async_assignment_source =
     (!std::same_as<std::remove_cvref_t<Source>, Async<Target>>) &&
-    ((async_assignment_kind_v<Target> == async_assignment_kind::rebind &&
-      async_value_kind_v<Target> == async_value_kind::value && rebind_assignment_source<Target, Source>) ||
-     (async_assignment_kind_v<Target> == async_assignment_kind::write_through &&
-      write_through_assignment_source<Target, Source>));
+    ((!is_async_alias_v<Target> && value_rebind_source<Target, Source>) ||
+     (is_async_alias_v<Target> && async_alias_assignable_from<Target, async_value_t<Source> const&>));
 
 } // namespace detail
+
+template <typename T, typename U>
+  requires(!is_async_alias_v<T> && detail::async_source<U> && std::constructible_from<T, async_value_t<U> const&>)
+void async_initialize(Async<T>& destination, U&& source);
 
 /// \brief Construct an async alias that retains a parent value and shares its epoch queue.
 template <typename Alias, typename Parent, typename... Args>
@@ -158,32 +69,26 @@ template <typename Alias, typename Parent, typename... Args>
 /// use shared ownership where required. Buffer handles retain their storage and
 /// selected epoch context, so they may outlive the owning Async container.
 ///
-/// \note Copy construction is a value-level operation by default. Types opting
-///       into `async_value_kind::shared_alias` copy the storage handle and
-///       dependency timeline instead. Assignment follows
-///       `async_assignment_kind_of<T>` independently.
+/// \note Copy construction is a value-level operation by default. Types for
+///       which `is_async_alias_v<T>` is true copy the storage handle, lifetime
+///       owner, and dependency timeline instead.
 ///
 /// \note Buffers maintain shared ownership of the internal state, so `ReadBuffer<T>` and
 ///       `WriteBuffer<T>` may safely outlive the Async.
-/// \note The value of T must be copyable or movable as appropriate for construction.
+/// \note `T` need not be default-constructible, copyable, or movable. Individual
+///       operations participate only when their required construction or
+///       assignment expressions are available.
 /// \tparam T Stored value type.
 template <typename T> class Async {
   public:
     using value_type = T;
 
-    static_assert(async_assignment_kind_v<T> != async_assignment_kind::write_through ||
-                      async_value_kind_v<T> == async_value_kind::shared_alias,
-                  "write-through Async payloads must be shared aliases");
-    static_assert(async_assignment_kind_v<T> != async_assignment_kind::rebind ||
-                      async_value_kind_v<T> == async_value_kind::value,
-                  "shared Async aliases cannot rebind");
-    static_assert(async_assignment_kind_v<T> != async_assignment_kind::not_assignable ||
-                      async_value_kind_v<T> == async_value_kind::shared_alias,
-                  "non-assignable Async payloads must be shared aliases");
+    static_assert(std::is_object_v<T> && !std::is_array_v<T>, "Async<T> requires a non-array object type");
+    static_assert(std::destructible<T>, "Async<T> requires a non-throwing destructor");
 
     /// \brief Initializes async state without constructing the stored value.
     Async()
-      requires(async_value_kind_v<T> == async_value_kind::value)
+      requires(!is_async_alias_v<T>)
         : storage_(make_unconstructed_shared_storage<T>()), queue_(std::make_shared<EpochQueue>())
     {
       queue_->latest()->start();
@@ -195,7 +100,7 @@ template <typename T> class Async {
     /// \brief Initializes async state without constructing the stored value or starting the queue.
     /// \param tag Sentinel tag selecting non-starting construction.
     Async(async_do_not_start_t tag)
-      requires(async_value_kind_v<T> == async_value_kind::value)
+      requires(!is_async_alias_v<T>)
         : storage_(make_unconstructed_shared_storage<T>()), queue_(std::make_shared<EpochQueue>())
     {
       (void)tag;
@@ -208,7 +113,7 @@ template <typename T> class Async {
     /// \tparam U Value type convertible to T.
     /// \param val Initial value forwarded into the Async storage.
     template <typename U>
-      requires(std::convertible_to<U, T> && async_value_kind_v<T> == async_value_kind::value)
+      requires(std::convertible_to<U, T> && !is_async_alias_v<T>)
     Async(U&& val) : storage_(make_shared_storage<T>(std::forward<U>(val))), queue_(std::make_shared<EpochQueue>())
     {
       queue_->latest()->start_reading();
@@ -221,10 +126,8 @@ template <typename T> class Async {
     /// \tparam U Source type that can explicitly construct T.
     /// \param u Value forwarded to construct the stored T instance.
     template <typename U>
-      requires(std::constructible_from<T, U> && (!std::convertible_to<U, T>) &&
-               async_value_kind_v<T> == async_value_kind::value)
-    explicit Async(U&& u)
-        : storage_(make_shared_storage<T>(static_cast<T>(std::forward<U>(u)))), queue_(std::make_shared<EpochQueue>())
+      requires(std::constructible_from<T, U> && (!std::convertible_to<U, T>) && !is_async_alias_v<T>)
+    explicit Async(U&& u) : storage_(make_shared_storage<T>(std::forward<U>(u))), queue_(std::make_shared<EpochQueue>())
     {
       queue_->latest()->start_reading();
 #if UNI20_DEBUG_DAG
@@ -236,7 +139,7 @@ template <typename T> class Async {
     /// \tparam Args Argument types forwarded to `T`'s constructor.
     /// \param args Arguments used to initialize the contained value.
     template <typename... Args>
-      requires(std::constructible_from<T, Args...> && async_value_kind_v<T> == async_value_kind::value)
+      requires(std::constructible_from<T, Args...> && !is_async_alias_v<T>)
     Async(Args&&... args)
         : storage_(make_shared_storage<T>(std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>())
     {
@@ -253,8 +156,7 @@ template <typename T> class Async {
     /// \param args Additional arguments forwarded to `T`.
     /// \note This mirrors similar constructors where std::in_place is used.
     template <typename U, typename... Args>
-      requires(std::constructible_from<T, std::initializer_list<U>&, Args...> &&
-               async_value_kind_v<T> == async_value_kind::value)
+      requires(std::constructible_from<T, std::initializer_list<U>&, Args...> && !is_async_alias_v<T>)
     Async(std::initializer_list<U> init, Args&&... args)
         : storage_(make_shared_storage<T>(init, std::forward<Args>(args)...)), queue_(std::make_shared<EpochQueue>())
     {
@@ -274,17 +176,22 @@ template <typename T> class Async {
     ///
     /// \see `async_assign` for explicit value-level copy scheduling.
     Async(Async const& rhs)
-      requires(async_value_kind_v<T> == async_value_kind::value)
+      requires(!is_async_alias_v<T> && std::constructible_from<T, T const&>)
         : Async()
     {
-      async_assign(*this, rhs);
+      async_initialize(*this, rhs);
     }
+
+    /// \brief Forbid copying an independent async value whose payload cannot be copy-constructed.
+    Async(Async const&)
+      requires(!is_async_alias_v<T> && !std::constructible_from<T, T const&>)
+    = delete;
 
     /// \brief Structurally copy an async alias handle.
     /// \details Alias copies retain the same descriptor storage, lifetime owner,
     ///          and epoch queue.
     Async(Async const& rhs)
-      requires(async_value_kind_v<T> == async_value_kind::shared_alias)
+      requires(is_async_alias_v<T>)
         : storage_(rhs.storage_), queue_(rhs.queue_)
     {}
 
@@ -314,13 +221,11 @@ template <typename T> class Async {
       return *this;
     }
 
-    /// \brief Assign an immediate or heterogeneous async value according to `async_assignment_kind_of<T>`.
-    /// \details Rebind assignment replaces this handle with a fresh value and
-    ///          epoch queue. Write-through assignment schedules the stored
-    ///          descriptor's assignment on the existing queue, preserving its
-    ///          lifetime owner. A read-only alias has no assignment overload.
-    ///          Exact `Async<T>` copy and move assignment use dedicated overloads
-    ///          with the same assignment-kind policy.
+    /// \brief Assign an immediate or heterogeneous async value.
+    /// \details Independent values detach onto fresh storage and a fresh epoch
+    ///          queue. Async aliases retain their descriptor, owner, and queue,
+    ///          and participate only when ADL finds a matching `assign_through`
+    ///          operation. Read-only aliases therefore have no assignment.
     /// \tparam U Immediate value or heterogeneous async source type.
     /// \param rhs Source expression.
     /// \return Reference to this async handle.
@@ -349,22 +254,28 @@ template <typename T> class Async {
     /// \param rhs Source Async whose value timeline is copied.
     /// \return Reference to *this after scheduling the copy.
     Async& operator=(Async const& rhs)
-      requires(async_assignment_kind_v<T> == async_assignment_kind::rebind)
+      requires(!is_async_alias_v<T> && std::constructible_from<T, T const&>)
     {
       if (this != &rhs)
       {
-        *this = Async<T>{}; // reset the epoch queue
-        async_assign(*this, rhs);
+        Async<T> replacement;
+        async_initialize(replacement, rhs);
+        *this = std::move(replacement);
       }
       return *this;
     }
+
+    /// \brief Forbid copy assignment when an independent payload cannot be copy-constructed.
+    Async& operator=(Async const&)
+      requires(!is_async_alias_v<T> && !std::constructible_from<T, T const&>)
+    = delete;
 
     /// \brief Assign through a mutable async alias from another exact-type alias.
     /// \details The destination descriptor, owner, and queue remain unchanged.
     /// \param rhs Alias whose referenced value is the assignment source.
     /// \return Reference to this alias.
     Async& operator=(Async const& rhs)
-      requires(async_assignment_kind_v<T> == async_assignment_kind::write_through)
+      requires(is_async_alias_v<T> && detail::async_alias_assignable_from<T, T const&>)
     {
       if (this != &rhs) async_assign(*this, rhs);
       return *this;
@@ -372,19 +283,20 @@ template <typename T> class Async {
 
     /// \brief Forbid assignment to a read-only async alias.
     Async& operator=(Async const&)
-      requires(async_assignment_kind_v<T> == async_assignment_kind::not_assignable)
+      requires(is_async_alias_v<T> && !detail::async_alias_assignable_from<T, T const&>)
     = delete;
 
     /// \brief Move-construct from another Async<T> handle.
-    /// \note Move construction always transfers the handle. Move assignment
-    ///       follows the assignment kind: rebind, write through, or deleted.
+    /// \note Move construction always transfers the handle. Independent-value
+    ///       move assignment also transfers the handle; alias move assignment
+    ///       remains write-through so an established alias is never retargeted.
     /// \param other Source Async.
     Async(Async&& other) noexcept = default;
     /// \brief Rebind an independent async value from another Async<T> handle.
     /// \param other Source Async.
     /// \return Reference to *this after ownership transfer.
     Async& operator=(Async&& other) noexcept
-      requires(async_assignment_kind_v<T> == async_assignment_kind::rebind)
+      requires(!is_async_alias_v<T>)
     {
       if (this != &other)
       {
@@ -398,15 +310,15 @@ template <typename T> class Async {
     /// \param other Alias whose referenced value is the assignment source.
     /// \return Reference to this alias.
     Async& operator=(Async&& other)
-      requires(async_assignment_kind_v<T> == async_assignment_kind::write_through)
+      requires(is_async_alias_v<T> && detail::async_alias_assignable_from<T, T const&>)
     {
-      if (this != &other) async_assign(*this, std::move(other));
+      if (this != &other) async_assign(*this, other);
       return *this;
     }
 
     /// \brief Forbid assignment to a read-only async alias.
     Async& operator=(Async&&)
-      requires(async_assignment_kind_v<T> == async_assignment_kind::not_assignable)
+      requires(is_async_alias_v<T> && !detail::async_alias_assignable_from<T, T const&>)
     = delete;
 
     ~Async() = default;
@@ -415,15 +327,12 @@ template <typename T> class Async {
     /// \return A ReadBuffer<T> which may be co_awaited.
     ReadBuffer<T> read() const { return ReadBuffer<T>(queue_->create_read_context(storage_)); }
 
-    /// \brief Begin exclusive asynchronous mutable access to an assignable payload.
-    /// \details This member is unavailable for `not_assignable` aliases.
-    /// \return A `WriteBuffer<T>` for inspecting, mutating, constructing, or
-    ///         replacing the value.
-    WriteBuffer<T> write()
-      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
-    {
-      return WriteBuffer<T>(queue_->create_write_context(storage_));
-    }
+    /// \brief Begin exclusive asynchronous access to the payload.
+    /// \details The returned proxy is capability-aware. Independent values
+    ///          support replacement operations; aliases expose their descriptor
+    ///          read-only and support only matching write-through assignments.
+    /// \return Exclusive write buffer for the next epoch.
+    WriteBuffer<T> write() { return WriteBuffer<T>(queue_->create_write_context(storage_)); }
 
     // template <typename Sched> T& get_wait(Sched& sched)
     // {
@@ -460,7 +369,7 @@ template <typename T> class Async {
     /// \brief Block until the value is available, then move it out of the Async.
     /// \return The stored value, moved out of the Async container.
     T move_from_wait()
-      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable);
+      requires(!is_async_alias_v<T> && std::constructible_from<T, T &&>);
 
     /// \brief Overwrite the stored value directly.
     /// Intended for debugging and test scaffolding where a synchronous update
@@ -468,7 +377,7 @@ template <typename T> class Async {
     /// performed.
     /// \param x New value to store.
     void unsafe_set(T const& x)
-      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+      requires(!is_async_alias_v<T> && std::assignable_from<T&, T const&>)
     {
       auto* ptr = require_value();
       *ptr = x;
@@ -478,7 +387,11 @@ template <typename T> class Async {
     /// This helper is primarily for diagnostics; it will throw if the value
     /// has not been initialized.
     /// \return Copy of the contained value.
-    T unsafe_value() const { return *require_value(); }
+    T unsafe_value() const
+      requires(!is_async_alias_v<T> && std::constructible_from<T, T const&>)
+    {
+      return *require_value();
+    }
 
     /// \brief Access the stored value without synchronization.
     /// \return Direct reference to stored value (for diagnostics only).
@@ -487,7 +400,7 @@ template <typename T> class Async {
     /// \brief Access the stored value without synchronization.
     /// \return Mutable reference to the stored value for diagnostic use.
     T& unsafe_value_ref()
-      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+      requires(!is_async_alias_v<T>)
     {
       return *require_value();
     }
@@ -507,7 +420,7 @@ template <typename T> class Async {
     ///          reserved but unconstructed storage.
     /// \return Mutable address reserved for the contained value.
     [[nodiscard]] T* storage_address() noexcept
-      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+      requires(!is_async_alias_v<T>)
     {
       return storage_.storage_address();
     }
@@ -527,7 +440,7 @@ template <typename T> class Async {
     /// the Async container itself.
     /// \return Mutable pointer retaining the `shared_storage` control block.
     std::shared_ptr<T> value_ptr()
-      requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
+      requires(!is_async_alias_v<T>)
     {
       if (!storage_.valid()) return {};
       return std::shared_ptr<T>(storage_.get(), [storage = storage_](T*) mutable { storage.reset(); });
@@ -582,8 +495,7 @@ template <typename T> class Async {
 template <typename Alias, typename Parent, typename... Args>
 [[nodiscard]] Async<Alias> make_async_alias(Async<Parent> const& parent, Args&&... args)
 {
-  static_assert(async_value_kind_v<Alias> == async_value_kind::shared_alias,
-                "Async aliases require async_value_kind::shared_alias");
+  static_assert(is_async_alias_v<Alias>, "Async aliases require is_async_alias_v<Alias>");
   return Async<Alias>(make_shared_storage_alias<Alias>(parent.storage_, std::forward<Args>(args)...), parent.queue_);
 }
 
@@ -596,12 +508,7 @@ template <typename T> ReadBuffer<T> read(Async<T> const& a) { return a.read(); }
 /// \tparam T Stored value type.
 /// \param a Async container providing the write buffer.
 /// \return Write buffer obtained from the Async instance.
-template <typename T>
-  requires(async_assignment_kind_v<T> != async_assignment_kind::not_assignable)
-WriteBuffer<T> write(Async<T>& a)
-{
-  return a.write();
-}
+template <typename T> WriteBuffer<T> write(Async<T>& a) { return a.write(); }
 
 } // namespace uni20::async
 

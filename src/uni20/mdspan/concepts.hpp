@@ -140,31 +140,22 @@ inline constexpr bool is_default_accessor_v = is_default_accessor<std::remove_cv
 /// \return A const-qualified accessor adaptor.
 /// \ingroup mdspan_ext
 template <AccessorPolicy Acc>
-  requires std::is_same_v<typename Acc::reference, typename Acc::element_type&>
+  requires(!std::is_const_v<typename Acc::element_type> &&
+           std::is_same_v<typename Acc::reference, typename Acc::element_type&>)
 constexpr auto const_accessor(Acc const& acc)
 {
   return const_accessor_adaptor<Acc, typename Acc::element_type const&>{acc};
 }
 
-/// \brief If an accessor returns element_type const&, no change is required.
-/// \tparam Acc A read-only accessor policy with reference equal to \c element_type const&.
+/// \brief Return an accessor unchanged when its element type is already const.
+/// \details Read-only calculated accessors commonly return an unqualified value
+///          while declaring const `element_type`; no additional adaptor is needed.
+/// \tparam Acc A read-only accessor policy with const \c element_type.
 /// \param acc The accessor (returned by value).
 /// \return The original accessor policy.
 /// \ingroup mdspan_ext
 template <AccessorPolicy Acc>
-  requires std::is_same_v<typename Acc::reference, typename Acc::element_type const&>
-constexpr Acc const_accessor(Acc const& acc)
-{
-  return acc;
-}
-
-/// \brief If an accessor returns element_type by value, no change is required.
-/// \tparam Acc A read-only accessor policy with reference equal to \c element_type.
-/// \param acc The accessor (returned by value).
-/// \return The original accessor policy.
-/// \ingroup mdspan_ext
-template <AccessorPolicy Acc>
-  requires std::is_same_v<typename Acc::reference, typename Acc::element_type>
+  requires(std::is_const_v<typename Acc::element_type> && !is_default_accessor_v<Acc>)
 constexpr Acc const_accessor(Acc const& acc)
 {
   return acc;

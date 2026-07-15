@@ -30,6 +30,12 @@ small helpers used by dense kernels and layout-aware algorithms.
 - A pointer `data_handle_type` is not enough to prove direct memory semantics.
   Backends that bypass `access(...)` must check for `stdex::default_accessor`
   or an explicitly lowerable accessor such as Uni20's `conjugated_accessor`.
+- Read-only accessor policies declare const `element_type`, including calculated
+  accessors that return values. `MutableSpanLike` checks both that constness and
+  actual indexed assignment; a const pointer-shaped handle alone is not the
+  mutability contract.
+- A tensor descriptor's const `mdspan()` overload resolves a const-element view.
+  Mutable tensor access is exposed only by the non-const overload.
 - `uni20::conj(span)` is the user-facing lazy conjugation helper. Its accessor
   follows the C++26 `std::linalg::conjugated_accessor` direction while keeping
   Uni20's value-level `conj` behavior for real scalar types.

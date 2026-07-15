@@ -1,6 +1,7 @@
 #include "../helpers.hpp"
 #include "gtest/gtest.h"
 #include <numeric>
+#include <type_traits>
 #include <uni20/level1/sum.hpp>
 
 using namespace uni20;
@@ -14,6 +15,9 @@ TEST(SumView1D, SimpleContiguous)
   auto A = make_mdspan_1d(a);
   auto B = make_mdspan_1d(b);
   auto S = sum_view(A, B);
+
+  static_assert(std::is_const_v<typename decltype(S)::element_type>);
+  static_assert(!MutableSpanLike<decltype(S)>);
 
   ASSERT_EQ(S.rank(), 1);
   EXPECT_EQ(S.extent(0), 5);

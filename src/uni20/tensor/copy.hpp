@@ -90,6 +90,16 @@ void copy(OutputTensor&& output, InputTensor const& input)
   copy(selector, output_span, input_span);
 }
 
+/// \brief Assign tensor values through a mutable tensor alias descriptor.
+/// \details Async alias assignment discovers this function through ADL. The
+///          descriptor itself remains unchanged while `copy` writes its values.
+template <MutableTensorView Output, TensorView Input>
+  requires(tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Input>::rank())
+void assign_through(Output& output, Input const& input)
+{
+  copy(output, input);
+}
+
 /// \brief Materialize a bare mdspan-like view as an inferred owning host tensor.
 /// \details The caller supplies a backend selector because a bare mdspan does
 ///          not carry storage-domain policy. By default the output keeps the

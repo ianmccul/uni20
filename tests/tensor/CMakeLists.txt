@@ -10,5 +10,5 @@ add_test_module(tensor
 
 add_test_module(tensor_async
   SOURCES test_tensor_async.cpp
-  LIBS uni20_common uni20_core uni20_async
+  LIBS uni20_linalg uni20_async
 )

@@ -171,12 +171,16 @@ template <SpanLike Mdspan, class StoragePolicy, class BackendSelector> class Res
     using mdspan_type = Mdspan;
     using storage_policy = StoragePolicy;
     using backend_selector_type = BackendSelector;
+    using async_alias_tag = void;
     using element_type = typename mdspan_type::element_type;
     using value_type = typename mdspan_type::value_type;
     using extents_type = typename mdspan_type::extents_type;
     using index_type = typename mdspan_type::index_type;
     using layout_type = typename mdspan_type::layout_type;
     using mapping_type = typename mdspan_type::mapping_type;
+    using const_accessor_type = const_accessor_t<typename mdspan_type::accessor_type>;
+    using const_element_type = std::add_const_t<std::remove_const_t<element_type>>;
+    using const_mdspan_type = stdex::mdspan<const_element_type, extents_type, layout_type, const_accessor_type>;
 
     /// \brief Construct from a reshaped mdspan and the source backend selector.
     constexpr ReshapedTensor(mdspan_type span, backend_selector_type selector)
@@ -186,8 +190,14 @@ template <SpanLike Mdspan, class StoragePolicy, class BackendSelector> class Res
     /// \brief Return the source storage's backend selector.
     [[nodiscard]] constexpr auto backend_selector() const -> backend_selector_type { return selector_; }
 
-    /// \brief Resolve the stored reshaped mdspan descriptor.
-    [[nodiscard]] constexpr auto mdspan() const -> mdspan_type { return span_; }
+    /// \brief Resolve the stored reshaped mdspan descriptor for mutable access.
+    [[nodiscard]] constexpr auto mdspan() & -> mdspan_type { return span_; }
+
+    /// \brief Resolve the stored reshaped mdspan descriptor for read-only access.
+    [[nodiscard]] constexpr auto mdspan() const& -> const_mdspan_type
+    {
+      return const_mdspan_type{span_.data_handle(), span_.mapping(), const_accessor(span_.accessor())};
+    }
 
     /// \brief Return the reshaped extents.
     [[nodiscard]] constexpr auto extents() const noexcept -> extents_type const& { return span_.extents(); }
@@ -198,9 +208,17 @@ template <SpanLike Mdspan, class StoragePolicy, class BackendSelector> class Res
     /// \brief Evaluate or assign one reshaped element according to accessor mutability.
     template <class... Index>
       requires(sizeof...(Index) == extents_type::rank())
-    constexpr decltype(auto) operator[](Index... indices) const
+    constexpr decltype(auto) operator[](Index... indices)
     {
       return span_[indices...];
+    }
+
+    /// \brief Evaluate one reshaped element through the read-only accessor.
+    template <class... Index>
+      requires(sizeof...(Index) == extents_type::rank())
+    constexpr decltype(auto) operator[](Index... indices) const
+    {
+      return this->mdspan()[indices...];
     }
 
   private:

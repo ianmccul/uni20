@@ -107,8 +107,9 @@ This file is for questions about project maturity, active design seams, and what
 
 ### DESIGN SEAMS
 
-- Write-proxy assignment follows the stored type's ordinary assignment
-  expression; backend-dispatched tensor element copying remains explicit.
+- Independent-value write-proxy assignment follows the stored type's ordinary
+  assignment expression. Async aliases use ADL `assign_through`; tensor element
+  copying remains an explicit backend-dispatched operation.
 - Shared async alias descriptors must remain consistent with their retained
   lifetime owner and epoch queue; retargeting requires a new alias.
 - Candidate tensor roles are `Tensor` as owning value, `TensorRef` as

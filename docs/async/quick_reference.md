@@ -72,10 +72,12 @@ Rules:
 | `read_only_alias = anything` | Ill-formed: assignment to const or transforming read-only proxies is forbidden. |
 | `async_assign(destination, source)` | Enroll assignment in the destination's current queue. |
 
-`async_assignment_kind_of<T>` selects `rebind`, `write_through`, or
-`not_assignable` for every assignment source. `async_value_kind_of<T>` governs
-copy construction independently. A `not_assignable` alias is an async reader,
-not an async writer, and therefore has no `.write()` member.
+`is_async_alias_v<T>` distinguishes aliases from independent values. Mutable
+aliases provide an ADL-visible `assign_through(target, source)` operation;
+read-only aliases do not. Every `Async<T>` can produce the same
+`WriteBuffer<T>` epoch handle, but its proxy exposes only operations supported
+by the payload: alias descriptors are read-only and cannot be emplaced, moved
+out, or retargeted.
 
 ### ReadBuffer<T> await results
 
@@ -92,14 +94,14 @@ not an async writer, and therefore has no `.write()` member.
 
 | Expression | Result |
 |---|---|
-| `co_await writer` | `WriteAccessProxy<T>` (convertible to `T&`) |
+| `co_await writer` | `WriteAccessProxy<T>` (`T&` for values, `T const&` for aliases) |
 | `co_await writer.transfer()` | `OwningWriteAccessProxy<T>` |
-| `co_await writer.storage()` | `shared_storage<T>&` |
-| `co_await writer.transfer().storage()` | `OwningStorageAccessProxy<T>` |
-| `co_await writer.take()` | `T` moved out, then storage destroyed |
-| `co_await writer.transfer().take()` | `T` moved out, then storage destroyed and writer released |
-| `co_await writer.take_release()` | `T` moved out, then storage destroyed and writer released |
-| `co_await writer.transfer().take_release()` | `T` moved out, then storage destroyed and writer released |
+| `co_await writer.storage()` | `shared_storage<T>&` for independent values only |
+| `co_await writer.transfer().storage()` | `OwningStorageAccessProxy<T>` for independent values only |
+| `co_await writer.take()` | `T` moved out, then storage destroyed; values only |
+| `co_await writer.transfer().take()` | `T` moved out, then storage destroyed and writer released; values only |
+| `co_await writer.take_release()` | `T` moved out, then storage destroyed and writer released; values only |
+| `co_await writer.transfer().take_release()` | `T` moved out, then storage destroyed and writer released; values only |
 
 Awaiter/proxy distinction:
 
@@ -112,16 +114,19 @@ Critical write rule:
 
 - `co_await writer = value` constructs empty storage and otherwise evaluates
   `stored_value = value`
+- for aliases, the same expression invokes matching `assign_through` and never
+  replaces the descriptor
 - proxy assignment requires the source to both construct `T` and make
-  `stored_value = source` valid
-- `co_await writer += x` and `co_await writer -= x` also emplace when unconstructed
-- write-proxy `get()`, `operator->`, or conversion to `T&` throws `buffer_write_uninitialized` before initialization
+  `stored_value = source` valid for independent values
+- `co_await writer += x` and `co_await writer -= x` also emplace independent values when unconstructed
+- value-proxy `get()`, `operator->`, or conversion to `T&` throws `buffer_write_uninitialized` before initialization
+- alias-proxy `get()` and `operator->` expose only the const descriptor
 - use one writer, without a separate reader, to inspect and mutate an existing value
 
 Explicit alternatives:
 
-- `proxy.emplace(...)` explicitly reconstructs the value in the same timeline
-- `proxy.get() = value` assigns a value known to be constructed
+- `proxy.emplace(...)` explicitly reconstructs an independent value in the same timeline
+- `proxy.get() = value` assigns an independent value known to be constructed
 - tensor element copying and backend dispatch use named operations such as `copy(...)`
 
 ## Async Ops (async_ops.hpp)

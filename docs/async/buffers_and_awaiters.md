@@ -143,14 +143,14 @@ case according to that operation's contract.
 
 | Form | Return type | Notes |
 |---|---|---|
-| `co_await writer` | `WriteAccessProxy<T>` | non-owning proxy; convertible to `T&` |
-| `co_await writer.transfer()` | `OwningWriteAccessProxy<T>` | owning proxy |
-| `co_await writer.storage()` | `shared_storage<T>&` | explicit storage control |
-| `co_await writer.transfer().storage()` | `OwningStorageAccessProxy<T>` | owning storage access |
-| `co_await writer.take()` | `T` | move out + destroy stored value |
-| `co_await writer.transfer().take()` | `T` | move out + destroy stored value, then release writer |
-| `co_await writer.take_release()` | `T` | move out + destroy stored value, then release writer |
-| `co_await writer.transfer().take_release()` | `T` | owning shorthand for take + release |
+| `co_await writer` | `WriteAccessProxy<T>` | non-owning; mutable value or read-only alias descriptor |
+| `co_await writer.transfer()` | `OwningWriteAccessProxy<T>` | owning; mutable value or read-only alias descriptor |
+| `co_await writer.storage()` | `shared_storage<T>&` | explicit storage control; values only |
+| `co_await writer.transfer().storage()` | `OwningStorageAccessProxy<T>` | owning storage access; values only |
+| `co_await writer.take()` | `T` | move out + destroy stored value; values only |
+| `co_await writer.transfer().take()` | `T` | move out + destroy stored value, then release writer; values only |
+| `co_await writer.take_release()` | `T` | move out + destroy stored value, then release writer; values only |
+| `co_await writer.transfer().take_release()` | `T` | owning shorthand for take + release; values only |
 
 The named awaiter classes implementing these rows are transport objects. For
 example, `writer.storage()` creates a `StorageAwaiter`, while
@@ -181,10 +181,14 @@ For more specific requirements, use an explicit operation:
 - `proxy.emplace(args...)` always reconstructs inside the current storage and queue
 - `proxy.get() = rhs` requires an existing value and uses its assignment operator
 
-The separate `async_assignment_kind_of<T>` trait controls whether direct
-assignment to the outer `Async<T>` handle creates a fresh independent timeline,
-schedules write-through assignment, or is unavailable for a read-only alias.
-It does not change these low-level write-proxy rules.
+Direct assignment to an independent `Async<T>` handle creates a fresh timeline.
+For an async alias, assignment is available only when ADL finds a matching
+`assign_through` operation and always retains the descriptor, owner, and queue.
+
+`WriteBuffer<T>` is the exclusive epoch capability in both cases. Its proxy is
+capability-aware: value payloads expose mutable access, construction, and
+move-out operations; alias payloads expose the descriptor read-only and permit
+only supported write-through assignment.
 
 ### Why += / -= can initialize
 
@@ -199,7 +203,7 @@ Think of this as **initialize-or-accumulate** semantics for write buffers, scope
 
 ### Write proxy helpers
 
-Write proxies support:
+Independent-value write proxies support:
 
 - `take()`: move out and destroy current stored value
 - `take_release()`: `take()` plus immediate writer release
@@ -212,6 +216,10 @@ This is available for both:
 - `OwningWriteAccessProxy<T>` from `co_await writer.transfer()`
 
 These are the write-side analogue of read-proxy `get_release()`.
+
+Alias write proxies support `release()`, read-only descriptor inspection, and
+assignment when ADL finds `assign_through`. They do not expose `emplace`,
+mutable descriptor access, storage access, arithmetic mutation, or move-out.
 
 Bad first-write pattern:
 

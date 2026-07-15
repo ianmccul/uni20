@@ -298,20 +298,20 @@ For async `add_product`, output is both input and output. It uses one
 `WriteBuffer`, must already be constructed, and cannot resize. Taking separate
 read and write buffers for the same timeline is incorrect.
 
-Ordinary async write-proxy assignment follows the stored type. The first write
-constructs uninitialized storage when possible; later writes invoke the stored
-type's assignment operator. It does not silently reinterpret mdspan assignment
-as elementwise copy. Use explicit `emplace` when reconstruction is required and
-a named tensor operation when backend-dispatched element evaluation is
-required.
+Independent-value async write-proxy assignment follows the stored type. The
+first write constructs uninitialized storage when possible; later writes invoke
+the stored type's assignment operator. Alias proxies instead expose their
+descriptor read-only and route supported assignment through `assign_through`.
+Use explicit `emplace` for value reconstruction and named tensor operations for
+backend-dispatched element evaluation.
 
 Direct assignment to the outer `Async<T>` handle is a separate decision.
-`async_assignment_kind_of<T>` makes owning tensors detach onto fresh storage
-and a fresh queue, while future mutable async tensor views can opt into
-write-through assignment that retains the parent's owner and queue. Const and
-conjugating async views are not assignable. Exact `Async<View>` assignment
-follows the same rule: mutable views write through and read-only views reject
-the expression.
+Independent owning tensors detach onto fresh storage and a fresh queue. Mutable
+async tensor aliases retain the parent's owner and queue and obtain
+write-through assignment from `MutableTensorView` plus the tensor
+`assign_through` customization. Const and conjugating async views are not
+assignable. Exact `Async<View>` assignment follows the same rule: mutable views
+write through and read-only views reject the expression.
 
 ### Async Views and Lifetime
 

@@ -207,28 +207,30 @@ mdspan/view  -> rebind descriptor
 TensorRef    -> write-through
 ```
 
-Async write proxies do not add a second assignment policy. If storage is empty,
-proxy assignment constructs the stored type; otherwise it invokes that type's
-`operator=`. Consequently:
+Async write proxies do not add a second buffer category. For independent values,
+proxy assignment constructs empty storage or invokes `T::operator=`. For aliases,
+the descriptor is read-only and assignment invokes ADL `assign_through`.
+Consequently:
 
 - `Tensor`: if unconstructed, emplace from the right-hand side; if
   constructed, call `Tensor::operator=`, which may reuse or reallocate.
-- A bare mdspan-like descriptor: if stored async, assignment/emplace copies or
-  rebinds the descriptor; it does not copy elements.
-- `TensorRef`: require an already-constructed reference/proxy target; assignment
-  writes through to the existing tensor region.
+- A bare mdspan-like descriptor is not an async alias by default; storing one
+  asynchronously is unsafe unless an external owner establishes its lifetime.
+- `TensorRef`: when explicitly classified as an async alias, assignment writes
+  through to the existing tensor region via `assign_through`.
 - Explicit adaptor types choose the semantic contract of the wrapped object.
   `as_tensor(std::vector<T>&)` may support resizing and element assignment,
   while a slice adaptor should remain fixed/write-through.
 
-At the outer handle level, `async_assignment_kind_of<T>` decides whether direct
-assignment to `Async<T>` detaches an independent value onto fresh storage and a
-fresh `EpochQueue`, writes through a mutable alias, or is forbidden for a
-read-only alias. Exact and heterogeneous assignment follow the same kind.
-`async_value_kind_of<T>` separately controls copy construction.
+At the outer handle level, `is_async_alias_v<T>` distinguishes independent
+values from owner-bound aliases. Direct assignment detaches an independent
+value onto fresh storage and a fresh `EpochQueue`. Alias assignment retains its
+identity and is available only when ADL finds `assign_through`; exact and
+heterogeneous sources follow the same capability rule.
 
-Explicit `proxy.emplace(...)` reconstructs the stored object inside the current
-async storage and queue. It is not a handle rebind.
+For independent values, explicit `proxy.emplace(...)` reconstructs the stored
+object inside the current async storage and queue. It is not a handle rebind.
+Alias proxies do not expose `emplace`.
 Element copying that requires shape preparation or backend dispatch remains a
 named tensor operation rather than hidden proxy-assignment behavior.
 

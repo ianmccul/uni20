@@ -29,8 +29,8 @@ TEST(RemoveProxyReferenceTest, ProxyAndNonProxyCases)
   static_assert(std::is_same_v<uni20::remove_proxy_reference_t<int&>, int>);
   static_assert(std::is_same_v<uni20::remove_proxy_reference_t<int const&>, int const>);
 
-  static_assert(uni20::is_proxy_v<MyProxy<int>>);
-  static_assert(uni20::is_proxy_v<MyProxy<int> const&>);
-  static_assert(!uni20::is_proxy_v<int>);
-  static_assert(!uni20::is_proxy_v<int&>);
+  static_assert(uni20::is_proxy_reference_v<MyProxy<int>>);
+  static_assert(uni20::is_proxy_reference_v<MyProxy<int> const&>);
+  static_assert(!uni20::is_proxy_reference_v<int>);
+  static_assert(!uni20::is_proxy_reference_v<int&>);
 }

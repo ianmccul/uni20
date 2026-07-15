@@ -5,6 +5,7 @@
 
 #include "async_task.hpp"
 #include "async_task_promise.hpp"
+#include "async_traits.hpp"
 #include "epoch_context.hpp"
 #include "shared_storage.hpp"
 #include <uni20/common/trace.hpp>
@@ -841,8 +842,9 @@ template <typename T> class OwningTakeAwaiter {
 
 /// \brief Exclusive mutable-access buffer for one `Async<T>` epoch.
 /// \details `Write` names the exclusive producer role, not write-only memory
-///          access. The writer may inspect and mutate an existing value,
-///          construct or replace an absent value, or move the value out.
+///          access. Independent values may be inspected, mutated, constructed,
+///          replaced, or moved out. Async aliases expose their descriptor as
+///          read-only and permit only ADL-customized write-through assignment.
 ///          `co_await writer` yields a borrowed proxy tied to the
 ///          `WriteBuffer<T>` object.
 ///          `co_await writer.transfer()` yields an owning proxy whose lifetime
@@ -852,7 +854,7 @@ template <typename T> class OwningTakeAwaiter {
 template <typename T> class WriteBuffer {
   public:
     using value_type = T;
-    using element_type = T&;
+    using element_type = std::conditional_t<is_async_alias_v<T>, T const&, T&>;
 
     /// \brief Construct a write buffer tied to a writer context.
     /// \param writer RAII writer handle for this operation.
@@ -974,7 +976,7 @@ template <typename T> class WriteBuffer {
     /// \param args Constructor arguments.
     /// \return Reference to the constructed value.
     template <typename... Args>
-      requires std::constructible_from<T, Args...>
+      requires(!is_async_alias_v<T> && std::constructible_from<T, Args...>)
     T& emplace_assert(Args&&... args)
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
@@ -984,11 +986,16 @@ template <typename T> class WriteBuffer {
 
     /// \brief Awaiter that takes the stored value.
     /// \return Awaiter yielding a moved value.
-    auto take() & { return TakeAwaiter<T>(&writer_); }
+    auto take() &
+      requires(!is_async_alias_v<T>)
+    {
+      return TakeAwaiter<T>(&writer_);
+    }
 
     /// \brief Awaiter that takes the stored value from an rvalue buffer.
     /// \return Owning take awaiter.
     auto take() && -> OwningTakeAwaiter<T>
+      requires(!is_async_alias_v<T>)
     {
       this->invalidate_proxy_state();
       return OwningTakeAwaiter<T>(std::move(writer_));
@@ -997,6 +1004,7 @@ template <typename T> class WriteBuffer {
     /// \brief Awaiter that takes the value and releases the writer epoch.
     /// \return Awaiter yielding a moved value.
     auto take_release() &
+      requires(!is_async_alias_v<T>)
     {
       this->invalidate_proxy_state();
       return TakeReleaseAwaiter<T>(&writer_);
@@ -1005,6 +1013,7 @@ template <typename T> class WriteBuffer {
     /// \brief Awaiter that takes the value and releases the writer epoch from an rvalue buffer.
     /// \return Owning take awaiter.
     auto take_release() && -> OwningTakeAwaiter<T>
+      requires(!is_async_alias_v<T>)
     {
       this->invalidate_proxy_state();
       return OwningTakeAwaiter<T>(std::move(writer_));
@@ -1012,11 +1021,16 @@ template <typename T> class WriteBuffer {
 
     /// \brief Awaiter yielding direct access to writer shared storage.
     /// \return Storage awaiter.
-    auto storage() & { return StorageAwaiter<T>(&writer_); }
+    auto storage() &
+      requires(!is_async_alias_v<T>)
+    {
+      return StorageAwaiter<T>(&writer_);
+    }
 
     /// \brief Awaiter yielding owning access to writer shared storage.
     /// \return Owning storage awaiter.
     auto storage() && -> OwningStorageAwaiter<T>
+      requires(!is_async_alias_v<T>)
     {
       this->invalidate_proxy_state();
       return OwningStorageAwaiter<T>(std::move(writer_));
@@ -1036,22 +1050,34 @@ template <typename T> class WriteBuffer {
 
     /// \brief Wait for writability and move out the contained value.
     /// \return Moved value.
-    T move_from_wait() { return writer_.move_from_wait(); }
+    T move_from_wait()
+      requires(!is_async_alias_v<T>)
+    {
+      return writer_.move_from_wait();
+    }
 
     /// \brief Schedule assignment into this write buffer.
     /// \tparam U Source type.
     /// \param val Source expression.
-    template <typename U> void write(U&& val) { async_assign(std::move(*this), std::forward<U>(val)); }
+    template <typename U>
+      requires(!is_async_alias_v<T> || detail::async_alias_assignment_source<T, U>)
+    void write(U&& val)
+    {
+      async_assign(std::move(*this), std::forward<U>(val));
+    }
 
     /// \brief Assign immediately when the writer is known to be ready.
     /// \tparam U Source type assignable to `T&`.
     /// \param val Source value.
     template <typename U>
     void write_assert(U&& val)
-      requires std::assignable_from<T&, U&&>
+      requires((!is_async_alias_v<T> && std::assignable_from<T&, U &&>) || detail::async_alias_assignable_from<T, U &&>)
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
-      writer_.data() = std::forward<U>(val);
+      if constexpr (is_async_alias_v<T>)
+        detail::assign_async_alias(writer_.data(), std::forward<U>(val));
+      else
+        writer_.data() = std::forward<U>(val);
     }
 
     /// \brief Move-assign immediately when the writer is known to be ready.
@@ -1059,7 +1085,7 @@ template <typename T> class WriteBuffer {
     /// \param val Source value.
     template <typename U>
     void write_move_assert(U&& val)
-      requires std::assignable_from<T&, U&&>
+      requires(!is_async_alias_v<T> && std::assignable_from<T&, U &&>)
     {
       DEBUG_CHECK(writer_.ready(), "WriteBuffer must be immediately writable");
       writer_.data() = std::move(val);
@@ -1072,7 +1098,12 @@ template <typename T> class WriteBuffer {
     /// \brief Schedule move-assignment into this write buffer.
     /// \tparam U Source type.
     /// \param val Source expression.
-    template <typename U> void write_move(U&& val) { async_move(std::move(*this), std::move(val)); }
+    template <typename U>
+      requires(!is_async_alias_v<T>)
+    void write_move(U&& val)
+    {
+      async_move(std::move(*this), std::move(val));
+    }
 
     /// \brief Enable `co_await` for lvalue write buffers.
     /// \return Reference to this buffer.
@@ -1239,15 +1270,22 @@ template <typename T> class WriteAccessProxy {
     WriteAccessProxy(WriteAccessProxy&&) noexcept = default;
     WriteAccessProxy& operator=(WriteAccessProxy&&) = delete;
 
-    /// \brief Assign an existing value or construct it when storage is empty.
-    /// \tparam U Source type that can both construct and assign `T`.
+    /// \brief Assign an independent value or assign through an async alias.
+    /// \details Alias assignment invokes an ADL-visible `assign_through`
+    ///          customization and never replaces the stored descriptor.
+    /// \tparam U Source accepted by the applicable assignment capability.
     /// \param u Source value.
     /// \return Reference to `*this`.
     template <typename U>
-      requires(!std::same_as<std::remove_cvref_t<U>, WriteAccessProxy>) && detail::write_proxy_assignable_source<T, U>
+      requires(!std::same_as<std::remove_cvref_t<U>, WriteAccessProxy>) &&
+              ((!is_async_alias_v<T> && detail::write_proxy_assignable_source<T, U>) ||
+               detail::async_alias_assignable_from<T, U &&>)
     WriteAccessProxy& operator=(U&& u)
     {
-      detail::assign_write_proxy_value(this->writer(), std::forward<U>(u));
+      if constexpr (is_async_alias_v<T>)
+        detail::assign_async_alias(this->writer().data(), std::forward<U>(u));
+      else
+        detail::assign_write_proxy_value(this->writer(), std::forward<U>(u));
       return *this;
     }
 
@@ -1256,7 +1294,7 @@ template <typename T> class WriteAccessProxy {
     /// \param args Constructor arguments.
     /// \return Reference to the underlying value.
     template <typename... Args>
-      requires std::constructible_from<T, Args...>
+      requires(!is_async_alias_v<T> && std::constructible_from<T, Args...>)
     T& emplace(Args&&... args)
     {
       return this->writer().emplace(std::forward<Args>(args)...);
@@ -1267,7 +1305,7 @@ template <typename T> class WriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-      requires requires(T& value, U&& x) { value += std::forward<U>(x); }
+      requires(!is_async_alias_v<T>) && requires(T& value, U&& x) { value += std::forward<U>(x); }
     WriteAccessProxy& operator+=(U&& x)
     {
       auto& storage = this->writer().storage();
@@ -1291,7 +1329,7 @@ template <typename T> class WriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-      requires requires(T& value, U&& x) { value -= std::forward<U>(x); }
+      requires(!is_async_alias_v<T>) && requires(T& value, U&& x) { value -= std::forward<U>(x); }
     WriteAccessProxy& operator-=(U&& x)
     {
       auto& storage = this->writer().storage();
@@ -1317,7 +1355,7 @@ template <typename T> class WriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-      requires requires(T& value, U&& x) { value *= std::forward<U>(x); }
+      requires(!is_async_alias_v<T>) && requires(T& value, U&& x) { value *= std::forward<U>(x); }
     WriteAccessProxy& operator*=(U&& x)
     {
       this->get() *= std::forward<U>(x);
@@ -1329,7 +1367,7 @@ template <typename T> class WriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-      requires requires(T& value, U&& x) { value /= std::forward<U>(x); }
+      requires(!is_async_alias_v<T>) && requires(T& value, U&& x) { value /= std::forward<U>(x); }
     WriteAccessProxy& operator/=(U&& x)
     {
       this->get() /= std::forward<U>(x);
@@ -1338,11 +1376,16 @@ template <typename T> class WriteAccessProxy {
 
     /// \brief Move out the stored value.
     /// \return Moved value.
-    T take() { return this->writer().storage().take(); }
+    T take()
+      requires(!is_async_alias_v<T>)
+    {
+      return this->writer().storage().take();
+    }
 
     /// \brief Move out the value and release the writer epoch.
     /// \return Moved value.
     T take_release()
+      requires(!is_async_alias_v<T>)
     {
       T value = this->take();
       this->release();
@@ -1365,13 +1408,45 @@ template <typename T> class WriteAccessProxy {
       }
     }
 
-    /// \brief Access the mutable stored value.
-    /// \return Reference to the stored value.
-    [[nodiscard]] T& get() const { return this->writer().data(); }
+    /// \brief Access an independent stored value mutably.
+    /// \return Mutable reference to the stored value.
+    [[nodiscard]] T& get() const
+      requires(!is_async_alias_v<T>)
+    {
+      return this->writer().data();
+    }
 
-    operator T&() const { return this->get(); }
+    /// \brief Inspect an async alias descriptor without permitting retargeting.
+    /// \return Const reference to the stored alias descriptor.
+    [[nodiscard]] T const& get() const
+      requires(is_async_alias_v<T>)
+    {
+      return this->writer().data();
+    }
 
-    T* operator->() const { return std::addressof(this->get()); }
+    operator T&() const
+      requires(!is_async_alias_v<T>)
+    {
+      return this->get();
+    }
+
+    operator T const&() const
+      requires(is_async_alias_v<T>)
+    {
+      return this->get();
+    }
+
+    T* operator->() const
+      requires(!is_async_alias_v<T>)
+    {
+      return std::addressof(this->get());
+    }
+
+    T const* operator->() const
+      requires(is_async_alias_v<T>)
+    {
+      return std::addressof(this->get());
+    }
 
   private:
     /// \brief Construct from a non-owning writer pointer.
@@ -1425,16 +1500,22 @@ template <typename T> class OwningWriteAccessProxy {
     OwningWriteAccessProxy(OwningWriteAccessProxy&&) noexcept = default;
     OwningWriteAccessProxy& operator=(OwningWriteAccessProxy&&) noexcept = delete;
 
-    /// \brief Assign an existing value or construct it when storage is empty.
-    /// \tparam U Source type that can both construct and assign `T`.
+    /// \brief Assign an independent value or assign through an async alias.
+    /// \details Alias assignment invokes an ADL-visible `assign_through`
+    ///          customization and never replaces the stored descriptor.
+    /// \tparam U Source accepted by the applicable assignment capability.
     /// \param u Source value.
     /// \return Reference to `*this`.
     template <typename U>
       requires(!std::same_as<std::remove_cvref_t<U>, OwningWriteAccessProxy>) &&
-              detail::write_proxy_assignable_source<T, U>
+              ((!is_async_alias_v<T> && detail::write_proxy_assignable_source<T, U>) ||
+               detail::async_alias_assignable_from<T, U &&>)
     OwningWriteAccessProxy& operator=(U&& u)
     {
-      detail::assign_write_proxy_value(writer_, std::forward<U>(u));
+      if constexpr (is_async_alias_v<T>)
+        detail::assign_async_alias(writer_.data(), std::forward<U>(u));
+      else
+        detail::assign_write_proxy_value(writer_, std::forward<U>(u));
       return *this;
     }
 
@@ -1443,7 +1524,7 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param args Constructor arguments.
     /// \return Reference to the underlying value.
     template <typename... Args>
-      requires std::constructible_from<T, Args...>
+      requires(!is_async_alias_v<T> && std::constructible_from<T, Args...>)
     T& emplace(Args&&... args)
     {
       return writer_.emplace(std::forward<Args>(args)...);
@@ -1454,7 +1535,7 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-      requires requires(T& value, U&& x) { value += std::forward<U>(x); }
+      requires(!is_async_alias_v<T>) && requires(T& value, U&& x) { value += std::forward<U>(x); }
     OwningWriteAccessProxy& operator+=(U&& x)
     {
       auto& storage = writer_.storage();
@@ -1478,7 +1559,7 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-      requires requires(T& value, U&& x) { value -= std::forward<U>(x); }
+      requires(!is_async_alias_v<T>) && requires(T& value, U&& x) { value -= std::forward<U>(x); }
     OwningWriteAccessProxy& operator-=(U&& x)
     {
       auto& storage = writer_.storage();
@@ -1504,7 +1585,7 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-      requires requires(T& value, U&& x) { value *= std::forward<U>(x); }
+      requires(!is_async_alias_v<T>) && requires(T& value, U&& x) { value *= std::forward<U>(x); }
     OwningWriteAccessProxy& operator*=(U&& x)
     {
       this->get() *= std::forward<U>(x);
@@ -1516,7 +1597,7 @@ template <typename T> class OwningWriteAccessProxy {
     /// \param x Right-hand operand.
     /// \return Reference to `*this`.
     template <typename U>
-      requires requires(T& value, U&& x) { value /= std::forward<U>(x); }
+      requires(!is_async_alias_v<T>) && requires(T& value, U&& x) { value /= std::forward<U>(x); }
     OwningWriteAccessProxy& operator/=(U&& x)
     {
       this->get() /= std::forward<U>(x);
@@ -1525,18 +1606,27 @@ template <typename T> class OwningWriteAccessProxy {
 
     /// \brief Access mutable stored value.
     /// \return Reference to the stored value.
-    T& get() { return writer_.data(); }
+    T& get()
+      requires(!is_async_alias_v<T>)
+    {
+      return writer_.data();
+    }
     /// \brief Access const stored value.
     /// \return Const reference to the stored value.
     T const& get() const { return writer_.data(); }
 
     /// \brief Move out the stored value.
     /// \return Moved value.
-    T take() { return writer_.storage().take(); }
+    T take()
+      requires(!is_async_alias_v<T>)
+    {
+      return writer_.storage().take();
+    }
 
     /// \brief Move out the value and release the writer epoch.
     /// \return Moved value.
     T take_release()
+      requires(!is_async_alias_v<T>)
     {
       T value = this->take();
       this->release();
@@ -1546,10 +1636,18 @@ template <typename T> class OwningWriteAccessProxy {
     /// \brief Release the writer epoch held by this proxy.
     void release() noexcept { writer_.release(); }
 
-    operator T&() { return this->get(); }
+    operator T&()
+      requires(!is_async_alias_v<T>)
+    {
+      return this->get();
+    }
     operator T const&() const { return this->get(); }
 
-    T* operator->() { return std::addressof(this->get()); }
+    T* operator->()
+      requires(!is_async_alias_v<T>)
+    {
+      return std::addressof(this->get());
+    }
     T const* operator->() const { return std::addressof(this->get()); }
 
   private:
@@ -1628,7 +1726,8 @@ template <typename T> class WriteAssignProxy {
     /// \tparam U Source type.
     /// \param u Source expression to assign.
     template <typename U>
-      requires(!std::same_as<std::remove_cvref_t<U>, WriteAssignProxy>)
+      requires(!std::same_as<std::remove_cvref_t<U>, WriteAssignProxy>) &&
+              (!is_async_alias_v<T> || detail::async_alias_assignment_source<T, U>)
     void operator=(U&& u)
     {
       async_assign(WriteBuffer<T>(std::move(writer_)), std::forward<U>(u));

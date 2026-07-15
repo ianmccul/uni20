@@ -25,32 +25,64 @@ struct IntAlias
 struct MutableIntAlias
 {
     using async_alias_tag = void;
-    using async_write_through_tag = void;
 
     explicit MutableIntAlias(int* value_in) : value(value_in) {}
-
-    MutableIntAlias& operator=(MutableIntAlias const& other)
-    {
-      *value = *other.value;
-      return *this;
-    }
-
-    MutableIntAlias& operator=(int new_value)
-    {
-      *value = new_value;
-      return *this;
-    }
 
     [[nodiscard]] int get() const { return *value; }
 
     int* value;
 };
 
-static_assert(async_value_kind_v<int> == async_value_kind::value);
-static_assert(async_value_kind_v<IntAlias> == async_value_kind::shared_alias);
-static_assert(async_assignment_kind_v<int> == async_assignment_kind::rebind);
-static_assert(async_assignment_kind_v<IntAlias> == async_assignment_kind::not_assignable);
-static_assert(async_assignment_kind_v<MutableIntAlias> == async_assignment_kind::write_through);
+void assign_through(MutableIntAlias& target, MutableIntAlias const& source) { *target.value = *source.value; }
+
+void assign_through(MutableIntAlias& target, int const& source) { *target.value = source; }
+
+struct CopyConstructOnly
+{
+    explicit CopyConstructOnly(int value_in) : value(value_in) {}
+    CopyConstructOnly(CopyConstructOnly const&) = default;
+    CopyConstructOnly(CopyConstructOnly&&) = delete;
+    CopyConstructOnly& operator=(CopyConstructOnly const&) = delete;
+    CopyConstructOnly& operator=(CopyConstructOnly&&) = delete;
+
+    int value;
+};
+
+struct MoveOnly
+{
+    explicit MoveOnly(int value_in) : value(value_in) {}
+    MoveOnly(MoveOnly const&) = delete;
+    MoveOnly(MoveOnly&&) = default;
+    MoveOnly& operator=(MoveOnly const&) = delete;
+    MoveOnly& operator=(MoveOnly&&) = default;
+
+    int value;
+};
+
+template <typename Proxy, typename Source>
+concept proxy_assignable_from = requires(Proxy& proxy, Source&& source) { proxy = std::forward<Source>(source); };
+
+template <typename Proxy>
+concept proxy_can_emplace_int = requires(Proxy& proxy) { proxy.emplace(1); };
+
+template <typename Buffer>
+concept buffer_can_take = requires(Buffer& buffer) { buffer.take(); };
+
+template <typename Buffer>
+concept buffer_can_access_storage = requires(Buffer& buffer) { buffer.storage(); };
+
+template <typename Buffer, typename Source>
+concept buffer_can_schedule_write =
+    requires(Buffer& buffer, Source&& source) { buffer.write(std::forward<Source>(source)); };
+
+using read_only_alias_proxy = WriteAccessProxy<IntAlias>;
+using mutable_alias_proxy = WriteAccessProxy<MutableIntAlias>;
+using owning_read_only_alias_proxy = OwningWriteAccessProxy<IntAlias>;
+using owning_mutable_alias_proxy = OwningWriteAccessProxy<MutableIntAlias>;
+
+static_assert(!is_async_alias_v<int>);
+static_assert(is_async_alias_v<IntAlias>);
+static_assert(is_async_alias_v<MutableIntAlias>);
 static_assert(std::is_copy_constructible_v<Async<IntAlias>>);
 static_assert(std::is_move_constructible_v<Async<IntAlias>>);
 static_assert(!std::is_copy_assignable_v<Async<IntAlias>>);
@@ -63,12 +95,41 @@ static_assert(std::is_assignable_v<Async<MutableIntAlias>&, int>);
 static_assert(std::is_assignable_v<Async<MutableIntAlias>&, Async<int> const&>);
 static_assert(async_reader<Async<IntAlias>>);
 static_assert(!async_writer<Async<IntAlias>>);
-static_assert(async_writer<Async<MutableIntAlias>>);
+static_assert(!async_writer<Async<MutableIntAlias>>);
+static_assert(std::same_as<decltype(std::declval<Async<IntAlias>&>().write()), WriteBuffer<IntAlias>>);
+static_assert(std::same_as<decltype(std::declval<Async<MutableIntAlias>&>().write()), WriteBuffer<MutableIntAlias>>);
+static_assert(!proxy_assignable_from<read_only_alias_proxy, IntAlias const&>);
+static_assert(proxy_assignable_from<mutable_alias_proxy, int const&>);
+static_assert(proxy_assignable_from<mutable_alias_proxy, MutableIntAlias const&>);
+static_assert(!proxy_can_emplace_int<mutable_alias_proxy>);
+static_assert(!proxy_assignable_from<owning_read_only_alias_proxy, IntAlias const&>);
+static_assert(proxy_assignable_from<owning_mutable_alias_proxy, int const&>);
+static_assert(proxy_assignable_from<owning_mutable_alias_proxy, MutableIntAlias const&>);
+static_assert(!proxy_can_emplace_int<owning_mutable_alias_proxy>);
+static_assert(!buffer_can_take<WriteBuffer<MutableIntAlias>>);
+static_assert(!buffer_can_access_storage<WriteBuffer<MutableIntAlias>>);
+static_assert(!buffer_can_schedule_write<WriteBuffer<IntAlias>, int>);
+static_assert(buffer_can_schedule_write<WriteBuffer<MutableIntAlias>, int>);
+static_assert(buffer_can_schedule_write<WriteBuffer<MutableIntAlias>, Async<int> const&>);
+static_assert(!std::is_assignable_v<WriteAssignProxy<IntAlias>&, int>);
+static_assert(std::is_assignable_v<WriteAssignProxy<MutableIntAlias>&, int>);
+static_assert(std::is_assignable_v<WriteAssignProxy<MutableIntAlias>&, Async<int> const&>);
+static_assert(std::same_as<decltype(std::declval<mutable_alias_proxy const&>().get()), MutableIntAlias const&>);
+static_assert(std::same_as<decltype(std::declval<owning_mutable_alias_proxy const&>().get()), MutableIntAlias const&>);
 static_assert(std::same_as<decltype(std::declval<Async<IntAlias>&>().storage_address()), IntAlias const*>);
 static_assert(std::same_as<decltype(std::declval<Async<IntAlias>&>().value_ptr()), std::shared_ptr<IntAlias const>>);
-static_assert(std::same_as<decltype(std::declval<Async<MutableIntAlias>&>().storage_address()), MutableIntAlias*>);
 static_assert(
-    std::same_as<decltype(std::declval<Async<MutableIntAlias>&>().value_ptr()), std::shared_ptr<MutableIntAlias>>);
+    std::same_as<decltype(std::declval<Async<MutableIntAlias>&>().storage_address()), MutableIntAlias const*>);
+static_assert(std::same_as<decltype(std::declval<Async<MutableIntAlias>&>().value_ptr()),
+                           std::shared_ptr<MutableIntAlias const>>);
+static_assert(std::is_copy_constructible_v<Async<CopyConstructOnly>>);
+static_assert(std::is_copy_assignable_v<Async<CopyConstructOnly>>);
+static_assert(std::is_move_constructible_v<Async<CopyConstructOnly>>);
+static_assert(std::is_move_assignable_v<Async<CopyConstructOnly>>);
+static_assert(!std::is_copy_constructible_v<Async<MoveOnly>>);
+static_assert(!std::is_copy_assignable_v<Async<MoveOnly>>);
+static_assert(std::is_move_constructible_v<Async<MoveOnly>>);
+static_assert(std::is_move_assignable_v<Async<MoveOnly>>);
 
 } // namespace
 
@@ -151,6 +212,40 @@ TEST(AsyncAliasTest, MutableAliasAssignmentWritesThroughExistingTimeline)
   sched.run_all();
   EXPECT_EQ(parent.get_wait(), 17);
   EXPECT_EQ(alias.get_wait().get(), 17);
+}
+
+TEST(AsyncAliasTest, CapabilityAwareWriteProxyAssignsThroughWithoutExposingDescriptorMutation)
+{
+  Async<int> parent = 5;
+  auto alias = make_async_alias<MutableIntAlias>(parent, parent.storage_address());
+  auto* const alias_storage = alias.storage().control_address();
+  auto const* const alias_queue = &alias.queue();
+  DebugScheduler sched;
+
+  sched.schedule([](WriteBuffer<MutableIntAlias> writer) static -> AsyncTask {
+    co_await writer = 23;
+    co_return;
+  }(alias.write()));
+
+  sched.run_all();
+  EXPECT_EQ(parent.get_wait(), 23);
+  EXPECT_EQ(alias.storage().control_address(), alias_storage);
+  EXPECT_EQ(&alias.queue(), alias_queue);
+}
+
+TEST(AsyncAliasTest, FreshTimelineCopyNeedsConstructionButNotPayloadAssignment)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  Async<CopyConstructOnly> source(17);
+  Async<CopyConstructOnly> copy(source);
+  Async<CopyConstructOnly> assigned(3);
+  assigned = source;
+
+  sched.run_all();
+  EXPECT_EQ(copy.get_wait().value, 17);
+  EXPECT_EQ(assigned.get_wait().value, 17);
 }
 
 TEST(AsyncAliasTest, HeterogeneousAsyncAssignmentRebindsFreshTimeline)

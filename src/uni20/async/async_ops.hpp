@@ -239,49 +239,78 @@ template <typename T, typename U, typename Op> void async_compound_op(Async<T>& 
 //   }(read(std::forward<A>(a)), read(std::forward<B>(b)), out.write(), std::move(op)));
 // }
 
-/// \brief Assigns an Async or scalar value into an Async destination.
-///
-/// This schedules a coroutine that writes the value `rhs` into `lhs`.
-///
-/// \tparam T The value type of the destination.
-/// \tparam U The source type, either a value or Async<U>.
-template <typename T, typename U>
-void async_assign(WriteBuffer<T> lhs, U&& rhs)
-  requires(async_assignment_kind_v<T> == async_assignment_kind::rebind && read_buffer_awaitable_of<U, T>)
-// requires { T{std::declval<async_value_t<U>>()}; }
-{
-  schedule([](auto in_, WriteBuffer<T> out_) static -> AsyncTask {
-    T value(co_await in_);
-    in_.release();
-    co_await out_ = std::move(value);
-    co_return;
-  }(std::move(rhs), std::move(lhs)));
-}
-
 namespace detail
 {
 
 template <typename Awaitable, typename Target>
-concept write_through_awaitable = read_buffer_awaitable<Awaitable> && requires(Awaitable& source, Target& target) {
-  target = get_awaiter(source).await_resume();
-};
+concept async_initialization_awaitable =
+    read_buffer_awaitable<Awaitable> &&
+    std::constructible_from<Target, decltype(get_awaiter(std::declval<Awaitable&>()).await_resume())>;
+
+template <typename Target, typename Source>
+concept current_value_assignment_source =
+    !is_async_alias_v<Target> && std::constructible_from<Target, async_value_t<Source> const&> &&
+    write_proxy_assignable_source<Target, Target>;
+
+template <typename Awaitable, typename Target>
+concept async_alias_assignment_awaitable =
+    read_buffer_awaitable<Awaitable> &&
+    async_alias_assignable_from<Target, decltype(get_awaiter(std::declval<Awaitable&>()).await_resume())>;
 
 } // namespace detail
 
-/// \brief Assign through an existing async proxy or alias descriptor.
-/// \details The destination object, owner chain, and epoch queue remain intact.
-///          Write-through values must therefore already be constructed.
+/// \brief Initialize empty independent-value storage from an awaitable source.
+/// \details This is used for fresh value timelines and deliberately requires
+///          construction but not assignment of `T`.
 template <typename T, typename U>
-void async_assign(WriteBuffer<T> lhs, U&& rhs)
-  requires(async_assignment_kind_v<T> == async_assignment_kind::write_through && detail::write_through_awaitable<U, T>)
+  requires(!is_async_alias_v<T> && detail::async_initialization_awaitable<U, T>)
+void async_initialize(WriteBuffer<T> destination, U&& source)
 {
-  schedule([](auto in_, WriteBuffer<T> out_) static -> AsyncTask {
-    auto&& source = co_await in_;
-    auto target = co_await out_;
-    target.get() = source;
-    in_.release();
+  schedule([](auto source_, WriteBuffer<T> destination_) static -> AsyncTask {
+    auto&& value = co_await source_;
+    auto target = co_await destination_;
+    target.emplace(value);
+    source_.release();
     co_return;
-  }(std::move(rhs), std::move(lhs)));
+  }(std::forward<U>(source), std::move(destination)));
+}
+
+/// \brief Initialize a fresh independent async value from another async source.
+template <typename T, typename U>
+  requires(!is_async_alias_v<T> && detail::async_source<U> && std::constructible_from<T, async_value_t<U> const&>)
+void async_initialize(Async<T>& destination, U&& source)
+{
+  async_initialize(destination.write(), read(std::forward<U>(source)));
+}
+
+/// \brief Assign an awaitable value into an existing independent-value timeline.
+/// \details The destination may already be constructed, so this operation
+///          requires both construction and assignment capability.
+template <typename T, typename U>
+  requires(!is_async_alias_v<T> && read_buffer_awaitable_of<U, T> && detail::write_proxy_assignable_source<T, T>)
+void async_assign(WriteBuffer<T> destination, U&& source)
+{
+  schedule([](auto source_, WriteBuffer<T> destination_) static -> AsyncTask {
+    T value(co_await source_);
+    source_.release();
+    co_await destination_ = std::move(value);
+    co_return;
+  }(std::forward<U>(source), std::move(destination)));
+}
+
+/// \brief Assign through an existing async alias descriptor.
+/// \details The destination descriptor, lifetime owner, and epoch queue remain
+///          intact. The write proxy invokes the alias's ADL customization.
+template <typename T, typename U>
+  requires(is_async_alias_v<T> && detail::async_alias_assignment_awaitable<U, T>)
+void async_assign(WriteBuffer<T> destination, U&& source)
+{
+  schedule([](auto source_, WriteBuffer<T> destination_) static -> AsyncTask {
+    auto&& value = co_await source_;
+    co_await destination_ = value;
+    source_.release();
+    co_return;
+  }(std::forward<U>(source), std::move(destination)));
 }
 
 /// \brief Assigns an Async or scalar value into an Async destination.
@@ -291,10 +320,8 @@ void async_assign(WriteBuffer<T> lhs, U&& rhs)
 /// \param rhs Source expression.
 template <typename T, typename U>
 void async_assign(Async<T>& lhs, U&& rhs)
-  requires((async_assignment_kind_v<T> == async_assignment_kind::rebind &&
-            requires { T{std::declval<async_value_t<U>>()}; }) ||
-           (async_assignment_kind_v<T> == async_assignment_kind::write_through &&
-            detail::write_through_assignment_source<T, U>))
+  requires(detail::current_value_assignment_source<T, U> ||
+           (is_async_alias_v<T> && detail::async_alias_assignable_from<T, async_value_t<U> const&>))
 {
   async_assign(lhs.write(), read(std::forward<U>(rhs)));
 }
@@ -306,16 +333,15 @@ void async_assign(Async<T>& lhs, U&& rhs)
 /// \param rhs Source expression.
 template <typename T, typename U>
 void async_assign(WriteBuffer<T> lhs, U&& rhs)
-  requires((async_assignment_kind_v<T> == async_assignment_kind::rebind &&
-            requires { T{std::declval<async_value_t<U>>()}; }) ||
-           (async_assignment_kind_v<T> == async_assignment_kind::write_through &&
-            detail::write_through_assignment_source<T, U>))
+  requires(!read_buffer_awaitable<std::remove_cvref_t<U>>) &&
+          (detail::current_value_assignment_source<T, U> ||
+           (is_async_alias_v<T> && detail::async_alias_assignable_from<T, async_value_t<U> const&>))
 {
   async_assign(std::move(lhs), read(std::forward<U>(rhs)));
 }
 
 template <typename T, typename U>
-  requires async_mutable_writer_of<U, T> && async_movable_to<U, T>
+  requires(!is_async_alias_v<T>) && async_mutable_writer_of<U, T> && async_movable_to<U, T>
 /// \brief Move-assign from an async writer into a write buffer.
 /// \tparam T Destination value type.
 /// \tparam U Source async-like type.
@@ -333,7 +359,7 @@ void async_move(WriteBuffer<T> lhs, U&& rhs)
 }
 
 template <typename T, typename U>
-  requires(!async_writer<std::remove_cvref_t<U>>) && std::constructible_from<T, U&&>
+  requires(!is_async_alias_v<T>) && (!async_writer<std::remove_cvref_t<U>>) && std::constructible_from<T, U&&>
 void async_move(WriteBuffer<T> lhs, U&& rhs)
 {
   schedule([](T val, WriteBuffer<T> dst) static -> AsyncTask {
@@ -347,7 +373,9 @@ void async_move(WriteBuffer<T> lhs, U&& rhs)
 /// \tparam U Source type.
 /// \param lhs Destination async value.
 /// \param rhs Source expression.
-template <typename T, typename U> void async_move(Async<T>& lhs, U&& rhs)
+template <typename T, typename U>
+  requires(!is_async_alias_v<T>)
+void async_move(Async<T>& lhs, U&& rhs)
 {
   async_move(lhs.write(), std::forward<U>(rhs));
 }

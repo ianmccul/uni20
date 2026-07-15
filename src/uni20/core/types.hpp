@@ -66,16 +66,16 @@ template <typename R> struct remove_proxy_reference : std::remove_reference<R>
 /// Evaluates to true if `remove_proxy_reference` changes the type,
 /// i.e., if the transformation produces a different type than the CV-ref stripped input.
 template <typename R>
-constexpr bool is_proxy_v =
+constexpr bool is_proxy_reference_v =
     !std::is_same_v<typename remove_proxy_reference<std::remove_cvref_t<R>>::type, std::remove_cvref_t<R>>;
 
 /// \brief Extracts the underlying value type of a proxy (or normal) reference.
 ///
-/// If the type is detected as a proxy via `is_proxy_v`, removes the proxy
+/// If the type is detected as a proxy reference via `is_proxy_reference_v`, removes the proxy
 /// wrapper and CV qualifiers. Otherwise, removes only the reference qualifier.
 template <typename R>
 using remove_proxy_reference_t =
-    std::conditional_t<is_proxy_v<R>, typename remove_proxy_reference<std::remove_cvref_t<R>>::type,
+    std::conditional_t<is_proxy_reference_v<R>, typename remove_proxy_reference<std::remove_cvref_t<R>>::type,
                        std::remove_reference_t<R>>;
 
 } // namespace uni20
