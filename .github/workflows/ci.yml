@@ -53,6 +53,115 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DUNI20_BLAS_VENDOR=OpenBLAS \
+            -DUNI20_BUILD_COMBINED_TESTS=OFF \
+            -DUNI20_BUILD_BENCH=OFF \
+            -DUNI20_BUILD_ASM=OFF \
+            -DUNI20_USE_SYSTEM_TBB=ON \
+            -DUNI20_USE_SYSTEM_FMT=ON \
+            -DUNI20_USE_SYSTEM_BENCHMARK=ON \
+            -DUNI20_USE_SYSTEM_GTEST=ON \
+            -DUNI20_USE_SYSTEM_NANOBIND=OFF \
+            -DUNI20_FETCHCONTENT_SOURCE=OFF
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  ubuntu-release:
+    name: Ubuntu Release
+    runs-on: ubuntu-24.04
+
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            cmake \
+            ninja-build \
+            g++ \
+            libopenblas-dev \
+            liblapack-dev \
+            libtbb-dev \
+            libbenchmark-dev \
+            libfmt-dev \
+            libgtest-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUNI20_BLAS_VENDOR=OpenBLAS \
+            -DUNI20_BUILD_COMBINED_TESTS=OFF \
+            -DUNI20_BUILD_BENCH=OFF \
+            -DUNI20_BUILD_ASM=OFF \
+            -DUNI20_USE_SYSTEM_TBB=ON \
+            -DUNI20_USE_SYSTEM_FMT=ON \
+            -DUNI20_USE_SYSTEM_BENCHMARK=ON \
+            -DUNI20_USE_SYSTEM_GTEST=ON \
+            -DUNI20_USE_SYSTEM_NANOBIND=OFF \
+            -DUNI20_FETCHCONTENT_SOURCE=OFF
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  ubuntu-clang-debug:
+    name: Ubuntu Clang 19 Debug
+    runs-on: ubuntu-24.04
+
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            cmake \
+            ninja-build \
+            g++ \
+            clang-19 \
+            libopenblas-dev \
+            liblapack-dev \
+            libtbb-dev \
+            libbenchmark-dev \
+            libfmt-dev \
+            libgtest-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DUNI20_BLAS_VENDOR=OpenBLAS \
+            -DUNI20_BUILD_COMBINED_TESTS=OFF \
+            -DUNI20_BUILD_BENCH=OFF \
+            -DUNI20_BUILD_ASM=OFF \
             -DUNI20_USE_SYSTEM_TBB=ON \
             -DUNI20_USE_SYSTEM_FMT=ON \
             -DUNI20_USE_SYSTEM_BENCHMARK=ON \

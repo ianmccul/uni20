@@ -7,6 +7,8 @@ This directory stores Codex-specific metadata and guidance.
 - `.codex/instructions.md` (tracked): repository-wide Codex guidance.
 - `.codex/instructions.local.md` (local only): machine-specific overrides (toolchains, local paths, etc.).
   - This file is git-ignored by `.gitignore`.
+- `CMakeUserPresets.json` (local only, repository root): optional personal
+  CMake configure, build, and test presets. This file is also git-ignored.
 - `.codex/skills/` (tracked): reusable skill playbooks that may be shared with the repository.
 
 ## What belongs where
@@ -27,6 +29,7 @@ If a skill needs local compiler or path details, it should defer to `.codex/inst
 - `uni20-build-matrix`: compiler/build-type feature matrix with auto-detected toolchains.
 - `uni20-doxygen-audit`: AGENTS.md Doxygen policy auditing/normalization.
 - `uni20-doc-sync`: documentation synchronization and stale-doc triage.
+- `uni20-code-review`: correctness-first review using the shared Uni20 review checklist.
 
 ## How to invoke a skill
 

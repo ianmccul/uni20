@@ -1,5 +1,12 @@
 # Uni20 Reverse-Mode AD: AI Guidance
 
+- **Audience:** remote assistants, coding agents, and reviewers
+- **Authority:** non-normative summary
+- **Status:** current implementation summary
+- **Canonical sources:** `docs/async/reverse_mode_ad.md`,
+  `src/uni20/async/var.hpp`, `src/uni20/async/reverse_value.hpp`, and
+  `tests/async/`
+
 This file is for questions about `Var<T>`, `ReverseValue<T>`, `backprop()`, gradient materialization, complex gradients, and custom reverse-mode kernels.
 
 ## File-level invariants

@@ -8,7 +8,8 @@ Detailed coding, style, coroutine safety, and documentation policy is defined in
 Before building or editing:
 
 1. Read `AGENTS.md`.
-2. Read `.codex/instructions.local.md` for machine/local overrides.
+2. If it exists, read `.codex/instructions.local.md` for machine-local
+   overrides.
 
 If there is a conflict, follow:
 
@@ -20,8 +21,12 @@ If there is a conflict, follow:
 ## 2. Build and Test Discipline
 
 - Use out-of-source builds only.
-- Prefer `./build_codex` (or subdirectories) for all configure/build/test work.
-- Do not build in `./build`, `cmake-build-*`, or the source tree.
+- Select the build root from `.codex/instructions.local.md` when present;
+  otherwise use `CMakeUserPresets.json` when provided or choose a git-ignored
+  out-of-source directory.
+- Keep separate build trees for different compilers and incompatible
+  configurations.
+- Do not build in the source tree.
 - Run tests after changes unless explicitly told not to.
 
 ## 3. Change Scope
@@ -41,4 +46,4 @@ If there is a conflict, follow:
 
 Machine-specific compiler/toolchain guidance belongs in:
 
-- `.codex/instructions.local.md`
+- `.codex/instructions.local.md`, which is git-ignored.

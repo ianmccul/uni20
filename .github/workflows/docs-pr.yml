@@ -1,0 +1,37 @@
+name: Docs PR
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Doxygen
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install documentation tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y cmake ninja-build doxygen graphviz
+
+      - name: Configure documentation build
+        run: cmake -S . -B build -G Ninja -DUNI20_DOCS_WEB=ON
+
+      - name: Generate documentation
+        run: cmake --build build --target doc
+
+      - name: Verify generated site
+        run: test -s build/docs/html/index.html

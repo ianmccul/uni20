@@ -1,5 +1,12 @@
 # CUDA Scheduler Design Notes
 
+- **Audience:** design assistants, coding agents, and reviewers
+- **Authority:** non-normative design summary
+- **Status:** speculative and partly superseded; not an implemented contract
+- **Canonical sources:** `docs/gpu_epoch_design_draft.md`,
+  `docs/cuda_runtime_design_notes.md`, `docs/cuda_cusolver_architecture.md`, and
+  current CUDA source when present
+
 These notes record design direction only.  They are not implemented uni20 GPU
 runtime behavior.
 

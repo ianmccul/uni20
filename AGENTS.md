@@ -53,6 +53,23 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
   shape and update the nearby guidance/tests rather than layering a compatibility
   wrapper around the older design.
 
+### 2.2 Agent-Assisted Development
+
+* Interactive maintainer-agent development is the default workflow. A maintainer
+  decision made during the working session is sufficient authority to proceed;
+  a separate issue, worktree, or work log is not required unless requested.
+* When semantics remain unresolved, present the alternatives and obtain a
+  maintainer decision before encoding one. Do not treat current code as the
+  intended contract merely because it is implemented.
+* Keep durable decisions in canonical subsystem documentation. Keep verification
+  in the commit or pull-request summary, and do not commit raw transcripts or
+  temporary agent working notes.
+* Use independent review in proportion to numerical, ownership, concurrency,
+  symmetry, backend, and architectural risk. Deterministic evidence remains the
+  primary verification mechanism.
+* See `docs/agent_assisted_development.md` and `docs/code_review.md` for the
+  current workflow and review guidance.
+
 ---
 
 ## 3. Core Development Rules

@@ -1,5 +1,11 @@
 # AI Guidance for Uni20
 
+- **Audience:** remote assistants, coding agents, reviewers, and maintainers
+- **Authority:** non-normative index and retrieval guidance
+- **Status:** current guidance index
+- **Canonical sources:** `AGENTS.md`, canonical subsystem documentation,
+  source, and tests
+
 This directory is for AI assistants. It is not optimized for normal human reading.
 
 Human readers should usually prefer:
@@ -78,6 +84,7 @@ Not every file uses every field. Use the fields that improve retrieval.
   backend values/selectors, operation-tag dispatch, and async tensor alias
   cautions
 - `presentation_and_python.md`: presentation formatting, Python display, Jupyter display, tensor preview policy, and renderer boundaries
+- `cuda_scheduler_notes.md`: speculative CUDA scheduler and resource-management notes; not implemented runtime behavior
 - `glossary.md`: compact retrieval-first definitions for repeated Uni20 terms
 
 ## Recommended use
@@ -91,6 +98,8 @@ Not every file uses every field. Use the fields that improve retrieval.
 
 ## Related docs
 
+- `../agent_assisted_development.md`
+- `../code_review.md`
 - `../async/README.md`
 - `../async/runtime_model.md`
 - `../async/buffers_and_awaiters.md`

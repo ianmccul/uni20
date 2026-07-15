@@ -78,5 +78,8 @@ Thumbs.db
 # Local Codex machine overrides
 .codex/instructions.local.md
 
+# Local CMake configure/build/test presets
+CMakeUserPresets.json
+
 # Local Codex build tree
 build_codex

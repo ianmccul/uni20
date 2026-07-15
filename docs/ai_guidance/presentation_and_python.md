@@ -1,5 +1,11 @@
 # Uni20 Presentation And Python Display: AI Guidance
 
+- **Audience:** remote assistants, coding agents, and reviewers
+- **Authority:** non-normative summary
+- **Status:** current implementation and roadmap summary
+- **Canonical sources:** `docs/presentation.md`, `docs/Python.md`,
+  `src/uni20/common/`, and `bindings/python/`
+
 This file is for questions about presentation formatting, Python display, Jupyter notebooks, and tensor repr design.
 
 ## File-level answer rule

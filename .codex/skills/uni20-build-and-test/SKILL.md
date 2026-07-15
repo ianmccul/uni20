@@ -14,7 +14,9 @@ Use exact commands, keep output concise, and report failures with actionable roo
 
 1. Read `AGENTS.md` before running commands.
 2. If present, read `.codex/instructions.local.md` and apply local overrides from there.
-3. Configure in `./build_codex` (or subdirectories of `./build_codex`) only.
+3. Select an out-of-source build directory from the local override, the user's
+   request, or a git-ignored default. Do not reuse it with another compiler or
+   incompatible configuration.
 4. Build requested targets first; run full builds only when needed.
 5. Run targeted tests for changed areas, then broader `ctest` if requested.
 6. Summarize command results with failing target/test names and next steps.
@@ -22,46 +24,47 @@ Use exact commands, keep output concise, and report failures with actionable roo
 ## Configure
 
 Use these command templates unless the user asks for different options.
-Do not hardcode machine-local compiler paths in this skill.
+Replace `<build-dir>` with the selected local path. Do not hardcode
+machine-local build roots or compiler paths in this skill.
 
 ```bash
-cmake -S . -B ./build_codex
+cmake -S . -B <build-dir>
 ```
 
 ```bash
-cmake -S . -B ./build_codex/no_stacktrace -DUNI20_ENABLE_STACKTRACE=0
+cmake -S . -B <no-stacktrace-build-dir> -DUNI20_ENABLE_STACKTRACE=0
 ```
 
 ## Build
 
 ```bash
-cmake --build ./build_codex
+cmake --build <build-dir>
 ```
 
 ```bash
-cmake --build ./build_codex --target uni20_async_tests
+cmake --build <build-dir> --target uni20_async_tests
 ```
 
 ```bash
-cmake --build ./build_codex/no_stacktrace --target uni20_async_tests
+cmake --build <no-stacktrace-build-dir> --target uni20_async_tests
 ```
 
 ## Test
 
 ```bash
-ctest --test-dir ./build_codex --output-on-failure
+ctest --test-dir <build-dir> --output-on-failure
 ```
 
 ```bash
-ctest --test-dir ./build_codex --output-on-failure -R "TaskRegistryDebugTest.DumpShowsTaskStateAndTransitions"
+ctest --test-dir <build-dir> --output-on-failure -R "TaskRegistryDebugTest.DumpShowsTaskStateAndTransitions"
 ```
 
 ```bash
-ctest --test-dir ./build_codex --output-on-failure -R "AsyncTaskAwaitTest.AsyncTaskAwait_NestedAssignment|TbbScheduler.BasicSchedule|TbbScheduler.AsyncAccumulationGetWait"
+ctest --test-dir <build-dir> --output-on-failure -R "AsyncTaskAwaitTest.AsyncTaskAwait_NestedAssignment|TbbScheduler.BasicSchedule|TbbScheduler.AsyncAccumulationGetWait"
 ```
 
 ```bash
-ctest --test-dir ./build_codex/no_stacktrace --output-on-failure -R "TaskRegistryDebugTest.DumpShowsTaskStateAndTransitions"
+ctest --test-dir <no-stacktrace-build-dir> --output-on-failure -R "TaskRegistryDebugTest.DumpShowsTaskStateAndTransitions"
 ```
 
 ## Failure Triage

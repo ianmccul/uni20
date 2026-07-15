@@ -1,5 +1,13 @@
 # Tensor Dispatch and Backend-State Design: AI Guidance
 
+- **Audience:** design assistants, coding agents, and reviewers
+- **Authority:** non-normative design summary
+- **Status:** mixed implementation and active design; inspect source before
+  making claims
+- **Canonical sources:** `docs/tensor_dispatch_and_view_semantics_draft.md`,
+  `docs/async_tensor_lifetime_and_dispatch_draft.md`, `docs/kernel_dispatch.md`,
+  `src/uni20/tensor/`, `src/uni20/linalg/`, and tests
+
 This file is for AI assistants answering questions about the evolving tensor,
 view, backend-dispatch, and temporary-allocation design.
 

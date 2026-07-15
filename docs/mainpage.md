@@ -56,6 +56,8 @@ Krylov/LAPACK solver infrastructure.
 
 ## Development Notes
 
+- [Agent-assisted development](agent_assisted_development.md)
+- [Reviewing changes](code_review.md)
 - [AI guidance](ai_guidance/README.md)
 - [Roadmap](roadmap.md)
 - [Trace macros](trace_macros.md)

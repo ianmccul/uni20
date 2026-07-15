@@ -1,5 +1,11 @@
 # Uni20 Glossary for AI Assistants
 
+- **Audience:** remote assistants, coding agents, and reviewers
+- **Authority:** non-normative terminology summary
+- **Status:** current retrieval glossary
+- **Canonical sources:** the subsystem documents linked by each entry, source,
+  and tests
+
 This glossary is optimized for retrieval, not pedagogy.
 
 ## Core async terms

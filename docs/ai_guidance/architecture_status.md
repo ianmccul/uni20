@@ -1,5 +1,11 @@
 # Uni20 Architecture Status: AI Guidance
 
+- **Audience:** remote assistants, coding agents, and reviewers
+- **Authority:** non-normative summary
+- **Status:** implementation-status snapshot; expected to evolve
+- **Canonical sources:** `docs/architecture_diagram.md`, `docs/roadmap.md`,
+  `docs/execution_architecture.md`, the source tree, and tests
+
 This file is for questions about project maturity, active design seams, and what should or should not be described as stable.
 
 ## File-level answer rule

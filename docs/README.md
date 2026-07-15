@@ -2,6 +2,9 @@
 
 ## Core Docs
 
+- [Contributor Guide](CONTRIBUTING.md)
+- [Agent-Assisted Development](agent_assisted_development.md)
+- [Reviewing Uni20 Changes](code_review.md)
 - [Getting Started](getting_started.md)
 - [Build Information](buildinfo.md)
 - [GPU Landscape for Tensor Networks (2026-04)](gpu_landscape.md)
@@ -64,6 +67,8 @@
 - [AI Guidance: Reverse-Mode AD](ai_guidance/reverse_mode_ad.md)
 - [AI Guidance: Presentation and Python Display](ai_guidance/presentation_and_python.md)
 - [AI Guidance: Architecture Status](ai_guidance/architecture_status.md)
+- [AI Guidance: Tensor Dispatch Design](ai_guidance/tensor_dispatch_design.md)
+- [AI Guidance: CUDA Scheduler Notes](ai_guidance/cuda_scheduler_notes.md)
 - [AI Guidance: Glossary](ai_guidance/glossary.md)
 
 ## Async Runtime and AD Docs

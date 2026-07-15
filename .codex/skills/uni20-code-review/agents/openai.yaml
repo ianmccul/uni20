@@ -1,0 +1,4 @@
+interface:
+  display_name: "Uni20 Code Review"
+  short_description: "Review Uni20 correctness and regressions"
+  default_prompt: "Review the current Uni20 changes using the repository's canonical review checklist."

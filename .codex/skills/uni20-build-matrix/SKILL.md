@@ -16,7 +16,9 @@ This skill is for compatibility checks, regressions, and release confidence. Kee
 1. Read `AGENTS.md`, then `.codex/instructions.local.md` (if present).
 2. Detect available compilers on the current machine.
 3. Pick a minimal matrix that covers requested dimensions (compiler, build type, stacktrace/LTO toggles).
-4. Configure, build, and test each selected cell under `./build_codex/<cell_name>`.
+4. Select an out-of-source build root from the local override, the user's
+   request, or a git-ignored default, then configure each cell under
+   `<build-root>/<cell-name>`.
 5. Summarize pass/fail per cell with failing targets/tests.
 
 ## Compiler Detection
@@ -24,10 +26,13 @@ This skill is for compatibility checks, regressions, and release confidence. Kee
 Prefer local toolchain overrides if documented. Otherwise auto-detect:
 
 ```bash
-for cxx in g++ clang++ g++-15 g++-14 g++-13 g++-12 clang++-18 clang++-17 clang++-16; do
+for cxx in g++ g++-16 g++-14 g++-13 clang++ clang++-21 clang++-20 clang++-19; do
   command -v "$cxx" >/dev/null && echo "$cxx"
 done | awk '!seen[$0]++'
 ```
+
+Reject Clang versions below the supported Clang 19 floor. Prefer GCC 13 as the
+compatibility baseline when it is available.
 
 ## Matrix Construction Rules
 
@@ -42,13 +47,13 @@ done | awk '!seen[$0]++'
 Baseline:
 
 ```bash
-cmake -S . -B ./build_codex/<cell_name> -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B <build-root>/<cell-name> -DCMAKE_BUILD_TYPE=Debug
 ```
 
 Compiler override:
 
 ```bash
-cmake -S . -B ./build_codex/<cell_name> \
+cmake -S . -B <build-root>/<cell-name> \
   -DCMAKE_C_COMPILER=<cc> \
   -DCMAKE_CXX_COMPILER=<cxx> \
   -DCMAKE_BUILD_TYPE=<Debug|Release>
@@ -62,8 +67,8 @@ Optional toggles:
 ## Build and Test
 
 ```bash
-cmake --build ./build_codex/<cell_name>
-ctest --test-dir ./build_codex/<cell_name> --output-on-failure
+cmake --build <build-root>/<cell-name>
+ctest --test-dir <build-root>/<cell-name> --output-on-failure
 ```
 
 For quick smoke checks, run targeted tests first, then full `ctest` if requested.

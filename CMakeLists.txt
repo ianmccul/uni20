@@ -700,6 +700,7 @@ if(DOXYGEN_FOUND)
   # Where to look for our sources and markdown files
   set(DOXYGEN_INPUT
       "${CMAKE_SOURCE_DIR}/README.md"
+      "${CMAKE_SOURCE_DIR}/AGENTS.md"
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/examples"
       "${CMAKE_SOURCE_DIR}/docs"

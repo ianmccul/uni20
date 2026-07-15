@@ -1,5 +1,11 @@
 # Uni20 Async Runtime: AI Guidance
 
+- **Audience:** remote assistants, coding agents, and reviewers
+- **Authority:** non-normative summary
+- **Status:** current implementation summary
+- **Canonical sources:** `docs/async/runtime_model.md`,
+  `docs/async/buffers_and_awaiters.md`, `src/uni20/async/`, and `tests/async/`
+
 This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `WriteBuffer<T>`, proxy lifetime, cancellation, and coroutine ordering.
 
 ## File-level invariants

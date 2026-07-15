@@ -23,19 +23,20 @@ Keep recommendations minimal and explicit. Prefer fixing root-cause configuratio
 ## Data Collection
 
 Use build-tree-local inspection first.
+Replace `<build-dir>` with the affected local build tree.
 
 ```bash
-cmake -N -LAH ./build_codex | rg "UNI20_(USE_SYSTEM|DETECTED|FETCHCONTENT|BLAS)|BLA_VENDOR|_DIR|_FOUND|_VERSION"
+cmake -N -LAH <build-dir> | rg "UNI20_(USE_SYSTEM|DETECTED|FETCHCONTENT|BLAS)|BLA_VENDOR|_DIR|_FOUND|_VERSION"
 ```
 
 ```bash
-rg -n "UNI20_DETECTED_|System .* found|requires >=|Fetching from|BLA_VENDOR|BLAS" ./build_codex/CMakeCache.txt ./build_codex/CMakeFiles/CMakeOutput.log ./build_codex/CMakeFiles/CMakeError.log
+rg -n "UNI20_DETECTED_|System .* found|requires >=|Fetching from|BLA_VENDOR|BLAS" <build-dir>/CMakeCache.txt <build-dir>/CMakeFiles/CMakeOutput.log <build-dir>/CMakeFiles/CMakeError.log
 ```
 
 If package lookup behavior is unclear, re-run configure with find diagnostics:
 
 ```bash
-cmake -S . -B ./build_codex --debug-find
+cmake -S . -B <build-dir> --debug-find
 ```
 
 ## Common Failure Classes
