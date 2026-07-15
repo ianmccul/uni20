@@ -12,7 +12,7 @@ Before editing code:
    coroutine, mdspan, symmetry, testing, and documentation rules.
 2. Read the relevant subsystem documentation and nearby tests.
 3. Follow [Getting Started](getting_started.md) for configuration and build
-   commands, and [Testing](testing.md) for the test organization.
+   commands, and [Testing](development/testing.md) for the test organization.
 4. Coding agents must also read `.codex/instructions.local.md` when it exists.
    This optional, git-ignored file records machine-local compiler and build-tree
    constraints without making them repository policy.
@@ -37,7 +37,7 @@ For a change:
    fallbacks, and missing scalar, layout, backend, or failure-path coverage.
 
 The complete agent workflow is described in
-[Agent-Assisted Development](agent_assisted_development.md).
+[Agent-Assisted Development](development/agent_assisted_development.md).
 
 ## Semantic Authority
 
@@ -65,7 +65,7 @@ Evidence should match the risk of the change:
   symmetry-aware path.
 
 Substantial changes benefit from an independent review context or model. Follow
-[Reviewing Uni20 Changes](code_review.md); review findings should lead with
+[Reviewing Uni20 Changes](development/code_review.md); review findings should lead with
 correctness defects and residual risks rather than style observations.
 
 ## Commits and Pull Requests

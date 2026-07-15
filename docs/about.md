@@ -132,13 +132,13 @@ a complete tensor-network application suite. In particular:
 ## Where to Continue
 
 - [Getting Started](getting_started.md): configure, build, and test Uni20.
-- [Architecture Overview](architecture_diagram.md): implemented layers and
+- [Architecture Overview](architecture/overview.md): implemented layers and
   planned extensions.
-- [Tensor Operations](tensor_operations.md): canonical ownership, output,
+- [Tensor Operations](tensor/operations.md): canonical ownership, output,
   layout, and async support matrix.
-- [Kernel Dispatch](kernel_dispatch.md): backend capability and decline model.
+- [Kernel Dispatch](architecture/kernel_dispatch.md): backend capability and decline model.
 - [Async Documentation](async/README.md): runtime semantics and kernel-authoring
   guides.
-- [Krylov Algorithms](krylov_algorithms.md): solver behavior and supported
+- [Krylov Algorithms](krylov/algorithms.md): solver behavior and supported
   scalar types.
 - [Roadmap](roadmap.md): current priorities and work that remains.

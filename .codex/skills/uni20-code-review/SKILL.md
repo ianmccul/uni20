@@ -9,11 +9,11 @@ description: Review Uni20 changes for correctness, regressions, missing evidence
 
 Use this skill for substantive review of a Uni20 diff, commit, branch, or pull
 request. The canonical review process and subsystem checklists are in
-`docs/code_review.md`.
+`docs/development/code_review.md`.
 
 ## Workflow
 
-1. Read `AGENTS.md` and `docs/code_review.md`.
+1. Read `AGENTS.md` and `docs/development/code_review.md`.
 2. Identify the maintainer-approved contract or canonical design source.
 3. Read changed tests and establish whether their oracle is independent.
 4. Inspect the implementation diff and nearby equivalent paths.

@@ -29,9 +29,9 @@ The following foundations are implemented and tested.
 - Async conjugating and reshape aliases retain the source owner and share its
   exact epoch queue.
 
-See [Tensor Operations](tensor_operations.md),
-[Generated Tensors and Reshape](tensor_creation_and_reshape.md), and
-[Async Storage](async_storage.md).
+See [Tensor Operations](tensor/operations.md),
+[Generated Tensors and Reshape](tensor/creation_and_reshape.md), and
+[Async Storage](async/storage.md).
 
 ### Dense operation dispatch
 
@@ -54,9 +54,9 @@ GEMM, GEMV, matrix initialization and exponential, self-adjoint and
 nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems.
 Backend and scalar coverage is operation-specific rather than uniform.
 
-See [Kernel Dispatch](kernel_dispatch.md),
-[Mdspan Linear Algebra Dispatch](mdspan_linalg_dispatch_plan.md), and
-[Mdspan BLAS/LAPACK Wrappers](mdspan_blas_lapack_wrapper_plan.md).
+See [Kernel Dispatch](architecture/kernel_dispatch.md),
+[Mdspan Linear Algebra Dispatch](linalg/mdspan_dispatch.md), and
+[Mdspan BLAS/LAPACK Wrappers](linalg/blas_lapack_wrappers.md).
 
 ### Async execution
 
@@ -87,8 +87,8 @@ See the [Async Documentation Index](async/README.md) and
 - Matrix Market fixtures, convergence/residual tests, provider comparisons,
   and optional MPLAPACK binary128 probes exercise precision-sensitive paths.
 
-See [Krylov Algorithms](krylov_algorithms.md) and
-[Krylov Precision Validation](krylov_precision_validation.md).
+See [Krylov Algorithms](krylov/algorithms.md) and
+[Krylov Precision Validation](krylov/precision_validation.md).
 
 ### Presentation and development infrastructure
 
@@ -172,9 +172,9 @@ complete block-sparse Tensor execution path.
 - Use coalescing and grouped GEMM only as optimizations over a tested blockwise
   reference path.
 
-See [BlockTensor Design](block_tensor.md),
-[Raw Primitives and Symmetric Lowering](raw_primitives_and_symmetric_lowering.md),
-and [Block Coalescing](block_coalescing.md).
+See [BlockTensor Design](symmetry/block_tensor.md),
+[Raw Primitives and Symmetric Lowering](symmetry/raw_primitives_and_lowering.md),
+and [Block Coalescing](symmetry/block_coalescing.md).
 
 ## Heterogeneous Execution Track
 
@@ -214,9 +214,9 @@ that host vertical slices must leave the correct extension points.
 - Optimize throughput without making correctness depend on one placement
   strategy.
 
-See [Storage Kind and Location](storage_kind_and_location.md),
-[Ordering Ownership](ordering_and_backend_lowering.md), and
-[GPU Epoch Design](gpu_epoch_design_draft.md).
+See [Storage Kind and Location](architecture/storage_kind_and_location.md),
+[Ordering Ownership](architecture/ordering_and_backend_lowering.md), and
+[GPU Epoch Design](backends/cuda/epoch_design_draft.md).
 
 ## Later Integration Work
 

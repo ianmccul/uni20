@@ -34,4 +34,4 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
   Assignment to an alias is available only through an ADL-visible
   `assign_through` operation. `WriteBuffer<T>` remains the single exclusive
   epoch capability, with proxy operations constrained by the payload. See
-  `docs/async_storage.md` for the motivating tensor examples.
+  `docs/async/storage.md` for the motivating tensor examples.

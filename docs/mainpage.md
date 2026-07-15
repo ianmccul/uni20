@@ -32,20 +32,20 @@ scheduling through backend kernels and structured presentation.
 - [About Uni20](about.md)
 - [Contributor guide](CONTRIBUTING.md)
 - [Getting started](getting_started.md)
-- [Architecture overview](architecture_diagram.md)
+- [Architecture overview](architecture/overview.md)
 - [Roadmap](roadmap.md)
-- [Testing](testing.md)
-- [Scalar policy](scalar_policy.md)
-- [Build information](buildinfo.md)
-- [Python bindings](Python.md)
+- [Testing](development/testing.md)
+- [Scalar policy](tensor/scalar_policy.md)
+- [Build information](development/build_information.md)
+- [Python bindings](python/bindings.md)
 
 ## Implemented Vertical Slices
 
-- [Tensor operations and Async support](tensor_operations.md)
-- [Kernel dispatch and runtime diagnostics](kernel_dispatch.md)
+- [Tensor operations and Async support](tensor/operations.md)
+- [Kernel dispatch and runtime diagnostics](architecture/kernel_dispatch.md)
 - [Async Tensor kernel authoring](async/kernel_authoring.md)
-- [Generated tensors and reshape](tensor_creation_and_reshape.md)
-- [Presentation and structured reports](presentation.md)
+- [Generated tensors and reshape](tensor/creation_and_reshape.md)
+- [Presentation and structured reports](diagnostics/presentation.md)
 - [Async task and DAG diagnostics](async/task_registry_debug.md)
 
 ## Runtime And Tensor Work
@@ -53,24 +53,24 @@ scheduling through backend kernels and structured presentation.
 - [Async runtime model](async/runtime_model.md)
 - [Async buffers and awaiters](async/buffers_and_awaiters.md)
 - [Async schedulers](async/schedulers.md)
-- [Tensor operations, semantics, and Async support](tensor_operations.md)
-- [Generated tensors and reshape](tensor_creation_and_reshape.md)
-- [Storage kind and location](storage_kind_and_location.md)
-- [Backend dispatch](backend_dispatch.md)
+- [Tensor operations, semantics, and Async support](tensor/operations.md)
+- [Generated tensors and reshape](tensor/creation_and_reshape.md)
+- [Storage kind and location](architecture/storage_kind_and_location.md)
+- [Backend dispatch](architecture/backend_dispatch.md)
 
 ## Linear Algebra And Models
 
-- [Krylov algorithms](krylov_algorithms.md)
-- [Krylov precision validation](krylov_precision_validation.md)
-- [Krylov test matrices](krylov_test_matrices.md)
-- [MPS](mps.md)
-- [MPO operators](operators.md)
-- [QNum](qnum.md)
+- [Krylov algorithms](krylov/algorithms.md)
+- [Krylov precision validation](krylov/precision_validation.md)
+- [Krylov test matrices](krylov/test_matrices.md)
+- [MPS](tensor_network/mps.md)
+- [MPO operators](tensor_network/operators.md)
+- [QNum](symmetry/qnum.md)
 
 ## Development Notes
 
-- [Agent-assisted development](agent_assisted_development.md)
-- [Reviewing changes](code_review.md)
+- [Agent-assisted development](development/agent_assisted_development.md)
+- [Reviewing changes](development/code_review.md)
 - [AI guidance](ai_guidance/README.md)
-- [Trace macros](trace_macros.md)
-- [Doxygen policy](Doxygen.md)
+- [Trace macros](diagnostics/trace_macros.md)
+- [Doxygen policy](development/doxygen.md)

@@ -2,7 +2,7 @@
  * \file block_space.hpp
  * \brief Defines coalesced block-structured tensor spaces and regularization helpers.
  *
- * \details See `docs/qnum.md` for the current `BlockSpace` and `QNumList` tensor-space API and
+ * \details See `docs/symmetry/qnum.md` for the current `BlockSpace` and `QNumList` tensor-space API and
  *          how they fit into the planned DMRG integration work.
  */
 
@@ -53,7 +53,7 @@ struct BlockRange
 };
 
 /// \brief Coalesced tensor space represented as symmetry blocks `(QNum, dim)`.
-/// \details `BlockSpace` is the dense/coalesced counterpart to `QNumList`. See `docs/qnum.md`.
+/// \details `BlockSpace` is the dense/coalesced counterpart to `QNumList`. See `docs/symmetry/qnum.md`.
 class BlockSpace {
   public:
     /// \brief Construct an empty block space tied to one symmetry.

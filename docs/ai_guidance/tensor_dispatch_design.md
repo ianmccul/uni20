@@ -4,9 +4,9 @@
 - **Authority:** non-normative design summary
 - **Status:** mixed implementation and active design; inspect source before
   making claims
-- **Canonical sources:** `docs/tensor_operations.md`,
-  `docs/tensor_creation_and_reshape.md`, `docs/async/kernel_authoring.md`,
-  `docs/kernel_dispatch.md`, `src/uni20/tensor/`, `src/uni20/linalg/`, and tests
+- **Canonical sources:** `docs/tensor/operations.md`,
+  `docs/tensor/creation_and_reshape.md`, `docs/async/kernel_authoring.md`,
+  `docs/architecture/kernel_dispatch.md`, `src/uni20/tensor/`, `src/uni20/linalg/`, and tests
 
 This file is for AI assistants answering questions about the evolving tensor,
 view, backend-dispatch, and temporary-allocation design.
@@ -24,11 +24,11 @@ view, backend-dispatch, and temporary-allocation design.
 
 ### RELATED DRAFTS
 
-- `../tensor_dispatch_and_view_semantics_draft.md`
-- `../async_tensor_lifetime_and_dispatch_draft.md`
-- `../kernel_dispatch.md`
-- `../backend_dispatch.md`
-- `../mdspan_linalg_dispatch_plan.md`
+- `../tensor/dispatch_and_view_semantics_draft.md`
+- `../async/tensor_lifetime_and_dispatch_draft.md`
+- `../architecture/kernel_dispatch.md`
+- `../architecture/backend_dispatch.md`
+- `../linalg/mdspan_dispatch.md`
 
 ### STATUS
 

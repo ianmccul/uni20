@@ -421,7 +421,7 @@ if(NOT UNI20_DOCS_WEB)
       message(FATAL_ERROR
         "UNI20_ENABLE_MPLAPACK=ON requires an externally configured MPLAPACK binary128 package.\n"
         "The package must provide targets mplapack::mpblas_binary128 and mplapack::mplapack_binary128.\n"
-        "See docs/mplapack_binary128_setup.md for the full setup and validation workflow.\n"
+        "See docs/linalg/mplapack_binary128.md for the full setup and validation workflow.\n"
         "\n"
         "Build MPLAPACK separately, for example:\n"
         "  cmake -S /path/to/mplapack -B /path/to/mplapack-build-binary128 \\\n"
@@ -491,7 +491,7 @@ if(NOT UNI20_DOCS_WEB)
       message(FATAL_ERROR
         "The found MPLAPACK package is not compatible with Uni20's C++23 binary128 build.\n"
         "Build MPLAPACK separately with GNU++23, apply the local CMake detector patch if needed,\n"
-        "and point Uni20 at that build or install prefix. See docs/mplapack_binary128_setup.md.")
+        "and point Uni20 at that build or install prefix. See docs/linalg/mplapack_binary128.md.")
     endif()
 
     set(UNI20_MPLAPACK_SOURCE "package" CACHE STRING "Source type for mplapack" FORCE)
@@ -707,10 +707,9 @@ if(DOXYGEN_FOUND)
   )
   list(JOIN DOXYGEN_INPUT " " DOXYGEN_INPUT)
 
-  set(DOXYGEN_EXCLUDE
-      "${CMAKE_SOURCE_DIR}/docs/latex"
-  )
-  list(JOIN DOXYGEN_EXCLUDE " " DOXYGEN_EXCLUDE)
+  # FILE_PATTERNS already excludes LaTeX sources and rendered PDFs. Keep the
+  # Markdown index under docs/latex in the generated documentation.
+  set(DOXYGEN_EXCLUDE "")
 
   set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/docs")
   if(UNI20_DOCS_WEB)

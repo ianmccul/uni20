@@ -4,7 +4,7 @@ This guide defines the first supported pattern for lifting synchronous Tensor
 operations onto Uni20's async runtime. The implemented references are
 `uni20::linalg::assign_product`, `uni20::linalg::add_product`, and the
 multi-output `uni20::linalg::eigh` overloads from `<uni20/linalg/async.hpp>`.
-See [`tensor_operations.md`](../tensor_operations.md) for the canonical
+See [Tensor Operations](../tensor/operations.md) for the canonical
 operation semantics and current synchronous/Async support matrix.
 
 ## Layer Boundary

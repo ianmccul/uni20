@@ -602,7 +602,7 @@ local_lanczos_exponential_action(std::vector<RealOf<Scalar>> const& eigenvalues,
     host_axpy(action, coefficients[row], basis[row]);
   }
 
-  // Estimator citation keys match docs/krylov_exponential_estimators.md.
+  // Estimator citation keys match docs/krylov/exponential_estimators.md.
   // defect/||v||: [BotchevGrimmHochbruck2013], [JiaLv2015].
   // Hquad and HL bound: [HochbruckLubich1997], [JaweckiAuzingerKoch2020].
   // Saad phi1: [Saad1992], [JiaLv2015].

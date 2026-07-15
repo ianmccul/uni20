@@ -447,7 +447,7 @@ uni20::make_real_t<Scalar> endpoint_defect_estimate(uni20::make_real_t<Scalar> r
                                                     std::vector<Scalar> const& coefficients)
 {
   // Final-time defect estimate h_{m+1,m} |e_m^* exp(t H_m) e_1| scaled by
-  // ||v|| through the stored coefficients. See docs/krylov_exponential_estimators.md:
+  // ||v|| through the stored coefficients. See docs/krylov/exponential_estimators.md:
   // [BotchevGrimmHochbruck2013] for the residual/defect view and [JiaLv2015]
   // for related a posteriori estimates.
   if (coefficients.empty())

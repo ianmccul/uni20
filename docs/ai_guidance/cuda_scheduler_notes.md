@@ -3,8 +3,8 @@
 - **Audience:** design assistants, coding agents, and reviewers
 - **Authority:** non-normative design summary
 - **Status:** speculative and partly superseded; not an implemented contract
-- **Canonical sources:** `docs/gpu_epoch_design_draft.md`,
-  `docs/cuda_runtime_design_notes.md`, `docs/cuda_cusolver_architecture.md`, and
+- **Canonical sources:** `docs/backends/cuda/epoch_design_draft.md`,
+  `docs/backends/cuda/runtime.md`, `docs/backends/cuda/cusolver.md`, and
   current CUDA source when present
 
 These notes record design direction only.  They are not implemented uni20 GPU
@@ -12,7 +12,7 @@ runtime behavior.
 
 Status note: the detailed stream-affinity and virtual-stream ideas below have
 been superseded for the first TensorContraction implementation by the simpler
-`GpuEpochQueue` model in `docs/gpu_epoch_design_draft.md`.  In that model,
+`GpuEpochQueue` model in `docs/backends/cuda/epoch_design_draft.md`.  In that model,
 streams are transient leases, dependency events are created with
 `cudaEventDisableTiming`, each published read or write records a completion
 event, and correctness does not depend on caching or reusing streams for a

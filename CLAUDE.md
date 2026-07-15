@@ -55,7 +55,7 @@ binary. Keep tests deterministic; no random seeds without `REQUIRE_SEED`.
 ## Architecture
 
 Source lives under `src/uni20/<module>/`. The layering (see
-`docs/architecture_diagram.md`) is roughly: Tensor/TensorView → mdspan utilities;
+`docs/architecture/overview.md`) is roughly: Tensor/TensorView → mdspan utilities;
 Level1 ops → Kernel dispatch → BLAS / CPU-linalg backends (CUDA/cuSOLVER backends
 are stubs).
 
@@ -68,9 +68,9 @@ gated by `EpochContext`/`EpochQueue`. The same code runs deterministically under
 - `Async<T>()` is *unconstructed* (not readable until a writer constructs it);
   `Async<T>(args...)` is constructed and immediately readable.
 
-Future heterogeneous (GPU/MPI) execution follows a **device-first** design — see
-`docs/roadmap.md` §4.0, `docs/ordering_and_backend_lowering.md`, and
-`docs/storage_kind_and_location.md`.
+Future heterogeneous (GPU/MPI) execution follows a **device-first** design; see
+`docs/roadmap.md`, `docs/architecture/ordering_and_backend_lowering.md`, and
+`docs/architecture/storage_kind_and_location.md`.
 
 Other modules: `backend/` (BLAS/CUDA/cuSOLVER wrappers), `kernel/` (low-level
 tensor kernels), `linalg/`, `tensor/`, `level1/`, `mdspan/`, `storage/`,

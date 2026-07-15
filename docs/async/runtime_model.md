@@ -193,7 +193,7 @@ and aliases. Its write proxy permits replacement and move-out operations only
 for independent values. Alias proxies expose the descriptor read-only and
 route supported assignment through `assign_through`.
 
-See `../async_storage.md` for the motivating tensor/view examples and the full
+See `storage.md` for the motivating tensor/view examples and the full
 assignment table.
 
 ## Waiting and Blocking

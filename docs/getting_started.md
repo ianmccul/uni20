@@ -4,73 +4,54 @@ Welcome to **uni20**. This repository contains an early-stage tensor-network lib
 
 ## Table of Contents
 
-- [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Building the Project](#building-the-project)
-- [Running Tests](#running-tests)
-- [Running Benchmarks](#running-benchmarks)
-- [Python Bindings](#python-bindings)
-- [Coding Style](#code-style)
-- [Additional Notes](#additional-notes)
-- [Contributing](#contributing)
+- [Project Structure](#getting_started_project_structure)
+- [Prerequisites](#getting_started_prerequisites)
+- [Building the Project](#getting_started_building)
+- [Running Tests](#getting_started_tests)
+- [Running Benchmarks](#getting_started_benchmarks)
+- [Python Bindings](#getting_started_python)
+- [Coding Style](#getting_started_code_style)
+- [Additional Notes](#getting_started_notes)
+- [Contributing](#getting_started_contributing)
 
-## Project Structure
+## Project Structure {#getting_started_project_structure}
 
 A brief overview of the directory layout:
 
 ```
-uni20/                              # Project root
-├── CMakeLists.txt                  # Top-level CMake configuration
-├── README.md                       # Project overview and instructions
-├── LICENSE                         # License information
-├── docs/                           # Documentation (this guide, API docs, etc.)
-│   ├── getting_started.md
-│   ├── testing.md
-│   └── trace_macros.md
-├── cmake/                          # Custom CMake modules and helpers
-│   ├── ClangFormat.cmake
-│   ├── DetectBlasVendor.cmake
-│   └── Uni20TestHelpers.cmake
-├── src/                            # C++ source code for the uni20 library
-│   ├── common/                     # Shared types, traits, and utilities
-│   ├── core/                       # (currently empty)
-│   ├── level1/                     # Implementation of Level 1 tensor operations (linear computation / memory use)
-│   ├── backend/                    # Backend API wrappers (BLAS, MKL, CUDA, etc.)
-│   │   ├── blas/                   # BLAS API headers, vendor detection
-│   │   ├── mkl/                    # Intel MKL-specific wrappers
-│   │   ├── cuda/                   # CUDA backend stubs (WIP)
-│   │   └── cusolver/               # cuSOLVER backend stubs (WIP)
-│   ├── kernel/                     # High-level kernel dispatch (e.g. tensor contraction)
-│   │   ├── cpu/                    # CPU-specific kernel implementations
-│   │   ├── blas/                   # BLAS-backed kernel implementations
-│   │   ├── mkl/                    # MKL-backed kernel implementations
-│   │   ├── cuda/                   # CUDA kernel stubs (WIP)
-│   │   ├── operations.hpp          # Kernel entry point for general operations
-│   │   └── contract.hpp            # Kernel entry point for `contract` function
-│   ├── async/                      # Coroutine-based async execution and scheduling
-│   ├── mdspan/                     # Extensions and traits for stdex::mdspan
-│   ├── storage/                    # Storage implementations (e.g. vector-backed)
-│   └── tensor/                     # Tensor and TensorView abstraction layer
-├── tests/                          # Unit tests using GoogleTest
-│   ├── common/                     # Tests for src/common utilities
-│   ├── level1/                     # Tests for Level 1 operations
-│   ├── kernel/                     # Kernel-level tests (e.g. contraction)
-│   └── helpers.hpp                 # Shared testing helpers and mocks
-├── benchmarks/                     # Performance benchmarks using Google Benchmark
-├── examples/                       # Demonstration programs
-│   ├── ad/
-│   ├── async/
-│   ├── common/
-│   ├── linalg/
-│   ├── mdspan/
-│   ├── presentation/
-│   └── python/
-├── bindings/                       # Language bindings (currently Python via nanobind)
-│   └── python/
-└── asm/                            # Contains sample code for testing generated assembly output
+uni20/                         # Project root
+├── CMakeLists.txt             # Top-level CMake configuration
+├── README.md                  # Project overview
+├── AGENTS.md                  # Contributor and coding policy
+├── docs/                      # Topic-oriented developer documentation
+│   ├── README.md              # Documentation index
+│   ├── architecture/          # Dispatch, ordering, and execution design
+│   ├── async/                 # Async runtime, schedulers, AD, and diagnostics
+│   ├── tensor/                # Tensor values, views, operations, and scalars
+│   ├── linalg/                # Dense linalg and provider lowering
+│   ├── krylov/                # Krylov algorithms and validation
+│   ├── symmetry/              # QNum and block-sparse design
+│   └── backends/              # CUDA and MPI design
+├── cmake/                     # CMake modules and dependency helpers
+├── src/uni20/                 # C++ library source
+│   ├── common/                # Shared traits, diagnostics, and presentation
+│   ├── async/                 # Coroutine runtime and schedulers
+│   ├── backend/               # Provider and ABI facades
+│   ├── mdspan/                # Mdspan concepts, views, and accessors
+│   ├── storage/               # Owning storage policies
+│   ├── tensor/                # Tensor values, aliases, and front-end operations
+│   ├── linalg/                # Operation tags, dispatch, and dense kernels
+│   ├── krylov/                # Matrix-free Krylov algorithms
+│   ├── symmetry/              # Quantum-number foundations
+│   ├── kernel/                # Lower-level/reference kernel infrastructure
+│   └── level1/                # Elementwise and memory-oriented operations
+├── tests/                     # GoogleTest modules organized by subsystem
+├── benchmarks/                # Google Benchmark targets
+├── examples/                  # Runnable examples organized by subsystem
+└── bindings/python/           # Nanobind Python module and smoke tests
 ```
 
-## Prerequisites
+## Prerequisites {#getting_started_prerequisites}
 
 Before building the project, ensure you have the following installed:
 
@@ -92,7 +73,7 @@ apt-get install libopenblas-dev liblapack-dev
 
 Optional developer packages such as `libtbb-dev`, `libbenchmark-dev`, `libfmt-dev`, and `libgtest-dev` can also be installed from the system, but Uni20 can fetch them automatically when needed.
 
-## Building the Project
+## Building the Project {#getting_started_building}
 
 Use an out-of-source build. From the project root, run:
 
@@ -153,15 +134,17 @@ cmake --build build --target buildinfo_example
 ./build/examples/buildinfo_example
 ```
 
-See [buildinfo.md](buildinfo.md) for the full C++ and Python API shape.
+See [Build Information](development/build_information.md) for the full C++ and
+Python API shape.
 
-## Running Tests
+## Running Tests {#getting_started_tests}
 
 Uni20 ships a large GoogleTest-based suite and registers the per-module tests with [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html).
 
 You can run tests using either **CTest** or by executing test binaries directly. The test system supports both **separate** (per-module) test executables and an optional **combined** test binary.
 
-See [docs/testing.md](testing.md) for detailed configuration options, test architecture, and best practices.
+See [Testing](development/testing.md) for detailed configuration options, test
+architecture, and best practices.
 
 ### Build and Run Tests
 
@@ -200,9 +183,10 @@ cmake -S . -B build -DUNI20_BUILD_TESTS=OFF
 cmake -S . -B build -DUNI20_BUILD_COMBINED_TESTS=OFF
 ```
 
-See [testing.md](testing.md) for a full explanation of these options and how they affect the build.
+See [Testing](development/testing.md) for a full explanation of these options
+and how they affect the build.
 
-## Running Benchmarks
+## Running Benchmarks {#getting_started_benchmarks}
 
 The project uses Google Benchmark for performance measurement.
 
@@ -224,7 +208,7 @@ Or run the benchmark executable directly:
 
 Benchmarks will output performance metrics (execution time, iterations, etc.) to the console.
 
-## Python Bindings
+## Python Bindings {#getting_started_python}
 
 The Python extension is built with [nanobind](https://github.com/wjakob/nanobind). Configure with `-DUNI20_BUILD_PYTHON=ON` and either build the default target graph or the extension target directly:
 
@@ -239,9 +223,9 @@ export PYTHONPATH="$(pwd)/build/bindings/python:${PYTHONPATH}"
 python3 -c "import uni20; print(uni20.greet())"
 ```
 
-For more detail see [Python.md](Python.md).
+For more detail see [Python Bindings](python/bindings.md).
 
-## Coding Style and Formatting
+## Coding Style and Formatting {#getting_started_code_style}
 
 To help maintain a consistent code style across the project, we've integrated clang-format and several other configuration tools. This section outlines the code formatting preferences, how to use clang-format from the command line (and in your editor), and highlights other recent enhancements.
 
@@ -266,7 +250,7 @@ cmake --build build --target clang_format
 
 This will invoke clang-format in-place on all matching files. Many editors have some form of `clang-format` integration, which may be helpful.
 
-## Additional Notes
+## Additional Notes {#getting_started_notes}
 
 - **CMake Options:**  
   Use project-specific CMake options (prefixed with `UNI20_`) to enable/disable features like CUDA, MPI, testing, and benchmarking.
@@ -277,7 +261,7 @@ This will invoke clang-format in-place on all matching files. Many editors have 
 - **Directory Structure & CTest:**  
   Prefer `ctest --test-dir build`. The top-level build tree already includes the discovered tests; no extra `--recursive` flag is required.
 
-## Contributing
+## Contributing {#getting_started_contributing}
 
 Contributions to uni20 are welcome! Please follow these steps:
 
@@ -286,4 +270,4 @@ Contributions to uni20 are welcome! Please follow these steps:
 3. Make your changes and add tests/benchmarks as needed.
 4. Submit a pull request with a clear description of your changes.
 
-For further details, please refer to our [CONTRIBUTING.md](CONTRIBUTING.md) file.
+For further details, see the [Contributor Guide](CONTRIBUTING.md).

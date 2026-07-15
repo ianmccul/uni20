@@ -14,7 +14,7 @@ Human readers should usually prefer:
 - `docs/README.md`
 - `docs/async/`
 - `docs/roadmap.md`
-- `docs/architecture_diagram.md`
+- `docs/architecture/overview.md`
 
 The files here are written for **retrieval quality** rather than for narrative readability.
 
@@ -103,15 +103,15 @@ Not every file uses every field. Use the fields that improve retrieval.
 
 ## Related docs
 
-- `../agent_assisted_development.md`
-- `../code_review.md`
+- `../development/agent_assisted_development.md`
+- `../development/code_review.md`
 - `../async/README.md`
 - `../async/runtime_model.md`
 - `../async/buffers_and_awaiters.md`
 - `../async/reverse_mode_ad.md`
-- `../presentation.md`
-- `../Python.md`
+- `../diagnostics/presentation.md`
+- `../python/bindings.md`
 - `../roadmap.md`
-- `../tensor_dispatch_and_view_semantics_draft.md`
-- `../async_tensor_lifetime_and_dispatch_draft.md`
-- `../kernel_dispatch.md`
+- `../tensor/dispatch_and_view_semantics_draft.md`
+- `../async/tensor_lifetime_and_dispatch_draft.md`
+- `../architecture/kernel_dispatch.md`

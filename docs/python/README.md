@@ -1,0 +1,10 @@
+# Python Documentation
+
+- [Python Bindings](bindings.md) describes the current smoke/build-information
+  module and the intended presentation boundary.
+- [Dtype Promotion](dtype_promotion.md) is a design note for future Tensor
+  bindings; it is not current Python API behavior.
+
+Future bindings should validate user input before entering C++ paths whose
+contracts use `CHECK`, and should use dynamic kernel dispatch where a missing
+compiled backend must become a Python exception.

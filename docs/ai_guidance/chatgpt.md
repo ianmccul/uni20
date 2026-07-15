@@ -117,6 +117,7 @@ These are always active.
 
 When asked for a Codex prompt, use:
 
+```text
 TASK
 <one-sentence change description>
 
@@ -131,6 +132,7 @@ CHANGES
 
 TEST
 <optional verification step>
+```
 
 Rules:
 

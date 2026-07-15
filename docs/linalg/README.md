@@ -1,0 +1,25 @@
+# Linear Algebra Documentation
+
+This directory covers dense mdspan lowering, BLAS/LAPACK provider adapters,
+optional multiprecision support, and linear-algebra design background.
+
+## Implemented Layers And Forward Work
+
+- [Mdspan Linear Algebra Dispatch](mdspan_dispatch.md) tracks implemented
+  operation-tag vertical slices and the remaining dense-operation sequence.
+- [BLAS/LAPACK Mdspan Wrappers](blas_lapack_wrappers.md) describes the
+  provider-ready operand layer below dispatch.
+- [MPLAPACK Binary128](mplapack_binary128.md) is the build and validation guide
+  for optional binary128 provider support.
+
+The two adapter documents contain both implemented checkpoints and future work.
+For the current user-facing Tensor operation matrix, use
+[Tensor Operations](../tensor/operations.md); tests remain the implementation
+evidence for exact backend coverage.
+
+## Design And Background
+
+- [Trace as a Dense Reduction](trace_reduction.md) is an active design note for
+  lowering trace-like contractions.
+- [Tensor-Network Linear Algebra API Survey](tensor_network_api_survey.md) is
+  background research, not a Uni20 API contract.

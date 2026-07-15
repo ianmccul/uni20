@@ -3,8 +3,8 @@
 - **Audience:** remote assistants, coding agents, and reviewers
 - **Authority:** non-normative summary
 - **Status:** implementation-status snapshot; expected to evolve
-- **Canonical sources:** `docs/about.md`, `docs/architecture_diagram.md`,
-  `docs/roadmap.md`, `docs/tensor_operations.md`, canonical subsystem guides,
+- **Canonical sources:** `docs/about.md`, `docs/architecture/overview.md`,
+  `docs/roadmap.md`, `docs/tensor/operations.md`, canonical subsystem guides,
   the source tree, and tests
 
 This file is for questions about project maturity, active design seams, and what should or should not be described as stable.
@@ -146,9 +146,9 @@ This file is for questions about project maturity, active design seams, and what
 - `async_runtime.md`
 - `tensor_dispatch_design.md`
 - `../roadmap.md`
-- `../tensor_dispatch_and_view_semantics_draft.md`
-- `../async_tensor_lifetime_and_dispatch_draft.md`
-- `../kernel_dispatch.md`
+- `../tensor/dispatch_and_view_semantics_draft.md`
+- `../async/tensor_lifetime_and_dispatch_draft.md`
+- `../architecture/kernel_dispatch.md`
 
 ## expression layer
 
@@ -190,8 +190,8 @@ This file is for questions about project maturity, active design seams, and what
 ### RELATED
 
 - `presentation_and_python.md`
-- `../presentation.md`
-- `../Python.md`
+- `../diagnostics/presentation.md`
+- `../python/bindings.md`
 
 ## GPU / heterogeneous execution
 
@@ -255,6 +255,6 @@ This file is for questions about project maturity, active design seams, and what
 ## Related detailed docs
 
 - `../roadmap.md`
-- `../architecture_diagram.md`
+- `../architecture/overview.md`
 - `../async/README.md`
 - `../async/runtime_model.md`

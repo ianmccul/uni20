@@ -85,7 +85,7 @@ kernels operate on resolved mdspans.
 - `reshape_view` is the strict no-copy operation, `reshape_inplace` changes an
   owning tensor descriptor without reallocating, and plain `reshape` returns
   an owner with ordinary copy-or-move value semantics. See
-  `docs/tensor_creation_and_reshape.md` for the complete contracts.
+  `docs/tensor/creation_and_reshape.md` for the complete contracts.
 - Automatic `reshape_view` preserves a static `ColumnMajor` or `RowMajor`
   source layout. `reshape_view_left` and `reshape_view_right` explicitly select
   the interpretation of a compatible `layout_stride` mapping; plain reshape
@@ -96,7 +96,7 @@ kernels operate on resolved mdspans.
 - Tensor operations should lower to dense primitives only after storage, layout,
   backend, and any symmetry metadata have been resolved by the appropriate
   higher layer.
-- See `docs/tensor_operations.md` for the canonical operation vocabulary,
+- See `docs/tensor/operations.md` for the canonical operation vocabulary,
   ownership/output contracts, and current Async support matrix.
 - `async::conj(Async<Tensor>)` returns an `Async<ConjugatedTensorView>` rather
   than materializing values. The alias remains a tensor-level object whose

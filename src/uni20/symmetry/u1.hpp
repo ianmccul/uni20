@@ -2,7 +2,7 @@
  * \file u1.hpp
  * \brief Defines `U1`, the value-level quantum number type for one U(1) symmetry factor.
  *
- * \details See `docs/qnum.md` for the role of `U1` inside the current `Symmetry`/`QNum` design.
+ * \details See `docs/symmetry/qnum.md` for the role of `U1` inside the current `Symmetry`/`QNum` design.
  */
 
 #pragma once

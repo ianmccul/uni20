@@ -67,8 +67,9 @@ sudo apt-get install -y libtbb-dev libbenchmark-dev libfmt-dev libgtest-dev
 * Use independent review in proportion to numerical, ownership, concurrency,
   symmetry, backend, and architectural risk. Deterministic evidence remains the
   primary verification mechanism.
-* See `docs/agent_assisted_development.md` and `docs/code_review.md` for the
-  current workflow and review guidance.
+* See `docs/development/agent_assisted_development.md` and
+  `docs/development/code_review.md` for the current workflow and review
+  guidance.
 
 ---
 
@@ -303,11 +304,11 @@ implicit `auto` setting for TensorContraction profiling.
 * Use Markdown tables and fenced code blocks for clarity.
 * Sync all docs with behavior and API changes.
 * When changing scalar aliases, scalar traits, scalar numeric-limits behavior,
-  or scalar spelling policy, update `docs/scalar_policy.md`.
+  or scalar spelling policy, update `docs/tensor/scalar_policy.md`.
 * When changing Krylov algorithms, supported scalar types, public Krylov
   parameters, default values, or internal convergence/restart tuning, update
-  `docs/krylov_algorithms.md`. If scalar support changes, also update
-  `docs/krylov_precision_validation.md`.
+  `docs/krylov/algorithms.md`. If scalar support changes, also update
+  `docs/krylov/precision_validation.md`.
 
 ---
 

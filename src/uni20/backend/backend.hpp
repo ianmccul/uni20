@@ -9,7 +9,7 @@
  *
  * \details The backend subsystem centralizes all compile- and run-time glue that selects
  * different accelerator or BLAS providers.  Shared helpers here also implement the
- * tracing/logging hooks documented in docs/Doxygen.md so public entry points consistently
+ * tracing/logging hooks documented in docs/development/doxygen.md so public entry points consistently
  * record side effects.
  *
  * \par Submodules

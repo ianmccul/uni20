@@ -3,7 +3,7 @@
 - **Audience:** remote assistants, coding agents, and reviewers
 - **Authority:** non-normative summary
 - **Status:** current implementation and roadmap summary
-- **Canonical sources:** `docs/presentation.md`, `docs/Python.md`,
+- **Canonical sources:** `docs/diagnostics/presentation.md`, `docs/python/bindings.md`,
   `src/uni20/common/`, and `bindings/python/`
 
 This file is for questions about presentation formatting, Python display, Jupyter notebooks, and tensor repr design.
@@ -100,7 +100,7 @@ This file is for questions about presentation formatting, Python display, Jupyte
 
 ### RELATED
 
-- `../presentation.md`
-- `../Python.md`
-- `../trace_macros.md`
+- `../diagnostics/presentation.md`
+- `../python/bindings.md`
+- `../diagnostics/trace_macros.md`
 - `architecture_status.md`

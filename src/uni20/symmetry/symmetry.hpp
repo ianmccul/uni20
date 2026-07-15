@@ -2,7 +2,7 @@
  * \file symmetry.hpp
  * \brief Defines the lightweight public handle for canonicalized direct-product symmetries.
  *
- * \details See `docs/qnum.md` for the current user-facing symmetry and quantum-number API and
+ * \details See `docs/symmetry/qnum.md` for the current user-facing symmetry and quantum-number API and
  *          the planned extension points for non-abelian and braided cases.
  */
 
@@ -20,7 +20,7 @@ namespace uni20
 
 /// \brief Public handle to a canonicalized direct-product symmetry specification.
 /// \details The intended frontend construction path is string-based, for example
-///          `"N:U(1),Sz:U(1)"`. See `docs/qnum.md`.
+///          `"N:U(1),Sz:U(1)"`. See `docs/symmetry/qnum.md`.
 class Symmetry {
   public:
     /// \brief Construct an invalid symmetry handle.

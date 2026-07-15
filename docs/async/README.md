@@ -13,8 +13,8 @@ The docs are split into two groups:
 
 | Group | Documents | Use this when |
 |---|---|---|
-| Primary (canonical) | `getting_started.md`, `coroutines_primer.md`, `runtime_model.md`, `buffers_and_awaiters.md`, `kernel_authoring.md`, `cookbook.md`, `exceptions_and_cancellation.md`, `schedulers.md`, `tbb_execution_primer.md`, `reverse_mode_ad.md`, `task_registry_debug.md`, `quick_reference.md` | you want current behavior and API usage |
-| Supplemental (maintenance/history) | `audit_legacy_docs.md` | you need migration context |
+| Primary (canonical) | `getting_started.md`, `coroutines_primer.md`, `runtime_model.md`, `buffers_and_awaiters.md`, `storage.md`, `kernel_authoring.md`, `cookbook.md`, `exceptions_and_cancellation.md`, `schedulers.md`, `tbb_execution_primer.md`, `reverse_mode_ad.md`, `task_registry_debug.md`, `dag_debug_examples.md`, `quick_reference.md` | you want current behavior and API usage |
+| Supplemental (design/history) | `tensor_lifetime_and_dispatch_draft.md`, `audit_legacy_docs.md` | you need design rationale or migration context |
 
 ## Read Path by Audience
 
@@ -47,6 +47,7 @@ The docs are split into two groups:
 | [`coroutines_primer.md`](coroutines_primer.md) | C++ coroutine background for this runtime | New contributors |
 | [`runtime_model.md`](runtime_model.md) | Core semantics of `Async<T>`, epochs, ownership, ordering | Everyone |
 | [`buffers_and_awaiters.md`](buffers_and_awaiters.md) | Two-capability buffer model, await paths, proxies, and exact await behavior | Runtime and kernel authors |
+| [`storage.md`](storage.md) | Async value/alias kinds, shared ownership, assignment, and timeline rebinding | Tensor and runtime authors |
 | [`kernel_authoring.md`](kernel_authoring.md) | All-async Tensor operation wrappers, lifetimes, alias checks, output preparation, and failures | Tensor operation authors |
 | [`cookbook.md`](cookbook.md) | Common kernel patterns and debugging recipes | New and experienced contributors |
 | [`exceptions_and_cancellation.md`](exceptions_and_cancellation.md) | Exception hierarchy, sink routing, cancellation details | Runtime contributors |
@@ -56,6 +57,7 @@ The docs are split into two groups:
 | [`task_registry_debug.md`](task_registry_debug.md) | Debug dumps, stacktraces, runtime controls | Debugging and test triage |
 | [`dag_debug_examples.md`](dag_debug_examples.md) | Graphviz DAG examples, including deadlock snapshots | Runtime debugging |
 | [`quick_reference.md`](quick_reference.md) | Condensed API/error/env reference | Experienced developers and AI agents |
+| [`tensor_lifetime_and_dispatch_draft.md`](tensor_lifetime_and_dispatch_draft.md) | Background reasoning for owner-retaining Tensor aliases and async dispatch | Design history |
 | [`audit_legacy_docs.md`](audit_legacy_docs.md) | Divergence report vs older docs | Migration and cleanup |
 
 ## Example Programs
@@ -77,12 +79,13 @@ Runnable examples in `examples/` that pair well with this docs set:
 - `examples/async/async_coroutine_failure_example.cpp`: structured exception propagation through two async
   writer boundaries, with automatic live task-registry reporting and optional Graphviz capture
 
-## Related Top-Level Docs
+## Related Docs
 
-- [Tensor operations, semantics, and Async support](../tensor_operations.md):
+- [Tensor operations, semantics, and Async support](../tensor/operations.md):
   current operation contracts and support matrix
-- `../async_storage.md`: storage, async value kinds, timeline rebinding, and write-through assignment
-- `../roadmap.md`: broader architecture and roadmap context
+- [Async Storage](storage.md): storage, async value kinds, timeline rebinding,
+  and write-through assignment
+- [Roadmap](../roadmap.md): broader architecture and roadmap context
 
 ## Ground Truth and Drift Policy
 
