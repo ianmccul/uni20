@@ -136,6 +136,10 @@ if(UNI20_HAS_FLOAT128)
 endif()
 uni20_add_example(async_tbb_reduction_example async/async_tbb_reduction_example.cpp fmt::fmt uni20_common uni20_async
                   TBB::tbb)
+uni20_add_example(async_ad_stress_example async/async_ad_stress_example.cpp fmt::fmt uni20_common uni20_async TBB::tbb)
+add_test(NAME AsyncAdStressExample.Smoke
+    COMMAND async_ad_stress_example
+        --threads=2 --iterations=1 --depth=3 --dead-branches=4 --failing-branches=1 --seed=1234)
 uni20_add_example(async_fib_example async/async_fib_example.cpp fmt::fmt uni20_common uni20_async TBB::tbb)
 uni20_add_example(async_dag_debug_example async/async_dag_debug_example.cpp fmt::fmt uni20_common uni20_async)
 uni20_add_example(async_dag_gallery_example async/async_dag_gallery_example.cpp fmt::fmt uni20_common uni20_async)

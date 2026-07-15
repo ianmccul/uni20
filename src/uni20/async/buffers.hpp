@@ -105,11 +105,13 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     ReadMaybeAwaiter<T> maybe() &&;
 
     /// \brief Returns a `ReadOrCancelAwaiter`.
-    /// \details Lvalue reads return `T const&` and throw `task_cancelled` on cancellation.
+    /// \details Lvalue reads return `T const&` and throw `task_cancelled` when no value was written.
+    ///          Exceptions stored by a failed writer propagate unchanged.
     ReadOrCancelAwaiter<T const&> or_cancel() &;
 
     /// \brief Returns a `ReadOrCancelAwaiter` consuming this read buffer.
-    /// \details Moved reads return `OwningReadAccessProxy<T>` and throw `task_cancelled` on cancellation.
+    /// \details Moved reads return `OwningReadAccessProxy<T>` and throw `task_cancelled` when no value was written.
+    ///          Exceptions stored by a failed writer propagate unchanged.
     ReadOrCancelAwaiter<T> or_cancel() &&;
 
     /// \brief Check if the value is already ready to be read.
@@ -121,7 +123,7 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      reader_.suspend(std::move(t), false);
+      reader_.suspend(std::move(t));
     }
 
     /// \brief Resume execution and return the stored value.
@@ -298,7 +300,7 @@ template <typename T> class OwningReadAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "OwningReadAwaiter::await_suspend()", this, t.h_);
-      this->reader_.suspend(std::move(t), false);
+      this->reader_.suspend(std::move(t));
     }
 
     /// \brief Resume and transfer reader ownership to an owning read proxy.
@@ -339,7 +341,7 @@ template <typename T> class ReadMaybeAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      this->reader_.suspend(std::move(t), false);
+      this->reader_.suspend(std::move(t));
     }
 
     /// \brief Resume execution and return an optional owning read proxy.
@@ -391,7 +393,7 @@ template <typename T> class ReadMaybeAwaiter<T const&> {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
-      reader_.suspend(std::move(t), false);
+      reader_.suspend(std::move(t));
     }
 
     /// \brief Resume execution and return a pointer to stored value, or nullptr
@@ -436,10 +438,11 @@ template <typename T> class ReadOrCancelAwaiter {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept { this->reader_.suspend(std::move(t), true); }
+    void await_suspend(AsyncTask&& t) noexcept { this->reader_.suspend(std::move(t)); }
 
     /// \brief Resume execution and return an owning read proxy.
-    /// \throws task_cancelled when the read source was cancelled.
+    /// \throws task_cancelled when the read source has no value.
+    /// \throws Any exception stored by a failed writer.
     [[nodiscard]] value_type await_resume()
     {
       T const* ptr = this->reader_.data_maybe();
@@ -490,9 +493,11 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t), true); }
+    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t)); }
 
     /// \brief Resume execution and return a borrowed reference to the stored value.
+    /// \throws task_cancelled when the read source has no value.
+    /// \throws Any exception stored by a failed writer.
     [[nodiscard]] T const& await_resume()
     {
       T const* ptr = reader_.data_maybe();
@@ -577,7 +582,7 @@ template <typename T> class StorageAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "StorageAwaiter::await_suspend()", this, t.h_);
-      writer_->suspend(std::move(t), false);
+      writer_->suspend(std::move(t));
     }
 
     /// \brief Resume and return mutable access to shared storage.
@@ -623,7 +628,7 @@ template <typename T> class TakeAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "TakeAwaiter::await_suspend()", this, t.h_);
-      writer_->suspend(std::move(t), false);
+      writer_->suspend(std::move(t));
     }
 
     /// \brief Resume and move the stored value out of writer storage.
@@ -669,7 +674,7 @@ template <typename T> class TakeReleaseAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "TakeReleaseAwaiter::await_suspend()", this, t.h_);
-      writer_->suspend(std::move(t), false);
+      writer_->suspend(std::move(t));
     }
 
     /// \brief Resume, move out the value, and release the writer epoch.
@@ -770,7 +775,7 @@ template <typename T> class OwningStorageAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "OwningStorageAwaiter::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t), false);
+      writer_.suspend(std::move(t));
     }
 
     /// \brief Resume and transfer writer ownership to a storage proxy.
@@ -816,7 +821,7 @@ template <typename T> class OwningTakeAwaiter {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "OwningTakeAwaiter::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t), false);
+      writer_.suspend(std::move(t));
     }
 
     /// \brief Resume, move out the value, and release the writer epoch.
@@ -910,7 +915,7 @@ template <typename T> class WriteBuffer {
     void await_suspend(AsyncTask&& t) noexcept
     {
       TRACE_MODULE(ASYNC, "WriteBuffer::await_suspend()", this, t.h_);
-      writer_.suspend(std::move(t), false);
+      writer_.suspend(std::move(t));
     }
 
     /// \brief Resume and return a non-owning mutable write proxy.
@@ -1684,7 +1689,7 @@ template <typename T> class OwningWriteAwaiter {
     void await_suspend(AsyncTask&& task) noexcept
     {
       TRACE_MODULE(ASYNC, "OwningWriteAwaiter::await_suspend()", this, task.h_);
-      writer_.suspend(std::move(task), false);
+      writer_.suspend(std::move(task));
     }
 
     /// \brief Resume and transfer writer ownership to an owning write proxy.

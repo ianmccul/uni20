@@ -8,6 +8,34 @@
 
 using namespace uni20::async;
 
+namespace
+{
+
+struct UnusedVarFailure
+{};
+
+Var<double> failing_identity(Var<double> x)
+{
+  Var<double> result;
+
+  schedule([](WriteBuffer<double> output) static -> AsyncTask {
+    (void)output;
+    throw UnusedVarFailure{};
+    co_return;
+  }(result.value.write()));
+
+  schedule([](ReadBuffer<double> input_gradient, WriteBuffer<double> output_gradient) static -> AsyncTask {
+    auto gradient = co_await input_gradient.transfer().or_cancel();
+    double const value = gradient.get();
+    gradient.release();
+    co_await output_gradient += value;
+  }(result.grad.input(), x.grad.output()));
+
+  return result;
+}
+
+} // namespace
+
 TEST(Var, Sin)
 {
   DebugScheduler sched;
@@ -85,6 +113,67 @@ TEST(Var, SinUnused)
   EXPECT_NEAR(x.grad.backprop().get_wait(), std::cos(v), 1e-10);
 
   sched.run_all();
+}
+
+TEST(Var, UnusedArithmeticBranchesArePrunedBeforeReadingDependencies)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  double const value = 0.1;
+  Var<double> x = value;
+  Var<double> live = sin(x);
+
+  {
+    Var<double> unused_cos = cos(x);
+    Var<double> unused_left_scale = 2.0 * x;
+    Var<double> unused_right_scale = x * 3.0;
+    Var<double> unused_product = x * x;
+  }
+
+  live.grad = 1.0;
+
+  EXPECT_NEAR(x.grad.backprop().get_wait(), std::cos(value), 1e-10);
+  EXPECT_NO_THROW(sched.run_all());
+}
+
+TEST(Var, UnusedBranchCanPrecedeLaterLiveUse)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  double const value = 0.1;
+  Var<double> x = value;
+  Var<double> intermediate = sin(x);
+  {
+    Var<double> unused = sin(intermediate);
+  }
+  Var<double> output = sin(intermediate);
+
+  output.grad = 1.0;
+  intermediate.grad.finalize();
+
+  EXPECT_NEAR(x.grad.backprop().get_wait(), std::cos(std::sin(value)) * std::cos(value), 1e-10);
+  EXPECT_NO_THROW(sched.run_all());
+}
+
+TEST(Var, FailedUnusedBranchIsDiscardedAndItsGradientIsPruned)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  double const value = 0.1;
+  Var<double> x = value;
+  Var<double> live = sin(x);
+
+  {
+    Var<double> unused = failing_identity(x);
+  }
+
+  live.grad = 1.0;
+
+  EXPECT_NEAR(x.grad.backprop().get_wait(), std::cos(value), 1e-10);
+  EXPECT_NO_THROW(sched.run_all());
 }
 
 TEST(Var, MultiplyAndScalarCombos)

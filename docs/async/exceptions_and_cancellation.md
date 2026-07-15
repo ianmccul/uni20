@@ -31,6 +31,8 @@ Defined in `src/uni20/async/async_errors.hpp`.
 
 - normal read path on missing value: `buffer_read_uninitialized`
 - `or_cancel()` path on missing value: `task_cancelled`
+- every read path propagates a stored writer exception unchanged; `or_cancel()`
+  only changes the missing-value case
 
 ### Write side
 
@@ -85,10 +87,26 @@ Effects:
 - continuations can be destroyed recursively when cancellation is active
 - downstream await paths may throw `task_cancelled` depending on awaiter mode
 
+Cancellation and failure are deliberately distinct:
+
+- an absent value observed through `or_cancel()` cancels the current task
+- a genuine exception from an upstream epoch remains an exception, including
+  when the consumer used `or_cancel()`
+- cancelling a task releases its unwritten output buffers, allowing absence to
+  propagate through further cancellation-aware consumers
+- destroying an unobserved `Async<T>` result discards its value or stored
+  failure once no buffers or aliases retain the state; destruction does not
+  turn the result into cancellation
+
+This last rule permits demand-driven graph pruning. In particular, an unseeded
+reverse-mode gradient branch may disappear without reporting an error, while a
+failure on a branch that is actually consumed remains observable.
+
 ## Practical Guidelines
 
 - use proxy assignment (`co_await writer = value`) for first write to default `Async<T>`
 - treat `or_cancel()` as a control-flow choice, not just a convenience API
+- do not use cancellation to suppress a genuine upstream failure
 - register explicit sinks only when routing intent is clear
 - keep explicit sink objects alive until coroutine completion
 

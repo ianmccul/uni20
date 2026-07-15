@@ -123,7 +123,43 @@ Important points:
 - coroutine lambdas must be `static` and captureless
 - use `result.grad.input()` for upstream gradient
 - use `x.grad.output()` for accumulation into inputs
-- use `or_cancel()` on upstream gradient reads when cancellation is a valid path
+- make the upstream gradient read with `or_cancel()` the first awaited reverse
+  dependency
+- do not pass a possibly absent gradient through generic async arithmetic
+  before this read; generic arithmetic correctly treats a missing operand as an
+  invalid computation rather than AD pruning
+
+An output gradient that is never seeded is an absent value, not a zero tensor
+and not a failure. Its `or_cancel()` reader prunes that reverse coroutine, whose
+unwritten output gradient is then absent in the preceding accumulation stage.
+This permits unused differentiable branches to leave scope harmlessly. A
+genuine exception from a forward or reverse dependency is never converted into
+this cancellation path; it propagates if the failed result is consumed and is
+discarded only when the result and all of its dependents are unobserved.
+
+The gradient channel of a temporary `Var` is finalized when that descriptor is
+destroyed. A named intermediate retained while the graph is executed must
+currently be finalized explicitly after graph construction:
+
+```cpp
+output.grad = 1.0;
+intermediate.grad.finalize();
+auto input_gradient = input.grad.backprop();
+```
+
+This tells `ReverseValue` that no further gradient contributions will be
+scheduled for the intermediate. A future graph- or tape-level finalization API
+may centralize this bookkeeping, but reverse operations must still use the
+upstream-first pruning rule above.
+
+`async_ad_stress_example` exercises this behavior with deterministic discarded
+branches, deliberately failing unobserved branches, and an observed failure
+whose original exception must survive:
+
+```bash
+./examples/async_ad_stress_example --threads=4 --iterations=10 \
+    --depth=16 --dead-branches=32 --failing-branches=8 --seed=20
+```
 
 ## Notes on Current ReverseValue API
 

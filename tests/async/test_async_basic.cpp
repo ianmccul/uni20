@@ -265,6 +265,20 @@ TEST(AsyncBasicTest, CopyConstructor)
   EXPECT_EQ(copy.get_wait(), 99);
 }
 
+TEST(AsyncBasicTest, ReadBufferRetainsScheduledCopyAfterDescriptorIsDestroyed)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+  Async<int> original = 42;
+  auto copy = std::make_unique<Async<int>>(original);
+  auto reader = copy->read();
+
+  copy.reset();
+  sched.run_all();
+
+  EXPECT_EQ(reader.get_wait(sched), 42);
+}
+
 TEST(AsyncBasicTest, WriteCommitsAfterAwaitAndTransfer)
 {
   DebugScheduler sched;
@@ -405,6 +419,23 @@ TEST(AsyncBasicTest, UnhandledExceptionAutoPropagatesToAllWriteParameters)
 
   EXPECT_THROW((void)first.get_wait(), std::runtime_error);
   EXPECT_THROW((void)second.get_wait(), std::runtime_error);
+}
+
+TEST(AsyncBasicTest, DroppedFailedAsyncResultIsDiscarded)
+{
+  DebugScheduler sched;
+  ScopedScheduler scoped(&sched);
+
+  {
+    Async<int> discarded;
+    schedule([](WriteBuffer<int> writer) static -> AsyncTask {
+      (void)writer;
+      throw std::runtime_error("discarded failure");
+      co_return;
+    }(discarded.write()));
+  }
+
+  EXPECT_NO_THROW(sched.run_all());
 }
 
 TEST(AsyncBasicTest, PropagateExceptionsToRoutesReadFailuresToWriters)

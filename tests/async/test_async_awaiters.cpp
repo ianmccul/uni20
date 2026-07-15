@@ -8,6 +8,14 @@
 using namespace uni20;
 using namespace uni20::async;
 
+namespace
+{
+
+struct OrCancelTestError
+{};
+
+} // namespace
+
 TEST(AsyncAwaitersTest, TryAwaitReady)
 {
   Async<int> a = 123;
@@ -464,6 +472,157 @@ TEST(AsyncAwaitersTest, TransferReadBufferOrCancelThrowsOnCancelled)
   sched.run_all();
 
   EXPECT_TRUE(cancelled);
+}
+
+TEST(AsyncAwaitersTest, OrCancelPropagatesReadyException)
+{
+  Async<int> source;
+  Async<int> output;
+  DebugScheduler sched;
+
+  auto fail = [](WriteBuffer<int> writer) static -> AsyncTask {
+    (void)writer;
+    throw OrCancelTestError{};
+    co_return;
+  }(source.write());
+  sched.schedule(std::move(fail));
+  sched.run_all();
+
+  auto dependent = [](ReadBuffer<int> reader, WriteBuffer<int> writer) static -> AsyncTask {
+    int const value = co_await reader.or_cancel();
+    co_await writer = value;
+  }(source.read(), output.write());
+  sched.schedule(std::move(dependent));
+  sched.run_all();
+
+  EXPECT_THROW((void)output.get_wait(), OrCancelTestError);
+}
+
+TEST(AsyncAwaitersTest, TransferOrCancelPropagatesReadyException)
+{
+  Async<int> source;
+  Async<int> output;
+  DebugScheduler sched;
+
+  auto fail = [](WriteBuffer<int> writer) static -> AsyncTask {
+    (void)writer;
+    throw OrCancelTestError{};
+    co_return;
+  }(source.write());
+  sched.schedule(std::move(fail));
+  sched.run_all();
+
+  auto dependent = [](ReadBuffer<int> reader, WriteBuffer<int> writer) static -> AsyncTask {
+    auto value = co_await reader.transfer().or_cancel();
+    co_await writer = value.get();
+  }(source.read(), output.write());
+  sched.schedule(std::move(dependent));
+  sched.run_all();
+
+  EXPECT_THROW((void)output.get_wait(), OrCancelTestError);
+}
+
+TEST(AsyncAwaitersTest, OrCancelPropagatesExceptionAfterSuspension)
+{
+  Async<int> source;
+  Async<int> output;
+  DebugScheduler sched;
+
+  auto source_writer = source.write();
+  auto dependent = [](ReadBuffer<int> reader, WriteBuffer<int> writer) static -> AsyncTask {
+    int const value = co_await reader.or_cancel();
+    co_await writer = value;
+  }(source.read(), output.write());
+  sched.schedule(std::move(dependent));
+  sched.run_all();
+
+  auto fail = [](WriteBuffer<int> writer) static -> AsyncTask {
+    (void)writer;
+    throw OrCancelTestError{};
+    co_return;
+  }(std::move(source_writer));
+  sched.schedule(std::move(fail));
+  sched.run_all();
+
+  EXPECT_THROW((void)output.get_wait(), OrCancelTestError);
+}
+
+TEST(AsyncAwaitersTest, TransferOrCancelPropagatesExceptionAfterSuspension)
+{
+  Async<int> source;
+  Async<int> output;
+  DebugScheduler sched;
+
+  auto source_writer = source.write();
+  auto dependent = [](ReadBuffer<int> reader, WriteBuffer<int> writer) static -> AsyncTask {
+    auto value = co_await reader.transfer().or_cancel();
+    co_await writer = value.get();
+  }(source.read(), output.write());
+  sched.schedule(std::move(dependent));
+  sched.run_all();
+
+  auto fail = [](WriteBuffer<int> writer) static -> AsyncTask {
+    (void)writer;
+    throw OrCancelTestError{};
+    co_return;
+  }(std::move(source_writer));
+  sched.schedule(std::move(fail));
+  sched.run_all();
+
+  EXPECT_THROW((void)output.get_wait(), OrCancelTestError);
+}
+
+TEST(AsyncAwaitersTest, TransferOrCancelExceptionCanBeHandledAfterSuspension)
+{
+  Async<int> source;
+  Async<int> output;
+  DebugScheduler sched;
+
+  auto source_writer = source.write();
+  auto dependent = [](ReadBuffer<int> reader, WriteBuffer<int> writer) static -> AsyncTask {
+    bool caught = false;
+    try
+    {
+      (void)co_await reader.transfer().or_cancel();
+    }
+    catch (OrCancelTestError const&)
+    {
+      caught = true;
+    }
+    if (caught) co_await writer = 42;
+  }(source.read(), output.write());
+  sched.schedule(std::move(dependent));
+  sched.run_all();
+
+  auto fail = [](WriteBuffer<int> writer) static -> AsyncTask {
+    (void)writer;
+    throw OrCancelTestError{};
+    co_return;
+  }(std::move(source_writer));
+  sched.schedule(std::move(fail));
+  sched.run_all();
+
+  EXPECT_EQ(output.get_wait(), 42);
+}
+
+TEST(AsyncAwaitersTest, TransferOrCancelCancelsOutputAfterSuspension)
+{
+  Async<int> source;
+  Async<int> output;
+  DebugScheduler sched;
+
+  auto source_writer = source.write();
+  auto dependent = [](ReadBuffer<int> reader, WriteBuffer<int> writer) static -> AsyncTask {
+    auto value = co_await reader.transfer().or_cancel();
+    co_await writer = value.get();
+  }(source.read(), output.write());
+  sched.schedule(std::move(dependent));
+  sched.run_all();
+
+  source_writer.release();
+  sched.run_all();
+
+  EXPECT_THROW((void)output.get_wait(), buffer_read_uninitialized);
 }
 
 TEST(AsyncAwaitersTest, TransferReadBufferKeepsRefcountStableDuringOwnershipTransfer)

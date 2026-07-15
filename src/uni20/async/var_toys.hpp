@@ -12,6 +12,37 @@
 namespace uni20::async
 {
 
+namespace detail
+{
+
+// Reverse tasks must observe absence before touching any other dependency. An
+// unseeded result gradient prunes the task; a stored exception still propagates.
+template <typename T, typename Transform>
+AsyncTask accumulate_transformed_gradient(ReadBuffer<T> input_gradient, WriteBuffer<T> output_gradient,
+                                          Transform transform)
+{
+  auto gradient = co_await input_gradient.transfer().or_cancel();
+  T const value = gradient.get();
+  gradient.release();
+  co_await output_gradient += transform(value);
+}
+
+template <typename T, typename Transform>
+AsyncTask accumulate_transformed_gradient(ReadBuffer<T> input_gradient, ReadBuffer<T> forward_value,
+                                          WriteBuffer<T> output_gradient, Transform transform)
+{
+  auto gradient = co_await input_gradient.transfer().or_cancel();
+  T const gradient_value = gradient.get();
+  gradient.release();
+
+  auto value = co_await forward_value.transfer();
+  T const input_value = value.get();
+  value.release();
+  co_await output_gradient += transform(gradient_value, input_value);
+}
+
+} // namespace detail
+
 /// \brief Computes `sin(x)` and wires reverse-mode accumulation for the input gradient.
 /// \tparam T Value type.
 /// \param x Input variable.
@@ -48,8 +79,12 @@ template <typename T> Var<T> sin(Var<T> x)
 template <typename T> Var<T> cos(Var<T> x)
 {
   Var<T> Result;
-  Result.value = cos(x.value);
-  x.grad -= conj(sin(x.value)) * Result.grad;
+  schedule(co_cos(x.value.read(), Result.value.write()));
+  schedule(detail::accumulate_transformed_gradient(Result.grad.input(), x.value.read(), x.grad.output(),
+                                                   [](T const& gradient, T const& input) {
+                                                     using std::sin;
+                                                     return -uni20::conj(sin(input)) * gradient;
+                                                   }));
   return Result;
 }
 
@@ -140,10 +175,11 @@ template <typename T> Var<T> operator+(Var<T> x, Var<T> y)
 /// \return Output variable representing `x * y`.
 template <typename T> Var<T> operator*(T x, Var<T> y)
 {
-  using uni20::herm;
   Var<T> Result;
   Result.value = x * y.value;
-  y.grad += herm(x) * Result.grad;
+  schedule(detail::accumulate_transformed_gradient(
+      Result.grad.input(), y.grad.output(),
+      [factor = uni20::herm(x)](T const& gradient) { return factor * gradient; }));
   return Result;
 }
 
@@ -154,10 +190,11 @@ template <typename T> Var<T> operator*(T x, Var<T> y)
 /// \return Output variable representing `x * y`.
 template <typename T> Var<T> operator*(Var<T> x, T y)
 {
-  using uni20::herm;
   Var<T> Result;
   Result.value = x.value * y;
-  x.grad += Result.grad * herm(y);
+  schedule(detail::accumulate_transformed_gradient(
+      Result.grad.input(), x.grad.output(),
+      [factor = uni20::herm(y)](T const& gradient) { return gradient * factor; }));
   return Result;
 }
 
@@ -170,8 +207,12 @@ template <typename T> Var<T> operator*(Var<T> x, Var<T> y)
 {
   Var<T> Result;
   Result.value = x.value * y.value;
-  x.grad += Result.grad * herm(y.value);
-  y.grad += herm(x.value) * Result.grad;
+  schedule(detail::accumulate_transformed_gradient(
+      Result.grad.input(), y.value.read(), x.grad.output(),
+      [](T const& gradient, T const& value) { return gradient * uni20::herm(value); }));
+  schedule(detail::accumulate_transformed_gradient(
+      Result.grad.input(), x.value.read(), y.grad.output(),
+      [](T const& gradient, T const& value) { return uni20::herm(value) * gradient; }));
   return Result;
 }
 
