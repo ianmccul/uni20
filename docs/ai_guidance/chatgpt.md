@@ -56,8 +56,10 @@ Recommended uploaded files:
 - You do not have a local checkout.
 - You may inspect selected files via the GitHub connector, but broad source-tree review is impractical.
 - Prefer uploaded guidance docs first, then tracked docs, then specific code files when inspected.
-- Code and tests are authoritative when actually inspected.
-- If docs and code disagree, call out the drift.
+- Maintainer-approved decisions and canonical subsystem documents define
+  intended semantics. Tests encode selected contracts, while inspected source
+  shows current implementation.
+- If these disagree, call out the drift rather than choosing one silently.
 - Do not pretend to have broad repository visibility from partial inspection.
 
 When detailed implementation work or a large refactor is needed, recommend handing off to a local coding agent such as Codex.
@@ -75,9 +77,12 @@ These are always active.
 ## Core working assumptions
 
 - Uni20 is an early-stage C++23 project.
-- The most mature subsystem is `src/uni20/async/`.
+- The async runtime is mature enough to schedule implemented Tensor/linalg
+  vertical slices through the normal backend-dispatch layer.
 - Reverse-mode AD is integrated with the async runtime and uses `Var<T>`.
-- Tensor/view semantics are still evolving.
+- Dense Tensor/view ownership and initial Async alias semantics are implemented;
+  general slicing, device/distributed storage, and symmetry-aware `BlockTensor`
+  semantics are still evolving.
 - Tensor/backend dispatch design is active and speculative. Do not present
   candidate APIs such as `TensorRef`, backend selectors, backend state helpers,
   or `unique_tuple_cat_t` as implemented unless source inspection confirms it.

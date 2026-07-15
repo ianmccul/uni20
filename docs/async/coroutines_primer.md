@@ -87,4 +87,6 @@ If you are debugging or trying to understand exact behavior, these files are the
 - `src/uni20/async/async_task_promise.hpp`: promise behavior (exceptions, continuations, ownership)
 - `src/uni20/async/debug_scheduler.hpp`, `src/uni20/async/tbb_scheduler.hpp`: scheduler behavior
 
-For behavioral ground truth, tests under `tests/async/` are authoritative.
+Tests under `tests/async/` encode current behavior. If they disagree with the
+canonical async contract, treat that as a defect or unresolved semantic
+conflict rather than assuming the test is automatically authoritative.

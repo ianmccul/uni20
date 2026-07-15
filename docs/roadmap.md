@@ -1,274 +1,276 @@
-# Uni20 Architecture and Roadmap
-
-This document is the current planning baseline for Uni20.
-
-Revised 2026-06 to adopt **device-first** sequencing (see §4.0): GPU and MPI are
-designed into the foundational abstractions from the start rather than layered on
-after a CPU-only baseline.
-
-It consolidates and replaces the old local design drafts:
-
-- `docs/tensor_design.md`
-- `docs/Uni20TensorArchitecture.md`
-- `docs/ReferenceCountingTensor.md`
-
-## 1. Current Architecture Snapshot (2026-03)
-
-### 1.1 Tensor and mdspan stack
-
-Current code shape:
-
-- `Tensor<T, Rank, ...>` owns storage by composition and exposes resolved
-  mdspans; `BasicTensor<T, Extents, ...>` is its explicit-extents alias,
-  with named row-major and strided variants.
-- The Tensor-view concept family includes readable, mutable, and rank-constrained
-  forms in `src/uni20/tensor/concepts.hpp`.
-- `conj(tensor)` provides a lazy read-only transform view; `copy` and
-  `make_tensor` are explicit backend-dispatched materialization boundaries.
-- mdspan integration and concepts live in `src/uni20/mdspan/`.
-- Level-1 tensor kernels live in `src/uni20/level1/`.
-
-### 1.2 Async runtime and AD
-
-Current code shape:
-
-- `Async<T>`, `ReadBuffer<T>`, `WriteBuffer<T>` in `src/uni20/async/`.
-- Epoch ordering via `EpochQueue` / `EpochContext`.
-- Scheduler implementations: `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler`.
-- Reverse-mode AD via `Var<T>` and `ReverseValue<T>`.
-
-### 1.3 Numerical backend layer
-
-Current code shape:
-
-- BLAS backend wrappers under `src/uni20/backend/blas/`.
-- CPU linalg backend under `src/uni20/linalg/backends/cpu/`.
-- CUDA/cuSOLVER directories exist but are partial/stub-oriented.
-- Future backend work should follow the compile-time capability, runtime `try_*`,
-  and fallback pattern described in `docs/backend_dispatch.md`.
-
-### 1.4 Python bindings
-
-Current code shape:
-
-- Python extension built with `nanobind` under `bindings/python/`.
-
-## 2. What Is Working Well
-
-- Clear module split under `src/uni20/` (`tensor`, `mdspan`, `level1`, `async`, `linalg`, `backend`).
-- Deterministic async sequencing model with strong test coverage in `tests/async/`.
-- Practical AD model integrated with the same async runtime.
-- Build and dependency setup now has stronger diagnostics and reproducibility controls.
-
-## 3. Main Gaps
-
-### 3.1 Tensor/view lifetime model
-
-Today, `Tensor` is the concrete owner and models the tensor-level concepts
-directly. `BasicTensor` is its extents-first alias.
-Read-only conjugation and contiguous reshape have concrete non-owning tensor
-adaptors and owner-retaining Async aliases. General slicing still needs a
-concrete descriptor and must follow the established shared-lifetime design.
-
-### 3.2 General async aliases for tensor views
-
-Async aliases retain their owner and exact epoch queue. Mutable reshape aliases
-write through without allowing the stored descriptor to be retargeted. The
-remaining work is to apply this model to slices and future structural views,
-with more precise subrange hazards only if whole-parent ordering becomes too
-conservative.
-
-### 3.3 Expression-level execution model
-
-Uni20 currently favors explicit operation calls. A unified expression model (for fusion/lazy lowering)
-is still a roadmap item.
-
-### 3.4 Heterogeneous execution maturity
-
-CPU and BLAS are usable today. CUDA/cuSOLVER and broader heterogeneous scheduling remain incomplete.
-Under device-first sequencing (§4.0) these are built out incrementally on top of device-aware
-foundations, not deferred to a final phase.
-
-### 3.5 Storage location and ordering ownership
-
-Two foundational abstractions are not yet expressed in core:
-
-- **Storage memory kind vs location.** Storage has a compile-time *kind* axis
-  (`StoragePolicy`) but no runtime *location* (device ordinal / MPI rank). See
-  `docs/storage_kind_and_location.md`.
-- **Ordering ownership.** The Async scheduler should own all ordering; CUDA events and
-  MPI requests are derived lowerings, with a polymorphic completion-token abstraction.
-  See `docs/ordering_and_backend_lowering.md`.
-
-### 3.6 Block-sparse tensor data model
-
-There is no real block-sparse tensor class yet beyond embryonic experiments, and it
-is the linchpin the rest of the execution stack consumes. The design — two-level
-(lightweight `mdspan` block + block-sparse container), typed legs
-(BlockSpace/LocalSpace), and a single **layout** object (device / MPI-rank map +
-coalescing-aware memory plan) — is captured in `docs/block_sparse_tensor.md` and
-refined into the symmetry-typed `BlockTensor` in `docs/block_tensor.md`. Its
-companion `docs/block_coalescing.md` covers single-axis GEMM grouping,
-`docs/kernel_dispatch.md` the backend-list dispatch, and
-`docs/execution_architecture.md` ties the data model, dispatch, and scheduling
-together under a mechanism/policy split with a concrete build order. The empirical
-findings that informed these are in `docs/tensorcontraction_integration_findings.md`.
-
-## 4. Roadmap
-
-### 4.0 Sequencing principle: device-first
-
-Earlier planning assumed a CPU-first sequence — make everything work on the CPU,
-then add GPU schedulers, then add MPI. We are replacing that with **device-first**
-sequencing: tensor data (and other data) conceptually lives on a *device*, and
-GPU + MPI are designed into the foundational abstractions from the start. The
-implementations still land incrementally — kernels and schedulers are built out bit
-by bit — but the *interfaces* must not bake in host-only or single-device
-assumptions, because those are the assumptions that are expensive to remove later.
-
-Three abstractions are load-bearing and must be device-aware from the outset:
-
-1. **Storage memory kind vs location.** Memory *kind* (host / device / unified) is a
-   compile-time property of the type that selects legal kernels; *location* (which
-   device ordinal, which MPI rank) is a runtime value attached to storage. See
-   `docs/storage_kind_and_location.md`.
-2. **Completion / dependency tokens.** The Async scheduler owns ordering; CUDA
-   events and MPI requests are derived performance lowerings. The token abstraction
-   must be polymorphic over {CPU done, CUDA event, MPI request} from day one. See
-   `docs/ordering_and_backend_lowering.md`.
-3. **Multi-buffer operation acquisition.** Acquiring read/write access for a whole
-   operation as one transaction; see `docs/gpu_epoch_design_draft.md`.
-
-Everything else — actual NCCL/MPI wiring, device schedulers, individual kernels —
-stays incremental and test-backed. The synchronous-blocking device path is correct
-by construction and serves as the correctness oracle for the optimized path, so a
-backend is correct from its first kernel.
-
-The phases run on two tracks that proceed largely in parallel. The device-first
-change is that the heterogeneous track's *foundations* (Phase H1) start early and are
-not deferred to a final "backend expansion" phase.
-
-### Track 1 — Tensor and async semantics
-
-#### Phase A — Stabilize tensor lifetime semantics
-
-Goals:
-
-- Define the preferred ownership-sharing model for tensor/view workflows.
-- Keep current APIs usable while introducing explicit lifetime-safe view patterns.
-
-Deliverables:
-
-- Design note + tests covering view lifetime guarantees.
-- Clear guidance for async-safe tensor/view handoff patterns.
-
-#### Phase B — Finalize mutable async tensor aliases
-
-Goals:
-
-- Define writer access that mutates referenced tensor data while keeping the
-  alias descriptor, owner chain, and epoch queue fixed.
-- Keep backend-dispatched element copying as an explicit tensor operation.
-
-Deliverables:
-
-- A restricted mutable-alias writer API or equivalent capability model.
-- Tests covering owner lifetime, queue identity, and mutation through real tensor views.
-- Documentation update in `docs/async/`.
-
-#### Phase C — Introduce expression-layer roadmap implementation
-
-Goals:
-
-- Add a minimal expression node layer where it brings clear value (fusion/reduced temporaries).
-- Keep backend lowering aligned with existing `level1`, `kernel`, and `linalg` code.
-
-Deliverables:
-
-- Initial expression API proposal and one implemented vertical slice.
-- Benchmarks demonstrating no regression and targeted improvements.
-
-#### Phase D — Async-aware tensor expression execution
-
-Goals:
-
-- Bridge expression evaluation with async scheduling in a controlled way.
-- Preserve explicit sequencing guarantees from the existing buffer model.
-
-Deliverables:
-
-- Prototype async evaluation path for selected expression nodes.
-- Error/cancellation behavior documented and covered by tests.
-
-### Track 2 — Heterogeneous execution
-
-#### Phase H1 — Device-aware foundations (start early)
-
-Goals:
-
-- Add the runtime **location** axis to storage alongside the compile-time **kind**
-  axis, without disturbing existing host code (`docs/storage_kind_and_location.md`).
-- Define a polymorphic **completion-token** abstraction and make epoch publish/wait
-  operate over it, with the trivial CPU implementation first
-  (`docs/ordering_and_backend_lowering.md`).
-- Establish the multi-buffer operation-acquisition transaction
-  (`docs/gpu_epoch_design_draft.md`).
-
-Deliverables:
-
-- Storage location representation + tests; symmetry/block-key preservation under
-  (re)placement.
-- Completion-token interface with the report-done-after-submission contract and
-  buffer-release-on-completion semantics documented and tested.
-
-#### Phase H2 — Incremental device backends
-
-Goals:
-
-- Improve CUDA/cuSOLVER path maturity via the compile-time capability + runtime
-  `try_*` + fallback pattern (`docs/backend_dispatch.md`).
-- Bring up each kernel synchronous-blocking first (validated against the oracle),
-  then add event-based async lowering edge by edge.
-- Keep public operations generic while backend adapters decide lowering.
-
-Deliverables:
-
-- Backend capability matrix in docs.
-- Backend dispatch traits and `try_*` adapters for selected vertical slices.
-- Backend-specific correctness tests (differential against the synchronous baseline)
-  and representative performance benchmarks.
-
-#### Phase H3 — Distributed execution
-
-Goals:
-
-- Lower cross-rank transfers to nonblocking MPI with a unique tag per edge and an
-  active progress engine (`docs/ordering_and_backend_lowering.md`).
-- Introduce the placement/cost policy as a strategy layer *above* the ordering layer
-  (informed by the RABC scheduling prototype).
-
-Deliverables:
-
-- MPI/NCCL transfer lowering with deterministic per-edge tag derivation and progress
-  integration into the schedulers.
-- Placement-policy interface emitting transfers into the async DAG; correctness held
-  by the ordering layer regardless of placement.
-
-## 5. Guardrails
-
-- Maintain C++23 and existing coroutine safety rules (captureless `static` coroutine lambdas).
-- Keep async determinism and epoch ordering invariants intact.
-- Prefer incremental, test-backed refactors over broad rewrites.
-- Update docs in the same change whenever semantics shift.
-
-## 6. Related Docs
-
-- `docs/architecture_diagram.md`
-- `docs/backend_dispatch.md`
-- `docs/ordering_and_backend_lowering.md`
-- `docs/storage_kind_and_location.md`
-- `docs/gpu_epoch_design_draft.md`
-- `docs/async/README.md`
-- `docs/async/reverse_mode_ad.md`
-- `docs/async/buffers_and_awaiters.md`
-- `docs/testing.md`
+# Uni20 Roadmap
+
+**Status:** current planning baseline, updated 2026-07.
+
+This document describes what remains after the dense Tensor, kernel-dispatch,
+Krylov, and first async Tensor vertical slices came together. For a description
+of implemented user-visible capabilities, start with [About Uni20](about.md).
+For exact operation contracts, use the linked canonical subsystem guides.
+
+Uni20 remains an active-design C++23 library. The roadmap therefore names
+engineering outcomes and invariants rather than promising a stable API or fixed
+release dates.
+
+## Current Baseline
+
+The following foundations are implemented and tested.
+
+### Tensor and view semantics
+
+- `Tensor<Element, Rank, ...>` is the concrete owner with runtime extents by
+  default and explicit column-major, row-major, or strided layout policy.
+- Tensor-level concepts separate readable, mutable, owning, strided, and
+  rank-constrained objects from resolved mdspan operands.
+- Generated `full`, `zeros`, `ones`, and generalized `eye` tensors avoid dense
+  storage until an operation requires materialization.
+- `conj`, `reshape_view`, explicit ordered reshape views, materializing
+  `reshape`, `copy`, `make_tensor`, and in-place conjugation have documented
+  ownership and accessor semantics.
+- Async conjugating and reshape aliases retain the source owner and share its
+  exact epoch queue.
+
+See [Tensor Operations](tensor_operations.md),
+[Generated Tensors and Reshape](tensor_creation_and_reshape.md), and
+[Async Storage](async_storage.md).
+
+### Dense operation dispatch
+
+- Operation tags identify backend-independent work such as copy, GEMM, GEMV,
+  matrix exponential, eigensystems, and Schur operations.
+- `kernel_accepts_types` performs compile-time tri-state capability probing.
+- `try_kernel` performs runtime layout/accessor checks and returns a structured
+  clean-decline reason.
+- `dispatch_kernel` walks an ordered backend list and produces structured
+  errors when no backend succeeds.
+- Host vector storage selects LAPACK, BLAS when configured, and the CPU
+  reference backend in a fixed order.
+- Runtime diagnostics can report every candidate, decline reason, and selected
+  backend without changing the operation interface.
+- Tensor front ends own output shape and allocation policy, then pass resolved
+  mdspans to leaf kernels.
+
+Current vertical slices include accessor-respecting copy/materialization,
+GEMM, GEMV, matrix initialization and exponential, self-adjoint and
+nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems.
+Backend and scalar coverage is operation-specific rather than uniform.
+
+See [Kernel Dispatch](kernel_dispatch.md),
+[Mdspan Linear Algebra Dispatch](mdspan_linalg_dispatch_plan.md), and
+[Mdspan BLAS/LAPACK Wrappers](mdspan_blas_lapack_wrapper_plan.md).
+
+### Async execution
+
+- `Async<T>`, epoch queues, read buffers, and exclusive mutable write buffers
+  define causal dataflow and storage lifetime.
+- `DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler` execute the same task
+  model.
+- TBB waits can make scheduler progress from application or worker threads, and
+  `run_all()` waits for scheduler quiescence.
+- Exceptions and cancellation propagate to output epochs; multi-output tasks
+  can publish independent results or the same failure.
+- Task-registry snapshots, presentation reports, optional stacktraces, signal
+  triggers, watchdog controls, and Graphviz output support diagnosis.
+- Async matrix-product overwrite/update and preserving/consuming self-adjoint
+  `eigh` wrappers schedule the existing synchronous Tensor operations.
+
+See the [Async Documentation Index](async/README.md) and
+[Async Tensor Kernel Authoring](async/kernel_authoring.md).
+
+### Krylov and numerical validation
+
+- Native matrix-free Lanczos and Arnoldi solvers cover symmetric/Hermitian,
+  generalized, and nonsymmetric problems.
+- Krylov and Taylor exponential-action algorithms provide independent paths for
+  validation.
+- Dense projected subspace work uses `DenseMatrix` and the normal linalg
+  dispatch layer rather than a private dense algebra stack.
+- Matrix Market fixtures, convergence/residual tests, provider comparisons,
+  and optional MPLAPACK binary128 probes exercise precision-sensitive paths.
+
+See [Krylov Algorithms](krylov_algorithms.md) and
+[Krylov Precision Validation](krylov_precision_validation.md).
+
+### Presentation and development infrastructure
+
+- Semantic presentation documents render to terminal, plain text, strict
+  ASCII, width-aware tables, and mdspan/tensor previews.
+- Kernel-dispatch and async diagnostics use the presentation layer.
+- CI covers Debug, Release, and Clang builds, while a separate pull-request
+  workflow validates generated Doxygen documentation.
+- Source-module READMEs and contributor/review guidance now provide a navigable
+  development surface.
+
+## Immediate Priorities
+
+These are the next implementation tracks. They can proceed in parallel when
+their contracts do not conflict.
+
+### 1. Broaden dense linalg vertical slices
+
+Use the existing GEMM/GEMV/eigh shape as the template, not a second wrapper
+hierarchy.
+
+- Audit the remaining BLAS/LAPACK wrappers for consistent operand descriptors,
+  checked provider failure behavior, scalar promotion, and workspace policy.
+- Give ordinary callers allocating, overwrite, update, consuming, or in-place
+  Tensor APIs as appropriate to each operation.
+- Keep mdspan leaf functions fixed-output and explicit about layout/accessor
+  requirements.
+- Add provider and CPU-reference kernels through operation-tag dispatch where a
+  useful independent reference exists.
+- Continue routing Krylov projected operations through these public paths so the
+  solver layer exercises the same kernels as applications.
+- Add async wrappers one operation at a time after output construction,
+  consumption, aliasing, and exception behavior are explicit.
+- Maintain real/complex, row/column layout, zero/singleton extent, and optional
+  binary128 coverage in proportion to each operation's supported domain.
+
+### 2. Complete common Tensor operations and structural views
+
+- Add slicing/indexing descriptors with const-correct mdspan access and explicit
+  layout/striding semantics.
+- Extend the owner-retaining async alias model to slices and future structural
+  views without allowing descriptors to retarget accidentally.
+- Add async copy/materialization and reshape operations where their overwrite or
+  value semantics are unambiguous.
+- Keep semantic accessor views such as conjugation read-only; treat writable
+  component views such as future `real`/`imag` as true structural slices.
+- Introduce subrange dependency tracking only if whole-owner epoch ordering
+  becomes a demonstrated bottleneck. Correct conservative ordering is the
+  baseline.
+
+Dynamic-rank tensors remain a separate future descriptor design. They should
+not add a second meaning to the current fixed-rank mdspan-based `Tensor`.
+
+### 3. Harden async operation composition
+
+- Exercise multi-output success, failure, cancellation, and unobserved-branch
+  behavior as more linalg operations become async.
+- Preserve the distinction between independent async values and aliases bound
+  to an owner's lifetime and epoch queue.
+- Keep operation-specific coroutines explicit until enough implementations show
+  a genuinely common abstraction for allocation, mutation, and consumption.
+- Improve deadlock and task-provenance diagnostics without adding meaningful
+  cost when instrumentation is disabled.
+- Integrate future CUDA/MPI external waits with watchdog state so a legitimate
+  device or communication wait is not diagnosed as stalled CPU dataflow.
+
+### 4. Implement the symmetry-aware block tensor
+
+The symmetry layer has quantum-number and block-space foundations but no
+complete block-sparse Tensor execution path.
+
+- Implement the `BlockTensor` data model with typed legs, explicit legal block
+  keys, placement metadata, and one layout/memory plan.
+- Generate dense block work only after applying the applicable selection rules.
+- Lower legal block operations into the existing raw dense operation and kernel
+  dispatch layers.
+- Preserve quantum numbers, local spaces, orientations, and logical block keys
+  through worklists and backend lowering.
+- Keep any dense projection explicitly diagnostic and prevent it from feeding
+  back into the symmetry-aware calculation.
+- Use coalescing and grouped GEMM only as optimizations over a tested blockwise
+  reference path.
+
+See [BlockTensor Design](block_tensor.md),
+[Raw Primitives and Symmetric Lowering](raw_primitives_and_symmetric_lowering.md),
+and [Block Coalescing](block_coalescing.md).
+
+## Heterogeneous Execution Track
+
+Uni20 follows a device-aware design rule: host-only assumptions must not become
+part of core Tensor, storage, dispatch, or async contracts. This does not mean
+that incomplete CUDA code takes priority over every host operation. It means
+that host vertical slices must leave the correct extension points.
+
+### Device-aware foundations
+
+- Separate compile-time storage memory kind from runtime location such as CUDA
+  device ordinal or MPI rank.
+- Define completion/dependency tokens so the async scheduler owns ordering while
+  CUDA events and MPI requests provide backend completion evidence.
+- Acquire all buffers for one operation transactionally where device submission
+  requires a coherent multi-operand state.
+- Keep backend selector state immutable unless a concrete device, stream,
+  communicator, or precision use case demonstrates a need for stateful values.
+
+### Incremental CUDA and cuSOLVER
+
+- Bring up one operation at a time through the same capability and runtime
+  attempt mechanism used by host kernels.
+- Implement a synchronous blocking device path first as the correctness
+  baseline, then attach event-based completion without changing mathematical
+  semantics.
+- Do not allow ordinary backend fallback to copy device operands to host.
+  Emergency transfer-based implementations must be explicit composite
+  operations whose cost and synchronization are visible.
+
+### Distributed execution
+
+- Represent placement and communication policy above the ordering layer.
+- Lower cross-rank edges to nonblocking MPI/NCCL operations with deterministic
+  identity and active progress.
+- Preserve block and symmetry metadata across placement and transfer.
+- Optimize throughput without making correctness depend on one placement
+  strategy.
+
+See [Storage Kind and Location](storage_kind_and_location.md),
+[Ordering Ownership](ordering_and_backend_lowering.md), and
+[GPU Epoch Design](gpu_epoch_design_draft.md).
+
+## Later Integration Work
+
+### Tensor-level reverse-mode AD
+
+Extend the existing async value-level AD machinery only after the Tensor
+operation set has explicit mutation, consumption, and alias contracts. Linalg
+rules must cover real and complex conventions, multi-output decompositions,
+absent gradients, graph pruning, and failure propagation.
+
+### Python and notebook interface
+
+Bind stable C++ Tensor operations through checked dynamic dispatch boundaries.
+Python should validate user errors before entering invariant-enforced C++ code,
+translate recoverable diagnostic exceptions, and use the presentation model for
+plain and rich notebook output. Packaging and dtype promotion policy belong to
+this track.
+
+### Expression and fusion layer
+
+Do not build a generic expression system merely to provide operator syntax.
+Introduce expression nodes only when a measured operation sequence benefits
+from fusion, reduced temporaries, or a backend-specific compound kernel. The
+existing explicit Tensor operations and async DAG remain the semantic baseline.
+
+## Definition of a Complete Operation Slice
+
+A substantial new Tensor/linalg operation is complete when the relevant items
+below are addressed:
+
+1. The mathematical, shape, alias, ownership, and failure contracts are
+   documented.
+2. The Tensor front end chooses allocating, overwrite, update, consuming, or
+   in-place semantics deliberately.
+3. Resolved mdspan operands use operation-tag dispatch and structured clean
+   decline.
+4. At least one deterministic implementation exists, with an independent test
+   oracle where practical.
+5. Provider-specific paths have scalar, layout, workspace, and provider-error
+   coverage.
+6. Async lowering, when exposed, owns buffers and ordinary parameters for the
+   coroutine lifetime and routes failures to every output.
+7. A focused example or test demonstrates the complete path rather than only a
+   leaf helper.
+
+## Guardrails
+
+- Maintain C++23 and the captureless `static` coroutine-lambda rule.
+- Treat accessor semantics, storage domain, and symmetry metadata as
+  correctness constraints.
+- Keep backend decline side-effect free; execution failure is not fallback.
+- Make allocation, materialization, transfer, synchronization, and dense
+  projection explicit.
+- Prefer incremental vertical slices with independent numerical evidence over
+  broad interface scaffolding.
+- Update current guides, examples, and retrieval summaries in the same change
+  when behavior moves.

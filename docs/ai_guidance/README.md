@@ -10,6 +10,8 @@ This directory is for AI assistants. It is not optimized for normal human readin
 
 Human readers should usually prefer:
 
+- `docs/about.md`
+- `docs/README.md`
 - `docs/async/`
 - `docs/roadmap.md`
 - `docs/architecture_diagram.md`
@@ -63,7 +65,10 @@ Not every file uses every field. Use the fields that improve retrieval.
 - These files are summaries.
 - These files are not a replacement for code or tests.
 - `docs/async/` remains the canonical detailed async documentation.
-- If AI guidance, code, and tests disagree, code and tests win.
+- If AI guidance disagrees with canonical documentation, tests, or source,
+  report the conflict. Maintainer-approved semantics and canonical subsystem
+  documents define intent; tests encode selected contracts; source shows the
+  current implementation.
 
 ## Design rules for these files
 

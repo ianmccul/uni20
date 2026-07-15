@@ -86,7 +86,10 @@ Runnable examples in `examples/` that pair well with this docs set:
 
 ## Ground Truth and Drift Policy
 
-When docs and code disagree, code and tests are authoritative. This docs set is kept aligned to:
+Canonical async documents record the intended runtime contract, tests encode
+selected behavior, and source records the current implementation. If they
+disagree, report and resolve the conflict rather than silently treating one as
+authoritative. This docs set is kept aligned to:
 
 - `src/uni20/async/`
 - `tests/async/`

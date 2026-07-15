@@ -3,8 +3,9 @@
 - **Audience:** remote assistants, coding agents, and reviewers
 - **Authority:** non-normative summary
 - **Status:** implementation-status snapshot; expected to evolve
-- **Canonical sources:** `docs/architecture_diagram.md`, `docs/roadmap.md`,
-  `docs/execution_architecture.md`, the source tree, and tests
+- **Canonical sources:** `docs/about.md`, `docs/architecture_diagram.md`,
+  `docs/roadmap.md`, `docs/tensor_operations.md`, canonical subsystem guides,
+  the source tree, and tests
 
 This file is for questions about project maturity, active design seams, and what should or should not be described as stable.
 
@@ -12,7 +13,8 @@ This file is for questions about project maturity, active design seams, and what
 
 - State what is implemented today.
 - Separate implemented behavior from roadmap material.
-- Treat `src/uni20/async/` as the current center of gravity.
+- Treat the Tensor -> linalg dispatch -> CPU/BLAS/LAPACK path and its Async
+  wrappers as one implemented vertical slice.
 - Treat other subsystems more cautiously unless specific files are inspected.
 
 ## src/uni20/async/
@@ -82,9 +84,12 @@ This file is for questions about project maturity, active design seams, and what
 
 ### STATUS
 
-- Synchronous dense Tensor/view dispatch has an implemented first slice.
-- Async aliasing, CUDA storage, and distributed tensor semantics remain active
-  design work.
+- Dense Tensor/view ownership, generated tensors, materialization, reshape, and
+  initial backend-dispatched linalg operations are implemented.
+- Async owner-retaining conjugation/reshape aliases, matrix products, and
+  self-adjoint `eigh` are implemented.
+- General slicing, CUDA/distributed storage, and symmetry-aware `BlockTensor`
+  semantics remain active design work.
 
 ### SAFE CLAIMS
 
@@ -97,16 +102,23 @@ This file is for questions about project maturity, active design seams, and what
   slice/external-storage adaptors are not.
 - `copy` and `make_tensor` dispatch `copy_op`; lazy `conj(tensor)` does not
   allocate.
-- Ownership and lifetime sharing are not fully settled.
-- Async-safe aliasing rules are not fully settled.
+- `async::conj` and async reshape views retain the parent owner and share its
+  exact epoch queue.
+- All-async `assign_product` and `add_product` lower through the synchronous
+  Tensor GEMM front end. Preserving and consuming async `eigh` return
+  independent async outputs.
+- Implemented alias lifetime and assignment rules are documented; future slice
+  descriptors still need operation-specific semantics.
 - Default backend selectors are storage-derived candidate lists. Backend values
   may still carry explicit operation options, but operand location belongs to
   the mdspan accessor/handle rather than the selector.
 
 ### DO NOT CLAIM
 
-- Do not claim that tensor/view lifetime semantics are finalized.
-- Do not claim that aliasing is solved by the async runtime.
+- Do not generalize implemented conjugation/reshape lifetime rules to arbitrary
+  future views.
+- Do not claim that the async runtime proves arbitrary overlapping-storage
+  alias safety.
 - Do not generalize the implemented all-async dense matrix-product wrapper to
   CUDA, MPI, mixed sync/async operands, or unrelated output semantics.
 - Do not claim that `std::type_list` exists or that `unique_tuple_cat_t` is a
@@ -119,6 +131,8 @@ This file is for questions about project maturity, active design seams, and what
   copying remains an explicit backend-dispatched operation.
 - Shared async alias descriptors must remain consistent with their retained
   lifetime owner and epoch queue; retargeting requires a new alias.
+- Future slices may initially share whole-owner ordering. Add subrange hazards
+  only when conservative ordering becomes a demonstrated bottleneck.
 - Candidate tensor roles are `Tensor` as owning value, `TensorRef` as
   proposed write-through non-owning lvalue, and resolved mdspan-like views as
   leaf-kernel arguments.
@@ -140,12 +154,14 @@ This file is for questions about project maturity, active design seams, and what
 
 ### STATUS
 
-- The expression layer is partial.
+- There is no general Tensor expression/fusion layer. Explicit Tensor operations
+  and Async operation wrappers are the current model.
 
 ### SAFE CLAIMS
 
 - Explicit operations exist.
-- A fuller expression or fusion layer is still roadmap material.
+- Expression or fusion work is deferred until a measured operation sequence
+  benefits from it.
 
 ### DO NOT CLAIM
 
@@ -155,7 +171,8 @@ This file is for questions about project maturity, active design seams, and what
 
 ### STATUS
 
-- C++ presentation formatting exists and is used by trace.
+- C++ presentation formatting is used by trace, kernel-dispatch diagnostics,
+  async task/DAG diagnostics, and runnable examples.
 - Python tensor display and Jupyter rich display are roadmap material.
 
 ### SAFE CLAIMS
@@ -216,11 +233,14 @@ This file is for questions about project maturity, active design seams, and what
 
 ### STATUS
 
-- Async and AD behavior have relatively strong test coverage compared with the rest of the project.
+- Async, Tensor/linalg dispatch, and Krylov vertical slices have substantial
+  focused tests. Coverage still varies by backend and optional scalar/provider
+  configuration.
 
 ### SAFE CLAIMS
 
-- `tests/async/` is a relatively strong source of behavioral ground truth.
+- `tests/async/`, `tests/linalg/`, `tests/tensor/`, and `tests/krylov/` encode
+  important current behavior for their implemented slices.
 
 ### DO NOT CLAIM
 

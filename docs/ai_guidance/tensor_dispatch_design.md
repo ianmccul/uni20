@@ -4,17 +4,19 @@
 - **Authority:** non-normative design summary
 - **Status:** mixed implementation and active design; inspect source before
   making claims
-- **Canonical sources:** `docs/tensor_dispatch_and_view_semantics_draft.md`,
-  `docs/async_tensor_lifetime_and_dispatch_draft.md`, `docs/kernel_dispatch.md`,
-  `src/uni20/tensor/`, `src/uni20/linalg/`, and tests
+- **Canonical sources:** `docs/tensor_operations.md`,
+  `docs/tensor_creation_and_reshape.md`, `docs/async/kernel_authoring.md`,
+  `docs/kernel_dispatch.md`, `src/uni20/tensor/`, `src/uni20/linalg/`, and tests
 
 This file is for AI assistants answering questions about the evolving tensor,
 view, backend-dispatch, and temporary-allocation design.
 
 ## File-level answer rule
 
-- Treat this file as roadmap / design draft guidance.
-- Do not claim these APIs are implemented unless code has been inspected.
+- Treat current operation summaries as retrieval guidance and the linked draft
+  documents as background design.
+- Do not claim broader operation/backend support than current code and tests
+  demonstrate.
 - Separate implemented tensor code from proposed dispatch concepts.
 - Prefer "candidate design" and "tentative model" language.
 
@@ -48,6 +50,11 @@ view, backend-dispatch, and temporary-allocation design.
   otherwise uses the column-major `Tensor` default.
 - `conj(tensor)` is an implemented read-only lazy Tensor view. `Tensor(view)`,
   `copy(...)`, and `make_tensor(...)` are the explicit eager boundaries.
+- `async::conj` and async reshape views are implemented owner-retaining aliases
+  on the parent's exact epoch queue.
+- All-async matrix-product overwrite/update and preserving/consuming
+  self-adjoint `eigh` wrappers are implemented over the synchronous Tensor
+  operation layer.
 - `GeneratedTensor` is layout-neutral and does not model `StridedTensorView`.
   Its synthetic mapping exists only to deliver logical indices to the
   generator accessor.

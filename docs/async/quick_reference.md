@@ -309,7 +309,7 @@ Core code:
 - `src/uni20/async/debug_scheduler.hpp`
 - `src/uni20/async/tbb_scheduler.hpp`
 
-Behavioral ground truth:
+Tests that encode current behavior:
 
 - `tests/async/test_async_basic.cpp`
 - `tests/async/test_async_awaiters.cpp`

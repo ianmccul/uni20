@@ -1,91 +1,131 @@
 # Uni20 Architecture Overview
 
-This diagram summarizes the current repository architecture.
+This diagram summarizes the current implementation and the main planned
+extensions.
 
-- **Solid nodes/edges**: implemented and used today
-- **Dashed nodes/edges**: present as stubs or planned extensions
+- **Solid nodes and edges:** implemented and exercised today.
+- **Dashed nodes and edges:** foundations, stubs, or planned integration.
 
 ```mermaid
 graph TD
     subgraph Interfaces
-        CppApps[C++ Applications]
-        PyBind[Python Bindings (nanobind)]
+        Cpp[C++ applications and algorithms]
+        PySmoke[Python smoke bindings and build metadata]
+        PyTensor[Python Tensor interface]
     end
 
-    subgraph PublicAPI[Public API Surface]
-        Uni20Lib[libuni20]
+    subgraph TensorLayer[Tensor and algorithm layer]
+        Tensor[Tensor owners and TensorView concepts]
+        Views[Generated, conjugating, and reshape views]
+        TensorOps[Tensor operation front ends]
+        AsyncOps[Async Tensor wrappers]
+        Krylov[Matrix-free Krylov algorithms]
+        Symmetry[QNum, U1, and BlockSpace foundations]
+        BlockTensor[Symmetry-aware BlockTensor]
     end
 
-    subgraph Core[Core Modules under src/uni20]
-        Tensor[Tensor / TensorView]
-        Mdspan[mdspan utilities]
-        Level1[Level1 tensor ops]
-        Linalg[Linalg ops + backends]
-        Kernel[Kernel dispatch]
-        Async[Async runtime]
-        Common[Common/core utilities]
-        DenseExp[CPU dense matrix exponential]
+    subgraph Execution[Execution and diagnostics]
+        Dispatch[Operation-tag backend dispatch]
+        Async[Async epochs, buffers, and schedulers]
+        AD[Var and ReverseValue]
+        TensorAD[Tensor linalg reverse-mode AD]
+        Presentation[Presentation and structured diagnostics]
     end
 
-    subgraph AsyncRuntime[Async Runtime Details]
-        ReadWrite[ReadBuffer / WriteBuffer]
-        Epoch[EpochQueue / EpochContext]
-        VarAD[Var + ReverseValue]
-        DebugSched[DebugScheduler]
-        TbbSched[TbbScheduler]
-        TbbNuma[TbbNumaScheduler]
-        CudaTask[CudaTask only]
-        GpuSched[GPU Scheduler (planned)]
-        DistSched[Distributed Scheduler (planned)]
+    subgraph Leaf[Resolved dense operands and kernels]
+        Mdspan[mdspan layouts and accessors]
+        Cpu[CPU reference kernels]
+        Blas[BLAS kernels]
+        Lapack[LAPACK kernels]
+        Cuda[CUDA and cuSOLVER execution]
+        MPI[Distributed MPI and NCCL execution]
     end
 
-    subgraph Backend[Backend Layer]
-        BlasBackend[BLAS backend]
-        CpuLinalg[CPU linalg backend]
-        CudaBackend[CUDA backend stubs]
-        CuSolver[cuSOLVER backend stubs]
-    end
+    Cpp --> Tensor
+    Cpp --> TensorOps
+    Cpp --> Krylov
+    PySmoke --> Presentation
+    PyTensor -.-> TensorOps
 
-    CppApps --> Uni20Lib
-    PyBind --> Uni20Lib
+    Tensor --> Views
+    Views --> TensorOps
+    TensorOps --> Dispatch
+    Krylov --> TensorOps
+    Krylov --> Dispatch
 
-    Uni20Lib --> Tensor
-    Uni20Lib --> Mdspan
-    Uni20Lib --> Level1
-    Uni20Lib --> Linalg
-    Uni20Lib --> Kernel
-    Uni20Lib --> Async
-    Uni20Lib --> Common
-    Uni20Lib --> DenseExp
+    AsyncOps --> Async
+    AsyncOps --> TensorOps
+    Async --> Presentation
+    Dispatch --> Presentation
+    AD --> Async
+    TensorAD -.-> AD
+    TensorAD -.-> TensorOps
 
-    Tensor --> Mdspan
-    Level1 --> Kernel
-    Linalg --> CpuLinalg
-    Linalg --> BlasBackend
-    Kernel --> BlasBackend
-    Kernel --> CpuLinalg
-    Kernel -.-> CudaBackend
-    Linalg -.-> CuSolver
+    Dispatch --> Mdspan
+    Mdspan --> Cpu
+    Mdspan --> Blas
+    Mdspan --> Lapack
+    Mdspan -.-> Cuda
+    Mdspan -.-> MPI
 
-    Async --> ReadWrite
-    Async --> Epoch
-    Async --> VarAD
-    Async --> DebugSched
-    Async --> TbbSched
-    Async --> TbbNuma
-    Async --> CudaTask
-    Async -.-> GpuSched
-    Async -.-> DistSched
+    Symmetry -.-> BlockTensor
+    BlockTensor -.-> TensorOps
+    BlockTensor -.-> AsyncOps
 
-    style GpuSched stroke-dasharray: 5 5
-    style DistSched stroke-dasharray: 5 5
-    style CudaBackend stroke-dasharray: 5 5
-    style CuSolver stroke-dasharray: 5 5
+    style PyTensor stroke-dasharray: 5 5
+    style TensorAD stroke-dasharray: 5 5
+    style BlockTensor stroke-dasharray: 5 5
+    style Cuda stroke-dasharray: 5 5
+    style MPI stroke-dasharray: 5 5
 ```
 
-## Notes
+## Implemented Path
 
-- Python bindings are implemented with `nanobind` in `bindings/python/`.
-- Async execution is scheduler-driven; the primary schedulers are `DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler`.
-- `CudaTask` exists as a coroutine type, but a full CUDA scheduler/runtime path is still planned.
-- BLAS and CPU linalg paths are active; CUDA/cuSOLVER integration remains partial.
+The central design property is that synchronous and asynchronous Tensor
+operations share one kernel path:
+
+```text
+Tensor front end
+  -> output shape, ownership, and storage policy
+  -> backend selector
+  -> resolved mdspan operands
+  -> operation-tag dispatch
+  -> CPU, BLAS, or LAPACK kernel
+```
+
+An Async wrapper enrolls epochs, schedules a coroutine, awaits stored Tensor
+values, and then calls that same Tensor front end. Backends do not receive
+`Async<T>` objects and leaf kernels do not receive Tensor ownership policy.
+
+Krylov algorithms are matrix-free in application space. Their small dense
+projected problems use `DenseMatrix` and the same linalg dispatch layer rather
+than a private dense backend.
+
+## Important Boundaries
+
+- Tensor storage, views, and operation output policy are resolved before leaf
+  kernels receive mdspans.
+- Mdspan accessors carry value semantics. A pointer-shaped handle alone does not
+  authorize direct BLAS/LAPACK access.
+- Async owns causal ordering and lifetime. A future CUDA event or MPI request is
+  completion evidence for an epoch, not a second ordering system.
+- Symmetry-aware lowering must decide legal blocks and preserve quantum-number
+  metadata before emitting dense block operations.
+- Ordinary backend decline never transfers operands between host, device, or
+  MPI domains.
+
+## Current Maturity
+
+- `DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler` are implemented.
+- Async matrix products, Async self-adjoint `eigh`, owner-retaining conjugation,
+  and owner-retaining reshape aliases are implemented.
+- CPU reference, BLAS, and initial LAPACK dispatch paths are active.
+- `Var<T>` and `ReverseValue<T>` provide async value-level reverse-mode
+  foundations; Tensor linalg rules remain future work.
+- Python currently exposes smoke functionality and build information rather
+  than Tensor operations.
+- CUDA/cuSOLVER, distributed execution, and the symmetry-aware `BlockTensor`
+  remain incomplete.
+
+See [About Uni20](about.md) for the capability overview and
+[Roadmap](roadmap.md) for the implementation priorities.
