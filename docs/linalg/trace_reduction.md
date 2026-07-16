@@ -1,6 +1,7 @@
 # Trace As A Dense Reduction Primitive
 
-Status: design note.
+Status: general one-or-more-axis CPU sum reduction is implemented; synthetic
+diagonal views and trace front ends remain design work.
 
 ## Summary
 
@@ -65,6 +66,13 @@ This motivates two important dense tensor primitives:
 - reduction over one or more axes.
 
 With those primitives, matrix diagonal, vector sum, tensor trace, partial trace, and many related operations are all special cases of the same mechanism.
+
+The implemented `sum_reduction_op<R, N>` and CPU reference executor provide the
+second primitive for ordinary tensor axes. The executor preserves logical
+surviving-axis order, traverses canonical input and output layouts in their
+natural physical order, and respects non-default accessors. Trace still needs
+the first primitive: a synthetic diagonal view whose accessor/mapping combines
+the traced strides before invoking the same reduction machinery.
 
 For example:
 

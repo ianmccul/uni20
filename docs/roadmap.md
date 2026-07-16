@@ -31,10 +31,12 @@ The following foundations are implemented and tested.
   backend.
 - `ScalarTensor` provides a rank-zero owner, while inner product and stable
   Euclidean norm expose separate storage-preserving and host-scalar result
-  contracts.
+  contracts. Full and axis-selective sums use the same distinction.
 - All-async elementwise overwrite and update wrappers retain callable state,
   construct overwrite outputs when possible, and preserve one-writer update
   semantics.
+- All-async sums support storage-preserving and host-scalar results, deferred
+  output construction, and fixed-shape mutable alias outputs.
 - Async conjugating and reshape aliases retain the source owner and share its
   exact epoch queue.
 
@@ -82,7 +84,8 @@ See [Kernel Dispatch](architecture/kernel_dispatch.md),
 - Task-registry snapshots, presentation reports, optional stacktraces, signal
   triggers, watchdog controls, and Graphviz output support diagnosis.
 - Async matrix-product overwrite/update and preserving/consuming self-adjoint
-  `eigh` wrappers schedule the existing synchronous Tensor operations.
+  `eigh` wrappers, plus full and axis-selective sums, schedule the existing
+  synchronous Tensor operations.
 
 See the [Async Documentation Index](async/) and
 [Async Tensor Kernel Authoring](async/kernel_authoring.md).
@@ -138,8 +141,8 @@ hierarchy.
 
 ### 2. Complete common Tensor operations and structural views
 
-- Generalize the CPU reduction traversal to one-or-more-axis reductions,
-  beginning with sum and the synthetic-diagonal trace lowering.
+- Build synthetic-diagonal views and trace lowering on the implemented
+  one-or-more-axis CPU sum reduction.
 - Extend scalar-result allocation beyond the current static storage-policy
   model when device/context-bearing storage requires it.
 - Add slicing/indexing descriptors with const-correct mdspan access and explicit

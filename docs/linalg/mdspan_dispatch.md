@@ -2,8 +2,8 @@
 
 **Status:** implemented first vertical slices plus forward plan. The mdspan
 linalg dispatch layer now covers GEMM/GEMV, accessor-respecting CPU fallbacks,
-full inner-product and stable-norm reductions, Tensor output-shape preparation,
-matrix products, explicit copy/materialization,
+full and partial sum reductions, full inner-product and stable-norm reductions,
+Tensor output-shape preparation, matrix products, explicit copy/materialization,
 matrix initialization and exponential front ends, and the LAPACK projected
 eigensystem/Schur operations used by native Krylov. Broader BLAS/LAPACK
 coverage and domain-aware prepared operands remain design work.

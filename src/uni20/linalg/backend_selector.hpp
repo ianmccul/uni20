@@ -56,6 +56,16 @@ template <class... Backends> struct is_backend_list<backend_list<Backends...>> :
 
 template <class T> inline constexpr bool is_backend_list_v = is_backend_list<std::remove_cvref_t<T>>::value;
 
+/// \brief Named backend value accepted as one dispatch candidate.
+template <class T>
+concept KernelBackend = requires {
+  { std::remove_cvref_t<T>::name } -> std::convertible_to<std::string_view>;
+};
+
+/// \brief Single named backend or ordered backend list accepted by dispatch front ends.
+template <class T>
+concept KernelBackendSelector = KernelBackend<T> || is_backend_list_v<T>;
+
 /// \brief Optional global backend-selector override for an operation and storage policy.
 /// \details Specializations may define a static `select(operation)` function.
 ///          When no such function is available, Tensor dispatch uses the

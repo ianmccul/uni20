@@ -6,6 +6,8 @@
  * \brief Backend-independent operation values used by dense linalg dispatch.
  */
 
+#include <uni20/linalg/reduction_axes.hpp>
+
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -73,6 +75,15 @@ struct inner_product_op
 struct norm_op
 {
     static constexpr std::string_view name = "norm";
+};
+
+/// \brief Sum reduction over one or more fixed-rank input axes.
+/// \details The diagnostic name remains the user-facing operation name while
+///          the C++ type makes its reduction role explicit.
+template <std::size_t InputRank, std::size_t ReducedRank> struct sum_reduction_op
+{
+    static constexpr std::string_view name = "sum";
+    ReductionAxes<InputRank, ReducedRank> axes;
 };
 
 /// \brief Dense matrix exponential operation tag.

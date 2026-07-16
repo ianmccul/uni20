@@ -10,6 +10,8 @@ before they lower to backend wrappers and kernels.
 - `operation_tags.hpp`: central catalogue of dispatchable operation values and
   their diagnostic names, including callable-carrying elementwise operation
   descriptors.
+- `reduction_axes.hpp`: normalized reduced/surviving axis descriptors shared by
+  reduction front ends and backends.
 - `backend_selector.hpp`: ordered backend selector values and the stateless
   host backend entries shared with tensor storage.
 - `dispatch.hpp`: operation-value backend-list dispatch helpers.
@@ -19,7 +21,7 @@ before they lower to backend wrappers and kernels.
   `dispatch_error_presentation.hpp`: clean backend-decline results and terminal
   dispatch-failure diagnostics.
 - `async.hpp`: opt-in include point for scheduled `Async<Tensor>` transforms,
-  matrix products, and eigensystems.
+  reductions, matrix products, and eigensystems.
 - [`async/`](async/): all-async Tensor wrappers over the synchronous operation layer.
 - [`blas/`](blas/): mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - [`ops/`](ops/): Tensor-facing dense operation wrappers.
@@ -45,6 +47,9 @@ before they lower to backend wrappers and kernels.
   static storage selector before scheduling, await Tensor values, and then call
   these same synchronous Tensor front ends with that selector; backends do not
   depend on the async runtime.
+- Async sum wrappers validate axes before submission, defer shape preparation
+  and dispatch until the input is readable, and return either a
+  storage-preserving async Tensor or a nonblocking `Async<Element>` host result.
 - `copy_op` is the semantic element-copy operation used by Tensor `copy` and
   `make_tensor`. Its CPU backend respects accessors. Future BLAS matrix-copy
   extensions may accept representable rank-two layouts and conjugating views;
@@ -53,6 +58,9 @@ before they lower to backend wrappers and kernels.
   callable through dispatch. The CPU reference backend supports arbitrary rank
   and input arity; optimized callable/layout combinations belong in earlier
   specialized backends.
+- `sum_reduction_op<R, N>` carries normalized reduced and surviving axes.
+  Tensor front ends remove the selected axes, preserve canonical result layout,
+  and use the generic CPU reference executor when no earlier backend accepts.
 - Dense linalg operations use operation values, `kernel_accepts_types`, and
   `try_kernel`; the former backend-tag selector hierarchy has been removed.
 - Scalar-generic code should use Uni20 scalar traits and numeric limits from

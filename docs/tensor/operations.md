@@ -21,7 +21,7 @@ The main entry points are:
 #include <uni20/tensor/tensor.hpp>       // Tensor, DenseMatrix, generated values, views, reshape
 #include <uni20/tensor/copy.hpp>         // copy, make_tensor, materializing reshape
 #include <uni20/tensor/transform.hpp>    // elementwise overwrite and update
-#include <uni20/tensor/reductions.hpp>   // inner product and Euclidean norm
+#include <uni20/tensor/reductions.hpp>   // sums, inner products, and Euclidean norms
 #include <uni20/tensor/async.hpp>        // async::conj, async::reshape_view
 #include <uni20/linalg/linalg.hpp>       // synchronous dense linalg operations
 #include <uni20/linalg/async.hpp>        // implemented Async linalg wrappers
@@ -297,6 +297,9 @@ later in this guide.
 | `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
 | `conjugate_inplace(x)` | Eager element mutation. Real values are unchanged. | Reuses existing storage. | Not implemented. |
+| `sum(input)` | Full reduction returning a same-element-type `ScalarTensor`. | Allocates a rank-zero result in the selected storage domain; an explicit scalar output is also supported. | Implemented; returns `Async<ScalarTensor>` or writes an explicit async scalar output. |
+| `sum(input, axes...)` | Remove one or more runtime-selected axes; negative axes are accepted. | Allocates rank `R - sizeof...(axes)`, preserves canonical input layout, and retains surviving-axis order. Explicit outputs may resize. | Implemented; returns an async storage-preserving result or writes an explicit async output. |
+| `sum_host(input)` | Full sum returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Implemented; returns `Async<Element>` without blocking submission. |
 | `inner_product(lhs, rhs)` | Conjugate-linear-left full reduction returning a `ScalarTensor`. | Allocates a rank-zero result in the selected storage domain; an explicit scalar output is also supported. | Not implemented. |
 | `inner_product_host(lhs, rhs)` | Same inner product returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Not implemented. |
 | `norm(input)` | Stable Euclidean full reduction returning a real `ScalarTensor`. | Uses scaled sum-of-squares in the CPU reference backend. | Not implemented. |
@@ -330,6 +333,15 @@ queue must be distinct from every input queue. Mutable owner-retaining async
 aliases are fixed-shape outputs: the coroutine holds their writer, copies the
 bound descriptor locally, and dispatches through that copy without retargeting
 the alias.
+
+Async sums normalize and validate runtime axes before task submission because
+rank and axis validity do not depend on stored values. Output shape
+construction, resizing, and backend dispatch occur after the input epoch is
+readable. A value-returning sum creates an independent result epoch;
+`sum_host` likewise returns `Async<Element>` and does not call `get_wait()`
+internally. Explicit outputs must have a distinct epoch queue from the input.
+Mutable async aliases are accepted as fixed-shape outputs and write through
+their bound descriptor.
 
 ## Dense Linear Algebra Support
 

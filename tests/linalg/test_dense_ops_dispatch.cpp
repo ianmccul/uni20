@@ -21,6 +21,7 @@ TEST(LinalgDenseOpsDispatchTest, OperationTagsProvideCentralDiagnosticNames)
   EXPECT_EQ(uni20::linalg::gemv_op::name, "gemv");
   EXPECT_EQ(uni20::linalg::inner_product_op::name, "inner_product");
   EXPECT_EQ(uni20::linalg::norm_op::name, "norm");
+  EXPECT_EQ((uni20::linalg::sum_reduction_op<3, 1>::name), "sum");
   EXPECT_EQ(uni20::linalg::matrix_set_op::name, "matrix_set");
   EXPECT_EQ(uni20::linalg::matrix_exponential_op::name, "matrix_exponential");
   EXPECT_EQ(uni20::linalg::symmetric_tridiagonal_eigen_op::name, "symmetric_tridiagonal_eigen");

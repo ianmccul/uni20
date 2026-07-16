@@ -123,11 +123,14 @@ TEST(MplapackBinary128CpuOpsTest, TensorReductionsPreserveBinary128Values)
 
   auto const inner = uni20::inner_product_host(lhs, rhs);
   auto const norm = uni20::norm_host(lhs);
+  auto const sum = uni20::sum_host(lhs);
 
   static_assert(std::same_as<decltype(inner), Binary128 const>);
   static_assert(std::same_as<decltype(norm), Binary128 const>);
+  static_assert(std::same_as<decltype(sum), Binary128 const>);
   EXPECT_TRUE(abs_error(inner, Binary128{2} + delta) <= tolerance());
   EXPECT_TRUE(abs_error(norm * norm, (Binary128{1} + delta) * (Binary128{1} + delta) + Binary128{1}) <= tolerance());
+  EXPECT_TRUE(abs_error(sum, Binary128{2} + delta) <= tolerance());
 }
 
 #endif

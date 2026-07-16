@@ -3,7 +3,7 @@
 /**
  * \file reductions.hpp
  * \ingroup tensor
- * \brief Tensor inner products and Euclidean norms with explicit result residency.
+ * \brief Tensor sums, inner products, and Euclidean norms with explicit result residency.
  */
 
 #include <uni20/common/trace.hpp>
@@ -52,9 +52,43 @@ template <class... Inputs> struct reduction_result_storage
 template <class... Inputs> using reduction_result_storage_t = typename reduction_result_storage<Inputs...>::type;
 
 template <class Element, class... Inputs>
-concept ScalarReductionResultAvailable = (ReductionStorageTypedTensor<Inputs> && ...) && requires {
+concept ReductionResultAvailable = (ReductionStorageTypedTensor<Inputs> && ...) && requires {
   typename reduction_result_storage_t<Inputs...>::template storage_t<Element>;
 };
+
+template <TensorView InputTensor, std::size_t ReducedRank>
+using sum_reduction_layout_t = std::conditional_t<tensor_mdspan_t<InputTensor>::rank() == ReducedRank, ColumnMajor,
+                                                  materialized_layout_t<void, tensor_mdspan_t<InputTensor>>>;
+
+template <TensorView InputTensor, std::size_t ReducedRank>
+using sum_reduction_result_t =
+    Tensor<tensor_element_t<InputTensor>, tensor_mdspan_t<InputTensor>::rank() - ReducedRank,
+           reduction_result_storage_t<InputTensor>, sum_reduction_layout_t<InputTensor, ReducedRank>>;
+
+template <TensorView InputTensor, std::size_t InputRank, std::size_t ReducedRank, std::size_t... OutputAxis>
+[[nodiscard]] auto reduction_output_extents(InputTensor const& input,
+                                            linalg::ReductionAxes<InputRank, ReducedRank> const& axes,
+                                            std::index_sequence<OutputAxis...>)
+{
+  using extents_type = stdex::dextents<uni20::index_type, InputRank - ReducedRank>;
+  return extents_type{static_cast<uni20::index_type>(input.extent(axes.surviving[OutputAxis]))...};
+}
+
+template <TensorView InputTensor, std::size_t InputRank, std::size_t ReducedRank>
+[[nodiscard]] auto reduction_output_extents(InputTensor const& input,
+                                            linalg::ReductionAxes<InputRank, ReducedRank> const& axes)
+{
+  return reduction_output_extents(input, axes, std::make_index_sequence<InputRank - ReducedRank>{});
+}
+
+template <class BackendSelector, class OutputSpan, class InputSpan, std::size_t InputRank, std::size_t ReducedRank>
+void dispatch_sum(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input,
+                  linalg::ReductionAxes<InputRank, ReducedRank> axes)
+{
+  auto operation = linalg::sum_reduction_op<InputRank, ReducedRank>{.axes = std::move(axes)};
+  linalg::dispatch_kernel(std::forward<BackendSelector>(selector), std::move(operation),
+                          std::forward<OutputSpan>(output), std::forward<InputSpan>(input));
+}
 
 template <class Reference, class... Others>
 void require_reduction_extents(Reference const& reference, Others const&... others)
@@ -71,6 +105,184 @@ void require_reduction_extents(Reference const& reference, Others const&... othe
 }
 
 } // namespace detail
+
+/// \brief Sum every element of an mdspan into a rank-zero output.
+/// \details The output preserves the input element type. The CPU reference
+///          backend uses the corresponding wider accumulation scalar.
+template <linalg::KernelBackendSelector BackendSelector, MutableRankedSpanLike<0> OutputSpan, SpanLike InputSpan>
+  requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type> &&
+           std::same_as<typename std::remove_cvref_t<OutputSpan>::value_type,
+                        typename std::remove_cvref_t<InputSpan>::value_type>
+void sum(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input)
+{
+  using input_type = std::remove_cvref_t<InputSpan>;
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), std::forward<OutputSpan>(output),
+                       std::forward<InputSpan>(input), linalg::all_reduction_axes<input_type::rank()>());
+}
+
+/// \brief Sum selected mdspan axes into an existing lower-rank output.
+/// \details Surviving axes retain their original logical order. Negative axes
+///          count backward from the input rank.
+template <linalg::KernelBackendSelector BackendSelector, MutableSpanLike OutputSpan, SpanLike InputSpan,
+          linalg::ReductionAxis FirstAxis, linalg::ReductionAxis... RestAxes>
+  requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type> &&
+           std::same_as<typename std::remove_cvref_t<OutputSpan>::value_type,
+                        typename std::remove_cvref_t<InputSpan>::value_type> &&
+           (1 + sizeof...(RestAxes) <= std::remove_cvref_t<InputSpan>::rank()) &&
+           (std::remove_cvref_t<OutputSpan>::rank() + 1 + sizeof...(RestAxes) == std::remove_cvref_t<InputSpan>::rank())
+void sum(BackendSelector&& selector, OutputSpan&& output, InputSpan&& input, FirstAxis first_axis,
+         RestAxes... rest_axes)
+{
+  using input_type = std::remove_cvref_t<InputSpan>;
+  auto axes = linalg::make_reduction_axes<input_type::rank()>(first_axis, rest_axes...);
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), std::forward<OutputSpan>(output),
+                       std::forward<InputSpan>(input), std::move(axes));
+}
+
+/// \brief Return the full mdspan sum as a host C++ scalar.
+template <linalg::KernelBackendSelector BackendSelector, SpanLike InputSpan>
+  requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type>
+[[nodiscard]] auto sum_host(BackendSelector&& selector, InputSpan&& input) ->
+    typename std::remove_cvref_t<InputSpan>::value_type
+{
+  using input_type = std::remove_cvref_t<InputSpan>;
+  using result_type = typename input_type::value_type;
+  result_type result{};
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), result, std::forward<InputSpan>(input),
+                       linalg::all_reduction_axes<input_type::rank()>());
+  return result;
+}
+
+/// \brief Sum every element of a Tensor into an existing scalar tensor.
+template <linalg::KernelBackendSelector BackendSelector, MutableScalarTensorView OutputTensor, TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>
+void sum(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
+{
+  sum(std::forward<BackendSelector>(selector), output.mdspan(), input.mdspan());
+}
+
+/// \brief Sum every Tensor element into an existing scalar tensor using storage policy.
+template <MutableScalarTensorView OutputTensor, TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>>
+void sum(OutputTensor&& output, InputTensor const& input)
+{
+  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  auto operation = linalg::sum_reduction_op<input_rank, input_rank>{.axes = linalg::all_reduction_axes<input_rank>()};
+  auto selector = linalg::select_backend(operation, output, input);
+  detail::dispatch_sum(selector, output.mdspan(), input.mdspan(), operation.axes);
+}
+
+/// \brief Sum selected Tensor axes into an existing lower-rank tensor.
+template <linalg::KernelBackendSelector BackendSelector, MutableTensorView OutputTensor, TensorView InputTensor,
+          linalg::ReductionAxis FirstAxis, linalg::ReductionAxis... RestAxes>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>> &&
+           (1 + sizeof...(RestAxes) <= tensor_mdspan_t<InputTensor>::rank()) &&
+           (mutable_tensor_mdspan_t<OutputTensor>::rank() + 1 + sizeof...(RestAxes) ==
+            tensor_mdspan_t<InputTensor>::rank())
+void sum(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input, FirstAxis first_axis,
+         RestAxes... rest_axes)
+{
+  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
+  ensure_shape(output, detail::reduction_output_extents(input, axes));
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), output.mdspan(), input.mdspan(), std::move(axes));
+}
+
+/// \brief Sum selected Tensor axes into an existing output using storage policy.
+template <MutableTensorView OutputTensor, TensorView InputTensor, linalg::ReductionAxis FirstAxis,
+          linalg::ReductionAxis... RestAxes>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           std::same_as<tensor_element_t<OutputTensor>, tensor_element_t<InputTensor>> &&
+           (1 + sizeof...(RestAxes) <= tensor_mdspan_t<InputTensor>::rank()) &&
+           (mutable_tensor_mdspan_t<OutputTensor>::rank() + 1 + sizeof...(RestAxes) ==
+            tensor_mdspan_t<InputTensor>::rank())
+void sum(OutputTensor&& output, InputTensor const& input, FirstAxis first_axis, RestAxes... rest_axes)
+{
+  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
+  auto operation = linalg::sum_reduction_op<input_rank, 1 + sizeof...(RestAxes)>{.axes = axes};
+  auto selector = linalg::select_backend(operation, output, input);
+  ensure_shape(output, detail::reduction_output_extents(input, axes));
+  detail::dispatch_sum(selector, output.mdspan(), input.mdspan(), std::move(axes));
+}
+
+/// \brief Return a storage-preserving full Tensor sum.
+template <linalg::KernelBackendSelector BackendSelector, TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           detail::ReductionResultAvailable<tensor_element_t<InputTensor>, InputTensor>
+[[nodiscard]] auto sum(BackendSelector&& selector, InputTensor const& input)
+{
+  using result_type = ScalarTensor<tensor_element_t<InputTensor>, detail::reduction_result_storage_t<InputTensor>>;
+  result_type result;
+  sum(std::forward<BackendSelector>(selector), result, input);
+  return result;
+}
+
+/// \brief Return a storage-preserving full Tensor sum using storage policy.
+template <TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           detail::ReductionResultAvailable<tensor_element_t<InputTensor>, InputTensor>
+[[nodiscard]] auto sum(InputTensor const& input)
+{
+  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  auto operation = linalg::sum_reduction_op<input_rank, input_rank>{.axes = linalg::all_reduction_axes<input_rank>()};
+  auto selector = linalg::select_backend(operation, input);
+  return sum(selector, input);
+}
+
+/// \brief Return a storage-preserving Tensor sum over selected axes.
+template <linalg::KernelBackendSelector BackendSelector, TensorView InputTensor, linalg::ReductionAxis FirstAxis,
+          linalg::ReductionAxis... RestAxes>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           (1 + sizeof...(RestAxes) <= tensor_mdspan_t<InputTensor>::rank()) &&
+           detail::ReductionResultAvailable<tensor_element_t<InputTensor>, InputTensor>
+[[nodiscard]] auto sum(BackendSelector&& selector, InputTensor const& input, FirstAxis first_axis,
+                       RestAxes... rest_axes)
+{
+  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  constexpr std::size_t reduced_rank = 1 + sizeof...(RestAxes);
+  auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
+  using result_type = detail::sum_reduction_result_t<InputTensor, reduced_rank>;
+  result_type result(detail::reduction_output_extents(input, axes));
+  detail::dispatch_sum(std::forward<BackendSelector>(selector), result.mdspan(), input.mdspan(), std::move(axes));
+  return result;
+}
+
+/// \brief Return a storage-preserving Tensor sum over selected axes using storage policy.
+template <TensorView InputTensor, linalg::ReductionAxis FirstAxis, linalg::ReductionAxis... RestAxes>
+  requires RealOrComplex<tensor_element_t<InputTensor>> &&
+           (1 + sizeof...(RestAxes) <= tensor_mdspan_t<InputTensor>::rank()) &&
+           detail::ReductionResultAvailable<tensor_element_t<InputTensor>, InputTensor>
+[[nodiscard]] auto sum(InputTensor const& input, FirstAxis first_axis, RestAxes... rest_axes)
+{
+  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  auto axes = linalg::make_reduction_axes<input_rank>(first_axis, rest_axes...);
+  auto operation = linalg::sum_reduction_op<input_rank, 1 + sizeof...(RestAxes)>{.axes = axes};
+  auto selector = linalg::select_backend(operation, input);
+  return sum(selector, input, first_axis, rest_axes...);
+}
+
+/// \brief Return a full Tensor sum as a host C++ scalar through an explicit selector.
+template <linalg::KernelBackendSelector BackendSelector, TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>>
+[[nodiscard]] auto sum_host(BackendSelector&& selector, InputTensor const& input) -> tensor_element_t<InputTensor>
+{
+  return sum_host(std::forward<BackendSelector>(selector), input.mdspan());
+}
+
+/// \brief Return a full Tensor sum as a host C++ scalar using storage policy.
+template <TensorView InputTensor>
+  requires RealOrComplex<tensor_element_t<InputTensor>>
+[[nodiscard]] auto sum_host(InputTensor const& input) -> tensor_element_t<InputTensor>
+{
+  constexpr std::size_t input_rank = tensor_mdspan_t<InputTensor>::rank();
+  auto operation = linalg::sum_reduction_op<input_rank, input_rank>{.axes = linalg::all_reduction_axes<input_rank>()};
+  auto selector = linalg::select_backend(operation, input);
+  return sum_host(selector, input.mdspan());
+}
 
 /// \brief Compute an mdspan inner product into a rank-zero output.
 /// \details The operation is conjugate-linear in `lhs` and linear in `rhs`.
@@ -124,7 +336,7 @@ void inner_product(OutputTensor&& output, LhsTensor const& lhs, RhsTensor const&
 /// \brief Return a storage-preserving rank-zero Tensor inner product.
 template <class BackendSelector, class LhsTensor, class RhsTensor>
   requires(!TensorView<BackendSelector>) && detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor> &&
-          detail::ScalarReductionResultAvailable<tensor_element_t<LhsTensor>, LhsTensor, RhsTensor>
+          detail::ReductionResultAvailable<tensor_element_t<LhsTensor>, LhsTensor, RhsTensor>
 [[nodiscard]] auto inner_product(BackendSelector&& selector, LhsTensor const& lhs, RhsTensor const& rhs)
 {
   using result_type =
@@ -137,7 +349,7 @@ template <class BackendSelector, class LhsTensor, class RhsTensor>
 /// \brief Return a storage-preserving rank-zero Tensor inner product using storage policy.
 template <class LhsTensor, class RhsTensor>
   requires detail::CompatibleInnerProductTensors<LhsTensor, RhsTensor> &&
-           detail::ScalarReductionResultAvailable<tensor_element_t<LhsTensor>, LhsTensor, RhsTensor>
+           detail::ReductionResultAvailable<tensor_element_t<LhsTensor>, LhsTensor, RhsTensor>
 [[nodiscard]] auto inner_product(LhsTensor const& lhs, RhsTensor const& rhs)
 {
   detail::require_reduction_extents(lhs, rhs);
@@ -211,7 +423,7 @@ void norm(OutputTensor&& output, InputTensor const& input)
 /// \brief Return a storage-preserving real rank-zero Tensor Euclidean norm.
 template <class BackendSelector, TensorView InputTensor>
   requires(!TensorView<BackendSelector>) && RealOrComplex<tensor_element_t<InputTensor>> &&
-          detail::ScalarReductionResultAvailable<make_real_t<tensor_element_t<InputTensor>>, InputTensor>
+          detail::ReductionResultAvailable<make_real_t<tensor_element_t<InputTensor>>, InputTensor>
 [[nodiscard]] auto norm(BackendSelector&& selector, InputTensor const& input)
 {
   using result_type =
@@ -224,7 +436,7 @@ template <class BackendSelector, TensorView InputTensor>
 /// \brief Return a storage-preserving real rank-zero Tensor Euclidean norm using storage policy.
 template <TensorView InputTensor>
   requires RealOrComplex<tensor_element_t<InputTensor>> &&
-           detail::ScalarReductionResultAvailable<make_real_t<tensor_element_t<InputTensor>>, InputTensor>
+           detail::ReductionResultAvailable<make_real_t<tensor_element_t<InputTensor>>, InputTensor>
 [[nodiscard]] auto norm(InputTensor const& input)
 {
   auto selector = linalg::select_backend(linalg::norm_op{}, input);

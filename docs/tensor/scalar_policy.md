@@ -97,11 +97,12 @@ must itself be the scalar value.
 matters for extension scalar types: a type can be a valid Uni20 real scalar
 without having BLAS or LAPACK coverage in the current build.
 
-Reference reductions use `accumulation_scalar_t<T>` for inner products and
-`accumulation_real_t<T>` for scaled sum-of-squares norms. The widened
+Reference reductions use `accumulation_scalar_t<T>` for sums and inner products
+and `accumulation_real_t<T>` for scaled sum-of-squares norms. The widened
 accumulator improves ordinary float and double reductions without changing the
 public result element type. Extension precisions remain in their own field
-unless they specialize the accumulation traits.
+unless they specialize the accumulation traits. Integer sums are not accepted
+until Uni20 defines their overflow and promotion contract.
 
 For matrix-free algorithms, avoid duplicating scalar type information in
 interfaces when it can be inferred from the vector operations. For example, the

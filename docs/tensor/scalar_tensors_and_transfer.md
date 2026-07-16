@@ -1,8 +1,9 @@
 # Scalar Tensors, Host Scalars, and Storage Transfer
 
-**Status:** scalar tensors plus CPU inner-product and norm reductions are
-implemented. General axis reductions, Async lowering, CUDA, multi-GPU, and MPI
-transfer APIs remain future work.
+**Status:** scalar tensors plus CPU sum, inner-product, and norm reductions are
+implemented. Full and axis-selective sums also have all-Async Tensor lowering.
+Async inner-product/norm lowering, provider reductions, CUDA, multi-GPU, and
+MPI transfer APIs remain future work.
 
 ## Summary
 
@@ -125,13 +126,28 @@ different function names.
 ### Partial Reductions
 
 A reduction over only some axes returns a tensor whose rank is the number of
-surviving axes. The same naming rule applies:
+surviving axes:
+
+```cpp
+auto rows = uni20::sum(x, 1);
+auto middle = uni20::sum(x, 0, 2);
+uni20::sum(output, x, -1);
+```
+
+Axis arguments are runtime integral values, while the number of axes is part of
+the C++ overload and therefore determines the result rank at compile time.
+Negative axes count backward from the input rank. Duplicate and out-of-range
+axes are rejected before dispatch. The reduced axes may be supplied in any
+order; surviving axes retain their original logical order.
+
+The same naming rule applies:
 
 - an operation returning a tensor preserves storage residency;
 - `_host` is reserved for an ordinary C++ scalar and therefore applies only
   when every logical axis has been reduced.
 
-The exact axis-selection API is not fixed by this note.
+There is no `keepdims` option in the current API. Callers that require singleton
+reduced dimensions can add the desired structural reshape explicitly.
 
 ## Krylov Algorithms
 
@@ -153,17 +169,28 @@ or asynchronously composed device work.
 
 ## Async Semantics
 
-Async operations preserve the same result distinction:
+Async sums preserve the same result distinction:
 
 ```cpp
 sum(Async<Tensor>)       -> Async<ScalarTensor>
 sum_host(Async<Tensor>)  -> Async<Element>
 ```
 
-Calling `sum_host` on an Async tensor schedules the host-result operation. It
-does not synchronously block the caller merely because the final value is a C++
-scalar. Observing the returned `Async<Element>` through `get_wait()` or a
-downstream buffer performs the normal Async synchronization.
+Axis-selective sums return `Async<Tensor<..., R - N>>` in the storage policy
+and canonical layout selected by the synchronous operation. Explicit async
+outputs are also supported: owning outputs may be constructed or resized after
+the input becomes readable, while mutable async aliases are fixed-shape
+write-through destinations.
+
+`sum_host` schedules the host-result operation rather than synchronously
+blocking the caller merely because the final value is a C++ scalar. Observing
+the returned `Async<Element>` through `get_wait()` or a downstream buffer
+performs the normal Async synchronization.
+
+Reduction axes are normalized and validated before submission. Shape
+preparation and backend dispatch remain deferred until the input epoch is
+readable. An explicit output must not share an epoch queue with its input;
+violating that contract is rejected before buffer enrollment.
 
 A storage-preserving scalar tensor can flow directly into another Async tensor
 operation. Its owner and epoch queue provide the same lifetime and dependency
@@ -171,13 +198,14 @@ tracking as for tensors of higher rank.
 
 ## Kernel Lowering
 
-The leaf-kernel interface should remain output-first.
+The leaf-kernel interface remains output-first.
 
-A storage-preserving reduction receives a writable rank-zero mdspan as its
-output:
+A storage-preserving reduction receives a writable result mdspan of rank
+`R - N`; a full reduction therefore receives a rank-zero output:
 
 ```cpp
-dispatch_kernel(selector, sum_op{}, output.mdspan(), input.mdspan());
+dispatch_kernel(selector, sum_reduction_op<R, N>{axes},
+                output.mdspan(), input.mdspan());
 ```
 
 This keeps kernel dispatch consistent with GEMM, GEMV, copy, and elementwise
@@ -227,24 +255,23 @@ or the corresponding direct host-result operation.
 
 ## Result Allocation
 
-Returning a storage-preserving reduction result requires a general way to
-construct an owning result while changing rank and sometimes element type.
-The result should normally inherit the concrete input's storage policy and
-execution domain, but an arbitrary `TensorView` may not expose enough
-information to construct a corresponding owner.
+The current front end constructs an owning result by rebinding the input's
+static storage policy to the result element type and rank. Backend-neutral
+generated inputs materialize into `VectorStorage`. Canonical row-major or
+column-major layout is preserved for partial sums; noncanonical inputs use the
+default column-major layout. Rank-zero results use `ScalarTensor`.
 
-The first implementation should introduce a narrow result-rebinding facility
-for concrete owning tensors. The design must eventually account for:
+This static policy mechanism does not yet carry runtime device or context state.
+The design must eventually account for:
 
 - changing rank while preserving storage policy;
 - changing element type, as for complex input to real norm output;
 - preserving or explicitly selecting device/context state;
 - generated and other backend-neutral inputs;
-- views whose owner type is intentionally hidden.
+- views whose owner type or runtime storage context is intentionally hidden.
 
-The front end should not guess a host allocation merely because it cannot
-construct an owner matching the input view. Such cases should require an
-explicit output or a materialization policy.
+Such cases should require an explicit output or a future result-allocation
+customization rather than silently selecting unrelated host storage.
 
 ## Rank-Zero Construction Invariant
 
@@ -268,18 +295,21 @@ The current host implementation provides:
 
 1. `ScalarTensor`, `ScalarTensorView`, and `MutableScalarTensorView`;
 2. const and mutable `scalar[]` indexing;
-3. output-first `inner_product_op` and `norm_op` CPU kernels;
-4. widened accumulation for real and complex inner products;
-5. scaled sum-of-squares norms that avoid avoidable overflow and underflow;
-6. storage-preserving and `_host` Tensor front ends;
-7. direct host-scalar kernel outputs without a one-element allocation;
-8. DenseHostVector Krylov operations routed through the dispatched kernels;
-9. optional binary128 validation in the MPLAPACK test lane.
+3. one shared output-first CPU reduction executor for full and partial
+   reductions;
+4. `sum_reduction_op`, `inner_product_op`, and `norm_op` CPU kernels;
+5. widened accumulation for real and complex sums and inner products;
+6. scaled sum-of-squares norms that avoid avoidable overflow and underflow;
+7. storage-preserving and `_host` Tensor front ends;
+8. direct host-scalar kernel outputs without a one-element allocation;
+9. axis normalization, duplicate rejection, negative axes, and zero-extent
+   identities;
+10. accessor-respecting generated and conjugating input paths;
+11. DenseHostVector Krylov operations routed through the dispatched kernels;
+12. optional binary128 validation in the MPLAPACK test lane.
 
-`sum` is not part of this checkpoint. It should be implemented with the general
-one-or-more-axis reduction machinery rather than as a separate full-reduction
-loop. Async lowering should follow once that broader reduction shape and output
-contract is established.
+The current `sum` domain is real and complex scalar tensors. Integer sum policy
+is deferred until overflow and promotion semantics are specified.
 
 CUDA storage, device identity, cross-device transfer, and device-resident
 provider reductions remain outside the current implementation.

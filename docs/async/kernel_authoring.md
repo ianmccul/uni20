@@ -3,7 +3,8 @@
 This guide defines the first supported pattern for lifting synchronous Tensor
 operations onto Uni20's async runtime. The implemented references are
 `uni20::linalg::assign_product`, `uni20::linalg::add_product`, and the
-multi-output `uni20::linalg::eigh` overloads from `<uni20/linalg/async.hpp>`.
+multi-output `uni20::linalg::eigh` overloads, plus full and axis-selective
+`uni20::sum`, from `<uni20/linalg/async.hpp>`.
 See [Tensor Operations](../tensor/operations.md) for the canonical
 operation semantics and current synchronous/Async support matrix.
 
@@ -162,6 +163,16 @@ rejected. A mutable async alias remains fixed to its parent: while holding the
 writer, the transform coroutine copies the bound descriptor locally and
 dispatches through that copy rather than requesting value storage or replacing
 the descriptor.
+
+`sum` is a reduction overwrite. Runtime axes are ordinary configuration state:
+the wrapper normalizes and validates them before scheduling, then moves the
+fixed-rank descriptor into the coroutine. The coroutine awaits the input,
+derives the required output extents, constructs or resizes an owning output,
+and invokes the synchronous reduction. A mutable async alias is a valid
+fixed-shape output; the coroutine copies its bound descriptor under the writer
+and writes through that copy. Value-returning sums create a fresh independent
+result epoch, while `sum_host` creates `Async<Element>` and schedules the host
+result instead of blocking the submitting thread.
 
 `eigh` is an allocating multi-output operation. It returns
 `SelfAdjointEighResult<Async<Values>, Async<Vectors>>`, not an
