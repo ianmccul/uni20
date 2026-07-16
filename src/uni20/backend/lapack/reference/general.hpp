@@ -3,7 +3,7 @@
 /**
  * \file general.hpp
  * \ingroup backend_lapack_reference
- * \brief Reference LAPACK wrappers for real dense general linear systems.
+ * \brief Reference LAPACK wrappers for real and complex dense general linear systems.
  */
 
 #include <uni20/backend/backend.hpp>
@@ -21,6 +21,12 @@ extern "C"
 
   void dgesv_(blas_int const* n, blas_int const* nrhs, double* a, blas_int const* lda, blas_int* ipiv, double* b,
               blas_int const* ldb, blas_int* info);
+
+  void cgesv_(blas_int const* n, blas_int const* nrhs, uni20::complex<float>* a, blas_int const* lda, blas_int* ipiv,
+              uni20::complex<float>* b, blas_int const* ldb, blas_int* info);
+
+  void zgesv_(blas_int const* n, blas_int const* nrhs, uni20::complex<double>* a, blas_int const* lda, blas_int* ipiv,
+              uni20::complex<double>* b, blas_int const* ldb, blas_int* info);
 
   void sgesvx_(char const* fact, char const* trans, blas_int const* n, blas_int const* nrhs, float* a,
                blas_int const* lda, float* af, blas_int const* ldaf, blas_int* ipiv, char* equed, float* r, float* c,
@@ -42,11 +48,25 @@ extern "C"
 
   void dgetrf_(blas_int const* m, blas_int const* n, double* a, blas_int const* lda, blas_int* ipiv, blas_int* info);
 
+  void cgetrf_(blas_int const* m, blas_int const* n, uni20::complex<float>* a, blas_int const* lda, blas_int* ipiv,
+               blas_int* info);
+
+  void zgetrf_(blas_int const* m, blas_int const* n, uni20::complex<double>* a, blas_int const* lda, blas_int* ipiv,
+               blas_int* info);
+
   void sgetrs_(char const* trans, blas_int const* n, blas_int const* nrhs, float* a, blas_int const* lda,
                blas_int const* ipiv, float* b, blas_int const* ldb, blas_int* info);
 
   void dgetrs_(char const* trans, blas_int const* n, blas_int const* nrhs, double* a, blas_int const* lda,
                blas_int const* ipiv, double* b, blas_int const* ldb, blas_int* info);
+
+  void cgetrs_(char const* trans, blas_int const* n, blas_int const* nrhs, uni20::complex<float>* a,
+               blas_int const* lda, blas_int const* ipiv, uni20::complex<float>* b, blas_int const* ldb,
+               blas_int* info);
+
+  void zgetrs_(char const* trans, blas_int const* n, blas_int const* nrhs, uni20::complex<double>* a,
+               blas_int const* lda, blas_int const* ipiv, uni20::complex<double>* b, blas_int const* ldb,
+               blas_int* info);
 
   void sgerfs_(char const* trans, blas_int const* n, blas_int const* nrhs, float* a, blas_int const* lda, float* af,
                blas_int const* ldaf, blas_int const* ipiv, float* b, blas_int const* ldb, float* x, blas_int const* ldx,
@@ -62,11 +82,23 @@ extern "C"
   void dgetri_(blas_int const* n, double* a, blas_int const* lda, blas_int* ipiv, double* work, blas_int const* lwork,
                blas_int* info);
 
+  void cgetri_(blas_int const* n, uni20::complex<float>* a, blas_int const* lda, blas_int* ipiv,
+               uni20::complex<float>* work, blas_int const* lwork, blas_int* info);
+
+  void zgetri_(blas_int const* n, uni20::complex<double>* a, blas_int const* lda, blas_int* ipiv,
+               uni20::complex<double>* work, blas_int const* lwork, blas_int* info);
+
   void sgecon_(char const* norm, blas_int const* n, float const* a, blas_int const* lda, float const* anorm,
                float* rcond, float* work, blas_int* iwork, blas_int* info);
 
   void dgecon_(char const* norm, blas_int const* n, double const* a, blas_int const* lda, double const* anorm,
                double* rcond, double* work, blas_int* iwork, blas_int* info);
+
+  void cgecon_(char const* norm, blas_int const* n, uni20::complex<float> const* a, blas_int const* lda,
+               float const* anorm, float* rcond, uni20::complex<float>* work, float* rwork, blas_int* info);
+
+  void zgecon_(char const* norm, blas_int const* n, uni20::complex<double> const* a, blas_int const* lda,
+               double const* anorm, double* rcond, uni20::complex<double>* work, double* rwork, blas_int* info);
 
   void sgels_(char const* trans, blas_int const* m, blas_int const* n, blas_int const* nrhs, float* a,
               blas_int const* lda, float* b, blas_int const* ldb, float* work, blas_int const* lwork, blas_int* info);
@@ -556,12 +588,30 @@ extern "C"
                blas_int const* lda, double* s, double* u, blas_int const* ldu, double* vt, blas_int const* ldvt,
                double* work, blas_int const* lwork, blas_int* info);
 
+  void cgesvd_(char const* jobu, char const* jobvt, blas_int const* m, blas_int const* n, uni20::complex<float>* a,
+               blas_int const* lda, float* s, uni20::complex<float>* u, blas_int const* ldu, uni20::complex<float>* vt,
+               blas_int const* ldvt, uni20::complex<float>* work, blas_int const* lwork, float* rwork, blas_int* info);
+
+  void zgesvd_(char const* jobu, char const* jobvt, blas_int const* m, blas_int const* n, uni20::complex<double>* a,
+               blas_int const* lda, double* s, uni20::complex<double>* u, blas_int const* ldu,
+               uni20::complex<double>* vt, blas_int const* ldvt, uni20::complex<double>* work, blas_int const* lwork,
+               double* rwork, blas_int* info);
+
   void sgesdd_(char const* jobz, blas_int const* m, blas_int const* n, float* a, blas_int const* lda, float* s,
                float* u, blas_int const* ldu, float* vt, blas_int const* ldvt, float* work, blas_int const* lwork,
                blas_int* iwork, blas_int* info);
 
   void dgesdd_(char const* jobz, blas_int const* m, blas_int const* n, double* a, blas_int const* lda, double* s,
                double* u, blas_int const* ldu, double* vt, blas_int const* ldvt, double* work, blas_int const* lwork,
+               blas_int* iwork, blas_int* info);
+
+  void cgesdd_(char const* jobz, blas_int const* m, blas_int const* n, uni20::complex<float>* a, blas_int const* lda,
+               float* s, uni20::complex<float>* u, blas_int const* ldu, uni20::complex<float>* vt, blas_int const* ldvt,
+               uni20::complex<float>* work, blas_int const* lwork, float* rwork, blas_int* iwork, blas_int* info);
+
+  void zgesdd_(char const* jobz, blas_int const* m, blas_int const* n, uni20::complex<double>* a, blas_int const* lda,
+               double* s, uni20::complex<double>* u, blas_int const* ldu, uni20::complex<double>* vt,
+               blas_int const* ldvt, uni20::complex<double>* work, blas_int const* lwork, double* rwork,
                blas_int* iwork, blas_int* info);
 
   void sgesvdx_(char const* jobu, char const* jobvt, char const* range, blas_int const* m, blas_int const* n, float* a,
@@ -573,6 +623,18 @@ extern "C"
                 blas_int const* lda, double const* vl, double const* vu, blas_int const* il, blas_int const* iu,
                 blas_int* ns, double* s, double* u, blas_int const* ldu, double* vt, blas_int const* ldvt, double* work,
                 blas_int const* lwork, blas_int* iwork, blas_int* info);
+
+  void cgesvdx_(char const* jobu, char const* jobvt, char const* range, blas_int const* m, blas_int const* n,
+                uni20::complex<float>* a, blas_int const* lda, float const* vl, float const* vu, blas_int const* il,
+                blas_int const* iu, blas_int* ns, float* s, uni20::complex<float>* u, blas_int const* ldu,
+                uni20::complex<float>* vt, blas_int const* ldvt, uni20::complex<float>* work, blas_int const* lwork,
+                float* rwork, blas_int* iwork, blas_int* info);
+
+  void zgesvdx_(char const* jobu, char const* jobvt, char const* range, blas_int const* m, blas_int const* n,
+                uni20::complex<double>* a, blas_int const* lda, double const* vl, double const* vu, blas_int const* il,
+                blas_int const* iu, blas_int* ns, double* s, uni20::complex<double>* u, blas_int const* ldu,
+                uni20::complex<double>* vt, blas_int const* ldvt, uni20::complex<double>* work, blas_int const* lwork,
+                double* rwork, blas_int* iwork, blas_int* info);
 
   void sbdsqr_(char const* uplo, blas_int const* n, blas_int const* ncvt, blas_int const* nru, blas_int const* ncc,
                float* d, float* e, float* vt, blas_int const* ldvt, float* u, blas_int const* ldu, float* c,
@@ -741,6 +803,24 @@ extern "C"
   return info;
 }
 
+[[nodiscard]] inline blas_int gesv(blas_int n, blas_int nrhs, uni20::complex<float>* a, blas_int lda, blas_int* ipiv,
+                                   uni20::complex<float>* b, blas_int ldb)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, cgesv_, n, nrhs, a, lda, ipiv, b, ldb);
+  detail::cgesv_(&n, &nrhs, a, &lda, ipiv, b, &ldb, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int gesv(blas_int n, blas_int nrhs, uni20::complex<double>* a, blas_int lda, blas_int* ipiv,
+                                   uni20::complex<double>* b, blas_int ldb)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, zgesv_, n, nrhs, a, lda, ipiv, b, ldb);
+  detail::zgesv_(&n, &nrhs, a, &lda, ipiv, b, &ldb, &info);
+  return info;
+}
+
 [[nodiscard]] inline blas_int gesvx(char fact, char trans, blas_int n, blas_int nrhs, float* a, blas_int lda, float* af,
                                     blas_int ldaf, blas_int* ipiv, char& equed, float* row_scale, float* column_scale,
                                     float* b, blas_int ldb, float* x, blas_int ldx, float& rcond, float* forward_error,
@@ -803,6 +883,22 @@ extern "C"
   return info;
 }
 
+[[nodiscard]] inline blas_int getrf(blas_int m, blas_int n, uni20::complex<float>* a, blas_int lda, blas_int* ipiv)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, cgetrf_, m, n, a, lda, ipiv);
+  detail::cgetrf_(&m, &n, a, &lda, ipiv, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int getrf(blas_int m, blas_int n, uni20::complex<double>* a, blas_int lda, blas_int* ipiv)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, zgetrf_, m, n, a, lda, ipiv);
+  detail::zgetrf_(&m, &n, a, &lda, ipiv, &info);
+  return info;
+}
+
 [[nodiscard]] inline blas_int getrs(char trans, blas_int n, blas_int nrhs, float* a, blas_int lda, blas_int const* ipiv,
                                     float* b, blas_int ldb)
 {
@@ -818,6 +914,24 @@ extern "C"
   blas_int info = 0;
   UNI20_EXTERNAL_API_CALL(LAPACK, dgetrs_, trans, n, nrhs, a, lda, ipiv, b, ldb);
   detail::dgetrs_(&trans, &n, &nrhs, a, &lda, ipiv, b, &ldb, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int getrs(char trans, blas_int n, blas_int nrhs, uni20::complex<float>* a, blas_int lda,
+                                    blas_int const* ipiv, uni20::complex<float>* b, blas_int ldb)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, cgetrs_, trans, n, nrhs, a, lda, ipiv, b, ldb);
+  detail::cgetrs_(&trans, &n, &nrhs, a, &lda, ipiv, b, &ldb, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int getrs(char trans, blas_int n, blas_int nrhs, uni20::complex<double>* a, blas_int lda,
+                                    blas_int const* ipiv, uni20::complex<double>* b, blas_int ldb)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, zgetrs_, trans, n, nrhs, a, lda, ipiv, b, ldb);
+  detail::zgetrs_(&trans, &n, &nrhs, a, &lda, ipiv, b, &ldb, &info);
   return info;
 }
 
@@ -863,6 +977,24 @@ extern "C"
   return info;
 }
 
+[[nodiscard]] inline blas_int getri(blas_int n, uni20::complex<float>* a, blas_int lda, blas_int* ipiv,
+                                    uni20::complex<float>* work, blas_int lwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, cgetri_, n, a, lda, ipiv, work, lwork);
+  detail::cgetri_(&n, a, &lda, ipiv, work, &lwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int getri(blas_int n, uni20::complex<double>* a, blas_int lda, blas_int* ipiv,
+                                    uni20::complex<double>* work, blas_int lwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, zgetri_, n, a, lda, ipiv, work, lwork);
+  detail::zgetri_(&n, a, &lda, ipiv, work, &lwork, &info);
+  return info;
+}
+
 [[nodiscard]] inline blas_int gecon(char norm, blas_int n, float const* a, blas_int lda, float anorm, float& rcond,
                                     float* work, blas_int* iwork)
 {
@@ -878,6 +1010,24 @@ extern "C"
   blas_int info = 0;
   UNI20_EXTERNAL_API_CALL(LAPACK, dgecon_, norm, n, a, lda, anorm, work, iwork);
   detail::dgecon_(&norm, &n, a, &lda, &anorm, &rcond, work, iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int gecon(char norm, blas_int n, uni20::complex<float> const* a, blas_int lda, float anorm,
+                                    float& rcond, uni20::complex<float>* work, float* rwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, cgecon_, norm, n, a, lda, anorm, work, rwork);
+  detail::cgecon_(&norm, &n, a, &lda, &anorm, &rcond, work, rwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int gecon(char norm, blas_int n, uni20::complex<double> const* a, blas_int lda, double anorm,
+                                    double& rcond, uni20::complex<double>* work, double* rwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, zgecon_, norm, n, a, lda, anorm, work, rwork);
+  detail::zgecon_(&norm, &n, a, &lda, &anorm, &rcond, work, rwork, &info);
   return info;
 }
 
@@ -2207,6 +2357,28 @@ extern "C"
   return info;
 }
 
+[[nodiscard]] inline blas_int gesvd(char jobu, char jobvt, blas_int m, blas_int n, uni20::complex<float>* a,
+                                    blas_int lda, float* s, uni20::complex<float>* u, blas_int ldu,
+                                    uni20::complex<float>* vt, blas_int ldvt, uni20::complex<float>* work,
+                                    blas_int lwork, float* rwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, cgesvd_, jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork);
+  detail::cgesvd_(&jobu, &jobvt, &m, &n, a, &lda, s, u, &ldu, vt, &ldvt, work, &lwork, rwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int gesvd(char jobu, char jobvt, blas_int m, blas_int n, uni20::complex<double>* a,
+                                    blas_int lda, double* s, uni20::complex<double>* u, blas_int ldu,
+                                    uni20::complex<double>* vt, blas_int ldvt, uni20::complex<double>* work,
+                                    blas_int lwork, double* rwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, zgesvd_, jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork);
+  detail::zgesvd_(&jobu, &jobvt, &m, &n, a, &lda, s, u, &ldu, vt, &ldvt, work, &lwork, rwork, &info);
+  return info;
+}
+
 [[nodiscard]] inline blas_int gesdd(char jobz, blas_int m, blas_int n, float* a, blas_int lda, float* s, float* u,
                                     blas_int ldu, float* vt, blas_int ldvt, float* work, blas_int lwork,
                                     blas_int* iwork)
@@ -2224,6 +2396,27 @@ extern "C"
   blas_int info = 0;
   UNI20_EXTERNAL_API_CALL(LAPACK, dgesdd_, jobz, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, iwork);
   detail::dgesdd_(&jobz, &m, &n, a, &lda, s, u, &ldu, vt, &ldvt, work, &lwork, iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int gesdd(char jobz, blas_int m, blas_int n, uni20::complex<float>* a, blas_int lda, float* s,
+                                    uni20::complex<float>* u, blas_int ldu, uni20::complex<float>* vt, blas_int ldvt,
+                                    uni20::complex<float>* work, blas_int lwork, float* rwork, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, cgesdd_, jobz, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork, iwork);
+  detail::cgesdd_(&jobz, &m, &n, a, &lda, s, u, &ldu, vt, &ldvt, work, &lwork, rwork, iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int gesdd(char jobz, blas_int m, blas_int n, uni20::complex<double>* a, blas_int lda,
+                                    double* s, uni20::complex<double>* u, blas_int ldu, uni20::complex<double>* vt,
+                                    blas_int ldvt, uni20::complex<double>* work, blas_int lwork, double* rwork,
+                                    blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, zgesdd_, jobz, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork, iwork);
+  detail::zgesdd_(&jobz, &m, &n, a, &lda, s, u, &ldu, vt, &ldvt, work, &lwork, rwork, iwork, &info);
   return info;
 }
 
@@ -2250,6 +2443,34 @@ extern "C"
                           singular_values, u, ldu, vt, ldvt, work, lwork, iwork);
   detail::dgesvdx_(&jobu, &jobvt, &range, &m, &n, a, &lda, &vl, &vu, &il, &iu, &selected_count, singular_values, u,
                    &ldu, vt, &ldvt, work, &lwork, iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int gesvdx(char jobu, char jobvt, char range, blas_int m, blas_int n,
+                                     uni20::complex<float>* a, blas_int lda, float vl, float vu, blas_int il,
+                                     blas_int iu, blas_int& selected_count, float* singular_values,
+                                     uni20::complex<float>* u, blas_int ldu, uni20::complex<float>* vt, blas_int ldvt,
+                                     uni20::complex<float>* work, blas_int lwork, float* rwork, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, cgesvdx_, jobu, jobvt, range, m, n, a, lda, vl, vu, il, iu, selected_count,
+                          singular_values, u, ldu, vt, ldvt, work, lwork, rwork, iwork);
+  detail::cgesvdx_(&jobu, &jobvt, &range, &m, &n, a, &lda, &vl, &vu, &il, &iu, &selected_count, singular_values, u,
+                   &ldu, vt, &ldvt, work, &lwork, rwork, iwork, &info);
+  return info;
+}
+
+[[nodiscard]] inline blas_int gesvdx(char jobu, char jobvt, char range, blas_int m, blas_int n,
+                                     uni20::complex<double>* a, blas_int lda, double vl, double vu, blas_int il,
+                                     blas_int iu, blas_int& selected_count, double* singular_values,
+                                     uni20::complex<double>* u, blas_int ldu, uni20::complex<double>* vt, blas_int ldvt,
+                                     uni20::complex<double>* work, blas_int lwork, double* rwork, blas_int* iwork)
+{
+  blas_int info = 0;
+  UNI20_EXTERNAL_API_CALL(LAPACK, zgesvdx_, jobu, jobvt, range, m, n, a, lda, vl, vu, il, iu, selected_count,
+                          singular_values, u, ldu, vt, ldvt, work, lwork, rwork, iwork);
+  detail::zgesvdx_(&jobu, &jobvt, &range, &m, &n, a, &lda, &vl, &vu, &il, &iu, &selected_count, singular_values, u,
+                   &ldu, vt, &ldvt, work, &lwork, rwork, iwork, &info);
   return info;
 }
 

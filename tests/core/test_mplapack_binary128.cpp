@@ -1,4 +1,6 @@
 #include <uni20/backend/blas/backend_blas.hpp>
+#include <uni20/backend/lapack/lapack.hpp>
+#include <uni20/common/gtest.hpp>
 #include <uni20/core/numeric_limits.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/core/scalar_io.hpp>
@@ -14,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <numbers>
@@ -55,6 +58,87 @@ void expect_gap_is_binary128_only(Binary128 gap)
 {
   EXPECT_TRUE(Binary128{1} + gap > Binary128{1});
   EXPECT_EQ(static_cast<double>(Binary128{1} + gap), 1.0);
+}
+
+enum class ComplexSvdDriver
+{
+  standard,
+  divide_and_conquer,
+  selected
+};
+
+void expect_complex_svd_reconstructs(ComplexSvdDriver driver)
+{
+  uni20::blas_int constexpr n = 2;
+  std::vector<ComplexBinary128> const original{
+      ComplexBinary128{Binary128{}, Binary128{3}},
+      ComplexBinary128{},
+      ComplexBinary128{},
+      ComplexBinary128{Binary128{2}, Binary128{-1}},
+  };
+  auto matrix = original;
+  std::array<Binary128, n> singular_values{};
+  std::array<ComplexBinary128, n * n> left{};
+  std::array<ComplexBinary128, n * n> right{};
+  std::array<Binary128, 256> real_work{};
+  std::array<uni20::blas_int, 32> int_work{};
+  ComplexBinary128 work_query{};
+
+  if (driver == ComplexSvdDriver::standard)
+  {
+    uni20::lapack::gesvd('S', 'S', n, n, matrix.data(), n, singular_values.data(), left.data(), n, right.data(), n,
+                         &work_query, -1, real_work.data());
+  }
+  else if (driver == ComplexSvdDriver::divide_and_conquer)
+  {
+    uni20::lapack::gesdd('S', n, n, matrix.data(), n, singular_values.data(), left.data(), n, right.data(), n,
+                         &work_query, -1, real_work.data(), int_work.data());
+  }
+  else
+  {
+    uni20::blas_int selected_count = 0;
+    uni20::lapack::gesvdx('V', 'V', 'A', n, n, matrix.data(), n, Binary128{}, Binary128{}, 0, 0, selected_count,
+                          singular_values.data(), left.data(), n, right.data(), n, &work_query, -1, real_work.data(),
+                          int_work.data());
+  }
+
+  uni20::blas_int const lwork = std::max<uni20::blas_int>(1, static_cast<uni20::blas_int>(std::real(work_query)));
+  std::vector<ComplexBinary128> work(static_cast<std::size_t>(lwork));
+  matrix = original;
+  uni20::blas_int selected_count = n;
+
+  if (driver == ComplexSvdDriver::standard)
+  {
+    uni20::lapack::gesvd('S', 'S', n, n, matrix.data(), n, singular_values.data(), left.data(), n, right.data(), n,
+                         work.data(), lwork, real_work.data());
+  }
+  else if (driver == ComplexSvdDriver::divide_and_conquer)
+  {
+    uni20::lapack::gesdd('S', n, n, matrix.data(), n, singular_values.data(), left.data(), n, right.data(), n,
+                         work.data(), lwork, real_work.data(), int_work.data());
+  }
+  else
+  {
+    uni20::lapack::gesvdx('V', 'V', 'A', n, n, matrix.data(), n, Binary128{}, Binary128{}, 0, 0, selected_count,
+                          singular_values.data(), left.data(), n, right.data(), n, work.data(), lwork, real_work.data(),
+                          int_work.data());
+    ASSERT_EQ(selected_count, n);
+  }
+
+  Binary128 const tolerance = static_cast<Binary128>(1.0e-25L);
+  for (uni20::blas_int column = 0; column < n; ++column)
+  {
+    for (uni20::blas_int row = 0; row < n; ++row)
+    {
+      ComplexBinary128 reconstructed{};
+      for (uni20::blas_int inner = 0; inner < n; ++inner)
+      {
+        reconstructed += left[static_cast<std::size_t>(row + inner * n)] * singular_values[inner] *
+                         right[static_cast<std::size_t>(inner + column * n)];
+      }
+      EXPECT_TRUE(std::abs(reconstructed - original[static_cast<std::size_t>(row + column * n)]) <= tolerance);
+    }
+  }
 }
 
 } // namespace
@@ -185,10 +269,10 @@ TEST(MplapackBinary128Test, LinksMpblasTransitively)
 
   Rgemm("N", "N", n, n, n, one, a, n, b, n, zero, c, n);
 
-  Binary128 const tolerance = static_cast<Binary128>(1.0e-25L);
-  Binary128 const error = std::max({abs_error(c[0], Binary128{19}), abs_error(c[1], Binary128{43}),
-                                    abs_error(c[2], Binary128{22}), abs_error(c[3], Binary128{50})});
-  EXPECT_TRUE(error <= tolerance);
+  EXPECT_FLOATING_EQ(c[0], Binary128{19});
+  EXPECT_FLOATING_EQ(c[1], Binary128{43});
+  EXPECT_FLOATING_EQ(c[2], Binary128{22});
+  EXPECT_FLOATING_EQ(c[3], Binary128{50});
 #else
   GTEST_SKIP() << "configured MPLAPACK binary128 mode aliases long double, so MPBLAS binary128 wrappers are disabled";
 #endif
@@ -207,8 +291,112 @@ TEST(MplapackBinary128Test, Uni20BlasWrappersPreserveBinary128OnlyIncrements)
   uni20::blas::gemm('N', 'N', 1, 1, 2, Binary128{1}, a, 1, b, 2, Binary128{}, c, 1);
 
   EXPECT_TRUE(c[0] > Binary128{});
-  EXPECT_TRUE(abs_error(c[0], delta) <= static_cast<Binary128>(1.0e-25L));
+  EXPECT_FLOATING_EQ(c[0], delta);
 #else
   GTEST_SKIP() << "configured MPLAPACK binary128 mode aliases long double, so MPBLAS binary128 wrappers are disabled";
 #endif
+}
+
+TEST(MplapackBinary128Test, ComplexLapackNormAndLuWrappers)
+{
+  uni20::blas_int constexpr n = 2;
+  Binary128 const tolerance = static_cast<Binary128>(1.0e-25L);
+  std::vector<ComplexBinary128> matrix{
+      ComplexBinary128{Binary128{2}, Binary128{1}},
+      ComplexBinary128{Binary128{1}, Binary128{-1}},
+      ComplexBinary128{Binary128{1}, Binary128{}},
+      ComplexBinary128{Binary128{3}, Binary128{0.5}},
+  };
+  auto const original = matrix;
+  std::array<Binary128, n> norm_work{};
+  Binary128 const matrix_norm = uni20::lapack::lange('1', n, n, matrix.data(), n, norm_work.data());
+  EXPECT_TRUE(matrix_norm > Binary128{});
+
+  std::vector<ComplexBinary128> hermitian{
+      ComplexBinary128{Binary128{2}, Binary128{}},
+      ComplexBinary128{Binary128{1}, Binary128{-1}},
+      ComplexBinary128{Binary128{1}, Binary128{1}},
+      ComplexBinary128{Binary128{3}, Binary128{}},
+  };
+  Binary128 const hermitian_norm = uni20::lapack::lanhe('F', 'U', n, hermitian.data(), n, norm_work.data());
+  EXPECT_FLOATING_EQ(hermitian_norm, std::sqrt(Binary128{17}));
+
+  std::vector<ComplexBinary128> triangular{
+      ComplexBinary128{Binary128{1}, Binary128{1}},
+      ComplexBinary128{},
+      ComplexBinary128{Binary128{2}, Binary128{-1}},
+      ComplexBinary128{Binary128{-3}, Binary128{0.5}},
+  };
+  Binary128 const triangular_norm = uni20::lapack::lantr('F', 'U', 'N', n, n, triangular.data(), n, norm_work.data());
+  EXPECT_FLOATING_EQ(triangular_norm, std::sqrt(Binary128{16.25}));
+
+  std::array<ComplexBinary128, n> expected{
+      ComplexBinary128{Binary128{1}, Binary128{2}},
+      ComplexBinary128{Binary128{-1}, Binary128{0.5}},
+  };
+  std::array<ComplexBinary128, n> right_hand_side{};
+  for (uni20::blas_int row = 0; row < n; ++row)
+  {
+    for (uni20::blas_int column = 0; column < n; ++column)
+      right_hand_side[row] += original[static_cast<std::size_t>(row + column * n)] * expected[column];
+  }
+
+  auto gesv_matrix = original;
+  auto gesv_right_hand_side = right_hand_side;
+  std::array<uni20::blas_int, n> gesv_pivots{};
+  uni20::lapack::gesv(n, 1, gesv_matrix.data(), n, gesv_pivots.data(), gesv_right_hand_side.data(), n);
+  EXPECT_FLOATING_EQ(gesv_right_hand_side[0], expected[0]);
+  EXPECT_FLOATING_EQ(gesv_right_hand_side[1], expected[1]);
+
+  std::array<uni20::blas_int, n> pivots{};
+  uni20::lapack::getrf(n, n, matrix.data(), n, pivots.data());
+  uni20::lapack::getrs('N', n, 1, matrix.data(), n, pivots.data(), right_hand_side.data(), n);
+
+  EXPECT_FLOATING_EQ(right_hand_side[0], expected[0]);
+  EXPECT_FLOATING_EQ(right_hand_side[1], expected[1]);
+
+  std::array<ComplexBinary128, 2 * n> condition_work{};
+  std::array<Binary128, 2 * n> condition_real_work{};
+  Binary128 const reciprocal_condition =
+      uni20::lapack::gecon('1', n, matrix.data(), n, matrix_norm, condition_work.data(), condition_real_work.data());
+  EXPECT_TRUE(reciprocal_condition > Binary128{});
+  EXPECT_TRUE(reciprocal_condition <= Binary128{1});
+
+  ComplexBinary128 inverse_work_query{};
+  uni20::lapack::getri(n, matrix.data(), n, pivots.data(), &inverse_work_query, -1);
+  uni20::blas_int const inverse_lwork =
+      std::max<uni20::blas_int>(1, static_cast<uni20::blas_int>(std::real(inverse_work_query)));
+  std::vector<ComplexBinary128> inverse_work(static_cast<std::size_t>(inverse_lwork));
+  uni20::lapack::getri(n, matrix.data(), n, pivots.data(), inverse_work.data(), inverse_lwork);
+
+  for (uni20::blas_int column = 0; column < n; ++column)
+  {
+    for (uni20::blas_int row = 0; row < n; ++row)
+    {
+      ComplexBinary128 product{};
+      for (uni20::blas_int inner = 0; inner < n; ++inner)
+      {
+        product +=
+            original[static_cast<std::size_t>(row + inner * n)] * matrix[static_cast<std::size_t>(inner + column * n)];
+      }
+      ComplexBinary128 const expected_product =
+          row == column ? ComplexBinary128{Binary128{1}, Binary128{}} : ComplexBinary128{};
+      EXPECT_TRUE(std::abs(product - expected_product) <= tolerance);
+    }
+  }
+}
+
+TEST(MplapackBinary128Test, ComplexGesvdReconstructsMatrix)
+{
+  expect_complex_svd_reconstructs(ComplexSvdDriver::standard);
+}
+
+TEST(MplapackBinary128Test, ComplexGesddReconstructsMatrix)
+{
+  expect_complex_svd_reconstructs(ComplexSvdDriver::divide_and_conquer);
+}
+
+TEST(MplapackBinary128Test, ComplexGesvdxReconstructsMatrix)
+{
+  expect_complex_svd_reconstructs(ComplexSvdDriver::selected);
 }

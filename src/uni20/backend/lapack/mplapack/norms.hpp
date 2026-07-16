@@ -37,6 +37,14 @@ namespace uni20::lapack::unchecked
                 work);
 }
 
+[[nodiscard]] inline uni20::float128 lange(char norm, blas_int m, blas_int n, uni20::complex<uni20::float128>* a,
+                                           blas_int lda, uni20::float128* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Clange, norm, m, n, a, lda, work);
+  return Clange(&norm, static_cast<mplapackint>(m), static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda),
+                work);
+}
+
 [[nodiscard]] inline uni20::float128 lansy(char norm, char uplo, blas_int n, uni20::float128* a, blas_int lda,
                                            uni20::float128* work)
 {
@@ -44,11 +52,26 @@ namespace uni20::lapack::unchecked
   return Rlansy(&norm, &uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), work);
 }
 
+[[nodiscard]] inline uni20::float128 lanhe(char norm, char uplo, blas_int n, uni20::complex<uni20::float128>* a,
+                                           blas_int lda, uni20::float128* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Clanhe, norm, uplo, n, a, lda, work);
+  return Clanhe(&norm, &uplo, static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), work);
+}
+
 [[nodiscard]] inline uni20::float128 lantr(char norm, char uplo, char diag, blas_int m, blas_int n, uni20::float128* a,
                                            blas_int lda, uni20::float128* work)
 {
   UNI20_EXTERNAL_API_CALL(LAPACK, Rlantr, norm, uplo, diag, m, n, a, lda, work);
   return Rlantr(&norm, &uplo, &diag, static_cast<mplapackint>(m), static_cast<mplapackint>(n), a,
+                static_cast<mplapackint>(lda), work);
+}
+
+[[nodiscard]] inline uni20::float128 lantr(char norm, char uplo, char diag, blas_int m, blas_int n,
+                                           uni20::complex<uni20::float128>* a, blas_int lda, uni20::float128* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Clantr, norm, uplo, diag, m, n, a, lda, work);
+  return Clantr(&norm, &uplo, &diag, static_cast<mplapackint>(m), static_cast<mplapackint>(n), a,
                 static_cast<mplapackint>(lda), work);
 }
 

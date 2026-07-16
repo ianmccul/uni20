@@ -187,6 +187,13 @@ Scalar lange(char norm, blas_int m, blas_int n, Scalar* a, blas_int lda, Scalar*
   return unchecked::lange(norm, m, n, a, lda, work);
 }
 
+/// \brief Compute a dense complex matrix norm through the configured LAPACK backend.
+template <uni20::LapackComplexReal Real>
+Real lange(char norm, blas_int m, blas_int n, uni20::complex<Real>* a, blas_int lda, Real* work)
+{
+  return unchecked::lange(norm, m, n, a, lda, work);
+}
+
 /// \brief Compute a dense real symmetric matrix norm through the configured LAPACK backend.
 template <uni20::LapackReal Scalar>
 Scalar lansy(char norm, char uplo, blas_int n, Scalar* a, blas_int lda, Scalar* work)
@@ -194,9 +201,23 @@ Scalar lansy(char norm, char uplo, blas_int n, Scalar* a, blas_int lda, Scalar* 
   return unchecked::lansy(norm, uplo, n, a, lda, work);
 }
 
+/// \brief Compute a dense complex Hermitian matrix norm through the configured LAPACK backend.
+template <uni20::LapackComplexReal Real>
+Real lanhe(char norm, char uplo, blas_int n, uni20::complex<Real>* a, blas_int lda, Real* work)
+{
+  return unchecked::lanhe(norm, uplo, n, a, lda, work);
+}
+
 /// \brief Compute a dense real triangular or trapezoidal matrix norm through the configured LAPACK backend.
 template <uni20::LapackReal Scalar>
 Scalar lantr(char norm, char uplo, char diag, blas_int m, blas_int n, Scalar* a, blas_int lda, Scalar* work)
+{
+  return unchecked::lantr(norm, uplo, diag, m, n, a, lda, work);
+}
+
+/// \brief Compute a dense complex triangular or trapezoidal matrix norm through the configured LAPACK backend.
+template <uni20::LapackComplexReal Real>
+Real lantr(char norm, char uplo, char diag, blas_int m, blas_int n, uni20::complex<Real>* a, blas_int lda, Real* work)
 {
   return unchecked::lantr(norm, uplo, diag, m, n, a, lda, work);
 }
@@ -346,6 +367,15 @@ void gesv(blas_int n, blas_int nrhs, Scalar* a, blas_int lda, blas_int* ipiv, Sc
   detail::check_singular("gesv", info);
 }
 
+/// \brief Solve a complex dense general linear system through the configured LAPACK backend.
+template <uni20::LapackComplexReal Real>
+void gesv(blas_int n, blas_int nrhs, uni20::complex<Real>* a, blas_int lda, blas_int* ipiv, uni20::complex<Real>* b,
+          blas_int ldb)
+{
+  blas_int const info = unchecked::gesv(n, nrhs, a, lda, ipiv, b, ldb);
+  detail::check_singular("gesv", info);
+}
+
 /// \brief Solve a real dense general linear system with LAPACK expert-driver diagnostics.
 template <uni20::LapackReal Scalar>
 bool gesvx(char fact, char trans, blas_int n, blas_int nrhs, Scalar* a, blas_int lda, Scalar* af, blas_int ldaf,
@@ -374,10 +404,27 @@ template <uni20::LapackReal Scalar> void getrf(blas_int m, blas_int n, Scalar* a
   detail::check_singular("getrf", info);
 }
 
+/// \brief Compute a complex dense general LU factorization through the configured LAPACK backend.
+template <uni20::LapackComplexReal Real>
+void getrf(blas_int m, blas_int n, uni20::complex<Real>* a, blas_int lda, blas_int* ipiv)
+{
+  blas_int const info = unchecked::getrf(m, n, a, lda, ipiv);
+  detail::check_singular("getrf", info);
+}
+
 /// \brief Solve using an existing real dense general LU factorization.
 template <uni20::LapackReal Scalar>
 void getrs(char trans, blas_int n, blas_int nrhs, Scalar* a, blas_int lda, blas_int const* ipiv, Scalar* b,
            blas_int ldb)
+{
+  blas_int const info = unchecked::getrs(trans, n, nrhs, a, lda, ipiv, b, ldb);
+  detail::check_invalid_argument("getrs", info);
+}
+
+/// \brief Solve using an existing complex dense general LU factorization.
+template <uni20::LapackComplexReal Real>
+void getrs(char trans, blas_int n, blas_int nrhs, uni20::complex<Real>* a, blas_int lda, blas_int const* ipiv,
+           uni20::complex<Real>* b, blas_int ldb)
 {
   blas_int const info = unchecked::getrs(trans, n, nrhs, a, lda, ipiv, b, ldb);
   detail::check_invalid_argument("getrs", info);
@@ -402,12 +449,32 @@ void getri(blas_int n, Scalar* a, blas_int lda, blas_int* ipiv, Scalar* work, bl
   detail::check_singular("getri", info);
 }
 
+/// \brief Invert a complex dense general matrix from an existing LU factorization.
+template <uni20::LapackComplexReal Real>
+void getri(blas_int n, uni20::complex<Real>* a, blas_int lda, blas_int* ipiv, uni20::complex<Real>* work,
+           blas_int lwork)
+{
+  blas_int const info = unchecked::getri(n, a, lda, ipiv, work, lwork);
+  detail::check_singular("getri", info);
+}
+
 /// \brief Estimate a real dense general reciprocal condition number.
 template <uni20::LapackReal Scalar>
 Scalar gecon(char norm, blas_int n, Scalar const* a, blas_int lda, Scalar anorm, Scalar* work, blas_int* iwork)
 {
   Scalar rcond{};
   blas_int const info = unchecked::gecon(norm, n, a, lda, anorm, rcond, work, iwork);
+  detail::check_invalid_argument("gecon", info);
+  return rcond;
+}
+
+/// \brief Estimate a complex dense general reciprocal condition number.
+template <uni20::LapackComplexReal Real>
+Real gecon(char norm, blas_int n, uni20::complex<Real> const* a, blas_int lda, Real anorm, uni20::complex<Real>* work,
+           Real* rwork)
+{
+  Real rcond{};
+  blas_int const info = unchecked::gecon(norm, n, a, lda, anorm, rcond, work, rwork);
   detail::check_invalid_argument("gecon", info);
   return rcond;
 }
@@ -1116,12 +1183,32 @@ void gesvd(char jobu, char jobvt, blas_int m, blas_int n, Scalar* a, blas_int ld
   detail::check_convergence("gesvd", info);
 }
 
+/// \brief Compute a complex dense singular value decomposition.
+template <uni20::LapackComplexReal Real>
+void gesvd(char jobu, char jobvt, blas_int m, blas_int n, uni20::complex<Real>* a, blas_int lda, Real* s,
+           uni20::complex<Real>* u, blas_int ldu, uni20::complex<Real>* vt, blas_int ldvt, uni20::complex<Real>* work,
+           blas_int lwork, Real* rwork)
+{
+  blas_int const info = unchecked::gesvd(jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork);
+  detail::check_convergence("gesvd", info);
+}
+
 /// \brief Compute a real dense divide-and-conquer singular value decomposition.
 template <uni20::LapackReal Scalar>
 void gesdd(char jobz, blas_int m, blas_int n, Scalar* a, blas_int lda, Scalar* s, Scalar* u, blas_int ldu, Scalar* vt,
            blas_int ldvt, Scalar* work, blas_int lwork, blas_int* iwork)
 {
   blas_int const info = unchecked::gesdd(jobz, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, iwork);
+  detail::check_convergence("gesdd", info);
+}
+
+/// \brief Compute a complex dense divide-and-conquer singular value decomposition.
+template <uni20::LapackComplexReal Real>
+void gesdd(char jobz, blas_int m, blas_int n, uni20::complex<Real>* a, blas_int lda, Real* s, uni20::complex<Real>* u,
+           blas_int ldu, uni20::complex<Real>* vt, blas_int ldvt, uni20::complex<Real>* work, blas_int lwork,
+           Real* rwork, blas_int* iwork)
+{
+  blas_int const info = unchecked::gesdd(jobz, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork, iwork);
   detail::check_convergence("gesdd", info);
 }
 
@@ -1133,6 +1220,18 @@ void gesvdx(char jobu, char jobvt, char range, blas_int m, blas_int n, Scalar* a
 {
   blas_int const info = unchecked::gesvdx(jobu, jobvt, range, m, n, a, lda, vl, vu, il, iu, selected_count,
                                           singular_values, u, ldu, vt, ldvt, work, lwork, iwork);
+  detail::check_convergence("gesvdx", info);
+}
+
+/// \brief Compute selected singular values and vectors of a complex dense matrix.
+template <uni20::LapackComplexReal Real>
+void gesvdx(char jobu, char jobvt, char range, blas_int m, blas_int n, uni20::complex<Real>* a, blas_int lda, Real vl,
+            Real vu, blas_int il, blas_int iu, blas_int& selected_count, Real* singular_values, uni20::complex<Real>* u,
+            blas_int ldu, uni20::complex<Real>* vt, blas_int ldvt, uni20::complex<Real>* work, blas_int lwork,
+            Real* rwork, blas_int* iwork)
+{
+  blas_int const info = unchecked::gesvdx(jobu, jobvt, range, m, n, a, lda, vl, vu, il, iu, selected_count,
+                                          singular_values, u, ldu, vt, ldvt, work, lwork, rwork, iwork);
   detail::check_convergence("gesvdx", info);
 }
 

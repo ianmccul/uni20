@@ -34,25 +34,25 @@ the project [Scalar Policy](../tensor/scalar_policy.md):
 | component | `s` | `d` | `c` | `z` | role |
 | --- | --- | --- | --- | --- | --- |
 | Dense vector and matrix primitives | yes | yes | yes | yes | Local BLAS-like operations over Krylov subspace data. |
-| Dense real matrix norms | yes | yes | n/a | n/a | Dense projected full, symmetric, and triangular/trapezoidal norms through LAPACK `lange`, `lansy`, and `lantr`. |
-| Dense real linear solve | yes | yes | n/a | n/a | Dense projected utility solve through LAPACK `gesv`. |
+| Dense matrix norms | yes | yes | yes | yes | Dense projected full, symmetric/Hermitian, and triangular/trapezoidal norms through LAPACK `lange`, `lansy`/`lanhe`, and `lantr`. |
+| Dense general linear solve | yes | yes | yes | yes | Dense projected utility solve through LAPACK `gesv`. |
 | Dense real refined linear solve | yes | yes | n/a | n/a | Dense projected utility solve through LAPACK `getrf`/`getrs` followed by `gerfs`, returning forward/backward error estimates. |
 | Dense real expert linear solve | yes | yes | n/a | n/a | Dense projected utility solve through LAPACK `gesvx`, returning condition estimates, forward/backward error bounds, equilibration, and condition diagnostics. |
 | Dense real equilibration | yes | yes | n/a | n/a | Dense projected row/column scaling diagnostics through LAPACK `geequ`. |
-| Dense real LU factorization and solve | yes | yes | n/a | n/a | Dense projected reusable LU solve through LAPACK `getrf`/`getrs`. |
+| Dense LU factorization and solve | yes | yes | yes | yes | Dense projected reusable LU solve through LAPACK `getrf`/`getrs`. |
 | Dense real general-band factorization and solve | yes | yes | n/a | n/a | Dense projected reusable general-band LU solve through LAPACK `gbtrf`/`gbtrs`. |
 | Dense real general-band refined solve | yes | yes | n/a | n/a | Dense projected general-band solve through LAPACK `gbtrf`/`gbtrs` followed by `gbrfs`, returning forward/backward error estimates. |
 | Dense real general-band expert solve | yes | yes | n/a | n/a | Dense projected general-band expert solve with condition and forward/backward error diagnostics through LAPACK `gbsvx`. |
 | Dense real general-band equilibration | yes | yes | n/a | n/a | Dense projected general-band row/column scaling diagnostics through LAPACK `gbequ`/`gbequb`. |
 | Dense real general-band reciprocal condition estimate | yes | yes | n/a | n/a | Dense projected general-band one-norm reciprocal condition estimate through LAPACK `gbtrf`/`gbcon`. |
 | Dense real general tridiagonal solve, condition, and refinement | yes | yes | n/a | n/a | Dense projected reusable general tridiagonal LU solve plus diagnostics through LAPACK `gtsv`/`gttrf`/`gttrs`/`gtcon`/`gtrfs`/`gtsvx`. |
-| Dense real reciprocal condition estimate | yes | yes | n/a | n/a | Dense projected one-norm reciprocal condition estimate through LAPACK `gecon`. |
+| Dense general reciprocal condition estimate | yes | yes | yes | yes | Dense projected one-norm reciprocal condition estimate through LAPACK `gecon`. |
 | Dense real triangular solve | yes | yes | n/a | n/a | Dense projected triangular solve through LAPACK `trtrs`. |
 | Dense real triangular refined solve | yes | yes | n/a | n/a | Dense projected triangular solve through LAPACK `trtrs` followed by `trrfs`, returning forward/backward error estimates. |
 | Dense real triangular inverse | yes | yes | n/a | n/a | Dense projected triangular inverse through LAPACK `trtri`. |
 | Dense real triangular reciprocal condition estimate | yes | yes | n/a | n/a | Dense projected triangular one-norm reciprocal condition estimate through LAPACK `trcon`. |
 | Dense real Sylvester equation solve | yes | yes | n/a | n/a | Dense projected Sylvester equation solve through LAPACK `trsyl`, returning LAPACK's scale factor and perturbation diagnostic. |
-| Dense real inverse | yes | yes | n/a | n/a | Dense projected utility inverse through LAPACK `getrf`/`getri`. |
+| Dense general inverse | yes | yes | yes | yes | Dense projected utility inverse through LAPACK `getrf`/`getri`. |
 | Dense real least-squares solve | yes | yes | n/a | n/a | Dense projected least-squares/minimum-norm solve through LAPACK `gels`. |
 | Dense real SVD least-squares solve | yes | yes | n/a | n/a | Dense projected least-squares solve with singular values and rank through LAPACK `gelss`; default rank threshold is `100 * uni20::numeric_limits<Scalar>::epsilon()`. |
 | Dense real divide-and-conquer SVD least-squares solve | yes | yes | n/a | n/a | Dense projected least-squares solve with singular values and rank through LAPACK `gelsd`; default rank threshold is `100 * uni20::numeric_limits<Scalar>::epsilon()`. |
@@ -95,9 +95,9 @@ the project [Scalar Policy](../tensor/scalar_policy.md):
 | Dense symmetric tridiagonal eigenvalues | yes | yes | n/a | n/a | Dense projected symmetric tridiagonal eigenvalues through LAPACK `sterf`. |
 | Dense symmetric tridiagonal divide-and-conquer eigensystem | yes | yes | n/a | n/a | Dense projected symmetric tridiagonal eigensystem through LAPACK `stevd`. |
 | Dense selected symmetric tridiagonal eigensystem | yes | yes | n/a | n/a | Dense projected symmetric tridiagonal eigensystem through LAPACK `stevr` using 0-based inclusive index ranges. |
-| Dense real singular value decomposition | yes | yes | n/a | n/a | Dense projected utility SVD through LAPACK `gesvd`. |
-| Dense real divide-and-conquer singular value decomposition | yes | yes | n/a | n/a | Dense projected utility SVD through LAPACK `gesdd`. |
-| Dense selected real singular value decomposition | yes | yes | n/a | n/a | Dense projected selected SVD through LAPACK `gesvdx`, using 0-based inclusive decreasing singular-value index ranges. |
+| Dense singular value decomposition | yes | yes | yes | yes | Dense projected utility SVD through LAPACK `gesvd`. Complex singular values use the underlying real scalar type. |
+| Dense divide-and-conquer singular value decomposition | yes | yes | yes | yes | Dense projected utility SVD through LAPACK `gesdd`. Complex singular values use the underlying real scalar type. |
+| Dense selected singular value decomposition | yes | yes | yes | yes | Dense projected selected SVD through LAPACK `gesvdx`, using 0-based inclusive decreasing singular-value index ranges. Complex singular values use the underlying real scalar type. |
 | Dense real symmetric eigensystem | yes | yes | n/a | n/a | Dense projected Hermitian reference or utility problem. |
 | Dense real divide-and-conquer symmetric eigensystem | yes | yes | n/a | n/a | Dense projected Hermitian reference or utility problem through LAPACK `syevd`. |
 | Dense real selected symmetric eigensystem | yes | yes | n/a | n/a | Dense projected Hermitian reference or utility problem through LAPACK `syevr` using 0-based inclusive index ranges. |
@@ -143,6 +143,7 @@ provider/helper support; algorithm-level binary128 coverage remains in
 | --- | --- | --- | --- |
 | Dense vector and matrix primitives | yes | yes | Scalar-generic Krylov host-side helpers. |
 | MPBLAS wrapper surface | yes | yes | Current wrapper surface covers projected `gemm`, `gemv`, rank-update, symmetric-rank, and Hermitian-rank operations used by active paths. |
+| Checked LAPACK norms, core LU, and SVD wrappers | yes | yes | Provider wrappers cover `lange`, `lansy`/`lanhe`, `lantr`, `gesv`, `getrf`, `getrs`, `getri`, `gecon`, `gesvd`, `gesdd`, and `gesvdx`. |
 | Tensor/linalg CPU helper probes | yes | n/a | Current probes cover real one-norm accumulation and real dense solve. |
 | Broad dense projected real helper inventory | not active | n/a | Quarantined source inventory; excluded from maintained Krylov targets. |
 | Dense projected complex eigensystem and Schur helper inventory | n/a | not active | Quarantined source inventory; excluded from maintained Krylov targets. |

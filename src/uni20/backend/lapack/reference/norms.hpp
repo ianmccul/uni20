@@ -26,15 +26,33 @@ extern "C"
 
   double dlange_(char const* norm, blas_int const* m, blas_int const* n, double* a, blas_int const* lda, double* work);
 
+  float clange_(char const* norm, blas_int const* m, blas_int const* n, uni20::complex<float>* a, blas_int const* lda,
+                float* work);
+
+  double zlange_(char const* norm, blas_int const* m, blas_int const* n, uni20::complex<double>* a, blas_int const* lda,
+                 double* work);
+
   float slansy_(char const* norm, char const* uplo, blas_int const* n, float* a, blas_int const* lda, float* work);
 
   double dlansy_(char const* norm, char const* uplo, blas_int const* n, double* a, blas_int const* lda, double* work);
+
+  float clanhe_(char const* norm, char const* uplo, blas_int const* n, uni20::complex<float>* a, blas_int const* lda,
+                float* work);
+
+  double zlanhe_(char const* norm, char const* uplo, blas_int const* n, uni20::complex<double>* a, blas_int const* lda,
+                 double* work);
 
   float slantr_(char const* norm, char const* uplo, char const* diag, blas_int const* m, blas_int const* n, float* a,
                 blas_int const* lda, float* work);
 
   double dlantr_(char const* norm, char const* uplo, char const* diag, blas_int const* m, blas_int const* n, double* a,
                  blas_int const* lda, double* work);
+
+  float clantr_(char const* norm, char const* uplo, char const* diag, blas_int const* m, blas_int const* n,
+                uni20::complex<float>* a, blas_int const* lda, float* work);
+
+  double zlantr_(char const* norm, char const* uplo, char const* diag, blas_int const* m, blas_int const* n,
+                 uni20::complex<double>* a, blas_int const* lda, double* work);
 
   float slangb_(char const* norm, blas_int const* n, blas_int const* kl, blas_int const* ku, float* ab,
                 blas_int const* ldab, float* work);
@@ -56,6 +74,19 @@ extern "C"
   return detail::dlange_(&norm, &m, &n, a, &lda, work);
 }
 
+[[nodiscard]] inline float lange(char norm, blas_int m, blas_int n, uni20::complex<float>* a, blas_int lda, float* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, clange_, norm, m, n, a, lda, work);
+  return detail::clange_(&norm, &m, &n, a, &lda, work);
+}
+
+[[nodiscard]] inline double lange(char norm, blas_int m, blas_int n, uni20::complex<double>* a, blas_int lda,
+                                  double* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, zlange_, norm, m, n, a, lda, work);
+  return detail::zlange_(&norm, &m, &n, a, &lda, work);
+}
+
 [[nodiscard]] inline float lansy(char norm, char uplo, blas_int n, float* a, blas_int lda, float* work)
 {
   UNI20_EXTERNAL_API_CALL(LAPACK, slansy_, norm, uplo, n, a, lda, work);
@@ -66,6 +97,19 @@ extern "C"
 {
   UNI20_EXTERNAL_API_CALL(LAPACK, dlansy_, norm, uplo, n, a, lda, work);
   return detail::dlansy_(&norm, &uplo, &n, a, &lda, work);
+}
+
+[[nodiscard]] inline float lanhe(char norm, char uplo, blas_int n, uni20::complex<float>* a, blas_int lda, float* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, clanhe_, norm, uplo, n, a, lda, work);
+  return detail::clanhe_(&norm, &uplo, &n, a, &lda, work);
+}
+
+[[nodiscard]] inline double lanhe(char norm, char uplo, blas_int n, uni20::complex<double>* a, blas_int lda,
+                                  double* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, zlanhe_, norm, uplo, n, a, lda, work);
+  return detail::zlanhe_(&norm, &uplo, &n, a, &lda, work);
 }
 
 [[nodiscard]] inline float lantr(char norm, char uplo, char diag, blas_int m, blas_int n, float* a, blas_int lda,
@@ -80,6 +124,20 @@ extern "C"
 {
   UNI20_EXTERNAL_API_CALL(LAPACK, dlantr_, norm, uplo, diag, m, n, a, lda, work);
   return detail::dlantr_(&norm, &uplo, &diag, &m, &n, a, &lda, work);
+}
+
+[[nodiscard]] inline float lantr(char norm, char uplo, char diag, blas_int m, blas_int n, uni20::complex<float>* a,
+                                 blas_int lda, float* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, clantr_, norm, uplo, diag, m, n, a, lda, work);
+  return detail::clantr_(&norm, &uplo, &diag, &m, &n, a, &lda, work);
+}
+
+[[nodiscard]] inline double lantr(char norm, char uplo, char diag, blas_int m, blas_int n, uni20::complex<double>* a,
+                                  blas_int lda, double* work)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, zlantr_, norm, uplo, diag, m, n, a, lda, work);
+  return detail::zlantr_(&norm, &uplo, &diag, &m, &n, a, &lda, work);
 }
 
 [[nodiscard]] inline float langb(char norm, blas_int n, blas_int kl, blas_int ku, float* ab, blas_int ldab, float* work)

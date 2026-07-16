@@ -3,7 +3,7 @@
 /**
  * \file general.hpp
  * \ingroup backend_lapack_mplapack
- * \brief MPLAPACK binary128 wrappers for real dense general linear systems.
+ * \brief MPLAPACK binary128 wrappers for real and complex dense general linear systems.
  */
 
 #include <uni20/backend/backend.hpp>
@@ -33,6 +33,18 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   std::vector<mplapackint> mplapack_ipiv = uni20::lapack::mplapack::detail::make_mplapack_int_work(n);
   Rgesv(static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a, static_cast<mplapackint>(lda),
+        mplapack_ipiv.data(), b, static_cast<mplapackint>(ldb), mplapack_info);
+  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ipiv, ipiv, n);
+  return static_cast<blas_int>(mplapack_info);
+}
+
+[[nodiscard]] inline blas_int gesv(blas_int n, blas_int nrhs, uni20::complex<uni20::float128>* a, blas_int lda,
+                                   blas_int* ipiv, uni20::complex<uni20::float128>* b, blas_int ldb)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Cgesv, n, nrhs, a, lda, ipiv, b, ldb);
+  mplapackint mplapack_info = 0;
+  std::vector<mplapackint> mplapack_ipiv = uni20::lapack::mplapack::detail::make_mplapack_int_work(n);
+  Cgesv(static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a, static_cast<mplapackint>(lda),
         mplapack_ipiv.data(), b, static_cast<mplapackint>(ldb), mplapack_info);
   uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ipiv, ipiv, n);
   return static_cast<blas_int>(mplapack_info);
@@ -82,6 +94,19 @@ namespace uni20::lapack::unchecked
   return static_cast<blas_int>(mplapack_info);
 }
 
+[[nodiscard]] inline blas_int getrf(blas_int m, blas_int n, uni20::complex<uni20::float128>* a, blas_int lda,
+                                    blas_int* ipiv)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Cgetrf, m, n, a, lda, ipiv);
+  mplapackint mplapack_info = 0;
+  blas_int const pivot_count = std::min(m, n);
+  std::vector<mplapackint> mplapack_ipiv = uni20::lapack::mplapack::detail::make_mplapack_int_work(pivot_count);
+  Cgetrf(static_cast<mplapackint>(m), static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda),
+         mplapack_ipiv.data(), mplapack_info);
+  uni20::lapack::mplapack::detail::copy_from_mplapack_ints(mplapack_ipiv, ipiv, pivot_count);
+  return static_cast<blas_int>(mplapack_info);
+}
+
 [[nodiscard]] inline blas_int getrs(char trans, blas_int n, blas_int nrhs, uni20::float128* a, blas_int lda,
                                     blas_int const* ipiv, uni20::float128* b, blas_int ldb)
 {
@@ -89,6 +114,18 @@ namespace uni20::lapack::unchecked
   mplapackint mplapack_info = 0;
   std::vector<mplapackint> mplapack_ipiv = uni20::lapack::mplapack::detail::to_mplapack_ints(ipiv, n);
   Rgetrs(&trans, static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a, static_cast<mplapackint>(lda),
+         mplapack_ipiv.data(), b, static_cast<mplapackint>(ldb), mplapack_info);
+  return static_cast<blas_int>(mplapack_info);
+}
+
+[[nodiscard]] inline blas_int getrs(char trans, blas_int n, blas_int nrhs, uni20::complex<uni20::float128>* a,
+                                    blas_int lda, blas_int const* ipiv, uni20::complex<uni20::float128>* b,
+                                    blas_int ldb)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Cgetrs, trans, n, nrhs, a, lda, ipiv, b, ldb);
+  mplapackint mplapack_info = 0;
+  std::vector<mplapackint> mplapack_ipiv = uni20::lapack::mplapack::detail::to_mplapack_ints(ipiv, n);
+  Cgetrs(&trans, static_cast<mplapackint>(n), static_cast<mplapackint>(nrhs), a, static_cast<mplapackint>(lda),
          mplapack_ipiv.data(), b, static_cast<mplapackint>(ldb), mplapack_info);
   return static_cast<blas_int>(mplapack_info);
 }
@@ -121,6 +158,17 @@ namespace uni20::lapack::unchecked
   return static_cast<blas_int>(mplapack_info);
 }
 
+[[nodiscard]] inline blas_int getri(blas_int n, uni20::complex<uni20::float128>* a, blas_int lda, blas_int* ipiv,
+                                    uni20::complex<uni20::float128>* work, blas_int lwork)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Cgetri, n, a, lda, ipiv, work, lwork);
+  mplapackint mplapack_info = 0;
+  std::vector<mplapackint> mplapack_ipiv = uni20::lapack::mplapack::detail::to_mplapack_ints(ipiv, n);
+  Cgetri(static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), mplapack_ipiv.data(), work,
+         static_cast<mplapackint>(lwork), mplapack_info);
+  return static_cast<blas_int>(mplapack_info);
+}
+
 [[nodiscard]] inline blas_int gecon(char norm, blas_int n, uni20::float128 const* a, blas_int lda,
                                     uni20::float128 anorm, uni20::float128& rcond, uni20::float128* work,
                                     blas_int* iwork)
@@ -130,6 +178,17 @@ namespace uni20::lapack::unchecked
   std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(n);
   Rgecon(&norm, static_cast<mplapackint>(n), const_cast<uni20::float128*>(a), static_cast<mplapackint>(lda), anorm,
          rcond, work, mplapack_iwork.data(), mplapack_info);
+  return static_cast<blas_int>(mplapack_info);
+}
+
+[[nodiscard]] inline blas_int gecon(char norm, blas_int n, uni20::complex<uni20::float128> const* a, blas_int lda,
+                                    uni20::float128 anorm, uni20::float128& rcond,
+                                    uni20::complex<uni20::float128>* work, uni20::float128* rwork)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Cgecon, norm, n, a, lda, anorm, work, rwork);
+  mplapackint mplapack_info = 0;
+  Cgecon(&norm, static_cast<mplapackint>(n), const_cast<uni20::complex<uni20::float128>*>(a),
+         static_cast<mplapackint>(lda), anorm, rcond, work, rwork, mplapack_info);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1237,6 +1296,19 @@ namespace uni20::lapack::unchecked
   return static_cast<blas_int>(mplapack_info);
 }
 
+[[nodiscard]] inline blas_int gesvd(char jobu, char jobvt, blas_int m, blas_int n, uni20::complex<uni20::float128>* a,
+                                    blas_int lda, uni20::float128* s, uni20::complex<uni20::float128>* u, blas_int ldu,
+                                    uni20::complex<uni20::float128>* vt, blas_int ldvt,
+                                    uni20::complex<uni20::float128>* work, blas_int lwork, uni20::float128* rwork)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Cgesvd, jobu, jobvt, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork);
+  mplapackint mplapack_info = 0;
+  Cgesvd(&jobu, &jobvt, static_cast<mplapackint>(m), static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), s,
+         u, static_cast<mplapackint>(ldu), vt, static_cast<mplapackint>(ldvt), work, static_cast<mplapackint>(lwork),
+         rwork, mplapack_info);
+  return static_cast<blas_int>(mplapack_info);
+}
+
 [[nodiscard]] inline blas_int gesdd(char jobz, blas_int m, blas_int n, uni20::float128* a, blas_int lda,
                                     uni20::float128* s, uni20::float128* u, blas_int ldu, uni20::float128* vt,
                                     blas_int ldvt, uni20::float128* work, blas_int lwork, blas_int* iwork)
@@ -1247,6 +1319,21 @@ namespace uni20::lapack::unchecked
   Rgesdd(&jobz, static_cast<mplapackint>(m), static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), s, u,
          static_cast<mplapackint>(ldu), vt, static_cast<mplapackint>(ldvt), work, static_cast<mplapackint>(lwork),
          mplapack_iwork.data(), mplapack_info);
+  return static_cast<blas_int>(mplapack_info);
+}
+
+[[nodiscard]] inline blas_int gesdd(char jobz, blas_int m, blas_int n, uni20::complex<uni20::float128>* a, blas_int lda,
+                                    uni20::float128* s, uni20::complex<uni20::float128>* u, blas_int ldu,
+                                    uni20::complex<uni20::float128>* vt, blas_int ldvt,
+                                    uni20::complex<uni20::float128>* work, blas_int lwork, uni20::float128* rwork,
+                                    blas_int* iwork)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Cgesdd, jobz, m, n, a, lda, s, u, ldu, vt, ldvt, work, lwork, rwork, iwork);
+  mplapackint mplapack_info = 0;
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(8 * std::min(m, n));
+  Cgesdd(&jobz, static_cast<mplapackint>(m), static_cast<mplapackint>(n), a, static_cast<mplapackint>(lda), s, u,
+         static_cast<mplapackint>(ldu), vt, static_cast<mplapackint>(ldvt), work, static_cast<mplapackint>(lwork),
+         rwork, mplapack_iwork.data(), mplapack_info);
   return static_cast<blas_int>(mplapack_info);
 }
 
@@ -1266,6 +1353,29 @@ namespace uni20::lapack::unchecked
           static_cast<mplapackint>(lda), vl, vu, static_cast<mplapackint>(il), static_cast<mplapackint>(iu),
           mplapack_selected_count, singular_values, u, static_cast<mplapackint>(ldu), vt,
           static_cast<mplapackint>(ldvt), work, static_cast<mplapackint>(lwork), mplapack_iwork.data(), mplapack_info);
+  selected_count = static_cast<blas_int>(mplapack_selected_count);
+  return static_cast<blas_int>(mplapack_info);
+}
+
+[[nodiscard]] inline blas_int gesvdx(char jobu, char jobvt, char range, blas_int m, blas_int n,
+                                     uni20::complex<uni20::float128>* a, blas_int lda, uni20::float128 vl,
+                                     uni20::float128 vu, blas_int il, blas_int iu, blas_int& selected_count,
+                                     uni20::float128* singular_values, uni20::complex<uni20::float128>* u, blas_int ldu,
+                                     uni20::complex<uni20::float128>* vt, blas_int ldvt,
+                                     uni20::complex<uni20::float128>* work, blas_int lwork, uni20::float128* rwork,
+                                     blas_int* iwork)
+{
+  UNI20_EXTERNAL_API_CALL(LAPACK, Cgesvdx, jobu, jobvt, range, m, n, a, lda, vl, vu, il, iu, selected_count,
+                          singular_values, u, ldu, vt, ldvt, work, lwork, rwork, iwork);
+  mplapackint mplapack_selected_count = static_cast<mplapackint>(selected_count);
+  mplapackint mplapack_info = 0;
+  blas_int const iwork_size = 12 * std::max<blas_int>(1, std::min(m, n));
+  std::vector<mplapackint> mplapack_iwork = uni20::lapack::mplapack::detail::make_mplapack_int_work(iwork_size);
+  Cgesvdx(&jobu, &jobvt, &range, static_cast<mplapackint>(m), static_cast<mplapackint>(n), a,
+          static_cast<mplapackint>(lda), vl, vu, static_cast<mplapackint>(il), static_cast<mplapackint>(iu),
+          mplapack_selected_count, singular_values, u, static_cast<mplapackint>(ldu), vt,
+          static_cast<mplapackint>(ldvt), work, static_cast<mplapackint>(lwork), rwork, mplapack_iwork.data(),
+          mplapack_info);
   selected_count = static_cast<blas_int>(mplapack_selected_count);
   return static_cast<blas_int>(mplapack_info);
 }

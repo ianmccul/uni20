@@ -34,16 +34,21 @@ Uni20 currently has a strong real dense projected-kernel prototype:
   actions, dense matrix exponentials, and precision-validation probes when
   `UNI20_ENABLE_MPLAPACK=ON`.
 
-The complex dense surface is intentionally narrower today:
+The complex dense surface is still narrower than the real survey, but the
+checked provider layer now includes the main prerequisites for tensor
+factorizations:
 
 - complex BLAS-like operations exist for ordinary `c`/`z` paths and selected
   binary128 probes;
+- checked matrix norm, core LU solve/factor/inverse/condition, and SVD wrappers
+  exist for ordinary `c`/`z` and optional binary128-complex paths;
 - complex nonsymmetric projected eigen and Schur helpers exist for Arnoldi
   (`geev`, `gees`, `trexc`);
-- standard complex Hermitian `heev` is available through the active
-  `self_adjoint_eigh`/`eigh` path; divide-and-conquer, selected, generalized,
-  SVD, QR/LQ, solve, and conditioning/refinement wrappers remain the main
-  missing pieces for tensor-network work.
+- standard, divide-and-conquer, selected, and generalized complex Hermitian
+  eigensystem wrappers are available;
+- the active `self_adjoint_eigh`/`eigh` path exposes the standard Hermitian
+  eigensystem operation, while tensor-facing SVD, QR/LQ, expert/refined solves,
+  and positive-definite or Hermitian-indefinite solves remain future work.
 
 The native Krylov matrix-free boundary already matches the tensor-network
 direction: vectors are opaque, and solvers require allocation, copy, `axpy`,
@@ -55,12 +60,11 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 
 | group | examples | why |
 | --- | --- | --- |
-| Advanced and generalized complex Hermitian eigensystems | `heevd`, `heevr`, `hegv`, `hegvd`, `hegvx` | Standard `heev` is implemented. The remaining variants are needed for selected spectra, faster full decompositions, metric problems, tangent-space experiments, and broader validation. |
-| Complex SVD | `gesvd`, `gesdd`, and eventually selected SVD | Core tensor truncation operation for complex tensors and transfer-matrix workflows. Return truncation-ready singular values and reconstruction diagnostics above the raw wrapper. |
+| Tensor-facing complex SVD | checked `gesvd`, `gesdd`, and `gesvdx` provider wrappers | Core tensor truncation operation for complex tensors and transfer-matrix workflows. Add dispatched allocation/reuse policy, truncation-ready singular values, and reconstruction diagnostics above the checked wrappers. |
 | Complex QR/LQ | `geqrf`/`ungqr`, `gelqf`/`unglq`, plus apply-unitary helpers | Needed for MPS canonical forms, orthogonalization, gauge moves, and stable factorization paths when no truncation is requested. |
-| Complex dense solves | `gesv`, `getrf`/`getrs`, `gesvx`, `gerfs`, `gecon`, triangular solves | Needed for tensor-network local linear solves, gauge fixing, implicit methods, and diagnostics. Include condition/refinement data where available. |
+| Complex expert and refined dense solves | checked `gesv`, `getrf`/`getrs`, `getri`, and `gecon`; future `gesvx`, `gerfs`, and triangular solves | Core LU operations are implemented. Add expert/refinement data and specialized solve families when tensor-network workflows require them. |
 | Complex positive-definite and Hermitian-indefinite solves | `potrf`/`potrs`/`pocon`; `hetrf`/`hetrs`/`hecon` | Needed once metric problems, normal equations, generalized Hermitian paths, or tangent-space methods need robust complex solves. |
-| Complex matrix norms and equilibration | `lange`, `lanhe`, `lantr`, `geequ` family where available | Needed to scale tolerances, diagnose ill conditioning, and keep precision-aware stopping rules honest. |
+| Complex equilibration | checked `lange`, `lanhe`, and `lantr`; future `geequ` family where available | Core norms are implemented. Equilibration remains useful for scaling and condition-aware solve paths. |
 | Tensor truncation policy layer | cutoff, max dimension, per-sector limits, discarded weight, multiplet-aware hooks | This should sit above SVD/eigh wrappers. It is the actual tensor-network API, and it prevents exposing raw LAPACK choices as user policy. |
 
 ### Already Useful
@@ -70,7 +74,8 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 | Real Krylov projected kernels | Broad enough for current real symmetric and real nonsymmetric eigensolver work. |
 | Real linear solvers | Enough to prototype dense projected solves and condition diagnostics, including binary128 probes. |
 | Real SVD/eigh/QR/LQ | Enough to prototype real tensor factorizations and validation cases. |
-| Complex Hermitian eigensystems | Active `heev` support covers full dense `c`/`z` eigensystems; generalized variants remain future work. |
+| Complex Hermitian eigensystems | Checked `heev`, `heevd`, `heevr`, `hegv`, `hegvd`, and `hegvx` wrappers are available; active Tensor dispatch currently uses standard `heev`. |
+| Complex norms, core LU, and SVD provider wrappers | Direct `c`/`z` and optional binary128-complex tests cover norm values, LU solve/inverse/condition behavior, and SVD reconstruction. |
 | Complex nonsymmetric Schur/eigen helpers | Enough for current complex Arnoldi restart and Ritz extraction work. |
 | Matrix-free Krylov interface | The right boundary for opaque CPU/GPU/MPI vectors; no workspace-array or reverse-communication API should leak into higher layers. |
 
@@ -95,16 +100,17 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 
 ## Suggested Wrapper Order
 
-1. Add complex matrix norms and general complex LU solve/factor/condition
-   wrappers. These are small, useful, and validate the complex wrapper pattern.
+1. Keep the completed complex norm, core LU, and SVD provider wrappers covered
+   by direct `c`/`z` and binary128-complex tests.
 2. Keep the completed complex Hermitian and generalized Hermitian eigensystem
    wrappers covered by direct `c`/`z` tests and binary128-complex MPLAPACK
    probes.
-3. Add complex SVD wrappers, with tests that compare reconstruction residuals,
-   singular-value ordering, and complex phase handling.
+3. Build the dispatched Tensor-facing SVD operation above the checked provider
+   wrappers, including allocation/reuse rules and reconstruction tests.
 4. Add complex QR/LQ wrappers and unitary application/materialization helpers.
-5. Add complex SPD/Hermitian-indefinite solve wrappers with refinement and
-   reciprocal-condition diagnostics.
+5. Add complex expert/refined general solves and
+   positive-definite/Hermitian-indefinite solve wrappers with reciprocal
+   condition diagnostics.
 6. Build a tensor-facing truncation result type that records kept dimension,
    discarded weight, per-sector decisions, and reconstruction diagnostics.
 
