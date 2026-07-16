@@ -67,6 +67,77 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 | Complex equilibration | checked `lange`, `lanhe`, and `lantr`; future `geequ` family where available | Core norms are implemented. Equilibration remains useful for scaling and condition-aware solve paths. |
 | Tensor truncation policy layer | cutoff, max dimension, per-sector limits, discarded weight, multiplet-aware hooks | This should sit above SVD/eigh wrappers. It is the actual tensor-network API, and it prevents exposing raw LAPACK choices as user policy. |
 
+### Tensor-Facing SVD Semantics
+
+The exact and truncating Tensor SVD operations should remain distinct. The
+truncation policy must support an explicit minimum retained extent, maximum
+retained extent, singular-value cutoff, normalized per-value weight cutoff, and
+maximum cumulative discarded weight. The default minimum retained extent is
+zero.
+
+The truncation result must report enough information for a caller that also has
+the requested policy to determine which constraints were binding:
+
+```cpp
+template <uni20::Real StatisticsReal>
+struct SvdTruncationInfo
+{
+    std::size_t available_rank;
+    std::size_t retained_rank;
+    StatisticsReal original_squared_norm;
+    StatisticsReal discarded_weight;
+    std::optional<StatisticsReal> smallest_retained_singular_value;
+    std::optional<StatisticsReal> largest_discarded_singular_value;
+};
+```
+
+`original_squared_norm` is the pre-truncation Frobenius norm squared,
+`sum_i(s_i * s_i)`. `discarded_weight` is the normalized discarded squared
+norm,
+`sum_discarded(s_i * s_i) / original_squared_norm`, and is defined as zero when
+the original squared norm is zero. These public statistics use the singular
+value's real scalar type; an internal summation type must not promote the API
+result. Accumulate the nonnegative squared singular values from smallest to
+largest, using scaled sum-of-squares arithmetic and, where justified by
+validation, pairwise or compensated summation. The retained rank identifies
+minimum- or maximum-extent limits, the two boundary values identify per-value
+cutoffs, and the original norm and discarded weight identify the
+cumulative-error boundary. Several constraints may be simultaneously binding;
+the API should not invent a unique winner in that case.
+
+Singular-value normalization or partitioning is a separate output policy and
+must not change the meaning of these pre-truncation statistics. If a future
+backend supports alternative truncation metrics, expose and report them under
+separate explicit names rather than changing `original_squared_norm` or
+`discarded_weight`.
+
+For an unconstrained unitary completion, deterministic completion remains the
+default. TODO: add an explicit randomized-completion policy, carrying an
+explicit random source or seed, for algorithms that intentionally require a
+random basis in the unconstrained subspace. Provider-generated or hidden global
+randomness must not select this behavior implicitly.
+
+### Zero-Rank Truncation and CUDA
+
+Uni20 truncation must permit a retained extent of zero. The default minimum
+retained extent is zero, and a positive minimum is an explicit algorithmic
+policy. In particular, a block whose singular values all fail the active
+cutoffs must be removable from a `BlockTensor`; retaining an artificial
+zero-weight direction can corrupt tangent-space dimensions and introduce
+singular gauge or metric problems.
+
+Before implementing the CUDA SVD backend, verify the zero-extent behavior of
+each supported cuTensorNet version. cuTensorNet's `max_extent` is an upper bound
+on the retained extent, not a configurable minimum. Independently, its
+truncated-SVD documentation states that at least one singular value is retained
+even when the truncation parameters would remove every singular value. Treat
+that forced rank-one result as a provider limitation, not as Uni20 truncation
+semantics. If necessary, the CUDA adapter must use an internal nonzero
+placeholder extent, post-process the returned spectrum, expose a logical
+zero-rank result, and allow the `BlockTensor` layer to omit the block. Add
+provider-version tests before choosing the exact workaround, because the
+documented behavior may change between releases.
+
 ### Already Useful
 
 | group | status |
