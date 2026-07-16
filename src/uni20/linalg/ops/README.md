@@ -21,6 +21,8 @@ Operation values and diagnostic names are defined centrally in
 - `svd.hpp`: destructive, preserving, and storage-consuming exact dense SVD
   forms for singular values only, either factor separately, or both factors.
   Left and right singular-vector extents are independently reduced or full.
+- `truncated_svd.hpp`: preserving and consuming reduced SVD with rank, cutoff,
+  and discarded-weight policy plus stable truncation statistics.
 - `tridiagonal_eigen.hpp`: symmetric tridiagonal eigensystem dispatch.
 
 ## Notes
@@ -42,7 +44,10 @@ Operation values and diagnostic names are defined centrally in
   preserving call materializes column-major work storage. A consuming call
   uses compatible input storage as destructive work and may adopt it as one
   reduced factor through `JOBU='O'` or `JOBVT='O'`; full factors allocate
-  separately. Truncation remains a separate future policy.
+  separately.
+- Truncating SVD remains a Tensor policy layer over reduced exact SVD rather
+  than a second provider operation. It returns right-sized factors, permits
+  rank zero, and reports same-precision scaled squared-norm statistics.
 - Bare mdspans call `dispatch_kernel(selector, operation, operands...)`
   directly; do not add operation-specific aliases for generic dispatch.
 - Keep backend-specific implementation details in `../backends`.

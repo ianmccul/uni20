@@ -20,6 +20,7 @@ vendor accelerator backend.
 - `dense_matrix.hpp`: small dense matrix container used by CPU linalg routines.
 - `matrix_exponential.hpp`, `matrix_exponential.cpp`: adaptive dense matrix
   exponential implementation.
+- [`detail/`](detail/): shared same-precision numerical accumulation helpers.
 
 ## Notes
 

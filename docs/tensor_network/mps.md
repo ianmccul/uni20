@@ -1,8 +1,13 @@
-# Finite MPS Prototype
+# TensorContraction Integration Finite-MPS and DMRG
 
-Uni20 now has a minimal in-memory finite MPS layer for the first DMRG prototype.
-It is deliberately not a persistence format and does not try to copy MPTK's
-wavefunction storage infrastructure.
+**Status:** functional reference implementation on the
+`tensorcontraction-integration` branch. None of the MPS, MPO, environment,
+TensorContraction, CUDA/MPI DMRG classes, or executables named below are present
+on `main`. Uni20 intends to reproduce this capability set in pure Uni20. The
+first dense CPU path should use the current `Tensor`, kernel-dispatch, Async,
+Krylov, and truncating-SVD layers; the later symmetry-aware path must recover
+the integration branch's U(1), resident CUDA, MPI placement, and block-sparse
+behavior without mechanically copying its external bridge architecture.
 
 ## Scope
 
@@ -55,7 +60,7 @@ wavefunction storage infrastructure.
   block per local two-site physical basis state, and TensorContraction applies
   each term as `left_environment * center_block * right_environment` rather
   than materializing the full effective Hamiltonian.
-- `solve_two_site` packs the current two-site MPS center, compiles the local
+- `solve_two_site` packed the branch's two-site MPS center, compiled the local
   effective Hamiltonian, runs the TensorContraction Lanczos wrapper, and keeps
   the optimized center resident when the CUDA backend is active.  The old dense
   host matrix can still be materialized explicitly only in the dense prototype
@@ -66,17 +71,17 @@ wavefunction storage infrastructure.
   `lanczos_lowest_with_engine` with `VectorAlgebraEngine`. Setting
   `UNI20_TENSORCONTRACTION_BACKEND=host` is a test/debug mode for reference
   helpers, not a valid U(1) DMRG solve backend.
-- `split_two_site_solution` runs the current single-block SVD split and absorbs
+- `split_two_site_solution` ran the single-block SVD split and absorbed
   singular values into the right tensor for a left-to-right move, or into the
   left tensor for a right-to-left move.  On CUDA builds it first tries the
   resident cuSOLVER split path, which packs the two-site vector blocks on the
   GPU and avoids copying the Lanczos vector to the host. `FiniteMPS::replace_adjacent`
   installs the resulting pair back into the in-memory chain.
-- The strict U(1) split currently synchronizes the optimized center at the
+- The strict U(1) split synchronized the optimized center at the
   replacement boundary, assembles one host-visible dense matrix per charge
   sector, and requires the device cuSOLVER SVD path for each sector. It does not
   fall back to LAPACK or the reference SVD. The remaining host materialization is
-  for writing the current host-owned `BlockSparseFiniteMPS` replacement tensors;
+  for writing the branch's host-owned `BlockSparseFiniteMPS` replacement tensors;
   the linear algebra kernel is still cuSOLVER.
 - `sweep_two_site_left_to_right` and `sweep_two_site_right_to_left` perform the
   first directional dense DMRG sweep pass by rebuilding CPU environment chains,
@@ -111,7 +116,7 @@ wavefunction storage infrastructure.
 
 This gives the DMRG prototype an in-memory two-site center vector that can be
 passed to the temporary TensorContraction effective-Hamiltonian matvec boundary.
-The U(1) local solve now generates CUDA/MPI TensorContraction worklists from the
+The U(1) local solve generated CUDA/MPI TensorContraction worklists from the
 legal block layouts.  Environment construction and final MPS tensor replacement
 remain host-owned prototype boundaries; those are explicit storage boundaries,
 not silent dense fallbacks.
@@ -137,7 +142,7 @@ not feed back into U(1) MPS/MPO/DMRG state. If an operation cannot yet preserve
 block structure, the U(1) path should reject it rather than silently using a
 dense implementation.
 
-The current selection-rule conventions are:
+The recorded selection-rule conventions are:
 
 - `ThreeLegBlockMatrix`: `q_column = q_row + q_local`.
 - `LocalOperator` coefficients: `q_bra = q_ket + q_operator`.

@@ -12,6 +12,7 @@
 #include <uni20/linalg/ops/self_adjoint_eigh.hpp>
 #include <uni20/linalg/ops/svd.hpp>
 #include <uni20/linalg/ops/tridiagonal_eigen.hpp>
+#include <uni20/linalg/ops/truncated_svd.hpp>
 #include <uni20/tensor/conjugate_inplace.hpp>
 #include <uni20/tensor/copy.hpp>
 #include <uni20/tensor/reductions.hpp>

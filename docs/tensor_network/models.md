@@ -1,6 +1,10 @@
-# Models
+# TensorContraction Integration Model Layer
 
-Uni20 now has a small model layer above the operator infrastructure.
+**Status:** functional integration-branch reference. The spin-half, Heisenberg,
+Fermi-Hubbard, and triangular-MPO helpers described here are not present on
+`main`. Their charge conventions, fermion signs, sectors, and model behavior
+are specifications for rebuilding the model layer over Uni20's current
+symmetry and Tensor APIs.
 
 ## Scope
 
@@ -43,7 +47,7 @@ under the chosen U(1) component name, which defaults to `"Sz"`.
 
 ## Symmetry-Pure Operators Only
 
-The current `LocalOperator` type always carries one definite `transforms_as()`
+The prototype `LocalOperator` type always carried one definite `transforms_as()`
 label, so only symmetry-pure local operators are representable directly.
 
 That means:
@@ -54,7 +58,7 @@ That means:
 - `S-`
 - `sigma_z`
 
-fit naturally in the current U(1) layer.
+fit naturally in that U(1) layer.
 
 But operators such as `Sx`, `Sy`, `sigma_x`, and `sigma_y` do not transform as a
 single U(1) charge, so they are not represented as one `LocalOperator` here.
@@ -133,7 +137,7 @@ Jordan-Wigner sign and matches the Matrix Product Toolkit convention
 `make_fermi_hubbard_mpo(length, site, t, U)` constructs a finite triangular MPO
 by repeating this same bulk component at every site.
 
-The `fermi_hubbard_u1u1_dmrg` example currently targets the half-filled
+The integration-branch `fermi_hubbard_u1u1_dmrg` example targeted the half-filled
 spin-zero sector. For an even chain length `L`, it initializes the strict
 U(1)xU(1) path from the alternating product state
 
@@ -150,7 +154,7 @@ single-occupancy seed.
 
 ## Boundary Convention
 
-The current first-pass builder keeps the bulk virtual space unchanged at the
+The prototype first-pass builder kept the bulk virtual space unchanged at the
 boundaries rather than reducing the bond dimension there.
 
 This is deliberate:

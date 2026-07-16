@@ -12,9 +12,11 @@ linear-algebra operations over `Async<Tensor>` values.
   independent async eigenvalue and eigenvector outputs.
 - `svd.hpp`: preserving and consuming exact `singular_values`, `svd_left`,
   `svd_right`, and `svd` wrappers with independent async outputs.
+- `truncated_svd.hpp`: preserving and consuming `truncated_svd` wrappers with
+  independent `U`, `s`, `Vh`, and truncation-information outputs.
 - `transform.hpp`: variadic all-async elementwise overwrite and update
   wrappers.
-- `detail/output.hpp`: shared fixed-alias output capability used by wrappers
+- [`detail/`](detail/): shared fixed-alias output capability used by wrappers
   that write through an owner-retaining descriptor.
 
 ## Rules

@@ -1,15 +1,16 @@
 # TensorContraction Integration: Findings and Lessons
 
-**Status:** background findings from the separate TensorContraction integration
-lineage. The current main branch does not contain its runnable bridge or
-benchmark targets.
+**Status:** measured findings from the functional TensorContraction integration
+branch. The current `main` branch does not contain its runnable bridge or
+benchmark targets; these results guide the pure-Uni20 replacement.
 
 This note consolidates the empirical findings, calibration methodology, and
-operational gotchas from the temporary, quarantined **TensorContraction** bridge
-integration (on the `tensorcontraction-integration` branch). The *design*
-conclusions it informed live in the execution-architecture notes; this note keeps
-the measurements and lessons immediately accessible without digging through that
-branch.
+operational gotchas from the working **TensorContraction** bridge integration
+on the `tensorcontraction-integration` branch. The bridge is an external-code
+reference path rather than the intended final architecture. The *design*
+conclusions it informed live in the execution-architecture notes; this note
+keeps the measurements and lessons immediately accessible without digging
+through that branch.
 
 Related notes:
 
@@ -21,14 +22,16 @@ Related notes:
 
 ## Purpose and status
 
-The branch vendored an external TensorContraction prototype (gated by
+The branch vendored an external TensorContraction implementation (gated by
 `UNI20_ENABLE_TENSORCONTRACTION`) to get a minimal real-valued U(1) DMRG
 Hamiltonian-apply working on GPU via the R/A/B/C model (`R_i += α·A_j·B_k·C_l`;
 B = input center vector, R = output, A/C = environments) and to **inform uni20 core
-design**. It deliberately bypasses the real async runtime (it has its own
+design**. It is functional, but deliberately bypasses the current async runtime
+(it has its own
 deterministic right-first scheduler) and will be retired once a core GPU device
-backend exists. The GPU placement optimization workflow has served its informing
-purpose; the conclusions below are the durable output.
+backend and the equivalent pure-Uni20 DMRG path exist. The GPU placement
+optimization workflow has served its architectural purpose; the implementation,
+fixtures, and conclusions remain reference evidence until parity is reached.
 
 ## Cost model
 

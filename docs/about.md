@@ -26,9 +26,9 @@ guides define the exact contracts.
 |---|---|
 | Dense tensors | Implemented owning `Tensor` types with compile-time rank, runtime extents, column-major, row-major, and strided layouts, generated tensors, lazy conjugation, explicit materialization, reshape, and variadic elementwise overwrite/update operations. |
 | Dense backend dispatch | Implemented operation-value dispatch with compile-time type probing, structured runtime decline reasons, ordered fallback, callable-carrying elementwise operations, and optional dispatch diagnostics. CPU reference, BLAS, and initial LAPACK paths are active. |
-| Dense linear algebra | Implemented tensor/mdspan front ends include accessor-aware elementwise transforms and copy, GEMM, GEMV, matrix initialization, matrix exponential, exact SVD, self-adjoint and nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems. Backend coverage is operation-specific. |
+| Dense linear algebra | Implemented tensor/mdspan front ends include accessor-aware elementwise transforms and copy, GEMM, GEMV, matrix initialization, matrix exponential, exact and truncating SVD, self-adjoint and nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems. Backend coverage is operation-specific. |
 | Async runtime | Implemented `Async<T>`, epoch-ordered read/write buffers, exception and cancellation propagation, `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler`, scheduler-aware waits, task-registry diagnostics, stacktraces where available, and Graphviz DAG snapshots. |
-| Async tensor operations | Implemented lifetime-safe conjugating and reshape aliases, variadic elementwise overwrite/update operations, matrix products with immediate or async scalar parameters, preserving or storage-consuming self-adjoint `eigh`, and preserving or storage-consuming exact SVD operations with independent async outputs. |
+| Async tensor operations | Implemented lifetime-safe conjugating and reshape aliases, variadic elementwise overwrite/update operations, matrix products with immediate or async scalar parameters, preserving or storage-consuming self-adjoint `eigh`, and preserving or storage-consuming exact and truncating SVD operations with independent async outputs. |
 | Krylov algorithms | Implemented matrix-free symmetric/Hermitian Lanczos, nonsymmetric Arnoldi, generalized problems, Krylov exponential action, and an independent Taylor exponential-action reference. Projected dense work lowers through Uni20 linalg dispatch. |
 | Scalar support | `float32`, `float64`, real and complex paths are first-class. Configured MPLAPACK builds add binary128 probes and selected dense/Krylov paths. |
 | Presentation and diagnostics | Implemented semantic reports, terminal/plain/ASCII rendering, width-aware tables, mdspan previews, structured kernel errors, source locations, and optional stacktrace formatting. |
@@ -126,8 +126,10 @@ a complete tensor-network application suite. In particular:
 - There is no implicit host fallback for future device tensors and no implicit
   dense fallback for symmetry-aware tensors.
 - Python validates only the extension and build-information boundary today.
-- Existing MPS, model, symmetry, CUDA, MPI, and contraction prototypes should
-  not be mistaken for one complete end-user tensor-network workflow.
+- The `tensorcontraction-integration` branch contains a functional
+  MPI+CUDA+U(1) DMRG reference implementation, but that workflow is not yet
+  rebuilt through the pure-Uni20 Tensor, Async, dispatch, symmetry, CUDA, and
+  distributed-execution layers on `main`.
 
 ## Where to Continue
 

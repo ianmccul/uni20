@@ -52,8 +52,11 @@ factorizations:
   and `svd` through `gesvd`, with reduced factors by default and independent
   full-left/full-right extent options; preserving and consuming Async lowering
   returns independent output epochs;
-- truncating SVD, QR/LQ, expert/refined solves, and positive-definite or
-  Hermitian-indefinite solves remain future work.
+- the active `truncated_svd` policy layer selects and copies reduced factors,
+  permits rank zero, reports stable same-precision truncation statistics, and
+  has preserving and consuming Async forms with four independent outputs;
+- QR/LQ, expert/refined solves, and positive-definite or Hermitian-indefinite
+  solves remain future work.
 
 The native Krylov matrix-free boundary already matches the tensor-network
 direction: vectors are opaque, and solvers require allocation, copy, `axpy`,
@@ -65,17 +68,17 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 
 | group | examples | why |
 | --- | --- | --- |
-| Tensor-facing SVD truncation and reuse | exact dispatched `gesvd`; checked `gesdd` and `gesvdx` provider wrappers | Exact real and complex Tensor SVD includes partial-output APIs and consuming reuse of compatible input allocations for reduced factors. Add truncation policy/results and selected or divide-and-conquer backend choices separately. |
+| Tensor-facing SVD truncation and reuse | dispatched `gesvd` plus `truncated_svd`; checked `gesdd` and `gesvdx` provider wrappers | Exact real and complex Tensor SVD includes partial-output APIs and consuming reuse of compatible input allocations for reduced factors. Truncation is a separate policy/result layer; selected or divide-and-conquer backend choices remain separate future work. |
 | Complex QR/LQ | `geqrf`/`ungqr`, `gelqf`/`unglq`, plus apply-unitary helpers | Needed for MPS canonical forms, orthogonalization, gauge moves, and stable factorization paths when no truncation is requested. |
 | Complex expert and refined dense solves | checked `gesv`, `getrf`/`getrs`, `getri`, and `gecon`; future `gesvx`, `gerfs`, and triangular solves | Core LU operations are implemented. Add expert/refinement data and specialized solve families when tensor-network workflows require them. |
 | Complex positive-definite and Hermitian-indefinite solves | `potrf`/`potrs`/`pocon`; `hetrf`/`hetrs`/`hecon` | Needed once metric problems, normal equations, generalized Hermitian paths, or tangent-space methods need robust complex solves. |
 | Complex equilibration | checked `lange`, `lanhe`, and `lantr`; future `geequ` family where available | Core norms are implemented. Equilibration remains useful for scaling and condition-aware solve paths. |
-| Tensor truncation policy layer | cutoff, max dimension, per-sector limits, discarded weight, multiplet-aware hooks | This should sit above SVD/eigh wrappers. It is the actual tensor-network API, and it prevents exposing raw LAPACK choices as user policy. |
+| BlockTensor truncation policy layer | per-sector limits, global discarded weight, multiplet-aware hooks | Dense SVD truncation is implemented. Symmetry-aware policy must sit above per-block SVD/eigh calls so global and multiplet constraints do not leak into raw LAPACK choices. |
 
 ### Tensor-Facing SVD Semantics
 
-The exact Tensor SVD is implemented separately from the future truncating
-operation. `singular_values(matrix)` returns only `s`; `svd_left(matrix)`
+The exact and truncating Tensor SVD operations are separate.
+`singular_values(matrix)` returns only `s`; `svd_left(matrix)`
 returns `U` and `s`; `svd_right(matrix)` returns `s` and `Vh`; and
 `svd(matrix)` returns all three. For an `m x n` input, the reduced shapes are
 `m x k`, `k`, and `k x n`, where `k = min(m,n)`. One-sided calls accept one
@@ -95,12 +98,34 @@ Full factors cannot use the corresponding overwrite job. Incompatible layouts
 materialize instead, so passing an rvalue permits but does not guarantee
 returned-allocation reuse.
 
-The future truncation policy must support an explicit minimum retained extent,
-maximum retained extent, singular-value cutoff, normalized per-value weight
-cutoff, and maximum cumulative discarded weight. The default minimum retained
-extent is zero.
+`truncated_svd(matrix, policy)` always starts from the reduced exact SVD and
+returns right-sized `U`, `s`, and `Vh` factors. Its policy is:
 
-The truncation result must report enough information for a caller that also has
+```cpp
+template <uni20::Real Real>
+struct SvdTruncationPolicy
+{
+    std::size_t minimum_retained_extent = 0;
+    std::size_t maximum_retained_extent =
+        uni20::numeric_limits<std::size_t>::max();
+    std::optional<Real> singular_value_cutoff = std::nullopt;
+    std::optional<Real> normalized_squared_singular_value_cutoff =
+        std::nullopt;
+    std::optional<Real> maximum_discarded_weight = std::nullopt;
+};
+```
+
+The absolute cutoff keeps every singular value greater than or equal to the
+cutoff. The normalized cutoff compares each `s_i * s_i` with
+`cutoff * sum_j(s_j * s_j)`. The discarded-weight criterion chooses the
+smallest rank whose normalized discarded squared norm is no greater than the
+requested maximum. Active accuracy criteria each impose a minimum rank; the
+largest such rank wins, then the explicit minimum floor and maximum hard cap
+are applied. A conflicting maximum may therefore prevent an accuracy criterion
+from being satisfied. With no active criterion and no restrictive maximum, the
+default policy returns the exact reduced decomposition.
+
+The truncation result reports enough information for a caller that also has
 the requested policy to determine which constraints were binding:
 
 ```cpp
@@ -121,14 +146,29 @@ struct SvdTruncationInfo
 norm,
 `sum_discarded(s_i * s_i) / original_squared_norm`, and is defined as zero when
 the original squared norm is zero. These public statistics use the singular
-value's real scalar type; an internal summation type must not promote the API
-result. Accumulate the nonnegative squared singular values from smallest to
-largest, using scaled sum-of-squares arithmetic and, where justified by
-validation, pairwise or compensated summation. The retained rank identifies
-minimum- or maximum-extent limits, the two boundary values identify per-value
-cutoffs, and the original norm and discarded weight identify the
-cumulative-error boundary. Several constraints may be simultaneously binding;
-the API should not invent a unique winner in that case.
+value's real scalar type. The implementation scales by the largest singular
+value and accumulates normalized squares from smallest to largest with
+same-precision compensation. This prevents avoidable intermediate overflow
+while preserving binary128 policy and result types. `original_squared_norm`
+may still be infinity when the mathematically correct squared norm is not
+representable in that real type. The retained rank identifies minimum- or
+maximum-extent limits, the two boundary values identify per-value cutoffs, and
+the original norm and discarded weight identify the cumulative-error boundary.
+Several constraints may be simultaneously binding; the API does not invent a
+unique winner in that case.
+
+Preserving and consuming synchronous overloads mirror exact `svd`. The
+consuming form may reuse compatible input storage while computing the exact
+factors, but the final truncated factors are right-sized owners and do not
+promise to retain that allocation. Async overloads return four independent
+values:
+
+```cpp
+auto [u, s, vh, info] = truncated_svd(async_matrix, policy);
+```
+
+Unhandled task failure reaches all four outputs; a consuming call also fails
+the consumed input epoch.
 
 Singular-value normalization or partitioning is a separate output policy and
 must not change the meaning of these pre-truncation statistics. If a future
@@ -203,14 +243,15 @@ documented behavior may change between releases.
    probes.
 3. Keep exact dispatched Tensor SVD covered for real, complex, rectangular,
    full-factor, zero-extent, and binary128 cases.
-4. Add the separate truncation policy/result layer without conflating the
-   exact and truncating APIs.
+4. Keep the completed dense truncation policy/result layer covered for rank
+   bounds, both per-value cutoffs, discarded weight, zero rank, complex input,
+   Async failure propagation, and binary128 statistics.
 5. Add complex QR/LQ wrappers and unitary application/materialization helpers.
 6. Add complex expert/refined general solves and
    positive-definite/Hermitian-indefinite solve wrappers with reciprocal
    condition diagnostics.
-7. Build a tensor-facing truncation result type that records kept dimension,
-   discarded weight, per-sector decisions, and reconstruction diagnostics.
+7. Build the BlockTensor truncation layer that combines per-sector spectra,
+   global discarded weight, symmetry selection rules, and multiplet policy.
 
 Each new wrapper should have at least one direct dense test and, when it exists
 to support a higher-level Krylov or tensor operation, one test through that

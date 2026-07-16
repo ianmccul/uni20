@@ -1,8 +1,9 @@
 # R/A/B/C Lanczos Fixtures
 
-**Status:** background capture and replay workflow from the separate
-TensorContraction integration lineage. The named executables are not targets on
-the current main branch.
+**Status:** capture and replay workflow for the functional TensorContraction
+integration branch. The named executables are not targets on the current
+`main` branch; their fixtures are regression and performance inputs for the
+pure-Uni20 replacement.
 
 The TensorContraction bridge can capture one real two-site DMRG effective-Hamiltonian solve and replay it without the
 surrounding MPS sweep, SVD, or environment update. This is intended for benchmarking the resident R/A/B/C contraction

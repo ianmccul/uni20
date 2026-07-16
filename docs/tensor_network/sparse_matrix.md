@@ -1,7 +1,9 @@
-# Sparse Matrices
+# TensorContraction Integration Sparse-Matrix Layer
 
-Uni20 currently provides a small row-oriented sparse matrix container in
-`uni20::SparseMatrix<T>`.
+**Status:** functional integration-branch reference. `uni20::SparseMatrix<T>` and the
+matrix/operator source directories described below are not present on `main`.
+This note records the representation used by the working operator and MPO
+implementation and informs the pure-Uni20 replacement.
 
 ## Scope
 
@@ -15,9 +17,9 @@ The container stores each row as a sorted list of `(column, value)` entries.
 That keeps mutation simple while preserving the access pattern needed for
 iterating over sparse operator rows.
 
-## Current API
+## Integration-Branch API
 
-`SparseMatrix<T>` currently supports:
+The prototype `SparseMatrix<T>` supported:
 
 - construction from `(rows, cols)`
 - shape queries: `rows()`, `cols()`, `shape()`, `nnz()`
@@ -26,7 +28,8 @@ iterating over sparse operator rows.
 - lookup: `contains(i, j)`, `find(i, j)`, `at(i, j)`
 - `transpose()`
 
-Basic sparse algebra is provided in `src/uni20/matrix/sparse_matrix_ops.hpp`:
+Basic sparse algebra was provided in
+`src/uni20/matrix/sparse_matrix_ops.hpp` on that branch:
 
 - `add(lhs, rhs)`
 - `scale(matrix, scalar)`
@@ -41,9 +44,9 @@ Rows are kept sorted by column index. There is no implicit zero-culling rule,
 because future values such as `LocalOperator` are not naturally compared to a
 distinguished scalar zero.
 
-## Planned Use
+## Reusable Direction
 
-The current plan is:
+The intended use was:
 
 - `LocalOperator` will use a sparse matrix of scalar coefficients.
 - `MPO` will use a sparse matrix of `LocalOperator`.

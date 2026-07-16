@@ -1,7 +1,9 @@
-# Local Operators
+# TensorContraction Integration Local-Operator Layer
 
-Uni20 currently provides a minimal operator layer for local physical operators
-and per-site MPO components.
+**Status:** functional integration-branch reference. The `LocalOperator`,
+`OperatorComponent`, and `FiniteTriangularMPO` classes described here are not
+present on `main`. Their operator, charge, and MPO semantics are requirements
+for the pure-Uni20 symmetry-aware tensor-network layer.
 
 ## Scope
 
@@ -12,7 +14,8 @@ This layer is intentionally narrow.
 - `OperatorComponent` is the per-site MPO object.
 - `FiniteTriangularMPO` is the first lattice-level MPO type used by the DMRG
   path.
-- Concrete model helpers now live in `docs/tensor_network/models.md`.
+- Concrete model helpers from the same branch are described in
+  `docs/tensor_network/models.md`.
 
 ## LocalSpace
 
@@ -26,7 +29,7 @@ It is backed by `QNumList`, so it:
 - remains explicitly sparse
 - carries a `Symmetry` even when empty
 
-In the current first implementation, `LocalSpace` is used for both:
+In the prototype, `LocalSpace` was used for both:
 
 - physical on-site spaces
 - MPO auxiliary / virtual bond spaces
@@ -38,7 +41,7 @@ is conceptually the first realization of
 
 `Tensor<co<LocalSpace>, QNum, LocalSpace>`
 
-but the current implementation is a dedicated class rather than a generic tensor
+but the prototype used a dedicated class rather than a generic tensor
 instantiation.
 
 It stores:
@@ -48,7 +51,7 @@ It stores:
 - `transforms_as()`
 - a sparse coefficient matrix over explicit local states
 
-The current coefficient storage is `SparseMatrix<double>`.
+The prototype coefficient storage was `SparseMatrix<double>`.
 
 ## OperatorComponent
 
@@ -66,14 +69,14 @@ This matches the practical point of view that a site of an MPO is a matrix of
 local operators, not primarily a generic four-leg tensor.
 
 `OperatorComponent` also exposes a separate `is_upper_triangular(...)`
-predicate on its virtual indices. For rectangular components, the current
-convention is that entries strictly below the main diagonal are forbidden.
+predicate on its virtual indices. For rectangular components, the branch
+convention forbade entries strictly below the main diagonal.
 
 ## FiniteTriangularMPO
 
 `uni20::FiniteTriangularMPO` is the first lattice-level MPO container.
 
-It stores a finite sequence of `OperatorComponent` sites and currently enforces:
+It stored a finite sequence of `OperatorComponent` sites and enforced:
 
 - one shared symmetry across the chain
 - exact matching of adjacent virtual spaces
@@ -81,9 +84,9 @@ It stores a finite sequence of `OperatorComponent` sites and currently enforces:
 
 This is intentionally much narrower than a full MPO class hierarchy.
 
-## Current API
+## Integration-Branch API
 
-`LocalSpace` currently supports:
+The prototype `LocalSpace` supported:
 
 - construction from `Symmetry`, `QNum`, or `QNumList`
 - `symmetry()`, `size()`, `empty()`
@@ -92,7 +95,7 @@ This is intentionally much narrower than a full MPO class hierarchy.
 - indexed access and iteration
 - `qnums()`
 
-`LocalOperator` currently supports:
+The prototype `LocalOperator` supported:
 
 - construction from `bra_space`, `ket_space`, and `transforms_as`
 - optional construction from an existing sparse coefficient matrix
@@ -102,7 +105,7 @@ This is intentionally much narrower than a full MPO class hierarchy.
 - sparse coefficient mutation and lookup via `insert_or_assign()`, `erase()`,
   `contains()`, `at()`, and `clear()`
 
-`OperatorComponent` currently supports:
+The prototype `OperatorComponent` supported:
 
 - construction from local spaces plus left/right virtual `LocalSpace`s
 - optional construction from an existing sparse matrix of `LocalOperator`
@@ -113,7 +116,7 @@ This is intentionally much narrower than a full MPO class hierarchy.
   `contains()`, `at()`, and `clear()`
 - `is_upper_triangular(component)`
 
-`FiniteTriangularMPO` currently supports:
+The prototype `FiniteTriangularMPO` supported:
 
 - construction from a site sequence
 - `size()`, `empty()`, indexed access, iteration

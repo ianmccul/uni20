@@ -11,6 +11,7 @@
 #include <uni20/linalg/async/self_adjoint_eigh.hpp>
 #include <uni20/linalg/async/svd.hpp>
 #include <uni20/linalg/async/transform.hpp>
+#include <uni20/linalg/async/truncated_svd.hpp>
 
 namespace uni20::linalg
 {

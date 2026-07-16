@@ -4,6 +4,7 @@
 #include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
 #include <uni20/linalg/ops/svd.hpp>
+#include <uni20/linalg/ops/truncated_svd.hpp>
 #include <uni20/tensor/reductions.hpp>
 #include <uni20/tensor/tensor.hpp>
 
@@ -195,6 +196,26 @@ TEST(MplapackBinary128CpuOpsTest, ExactSvdPreservesRealAndComplexBinary128Values
       EXPECT_TRUE(std::abs(reconstructed - complex_matrix[row, column]) <= tolerance());
     }
   }
+}
+
+TEST(MplapackBinary128CpuOpsTest, TruncatedSvdUsesBinary128PolicyAndStatistics)
+{
+  Binary128 const delta = below_double_resolution_gap();
+  expect_gap_is_binary128_only(delta);
+
+  uni20::DenseMatrix<Binary128> matrix(2, 2);
+  matrix[0, 0] = Binary128{2} + delta;
+  matrix[1, 1] = Binary128{1};
+  auto result =
+      uni20::linalg::truncated_svd(matrix, uni20::linalg::SvdTruncationPolicy<Binary128>{.maximum_retained_extent = 1});
+
+  static_assert(std::same_as<decltype(result.truncation.original_squared_norm), Binary128>);
+  EXPECT_EQ(result.truncation.available_rank, 2);
+  EXPECT_EQ(result.truncation.retained_rank, 1);
+  EXPECT_FLOATING_EQ(result.singular_values[0], Binary128{2} + delta);
+  EXPECT_TRUE(abs_error(result.truncation.discarded_weight,
+                        Binary128{1} / ((Binary128{2} + delta) * (Binary128{2} + delta) + Binary128{1})) <=
+              tolerance());
 }
 
 #endif

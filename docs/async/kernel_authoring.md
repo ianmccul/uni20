@@ -190,6 +190,14 @@ returns one `Async<S>`, `svd_left` returns
 independent epoch, while one coroutine computes and commits all outputs of a
 multi-output operation.
 
+`truncated_svd` extends the same pattern to four independent outputs:
+`TruncatedSvdResult<Async<U>, Async<S>, Async<Vh>,
+Async<SvdTruncationInfo<Real>>>`. Rank selection and factor right-sizing happen
+inside the scheduled coroutine after the exact SVD is available. Every output
+writer is therefore an exception sink; consuming lowering also retains the
+input writer through result publication so exact-SVD or policy failures reach
+the input and all four outputs.
+
 Preserving overloads read `Async<Tensor> const&`. Consuming overloads take
 `Async<OwningTensor>&&`, enroll the input writer, and obtain the matrix through
 `take()`. A reduced singular-vector output may adopt the consumed allocation

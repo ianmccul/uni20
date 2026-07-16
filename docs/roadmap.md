@@ -64,8 +64,9 @@ See [Tensor Operations](tensor/operations.md),
 Current vertical slices include accessor-respecting variadic elementwise
 transforms, copy/materialization, inner product, stable Euclidean norm, GEMM,
 GEMV, matrix initialization and exponential, self-adjoint and nonsymmetric
-eigensystems, Schur operations, and tridiagonal eigensystems. Backend and
-scalar coverage is operation-specific rather than uniform.
+eigensystems, exact and truncating SVD, Schur operations, and tridiagonal
+eigensystems. Backend and scalar coverage is operation-specific rather than
+uniform.
 
 See [Kernel Dispatch](architecture/kernel_dispatch.md),
 [Mdspan Linear Algebra Dispatch](linalg/mdspan_dispatch.md), and
@@ -83,9 +84,9 @@ See [Kernel Dispatch](architecture/kernel_dispatch.md),
   can publish independent results or the same failure.
 - Task-registry snapshots, presentation reports, optional stacktraces, signal
   triggers, watchdog controls, and Graphviz output support diagnosis.
-- Async matrix-product overwrite/update and preserving/consuming self-adjoint
-  `eigh` wrappers, plus full and axis-selective sums, schedule the existing
-  synchronous Tensor operations.
+- Async matrix-product overwrite/update, preserving/consuming self-adjoint
+  `eigh`, exact and truncating SVD wrappers, plus full and axis-selective sums,
+  schedule the existing synchronous Tensor operations.
 
 See the [Async Documentation Index](async/) and
 [Async Tensor Kernel Authoring](async/kernel_authoring.md).
@@ -193,6 +194,36 @@ complete block-sparse Tensor execution path.
 See [BlockTensor Design](symmetry/block_tensor.md),
 [Raw Primitives and Symmetric Lowering](symmetry/raw_primitives_and_lowering.md),
 and [Block Coalescing](symmetry/block_coalescing.md).
+
+### 5. Rebuild the complete DMRG vertical slice in pure Uni20
+
+The `tensorcontraction-integration` branch is a functional reference, not
+discarded prototype work. It demonstrates dense and U(1) two-site DMRG,
+matrix-free Lanczos, block-sparse environments and centers, truncating SVD,
+resident CUDA execution, and MPI-aware block placement. The goal is behavioral
+and performance parity through Uni20's current architecture without retaining
+the external TensorContraction implementation.
+
+- Establish a dense CPU two-site DMRG path first, using `Tensor`,
+  `Async<Tensor>`, dispatched dense kernels, matrix-free Krylov, and
+  `truncated_svd`.
+- Rebuild MPS, MPO, environment, model, and sweep operations over explicit
+  Uni20 ownership, tensor-view, and async contracts.
+- Replace branch-specific block containers with the symmetry-aware
+  `BlockTensor` and preserve every quantum-number and leg-orientation invariant.
+- Reproduce the integration branch's U(1) Heisenberg and U(1)xU(1)
+  Fermi-Hubbard numerical checks and sweep diagnostics.
+- Lower the effective-Hamiltonian R/A/B/C operation through Uni20 kernel
+  dispatch, placement, device-completion, and communication abstractions.
+- Recover resident CUDA and MPI execution incrementally, using captured
+  R/A/B/C fixtures and branch benchmark results as regression evidence.
+- Treat successful parity as migration of capability, not a source-level port:
+  reuse algorithms and validated conventions while replacing the bridge's
+  scheduler, ownership, storage, and backend boundaries.
+
+See [Tensor-Network Documentation](tensor_network/),
+[TensorContraction Integration Findings](tensor_network/contraction_integration_findings.md),
+and [R/A/B/C Contraction Scheduling](tensor_network/rabc_contraction_scheduling.md).
 
 ## Heterogeneous Execution Track
 
