@@ -10,6 +10,8 @@ linear-algebra operations over `Async<Tensor>` values.
   or host-scalar results.
 - `self_adjoint_eigh.hpp`: preserving and consuming `eigh` wrappers with
   independent async eigenvalue and eigenvector outputs.
+- `svd.hpp`: preserving and consuming exact `singular_values`, `svd_left`,
+  `svd_right`, and `svd` wrappers with independent async outputs.
 - `transform.hpp`: variadic all-async elementwise overwrite and update
   wrappers.
 - `detail/output.hpp`: shared fixed-alias output capability used by wrappers

@@ -3,6 +3,7 @@ add_test_module(linalg
     cpu/test_matrix_exponential.cpp
     test_async_matrix_product.cpp
     test_async_self_adjoint_eigh.cpp
+    test_async_svd.cpp
     test_async_tensor_reductions.cpp
     test_async_tensor_transform.cpp
     test_cpu_strided_transform.cpp
@@ -11,6 +12,7 @@ add_test_module(linalg
     test_linalg_gemv_cpu.cpp
     test_matrix_product.cpp
     test_self_adjoint_eigh.cpp
+    test_svd.cpp
     test_tensor_conjugate_inplace.cpp
     test_tensor_copy.cpp
     test_tensor_generated.cpp

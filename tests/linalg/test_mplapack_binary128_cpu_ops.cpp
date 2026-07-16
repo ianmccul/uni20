@@ -3,6 +3,7 @@
 #include <uni20/core/math.hpp>
 #include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
+#include <uni20/linalg/ops/svd.hpp>
 #include <uni20/tensor/reductions.hpp>
 #include <uni20/tensor/tensor.hpp>
 
@@ -149,6 +150,51 @@ TEST(MplapackBinary128CpuOpsTest, MatrixExponentialPrescalesWithinBinary128)
   EXPECT_FLOATING_EQ((result[1, 0]), Binary128{});
   EXPECT_FLOATING_EQ((result[1, 1]), Binary128{1});
   EXPECT_TRUE(abs_error((result[0, 1] - large) / large, Binary128{}) <= tolerance());
+}
+
+TEST(MplapackBinary128CpuOpsTest, ExactSvdPreservesRealAndComplexBinary128Values)
+{
+  Binary128 const delta = below_double_resolution_gap();
+  expect_gap_is_binary128_only(delta);
+
+  uni20::DenseMatrix<Binary128> real_matrix(2, 2);
+  real_matrix[0, 0] = Binary128{2} + delta;
+  real_matrix[1, 1] = Binary128{1};
+  auto real_values = uni20::linalg::singular_values(real_matrix);
+  auto real_left = uni20::linalg::svd_left(real_matrix);
+  auto real_result = uni20::linalg::svd(real_matrix);
+
+  EXPECT_FLOATING_EQ(real_values[0], Binary128{2} + delta);
+  EXPECT_FLOATING_EQ(real_values[1], Binary128{1});
+  EXPECT_FLOATING_EQ(real_left.singular_values[0], Binary128{2} + delta);
+  EXPECT_FLOATING_EQ(real_left.singular_values[1], Binary128{1});
+  EXPECT_FLOATING_EQ(real_result.singular_values[0], Binary128{2} + delta);
+  EXPECT_FLOATING_EQ(real_result.singular_values[1], Binary128{1});
+
+  using Complex = uni20::complex<Binary128>;
+  uni20::DenseMatrix<Complex> complex_matrix(2, 2);
+  complex_matrix[0, 0] = Complex{Binary128{}, Binary128{2} + delta};
+  complex_matrix[1, 1] = Complex{Binary128{1}, Binary128{}};
+  auto complex_right = uni20::linalg::svd_right(complex_matrix);
+  auto complex_result = uni20::linalg::svd(complex_matrix);
+
+  EXPECT_FLOATING_EQ(complex_right.singular_values[0], Binary128{2} + delta);
+  EXPECT_FLOATING_EQ(complex_right.singular_values[1], Binary128{1});
+  EXPECT_FLOATING_EQ(complex_result.singular_values[0], Binary128{2} + delta);
+  EXPECT_FLOATING_EQ(complex_result.singular_values[1], Binary128{1});
+  for (uni20::index_type row = 0; row < 2; ++row)
+  {
+    for (uni20::index_type column = 0; column < 2; ++column)
+    {
+      Complex reconstructed{};
+      for (uni20::index_type inner = 0; inner < 2; ++inner)
+      {
+        reconstructed += complex_result.left_singular_vectors[row, inner] * complex_result.singular_values[inner] *
+                         complex_result.right_singular_vectors_adjoint[inner, column];
+      }
+      EXPECT_TRUE(std::abs(reconstructed - complex_matrix[row, column]) <= tolerance());
+    }
+  }
 }
 
 #endif

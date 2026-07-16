@@ -129,6 +129,59 @@ struct self_adjoint_eigh_op
     MatrixTriangle triangle = MatrixTriangle::Upper;
 };
 
+/// \brief Extent policy for one side of an exact singular value decomposition.
+enum class SvdVectorExtent
+{
+  Reduced,
+  Full
+};
+
+/// \brief Output-shape options for an exact singular value decomposition.
+struct SvdOptions
+{
+    SvdVectorExtent left = SvdVectorExtent::Reduced;
+    SvdVectorExtent right = SvdVectorExtent::Reduced;
+};
+
+/// \brief Input allocation overwritten by a singular-vector factor.
+enum class SvdOverwrite
+{
+  None,
+  Left,
+  Right
+};
+
+/// \brief Exact dense singular-values-only operation tag.
+struct singular_values_op
+{
+    static constexpr std::string_view name = "singular_values";
+};
+
+/// \brief Exact dense left singular-vector operation tag.
+struct svd_left_op
+{
+    static constexpr std::string_view name = "svd_left";
+    SvdVectorExtent left = SvdVectorExtent::Reduced;
+    bool overwrite_input = false;
+};
+
+/// \brief Exact dense right singular-vector operation tag.
+struct svd_right_op
+{
+    static constexpr std::string_view name = "svd_right";
+    SvdVectorExtent right = SvdVectorExtent::Reduced;
+    bool overwrite_input = false;
+};
+
+/// \brief Exact dense singular value decomposition operation tag.
+struct svd_op
+{
+    static constexpr std::string_view name = "svd";
+    SvdVectorExtent left = SvdVectorExtent::Reduced;
+    SvdVectorExtent right = SvdVectorExtent::Reduced;
+    SvdOverwrite overwrite = SvdOverwrite::None;
+};
+
 /// \brief Symmetric tridiagonal eigensystem operation tag.
 struct symmetric_tridiagonal_eigen_op
 {

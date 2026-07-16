@@ -18,6 +18,9 @@ Operation values and diagnostic names are defined centrally in
 - `self_adjoint_eigh.hpp`: destructive in-place, preserving value, and
   allocation-reusing consuming forms for dense symmetric/Hermitian
   eigensystems.
+- `svd.hpp`: destructive, preserving, and storage-consuming exact dense SVD
+  forms for singular values only, either factor separately, or both factors.
+  Left and right singular-vector extents are independently reduced or full.
 - `tridiagonal_eigen.hpp`: symmetric tridiagonal eigensystem dispatch.
 
 ## Notes
@@ -34,6 +37,12 @@ Operation values and diagnostic names are defined centrally in
   is exchanged, and complex eigenvectors are conjugated in place after LAPACK.
   The returned mapping preserves a padded `LDA` and the storage container's
   unused tail. Mappings without a unit-stride axis still materialize.
+- Exact SVD dispatches through `gesvd`. `singular_values`, `svd_left`,
+  `svd_right`, and `svd` request only the provider outputs they return. A
+  preserving call materializes column-major work storage. A consuming call
+  uses compatible input storage as destructive work and may adopt it as one
+  reduced factor through `JOBU='O'` or `JOBVT='O'`; full factors allocate
+  separately. Truncation remains a separate future policy.
 - Bare mdspans call `dispatch_kernel(selector, operation, operands...)`
   directly; do not add operation-specific aliases for generic dispatch.
 - Keep backend-specific implementation details in `../backends`.

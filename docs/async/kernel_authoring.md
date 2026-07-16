@@ -3,8 +3,8 @@
 This guide defines the first supported pattern for lifting synchronous Tensor
 operations onto Uni20's async runtime. The implemented references are
 `uni20::linalg::assign_product`, `uni20::linalg::add_product`, and the
-multi-output `uni20::linalg::eigh` overloads, plus full and axis-selective
-`uni20::sum`, from `<uni20/linalg/async.hpp>`.
+multi-output `uni20::linalg::eigh` and `uni20::linalg::svd` overloads, plus
+full and axis-selective `uni20::sum`, from `<uni20/linalg/async.hpp>`.
 See [Tensor Operations](../tensor/operations.md) for the canonical
 operation semantics and current synchronous/Async support matrix.
 
@@ -181,6 +181,21 @@ structured-bound and passed directly to downstream async operations without an
 extra extraction coroutine. The preserving overload reads an
 `Async<Tensor> const&`; the consuming overload takes `Async<Tensor>&&` and may
 transfer the stored owning Tensor's allocation to the eigenvector output.
+
+The exact SVD family follows the same allocating pattern. `singular_values`
+returns one `Async<S>`, `svd_left` returns
+`SvdLeftResult<Async<U>, Async<S>>`, `svd_right` returns
+`SvdRightResult<Async<S>, Async<Vh>>`, and `svd` returns
+`SvdResult<Async<U>, Async<S>, Async<Vh>>`. Each returned value has an
+independent epoch, while one coroutine computes and commits all outputs of a
+multi-output operation.
+
+Preserving overloads read `Async<Tensor> const&`. Consuming overloads take
+`Async<OwningTensor>&&`, enroll the input writer, and obtain the matrix through
+`take()`. A reduced singular-vector output may adopt the consumed allocation
+through LAPACK's `O` job. Full factors and incompatible mappings allocate or
+materialize as needed; the rvalue grants permission to reuse storage rather
+than promising that every call will do so.
 
 ## Consuming Owning Inputs
 

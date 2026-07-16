@@ -20,6 +20,10 @@ TEST(LinalgDenseOpsDispatchTest, OperationTagsProvideCentralDiagnosticNames)
   EXPECT_EQ(uni20::linalg::gemm_op::name, "gemm");
   EXPECT_EQ(uni20::linalg::gemv_op::name, "gemv");
   EXPECT_EQ(uni20::linalg::inner_product_op::name, "inner_product");
+  EXPECT_EQ(uni20::linalg::singular_values_op::name, "singular_values");
+  EXPECT_EQ(uni20::linalg::svd_left_op::name, "svd_left");
+  EXPECT_EQ(uni20::linalg::svd_right_op::name, "svd_right");
+  EXPECT_EQ(uni20::linalg::svd_op::name, "svd");
   EXPECT_EQ(uni20::linalg::norm_op::name, "norm");
   EXPECT_EQ((uni20::linalg::sum_reduction_op<3, 1>::name), "sum");
   EXPECT_EQ(uni20::linalg::matrix_set_op::name, "matrix_set");

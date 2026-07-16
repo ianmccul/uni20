@@ -359,6 +359,11 @@ mdspans or spans.
 | `self_adjoint_eigh` | Destructive LAPACK-style workspace operation. | Matrix workspace is overwritten; eigenvalue output may resize. | No direct wrapper. |
 | `eigh(matrix)` | Preserving value operation returning eigenvalues and eigenvectors. | Materializes work storage and returns two owners. | Implemented; returns two independent Async outputs. |
 | `eigh(std::move(matrix))` | Consuming value operation. | May transfer a compatible owning allocation to eigenvectors. | Implemented for `Async<OwningTensor>&&`; consumes the stored value on success. |
+| `singular_value_decomposition` | Destructive exact SVD workspace operation. | Matrix workspace is overwritten; `U`, `s`, and `Vh` outputs may resize. | Not implemented. |
+| `singular_values(matrix)` | Exact singular values only. | Preserving form materializes work storage; consuming form may destroy a compatible owning input in place. | Preserving and consuming forms return one independent Async output. |
+| `svd_left(matrix)` | Exact left singular vectors and singular values. | Reduced by default; full left extent is optional. A consuming reduced call may adopt the input allocation through `JOBU='O'`. | Preserving and consuming forms return two independent Async outputs. |
+| `svd_right(matrix)` | Exact singular values and `Vh`. | Reduced by default; full right extent is optional. A consuming reduced call may adopt the input allocation through `JOBVT='O'`. | Preserving and consuming forms return two independent Async outputs. |
+| `svd(matrix)` | Exact `U`, `s`, and `Vh`. | Preserving form materializes work storage. Consuming form may adopt one reduced factor, preserving a padded leading dimension; left/right full extents remain independent. | Preserving and consuming forms return three independent Async outputs. |
 | `nonsymmetric_eigen` | LAPACK-style nonsymmetric eigensystem. | Destructive matrix workspace and caller-provided outputs. | Not implemented. |
 | `schur`, `hessenberg_schur` | LAPACK-style decomposition. | Destructive matrix workspace and caller-provided outputs. | Not implemented. |
 | `reorder_schur` | Reorder an existing Schur form. | In-place mutation of Schur form and optionally vectors. | Not implemented. |

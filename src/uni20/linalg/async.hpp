@@ -9,6 +9,7 @@
 #include <uni20/linalg/async/matrix_product.hpp>
 #include <uni20/linalg/async/reductions.hpp>
 #include <uni20/linalg/async/self_adjoint_eigh.hpp>
+#include <uni20/linalg/async/svd.hpp>
 #include <uni20/linalg/async/transform.hpp>
 
 namespace uni20::linalg

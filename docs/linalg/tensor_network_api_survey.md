@@ -47,8 +47,13 @@ factorizations:
 - standard, divide-and-conquer, selected, and generalized complex Hermitian
   eigensystem wrappers are available;
 - the active `self_adjoint_eigh`/`eigh` path exposes the standard Hermitian
-  eigensystem operation, while tensor-facing SVD, QR/LQ, expert/refined solves,
-  and positive-definite or Hermitian-indefinite solves remain future work.
+  eigensystem operation;
+- the active exact SVD path exposes `singular_values`, `svd_left`, `svd_right`,
+  and `svd` through `gesvd`, with reduced factors by default and independent
+  full-left/full-right extent options; preserving and consuming Async lowering
+  returns independent output epochs;
+- truncating SVD, QR/LQ, expert/refined solves, and positive-definite or
+  Hermitian-indefinite solves remain future work.
 
 The native Krylov matrix-free boundary already matches the tensor-network
 direction: vectors are opaque, and solvers require allocation, copy, `axpy`,
@@ -60,7 +65,7 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 
 | group | examples | why |
 | --- | --- | --- |
-| Tensor-facing complex SVD | checked `gesvd`, `gesdd`, and `gesvdx` provider wrappers | Core tensor truncation operation for complex tensors and transfer-matrix workflows. Add dispatched allocation/reuse policy, truncation-ready singular values, and reconstruction diagnostics above the checked wrappers. |
+| Tensor-facing SVD truncation and reuse | exact dispatched `gesvd`; checked `gesdd` and `gesvdx` provider wrappers | Exact real and complex Tensor SVD includes partial-output APIs and consuming reuse of compatible input allocations for reduced factors. Add truncation policy/results and selected or divide-and-conquer backend choices separately. |
 | Complex QR/LQ | `geqrf`/`ungqr`, `gelqf`/`unglq`, plus apply-unitary helpers | Needed for MPS canonical forms, orthogonalization, gauge moves, and stable factorization paths when no truncation is requested. |
 | Complex expert and refined dense solves | checked `gesv`, `getrf`/`getrs`, `getri`, and `gecon`; future `gesvx`, `gerfs`, and triangular solves | Core LU operations are implemented. Add expert/refinement data and specialized solve families when tensor-network workflows require them. |
 | Complex positive-definite and Hermitian-indefinite solves | `potrf`/`potrs`/`pocon`; `hetrf`/`hetrs`/`hecon` | Needed once metric problems, normal equations, generalized Hermitian paths, or tangent-space methods need robust complex solves. |
@@ -69,11 +74,31 @@ scale/zero, `norm`, inner products returning host scalars, and `matvec`.
 
 ### Tensor-Facing SVD Semantics
 
-The exact and truncating Tensor SVD operations should remain distinct. The
-truncation policy must support an explicit minimum retained extent, maximum
-retained extent, singular-value cutoff, normalized per-value weight cutoff, and
-maximum cumulative discarded weight. The default minimum retained extent is
-zero.
+The exact Tensor SVD is implemented separately from the future truncating
+operation. `singular_values(matrix)` returns only `s`; `svd_left(matrix)`
+returns `U` and `s`; `svd_right(matrix)` returns `s` and `Vh`; and
+`svd(matrix)` returns all three. For an `m x n` input, the reduced shapes are
+`m x k`, `k`, and `k x n`, where `k = min(m,n)`. One-sided calls accept one
+`SvdVectorExtent`; `SvdOptions` independently requests full left or right
+extents for the complete decomposition. The right factor is always `Vh`:
+transpose for real inputs and conjugate transpose for complex inputs. A
+zero-rank decomposition returns empty reduced factors; a requested
+unconstrained full factor is the corresponding identity matrix.
+
+Every value operation has a preserving lvalue form and a consuming mutable
+owning-rvalue form. A preserving call materializes LAPACK-compatible work
+storage. A consuming call may use the input allocation directly as destructive
+workspace. For reduced factors, compatible column-major host storage can be
+returned as `U` through `JOBU='O'` or as `Vh` through `JOBVT='O'`; the adopted
+strided owner preserves a padded leading dimension and unused storage tail.
+Full factors cannot use the corresponding overwrite job. Incompatible layouts
+materialize instead, so passing an rvalue permits but does not guarantee
+returned-allocation reuse.
+
+The future truncation policy must support an explicit minimum retained extent,
+maximum retained extent, singular-value cutoff, normalized per-value weight
+cutoff, and maximum cumulative discarded weight. The default minimum retained
+extent is zero.
 
 The truncation result must report enough information for a caller that also has
 the requested policy to determine which constraints were binding:
@@ -176,13 +201,15 @@ documented behavior may change between releases.
 2. Keep the completed complex Hermitian and generalized Hermitian eigensystem
    wrappers covered by direct `c`/`z` tests and binary128-complex MPLAPACK
    probes.
-3. Build the dispatched Tensor-facing SVD operation above the checked provider
-   wrappers, including allocation/reuse rules and reconstruction tests.
-4. Add complex QR/LQ wrappers and unitary application/materialization helpers.
-5. Add complex expert/refined general solves and
+3. Keep exact dispatched Tensor SVD covered for real, complex, rectangular,
+   full-factor, zero-extent, and binary128 cases.
+4. Add the separate truncation policy/result layer without conflating the
+   exact and truncating APIs.
+5. Add complex QR/LQ wrappers and unitary application/materialization helpers.
+6. Add complex expert/refined general solves and
    positive-definite/Hermitian-indefinite solve wrappers with reciprocal
    condition diagnostics.
-6. Build a tensor-facing truncation result type that records kept dimension,
+7. Build a tensor-facing truncation result type that records kept dimension,
    discarded weight, per-sector decisions, and reconstruction diagnostics.
 
 Each new wrapper should have at least one direct dense test and, when it exists

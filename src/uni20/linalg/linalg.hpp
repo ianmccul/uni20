@@ -10,6 +10,7 @@
 #include <uni20/linalg/ops/nonsymmetric_eigen.hpp>
 #include <uni20/linalg/ops/schur.hpp>
 #include <uni20/linalg/ops/self_adjoint_eigh.hpp>
+#include <uni20/linalg/ops/svd.hpp>
 #include <uni20/linalg/ops/tridiagonal_eigen.hpp>
 #include <uni20/tensor/conjugate_inplace.hpp>
 #include <uni20/tensor/copy.hpp>

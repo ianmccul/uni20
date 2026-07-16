@@ -11,6 +11,9 @@ This directory contains LAPACK operation-tag backend adapters.
   `geev`, including real conjugate-pair unpacking.
 - `self_adjoint_eigh.hpp`: real symmetric and complex Hermitian eigensystems
   through `syev`/`heev`.
+- `svd.hpp`: exact real and complex singular value decompositions through
+  `gesvd`, including values-only, one-sided, complete, and reduced-factor
+  input-overwrite jobs.
 - `schur.hpp`: real and complex Schur decomposition, real Hessenberg Schur
   reduction, and Schur block/entry reordering through `gees`, `hseqr`, and
   `trexc`.

@@ -723,7 +723,7 @@ candidates to add only when an algorithm or example needs them:
 | nonsymmetric eigensystem | `geev` | Implemented for projected Ritz extraction and validation. |
 | symmetric/Hermitian dense eigensystem | `syev`, `heev`, then `syevd`/`heevd` | `syev`/`heev` implemented with in-place and preserving value APIs; divide-and-conquer variants remain future work. |
 | QR/LQ factorization | `geqrf`, `orgqr`/`ungqr`, `gelqf`, `orglq`/`unglq` | Candidate for future dense utilities. |
-| SVD and least squares | `gesvd`, `gesdd`, `gesvdx`, `gelsd` | Checked real and complex provider wrappers exist for the SVD routines; dispatched mdspan/Tensor SVD and least-squares APIs remain future linalg coverage. |
+| SVD and least squares | `gesvd`, `gesdd`, `gesvdx`, `gelsd` | Exact real and complex SVD is dispatched through `gesvd`. Tensor APIs cover singular values only, either factor separately, or both factors; preserving and consuming Async forms mirror them. Reduced consuming factors may reuse the input allocation through `JOBU='O'` or `JOBVT='O'`. Divide-and-conquer, selected/truncating, and least-squares APIs remain future coverage. |
 
 Do not expose every backend wrapper through mdspan immediately. Add wrappers
 when a Uni20 algorithm or example needs them, and keep unused wrappers in a
