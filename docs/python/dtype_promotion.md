@@ -1,181 +1,44 @@
-# Python Dtype Promotion Policy for Uni20
+# Python Dtype Promotion
 
-Status: design note, not current API behavior. Uni20's current Python bindings expose only lightweight smoke-test and build-metadata helpers. This note records how NumPy, the Python Array API standard, and SciPy treat mixed precision array operations, and turns those rules into a proposed policy for future Uni20 tensor bindings.
+Status: design note for future Python Tensor arithmetic. The current Python
+extension does not yet expose Tensor values.
 
-## Motivation
+This document proposes a promotion contract. The contract becomes authoritative
+only when Tensor arithmetic is implemented and covered by binding tests.
+Operation wrappers should then share one policy rather than defining independent
+promotion rules.
 
-Tensor libraries need predictable dtype behavior. A user who allocates a `float32` tensor usually cares about at least one of memory footprint, bandwidth, GPU throughput, interoperability with model parameters, or reproducibility against other `float32` code. A scalar literal such as `2.0` should not silently promote the whole tensor to `float64` unless the API has explicitly promised that behavior.
+## Scope
 
-This matters especially for tensor-network algorithms. Normalization, Krylov recurrences, time evolution, and truncation routines frequently combine arrays with host scalars. The host scalar may be computed in higher precision for stability, but applying it to a `float32` tensor should normally preserve the tensor dtype unless the algorithm has explicitly chosen a wider working dtype.
+The initial numerical contract covers enabled real floating and complex
+floating Tensor dtypes. Integer and boolean tensors may be added for indices,
+masks, charges, and selected arithmetic, but mixed numerical behavior is not
+implicitly enabled until it has its own table and tests.
 
-## NumPy 2.x Behavior
+The set of exposed dtypes is generated from one binding scalar list. Optional
+extended precision may participate in Uni20-to-Uni20 operations when configured,
+but NumPy and DLPack interoperability is exposed only where those protocols have
+a compatible dtype contract.
 
-NumPy documents dtype promotion as finding a common dtype for operations mixing different dtypes. For two NumPy array dtypes, the result usually has a kind and precision at least as high as the inputs. For example, `float32 + float16` gives `float32`, and `int8 + int64` gives `int64`.
+## Core Rules
 
-The important rule for Uni20 is NumPy's handling of Python scalars after NumPy 2.0, formalized by [NEP 50: Promotion rules for Python scalars](https://numpy.org/neps/nep-0050-scalar-promotion.html) and documented in [Data type promotion in NumPy](https://numpy.org/doc/stable/reference/arrays.promotion.html). When a NumPy array is combined with a Python scalar, NumPy generally considers the scalar kind but ignores the scalar precision. The array dtype controls the result precision.
+1. Tensor-tensor arithmetic uses an explicit promotion table.
+2. Python scalar precision is weak relative to a floating Tensor dtype.
+3. A Python complex scalar promotes a real Tensor to the corresponding complex
+   precision.
+4. In-place operations do not replace storage with a wider dtype.
+5. Integer true division produces a floating result according to an explicit
+   operation rule.
+6. Reductions and algorithms may choose a separate accumulator or working
+   precision, but must document and report it.
+7. Backend availability does not change the mathematical result dtype.
 
-For example, NumPy documents this behavior:
+These rules follow NumPy 2.x and the Python Array API where that behavior is
+appropriate, without inheriting unspecified or accidental corner cases.
 
-```python
-arr_float32 = np.array([1, 2.5, 2.1], dtype="float32")
-arr_float32 + 10.0
-# dtype remains float32
-```
+## Tensor-Tensor Promotion
 
-The design reason is clear: promoting a `float32` array to `float64` merely because the scalar literal is a Python `float` is usually undesirable. In Python, `10.0` is a double-precision host scalar, but for array arithmetic it is treated as a value to be coerced into the array dtype when that is compatible.
-
-There are still traps in NumPy:
-
-- Python scalar precision can be ignored, so low-precision arrays may overflow or round where a user expected a wider result.
-- Integer operations may overflow without warnings for arrays.
-- Mixed signed and unsigned integer promotion can produce surprising results, including `float64` for combinations such as `int64` and `uint64`.
-- Integer arrays combined with Python `float` or `complex` have special behavior.
-- Reductions such as `sum` and `prod` have their own accumulator rules.
-
-Even with these traps, NumPy has an explicit policy and documentation. The important lesson is not to copy every NumPy corner case blindly, but to define and test Uni20's policy rather than letting it emerge accidentally from implementation details.
-
-## Python Array API Standard
-
-The [Python Array API standard type promotion rules](https://data-apis.org/array-api/latest/API_specification/type_promotion.html) are even more directly relevant for a modern array library. The standard specifies promotion tables for array-array operations and separately specifies how Python scalars interact with arrays.
-
-For array and Python scalar operations, the standard says that if the scalar is compatible with the array dtype, the expected behavior is equivalent to converting the scalar to a zero-dimensional array with the same dtype as the array, then performing the array operation.
-
-For real floating arrays:
-
-```text
-float32 array <op> Python int/float scalar -> scalar converted to float32
-float64 array <op> Python int/float scalar -> scalar converted to float64
-```
-
-For complex scalars with real floating arrays, the standard promotes to the complex dtype with the same precision:
-
-```text
-float32 array <op> Python complex scalar -> complex64
-float64 array <op> Python complex scalar -> complex128
-```
-
-This is a good policy for Uni20. It preserves the array precision by default, while still allowing real-to-complex promotion when the scalar value genuinely requires a complex dtype.
-
-## SciPy Linear Algebra
-
-SciPy linear algebra generally dispatches to BLAS/LAPACK routines based on array dtype. The [`scipy.linalg.get_lapack_funcs`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.linalg.get_lapack_funcs.html) documentation states that LAPACK type prefixes are selected from the array dtypes: `s`, `d`, `c`, and `z` for `float32`, `float64`, `complex64`, and `complex128`.
-
-This means that SciPy's low-level linear algebra boundary is dtype-aware. Passing `float32` arrays selects single-precision LAPACK routines where available. Passing `complex64` selects complex single-precision routines. The implementation may still use algorithm-specific work arrays or promote in selected high-level functions, but the general model is that array dtype is a meaningful numerical contract.
-
-For Uni20, this suggests that typed kernel dispatch should be based on tensor dtype, not on incidental host scalar types. If an algorithm chooses a wider internal dtype, that should be an explicit algorithm policy with diagnostics, not a side effect of dividing by a host `double`.
-
-## Proposed Uni20 Policy
-
-Uni20 Python tensor arithmetic should follow these rules unless a specific function documents otherwise.
-
-1. Array dtype controls scalar arithmetic precision.
-
-```python
-float32_tensor / 2.0      # returns float32
-float64_tensor / 2.0      # returns float64
-complex64_tensor * 0.5   # returns complex64
-complex128_tensor * 0.5  # returns complex128
-```
-
-2. Python complex scalars promote real floating tensors to complex at the same precision.
-
-```python
-float32_tensor * (1.0j)  # returns complex64
-float64_tensor * (1.0j)  # returns complex128
-```
-
-3. Tensor-tensor operations use an explicit promotion table.
-
-```text
-float32 + float64       -> float64
-float32 + complex64     -> complex64
-float64 + complex64     -> complex128
-complex64 + complex128  -> complex128
-```
-
-4. Integer and boolean tensor arithmetic should be conservative.
-
-Integer and boolean tensors are useful for indices, masks, charges, metadata, and small discrete data. They should not silently participate in tensor-network linear algebra as though they were physical scalar fields. Mixed integer/float arithmetic should either follow a documented array-standard rule or require an explicit cast at higher-level numerical boundaries.
-
-5. In-place operations must not silently widen storage.
-
-```python
-x = tensor(dtype=float32)
-x += 1.0       # preserves float32
-x *= 1.0j      # should error or require explicit complex conversion
-```
-
-In-place operations may narrow the scalar to the tensor dtype when safe. They should not replace the storage with a wider dtype. If the operation cannot be represented in the existing dtype, it should fail with a clear message.
-
-6. Algorithmic mixed precision must be explicit.
-
-For example, a Krylov exponential may choose to build a small projected matrix in `float64` even when the input vector is `float32`. That is an algorithmic decision. It should be visible in the API or diagnostics:
-
-```text
-state dtype: float32
-matvec dtype: float32
-projected matrix dtype: float64
-subspace exponential dtype: float64
-output dtype: float32
-```
-
-The same algorithm should not accidentally promote the full Krylov basis and matvec path to `float64` merely because a normalization scalar is represented as a host `double`.
-
-## C++/Python Boundary Rules
-
-The Python policy should be supported by C++ API design.
-
-Use typed tensor views at kernel boundaries. Do not funnel Python dtype-specific bindings into a C++ function that erases the dtype and later redispatches through runtime integer tags.
-
-Separate host algorithm scalars from tensor scalar objects. A host scalar used for convergence logic should not automatically determine the dtype of a tensor expression.
-
-Prefer explicit helper names for dtype-preserving operations:
-
-```cpp
-scale_preserve_dtype(x, alpha);
-divide_preserve_dtype(x, norm);
-axpy_preserve_dtype(y, alpha, x);
-```
-
-Avoid generic arithmetic when the numerical policy matters:
-
-```cpp
-// Bad if alpha is a host double and x is float32.
-x = x / alpha;
-
-// Better: the policy is visible.
-divide_preserve_dtype(x, alpha);
-```
-
-If a function intentionally widens a tensor, name that behavior:
-
-```cpp
-auto x64 = astype<float64>(x);
-auto y = krylov_exponential_high_precision_projection(op, x);
-```
-
-## Diagnostics
-
-Silent dtype changes are numerical behavior, not implementation details. Uni20 solvers should make dtype choices observable.
-
-For iterative linear algebra, diagnostics should include:
-
-- input dtype;
-- operator/matvec dtype;
-- working vector dtype;
-- small projected matrix dtype;
-- scalar reduction dtype;
-- output dtype;
-- backend/device;
-- iteration count;
-- stopping reason;
-- final residual or error estimate.
-
-These diagnostics need not be printed by default, but they should be available programmatically. Debug or verbose modes may display a compact summary.
-
-## Recommended Initial Promotion Table
-
-For floating and complex tensor dtypes:
+For the initial 32-bit and 64-bit floating families:
 
 | lhs | rhs | result |
 |---|---|---|
@@ -190,9 +53,17 @@ For floating and complex tensor dtypes:
 | `complex64` | `complex128` | `complex128` |
 | `complex128` | `complex128` | `complex128` |
 
-For tensor and Python scalar arithmetic:
+The table is symmetric. An enabled real or complex extended-precision dtype
+extends the same precision lattice, subject to operation and backend support.
 
-| tensor dtype | Python scalar kind | result |
+Result dtype is computed before kernel selection. A provider decline may select
+another backend, but it does not silently narrow or widen the result.
+
+## Python Scalars
+
+For Tensor and ordinary Python scalar arithmetic:
+
+| Tensor dtype | Python scalar kind | result |
 |---|---|---|
 | `float32` | `int` or `float` | `float32` |
 | `float32` | `complex` | `complex64` |
@@ -201,21 +72,110 @@ For tensor and Python scalar arithmetic:
 | `complex64` | `int`, `float`, or `complex` | `complex64` |
 | `complex128` | `int`, `float`, or `complex` | `complex128` |
 
-This is close to the Array API scalar rule and NumPy 2.x scalar-promotion behavior.
+The scalar value must still be representable according to the operation's
+conversion policy. Preserving `float32` does not require silently accepting a
+Python integer too large to convert meaningfully.
 
-## Open Questions
+NumPy scalar objects and zero-dimensional arrays are array-like typed values,
+not untyped Python scalars. Their explicit dtype participates in the
+tensor-tensor promotion rule.
 
-- Should Uni20 support integer tensors as arithmetic tensors, or restrict them to indices, masks, charges, and metadata?
-- Should Python `float` with integer tensors promote to floating point, error, or follow NumPy exactly?
-- Should reductions on `float32` accumulate in `float32`, `float64`, or expose both options?
-- Should Krylov algorithms default to `float64` projected matrices for `float32` vectors?
-- Should GPU reductions return host scalars in double precision for `float32` input, or preserve precision unless explicitly requested?
+## In-Place Arithmetic
 
-The first implementation should choose a narrow, documented policy and test it thoroughly. It is easier to relax strict rules later than to recover from silent promotion behavior that users accidentally depend on.
+In-place arithmetic preserves the existing Tensor dtype and allocation:
+
+```python
+x = uni20.ones((10,), dtype=uni20.float32)
+x += 1.0      # float32
+x *= 1.0j     # error: would require complex storage
+```
+
+The right operand may be converted to the existing dtype only when the
+operation permits it. In-place arithmetic never replaces storage merely to
+accommodate a promoted result.
+
+## Division and Reductions
+
+True division has an operation-specific result rule:
+
+- floating and complex inputs use the normal promotion table;
+- integer and boolean true division is unavailable until its result dtype is
+  explicitly selected;
+- floor division, remainder, and comparison require separate contracts.
+
+Reduction result and accumulator dtype are separate questions. Each reduction
+must specify:
+
+- input dtype;
+- accumulator dtype;
+- returned scalar or Tensor dtype;
+- device/host result placement;
+- empty-input behavior.
+
+No default accumulator widening is inferred from an incidental C++ host scalar.
+
+## Algorithmic Working Precision
+
+An algorithm may use a wider internal scalar for error estimation, projected
+subspaces, or accumulation. That is distinct from promoting the full Tensor
+operation.
+
+For example, diagnostics for a Krylov operation may report:
+
+```text
+input dtype: float32
+matvec dtype: float32
+projected matrix dtype: float64
+output dtype: float32
+```
+
+Such widening is an explicit algorithm policy. It does not arise because a
+normalization scalar happened to be represented as C++ `double`.
+
+## C++ Binding Boundary
+
+Python scalar conversion is centralized. Individual bindings do not separately
+interpret `int`, `float`, `complex`, NumPy scalars, or zero-dimensional arrays.
+
+Typed native operations remain free to use distinct scalar types for output and
+inputs:
+
+```cpp
+template <class Output, class Left, class Right>
+void binary_operation(Output& output, Left const& lhs, Right const& rhs);
+```
+
+The binding does not cast both inputs to the output dtype merely to fit a
+single-dtype implementation. An operation materializes converted inputs only
+when its documented algorithm requires that conversion.
+
+## Diagnostics and Tests
+
+Tests cover every exposed pair of Tensor dtypes, operand order, Python scalar
+kind, in-place rejection, backend fallback, and configured extended-precision
+case.
+
+Numerical diagnostics should make visible:
+
+- input dtypes;
+- output dtype;
+- accumulator or working dtype where different;
+- backend and device;
+- any explicit materialization or conversion.
+
+## Deferred Extensions
+
+- Integer and boolean arithmetic tables.
+- Reduction accumulator defaults.
+- Python exposure and external interchange policy for binary128.
+- Low-precision `float16` and `bfloat16` families.
+- Quantized or packed scalar types.
+
+These extensions should add rows to the shared contract rather than creating
+operation-local promotion rules.
 
 ## References
 
-- [NumPy: Data type promotion in NumPy](https://numpy.org/doc/stable/reference/arrays.promotion.html)
 - [NumPy NEP 50: Promotion rules for Python scalars](https://numpy.org/neps/nep-0050-scalar-promotion.html)
-- [Python Array API standard: Type Promotion Rules](https://data-apis.org/array-api/latest/API_specification/type_promotion.html)
-- [SciPy: `scipy.linalg.get_lapack_funcs`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.linalg.get_lapack_funcs.html)
+- [NumPy data type promotion](https://numpy.org/doc/stable/reference/arrays.promotion.html)
+- [Python Array API type promotion](https://data-apis.org/array-api/latest/API_specification/type_promotion.html)

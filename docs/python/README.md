@@ -1,17 +1,26 @@
 # Python Documentation
 
 - [Python Bindings](bindings.md) describes the current smoke/build-information
-  module and the intended presentation boundary.
+  module, build requirements, error boundary, tests, and presentation guidance.
 - [Dtype Promotion](dtype_promotion.md) is a design note for future Tensor
-  bindings; it is not current Python API behavior.
+  arithmetic. It is not current Python API behavior.
 
-Future bindings should validate user input before entering C++ paths whose
-contracts use `CHECK`, and should use dynamic kernel dispatch where a missing
-compiled backend must become a Python exception.
+Binding source lives under [`bindings/python`](../../bindings/python/).
+The [Python example](../../examples/python/) demonstrates loading the compiled
+module and rendering build information.
 
-Binding source lives under [`bindings/python`](../../bindings/python/); Tensor
-and scalar behavior originates in the [Tensor source layer](../../src/uni20/tensor/)
-and [scalar foundations](../../src/uni20/core/).
+Python binding work must start from the native Uni20 contracts rather than
+inventing a parallel Python tensor architecture:
 
-The [Python example](../../examples/python/) demonstrates loading the
-built module and rendering build information.
+- [Tensor Operations](../tensor/operations.md) defines values, views,
+  ownership, storage selection, and async lowering.
+- [Async Storage](../async/storage.md) defines native `Async<T>` value and alias
+  semantics.
+- [Kernel Dispatch](../architecture/kernel_dispatch.md) defines the dynamic
+  binding boundary for unavailable kernels.
+- [Presentation Formatting](../diagnostics/presentation.md) defines shared
+  semantic presentation data and Python/notebook rendering constraints.
+
+The representation of arbitrary-rank tensors at the Python boundary is not yet
+decided. In particular, the Python docs do not define a second runtime-rank
+Tensor, Storage, device, or async API alongside the native Uni20 types.

@@ -4,7 +4,7 @@ set( Python_FIND_UNVERSIONED_NAMES FIRST ) # FIXME: we probably want to require 
 set(Python_FIND_STRATEGY LOCATION)
 # Ensure Python headers/libraries are available before loading nanobind's CMake
 # helpers.
-find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+find_package(Python 3.11 COMPONENTS Interpreter Development.Module REQUIRED)
 set(UNI20_BINDINGS_PYTHON_EXECUTABLE "${Python_EXECUTABLE}" CACHE FILEPATH
     "Python interpreter used to build uni20 Python bindings" FORCE)
 
@@ -12,10 +12,10 @@ set(UNI20_BINDINGS_PYTHON_EXECUTABLE "${Python_EXECUTABLE}" CACHE FILEPATH
 # first looks for an existing installation before falling back to FetchContent.
 uni20_add_dependency(
   NAME nanobind
-  VERSION 1.8.0
+  VERSION 2.13.0
   TARGET nanobind::nanobind
   REPO https://github.com/wjakob/nanobind.git
-  TAG v1.8.0
+  TAG v2.13.0
 )
 
 # Build the Python extension module using nanobind. NB_SHARED ensures we emit a

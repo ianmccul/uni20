@@ -1,10 +1,54 @@
 # Uni20 Python Bindings
 
-The `uni20` extension exposes a subset of the Uni20 C++ API to Python via [nanobind](https://github.com/wjakob/nanobind). This guide covers the prerequisites, build steps, and the current smoke-test workflow.
+Status: current implementation and build guide.
 
-Importing the extension configures recoverable Uni20 `ERROR` diagnostics to throw exceptions process-wide. Nanobind translates exceptions crossing a synchronous binding boundary into Python exceptions. Internal invariant failures reported by `CHECK`, `PRECONDITION`, or `PANIC` still abort. Future asynchronous bindings must catch exceptions at their C++ task boundaries and deliver them through the Python-facing result rather than allowing them to escape a worker thread.
+The current `uni20` extension is a nanobind smoke module. It exposes `greet()`
+and generated build metadata; it does not yet expose Tensor values, numerical
+operations, NumPy or DLPack interop, or native async values.
 
-Future kernel bindings should lower through `dynamic_dispatch_kernel(...)` when a concrete operation may be unavailable in a particular build. Normal C++ `try_dispatch_kernel(...)` and `dispatch_kernel(...)` calls are intentionally ill-formed when their aggregate type probe is `no`; the dynamic boundary instead converts that static rejection into structured `KernelDispatchError`. Python argument validation should still reject invalid user values before entering C++ code whose internal contracts are enforced by `CHECK` or `PRECONDITION`.
+## Error Mode
+
+Importing the extension configures recoverable Uni20 `ERROR`, `ERROR_IF`, and
+`trace::raise(...)` paths to throw exceptions process-wide. Nanobind translates
+exceptions crossing a synchronous binding boundary into Python exceptions.
+
+Internal invariant failures reported by `CHECK`, `PRECONDITION`, or `PANIC`
+still abort. Future Tensor bindings must validate user-controlled values before
+entering native paths whose contracts assume valid input. Future asynchronous
+bindings must retain exceptions in native async state and deliver them through
+the Python result instead of allowing them to escape a worker thread.
+
+Kernel bindings should use `dynamic_dispatch_kernel(...)` where an operation
+may be absent from a configured build. This preserves the native compile-time
+dispatch contract while translating an unavailable binding instantiation into
+`KernelDispatchError`.
+
+## Future Binding Boundary
+
+The Python layer will bind Uni20 operations; it will not define a parallel
+tensor, storage, device, dispatch, or scheduler architecture.
+
+The native contracts remain authoritative:
+
+- `Tensor` and `TensorView` define values, views, ownership, accessors, and
+  storage-derived backend selection.
+- `Async<T>` defines asynchronous value and alias semantics.
+- mdspan accessors define the values observed through a view. A pointer-shaped
+  data handle alone does not permit direct NumPy, DLPack, BLAS, or LAPACK
+  access.
+- Python-visible views must retain the native owner needed to keep their data
+  alive.
+- Python-owned objects retained by asynchronous work need an interpreter-safe
+  destruction path.
+
+The representation of arbitrary-rank tensors, NumPy/DLPack API spelling,
+device exposure, and Python async API remain open design questions. They should
+be decided when implementing the corresponding binding, against the then
+current native API and protocol versions.
+
+See [Tensor Operations](../tensor/operations.md),
+[Async Storage](../async/storage.md), and
+[Kernel Dispatch](../architecture/kernel_dispatch.md).
 
 ## Prerequisites
 
@@ -12,14 +56,18 @@ Before configuring the project ensure the following are available:
 
 - A supported C++23 compiler: GCC 13 or newer, or upstream Clang 19 or newer.
 - CMake 3.24 or newer.
-- Python 3.8 or newer with interpreter and development headers. On Debian-based systems:
+- Python 3.11 or newer with development-module headers. On Debian-based systems:
+
   ```bash
   sudo apt-get install python3-dev python3-venv
   ```
 
-Uni20 reuses the same BLAS/LAPACK dependencies as the core C++ library. The configuration step discovers Python first and then resolves `nanobind` from a system installation or via CMake `FetchContent`.
+Uni20 reuses the same BLAS/LAPACK dependencies as the core C++ library. The
+configuration step discovers Python first and then requires nanobind 2.13.0 or
+newer from a system installation, falling back to nanobind v2.13.0 through
+CMake `FetchContent`.
 
-## Configure and build
+## Configure and Build
 
 Enable the bindings when configuring:
 
@@ -35,7 +83,7 @@ cmake --build build --target uni20_python
 
 The compiled module is written under `build/bindings/python/`. On Linux and macOS the filename follows the normal ABI-tagged extension naming convention such as `uni20.cpython-312-x86_64-linux-gnu.so`.
 
-## Run the sample bindings
+## Run the Module
 
 The sample module currently exports a `greet()` helper together with build metadata. Add the build output directory to `PYTHONPATH` and import it directly:
 
@@ -50,7 +98,10 @@ Expected output:
 Hello from uni20!
 ```
 
-## Build metadata
+The [Python example](../../examples/python/) provides the same setup as a
+runnable script.
+
+## Build Metadata
 
 The Python `buildinfo()` function exposes the same generated metadata as the C++ `<uni20/buildinfo.hpp>` API:
 
@@ -67,9 +118,11 @@ python -c "import uni20; print(uni20.buildinfo_pretty())"
 For the C++ API and pretty-print example, see
 [Build Information](../development/build_information.md).
 
-## Presentation and notebook display roadmap
+## Presentation Boundary
 
-Current Python bindings expose only lightweight smoke-test functionality and build metadata. Future tensor bindings should use the common C++ presentation layer for human-facing text, but they should keep terminal rendering, plain text rendering, and notebook HTML rendering as separate adapters.
+Future Tensor bindings use the common C++ presentation data for human-facing
+output while keeping terminal text, plain text, and notebook HTML as separate
+renderers.
 
 Design rules for future Python display:
 
@@ -81,9 +134,11 @@ Design rules for future Python display:
 
 Tensor and mdspan display in Python must be preview-first. Do not bind a tensor `repr` to the current exhaustive mdspan formatter by default. Add an explicit preview policy first, with limits such as maximum elements, edge items, maximum rows/columns, maximum slices, and an opt-in full-output mode.
 
-Future tensor bindings should also follow a documented dtype policy before exposing arithmetic. See [Python Dtype Promotion Policy](dtype_promotion.md) for the current design note.
+Future arithmetic bindings should follow the
+[Python Dtype Promotion](dtype_promotion.md) design note rather than acquiring
+promotion behavior accidentally from nanobind conversions.
 
-## Running tests
+## Run Tests
 
 The Python bindings ship with lightweight smoke tests that import the compiled extension and validate both `greet()` and the generated build information:
 
@@ -100,6 +155,8 @@ python tests/python/test_greet.py build/bindings/python
 
 Adjust the second argument if your build directory differs.
 
-## Packaging status
+## Packaging Status
 
-The repository currently builds the extension through CMake only. It does not yet ship a `pyproject.toml` or wheel-building backend, so `pip install .` style packaging is not documented here.
+The repository currently builds a top-level `uni20` extension through CMake.
+It does not yet ship a `pyproject.toml`, wheel-building backend, generated
+stubs, or packaged Python distribution.

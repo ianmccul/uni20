@@ -47,7 +47,7 @@ rather than silently choosing one source.
 | Tensor networks | [Tensor-network docs](tensor_network/) | Sparse operators, models, finite MPS foundations, and TensorContraction integration findings |
 | Backends | [Backend docs](backends/) | CUDA and MPI architecture, platform constraints, runtime design, and background surveys |
 | Diagnostics | [Diagnostics docs](diagnostics/) | Presentation, display, trace diagnostics, logging plans, and Graphviz |
-| Python | [Python docs](python/) | Current smoke bindings and future Tensor dtype/presentation policy |
+| Python | [Python docs](python/) | Current smoke bindings, binding constraints, and future dtype/presentation policy |
 | Development | [Developer docs](development/) | Testing, review, Doxygen, build information, and agent-assisted workflow |
 | AI guidance | [AI guidance](ai_guidance/) | Non-normative retrieval summaries for automated assistants |
 | Design papers | [Long-form papers](latex/) | Historical LaTeX sources and rendered background material |

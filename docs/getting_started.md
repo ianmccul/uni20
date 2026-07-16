@@ -49,7 +49,8 @@ Before building the project, ensure you have the following installed:
   deduction implementation is incomplete for Uni20's tensor aliases.
 - Git (for cloning the repository and fetching dependencies)
 - BLAS and LAPACK libraries are essential; any library that implements the standard Fortran interface will work.
-- Python 3 with development headers if you want to build the Python bindings.
+- Python 3.11 or newer with development headers if you want to build the
+  Python bindings.
 
 > **Note:** Uni20 prefers system installations of `fmt`, `TBB`, Google Benchmark, and other optional dependencies when compatible versions are available. Otherwise CMake can fetch missing dependencies from source during configuration.
 
