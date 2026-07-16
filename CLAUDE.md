@@ -73,7 +73,7 @@ Future heterogeneous (GPU/MPI) execution follows a **device-first** design; see
 `docs/architecture/storage_kind_and_location.md`.
 
 Other modules: `backend/` (BLAS/CUDA/cuSOLVER wrappers), `kernel/` (low-level
-tensor kernels), `linalg/`, `tensor/`, `level1/`, `mdspan/`, `storage/`,
+tensor kernels), `linalg/`, `tensor/`, `mdspan/`, `storage/`,
 `common/`, `core/`. Python bindings use **nanobind** under
 `bindings/python/`.
 

@@ -4,6 +4,7 @@ add_test_module(linalg
     test_async_matrix_product.cpp
     test_async_self_adjoint_eigh.cpp
     test_async_tensor_transform.cpp
+    test_cpu_strided_transform.cpp
     test_dispatch_diagnostics.cpp
     test_dense_ops_dispatch.cpp
     test_linalg_gemv_cpu.cpp

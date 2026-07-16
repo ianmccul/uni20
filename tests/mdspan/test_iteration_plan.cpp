@@ -1,12 +1,10 @@
 #include "../helpers.hpp"
 #include "gtest/gtest.h"
-#include <uni20/level1/assign.hpp>
-#include <uni20/level1/transform.hpp>
 #include <uni20/mdspan/iteration_plan.hpp>
 
 #include <array>
 #include <cstddef>
-#include <vector>
+#include <tuple>
 
 using namespace uni20;
 
@@ -39,18 +37,6 @@ TEST(MakeIterationPlanTest, ZeroExtentProducesRetainedZeroDim)
   ASSERT_EQ(plan.size(), 1);
   EXPECT_EQ(plan[0].extent, 0);
   EXPECT_EQ(offset, 0);
-
-  std::array<double, 3> buffer{1.0, 2.0, 3.0};
-  using extents_t = stdex::dextents<index_t, 1>;
-  std::array<std::ptrdiff_t, 1> strides{1};
-  auto zero_map = stdex::layout_stride::mapping<extents_t>(extents_t{0}, strides);
-  stdex::mdspan<double, extents_t, stdex::layout_stride> span(buffer.data(), zero_map);
-
-  transform_inplace(span, [](double x) { return x + 10.0; });
-
-  EXPECT_DOUBLE_EQ(buffer[0], 1.0);
-  EXPECT_DOUBLE_EQ(buffer[1], 2.0);
-  EXPECT_DOUBLE_EQ(buffer[2], 3.0);
 }
 
 TEST(MakeIterationPlanTest, OutOfOrderStrides)
@@ -145,90 +131,86 @@ TEST(MakeIterationPlanTest, RankZeroMdspanIsScalar)
   auto [plan, offset] = make_iteration_plan_with_offset(mapping);
   EXPECT_TRUE(plan.empty());
   EXPECT_EQ(offset, 0);
-
-  double dst_value = 2.0;
-  stdex::mdspan<double, extents_t, stdex::layout_stride> dst{&dst_value, mapping};
-  transform_inplace(dst, [](double x) { return x + 3.0; });
-  EXPECT_DOUBLE_EQ(dst_value, 5.0);
-
-  double src_value = 11.0;
-  stdex::mdspan<double, extents_t, stdex::layout_stride> src{&src_value, mapping};
-  assign(dst, src);
-  EXPECT_DOUBLE_EQ(dst_value, 11.0);
 }
 
-TEST(TransformInplaceTest, ScalarEmptyPlanAppliesExactlyOnce)
+TEST(MakeMultiIterationPlanTest, SimpleMatchingLayouts)
 {
-  // An in-place transform on an all-size-1 span must touch the single base element once.
-  // (empty plan -> 0-dim scalar terminal), not skip it.
-  std::vector<double> buffer{10.0, 20.0, 30.0};
-  std::array<std::size_t, 2> extents{1, 1};
-  std::array<index_t, 2> strides{7, 3}; // only index 0 exists; strides irrelevant
-  auto span = make_mdspan_strided(buffer, extents, strides);
-  transform_inplace(span, [](double x) { return x + 100.0; });
-  EXPECT_DOUBLE_EQ(buffer[0], 110.0); // applied exactly once
-  EXPECT_DOUBLE_EQ(buffer[1], 20.0);  // untouched
-  EXPECT_DOUBLE_EQ(buffer[2], 30.0);
+  auto output = make_mapping(std::array<std::size_t, 2>{10, 2}, std::array<index_t, 2>{2, 1});
+  auto input = make_mapping(std::array<std::size_t, 2>{10, 2}, std::array<index_t, 2>{20, 10});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{output, input});
+
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 20);
+  EXPECT_EQ(plan[0].strides[0], 1);
+  EXPECT_EQ(plan[0].strides[1], 10);
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 0);
 }
 
-TEST(AssignTest, ScalarEmptyPlanCopiesSingleElement)
+TEST(MakeMultiIterationPlanTest, MismatchedButMergeable)
 {
-  // assign between all-size-1 spans => empty multi-plan => copies the one element.
-  std::vector<double> src{7.0, 0.0};
-  std::vector<double> dst{0.0, 99.0};
-  std::array<std::size_t, 2> extents{1, 1};
-  std::array<index_t, 2> strides{3, 5};
-  auto s = make_mdspan_strided(src, extents, strides);
-  auto d = make_mdspan_strided(dst, extents, strides);
-  assign(d, s);
-  EXPECT_DOUBLE_EQ(dst[0], 7.0);  // copied
-  EXPECT_DOUBLE_EQ(dst[1], 99.0); // untouched
+  auto output = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{4, 1});
+  auto input = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{40, 10});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{output, input});
+
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 12);
+  EXPECT_EQ(plan[0].strides[0], 1);
+  EXPECT_EQ(plan[0].strides[1], 10);
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 0);
 }
 
-TEST(TransformInplaceTest, NonMergeableFourDimVisitsEachOnce)
+TEST(MakeMultiIterationPlanTest, OutputNegativeStrideFlipsEveryOperand)
 {
-  // Gapped strides prevent every merge => a genuine 4-dim plan, exercising the
-  // depth-4 run_dynamic handoff. Each addressed element is visited exactly once.
-  std::array<std::size_t, 4> extents{3, 3, 3, 3};
-  std::array<index_t, 4> strides{100, 20, 4, 1}; // no adjacent pair coalesces
-  std::vector<double> buffer(span_size_for(extents, strides), 0.0);
-  auto span = make_mdspan_strided(buffer, extents, strides);
+  auto output = make_mapping(std::array<std::size_t, 1>{5}, std::array<index_t, 1>{-2});
+  auto input = make_mapping(std::array<std::size_t, 1>{5}, std::array<index_t, 1>{3});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{output, input});
 
-  auto [plan, offset] = make_iteration_plan_with_offset(span.mapping());
-  EXPECT_EQ(plan.size(), 4); // nothing merged
-  EXPECT_EQ(offset, 0);
-
-  transform_inplace(span, [](double x) { return x + 1.0; });
-
-  double sum = 0.0;
-  for (double v : buffer)
-  {
-    EXPECT_LE(v, 1.0); // none visited twice
-    sum += v;
-  }
-  EXPECT_DOUBLE_EQ(sum, 81.0); // 3^4 elements, each +1 once
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 5);
+  EXPECT_EQ(plan[0].strides[0], 2);
+  EXPECT_EQ(plan[0].strides[1], -3);
+  EXPECT_EQ(offsets[0], -8);
+  EXPECT_EQ(offsets[1], 12);
 }
 
-TEST(TransformInplaceTest, NonMergeableFiveDimVisitsEachOnce)
+TEST(MakeMultiIterationPlanTest, MixedSignsPreventMerge)
 {
-  // Five non-mergeable dims: run_dynamic peels twice before the static 3-dim
-  // unroll.
-  std::array<std::size_t, 5> extents{2, 2, 2, 2, 2};
-  std::array<index_t, 5> strides{100, 30, 9, 4, 1}; // no adjacent pair coalesces
-  std::vector<double> buffer(span_size_for(extents, strides), 0.0);
-  auto span = make_mdspan_strided(buffer, extents, strides);
+  auto output = make_mapping(std::array<std::size_t, 2>{4, 2}, std::array<index_t, 2>{1, -4});
+  auto input = make_mapping(std::array<std::size_t, 2>{4, 2}, std::array<index_t, 2>{10, 40});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{output, input});
 
-  auto [plan, offset] = make_iteration_plan_with_offset(span.mapping());
-  EXPECT_EQ(plan.size(), 5);
-  EXPECT_EQ(offset, 0);
+  ASSERT_EQ(plan.size(), 2);
+  EXPECT_EQ(plan[0].extent, 2);
+  EXPECT_EQ(plan[0].strides[0], 4);
+  EXPECT_EQ(plan[0].strides[1], -40);
+  EXPECT_EQ(plan[1].extent, 4);
+  EXPECT_EQ(plan[1].strides[0], 1);
+  EXPECT_EQ(plan[1].strides[1], 10);
+  EXPECT_EQ(offsets[0], -4);
+  EXPECT_EQ(offsets[1], 40);
+}
 
-  transform_inplace(span, [](double x) { return x + 1.0; });
+TEST(MakeMultiIterationPlanTest, ZeroExtentProducesRetainedZeroDim)
+{
+  auto output = make_mapping(std::array<std::size_t, 1>{0}, std::array<index_t, 1>{1});
+  auto input = make_mapping(std::array<std::size_t, 1>{0}, std::array<index_t, 1>{3});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{output, input});
 
-  double sum = 0.0;
-  for (double v : buffer)
-  {
-    EXPECT_LE(v, 1.0);
-    sum += v;
-  }
-  EXPECT_DOUBLE_EQ(sum, 32.0); // 2^5
+  ASSERT_EQ(plan.size(), 1);
+  EXPECT_EQ(plan[0].extent, 0);
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 0);
+}
+
+TEST(MakeMultiIterationPlanTest, AllSizeOneIsScalarEmptyPlan)
+{
+  auto output = make_mapping(std::array<std::size_t, 2>{1, 1}, std::array<index_t, 2>{7, 3});
+  auto input = make_mapping(std::array<std::size_t, 2>{1, 1}, std::array<index_t, 2>{11, 5});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{output, input});
+
+  EXPECT_TRUE(plan.empty());
+  EXPECT_EQ(offsets[0], 0);
+  EXPECT_EQ(offsets[1], 0);
 }

@@ -48,24 +48,27 @@ This replaces the earlier ``coalescing'' wording and aligns the prose with the
 
 \section{From \texttt{mdspan} to Concrete Tensors}
 Uni20 adopts the C++ reference implementation of \texttt{mdspan}, placed in the
-\texttt{stdex} namespace, as \texttt{stdex::mdspan}. The canonical way to include the \texttt{mdspan}
-library is to include \texttt{src/common/mdspan.hpp}, although arguably that should move to \texttt{src/mdspan/mdspan.hpp}
-(but this might introduce some ambiguity between \texttt{#include <mdspan/mdspan.hpp>} for the reference version, versus
-\texttt{#include "mdspan/mdspan.hpp"} for the Uni20 header).
+\texttt{stdex} namespace, as \texttt{stdex::mdspan}. Uni20 source includes the
+configured gateway \texttt{uni20/mdspan/mdspan.hpp}; that header validates the
+generated namespace configuration before including the external
+\texttt{mdspan/mdspan.hpp} implementation header.
 
 An \texttt{mdspan} couples a
 raw pointer (``data handle'') with an \emph{extents} object, a layout mapping, and an accessor.
 Within Uni20 we wrap that interface in convenience aliases and concepts (see
-\texttt{src/common/mdspan.hpp} and \texttt{src/mdspan/concepts.hpp}).  Any type that models the
-\texttt{StridedMdspan} concept exposes the rank, extents, and per-index strides required to navigate
-strided storage.  The kernel front-end therefore accepts operands as \texttt{StridedMdspan}
-instances, enabling it to operate on plain \texttt{mdspan}, custom views, and tensor wrappers alike.
+\texttt{src/uni20/mdspan/mdspan.hpp} and
+\texttt{src/uni20/mdspan/concepts.hpp}). Any type that models the
+\texttt{StridedMdspan} concept exposes the rank, extents, and per-index strides
+required to navigate strided storage. Leaf kernels may therefore accept plain
+\texttt{mdspan} and custom resolved views directly. Tensor wrappers remain a
+higher-level abstraction and resolve their \texttt{mdspan()} only at the
+dispatch boundary.
 
 A concrete owning tensor pairs storage with such an \texttt{mdspan}.  The class template
 \texttt{Tensor<\ldots>} stores an owning buffer and an \texttt{mdspan} view over that buffer
 (Fig.~\ref{fig:tensor-mdspan}).  The kernel path only interacts with the non-owning view: when a
 tensor is passed to a contraction routine we immediately retrieve its \texttt{mdspan} via
-\texttt{view()} and use \texttt{data\_handle()}, extents, and strides to drive the computation.
+\texttt{mdspan()} and use \texttt{data\_handle()}, extents, and strides to drive the computation.
 This makes the implementation agnostic to how memory is allocated while keeping the backend code
 focused on pointer arithmetic.
 

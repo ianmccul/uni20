@@ -1,7 +1,8 @@
 #include "../helpers.hpp"
 #include "gtest/gtest.h"
 #include <numeric>
-#include <uni20/level1/zip_transform.hpp>
+#include <stdexcept>
+#include <uni20/mdspan/transform_view.hpp>
 #include <uni20/mdspan/zip_layout.hpp>
 
 using namespace uni20;
@@ -17,11 +18,18 @@ struct plus_n
     }
 };
 
+struct final_scale final
+{
+    double factor;
+
+    constexpr double operator()(double value) const { return factor * value; }
+};
+
 //----------------------------------------------------------------------
 // 1D: simple plus_n over two contiguous spans
 //----------------------------------------------------------------------
 
-TEST(ZipTransform1D, SimplePlusN)
+TEST(TransformView1D, SimplePlusN)
 {
   std::vector<double> a(5), b(5);
   std::iota(a.begin(), a.end(), 0.0);  // {0,1,2,3,4}
@@ -31,8 +39,10 @@ TEST(ZipTransform1D, SimplePlusN)
   auto B = make_mdspan_1d(b);
 
   // plus_n{} sums any number of args
-  auto Z = zip_transform(plus_n{}, A, B);
+  auto Z = transform_view(plus_n{}, A, B);
 
+  static_assert(std::is_const_v<typename decltype(Z)::element_type>);
+  static_assert(!MutableSpanLike<decltype(Z)>);
   ASSERT_EQ(Z.rank(), 1);
   EXPECT_EQ(Z.extent(0), 5);
 
@@ -47,18 +57,39 @@ TEST(ZipTransform1D, SimplePlusN)
   EXPECT_EQ(m.stride(0), 1);
 }
 
+TEST(TransformView1D, NestedUnaryViewsOwnTheirAccessorState)
+{
+  std::vector<double> values{1.0, 2.0, 3.0};
+  auto input = make_mdspan_1d(values);
+
+  auto view = transform_view([](double value) { return value + 1.0; }, transform_view(final_scale{2.0}, input));
+
+  EXPECT_DOUBLE_EQ(view[0], 3.0);
+  EXPECT_DOUBLE_EQ(view[1], 5.0);
+  EXPECT_DOUBLE_EQ(view[2], 7.0);
+}
+
+TEST(TransformView1D, CallableExceptionsPropagateOnAccess)
+{
+  std::vector<double> values{1.0};
+  auto input = make_mdspan_1d(values);
+  auto view = transform_view([](double) -> double { throw std::runtime_error("transform view failed"); }, input);
+
+  EXPECT_THROW(static_cast<void>(view[0]), std::runtime_error);
+}
+
 //----------------------------------------------------------------------
 // 1D: three-span weighted sum
 //----------------------------------------------------------------------
 
-TEST(ZipTransform1D, ThreeSpanWeighted)
+TEST(TransformView1D, ThreeSpanWeighted)
 {
   std::vector<double> a{1, 2, 3, 4}, b{2, 4, 6, 8}, c{3, 6, 9, 12};
   auto A = make_mdspan_1d(a);
   auto B = make_mdspan_1d(b);
   auto C = make_mdspan_1d(c);
 
-  auto Z = zip_transform(plus_n{}, A, B, C);
+  auto Z = transform_view(plus_n{}, A, B, C);
 
   // plus_n{} folds x+y+z
   for (index_t i = 0; i < 4; ++i)
@@ -74,14 +105,14 @@ TEST(ZipTransform1D, ThreeSpanWeighted)
 // 1D reversed + normal → not strided mapping
 //----------------------------------------------------------------------
 
-TEST(ZipTransform1D, MixedStrideNotStrided)
+TEST(TransformView1D, MixedStrideNotStrided)
 {
   std::vector<double> v(6);
   std::iota(v.begin(), v.end(), 1.0);
   auto A = make_mdspan_1d(v);
   auto R = make_reversed_1d(v);
 
-  auto Z = zip_transform(plus_n{}, A, R);
+  auto Z = transform_view(plus_n{}, A, R);
 
   // Z[i] = v[i] + v[5-i]
   for (index_t i = 0; i < 6; ++i)
@@ -93,16 +124,16 @@ TEST(ZipTransform1D, MixedStrideNotStrided)
 }
 
 //----------------------------------------------------------------------
-// A unary zip_transform should preserve the existsing layout and just transform the accessor
+// A unary transform_view should preserve the existsing layout and just transform the accessor
 //----------------------------------------------------------------------
 
-TEST(ZipTransform1D, UnaryPreservesLayoutAndValues)
+TEST(TransformView1D, UnaryPreservesLayoutAndValues)
 {
   std::vector<double> v{5, 6, 7, 8};
   auto M = make_mdspan_1d(v);
 
   // a simple unary op: multiply by 10
-  auto U = zip_transform([](double x) { return x * 10.0; }, M);
+  auto U = transform_view([](double x) { return x * 10.0; }, M);
 
   // shape must be unchanged
   ASSERT_EQ(U.rank(), 1);
@@ -115,7 +146,7 @@ TEST(ZipTransform1D, UnaryPreservesLayoutAndValues)
   // mapping must be the same type and have the same behavior
   using OrigMap = decltype(M.mapping());
   using NewMap = decltype(U.mapping());
-  static_assert(std::is_same_v<OrigMap, NewMap>, "Unary zip_transform must preserve layout_type");
+  static_assert(std::is_same_v<OrigMap, NewMap>, "Unary transform_view must preserve layout_type");
 
   // exercise the mapping offsets too
   auto m0 = M.mapping();
@@ -132,13 +163,13 @@ TEST(ZipTransform1D, UnaryPreservesLayoutAndValues)
 // Data_handle tuple is passed through accessor
 //----------------------------------------------------------------------
 
-TEST(ZipTransform1D, DataHandleTuple)
+TEST(TransformView1D, DataHandleTuple)
 {
   std::vector<double> a{0, 1, 2}, b{10, 11, 12};
   auto A = make_mdspan_1d(a);
   auto B = make_mdspan_1d(b);
 
-  auto Z = zip_transform(plus_n{}, A, B);
+  auto Z = transform_view(plus_n{}, A, B);
 
   // mdspan..data_handle() should be tuple of A.data_handle(), B.data_handle()
   auto dh = Z.data_handle();
@@ -150,10 +181,10 @@ TEST(ZipTransform1D, DataHandleTuple)
 }
 
 //----------------------------------------------------------------------
-// 2D: zip_transform on 2D row-major spans
+// 2D: transform_view on 2D row-major spans
 //----------------------------------------------------------------------
 
-TEST(ZipTransform2D, RowMajorSum)
+TEST(TransformView2D, RowMajorSum)
 {
   std::size_t R = 3, C = 4;
   std::vector<double> a(R * C), b(R * C);
@@ -165,7 +196,7 @@ TEST(ZipTransform2D, RowMajorSum)
   auto A = make_mdspan_2d(a, R, C);
   auto B = make_mdspan_2d(b, R, C);
 
-  auto Z = zip_transform(plus_n{}, A, B);
+  auto Z = transform_view(plus_n{}, A, B);
 
   ASSERT_EQ(Z.rank(), 2);
   EXPECT_EQ(Z.extent(0), R);

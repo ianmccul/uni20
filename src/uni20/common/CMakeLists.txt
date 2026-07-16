@@ -19,7 +19,7 @@ add_library(uni20_common STATIC
     presentation.cpp
     terminal.cpp
 )
-target_link_libraries(uni20_common PUBLIC uni20_mdspan uni20_deps)
+target_link_libraries(uni20_common PUBLIC uni20_mdspan_base uni20_deps)
 
 if(UNI20_ENABLE_STACKTRACE AND UNI20_STACKTRACE_LIBRARIES)
   target_link_libraries(uni20_common PUBLIC ${UNI20_STACKTRACE_LIBRARIES})

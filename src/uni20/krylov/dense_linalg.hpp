@@ -2,7 +2,6 @@
 
 #include <uni20/backend/blas/blas_int.hpp>
 #include <uni20/backend/lapack/lapack.hpp>
-#include <uni20/common/mdspan.hpp>
 #include <uni20/config.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/core/scalar_traits.hpp>
@@ -10,6 +9,7 @@
 #include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
 #include <uni20/linalg/linalg.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <algorithm>

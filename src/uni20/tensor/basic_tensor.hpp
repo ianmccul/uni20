@@ -9,8 +9,8 @@
 #include "concepts.hpp"
 #include "layout.hpp"
 
-#include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 #include <uni20/storage/vectorstorage.hpp>
 #include <uni20/tensor/copy_into.hpp>
 

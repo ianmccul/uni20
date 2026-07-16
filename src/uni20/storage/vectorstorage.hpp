@@ -1,8 +1,8 @@
 #pragma once
 
-#include <uni20/common/mdspan.hpp>
 #include <uni20/config.hpp>
 #include <uni20/linalg/backend_selector.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 #include <vector>
 
 namespace uni20

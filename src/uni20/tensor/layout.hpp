@@ -1,6 +1,6 @@
 #pragma once
 
-#include <uni20/common/mdspan.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 #include <array>
 #include <concepts>

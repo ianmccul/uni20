@@ -6,9 +6,9 @@
  * \brief Tensor-level matrix product update and overwrite operations.
  */
 
-#include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 #include <uni20/tensor/output.hpp>
 
 #include <concepts>

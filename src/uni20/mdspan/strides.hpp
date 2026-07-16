@@ -12,10 +12,10 @@
 #include <cstdlib>
 #include <functional>
 #include <initializer_list>
-#include <uni20/common/mdspan.hpp>
 #include <uni20/common/static_vector.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/core/types.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 namespace uni20
 {

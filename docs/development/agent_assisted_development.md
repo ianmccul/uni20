@@ -174,8 +174,8 @@ Useful audits include:
 - symmetry metadata preservation.
 
 Keep audits scoped to one current code lineage. In particular, do not infer that
-legacy `level1` or contraction prototypes define the contracts of the newer
-tensor and linalg dispatch layers.
+removed legacy elementwise or contraction prototypes define the contracts of
+the tensor and linalg dispatch layers.
 
 ## Future Automation
 

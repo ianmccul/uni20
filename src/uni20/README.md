@@ -14,17 +14,16 @@ logic. Keep these files brief; detailed design notes belong in `/docs`.
 - [`core/`](core/): scalar concepts, scalar aliases, scalar traits, numeric limits, and
   small math/type utilities.
 - [`common/`](common/): diagnostics, trace/check infrastructure, presentation helpers,
-  `stdex::mdspan` integration, and common containers/utilities.
-- [`mdspan/`](mdspan/): structural mdspan concepts, stride helpers, iteration plans, and
-  layout utilities used by dense leaf kernels.
+  and common containers/utilities.
+- [`mdspan/`](mdspan/): configured mdspan integration, structural concepts,
+  accessors, lazy transform views, stride helpers, and backend-neutral iteration
+  plans.
 - [`backend/`](backend/): backend-library wrappers and manifests. Current subdirectories
   include BLAS/LAPACK support, CUDA placeholders, and cuSOLVER wiring.
 - [`kernel/`](kernel/): low-level tensor kernel entry points over resolved views. Kernel
   code should remain below tensor/symmetry semantics.
-- [`level1/`](level1/): dense elementwise and reduction-style primitives such as assign,
-  eager transform, lazy zip transform, and sum.
 - [`linalg/`](linalg/): dense linear-algebra front ends and operation descriptors built on
-  the backend/kernel layers.
+  the backend/kernel layers, including dispatched elementwise operations.
 - [`krylov/`](krylov/): matrix-free Krylov eigensolvers, dense projected subspace helpers,
   and Krylov/Taylor exponential-action algorithms.
 - [`async/`](async/): epoch-ordered async runtime, schedulers, tasks, buffers, and async

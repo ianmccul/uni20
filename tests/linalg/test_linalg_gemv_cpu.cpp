@@ -1,5 +1,5 @@
-#include <uni20/common/mdspan.hpp>
 #include <uni20/linalg/ops/gemv.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>

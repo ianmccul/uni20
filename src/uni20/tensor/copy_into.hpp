@@ -38,9 +38,13 @@ template <SpanLike Output, SpanLike Input>
   }
   else
   {
-    for (std::size_t axis = 0; axis < std::remove_cvref_t<Output>::rank(); ++axis)
+    constexpr std::size_t rank = std::remove_cvref_t<Output>::rank();
+    if constexpr (rank > 0)
     {
-      if (output.extent(axis) != input.extent(axis)) return false;
+      for (std::size_t axis = 0; axis < rank; ++axis)
+      {
+        if (output.extent(axis) != input.extent(axis)) return false;
+      }
     }
     return true;
   }

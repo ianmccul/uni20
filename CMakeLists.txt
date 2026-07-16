@@ -519,7 +519,7 @@ if(NOT UNI20_DOCS_WEB)
   endif()
 
   # mdspan reference implementation, put it into stdex namespace to prevent possible conflict with standard library version
-  # and set up an interface library uni20_mdspan to set up the include directories
+  # and set up the uni20_mdspan_base interface target for configured consumers
   set(_uni20_mdspan_fetchcontent_paths
     SOURCE_DIR "${UNI20_FETCHCONTENT_SOURCE_BASE_DIR}/mdspan-src"
     BINARY_DIR "${UNI20_FETCHCONTENT_BASE_DIR}/mdspan-build")

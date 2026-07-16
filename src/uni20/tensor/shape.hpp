@@ -6,8 +6,8 @@
  * \brief Checked helpers for constructing runtime tensor extents.
  */
 
-#include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 #include <array>
 #include <concepts>

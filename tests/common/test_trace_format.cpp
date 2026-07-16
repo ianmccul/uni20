@@ -1,6 +1,6 @@
-#include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/config.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 #include "env_var_guard.hpp"
 

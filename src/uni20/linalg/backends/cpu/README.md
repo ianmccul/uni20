@@ -10,6 +10,8 @@ vendor accelerator backend.
   kernel.
 - `transform.hpp`: generic accessor-respecting elementwise overwrite and update
   kernels.
+- `strided_transform.hpp`: internal CPU executor for compact strided iteration
+  plans shared by copy, conjugation, and generic transforms.
 - `gemm.hpp`: reference accessor-respecting GEMM kernel.
 - `gemv.hpp`: reference accessor-respecting GEMV kernel.
 - `matrix_set.hpp`: accessor-respecting structured matrix initialization.

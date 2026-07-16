@@ -6,11 +6,11 @@
  * \brief Compact read-only tensors whose values are generated from their indices.
  */
 
-#include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/mdspan/generated_accessor.hpp>
 #include <uni20/mdspan/generated_layout.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 #include <uni20/storage/generated_storage.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/shape.hpp>

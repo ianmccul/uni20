@@ -7,7 +7,7 @@
  */
 
 #include <uni20/common/trace.hpp>
-#include <uni20/level1/transform.hpp>
+#include <uni20/linalg/backends/cpu/strided_transform.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -75,11 +75,15 @@ void check_transform_extents(OutputMdspan const& output, InputMdspans const&... 
 {
   if constexpr (sizeof...(InputMdspans) > 0)
   {
-    auto check_input = [&](auto const& input) {
-      for (std::size_t axis = 0; axis < std::remove_cvref_t<OutputMdspan>::rank(); ++axis)
-        CHECK_EQUAL(output.extent(axis), input.extent(axis));
-    };
-    (check_input(inputs), ...);
+    constexpr std::size_t rank = std::remove_cvref_t<OutputMdspan>::rank();
+    if constexpr (rank > 0)
+    {
+      auto check_input = [&](auto const& input) {
+        for (std::size_t axis = 0; axis < rank; ++axis)
+          CHECK_EQUAL(output.extent(axis), input.extent(axis));
+      };
+      (check_input(inputs), ...);
+    }
   }
 }
 
@@ -143,7 +147,7 @@ void reference_transform(Operation const& operation, OutputMdspan& output, Input
         return std::invoke(operation.function, static_cast<typename output_type::value_type>(output_value),
                            static_cast<typename std::remove_cvref_t<InputMdspans>::value_type>(input_values)...);
       };
-      uni20::detail::transform_strided<true>(output, std::cref(invoke_with_values), inputs...);
+      cpu::detail::transform_strided<true>(output, std::cref(invoke_with_values), inputs...);
     }
     else
     {
@@ -151,7 +155,7 @@ void reference_transform(Operation const& operation, OutputMdspan& output, Input
         return std::invoke(operation.function,
                            static_cast<typename std::remove_cvref_t<InputMdspans>::value_type>(input_values)...);
       };
-      uni20::detail::transform_strided<false>(output, std::cref(invoke_with_values), inputs...);
+      cpu::detail::transform_strided<false>(output, std::cref(invoke_with_values), inputs...);
     }
   }
   else

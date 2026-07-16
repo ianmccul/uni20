@@ -1,6 +1,6 @@
-#include <uni20/common/mdspan.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/mdspan/conjugate_accessor.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 #include <gtest/gtest.h>
 

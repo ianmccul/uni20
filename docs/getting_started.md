@@ -31,8 +31,7 @@ uni20/                         # Project root
 │   ├── linalg/                # Operation tags, dispatch, and dense kernels
 │   ├── krylov/                # Matrix-free Krylov algorithms
 │   ├── symmetry/              # Quantum-number foundations
-│   ├── kernel/                # Lower-level/reference kernel infrastructure
-│   └── level1/                # Elementwise and memory-oriented operations
+│   └── kernel/                # Lower-level/reference kernel infrastructure
 ├── tests/                     # GoogleTest modules organized by subsystem
 ├── benchmarks/                # Google Benchmark targets
 ├── examples/                  # Runnable examples organized by subsystem

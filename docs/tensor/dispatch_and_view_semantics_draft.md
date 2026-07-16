@@ -154,7 +154,7 @@ component layout. They can be writable because assignment writes one addressed
 component directly.
 
 Semantic transform views change the value read from storage. Examples include
-`conj(x)`, scaling views, and arbitrary elementwise `zip_transform(...)`
+`conj(x)`, scaling views, and arbitrary elementwise `transform_view(...)`
 expressions. These are read-only by default. A conjugating view is not an
 ordinary lvalue because assigning through it has a contravariant law:
 

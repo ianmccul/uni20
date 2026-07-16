@@ -7,7 +7,7 @@
  */
 
 #include <uni20/common/trace.hpp>
-#include <uni20/level1/transform.hpp>
+#include <uni20/linalg/backends/cpu/strided_transform.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -85,15 +85,16 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& out
   using output_type = std::remove_cvref_t<OutputMdspan>;
   static_assert(output_type::rank() == std::remove_cvref_t<InputMdspan>::rank());
 
-  for (std::size_t axis = 0; axis < output_type::rank(); ++axis)
-    CHECK_EQUAL(output.extent(axis), input.extent(axis));
-
-  if constexpr (uni20::MutableStridedMdspan<output_type> &&
-                uni20::StridedMdspan<std::remove_cvref_t<InputMdspan>>)
+  if constexpr (output_type::rank() > 0)
   {
-    uni20::transform(output, input, [](auto&& value) -> decltype(auto) {
-      return std::forward<decltype(value)>(value);
-    });
+    for (std::size_t axis = 0; axis < output_type::rank(); ++axis)
+      CHECK_EQUAL(output.extent(axis), input.extent(axis));
+  }
+
+  if constexpr (uni20::MutableStridedMdspan<output_type> && uni20::StridedMdspan<std::remove_cvref_t<InputMdspan>>)
+  {
+    cpu::detail::transform_strided<false>(
+        output, [](auto&& value) -> decltype(auto) { return std::forward<decltype(value)>(value); }, input);
   }
   else
   {

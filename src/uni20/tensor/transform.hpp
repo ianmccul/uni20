@@ -47,11 +47,15 @@ void require_transform_extents(Reference const& reference, Others const&... othe
   if constexpr (sizeof...(Others) > 0)
   {
     constexpr std::size_t Rank = static_cast<std::size_t>(std::remove_cvref_t<Reference>::rank());
-    auto require_equal = [&](auto const& other) {
-      for (std::size_t axis = 0; axis < Rank; ++axis)
-        ERROR_IF(reference.extent(axis) != other.extent(axis), "elementwise transform operands have different extents");
-    };
-    (require_equal(others), ...);
+    if constexpr (Rank > 0)
+    {
+      auto require_equal = [&](auto const& other) {
+        for (std::size_t axis = 0; axis < Rank; ++axis)
+          ERROR_IF(reference.extent(axis) != other.extent(axis),
+                   "elementwise transform operands have different extents");
+      };
+      (require_equal(others), ...);
+    }
   }
 }
 

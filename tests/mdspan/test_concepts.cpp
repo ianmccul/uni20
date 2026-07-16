@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include <uni20/common/mdspan.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 #include <cstddef>
 #include <type_traits>
@@ -47,7 +47,7 @@ static_assert(std::is_same_v<span_offset_t<AccessorWithOffset>, AccessorWithOffs
 static_assert(std::is_same_v<span_offset_t<AccessorWithoutOffset>, std::size_t>);
 
 using MutableAccessor = AccessorWithoutOffset;
-using ExpectedConstAccessor = const_accessor_adaptor<MutableAccessor, MutableAccessor::element_type const&>;
+using ExpectedConstAccessor = const_accessor_adaptor<MutableAccessor>;
 static_assert(std::is_same_v<const_accessor_t<MutableAccessor>, ExpectedConstAccessor>);
 static_assert(std::is_same_v<const_accessor_t<ExpectedConstAccessor>, ExpectedConstAccessor>);
 static_assert(is_default_accessor_v<stdex::default_accessor<int>>);

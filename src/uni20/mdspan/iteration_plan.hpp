@@ -12,12 +12,9 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <cstddef>
 #include <cstdlib>
-#include <functional>
 #include <tuple>
-#include <type_traits>
 #include <utility>
 
 namespace uni20
@@ -52,14 +49,6 @@ template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t> str
       stride = inner.stride;
     }
 };
-
-/// \brief Alias that mirrors the legacy multi-extent stride descriptor.
-/// \tparam ExtentT Unused extent parameter retained for backwards compatibility.
-/// \tparam StrideT Unused stride parameter retained for backwards compatibility.
-/// \tparam N       Number of tensors tracked by the descriptor.
-/// \ingroup internal
-template <typename ExtentT = std::size_t, typename StrideT = std::ptrdiff_t, std::size_t N = 2>
-using multi_extent_stride = extent_strides<N>;
 
 /// \brief Construct a merged iteration plan and offset for a single mapping.
 /// \tparam Mapping Layout mapping type modelling the mdspan mapping interface.
@@ -134,8 +123,7 @@ template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& 
 /// \param mappings Tuple of mappings, with the writable output mapping first.
 /// \return Pair of the merged plan and the per-tensor offset corrections.
 /// \ingroup internal
-template <typename... Mappings>
-auto make_multi_iteration_plan_with_offset(std::tuple<Mappings...> const& mappings)
+template <typename... Mappings> auto make_multi_iteration_plan_with_offset(std::tuple<Mappings...> const& mappings)
 {
   static_assert(sizeof...(Mappings) >= 1, "At least one mapping is required");
 
@@ -209,251 +197,5 @@ auto make_multi_iteration_plan_with_offset(std::tuple<Mappings...> const& mappin
 
   return std::pair{raw_plan, offsets};
 }
-
-namespace detail
-{
-
-/// \brief Helper that executes nested loops according to a single-span iteration plan.
-/// \tparam DataHandle Data handle type from the mdspan.
-/// \tparam Accessor   Accessor policy associated with the mdspan.
-/// \tparam Op         Unary callable applied to each element.
-/// \ingroup internal
-template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelper
-{
-    DataHandle data_;
-    Accessor acc_;
-    Op& op_;
-
-    using idx_t = std::ptrdiff_t;
-
-    // 0 dims => rank-0 scalar: apply the op to the single element at Offset. No
-    // loop, and plan is not dereferenced -- this is reached for an empty plan
-    // (e.g. a rank-0 mapping, whose static_vector plan has capacity 0 and can
-    // carry no dim). An empty plan therefore means "one element", never "none".
-    void run(idx_t Offset, extent_stride<std::size_t, idx_t> const*, std::integral_constant<std::size_t, 0>)
-    {
-      acc_.access(data_, Offset) = op_(acc_.access(data_, Offset));
-    }
-
-    // 1 dim => innermost loop, with a unit-stride fast path.
-    void run(idx_t Offset, extent_stride<std::size_t, idx_t> const* plan, std::integral_constant<std::size_t, 1>)
-    {
-      auto const this_extent = plan->extent;
-      auto const this_stride = plan->stride;
-      if (this_stride == 1)
-      {
-        for (idx_t i = 0; i < idx_t(this_extent); ++i)
-        {
-          acc_.access(data_, Offset + i) = op_(acc_.access(data_, Offset + i));
-        }
-      }
-      else
-      {
-        for (idx_t i = 0; i < idx_t(this_extent); ++i)
-        {
-          acc_.access(data_, Offset + i * this_stride) = op_(acc_.access(data_, Offset + i * this_stride));
-        }
-      }
-    }
-
-    template <std::size_t N>
-    void run(idx_t Offset, extent_stride<std::size_t, idx_t> const* plan, std::integral_constant<std::size_t, N>)
-    {
-      auto const this_extent = plan->extent;
-      auto const this_stride = plan->stride;
-      ++plan;
-      for (idx_t i = 0; i < idx_t(this_extent); ++i)
-      {
-        this->run(Offset + i * this_stride, plan, std::integral_constant<std::size_t, N - 1>{});
-      }
-    }
-
-    void run_dynamic(idx_t Offset, extent_stride<std::size_t, idx_t> const* plan, std::size_t depth)
-    {
-      auto const this_extent = plan->extent;
-      auto const this_stride = plan->stride;
-      ++plan;
-      // depth is the number of dims still to process. Once exactly 3 remain
-      // (depth == 4 here, before peeling this one) hand off to the static
-      // 3-dim unroll; otherwise peel one more dynamically.
-      if (depth == 4)
-      {
-        for (idx_t i = 0; i < idx_t(this_extent); ++i)
-        {
-          this->run(Offset + i * this_stride, plan, std::integral_constant<std::size_t, 3>{});
-        }
-      }
-      else
-      {
-        for (idx_t i = 0; i < idx_t(this_extent); ++i)
-        {
-          this->run_dynamic(Offset + i * this_stride, plan, depth - 1);
-        }
-      }
-    }
-
-    // depth == plan.size() == number of dims. 0 dispatches to the rank-0 scalar
-    // terminal; 1..3 are statically unrolled; deeper nests peel dynamically.
-    void run(idx_t Offset, extent_stride<std::size_t, idx_t> const* plan, std::size_t depth)
-    {
-      switch (depth)
-      {
-        case 0:
-          this->run(Offset, plan, std::integral_constant<std::size_t, 0>{});
-          return;
-        case 1:
-          this->run(Offset, plan, std::integral_constant<std::size_t, 1>{});
-          return;
-        case 2:
-          this->run(Offset, plan, std::integral_constant<std::size_t, 2>{});
-          return;
-        case 3:
-          this->run(Offset, plan, std::integral_constant<std::size_t, 3>{});
-          return;
-        default:
-          this->run_dynamic(Offset, plan, depth);
-          return;
-      }
-    }
-};
-
-/// \brief Helper to unroll a strided elementwise transform over identical extents.
-/// \tparam ReadsOutput Whether the callable receives the old output value first.
-/// \tparam Op          Callable taking the selected element values.
-/// \tparam Output      Writable destination span.
-/// \tparam Inputs      Additional readable input spans.
-/// \ingroup internal
-template <bool ReadsOutput, typename Op, MutableStridedMdspan Output, StridedMdspan... Inputs>
-struct TransformUnrollHelper
-{
-    std::tuple<typename Output::data_handle_type, typename Inputs::data_handle_type...> dh_;
-    std::tuple<typename Output::accessor_type, typename Inputs::accessor_type...> accs_;
-
-    using op_type = std::decay_t<Op>;
-    op_type op_;
-
-    static constexpr std::size_t num_inputs = sizeof...(Inputs);
-    static constexpr std::size_t num_spans = 1 + num_inputs;
-    using index_type = std::ptrdiff_t;
-
-    using offset_type = std::array<index_type, num_spans>;
-
-    template <typename FwdOp>
-    TransformUnrollHelper(FwdOp&& op, Output const& output, Inputs const&... inputs)
-        : dh_{output.data_handle(), inputs.data_handle()...}, accs_{output.accessor(), inputs.accessor()...},
-          op_(std::forward<FwdOp>(op))
-    {}
-
-    template <typename Plan> void run(Plan const& plan, offset_type offsets)
-    {
-      std::size_t depth = plan.size(); // number of dims; 0 => rank-0 scalar
-      switch (depth)
-      {
-        case 0:
-          run_unrolled(offsets, plan.data(), std::integral_constant<std::size_t, 0>{});
-          return;
-        case 1:
-          run_unrolled(offsets, plan.data(), std::integral_constant<std::size_t, 1>{});
-          return;
-        case 2:
-          run_unrolled(offsets, plan.data(), std::integral_constant<std::size_t, 2>{});
-          return;
-        case 3:
-          run_unrolled(offsets, plan.data(), std::integral_constant<std::size_t, 3>{});
-          return;
-        default:
-          this->run_dynamic(offsets, plan.data(), depth);
-          return;
-      }
-    }
-
-  private:
-    static constexpr std::size_t MaxUnrollDepth = 3;
-
-    void run_dynamic(offset_type offsets, const extent_strides<num_spans>* plan, std::size_t depth)
-    {
-      index_type const N = plan->extent;
-      for (index_type i = 0; i < N; ++i)
-      {
-        // depth is the number of dims still to process. Once exactly
-        // MaxUnrollDepth remain (depth == MaxUnrollDepth + 1 before peeling this
-        // one) hand off to the static unroll; otherwise peel one more.
-        if (depth == MaxUnrollDepth + 1)
-        {
-          this->run_unrolled(offsets, plan + 1, std::integral_constant<std::size_t, MaxUnrollDepth>{});
-        }
-        else
-        {
-          this->run_dynamic(offsets, plan + 1, depth - 1);
-        }
-
-        for (std::size_t s = 0; s < num_spans; ++s)
-        {
-          offsets[s] += plan->strides[s];
-        }
-      }
-    }
-
-    // 0 dims => rank-0 scalar: apply the op once at the given offsets. No loop,
-    // and plan is not dereferenced (reached for an empty plan / rank-0 mapping).
-    void run_unrolled(offset_type offsets, const extent_strides<num_spans>*,
-                      std::integral_constant<std::size_t, 0>)
-    {
-      [&]<std::size_t... I>(std::index_sequence<I...>) {
-        auto&& output = std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]);
-        if constexpr (ReadsOutput)
-          output =
-              std::invoke(op_, output,
-                          std::get<I + 1>(accs_).access(std::get<I + 1>(dh_), offsets[I + 1])...);
-        else
-          output =
-              std::invoke(op_, std::get<I + 1>(accs_).access(std::get<I + 1>(dh_), offsets[I + 1])...);
-      }(std::make_index_sequence<num_inputs>{});
-    }
-
-    // 1 dim => innermost loop.
-    void run_unrolled(offset_type offsets, const extent_strides<num_spans>* plan,
-                      std::integral_constant<std::size_t, 1>)
-    {
-      index_type const N = plan->extent;
-      for (index_type i = 0; i < N; ++i)
-      {
-        [&]<std::size_t... I>(std::index_sequence<I...>) {
-          auto&& output = std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]);
-          if constexpr (ReadsOutput)
-            output =
-                std::invoke(op_, output,
-                            std::get<I + 1>(accs_).access(std::get<I + 1>(dh_), offsets[I + 1])...);
-          else
-            output =
-                std::invoke(op_, std::get<I + 1>(accs_).access(std::get<I + 1>(dh_), offsets[I + 1])...);
-        }(std::make_index_sequence<num_inputs>{});
-
-        for (std::size_t s = 0; s < num_spans; ++s)
-        {
-          offsets[s] += plan->strides[s];
-        }
-      }
-    }
-
-    template <std::size_t D>
-    void run_unrolled(offset_type offsets, const extent_strides<num_spans>* plan,
-                      std::integral_constant<std::size_t, D>)
-    {
-      index_type const N = plan->extent;
-      for (index_type i = 0; i < N; ++i)
-      {
-        run_unrolled(offsets, plan + 1, std::integral_constant<std::size_t, D - 1>{});
-
-        for (std::size_t s = 0; s < num_spans; ++s)
-        {
-          offsets[s] += plan->strides[s];
-        }
-      }
-    }
-
-};
-
-} // namespace detail
 
 } // namespace uni20

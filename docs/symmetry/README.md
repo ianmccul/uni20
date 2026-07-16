@@ -28,4 +28,5 @@ metadata remains a correctness error, not an acceptable fallback.
 
 - [Implemented symmetry foundations](../../src/uni20/symmetry/)
 - [Low-level tensor kernels](../../src/uni20/kernel/)
-- [Dense elementwise primitives](../../src/uni20/level1/)
+- [Dense tensor operations](../tensor/operations.md)
+- [CPU reference linalg kernels](../../src/uni20/linalg/backends/cpu/)

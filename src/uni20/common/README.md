@@ -1,9 +1,9 @@
 # src/uni20/common
 
 This directory contains shared infrastructure used across most Uni20 modules:
-diagnostics, presentation, lightweight containers, and configured mdspan access.
-Code here should remain broadly reusable and should avoid depending on
-high-level tensor, linalg, async, or symmetry layers.
+diagnostics, presentation, and lightweight containers. Code here should remain
+broadly reusable and should avoid depending on high-level tensor, linalg, async,
+or symmetry layers.
 
 ## Contents
 
@@ -12,10 +12,9 @@ high-level tensor, linalg, async, or symmetry layers.
 - `diagnostic_error.hpp`: structured user/runtime error base with source and
   stacktrace context.
 - `gtest.hpp`: test helper integration.
-- `mdspan.hpp`: project include point for the Kokkos reference mdspan
-  implementation in the `stdex` namespace.
 - `presentation*`, `display*`, `terminal*`: user-facing formatting and terminal
-  helpers, including policy-aware stacktrace presentation when available.
+  helpers, including mdspan previews and policy-aware stacktrace presentation
+  when available.
 - `aligned_buffer.hpp`, `static_vector.hpp`: small storage utilities.
 - `nifty_counter.hpp`: ordered one-time initialization and finalization shared
   by namespace-scope users across translation units.
@@ -24,10 +23,10 @@ high-level tensor, linalg, async, or symmetry layers.
 
 ## Notes
 
-- `mdspan.hpp` is the preferred include for mdspan in Uni20 source. It owns the
-  local configuration checks for namespace and indexing policy.
 - Keep diagnostics usable from low-level code. Avoid making common utilities
   depend on module-specific types.
+- Configured mdspan integration and structural helpers belong in
+  [`../mdspan/`](../mdspan/).
 
 ## Related Documentation
 

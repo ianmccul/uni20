@@ -6,9 +6,9 @@
  * \brief Additional layout helpers and policies for zipped mdspan views.
  */
 
-#include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 #include <algorithm>
 #include <array>

@@ -12,11 +12,9 @@
  * \brief Additional concepts, adaptors, and helpers that extend the reference mdspan implementation.
  */
 
-#include <cassert>
 #include <concepts>
-#include <fmt/format.h>
 #include <type_traits>
-#include <uni20/common/mdspan.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 namespace uni20
 {
@@ -50,9 +48,11 @@ template <typename AP> using span_offset_t = typename span_offset_type<AP>::type
 /// \brief A model of the C++ mdspan AccessorPolicy named requirement.
 /// \details Requirements for \c AP:
 ///          - nested types: element_type, data_handle_type, offset_policy, reference.
-///          - \c offset(dh, off) must be constexpr noexcept and return a type convertible to
+///          - \c offset(dh, off) returns a type convertible to
 ///            \c offset_policy::data_handle_type.
-///          - \c access(dh, off) must be constexpr noexcept and return exactly \c AP::reference.
+///          - \c access(dh, off) returns exactly \c AP::reference.
+///          Access may throw when the accessor deliberately applies a throwing
+///          transformation.
 /// \tparam AP The accessor policy to test.
 /// \ingroup mdspan_ext
 template <class AP>
@@ -66,15 +66,15 @@ concept AccessorPolicy = requires {
   { a.access(dh, off) } -> std::same_as<typename AP::reference>;
 };
 
-/// \brief Generic adaptor that converts an AccessorPolicy’s reference type to a compatible const-qualified reference.
-/// \details Example: to turn a mutable accessor (returning \c T&) into a read-only one returning \c T const&, use
+/// \brief Adaptor that exposes a mutable lvalue accessor as read-only.
+/// \details Example: to turn a mutable accessor returning \c T& into a read-only
+///          accessor returning \c T const&, use
 ///          \code
-///          conversion_accessor_adaptor<MyAccessor, MyAccessor::element_type const&> rd_access{my_access};
+///          const_accessor_adaptor<MyAccessor> read_access{access};
 ///          \endcode
 /// \tparam Accessor An AccessorPolicy whose \c reference type will be adapted.
-/// \tparam NewReference The new reference type returned by \c access(); must be convertible from \c
-/// Accessor::reference. \ingroup mdspan_ext
-template <AccessorPolicy Accessor, typename NewReference>
+/// \ingroup mdspan_ext
+template <AccessorPolicy Accessor>
   requires std::is_same_v<typename Accessor::reference, typename Accessor::element_type&>
 class const_accessor_adaptor {
   public:
@@ -144,7 +144,7 @@ template <AccessorPolicy Acc>
            std::is_same_v<typename Acc::reference, typename Acc::element_type&>)
 constexpr auto const_accessor(Acc const& acc)
 {
-  return const_accessor_adaptor<Acc, typename Acc::element_type const&>{acc};
+  return const_accessor_adaptor<Acc>{acc};
 }
 
 /// \brief Return an accessor unchanged when its element type is already const.
@@ -320,36 +320,3 @@ template <StridedMdspan S> auto strides(S const& s)
 }
 
 } // namespace uni20
-
-namespace fmt
-{
-
-/// \brief Formatter specialization that prints mdspan extents as a comma-separated list.
-/// \tparam IndexType Integral type used for extents.
-/// \tparam StaticExts Static extent values embedded in the extents type.
-/// \tparam CharT Character type for the target formatter.
-/// \ingroup mdspan_ext
-template <typename IndexType, std::size_t... StaticExts, typename CharT>
-struct formatter<stdex::extents<IndexType, StaticExts...>, CharT>
-{
-    // No format‐specs, just use the default
-    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
-
-    template <typename FormatContext>
-    constexpr auto format(stdex::extents<IndexType, StaticExts...> const& ex, FormatContext& ctx) const
-    {
-      // write: '[' n0 ',' n1 ',' … ']'
-      auto out = ctx.out();
-      *out++ = '[';
-      constexpr std::size_t R = sizeof...(StaticExts);
-      for (std::size_t d = 0; d < R; ++d)
-      {
-        if (d) *out++ = ',';
-        out = fmt::format_to(out, "{}", ex.extent(d));
-      }
-      *out++ = ']';
-      return out;
-    }
-};
-
-} // namespace fmt

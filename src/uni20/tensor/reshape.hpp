@@ -6,9 +6,9 @@
  * \brief Explicit aliasing, in-place, and owning tensor reshape operations.
  */
 
-#include <uni20/common/mdspan.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 #include <uni20/tensor/basic_tensor.hpp>
 #include <uni20/tensor/concepts.hpp>
 #include <uni20/tensor/shape.hpp>

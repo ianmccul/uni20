@@ -1,8 +1,8 @@
 #include "../helpers.hpp"
 #include "gtest/gtest.h"
 #include <numeric>
-#include <uni20/common/mdspan.hpp>
 #include <uni20/kernel/contract.hpp>
+#include <uni20/mdspan/mdspan.hpp>
 
 using namespace uni20;
 

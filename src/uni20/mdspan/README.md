@@ -6,6 +6,9 @@ small helpers used by dense kernels and layout-aware algorithms.
 
 ## Contents
 
+- `mdspan.hpp`: configured gateway to the Kokkos reference implementation in
+  namespace `stdex::`.
+- `format.hpp`: `std::format` and `{fmt}` support for mdspan extents.
 - `concepts.hpp`: concepts for mdspan-like objects and related structural
   properties.
 - `conjugate_accessor.hpp`: read-only mdspan accessor adaptor and `conj(...)`
@@ -13,15 +16,18 @@ small helpers used by dense kernels and layout-aware algorithms.
 - `generated_accessor.hpp` and `generated_layout.hpp`: read-only generated
   values with synthetic, non-strided logical offset mapping.
 - `strides.hpp`: stride inspection and stride utility helpers.
-- `iteration_plan.hpp`: iteration planning over extents and layouts.
+- `iteration_plan.hpp`: backend-neutral iteration planning over strided
+  mappings.
+- `transform_view.hpp`: lazy read-only unary and variadic elementwise views.
 - `zip_layout.hpp`: helpers for matching or combining view layouts.
 
 ## Notes
 
-- Include `uni20/common/mdspan.hpp` when code needs the configured mdspan
+- Include `uni20/mdspan/mdspan.hpp` when code needs the configured mdspan
   implementation itself.
 - This module should describe structure and layout, not ownership or backend
-  dispatch policy.
+  dispatch policy. CPU execution of iteration plans belongs to the linalg CPU
+  backend.
 - `SpanLike` is the complete readable mdspan protocol used by leaf kernels: its
   descriptor aliases must agree, it exposes rank and extent observers, and its
   rank-dimensional `operator[]` returns the declared `reference` type.
@@ -41,6 +47,9 @@ small helpers used by dense kernels and layout-aware algorithms.
 - `uni20::conj(span)` is the user-facing lazy conjugation helper. Its accessor
   follows the C++26 `std::linalg::conjugated_accessor` direction while keeping
   Uni20's value-level `conj` behavior for real scalar types.
+- `uni20::transform_view(function, spans...)` constructs a read-only expression
+  descriptor. Eager overwrite and update use the dispatched tensor operations
+  `assign_transform` and `transform_inplace`.
 
 ## Related Documentation
 

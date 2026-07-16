@@ -2,7 +2,9 @@
 #include "gtest/gtest.h"
 #include <numeric>
 #include <stdexcept>
-#include <uni20/level1/transform.hpp>
+#include <uni20/linalg/backend_selector.hpp>
+#include <uni20/mdspan/iteration_plan.hpp>
+#include <uni20/tensor/transform.hpp>
 
 using namespace uni20;
 
@@ -12,7 +14,7 @@ TEST(TransformInplace, MultiplyBy2_1DContiguous)
   std::iota(v.begin(), v.end(), 0.0);
   auto m = make_mdspan_1d(v);
 
-  transform_inplace(m, [](double x) { return x * 2; });
+  transform_inplace(linalg::CpuReferenceBackend{}, m, [](double x) { return x * 2; });
 
   for (size_t i = 0; i < 10; ++i)
   {
@@ -29,7 +31,7 @@ TEST(TransformInplace, Add5_2DRowMajor)
       v[i * C + j] = static_cast<double>(i * 10 + j);
 
   auto m = make_mdspan_2d(v, R, C);
-  transform_inplace(m, [](double x) { return x + 5; });
+  transform_inplace(linalg::CpuReferenceBackend{}, m, [](double x) { return x + 5; });
 
   for (size_t i = 0; i < R; i++)
     for (size_t j = 0; j < C; j++)
@@ -42,7 +44,7 @@ TEST(TransformInplace, Square_Reversed1D)
   std::iota(v.begin(), v.end(), 1.0); // 1,2,3,...,8
   auto m = make_reversed_1d(v);
 
-  transform_inplace(m, [](double x) { return x * x; });
+  transform_inplace(linalg::CpuReferenceBackend{}, m, [](double x) { return x * x; });
 
   // reversed view means m[i] = original v[7-i]
   // after squaring, the underlying container should be:
@@ -68,7 +70,7 @@ TEST(TransformInplace, ScaleAndShiftMixedStrides)
   auto mapping = stdex::layout_stride::mapping<extents_t>(extents_t{3, 3}, strides);
   stdex::mdspan<double, extents_t, stdex::layout_stride> m(buf.data(), mapping);
 
-  transform_inplace(m, [](double x) { return x * 10 - 1; });
+  transform_inplace(linalg::CpuReferenceBackend{}, m, [](double x) { return x * 10 - 1; });
 
   for (index_t r = 0; r < 3; ++r)
   {
@@ -103,7 +105,7 @@ TEST(TransformInplace, NonMergeable4DDispatchesDynamically)
           storage[idx] = static_cast<double>(i0 * 1000 + i1 * 100 + i2 * 10 + i3);
         }
 
-  transform_inplace(tensor, [](double x) { return x - 2.5; });
+  transform_inplace(linalg::CpuReferenceBackend{}, tensor, [](double x) { return x - 2.5; });
 
   for (index_t i0 = 0; i0 < extents.extent(0); ++i0)
     for (index_t i1 = 0; i1 < extents.extent(1); ++i1)
@@ -129,7 +131,7 @@ TEST(Transform, UnaryMixedCanonicalLayouts)
     for (index_t column = 0; column < 4; ++column)
       input[row, column] = 10.0 * row + column;
 
-  transform(output, input, [](double value) { return 2.0 * value + 1.0; });
+  assign_transform(linalg::CpuReferenceBackend{}, output, [](double value) { return 2.0 * value + 1.0; }, input);
 
   for (index_t row = 0; row < 3; ++row)
     for (index_t column = 0; column < 4; ++column)
@@ -157,7 +159,8 @@ TEST(Transform, BinaryMixedLayouts)
       rhs[row, column] = 100.0 + row - 2.0 * column;
     }
 
-  transform(output, lhs, rhs, [](double left, double right) { return left - right; });
+  assign_transform(
+      linalg::CpuReferenceBackend{}, output, [](double left, double right) { return left - right; }, lhs, rhs);
 
   for (index_t row = 0; row < 3; ++row)
     for (index_t column = 0; column < 4; ++column)
@@ -183,7 +186,8 @@ TEST(TransformInplace, BinaryTracksOutputOnce)
       rhs[row, column] = 100.0 + row + column;
     }
 
-  transform_inplace(output, rhs, [](double current, double value) { return current + value; });
+  transform_inplace(
+      linalg::CpuReferenceBackend{}, output, [](double current, double value) { return current + value; }, rhs);
 
   for (index_t row = 0; row < 3; ++row)
     for (index_t column = 0; column < 4; ++column)
@@ -195,10 +199,77 @@ TEST(Transform, CallableExceptionsPropagate)
   std::vector<double> storage{1.0, 2.0, 3.0};
   auto span = make_mdspan_1d(storage);
 
-  EXPECT_THROW(
-      transform_inplace(span, [](double value) {
-        if (value == 2.0) throw std::runtime_error("transform failed");
-        return value + 1.0;
-      }),
-      std::runtime_error);
+  EXPECT_THROW(transform_inplace(linalg::CpuReferenceBackend{}, span,
+                                 [](double value) {
+                                   if (value == 2.0) throw std::runtime_error("transform failed");
+                                   return value + 1.0;
+                                 }),
+               std::runtime_error);
+}
+
+TEST(CpuStridedTransformTest, ZeroExtentDoesNotVisitStorage)
+{
+  std::array<std::size_t, 1> extents{0};
+  std::array<index_t, 1> strides{1};
+  std::vector<double> storage{1.0, 2.0, 3.0};
+  auto span = make_mdspan_strided(storage, extents, strides);
+
+  transform_inplace(linalg::CpuReferenceBackend{}, span, [](double value) { return value + 10.0; });
+
+  EXPECT_EQ(storage, (std::vector<double>{1.0, 2.0, 3.0}));
+}
+
+TEST(CpuStridedTransformTest, RankZeroAppliesExactlyOnce)
+{
+  using extents_type = stdex::dextents<index_t, 0>;
+  using mapping_type = stdex::layout_stride::mapping<extents_type>;
+
+  std::array<std::ptrdiff_t, 0> strides{};
+  mapping_type mapping{extents_type{}, strides};
+  double input_value = 11.0;
+  double output_value = 2.0;
+  stdex::mdspan<double, extents_type, stdex::layout_stride> input{&input_value, mapping};
+  stdex::mdspan<double, extents_type, stdex::layout_stride> output{&output_value, mapping};
+
+  assign_transform(linalg::CpuReferenceBackend{}, output, [](double value) { return value; }, input);
+  EXPECT_DOUBLE_EQ(output_value, 11.0);
+
+  transform_inplace(linalg::CpuReferenceBackend{}, output, [](double value) { return value + 3.0; });
+  EXPECT_DOUBLE_EQ(output_value, 14.0);
+}
+
+TEST(CpuStridedTransformTest, AllSizeOneAppliesExactlyOnce)
+{
+  std::vector<double> storage{10.0, 20.0, 30.0};
+  std::array<std::size_t, 2> extents{1, 1};
+  std::array<index_t, 2> strides{7, 3};
+  auto span = make_mdspan_strided(storage, extents, strides);
+
+  transform_inplace(linalg::CpuReferenceBackend{}, span, [](double value) { return value + 100.0; });
+
+  EXPECT_DOUBLE_EQ(storage[0], 110.0);
+  EXPECT_DOUBLE_EQ(storage[1], 20.0);
+  EXPECT_DOUBLE_EQ(storage[2], 30.0);
+}
+
+TEST(CpuStridedTransformTest, NonMergeableFiveDimVisitsEachElementOnce)
+{
+  std::array<std::size_t, 5> extents{2, 2, 2, 2, 2};
+  std::array<index_t, 5> strides{100, 30, 9, 4, 1};
+  std::vector<double> storage(span_size_for(extents, strides), 0.0);
+  auto span = make_mdspan_strided(storage, extents, strides);
+
+  auto [plan, offset] = make_iteration_plan_with_offset(span.mapping());
+  ASSERT_EQ(plan.size(), 5);
+  EXPECT_EQ(offset, 0);
+
+  transform_inplace(linalg::CpuReferenceBackend{}, span, [](double value) { return value + 1.0; });
+
+  double sum = 0.0;
+  for (double value : storage)
+  {
+    EXPECT_LE(value, 1.0);
+    sum += value;
+  }
+  EXPECT_DOUBLE_EQ(sum, 32.0);
 }

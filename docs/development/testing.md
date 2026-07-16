@@ -22,7 +22,6 @@ Current test modules include:
 - `tests/core`
 - `tests/kernel`
 - `tests/krylov`
-- `tests/level1`
 - `tests/linalg`
 - `tests/mdspan`
 - `tests/tensor`
@@ -118,15 +117,14 @@ When both modes are enabled, CTest registers the per-module executables discover
 Example:
 
 ```cmake
-add_test_module(level1
+add_test_module(mdspan
   SOURCES
-    test_transform.cpp
-    test_assign.cpp
-    test_sum.cpp
+    test_concepts.cpp
+    test_iteration_plan.cpp
+    test_transform_view.cpp
     test_new_case.cpp
   LIBS
-    uni20_level1
-    mdspan
+    uni20_mdspan
 )
 ```
 
