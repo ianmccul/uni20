@@ -2,6 +2,7 @@
 #include <uni20/common/gtest.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/linalg/backends/cpu/dense_matrix.hpp>
+#include <uni20/linalg/backends/cpu/matrix_exponential.hpp>
 #include <uni20/tensor/reductions.hpp>
 #include <uni20/tensor/tensor.hpp>
 
@@ -67,7 +68,7 @@ void expect_value_underflows_to_double_zero(Binary128 value)
 
 } // namespace
 
-TEST(MplapackBinary128CpuOpsTest, MatrixOneNormPreservesBinary128Accumulation)
+TEST(MplapackBinary128CpuOpsTest, MatrixOneNormPreservesBinary128Precision)
 {
   Binary128 const delta = below_double_resolution_gap();
   Binary128 const one_plus_delta = Binary128{1} + delta;
@@ -132,6 +133,22 @@ TEST(MplapackBinary128CpuOpsTest, TensorReductionsPreserveBinary128Values)
   EXPECT_FLOATING_EQ(inner, Binary128{2} + delta);
   EXPECT_TRUE(abs_error(norm * norm, (Binary128{1} + delta) * (Binary128{1} + delta) + Binary128{1}) <= tolerance());
   EXPECT_FLOATING_EQ(sum, Binary128{2} + delta);
+}
+
+TEST(MplapackBinary128CpuOpsTest, MatrixExponentialPrescalesWithinBinary128)
+{
+  Binary128 const large = binary_power_of_two(uni20::numeric_limits<Binary128>::max_exponent - 2);
+  ASSERT_TRUE(uni20::isfinite(large));
+
+  matrix_type matrix(2, 2);
+  matrix[0, 1] = large;
+
+  auto const result = uni20::linalg::backends::cpu::matrix_exponential(matrix, Binary128{1});
+
+  EXPECT_FLOATING_EQ((result[0, 0]), Binary128{1});
+  EXPECT_FLOATING_EQ((result[1, 0]), Binary128{});
+  EXPECT_FLOATING_EQ((result[1, 1]), Binary128{1});
+  EXPECT_TRUE(abs_error((result[0, 1] - large) / large, Binary128{}) <= tolerance());
 }
 
 #endif

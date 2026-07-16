@@ -1,6 +1,7 @@
 #pragma once
 
 #include <uni20/core/scalar_traits.hpp>
+#include <uni20/linalg/backends/cpu/detail/compensated_sum.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -170,20 +171,20 @@ template <typename T, typename Scalar> DenseMatrix<T> scale(DenseMatrix<T>&& mat
 /// \tparam T Element type of the matrix.
 /// \param mat Input matrix.
 /// \return The induced matrix 1-norm of \p mat.
-template <typename T> uni20::accumulation_real_t<T> matrix_one_norm(DenseMatrix<T> const& mat)
+template <typename T> uni20::make_real_t<T> matrix_one_norm(DenseMatrix<T> const& mat)
 {
-  using Real = uni20::accumulation_real_t<T>;
+  using Real = uni20::make_real_t<T>;
   using std::abs;
 
   Real result = Real{};
   for (std::size_t j = 0; j < mat.cols(); ++j)
   {
-    Real column_sum = Real{};
+    detail::CompensatedRealSum<Real> column_sum;
     for (std::size_t i = 0; i < mat.rows(); ++i)
     {
-      column_sum += abs(mat[i, j]);
+      column_sum.add(abs(mat[i, j]));
     }
-    result = std::max(result, column_sum);
+    result = std::max(result, column_sum.value());
   }
   return result;
 }
@@ -230,7 +231,7 @@ template <typename T> DenseMatrix<T> matrix_power(DenseMatrix<T> const& mat, uns
 /// \param mat Input matrix.
 /// \param power Non-negative integer exponent.
 /// \return The 1-norm of \f$mat^{\text{power}}\f$.
-template <typename T> uni20::accumulation_real_t<T> matrix_one_norm_power(DenseMatrix<T> const& mat, unsigned int power)
+template <typename T> uni20::make_real_t<T> matrix_one_norm_power(DenseMatrix<T> const& mat, unsigned int power)
 {
   DenseMatrix<T> powered = matrix_power(mat, power);
   return matrix_one_norm(powered);
@@ -268,7 +269,7 @@ template <typename T> DenseMatrix<T> solve_linear_system(DenseMatrix<T> A, Dense
 
   std::size_t n = A.rows();
   std::size_t nrhs = B.cols();
-  using Real = uni20::accumulation_real_t<T>;
+  using Real = uni20::make_real_t<T>;
   using std::abs;
 
   for (std::size_t k = 0; k < n; ++k)

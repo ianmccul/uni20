@@ -263,23 +263,6 @@ template <typename Scalar> Scalar dotc(std::span<Scalar const> x, std::span<Scal
   return result;
 }
 
-/// \brief Compute a Euclidean vector norm.
-/// \tparam Scalar Element type.
-/// \param vector Input vector.
-/// \return Square root of the sum of squared magnitudes.
-template <typename Scalar> accumulation_real_t<Scalar> nrm2(std::span<Scalar const> vector)
-{
-  using Real = accumulation_real_t<Scalar>;
-
-  Real sum{};
-  for (Scalar const& value : vector)
-  {
-    Real const magnitude = static_cast<Real>(detail::adl_abs(value));
-    sum += magnitude * magnitude;
-  }
-  return detail::adl_sqrt(sum);
-}
-
 /// \brief Copy a selected region of a local dense matrix.
 /// \tparam Scalar Element type.
 /// \param destination Destination matrix with the same shape as \p source.

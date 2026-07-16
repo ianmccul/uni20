@@ -298,8 +298,9 @@ The current host implementation provides:
 3. one shared output-first CPU reduction executor for full and partial
    reductions;
 4. `sum_reduction_op`, `inner_product_op`, and `norm_op` CPU kernels;
-5. widened accumulation for real and complex sums and inner products;
-6. scaled sum-of-squares norms that avoid avoidable overflow and underflow;
+5. same-field compensated accumulation for real and complex sums and inner
+   products;
+6. scaled sum-of-squares norms that avoid unnecessary overflow and underflow;
 7. storage-preserving and `_host` Tensor front ends;
 8. direct host-scalar kernel outputs without a one-element allocation;
 9. axis normalization, duplicate rejection, negative axes, and zero-extent

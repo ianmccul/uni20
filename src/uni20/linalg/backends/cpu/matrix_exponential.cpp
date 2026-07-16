@@ -229,82 +229,81 @@ DenseMatrix<Scalar> pade13(DenseMatrix<Scalar> const& A, DenseMatrix<Scalar> con
 
 template <typename Scalar> int compute_scaling_exponent(DenseMatrix<Scalar> const& A4, DenseMatrix<Scalar> const& A6)
 {
-  using AccumReal = uni20::accumulation_real_t<Scalar>;
+  using Real = uni20::make_real_t<Scalar>;
 
-  AccumReal const norm4 = matrix_one_norm(A4);
-  AccumReal const norm6 = matrix_one_norm(A6);
+  Real const norm4 = matrix_one_norm(A4);
+  Real const norm6 = matrix_one_norm(A6);
   if (!adl_isfinite(norm4) || !adl_isfinite(norm6))
   {
     throw std::overflow_error("matrix powers overflowed while computing matrix_exponential scaling");
   }
 
-  AccumReal const d4 = adl_pow(norm4, AccumReal{0.25});
-  AccumReal const d6 = adl_pow(norm6, AccumReal{1} / AccumReal{6});
-  AccumReal const eta = std::max(d4, d6);
-  if (eta == AccumReal{})
+  Real const d4 = adl_pow(norm4, Real{0.25});
+  Real const d6 = adl_pow(norm6, Real{1} / Real{6});
+  Real const eta = std::max(d4, d6);
+  if (eta == Real{})
   {
     return 0;
   }
 
-  AccumReal const ratio = eta / static_cast<AccumReal>(kThetaBounds.back());
-  if (ratio <= AccumReal{1})
+  Real const ratio = eta / static_cast<Real>(kThetaBounds.back());
+  if (ratio <= Real{1})
   {
     return 0;
   }
 
-  AccumReal const exponent = adl_log2(ratio);
-  if (exponent <= AccumReal{})
+  Real const exponent = adl_log2(ratio);
+  if (exponent <= Real{})
   {
     return 0;
   }
   return static_cast<int>(adl_ceil(exponent));
 }
 
-template <typename Scalar> uni20::accumulation_real_t<Scalar> entry_abs_log2_upper_bound(Scalar const& value)
+template <typename Scalar> uni20::make_real_t<Scalar> entry_abs_log2_upper_bound(Scalar const& value)
 {
-  using AccumReal = uni20::accumulation_real_t<Scalar>;
+  using Real = uni20::make_real_t<Scalar>;
 
   if constexpr (uni20::Complex<Scalar>)
   {
-    AccumReal const real = adl_abs(static_cast<AccumReal>(value.real()));
-    AccumReal const imag = adl_abs(static_cast<AccumReal>(value.imag()));
+    Real const real = adl_abs(value.real());
+    Real const imag = adl_abs(value.imag());
     if (!adl_isfinite(real) || !adl_isfinite(imag))
     {
       throw std::overflow_error("matrix_exponential requires finite matrix entries");
     }
 
-    AccumReal const component = std::max(real, imag);
-    if (component == AccumReal{})
+    Real const component = std::max(real, imag);
+    if (component == Real{})
     {
-      return -uni20::numeric_limits<AccumReal>::infinity();
+      return -uni20::numeric_limits<Real>::infinity();
     }
 
-    AccumReal const real_scaled = real / component;
-    AccumReal const imag_scaled = imag / component;
-    AccumReal const factor = adl_sqrt(real_scaled * real_scaled + imag_scaled * imag_scaled);
+    Real const real_scaled = real / component;
+    Real const imag_scaled = imag / component;
+    Real const factor = adl_sqrt(real_scaled * real_scaled + imag_scaled * imag_scaled);
     return adl_log2(component) + adl_log2(factor);
   }
   else
   {
-    AccumReal const magnitude = adl_abs(static_cast<AccumReal>(value));
+    Real const magnitude = adl_abs(value);
     if (!adl_isfinite(magnitude))
     {
       throw std::overflow_error("matrix_exponential requires finite matrix entries");
     }
-    if (magnitude == AccumReal{})
+    if (magnitude == Real{})
     {
-      return -uni20::numeric_limits<AccumReal>::infinity();
+      return -uni20::numeric_limits<Real>::infinity();
     }
     return adl_log2(magnitude);
   }
 }
 
-template <typename Scalar>
-uni20::accumulation_real_t<Scalar> matrix_max_abs_log2_upper_bound(DenseMatrix<Scalar> const& mat)
+template <typename Scalar> uni20::make_real_t<Scalar> matrix_max_abs_log2_upper_bound(DenseMatrix<Scalar> const& mat)
 {
-  using AccumReal = uni20::accumulation_real_t<Scalar>;
+  using Real = uni20::make_real_t<Scalar>;
 
-  AccumReal result = -uni20::numeric_limits<AccumReal>::infinity();
+  Real result = -uni20::numeric_limits<Real>::infinity();
   for (std::size_t i = 0; i < mat.size(); ++i)
   {
     result = std::max(result, entry_abs_log2_upper_bound(mat.data()[i]));
@@ -315,20 +314,18 @@ uni20::accumulation_real_t<Scalar> matrix_max_abs_log2_upper_bound(DenseMatrix<S
 template <typename Scalar> int compute_prescaling_exponent(DenseMatrix<Scalar> const& A)
 {
   using Real = uni20::make_real_t<Scalar>;
-  using AccumReal = uni20::accumulation_real_t<Scalar>;
 
-  AccumReal const max_entry_log2 = matrix_max_abs_log2_upper_bound(A);
-  if (max_entry_log2 == -uni20::numeric_limits<AccumReal>::infinity())
+  Real const max_entry_log2 = matrix_max_abs_log2_upper_bound(A);
+  if (max_entry_log2 == -uni20::numeric_limits<Real>::infinity())
   {
     return 0;
   }
 
-  AccumReal const dimension = std::max(AccumReal{1}, static_cast<AccumReal>(A.rows()));
-  AccumReal const safe_power_log2 =
-      AccumReal{-1} + (adl_log2(static_cast<AccumReal>(uni20::numeric_limits<Real>::max())) / AccumReal{6}) -
-      adl_log2(dimension);
-  AccumReal const exponent = max_entry_log2 - safe_power_log2;
-  if (exponent <= AccumReal{})
+  Real const dimension = std::max(Real{1}, static_cast<Real>(A.rows()));
+  Real const safe_power_log2 =
+      Real{-1} + (adl_log2(uni20::numeric_limits<Real>::max()) / Real{6}) - adl_log2(dimension);
+  Real const exponent = max_entry_log2 - safe_power_log2;
+  if (exponent <= Real{})
   {
     return 0;
   }
@@ -380,21 +377,18 @@ template <typename Scalar> uni20::make_real_t<Scalar> real_value(Scalar const& v
 
 template <typename Scalar> void validate_finite_entries(DenseMatrix<Scalar> const& A)
 {
-  using AccumReal = uni20::accumulation_real_t<Scalar>;
-
   for (std::size_t i = 0; i < A.size(); ++i)
   {
     if constexpr (uni20::Complex<Scalar>)
     {
-      if (!adl_isfinite(static_cast<AccumReal>(A.data()[i].real())) ||
-          !adl_isfinite(static_cast<AccumReal>(A.data()[i].imag())))
+      if (!adl_isfinite(A.data()[i].real()) || !adl_isfinite(A.data()[i].imag()))
       {
         throw std::overflow_error("matrix_exponential requires finite matrix entries");
       }
     }
     else
     {
-      if (!adl_isfinite(static_cast<AccumReal>(A.data()[i])))
+      if (!adl_isfinite(A.data()[i]))
       {
         throw std::overflow_error("matrix_exponential requires finite matrix entries");
       }
@@ -406,7 +400,6 @@ template <typename Scalar>
 bool try_real_skew_symmetric_3x3_matrix_exponential(DenseMatrix<Scalar> const& A, DenseMatrix<Scalar>& result)
 {
   using Real = uni20::make_real_t<Scalar>;
-  using AccumReal = uni20::accumulation_real_t<Scalar>;
 
   if (A.rows() != 3 || A.cols() != 3 || !has_real_entries(A))
   {
@@ -422,9 +415,8 @@ bool try_real_skew_symmetric_3x3_matrix_exponential(DenseMatrix<Scalar> const& A
   Real const x = -real_value(A[1, 2]);
   Real const y = real_value(A[0, 2]);
   Real const z = -real_value(A[0, 1]);
-  AccumReal const max_component = std::max(
-      {adl_abs(static_cast<AccumReal>(x)), adl_abs(static_cast<AccumReal>(y)), adl_abs(static_cast<AccumReal>(z))});
-  if (max_component == AccumReal{})
+  Real const max_component = std::max({adl_abs(x), adl_abs(y), adl_abs(z)});
+  if (max_component == Real{})
   {
     result = make_identity<Scalar>(3);
     return true;
@@ -434,19 +426,19 @@ bool try_real_skew_symmetric_3x3_matrix_exponential(DenseMatrix<Scalar> const& A
     throw std::overflow_error("matrix_exponential requires finite matrix entries");
   }
 
-  AccumReal const x_scaled = static_cast<AccumReal>(x) / max_component;
-  AccumReal const y_scaled = static_cast<AccumReal>(y) / max_component;
-  AccumReal const z_scaled = static_cast<AccumReal>(z) / max_component;
-  AccumReal const norm_scaled = adl_sqrt(x_scaled * x_scaled + y_scaled * y_scaled + z_scaled * z_scaled);
-  AccumReal const theta = max_component * norm_scaled;
+  Real const x_scaled = x / max_component;
+  Real const y_scaled = y / max_component;
+  Real const z_scaled = z / max_component;
+  Real const norm_scaled = adl_sqrt(x_scaled * x_scaled + y_scaled * y_scaled + z_scaled * z_scaled);
+  Real const theta = max_component * norm_scaled;
   if (!adl_isfinite(theta))
   {
     return false;
   }
 
-  Real const ux = static_cast<Real>(x_scaled / norm_scaled);
-  Real const uy = static_cast<Real>(y_scaled / norm_scaled);
-  Real const uz = static_cast<Real>(z_scaled / norm_scaled);
+  Real const ux = x_scaled / norm_scaled;
+  Real const uy = y_scaled / norm_scaled;
+  Real const uz = z_scaled / norm_scaled;
   DenseMatrix<Scalar> K(3, 3);
   K[0, 1] = Scalar(-uz);
   K[0, 2] = Scalar(uy);
@@ -455,10 +447,10 @@ bool try_real_skew_symmetric_3x3_matrix_exponential(DenseMatrix<Scalar> const& A
   K[2, 0] = Scalar(-uy);
   K[2, 1] = Scalar(ux);
 
-  AccumReal const half_theta = theta / AccumReal{2};
-  AccumReal const sin_half_theta = adl_sin(half_theta);
-  Real const sine = static_cast<Real>(adl_sin(theta));
-  Real const one_minus_cosine = static_cast<Real>(AccumReal{2} * sin_half_theta * sin_half_theta);
+  Real const half_theta = theta / Real{2};
+  Real const sin_half_theta = adl_sin(half_theta);
+  Real const sine = adl_sin(theta);
+  Real const one_minus_cosine = Real{2} * sin_half_theta * sin_half_theta;
   DenseMatrix<Scalar> const K2 = multiply(K, K);
   result = add(add(make_identity<Scalar>(3), scale(K, sine)), scale(K2, one_minus_cosine));
   return true;
@@ -481,34 +473,33 @@ template <uni20::RealOrComplex Scalar> DenseMatrix<Scalar> matrix_exponential_sc
   std::size_t const n = A.rows();
   detail::validate_finite_entries(A);
 
-  uni20::accumulation_real_t<Scalar> const normA = matrix_one_norm(A);
-  if (normA == uni20::accumulation_real_t<Scalar>{})
-  {
-    return make_identity<Scalar>(n);
-  }
   DenseMatrix<Scalar> skew_symmetric_3x3_result;
   if (detail::try_real_skew_symmetric_3x3_matrix_exponential(A, skew_symmetric_3x3_result))
   {
     return skew_symmetric_3x3_result;
   }
-  if (!adl_isfinite(normA))
+
+  Real const normA = matrix_one_norm(A);
+  if (normA == Real{})
   {
-    throw std::overflow_error("matrix_exponential requires a finite matrix norm");
+    return make_identity<Scalar>(n);
   }
 
-  if (normA <= detail::kThetaBounds[0])
+  // An unrepresentable column sum is acceptable: logarithmic prescaling below
+  // depends on finite entries rather than on the one-norm fitting in Real.
+  if (normA <= static_cast<Real>(detail::kThetaBounds[0]))
   {
     return detail::pade3(A);
   }
-  if (normA <= detail::kThetaBounds[1])
+  if (normA <= static_cast<Real>(detail::kThetaBounds[1]))
   {
     return detail::pade5(A);
   }
-  if (normA <= detail::kThetaBounds[2])
+  if (normA <= static_cast<Real>(detail::kThetaBounds[2]))
   {
     return detail::pade7(A);
   }
-  if (normA <= detail::kThetaBounds[3])
+  if (normA <= static_cast<Real>(detail::kThetaBounds[3]))
   {
     return detail::pade9(A);
   }

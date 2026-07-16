@@ -74,7 +74,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, CopiesScalesAndAddsVectors)
   expect_vector_floating_eq(y, x);
 }
 
-TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesVectorProductsAndNorms)
+TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesVectorProducts)
 {
   using Scalar = TypeParam;
 
@@ -83,7 +83,6 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesVectorProductsAndNorms)
 
   expect_floating_eq(uni20::krylov::dotu(const_span(x), const_span(y)), Scalar{32});
   expect_floating_eq(uni20::krylov::dotc(const_span(x), const_span(y)), Scalar{32});
-  EXPECT_NEAR(static_cast<double>(uni20::krylov::nrm2(const_span(x))), std::sqrt(14.0), tolerance<Scalar>());
 }
 
 TEST(KrylovDenseLinalg, ComputesComplexConjugatedDotProduct)

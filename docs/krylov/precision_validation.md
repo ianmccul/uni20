@@ -172,7 +172,9 @@ for that provider/helper inventory.
 | --- | --- | --- | --- |
 | Scalar aliases, numeric limits, scalar concepts, and scalar I/O | yes | yes | `MplapackBinary128Test.Uni20NumericLimitsSeesBackendScalar`, `Uni20ScalarConceptsSeeBackendScalar`, `Uni20ScalarIo*` |
 | MPBLAS wrapper surface | yes | yes | `MplapackBinary128Test.LinksMpblasTransitively`, `Uni20BlasWrappersPreserveBinary128OnlyIncrements` |
-| Dense one-norm and linear solve through CPU helpers | yes | n/a | `MplapackBinary128CpuOpsTest.MatrixOneNormPreservesBinary128Accumulation`, `SolveAcceptsPivotsBelowDoubleMinimum` |
+| Dense one-norm and linear solve through CPU helpers | yes | n/a | `MplapackBinary128CpuOpsTest.MatrixOneNormPreservesBinary128Precision`, `SolveAcceptsPivotsBelowDoubleMinimum` |
+| Tensor reductions through the CPU reference backend | yes | no | `MplapackBinary128CpuOpsTest.TensorReductionsPreserveBinary128Values` |
+| Dense matrix exponential prescaling | yes | no | `MplapackBinary128CpuOpsTest.MatrixExponentialPrescalesWithinBinary128` |
 | Broad dense projected real helper inventory | not active | n/a | Quarantined source inventory; no maintained binary128 target. |
 | Dense projected complex eigensystem and Schur helper inventory | n/a | not active | Quarantined source inventory; no maintained binary128 target. |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | `MplapackBinary128KrylovSolversTest.TridiagonalProjectionResolvesGapBelowDoublePrecision` |

@@ -10,6 +10,7 @@
 #include <uni20/core/math.hpp>
 #include <uni20/core/scalar_concepts.hpp>
 #include <uni20/core/scalar_traits.hpp>
+#include <uni20/linalg/backends/cpu/detail/compensated_sum.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -197,9 +198,9 @@ template <class LhsSpan, class RhsSpan> consteval bool inner_product_inputs_are_
   }
   else
   {
-    using accumulation_type = uni20::accumulation_scalar_t<scalar_type>;
-    return requires(accumulation_type accumulation, scalar_type lhs, scalar_type rhs) {
-      accumulation += static_cast<accumulation_type>(uni20::conj(lhs)) * static_cast<accumulation_type>(rhs);
+    return requires(scalar_type lhs, scalar_type rhs) {
+      uni20::conj(lhs) * rhs;
+      backends::cpu::detail::CompensatedSum<scalar_type>{}.add(uni20::conj(lhs) * rhs);
     };
   }
 }
@@ -209,15 +210,15 @@ void reference_inner_product(Output& output, LhsSpan& lhs, RhsSpan& rhs)
 {
   using lhs_type = std::remove_cvref_t<LhsSpan>;
   using scalar_type = typename lhs_type::value_type;
-  using accumulation_type = uni20::accumulation_scalar_t<scalar_type>;
+  using state_type = backends::cpu::detail::CompensatedSum<scalar_type>;
 
-  auto initialize = [] { return accumulation_type{}; };
-  auto accumulate = [](accumulation_type& state, auto&& lhs_element, auto&& rhs_element) {
+  auto initialize = [] { return state_type{}; };
+  auto accumulate = [](state_type& state, auto&& lhs_element, auto&& rhs_element) {
     auto const lhs_value = static_cast<scalar_type>(lhs_element);
     auto const rhs_value = static_cast<scalar_type>(rhs_element);
-    state += static_cast<accumulation_type>(uni20::conj(lhs_value)) * static_cast<accumulation_type>(rhs_value);
+    state.add(uni20::conj(lhs_value) * rhs_value);
   };
-  auto finalize = [](accumulation_type const& state) { return static_cast<scalar_type>(state); };
+  auto finalize = [](state_type const& state) { return state.value(); };
   reference_reduce_axes(output, all_reduction_axes<lhs_type::rank()>(), initialize, accumulate, finalize, lhs, rhs);
 }
 
@@ -258,11 +259,8 @@ template <class InputSpan> consteval bool norm_input_is_supported()
   }
   else
   {
-    using accumulation_type = uni20::accumulation_real_t<scalar_type>;
-    return requires(accumulation_type value) {
-      value = static_cast<accumulation_type>(std::declval<uni20::make_real_t<scalar_type>>());
-      value += value * value;
-    };
+    using real_type = uni20::make_real_t<scalar_type>;
+    return requires(real_type value) { value += value * value; };
   }
 }
 
@@ -277,27 +275,26 @@ template <class Output, class InputSpan> void reference_norm(Output& output, Inp
   using input_type = std::remove_cvref_t<InputSpan>;
   using scalar_type = typename input_type::value_type;
   using result_type = uni20::make_real_t<scalar_type>;
-  using accumulation_type = uni20::accumulation_real_t<scalar_type>;
-  using state_type = ScaledSumOfSquaresState<accumulation_type>;
+  using state_type = ScaledSumOfSquaresState<result_type>;
 
   auto initialize = [] { return state_type{}; };
   auto accumulate = [](state_type& state, auto&& element) {
     auto const value = static_cast<scalar_type>(element);
     if constexpr (uni20::Complex<scalar_type>)
     {
-      update_scaled_sum_of_squares(static_cast<accumulation_type>(value.real()), state.scale, state.sum_of_squares);
-      update_scaled_sum_of_squares(static_cast<accumulation_type>(value.imag()), state.scale, state.sum_of_squares);
+      update_scaled_sum_of_squares(value.real(), state.scale, state.sum_of_squares);
+      update_scaled_sum_of_squares(value.imag(), state.scale, state.sum_of_squares);
     }
     else
     {
-      update_scaled_sum_of_squares(static_cast<accumulation_type>(value), state.scale, state.sum_of_squares);
+      update_scaled_sum_of_squares(value, state.scale, state.sum_of_squares);
     }
   };
   auto finalize = [](state_type const& state) {
-    if (!(state.sum_of_squares == state.sum_of_squares)) return static_cast<result_type>(state.sum_of_squares);
-    if (state.scale == accumulation_type{}) return result_type{};
+    if (!(state.sum_of_squares == state.sum_of_squares)) return state.sum_of_squares;
+    if (state.scale == result_type{}) return result_type{};
     using std::sqrt;
-    return static_cast<result_type>(state.scale * sqrt(state.sum_of_squares));
+    return state.scale * sqrt(state.sum_of_squares);
   };
   reference_reduce_axes(output, all_reduction_axes<input_type::rank()>(), initialize, accumulate, finalize, input);
 }
@@ -312,11 +309,7 @@ template <class InputSpan> consteval bool sum_input_is_supported()
   }
   else
   {
-    using accumulation_type = uni20::accumulation_scalar_t<scalar_type>;
-    return requires(accumulation_type accumulation, scalar_type value) {
-      accumulation += static_cast<accumulation_type>(value);
-      static_cast<scalar_type>(accumulation);
-    };
+    return requires(scalar_type value) { backends::cpu::detail::CompensatedSum<scalar_type>{}.add(value); };
   }
 }
 
@@ -324,13 +317,11 @@ template <class Output, std::size_t InputRank, std::size_t ReducedRank, class In
 void reference_sum(Output& output, sum_reduction_op<InputRank, ReducedRank> const& operation, InputSpan& input)
 {
   using scalar_type = typename std::remove_cvref_t<InputSpan>::value_type;
-  using accumulation_type = uni20::accumulation_scalar_t<scalar_type>;
+  using state_type = backends::cpu::detail::CompensatedSum<scalar_type>;
 
-  auto initialize = [] { return accumulation_type{}; };
-  auto accumulate = [](accumulation_type& state, auto&& element) {
-    state += static_cast<accumulation_type>(static_cast<scalar_type>(element));
-  };
-  auto finalize = [](accumulation_type const& state) { return static_cast<scalar_type>(state); };
+  auto initialize = [] { return state_type{}; };
+  auto accumulate = [](state_type& state, auto&& element) { state.add(static_cast<scalar_type>(element)); };
+  auto finalize = [](state_type const& state) { return state.value(); };
   reference_reduce_axes(output, operation.axes, initialize, accumulate, finalize, input);
 }
 

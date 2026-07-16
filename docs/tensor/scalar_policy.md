@@ -79,8 +79,6 @@ Scalar-generic code should prefer the scalar traits in `uni20/core`:
 | `uni20::LapackComplexReal<T>` | real precision whose `uni20::complex<T>` has dense complex LAPACK coverage |
 | `uni20::make_real_t<T>` | underlying real scalar |
 | `uni20::make_complex_t<T>` | complexified scalar/container type |
-| `uni20::accumulation_real_t<T>` | widened real accumulator associated with a real or complex scalar |
-| `uni20::accumulation_scalar_t<T>` | widened accumulator preserving a real or complex scalar field |
 | `uni20::scalar_t<T>` | scalar extracted from a container-like type |
 | `uni20::numeric_limits<T>` | project-level numeric limits customization point |
 | `uni20::isfinite(x)` | project-level finite-value predicate for integer, real, and complex scalars |
@@ -97,12 +95,19 @@ must itself be the scalar value.
 matters for extension scalar types: a type can be a valid Uni20 real scalar
 without having BLAS or LAPACK coverage in the current build.
 
-Reference reductions use `accumulation_scalar_t<T>` for sums and inner products
-and `accumulation_real_t<T>` for scaled sum-of-squares norms. The widened
-accumulator improves ordinary float and double reductions without changing the
-public result element type. Extension precisions remain in their own field
-unless they specialize the accumulation traits. Integer sums are not accepted
-until Uni20 defines their overflow and promotion contract.
+Reference sums and inner products use compensated accumulation in the input
+scalar field. Norms use scaled sum-of-squares arithmetic in the associated real
+field. Algorithms must choose their numerical accumulation method explicitly;
+Uni20 does not define a universal "next wider" scalar because no such type
+exists for the widest configured precision, and silent promotion would make
+result and performance behavior depend on the input dtype. Integer sums are not
+accepted until Uni20 defines their overflow contract.
+
+The CPU dense matrix exponential likewise performs norm estimation and
+scaling-exponent arithmetic in the matrix scalar's real field. Its overflow
+protection comes from logarithmic entry bounds and prescaling before high-order
+matrix powers, so binary128 support does not depend on a nonexistent wider
+floating-point type.
 
 For matrix-free algorithms, avoid duplicating scalar type information in
 interfaces when it can be inferred from the vector operations. For example, the

@@ -54,14 +54,6 @@ TEST(MakeRealTest, ComplexType)
   static_assert(std::is_same_v<uni20::make_real_t<uni20::complex<double>>, double>);
 }
 
-TEST(AccumulationScalarTest, WidensRealAndComplexFields)
-{
-  static_assert(std::is_same_v<uni20::accumulation_scalar_t<float>, double>);
-  static_assert(std::is_same_v<uni20::accumulation_scalar_t<double>, long double>);
-  static_assert(std::is_same_v<uni20::accumulation_scalar_t<uni20::complex<float>>, uni20::complex<double>>);
-  static_assert(std::is_same_v<uni20::accumulation_scalar_t<uni20::complex<double>>, uni20::complex<long double>>);
-}
-
 // ----------------------------------------------------------------------------
 // make_complex Tests
 // ----------------------------------------------------------------------------

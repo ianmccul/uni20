@@ -158,42 +158,6 @@ struct make_real<T>
 /// \ingroup core_math
 template <typename T> using make_real_t = typename make_real<T>::type;
 
-/// \brief Metafunction selecting a wider real type for accumulation.
-/// \details Maps `float` to `double`, `double` to `long double`, and leaves
-///          wider/custom real types unchanged. Complex inputs use their underlying real type.
-/// \tparam T Real or complex scalar type to promote for accumulation.
-/// \ingroup core_math
-template <typename T> struct accumulation_real
-{
-    using real_type = make_real_t<std::remove_cvref_t<T>>;
-    using type = std::conditional_t<std::same_as<real_type, float>, double,
-                                    std::conditional_t<std::same_as<real_type, double>, long double, real_type>>;
-};
-
-/// \brief Alias for the wider real accumulation type associated with `T`.
-/// \tparam T Real or complex scalar type to promote for accumulation.
-/// \ingroup core_math
-template <typename T> using accumulation_real_t = typename accumulation_real<T>::type;
-
-/// \brief Metafunction selecting a wider scalar type for accumulation.
-/// \details Real inputs use `accumulation_real_t<T>`. Complex inputs preserve
-///          their complex field while widening the underlying real type.
-/// \tparam T Real or complex scalar type to promote for accumulation.
-/// \ingroup core_math
-template <typename T>
-  requires is_real_or_complex_v<T>
-struct accumulation_scalar
-{
-    using input_type = std::remove_cvref_t<T>;
-    using real_type = accumulation_real_t<input_type>;
-    using type = std::conditional_t<is_complex_v<input_type>, uni20::complex<real_type>, real_type>;
-};
-
-/// \brief Alias for the wider accumulation scalar associated with `T`.
-/// \tparam T Real or complex scalar type to promote for accumulation.
-/// \ingroup core_math
-template <typename T> using accumulation_scalar_t = typename accumulation_scalar<T>::type;
-
 /// \brief Metafunction to convert a type to its complexified analog.
 /// \details For real scalar types (e.g., `float`, `double`), returns `uni20::complex<T>`.
 ///          For types that already have a complex scalar (including containers), returns `T` unchanged.

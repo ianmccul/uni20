@@ -144,7 +144,7 @@ provider/helper support; algorithm-level binary128 coverage remains in
 | Dense vector and matrix primitives | yes | yes | Scalar-generic Krylov host-side helpers. |
 | MPBLAS wrapper surface | yes | yes | Current wrapper surface covers projected `gemm`, `gemv`, rank-update, symmetric-rank, and Hermitian-rank operations used by active paths. |
 | Checked LAPACK norms, core LU, and SVD wrappers | yes | yes | Provider wrappers cover `lange`, `lansy`/`lanhe`, `lantr`, `gesv`, `getrf`, `getrs`, `getri`, `gecon`, `gesvd`, `gesdd`, and `gesvdx`. |
-| Tensor/linalg CPU helper probes | yes | n/a | Current probes cover real one-norm accumulation and real dense solve. |
+| Tensor/linalg CPU helper probes | yes | n/a | Current probes cover real one-norm evaluation, dense solve, tensor reductions, and matrix-exponential prescaling in binary128. |
 | Broad dense projected real helper inventory | not active | n/a | Quarantined source inventory; excluded from maintained Krylov targets. |
 | Dense projected complex eigensystem and Schur helper inventory | n/a | not active | Quarantined source inventory; excluded from maintained Krylov targets. |
 | Symmetric tridiagonal projected eigensystem | yes | n/a | Uses MPLAPACK `Rsterf`/`Rsteqr`; this is the projected problem behind real and complex Hermitian Lanczos. |

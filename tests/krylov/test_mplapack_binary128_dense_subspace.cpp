@@ -3028,10 +3028,6 @@ TEST(MplapackBinary128DenseSubspaceTest, LocalDenseOpsPreserveBinary128OnlyIncre
   Binary128 const dot_result = uni20::krylov::dot(const_span(cancellation_x), const_span(cancellation_y));
   EXPECT_TRUE(abs_error(dot_result, delta) <= tolerance());
 
-  std::vector<Binary128> norm_vector{one_plus_delta};
-  Binary128 const norm_result = uni20::krylov::nrm2(const_span(norm_vector));
-  EXPECT_TRUE(abs_error(norm_result, one_plus_delta) <= tolerance());
-
   std::vector<Binary128> axpy_source{delta};
   std::vector<Binary128> axpy_destination{Binary128{1}};
   uni20::krylov::axpy(mutable_span(axpy_destination), Binary128{1}, const_span(axpy_source));

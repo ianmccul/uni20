@@ -108,7 +108,7 @@ void require_reduction_extents(Reference const& reference, Others const&... othe
 
 /// \brief Sum every element of an mdspan into a rank-zero output.
 /// \details The output preserves the input element type. The CPU reference
-///          backend uses the corresponding wider accumulation scalar.
+///          backend uses compensated accumulation in that scalar field.
 template <linalg::KernelBackendSelector BackendSelector, MutableRankedSpanLike<0> OutputSpan, SpanLike InputSpan>
   requires RealOrComplex<typename std::remove_cvref_t<InputSpan>::value_type> &&
            std::same_as<typename std::remove_cvref_t<OutputSpan>::value_type,

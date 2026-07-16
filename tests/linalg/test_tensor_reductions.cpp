@@ -87,6 +87,21 @@ TEST(TensorReductionTest, FullSumReturnsScalarTensorOrHostScalar)
   EXPECT_DOUBLE_EQ(host_result, expected);
 }
 
+TEST(TensorReductionTest, SumAndInnerProductRecoverCancellationWithoutPromotion)
+{
+  uni20::Tensor<double, 1> values(3);
+  uni20::Tensor<double, 1> ones(3);
+  values[0] = 1.0e16;
+  values[1] = 1.0;
+  values[2] = -1.0e16;
+  ones[0] = 1.0;
+  ones[1] = 1.0;
+  ones[2] = 1.0;
+
+  EXPECT_DOUBLE_EQ(uni20::sum_host(values), 1.0);
+  EXPECT_DOUBLE_EQ(uni20::inner_product_host(values, ones), 1.0);
+}
+
 TEST(TensorReductionTest, PartialSumRemovesAxesAndPreservesCanonicalLayout)
 {
   uni20::Tensor<double, 3> column_major(2, 3, 4);
