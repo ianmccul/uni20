@@ -1,10 +1,10 @@
-// tests/backend/test_blas_reference_gem.cpp
-
-#include <cmath>
-#include <complex>
-#include <gtest/gtest.h>
 #include <uni20/backend/blas/backend_blas.hpp>
+#include <uni20/common/gtest.hpp>
 #include <uni20/core/types.hpp>
+
+#include <gtest/gtest.h>
+
+#include <complex>
 #include <vector>
 
 using namespace uni20;
@@ -92,7 +92,7 @@ TEST(BLAS_Wrapper, GemmFloat32)
   gemm_ref('N', 'N', m, n, k, alpha, A.data(), m, B.data(), k, beta, Creference.data(), m);
 
   for (int i = 0; i < m * n; ++i)
-    EXPECT_FLOAT_EQ(C[i], Creference[i]);
+    EXPECT_FLOATING_EQ(C[i], Creference[i]);
 }
 
 TEST(BLAS_Wrapper, GemmFloat64)
@@ -112,7 +112,7 @@ TEST(BLAS_Wrapper, GemmFloat64)
   gemm_ref('N', 'T', m, n, k, alpha, A.data(), m, B.data(), n, beta, Creference.data(), m);
 
   for (int i = 0; i < m * n; ++i)
-    EXPECT_DOUBLE_EQ(C[i], Creference[i]);
+    EXPECT_FLOATING_EQ(C[i], Creference[i]);
 }
 
 TEST(BLAS_Wrapper, GemvFloat32)
@@ -132,7 +132,7 @@ TEST(BLAS_Wrapper, GemvFloat32)
   gemv_ref('N', m, n, alpha, A.data(), m, x.data(), 1, beta, yref.data(), 1);
 
   for (int i = 0; i < m; ++i)
-    EXPECT_FLOAT_EQ(y[i], yref[i]);
+    EXPECT_FLOATING_EQ(y[i], yref[i]);
 }
 
 TEST(BLAS_Wrapper, GemvFloat64)
@@ -151,7 +151,7 @@ TEST(BLAS_Wrapper, GemvFloat64)
   gemv_ref('T', m, n, alpha, A.data(), m, x.data(), 1, beta, yref.data(), 1);
 
   for (int i = 0; i < n; ++i) // y has length n
-    EXPECT_DOUBLE_EQ(y[i], yref[i]);
+    EXPECT_FLOATING_EQ(y[i], yref[i]);
 }
 
 //----------------------------------------------------------------------
@@ -174,10 +174,7 @@ TEST(BLAS_Wrapper, GemmComplex64)
   gemm_ref('N', 'N', m, n, k, alpha, A.data(), m, B.data(), k, beta, Cref.data(), m);
 
   for (int i = 0; i < m * n; ++i)
-  {
-    EXPECT_NEAR(real(C[i]), real(Cref[i]), 1e-6);
-    EXPECT_NEAR(imag(C[i]), imag(Cref[i]), 1e-6);
-  }
+    EXPECT_FLOATING_EQ(C[i], Cref[i]);
 }
 
 TEST(BLAS_Wrapper, GemvComplex128)
@@ -196,8 +193,5 @@ TEST(BLAS_Wrapper, GemvComplex128)
   gemv_ref('T', m, n, alpha, A.data(), m, x.data(), 1, beta, yref.data(), 1);
 
   for (int i = 0; i < m; ++i)
-  {
-    EXPECT_NEAR(real(y[i]), real(yref[i]), 1e-12);
-    EXPECT_NEAR(imag(y[i]), imag(yref[i]), 1e-12);
-  }
+    EXPECT_FLOATING_EQ(y[i], yref[i]);
 }

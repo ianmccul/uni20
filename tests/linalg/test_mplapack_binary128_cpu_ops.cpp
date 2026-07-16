@@ -1,4 +1,5 @@
 #include <mplapack_config.h>
+#include <uni20/common/gtest.hpp>
 #include <uni20/core/math.hpp>
 #include <uni20/linalg/backends/cpu/dense_matrix.hpp>
 #include <uni20/tensor/reductions.hpp>
@@ -83,7 +84,7 @@ TEST(MplapackBinary128CpuOpsTest, MatrixOneNormPreservesBinary128Accumulation)
 
   EXPECT_EQ(static_cast<double>(norm), 2.0);
   EXPECT_TRUE(norm > Binary128{2});
-  EXPECT_TRUE(abs_error(norm, Binary128{2} + delta) <= tolerance());
+  EXPECT_FLOATING_EQ(norm, Binary128{2} + delta);
 }
 
 TEST(MplapackBinary128CpuOpsTest, SolveAcceptsPivotsBelowDoubleMinimum)
@@ -105,8 +106,8 @@ TEST(MplapackBinary128CpuOpsTest, SolveAcceptsPivotsBelowDoubleMinimum)
 
   ASSERT_EQ(solution.rows(), 2);
   ASSERT_EQ(solution.cols(), 1);
-  EXPECT_TRUE(abs_error(solution[0, 0], Binary128{1}) <= tolerance());
-  EXPECT_TRUE(abs_error(solution[1, 0], Binary128{2}) <= tolerance());
+  EXPECT_FLOATING_EQ((solution[0, 0]), Binary128{1});
+  EXPECT_FLOATING_EQ((solution[1, 0]), Binary128{2});
 }
 
 TEST(MplapackBinary128CpuOpsTest, TensorReductionsPreserveBinary128Values)
@@ -128,9 +129,9 @@ TEST(MplapackBinary128CpuOpsTest, TensorReductionsPreserveBinary128Values)
   static_assert(std::same_as<decltype(inner), Binary128 const>);
   static_assert(std::same_as<decltype(norm), Binary128 const>);
   static_assert(std::same_as<decltype(sum), Binary128 const>);
-  EXPECT_TRUE(abs_error(inner, Binary128{2} + delta) <= tolerance());
+  EXPECT_FLOATING_EQ(inner, Binary128{2} + delta);
   EXPECT_TRUE(abs_error(norm * norm, (Binary128{1} + delta) * (Binary128{1} + delta) + Binary128{1}) <= tolerance());
-  EXPECT_TRUE(abs_error(sum, Binary128{2} + delta) <= tolerance());
+  EXPECT_FLOATING_EQ(sum, Binary128{2} + delta);
 }
 
 #endif

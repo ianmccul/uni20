@@ -2,6 +2,8 @@
 
 #include "krylov_test_types.hpp"
 
+#include <uni20/common/gtest.hpp>
+
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -30,26 +32,18 @@ template <typename Scalar> double tolerance()
   }
 }
 
-template <typename Scalar> void expect_near_value(Scalar const& actual, Scalar const& expected)
+template <typename Scalar> void expect_floating_eq(Scalar const& actual, Scalar const& expected)
 {
-  if constexpr (uni20::is_complex_v<Scalar>)
-  {
-    EXPECT_NEAR(static_cast<double>(actual.real()), static_cast<double>(expected.real()), tolerance<Scalar>());
-    EXPECT_NEAR(static_cast<double>(actual.imag()), static_cast<double>(expected.imag()), tolerance<Scalar>());
-  }
-  else
-  {
-    EXPECT_NEAR(static_cast<double>(actual), static_cast<double>(expected), tolerance<Scalar>());
-  }
+  EXPECT_FLOATING_EQ(actual, expected);
 }
 
 template <typename Scalar>
-void expect_vector_near_values(std::vector<Scalar> const& actual, std::vector<Scalar> const& expected)
+void expect_vector_floating_eq(std::vector<Scalar> const& actual, std::vector<Scalar> const& expected)
 {
   ASSERT_EQ(actual.size(), expected.size());
   for (std::size_t index = 0; index < expected.size(); ++index)
   {
-    expect_near_value(actual[index], expected[index]);
+    expect_floating_eq(actual[index], expected[index]);
   }
 }
 
@@ -71,13 +65,13 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, CopiesScalesAndAddsVectors)
   std::vector<Scalar> y(3);
 
   uni20::krylov::copy(span(y), const_span(x));
-  expect_vector_near_values(y, x);
+  expect_vector_floating_eq(y, x);
 
   uni20::krylov::scal(Scalar{2}, span(y));
-  expect_vector_near_values(y, std::vector<Scalar>{Scalar{2}, Scalar{4}, Scalar{6}});
+  expect_vector_floating_eq(y, std::vector<Scalar>{Scalar{2}, Scalar{4}, Scalar{6}});
 
   uni20::krylov::axpy(span(y), Scalar{-1}, const_span(x));
-  expect_vector_near_values(y, x);
+  expect_vector_floating_eq(y, x);
 }
 
 TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesVectorProductsAndNorms)
@@ -87,8 +81,8 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesVectorProductsAndNorms)
   std::vector<Scalar> x{Scalar{1}, Scalar{2}, Scalar{3}};
   std::vector<Scalar> y{Scalar{4}, Scalar{5}, Scalar{6}};
 
-  expect_near_value(uni20::krylov::dotu(const_span(x), const_span(y)), Scalar{32});
-  expect_near_value(uni20::krylov::dotc(const_span(x), const_span(y)), Scalar{32});
+  expect_floating_eq(uni20::krylov::dotu(const_span(x), const_span(y)), Scalar{32});
+  expect_floating_eq(uni20::krylov::dotc(const_span(x), const_span(y)), Scalar{32});
   EXPECT_NEAR(static_cast<double>(uni20::krylov::nrm2(const_span(x))), std::sqrt(14.0), tolerance<Scalar>());
 }
 
@@ -99,8 +93,8 @@ TEST(KrylovDenseLinalg, ComputesComplexConjugatedDotProduct)
   std::vector<Scalar> x{Scalar{1.0, 2.0}, Scalar{3.0, -1.0}};
   std::vector<Scalar> y{Scalar{2.0, -1.0}, Scalar{-4.0, 0.5}};
 
-  EXPECT_EQ(uni20::krylov::dotu(const_span(x), const_span(y)), (Scalar{-7.5, 8.5}));
-  EXPECT_EQ(uni20::krylov::dotc(const_span(x), const_span(y)), (Scalar{-12.5, -7.5}));
+  EXPECT_FLOATING_EQ(uni20::krylov::dotu(const_span(x), const_span(y)), (Scalar{-7.5, 8.5}));
+  EXPECT_FLOATING_EQ(uni20::krylov::dotc(const_span(x), const_span(y)), (Scalar{-12.5, -7.5}));
 }
 
 TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
@@ -114,7 +108,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
   {
     for (uni20::index_type row = 0; row < matrix.rows(); ++row)
     {
-      expect_near_value(matrix[row, col], row == col ? Scalar{1} : Scalar{-2});
+      expect_floating_eq(matrix[row, col], row == col ? Scalar{1} : Scalar{-2});
     }
   }
 
@@ -126,7 +120,7 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, SetsAndCopiesMatrixRegions)
     for (uni20::index_type row = 0; row < upper.rows(); ++row)
     {
       Scalar const expected = row <= col ? matrix[row, col] : Scalar{};
-      expect_near_value(upper[row, col], expected);
+      expect_floating_eq(upper[row, col], expected);
     }
   }
 }
@@ -143,19 +137,19 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, StoresRightMatrixRowMajorAndCopiesToColum
   right[1, 1] = Scalar{5};
   right[1, 2] = Scalar{6};
 
-  expect_vector_near_values(std::vector<Scalar>(right.storage().data(), right.storage().data() + right.size()),
+  expect_vector_floating_eq(std::vector<Scalar>(right.storage().data(), right.storage().data() + right.size()),
                             std::vector<Scalar>{Scalar{1}, Scalar{2}, Scalar{3}, Scalar{4}, Scalar{5}, Scalar{6}});
 
   auto span = uni20::krylov::right_mdspan(right);
-  expect_near_value((span[0, 2]), Scalar{3});
-  expect_near_value((span[1, 0]), Scalar{4});
+  expect_floating_eq((span[0, 2]), Scalar{3});
+  expect_floating_eq((span[1, 0]), Scalar{4});
 
   uni20::krylov::Matrix<Scalar> left = uni20::krylov::copy_right_to_left(right);
-  expect_vector_near_values(std::vector<Scalar>(left.storage().data(), left.storage().data() + left.size()),
+  expect_vector_floating_eq(std::vector<Scalar>(left.storage().data(), left.storage().data() + left.size()),
                             std::vector<Scalar>{Scalar{1}, Scalar{4}, Scalar{2}, Scalar{5}, Scalar{3}, Scalar{6}});
 
   uni20::krylov::RightMatrix<Scalar> round_trip = uni20::krylov::copy_left_to_right(left);
-  expect_vector_near_values(
+  expect_vector_floating_eq(
       std::vector<Scalar>(round_trip.storage().data(), round_trip.storage().data() + round_trip.size()),
       std::vector<Scalar>(right.storage().data(), right.storage().data() + right.size()));
 }
@@ -176,13 +170,13 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, ComputesMatrixVectorProducts)
   std::vector<Scalar> y{Scalar{10}, Scalar{20}};
 
   uni20::krylov::gemv(span(y), Scalar{1}, matrix, const_span(x), Scalar{0});
-  expect_vector_near_values(y, std::vector<Scalar>{Scalar{22}, Scalar{28}});
+  expect_vector_floating_eq(y, std::vector<Scalar>{Scalar{22}, Scalar{28}});
 
   std::vector<Scalar> xt{Scalar{1}, Scalar{-1}};
   std::vector<Scalar> yt{Scalar{10}, Scalar{20}, Scalar{30}};
   uni20::krylov::gemv(span(yt), Scalar{1}, matrix, const_span(xt), Scalar{0},
                       uni20::krylov::MatrixTranspose::Transpose);
-  expect_vector_near_values(yt, std::vector<Scalar>{Scalar{-1}, Scalar{-1}, Scalar{-1}});
+  expect_vector_floating_eq(yt, std::vector<Scalar>{Scalar{-1}, Scalar{-1}, Scalar{-1}});
 }
 
 TEST(KrylovDenseLinalg, ComputesComplexConjugateTransposeMatrixVectorProduct)
@@ -198,7 +192,7 @@ TEST(KrylovDenseLinalg, ComputesComplexConjugateTransposeMatrixVectorProduct)
   uni20::krylov::gemv(span(y), Scalar{1}, matrix, const_span(x), Scalar{0},
                       uni20::krylov::MatrixTranspose::ConjugateTranspose);
 
-  EXPECT_EQ(y[0], (Scalar{-1.0, 8.0}));
+  EXPECT_FLOATING_EQ(y[0], (Scalar{-1.0, 8.0}));
 }
 
 TYPED_TEST(KrylovDenseLinalgTypedTest, AppliesRankOneUpdates)
@@ -211,10 +205,10 @@ TYPED_TEST(KrylovDenseLinalgTypedTest, AppliesRankOneUpdates)
 
   uni20::krylov::geru(matrix, Scalar{2}, const_span(x), const_span(y));
 
-  expect_near_value(matrix[0, 0], Scalar{6});
-  expect_near_value(matrix[1, 0], Scalar{12});
-  expect_near_value(matrix[0, 1], Scalar{8});
-  expect_near_value(matrix[1, 1], Scalar{16});
+  expect_floating_eq(matrix[0, 0], Scalar{6});
+  expect_floating_eq(matrix[1, 0], Scalar{12});
+  expect_floating_eq(matrix[0, 1], Scalar{8});
+  expect_floating_eq(matrix[1, 1], Scalar{16});
 }
 
 TEST(KrylovDenseLinalg, AppliesComplexConjugatedRankOneUpdate)
@@ -227,8 +221,8 @@ TEST(KrylovDenseLinalg, AppliesComplexConjugatedRankOneUpdate)
 
   uni20::krylov::gerc(matrix, Scalar{1}, const_span(x), const_span(y));
 
-  EXPECT_EQ((matrix[0, 0]), (Scalar{1.0, 3.0}));
-  EXPECT_EQ((matrix[0, 1]), (Scalar{8.0, -1.0}));
+  EXPECT_FLOATING_EQ((matrix[0, 0]), (Scalar{1.0, 3.0}));
+  EXPECT_FLOATING_EQ((matrix[0, 1]), (Scalar{8.0, -1.0}));
 }
 
 TEST(KrylovDenseLinalg, RejectsMismatchedVectorSizes)

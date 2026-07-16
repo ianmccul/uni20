@@ -128,6 +128,36 @@ add_test_module(mdspan
 )
 ```
 
+## Numerical Comparisons
+
+Choose the comparison from the numerical contract being tested:
+
+| Intent | Preferred check |
+| --- | --- |
+| Exact integer, enum, shape, pointer, or state equality | `EXPECT_EQ` / `ASSERT_EQ` |
+| Direct floating or complex scalar result, where a small ULP difference is the expected rounding uncertainty | `EXPECT_FLOATING_EQ` / `ASSERT_FLOATING_EQ` from `<uni20/common/gtest.hpp>` |
+| Residual, reconstruction error, orthogonality defect, or cancellation result expected near zero | An explicit absolute or scale-aware error bound |
+| Iterative algorithm, eigensolver, matrix function, or transcendental result | A tolerance derived from precision, problem scale, and algorithmic error |
+
+`EXPECT_FLOATING_EQ` supports Uni20's ordinary and configured binary128 real
+types and the corresponding `uni20::complex<T>` types. Prefer it for
+scalar-generic or complex tests, and over separate real/imaginary `EXPECT_NEAR`
+checks or casting an extension scalar to `double`. GoogleTest's
+`EXPECT_FLOAT_EQ` and `EXPECT_DOUBLE_EQ` have similar ULP semantics for tests
+that are intentionally fixed to those built-in types.
+
+Do not use ULP distance mechanically:
+
+- Comparing a cancellation residual with exact zero can report a very large ULP
+  distance even when the residual is numerically excellent.
+- Reconstruction and orthogonality checks should measure a norm or component
+  error against a scale-aware tolerance.
+- Iterative and decomposition algorithms can accumulate more than a fixed
+  number of ULPs while still satisfying their mathematical accuracy contract.
+
+See [Trace Macros](../diagnostics/trace_macros.md#googletest-integration) for
+the assertion syntax and supported scalar types.
+
 ## Internals
 
 `cmake/Uni20TestHelpers.cmake` defines `add_test_module(...)`, creates per-module test executables, and accumulates sources/libs for the optional combined executable.
