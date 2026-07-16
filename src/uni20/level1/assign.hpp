@@ -1,9 +1,8 @@
 #pragma once
 
-#include <uni20/common/mdspan.hpp>
-#include <uni20/common/trace.hpp>
-#include <uni20/mdspan/concepts.hpp>
-#include <uni20/mdspan/iteration_plan.hpp>
+#include <uni20/level1/transform.hpp>
+
+#include <utility>
 
 /**
  * \defgroup level1_ops Level-1 tensor algorithms
@@ -23,16 +22,8 @@ template <MutableStridedMdspan MDSDst, StridedMdspan MDSSrc>
   requires requires(typename MDSDst::reference destination, typename MDSSrc::reference source) { destination = source; }
 void assign(MDSDst dst, MDSSrc const& src)
 {
-  static_assert(MDSDst::rank() == MDSSrc::rank(), "assign: rank mismatch");
-  PRECONDITION_EQUAL(src.extents(), dst.extents(), "assign: shape mismatch");
-
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{dst.mapping(), src.mapping()});
-
-  // No empty-plan short-circuit: an empty plan denotes a rank-0 scalar (assign
-  // the single element), which MultiUnrollHelper::run handles via its 0-dim
-  // terminal. A zero-size iteration is carried as a retained extent-0 dim.
-  detail::MultiUnrollHelper helper{[](auto&& dst_v, auto&& src_v) { return src_v; }, dst, src};
-  helper.run(plan, offsets);
+  transform(dst, src,
+            [](auto&& source) -> decltype(auto) { return std::forward<decltype(source)>(source); });
 }
 
 } // namespace uni20

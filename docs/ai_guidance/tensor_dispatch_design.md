@@ -153,9 +153,11 @@ concrete owning tensor.
 
 ## Backend dispatch
 
-### OPERATION-TAG MODEL
+### OPERATION-VALUE MODEL
 
-- Backend dispatch is an ordered backend-list walk for an operation tag.
+- Backend dispatch is an ordered backend-list walk for an operation value.
+  Most operations are empty tags, but values may carry immutable options or
+  callable state.
 - The concrete linalg GEMM mdspan slice uses generic dispatch with explicit selectors:
   `try_kernel(BlasBackend, gemm_op, ...)` delegates to
   `uni20::linalg::blas::try_gemm(...)`, then falls through to the
@@ -169,6 +171,10 @@ concrete owning tensor.
   operation used by `copy` and `make_tensor`; future rank-two BLAS copy
   extensions can accept the same operation by lowering layout and conjugating
   accessor metadata.
+- `transform_op<F>` and `transform_inplace_op<F>` carry a const-invoked
+  callable. Inputs are passed to the callable as element values, and update
+  operations receive the old output value first. Named callable types may have
+  optimized backend overloads; arbitrary callables use the reference backend.
 - The static capability CPO is
   `consteval auto kernel_accepts_types(backend const&, op const&, args&...)`.
   It checks type-level facts only and returns `kernel_types_no`,

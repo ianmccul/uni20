@@ -125,6 +125,8 @@ Critical write rule:
 - value-proxy `get()`, `operator->`, or conversion to `T&` throws `buffer_write_uninitialized` before initialization
 - alias-proxy `get()` and `operator->` expose only the const descriptor
 - use one writer, without a separate reader, to inspect and mutate an existing value
+- reject any distinct input whose queue is the output queue; an update output
+  is one read/write operand, not an aliased input plus output
 
 Explicit alternatives:
 

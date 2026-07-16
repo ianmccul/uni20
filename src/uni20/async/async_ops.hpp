@@ -8,13 +8,32 @@
 #include "async_task.hpp"
 #include "awaiters.hpp"
 #include "debug_scheduler.hpp"
+#include <uni20/common/trace.hpp>
 #include <concepts>
 #include <functional>
+#include <memory>
 #include <type_traits>
 #include <utility>
 
 namespace uni20::async
 {
+namespace detail
+{
+
+template <class Output, class Input>
+void validate_distinct_async_operand_queues(Output const& output, Input const& input)
+{
+  if constexpr (requires {
+                  output.queue();
+                  input.queue();
+                })
+  {
+    ERROR_IF(std::addressof(output.queue()) == std::addressof(input.queue()),
+             "async output must not share an epoch queue with an input");
+  }
+}
+
+} // namespace detail
 
 /// \defgroup async_api Asynchronous Expression System
 /// @{
@@ -175,6 +194,9 @@ template <typename A, typename B, async_writer Writer, typename Op>
   requires async_binary_applicable<A, B, Op>
 void async_binary_op(Writer& out, A&& a, B&& b, Op op)
 {
+  detail::validate_distinct_async_operand_queues(out, a);
+  detail::validate_distinct_async_operand_queues(out, b);
+
   auto a_buf = read(std::forward<A>(a));
   auto b_buf = read(std::forward<B>(b));
   auto out_buf = out.write();
@@ -189,12 +211,10 @@ void async_binary_op(Writer& out, A&& a, B&& b, Op op)
   }(std::move(a_buf), std::move(b_buf), std::move(out_buf), std::move(op)));
 }
 
-/// \brief Launch a coroutine applying an operation op(lhs, rhs) on an Async<T>,
-///        where lhs is read, transformed, and written back.
-///
-/// Schedules a coroutine that reads lhs and rhs, computes the updated lhs value in a local object,
-/// then writes that object into lhs storage. Readers are released before awaiting the writer to
-/// avoid read/write self-deadlocks on the same queue.
+/// \brief Launch a coroutine applying an in-place operation `op(lhs, rhs)`.
+/// \details The left operand contributes one exclusive `WriteBuffer`, which
+///          supplies access to its existing value. The right operand is a
+///          distinct reader or immediate value.
 ///
 /// \tparam U Right-hand operand type (scalar or Async<U>)
 /// \tparam T Value type of the Async<T> being modified
@@ -204,21 +224,20 @@ void async_binary_op(Writer& out, A&& a, B&& b, Op op)
 /// \param op  In-place operation to apply (e.g., a lambda using operator+=)
 template <typename T, typename U, typename Op> void async_compound_op(Async<T>& lhs, U&& rhs, Op op)
 {
+  detail::validate_distinct_async_operand_queues(lhs, rhs);
+
   auto rhs_buf = read(std::forward<U>(rhs));
-  auto lhs_in = lhs.read();
   auto lhs_out = lhs.write();
 
-  schedule([](auto lhs_in_, auto rhs_, WriteBuffer<T> out_, Op op_) static -> AsyncTask {
-    auto tmp = co_await all(lhs_in_, rhs_);
-    auto& lhs_val = std::get<0>(tmp);
-    auto& rhs_val = std::get<1>(tmp);
-    T out_val(lhs_val);
-    op_(out_val, rhs_val);
-    lhs_in_.release();
-    rhs_.release();
-    co_await out_ = std::move(out_val);
+  schedule([](WriteBuffer<T> out_, auto rhs_, Op op_) static -> AsyncTask {
+    auto output_storage = out_.storage();
+    auto awaited = co_await all(output_storage, rhs_);
+    auto& storage = std::get<0>(awaited);
+    auto& rhs_value = std::get<1>(awaited);
+    if (!storage.constructed()) throw buffer_write_uninitialized{};
+    op_(*storage, rhs_value);
     co_return;
-  }(std::move(lhs_in), std::move(rhs_buf), std::move(lhs_out), std::move(op)));
+  }(std::move(lhs_out), std::move(rhs_buf), std::move(op)));
 }
 
 // This version is correct, but does not use all() awaiter

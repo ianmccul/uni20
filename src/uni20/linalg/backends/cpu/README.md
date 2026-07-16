@@ -8,6 +8,8 @@ vendor accelerator backend.
 - `copy.hpp`: reference accessor-respecting element-copy kernel.
 - `conjugate_inplace.hpp`: reference accessor-respecting in-place conjugation
   kernel.
+- `transform.hpp`: generic accessor-respecting elementwise overwrite and update
+  kernels.
 - `gemm.hpp`: reference accessor-respecting GEMM kernel.
 - `gemv.hpp`: reference accessor-respecting GEMV kernel.
 - `matrix_set.hpp`: accessor-respecting structured matrix initialization.
@@ -19,6 +21,9 @@ vendor accelerator backend.
 
 - This is the home for CPU-specific dense algorithms that are above raw kernels
   but below public tensor workflows.
+- Reference elementwise kernels prioritize direct, deterministic semantics.
+  Layout-specific tiling, vectorization, and HPTT-like traversal belong in
+  separate optimized backends that may decline unsupported instances.
 - Keep matrix-free algorithms in the [Krylov source layer](../../../krylov/);
   only small dense projected problems or direct dense linalg belong here.
 

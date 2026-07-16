@@ -15,6 +15,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdlib>
+#include <functional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -126,29 +127,36 @@ template <typename Mapping> auto make_iteration_plan_with_offset(Mapping const& 
 }
 
 /// \brief Build a merged iteration plan for multiple tensors sharing the same extents.
-/// \tparam Mapping Layout mapping type modelling the mdspan mapping interface.
-/// \tparam N       Number of tensors participating in the iteration.
-/// \param mappings Array of mappings, one per tensor.
+/// \details The first mapping determines iteration order and negative-stride
+///          normalization. Remaining mappings may have different layout and
+///          extents types, but must have the same rank and runtime extents.
+/// \tparam Mappings Layout mapping types modelling the mdspan mapping interface.
+/// \param mappings Tuple of mappings, with the writable output mapping first.
 /// \return Pair of the merged plan and the per-tensor offset corrections.
 /// \ingroup internal
-template <typename Mapping, std::size_t N>
-auto make_multi_iteration_plan_with_offset(std::array<Mapping, N> const& mappings)
+template <typename... Mappings>
+auto make_multi_iteration_plan_with_offset(std::tuple<Mappings...> const& mappings)
 {
-  using size_type = typename Mapping::size_type;
-  using index_type = typename Mapping::index_type;
-  static constexpr size_type Rank = Mapping::extents_type::rank();
+  static_assert(sizeof...(Mappings) >= 1, "At least one mapping is required");
 
-  static_assert(N >= 1, "At least one mapping is required");
+  using first_mapping = std::tuple_element_t<0, std::tuple<Mappings...>>;
+  using size_type = typename first_mapping::size_type;
+  using index_type = std::ptrdiff_t;
+  static constexpr std::size_t N = sizeof...(Mappings);
+  static constexpr size_type Rank = first_mapping::extents_type::rank();
 
-  auto const& base_extents = mappings[0].extents();
+  static_assert(((Mappings::extents_type::rank() == Rank) && ...),
+                "All iteration-plan mappings must have the same rank");
 
-  for (std::size_t k = 1; k < N; ++k)
-  {
-    for (size_type i = 0; i < Rank; ++i)
-    {
-      assert(mappings[k].extents().extent(i) == base_extents.extent(i));
-    }
-  }
+  auto const& base_mapping = std::get<0>(mappings);
+  auto const& base_extents = base_mapping.extents();
+
+  auto check_extents = [&](auto const& mapping) {
+    for (size_type axis = 0; axis < Rank; ++axis)
+      PRECONDITION_EQUAL(mapping.extents().extent(axis), base_extents.extent(axis),
+                         "elementwise iteration requires equal extents");
+  };
+  std::apply([&](auto const&... mapping) { (check_extents(mapping), ...); }, mappings);
 
   static_vector<extent_strides<N>, Rank> raw_plan;
   std::array<index_type, N> offsets{};
@@ -173,11 +181,11 @@ auto make_multi_iteration_plan_with_offset(std::array<Mapping, N> const& mapping
     // them; they coalesce with anything by vanishing.
     if (extent == 1) continue;
 
-    std::array<index_type, N> strides{};
-    for (std::size_t k = 0; k < N; ++k)
-    {
-      strides[k] = mappings[k].stride(i);
-    }
+    auto strides = std::apply(
+        [i](auto const&... mapping) {
+          return std::array<index_type, N>{static_cast<index_type>(mapping.stride(i))...};
+        },
+        mappings);
 
     if (strides[0] < 0)
     {
@@ -309,33 +317,34 @@ template <typename DataHandle, typename Accessor, typename Op> struct UnrollHelp
     }
 };
 
-/// \brief Helper to unroll nested loops for multiple tensors of identical extent.
-/// \tparam Op        Callable taking N element values and returning the result.
-/// \tparam Spans...  StridedMdspan types that share identical extents and rank.
+/// \brief Helper to unroll a strided elementwise transform over identical extents.
+/// \tparam ReadsOutput Whether the callable receives the old output value first.
+/// \tparam Op          Callable taking the selected element values.
+/// \tparam Output      Writable destination span.
+/// \tparam Inputs      Additional readable input spans.
 /// \ingroup internal
-template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
+template <bool ReadsOutput, typename Op, MutableStridedMdspan Output, StridedMdspan... Inputs>
+struct TransformUnrollHelper
 {
-    std::tuple<typename Spans::data_handle_type...> dh_;
-    std::tuple<typename Spans::accessor_type...> accs_;
+    std::tuple<typename Output::data_handle_type, typename Inputs::data_handle_type...> dh_;
+    std::tuple<typename Output::accessor_type, typename Inputs::accessor_type...> accs_;
 
     using op_type = std::decay_t<Op>;
     op_type op_;
 
-    static constexpr std::size_t num_spans = sizeof...(Spans);
+    static constexpr std::size_t num_inputs = sizeof...(Inputs);
+    static constexpr std::size_t num_spans = 1 + num_inputs;
     using index_type = std::ptrdiff_t;
 
     using offset_type = std::array<index_type, num_spans>;
 
-    template <typename Span>
-    using raw_arg_t = decltype(std::declval<typename Span::accessor_type>().access(
-        std::declval<typename Span::data_handle_type>(), index_type()));
-
     template <typename FwdOp>
-    MultiUnrollHelper(FwdOp&& op, Spans const&... spans)
-        : dh_{spans.data_handle()...}, accs_{spans.accessor()...}, op_(std::forward<FwdOp>(op))
+    TransformUnrollHelper(FwdOp&& op, Output const& output, Inputs const&... inputs)
+        : dh_{output.data_handle(), inputs.data_handle()...}, accs_{output.accessor(), inputs.accessor()...},
+          op_(std::forward<FwdOp>(op))
     {}
 
-    template <typename Plan> void run(Plan const& plan, offset_type offsets) noexcept
+    template <typename Plan> void run(Plan const& plan, offset_type offsets)
     {
       std::size_t depth = plan.size(); // number of dims; 0 => rank-0 scalar
       switch (depth)
@@ -361,7 +370,7 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
   private:
     static constexpr std::size_t MaxUnrollDepth = 3;
 
-    void run_dynamic(offset_type offsets, const extent_strides<num_spans>* plan, std::size_t depth) noexcept
+    void run_dynamic(offset_type offsets, const extent_strides<num_spans>* plan, std::size_t depth)
     {
       index_type const N = plan->extent;
       for (index_type i = 0; i < N; ++i)
@@ -388,25 +397,37 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
     // 0 dims => rank-0 scalar: apply the op once at the given offsets. No loop,
     // and plan is not dereferenced (reached for an empty plan / rank-0 mapping).
     void run_unrolled(offset_type offsets, const extent_strides<num_spans>*,
-                      std::integral_constant<std::size_t, 0>) noexcept
+                      std::integral_constant<std::size_t, 0>)
     {
       [&]<std::size_t... I>(std::index_sequence<I...>) {
-        std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]) =
-            op_(std::get<I>(accs_).access(std::get<I>(dh_), offsets[I])...);
-      }(std::make_index_sequence<num_spans>{});
+        auto&& output = std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]);
+        if constexpr (ReadsOutput)
+          output =
+              std::invoke(op_, output,
+                          std::get<I + 1>(accs_).access(std::get<I + 1>(dh_), offsets[I + 1])...);
+        else
+          output =
+              std::invoke(op_, std::get<I + 1>(accs_).access(std::get<I + 1>(dh_), offsets[I + 1])...);
+      }(std::make_index_sequence<num_inputs>{});
     }
 
     // 1 dim => innermost loop.
     void run_unrolled(offset_type offsets, const extent_strides<num_spans>* plan,
-                      std::integral_constant<std::size_t, 1>) noexcept
+                      std::integral_constant<std::size_t, 1>)
     {
       index_type const N = plan->extent;
       for (index_type i = 0; i < N; ++i)
       {
         [&]<std::size_t... I>(std::index_sequence<I...>) {
-          std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]) =
-              op_(std::get<I>(accs_).access(std::get<I>(dh_), offsets[I])...);
-        }(std::make_index_sequence<num_spans>{});
+          auto&& output = std::get<0>(accs_).access(std::get<0>(dh_), offsets[0]);
+          if constexpr (ReadsOutput)
+            output =
+                std::invoke(op_, output,
+                            std::get<I + 1>(accs_).access(std::get<I + 1>(dh_), offsets[I + 1])...);
+          else
+            output =
+                std::invoke(op_, std::get<I + 1>(accs_).access(std::get<I + 1>(dh_), offsets[I + 1])...);
+        }(std::make_index_sequence<num_inputs>{});
 
         for (std::size_t s = 0; s < num_spans; ++s)
         {
@@ -417,7 +438,7 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
 
     template <std::size_t D>
     void run_unrolled(offset_type offsets, const extent_strides<num_spans>* plan,
-                      std::integral_constant<std::size_t, D>) noexcept
+                      std::integral_constant<std::size_t, D>)
     {
       index_type const N = plan->extent;
       for (index_type i = 0; i < N; ++i)
@@ -431,11 +452,7 @@ template <typename Op, StridedMdspan... Spans> struct MultiUnrollHelper
       }
     }
 
-    template <std::size_t I> auto& dh_get() noexcept { return std::get<I>(dh_); }
-    template <std::size_t I> auto& accs_get() noexcept { return std::get<I>(accs_); }
 };
-
-template <typename Op, typename... Spans> MultiUnrollHelper(Op&&, Spans...) -> MultiUnrollHelper<Op, Spans...>;
 
 } // namespace detail
 

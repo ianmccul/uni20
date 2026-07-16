@@ -16,6 +16,7 @@ The main entry points are:
 ```cpp
 #include <uni20/tensor/tensor.hpp>       // Tensor, DenseMatrix, generated values, views, reshape
 #include <uni20/tensor/copy.hpp>         // copy, make_tensor, materializing reshape
+#include <uni20/tensor/transform.hpp>    // elementwise overwrite and update
 #include <uni20/tensor/async.hpp>        // async::conj, async::reshape_view
 #include <uni20/linalg/linalg.hpp>       // synchronous dense linalg operations
 #include <uni20/linalg/async.hpp>        // implemented Async linalg wrappers
@@ -199,16 +200,61 @@ auto eigensystem = uni20::linalg::eigh(std::move(matrix));
 Existing synchronous views into transferred storage are invalidated under
 ordinary C++ moved-from owner rules. Uni20 does not track them dynamically.
 
-### Aliasing
+### Operand Roles and Aliasing
 
-Unless an operation explicitly documents in-place behavior, mutable output
-storage must not overlap an input. `assign_product` and `add_product` cheaply
-reject the obvious same-object case, but they do not attempt a complete strided
-range-overlap proof. C++ callers remain responsible for less obvious overlap.
+An operation assigns each tensor operand one semantic role:
 
-Async matrix product rejects an output that shares its exact `EpochQueue` with
-either input before enrolling buffers. Such an operation would otherwise
-self-block. Read-only inputs may share a queue.
+| Role | Old values participate? | Shape policy | Aliasing contract |
+|---|---|---|---|
+| read-only input | yes | fixed | may alias another read-only input |
+| overwrite output | no | may resize before mdspan resolution | must not overlap any input |
+| update output | yes | fixed | appears once as the operation's read/write operand and must not overlap any other input |
+
+An update output is not modelled as two operands that happen to alias. For
+example:
+
+```text
+assign_transform(out, op, lhs, rhs)   means out = op(lhs, rhs)
+transform_inplace(out, op, rhs)       means out = op(old(out), rhs)
+transform_inplace(out, op)            means out = op(old(out))
+```
+
+The first form has three physical operands. The second has two, not three: the
+old value of `out` is read through the same output descriptor that is later
+written. This distinction preserves the real memory-traversal problem for
+backend optimization and avoids inventing an alias that lower layers must
+rediscover.
+
+Unless an operation explicitly assigns the output an update role, mutable
+output storage must not overlap an input. An update output must likewise not
+overlap any additional read-only input. `assign_product` and `add_product`
+cheaply reject the obvious same-object case, but they do not attempt a complete
+strided range-overlap proof. C++ callers remain responsible for less obvious
+overlap.
+
+Backend interfaces should receive an update output once and encode
+read-modify-write behavior in the operation or kernel contract. A backend may
+decline unsupported overlap or traversal cases, but it must not reinterpret an
+overwrite operation as an implicitly aliased update.
+
+Async lowering preserves the same roles:
+
+- an overwrite or update output enrolls one `WriteBuffer`;
+- an update reads the old output value through that writer;
+- every other tensor input enrolls one `ReadBuffer`;
+- no input reader may share the output's `EpochQueue`.
+
+Acquiring both a `ReadBuffer` and `WriteBuffer` for the update output would
+create two epochs rather than one read/write operand and can self-block.
+`A = f(A)` is therefore represented as a unary update, not as an aliased
+overwrite. `A = f(A, B)` is represented as an update of `A` with distinct input
+`B`. Read-only inputs may share a queue with one another.
+
+Future AD lowering must also preserve the role distinction. The old value of an
+update output is a primal dependency, but it is not a second aliased tensor
+operand. If reverse propagation needs that value after mutation, the AD layer
+must save or reconstruct it explicitly rather than relying on an input/output
+alias hidden inside the kernel call.
 
 ### Backend Selection
 
@@ -241,6 +287,8 @@ later in this guide.
 | `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
 | `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; generated input materializes in the requested/default layout. | Not implemented. |
 | `copy(out, in)` | Overwrite while observing input accessor semantics. | Resizes a resizable output or validates a fixed output. | Not implemented. |
+| `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. | Resizes a resizable output to the first input or validates a fixed output. | Not implemented. |
+| `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Not implemented. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
 | `conjugate_inplace(x)` | Eager element mutation. Real values are unchanged. | Reuses existing storage. | Not implemented. |
 | `require_shape`, `ensure_shape` | Output-policy helpers for operation authors. | Validate only, or resize when the output type permits it. | Used inside wrappers; not standalone Async operations. |
@@ -252,6 +300,16 @@ copy tensors.
 
 The reshape contracts, including `-1` inference and contiguous-order rules,
 are detailed in [Generated Tensors and Reshape](creation_and_reshape.md).
+
+Elementwise transform callables are stored by value in
+`linalg::transform_op<F>` or `linalg::transform_inplace_op<F>` and invoked as
+const objects. Their arguments are element values: an update receives the old
+output value first, followed by its read-only input values. Bare mdspan operands
+require an explicit backend selector. Tensor operands derive their selector
+from storage policy. The CPU reference backend accepts arbitrary rank and input
+arity, respects accessor semantics, and uses logical-index traversal when an
+operand is not strided. Named callable types may gain optimized backend
+implementations without changing these front-end signatures.
 
 ## Dense Linear Algebra Support
 
@@ -398,7 +456,8 @@ Before adding an Async overload:
 4. Resolve the default selector from Tensor/storage types before scheduling.
 5. Reject obvious output/input queue aliasing before buffer enrollment.
 6. Use one `WriteBuffer` for each mutated timeline and `ReadBuffer` for each
-   read-only Tensor input.
+   distinct read-only Tensor input. An update output obtains its old value
+   through that writer and is never enrolled again as an input.
 7. Pass selectors, options, and other ordinary state into the coroutine by
    value. Never use a capturing coroutine lambda; scheduled coroutine lambdas
    must be `static`.

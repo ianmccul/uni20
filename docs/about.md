@@ -24,9 +24,9 @@ guides define the exact contracts.
 
 | Area | Current status |
 |---|---|
-| Dense tensors | Implemented owning `Tensor` types with compile-time rank, runtime extents, column-major, row-major, and strided layouts, generated tensors, lazy conjugation, explicit materialization, and reshape operations. |
-| Dense backend dispatch | Implemented operation-tag dispatch with compile-time type probing, structured runtime decline reasons, ordered fallback, and optional dispatch diagnostics. CPU reference, BLAS, and initial LAPACK paths are active. |
-| Dense linear algebra | Implemented tensor/mdspan front ends include accessor-aware copy, GEMM, GEMV, matrix initialization, matrix exponential, self-adjoint and nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems. Backend coverage is operation-specific. |
+| Dense tensors | Implemented owning `Tensor` types with compile-time rank, runtime extents, column-major, row-major, and strided layouts, generated tensors, lazy conjugation, explicit materialization, reshape, and variadic elementwise overwrite/update operations. |
+| Dense backend dispatch | Implemented operation-value dispatch with compile-time type probing, structured runtime decline reasons, ordered fallback, callable-carrying elementwise operations, and optional dispatch diagnostics. CPU reference, BLAS, and initial LAPACK paths are active. |
+| Dense linear algebra | Implemented tensor/mdspan front ends include accessor-aware elementwise transforms and copy, GEMM, GEMV, matrix initialization, matrix exponential, self-adjoint and nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems. Backend coverage is operation-specific. |
 | Async runtime | Implemented `Async<T>`, epoch-ordered read/write buffers, exception and cancellation propagation, `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler`, scheduler-aware waits, task-registry diagnostics, stacktraces where available, and Graphviz DAG snapshots. |
 | Async tensor operations | Implemented lifetime-safe conjugating and reshape aliases, matrix-product overwrite/update operations, immediate or async scalar parameters, and preserving or storage-consuming self-adjoint `eigh` with independent async outputs. |
 | Krylov algorithms | Implemented matrix-free symmetric/Hermitian Lanczos, nonsymmetric Arnoldi, generalized problems, Krylov exponential action, and an independent Taylor exponential-action reference. Projected dense work lowers through Uni20 linalg dispatch. |
@@ -45,7 +45,7 @@ A synchronous dense tensor operation follows this path:
 Tensor operation and output policy
   -> storage-derived backend selector
   -> resolved mdspan operands
-  -> operation-tag dispatch walk
+  -> operation-value dispatch walk
   -> BLAS, LAPACK, or CPU-reference kernel
 ```
 

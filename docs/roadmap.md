@@ -26,6 +26,9 @@ The following foundations are implemented and tested.
 - `conj`, `reshape_view`, explicit ordered reshape views, materializing
   `reshape`, `copy`, `make_tensor`, and in-place conjugation have documented
   ownership and accessor semantics.
+- Variadic elementwise overwrite and update operations lower through
+  callable-carrying dispatch values to an accessor-respecting CPU reference
+  backend.
 - Async conjugating and reshape aliases retain the source owner and share its
   exact epoch queue.
 
@@ -35,8 +38,9 @@ See [Tensor Operations](tensor/operations.md),
 
 ### Dense operation dispatch
 
-- Operation tags identify backend-independent work such as copy, GEMM, GEMV,
-  matrix exponential, eigensystems, and Schur operations.
+- Operation values identify backend-independent work such as elementwise
+  transforms, copy, GEMM, GEMV, matrix exponential, eigensystems, and Schur
+  operations. Values may carry immutable options or callable state.
 - `kernel_accepts_types` performs compile-time tri-state capability probing.
 - `try_kernel` performs runtime layout/accessor checks and returns a structured
   clean-decline reason.
@@ -49,10 +53,11 @@ See [Tensor Operations](tensor/operations.md),
 - Tensor front ends own output shape and allocation policy, then pass resolved
   mdspans to leaf kernels.
 
-Current vertical slices include accessor-respecting copy/materialization,
-GEMM, GEMV, matrix initialization and exponential, self-adjoint and
-nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems.
-Backend and scalar coverage is operation-specific rather than uniform.
+Current vertical slices include accessor-respecting variadic elementwise
+transforms, copy/materialization, GEMM, GEMV, matrix initialization and
+exponential, self-adjoint and nonsymmetric eigensystems, Schur operations, and
+tridiagonal eigensystems. Backend and scalar coverage is operation-specific
+rather than uniform.
 
 See [Kernel Dispatch](architecture/kernel_dispatch.md),
 [Mdspan Linear Algebra Dispatch](linalg/mdspan_dispatch.md), and
@@ -133,6 +138,8 @@ hierarchy.
   views without allowing descriptors to retarget accidentally.
 - Add async copy/materialization and reshape operations where their overwrite or
   value semantics are unambiguous.
+- Add Async elementwise overwrite and update wrappers while preserving one
+  writer for the output and distinct readers for every input.
 - Keep semantic accessor views such as conjugation read-only; treat writable
   component views such as future `real`/`imag` as true structural slices.
 - Introduce subrange dependency tracking only if whole-owner epoch ordering

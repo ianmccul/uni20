@@ -7,7 +7,7 @@
  */
 
 #include <uni20/core/math.hpp>
-#include <uni20/level1/apply_unary.hpp>
+#include <uni20/level1/transform.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -83,7 +83,7 @@ template <class Mdspan> KernelAttempt try_kernel(CpuReferenceBackend, conjugate_
   if constexpr (uni20::MutableStridedMdspan<span_type>)
   {
     using value_type = typename span_type::value_type;
-    uni20::apply_unary_inplace(span, [](auto const& value) { return uni20::conj(static_cast<value_type>(value)); });
+    uni20::transform_inplace(span, [](auto const& value) { return uni20::conj(static_cast<value_type>(value)); });
   }
   else
   {

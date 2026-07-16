@@ -13,6 +13,7 @@
 #include <uni20/linalg/ops/tridiagonal_eigen.hpp>
 #include <uni20/tensor/conjugate_inplace.hpp>
 #include <uni20/tensor/copy.hpp>
+#include <uni20/tensor/transform.hpp>
 
 namespace uni20::linalg
 {

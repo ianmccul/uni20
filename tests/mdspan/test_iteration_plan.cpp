@@ -1,7 +1,7 @@
 #include "../helpers.hpp"
 #include "gtest/gtest.h"
-#include <uni20/level1/apply_unary.hpp>
 #include <uni20/level1/assign.hpp>
+#include <uni20/level1/transform.hpp>
 #include <uni20/mdspan/iteration_plan.hpp>
 
 #include <array>
@@ -46,7 +46,7 @@ TEST(MakeIterationPlanTest, ZeroExtentProducesRetainedZeroDim)
   auto zero_map = stdex::layout_stride::mapping<extents_t>(extents_t{0}, strides);
   stdex::mdspan<double, extents_t, stdex::layout_stride> span(buffer.data(), zero_map);
 
-  apply_unary_inplace(span, [](double x) { return x + 10.0; });
+  transform_inplace(span, [](double x) { return x + 10.0; });
 
   EXPECT_DOUBLE_EQ(buffer[0], 1.0);
   EXPECT_DOUBLE_EQ(buffer[1], 2.0);
@@ -148,7 +148,7 @@ TEST(MakeIterationPlanTest, RankZeroMdspanIsScalar)
 
   double dst_value = 2.0;
   stdex::mdspan<double, extents_t, stdex::layout_stride> dst{&dst_value, mapping};
-  apply_unary_inplace(dst, [](double x) { return x + 3.0; });
+  transform_inplace(dst, [](double x) { return x + 3.0; });
   EXPECT_DOUBLE_EQ(dst_value, 5.0);
 
   double src_value = 11.0;
@@ -157,15 +157,15 @@ TEST(MakeIterationPlanTest, RankZeroMdspanIsScalar)
   EXPECT_DOUBLE_EQ(dst_value, 11.0);
 }
 
-TEST(ApplyUnaryTest, ScalarEmptyPlanAppliesExactlyOnce)
+TEST(TransformInplaceTest, ScalarEmptyPlanAppliesExactlyOnce)
 {
-  // apply_unary on an all-size-1 span must touch the single base element once
+  // An in-place transform on an all-size-1 span must touch the single base element once.
   // (empty plan -> 0-dim scalar terminal), not skip it.
   std::vector<double> buffer{10.0, 20.0, 30.0};
   std::array<std::size_t, 2> extents{1, 1};
   std::array<index_t, 2> strides{7, 3}; // only index 0 exists; strides irrelevant
   auto span = make_mdspan_strided(buffer, extents, strides);
-  apply_unary_inplace(span, [](double x) { return x + 100.0; });
+  transform_inplace(span, [](double x) { return x + 100.0; });
   EXPECT_DOUBLE_EQ(buffer[0], 110.0); // applied exactly once
   EXPECT_DOUBLE_EQ(buffer[1], 20.0);  // untouched
   EXPECT_DOUBLE_EQ(buffer[2], 30.0);
@@ -185,7 +185,7 @@ TEST(AssignTest, ScalarEmptyPlanCopiesSingleElement)
   EXPECT_DOUBLE_EQ(dst[1], 99.0); // untouched
 }
 
-TEST(ApplyUnaryTest, NonMergeableFourDimVisitsEachOnce)
+TEST(TransformInplaceTest, NonMergeableFourDimVisitsEachOnce)
 {
   // Gapped strides prevent every merge => a genuine 4-dim plan, exercising the
   // depth-4 run_dynamic handoff. Each addressed element is visited exactly once.
@@ -198,7 +198,7 @@ TEST(ApplyUnaryTest, NonMergeableFourDimVisitsEachOnce)
   EXPECT_EQ(plan.size(), 4); // nothing merged
   EXPECT_EQ(offset, 0);
 
-  apply_unary_inplace(span, [](double x) { return x + 1.0; });
+  transform_inplace(span, [](double x) { return x + 1.0; });
 
   double sum = 0.0;
   for (double v : buffer)
@@ -209,7 +209,7 @@ TEST(ApplyUnaryTest, NonMergeableFourDimVisitsEachOnce)
   EXPECT_DOUBLE_EQ(sum, 81.0); // 3^4 elements, each +1 once
 }
 
-TEST(ApplyUnaryTest, NonMergeableFiveDimVisitsEachOnce)
+TEST(TransformInplaceTest, NonMergeableFiveDimVisitsEachOnce)
 {
   // Five non-mergeable dims: run_dynamic peels twice before the static 3-dim
   // unroll.
@@ -222,7 +222,7 @@ TEST(ApplyUnaryTest, NonMergeableFiveDimVisitsEachOnce)
   EXPECT_EQ(plan.size(), 5);
   EXPECT_EQ(offset, 0);
 
-  apply_unary_inplace(span, [](double x) { return x + 1.0; });
+  transform_inplace(span, [](double x) { return x + 1.0; });
 
   double sum = 0.0;
   for (double v : buffer)

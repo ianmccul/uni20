@@ -1,6 +1,5 @@
 #pragma once
 
-#include "apply_unary.hpp"
 #include <ranges>
 #include <tuple>
 #include <type_traits>

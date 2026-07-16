@@ -41,11 +41,13 @@ Related notes:
 ## The model in one paragraph
 
 A **backend** is a uniform thing with two ways to decline an operation. The
-dispatch mechanism is generic over an **operation tag** (`copy_op`, `gemm_op`,
-`gemv_op`, ...), and discovers backend support with customization
-points. Concrete dense-linalg operation tags and their diagnostic names live in
-the central `src/uni20/linalg/operation_tags.hpp` catalogue; backend headers use
-that catalogue rather than redeclaring an operation locally:
+dispatch mechanism is generic over an **operation value** (`copy_op`, `gemm_op`,
+`gemv_op`, ...), and discovers backend support with customization points. Most
+operations are empty tags, but an operation value may carry immutable options
+or callable state. Concrete dense-linalg operation types and their diagnostic
+names live in the central `src/uni20/linalg/operation_tags.hpp` catalogue;
+backend headers use that catalogue rather than redeclaring an operation
+locally:
 
 - `kernel_accepts_types(Backend const&, Op const&, Args&...)` — required
   `consteval` tri-state function for compile-time facts about the C++ types;
@@ -106,10 +108,17 @@ Runtime dispatch has separate trial and checked front ends:
   converts that rejection into `KernelDispatchError`, so Python receives an
   exception when a kernel was not compiled into the active backend list.
 
-Operation tags and backend values define stable `static constexpr
+Operation values and backend values define stable `static constexpr
 std::string_view name` members. These names are diagnostic metadata only; C++
 types remain the dispatch identity and the names are not serialization or ABI
 keys.
+
+Generic elementwise dispatch uses callable-carrying `transform_op<F>` and
+`transform_inplace_op<F>` values. The callable is stored by value and invoked
+as const. A named callable type can therefore select an optimized backend while
+an arbitrary lambda remains eligible for the CPU reference backend. Input
+elements and the old update value are passed as values, so mutable mdspan
+accessors do not turn semantic inputs into writable callable arguments.
 
 Tensor `conj(...)` is a lazy read-only view whose resolved mdspan uses the
 conjugating accessor. Explicit `copy(...)` and `make_tensor(...)` dispatch

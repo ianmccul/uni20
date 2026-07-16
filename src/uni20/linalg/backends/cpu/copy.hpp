@@ -7,6 +7,7 @@
  */
 
 #include <uni20/common/trace.hpp>
+#include <uni20/level1/transform.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
@@ -87,11 +88,21 @@ KernelAttempt try_kernel(CpuReferenceBackend, copy_op const&, OutputMdspan&& out
   for (std::size_t axis = 0; axis < output_type::rank(); ++axis)
     CHECK_EQUAL(output.extent(axis), input.extent(axis));
 
-  std::array<typename output_type::index_type, output_type::rank()> index{};
-  if constexpr (std::same_as<typename output_type::layout_type, stdex::layout_left>)
-    detail::copy_elements<0, true>(output, input, index);
+  if constexpr (uni20::MutableStridedMdspan<output_type> &&
+                uni20::StridedMdspan<std::remove_cvref_t<InputMdspan>>)
+  {
+    uni20::transform(output, input, [](auto&& value) -> decltype(auto) {
+      return std::forward<decltype(value)>(value);
+    });
+  }
   else
-    detail::copy_elements<0, false>(output, input, index);
+  {
+    std::array<typename output_type::index_type, output_type::rank()> index{};
+    if constexpr (std::same_as<typename output_type::layout_type, stdex::layout_left>)
+      detail::copy_elements<0, true>(output, input, index);
+    else
+      detail::copy_elements<0, false>(output, input, index);
+  }
   return KernelAttempt::success;
 }
 

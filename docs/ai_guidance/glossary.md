@@ -299,6 +299,20 @@ This glossary is optimized for retrieval, not pedagogy.
 - `INVARIANT`: Uni20 async ordering does not automatically solve aliasing correctness across distinct async objects or views.
 - `MISCONCEPTION`: Wrapping a view-like object in `Async<T>` automatically solves overlap ordering.
 
+### overwrite output
+
+- `ROLE`: Mutable destination whose previous values do not participate.
+- `INVARIANT`: Must not overlap any read-only input; a resizable owner may
+  prepare its shape before resolving the output mdspan.
+
+### update output
+
+- `ROLE`: Single mutable operand whose previous values participate in the result.
+- `INVARIANT`: Appears once in a kernel interface and does not overlap any
+  additional input.
+- `ASYNC`: Enroll one `WriteBuffer`; the writer supplies both old-value access
+  and mutation. Never enroll a separate reader for the same output.
+
 ## Backend dispatch terms
 
 ### backend tag

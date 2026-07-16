@@ -68,10 +68,12 @@ handles:
 
 1. Resolve the immutable default selector from the Tensor/storage types, or
    accept an explicit selector by value.
-2. Check exact output/input queue aliasing.
+2. Classify the operation as overwrite or update and check exact output/input
+   queue aliasing.
 3. Normalize each immediate-or-async scalar with `async::read(...)`.
-4. Enroll one `WriteBuffer` for the output and one `ReadBuffer` for each Tensor
-   input.
+4. Enroll one `WriteBuffer` for the output and one `ReadBuffer` for each
+   distinct Tensor input. For an update, the writer supplies the old output
+   value; do not also enroll an output reader.
 5. Move the selector, awaiters, and ordinary values into a coroutine.
 6. Schedule the task.
 
@@ -89,9 +91,15 @@ handles may be destroyed immediately after submission.
 
 ## Access and Aliasing
 
-An ordinary one-output operation has one writer and any number of input
-readers. A mutating operation reads the old output through its `WriteBuffer`; it
-must not acquire a separate output `ReadBuffer`.
+An ordinary one-output operation has one writer and any number of distinct
+input readers. A mutating operation reads the old output through its
+`WriteBuffer`; it must not acquire a separate output `ReadBuffer` or pass the
+output again as an input. This preserves the synchronous operation's semantic
+distinction between overwrite and update.
+
+For example, async `A = f(A, B)` lowers as one writer for `A` and one reader for
+`B`. It does not lower as a reader for `A`, a reader for `B`, and a later writer
+for `A`. Async `A = f(A)` is a unary update with only the writer for `A`.
 
 The matrix-product wrapper rejects this exact condition before buffer
 enrollment:
@@ -243,7 +251,8 @@ updates, or produces a differently typed result.
 - Coroutine parameters own buffers, immediate-value awaiters, and ordinary
   operation state.
 - No coroutine lambda captures state; scheduled lambdas are `static`.
-- The output uses one writer rather than a read/write pair.
+- The output uses one writer rather than a read/write pair, and an update output
+  is not also passed as an input.
 - Simple output/input queue aliasing is rejected before enrollment when it
   would self-block.
 - Static selector resolution happens before scheduling; the runtime backend

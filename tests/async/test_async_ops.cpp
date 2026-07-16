@@ -6,6 +6,22 @@
 
 using namespace uni20::async;
 
+namespace
+{
+class ErrorModeGuard {
+  public:
+    ErrorModeGuard() : previous_(trace::get_formatting_options().errors_abort())
+    {
+      trace::get_formatting_options().set_errors_abort(false);
+    }
+
+    ~ErrorModeGuard() { trace::get_formatting_options().set_errors_abort(previous_); }
+
+  private:
+    bool previous_;
+};
+} // namespace
+
 namespace async_test_types
 {
 struct AssignmentAware
@@ -176,6 +192,45 @@ TEST(AsyncOpsTest, BasicArithmeticOps)
   x /= quot; // 20.0
 
   EXPECT_DOUBLE_EQ(x.get_wait(), 20.0);
+}
+
+TEST(AsyncOpsTest, BinaryOperationRejectsOutputInputQueueAliasAtSubmission)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Async<int> output = 3;
+  Async<int> rhs = 4;
+  ErrorModeGuard const error_mode;
+
+  EXPECT_THROW(async_binary_op(output, output, rhs, std::plus<>{}), std::runtime_error);
+  EXPECT_EQ(output.get_wait(), 3);
+}
+
+TEST(AsyncOpsTest, CompoundOperationRejectsRhsQueueAliasAtSubmission)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Async<int> value = 3;
+  ErrorModeGuard const error_mode;
+
+  EXPECT_THROW(value += value, std::runtime_error);
+  EXPECT_EQ(value.get_wait(), 3);
+}
+
+TEST(AsyncOpsTest, CompoundOperationExecutionFailurePropagatesThroughOutput)
+{
+  DebugScheduler sched;
+  set_global_scheduler(&sched);
+
+  Async<int> value = 3;
+  Async<int> rhs = 4;
+
+  async_compound_op(value, rhs, [](int&, int) { throw std::runtime_error("compound failure"); });
+  sched.run_all();
+
+  EXPECT_THROW((void)value.get_wait(), std::runtime_error);
 }
 
 TEST(AsyncOpsTest, MoveOnlyType)

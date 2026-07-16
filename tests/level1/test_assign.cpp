@@ -1,6 +1,7 @@
 #include "../helpers.hpp"
 #include "gtest/gtest.h"
 #include <numeric>
+#include <tuple>
 #include <uni20/level1/assign.hpp>
 #include <uni20/level1/zip_transform.hpp>
 
@@ -10,7 +11,7 @@ TEST(MultiIterationPlanTest, SimpleMatchingLayouts)
 {
   auto a = make_mapping(std::array<std::size_t, 2>{10, 2}, std::array<index_t, 2>{2, 1});
   auto b = make_mapping(std::array<std::size_t, 2>{10, 2}, std::array<index_t, 2>{20, 10});
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{a, b});
 
   ASSERT_EQ(plan.size(), 1);
   EXPECT_EQ(plan[0].extent, 20);     // 10×2
@@ -24,7 +25,7 @@ TEST(MultiIterationPlanTest, MismatchedButMergeable)
 {
   auto a = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{4, 1});
   auto b = make_mapping(std::array<std::size_t, 2>{3, 4}, std::array<index_t, 2>{40, 10});
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{a, b});
 
   ASSERT_EQ(plan.size(), 1);
   EXPECT_EQ(plan[0].extent, 12); // 3 × 4
@@ -38,7 +39,7 @@ TEST(MultiIterationPlanTest, WithNegativeStride)
 {
   auto a = make_mapping(std::array<std::size_t, 1>{4}, std::array<index_t, 1>{-1});
   auto b = make_mapping(std::array<std::size_t, 1>{4}, std::array<index_t, 1>{-10});
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{a, b});
 
   ASSERT_EQ(plan.size(), 1);
   EXPECT_EQ(plan[0].extent, 4);
@@ -52,7 +53,7 @@ TEST(MultiIterationPlanTest, MixedSignsPreventMerge)
 {
   auto a = make_mapping(std::array<std::size_t, 2>{4, 2}, std::array<index_t, 2>{1, -4});
   auto b = make_mapping(std::array<std::size_t, 2>{4, 2}, std::array<index_t, 2>{10, 40});
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{a, b});
 
   EXPECT_EQ(plan.size(), 2);
   // Check the flipped‐stride dimension; also swapped order to make largest stride of a the outer dimension
@@ -71,7 +72,7 @@ TEST(MultiIterationPlanTest, AllStridesFlippedWhenOutputIsNegative)
   auto a = make_mapping(std::array<std::size_t, 1>{5}, std::array<index_t, 1>{-2}); // output
   auto b = make_mapping(std::array<std::size_t, 1>{5}, std::array<index_t, 1>{3});  // input
 
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{a, b});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{a, b});
 
   ASSERT_EQ(plan.size(), 1);
   EXPECT_EQ(plan[0].extent, 5);
@@ -184,7 +185,7 @@ TEST(Assign, NonMergeable4DStridesUseDynamic)
           dst_data[dst_offset] = -1.0;
         }
 
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{dst.mapping(), src.mapping()});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{dst.mapping(), src.mapping()});
   ASSERT_EQ(plan.size(), 4);
   EXPECT_EQ(offsets[0], 0);
   EXPECT_EQ(offsets[1], 0);
@@ -217,7 +218,7 @@ TEST(Assign, ZeroExtentNoOp)
 
   auto const baseline = dst_data;
 
-  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::array{dst.mapping(), src.mapping()});
+  auto [plan, offsets] = make_multi_iteration_plan_with_offset(std::tuple{dst.mapping(), src.mapping()});
   // Zero-extent => 0 elements, carried as a single retained extent-0 dim (which
   // the driver loops zero times). An *empty* plan now means a rank-0 scalar (1
   // element), so this must NOT be empty.

@@ -8,10 +8,11 @@ before they lower to backend wrappers and kernels.
 
 - `linalg.hpp`: public include point for the dense linalg layer.
 - `operation_tags.hpp`: central catalogue of dispatchable operation values and
-  their diagnostic names.
+  their diagnostic names, including callable-carrying elementwise operation
+  descriptors.
 - `backend_selector.hpp`: ordered backend selector values and the stateless
   host backend entries shared with tensor storage.
-- `dispatch.hpp`: operation-tag backend-list dispatch helpers.
+- `dispatch.hpp`: operation-value backend-list dispatch helpers.
 - `dispatch_diagnostics.hpp`: disabled-by-default structured observation of
   ordered backend walks.
 - `kernel_attempt.hpp`, `dispatch_error.hpp`,
@@ -47,7 +48,11 @@ before they lower to backend wrappers and kernels.
   `make_tensor`. Its CPU backend respects accessors. Future BLAS matrix-copy
   extensions may accept representable rank-two layouts and conjugating views;
   strict BLAS/LAPACK compute wrappers still do not materialize implicitly.
-- Dense linalg operations use operation tags, `kernel_accepts_types`, and
+- `transform_op<F>` and `transform_inplace_op<F>` carry a const-invoked
+  callable through dispatch. The CPU reference backend supports arbitrary rank
+  and input arity; optimized callable/layout combinations belong in earlier
+  specialized backends.
+- Dense linalg operations use operation values, `kernel_accepts_types`, and
   `try_kernel`; the former backend-tag selector hierarchy has been removed.
 - Scalar-generic code should use Uni20 scalar traits and numeric limits from
   `core/`.

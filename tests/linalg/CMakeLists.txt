@@ -12,6 +12,7 @@ add_test_module(linalg
     test_tensor_copy.cpp
     test_tensor_generated.cpp
     test_tensor_reshape.cpp
+    test_tensor_transform.cpp
   LIBS uni20_linalg uni20_async
 )
 

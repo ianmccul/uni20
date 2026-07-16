@@ -7,7 +7,7 @@ layout, and dispatch decisions have already been resolved.
 ## Contents
 
 - `assign.hpp`: dense assignment helpers.
-- `apply_unary.hpp`: elementwise unary transform helpers.
+- `transform.hpp`: eager unary/binary overwrite and in-place transform helpers.
 - `zip_transform.hpp`: elementwise binary/zip transform helpers.
 - `sum.hpp`: reduction helper.
 

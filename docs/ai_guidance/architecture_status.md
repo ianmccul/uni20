@@ -102,6 +102,9 @@ This file is for questions about project maturity, active design seams, and what
   slice/external-storage adaptors are not.
 - `copy` and `make_tensor` dispatch `copy_op`; lazy `conj(tensor)` does not
   allocate.
+- `assign_transform` and `transform_inplace` dispatch callable-carrying
+  elementwise operation values. The CPU reference backend supports arbitrary
+  rank, variadic inputs, and non-strided accessor-respecting fallback.
 - `async::conj` and async reshape views retain the parent owner and share its
   exact epoch queue.
 - All-async `assign_product` and `add_product` lower through the synchronous

@@ -22,7 +22,7 @@ logic. Keep these files brief; detailed design notes belong in `/docs`.
 - [`kernel/`](kernel/): low-level tensor kernel entry points over resolved views. Kernel
   code should remain below tensor/symmetry semantics.
 - [`level1/`](level1/): dense elementwise and reduction-style primitives such as assign,
-  unary apply, zip transform, and sum.
+  eager transform, lazy zip transform, and sum.
 - [`linalg/`](linalg/): dense linear-algebra front ends and operation descriptors built on
   the backend/kernel layers.
 - [`krylov/`](krylov/): matrix-free Krylov eigensolvers, dense projected subspace helpers,

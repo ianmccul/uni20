@@ -239,6 +239,21 @@ Examples:
 - handles, streams, workspaces, and scratch buffers are available
 - backend-specific status codes indicate success
 
+Operation operand roles are fixed before backend dispatch. An overwrite output
+does not alias an input. An update output appears once as a read/write operand;
+its old value is part of the operation contract, not a duplicated input
+descriptor. Runtime backend checks may decline unsupported overlap or traversal
+patterns, but must not change these roles.
+
+An operation value may carry immutable execution semantics as well as a
+diagnostic name. Generic elementwise dispatch uses `transform_op<F>` and
+`transform_inplace_op<F>`, which store a callable by value and invoke it as a
+const object. Backends can recognize named callable types for optimized
+implementations while a generic callable continues to reach the reference
+backend. Per-element mutable callable state is intentionally outside this
+contract because backend scheduling and parallel traversal must not change its
+meaning.
+
 If the runtime checks pass, `try_kernel(...)` performs the backend call and
 returns `KernelAttempt::success`. If a preflight check rejects the instance, it
 returns a specific clean-decline reason without changing arguments or external

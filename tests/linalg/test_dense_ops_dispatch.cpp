@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <span>
 #include <vector>
@@ -14,6 +15,8 @@ namespace
 TEST(LinalgDenseOpsDispatchTest, OperationTagsProvideCentralDiagnosticNames)
 {
   EXPECT_EQ(uni20::linalg::conjugate_inplace_op::name, "conjugate_inplace");
+  EXPECT_EQ(uni20::linalg::transform_op<std::plus<>>::name, "transform");
+  EXPECT_EQ(uni20::linalg::transform_inplace_op<std::plus<>>::name, "transform_inplace");
   EXPECT_EQ(uni20::linalg::gemm_op::name, "gemm");
   EXPECT_EQ(uni20::linalg::gemv_op::name, "gemv");
   EXPECT_EQ(uni20::linalg::matrix_set_op::name, "matrix_set");

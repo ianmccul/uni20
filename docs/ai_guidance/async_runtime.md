@@ -180,6 +180,8 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
   unhandled failures propagate to that output epoch.
 - Output/input queue identity may be rejected as an exact obvious-alias check;
   this is not general deadlock analysis.
+- An update output is one semantic read/write operand. Its old value is obtained
+  through the writer; it is not enrolled again as an input.
 
 ### FAILURE MODES
 
@@ -187,6 +189,8 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
 - Mixing synchronous Tensor operands into an async operation overload.
 - Acquiring a read and write buffer for one output instead of mutating through
   its single writer.
+- Passing an update output again as an input and thereby disguising one
+  read/write operand as two aliased operands.
 - Inspecting an `Async<Tensor>` value during static selector resolution.
 - Running layout- or accessor-dependent backend selection before awaited
   mdspans are available.

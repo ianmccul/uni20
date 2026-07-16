@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <string_view>
+#include <type_traits>
 
 namespace uni20::linalg
 {
@@ -23,6 +24,32 @@ struct conjugate_inplace_op
 {
     static constexpr std::string_view name = "conjugate_inplace";
 };
+
+/// \brief Callable-carrying elementwise overwrite operation.
+/// \details The function is invoked as a const object. Backends may specialize
+///          on its concrete type while preserving one generic front-end API.
+///          Input elements are passed to the function as values.
+template <class Function> struct transform_op
+{
+    static constexpr std::string_view name = "transform";
+    [[no_unique_address]] Function function;
+};
+
+/// \brief Deduce an overwrite operation that owns a decayed callable value.
+template <class Function> transform_op(Function) -> transform_op<std::decay_t<Function>>;
+
+/// \brief Callable-carrying elementwise update operation.
+/// \details The old output value is passed by value as the callable's first
+///          argument. The output remains one read/write operand rather than a
+///          duplicated input.
+template <class Function> struct transform_inplace_op
+{
+    static constexpr std::string_view name = "transform_inplace";
+    [[no_unique_address]] Function function;
+};
+
+/// \brief Deduce an update operation that owns a decayed callable value.
+template <class Function> transform_inplace_op(Function) -> transform_inplace_op<std::decay_t<Function>>;
 
 /// \brief Dense matrix multiplication operation tag.
 struct gemm_op
