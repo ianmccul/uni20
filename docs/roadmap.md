@@ -29,6 +29,9 @@ The following foundations are implemented and tested.
 - Variadic elementwise overwrite and update operations lower through
   callable-carrying dispatch values to an accessor-respecting CPU reference
   backend.
+- `ScalarTensor` provides a rank-zero owner, while inner product and stable
+  Euclidean norm expose separate storage-preserving and host-scalar result
+  contracts.
 - All-async elementwise overwrite and update wrappers retain callable state,
   construct overwrite outputs when possible, and preserve one-writer update
   semantics.
@@ -57,10 +60,10 @@ See [Tensor Operations](tensor/operations.md),
   mdspans to leaf kernels.
 
 Current vertical slices include accessor-respecting variadic elementwise
-transforms, copy/materialization, GEMM, GEMV, matrix initialization and
-exponential, self-adjoint and nonsymmetric eigensystems, Schur operations, and
-tridiagonal eigensystems. Backend and scalar coverage is operation-specific
-rather than uniform.
+transforms, copy/materialization, inner product, stable Euclidean norm, GEMM,
+GEMV, matrix initialization and exponential, self-adjoint and nonsymmetric
+eigensystems, Schur operations, and tridiagonal eigensystems. Backend and
+scalar coverage is operation-specific rather than uniform.
 
 See [Kernel Dispatch](architecture/kernel_dispatch.md),
 [Mdspan Linear Algebra Dispatch](linalg/mdspan_dispatch.md), and
@@ -135,6 +138,10 @@ hierarchy.
 
 ### 2. Complete common Tensor operations and structural views
 
+- Generalize the CPU reduction traversal to one-or-more-axis reductions,
+  beginning with sum and the synthetic-diagonal trace lowering.
+- Extend scalar-result allocation beyond the current static storage-policy
+  model when device/context-bearing storage requires it.
 - Add slicing/indexing descriptors with const-correct mdspan access and explicit
   layout/striding semantics.
 - Extend the owner-retaining async alias model to slices and future structural

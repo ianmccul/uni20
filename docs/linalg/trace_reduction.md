@@ -15,6 +15,11 @@ It should not be treated as a special high-level tensor operation in the dense b
 
 This note is about dense tensor data. Symmetric tensors may expose a trace-like operation, but that operation should first lower through sector/block logic and then call dense primitives on the relevant blocks.
 
+Full-reduction result residency is a separate front-end decision. See
+[Scalar Tensors, Host Scalars, and Storage Transfer](../tensor/scalar_tensors_and_transfer.md)
+for the distinction between a rank-zero Tensor result and an ordinary host
+scalar.
+
 ## Dense Trace Model
 
 Given an input tensor with shape and element strides, tracing axes `a` and `b` requires:

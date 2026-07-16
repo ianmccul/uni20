@@ -38,6 +38,11 @@ template <typename ElementType, std::size_t Rank, typename StoragePolicy = Vecto
           typename AccessorFactory = DefaultAccessorFactory>
 using StridedTensor = Tensor<ElementType, Rank, StoragePolicy, stdex::layout_stride, AccessorFactory>;
 
+/// \brief Owning rank-zero tensor that retains storage and backend semantics.
+template <typename ElementType, typename StoragePolicy = VectorStorage,
+          typename AccessorFactory = DefaultAccessorFactory>
+using ScalarTensor = Tensor<ElementType, 0, StoragePolicy, ColumnMajor, AccessorFactory>;
+
 /// \brief Owning dense host matrix with a compile-time contiguous layout.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the matrix.

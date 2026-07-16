@@ -19,6 +19,7 @@ using index_t = index_type;
 using extents_2d = stdex::dextents<index_t, 2>;
 using tensor_type = Tensor<int, 2, VectorStorage>;
 using strided_tensor_type = StridedTensor<int, 2, VectorStorage>;
+using scalar_tensor_type = ScalarTensor<double>;
 
 static_assert(std::same_as<tensor_type, BasicTensor<int, extents_2d, VectorStorage, ColumnMajor>>);
 static_assert(std::same_as<tensor_type, ColumnMajorTensor<int, 2>>);
@@ -42,6 +43,10 @@ static_assert(!MutableRankedTensorView<tensor_type, 1>);
 static_assert(!MutableTensorView<tensor_type const>);
 static_assert(!SpanLike<tensor_type>);
 static_assert(!StridedMdspan<tensor_type>);
+static_assert(ScalarTensorView<scalar_tensor_type>);
+static_assert(MutableScalarTensorView<scalar_tensor_type>);
+static_assert(OwningTensor<scalar_tensor_type>);
+static_assert(!ScalarTensorView<tensor_type>);
 
 using row_major_matrix = DenseMatrix<int, RowMajor>;
 using strided_matrix = typename row_major_matrix::template rebind_layout_type<stdex::layout_stride>;
@@ -91,6 +96,20 @@ TEST(TensorTest, DynamicExtentsConstructorAcceptsOneExtentPerAxis)
   EXPECT_EQ(tensor.rows(), 2);
   EXPECT_EQ(tensor.cols(), 3);
   EXPECT_EQ(tensor.size(), 6);
+}
+
+TEST(TensorTest, ScalarTensorDefaultConstructsItsSoleElement)
+{
+  scalar_tensor_type scalar;
+
+  EXPECT_EQ(scalar.rank(), 0);
+  EXPECT_EQ(scalar.size(), 1);
+  EXPECT_EQ(scalar.storage().size(), 1u);
+  EXPECT_DOUBLE_EQ(scalar[], 0.0);
+
+  scalar[] = 3.5;
+  scalar_tensor_type const& const_scalar = scalar;
+  EXPECT_DOUBLE_EQ(const_scalar[], 3.5);
 }
 
 TEST(BasicTensorTest, SupportsStaticMdspanExtents)

@@ -24,6 +24,9 @@ evidence for exact backend coverage.
 
 - [Trace as a Dense Reduction](trace_reduction.md) is an active design note for
   lowering trace-like contractions.
+- [Scalar Tensors, Host Scalars, and Storage Transfer](../tensor/scalar_tensors_and_transfer.md)
+  defines the implemented full-reduction result-residency boundary and the
+  forward transfer model.
 - [Tensor-Network Linear Algebra API Survey](tensor_network_api_survey.md) is
   background research, not a Uni20 API contract.
 

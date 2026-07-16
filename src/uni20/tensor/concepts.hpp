@@ -109,6 +109,14 @@ concept RankedTensorView =
 template <class T, std::size_t Rank>
 concept MutableRankedTensorView = RankedTensorView<T, Rank> && MutableTensorView<T>;
 
+/// \brief Tensor-level object whose readable resolved mdspan has rank zero.
+template <class T>
+concept ScalarTensorView = RankedTensorView<T, 0>;
+
+/// \brief Mutable tensor-level object whose writable resolved mdspan has rank zero.
+template <class T>
+concept MutableScalarTensorView = MutableRankedTensorView<T, 0>;
+
 /// \brief Strided tensor-level object whose resolved mdspan has a specified static rank.
 template <class T, std::size_t Rank>
 concept RankedStridedTensorView = RankedTensorView<T, Rank> && StridedTensorView<T>;

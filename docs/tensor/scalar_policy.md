@@ -79,6 +79,8 @@ Scalar-generic code should prefer the scalar traits in `uni20/core`:
 | `uni20::LapackComplexReal<T>` | real precision whose `uni20::complex<T>` has dense complex LAPACK coverage |
 | `uni20::make_real_t<T>` | underlying real scalar |
 | `uni20::make_complex_t<T>` | complexified scalar/container type |
+| `uni20::accumulation_real_t<T>` | widened real accumulator associated with a real or complex scalar |
+| `uni20::accumulation_scalar_t<T>` | widened accumulator preserving a real or complex scalar field |
 | `uni20::scalar_t<T>` | scalar extracted from a container-like type |
 | `uni20::numeric_limits<T>` | project-level numeric limits customization point |
 | `uni20::isfinite(x)` | project-level finite-value predicate for integer, real, and complex scalars |
@@ -94,6 +96,12 @@ must itself be the scalar value.
 `Blas*` and `Lapack*` describe configured backend support. This distinction
 matters for extension scalar types: a type can be a valid Uni20 real scalar
 without having BLAS or LAPACK coverage in the current build.
+
+Reference reductions use `accumulation_scalar_t<T>` for inner products and
+`accumulation_real_t<T>` for scaled sum-of-squares norms. The widened
+accumulator improves ordinary float and double reductions without changing the
+public result element type. Extension precisions remain in their own field
+unless they specialize the accumulation traits.
 
 For matrix-free algorithms, avoid duplicating scalar type information in
 interfaces when it can be inferred from the vector operations. For example, the

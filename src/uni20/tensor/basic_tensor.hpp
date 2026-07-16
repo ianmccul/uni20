@@ -92,8 +92,16 @@ class Tensor {
     using rebind_extents_type =
         Tensor<element_type, NewExtents::rank(), storage_policy, layout_policy, accessor_factory_type, NewExtents>;
 
-    /// \brief Default-construct an empty tensor without allocated storage.
-    Tensor() = default;
+    /// \brief Default-construct an empty positive-rank tensor without allocated storage.
+    Tensor()
+      requires(Rank > 0)
+    = default;
+
+    /// \brief Default-construct a rank-zero tensor with its one logical element.
+    Tensor()
+      requires(Rank == 0)
+        : Tensor(extents_type{})
+    {}
 
     /// \brief Copy-construct a tensor with independent owned storage.
     /// \details Tensor elements, mapping, and accessor-factory state are copied.

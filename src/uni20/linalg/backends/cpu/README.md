@@ -14,6 +14,8 @@ vendor accelerator backend.
   plans shared by copy, conjugation, and generic transforms.
 - `gemm.hpp`: reference accessor-respecting GEMM kernel.
 - `gemv.hpp`: reference accessor-respecting GEMV kernel.
+- `reductions.hpp`: accessor-respecting inner product and scaled
+  sum-of-squares Euclidean norm kernels.
 - `matrix_set.hpp`: accessor-respecting structured matrix initialization.
 - `dense_matrix.hpp`: small dense matrix container used by CPU linalg routines.
 - `matrix_exponential.hpp`, `matrix_exponential.cpp`: adaptive dense matrix

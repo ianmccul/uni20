@@ -1,6 +1,7 @@
 #pragma once
 
 #include <uni20/krylov/matrix_free.hpp>
+#include <uni20/tensor/reductions.hpp>
 
 #include <cmath>
 #include <complex>
@@ -92,25 +93,17 @@ template <typename Scalar> class DenseHostVectorOps {
       require_same_size(x, y);
       ++inner_product_count_;
 
-      Scalar result{};
-      for (std::size_t i = 0; i < x.values.size(); ++i)
-      {
-        result += conjugate_for_inner_product(x.values[i]) * y.values[i];
-      }
-      return result;
+      auto x_span = make_span(x);
+      auto y_span = make_span(y);
+      return uni20::inner_product_host(uni20::linalg::CpuReferenceBackend{}, x_span, y_span);
     }
 
     [[nodiscard]] uni20::make_real_t<Scalar> norm(DenseHostVector<Scalar> const& x)
     {
       ++norm_count_;
 
-      uni20::make_real_t<Scalar> norm_squared{};
-      for (auto const& value : x.values)
-      {
-        norm_squared += detail::abs_squared(value);
-      }
-      return norm_squared > uni20::make_real_t<Scalar>{} ? detail::adl_sqrt(norm_squared)
-                                                         : uni20::make_real_t<Scalar>{};
+      auto x_span = make_span(x);
+      return uni20::norm_host(uni20::linalg::CpuReferenceBackend{}, x_span);
     }
 
     void matvec(DenseHostVector<Scalar>& y, DenseHostVector<Scalar> const& x)
@@ -141,16 +134,11 @@ template <typename Scalar> class DenseHostVectorOps {
       }
     }
 
-    [[nodiscard]] static Scalar conjugate_for_inner_product(Scalar const& value)
+    [[nodiscard]] static auto make_span(DenseHostVector<Scalar> const& vector)
     {
-      if constexpr (uni20::Complex<Scalar>)
-      {
-        return std::conj(value);
-      }
-      else
-      {
-        return value;
-      }
+      using extents_type = stdex::dextents<uni20::index_type, 1>;
+      return stdex::mdspan<Scalar const, extents_type>(
+          vector.values.data(), extents_type{static_cast<uni20::index_type>(vector.values.size())});
     }
 
     std::size_t dimension_ = 0;

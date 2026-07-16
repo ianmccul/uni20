@@ -63,6 +63,18 @@ struct gemv_op
     static constexpr std::string_view name = "gemv";
 };
 
+/// \brief Conjugate-linear-left tensor inner-product operation tag.
+struct inner_product_op
+{
+    static constexpr std::string_view name = "inner_product";
+};
+
+/// \brief Euclidean tensor norm operation tag.
+struct norm_op
+{
+    static constexpr std::string_view name = "norm";
+};
+
 /// \brief Dense matrix exponential operation tag.
 struct matrix_exponential_op
 {

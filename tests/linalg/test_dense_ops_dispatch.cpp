@@ -19,6 +19,8 @@ TEST(LinalgDenseOpsDispatchTest, OperationTagsProvideCentralDiagnosticNames)
   EXPECT_EQ(uni20::linalg::transform_inplace_op<std::plus<>>::name, "transform_inplace");
   EXPECT_EQ(uni20::linalg::gemm_op::name, "gemm");
   EXPECT_EQ(uni20::linalg::gemv_op::name, "gemv");
+  EXPECT_EQ(uni20::linalg::inner_product_op::name, "inner_product");
+  EXPECT_EQ(uni20::linalg::norm_op::name, "norm");
   EXPECT_EQ(uni20::linalg::matrix_set_op::name, "matrix_set");
   EXPECT_EQ(uni20::linalg::matrix_exponential_op::name, "matrix_exponential");
   EXPECT_EQ(uni20::linalg::symmetric_tridiagonal_eigen_op::name, "symmetric_tridiagonal_eigen");

@@ -9,8 +9,8 @@ kernels operate on resolved mdspans.
 - `basic_tensor.hpp`: concrete composition-based `Tensor` owner and the
   extents-first `BasicTensor` alias.
 - `tensor.hpp`: named
-  `ColumnMajorTensor`, `RowMajorTensor`, and `StridedTensor` aliases, and the
-  host `DenseMatrix` alias.
+  `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor`, and `ScalarTensor`
+  aliases, and the host `DenseMatrix` alias.
 - `conjugate.hpp`: read-only tensor view backed by the lazy conjugating mdspan
   accessor.
 - `generated.hpp`: compact generated tensors and the `full`, `zeros`, `ones`,
@@ -24,6 +24,8 @@ kernels operate on resolved mdspans.
 - `transform.hpp`: backend-dispatched variadic elementwise overwrite and update
   operations for mdspan and Tensor operands. Their all-async Tensor overloads
   live in [`linalg/async/`](../linalg/async/).
+- `reductions.hpp`: storage-preserving and host-result inner products and
+  stable Euclidean norms.
 - `concepts.hpp`: readable, mutable, owning, strided, and rank-constrained
   tensor-level concepts.
 - `output.hpp`: fixed-output validation and resizable-output shape preparation.
@@ -44,6 +46,8 @@ kernels operate on resolved mdspans.
   runtime-rank tensor requires a separate descriptor and type rather than a
   second meaning for `Tensor`.
 - Every specialization models the tensor-level concepts directly.
+- Rank-zero `ScalarTensor` owners default-construct their one logical element
+  and use `scalar[]` for ordinary host-accessible indexing.
 - `OwningTensor` is an explicit opt-in classification for types whose move
   operation transfers the storage and lifetime exposed through `mdspan()`.
   Non-owning descriptors such as `ConstTensorView` and

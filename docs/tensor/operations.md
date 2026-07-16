@@ -9,6 +9,10 @@ to dense kernels. Symmetry-aware `BlockTensor` operations have additional
 metadata and selection-rule contracts and must not use an implicit dense
 fallback.
 
+The distinction between C++ scalar results, rank-zero Tensor results, and
+future storage migration is specified in
+[Scalar Tensors, Host Scalars, and Storage Transfer](scalar_tensors_and_transfer.md).
+
 ## Header Map
 
 The main entry points are:
@@ -17,6 +21,7 @@ The main entry points are:
 #include <uni20/tensor/tensor.hpp>       // Tensor, DenseMatrix, generated values, views, reshape
 #include <uni20/tensor/copy.hpp>         // copy, make_tensor, materializing reshape
 #include <uni20/tensor/transform.hpp>    // elementwise overwrite and update
+#include <uni20/tensor/reductions.hpp>   // inner product and Euclidean norm
 #include <uni20/tensor/async.hpp>        // async::conj, async::reshape_view
 #include <uni20/linalg/linalg.hpp>       // synchronous dense linalg operations
 #include <uni20/linalg/async.hpp>        // implemented Async linalg wrappers
@@ -60,6 +65,7 @@ ordering have been handled by higher layers.
 | `BasicTensor<Element, Extents, ...>` | Extents-first alias for a `Tensor` specialization with mixed or static extents. |
 | `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor` | Named runtime-extents owner aliases for an explicit physical layout policy. |
 | `DenseMatrix<Element, Layout>` | Rank-two host `Tensor`; column-major by default. |
+| `ScalarTensor<Element, StoragePolicy, ...>` | Rank-zero owning Tensor that retains storage, backend, lifetime, and Async semantics. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
 | `TensorView` | Readable tensor-level object exposing extents, `mdspan()`, and a backend selector. It is a concept, not a base class. |
 | `MutableTensorView` | `TensorView` whose resolved mdspan permits writes. |
@@ -291,6 +297,10 @@ later in this guide.
 | `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
 | `conjugate_inplace(x)` | Eager element mutation. Real values are unchanged. | Reuses existing storage. | Not implemented. |
+| `inner_product(lhs, rhs)` | Conjugate-linear-left full reduction returning a `ScalarTensor`. | Allocates a rank-zero result in the selected storage domain; an explicit scalar output is also supported. | Not implemented. |
+| `inner_product_host(lhs, rhs)` | Same inner product returning a C++ scalar. | CPU path writes the host result directly without allocating a scalar tensor. | Not implemented. |
+| `norm(input)` | Stable Euclidean full reduction returning a real `ScalarTensor`. | Uses scaled sum-of-squares in the CPU reference backend. | Not implemented. |
+| `norm_host(input)` | Same Euclidean norm returning a real C++ scalar. | CPU path writes the host result directly. | Not implemented. |
 | `require_shape`, `ensure_shape` | Output-policy helpers for operation authors. | Validate only, or resize when the output type permits it. | Used inside wrappers; not standalone Async operations. |
 
 For a rank-`R` result, generalized `eye<T>(n0, ..., n{R-1})` returns
