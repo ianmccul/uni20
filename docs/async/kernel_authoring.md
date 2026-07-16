@@ -153,6 +153,16 @@ for `Async<Tensor>`.
 
 Apply the same distinction to future overwrite and compound-update operations.
 
+`assign_transform` and `transform_inplace` apply these rules to a variadic
+reader pack. The callable is ordinary immutable task state, not an async
+operand. It is moved into the coroutine and then into the synchronous operation
+value after all Tensor readers and the output writer are ready. Read-only input
+queues may coincide with one another; only output/input queue equality is
+rejected. A mutable async alias remains fixed to its parent: while holding the
+writer, the transform coroutine copies the bound descriptor locally and
+dispatches through that copy rather than requesting value storage or replacing
+the descriptor.
+
 `eigh` is an allocating multi-output operation. It returns
 `SelfAdjointEighResult<Async<Values>, Async<Vectors>>`, not an
 `Async<SelfAdjointEighResult<...>>`. The two independent output epochs can be

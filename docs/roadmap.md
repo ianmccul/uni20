@@ -29,6 +29,9 @@ The following foundations are implemented and tested.
 - Variadic elementwise overwrite and update operations lower through
   callable-carrying dispatch values to an accessor-respecting CPU reference
   backend.
+- All-async elementwise overwrite and update wrappers retain callable state,
+  construct overwrite outputs when possible, and preserve one-writer update
+  semantics.
 - Async conjugating and reshape aliases retain the source owner and share its
   exact epoch queue.
 
@@ -138,8 +141,6 @@ hierarchy.
   views without allowing descriptors to retarget accidentally.
 - Add async copy/materialization and reshape operations where their overwrite or
   value semantics are unambiguous.
-- Add Async elementwise overwrite and update wrappers while preserving one
-  writer for the output and distinct readers for every input.
 - Keep semantic accessor views such as conjugation read-only; treat writable
   component views such as future `real`/`imag` as true structural slices.
 - Introduce subrange dependency tracking only if whole-owner epoch ordering

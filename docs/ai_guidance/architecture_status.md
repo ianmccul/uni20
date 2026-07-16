@@ -105,11 +105,16 @@ This file is for questions about project maturity, active design seams, and what
 - `assign_transform` and `transform_inplace` dispatch callable-carrying
   elementwise operation values. The CPU reference backend supports arbitrary
   rank, variadic inputs, and non-strided accessor-respecting fallback.
+- Their all-async overloads retain the callable and input readers in one
+  coroutine. Overwrite can construct an empty output; update uses one writer
+  for existing output values and rejects an input on the same epoch queue.
+  Mutable async aliases are supported as fixed-shape outputs without descriptor
+  rebinding.
 - `async::conj` and async reshape views retain the parent owner and share its
   exact epoch queue.
-- All-async `assign_product` and `add_product` lower through the synchronous
-  Tensor GEMM front end. Preserving and consuming async `eigh` return
-  independent async outputs.
+- All-async elementwise transforms, `assign_product`, and `add_product` lower
+  through their synchronous Tensor front ends. Preserving and consuming async
+  `eigh` return independent async outputs.
 - Implemented alias lifetime and assignment rules are documented; future slice
   descriptors still need operation-specific semantics.
 - Default backend selectors are storage-derived candidate lists. Backend values

@@ -22,7 +22,8 @@ kernels operate on resolved mdspans.
 - `conjugate_inplace.hpp`: backend-dispatched eager conjugation of mutable
   tensor storage.
 - `transform.hpp`: backend-dispatched variadic elementwise overwrite and update
-  operations for mdspan and Tensor operands.
+  operations for mdspan and Tensor operands. Their all-async Tensor overloads
+  live in [`linalg/async/`](../linalg/async/).
 - `concepts.hpp`: readable, mutable, owning, strided, and rank-constrained
   tensor-level concepts.
 - `output.hpp`: fixed-output validation and resizable-output shape preparation.

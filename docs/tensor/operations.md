@@ -287,8 +287,8 @@ later in this guide.
 | `reshape_inplace(x, ...)` | Replace a canonical owning tensor mapping at the same compile-time rank. | Keeps the allocation; existing copied descriptors keep their old mapping. | Not implemented. |
 | `reshape(x, ...)` | Return an owning reshaped value. | Canonical lvalue copies; canonical owning rvalue may transfer; generated input materializes in the requested/default layout. | Not implemented. |
 | `copy(out, in)` | Overwrite while observing input accessor semantics. | Resizes a resizable output or validates a fixed output. | Not implemented. |
-| `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. | Resizes a resizable output to the first input or validates a fixed output. | Not implemented. |
-| `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Not implemented. |
+| `assign_transform(out, function, inputs...)` | Variadic elementwise overwrite through backend dispatch. | Resizes a resizable output to the first input or validates a fixed output. | Implemented for all-Async Tensor operands. The callable is immediate state owned by the coroutine. |
+| `transform_inplace(out, function, inputs...)` | Variadic elementwise update with the old output as the callable's first argument. | Output shape is fixed and the output appears once as a read/write operand. | Implemented for all-Async Tensor operands with one output writer and distinct input readers. |
 | `make_tensor(view)` | Materialize a readable tensor or mdspan as an owning host tensor. | Allocates an inferred runtime-extents owner. | Not implemented. |
 | `conjugate_inplace(x)` | Eager element mutation. Real values are unchanged. | Reuses existing storage. | Not implemented. |
 | `require_shape`, `ensure_shape` | Output-policy helpers for operation authors. | Validate only, or resize when the output type permits it. | Used inside wrappers; not standalone Async operations. |
@@ -310,6 +310,16 @@ from storage policy. The CPU reference backend accepts arbitrary rank and input
 arity, respects accessor semantics, and uses logical-index traversal when an
 operand is not strided. Named callable types may gain optimized backend
 implementations without changing these front-end signatures.
+
+The Async overloads keep the same argument order and require every Tensor
+operand to be `Async<T>`. The callable is not itself an async operand: it is
+decayed into the operation value and retained by the coroutine. Overwrite may
+construct an empty async output from the first input's extents; update requires
+an existing output. Input queues may coincide with one another, but the output
+queue must be distinct from every input queue. Mutable owner-retaining async
+aliases are fixed-shape outputs: the coroutine holds their writer, copies the
+bound descriptor locally, and dispatches through that copy without retargeting
+the alias.
 
 ## Dense Linear Algebra Support
 

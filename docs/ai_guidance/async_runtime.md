@@ -182,6 +182,9 @@ This file is for questions about `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `Wri
   this is not general deadlock analysis.
 - An update output is one semantic read/write operand. Its old value is obtained
   through the writer; it is not enrolled again as an input.
+- All-async elementwise transforms retain a variadic input-reader pack and an
+  immediate callable value in the coroutine. Input queues may coincide with
+  one another, but not with the output queue.
 
 ### FAILURE MODES
 

@@ -18,7 +18,8 @@ before they lower to backend wrappers and kernels.
 - `kernel_attempt.hpp`, `dispatch_error.hpp`,
   `dispatch_error_presentation.hpp`: clean backend-decline results and terminal
   dispatch-failure diagnostics.
-- `async.hpp`: opt-in include point for scheduled `Async<Tensor>` operations.
+- `async.hpp`: opt-in include point for scheduled `Async<Tensor>` transforms,
+  matrix products, and eigensystems.
 - [`async/`](async/): all-async Tensor wrappers over the synchronous operation layer.
 - [`blas/`](blas/): mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
 - [`ops/`](ops/): Tensor-facing dense operation wrappers.
