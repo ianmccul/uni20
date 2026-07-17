@@ -9,6 +9,7 @@ if(NOT TARGET CUDA::cudart)
 endif()
 
 add_library(uni20_backend_cuda STATIC
+    buffer.cpp
     cuda_error.cpp
     device.cpp
     runtime.cpp

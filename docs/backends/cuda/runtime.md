@@ -1,9 +1,9 @@
 # CUDA Runtime Foundation
 
-**Status:** the low-level ownership, completion-token, and idle-stream-pool
-primitives are implemented in `src/uni20/backend/cuda/`. CUDA Tensor storage,
-CUDA kernels, coroutine awaiters, and a CUDA-specific scheduler are not yet
-implemented.
+**Status:** the low-level ownership, completion-token, idle-stream-pool, device
+buffer, and scoped stream-access primitives are implemented in
+`src/uni20/backend/cuda/`. CUDA Tensor storage, CUDA kernels, coroutine
+awaiters, and a CUDA-specific scheduler are not yet implemented.
 
 This document defines the resource-management contract beneath future CUDA
 Tensor kernels and async lowering.
@@ -46,24 +46,37 @@ on ambient device state. They can be constructed, destroyed, or used by code
 outside the device scheduler, where `ScopedDevice` remains the correctness
 mechanism.
 
-## Stream And Event Ownership
+## Stream And Completion Ownership
 
-`uni20::cuda::Stream` and `uni20::cuda::Event` are move-only RAII owners of
-CUDA runtime handles:
+`uni20::cuda::Stream` is a reference-counted lease of one `StreamPool` slot.
+Streams are acquired from the pool rather than constructed directly. Copies
+share the same leased slot, and the slot is returned to the pool only after the
+last `Stream` reference is destroyed and all previously queued CUDA work has
+completed.
 
-- copying is disabled;
-- moving transfers ownership;
-- streams are nonblocking by default;
-- dependency events use `cudaEventDisableTiming`;
-- destruction selects the owning device and destroys the CUDA handle.
+`Stream::record_completion()` creates a non-timing CUDA event on the stream's
+own device, records the current stream tail, and returns an immutable shared
+`uni20::cuda::Completion` token. There is no public unrecorded-event state and
+no opportunity to associate an event with the wrong producer device.
 
-Timing-capable events belong in explicit profiling APIs, not dependency
-tracking.
+Consumers install dependencies in the direction that changes the stream:
 
-`uni20::cuda::Completion` is a shared opaque completion token backed by an
-event. One submitted operation records one completion event, regardless of how
-many buffers it reads or writes. Every output and every input read epoch may
-share that token.
+```cpp
+Completion completion = producer.record_completion();
+consumer.wait_on(completion);
+```
+
+The completion retains the producer device and its private event. A consumer
+stream may belong to another device because CUDA supports cross-device event
+waits. Once every delayed consumer has installed its wait or otherwise released
+the token, destroying the final `Completion` reference destroys the host event
+handle without waiting for device completion; CUDA retains any device-side
+state still needed by already-enqueued waits.
+
+Dependency events are allocated per completion initially. Add an event pool only
+if measurement shows that event creation and destruction are a material
+submission cost. Timing-capable events belong in a separate profiling API rather
+than dependency tracking.
 
 ## Actually-Idle Stream Pool
 
@@ -75,29 +88,30 @@ idle -> leased -> pending -> idle
 
 - `idle`: all previously submitted work and the pool-return host function have
   completed; the stream may be leased.
-- `leased`: one host submitter owns the stream and may enqueue waits and work.
-- `pending`: submission has ended, but queued work has not completed.
+- `leased`: one or more scoped `Stream` handles reference the stream and may
+  enqueue waits and work.
+- `pending`: the final stream handle has been destroyed, but queued work has not
+  completed.
 
 `StreamPool::try_acquire()` returns only an `idle` stream. It never returns a
 stream merely because no host submitter currently owns it. This prevents an
 unrelated operation from being queued behind a long-running kernel and
 acquiring a false dependency.
 
-Submitting a lease performs the following transition:
+Destroying the final `Stream` handle performs the following transition:
 
-1. Record one non-timing completion event at the current stream tail.
-2. Mark the slot `pending`.
-3. Enqueue a lightweight `cudaLaunchHostFunc` after the completion event.
-4. Consume the lease and return the completion token.
-5. When the host function runs, mark the slot `idle`.
+1. Mark the slot `pending`.
+2. Enqueue a lightweight `cudaLaunchHostFunc` at the current stream tail.
+3. When the host function runs, mark the slot `idle`.
 
 The host function performs no CUDA calls. It only updates pool bookkeeping.
 Future coroutine integration will also arrange for the oldest stream waiter to
 be rescheduled through the scheduler recorded by its coroutine promise; it must
 not resume arbitrary coroutine work directly on CUDA's callback thread.
 
-An unused lease may be returned explicitly without submission. The caller must
-not use that path after enqueueing CUDA work or a stream wait.
+There is no explicit stream `submit()` step. Recording operation completions is
+done by `Stream::record_completion()` or by scoped buffer access guards; stream
+pool admission is controlled only by the lifetime of `Stream` handles.
 
 ## Streams As Admission Control
 
@@ -113,14 +127,18 @@ The intended awaitable API is conceptually:
 
 ```text
 auto stream = co_await device.acquire_stream();
-install dependency event waits;
-enqueue CUDA work;
-auto completion = stream.submit();
+{
+  auto output_access = output.write(stream);
+  auto input_access = input.read(stream);
+  enqueue CUDA work using the access pointers;
+}
 ```
 
 The exact awaiter and cancellation interface remains part of the future
-`CudaTask`/scheduler design. The current pool exposes nonblocking
-`try_acquire()` so the resource lifecycle can be tested independently.
+`CudaTask`/scheduler design. The current pool exposes both nonblocking
+`try_acquire()` and blocking `acquire()`. The blocking path is suitable for
+bring-up and synchronous-looking CUDA backends; a coroutine must eventually
+suspend rather than call it while waiting for capacity.
 
 A small configurable pool is expected. A reasonable initial heuristic is around
 twice the maximum useful device concurrency, but measured workload behavior
@@ -145,6 +163,46 @@ If event overhead becomes significant for tiny operations, the preferred
 solutions are operation coalescing, batched kernels, or CUDA graphs. Reintroduce
 stream-affinity state only if profiling demonstrates a real need.
 
+## Device Buffers And Scoped Access
+
+`uni20::cuda::DeviceContext` currently owns a validated device, its idle stream
+pool, and a mutex for short buffer-state snapshots and publication.
+`uni20::cuda::Buffer<T>` is a move-only owner of one typed `cudaMalloc`
+allocation associated with that context. The context must outlive its buffers
+and every active stream handle acquired from its stream pool.
+
+A buffer retains the latest exclusive-writer completion and the submitted
+reader completions since that writer. It does not reproduce an `EpochQueue`:
+existing async epochs or synchronous program order establish causality, while
+the retained completions represent unfinished device work.
+
+Scoped access is used as follows:
+
+```cpp
+auto stream = context.streams().acquire();
+{
+  auto out = output.write(stream);
+  auto a = lhs.read(stream);
+  auto b = rhs.read(stream);
+
+  launch_on(stream, out.data(), a.data(), b.data());
+}
+```
+
+`read(stream)` waits the stream on the latest writer completion and returns a
+`ReadBuffer<T>` exposing `T const*`. `write(stream)` waits the stream on the
+latest writer and every unfinished reader, then returns a `WriteBuffer<T>`
+exposing `T*`. Guard destruction records a completion event at the current
+stream tail and briefly locks the context state to publish it. Concurrent
+readers do not wait for one another; a following writer waits for every
+unfinished reader. The full causal and completion contract is in
+[CUDA Buffer Completion Lowering](epoch_design_draft.md).
+
+The current allocation path deliberately uses `cudaMalloc`/`cudaFree` while
+the lifetime semantics are established. It is not the intended hot-path
+allocator; future Tensor storage should use configured stream-ordered pools as
+described in [Memory Allocation](memory_allocation.md).
+
 ## Error Reporting
 
 Checked CUDA runtime calls raise `uni20::cuda::CudaRuntimeError`, which carries:
@@ -159,7 +217,7 @@ Checked CUDA runtime calls raise `uni20::cuda::CudaRuntimeError`, which carries:
 presentation layer. Native C++ mode aborts with that diagnostic; Python mode can
 preserve the structured exception.
 
-RAII cleanup failures and invalid lease-state transitions are logic failures and
+RAII cleanup failures and invalid stream-pool state transitions are logic failures and
 remain fail-fast `CHECK`/`PANIC` paths. Destructors cannot safely switch into the
 recoverable exception policy.
 
@@ -170,17 +228,20 @@ it must not wait forever for a pool-return callback.
 
 ## Next Layer
 
-The next CUDA runtime checkpoint should add:
+The next CUDA runtime checkpoints should add:
 
-1. A device context owning a device-local scheduler, stream pools, and eventual
-   event/handle/workspace pools.
-2. Arena-entry device establishment and restoration through a
+1. Typed CUDA Tensor storage and a device mdspan/accessor contract built over
+   `cuda::Buffer` without making device memory host-indexable.
+2. A device-local scheduler plus eventual provider-handle and workspace pools
+   in `DeviceContext`.
+3. Arena-entry device establishment and restoration through a
    `task_scheduler_observer`.
-3. Heterogeneous `CudaTask` scheduling and nested-await routing, including
+4. Heterogeneous `CudaTask` scheduling and nested-await routing, including
    promise state, continuation return, cancellation, wait, and quiescence
    semantics.
-4. Same-task-type scheduler migration as a separate capability where useful.
-5. Cancellation-safe composite resource acquisition.
-6. A scheduler-neutral completion notification bridge that resubmits through
+5. Same-task-type scheduler migration as a separate capability where useful.
+6. Cancellation-safe coroutine acquisition using the implemented transaction
+   and completion-publication rules.
+7. A scheduler-neutral completion notification bridge that resubmits through
    the scheduler currently recorded by the suspended task.
-7. Deferred CUDA execution-error propagation into async output epochs.
+8. Deferred CUDA execution-error propagation into async output epochs.

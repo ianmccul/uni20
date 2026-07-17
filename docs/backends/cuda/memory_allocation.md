@@ -2,6 +2,11 @@
 
 **Status:** active design note for future CUDA storage and scheduling.
 
+The current bring-up `cuda::Buffer` uses `cudaMalloc`/`cudaFree` and waits for
+its retained writer and reader completions before destruction. That
+implementation establishes ownership and synchronization semantics; it is not
+the intended hot-path allocator described below.
+
 This is a draft design note. It records the intended direction for GPU memory
 allocation in uni20 and why. It is design direction, not a description of current
 implemented behavior.
@@ -60,7 +65,7 @@ of the pool.
 ## Where custom sub-allocation still wins
 
 The sync was one cost; the other is **per-call overhead**. Even `cudaMallocAsync`
-is a driver call (~hundreds of ns to ~µs) — fine for big/medium buffers, but it is
+is a driver call (~ hundreds of ns to ~ µs) — fine for big/medium buffers, but it is
 the *same per-op overhead pathology as the small-block tail*: thousands of tiny
 allocations per matvec × that cost is real time. There, sub-allocating from a
 buffer you already own is a **pointer bump (~ns)**, which the pool cannot match.

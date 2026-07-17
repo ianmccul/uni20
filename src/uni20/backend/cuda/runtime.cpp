@@ -4,10 +4,12 @@
 #include <uni20/common/trace.hpp>
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstddef>
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <ranges>
 #include <utility>
 #include <vector>
@@ -81,148 +83,183 @@ ScopedDevice::~ScopedDevice()
   }
 }
 
-Stream::Stream(int device, unsigned int flags) : device_(device)
+class Completion::State {
+  public:
+    explicit State(int device) : device_(device)
+    {
+      ScopedDevice guard(device_);
+      check(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming), "cudaEventCreateWithFlags", device_);
+    }
+
+    State(State const&) = delete;
+    State& operator=(State const&) = delete;
+
+    ~State()
+    {
+      CleanupDeviceGuard guard(device_);
+      check_cleanup(cudaEventDestroy(event_), "cudaEventDestroy", device_);
+    }
+
+    [[nodiscard]] int device() const noexcept { return device_; }
+    [[nodiscard]] cudaEvent_t native_handle() const noexcept { return event_; }
+
+    void record(int stream_device, cudaStream_t stream) const
+    {
+      CHECK_EQUAL(device_, stream_device);
+      ScopedDevice guard(device_);
+      check(cudaEventRecord(event_, stream), "cudaEventRecord", device_);
+    }
+
+    [[nodiscard]] bool ready() const
+    {
+      ScopedDevice guard(device_);
+      cudaError_t const status = cudaEventQuery(event_);
+      if (status == cudaErrorNotReady)
+      {
+        return false;
+      }
+      check(status, "cudaEventQuery", device_);
+      return true;
+    }
+
+    void synchronize() const
+    {
+      ScopedDevice guard(device_);
+      check(cudaEventSynchronize(event_), "cudaEventSynchronize", device_);
+    }
+
+  private:
+    int device_;
+    cudaEvent_t event_ = nullptr;
+};
+
+namespace
 {
-  ScopedDevice guard(device_);
-  check(cudaStreamCreateWithFlags(&stream_, flags), "cudaStreamCreateWithFlags", device_);
+
+class StreamResource {
+  public:
+    StreamResource(int device, unsigned int flags) : device_(device)
+    {
+      ScopedDevice guard(device_);
+      check(cudaStreamCreateWithFlags(&stream_, flags), "cudaStreamCreateWithFlags", device_);
+    }
+
+    StreamResource(StreamResource const&) = delete;
+    StreamResource& operator=(StreamResource const&) = delete;
+    StreamResource(StreamResource&& other) noexcept : device_(other.device_), stream_(other.stream_)
+    {
+      other.device_ = -1;
+      other.stream_ = nullptr;
+    }
+
+    StreamResource& operator=(StreamResource&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->reset();
+        device_ = other.device_;
+        stream_ = other.stream_;
+        other.device_ = -1;
+        other.stream_ = nullptr;
+      }
+      return *this;
+    }
+
+    ~StreamResource() { this->reset(); }
+
+    [[nodiscard]] int device() const noexcept { return device_; }
+    [[nodiscard]] cudaStream_t native_handle() const noexcept { return stream_; }
+
+    void synchronize() const
+    {
+      CHECK(stream_ != nullptr);
+      ScopedDevice guard(device_);
+      check(cudaStreamSynchronize(stream_), "cudaStreamSynchronize", device_);
+    }
+
+  private:
+    int device_ = -1;
+    cudaStream_t stream_ = nullptr;
+
+    void reset() noexcept
+    {
+      if (stream_ == nullptr)
+      {
+        return;
+      }
+      CleanupDeviceGuard guard(device_);
+      check_cleanup(cudaStreamDestroy(stream_), "cudaStreamDestroy", device_);
+      device_ = -1;
+      stream_ = nullptr;
+    }
+};
+
+} // namespace
+
+class Stream::State {
+  public:
+    State(StreamPool::Impl& pool, std::size_t slot) noexcept : pool_(&pool), slot_(slot) {}
+    State(State const&) = delete;
+    State& operator=(State const&) = delete;
+    ~State();
+
+    [[nodiscard]] int device() const noexcept;
+    [[nodiscard]] cudaStream_t native_handle() const noexcept;
+    void synchronize() const;
+    [[nodiscard]] Completion record_completion() const;
+    void wait_on(Completion const& completion) const;
+
+  private:
+    StreamPool::Impl* pool_;
+    std::size_t slot_;
+};
+
+Stream::Stream(std::shared_ptr<State> state) noexcept : state_(std::move(state)) {}
+
+int Stream::device() const noexcept
+{
+  CHECK(state_ != nullptr);
+  return state_->device();
 }
 
-Stream::Stream(Stream&& other) noexcept : device_(other.device_), stream_(other.stream_)
+cudaStream_t Stream::native_handle() const noexcept
 {
-  other.device_ = -1;
-  other.stream_ = nullptr;
+  CHECK(state_ != nullptr);
+  return state_->native_handle();
 }
-
-Stream& Stream::operator=(Stream&& other) noexcept
-{
-  if (this != &other)
-  {
-    this->reset();
-    device_ = other.device_;
-    stream_ = other.stream_;
-    other.device_ = -1;
-    other.stream_ = nullptr;
-  }
-  return *this;
-}
-
-Stream::~Stream() { this->reset(); }
 
 void Stream::synchronize() const
 {
-  CHECK(stream_ != nullptr);
-  ScopedDevice guard(device_);
-  check(cudaStreamSynchronize(stream_), "cudaStreamSynchronize", device_);
+  CHECK(state_ != nullptr);
+  state_->synchronize();
 }
 
-void Stream::reset() noexcept
+Completion Stream::record_completion() const
 {
-  if (stream_ == nullptr)
-  {
-    return;
-  }
-  CleanupDeviceGuard guard(device_);
-  check_cleanup(cudaStreamDestroy(stream_), "cudaStreamDestroy", device_);
-  device_ = -1;
-  stream_ = nullptr;
+  CHECK(state_ != nullptr);
+  return state_->record_completion();
 }
 
-Event::Event(int device) : device_(device)
+void Stream::wait_on(Completion const& completion) const
 {
-  ScopedDevice guard(device_);
-  check(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming), "cudaEventCreateWithFlags", device_);
+  CHECK(state_ != nullptr);
+  state_->wait_on(completion);
 }
 
-Event::Event(Event&& other) noexcept : device_(other.device_), event_(other.event_)
-{
-  other.device_ = -1;
-  other.event_ = nullptr;
-}
+Completion::Completion(std::shared_ptr<State> state) : state_(std::move(state)) {}
 
-Event& Event::operator=(Event&& other) noexcept
-{
-  if (this != &other)
-  {
-    this->reset();
-    device_ = other.device_;
-    event_ = other.event_;
-    other.device_ = -1;
-    other.event_ = nullptr;
-  }
-  return *this;
-}
-
-Event::~Event() { this->reset(); }
-
-void Event::record(Stream const& stream) const
-{
-  CHECK(event_ != nullptr);
-  CHECK_EQUAL(device_, stream.device());
-  ScopedDevice guard(stream.device());
-  check(cudaEventRecord(event_, stream.native_handle()), "cudaEventRecord", stream.device());
-}
-
-void Event::wait_on(Stream const& stream) const
-{
-  CHECK(event_ != nullptr);
-  ScopedDevice guard(stream.device());
-  check(cudaStreamWaitEvent(stream.native_handle(), event_), "cudaStreamWaitEvent", stream.device());
-}
-
-bool Event::ready() const
-{
-  CHECK(event_ != nullptr);
-  ScopedDevice guard(device_);
-  cudaError_t const status = cudaEventQuery(event_);
-  if (status == cudaErrorNotReady)
-  {
-    return false;
-  }
-  check(status, "cudaEventQuery", device_);
-  return true;
-}
-
-void Event::synchronize() const
-{
-  CHECK(event_ != nullptr);
-  ScopedDevice guard(device_);
-  check(cudaEventSynchronize(event_), "cudaEventSynchronize", device_);
-}
-
-void Event::reset() noexcept
-{
-  if (event_ == nullptr)
-  {
-    return;
-  }
-  CleanupDeviceGuard guard(device_);
-  check_cleanup(cudaEventDestroy(event_), "cudaEventDestroy", device_);
-  device_ = -1;
-  event_ = nullptr;
-}
-
-Completion::Completion(Event event) : event_(std::make_shared<Event>(std::move(event))) {}
-
-int Completion::device() const noexcept { return event_ == nullptr ? -1 : event_->device(); }
-
-cudaEvent_t Completion::native_handle() const noexcept { return event_ == nullptr ? nullptr : event_->native_handle(); }
-
-void Completion::wait_on(Stream const& stream) const
-{
-  CHECK(event_ != nullptr);
-  event_->wait_on(stream);
-}
+int Completion::device() const noexcept { return state_ == nullptr ? -1 : state_->device(); }
 
 bool Completion::ready() const
 {
-  CHECK(event_ != nullptr);
-  return event_->ready();
+  CHECK(state_ != nullptr);
+  return state_->ready();
 }
 
 void Completion::synchronize() const
 {
-  CHECK(event_ != nullptr);
-  event_->synchronize();
+  CHECK(state_ != nullptr);
+  state_->synchronize();
 }
 
 class StreamPool::Impl {
@@ -238,7 +275,7 @@ class StreamPool::Impl {
     {
         explicit Slot(int device, unsigned int flags) : stream(device, flags) {}
 
-        Stream stream;
+        StreamResource stream;
         SlotState state = SlotState::idle;
     };
 
@@ -269,6 +306,7 @@ class StreamPool::Impl {
       {
         std::lock_guard lock(mutex_);
         stopping_ = true;
+        available_.notify_all();
         CHECK(std::ranges::none_of(slots_, [](Slot const& slot) { return slot.state == SlotState::leased; }),
               "destroying CUDA stream pool with active leases");
       }
@@ -297,60 +335,62 @@ class StreamPool::Impl {
       return static_cast<std::size_t>(std::distance(slots_.begin(), found));
     }
 
-    [[nodiscard]] Stream& stream(std::size_t slot)
+    [[nodiscard]] std::size_t acquire()
+    {
+      std::unique_lock lock(mutex_);
+      available_.wait(lock, [this] {
+        return stopping_ || std::ranges::any_of(slots_, [](Slot const& slot) { return slot.state == SlotState::idle; });
+      });
+      CHECK(!stopping_);
+
+      auto const found = std::ranges::find_if(slots_, [](Slot const& slot) { return slot.state == SlotState::idle; });
+      CHECK(found != slots_.end());
+      found->state = SlotState::leased;
+      return static_cast<std::size_t>(std::distance(slots_.begin(), found));
+    }
+
+    [[nodiscard]] StreamResource& stream(std::size_t slot)
     {
       CHECK(slot < slots_.size(), slot, slots_.size());
       return slots_[slot].stream;
     }
 
-    [[nodiscard]] Completion submit(std::size_t slot)
+    void release_when_idle(std::size_t slot) noexcept
     {
-      Stream& selected = this->stream(slot);
-      try
+      StreamResource& selected = this->stream(slot);
+      auto* payload = new (std::nothrow) ReturnPayload{this, slot};
+      if (payload == nullptr)
       {
-        Event event(device_);
-        event.record(selected);
-        Completion completion(std::move(event));
-        auto* payload = new ReturnPayload{this, slot};
-
-        {
-          std::lock_guard lock(mutex_);
-          CHECK(slots_[slot].state == SlotState::leased, slot);
-          slots_[slot].state = SlotState::pending;
-        }
-
-        // The event publishes data readiness. The following host function is a
-        // separate admission-control boundary that makes the stream leasable.
-        ScopedDevice guard(device_);
-        cudaError_t const status = cudaLaunchHostFunc(selected.native_handle(), &Impl::return_stream_callback, payload);
-        if (status != cudaSuccess)
-        {
-          delete payload;
-        }
-        check(status, "cudaLaunchHostFunc", device_);
-
-        return completion;
+        this->synchronize_and_mark_idle(slot, selected);
+        PANIC("failed to allocate CUDA stream-pool return callback payload", device_, slot);
       }
-      catch (...)
+
       {
-        // Submission setup can fail after the caller has queued work. Complete
-        // that work before making the slot available and propagating the error.
-        CleanupDeviceGuard guard(device_);
-        check_cleanup(cudaStreamSynchronize(selected.native_handle()),
-                      "cudaStreamSynchronize after failed stream submission", device_);
         std::lock_guard lock(mutex_);
-        CHECK(slots_[slot].state == SlotState::leased || slots_[slot].state == SlotState::pending, slot);
-        slots_[slot].state = SlotState::idle;
-        throw;
+        CHECK(slots_[slot].state == SlotState::leased, slot);
+        slots_[slot].state = SlotState::pending;
+      }
+
+      // The host function is the stream-pool admission boundary. The stream is
+      // not leasable again until all preceding CUDA work and buffer-completion
+      // events have completed.
+      ScopedDevice guard(device_);
+      cudaError_t const status = cudaLaunchHostFunc(selected.native_handle(), &Impl::return_stream_callback, payload);
+      if (status != cudaSuccess)
+      {
+        delete payload;
+        this->synchronize_and_mark_idle(slot, selected);
+        check_cleanup(status, "cudaLaunchHostFunc stream-pool return", device_);
       }
     }
 
-    void release_without_submission(std::size_t slot) noexcept
+    void release_leased_without_work(std::size_t slot) noexcept
     {
       std::lock_guard lock(mutex_);
       CHECK(slot < slots_.size(), slot, slots_.size());
       CHECK(slots_[slot].state == SlotState::leased, slot);
       slots_[slot].state = SlotState::idle;
+      available_.notify_one();
     }
 
     [[nodiscard]] std::size_t count(SlotState state) const noexcept
@@ -376,6 +416,19 @@ class StreamPool::Impl {
     [[nodiscard]] std::size_t size() const noexcept { return slots_.size(); }
 
   private:
+    void synchronize_and_mark_idle(std::size_t slot, StreamResource& selected) noexcept
+    {
+      CleanupDeviceGuard guard(device_);
+      check_cleanup(cudaStreamSynchronize(selected.native_handle()),
+                    "cudaStreamSynchronize during stream-pool return cleanup", device_);
+
+      std::lock_guard lock(mutex_);
+      CHECK(slot < slots_.size(), slot, slots_.size());
+      CHECK(slots_[slot].state == SlotState::leased || slots_[slot].state == SlotState::pending, slot);
+      slots_[slot].state = SlotState::idle;
+      available_.notify_one();
+    }
+
     static void CUDART_CB return_stream_callback(void* raw_payload) noexcept
     {
       std::unique_ptr<ReturnPayload> payload(static_cast<ReturnPayload*>(raw_payload));
@@ -388,10 +441,12 @@ class StreamPool::Impl {
       CHECK(slot < slots_.size(), slot, slots_.size());
       CHECK(slots_[slot].state == SlotState::pending, slot);
       slots_[slot].state = SlotState::idle;
+      available_.notify_one();
     }
 
     int device_;
     mutable std::mutex mutex_;
+    std::condition_variable available_;
     std::vector<Slot> slots_;
     bool stopping_ = false;
 };
@@ -400,14 +455,36 @@ StreamPool::StreamPool(Config config) : impl_(std::make_unique<Impl>(config)) {}
 
 StreamPool::~StreamPool() = default;
 
-std::optional<StreamPool::Lease> StreamPool::try_acquire()
+std::optional<Stream> StreamPool::try_acquire()
 {
   auto const slot = impl_->try_acquire();
   if (!slot.has_value())
   {
     return std::nullopt;
   }
-  return Lease(*this, *slot);
+  try
+  {
+    return Stream(std::make_shared<Stream::State>(*impl_, *slot));
+  }
+  catch (...)
+  {
+    impl_->release_leased_without_work(*slot);
+    throw;
+  }
+}
+
+Stream StreamPool::acquire()
+{
+  std::size_t const slot = impl_->acquire();
+  try
+  {
+    return Stream(std::make_shared<Stream::State>(*impl_, slot));
+  }
+  catch (...)
+  {
+    impl_->release_leased_without_work(slot);
+    throw;
+  }
 }
 
 int StreamPool::device() const noexcept { return impl_->device(); }
@@ -422,61 +499,35 @@ std::size_t StreamPool::pending_stream_count() const noexcept { return impl_->co
 
 void StreamPool::synchronize() { impl_->synchronize(); }
 
-Completion StreamPool::submit(std::size_t slot) { return impl_->submit(slot); }
-
-void StreamPool::release_without_submission(std::size_t slot) noexcept { impl_->release_without_submission(slot); }
-
-StreamPool::Lease::Lease(Lease&& other) noexcept : pool_(other.pool_), slot_(other.slot_)
+Stream::State::~State()
 {
-  other.pool_ = nullptr;
-  other.slot_ = 0;
-}
-
-StreamPool::Lease& StreamPool::Lease::operator=(Lease&& other) noexcept
-{
-  if (this != &other)
+  if (pool_ != nullptr)
   {
-    CHECK(pool_ == nullptr, "overwriting an active CUDA stream lease");
-    pool_ = other.pool_;
-    slot_ = other.slot_;
-    other.pool_ = nullptr;
-    other.slot_ = 0;
-  }
-  return *this;
-}
-
-StreamPool::Lease::~Lease() { CHECK(pool_ == nullptr, "CUDA stream lease was neither submitted nor released"); }
-
-Stream& StreamPool::Lease::stream() const noexcept
-{
-  CHECK(pool_ != nullptr);
-  return pool_->impl_->stream(slot_);
-}
-
-Completion StreamPool::Lease::submit()
-{
-  CHECK(pool_ != nullptr);
-  try
-  {
-    Completion completion = pool_->submit(slot_);
-    pool_ = nullptr;
-    slot_ = 0;
-    return completion;
-  }
-  catch (...)
-  {
-    pool_ = nullptr;
-    slot_ = 0;
-    throw;
+    pool_->release_when_idle(slot_);
   }
 }
 
-void StreamPool::Lease::release_without_submission() noexcept
+int Stream::State::device() const noexcept { return pool_->stream(slot_).device(); }
+
+cudaStream_t Stream::State::native_handle() const noexcept { return pool_->stream(slot_).native_handle(); }
+
+void Stream::State::synchronize() const { pool_->stream(slot_).synchronize(); }
+
+Completion Stream::State::record_completion() const
 {
-  CHECK(pool_ != nullptr);
-  pool_->release_without_submission(slot_);
-  pool_ = nullptr;
-  slot_ = 0;
+  StreamResource const& selected = pool_->stream(slot_);
+  auto state = std::make_shared<Completion::State>(selected.device());
+  state->record(selected.device(), selected.native_handle());
+  return Completion(std::move(state));
+}
+
+void Stream::State::wait_on(Completion const& completion) const
+{
+  CHECK(completion.state_ != nullptr);
+  StreamResource const& selected = pool_->stream(slot_);
+  ScopedDevice guard(selected.device());
+  check(cudaStreamWaitEvent(selected.native_handle(), completion.state_->native_handle()), "cudaStreamWaitEvent",
+        selected.device());
 }
 
 } // namespace uni20::cuda

@@ -25,6 +25,8 @@ also registered with CTest as executable documentation.
   failures, and DAG diagnostics.
 - [Common](common/): build information, floating-point test helpers,
   and trace diagnostics.
+- [CUDA](cuda/): CUDA build diagnostics, device discovery, and runtime
+  foundation smoke checks.
 - [Krylov](krylov/): symmetric/nonsymmetric Matrix Market drivers and
   exponential-action probes.
 - [Linear algebra](linalg/): provider reporting, kernel dispatch, and

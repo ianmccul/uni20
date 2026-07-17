@@ -20,7 +20,7 @@ The current CUDA runtime layer provides:
 
 - structured `CudaRuntimeError` diagnostics through the presentation layer;
 - temporary device selection with restoration;
-- move-only CUDA stream and non-timing event ownership;
+- reference-counted scoped CUDA stream-pool leases;
 - shared operation-completion tokens;
 - a device-local stream pool with `idle`, `leased`, and `pending` states;
 - stream return through `cudaLaunchHostFunc` after actual device completion.
@@ -39,9 +39,8 @@ The required operation shape is:
 acquire an actually idle stream
 install dependency event waits
 enqueue CUDA work
-record one operation completion event
-enqueue the stream-return host function
-consume the lease
+destroy scoped buffer guards so they publish completion events
+destroy the final stream handle so it enqueues the stream-return host function
 mark the slot idle only when the host function runs
 ```
 
@@ -57,9 +56,11 @@ run arbitrary coroutine continuation work.
 
 Use one event-based model uniformly:
 
-- every submitted operation records one non-timing completion event;
-- multi-output operations share one completion token;
-- readers and writers publish that token into their buffer epoch state;
+- scoped buffer guards record non-timing completion events when destroyed;
+- multi-buffer operations may record additional operation-level completions
+  where a backend or diagnostic needs one;
+- readers and writers publish their guard completion tokens into their buffer
+  epoch state;
 - later operations acquire any idle stream and install
   `cudaStreamWaitEvent` dependencies;
 - correctness never depends on producer/consumer stream affinity.
@@ -73,7 +74,9 @@ or CUDA graphs.
 
 ## Device Context
 
-The eventual `CudaDeviceContext` should own device-local resources:
+The implemented `cuda::DeviceContext` currently owns the device, short-lived
+buffer-state mutex, and idle stream pool. It should grow to own device-local
+resources including:
 
 - one logical scheduler arena for the device;
 - the idle stream pool;
@@ -101,15 +104,22 @@ latency problems.
 
 ## Buffer Epochs
 
-GPU synchronization belongs to the memory allocation or storage epoch, not to
-an incidental operation object:
+The implemented `cuda::Buffer<T>` stores the latest exclusive-writer completion
+and reader completions submitted since that writer. `buffer.read(stream)` waits
+only for the writer and permits concurrent readers. `buffer.write(stream)` waits
+for the writer and all unfinished readers, then replaces that state with its
+completion.
 
-- reads wait on the latest writer completion;
-- writes wait on the latest writer and all outstanding readers;
-- reads publish reader completions;
-- writes publish a new writer completion and supersede prior readers;
-- buffer storage remains alive until every retained completion token is no
-  longer needed.
+`EpochQueue`, `ReadBuffer`, and `WriteBuffer` remain the source of legal access
+ordering and object lifetime. CUDA completions only lower already-causally-ready
+operations across independently selected streams. The CUDA state has no
+generation, runnable queue, or task wakeup behavior and is not an independent
+`GpuEpochQueue`.
+
+An async CUDA operation must destroy or otherwise release its CUDA scoped access
+guards before releasing the CPU buffer capability that made it runnable.
+Conflicting accesses are therefore causally ordered before CUDA access
+acquisition; compatible readers may snapshot and publish concurrently.
 
 The CPU async DAG establishes causal readiness before CUDA submission. CUDA
 events lower already-submitted memory dependencies; they must not wait for
@@ -165,8 +175,8 @@ The `origin/tensorcontraction-integration` branch remains useful implementation
 evidence for:
 
 - per-device contexts;
-- affine stream and cuBLAS-lane leases;
-- non-timing event pooling;
+- scoped stream handles and cuBLAS-lane leases;
+- non-timing event lifecycle and reuse measurements;
 - scratch-buffer reuse;
 - stream-ordered allocation and free;
 - memory-pool retention and allocation caching;

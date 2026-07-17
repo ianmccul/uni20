@@ -878,7 +878,7 @@ schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {         // -> CPU s
 }(c.block(r).write(), a.block(ai).read(), b.block(bi).read()));
 
 // Device block kernel: CudaTaskPromise carries/selects the device context.
-schedule([](auto c_, auto a_, auto b_, CudaDeviceContext* context) static -> CudaTask {
+schedule([](auto c_, auto a_, auto b_, cuda::DeviceContext* context) static -> CudaTask {
   auto C_ = co_await c_;  auto A_ = co_await a_;  auto B_ = co_await b_;
   auto resources = co_await context->acquire_gemm_resources(C_, A_, B_);
   cublas_gemm(resources, C_, A_, B_);                                // no suspension in leaf call

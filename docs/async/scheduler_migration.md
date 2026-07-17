@@ -108,7 +108,7 @@ schedule(make_cuda_task(device, ...)); // CudaTask  -> scheduler for that device
 ```
 
 The CUDA scheduler selection may use state in `CudaTaskPromise`, such as a
-`CudaDeviceContext*` or device ordinal. The scheduler then owns a type-erased
+`cuda::DeviceContext*` or device ordinal. The scheduler then owns a type-erased
 activation for queueing purposes without erasing or replacing the coroutine's
 actual promise.
 

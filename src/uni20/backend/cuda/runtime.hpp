@@ -3,7 +3,7 @@
 /**
  * \file runtime.hpp
  * \ingroup backend_cuda
- * \brief CUDA device, stream, event, completion, and idle-stream-pool primitives.
+ * \brief CUDA device, stream, completion, and idle-stream-pool primitives.
  */
 
 #include <cuda_runtime_api.h>
@@ -14,6 +14,9 @@
 
 namespace uni20::cuda
 {
+
+class Completion;
+class StreamPool;
 
 /// \brief Temporarily select one CUDA device and restore the previous device on destruction.
 class ScopedDevice {
@@ -33,67 +36,46 @@ class ScopedDevice {
     bool restore_;
 };
 
-/// \brief Move-only owner of one CUDA stream.
+/// \brief Reference-counted lease of one CUDA stream-pool slot.
+/// \details Streams are acquired from `StreamPool`. Copies share the same
+///          lease; the stream is returned to the pool only after the last
+///          reference is destroyed and all queued CUDA work has completed.
 class Stream {
   public:
-    /// \brief Create a stream on `device`.
-    explicit Stream(int device, unsigned int flags = cudaStreamNonBlocking);
-    Stream(Stream const&) = delete;
-    Stream& operator=(Stream const&) = delete;
-    Stream(Stream&& other) noexcept;
-    Stream& operator=(Stream&& other) noexcept;
-    ~Stream();
+    class State;
+
+    Stream() = default;
+    Stream(Stream const&) noexcept = default;
+    Stream& operator=(Stream const&) noexcept = default;
+    Stream(Stream&& other) noexcept = default;
+    Stream& operator=(Stream&& other) noexcept = default;
+    ~Stream() = default;
+
+    /// \brief Return whether this handle refers to a leased CUDA stream.
+    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(state_); }
 
     /// \brief Return the device that owns this stream.
-    [[nodiscard]] int device() const noexcept { return device_; }
+    [[nodiscard]] int device() const noexcept;
 
     /// \brief Return the CUDA runtime stream handle.
-    [[nodiscard]] cudaStream_t native_handle() const noexcept { return stream_; }
+    [[nodiscard]] cudaStream_t native_handle() const noexcept;
 
     /// \brief Wait on all work currently queued in this stream.
     void synchronize() const;
 
-  private:
-    int device_ = -1;
-    cudaStream_t stream_ = nullptr;
+    /// \brief Record and return an immutable completion for the current stream tail.
+    [[nodiscard]] Completion record_completion() const;
 
-    void reset() noexcept;
-};
-
-/// \brief Move-only owner of one non-timing CUDA event.
-class Event {
-  public:
-    /// \brief Create a non-timing event on `device`.
-    explicit Event(int device);
-    Event(Event const&) = delete;
-    Event& operator=(Event const&) = delete;
-    Event(Event&& other) noexcept;
-    Event& operator=(Event&& other) noexcept;
-    ~Event();
-
-    /// \brief Return the device on which this event was created.
-    [[nodiscard]] int device() const noexcept { return device_; }
-
-    /// \brief Return the CUDA runtime event handle.
-    [[nodiscard]] cudaEvent_t native_handle() const noexcept { return event_; }
-
-    /// \brief Record the event at the current tail of `stream`.
-    void record(Stream const& stream) const;
-
-    /// \brief Make `stream` wait for the most recently recorded event generation.
-    void wait_on(Stream const& stream) const;
-
-    /// \brief Return whether the recorded event generation has completed.
-    [[nodiscard]] bool ready() const;
-
-    /// \brief Wait for the recorded event generation to complete.
-    void synchronize() const;
+    /// \brief Make this stream wait for `completion` before executing subsequent work.
+    /// \details The producer completion may belong to a different CUDA device.
+    void wait_on(Completion const& completion) const;
 
   private:
-    int device_ = -1;
-    cudaEvent_t event_ = nullptr;
+    explicit Stream(std::shared_ptr<State> state) noexcept;
 
-    void reset() noexcept;
+    std::shared_ptr<State> state_;
+
+    friend class StreamPool;
 };
 
 /// \brief Shared completion token for one submitted CUDA operation.
@@ -102,16 +84,10 @@ class Completion {
     Completion() = default;
 
     /// \brief Return whether this token refers to a submitted operation.
-    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(event_); }
+    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(state_); }
 
     /// \brief Return the producer device ordinal.
     [[nodiscard]] int device() const noexcept;
-
-    /// \brief Return the underlying CUDA event handle.
-    [[nodiscard]] cudaEvent_t native_handle() const noexcept;
-
-    /// \brief Make `stream` wait for this completion.
-    void wait_on(Stream const& stream) const;
 
     /// \brief Return whether the operation has completed.
     [[nodiscard]] bool ready() const;
@@ -120,18 +96,20 @@ class Completion {
     void synchronize() const;
 
   private:
-    explicit Completion(Event event);
+    class State;
 
-    std::shared_ptr<Event> event_;
+    explicit Completion(std::shared_ptr<State> state);
 
-    friend class StreamPool;
+    std::shared_ptr<State> state_;
+
+    friend class Stream;
+    friend class Stream::State;
 };
 
 /// \brief Device-local pool whose streams become available only after their queued work completes.
+/// \details The pool must outlive every `Stream` handle acquired from it.
 class StreamPool {
   public:
-    class Lease;
-
     /// \brief Configuration for a device-local idle-stream pool.
     struct Config
     {
@@ -147,7 +125,12 @@ class StreamPool {
     ~StreamPool();
 
     /// \brief Try to lease one actually idle stream without waiting.
-    [[nodiscard]] std::optional<Lease> try_acquire();
+    [[nodiscard]] std::optional<Stream> try_acquire();
+
+    /// \brief Block until one actually idle stream can be leased.
+    /// \details Pool-return CUDA callbacks notify blocked callers directly;
+    ///          no scheduler participation is required.
+    [[nodiscard]] Stream acquire();
 
     /// \brief Return the device served by this pool.
     [[nodiscard]] int device() const noexcept;
@@ -171,44 +154,7 @@ class StreamPool {
     class Impl;
     std::unique_ptr<Impl> impl_;
 
-    Completion submit(std::size_t slot);
-    void release_without_submission(std::size_t slot) noexcept;
-
-    friend class Lease;
-};
-
-/// \brief Affine lease of one idle stream slot.
-/// \details The lease must be consumed with `submit()` after enqueueing work, or
-///          with `release_without_submission()` if no work was enqueued.
-class StreamPool::Lease {
-  public:
-    Lease() = default;
-    Lease(Lease const&) = delete;
-    Lease& operator=(Lease const&) = delete;
-    Lease(Lease&& other) noexcept;
-    Lease& operator=(Lease&& other) noexcept;
-    ~Lease();
-
-    /// \brief Return whether this lease owns a stream slot.
-    [[nodiscard]] explicit operator bool() const noexcept { return pool_ != nullptr; }
-
-    /// \brief Return the leased stream.
-    [[nodiscard]] Stream& stream() const noexcept;
-
-    /// \brief Record completion, arrange idle-pool return, and consume this lease.
-    [[nodiscard]] Completion submit();
-
-    /// \brief Return an unused stream immediately and consume this lease.
-    /// \pre No CUDA work or wait was enqueued into the leased stream.
-    void release_without_submission() noexcept;
-
-  private:
-    Lease(StreamPool& pool, std::size_t slot) : pool_(&pool), slot_(slot) {}
-
-    StreamPool* pool_ = nullptr;
-    std::size_t slot_ = 0;
-
-    friend class StreamPool;
+    friend class Stream::State;
 };
 
 } // namespace uni20::cuda

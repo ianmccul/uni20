@@ -57,7 +57,7 @@ So: kind is a type, location is a value.
   stateless.
 - **The prototype validates the runtime-location model.** The vendored
   TensorContraction engine models location entirely at runtime:
-  `DeviceMatrixView::deviceId_` (an `int`), `CudaDeviceContext`, and a
+  `DeviceMatrixView::deviceId_` (an `int`), `cuda::DeviceContext`, and a
   `MatrixHeader` POD that is "safe to send via MPI as raw bytes," with per-block
   placement layouts chosen at runtime. This is the "data lives on a device" model in
   practice, with multi-GPU + MPI placement as runtime decisions.

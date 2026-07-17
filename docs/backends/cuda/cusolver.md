@@ -157,8 +157,10 @@ API rather than reintroducing implicit host tensors.
 
 The CUDA/cuSOLVER layer should not become a second dependency DAG. CPU-side
 epochs establish causal readiness: a GPU operation is submitted only once its
-metadata and object lifetime are valid. The GPU storage layer then lowers
-device-local read/write dependencies with CUDA events and streams.
+metadata and object lifetime are valid. The current GPU runtime lowers this
+through scoped `buffer.read(stream)` / `buffer.write(stream)` guards and
+retained writer/reader completions, without reconstructing an independent epoch
+graph.
 
 This keeps the split clear:
 
@@ -167,7 +169,7 @@ This keeps the split clear:
 - per-device scheduler: execution of `CudaTask` activations routed from global
   scheduling or heterogeneous nested `co_await`, with bounded host
   participation;
-- GPU storage/runtime: buffer read/write epochs, stream/event synchronization,
+- GPU storage/runtime: buffer access completions, stream/event synchronization,
   resource leasing, and device work submission;
 - cuSOLVER backend: a non-suspending solver call that consumes leased resources
   and publishes submission/completion tokens.

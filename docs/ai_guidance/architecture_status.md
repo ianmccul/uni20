@@ -210,7 +210,9 @@ This file is for questions about project maturity, active design seams, and what
 ### SAFE CLAIMS
 
 - A low-level CUDA runtime foundation exists for structured errors, device
-  selection, stream/event ownership, completion tokens, and idle stream pooling.
+  selection, reference-counted stream-pool leases, immutable completion tokens,
+  and idle stream pooling. Typed move-only device buffers and scoped read/write
+  guards implement completion lowering without duplicating `EpochQueue`.
 - Full CUDA execution is not complete.
 - Full cuSOLVER execution is not complete.
 - Future CUDA scheduler and device-resource design notes live in

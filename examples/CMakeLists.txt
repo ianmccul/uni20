@@ -9,6 +9,13 @@ uni20_add_example(trace_example common/trace_example.cpp fmt::fmt mdspan uni20_c
 
 uni20_add_example(mdspan_example mdspan/mdspan_example.cpp fmt::fmt mdspan uni20_common)
 
+if(TARGET uni20_backend_cuda)
+  uni20_add_example(cuda_hello_world_example cuda/cuda_hello_world_example.cpp fmt::fmt uni20_core uni20_common
+                    uni20_backend_cuda)
+else()
+  uni20_add_example(cuda_hello_world_example cuda/cuda_hello_world_example.cpp fmt::fmt uni20_core uni20_common)
+endif()
+
 if(TARGET uni20_backend_blas)
   uni20_add_example(blas_example linalg/blas_example.cpp fmt::fmt uni20_backend_blas)
 endif()

@@ -100,7 +100,7 @@ migration cannot change an `AsyncTask` frame into a `CudaTask` frame.
 A oneTBB arena limits simultaneous participation but does not own fixed worker
 threads. A device-arena observer establishes and restores the CUDA device as
 workers or application threads enter and leave. Device resources therefore
-belong to `CudaDeviceContext` pools, not permanently to workers.
+belong to `cuda::DeviceContext` pools, not permanently to workers.
 
 CUDA host calls then fall into two execution classes:
 

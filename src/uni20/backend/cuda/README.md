@@ -10,8 +10,10 @@ CUDA coroutine scheduler.
 - `cuda_error_presentation.hpp`: presentation-layer rendering for CUDA failures.
 - `device.hpp`: validated device identities and process-wide immutable hardware
   capability caching.
-- `runtime.hpp`: device guards, move-only streams/events, completion tokens, and
-  the device-local idle-stream pool.
+- `buffer.hpp`: typed move-only device allocations, device contexts, and scoped
+  read/write access guards.
+- `runtime.hpp`: device guards, reference-counted stream-pool leases, immutable
+  completion tokens, and the device-local idle-stream pool.
 - `CMakeLists.txt`: CUDA backend target setup.
 
 ## Notes
@@ -22,13 +24,24 @@ CUDA coroutine scheduler.
   it does not create schedulers, streams, provider handles, or allocation pools.
 - Runtime capability checks should remain operation-specific; do not assume one
   CUDA build option makes every CUDA library feature available.
-- A stream-pool slot is available only after all work previously submitted to
-  that stream has completed. Returning a lease records a non-timing completion
-  event and enqueues a lightweight host function that marks the slot idle.
+- A stream-pool slot is available only after all work previously queued to that
+  stream has completed. Destroying the final `cuda::Stream` handle enqueues a
+  lightweight host function that marks the slot idle.
+- `Stream::record_completion()` creates and records the private event on the
+  producer stream's device. Consumers install same- or cross-device dependencies
+  with `stream.wait_on(completion)`.
 - Buffer dependencies use completion events and `cudaStreamWaitEvent`; the pool
   does not attempt dependent-task stream affinity.
+- `cuda::Buffer<T>` retains the latest exclusive-writer completion and reader
+  completions since that writer. The existing async `EpochQueue` or synchronous
+  program order remains the causal model.
+- Submitters use `buffer.read(stream)` and `buffer.write(stream)` scoped guards.
+  Raw device pointers are exposed only through those guards. Compatible readers
+  overlap; a writer waits for all unfinished prior accesses.
+- The context mutex protects only completion snapshots and publication. It is
+  not held while a backend or provider call executes.
 - CUDA runtime failures use `CudaRuntimeError` and Uni20's presentation layer.
-  Cleanup failures and invalid lease state remain fail-fast logic errors.
+  Cleanup failures and invalid stream-pool state remain fail-fast logic errors.
 
 ## Related Documentation
 

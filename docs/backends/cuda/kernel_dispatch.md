@@ -18,10 +18,10 @@ Related notes:
   and storage-policy layering.
 - [Ordering and Backend Lowering](../../architecture/ordering_and_backend_lowering.md)
   defines submission order, completion order, and token-pins-storage.
-- [CUDA Runtime](runtime.md) defines streams, events, completion tokens, and the
+- [CUDA Runtime](runtime.md) defines streams, completion tokens, and the
   actually-idle stream pool.
-- [GPU Epoch Design](epoch_design_draft.md) defines device-buffer hazard
-  tracking.
+- [CUDA Buffer Completion Lowering](epoch_design_draft.md) defines typed
+  buffers and scoped read/write guards.
 - [cuSOLVER Architecture](cusolver.md) records solver-specific resource and
   workspace considerations.
 - [oneTBB Execution Primer](../../async/tbb_execution_primer.md) explains arena
@@ -35,8 +35,10 @@ Related notes:
 Uni20 should have one logical CUDA execution context per device. Entering that
 context establishes the device on whichever oneTBB worker or application
 thread is currently participating in its arena. Streams, provider handles,
-events, workspaces, and memory resources belong to the device context and are
-leased explicitly; they do not belong permanently to physical workers.
+workspaces, and memory resources belong to the device context and are leased
+explicitly; they do not belong permanently to physical workers. Completion
+events are created and recorded on their producer streams rather than leased
+from a pool.
 
 CUDA leaf-kernel dispatch remains an ordinary, non-suspending C++ call:
 
@@ -66,25 +68,34 @@ lightweight submission or other host work.
 
 ## Per-Device Execution Context
 
-The eventual `CudaDeviceContext` owns all execution resources associated with
-one device:
+The implemented `cuda::DeviceContext` currently owns the validated device,
+short-lived buffer-state mutex, and idle stream pool. It should grow to own all
+execution resources associated with one device:
 
 ```cpp
-struct CudaDeviceContext
+namespace uni20::cuda
 {
-    int device;
-    TbbScheduler scheduler;
-    StreamPool streams;
-    EventPool events;
-    HandlePool<CusolverHandle> cusolver_handles;
-    HandlePool<CublasHandle> cublas_handles;
-    // Memory resources, workspaces, diagnostics, and provider-specific pools.
+struct DeviceContext
+{
+  Device device;
+  TbbScheduler scheduler;
+  StreamPool streams;
+  HandlePool<CusolverHandle> cusolver_handles;
+  HandlePool<CublasHandle> cublas_handles;
+  // Memory resources, workspaces, diagnostics, and provider-specific pools.
 };
+} // namespace uni20::cuda
 ```
 
 This is conceptual structure, not a required concrete aggregate. In
 particular, the retained CUDA primary context and error-monitoring service may
 need separate lifetime wrappers.
+
+Each submission initially allocates its own non-timing completion event.
+`Stream::record_completion()` guarantees that the event is created on the
+producer stream's device, and `Stream::wait_on()` permits same- or cross-device
+consumers. Introduce event pooling only if measurements show that allocation is
+a material cost.
 
 The device ordinal comes from Tensor storage/location policy. A kernel with
 multiple device operands must either validate that they share a device or be an
@@ -144,7 +155,7 @@ Required migration invariants are:
 
 - migration occurs only at an explicit suspension point;
 - migration never changes the coroutine's promise or task type;
-- the target scheduler and `CudaDeviceContext` outlive the migrated task;
+- the target scheduler and `cuda::DeviceContext` outlive the migrated task;
 - ownership of the suspended task passes exactly once from the old scheduler
   route to the new one;
 - cancellation and exceptions remain attached to the same coroutine and async
@@ -252,21 +263,24 @@ resources to scheduler workers.
 
 ## Non-Suspending Leaf Dispatch
 
-`try_kernel(...)` remains an ordinary function. It executes inside a CUDA
-access/submission transaction supplied through the backend context. A CUDA
-backend attempt may:
+`try_kernel(...)` remains an ordinary function. It executes with a CUDA stream
+and scoped buffer guards supplied through the backend context. A CUDA backend
+attempt may:
 
 1. validate all remaining runtime preconditions;
-2. install device-event dependencies on its leased stream;
+2. acquire scoped read/write buffer guards that install device-event
+   dependencies on its stream;
 3. invoke the CUDA runtime or provider API;
-4. record one completion event;
-5. commit that completion to the enclosing access plan;
+4. optionally record an operation-level completion event;
+5. leave buffer-completion publication to guard destruction;
 6. return `KernelAttempt::success`.
 
 It must not `co_await`, queue unfinished host-side submission work, or return
-success before the operation's completion event exists. Before the surrounding
-submission boundary returns, the access plan publishes that token into the
-affected storage epochs.
+success before the scoped guards have enough lifetime to publish completions at
+the appropriate stream tail. Before the CPU async buffers that made the
+operation runnable are released, the CUDA scoped guards must have been
+destroyed or otherwise released so their tokens are retained by the affected
+storage epochs.
 
 The strong clean-decline contract remains unchanged. A CUDA backend may decline
 only before it changes provider state, enqueues work, consumes an operand,
@@ -386,7 +400,7 @@ diagnostic data rather than preformatting one terminal-only string.
 
 ## Initial Implementation Order
 
-1. Extend `CudaDeviceContext` to own a device-local `TbbScheduler` and attach an
+1. Extend `cuda::DeviceContext` to own a device-local `TbbScheduler` and attach an
    arena observer that establishes/restores the CUDA device.
 2. Complete heterogeneous `BasicAsyncTask<Promise>` scheduling and nested
    continuation routing so global `schedule(CudaTask)` and
@@ -407,7 +421,7 @@ diagnostic data rather than preformatting one terminal-only string.
 
 - Which state, if any, belongs permanently in `CudaTaskPromise` rather than in
   coroutine-local resource leases?
-- Should `CudaTask` select its `CudaDeviceContext` through promise construction,
+- Should `CudaTask` select its `cuda::DeviceContext` through promise construction,
   an explicit factory, or another typed scheduling customization?
 - Which same-type scheduler migrations are useful after heterogeneous nested
   task routing is available?

@@ -10,7 +10,8 @@ Related notes:
 
 - `docs/async/runtime_model.md` — CPU epoch/causality model.
 - `docs/architecture/storage_kind_and_location.md` — storage memory kind (type) vs location (runtime).
-- `docs/backends/cuda/epoch_design_draft.md` — GPU per-buffer hazard model (`GpuEpochQueue`).
+- `docs/backends/cuda/epoch_design_draft.md` — conservative CUDA buffer-tail
+  completion lowering.
 - `docs/backends/cuda/runtime.md` — CUDA stream ownership and pools.
 - `docs/backends/cuda/kernel_dispatch.md` — host execution routes for
   lightweight and hybrid provider calls.
@@ -79,9 +80,10 @@ device), but two rules follow from the gap between the clocks:
 - **Buffer lifetime follows completion, not coroutine return.** A coroutine
   may return while its device work is still pending, so the buffers it read
   and wrote must stay alive until the work actually completes. Buffer release
-  is therefore tied to the completion event — "token-pins-storage" — matching
-  the `reader_events` / `writer_event` retention in
-  `../backends/cuda/epoch_design_draft.md`.
+  is therefore tied to completion events — "token-pins-storage". The first
+  `cuda::Buffer` implementation enforces this by retaining its latest writer
+  and unfinished reader completions and synchronizing them before freeing the
+  allocation.
 
 A producer cannot know whether its consumer is same-layer or cross-layer, so
 it always does the cheap thing — record a completion event at submission — and
