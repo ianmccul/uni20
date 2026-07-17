@@ -22,7 +22,7 @@
 /**
  * \defgroup backend_cuda CUDA backend integration
  * \ingroup backend
- * \brief Glue that binds Uni20 abstractions to CUDA runtime facilities.
+ * \brief CUDA runtime ownership, completion, and provider integration.
  */
 
 /**

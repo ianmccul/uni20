@@ -4,14 +4,13 @@ endif()
 
 find_package(CUDAToolkit REQUIRED)
 
-if(NOT TARGET CUDA::cublas)
-  message(FATAL_ERROR "CUDA backend requested but cuBLAS library is not available.")
+if(NOT TARGET CUDA::cudart)
+  message(FATAL_ERROR "CUDA backend requested but the CUDA runtime library is not available.")
 endif()
 
 add_library(uni20_backend_cuda STATIC
-    cuda_backend.cpp
+    cuda_error.cpp
+    device.cpp
+    runtime.cpp
 )
-target_link_libraries(uni20_backend_cuda PRIVATE uni20_common)
-#target_include_directories(uni20_backend_cuda PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
-# You might also need to enable CUDA language and link CUDA libraries if required.
+target_link_libraries(uni20_backend_cuda PUBLIC uni20_common CUDA::cudart)

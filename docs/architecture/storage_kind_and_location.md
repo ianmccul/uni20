@@ -49,9 +49,12 @@ So: kind is a type, location is a value.
   the intended mechanism for device-resident tensors, and `backend_dispatch.md`
   already lists "memory-space or storage policy" as a compile-time capability and
   "memory is resident on the required device" as a runtime check.
-- **Location axis is not yet implemented.** The chosen direction for dense
-  device tensors is an accessor-defined data handle that includes runtime device
-  identity. The default backend selector remains normally stateless.
+- **CUDA device identity exists, but Tensor placement is not yet implemented.**
+  `cuda::Device` validates a runtime ordinal and provides a process-wide cached
+  immutable hardware-capability snapshot. The next dense-storage checkpoint
+  will carry that value in a typed CUDA storage domain and copy its ordinal into
+  an accessor-defined data handle. The default backend selector remains normally
+  stateless.
 - **The prototype validates the runtime-location model.** The vendored
   TensorContraction engine models location entirely at runtime:
   `DeviceMatrixView::deviceId_` (an `int`), `CudaDeviceContext`, and a
