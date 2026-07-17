@@ -17,9 +17,9 @@ same model can later be made thread-safe without changing semantics.
 - Track GPU buffer read/write ordering with explicit per-epoch CUDA events.
   Kernel launches are assumed to be causally ordered by the CPU async layer with
   respect to event and stream synchronization.
-- Treat CUDA streams as transient execution resources.  A stream is leased for
-  one access plan, used to enqueue work, and returned to the device stream pool
-  after a non-timing completion event has been recorded.
+- Treat CUDA streams as bounded execution resources. A stream is leased for one
+  access plan, used to enqueue work, and returned to the device stream pool only
+  after its queued work actually completes.
 - Make CUDA events the durable dependency contract between buffer epochs.  The
   first implementation should not cache streams on buffers or try to preserve
   stream affinity across operations.
@@ -95,18 +95,20 @@ timing-capable events belong only in explicit profiling or benchmarking APIs.
 
 `StreamSlot`
 
-A reusable CUDA execution lane owned by a `CudaDeviceContext`.  It contains a
-CUDA stream and pool bookkeeping only.  Device-library handles such as cuBLAS,
-cuSOLVER, or cuQuantum are separate thread-local/per-device resources.  A stream
-slot does not belong to a buffer epoch after an access plan has been published.
+A reusable CUDA execution lane owned by a `CudaDeviceContext`. It contains a
+CUDA stream and pool bookkeeping, and may later own provider handles or
+workspaces whose concurrency must match the stream slot. A slot remains pending
+and unavailable until all work previously queued into its stream has completed.
+Buffer epochs retain completion events, not ownership of the stream slot.
 
 `tensor::cuda::Stream`
 
-A move-only RAII handle for a concrete CUDA stream from a `CudaDeviceContext` so
-CUDA work can be enqueued.  When the access handle publishes, it records the
-completion event into this stream and returns the stream slot directly to the
-pool.  Correctness must not depend on receiving the same stream for a later
-operation.
+A move-only affine handle for a concrete CUDA stream from a
+`CudaDeviceContext`. Publishing records the operation completion event and
+enqueues the pool-return host function. The lease is consumed immediately, but
+the slot does not become available until the host function runs at the completed
+stream tail. Correctness must not depend on receiving the same stream for a
+later operation.
 
 `GpuAccessPlan`
 
@@ -293,7 +295,9 @@ A writer is exclusive and advances the generation.
 7. On publish, record one non-timing completion event into the stream.
 8. Store that event as the queue's new `writer_event`.
 9. Increment `generation`.
-10. Clear old reader events and return the stream lease to the pool.
+10. Clear old reader events and consume the stream lease.
+11. Return the stream slot to the idle pool when its completion host function
+    runs.
 
 Conceptually:
 
@@ -312,7 +316,9 @@ A reader is shared and does not advance the generation.
 5. Launch read-only kernels or copies into the leased stream.
 6. On publish, record one non-timing completion event into the stream.
 7. Append that event to the queue's `reader_events`.
-8. Return the stream lease to the pool.
+8. Consume the stream lease.
+9. Return the stream slot to the idle pool when its completion host function
+   runs.
 
 Multiple readers of the same generation all wait on the same writer completion
 event and then run independently:
@@ -340,10 +346,11 @@ Stream-owned handles:
 - `GpuReadStream`
 - `GpuWriteStream`
 
-These are returned when the scheduler selects and owns the stream slot.  They are
-RAII handles analogous to a mutex lock.  Destruction may publish completion and
-release the stream slot because the completion point is well-defined: an event
-recorded at the current tail of the owned stream slot.
+These are returned when the scheduler selects and owns the stream slot. They are
+affine handles analogous to a mutex lock. Publication records completion and
+consumes the lease. The slot itself remains pending until its stream-tail host
+function runs; lease destruction must not make a busy stream immediately
+available.
 
 Example behavior:
 

@@ -29,6 +29,29 @@ Key consequences:
 This is why Uni20 uses an `AsyncTask`-taking `await_suspend(...)` style rather than directly returning raw
 `std::coroutine_handle<>` from awaiters.
 
+## Nested Coroutine Tasks
+
+An `AsyncTask` may directly `co_await` another `AsyncTask`. The inner coroutine
+inherits the outer coroutine's scheduler, runs through coroutine symmetric
+transfer, and returns control to the suspended outer continuation when it
+finishes. This is implemented behavior, not a future CUDA facility.
+
+Uni20 also has template scaffolding for task-specific promise types. Distinct
+types may legitimately select different initial schedulers: for example,
+global `schedule()` can route `AsyncTask` to a CPU scheduler and `CudaTask` to a
+CUDA device scheduler selected from its promise state. That path is not yet a
+complete heterogeneous task system because current schedulers and most awaiters
+still own canonical `AsyncTask` values.
+
+A live coroutine cannot change its promise type. If CUDA requires state stored
+in `CudaTaskPromise`, an `AsyncTask` enters CUDA execution by creating and
+awaiting a `CudaTask`, not by migrating and becoming one. Scheduler migration is
+a separate capability within one task type's promise contract.
+
+Explicit migration between schedulers, scheduler-aware return from a nested
+task, and optional promise specialization are explored in
+[Scheduler Routing, Nested Task Domains, and Promise Specialization](scheduler_migration.md).
+
 ## What co_await on a Buffer Does
 
 Buffers are the bridge between data dependencies and coroutine suspension:

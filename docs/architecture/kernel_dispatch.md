@@ -703,11 +703,13 @@ outer runtime decline; otherwise it is `maybe`.
   operation with that selector. Shape and mdspan descriptors remain part of the
   awaited Tensor value, so the runtime backend walk occurs inside the coroutine.
   In both cases the epoch queues, not the scheduler, order the work. The CPU
-  *backends* never name a scheduler; the
-  CUDA path is the exception, submitting to the `CudaScheduler` whose streams and
-  events carry the ordering. There the coroutine's *return type* selects the
-  scheduler (`AsyncTask` → CPU, `CudaTask` → GPU). See *Scheduler and Async
-  integration* below.
+  and CUDA *backends* never choose a scheduler. Global `schedule()` and nested
+  task routing may select different schedulers for different concrete task
+  types. If CUDA needs state in `CudaTaskPromise`, an async wrapper creates or
+  awaits a `CudaTask`; a live `AsyncTask` cannot migrate and change promise
+  type. Same-task-type scheduler migration remains a separate capability.
+  See *Scheduler and Async integration* below and
+  `../async/scheduler_migration.md`.
 - Distributed and RPC execution are front-of-list backends that recurse, so they
   need zero core changes. The first pass can ship `[Blas, CpuGeneric]` with the
   seam being only "the list is a parameter."
@@ -737,9 +739,10 @@ the async runtime:
 3. **Backend selection** — the `backend_list` walk for an operation tag
    (`kernel_accepts_types` / `try_kernel`) and, for a block tensor, the planner
    that fans out per block. A CPU backend's `try_kernel` calls a layer-1 kernel
-   directly and synchronously; the CUDA backend submits to the `CudaScheduler`.
-   Layer 2 sits above this walk. Static selector resolution precedes scheduling,
-   but whole-value `Async<Tensor>` dispatches after awaiting. A future
+   directly and synchronously; a CUDA backend consumes an already-selected
+   device context and leased resources. Layer 2 performs scheduler routing and
+   sits above this walk. Static selector resolution precedes scheduling, but
+   whole-value `Async<Tensor>` dispatches after awaiting. A future
    descriptor-synchronous block planner may perform more of the runtime choice
    before scheduling.
 
@@ -863,8 +866,9 @@ wrapper around the chosen backend's raw kernel call plus its buffer awaits.
 This does not apply to whole-value `Async<Tensor>` wrappers, which await the
 Tensor before entering ordinary synchronous dispatch.
 
-The host-async and device-async block kernels differ only in the coroutine return
-type, which is what routes them to the CPU or GPU scheduler:
+Scheduler routing is explicit async-wrapper behavior. Distinct task types may
+select different initial schedulers, while the numerical backend remains
+unaware of that choice:
 
 ```cpp
 // host-async block kernel
@@ -873,12 +877,19 @@ schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {         // -> CPU s
   gemm_kernel(C_, A_, B_);                                          // layer-1 kernel
 }(c.block(r).write(), a.block(ai).read(), b.block(bi).read()));
 
-// device-async block kernel — identical but for the return type
-schedule([](auto c_, auto a_, auto b_) static -> CudaTask {          // -> GPU scheduler
+// Device block kernel: CudaTaskPromise carries/selects the device context.
+schedule([](auto c_, auto a_, auto b_, CudaDeviceContext* context) static -> CudaTask {
   auto C_ = co_await c_;  auto A_ = co_await a_;  auto B_ = co_await b_;
-  cublas_gemm(C_, A_, B_);                                          // thread-local handle + stream
-}(c.block(r).write(), a.block(ai).read(), b.block(bi).read()));
+  auto resources = co_await context->acquire_gemm_resources(C_, A_, B_);
+  cublas_gemm(resources, C_, A_, B_);                                // no suspension in leaf call
+}(c.block(r).write(), a.block(ai).read(), b.block(bi).read(), &context));
 ```
+
+The CUDA snippet is conceptual because heterogeneous scheduler/awaiter support
+for `CudaTask` is not implemented. An `AsyncTask` can also `co_await` such a
+CUDA child and resume on its own scheduler. If CUDA ultimately needs no
+task-specific promise state, ordinary `AsyncTask` on a compatible device
+scheduler remains another valid lowering; it is not a requirement.
 
 The accumulation `r += sum a*b` over multiple contributing `(a, b)` needs no
 explicit reduction lock: every contribution writes block `r`, so block `r`'s
@@ -912,26 +923,25 @@ is what "async until output" means in practice — nothing forces a thread to bl
 until a real materialization boundary (a scalar read, a print, a save, a branch on
 a value).
 
-### Scheduler routing by promise type
+### Scheduler routing around non-suspending dispatch
 
-Where work *is* scheduled — the layer-2 async wrappers — the coroutine's return
-type selects the scheduler: `-> AsyncTask` routes to the CPU scheduler, `-> CudaTask`
-(its own `CudaTaskPromise`, `cuda_task.hpp`) to a GPU scheduler, via an overloaded
-`schedule()`. `myScheduler->schedule(task)` remains available directly. For
-multi-GPU, the device ordinal rides in `CudaTaskPromise` (so `schedule(CudaTask)`
-fans out to `gpu_scheduler(dev)`), or the CUDA backend calls
-`gpu_scheduler(c.device())->schedule(...)` itself. The synchronous CPU backends,
-having no coroutine, sit outside this routing entirely.
+CUDA leaf dispatch remains an ordinary non-coroutine call. Lightweight CUDA
+submission and host-intensive provider calls initially run on one logical
+scheduler per CUDA device. A oneTBB arena supplies concurrency slots rather
+than fixed workers; an arena observer establishes the device on every
+participant. Streams, provider handles, and workspaces are device-local leased
+resources rather than worker-owned state.
 
-CUDA and MPI kernels admit several wrapper strategies — run basically
-synchronously on the default stream, or schedule a `CudaTask` on the GPU
-scheduler — which appear as distinct backends sharing one layer-1 kernel. Both
-are legitimate and can coexist in a backend list; the `CudaTask`-on-scheduler
-form is expected to dominate, with the synchronous default-stream form remaining
-useful as the simplest correct path and for debugging. The first pass does not coalesce the small-block tail on
-CPU: the tail is a GPU launch-bound problem (see
-`../tensor_network/contraction_integration_findings.md`), not a CPU one, so CPU ships one task
-per block and coalescing is added to the GPU path later if a profile demands it.
+Global scheduling or heterogeneous nested `co_await` routes a `CudaTask` to the
+device scheduler selected by its promise. The CUDA task may suspend while
+waiting for a composite resource request. Once admitted, the entire relevant
+backend walk runs without suspension, records and publishes its completion
+event, and releases resources according to their provider-specific completion
+contract. A separate provider lane is a later profiling-driven option.
+
+Blocking and fully synchronized CUDA execution remain useful API/debug adapters
+over the same leaf kernels; they are not separate numerical backends. See
+`../backends/cuda/kernel_dispatch.md`.
 
 ## Open questions
 
@@ -945,11 +955,12 @@ per block and coalescing is added to the GPU path later if a profile demands it.
    versus advisory (algorithm id, tile shape, math mode, workspace limit). A
    fully `RuntimeSelectable` case can still be layered on later by erasing
    backend-entry types.
-3. **Scheduler shapes.** `gemm` submits and returns; a `cuSOLVER` factorize holds
-   its thread for the duration of a blocking call. The per-GPU scheduler must
-   support both the async-submission and sync-blocking shapes
-   (see `execution.md`), with deterministic acquisition under
-   `DebugScheduler` so differential tests hold.
+3. **Scheduler routing.** Type-directed scheduling and heterogeneous nested
+   coroutine entry/return require defined activation ownership,
+   wait/quiescence, cancellation, and lifetime semantics. Same-task-type
+   migration is a separate extension. The provider job itself remains
+   non-suspending, and deterministic resource acquisition under
+   `DebugScheduler` remains required for differential tests.
 4. **The oracle for device and distributed storage.** Every list must end in a
    runnable correctness oracle. For device tensors that is a naive device kernel;
    for distributed tensors a gather-to-one-MPI-rank-then-generic path is a candidate,
@@ -970,9 +981,9 @@ per block and coalescing is added to the GPU path later if a profile demands it.
    covers (and writers do, symmetrically) or there is a buffer-level queue the
    element queues nest under. Per-element queues alone do not cover the dual
    block-view / wide-view access that coalescing requires.
-8. **CUDA wrapper strategies.** Whether the synchronous default-stream backend
-   remains a maintained sibling of the `CudaTask`-on-scheduler form (the two can
-   coexist in a backend list) or is retired once the scheduler path is proven.
+8. **CUDA blocking adapters.** Which blocking and default-stream debug adapters
+   remain maintained once provider scheduling is implemented. They should wrap
+   the same leaf backends rather than appear as sibling numerical backends.
 9. **MPI user-facing default.** This note presents the collective SPMD
    `MpiBackend` as the base, with RPC as an optional front-of-list layer;
    `../backends/mpi/persistent_dispatch.md` proposes the root-controller /

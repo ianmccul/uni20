@@ -20,7 +20,11 @@ Related notes:
 - `docs/architecture/ordering_and_backend_lowering.md` — ordering ownership; two-clocks lifetime.
 - `docs/architecture/storage_kind_and_location.md` — memory kind vs location.
 - `docs/backends/cuda/runtime.md` — stream ownership; idle-stream `co_await` pool.
-- `docs/backends/cuda/cusolver.md` — solver-lane resource model.
+- `docs/backends/cuda/kernel_dispatch.md` — lightweight CUDA submission versus
+  host-intensive provider scheduling.
+- `docs/async/scheduler_migration.md` — generic scheduler routing, nested-task
+  continuation semantics, and optional promise specialization.
+- `docs/backends/cuda/cusolver.md` — solver-provider resource model.
 - `docs/backends/cuda/epoch_design_draft.md` — GPU per-buffer hazard model.
 - `docs/tensor_network/rabc_contraction_scheduling.md` — the R/A/B/C apply and its cost model.
 
@@ -80,27 +84,45 @@ backend**, not a later addition; the core async-DAG apply on CPU kernels is the
 first end-to-end apply that goes through the real runtime (the TensorContraction
 bridge bypasses it), and step 4 is what eventually retires the bridge.
 
-## Scheduling: two scheduler shapes
+## Scheduling: lightweight submission and provider execution
 
-uni20 allows multiple schedulers; device work falls into two shapes that hold
-resources differently:
+Uni20 allows multiple schedulers. The CUDA design uses one logical scheduler
+arena per device. Global `schedule()` can route distinct task types differently:
+an `AsyncTask` uses its ordinary scheduler, while a `CudaTask` can select a
+device scheduler using state in `CudaTaskPromise`.
 
-- **Synchronous-blocking (e.g. cuSOLVER).** The worker thread blocks for the op's
-  duration, so thread-occupancy == op-duration and the resource (a per-thread
-  cuSOLVER handle/context) is held for that time. Pool size = max concurrent
-  blocking ops. See `../backends/cuda/cusolver.md`.
-- **Async-submission (e.g. CUDA kernels).** The worker only submits (briefly), then
-  the work runs on the GPU without it. The **stream is the leased resource, held
-  until completion**, decoupled from the thread, which is freed after submission.
-  `co_await acquire_idle_stream()` (see `../backends/cuda/runtime.md`) gates stream
-  acquisition.
+An ordinary coroutine enters the CUDA task domain by `co_await`ing a newly
+created `CudaTask`. The parent remains an `AsyncTask` and resumes through its
+own scheduler when the CUDA child completes. A live task may separately migrate
+between schedulers accepted by its existing promise type, but scheduler
+migration cannot change an `AsyncTask` frame into a `CudaTask` frame.
 
-Both share one suspend/resume mechanism: a coroutine stores a pointer to its
-scheduler, so a suspended coroutine is resubmitted to its home scheduler when
-ready. Work originates on a CPU scheduler, runs on a cuSOLVER/CUDA/MPI scheduler,
-and resumes on its home scheduler — not on the service thread. cuSOLVER lanes, the
-CUDA completion monitor, and the MPI progress engine are all instances of "suspend
-here, resume on home".
+A oneTBB arena limits simultaneous participation but does not own fixed worker
+threads. A device-arena observer establishes and restores the CUDA device as
+workers or application threads enter and leave. Device resources therefore
+belong to `CudaDeviceContext` pools, not permanently to workers.
+
+CUDA host calls then fall into two execution classes:
+
+- **Lightweight submission.** An ordinary kernel launch, asynchronous copy, or
+  similar call briefly occupies its caller while enqueuing device work. The
+  stream remains leased until completion, but the host thread is released after
+  submission.
+- **Hybrid provider execution.** A cuSOLVER, cuTensorNet, or similar API may
+  keep its caller active while it performs substantial CPU orchestration and
+  launches many kernels. Initially these calls occupy one participant in the
+  same device scheduler and use exclusively leased device-local handles.
+
+The provider job itself is an ordinary non-coroutine function. The coroutine
+may suspend while waiting for a composite stream/handle/workspace request, but
+does not suspend during the backend walk or provider call. A separate provider
+execution lane remains an optional profiling-driven refinement. See
+`../backends/cuda/kernel_dispatch.md`.
+
+CUDA completion monitoring and the MPI progress engine follow the same broad
+rule: notification may originate on a service or callback thread, but the
+continuation is submitted through the scheduler currently recorded by its
+promise rather than executed on the notifying thread.
 
 ### Awaitable resources do double duty
 
@@ -119,28 +141,26 @@ therefore be a scheduler concern, not baked into call sites: under `DebugSchedul
 it resolves deterministically (lowest-index free stream, single lane, synchronous
 completion) so differential testing against the relaxed path stays valid.
 
-## Synchronization modes (per kernel)
+## Completion consumption modes
 
-Two modes, chosen by the kernel based on its typical consumer; the buffer-epoch
-completion token is the always-on correctness substrate:
+The buffer-epoch completion token is the always-on correctness substrate.
+Consumers use it in two ways:
 
-- **Deferred (default substrate).** The launch returns immediately; the completion
-  token is attached to the output buffer's epoch; synchronization happens lazily at
-  the next access through `ReadBuffer`/`WriteBuffer`. This rides the *same*
-  epoch-on-buffer mechanism as CPU ordering — the GPU event simply becomes the
-  buffer epoch's completion token, with no parallel sync system. It is ideal for
-  GPU→GPU dataflow and for the tail (many tiny kernels on one stream, FIFO-ordered
-  with zero events, one terminal sync). It makes the token-pins-storage rule
+- **Deferred (default substrate).** The launch returns immediately after
+  recording one completion event. The token is attached to the output buffer's
+  epoch; later GPU consumers install event waits and host consumers await
+  completion. This rides the *same* epoch-on-buffer mechanism as CPU ordering,
+  with no parallel dependency system. It makes the token-pins-storage rule
   mandatory: no coroutine frame is left holding the inputs alive.
-- **Explicit await (`co_await` a nested `CudaTask`).** For GPU→host edges and
-  control-flow that genuinely needs op-level sequencing (a norm, Lanczos
-  coefficients), suspend the coroutine on the token.
+- **Explicit completion await.** For GPU→host edges and control-flow that
+  genuinely needs op-level sequencing (a norm, Lanczos coefficients), suspend
+  the coroutine on the token.
 
-Keep events lazy: rely on same-stream FIFO and record a cross-stream event only
-when a cross-stream/host consumer actually materializes (the producer is already
-dispatched by lowering time, so the record-before-wait order holds). Deferred sync
-delocalizes CUDA errors to the next access; the synchronous `DebugScheduler` path
-is the antidote and error-localizer.
+Record one event for every submitted operation. This keeps dependency lowering
+uniform and avoids stream-affinity state; batching and coalescing amortize event
+cost for tiny operations. Deferred sync can delocalize CUDA errors to a later
+completion boundary, so the synchronous `DebugScheduler` path remains the
+error-localizing oracle.
 
 ## What the TensorContraction exercise informed
 
@@ -176,11 +196,13 @@ findings recorded in project memory; constants reusable as planner inputs):
 - Build order: buffer-with-subviews + token → tensor+layout → CPU dispatch →
   GPU/MPI; the CPU async-DAG apply is the first real apply and the route to
   retiring the bridge.
-- Two scheduler shapes (sync-blocking, async-submission) over one
-  suspend/resume-on-home mechanism; awaitable resources with deterministic-capable
-  acquisition.
+- Lightweight CUDA submission and bounded hybrid-provider execution over one
+  per-device scheduler, heterogeneous nested-task routing, and optional
+  same-task-type migration; awaitable device-local resources with
+  deterministic-capable acquisition.
 - Deferred buffer-access sync is the default substrate (GPU token = buffer epoch
-  token); explicit `co_await` for host-consuming edges; events recorded lazily.
+  token); explicit `co_await` for host-consuming edges; one completion event
+  recorded for every submitted operation.
 
 ## Open questions
 
@@ -196,7 +218,7 @@ findings recorded in project memory; constants reusable as planner inputs):
   batched submission — a planner policy decision the mechanism must facilitate
   equally.
 - **Scheduler taxonomy per node.** The concrete set of schedulers (CPU compute,
-  per-device CUDA submission, per-device cuSOLVER, MPI progress) and how they are
-  configured per device class.
+  one execution scheduler per CUDA device, optional profiling-driven provider
+  lanes, MPI progress) and how they are configured per device class.
 - The piece-specific open questions in `../symmetry/block_sparse_tensor.md` and
   `../symmetry/block_coalescing.md`.

@@ -5,6 +5,10 @@ Schedulers answer one question: when a ready coroutine should run.
 They do not define dependency legality; epochs do that. If a coroutine is not causally ready,
 it will still suspend regardless of scheduler choice.
 
+Current tasks normally retain the scheduler installed when they are first
+scheduled. Explicit migration is a planned generic capability, not current
+behavior. See [Scheduler Routing, Nested Task Domains, and Promise Specialization](scheduler_migration.md).
+
 ## Global Scheduler Model
 
 Most async code uses the global scheduler helpers from `debug_scheduler.hpp`:
@@ -49,7 +53,14 @@ Execution model:
 - tasks are dispatched into oneTBB `task_arena` + `task_group`
 - ready coroutines resume on threads participating in the arena, including
   oneTBB workers and application threads that enter through `task_arena::execute()`
-- `run_all()` resumes if paused, then waits for task-group completion
+- `run_all()` resumes if paused, then waits for task-group completion of the
+  currently submitted activations
+
+The task group owns each scheduled resumption while it runs. If that resumption
+suspends the coroutine on an epoch or external event, the TBB task finishes and
+the awaiter owns the suspended coroutine until it becomes ready. `run_all()` is
+therefore scheduler-activation quiescence, not proof that every coroutine ever
+routed through the scheduler has completed.
 
 Pause/resume:
 

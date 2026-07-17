@@ -1,201 +1,178 @@
-# CUDA Scheduler Design Notes
+# CUDA Scheduler Guidance
 
 - **Audience:** design assistants, coding agents, and reviewers
-- **Authority:** non-normative design summary
-- **Status:** speculative and partly superseded; not an implemented contract
-- **Canonical sources:** `docs/backends/cuda/epoch_design_draft.md`,
-  `docs/backends/cuda/runtime.md`, `docs/backends/cuda/cusolver.md`, and
-  current CUDA source when present
+- **Authority:** non-normative summary
+- **Status:** partly implemented runtime foundation; scheduler design remains
+  incomplete
+- **Canonical sources:** `docs/backends/cuda/runtime.md`,
+  `docs/backends/cuda/kernel_dispatch.md`,
+  `docs/backends/cuda/epoch_design_draft.md`,
+  `docs/backends/cuda/cusolver.md`,
+  `docs/async/scheduler_migration.md`, and current CUDA source
 
-These notes record design direction only.  They are not implemented uni20 GPU
-runtime behavior.
+This file summarizes the constraints agents must preserve while extending the
+CUDA runtime. Do not revive older stream-affinity, virtual-stream, or lazy-event
+proposals without new profiling evidence and a maintainer decision.
 
-Status note: the detailed stream-affinity and virtual-stream ideas below have
-been superseded for the first TensorContraction implementation by the simpler
-`GpuEpochQueue` model in `docs/backends/cuda/epoch_design_draft.md`.  In that model,
-streams are transient leases, dependency events are created with
-`cudaEventDisableTiming`, each published read or write records a completion
-event, and correctness does not depend on caching or reusing streams for a
-buffer.
+## Implemented Foundation
 
-The intended uni20 CUDA runtime should model GPU resources explicitly.  A CUDA
-device context is expected to own the device-local execution resources: streams,
-cuBLAS handles, memory-pool state, and eventually event pools and library
-handles for cuSOLVER/cuTensorNet-style kernels.
+The current CUDA runtime layer provides:
 
-The scheduler should submit GPU tasks through a small number of host worker
-threads.  A cuBLAS handle is device-local and has a mutable associated stream,
-so the safe resource model is one handle per concurrently used stream slot.  In
-practice this likely means either:
+- structured `CudaRuntimeError` diagnostics through the presentation layer;
+- temporary device selection with restoration;
+- move-only CUDA stream and non-timing event ownership;
+- shared operation-completion tokens;
+- a device-local stream pool with `idle`, `leased`, and `pending` states;
+- stream return through `cudaLaunchHostFunc` after actual device completion.
 
-- fixed worker/device affinity, with each device context owning the handles used
-  by its workers; or
-- a handle pool keyed by `(worker, device)` or by explicit borrowed stream slots.
+It does not yet provide CUDA Tensor storage, Tensor kernels, queued coroutine
+acquisition, `CudaTask` lowering, or a complete CUDA scheduler.
 
-The first design is simpler and should be preferred until workload measurements
-justify fully flexible cross-device worker scheduling.  The second design is
-more general, but requires stricter borrowing rules to avoid racing
-`cublasSetStream` on a shared handle.
+## Required Stream-Pool Contract
 
-The temporary TensorContraction bridge now prototypes only the resource shape:
-one `CudaDeviceContext` per active device, with a fixed pool of work-stream
-slots and one cuBLAS handle per slot.  It deliberately does not prototype the
-full uni20 scheduler, MPI client/server model, or final CUDA allocator design.
+A stream is available only when its prior queued work has completed. The absence
+of a current host submitter is not sufficient.
 
-## Memory-Block Epochs
+The required operation shape is:
 
-The async `EpochContext` mechanism provides the right conceptual model for
-GPU-memory dependencies.  In async uni20, one logical value owns a chain of
-epochs: readers attach to the current epoch, a writer creates or completes the
-next generation, and RAII reader/writer handles advance the epoch when access
-finishes.  The CUDA analogue should be a per-memory-block epoch state rather
-than work-item-local synchronization.
+```text
+acquire an actually idle stream
+install dependency event waits
+enqueue CUDA work
+record one operation completion event
+enqueue the stream-return host function
+consume the lease
+mark the slot idle only when the host function runs
+```
 
-For GPU buffers, the object being synchronized is the memory block.  Each
-device-resident block should own its access state:
+The pool is both a scheduling resource and admission control. Exhaustion should
+eventually suspend the requesting coroutine, limiting queued device work, live
+intermediates, workspaces, and allocator pressure.
 
-- the stream/event that completed the current written generation;
-- outstanding read generations, coalesced by stream when possible;
-- host/GPU/remote validity state for explicit materialization boundaries;
-- debug counters/snapshots that can explain which stream owns the current
-  generation and why a wait is required.
+The CUDA host function must remain lightweight and must not call CUDA APIs. It
+may update pool state and arrange scheduler notification. It must not directly
+run arbitrary coroutine continuation work.
 
-The core protocol should be:
+## Event Policy
 
-- a read access waits only for the latest writer generation, unless it is
-  already on the same stream;
-- a write access waits for the latest writer and all outstanding readers;
-- a write publishes a new generation and invalidates or supersedes previous
-  read generations;
-- multiple reads may share the same generation and should not force a new CUDA
-  event unless a later writer must wait for a reader on a different stream;
-- same-stream dependencies are represented by CUDA stream order and should not
-  allocate or record events.
+Use one event-based model uniformly:
 
-This is intentionally similar to `EpochContext`, but the GPU variant should not
-copy its coroutine scheduling machinery.  CUDA events are only the concrete
-cross-stream readiness tokens for memory epochs.  A future scheduler can replace
-blocking waits with suspend/resume semantics while preserving the same
-per-block access-state protocol.
+- every submitted operation records one non-timing completion event;
+- multi-output operations share one completion token;
+- readers and writers publish that token into their buffer epoch state;
+- later operations acquire any idle stream and install
+  `cudaStreamWaitEvent` dependencies;
+- correctness never depends on producer/consumer stream affinity.
 
-This model also gives a criterion for TensorContraction cleanup.  Any operation
-that touches matrix memory should express synchronization through the owning
-`GpuBuffer` access state.  Separate raw event maps or batch-local sync events
-are acceptable only as temporary bridge code, or for non-matrix resources such
-as reusable scratch buffers.
+Do not cache streams on buffers, park implicit stream tails, or prefer streams
+based on dependency affinity. While a producer is running its stream is not
+idle; once the stream is idle, the producer is already complete.
 
-## Stream-Tail Epoch Contexts
+For tiny-operation overhead, prefer batching, coalescing, provider batched APIs,
+or CUDA graphs.
 
-The next design step is to make CUDA events lazy without losing the exact stream
-position they represent.  A naive lazy event is unsafe: if an event is recorded
-only when a later consumer asks for it, the producing stream may already have
-been reused for unrelated work.  The event would then describe a later stream
-tail than the buffer generation that needs synchronization.
+## Device Context
 
-The proposed solution is a shared `GpuEpochContext`.  A context is the completion
-token for one produced generation or coalesced batch.  It stores either:
+The eventual `CudaDeviceContext` should own device-local resources:
 
-- an implicit stream tail, meaning "all work currently enqueued before this
-  point in stream `S`"; or
-- an explicit CUDA event, recorded when that stream tail has to be materialized.
+- one logical scheduler arena for the device;
+- the idle stream pool;
+- event allocation/recycling;
+- CUDA memory-pool configuration;
+- exclusive provider handle and workspace pools;
+- completion/error monitoring;
+- runtime diagnostics and counters.
 
-Multiple output buffers from one kernel or batch should share the same
-`GpuEpochContext`.  This is intentionally different from the CPU coroutine
-epoch model, where multiple outputs can release independently.  On the GPU, if
-one kernel writes several buffers, those writes complete at the same stream
-position and should share one ordering token.
+A oneTBB arena owns concurrency slots, not fixed workers. Attach a
+`task_scheduler_observer` to establish the arena's CUDA device whenever a
+worker or application thread enters and restore its previous device on exit.
+Do not model provider handles as permanently worker-owned thread state.
 
-The essential operations are:
+Provider handles with mutable stream state must never be shared concurrently.
+Acquire streams, handles, and workspaces as one composite device-local request,
+then run the complete backend walk and provider call without another
+`co_await`. Raw handles remain internal to their RAII leases and backend
+adapters. Provider-resource reuse at host return versus device completion is an
+explicit provider/routine policy.
 
-- `waitOn(consumer_stream)`: if the context is still an implicit tail on the same
-  stream, do nothing; otherwise materialize the context to an event if needed and
-  issue `cudaStreamWaitEvent` on the consumer stream.
-- `finalize()`: record one event at the current stream tail and replace the
-  implicit stream-tail state with the explicit event state.
-- `publishWrite(buffer, context)`: make `context` the latest writer generation
-  for `buffer` and clear or supersede prior reader generations.
-- `publishRead(buffer, context)`: add or coalesce `context` as an outstanding
-  reader generation for `buffer`.
+Host-intensive APIs initially run on the same per-device scheduler. Add a
+separate bounded provider lane only if profiling demonstrates starvation or
+latency problems.
 
-A stream slot may have one or more active `GpuEpochContext`s parked on its tail.
-This is the GPU analogue of a work-stealing thread pool: while a buffer
-generation still owns the stream tail, same-stream continuation is free.  If the
-scheduler wants to reuse that stream slot for unrelated work, it must first
-repossess the stream by finalizing all parked epoch contexts on that slot.  This
-records events even if no future consumer ultimately waits on them; that is the
-unavoidable work-stealing overhead required to preserve the correct stream
-position.
+## Buffer Epochs
 
-The core invariant is:
+GPU synchronization belongs to the memory allocation or storage epoch, not to
+an incidental operation object:
 
-- A stream slot must not accept unrelated work until every active epoch parked on
-  that stream has either been continued compatibly or finalized to an event.
+- reads wait on the latest writer completion;
+- writes wait on the latest writer and all outstanding readers;
+- reads publish reader completions;
+- writes publish a new writer completion and supersede prior readers;
+- buffer storage remains alive until every retained completion token is no
+  longer needed.
 
-Read/write behavior under this model is:
+The CPU async DAG establishes causal readiness before CUDA submission. CUDA
+events lower already-submitted memory dependencies; they must not wait for
+producer work whose event has not yet been recorded.
 
-- Reading a buffer waits on the latest writer context, then publishes a read
-  context representing the read's completion at the consumer stream tail.
-- Writing a buffer waits on the latest writer context and all outstanding reader
-  contexts, then publishes a new writer context and clears the old readers.
-- Same-stream read-after-write, write-after-read, and write-after-write
-  dependencies require no event and no wait; CUDA stream order is the dependency.
-- Cross-stream handoff records at most one event for the producer epoch context
-  and waits on that event from the consumer stream.
-- Multi-output kernels and coalesced contraction batches share one epoch context,
-  so stream repossession or cross-stream handoff records one event for the whole
-  batch rather than one event per buffer.
+## Coroutine Integration
 
-For the single-threaded TensorContraction bridge, this can be implemented without
-host-side locking: `CudaDeviceContext` owns stream slots, each slot owns the set
-of parked epoch contexts, and `GpuBuffer` generations store shared pointers to
-writer/reader contexts.  A later multi-threaded uni20 scheduler would add locking
-or worker affinity around stream-slot repossession and epoch-state mutation, but
-the dependency model should remain the same.
+The coroutine promise's scheduler pointer is execution-routing state, but a
+coroutine's promise type is fixed at frame creation. Global `schedule()` may
+route `AsyncTask` and `CudaTask` differently. If CUDA execution requires state
+in `CudaTaskPromise`, an ordinary `AsyncTask` enters CUDA by creating and
+awaiting a `CudaTask`; it cannot migrate and become one. The parent resumes
+through the scheduler recorded in its own promise.
 
-## TensorContraction Access-Plan Refactor
+Same-task-type scheduler migration is a separate capability. For example, a
+`CudaTask` may move between device schedulers only if its promise device state
+and scheduler route are updated consistently. Do not conflate heterogeneous
+nested-task routing with live-task migration.
 
-The temporary TensorContraction CUDA path should converge on a small
-`GpuAccessPlan` abstraction rather than a full scheduler.  The intended split is:
+Future resource acquisition must be:
 
-- `CudaDeviceContext` owns permanent stream/handle slots.  Streams are reusable
-  execution lanes.  The current bridge borrows them with a lightweight LRU
-  policy; the longer-term design above lets stream-tail epoch contexts park on
-  those slots until compatible continuation, cross-stream handoff, or stream
-  repossession.
-- `GpuBuffer` owns memory dependency state: the latest writer generation, the
-  latest/coalesced reader generation, and enough stream affinity information to
-  choose same-stream fast paths when they are profitable.
-- `GpuAccessPlan` binds those two layers for one operation or coalesced batch:
-  it chooses a stream, waits for required cross-stream dependencies, and
-  publishes one completion generation when the CUDA work has been enqueued.
+- cancellation-safe;
+- fair enough to avoid starvation;
+- able to admit composite stream/handle/workspace requests without hold-and-wait;
+- able to resubmit through the scheduler currently recorded by the task;
+- safe when callbacks occur on CUDA-owned threads;
+- compatible with deterministic single-stream debug execution.
 
-The stream selection policy is deliberately heuristic and local:
+Do not resume a coroutine directly from `cudaLaunchHostFunc`. The callback
+should notify a scheduler-neutral bridge that resubmits through the task's
+recorded scheduler.
 
-1. Prefer a stream already associated with the write/output buffers.
-2. Otherwise prefer the stream satisfying the most existing read/write
-   dependencies.
-3. Otherwise use the least-recently-used stream slot from the device context.
+General CUDA Graph capture is unsupported initially. If added later, begin and
+end capture in one non-suspending device-scheduler transaction after all
+resources have been acquired. Never `co_await` while capture is active.
 
-The dependency rules are:
+## Errors
 
-- Reads wait on the latest writer generation unless producer and consumer are
-  already on the same stream.
-- Writes wait on the latest writer and outstanding reader generation unless they
-  are already on the same stream.
-- Same-stream order is the dependency.  It should not create an event wait.
-- Cross-stream order is represented by `cudaStreamWaitEvent`.
-- Host synchronization is reserved for explicit materialization/debug/release
-  boundaries.
+Immediate CUDA API failures raise structured errors at the submission point.
+Deferred execution errors must eventually fail every affected async output and
+mark the device context or stream pool unusable when CUDA reports a poisoned
+context.
 
-The publishing rules are:
+`cudaLaunchHostFunc` is not guaranteed to run after a CUDA context error.
+Therefore the final scheduler cannot rely solely on pool-return callbacks for
+error recovery or waiter progress. The completion/error service must have a
+terminal-context path that releases or fails pending waiters rather than
+deadlocking.
 
-- Record at most one completion event for one operation or coalesced batch.
-- Publish that event as a read generation to read buffers.
-- Publish that event as a write generation to write buffers.
-- In serialized CUDA diagnostic mode, execute the same access-planning code path
-  but disable dependency event record/wait.
+## TensorContraction Evidence
 
-The first bridge implementation should route normal compute work through this
-model and leave raw copy/NCCL `syncFinishEvent` cleanup for a later pass.  Once
-all normal matrix operations use access plans, direct public wait/publish calls
-on `GpuBuffer` should become private implementation details.
+The `origin/tensorcontraction-integration` branch remains useful implementation
+evidence for:
+
+- per-device contexts;
+- affine stream and cuBLAS-lane leases;
+- non-timing event pooling;
+- scratch-buffer reuse;
+- stream-ordered allocation and free;
+- memory-pool retention and allocation caching;
+- runtime counters and environment configuration;
+- multi-device and MPI/CUDA workload behavior.
+
+Reuse those lessons, not the bridge's architecture or fail-fast environment
+parsing. New native Uni20 code should use the current async, dispatch,
+diagnostics, and presentation contracts.

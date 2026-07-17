@@ -8,6 +8,10 @@ CUDA/cuSOLVER runtime.  They are not a statement of current implementation
 status.  The temporary TensorContraction bridge currently has a narrower
 host-facing cuSOLVER SVD path.
 
+The generic host-execution and dispatch contract is defined in
+[CUDA Kernel Dispatch and Device Scheduling](kernel_dispatch.md). This note
+keeps the cuSOLVER-specific consequences.
+
 ## Primary References
 
 - NVIDIA cuSOLVER documentation:
@@ -35,50 +39,56 @@ The key interpretation for uni20 is:
 
 ## Resource Model
 
-The preferred native uni20 model is one solver execution lane per scheduler
-thread and CUDA device:
+The preferred native Uni20 model is one execution context and scheduler per
+CUDA device. The context owns bounded pools of cuSOLVER handles, actually-idle
+streams, workspaces, and completion resources:
 
 ```text
-host scheduler thread
-  -> CUDA device
-    -> cuSOLVER handle
-    -> small pool of CUDA streams
-    -> optional per-stream or per-lane workspace cache
+CUDA device context
+  -> device scheduler arena
+  -> actually-idle stream pool
+  -> exclusive cuSOLVER handle pool
+  -> workspace and completion resources
 ```
 
-Do not create and destroy cuSOLVER handles per operation.  Handle creation is
-runtime state setup, not useful numerical work.  The current TensorContraction
-SVD prototype already follows the first approximation of this rule by caching a
-cuSOLVER handle and stream per host thread per CUDA device.
+A solver request begins only when its complete resource set is available. The
+coroutine may suspend while waiting for that composite acquisition. Once
+admitted, setting the handle stream, invoking cuSOLVER, and recording submission
+completion form one non-suspending operation.
 
-Do not create many cuSOLVER handles in one host thread just to call a
-host-synchronous wrapper.  If the wrapper synchronizes before returning
-host-visible data, extra same-thread handles only add resource pressure.
+Do not create and destroy cuSOLVER handles per operation. Handle creation is
+runtime state setup, not useful numerical work. Handles are device-local leased
+resources, not permanent properties of particular oneTBB worker threads.
 
-Using one cuSOLVER handle with multiple streams can be useful only for a narrow
-single-threaded enqueue pattern: set the handle's stream just before each solver
-call, submit independent work, and do not synchronize immediately.  This can
-allow the GPU to overlap the queued stream work when the solver calls return
-quickly enough and the individual tasks do not fill the device.
+An exclusive handle lease may move between physical workers in the same device
+arena because the arena observer establishes the same CUDA device on every
+participant. Different operations must not mutate one handle concurrently.
+Provider-specific state that remains live after host-call return stays retained
+until the relevant completion boundary.
 
-That pattern is not the preferred uni20 scheduler model when it is exposed as
-ad-hoc mutable handle state.  A solver lane may still rotate through a small
-bounded stream pool, provided the stream selection happens immediately before
-the cuSOLVER call and is part of a single submission operation.  This loses
-nothing relative to a fixed stream when the operation later synchronizes, and
-can expose useful overlap when independent solver blocks remain resident on the
-GPU.  Workspace and completion tracking must follow the selected stream, not
-the handle alone.
+The operation may rotate through the bounded stream pool. Workspace and
+completion tracking follow the submitted operation and selected stream, not the
+handle alone.
 
-Multiple lanes, typically from multiple scheduler threads or a dedicated
-cuSOLVER thread pool, are the robust way to submit independent solver work with
-host-side concurrency.  Within one lane, a small stream pool is useful for
-device-side overlap; it is not a substitute for multiple host submitters.
+Multiple handle leases allow independent solver work with host-side concurrency.
+A cuSOLVER call such as SVD may occupy one device-scheduler participant while
+launching and coordinating many device kernels, even though device work may
+remain pending after the API returns. Scheduler concurrency and handle-pool
+capacity therefore provide separate bounds.
 
-Multiple cuSOLVER lanes become useful when the operation boundary is resident
-and asynchronous.  For example, block-sparse SVD can submit independent symmetry
-sectors to different solver lanes, publish GPU completion tokens, and let the
-CPU scheduler resume dependent work later.
+Multiple cuSOLVER leases become useful when the operation boundary is resident
+and asynchronous. For example, block-sparse SVD can submit independent symmetry
+sectors, publish GPU completion tokens, and let dependent work resume later.
+
+Raw cuSOLVER handles remain internal to RAII leases and backend adapters. An
+internal coroutine may await composite resource admission, but the actual
+backend walk and cuSOLVER call are ordinary non-coroutine code. No further
+`co_await` occurs while the provider call is in progress.
+
+The first implementation runs cuSOLVER directly on the device scheduler. A
+separate provider scheduler or lane is justified only if profiling shows that
+host-intensive calls starve lightweight submission or unrelated device
+continuations.
 
 ## Host Blocking Boundaries
 
@@ -145,28 +155,39 @@ API rather than reintroducing implicit host tensors.
 
 ## Scheduler Boundary
 
-The CUDA/cuSOLVER layer should not become a general CPU-side DAG executor.
-CPU-side async tasks should establish causal readiness: a GPU operation should
-only be submitted once the CPU metadata and object lifetime are valid.  The GPU
-storage layer then handles device-local read/write dependencies with CUDA
-events and streams.
+The CUDA/cuSOLVER layer should not become a second dependency DAG. CPU-side
+epochs establish causal readiness: a GPU operation is submitted only once its
+metadata and object lifetime are valid. The GPU storage layer then lowers
+device-local read/write dependencies with CUDA events and streams.
 
 This keeps the split clear:
 
-- CPU scheduler: task ordering, coroutine suspension/resumption, object
-  lifetime, and high-level dependency causality.
+- async epoch model: task ordering, object lifetime, and high-level dependency
+  causality;
+- per-device scheduler: execution of `CudaTask` activations routed from global
+  scheduling or heterogeneous nested `co_await`, with bounded host
+  participation;
 - GPU storage/runtime: buffer read/write epochs, stream/event synchronization,
-  library handle selection, and device work submission.
-- cuSOLVER lane: a concrete handle plus a bounded stream/workspace context used
-  to submit solver work for one device on one scheduler thread.
+  resource leasing, and device work submission;
+- cuSOLVER backend: a non-suspending solver call that consumes leased resources
+  and publishes submission/completion tokens.
+
+The `CudaTask` is first routed to its device scheduler, then suspends until its
+composite stream/handle/workspace request is available. The entire relevant
+backend walk executes without suspension. Once the solver API returns and the
+completion event is recorded, the scheduler participant is free; operation
+resources remain retained until their provider-specific release boundary.
 
 ## Open Questions
 
-- Whether solver lanes are owned by general CUDA scheduler threads or by a
-  dedicated cuSOLVER scheduler pool.
+- Whether profiling eventually justifies a separate bounded cuSOLVER execution
+  lane rather than direct execution on the device scheduler.
+- Which routine families permit a cuSOLVER handle to be reused immediately
+  after the host API returns, rather than after device completion.
 - Whether block-sparse SVD should use one cuSOLVER call per sector, batched
   Jacobi SVD for many small sectors, or a hybrid policy.
-- How much cuSOLVER workspace should be cached per lane, and how workspace
+- How much cuSOLVER workspace should be cached per handle or operation class,
+  and how workspace
   pressure should interact with the broader CUDA allocator.
 - How MPI client-server scheduling should assign symmetry-sector SVD blocks to
   remote CUDA workers.

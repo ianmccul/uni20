@@ -12,5 +12,6 @@ This directory is reserved for cuSOLVER operation-tag backend adapters.
 ## Related Documentation
 
 - [Linalg backend source map](../)
+- [CUDA kernel dispatch and provider scheduling](../../../../../docs/backends/cuda/kernel_dispatch.md)
 - [cuSOLVER architecture](../../../../../docs/backends/cuda/cusolver.md)
 - [CUDA runtime resolution](../../../../../docs/backends/cuda/runtime_resolution.md)

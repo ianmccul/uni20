@@ -209,7 +209,8 @@ This file is for questions about project maturity, active design seams, and what
 
 ### SAFE CLAIMS
 
-- CUDA-related directories and types exist.
+- A low-level CUDA runtime foundation exists for structured errors, device
+  selection, stream/event ownership, completion tokens, and idle stream pooling.
 - Full CUDA execution is not complete.
 - Full cuSOLVER execution is not complete.
 - Future CUDA scheduler and device-resource design notes live in

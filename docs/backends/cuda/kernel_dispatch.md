@@ -1,0 +1,424 @@
+# CUDA Kernel Dispatch and Device Scheduling
+
+**Status:** active design note. The low-level CUDA runtime foundation is
+implemented, but CUDA Tensor storage, CUDA kernel backends, device schedulers,
+and coroutine scheduler migration are not yet implemented.
+
+This note defines how Uni20 kernel dispatch should interact with CUDA
+execution. It distinguishes the logical CUDA execution context from the
+physical oneTBB workers that happen to execute its tasks, and it distinguishes
+lightweight CUDA submission from provider APIs that occupy a CPU thread for a
+material interval.
+
+Related notes:
+
+- [Kernel Dispatch](../../architecture/kernel_dispatch.md) defines the generic
+  `kernel_accepts_types` / `try_kernel` / backend-list contract.
+- [Execution Architecture](../../architecture/execution.md) describes scheduler
+  and storage-policy layering.
+- [Ordering and Backend Lowering](../../architecture/ordering_and_backend_lowering.md)
+  defines submission order, completion order, and token-pins-storage.
+- [CUDA Runtime](runtime.md) defines streams, events, completion tokens, and the
+  actually-idle stream pool.
+- [GPU Epoch Design](epoch_design_draft.md) defines device-buffer hazard
+  tracking.
+- [cuSOLVER Architecture](cusolver.md) records solver-specific resource and
+  workspace considerations.
+- [oneTBB Execution Primer](../../async/tbb_execution_primer.md) explains arena
+  slots, worker participation, and scheduler observers.
+- [Scheduler Routing, Nested Task Domains, and Promise Specialization](../../async/scheduler_migration.md)
+  distinguishes type-directed scheduling, heterogeneous nesting, and same-type
+  migration.
+
+## Summary
+
+Uni20 should have one logical CUDA execution context per device. Entering that
+context establishes the device on whichever oneTBB worker or application
+thread is currently participating in its arena. Streams, provider handles,
+events, workspaces, and memory resources belong to the device context and are
+leased explicitly; they do not belong permanently to physical workers.
+
+CUDA leaf-kernel dispatch remains an ordinary, non-suspending C++ call:
+
+```text
+CPU AsyncTask
+  -> co_await a newly created CudaTask for device D
+     -> task-aware scheduling routes CudaTask to device-D scheduler
+     -> co_await required device-D resources
+     -> invoke the backend walk without suspension
+     -> enqueue device work
+     -> record and publish completion
+  -> resume AsyncTask through its own recorded scheduler
+```
+
+This is the required shape if `CudaTaskPromise` carries state needed by CUDA
+execution. If the eventual CUDA path needs no specialized promise state, an
+ordinary `AsyncTask` running on a compatible device scheduler remains a possible
+implementation. The design must not assume that a live `AsyncTask` can change
+its promise type and become a `CudaTask`.
+
+Lightweight and host-intensive CUDA calls use the same device scheduler and
+resource model initially. A host-intensive provider call occupies one device
+scheduler participant until its host API returns. Handle and stream pool
+capacity bound provider concurrency. A separate provider lane or scheduler is
+an optional later optimization if profiling shows that provider calls impede
+lightweight submission or other host work.
+
+## Per-Device Execution Context
+
+The eventual `CudaDeviceContext` owns all execution resources associated with
+one device:
+
+```cpp
+struct CudaDeviceContext
+{
+    int device;
+    TbbScheduler scheduler;
+    StreamPool streams;
+    EventPool events;
+    HandlePool<CusolverHandle> cusolver_handles;
+    HandlePool<CublasHandle> cublas_handles;
+    // Memory resources, workspaces, diagnostics, and provider-specific pools.
+};
+```
+
+This is conceptual structure, not a required concrete aggregate. In
+particular, the retained CUDA primary context and error-monitoring service may
+need separate lifetime wrappers.
+
+The device ordinal comes from Tensor storage/location policy. A kernel with
+multiple device operands must either validate that they share a device or be an
+explicit transfer/collective operation. Backend selection must not silently
+copy operands between devices.
+
+### An arena has slots, not fixed workers
+
+A oneTBB `task_arena` owns a task domain and a concurrency limit. It does not
+own a permanent private set of worker threads. For example, an arena with
+concurrency two permits at most two simultaneous participants, but different
+oneTBB workers may occupy those slots over time. An application thread may also
+enter a reserved slot through `task_arena::execute()`.
+
+Attach a `task_scheduler_observer` to each device arena:
+
+- on arena entry, save the participating thread's prior CUDA device and select
+  the arena's device;
+- on arena exit, restore the prior device;
+- initialize the CUDA primary context and other fallible device state before
+  enabling observation;
+- do not throw from observer callbacks;
+- optionally verify the current device at task entry in debug builds.
+
+The observer establishes a logical device-affinity interval while a thread
+participates in the arena. It does not pin worker identity. Public CUDA resource
+wrappers still retain their own device ordinals and use explicit device guards
+when they may be called outside the device scheduler.
+
+## Task Types, Nesting, And Scheduler Migration
+
+The scheduler pointer in a Uni20 coroutine promise determines where a viable
+task is submitted. Global `schedule()` may overload on concrete task type:
+`AsyncTask` can use the configured CPU scheduler, while `CudaTask` can use
+device context stored in `CudaTaskPromise` to select one per-device scheduler.
+
+An ordinary CPU coroutine enters that CUDA task domain by awaiting a newly
+created task:
+
+```cpp
+co_await cuda_operation(device, operands...); // returns CudaTask
+```
+
+The outer `AsyncTask` remains a distinct coroutine with its original promise and
+scheduler route. The nested `CudaTask` is scheduled on its device context. When
+it completes, the outer continuation is submitted through the scheduler
+recorded in the outer promise.
+
+A coroutine frame's promise type is fixed at creation. Scheduler migration is a
+separate, same-task-type capability. For example, a `CudaTask` could migrate
+between device schedulers if `CudaTaskPromise` updates its device context and
+scheduler consistently. An ordinary `AsyncTask` can migrate to a CUDA scheduler
+only if that scheduler accepts `AsyncTask` and no CUDA-specific promise state is
+required.
+
+Required migration invariants are:
+
+- migration occurs only at an explicit suspension point;
+- migration never changes the coroutine's promise or task type;
+- the target scheduler and `CudaDeviceContext` outlive the migrated task;
+- ownership of the suspended task passes exactly once from the old scheduler
+  route to the new one;
+- cancellation and exceptions remain attached to the same coroutine and async
+  outputs;
+- generic buffer/epoch access may remain live across migration, but a task must
+  not migrate while holding a device-local stream, handle, or workspace lease;
+- scheduler migration does not move Tensor storage or change its device;
+- callbacks never resume the coroutine directly on CUDA-owned threads; they
+  submit it through the scheduler currently recorded by the task.
+
+The exact awaiter and scheduler API remain an open implementation design. In
+particular, scheduler migration must be reconciled with activation accounting,
+wait/quiescence semantics, diagnostics, and nested coroutine continuation
+routing before implementation. Heterogeneous nesting is required independently:
+a `CudaTask` with an explicit device route must not inherit and execute on an
+incompatible parent scheduler merely because it was entered through `co_await`.
+
+## Two CUDA Host-Call Classes
+
+### Lightweight submission
+
+A lightweight call performs bounded host work and primarily enqueues device
+work. Typical examples are:
+
+- an ordinary CUDA kernel launch;
+- `cudaMemcpyAsync`;
+- many cuBLAS operations;
+- event record and stream-wait operations.
+
+These calls execute directly in the device scheduler after logical dependencies
+and resource leases are ready. They must not perform a host synchronization
+before returning.
+
+### Host-intensive provider execution
+
+A provider call may execute a substantial CPU algorithm while also launching
+and coordinating device kernels. Examples can include:
+
+- cuSOLVER factorizations and decompositions;
+- cuTensorNet optimization, preparation, and contraction APIs;
+- selected cuQuantum operations;
+- other vendor APIs shown by profiling to occupy the caller materially.
+
+For example, a cuSOLVER SVD can keep the calling CPU thread active while
+launching thousands of kernels. The call may therefore occupy a device
+scheduler participant for much longer than an ordinary kernel launch.
+
+Classification is operation- and provider-specific. Library branding alone is
+not sufficient. The first implementation uses the device scheduler directly;
+only measurements should justify introducing a separate bounded provider
+execution lane.
+
+## Awaitable Resource Leases
+
+Provider handles are device-local resources, not thread-local coroutine state.
+An internal coroutine may await an exclusive RAII handle lease, provided the
+handle is documented to permit sequential use from different host threads.
+The lease may move with the suspended coroutine between physical workers in the
+same device arena.
+
+Acquisition should normally be composite:
+
+```cpp
+auto resources = co_await context.acquire(cusolver_request{
+    .stream = true,
+    .handle = true,
+    .workspace_bytes = workspace_bytes,
+});
+
+dispatch_kernel(make_cuda_selector(context, resources), svd_op{}, request);
+```
+
+Once the complete resource set has been acquired, the backend walk and provider
+call are ordinary non-coroutine code. No `co_await` occurs while invoking the
+provider. Raw provider handles remain internal to their leases and backend
+adapters; they are not user-facing coroutine results.
+
+A provider with a verified host-thread-affine handle contract requires a
+provider-specific execution adapter. Do not impose permanent thread affinity on
+all CUDA resources because one future provider might require it.
+
+## Composite Resource Admission
+
+A caller must not acquire one scarce resource and then suspend indefinitely
+waiting for another. Holding a stream while waiting for a provider handle or
+workspace, for example, creates avoidable starvation and deadlock risks.
+
+The device context should queue one composite request and make it runnable when
+all required resources are available:
+
+```text
+queued device request
+        |
+        +-- actually-idle stream available
+        +-- compatible provider handle available
+        +-- required workspace available
+        |
+        v
+non-suspending backend walk and provider call
+```
+
+Stream-pool capacity remains device admission control. Handle-pool and
+workspace limits add provider-specific admission control without tying those
+resources to scheduler workers.
+
+## Non-Suspending Leaf Dispatch
+
+`try_kernel(...)` remains an ordinary function. It executes inside a CUDA
+access/submission transaction supplied through the backend context. A CUDA
+backend attempt may:
+
+1. validate all remaining runtime preconditions;
+2. install device-event dependencies on its leased stream;
+3. invoke the CUDA runtime or provider API;
+4. record one completion event;
+5. commit that completion to the enclosing access plan;
+6. return `KernelAttempt::success`.
+
+It must not `co_await`, queue unfinished host-side submission work, or return
+success before the operation's completion event exists. Before the surrounding
+submission boundary returns, the access plan publishes that token into the
+affected storage epochs.
+
+The strong clean-decline contract remains unchanged. A CUDA backend may decline
+only before it changes provider state, enqueues work, consumes an operand,
+commits output, or produces another externally visible side effect. Failure
+after that point is an operation error and must not fall through to another
+backend.
+
+## Submission And Completion Boundaries
+
+A CUDA operation has at least two relevant boundaries:
+
+1. **Submitted:** the host call has returned, its completion event has been
+   recorded, and the affected storage epochs retain that token.
+2. **Completed:** the recorded device work and any requested transfer have
+   finished.
+
+The scheduler participant and provider handle may become available at the
+submitted boundary. The stream, operands, outputs, workspaces, and any
+provider-specific state referenced by device work remain retained until the
+provider contract permits release, normally no earlier than completion.
+
+An `Async<GpuTensor>` result can become logically ready at the submitted
+boundary: its metadata, storage, and producer completion token are fixed.
+Another GPU operation can consume it by installing an event wait without
+waiting on the host.
+
+An `Async<CpuTensor>` produced by a device-to-host transfer, a C++ scalar, or
+another host-visible result becomes ready only at the completed boundary.
+
+## Provider-Resource Reuse
+
+The lifetime of a handle lease is not necessarily the lifetime of the
+operation's device work. The device context must support provider-specific
+policies:
+
+- release the handle after the host API returns; or
+- retain the handle until device completion.
+
+The first policy permits another operation to submit while prior device work
+remains pending. It is appropriate only when the provider permits handle reuse
+and all operation-specific workspace/state has independent lifetime.
+
+The second policy is conservative for providers or routines whose state may
+remain associated with queued device work. Initial implementations should use
+the conservative policy until provider documentation, focused tests, and
+profiling justify earlier reuse.
+
+## Relationship To Generic Kernel Dispatch
+
+The generic backend walk does not become a coroutine and does not know about
+scheduler migration or resource-wait queues.
+
+The async Tensor wrapper performs execution routing and resource acquisition,
+then calls `dispatch_kernel(...)` with a selector or backend view containing
+the leased device resources. If an ordered backend list contains a CUDA
+provider candidate and fallback candidates, the whole relevant backend walk
+runs after resource admission so runtime decline can continue without moving
+operands across another suspension boundary.
+
+A queued request may be cancelled cleanly before resource admission. Once the
+backend has changed provider state or enqueued work, cancellation cannot turn
+the attempt into a backend decline or reclaim retained resources early. The
+submitted work must reach a completion/error boundary.
+
+## CUDA Graph Capture
+
+General CUDA Graph stream capture is unsupported in the initial runtime. The
+ordinary CUDA coroutine path must not begin capture, accept an already-capturing
+stream, or suspend while capture is active.
+
+This restriction does not require permanent thread affinity. A future graph API
+can pre-acquire its stream, handles, workspaces, and descriptors, then run one
+non-suspending capture transaction on the device scheduler:
+
+```text
+begin capture -> submit captured calls -> end capture
+```
+
+The complete transaction remains on one participating thread. No `co_await`
+occurs between begin and end. Graph support should be added only for workloads
+with enough stable repetition to amortize capture and instantiation; typical
+DMRG contractions and short Krylov matvec sequences may not meet that threshold.
+
+## Blocking And Debug Adapters
+
+A non-async C++ API may block without requiring a second numerical
+implementation. It can enter the selected device scheduler, invoke the same
+leaf backend, and wait at the requested submission or completion boundary.
+
+A fully synchronized debug policy waits after every submitted operation. This
+is the error-localizing correctness baseline described by the CUDA epoch notes.
+It should wrap the same dispatch and submission paths rather than define a
+parallel collection of CUDA kernels.
+
+## Error Propagation
+
+Immediate provider and CUDA API errors occur inside the leaf backend attempt.
+They fail the requesting async outputs through the normal structured exception
+path.
+
+Deferred execution errors are detected at a later CUDA synchronization or
+completion-service boundary. They must fail every affected output epoch and
+mark a poisoned device context terminal when recovery is impossible.
+
+Diagnostics should include:
+
+- operation name;
+- selected backend/provider;
+- CUDA device and device-scheduler identity;
+- stream, handle-pool, or workspace lease identity where useful;
+- whether failure occurred before submission or during completion;
+- structured vendor and CUDA status;
+- source location and stack information where available.
+
+Rendering uses Uni20's presentation layer. Runtime layers retain structured
+diagnostic data rather than preformatting one terminal-only string.
+
+## Initial Implementation Order
+
+1. Extend `CudaDeviceContext` to own a device-local `TbbScheduler` and attach an
+   arena observer that establishes/restores the CUDA device.
+2. Complete heterogeneous `BasicAsyncTask<Promise>` scheduling and nested
+   continuation routing so global `schedule(CudaTask)` and
+   `AsyncTask::co_await(CudaTask)` select the CUDA device scheduler.
+3. Specify same-task-type scheduler migration separately, including activation
+   accounting, cancellation, exceptions, waits, and quiescence.
+4. Add cancellation-safe composite acquisition for idle streams and one
+   provider handle/workspace pool.
+5. Add scheduler-neutral completion notification that resubmits through the
+   scheduler currently recorded by the suspended task.
+6. Implement one lightweight copy or kernel path.
+7. Implement one host-intensive cuSOLVER operation on the same device scheduler
+   and profile whether a separate provider lane is justified.
+8. Validate multi-device isolation and explicit migration between two device
+   contexts.
+
+## Open Questions
+
+- Which state, if any, belongs permanently in `CudaTaskPromise` rather than in
+  coroutine-local resource leases?
+- Should `CudaTask` select its `CudaDeviceContext` through promise construction,
+  an explicit factory, or another typed scheduling customization?
+- Which same-type scheduler migrations are useful after heterogeneous nested
+  task routing is available?
+- Confirm that a oneTBB task group owns only a scheduled activation and that no
+  persistent task-group membership needs to migrate with a suspended coroutine.
+- Should `run_all()` retain its current activation-quiescence meaning, and what
+  separate operation drains or shuts down a multi-scheduler device context?
+- How should device scheduler destruction prove that no migrated tasks or
+  resource waiters still reference its context?
+- Which provider/routine families permit handle release at host-call return?
+- Should CPU-intensive providers eventually receive a separate bounded lane
+  within the device context?
+- Which completion mechanism detects terminal CUDA context failure when a
+  `cudaLaunchHostFunc` callback cannot run?

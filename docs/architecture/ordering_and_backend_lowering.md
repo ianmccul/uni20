@@ -12,6 +12,8 @@ Related notes:
 - `docs/architecture/storage_kind_and_location.md` — storage memory kind (type) vs location (runtime).
 - `docs/backends/cuda/epoch_design_draft.md` — GPU per-buffer hazard model (`GpuEpochQueue`).
 - `docs/backends/cuda/runtime.md` — CUDA stream ownership and pools.
+- `docs/backends/cuda/kernel_dispatch.md` — host execution routes for
+  lightweight and hybrid provider calls.
 - `docs/architecture/backend_dispatch.md` — compile-time capability / runtime `try_*` dispatch.
 - `docs/architecture/kernel_dispatch.md` — the `backend_list` walk and scheduler integration.
 
@@ -87,19 +89,29 @@ the consumer chooses its own wait strategy.
 
 ## CUDA lowering rules
 
-Spend events only where ordering is not already free:
+Use one uniform event-based dependency model:
 
-- **Same stream is free.** Consecutive ops on one stream are FIFO-ordered;
-  a dependency chain assigned to a single stream needs zero events.
-- **Cross-stream / cross-device joins** are the only edges that need an
-  event — one completion event per operation, not per buffer.
+- **Every submitted operation records one completion event**, not one event per
+  buffer. Multi-output operations share that token.
+- **Every operation acquires an actually idle stream from the pool.** The
+  scheduler does not preserve producer/consumer stream affinity.
+- **Dependencies use `cudaStreamWaitEvent`.** If a selected stream happens to
+  make a wait redundant, that may be optimized locally without making affinity
+  part of the runtime contract.
+- **Stream return follows actual completion.** A `cudaLaunchHostFunc` at the
+  stream tail marks the slot idle and eventually wakes a queued acquirer.
 - **GPU→host edges** suspend the consuming *task*, resumed by a completion
   callback (e.g. `cudaLaunchHostFunc`); they do not block a host thread. This
   is the one residual that never disappears: the host genuinely needs
   completed data.
+- **Host-intensive provider calls** run as non-suspending jobs after a
+  `CudaTask` is routed to its per-device scheduler and completes composite
+  resource admission. One scheduler participant is occupied until the host API
+  returns; device completion remains represented by the usual event token. A
+  separate provider lane is optional and must be justified by profiling.
 - **Tiny kernels** can cost more in event overhead than they compute. The
-  lowering may choose to block or default-stream-serialize such kernels as a
-  performance decision.
+  preferred remedies are batching, coalescing, or CUDA graphs rather than
+  stream-affinity bookkeeping.
 
 ## MPI lowering
 

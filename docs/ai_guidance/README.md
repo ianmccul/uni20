@@ -89,7 +89,8 @@ Not every file uses every field. Use the fields that improve retrieval.
   backend values/selectors, operation-tag dispatch, and async tensor alias
   cautions
 - `presentation_and_python.md`: presentation formatting, Python display, Jupyter display, tensor preview policy, and renderer boundaries
-- `cuda_scheduler_notes.md`: speculative CUDA scheduler and resource-management notes; not implemented runtime behavior
+- `cuda_scheduler_notes.md`: current CUDA scheduler and resource-management
+  direction; scheduler migration remains unimplemented
 - `glossary.md`: compact retrieval-first definitions for repeated Uni20 terms
 
 ## Recommended use

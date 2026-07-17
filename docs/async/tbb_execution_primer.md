@@ -253,6 +253,30 @@ balance load.
 When constructing `TbbScheduler` from constraints, set `max_concurrency` on the
 constraints object.
 
+### Arena observers and thread-local execution state
+
+`oneapi::tbb::task_scheduler_observer` reports when a worker or application
+thread enters or leaves a particular arena. It can establish thread-local state
+for the duration of arena participation and restore prior state on exit.
+
+This does not assign permanent workers to the arena. A different worker may
+enter the same slot later, and one worker may participate in different arenas
+over time. Observer callbacks establish a logical execution context on every
+participant.
+
+The planned CUDA runtime uses this mechanism for one scheduler arena per device:
+
+- initialize the CUDA device context before enabling observation;
+- select the arena's CUDA device on entry;
+- restore the previous CUDA device on exit;
+- never throw from observer callbacks;
+- keep CUDA streams and provider handles in device-local pools rather than
+  attaching them permanently to worker identities.
+
+If an exact persistent set of OS threads is required, `task_arena` is not that
+facility; a dedicated-thread executor would be needed. No current Uni20 CUDA
+requirement justifies that executor.
+
 ## Task Groups
 
 A `task_group` tracks dynamically added tasks. Its main operations are:
@@ -263,15 +287,24 @@ A `task_group` tracks dynamically added tasks. Its main operations are:
 - `run_and_wait(f)`: schedule one task and wait for the group
 - `cancel()`: request cancellation through the group's context
 
-The group is an ownership, completion, and cancellation boundary. It is not a
-scheduling domain. In Uni20, `task_group::run()` is called from inside
-`arena_.execute(...)`, which associates the resulting task execution with that
-arena.
+The group is an ownership, completion, and cancellation boundary for submitted
+TBB tasks. It is not a scheduling domain. In Uni20, each submitted TBB task is
+one coroutine **activation**: it resumes a coroutine and ends when that
+coroutine next suspends or completes. `task_group::run()` is called from inside
+`arena_.execute(...)`, which associates that activation with the arena.
+
+If the coroutine suspends on an epoch or external event, the activation is
+complete even though the logical coroutine remains alive. Its awaiter owns the
+suspended coroutine handle and submits a later activation when readiness
+changes. Consequently, a future scheduler migration changes the target of the
+next activation; it does not necessarily transfer persistent task-group
+membership.
 
 `task_group::wait()` is scheduler-aware: the waiting thread may execute
 available TBB tasks, including tasks unrelated to that group. It is therefore a
-good implementation for `TbbScheduler::run_all()`, whose contract is global
-quiescence for that scheduler.
+good implementation for `TbbScheduler::run_all()`, whose current contract is
+quiescence of activations submitted to that scheduler. It does not prove that
+externally suspended coroutines have completed.
 
 It is not a suitable implementation for a targeted `Async<T>::get_wait()`:
 

@@ -1,13 +1,14 @@
 # CUDA Backend Documentation
 
-Uni20 has CUDA task and build scaffolding, but no complete Tensor CUDA backend
-on the current main branch. Documents in this directory therefore define design
-constraints and preserve ecosystem research rather than promising runnable
-Tensor operations.
+Uni20 has a tested low-level CUDA runtime foundation on the current main branch:
+structured errors, device guards, move-only streams/events, completion tokens,
+and an actually-idle stream pool. It does not yet have CUDA Tensor storage,
+Tensor kernels, CUDA coroutine awaiters, or a complete CUDA scheduler.
 
 ## Active Design
 
 - [Runtime Model](runtime.md)
+- [CUDA Kernel Dispatch and Device Scheduling](kernel_dispatch.md)
 - [Runtime Resolution](runtime_resolution.md)
 - [GPU Epoch Design](epoch_design_draft.md)
 - [cuSOLVER Architecture](cusolver.md)
@@ -22,6 +23,6 @@ Tensor operations.
 
 ## Source Navigation
 
-- [CUDA provider scaffolding](../../../src/uni20/backend/cuda/)
+- [CUDA runtime foundation](../../../src/uni20/backend/cuda/)
 - [cuSOLVER provider scaffolding](../../../src/uni20/backend/cusolver/)
 - [cuSOLVER operation-tag backend](../../../src/uni20/linalg/backends/cusolver/)
