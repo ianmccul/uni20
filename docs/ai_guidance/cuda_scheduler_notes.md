@@ -1,188 +1,104 @@
-# CUDA Scheduler Guidance
+# CUDA Design Guidance
 
 - **Audience:** design assistants, coding agents, and reviewers
-- **Authority:** non-normative summary
-- **Status:** partly implemented runtime foundation; scheduler design remains
-  incomplete
-- **Canonical sources:** `docs/backends/cuda/runtime.md`,
-  `docs/backends/cuda/kernel_dispatch.md`,
-  `docs/backends/cuda/epoch_design_draft.md`,
-  `docs/backends/cuda/cusolver.md`,
-  `docs/async/scheduler_migration.md`, and current CUDA source
+- **Authority:** non-normative retrieval summary
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-18
+- **Status:** active design work; even the low-level primitives are still evolving
+- **Canonical sources:** current maintainer decisions, `docs/backends/cuda/`,
+  inspected CUDA source, and focused tests
 
-This file summarizes the constraints agents must preserve while extending the
-CUDA runtime. Do not revive older stream-affinity, virtual-stream, or lazy-event
-proposals without new profiling evidence and a maintainer decision.
+## Answer rule
 
-## Implemented Foundation
+- Treat all CUDA architecture as provisional unless a maintainer-approved document
+  explicitly marks a contract as settled.
+- Current source shows implementation experiments and constraints, not necessarily
+  final public semantics.
+- Do not infer scheduler, Tensor-storage, provider-resource, or coroutine contracts
+  from the shape of the present primitives.
+- When docs and source disagree, report the drift rather than choosing silently.
 
-The current CUDA runtime layer provides:
+## Current state
 
-- structured `CudaRuntimeError` diagnostics through the presentation layer;
-- temporary device selection with restoration;
-- reference-counted scoped CUDA stream-pool leases;
-- shared operation-completion tokens;
-- a device-local stream pool with `idle`, `leased`, and `pending` states;
-- stream return through `cudaLaunchHostFunc` after actual device completion.
+Uni20 has in-progress low-level CUDA work around topics such as:
 
-It does not yet provide CUDA Tensor storage, Tensor kernels, queued coroutine
-acquisition, `CudaTask` lowering, or a complete CUDA scheduler.
+- device selection and restoration;
+- stream ownership and reuse;
+- completion/event representation;
+- typed device-buffer ownership;
+- scoped read/write access experiments;
+- structured CUDA diagnostics.
 
-## Required Stream-Pool Contract
+These are **not a stable foundation**. Their ownership model, API shape, lifecycle,
+and interaction with the async runtime may still change.
 
-A stream is available only when its prior queued work has completed. The absence
-of a current host submitter is not sufficient.
+Do not claim that any of the following are settled merely because related code exists:
 
-The required operation shape is:
+- the final stream-pool state machine;
+- the final event/completion-token model;
+- the final buffer hazard representation;
+- the final `DeviceContext` responsibilities;
+- coroutine resource acquisition;
+- CUDA scheduler structure;
+- provider-handle/workspace ownership;
+- Tensor storage and dispatch integration;
+- error-recovery behavior after deferred device failure.
 
-```text
-acquire an actually idle stream
-install dependency event waits
-enqueue CUDA work
-destroy scoped buffer guards so they publish completion events
-destroy the final stream handle so it enqueues the stream-return host function
-mark the slot idle only when the host function runs
-```
+## Constraints that remain useful during design review
 
-The pool is both a scheduling resource and admission control. Exhaustion should
-eventually suspend the requesting coroutine, limiting queued device work, live
-intermediates, workspaces, and allocator pressure.
+The following are reasoning constraints, not claims that the current implementation
+already satisfies them completely.
 
-The CUDA host function must remain lightweight and must not call CUDA APIs. It
-may update pool state and arrange scheduler notification. It must not directly
-run arbitrary coroutine continuation work.
+### Causality
 
-## Event Policy
+- Uni20 async causality must remain explicit.
+- CUDA events should lower established dependencies to device execution; they
+  should not become an accidental second, inconsistent causal system.
+- Correctness must not rely on scheduler timing or undocumented stream affinity.
+- Conflicting accesses require an explicit ordering model.
 
-Use one event-based model uniformly:
+### Ownership and lifetime
 
-- scoped buffer guards record non-timing completion events when destroyed;
-- multi-buffer operations may record additional operation-level completions
-  where a backend or diagnostic needs one;
-- readers and writers publish their guard completion tokens into their buffer
-  epoch state;
-- later operations acquire any idle stream and install
-  `cudaStreamWaitEvent` dependencies;
-- correctness never depends on producer/consumer stream affinity.
+- Stream, event, buffer, provider-handle, and workspace lifetimes must be explicit.
+- A host-side handle becoming unowned does not by itself prove queued device work
+  has completed.
+- Callback-thread behavior must not outlive or access destroyed scheduler/runtime state.
+- Device buffers and views must not outlive their allocation owner.
 
-Do not cache streams on buffers, park implicit stream tails, or prefer streams
-based on dependency affinity. While a producer is running its stream is not
-idle; once the stream is idle, the producer is already complete.
+### Coroutine safety
 
-For tiny-operation overhead, prefer batching, coalescing, provider batched APIs,
-or CUDA graphs.
+- Uni20 coroutine lambdas remain captureless and preferably `static`.
+- Required state must enter through parameters or explicit owned task state.
+- Do not resume arbitrary continuation code directly from CUDA-owned callback threads
+  without a documented scheduler handoff.
+- Resource acquisition must eventually address cancellation and partial-acquisition safety.
 
-## Device Context
+### Failure handling
 
-The implemented `cuda::DeviceContext` currently owns the device, short-lived
-buffer-state mutex, and idle stream pool. It should grow to own device-local
-resources including:
+- Immediate API failure and deferred device-execution failure are different cases.
+- A design must explain how affected async outputs become failed or cancelled.
+- It must not depend on a callback that CUDA may never invoke after a terminal context error.
 
-- one logical scheduler arena for the device;
-- the idle stream pool;
-- event allocation/recycling;
-- CUDA memory-pool configuration;
-- exclusive provider handle and workspace pools;
-- completion/error monitoring;
-- runtime diagnostics and counters.
+## Open questions
 
-A oneTBB arena owns concurrency slots, not fixed workers. Attach a
-`task_scheduler_observer` to establish the arena's CUDA device whenever a
-worker or application thread enters and restore its previous device on exit.
-Do not model provider handles as permanently worker-owned thread state.
+Treat these as active design questions unless current maintainer decisions say otherwise:
 
-Provider handles with mutable stream state must never be shared concurrently.
-Acquire streams, handles, and workspaces as one composite device-local request,
-then run the complete backend walk and provider call without another
-`co_await`. Raw handles remain internal to their RAII leases and backend
-adapters. Provider-resource reuse at host return versus device completion is an
-explicit provider/routine policy.
+- whether stream reuse should use callbacks, polling, an event service, or another mechanism;
+- how device-local scheduling integrates with oneTBB or another host scheduler;
+- how stream, provider handle, workspace, and allocator resources are acquired together;
+- whether CUDA task types differ from ordinary async task types;
+- how buffer hazards map onto the existing async epoch model;
+- how multi-device execution and device placement are represented;
+- how CUDA Tensor storage participates in backend selection;
+- how deferred errors poison or retire device-local resources;
+- which primitives should be public, internal, or replaced entirely.
 
-Host-intensive APIs initially run on the same per-device scheduler. Add a
-separate bounded provider lane only if profiling demonstrates starvation or
-latency problems.
+## Push-back triggers
 
-## Buffer Epochs
-
-The implemented `cuda::Buffer<T>` stores the latest exclusive-writer completion
-and reader completions submitted since that writer. `buffer.read(stream)` waits
-only for the writer and permits concurrent readers. `buffer.write(stream)` waits
-for the writer and all unfinished readers, then replaces that state with its
-completion.
-
-`EpochQueue`, `ReadBuffer`, and `WriteBuffer` remain the source of legal access
-ordering and object lifetime. CUDA completions only lower already-causally-ready
-operations across independently selected streams. The CUDA state has no
-generation, runnable queue, or task wakeup behavior and is not an independent
-`GpuEpochQueue`.
-
-An async CUDA operation must destroy or otherwise release its CUDA scoped access
-guards before releasing the CPU buffer capability that made it runnable.
-Conflicting accesses are therefore causally ordered before CUDA access
-acquisition; compatible readers may snapshot and publish concurrently.
-
-The CPU async DAG establishes causal readiness before CUDA submission. CUDA
-events lower already-submitted memory dependencies; they must not wait for
-producer work whose event has not yet been recorded.
-
-## Coroutine Integration
-
-The coroutine promise's scheduler pointer is execution-routing state, but a
-coroutine's promise type is fixed at frame creation. Global `schedule()` may
-route `AsyncTask` and `CudaTask` differently. If CUDA execution requires state
-in `CudaTaskPromise`, an ordinary `AsyncTask` enters CUDA by creating and
-awaiting a `CudaTask`; it cannot migrate and become one. The parent resumes
-through the scheduler recorded in its own promise.
-
-Same-task-type scheduler migration is a separate capability. For example, a
-`CudaTask` may move between device schedulers only if its promise device state
-and scheduler route are updated consistently. Do not conflate heterogeneous
-nested-task routing with live-task migration.
-
-Future resource acquisition must be:
-
-- cancellation-safe;
-- fair enough to avoid starvation;
-- able to admit composite stream/handle/workspace requests without hold-and-wait;
-- able to resubmit through the scheduler currently recorded by the task;
-- safe when callbacks occur on CUDA-owned threads;
-- compatible with deterministic single-stream debug execution.
-
-Do not resume a coroutine directly from `cudaLaunchHostFunc`. The callback
-should notify a scheduler-neutral bridge that resubmits through the task's
-recorded scheduler.
-
-General CUDA Graph capture is unsupported initially. If added later, begin and
-end capture in one non-suspending device-scheduler transaction after all
-resources have been acquired. Never `co_await` while capture is active.
-
-## Errors
-
-Immediate CUDA API failures raise structured errors at the submission point.
-Deferred execution errors must eventually fail every affected async output and
-mark the device context or stream pool unusable when CUDA reports a poisoned
-context.
-
-`cudaLaunchHostFunc` is not guaranteed to run after a CUDA context error.
-Therefore the final scheduler cannot rely solely on pool-return callbacks for
-error recovery or waiter progress. The completion/error service must have a
-terminal-context path that releases or fails pending waiters rather than
-deadlocking.
-
-## TensorContraction Evidence
-
-The `origin/tensorcontraction-integration` branch remains useful implementation
-evidence for:
-
-- per-device contexts;
-- scoped stream handles and cuBLAS-lane leases;
-- non-timing event lifecycle and reuse measurements;
-- scratch-buffer reuse;
-- stream-ordered allocation and free;
-- memory-pool retention and allocation caching;
-- runtime counters and environment configuration;
-- multi-device and MPI/CUDA workload behavior.
-
-Reuse those lessons, not the bridge's architecture or fail-fast environment
-parsing. New native Uni20 code should use the current async, dispatch,
-diagnostics, and presentation contracts.
+- Presenting current CUDA primitives as stable API.
+- Treating implementation shape as maintainer-approved architecture.
+- Assuming event or stream affinity proves causality.
+- Assuming host handle destruction proves device completion.
+- Recommending a broad CUDA scheduler design without identifying unresolved ownership,
+  cancellation, and failure-routing questions.
+- Claiming CUDA Tensor execution, cuBLAS/cuSOLVER integration, or distributed execution
+  is complete.

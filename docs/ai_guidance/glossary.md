@@ -1,368 +1,158 @@
-# Uni20 Glossary for AI Assistants
+# Uni20 AI Retrieval Glossary
 
 - **Audience:** remote assistants, coding agents, and reviewers
-- **Authority:** non-normative terminology summary
-- **Status:** current retrieval glossary
-- **Canonical sources:** the subsystem documents linked by each entry, source,
-  and tests
+- **Authority:** non-normative terminology index
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-18
+- **Canonical sources:** linked subsystem documentation, source, and tests
 
-This glossary is optimized for retrieval, not pedagogy.
+This glossary is intentionally compact. Detailed invariants belong in the
+subsystem guidance rather than being duplicated here.
 
-## Core async terms
+## Async
 
-### Async<T>
+### `Async<T>`
+User-facing async value containing shared storage and an epoch timeline.
+`Async<T>()` is unconstructed; `Async<T>(args...)` is constructed.
 
-- `ROLE`: User-facing async value wrapper.
-- `INVARIANT`: `Async<T>()` is unconstructed; `Async<T>(args...)` is constructed.
-- `FAILURE MODE`: Using `Async<T>()` as if a `T` already exists.
-- `RELATED`: `EpochQueue`, `ReadBuffer<T>`, `WriteBuffer<T>`.
+### `shared_storage<T>`
+Reference-counted storage whose control-block validity and contained-object
+construction state are separate.
 
-### shared_storage<T>
+### `EpochQueue`
+One causal timeline with conceptual order
+`writer_n -> readers_n -> writer_{n+1}`. Scheduler timing does not define legality.
 
-- `ROLE`: Internal reference-counted storage used by `Async<T>`.
-- `INVARIANT`: Control-block validity and object construction state are separate.
-- `INVARIANT`: `emplace(...)` replaces by destroy-then-construct; `take()` moves out and destroys.
-- `INVARIANT`: Alias storage retains one owner reference while copies increment a local reference-count shard.
-- `MISCONCEPTION`: Valid storage implies a live `T`.
+### `ReadBuffer<T>`
+Shared read capability for one epoch. Plain await is borrowed; `transfer()` is owning.
 
-### async alias
-
-- `ROLE`: `Async<View>` handle whose descriptor aliases another async value's storage.
-- `LIFETIME / OWNERSHIP`: Owns its descriptor, retains its parent storage, and shares the parent's `EpochQueue`.
-- `INVARIANT`: Copying is structural when the descriptor declares `async_alias_tag`.
-- `FAILURE MODE`: Giving aliased storage an independent epoch queue.
-
-### is_async_alias<T>
-
-- `ROLE`: Classifies an `Async<T>` payload as an independent value or shared alias.
-- `INVARIANT`: Ordinary types make `is_async_alias_v<T>` false; descriptors declaring `async_alias_tag`, or specializing the trait, make it true.
-- `INVARIANT`: Shared-alias copies retain descriptor storage, lifetime ownership, and queue identity.
-
-### async alias assignment
-
-- `ROLE`: Derives assignment semantics from alias identity and an ADL-visible `assign_through` operation.
-- `INVARIANT`: Independent values detach onto fresh storage and a fresh `EpochQueue`.
-- `INVARIANT`: Alias assignment retains the current descriptor storage, owner chain, and queue.
-- `INVARIANT`: An alias without matching `assign_through` rejects that assignment source.
-- `INVARIANT`: No assignment retargets a shared alias.
-- `INVARIANT`: Exact `Async<T>` copy/move assignment follows the same capability rule.
-- `MISCONCEPTION`: Rebinding means destroying and emplacing `T` inside the existing storage.
-
-### EpochQueue
-
-- `ROLE`: Causal timeline for one `Async<T>`.
-- `INVARIANT`: Conceptual order is `writer_n -> readers_n -> writer_{n+1} -> ...`.
-- `INVARIANT`: One ordinary operation uses readers or one exclusive writer for each queue, not both.
-- `FAILURE MODE`: Expecting construction or await order to make a conflicting access set valid.
-- `MISCONCEPTION`: Scheduler timing defines legality.
-
-### EpochContext
-
-- `ROLE`: One step in an `EpochQueue`.
-- `RELATED`: `EpochQueue`, `ReadBuffer<T>`, `WriteBuffer<T>`.
-
-### ReadBuffer<T>
-
-- `ROLE`: Capability object for reading one epoch of an `Async<T>`.
-- `CAUSAL MODEL`: Establishes dependence on the writer of that epoch.
-- `LIFETIME / OWNERSHIP`: Borrowed read is tied to the `ReadBuffer<T>` object. Owning read is tied to `OwningReadAccessProxy<T>`.
-- `FAILURE MODE`: Keeping a read alive across a conflicting write when the read is no longer needed.
-- `MISCONCEPTION`: A borrowed read reference is independent of the `ReadBuffer<T>` lifetime.
-
-### WriteBuffer<T>
-
-- `ROLE`: Exclusive mutable capability for one epoch of an `Async<T>`; it may read the existing value.
-- `CAUSAL MODEL`: Gates mutation until the write epoch is active.
-- `LIFETIME / OWNERSHIP`: Borrowed write is tied to the `WriteBuffer<T>` object. Owning write is tied to `OwningWriteAccessProxy<T>`.
-- `FAILURE MODE`: Taking a separate reader and writer on one queue to model ordinary mutation.
-- `MISCONCEPTION`: `WriteAccessProxy<T>` is just an ordinary `T&`.
+### `WriteBuffer<T>`
+Exclusive mutable capability for one write epoch. It can inspect/mutate an existing
+value or construct/replace/move an independent value.
 
 ### await path
+Adaptor such as `maybe()`, `or_cancel()`, `storage()`, `take()`, or `transfer()`.
+It changes await behavior without creating another capability or epoch.
 
-- `ROLE`: Temporary adaptor selecting how one buffer capability suspends and what access result it returns.
-- `EXAMPLES`: `maybe()`, `or_cancel()`, `storage()`, `take()`, and the owning rvalue path selected by `transfer()`.
-- `INVARIANT`: An await path does not create another buffer, epoch, reader, or writer.
+### async alias
+`Async<View>` descriptor that retains a parent owner and shares the parent's exact queue.
 
-### borrowed read
-
-- `ROLE`: `co_await reader` on an lvalue `ReadBuffer<T>`.
-- `INVARIANT`: Returns `T const&`.
-- `LIFETIME / OWNERSHIP`: Lifetime is tied to the `ReadBuffer<T>` object.
-
-### owning read
-
-- `ROLE`: `co_await reader.transfer()`.
-- `INVARIANT`: Returns `OwningReadAccessProxy<T>`.
-- `LIFETIME / OWNERSHIP`: `OwningReadAccessProxy<T>` keeps the read epoch alive until release or destruction.
-
-### borrowed write
-
-- `ROLE`: `co_await writer` on an lvalue `WriteBuffer<T>`.
-- `INVARIANT`: Returns `WriteAccessProxy<T>`.
-- `LIFETIME / OWNERSHIP`: Lifetime is tied to the `WriteBuffer<T>` object.
-
-### owning write
-
-- `ROLE`: `co_await writer.transfer()`.
-- `INVARIANT`: Returns `OwningWriteAccessProxy<T>`.
-- `LIFETIME / OWNERSHIP`: `OwningWriteAccessProxy<T>` owns the writer handle.
-
-### all(...)
-
-- `ROLE`: Await helper that waits for several awaitables and returns a tuple of results.
-- `RELATED`: `EpochQueue`, `ReadBuffer<T>`, `WriteBuffer<T>`.
-
-### try_await(...)
-
-- `ROLE`: Readiness probe for an awaitable without fully blocking on it.
-
-## Storage and assignment terms
-
-### unconstructed storage
-
-- `ROLE`: State of `Async<T>()` before first construction.
-- `INVARIANT`: Storage exists but the contained `T` value does not yet exist.
-
-### write-proxy assignment
-
-- `ROLE`: For independent values, `co_await writer = rhs` initializes empty storage or assigns an existing value; for aliases it invokes `assign_through`.
-- `INVARIANT`: Value storage constructs `T` when empty and evaluates the stored
-  type's assignment expression when constructed.
-- `INVARIANT`: Alias assignment retains descriptor, owner, and queue identity.
-- `MISCONCEPTION`: Async storage replaces a constructed object's assignment semantics.
+### `is_async_alias<T>`
+Trait classifying structural async aliases versus independent async values.
 
 ### async rebind
+Independent-value assignment that moves a handle to fresh storage and a fresh queue.
+Aliases cannot rebind.
 
-- `ROLE`: Replace an `Async<T>` handle's storage and `EpochQueue` with a fresh timeline.
-- `INVARIANT`: Available only for independent values, never shared aliases.
-- `LIFETIME / OWNERSHIP`: Previously enrolled buffers retain the detached old timeline.
-- `MISCONCEPTION`: `proxy.emplace(...)` is an async rebind.
+### write-through assignment
+Alias assignment through ADL `assign_through`; descriptor, owner, and queue remain unchanged.
 
-### write-through async assignment
+### cancellation
+Terminal absence surfaced explicitly by `or_cancel()` as `task_cancelled`.
+It is not unconstructed storage and not an exception.
 
-- `ROLE`: Assign through a mutable alias or proxy without replacing its storage, owner, or queue.
-- `INVARIANT`: ADL must find `assign_through(target, source)`.
-- `INVARIANT`: The write proxy exposes the descriptor read-only and invokes the customization internally.
+## AD
 
-### non-assignable async alias
+### `Var<T>`
+User-facing reverse-mode variable owning a forward `Async<T>` value and reverse
+`ReverseValue<T>` channel.
 
-- `ROLE`: Read-only alias whose descriptor, owner chain, and queue may be copied only by constructing another handle.
-- `INVARIANT`: Copy assignment, move assignment, and heterogeneous assignment are all ill-formed.
-- `INVARIANT`: A `WriteBuffer` can still represent exclusive epoch access, but its proxy exposes no mutation operation for the unsupported source.
-- `EXAMPLES`: Const tensor views and conjugating tensor views.
+### `ReverseValue<T>`
+Async gradient accumulation channel with reverse ordering/finalization state.
 
-### take()
+### `backprop()`
+Exposes/finalizes a gradient's async channel. It does not replay a tape.
 
-- `ROLE`: Move the stored value out of a write target and destroy the stored object.
-
-### take_release()
-
-- `ROLE`: `take()` plus explicit writer release.
-
-### get_release()
-
-- `ROLE`: Owning read-proxy operation that returns the value and releases the read epoch in one step.
-- `RELATED`: `OwningReadAccessProxy<T>`, `ReadBuffer<T>`.
-
-## AD terms
-
-### Var<T>
-
-- `ROLE`: User-facing reverse-mode variable.
-- `INVARIANT`: Combines a forward `Async<T>` value and a reverse `ReverseValue<T>` accumulation channel.
-- `LIFETIME / OWNERSHIP`: Owns its forward channel and reverse channel by value.
-- `MISCONCEPTION`: `Var<T>` is just the old `Dual<T>` name or a tape node.
-
-### ReverseValue<T>
-
-- `ROLE`: Gradient accumulation helper used by `Var<T>`.
-- `INVARIANT`: `ReverseValue<T>` exposes async reads and writes for reverse-mode propagation.
-- `LIFETIME / OWNERSHIP`: Owns the internal async gradient channel.
-- `FAILURE MODE`: Treating gradient accumulation as if it were unordered by default.
-- `MISCONCEPTION`: `ReverseValue<T>` is just a passive numeric field with no async semantics.
-
-### backprop()
-
-- `ROLE`: Exposes the async gradient channel for a variable or reverse value.
-- `LIFETIME / OWNERSHIP`: Lvalue overloads return references to the owned finalized channel; rvalue overload moves it out.
-- `FAILURE MODE`: Waiting on `backprop()` with no seeded downstream gradient and assuming a value must already exist.
-- `MISCONCEPTION`: `backprop()` launches a separate global backward phase or replays a tape.
+### gradient finalization
+Signal that no more contributions will be attached. Retained named intermediates
+may require explicit `grad.finalize()` in the current API.
 
 ### gradient materialization
+A gradient becomes concrete after seeding and reverse propagation; it is not eager.
 
-- `ROLE`: Point at which a gradient becomes concrete.
-- `INVARIANT`: Requires upstream seeding and reverse propagation.
-- `MISCONCEPTION`: Every gradient exists eagerly from the start.
+### Wirtinger `dL/dz*`
+Complex-gradient convention used by Uni20 for real scalar losses.
 
-### Wirtinger dL/dz*
+## Tensor
 
-- `ROLE`: Complex-gradient convention used by Uni20 for real scalar losses.
-- `INVARIANT`: Uni20 uses `dL/dz*`.
+### `Tensor`
+Concrete owning dense Tensor with compile-time rank and runtime extents by default.
 
-## Scheduler terms
+### `BasicTensor`
+Extents-first alias for a `Tensor` specialization with mixed/static extents.
 
-### DebugScheduler
+### `TensorView`
+Readable tensor-level concept exposing extents, `mdspan()`, and backend selection.
+It is not a base class.
 
-- `ROLE`: Deterministic scheduler used mainly for tests and runtime debugging.
+### `MutableTensorView`
+Tensor-view refinement whose resolved mdspan permits writes.
 
-### TbbScheduler
+### resolved mdspan
+Short-lived leaf-kernel operand containing handle, mapping, extents, and accessor semantics.
 
-- `ROLE`: General parallel scheduler built on oneTBB.
-- `TERMINOLOGY`: An application thread is created by the application; a worker
-  thread is managed by oneTBB. Arena concurrency counts participants, not
-  workers. Use host thread only for host/device distinctions.
-- `RELATED`: `docs/async/tbb_execution_primer.md`.
+### `GeneratedTensor`
+Compact layout-neutral readable Tensor whose accessor generates values.
 
-### TbbNumaScheduler
-
-- `ROLE`: NUMA-aware scheduler built on oneTBB.
-
-### ScopedScheduler
-
-- `ROLE`: Temporary scheduler override.
-- `INVARIANT`: Mostly useful in tests and controlled experiments, not normal user code.
-
-## Tensor and aliasing terms
-
-### Tensor
-
-- `ROLE`: Owning dense tensor value.
-- `STATUS`: Concrete composition-based owner; models `TensorView` and
-  `MutableTensorView` without inheriting a view descriptor. Its final,
-  defaulted extents parameter is fully dynamic for the declared static rank.
-- `NAMING`: `Tensor<Element, Rank, ...>` is the ordinary runtime-extents owner;
-  it defaults to column-major storage. Use `ColumnMajorTensor`,
-  `RowMajorTensor`, or `StridedTensor` when the layout choice should be named,
-  and use `DenseMatrix<T>` or `make_tensor(view)` when even that policy type
-  need not be named.
-- `INVARIANT`: Rank remains compile-time. A future runtime-rank tensor is a
-  separate type rather than a `Tensor` policy or a revived `DynamicTensor`
-  alias.
-- `ASSIGNMENT`: Should be reasoned about as value/replace semantics, not mdspan-style descriptor rebind.
-
-### BasicTensor
-
-- `ROLE`: Configurable owning dense tensor parameterized by an mdspan extents
-  type.
-- `USE`: Mixed/static extents and low-level data structures that intentionally
-  encode extent information in the type.
-- `STATUS`: Extents-first alias for a specialization of the concrete `Tensor`
-  class. It introduces no base class, wrapper, or additional state.
-- `MISCONCEPTION`: `BasicTensor` is a base class or a second owner
-  implementation. The design does not use view inheritance.
-
-### TensorView
-
-- `ROLE`: Concept requiring synchronous extents metadata, `mdspan()`, and
-  `backend_selector()`.
-- `INVARIANT`: May be modeled by an owning tensor or a non-owning adaptor.
-- `INVARIANT`: Does not itself imply `SpanLike` or another mdspan concept.
-- `MISCONCEPTION`: `TensorView` names a concrete base class.
-
-### MutableTensorView
-
-- `ROLE`: `TensorView` refinement whose `mdspan()` result is writable.
-- `INVARIANT`: Fixed-update operations may accept this concept without gaining
-  permission to resize or replace the operand's storage.
-
-### RankedTensorView / MutableRankedTensorView
-
-- `ROLE`: Rank-constrained refinements of the readable and mutable Tensor-view
-  concepts.
-- `INVARIANT`: The rank applies to the resolved mdspan, not to an mdspan-like
-  interface on the Tensor-view object.
-- `INVARIANT`: Rank does not imply stridedness.
-
-### StridedTensorView concept family
-
-- `ROLE`: Refinements for tensor views whose resolved spans are strided.
-- `INVARIANT`: Stridedness is independent of addressability, rank, and
-  mutability.
-- `EXAMPLE`: Direct BLAS/LAPACK lowering requires ranked strided spans, while
-  generic CPU GEMM accepts rank-two addressable spans.
-
-### TensorRef
-
-- `ROLE`: Proposed non-owning write-through tensor lvalue for slices or block outputs.
-- `STATUS`: Design draft, not settled API.
-- `ASSIGNMENT`: Writes through to referenced storage when shape is compatible.
-
-### resolved mdspan-like view
-
-- `ROLE`: Leaf-kernel argument containing data handle, extents, strides, and accessor.
-- `INVARIANT`: Suitable for leaf kernels after backend compatibility is known.
-- `MISCONCEPTION`: A resolved mdspan-like view carries enough metadata for default Uni20 top-level dispatch.
-
-### aliasing
-
-- `ROLE`: Two handles refer to overlapping storage.
-- `INVARIANT`: Uni20 async ordering does not automatically solve aliasing correctness across distinct async objects or views.
-- `MISCONCEPTION`: Wrapping a view-like object in `Async<T>` automatically solves overlap ordering.
+### semantic view
+A view such as lazy conjugation whose accessor changes observed values; generally read-only.
 
 ### overwrite output
-
-- `ROLE`: Mutable destination whose previous values do not participate.
-- `INVARIANT`: Must not overlap any read-only input; a resizable owner may
-  prepare its shape before resolving the output mdspan.
+Destination whose old values do not participate. A resizable owner may change shape/storage.
 
 ### update output
+One read/write operand whose old values participate. Async code enrolls one writer.
 
-- `ROLE`: Single mutable operand whose previous values participate in the result.
-- `INVARIANT`: Appears once in a kernel interface and does not overlap any
-  additional input.
-- `ASYNC`: Enroll one `WriteBuffer`; the writer supplies both old-value access
-  and mutation. Never enroll a separate reader for the same output.
+### aliasing
+Overlapping storage. `Async` queue order does not automatically prove overlap safety
+across distinct objects.
 
-## Backend dispatch terms
+## Dispatch
 
-### backend tag
-
-- `ROLE`: Stateless type representing a candidate backend in an ordered backend list.
-- `INVARIANT`: Backend order comes from `backend_list<...>`, not inheritance.
-- `RELATED`: backend state tag, backend selector.
-
-### backend state tag
-
-- `ROLE`: Older draft term for runtime state required by one or more backend entries.
-- `EXAMPLES`: `cuda::Device`, `cuda::Stream`, `cublas::MathMode`.
-- `STATUS`: Superseded as the primary model by backend values and selector-owned state.
-- `GUIDANCE`: Do not add a required `State&` parameter to every leaf-kernel CPO.
-  Keep shared state inside the selector and pass backend values to CPOs.
+### operation value
+Dispatch key that may be an empty tag or carry immutable options/callable state.
 
 ### backend selector
+Ordered backend candidate value used by Tensor-level dispatch. Storage determines
+the default domain; do not duplicate operand placement as unrelated selector state.
 
-- `ROLE`: Value that describes the ordered backend walk and may hold runtime backend state.
-- `STATUS`: Design draft.
-- `INVARIANT`: A single backend override is normalized to a one-entry backend list.
-- `GUIDANCE`: Backend entries may be stateless tags or small values carrying state
-  such as CUDA device, stream, math mode, communicator, or placement map.
+### type probe
+Compile-time capability classification for exact argument types.
 
-### unique_tuple_cat_t
+### clean decline
+Runtime refusal before mutation, submission, commitment, or externally visible side effect.
 
-- `ROLE`: Older draft helper idea for composing backend state tuples.
-- `STATUS`: Not a standard C++ metafunction; not the current dispatch model.
-- `MEANING`: Concatenate `std::tuple<...>` types and remove duplicate element types.
-- `GUIDANCE`: Do not present this helper as implemented or required for the
-  current backend-value selector direction.
+### terminal backend failure
+Failure after work starts or a provider reports an operation error. It must not trigger fallback.
 
-### std::type_list
+### dynamic dispatch boundary
+Runtime-erased entry point for Python/plugin-like callers that must remain callable
+when static operation support is absent.
 
-- `STATUS`: Does not exist in the C++ standard library.
-- `GUIDANCE`: Use `std::tuple<...>` or a Uni20-local helper when a type pack must be named.
+## Presentation and CUDA
+
+### semantic glyph
+Renderer-independent status/layout token mapped by terminal/plain/ASCII adapters.
+
+### mdspan preview
+Bounded, deterministic display that marks elision; distinct from exhaustive formatting.
+
+### CUDA completion
+Provisional representation of device-work completion. Current implementation details
+must not be treated as a settled public contract.
+
+### CUDA stream/resource primitive
+Experimental low-level mechanism for device execution and resource ownership.
+Inspect current source and maintainer decisions before relying on lifecycle semantics.
+
+### CUDA buffer access primitive
+Experimental mechanism for expressing device-buffer dependencies. It must remain
+consistent with Uni20 async causality, but its final design is unresolved.
 
 ## Safety terms
 
 ### coroutine safety rule
+Uni20 async coroutine lambdas must be captureless and `static`; pass state as parameters.
 
-- `ROLE`: Hard safety rule for coroutine lambdas.
-- `INVARIANT`: Coroutine lambdas that return Uni20 async task types must be captureless and `static`.
-- `INVARIANT`: Values must be passed as parameters, not captured.
-
-### exception sink
-
-- `ROLE`: Buffer or epoch that receives propagated exceptions from an upstream coroutine.
-
-### cancellation
-
-- `ROLE`: Terminal state meaning a value will not become available normally.
-- `INVARIANT`: `or_cancel()` is the explicit read form that surfaces cancellation as `task_cancelled`.
+### symmetry metadata
+Quantum-number, local/block-space, and leg-orientation information that is part of
+the mathematical object and must not be silently erased.

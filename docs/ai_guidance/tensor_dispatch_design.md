@@ -1,316 +1,133 @@
-# Tensor Dispatch and Backend-State Design: AI Guidance
+# Tensor, View, and Backend Dispatch: AI Guidance
 
 - **Audience:** design assistants, coding agents, and reviewers
-- **Authority:** non-normative design summary
-- **Status:** mixed implementation and active design; inspect source before
-  making claims
+- **Authority:** non-normative retrieval summary
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-18
 - **Canonical sources:** `docs/tensor/operations.md`,
-  `docs/tensor/creation_and_reshape.md`, `docs/async/kernel_authoring.md`,
-  `docs/architecture/kernel_dispatch.md`, `src/uni20/tensor/`, `src/uni20/linalg/`, and tests
+  `docs/architecture/kernel_dispatch.md`, `docs/architecture/overview.md`,
+  `AGENTS.md`, current Tensor/linalg source, and focused tests
 
-This file is for AI assistants answering questions about the evolving tensor,
-view, backend-dispatch, and temporary-allocation design.
+## Answer rule
 
-## File-level answer rule
+- Treat `docs/tensor/operations.md` as canonical for implemented dense Tensor semantics.
+- Treat kernel-dispatch documentation as canonical for dispatch contracts.
+- Mark future slice, CUDA, distributed, and symmetry-aware designs as unresolved
+  unless current source and canonical docs say otherwise.
+- Do not revive older draft terminology as current API.
 
-- Treat current operation summaries as retrieval guidance and the linked draft
-  documents as background design.
-- Do not claim broader operation/backend support than current code and tests
-  demonstrate.
-- Separate implemented tensor code from proposed dispatch concepts.
-- Prefer "candidate design" and "tentative model" language.
+## Layer model
 
-## Authority
+```text
+Tensor operation
+-> shape, ownership, and output policy
+-> storage-derived backend selector
+-> resolved mdspan operands
+-> operation-value dispatch
+-> CPU, BLAS, or LAPACK leaf kernel
+```
 
-### RELATED DRAFTS
+An Async wrapper adds epoch enrollment and scheduling, then calls the same
+synchronous Tensor front end. Leaf kernels do not receive `Tensor` or `Async`.
 
-- `../tensor/dispatch_and_view_semantics_draft.md`
-- `../async/tensor_lifetime_and_dispatch_draft.md`
-- `../architecture/kernel_dispatch.md`
-- `../architecture/backend_dispatch.md`
-- `../linalg/mdspan_dispatch.md`
+## Implemented Tensor roles
 
-### STATUS
+### `Tensor`
 
-- The first synchronous dense implementation is concept-based rather than
-  inheritance-based.
-- `Tensor` is the concrete composition-based owner and models `TensorView` and
-  `MutableTensorView`.
-- `Tensor<Element, Rank, StoragePolicy, LayoutPolicy, AccessorFactory>` is the
-  ordinary column-major-default class with runtime extents on every axis.
-  `BasicTensor<Element, Extents, ...>` is its extents-first alias for mixed or
-  static extents; named row-major and strided aliases are also available.
-  `DenseMatrix<T>` is the rank-two host alias.
-- `Tensor(view)` performs eager backend-dispatched materialization. Alias CTAD
-  such as `RowMajorTensor(view)` is available only when the inferred concrete
-  specialization belongs to that alias.
-- `make_tensor(view)` infers an owning host `Tensor` and deliberately does not
-  preserve static input extents. `make_tensor<Layout>(view)` selects the result
-  layout at compile time. Inference preserves a canonical physical source and
-  otherwise uses the column-major `Tensor` default.
-- `conj(tensor)` is an implemented read-only lazy Tensor view. `Tensor(view)`,
-  `copy(...)`, and `make_tensor(...)` are the explicit eager boundaries.
-- `async::conj` and async reshape views are implemented owner-retaining aliases
-  on the parent's exact epoch queue.
-- All-async matrix-product overwrite/update and preserving/consuming
-  self-adjoint `eigh` wrappers are implemented over the synchronous Tensor
-  operation layer.
-- `GeneratedTensor` is layout-neutral and does not model `StridedTensorView`.
-  Its synthetic mapping exists only to deliver logical indices to the
-  generator accessor.
-- There is currently no general concrete non-owning tensor adaptor. Add one only
-  with explicit slice/external-storage lifetime and assignment semantics.
+- Concrete owning dense value with compile-time rank.
+- Runtime extents are the ordinary default.
+- Column-major is the default; named row-major and strided owner aliases exist.
+- Ordinary assignment has owner/value replacement semantics, not mdspan rebind semantics.
 
-## Tensor roles
+### `BasicTensor`
 
-### Tensor
+- Extents-first alias for a `Tensor` specialization with mixed/static extents.
+- It is not a base class or second owner implementation.
 
-- `ROLE`: Owning dense tensor value.
-- `ASSIGNMENT`: Value/replace semantics.
-- `OUTPUT`: Allocation/reallocation policy belongs to operations that explicitly
-  take or return an owning `Tensor`.
-- `DO NOT CLAIM`: Do not claim `Tensor` assignment is mdspan-style rebind.
+### Tensor-view concepts
 
-### TensorRef
+- `TensorView` requires synchronous extents, `mdspan()`, and backend selection.
+- `MutableTensorView` requires a writable resolved mdspan.
+- Rank and stridedness are independent refinements.
+- These are concepts, not a class hierarchy.
+- Tensor-level objects deliberately do not model mdspan concepts directly.
 
-- `ROLE`: Proposed non-owning write-through tensor lvalue, for slices or block
-  outputs.
-- `ASSIGNMENT`: Write-through into referenced storage when shape is compatible.
-- `STATUS`: Proposed / design draft.
+### Resolved mdspan
 
-### resolved mdspan-like view
+- Short-lived leaf-kernel operand containing handle, mapping, extents, and accessor.
+- It is not a durable owner, async alias, or complete top-level dispatch object.
 
-- `ROLE`: Leaf-kernel argument: data handle, extents, strides, accessor.
-- `ASSIGNMENT`: mdspan-style descriptor rebind.
-- `INVARIANT`: A resolved view is not enough for top-level Uni20 dispatch.
+### Generated and semantic views
 
-### TensorView Concepts
+- `GeneratedTensor` is readable, compact, and layout-neutral.
+- Lazy `conj(tensor)` is implemented and read-only.
+- For real tensors, conjugation remains read-only identity semantics.
+- Tensor/view construction and `make_tensor(...)` are explicit materialization boundaries.
+- Owner-retaining async conjugation and reshape aliases are implemented.
 
-- `ROLE`: Implemented concepts for synchronous dense tensor operands.
-- `TensorView`: requires synchronous `extents()`/`extent(axis)` metadata, an
-  addressable `mdspan()`, and `backend_selector()`.
-- `MutableTensorView`: refines `TensorView` when `mdspan()` is writable.
-- `StridedTensorView` / `MutableStridedTensorView`: require affine strided
-  resolved spans for providers such as BLAS/LAPACK.
-- `RankedTensorView<T, Rank>` and `MutableRankedTensorView<T, Rank>` constrain
-  rank independently of stridedness.
-- `RankedStridedTensorView<T, Rank>` and its mutable refinement combine these
-  properties where a provider boundary needs both.
-- `INVARIANT`: Owning tensors and non-owning adaptors may both model these
-  concepts; neither must inherit from a common base class.
-- `INVARIANT`: A Tensor-view object is not mdspan-like. Its returned mdspan is
-  the leaf-kernel operand.
+## Operation naming and output policy
 
-## Candidate tensor concepts
+- `foo_view(x)`: no-copy alias.
+- `foo_inplace(x)`: mutate existing state.
+- `assign_foo(out, ...)`: overwrite; old output values do not participate.
+- `add_foo(out, ...)`: update; old output values participate.
+- `foo(x)` returning an owner: preserve input and allocate/materialize output.
+- `foo(std::move(x))`: permission to consume an owning input; reuse is not guaranteed.
+- `copy(out, in)` remains the named element-copy operation.
+- Do not infer write-through assignment for arbitrary views.
 
-### DESIGN DIRECTION
+## Accessor semantics
 
-Top-level synchronous dense operations use the Tensor-view concept family.
-Operations with a fixed rank constrain it directly; GEMM uses rank two.
-Allocation is deliberately outside these concepts: fixed updates accept mutable
-Tensor views, while allocating/value-producing operations take or return a
-concrete owning tensor.
-
-### IMPORTANT DISTINCTION
-
-- Leaf kernels use `SpanLike` / mdspan-like resolved views.
-- Raw linalg overloads constrain their operands with the weakest applicable
-  ranked readable/writable span concepts. GEMM accepts non-strided addressable
-  spans because the generic CPU backend supports them; BLAS lowering separately
-  requires strided spans.
-- Front-end Uni20 dispatch needs a storage-derived backend selector.
-- A bare `stdex::mdspan` is suitable for a leaf kernel, but not enough for
-  default top-level dispatch unless an explicit backend selector and state/domain
-  are supplied.
-- `data_handle_type` being a pointer does not prove direct readability or
-  writeability. Mdspan accessors define value semantics. Direct BLAS/LAPACK
-  paths may bypass `access(...)` only for `stdex::default_accessor` or for
-  accessors whose semantics are explicitly recognized and lowered, such as
-  Uni20's C++26-style `conjugated_accessor` into BLAS transform metadata.
-- Do not claim arbitrary custom accessors, transform accessors, zip accessors,
-  or scaling accessors are BLAS-addressable merely because their data handle is
-  pointer-like. They require materialization, generic evaluation, or an
-  operation-specific lowering rule.
-- Uni20 uses `uni20::conj(span)` and `uni20::conj(tensor)` for lazy conjugating
-  views. The Tensor adaptor resolves to the same mdspan accessor. This follows
-  the C++26 `std::linalg::conjugated_accessor` model, but Uni20 does not adopt
-  `conj-if-needed`; `uni20::conj` is the project-level fix for real-scalar
-  conjugation semantics.
-
-### PARAMETER ORDER
-
-- New Uni20 linalg/kernel APIs put API tags and explicit backend selectors
-  first, then mutable outputs, then inputs. Examples: `matvec(y, A, x)`,
-  `gemm(C, alpha, A, B, beta)`, `gemm(selector, C, alpha, A, B, beta)`,
-  `dispatch_kernel(selector, op, output_mdspan, inputs...)`, and
-  `try_kernel(backend, op, output, inputs...)`.
-- Selector-prefix APIs need two overloads when the selector is optional:
-  one storage-default overload with no selector, and one constrained
-  selector-first overload.
-- Older draft examples may still resemble BLAS/LAPACK output-last signatures.
-  Treat prefix-tag, output-first ordering as the current design direction unless
-  an external ABI boundary forces another order.
+- A pointer-shaped data handle does not prove direct readability/writeability.
+- The accessor defines the values observed through `access(...)`.
+- A const Tensor-view interface must resolve a const-element mdspan.
+- BLAS/LAPACK may bypass accessors only for default access or explicitly recognized
+  lowering such as Uni20 conjugation metadata.
+- Custom transform, scaling, zip, or proxy accessors require explicit lowering,
+  materialization, or a generic accessor-respecting path.
+- `uni20::conj` is the project conjugation customization point.
 
 ## Backend dispatch
 
-### OPERATION-VALUE MODEL
+- Dispatch walks an ordered backend list for an operation value.
+- Operations may be empty tags or values carrying immutable callable/options state.
+- Compile-time type probing and runtime clean decline are distinct.
+- Runtime decline must preserve arguments and have no externally visible side effect.
+- Once a backend submits work or mutates operands, failure is an operation error,
+  not permission to fall back.
+- Ordinary fallback must not transfer operands between host, device, or MPI domains.
+- Dynamic dispatch is for runtime-erased boundaries such as Python/plugin interfaces,
+  not a replacement for the normal static contract.
 
-- Backend dispatch is an ordered backend-list walk for an operation value.
-  Most operations are empty tags, but values may carry immutable options or
-  callable state.
-- The concrete linalg GEMM mdspan slice uses generic dispatch with explicit selectors:
-  `try_kernel(BlasBackend, gemm_op, ...)` delegates to
-  `uni20::linalg::blas::try_gemm(...)`, then falls through to the
-  `CpuReferenceBackend` GEMM oracle when BLAS declines.
-- Fixed-storage Tensor GEMM is also implemented. `VectorStorage` supplies
-  `[LapackBackend, BlasBackend, CpuReferenceBackend]` when BLAS is configured,
-  and `[LapackBackend, CpuReferenceBackend]` otherwise. Ineligible operation
-  backends are skipped at compile time. Explicit selectors override that
-  default.
-- `copy_op` has an accessor-respecting CPU reference backend. It is the common
-  operation used by `copy` and `make_tensor`; future rank-two BLAS copy
-  extensions can accept the same operation by lowering layout and conjugating
-  accessor metadata.
-- `transform_op<F>` and `transform_inplace_op<F>` carry a const-invoked
-  callable. Inputs are passed to the callable as element values, and update
-  operations receive the old output value first. Named callable types may have
-  optimized backend overloads; arbitrary callables use the reference backend.
-- The static capability CPO is
-  `consteval auto kernel_accepts_types(backend const&, op const&, args&...)`.
-  It checks type-level facts only and returns `kernel_types_no`,
-  `kernel_types_maybe`, or `kernel_types_yes`. The dispatcher inspects the
-  result type with `decltype` and `std::declval`; it does not construct or read
-  argument objects.
-- The runtime attempt CPO is `try_kernel(backend, op, args...)`. It performs
-  runtime checks such as strides, device placement, handles, and library
-  availability, then returns `KernelAttempt::success` or a structured clean
-  decline reason such as `unsupported_layout` or `unavailable`.
-- A non-success `KernelAttempt` has a strong decline guarantee. The backend must
-  preserve every argument and must not mutate operands, submit work, commit
-  storage, or produce another externally visible side effect. The dispatcher
-  invokes candidates with stable lvalue arguments and does not copy operands or
-  mdspan descriptors to conceal contract violations. Once work starts, failure
-  is an operation error rather than fallback. A backend returning
-  `kernel_types_yes` must return `KernelAttempt::success`.
-- Terminal provider failures throw, abort through a logic check, or appear in
-  an operation-specific result. They are not `KernelAttempt` values and must
-  never trigger fallback.
-- `kernel_accepts_types(...)` is the mandatory type gate and may be narrowly
-  constrained. If it is not callable for the exact argument types, acceptance
-  is a hard `no`, even when `try_kernel(...)` is broadly callable.
-- Generic code may use
-  `probe_dispatch_kernel(backends, op, args...)`. It inspects only deduced types
-  and aggregates the candidate list: any `yes` gives `yes`, otherwise any
-  `maybe` gives `maybe`, otherwise `no`. A non-callable backend type gate
-  contributes `no`. The safe single-backend query is an implementation detail.
-- Use `try_dispatch_kernel(...)` when exhausting all runtime candidates is an
-  expected result that the caller will handle. Use `dispatch_kernel(...)` for
-  checked execution; it raises structured `KernelDispatchError`, which the
-  presentation layer renders before aborting in native C++ and which propagates
-  as an exception after Python module initialization. Both normal C++ entry
-  points are constrained out when the aggregate type probe is `no`, preserving
-  compile-time diagnosis.
-- Use `dynamic_dispatch_kernel(...)` only at Python, plugin, or runtime-erased
-  boundaries that must remain callable for a statically unavailable kernel. It
-  converts both a type-level `no` and runtime backend exhaustion into
-  `KernelDispatchError`.
-- Keep the matching `try_kernel(...)` broadly callable instead of repeating its
-  type test in a long `requires` clause. Dispatch is the contract boundary:
-  `try_kernel(...)` may assume the type gate accepted. Do not add a redundant
-  `static_assert` merely to diagnose unsupported direct calls; backend
-  `try_kernel` functions are not direct APIs.
-- A backend that lacks a usable `try_kernel(...)` overload is skipped by
-  detection.
-- Keep storage-default backend lists in one storage and execution domain. Host
-  selectors may contain BLAS and CPU reference backends; future CUDA selectors
-  contain only CUDA-device backends. Ordinary decline must not copy operands to
-  another domain. Any emergency device-to-host route is an explicit
-  operation-specific composite kernel or higher-level policy.
+## Implemented operation surface
 
-### BACKEND VALUES
+Current canonical docs report a substantial dense surface including:
 
-Backend entries are values, but default storage selectors should normally be
-stateless candidate lists. Operand location is not selector state: memory kind
-belongs to the accessor/handle type, and runtime location such as a CUDA device
-belongs to the accessor-defined data handle. This keeps transformed and sliced
-views from duplicating location state.
+- accessor-aware copy and variadic elementwise overwrite/update;
+- reductions, inner products, and norms;
+- GEMM/GEMV and matrix initialization;
+- matrix exponential;
+- exact and truncating SVD;
+- self-adjoint and nonsymmetric eigensystems;
+- Schur and tridiagonal eigensystem operations.
 
-```cpp
-struct CublasBackend {};
-struct CudaGenericBackend {};
+Backend/scalar/Async coverage is operation-specific. Never infer uniform support.
 
-struct CpuReferenceBackend {};
-```
+## Async rules
 
-Immutable stateful selector entries remain an explicit-call mechanism for
-genuine operation context or options, such as a selected stream, MPI
-communicator, workspace policy, math mode, or multiprecision setting. They
-should not become a second source of truth for operand location. Storage-default
-selection remains static and does not inspect Tensor values.
+- Async Tensor wrappers own synchronization and lifetime; backends remain synchronous.
+- All caller Tensor operands are `Async<T>`.
+- Update outputs use one writer and are not duplicated as inputs.
+- Owner-retaining aliases share their parent's exact queue.
+- Queue identity catches only obvious aliasing. Arbitrary overlapping storage still
+  needs an operation-level contract.
 
-## Temporaries
+## Open design areas
 
-### DESIGN DIRECTION
+- General slicing and a concrete non-owning write-through Tensor ref.
+- CUDA and distributed Tensor storage/execution.
+- Complete symmetry-aware `BlockTensor` lowering.
+- General expression/fusion.
+- Python Tensor/view ownership and exchange protocols.
 
-Temporary allocation is separate from computation.
-
-- The current host API is `make_tensor(view)` or
-  `make_tensor<Layout>(selector, mdspan)`. The latter requires an explicit
-  selector because a bare mdspan does not carry storage-domain policy. Both
-  forms return a fixed-rank `Tensor` with runtime extents on every axis.
-- The optional layout is a template policy, never a runtime `std::optional`,
-  because it changes the concrete owning return type.
-- Operand-temporary type/storage comes from an owning storage domain or explicit
-  allocator/factory. An explicit selector may contribute immutable options but
-  is not the primary owner of operand location.
-- Filling an operand temporary is an ordinary copy/evaluation kernel.
-- Direct mdspan entry points that need operand temporaries must provide explicit
-  backend selector state and storage-domain information.
-- LAPACK work arrays are not operand materialization. A direct LAPACK operation
-  wrapper may allocate `work`/`rwork`/integer work arrays after a workspace query
-  while still being direct for its matrix/vector operands.
-- Copying, packing, transposing, or conjugating a user-visible operand into
-  scratch storage is operand materialization. That belongs in a prepared wrapper
-  or an explicitly documented higher-level API, not in a silent direct wrapper.
-
-### SAFE CLAIM
-
-Do not say "backend type alone chooses temporary storage." CUDA temporaries need
-state such as device and allocator.
-
-## Async tensor aliases
-
-### DESIGN DIRECTION
-
-Async tensor views need durable alias handles, not just raw mdspan-like views.
-
-An async tensor alias should preserve:
-
-- owner token / storage lifetime
-- epoch or hazard token
-- descriptor / slice metadata
-- backend state and storage-domain metadata
-
-Resolved mdspan-like views should normally be materialized only after awaiting a
-read/write handle.
-
-## Python boundary
-
-### DESIGN DIRECTION
-
-Python-facing tensor views should keep an owner token. A Python view should not
-expose only pointer plus shape if the parent tensor lifetime matters.
-
-Uni20 may keep C++ tensor classes internal and use NumPy/nanobind/DLPack as the
-boundary exchange type, but this is not finalized.
-
-## Misconceptions
-
-- `TensorView` is a concept, not a concrete base class.
-- A resolved mdspan is a leaf-kernel operand, not a tensor-level owner or durable
-  asynchronous alias.
-- Backend fallback order should not be encoded by inheritance.
-- A CUDA backend tag by itself is not enough to allocate CUDA temporary storage.
-- `std::tuple` can store duplicate types, but `std::get<T>` by type requires
-  `T` to be unique.
-- `std::type_list` does not exist in the C++ standard library.
+Do not present `TensorRef`, backend-state helper types, or old tuple/type-list
+composition ideas as implemented unless source inspection confirms them.

@@ -2,117 +2,41 @@
 
 - **Audience:** remote assistants, coding agents, reviewers, and maintainers
 - **Authority:** non-normative index and retrieval guidance
-- **Status:** current guidance index
-- **Canonical sources:** `AGENTS.md`, canonical subsystem documentation,
-  source, and tests
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-18
+- **Canonical sources:** `AGENTS.md`, canonical subsystem documentation, source, and tests
 
-This directory is for AI assistants. It is not optimized for normal human reading.
+These files optimize for retrieval. They are not substitutes for canonical docs.
 
-Human readers should usually prefer:
+## Authority order
 
-- `docs/about.md`
-- `docs/README.md`
-- `docs/async/`
-- `docs/roadmap.md`
-- `docs/architecture/overview.md`
+1. Maintainer-approved decisions and canonical subsystem documentation
+2. Current source implementation
+3. Focused tests
+4. AI guidance summaries
 
-The files here are written for **retrieval quality** rather than for narrative readability.
+When these disagree, report the drift. Do not silently choose the guidance file.
 
-That means:
+## Required answer distinctions
 
-- repeated exact term names such as `Async<T>`, `EpochQueue`, `ReadBuffer<T>`, `WriteBuffer<T>`, `Var<T>`, and `ReverseValue<T>`
-- short declarative statements
-- explicit invariants
-- explicit negative knowledge
-- minimal prose
-- deliberate repetition
+Label claims as one of:
 
-For a human reader, this style may feel dry, repetitive, or unnatural. That is intentional.
-
-## Why this directory exists
-
-Custom GPT instructions are small. Uni20 semantics are not small.
-
-The intended split is:
-
-- GPT instructions: policy, tone, skepticism, and hard safety rules
-- uploaded files from this directory: project semantics and reference material
-
-## Schema used in this directory
-
-This directory uses a hybrid schema.
-
-- Each file starts with a file-level summary.
-- Key terms or subsystems then use structured blocks.
-
-Common field names:
-
-- `ROLE`
-- `INVARIANTS`
-- `CAUSAL MODEL`
-- `LIFETIME / OWNERSHIP`
-- `FAILURE MODES`
-- `MISCONCEPTIONS`
-- `STATUS`
-- `SAFE CLAIMS`
-- `DO NOT CLAIM`
-- `RELATED`
-
-Not every file uses every field. Use the fields that improve retrieval.
-
-## Status and authority
-
-- These files are summaries.
-- These files are not a replacement for code or tests.
-- `docs/async/` remains the canonical detailed async documentation.
-- If AI guidance disagrees with canonical documentation, tests, or source,
-  report the conflict. Maintainer-approved semantics and canonical subsystem
-  documents define intent; tests encode selected contracts; source shows the
-  current implementation.
-
-## Design rules for these files
-
-- Optimize for retrieval, not prose flow.
-- Prefer explicit invariants over analogies.
-- Prefer repeated exact terms over elegant paraphrase.
-- Put negative knowledge near the relevant term when possible.
-- Keep each file small enough to upload as custom-GPT knowledge.
-- Avoid machine-specific instructions and private notes.
-- Mark roadmap material clearly.
+- documented invariant;
+- current implementation detail;
+- current design direction;
+- roadmap/open question.
 
 ## File map
 
-- `async_runtime.md`: `Async<T>`, value and assignment kinds, `EpochQueue`, buffers, release rules, and aliasing limits
-- `reverse_mode_ad.md`: `Var<T>`, `ReverseValue<T>`, `backprop()`, gradient materialization, Wirtinger convention, reverse-kernel rules
-- `architecture_status.md`: mature areas, partial areas, design seams, and build-system cautions
-- `tensor_dispatch_design.md`: speculative tensor/view/backend dispatch design,
-  backend values/selectors, operation-tag dispatch, and async tensor alias
-  cautions
-- `presentation_and_python.md`: presentation formatting, Python display, Jupyter display, tensor preview policy, and renderer boundaries
-- `cuda_scheduler_notes.md`: current CUDA scheduler and resource-management
-  direction; scheduler migration remains unimplemented
-- `glossary.md`: compact retrieval-first definitions for repeated Uni20 terms
+- `architecture_status.md`: current implemented vertical slices and roadmap boundaries
+- `async_runtime.md`: `Async`, epoch ordering, buffers, aliases, assignment, and wrappers
+- `reverse_mode_ad.md`: dataflow AD, finalization, cancellation, and complex gradients
+- `tensor_dispatch_design.md`: Tensor roles, accessor semantics, operations, and dispatch
+- `presentation_and_python.md`: implemented presentation/preview and future Python display
+- `cuda_scheduler_notes.md`: implemented CUDA foundation versus future scheduler work
+- `glossary.md`: compact terminology index
 
-## Recommended use
+## Maintenance rule
 
-- Upload these files as GPT knowledge files.
-- Keep behavioral rules in `chatgpt.md` in this directory, or in equivalent custom instructions.
-- In answers, distinguish between:
-  - documented invariant
-  - current implementation detail
-  - roadmap / open design question
-
-## Related docs
-
-- `../development/agent_assisted_development.md`
-- `../development/code_review.md`
-- `../async/README.md`
-- `../async/runtime_model.md`
-- `../async/buffers_and_awaiters.md`
-- `../async/reverse_mode_ad.md`
-- `../diagnostics/presentation.md`
-- `../python/bindings.md`
-- `../roadmap.md`
-- `../tensor/dispatch_and_view_semantics_draft.md`
-- `../async/tensor_lifetime_and_dispatch_draft.md`
-- `../architecture/kernel_dispatch.md`
+Implementation-heavy edits should update the `Reviewed against` date and verify
+the relevant canonical docs/source/tests. Keep the glossary compact; do not turn
+it into a second semantic specification.
