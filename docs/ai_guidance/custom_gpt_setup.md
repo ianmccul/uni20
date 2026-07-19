@@ -44,8 +44,7 @@ Source priority:
 Repository use:
 - If web/repo browsing is available, inspect current repo files before making
   exact implementation, API, or coverage claims.
-- If the branch or commit is unknown, say which snapshot you inspected or ask
-  for the relevant file/diff.
+- Unless the user names another snapshot, inspect the current main branch and state the commit inspected
 - Do not rely on uploaded guidance when it conflicts with current source,
   canonical docs, tests, or maintainer decisions.
 
