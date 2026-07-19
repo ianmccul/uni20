@@ -2,46 +2,75 @@
 
 - **Audience:** design assistants, coding agents, and reviewers
 - **Authority:** non-normative retrieval summary
-- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-18
-- **Status:** active design work; even the low-level primitives are still evolving
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-19
+- **Status:** active design work; low-level runtime primitives exist, but Tensor
+  storage, schedulers, and provider kernels are not implemented
 - **Canonical sources:** current maintainer decisions, `docs/backends/cuda/`,
   inspected CUDA source, and focused tests
 
 ## Answer rule
 
-- Treat all CUDA architecture as provisional unless a maintainer-approved document
-  explicitly marks a contract as settled.
-- Current source shows implementation experiments and constraints, not necessarily
-  final public semantics.
-- Do not infer scheduler, Tensor-storage, provider-resource, or coroutine contracts
-  from the shape of the present primitives.
+- Treat CUDA Tensor execution, scheduler integration, and provider-resource
+  management as roadmap work unless current source and canonical docs say otherwise.
+- Current low-level source is useful implementation evidence for runtime
+  primitives, but not a stable public Tensor API.
+- Do not infer Tensor-storage, provider-resource, or coroutine contracts from the
+  shape of low-level buffer and stream primitives.
 - When docs and source disagree, report the drift rather than choosing silently.
 
 ## Current state
 
-Uni20 has in-progress low-level CUDA work around topics such as:
+Uni20 has a tested low-level CUDA runtime foundation:
 
-- device selection and restoration;
-- stream ownership and reuse;
-- completion/event representation;
-- typed device-buffer ownership;
-- scoped read/write access experiments;
-- structured CUDA diagnostics.
+- device discovery, capability caching, and scoped device restoration;
+- reference-counted stream-pool leases with actually-idle reuse;
+- immutable completion/event tokens;
+- typed move-only `cuda::CudaBuffer<T>` allocations;
+- scoped `ReadBuffer<T>` and `WriteBuffer<T>` guards that install event waits
+  and publish completions;
+- `cudaMallocAsync`/`cudaFreeAsync` use when stream-ordered memory pools are
+  supported, with `cudaMalloc`/`cudaFree` fallback;
+- structured CUDA diagnostics through Uni20's presentation layer.
 
-These are **not a stable foundation**. Their ownership model, API shape, lifecycle,
-and interaction with the async runtime may still change.
+These primitives are still bring-up infrastructure. Their names and exact
+ownership shape may change while Tensor storage and scheduler integration are
+designed, but do not ignore the tested stream/event/buffer semantics when
+reviewing new CUDA proposals.
 
 Do not claim that any of the following are settled merely because related code exists:
 
-- the final stream-pool state machine;
-- the final event/completion-token model;
-- the final buffer hazard representation;
-- the final `DeviceContext` responsibilities;
+- final CUDA Tensor storage or mdspan accessor shape;
+- blocking versus non-blocking CUDA storage policy names;
 - coroutine resource acquisition;
 - CUDA scheduler structure;
 - provider-handle/workspace ownership;
 - Tensor storage and dispatch integration;
 - error-recovery behavior after deferred device failure.
+
+## Blocking versus non-blocking channel direction
+
+Current design direction separates CUDA submission channels from backend
+selection:
+
+- **blocking channel:** resource acquisition may wait on the calling thread.
+- **non-blocking channel:** resource acquisition suspends through a Uni20
+  scheduler while waiting for streams, provider handles, workspace, or other
+  scarce resources.
+
+The channel belongs in the Tensor storage policy, conceptually like
+`CudaStorage<blocking_channel>` versus `CudaStorage<nonblocking_channel>`, not
+in an ad-hoc backend selector. Backend lists remain ordinary storage-derived
+lists such as `cuda_reference`, `cublas`, `cusolver`, and future provider
+backends.
+
+`Async<Tensor<..., CudaStorage<blocking_channel>>>` is possible C++, but it is
+a dubious policy combination. Async CUDA front ends should accept only the
+non-blocking CUDA storage policy for resources that may wait for capacity,
+unless a future operation documents why blocking is intentional.
+
+Per-call streams, provider handles, and workspaces remain operation-local
+resource leases. They may be passed to CUDA backend attempts as internal lowered
+operands or execution context, but they should not replace the backend selector.
 
 ## Constraints that remain useful during design review
 
@@ -102,3 +131,5 @@ Treat these as active design questions unless current maintainer decisions say o
   cancellation, and failure-routing questions.
 - Claiming CUDA Tensor execution, cuBLAS/cuSOLVER integration, or distributed execution
   is complete.
+- Putting blocking/non-blocking channel state or per-call resource leases into an
+  ad-hoc backend selector.

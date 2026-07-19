@@ -2,7 +2,7 @@
 
 - **Audience:** remote assistants, coding agents, and reviewers
 - **Authority:** non-normative retrieval summary
-- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-18
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-19
 - **Canonical sources:** `AGENTS.md`, `docs/about.md`, `docs/architecture/overview.md`,
   `docs/roadmap.md`, canonical subsystem guides, source, and tests
 
@@ -81,14 +81,17 @@
 
 ### CUDA and distributed execution
 
-- CUDA work is experimental and actively being redesigned, including the basic
-  low-level primitives.
-- Current device, stream, event/completion, buffer, and access code is implementation
-  evidence, not a stable foundation or settled contract.
+- CUDA has a tested low-level runtime foundation: device discovery, scoped device
+  selection, stream-pool leases, completion tokens, typed `CudaBuffer<T>`, scoped
+  read/write guards, stream-ordered allocation when available, and structured
+  diagnostics.
+- These primitives are bring-up infrastructure, not a stable public Tensor API.
 - CUDA Tensor storage, Tensor kernels, coroutine integration, scheduler design,
   provider-resource management, and distributed execution remain open work.
+- Blocking versus non-blocking CUDA submission is current design direction and
+  belongs in the Tensor storage policy, not in backend selector state.
 - Preserve explicit causality and lifetime reasoning, but do not present the current
-  lowering model as final.
+  Tensor lowering model as implemented.
 
 ### Expression/fusion layer
 
@@ -106,5 +109,6 @@
 - A proposal relies on scheduler timing rather than epoch causality.
 - A proposal assumes `Async` proves arbitrary alias safety.
 - A proposal bypasses mdspan accessor semantics based only on pointer-shaped handles.
-- A proposal claims complete CUDA, Python Tensor, distributed, or `BlockTensor` support.
+- A proposal claims complete CUDA Tensor, Python Tensor, distributed, or `BlockTensor`
+  support.
 - A proposal silently erases symmetry metadata.

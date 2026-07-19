@@ -2,7 +2,7 @@
 
 - **Audience:** remote assistants, coding agents, and reviewers
 - **Authority:** non-normative terminology index
-- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-18
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-19
 - **Canonical sources:** linked subsystem documentation, source, and tests
 
 This glossary is intentionally compact. Detailed invariants belong in the
@@ -137,16 +137,35 @@ Renderer-independent status/layout token mapped by terminal/plain/ASCII adapters
 Bounded, deterministic display that marks elision; distinct from exhaustive formatting.
 
 ### CUDA completion
-Provisional representation of device-work completion. Current implementation details
-must not be treated as a settled public contract.
+Immutable event token representing submitted device-work completion in the
+current low-level CUDA runtime foundation.
 
-### CUDA stream/resource primitive
-Experimental low-level mechanism for device execution and resource ownership.
-Inspect current source and maintainer decisions before relying on lifecycle semantics.
+### CUDA stream lease
+Reference-counted lease of an actually-idle stream-pool slot. The final stream
+pool returns a slot only after prior submitted work on that stream has completed.
 
-### CUDA buffer access primitive
-Experimental mechanism for expressing device-buffer dependencies. It must remain
-consistent with Uni20 async causality, but its final design is unresolved.
+### `cuda::CudaBuffer<T>`
+Move-only typed CUDA allocation with retained writer/reader completions and
+scoped read/write guards.
+
+### CUDA buffer guard
+`cuda::ReadBuffer<T>` or `cuda::WriteBuffer<T>` obtained from a `CudaBuffer<T>`
+and a stream. The guard installs predecessor event waits and publishes a
+completion when destroyed.
+
+### CUDA blocking channel
+CUDA storage-policy mode whose resource acquisition may wait on the calling
+thread. Suitable for non-async bring-up and direct C++ calls.
+
+### CUDA non-blocking channel
+CUDA storage-policy mode whose resource acquisition suspends through a Uni20
+scheduler. Async CUDA front ends should use this channel for resources that may
+wait for capacity.
+
+### CUDA resource lease
+Operation-local stream, provider-handle, workspace, or related resource bundle.
+It is not a backend selector and should not replace the storage policy's backend
+list.
 
 ## Safety terms
 
