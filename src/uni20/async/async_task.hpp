@@ -163,10 +163,10 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     /// \return true if no suspension is required.
     [[nodiscard]] bool await_ready() const noexcept { return !h_ || h_.done(); }
 
-    /// \brief Transfer execution to the managed coroutine.
+    /// \brief Transfer execution to the managed coroutine or route it through its selected scheduler.
     /// \param Outer Handle to the awaiting coroutine.
-    /// \return Handle to resume after the awaited coroutine completes.
-    handle_type await_suspend(handle_type Outer);
+    /// \return Immediate transfer handle, or a no-op handle when the child was queued.
+    std::coroutine_handle<> await_suspend(handle_type Outer);
 
     /// \brief Resume the awaiting coroutine after completion.
     void await_resume() const;

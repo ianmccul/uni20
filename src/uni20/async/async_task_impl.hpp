@@ -221,18 +221,29 @@ template <IsAsyncTaskPromise T> void BasicAsyncTask<T>::set_preferred_numa_node(
   if (h_) h_.promise().set_preferred_numa_node(node);
 }
 
-/// \brief Suspends the awaiting coroutine and transfers ownership for direct resume.
+/// \brief Suspends the awaiting coroutine and enters the nested task on its selected scheduler.
 /// \tparam T Promise type.
 /// \param Outer Awaiting coroutine handle.
-/// \return Handle to resume immediately by the coroutine runtime.
+/// \return Handle to resume immediately, or a no-op handle when the child was queued.
 template <IsAsyncTaskPromise T>
-BasicAsyncTask<T>::handle_type BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T>::handle_type Outer)
+std::coroutine_handle<> BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T>::handle_type Outer)
 {
   DEBUG_CHECK(h_);
   DEBUG_CHECK(!h_.promise().continuation_);
+
+  auto* outer_scheduler = Outer.promise().sched_;
+  if (!h_.promise().sched_) h_.promise().sched_ = outer_scheduler;
+  auto* child_scheduler = h_.promise().sched_;
+
   promise_type::note_suspended(Outer);
   h_.promise().continuation_ = Outer;
-  h_.promise().sched_ = Outer.promise().sched_;
+
+  if (child_scheduler && child_scheduler != outer_scheduler)
+  {
+    child_scheduler->schedule(std::move(*this));
+    return std::noop_coroutine();
+  }
+
   h_.promise().mark_started();
   auto h_transfer = h_.promise().release_ownership();
   h_ = nullptr; // finish transferring ownership

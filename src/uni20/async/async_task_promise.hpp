@@ -495,6 +495,7 @@ class BasicAsyncTaskPromise {
           std::coroutine_handle<> await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
           {
             auto continuation = std::exchange(h.promise().continuation_, nullptr);
+            auto* completed_scheduler = h.promise().sched_;
             bool cancelled = h.promise().is_cancel_on_resume();
             auto eptr = h.promise().get_exception();
             TRACE_MODULE(ASYNC, "Final suspend of coroutine", h, continuation, cancelled);
@@ -512,6 +513,15 @@ class BasicAsyncTaskPromise {
             if (continuation)
             {
               if (eptr) continuation.promise().set_exception(eptr);
+
+              auto* continuation_scheduler = continuation.promise().sched_;
+              if (continuation_scheduler && continuation_scheduler != completed_scheduler)
+              {
+                auto continuation_task = continuation.promise().take_ownership();
+                AsyncTask::reschedule(std::move(continuation_task));
+                return std::noop_coroutine();
+              }
+
               promise_type::note_running(continuation);
               return continuation;
             }

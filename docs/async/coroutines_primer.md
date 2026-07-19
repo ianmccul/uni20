@@ -31,10 +31,12 @@ This is why Uni20 uses an `AsyncTask`-taking `await_suspend(...)` style rather t
 
 ## Nested Coroutine Tasks
 
-An `AsyncTask` may directly `co_await` another `AsyncTask`. The inner coroutine
-inherits the outer coroutine's scheduler, runs through coroutine symmetric
-transfer, and returns control to the suspended outer continuation when it
-finishes. This is implemented behavior, not a future CUDA facility.
+An `AsyncTask` may directly `co_await` another `AsyncTask`. An unbound inner
+coroutine inherits the outer coroutine's scheduler. An inner coroutine already
+bound to the same scheduler runs through symmetric transfer; one bound to a
+different scheduler is submitted there and returns the suspended outer
+continuation to its original scheduler when it finishes. This same-promise
+routing is implemented behavior, not a future CUDA facility.
 
 Uni20 also has template scaffolding for task-specific promise types. Distinct
 types may legitimately select different initial schedulers: for example,
@@ -48,8 +50,7 @@ in `CudaTaskPromise`, an `AsyncTask` enters CUDA execution by creating and
 awaiting a `CudaTask`, not by migrating and becoming one. Scheduler migration is
 a separate capability within one task type's promise contract.
 
-Explicit migration between schedulers, scheduler-aware return from a nested
-task, and optional promise specialization are explored in
+Explicit live-task migration and optional promise specialization are explored in
 [Scheduler Routing, Nested Task Domains, and Promise Specialization](scheduler_migration.md).
 
 ## What co_await on a Buffer Does

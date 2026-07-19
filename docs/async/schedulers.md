@@ -6,7 +6,9 @@ They do not define dependency legality; epochs do that. If a coroutine is not ca
 it will still suspend regardless of scheduler choice.
 
 Current tasks normally retain the scheduler installed when they are first
-scheduled. Explicit migration is a planned generic capability, not current
+scheduled. A nested `AsyncTask` with a different scheduler is submitted there,
+then returns its continuation to the continuation's recorded scheduler.
+Explicit live-task migration is a planned generic capability, not current
 behavior. See [Scheduler Routing, Nested Task Domains, and Promise Specialization](scheduler_migration.md).
 
 ## Global Scheduler Model

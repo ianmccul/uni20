@@ -1,8 +1,8 @@
 # Scheduler Routing, Nested Task Domains, and Promise Specialization
 
-**Status:** active design exploration. Uni20 supports nested `AsyncTask`
-coroutines today. Explicit scheduler migration and heterogeneous promise types
-are not yet complete runtime features.
+**Status:** active design exploration. Uni20 supports scheduler-aware nesting
+between canonical `AsyncTask` coroutines today. Explicit live-task migration
+and heterogeneous promise types are not yet complete runtime features.
 
 This note separates generic async-runtime capability from CUDA and other
 backend policies. It also records the choices that must be resolved before a
@@ -63,12 +63,12 @@ Its relevant behavior is:
 2. Epoch and buffer wakeups call `BasicAsyncTask::reschedule()`, which reads
    that pointer and submits the task to the recorded scheduler.
 3. `co_await` on another `AsyncTask` is explicitly supported. The inner task
-   stores the outer coroutine as its continuation and initially inherits the
-   outer task's scheduler.
-4. The inner task starts through symmetric coroutine transfer rather than a new
-   scheduler submission.
-5. At final suspend, the inner task currently transfers directly back to the
-   outer continuation.
+   stores the outer coroutine as its continuation and inherits the outer task's
+   scheduler only when it does not already have one.
+4. A child on the same scheduler starts through symmetric coroutine transfer.
+   A child with a different selected scheduler is submitted there.
+5. At final suspend, the inner task transfers directly to a continuation on the
+   same scheduler, or resubmits a continuation whose scheduler differs.
 
 A oneTBB `task_group` tracks a scheduled resumption, called an **activation** in
 this note. When that activation resumes a coroutine and the coroutine suspends,

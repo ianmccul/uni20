@@ -3,6 +3,9 @@
 #include <uni20/async/awaiters.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 
+#include <string>
+#include <vector>
+
 using namespace uni20;
 using namespace uni20::async;
 
@@ -78,4 +81,57 @@ TEST(AsyncTaskAwaitTest, AsyncTaskAwait_IntermediateChannel)
   auto result = output.get_wait(sched); // Access directly, test already count
   EXPECT_EQ(result, 11);                // (5 * 2) + 1
   EXPECT_EQ(count, 2);                  // both kernel and outer
+}
+
+TEST(AsyncTaskAwaitTest, NestedTaskPreservesExplicitSchedulerAndReturnsToParentScheduler)
+{
+  DebugScheduler parent_scheduler;
+  DebugScheduler child_scheduler;
+  std::vector<std::string> events;
+
+  auto child = [](std::vector<std::string>& events) static -> AsyncTask {
+    events.emplace_back("child");
+    co_return;
+  }(events);
+  ASSERT_TRUE(child.set_scheduler(&child_scheduler));
+
+  auto parent = [](AsyncTask child, std::vector<std::string>& events) static -> AsyncTask {
+    events.emplace_back("parent before");
+    co_await child;
+    events.emplace_back("parent after");
+  }(std::move(child), events);
+
+  parent_scheduler.schedule(std::move(parent));
+  parent_scheduler.run_all();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before"}));
+
+  child_scheduler.run_all();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child"}));
+
+  parent_scheduler.run_all();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child", "parent after"}));
+}
+
+TEST(AsyncTaskAwaitTest, NestedTaskOnSameExplicitSchedulerUsesSymmetricTransfer)
+{
+  DebugScheduler scheduler;
+  std::vector<std::string> events;
+
+  auto child = [](std::vector<std::string>& events) static -> AsyncTask {
+    events.emplace_back("child");
+    co_return;
+  }(events);
+  ASSERT_TRUE(child.set_scheduler(&scheduler));
+
+  auto parent = [](AsyncTask child, std::vector<std::string>& events) static -> AsyncTask {
+    events.emplace_back("parent before");
+    co_await child;
+    events.emplace_back("parent after");
+  }(std::move(child), events);
+
+  scheduler.schedule(std::move(parent));
+  scheduler.run();
+
+  EXPECT_TRUE(scheduler.done());
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child", "parent after"}));
 }
