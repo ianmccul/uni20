@@ -1,14 +1,14 @@
 openapi: 3.1.0
 info:
   title: Uni20 GitHub Repository Action
-  version: 2.2.0
+  version: 2.3.0
   description: >
     Narrow GitHub API action for the Uni20 repository. Use this action only when
     direct repository browsing is unavailable, unreliable, or insufficient for a
     requested GitHub operation. Read operations are scoped to public reads from
-    Uni20-dev/uni20. The only write operation is issue creation and should be
-    used only after the user explicitly asks to create an issue or approves the
-    final issue text.
+    Uni20-dev/uni20. The only write operations are issue creation and issue
+    comments, and they should be used only after the user explicitly asks for
+    the write or approves the final text.
   license:
     name: MIT
     url: https://github.com/Uni20-dev/uni20/blob/main/LICENSE
@@ -26,7 +26,7 @@ tags:
   - name: search
     description: Repository-scoped GitHub code search.
   - name: issues
-    description: Issue reads and explicitly approved issue creation.
+    description: Issue reads and explicitly approved issue writes.
   - name: pull_requests
     description: Pull-request reads.
 paths:
@@ -320,6 +320,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Issue"
+  /repos/Uni20-dev/uni20/issues/{issue_number}/comments:
+    post:
+      operationId: createUni20IssueComment
+      tags: [issues]
+      summary: Create a Uni20 issue comment
+      description: >
+        Create a comment on an issue or pull-request-shaped issue in
+        Uni20-dev/uni20. Use only when the user explicitly asks to create a
+        comment or approves the final comment body.
+      security:
+        - githubToken: []
+      parameters:
+        - name: issue_number
+          in: path
+          required: true
+          description: Issue or pull request number.
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewIssueComment"
+      responses:
+        "201":
+          description: Created issue comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueComment"
   /repos/Uni20-dev/uni20/pulls:
     get:
       operationId: listUni20PullRequests
@@ -628,6 +660,29 @@ components:
           description: Optional existing label names to apply.
           items:
             type: string
+    NewIssueComment:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          description: Comment body approved by the user.
+          minLength: 1
+    IssueComment:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+        body:
+          type: string
+        html_url:
+          type: string
+          format: uri
+        user:
+          $ref: "#/components/schemas/User"
     PullRequest:
       type: object
       additionalProperties: true

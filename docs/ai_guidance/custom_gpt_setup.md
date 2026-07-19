@@ -165,21 +165,22 @@ configuration. GitHub public REST reads succeed without a token, but an invalid
 or empty `Authorization: Bearer ...` header can make otherwise-public requests
 fail.
 
-To enable issue creation, use the same schema but change the Action
-authentication setting:
+To enable issue creation or issue comments, use the same schema but change the
+Action authentication setting:
 
 - Action domain: `api.github.com`
 - Authentication: API key / Bearer token
 - Token scope: keep the token as narrow as practical for `Uni20-dev/uni20`,
   normally repository metadata read plus issues read/write
-- Write access: only `createUni20Issue` is included; use it only after the user
-  explicitly asks to create an issue or approves the final issue text
+- Write access: only `createUni20Issue` and `createUni20IssueComment` are
+  included; use them only after the user explicitly asks for the write or
+  approves the final text
 
 Do not configure the read-only schema with a bearer token solely because an
-issue-creation path may be useful later.
+issue-write path may be useful later.
 
 The GPT Action builder treats `api.github.com` as a single Action domain, so do
-not try to install a second Uni20 GitHub schema for issue creation. Keep the
+not try to install a second Uni20 GitHub schema for issue writes. Keep the
 single schema and switch only the Action authentication setting when write
 access is deliberately needed.
 

@@ -15,8 +15,8 @@ The action calls GitHub's REST API for the `Uni20-dev/uni20` repository. It can:
 
 - read public repository metadata, branches, commits, trees, blobs, file
   contents, code-search results, issues, and pull requests;
-- create a GitHub issue only when the user explicitly requests issue creation or
-  approves the final issue title and body.
+- create a GitHub issue or issue comment only when the user explicitly requests
+  the write or approves the final issue/comment text.
 
 The action does not operate a Uni20-controlled server or database between
 ChatGPT and GitHub.
@@ -28,11 +28,13 @@ selected operation, such as:
 
 - repository paths, commit refs, branch names, search queries, issue filters,
   and pagination parameters;
-- for issue creation, the approved issue title, body, and optional labels.
+- for issue creation, the approved issue title, body, and optional labels;
+- for issue comments, the issue number and approved comment body.
 
-If issue creation is enabled, the configured GitHub authentication token is sent
+If issue writes are enabled, the configured GitHub authentication token is sent
 to GitHub by ChatGPT as part of the API request. Do not paste secrets, private
-credentials, unpublished research notes, or personal data into issue text.
+credentials, unpublished research notes, or personal data into issue or comment
+text.
 
 ## Storage and visibility
 
@@ -40,22 +42,22 @@ The Uni20 project does not separately collect, log, or store action requests.
 GitHub and OpenAI may process action requests according to their own terms and
 privacy policies.
 
-Content created through the issue-creation operation is stored by GitHub as a
-GitHub issue. In a public repository, issue titles, bodies, labels, comments,
-and metadata may be publicly visible.
+Content created through issue-write operations is stored by GitHub as a GitHub
+issue or issue comment. In a public repository, issue titles, bodies, labels,
+comments, and metadata may be publicly visible.
 
 ## Authentication
 
 Read-only repository operations should be configured without authentication.
-Issue creation requires a GitHub token with the narrowest practical permissions
-for `Uni20-dev/uni20`, normally repository metadata read access plus issues
-read/write access.
+Issue creation and issue comments require a GitHub token with the narrowest
+practical permissions for `Uni20-dev/uni20`, normally repository metadata read
+access plus issues read/write access.
 
 ## User control
 
 Users should review action requests before allowing ChatGPT to run them. Issue
-creation should be used only after the user has approved the final issue title
-and body.
+writes should be used only after the user has approved the final issue
+title/body or comment body.
 
 ## Contact
 
