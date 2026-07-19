@@ -9,7 +9,7 @@ Current tasks normally retain the scheduler installed when they are first
 scheduled. A nested `AsyncTask` with a different scheduler is submitted there,
 then returns its continuation to the continuation's recorded scheduler.
 Explicit live-task migration is a planned generic capability, not current
-behavior. See [Scheduler Routing, Nested Task Domains, and Promise Specialization](scheduler_migration.md).
+behavior. See [Scheduler Routing and Task Domains](scheduler_migration.md).
 
 ## Global Scheduler Model
 
@@ -32,6 +32,8 @@ If you do not override it, the global scheduler defaults to an internal `DebugSc
 | `DebugScheduler` | deterministic, simple deadlock diagnostics | single-threaded | semantics tests, debugging |
 | `TbbScheduler` | parallel throughput | non-deterministic task interleaving | parallel CPU workloads |
 | `TbbNumaScheduler` | NUMA-aware dispatch over per-node TBB arenas | extra dispatch complexity | NUMA-sensitive workloads |
+| `DebugCudaScheduler` | deterministic device-bound execution | calling-thread only | CUDA semantics tests and bring-up |
+| `TbbCudaScheduler` | parallel device-bound submission arena | non-deterministic task interleaving | asynchronous CUDA submission and provider calls |
 
 ## DebugScheduler
 
@@ -109,11 +111,40 @@ Diagnostics:
 - `scheduled_count_for(node)` reports dispatch counts used by tests
 - tests verify round-robin and preferred-node behavior
 
+## CUDA Schedulers
+
+`DebugCudaScheduler` and `TbbCudaScheduler` implement the typed
+`ICudaScheduler` admission interface for `CudaTask`. They share ordinary
+`BasicTask` rescheduling and continuation routing with the host schedulers.
+
+Both schedulers are bound to one validated `cuda::Device`:
+
+- `DebugCudaScheduler` selects that device around `run()` and `run_all()` and
+  restores the calling thread before returning.
+- `TbbCudaScheduler` owns one oneTBB arena and installs a
+  `task_scheduler_observer`. Every worker or application thread entering that
+  arena saves its previous CUDA device, selects the scheduler device, and
+  restores the previous selection on exit.
+- Nested participation in different CUDA arenas restores the outer arena's
+  device correctly.
+- `run_all()` waits for currently submitted activations. It does not complete a
+  coroutine suspended on an external buffer, CUDA completion, or future
+  resource awaiter.
+
+Tasks running in a CUDA scheduler arena must not call `cudaSetDevice` directly.
+Cross-device work enters the scheduler bound to the target device; this keeps
+the observer's save/restore stack authoritative for the whole arena activation.
+
+CUDA task admission is not global yet. A higher-level device context or Tensor
+storage policy will select the scheduler matching operand placement.
+
 ## Practical Guidance
 
 - start debugging with `DebugScheduler`
 - once semantics are stable, validate under `TbbScheduler`
 - use `TbbNumaScheduler` when NUMA topology materially affects performance
+- use `DebugCudaScheduler` to diagnose CUDA task ordering deterministically
+- use `TbbCudaScheduler` for parallel CUDA submission once device placement is explicit
 
 If behavior differs between debug and TBB schedulers, suspect missing dependency edges,
 missing releases, or lifetime bugs before suspecting scheduler implementation.

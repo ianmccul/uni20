@@ -1,8 +1,9 @@
 # Scheduler Routing and Task Domains
 
 **Status:** concrete host and CUDA initial-admission types, shared suspended-task
-routing, and cross-scheduler nested continuations are implemented. Explicit
-live-task migration and a oneTBB CUDA device scheduler remain future work.
+routing, cross-scheduler nested continuations, and deterministic plus oneTBB
+device-bound CUDA schedulers are implemented. Explicit live-task migration
+remains future work.
 
 This note separates three related mechanisms: initial scheduler admission,
 rescheduling after suspension, and nested continuation routing. CUDA backend and
@@ -98,7 +99,7 @@ on its original host scheduler.
 The parent does not become a `CudaTask`, and the child does not carry the parent
 onto the CUDA scheduler after completion.
 
-## Current CUDA Scheduler
+## Current CUDA Schedulers
 
 `DebugCudaScheduler` is the deterministic first implementation of
 `ICudaScheduler`. It:
@@ -116,10 +117,23 @@ scheduler per visible device with out-of-order multi-device resumption, and an
 `AsyncTask` parent returning to its CPU scheduler after a CUDA child. The
 multi-device case skips when fewer than two devices are visible.
 
-The eventual oneTBB CUDA scheduler will use one arena per device and a
-`task_scheduler_observer` to establish the device whenever a worker or
-application thread enters that arena. It must implement the same `ICudaScheduler`
-admission and `IScheduler` rescheduling contracts.
+`TbbCudaScheduler` is the parallel implementation. Each instance owns one
+oneTBB arena and one `task_scheduler_observer` for its validated CUDA device.
+The observer saves and selects the device whenever a worker or application
+thread enters the arena, then restores the previous device on exit. Nested
+participation in another device arena uses a thread-local selection stack, so
+returning from device 1 to an outer device-0 arena restores device 0 before the
+outer coroutine continues.
+
+The TBB scheduler implements the same `ICudaScheduler` admission and
+`IScheduler` rescheduling contracts as the debug scheduler. Its `run_all()` has
+the same activation-quiescence meaning as `TbbScheduler`: externally suspended
+tasks may become runnable and submit a later activation.
+
+Tests cover direct TBB admission, one scheduler per visible device,
+out-of-order resumption after two suspension points, calling-thread restoration,
+and nested entry into a different device arena. Multi-device cases skip when
+fewer than two devices are visible.
 
 ## Device Selection
 
@@ -176,16 +190,13 @@ that diagnoses outstanding routed tasks and resource waiters.
 
 ## Remaining Tests and Work
 
-The implemented debug tests establish the fundamental cross-domain route. The
-next checkpoints should add:
+The implemented debug and TBB tests establish the fundamental cross-domain
+route. The next checkpoints should add:
 
-- a oneTBB CUDA scheduler with arena-entry device establishment;
 - global or context-level typed CUDA admission that selects a device scheduler;
 - exception and cancellation propagation across a host/CUDA scheduler boundary;
 - scheduler destruction diagnostics with outstanding suspended tasks;
 - task-registry diagnostics that identify the current scheduler/device domain;
-- multi-device isolation under concurrent oneTBB execution (the deterministic
-  debug-scheduler case is already covered);
 - live-task migration tests only if a concrete use case justifies that API.
 
 ## Open Choices

@@ -2,9 +2,8 @@
 
 This directory contains the CUDA runtime foundation and is the CUDA
 backend-library wiring point. It does not yet provide Tensor CUDA kernels. A
-deterministic device-bound CUDA coroutine scheduler is implemented in
-`src/uni20/async/debug_cuda_scheduler.hpp`; a oneTBB device scheduler remains a
-later layer.
+deterministic and oneTBB device-bound CUDA coroutine schedulers are implemented
+under `src/uni20/async/`.
 
 ## Contents
 

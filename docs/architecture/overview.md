@@ -116,7 +116,9 @@ than a private dense backend.
 
 ## Current Maturity
 
-- `DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler` are implemented.
+- `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler`, `DebugCudaScheduler`,
+  and `TbbCudaScheduler` are implemented. CUDA schedulers are device-bound;
+  Tensor-storage-driven scheduler selection remains future work.
 - Async matrix products, Async self-adjoint `eigh`, owner-retaining conjugation,
   and owner-retaining reshape aliases are implemented.
 - CPU reference, BLAS, and initial LAPACK dispatch paths are active.

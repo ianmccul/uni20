@@ -414,8 +414,8 @@ bool is_internal_description(std::string_view description) noexcept
          contains_text(callable, "TakeAwaiter") || contains_text(callable, "OwningReadAwaiter") ||
          contains_text(callable, "OwningWriteAwaiter") || contains_text(callable, "DebugScheduler::") ||
          contains_text(callable, "TbbScheduler::") || contains_text(callable, "TbbNumaScheduler::") ||
-         contains_text(callable, "uni20::async::schedule") || contains_text(callable, "std::") ||
-         contains_text(callable, "__gnu_cxx::");
+         contains_text(callable, "TbbCudaScheduler::") || contains_text(callable, "uni20::async::schedule") ||
+         contains_text(callable, "std::") || contains_text(callable, "__gnu_cxx::");
 }
 
 std::string shorten_source_file(std::string file)

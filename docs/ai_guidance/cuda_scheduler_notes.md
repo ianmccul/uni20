@@ -3,15 +3,17 @@
 - **Audience:** design assistants, coding agents, and reviewers
 - **Authority:** non-normative retrieval summary
 - **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-19
-- **Status:** active design work; low-level runtime primitives exist, but Tensor
-  storage, schedulers, and provider kernels are not implemented
+- **Status:** active design work; low-level runtime primitives and device-bound
+  debug/oneTBB schedulers exist, but Tensor storage, scheduler admission,
+  resource awaiters, and provider kernels are not implemented
 - **Canonical sources:** current maintainer decisions, `docs/backends/cuda/`,
   inspected CUDA source, and focused tests
 
 ## Answer rule
 
-- Treat CUDA Tensor execution, scheduler integration, and provider-resource
-  management as roadmap work unless current source and canonical docs say otherwise.
+- Treat CUDA Tensor execution, storage-driven scheduler admission, and
+  provider-resource management as roadmap work unless current source and
+  canonical docs say otherwise.
 - Current low-level source is useful implementation evidence for runtime
   primitives, but not a stable public Tensor API.
 - Do not infer Tensor-storage, provider-resource, or coroutine contracts from the
@@ -30,19 +32,23 @@ Uni20 has a tested low-level CUDA runtime foundation:
   and publish completions;
 - `cudaMallocAsync`/`cudaFreeAsync` use when stream-ordered memory pools are
   supported, with `cudaMalloc`/`cudaFree` fallback;
+- typed `CudaTask` admission through deterministic `DebugCudaScheduler` and
+  parallel `TbbCudaScheduler` implementations bound to a validated device;
+- oneTBB arena-entry device selection and restoration, including nested entry
+  into another device arena;
 - structured CUDA diagnostics through Uni20's presentation layer.
 
-These primitives are still bring-up infrastructure. Their names and exact
-ownership shape may change while Tensor storage and scheduler integration are
-designed, but do not ignore the tested stream/event/buffer semantics when
-reviewing new CUDA proposals.
+These primitives and scheduler mechanisms are still bring-up infrastructure.
+Their names and exact ownership shape may change while Tensor storage,
+device-context admission, and resource acquisition are designed, but do not
+ignore their tested semantics when reviewing new CUDA proposals.
 
 Do not claim that any of the following are settled merely because related code exists:
 
 - final CUDA Tensor storage or mdspan accessor shape;
 - blocking versus non-blocking CUDA storage policy names;
 - coroutine resource acquisition;
-- CUDA scheduler structure;
+- storage-driven scheduler selection and device-context ownership;
 - provider-handle/workspace ownership;
 - Tensor storage and dispatch integration;
 - error-recovery behavior after deferred device failure.
@@ -112,9 +118,11 @@ already satisfies them completely.
 Treat these as active design questions unless current maintainer decisions say otherwise:
 
 - whether stream reuse should use callbacks, polling, an event service, or another mechanism;
-- how device-local scheduling integrates with oneTBB or another host scheduler;
+- how `TbbCudaScheduler` instances are owned by device contexts and selected
+  from Tensor storage placement;
 - how stream, provider handle, workspace, and allocator resources are acquired together;
-- whether CUDA task types differ from ordinary async task types;
+- whether future CUDA tasks need promise state beyond the implemented typed
+  `CudaTask` wrapper and shared basic promise;
 - how buffer hazards map onto the existing async epoch model;
 - how multi-device execution and device placement are represented;
 - how CUDA Tensor storage participates in backend selection;
@@ -127,8 +135,8 @@ Treat these as active design questions unless current maintainer decisions say o
 - Treating implementation shape as maintainer-approved architecture.
 - Assuming event or stream affinity proves causality.
 - Assuming host handle destruction proves device completion.
-- Recommending a broad CUDA scheduler design without identifying unresolved ownership,
-  cancellation, and failure-routing questions.
+- Recommending a broad CUDA resource-scheduling design without identifying
+  unresolved ownership, cancellation, and failure-routing questions.
 - Claiming CUDA Tensor execution, cuBLAS/cuSOLVER integration, or distributed execution
   is complete.
 - Putting blocking/non-blocking channel state or per-call resource leases into an

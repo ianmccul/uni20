@@ -2,9 +2,10 @@
 
 **Status:** the low-level ownership, completion-token, idle-stream-pool, device
 buffer, and scoped stream-access primitives are implemented in
-`src/uni20/backend/cuda/`. The async layer also provides a deterministic
-device-bound `DebugCudaScheduler`. CUDA Tensor storage, CUDA kernels, coroutine
-resource awaiters, and a oneTBB CUDA device scheduler are not yet implemented.
+`src/uni20/backend/cuda/`. The async layer provides deterministic and oneTBB
+device-bound CUDA schedulers, including arena-entry device restoration. CUDA
+Tensor storage, CUDA kernels, and coroutine resource awaiters are not yet
+implemented.
 
 This document defines the resource-management contract beneath future CUDA
 Tensor kernels and async lowering.
@@ -254,17 +255,14 @@ The next CUDA runtime checkpoints should add:
 
 1. Typed CUDA Tensor storage and a device mdspan/accessor contract built over
    `cuda::CudaBuffer` without making device memory host-indexable.
-2. A oneTBB device-local scheduler plus eventual provider-handle and workspace
-   pools in `DeviceContext`, following the implemented `ICudaScheduler`
-   contract.
-3. Arena-entry device establishment and restoration through a
-   `task_scheduler_observer`.
-4. Typed initial `CudaTask` admission that selects the scheduler matching Tensor
+2. Integrate the implemented `TbbCudaScheduler` with eventual provider-handle
+   and workspace pools in `DeviceContext`.
+3. Typed initial `CudaTask` admission that selects the scheduler matching Tensor
    storage placement. Shared-promise nested-await and continuation routing are
-   already implemented and covered by `DebugCudaScheduler` tests.
-5. Live-task scheduler migration as a separate capability where useful.
-6. Cancellation-safe coroutine acquisition using the implemented transaction
+   already implemented and covered by both CUDA schedulers' tests.
+4. Live-task scheduler migration as a separate capability where useful.
+5. Cancellation-safe coroutine acquisition using the implemented transaction
    and completion-publication rules.
-7. A scheduler-neutral completion notification bridge that resubmits through
+6. A scheduler-neutral completion notification bridge that resubmits through
    the scheduler currently recorded by the suspended task.
-8. Deferred CUDA execution-error propagation into async output epochs.
+7. Deferred CUDA execution-error propagation into async output epochs.

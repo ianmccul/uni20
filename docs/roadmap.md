@@ -76,8 +76,10 @@ See [Kernel Dispatch](architecture/kernel_dispatch.md),
 
 - `Async<T>`, epoch queues, read buffers, and exclusive mutable write buffers
   define causal dataflow and storage lifetime.
-- `DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler` execute the same task
-  model.
+- `DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler` execute the host task
+  model. `DebugCudaScheduler` and `TbbCudaScheduler` provide typed,
+  device-bound CUDA task admission; the TBB CUDA arena observer establishes and
+  restores device state for every participant.
 - TBB waits can make scheduler progress from application or worker threads, and
   `run_all()` waits for scheduler quiescence.
 - Exceptions and cancellation propagate to output epochs; multi-output tasks

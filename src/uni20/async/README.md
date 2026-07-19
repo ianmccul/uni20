@@ -19,6 +19,9 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 - `debug_cuda_scheduler.hpp`: deterministic calling-thread CUDA scheduler bound
   to one validated device. It establishes and restores the current CUDA device
   around each run.
+- `tbb_cuda_scheduler.hpp`: oneTBB CUDA scheduler with one arena per scheduler
+  and an arena observer that establishes and restores the bound device for every
+  participating worker or application thread.
 - `scheduler.hpp`, `debug_scheduler.hpp`, `tbb_scheduler.hpp`,
   `tbb_numa_scheduler.hpp`: scheduler interfaces and implementations.
 - `epoch_context.hpp`, `epoch_queue.hpp`: epoch ordering and causal execution
