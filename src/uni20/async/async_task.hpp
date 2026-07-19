@@ -15,6 +15,8 @@ namespace uni20::async
 {
 
 class IScheduler;
+class AsyncTask;
+class AsyncTaskFactory;
 
 /// \brief Forward declaration for the base async-task promise type.
 class BasicAsyncTaskPromise;
@@ -232,8 +234,37 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
     friend struct AsyncTaskTestAccess;
 };
 
-/// \brief Canonical async coroutine task type used throughout the async subsystem.
-using AsyncTask = BasicAsyncTask<BasicAsyncTaskPromise>;
+/// \brief Canonical host-oriented coroutine task type.
+class AsyncTask final : public BasicAsyncTask<BasicAsyncTaskPromise> {
+  public:
+    using base_type = BasicAsyncTask<BasicAsyncTaskPromise>;
+    using promise_type = BasicAsyncTaskPromise;
+    using handle_type = base_type::handle_type;
+
+    /// \brief Construct an empty task.
+    AsyncTask() = default;
+
+    AsyncTask(AsyncTask const&) = delete;
+    AsyncTask& operator=(AsyncTask const&) = delete;
+    AsyncTask(AsyncTask&&) noexcept = default;
+    AsyncTask& operator=(AsyncTask&&) noexcept = default;
+
+    /// \brief Assign an optional debug label while preserving the concrete task type.
+    /// \param label Human-readable label used only by debug diagnostics.
+    /// \return Reference to this task for call chaining.
+    AsyncTask& debug_name(std::string const& label)
+    {
+      this->base_type::debug_name(label);
+      return *this;
+    }
+
+  private:
+    /// \brief Construct a task from its coroutine handle.
+    explicit AsyncTask(handle_type h) noexcept : base_type(h) {}
+
+    friend promise_type;
+    friend class AsyncTaskFactory;
+};
 
 } // namespace uni20::async
 

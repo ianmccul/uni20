@@ -155,7 +155,7 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
 
     /// \brief Block using an explicit scheduler until the read value is available.
     /// \param sched Scheduler used to drive progress.
-    void wait(IScheduler& sched) const { this->reader_.wait(sched); }
+    void wait(IAsyncScheduler& sched) const { this->reader_.wait(sched); }
 
     // T get_wait() && { return T(reader_.get_wait()); } // TODO: can this use move semantics?
     /// \brief Block until the read value is available.
@@ -165,7 +165,7 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     /// \brief Block using an explicit scheduler until the read value is available.
     /// \param sched Scheduler used to drive progress.
     /// \return Const reference to the available value.
-    [[nodiscard]] T const& get_wait(IScheduler& sched) const { return reader_.get_wait(sched); }
+    [[nodiscard]] T const& get_wait(IAsyncScheduler& sched) const { return reader_.get_wait(sched); }
 
     /// \brief Enable co_await on lvalue ReadBuffer and return a borrowed reference.
     auto operator co_await() & noexcept -> ReadBuffer& { return *this; }

@@ -20,7 +20,8 @@ For explanations, see:
 | `ReadBuffer<T>` | Read gate for one epoch | `co_await reader`, `transfer()`, `maybe()`, `or_cancel()`, `wait()`, `release()` |
 | `WriteBuffer<T>` | Exclusive mutable gate for one epoch | `co_await writer`, `transfer()`, `storage()`, `take()`, `take_release()`, `release()` |
 | `AsyncTask` | Move-only coroutine handle owner | schedule via `schedule(...)` |
-| `IScheduler` | Scheduler interface | `schedule`, `pause`, `resume`, wait hooks |
+| `IScheduler` | Internal route for resuming an already-bound task | no public submission API |
+| `IAsyncScheduler` | Host `AsyncTask` scheduler interface | `schedule`, `pause`, `resume`, wait hooks |
 
 Buffer model:
 

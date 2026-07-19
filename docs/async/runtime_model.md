@@ -25,7 +25,8 @@ The runtime separates three concerns:
 
 - storage lifetime (`shared_storage<T>`)
 - causal ordering (`EpochQueue` / `EpochContext`)
-- execution policy (`IScheduler` implementations)
+- internal continuation routing (`IScheduler`)
+- host-task execution policy (`IAsyncScheduler` implementations)
 
 This split is why the same async code can run deterministically with `DebugScheduler`
 or concurrently with TBB schedulers.

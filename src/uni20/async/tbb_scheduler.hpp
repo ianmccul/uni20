@@ -61,7 +61,9 @@ struct TbbSchedulerWaitOptions
 ///       DebugScheduler and TaskRegistry diagnostics for deterministic DAG
 ///       investigation.
 ///
-class TbbScheduler final : public IScheduler {
+class TbbNumaScheduler;
+
+class TbbScheduler final : public IAsyncScheduler {
     class SuspendedWait;
     class ReadySignal;
     class ExecutionScope;
@@ -167,11 +169,10 @@ class TbbScheduler final : public IScheduler {
       arena_.execute([&] { this->wait_in_arena(request, ready_signal); });
     }
 
-  protected:
-    /// \brief Reschedule a previously suspended coroutine.
-    void reschedule(AsyncTask&& t) override { this->enqueue_task(std::move(t)); }
-
   private:
+    /// \brief Reschedule a previously suspended coroutine.
+    void reschedule(AsyncTask::base_type&& t) override { this->enqueue_task(std::move(t)); }
+
     class SuspendedWait {
       public:
         SuspendedWait(bool wake_on_progress, bool nested_wait)
@@ -456,7 +457,7 @@ class TbbScheduler final : public IScheduler {
       }
     }
 
-    void enqueue_task(AsyncTask&& t)
+    void enqueue_task(AsyncTask::base_type&& t)
     {
       TRACE_MODULE(ASYNC, "TBB scheduler enqueuing task", t.h_);
       if (auto h = t.release_handle())
@@ -516,6 +517,8 @@ class TbbScheduler final : public IScheduler {
     std::condition_variable wait_cv_;
     std::mutex wait_mutex_;
     // FIXME: the concurrent_queue is overkill here, since we don't need to preserve order of tasks
+
+    friend class TbbNumaScheduler;
 };
 
 } // namespace uni20::async

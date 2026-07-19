@@ -1,5 +1,5 @@
 /// \file scheduler.hpp
-/// \brief Defines the IScheduler interface
+/// \brief Defines internal task routing and the host-oriented scheduler interface.
 
 // see https://github.com/dbittman/waitfree-mpsc-queue/blob/master/mpsc.c
 
@@ -12,15 +12,29 @@
 namespace uni20::async
 {
 
-/// \brief Minimal abstract interface for scheduling coroutine handles.
+/// \brief Internal route for resuming an already-bound coroutine task.
 class IScheduler {
   public:
     /// \brief Virtual destructor.
     virtual ~IScheduler() = default;
 
+  private:
+    template <IsAsyncTaskPromise Promise> friend class BasicAsyncTask;
+
+    /// \brief Schedule an already-bound host coroutine to be resumed later.
+    /// \param task Basic task state whose scheduler route is already fixed.
+    virtual void reschedule(AsyncTask::base_type&& task) = 0;
+};
+
+/// \brief Scheduler interface for initial `AsyncTask` submission and host-side progress.
+class IAsyncScheduler : public IScheduler {
+  public:
+    /// \brief Virtual destructor.
+    ~IAsyncScheduler() override = default;
+
     /// \brief Schedule a coroutine for its initial execution.
-    /// \param h The coroutine handle to schedule.
-    virtual void schedule(AsyncTask&& h) = 0;
+    /// \param task Task to bind to this scheduler and submit.
+    virtual void schedule(AsyncTask&& task) = 0;
 
     /// \brief Pause the scheduler.
     /// Tasks can still be scheduled, but they will not start running until resume() is called
@@ -81,15 +95,6 @@ class IScheduler {
     /// supplied wakeup callback.
     virtual void wait_for(WaitRequest const& request) { this->wait_for(request.is_ready); }
 
-  protected:
-    // using promise_type = AsyncTask::promise_type;
-
-  private:
-    friend AsyncTask;
-
-    /// \brief Schedule a coroutine to be resumed later.
-    /// \param h The coroutine handle to schedule.
-    virtual void reschedule(AsyncTask&& h) = 0;
 };
 
 } // namespace uni20::async

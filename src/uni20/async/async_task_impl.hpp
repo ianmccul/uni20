@@ -240,7 +240,7 @@ std::coroutine_handle<> BasicAsyncTask<T>::await_suspend(BasicAsyncTask<T>::hand
 
   if (child_scheduler && child_scheduler != outer_scheduler)
   {
-    child_scheduler->schedule(std::move(*this));
+    child_scheduler->reschedule(std::move(*this));
     return std::noop_coroutine();
   }
 

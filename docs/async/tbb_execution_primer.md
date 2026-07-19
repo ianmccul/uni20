@@ -480,7 +480,7 @@ path prioritization would require always-available dependency metadata and
 evidence from profiling that the latency benefit outweighs scheduling overhead
 and possible starvation. It is not part of the current design.
 
-`IScheduler::WaitRequest` carries both the readiness predicate and an optional
+`IAsyncScheduler::WaitRequest` carries both the readiness predicate and an optional
 targeted wakeup-registration function. `EpochContextReader` registers that
 wakeup at the epoch's mutex-protected transition to `Reading`. Schedulers that
 do not use resumable tasks ignore the registration and retain their existing

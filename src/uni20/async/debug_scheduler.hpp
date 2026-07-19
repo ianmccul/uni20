@@ -36,7 +36,7 @@ inline void dump_deadlock_graphviz_snapshot()
 } // namespace detail
 
 /// \brief Simple FIFO scheduler
-class DebugScheduler final : public IScheduler {
+class DebugScheduler final : public IAsyncScheduler {
   public:
     /// \brief Default-construct an empty scheduler.
     DebugScheduler() = default;
@@ -109,7 +109,7 @@ class DebugScheduler final : public IScheduler {
 
   private:
     // Internal resubmission
-    void reschedule(AsyncTask&& task) override
+    void reschedule(AsyncTask::base_type&& task) override
     {
       TRACE_MODULE(ASYNC, "Rescheduling a task", &task, task.h_);
       // Assume sched_ is already set
@@ -118,7 +118,7 @@ class DebugScheduler final : public IScheduler {
 
     bool Blocked_ = false;
 
-    std::vector<AsyncTask> Handles_;
+    std::vector<AsyncTask::base_type> Handles_;
 };
 
 namespace detail
@@ -126,16 +126,16 @@ namespace detail
 /// \brief Process-wide default debug scheduler instance.
 inline DebugScheduler DefaultScheduler;
 /// \brief Global scheduler pointer used by free `schedule(...)` helpers.
-inline IScheduler* global_scheduler = &DefaultScheduler;
+inline IAsyncScheduler* global_scheduler = &DefaultScheduler;
 } // namespace detail
 
 /// \brief Sets the process-wide scheduler used by async helpers.
 /// \param sched Scheduler pointer to install.
-inline void set_global_scheduler(IScheduler* sched) { detail::global_scheduler = sched; }
+inline void set_global_scheduler(IAsyncScheduler* sched) { detail::global_scheduler = sched; }
 
 /// \brief Returns the currently-installed process-wide scheduler.
 /// \return Pointer to the active scheduler.
-inline IScheduler* get_global_scheduler() { return detail::global_scheduler; }
+inline IAsyncScheduler* get_global_scheduler() { return detail::global_scheduler; }
 
 /// \brief Restores the process-wide scheduler to the default debug scheduler.
 inline void reset_global_scheduler() { detail::global_scheduler = &detail::DefaultScheduler; }
@@ -146,7 +146,7 @@ class ScopedScheduler {
   public:
     /// \brief Install a temporary global scheduler until destruction.
     /// \param sched Scheduler pointer to activate.
-    explicit ScopedScheduler(IScheduler* sched)
+    explicit ScopedScheduler(IAsyncScheduler* sched)
     {
       old_ = get_global_scheduler();
       set_global_scheduler(sched);
@@ -155,7 +155,7 @@ class ScopedScheduler {
     ~ScopedScheduler() { set_global_scheduler(old_); }
 
   private:
-    IScheduler* old_;
+    IAsyncScheduler* old_;
 };
 
 /// \brief Schedule a task on the currently configured global scheduler.
@@ -171,10 +171,10 @@ template <typename T> void EpochContextReader<T>::wait() const
   {
     CHECK(sched);
     auto epoch = epoch_;
-    sched->wait_for(IScheduler::WaitRequest{
+    sched->wait_for(IAsyncScheduler::WaitRequest{
         .is_ready = [epoch] { return epoch->reader_ready(); },
         .notify_when_ready =
-            [epoch](IScheduler::WaitWakeup notify) { epoch->reader_notify_when_ready(std::move(notify)); },
+            [epoch](IAsyncScheduler::WaitWakeup notify) { epoch->reader_notify_when_ready(std::move(notify)); },
     });
   }
 }
@@ -182,15 +182,15 @@ template <typename T> void EpochContextReader<T>::wait() const
 /// \brief Wait for a reader context using an explicit scheduler.
 /// \tparam T Stored value type.
 /// \param sched Scheduler used to drive progress.
-template <typename T> void EpochContextReader<T>::wait(IScheduler& sched) const
+template <typename T> void EpochContextReader<T>::wait(IAsyncScheduler& sched) const
 {
   if (!this->ready())
   {
     auto epoch = epoch_;
-    sched.wait_for(IScheduler::WaitRequest{
+    sched.wait_for(IAsyncScheduler::WaitRequest{
         .is_ready = [epoch] { return epoch->reader_ready(); },
         .notify_when_ready =
-            [epoch](IScheduler::WaitWakeup notify) { epoch->reader_notify_when_ready(std::move(notify)); },
+            [epoch](IAsyncScheduler::WaitWakeup notify) { epoch->reader_notify_when_ready(std::move(notify)); },
     });
   }
 }
@@ -208,7 +208,7 @@ template <typename T> T const& EpochContextReader<T>::get_wait() const
 /// \tparam T Stored value type.
 /// \param sched Scheduler used to drive progress.
 /// \return Reference to the ready value.
-template <typename T> T const& EpochContextReader<T>::get_wait(IScheduler& sched) const
+template <typename T> T const& EpochContextReader<T>::get_wait(IAsyncScheduler& sched) const
 {
   this->wait(sched);
   return this->data();
@@ -243,7 +243,7 @@ inline void DebugScheduler::run()
   }
   TRACE_MODULE(ASYNC, "Got some coroutines to resume", Handles_.size());
 
-  std::vector<AsyncTask> H;
+  std::vector<AsyncTask::base_type> H;
   std::swap(H, Handles_);
   std::reverse(H.begin(), H.end());
   for (auto&& h : H)

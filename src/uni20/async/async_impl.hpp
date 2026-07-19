@@ -44,7 +44,7 @@ template <typename T> void Async<T>::wait() const { this->read().wait(); }
 /// \brief Waits for the latest readable value using an explicit scheduler without retrieving it.
 /// \tparam T Async value type.
 /// \param sched Scheduler used to drive pending work.
-template <typename T> void Async<T>::wait(IScheduler& sched) const { this->read().wait(sched); }
+template <typename T> void Async<T>::wait(IAsyncScheduler& sched) const { this->read().wait(sched); }
 
 /// \brief Waits for the latest readable value and returns a const reference.
 /// \tparam T Async value type.
@@ -55,7 +55,7 @@ template <typename T> T const& Async<T>::get_wait() const { return this->read().
 /// \tparam T Async value type.
 /// \param sched Scheduler used to drive pending work.
 /// \return Reference to the materialized value.
-template <typename T> T const& Async<T>::get_wait(IScheduler& sched) const { return this->read().get_wait(sched); }
+template <typename T> T const& Async<T>::get_wait(IAsyncScheduler& sched) const { return this->read().get_wait(sched); }
 
 /// \brief Waits for write access and moves the current value out.
 /// \tparam T Async value type.

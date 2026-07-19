@@ -288,6 +288,16 @@ class BasicAsyncTaskPromise {
     template <AsyncTaskFactoryAwaitable A> auto await_transform(A& a);
     template <AsyncTaskFactoryAwaitable A> auto await_transform(A&& a);
 
+    /// \brief Pass through an lvalue canonical task for nested awaiting.
+    /// \param task Task being awaited.
+    /// \return Unmodified task reference.
+    AsyncTask& await_transform(AsyncTask& task) noexcept { return task; }
+
+    /// \brief Pass through an rvalue canonical task for nested awaiting.
+    /// \param task Task being awaited.
+    /// \return Forwarded task reference.
+    AsyncTask&& await_transform(AsyncTask&& task) noexcept { return std::move(task); }
+
     /// \brief Pass-through await_transform overload for lvalue AsyncTask objects.
     /// \tparam Promise Promise type carried by the task.
     /// \param t Task being awaited.

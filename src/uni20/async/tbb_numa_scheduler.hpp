@@ -19,7 +19,7 @@ namespace uni20::async
 {
 
 /// \brief NUMA-aware scheduler that balances work across per-node TBB arenas.
-class TbbNumaScheduler final : public IScheduler {
+class TbbNumaScheduler final : public IAsyncScheduler {
   public:
     /// \brief Construct a scheduler that reflects the system's visible NUMA nodes.
     TbbNumaScheduler() : TbbNumaScheduler(oneapi::tbb::info::numa_nodes()) {}
@@ -108,21 +108,20 @@ class TbbNumaScheduler final : public IScheduler {
       return scheduled_counts_[idx];
     }
 
-  protected:
+  private:
     /// \brief Reschedule a coroutine, honoring any recorded NUMA preference.
-    void reschedule(AsyncTask&& task) override
+    void reschedule(AsyncTask::base_type&& task) override
     {
       if (auto preferred = task.preferred_numa_node())
       {
-        this->schedule_on_node(std::move(task), *preferred);
+        this->reschedule_on_node(std::move(task), *preferred);
       }
       else
       {
-        this->schedule_on_node(std::move(task), this->select_next_numa_node());
+        this->reschedule_on_node(std::move(task), this->select_next_numa_node());
       }
     }
 
-  private:
     struct Arena
     {
         int numa_node;
@@ -157,6 +156,20 @@ class TbbNumaScheduler final : public IScheduler {
         ++scheduled_counts_[index];
       }
       arena.scheduler->schedule(std::move(task));
+    }
+
+    void reschedule_on_node(AsyncTask::base_type&& task, int numa_node)
+    {
+      if (arenas_.empty()) return;
+      auto index = this->index_for_node(numa_node);
+      auto& arena = arenas_[index];
+      auto actual_node = arena.numa_node;
+      task.set_preferred_numa_node(actual_node);
+      {
+        std::lock_guard<std::mutex> lock(counts_mutex_);
+        ++scheduled_counts_[index];
+      }
+      arena.scheduler->reschedule(std::move(task));
     }
 
     std::vector<int> numa_nodes_;

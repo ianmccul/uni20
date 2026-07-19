@@ -987,14 +987,14 @@ template <typename T> class EpochContextReader {
 
     /// \brief Wait for the epoch to become available on the provided scheduler.
     /// \param sched Scheduler used to drive readiness.
-    void wait(IScheduler& sched) const;
+    void wait(IAsyncScheduler& sched) const;
 
     /// \brief Wait for the epoch to become available on the global scheduler and return a reference to the value.
     [[nodiscard]] T const& get_wait() const;
 
     /// \brief Wait for the epoch to become available on the provided scheduler and return a reference to the value.
     /// \param sched Scheduler used to drive readiness.
-    [[nodiscard]] T const& get_wait(IScheduler& sched) const;
+    [[nodiscard]] T const& get_wait(IAsyncScheduler& sched) const;
 
     [[nodiscard]] std::shared_ptr<EpochContext> epoch_context_shared() const noexcept { return epoch_; }
 

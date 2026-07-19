@@ -53,8 +53,10 @@ and await a `CudaTask`; it cannot migrate and become one.
 
 ## Current Implemented Mechanics
 
-The canonical task is currently
-`BasicAsyncTask<BasicAsyncTaskPromise>`, aliased as `AsyncTask`.
+The canonical host task is now a concrete `AsyncTask` derived from
+`BasicAsyncTask<BasicAsyncTaskPromise>`. This preserves the shared task
+ownership implementation while giving initial scheduler admission a distinct
+task type.
 
 Its relevant behavior is:
 
@@ -83,10 +85,17 @@ confirm this interpretation before the migration API is implemented.
 ## Existing Alternate-Promise Scaffolding
 
 `BasicAsyncTask<Promise>` and `IsAsyncTaskPromise` show the intended extension
-point, and `cuda_task.hpp` sketches a derived CUDA promise. The path is not yet
-operational as a heterogeneous task system:
+point, and `cuda_task.hpp` sketches a derived CUDA promise. Scheduler interfaces
+now separate two operations:
 
-- `IScheduler` accepts only canonical `AsyncTask` objects;
+- `IScheduler` is the internal route used to resume an already-bound host task;
+- `IAsyncScheduler` adds initial `AsyncTask` submission and host-side wait
+  controls.
+
+The path is not yet operational as a heterogeneous task system:
+
+- the internal `IScheduler` route still accepts the canonical host task's basic
+  state rather than a future CUDA task state;
 - ordinary awaiters accept only canonical `AsyncTask` ownership;
 - nested `BasicAsyncTask<Promise>::await_suspend()` currently assumes matching
   inner and outer promise types;
@@ -281,25 +290,19 @@ requires persistent promise state; otherwise retain the option of ordinary
 
 ## Required Runtime Refactoring
 
-A complete heterogeneous-promise implementation likely needs:
+The current checkpoint deliberately completes only the host `AsyncTask` split:
 
-1. A common promise base containing scheduler routing, continuation ownership,
-   cancellation, exception propagation, and diagnostic hooks.
-2. A type-erased schedulable activation that owns a generic coroutine handle
-   plus access to its common promise base.
-3. `IScheduler` submission and resubmission over that erased activation rather
-   than canonical `AsyncTask` only.
-4. Heterogeneous nested-task `await_suspend`, where inner and outer promises may
-   differ.
-5. Type-erased continuation storage containing both the continuation handle and
-   common promise access.
-6. Final-suspend routing that uses direct transfer for equal schedulers and
-   scheduler submission for different schedulers.
+1. `AsyncTask` is a concrete task type over the existing basic ownership
+   implementation.
+2. `IScheduler` exposes only private internal rescheduling to task machinery.
+3. `IAsyncScheduler` defines public initial admission for `AsyncTask` plus the
+   host-side pause and wait controls.
 
-The erased activation is an internal ownership type, not a replacement for the
-typed `BasicAsyncTask<Promise>` returned by coroutine functions. Type erasure
-lets common schedulers and awaiters own different tasks; it does not convert one
-promise type into another.
+A future `CudaTask` checkpoint must decide how its basic task state participates
+in internal rescheduling before adding an initial CUDA scheduler interface. Do
+not introduce a loosely typed activation wrapper merely to erase that decision.
+Heterogeneous nested `await_suspend`, continuation ownership, and final-suspend
+routing must then be implemented and tested together.
 
 ## Scheduler Lifetime And Quiescence
 
@@ -349,7 +352,8 @@ and multi-device routing.
 
 ## Open Choices
 
-- Name and representation of the internal type-erased activation.
+- Representation of the common internal rescheduling operand, if `CudaTask`
+  cannot use the current host-task basic state directly.
 - Whether the generic API is `schedule_on`, `transfer_to`, or another explicit
   execution-routing name.
 - How scheduler lifetime is retained or registered by a promise.

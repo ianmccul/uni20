@@ -44,7 +44,28 @@ struct OperatorCoAwaitWrite
     Awaiter operator co_await() const noexcept { return {}; }
 };
 
+template <typename Scheduler>
+concept PubliclySchedulesAsyncTask = requires(Scheduler& scheduler, AsyncTask&& task) {
+  scheduler.schedule(std::move(task));
+};
+
+template <typename Scheduler>
+concept PubliclyReschedulesBasicTask = requires(Scheduler& scheduler, AsyncTask::base_type&& task) {
+  scheduler.reschedule(std::move(task));
+};
+
 } // namespace
+
+TEST(ConceptTest, SchedulerInterfacesSeparateInitialSubmissionFromInternalRescheduling)
+{
+  static_assert(std::derived_from<AsyncTask, AsyncTask::base_type>);
+  static_assert(std::derived_from<IAsyncScheduler, IScheduler>);
+  static_assert(PubliclySchedulesAsyncTask<IAsyncScheduler>);
+  static_assert(!PubliclySchedulesAsyncTask<IScheduler>);
+  static_assert(!PubliclyReschedulesBasicTask<IScheduler>);
+  static_assert(!PubliclyReschedulesBasicTask<IAsyncScheduler>);
+  static_assert(std::same_as<decltype(std::declval<AsyncTask&>().debug_name("task")), AsyncTask&>);
+}
 
 TEST(ConceptTest, AsyncIntSatisfiesConcepts)
 {
