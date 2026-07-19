@@ -2,10 +2,10 @@
 
 - **Audience:** design assistants, coding agents, and reviewers
 - **Authority:** non-normative retrieval summary
-- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-19
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-20
 - **Status:** active design work; low-level runtime primitives and device-bound
-  debug/oneTBB schedulers exist, but Tensor storage, scheduler admission,
-  resource awaiters, and provider kernels are not implemented
+  debug/oneTBB schedulers exist, but Tensor storage, storage-driven scheduler
+  admission, resource awaiters, and provider kernels are not implemented
 - **Canonical sources:** current maintainer decisions, `docs/backends/cuda/`,
   inspected CUDA source, and focused tests
 
@@ -28,8 +28,9 @@ Uni20 has a tested low-level CUDA runtime foundation:
 - reference-counted stream-pool leases with actually-idle reuse;
 - immutable completion/event tokens;
 - typed move-only `cuda::CudaBuffer<T>` allocations;
-- scoped `ReadBuffer<T>` and `WriteBuffer<T>` guards that install event waits
-  and publish completions;
+- scoped `ReadAccess<T>` and `WriteAccess<T>` objects, obtained through
+  `read_synchronized_with(stream)` and `write_synchronized_with(stream)`, that
+  install event waits and publish completions;
 - `cudaMallocAsync`/`cudaFreeAsync` use when stream-ordered memory pools are
   supported, with `cudaMalloc`/`cudaFree` fallback;
 - typed `CudaTask` admission through deterministic `DebugCudaScheduler` and
@@ -38,10 +39,11 @@ Uni20 has a tested low-level CUDA runtime foundation:
   into another device arena;
 - structured CUDA diagnostics through Uni20's presentation layer.
 
-These primitives and scheduler mechanisms are still bring-up infrastructure.
-Their names and exact ownership shape may change while Tensor storage,
-device-context admission, and resource acquisition are designed, but do not
-ignore their tested semantics when reviewing new CUDA proposals.
+These primitives and scheduler mechanisms are low-level infrastructure rather
+than a Tensor API. The `CudaBuffer<T>` completion-ledger and scoped-access
+semantics are current and tested. Tensor storage, storage-driven scheduler
+admission, and resource acquisition may add higher-level ownership without
+weakening those contracts.
 
 Do not claim that any of the following are settled merely because related code exists:
 

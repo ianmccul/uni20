@@ -130,8 +130,8 @@ The intended awaitable API is conceptually:
 ```text
 auto stream = co_await device.acquire_stream();
 {
-  auto output_access = output.write(stream);
-  auto input_access = input.read(stream);
+  auto output_access = output.write_synchronized_with(stream);
+  auto input_access = input.read_synchronized_with(stream);
   enqueue CUDA work using the access pointers;
 }
 ```
@@ -185,6 +185,10 @@ stream-affinity state only if profiling demonstrates a real need.
 
 ## Device Buffers And Scoped Access
 
+For an introductory explanation and complete first-use examples, start with
+[CUDA Buffers](buffers.md). This section records how buffers fit into the wider
+runtime.
+
 `uni20::cuda::DeviceContext` currently owns a validated device, its idle stream
 pool, and a mutex for short buffer-state snapshots and publication.
 `uni20::cuda::CudaBuffer<T>` is a move-only owner of one typed CUDA allocation
@@ -199,27 +203,42 @@ reader completions since that writer. It does not reproduce an `EpochQueue`:
 existing async epochs or synchronous program order establish causality, while
 the retained completions represent unfinished device work.
 
+The useful mental model is an ordinary mutable value with delayed device
+completion. Concurrent reads are valid; a write cannot overlap another write or
+any live read. Guard acquisition validates that ordinary value rule with a
+reader count and a single-writer flag. It does not queue the caller or wait for
+another host guard to release. Guard release records its stream tail in the
+completion ledger, allowing the next causally ordered operation to be submitted
+without waiting for the GPU to catch up.
+
 Scoped access is used as follows:
 
 ```cpp
 auto stream = context.streams().acquire();
 {
-  auto out = output.write(stream);
-  auto a = lhs.read(stream);
-  auto b = rhs.read(stream);
+  auto out = output.write_synchronized_with(stream);
+  auto a = lhs.read_synchronized_with(stream);
+  auto b = rhs.read_synchronized_with(stream);
 
   launch_on(stream, out.data(), a.data(), b.data());
 }
 ```
 
-`read(stream)` waits the stream on the latest writer completion and returns a
-`ReadBuffer<T>` exposing `T const*`. `write(stream)` waits the stream on the
-latest writer and every unfinished reader, then returns a `WriteBuffer<T>`
-exposing `T*`. Guard destruction records a completion event at the current
-stream tail and briefly locks the context state to publish it. Concurrent
-readers do not wait for one another; a following writer waits for every
-unfinished reader. The full causal and completion contract is in
+`read_synchronized_with(stream)` waits the stream on the latest writer
+completion and returns a `ReadAccess<T>` exposing `T const*`.
+`write_synchronized_with(stream)` waits the stream on the latest writer and
+every unfinished reader, then returns a `WriteAccess<T>` exposing `T*`. Guard
+destruction records a completion event at the current stream tail and briefly
+locks the context state to publish it. Concurrent readers do not wait for one
+another; a following writer waits for every unfinished reader. The full causal
+and completion contract is in
 [CUDA Buffer Completion Lowering](epoch_design_draft.md).
+
+Explicit `guard.release()` performs the same completion publication before
+lexical destruction. Access construction is synchronous bounded host work and
+has no coroutine-awaiter form. Only acquisition of potentially unavailable
+resources such as streams, provider handles, and workspaces has separate
+blocking and non-blocking channels.
 
 The current allocation path uses CUDA's default stream-ordered pool when
 available, but it does not yet configure release thresholds, prime pools, or

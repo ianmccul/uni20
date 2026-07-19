@@ -15,4 +15,6 @@ cmake --build build-cuda --target cuda_hello_world_example
 ./build-cuda/examples/cuda_hello_world_example
 ```
 
-See the [examples index](../) and [CUDA backend documentation](../../docs/backends/cuda/).
+See the [examples index](../), the introductory [CUDA Buffers
+guide](../../docs/backends/cuda/buffers.md), and the [CUDA backend documentation
+index](../../docs/backends/cuda/).

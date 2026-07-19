@@ -2,15 +2,15 @@
 
 This directory groups provider- and platform-specific execution design.
 
-- [CUDA](cuda/) contains GPU ecosystem surveys and active CUDA runtime,
-  memory, epoch, and cuSOLVER design notes.
+- [CUDA](cuda/) contains the current low-level buffer/runtime guides, active
+  scheduler and provider designs, and GPU ecosystem surveys.
 - [MPI](mpi/) contains the distributed persistent-object and dispatch
   design.
 
-These directories describe planned heterogeneous execution unless a document
-explicitly identifies an implemented CPU/provider adapter. The current working
-backend path is summarized by [Kernel Dispatch](../architecture/kernel_dispatch.md)
-and [Linear Algebra](../linalg/).
+These directories mix current low-level foundations with planned
+heterogeneous execution. Each document identifies its status. The current
+working backend path is summarized by [Kernel
+Dispatch](../architecture/kernel_dispatch.md) and [Linear Algebra](../linalg/).
 
 ## Source Navigation
 

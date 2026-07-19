@@ -23,8 +23,8 @@ namespace uni20::cuda
 {
 
 template <typename T = std::byte> class CudaBuffer;
-template <typename T> class ReadBuffer;
-template <typename T> class WriteBuffer;
+template <typename T> class ReadAccess;
+template <typename T> class WriteAccess;
 
 /// \brief Device-local resources shared by CUDA buffers and streams.
 /// \details The context must outlive every buffer created from it and every
@@ -125,16 +125,17 @@ inline void synchronize_after_failed_publication(Stream const& stream, char cons
 } // namespace detail
 
 /// \brief Move-only typed CUDA device allocation and completion state.
-/// \details Raw device pointers are exposed only through scoped `read(stream)`
-///          and `write(stream)` guards.
+/// \details Raw device pointers are exposed only through scoped
+///          `read_synchronized_with(stream)` and
+///          `write_synchronized_with(stream)` access objects.
 template <typename T> class CudaBuffer {
   public:
     static_assert(std::is_object_v<T>, "CUDA buffers require an object element type");
     static_assert(!std::is_const_v<T>, "CUDA buffers own mutable storage; constness belongs on read guards");
 
     using element_type = T;
-    using read_buffer_type = ReadBuffer<T>;
-    using write_buffer_type = WriteBuffer<T>;
+    using read_access_type = ReadAccess<T>;
+    using write_access_type = WriteAccess<T>;
 
     /// \brief Allocate `size` elements on the context's CUDA device.
     CudaBuffer(DeviceContext& context, std::size_t size) : context_(&context), size_(size)
@@ -158,29 +159,14 @@ template <typename T> class CudaBuffer {
     CudaBuffer(CudaBuffer const&) = delete;
     CudaBuffer& operator=(CudaBuffer const&) = delete;
 
-    CudaBuffer(CudaBuffer&& other) noexcept
-        : context_(other.context_), data_(other.data_), size_(other.size_),
-          writer_completion_(std::move(other.writer_completion_)),
-          reader_completions_(std::move(other.reader_completions_))
-    {
-      other.context_ = nullptr;
-      other.data_ = nullptr;
-      other.size_ = 0;
-    }
+    CudaBuffer(CudaBuffer&& other) noexcept { this->move_from(other); }
 
     CudaBuffer& operator=(CudaBuffer&& other) noexcept
     {
       if (this != &other)
       {
         this->reset();
-        context_ = other.context_;
-        data_ = other.data_;
-        size_ = other.size_;
-        writer_completion_ = std::move(other.writer_completion_);
-        reader_completions_ = std::move(other.reader_completions_);
-        other.context_ = nullptr;
-        other.data_ = nullptr;
-        other.size_ = 0;
+        this->move_from(other);
       }
       return *this;
     }
@@ -213,6 +199,9 @@ template <typename T> class CudaBuffer {
       std::vector<Completion> reader_completions;
       {
         std::lock_guard lock(this->context().state_mutex_);
+        CHECK(live_read_accesses_ == 0 && !live_write_access_,
+              "cannot synchronize a CUDA buffer while access guards are live", data_, live_read_accesses_,
+              live_write_access_);
         writer_completion = writer_completion_;
         reader_completions = reader_completions_;
       }
@@ -226,11 +215,14 @@ template <typename T> class CudaBuffer {
       }
     }
 
-    /// \brief Acquire scoped read-only access on `stream`.
-    [[nodiscard]] ReadBuffer<T> read(Stream const& stream) const { return ReadBuffer<T>(*this, stream); }
+    /// \brief Acquire scoped read-only access synchronized with `stream`.
+    [[nodiscard]] ReadAccess<T> read_synchronized_with(Stream const& stream) const
+    {
+      return ReadAccess<T>(*this, stream);
+    }
 
-    /// \brief Acquire scoped read/write access on `stream`.
-    [[nodiscard]] WriteBuffer<T> write(Stream const& stream) { return WriteBuffer<T>(*this, stream); }
+    /// \brief Acquire scoped read/write access synchronized with `stream`.
+    [[nodiscard]] WriteAccess<T> write_synchronized_with(Stream const& stream) { return WriteAccess<T>(*this, stream); }
 
   private:
     [[nodiscard]] static std::size_t checked_size_bytes(std::size_t size)
@@ -260,7 +252,9 @@ template <typename T> class CudaBuffer {
 
       try
       {
-        this->publish_writer(stream.record_completion());
+        Completion completion = stream.record_completion();
+        std::lock_guard lock(context_->state_mutex_);
+        writer_completion_ = std::move(completion);
       }
       catch (...)
       {
@@ -275,85 +269,115 @@ template <typename T> class CudaBuffer {
       }
     }
 
-    void install_read_waits(Stream const& stream) const
+    void acquire_read_access(Stream const& stream) const
     {
-      CHECK_EQUAL(stream.device(), this->device().ordinal());
-
+      CHECK(stream, "cannot synchronize CUDA buffer access with an empty stream", data_);
       Completion writer_completion;
       {
         std::lock_guard lock(this->context().state_mutex_);
+        CHECK(!live_write_access_, "cannot acquire CUDA read access while a write access is live", data_);
         writer_completion = writer_completion_;
+        ++live_read_accesses_;
       }
 
-      if (writer_completion)
+      try
       {
-        stream.wait_on(writer_completion);
+        if (writer_completion)
+        {
+          stream.wait_on(writer_completion);
+        }
+      }
+      catch (...)
+      {
+        std::lock_guard lock(this->context().state_mutex_);
+        CHECK(live_read_accesses_ > 0);
+        --live_read_accesses_;
+        throw;
       }
     }
 
-    void install_write_waits(Stream const& stream) const
+    void acquire_write_access(Stream const& stream) const
     {
-      CHECK_EQUAL(stream.device(), this->device().ordinal());
-
+      CHECK(stream, "cannot synchronize CUDA buffer access with an empty stream", data_);
       Completion writer_completion;
       std::vector<Completion> reader_completions;
       {
         std::lock_guard lock(this->context().state_mutex_);
+        CHECK(!live_write_access_ && live_read_accesses_ == 0,
+              "cannot acquire CUDA write access while another access is live", data_, live_read_accesses_,
+              live_write_access_);
         writer_completion = writer_completion_;
         std::erase_if(reader_completions_, [](Completion const& completion) { return completion.ready(); });
         reader_completions = reader_completions_;
+        live_write_access_ = true;
       }
 
-      if (writer_completion)
+      try
       {
-        stream.wait_on(writer_completion);
+        if (writer_completion)
+        {
+          stream.wait_on(writer_completion);
+        }
+        for (Completion const& reader_completion : reader_completions)
+        {
+          stream.wait_on(reader_completion);
+        }
       }
-      for (Completion const& reader_completion : reader_completions)
+      catch (...)
       {
-        stream.wait_on(reader_completion);
+        std::lock_guard lock(this->context().state_mutex_);
+        CHECK(live_write_access_);
+        live_write_access_ = false;
+        throw;
       }
     }
 
-    void publish_read_after(Stream const& stream) const noexcept
+    void release_read_access(Stream const& stream) const noexcept
     {
       try
       {
-        this->publish_reader(stream.record_completion());
+        Completion completion = stream.record_completion();
+        std::lock_guard lock(this->context().state_mutex_);
+        CHECK(live_read_accesses_ > 0);
+        if (reader_completions_.size() == reader_completions_.capacity())
+        {
+          std::erase_if(reader_completions_,
+                        [](Completion const& reader_completion) { return reader_completion.ready(); });
+        }
+        reader_completions_.push_back(std::move(completion));
+        --live_read_accesses_;
+        return;
       }
       catch (...)
       {
         detail::synchronize_after_failed_publication(stream, "publish CUDA buffer reader completion");
       }
+
+      std::lock_guard lock(this->context().state_mutex_);
+      CHECK(live_read_accesses_ > 0);
+      --live_read_accesses_;
     }
 
-    void publish_write_after(Stream const& stream) const noexcept
+    void release_write_access(Stream const& stream) const noexcept
     {
       try
       {
-        this->publish_writer(stream.record_completion());
+        Completion completion = stream.record_completion();
+        std::lock_guard lock(this->context().state_mutex_);
+        CHECK(live_write_access_);
+        writer_completion_ = std::move(completion);
+        reader_completions_.clear();
+        live_write_access_ = false;
+        return;
       }
       catch (...)
       {
         detail::synchronize_after_failed_publication(stream, "publish CUDA buffer writer completion");
       }
-    }
 
-    void publish_reader(Completion const& completion) const
-    {
       std::lock_guard lock(this->context().state_mutex_);
-      if (reader_completions_.size() == reader_completions_.capacity())
-      {
-        std::erase_if(reader_completions_,
-                      [](Completion const& reader_completion) { return reader_completion.ready(); });
-      }
-      reader_completions_.push_back(completion);
-    }
-
-    void publish_writer(Completion const& completion) const
-    {
-      std::lock_guard lock(this->context().state_mutex_);
-      writer_completion_ = completion;
-      reader_completions_.clear();
+      CHECK(live_write_access_);
+      live_write_access_ = false;
     }
 
     void reset() noexcept
@@ -367,6 +391,9 @@ template <typename T> class CudaBuffer {
       std::vector<Completion> reader_completions;
       {
         std::lock_guard lock(context_->state_mutex_);
+        CHECK(live_read_accesses_ == 0 && !live_write_access_,
+              "cannot destroy or reset a CUDA buffer while access guards are live", data_, live_read_accesses_,
+              live_write_access_);
         writer_completion = std::move(writer_completion_);
         reader_completions = std::move(reader_completions_);
       }
@@ -396,6 +423,29 @@ template <typename T> class CudaBuffer {
       size_ = 0;
     }
 
+    void move_from(CudaBuffer& other) noexcept
+    {
+      if (other.context_ == nullptr)
+      {
+        return;
+      }
+
+      std::lock_guard lock(other.context_->state_mutex_);
+      CHECK(other.live_read_accesses_ == 0 && !other.live_write_access_,
+            "cannot move a CUDA buffer while access guards are live", other.data_, other.live_read_accesses_,
+            other.live_write_access_);
+      context_ = other.context_;
+      data_ = other.data_;
+      size_ = other.size_;
+      writer_completion_ = std::move(other.writer_completion_);
+      reader_completions_ = std::move(other.reader_completions_);
+      live_read_accesses_ = 0;
+      live_write_access_ = false;
+      other.context_ = nullptr;
+      other.data_ = nullptr;
+      other.size_ = 0;
+    }
+
     void free_allocation() noexcept
     {
       int const device = context_->device().ordinal();
@@ -423,32 +473,37 @@ template <typename T> class CudaBuffer {
     std::size_t size_ = 0;
     mutable Completion writer_completion_;
     mutable std::vector<Completion> reader_completions_;
+    mutable std::size_t live_read_accesses_ = 0;
+    mutable bool live_write_access_ = false;
 
-    template <typename> friend class ReadBuffer;
-    template <typename> friend class WriteBuffer;
+    template <typename> friend class ReadAccess;
+    template <typename> friend class WriteAccess;
 };
 
 /// \brief Scoped read-only access to a CUDA buffer on one stream.
 /// \details The constructor installs predecessor waits on the stream. The
 ///          destructor records a reader completion at the current stream tail
 ///          and publishes it back to the buffer.
-template <typename T> class ReadBuffer {
+template <typename T> class ReadAccess {
   public:
     using element_type = T;
 
-    ReadBuffer(ReadBuffer const&) = delete;
-    ReadBuffer& operator=(ReadBuffer const&) = delete;
-    ReadBuffer(ReadBuffer&& other) noexcept
+    ReadAccess(ReadAccess const&) = delete;
+    ReadAccess& operator=(ReadAccess const&) = delete;
+    ReadAccess(ReadAccess&& other) noexcept
         : storage_(std::exchange(other.storage_, nullptr)), stream_(std::move(other.stream_))
     {}
-    ReadBuffer& operator=(ReadBuffer&&) = delete;
-    ~ReadBuffer()
+    ReadAccess& operator=(ReadAccess&& other) noexcept
     {
-      if (storage_ != nullptr)
+      if (this != &other)
       {
-        storage_->publish_read_after(stream_);
+        this->release();
+        storage_ = std::exchange(other.storage_, nullptr);
+        stream_ = std::move(other.stream_);
       }
+      return *this;
     }
+    ~ReadAccess() { this->release(); }
 
     /// \brief Return the typed device pointer for read-only CUDA work.
     [[nodiscard]] T const* data() const noexcept { return storage_ == nullptr ? nullptr : storage_->data(); }
@@ -459,13 +514,26 @@ template <typename T> class ReadBuffer {
     /// \brief Return the number of bytes in the view.
     [[nodiscard]] std::size_t size_bytes() const noexcept { return storage_ == nullptr ? 0 : storage_->size_bytes(); }
 
-  private:
-    ReadBuffer(CudaBuffer<T> const& storage, Stream const& stream) : storage_(&storage), stream_(stream)
+    /// \brief Publish this read completion and end the scoped access.
+    void release() noexcept
     {
-      storage_->install_read_waits(stream_);
+      if (storage_ == nullptr)
+      {
+        return;
+      }
+      storage_->release_read_access(stream_);
+      storage_ = nullptr;
+      stream_ = {};
     }
 
-    CudaBuffer<T> const* storage_;
+  private:
+    ReadAccess(CudaBuffer<T> const& storage, Stream const& stream) : stream_(stream)
+    {
+      storage.acquire_read_access(stream_);
+      storage_ = &storage;
+    }
+
+    CudaBuffer<T> const* storage_ = nullptr;
     Stream stream_;
 
     friend class CudaBuffer<T>;
@@ -475,23 +543,26 @@ template <typename T> class ReadBuffer {
 /// \details The constructor installs predecessor waits on the stream. The
 ///          destructor records an exclusive-writer completion at the current
 ///          stream tail and publishes it back to the buffer.
-template <typename T> class WriteBuffer {
+template <typename T> class WriteAccess {
   public:
     using element_type = T;
 
-    WriteBuffer(WriteBuffer const&) = delete;
-    WriteBuffer& operator=(WriteBuffer const&) = delete;
-    WriteBuffer(WriteBuffer&& other) noexcept
+    WriteAccess(WriteAccess const&) = delete;
+    WriteAccess& operator=(WriteAccess const&) = delete;
+    WriteAccess(WriteAccess&& other) noexcept
         : storage_(std::exchange(other.storage_, nullptr)), stream_(std::move(other.stream_))
     {}
-    WriteBuffer& operator=(WriteBuffer&&) = delete;
-    ~WriteBuffer()
+    WriteAccess& operator=(WriteAccess&& other) noexcept
     {
-      if (storage_ != nullptr)
+      if (this != &other)
       {
-        storage_->publish_write_after(stream_);
+        this->release();
+        storage_ = std::exchange(other.storage_, nullptr);
+        stream_ = std::move(other.stream_);
       }
+      return *this;
     }
+    ~WriteAccess() { this->release(); }
 
     /// \brief Return the typed device pointer for mutating CUDA work.
     [[nodiscard]] T* data() const noexcept { return storage_ == nullptr ? nullptr : storage_->data(); }
@@ -502,13 +573,26 @@ template <typename T> class WriteBuffer {
     /// \brief Return the number of bytes in the view.
     [[nodiscard]] std::size_t size_bytes() const noexcept { return storage_ == nullptr ? 0 : storage_->size_bytes(); }
 
-  private:
-    WriteBuffer(CudaBuffer<T>& storage, Stream const& stream) : storage_(&storage), stream_(stream)
+    /// \brief Publish this write completion and end the scoped access.
+    void release() noexcept
     {
-      storage_->install_write_waits(stream_);
+      if (storage_ == nullptr)
+      {
+        return;
+      }
+      storage_->release_write_access(stream_);
+      storage_ = nullptr;
+      stream_ = {};
     }
 
-    CudaBuffer<T>* storage_;
+  private:
+    WriteAccess(CudaBuffer<T>& storage, Stream const& stream) : stream_(stream)
+    {
+      storage.acquire_write_access(stream_);
+      storage_ = &storage;
+    }
+
+    CudaBuffer<T>* storage_ = nullptr;
     Stream stream_;
 
     friend class CudaBuffer<T>;

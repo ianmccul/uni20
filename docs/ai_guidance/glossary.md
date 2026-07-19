@@ -145,13 +145,15 @@ Reference-counted lease of an actually-idle stream-pool slot. The final stream
 pool returns a slot only after prior submitted work on that stream has completed.
 
 ### `cuda::CudaBuffer<T>`
-Move-only typed CUDA allocation with retained writer/reader completions and
-scoped read/write guards.
+Move-only typed CUDA allocation with a retained writer/reader completion ledger
+and live host-access validation.
 
-### CUDA buffer guard
-`cuda::ReadBuffer<T>` or `cuda::WriteBuffer<T>` obtained from a `CudaBuffer<T>`
-and a stream. The guard installs predecessor event waits and publishes a
-completion when destroyed.
+### CUDA buffer access
+`cuda::ReadAccess<T>` or `cuda::WriteAccess<T>` obtained through
+`read_synchronized_with(stream)` or `write_synchronized_with(stream)`. The
+access object installs already-published predecessor event waits and publishes
+a stream-tail completion when released or destroyed. It does not queue a
+conflicting host access or wait for future publication.
 
 ### CUDA blocking channel
 CUDA storage-policy mode whose resource acquisition may wait on the calling

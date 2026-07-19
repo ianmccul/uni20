@@ -64,6 +64,8 @@ rather than silently choosing one source.
   [Precision Validation](krylov/precision_validation.md)
 - [Presentation Formatting](diagnostics/presentation.md) and
   [Task Registry Diagnostics](async/task_registry_debug.md)
+- [CUDA Buffers](backends/cuda/buffers.md) and the
+  [CUDA hello-world example](../examples/cuda/)
 
 ## Generated API Documentation
 

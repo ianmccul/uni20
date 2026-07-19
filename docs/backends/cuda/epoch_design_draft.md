@@ -1,16 +1,21 @@
 # CUDA Buffer Completion Lowering
 
 **Status:** typed CUDA buffers and scoped read/write guards are implemented by
-`uni20::cuda::CudaBuffer<T>`, `uni20::cuda::ReadBuffer<T>`, and
-`uni20::cuda::WriteBuffer<T>`. The filename is retained for existing links; this
+`uni20::cuda::CudaBuffer<T>`, `uni20::cuda::ReadAccess<T>`, and
+`uni20::cuda::WriteAccess<T>`. The filename is retained for existing links; this
 document supersedes the earlier `GpuEpochQueue` proposal.
 
 This note defines how an ordering already established by ordinary C++ control
 flow or Uni20's async runtime is lowered to CUDA stream synchronization. CUDA
 does not maintain a second epoch chain.
 
+The implemented guards expose explicit release and enforce the live-access
+contract described below.
+
 Related notes:
 
+- [CUDA Buffers](buffers.md) is the introductory guide for kernel and provider
+  authors using this contract.
 - [Async Runtime Model](../../async/runtime_model.md) defines `EpochQueue`,
   readers, writers, and causal readiness.
 - [CUDA Runtime](runtime.md) defines streams, completion tokens, and the
@@ -21,6 +26,27 @@ Related notes:
   provider-resource integration.
 
 ## Causal Contract
+
+CUDA submission builds a forward-only partial order. A stream can wait for a
+completion that has already been recorded, but this layer cannot register a
+consumer before its producer exists. Out-of-order construction belongs to
+`EpochQueue`, not to CUDA events.
+
+Treat `CudaBuffer<T>` like an ordinary mutable value whose storage happens to
+be on a GPU:
+
+- any number of reads may overlap;
+- a write must not overlap another write or any read;
+- the buffer must not be moved or destroyed while an access guard refers to it;
+- synchronous code establishes these rules through ordinary program order;
+- `Async<CudaBuffer<T>>` establishes them through its CPU `ReadBuffer` and
+  `WriteBuffer` epochs.
+
+Releasing a CUDA access guard does not wait for the GPU operation to finish. It
+records a completion at the current stream tail and publishes that token to the
+buffer. A causally later operation can therefore be submitted immediately: its
+stream waits asynchronously for the published completion even when the GPU has
+a large backlog.
 
 The caller owns access ordering:
 
@@ -50,23 +76,27 @@ queue, task wakeup mechanism, or value ownership.
 `cuda::CudaBuffer<T>`
 
 : A move-only owner of one typed `cudaMalloc` allocation. Its raw device pointer
-  is exposed only through scoped access guards. Its private state consists of
-  the latest exclusive-writer completion and reader completions submitted since
-  that writer. It does not own an `EpochQueue` or task wakeup state.
+  is exposed only through scoped access guards. Its completion ledger consists
+  of the latest exclusive-writer completion and reader completions submitted
+  since that writer. Live guard counts validate ordinary read/write access
+  rules; they do not order callers or make them wait. The buffer does not own an
+  `EpochQueue` or task wakeup state.
 
-`cuda::ReadBuffer<T>`
+`cuda::ReadAccess<T>`
 
-: A scoped read-only guard constructed by `buffer.read(stream)`. Construction
-  installs the latest-writer wait on `stream` and exposes `T const*`. Destruction
-  records and publishes a reader completion at the stream tail.
+: A scoped read-only guard constructed by
+  `buffer.read_synchronized_with(stream)`. Construction installs the
+  latest-writer wait on `stream` and exposes `T const*`. Destruction records and
+  publishes a reader completion at the stream tail.
 
-`cuda::WriteBuffer<T>`
+`cuda::WriteAccess<T>`
 
-: A scoped read/write guard constructed by `buffer.write(stream)`. Construction
-  waits on the latest writer and every unfinished reader, then exposes `T*`.
-  Destruction records and publishes an exclusive-writer completion at the stream
-  tail. In-place operations use one write guard; they do not add a separate read
-  guard for the same buffer.
+: A scoped read/write guard constructed by
+  `buffer.write_synchronized_with(stream)`. Construction waits on the latest
+  writer and every unfinished reader, then exposes `T*`. Destruction records and
+  publishes an exclusive-writer completion at the stream tail. In-place
+  operations use one write guard; they do not add a separate read guard for the
+  same buffer.
 
 `cuda::Stream`
 
@@ -87,19 +117,39 @@ The buffer state is equivalent to:
 ```cpp
 Completion writer_completion;
 std::vector<Completion> reader_completions;
+std::size_t live_read_guards = 0;
+bool live_write_guard = false;
 ```
+
+Each access guard owns one live host-side access token. Moving a guard transfers
+that token and leaves the source inert. Explicit `release()` or destruction
+returns the token after publishing the guard's device completion.
 
 A read access:
 
-1. waits for `writer_completion`, when present;
-2. does not wait for other readers;
-3. appends its guard-destruction completion to `reader_completions`.
+1. rejects acquisition when `live_write_guard` is set;
+2. increments `live_read_guards`;
+3. waits its stream for `writer_completion`, when present;
+4. does not wait for other readers;
+5. appends its release completion to `reader_completions`, then decrements
+   `live_read_guards`.
 
 An exclusive write access:
 
-1. waits for `writer_completion` and every unfinished reader completion;
-2. publishes itself as the new `writer_completion`;
-3. clears the prior reader completions.
+1. rejects acquisition when `live_write_guard` is set or
+   `live_read_guards != 0`;
+2. sets `live_write_guard`;
+3. waits its stream for `writer_completion` and every unfinished reader
+   completion;
+4. publishes itself as the new `writer_completion` and clears the prior reader
+   completions;
+5. clears `live_write_guard`.
+
+These checks diagnose invalid host access; they do not introduce a reservation
+queue. A conflicting acquisition never waits for another guard to release and
+never suspends a coroutine. Correctly ordered code releases the predecessor
+guard first, making its recorded completion immediately available to the
+successor.
 
 Completed readers are pruned opportunistically before their retained vector
 needs to grow and when a writer snapshots its dependencies. This bounds event
@@ -112,50 +162,67 @@ A typical operation is queued as:
 
 ```cpp
 auto stream = context.streams().acquire();
-{
-  auto out = output.write(stream);
-  auto a = lhs.read(stream);
-  auto b = rhs.read(stream);
+auto out = output.write_synchronized_with(stream);
+auto a = lhs.read_synchronized_with(stream);
+auto b = rhs.read_synchronized_with(stream);
 
-  launch_on(stream, out.data(), a.data(), b.data());
-}
+launch_on(stream, out.data(), a.data(), b.data());
+
+a.release();
+b.release();
+out.release();
 ```
+
+Lexical destruction provides the same completion publication when explicit
+early release is unnecessary.
 
 Each access guard performs these construction steps:
 
-1. Validate that the stream and buffer belong to the same CUDA device.
-2. Under the context state mutex, copy the predecessor completions required by
-   the read or write access.
+1. Validate the supplied stream handle. The stream may belong to another device
+   when the intended CUDA operation can legally use the allocation; obtaining
+   synchronized access does not itself grant foreign-device pointer access.
+2. Under the context state mutex, validate and acquire its live read or write
+   token, then copy the predecessor completions required by the access.
 3. Release the state mutex.
 4. Enqueue waits for the copied predecessor completions.
 5. Expose only the pointer permitted by the guard type.
 
-Each guard destructor records one completion at the stream tail and briefly
-locks the context state to publish that completion. Neither the state mutex nor
-any buffer lock is held while the caller launches CUDA work. Independent
-operations and compatible readers can therefore queue and execute concurrently.
+Explicit release or guard destruction records one completion at the stream tail
+and briefly locks the context state to publish that completion and return the
+live access token. Publication and token return are one state transition: a
+causally later conflicting acquisition sees either the live predecessor guard
+or its recorded completion. Neither the state mutex nor any buffer lock is held
+while the caller launches CUDA work. Independent operations and compatible
+readers can therefore queue and execute concurrently.
 
-The construction snapshot and destruction publication are intentionally not one transaction. Their
-correctness follows from the causal contract: a conflicting successor cannot
-enter acquisition until its predecessors have published, while compatible
-readers do not need to observe one another.
+The construction snapshot and release publication are intentionally not one
+transaction. Their correctness follows from the causal contract: a conflicting
+successor cannot enter acquisition until its predecessors have released, while
+compatible readers do not need to observe one another.
 
 The blocking `StreamPool::acquire()` path is the bring-up path for the blocking
 CUDA submission channel. The non-blocking channel will suspend through a Uni20
 scheduler while stream resources are unavailable, then use the same access
-construction, launch, and guard-destruction publication rules. Async CUDA
-lowering must use the non-blocking channel; using blocking acquisition inside
-an async operation is a scheduler-policy error, not an optimization choice.
+construction, launch, and release-publication rules. CUDA buffer access itself
+never needs an awaiter: once the stream and any provider resources have been
+acquired, `read_synchronized_with(stream)` and
+`write_synchronized_with(stream)` perform only bounded host work.
+Async CUDA lowering must use the non-blocking channel for resources that can be
+unavailable; using blocking resource acquisition inside an async operation is a
+scheduler-policy error, not an optimization choice.
 
 ## Failure And Cleanup
 
 Scoped stream and buffer access are RAII resources.
 
 - If dependency installation fails during guard construction, no pointer is
-  exposed.
+  exposed and the live access token is returned.
 - If publication storage fails during guard destruction, the stream is
   synchronized before destruction continues. Omitting the completion is then
-  safe because the device access has finished.
+  safe because the device access has finished, and the live token can be
+  returned without publishing a false dependency.
+- Moving, resetting, or destroying a buffer with live access tokens is a
+  fail-fast contract violation.
 - Destroying the final `Stream` reference enqueues the stream-pool return
   callback at the current stream tail; the slot becomes idle only when that
   callback runs.

@@ -158,7 +158,8 @@ API rather than reintroducing implicit host tensors.
 The CUDA/cuSOLVER layer should not become a second dependency DAG. CPU-side
 epochs establish causal readiness: a GPU operation is submitted only once its
 metadata and object lifetime are valid. The current GPU runtime lowers this
-through scoped `buffer.read(stream)` / `buffer.write(stream)` guards and
+through scoped `buffer.read_synchronized_with(stream)` /
+`buffer.write_synchronized_with(stream)` guards and
 retained writer/reader completions, without reconstructing an independent epoch
 graph.
 

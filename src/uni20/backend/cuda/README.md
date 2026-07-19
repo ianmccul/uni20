@@ -1,8 +1,8 @@
 # src/uni20/backend/cuda
 
 This directory contains the CUDA runtime foundation and is the CUDA
-backend-library wiring point. It does not yet provide Tensor CUDA kernels. A
-deterministic and oneTBB device-bound CUDA coroutine schedulers are implemented
+backend-library wiring point. It does not yet provide Tensor CUDA kernels.
+Deterministic and oneTBB device-bound CUDA coroutine schedulers are implemented
 under `src/uni20/async/`.
 
 ## Contents
@@ -34,11 +34,16 @@ under `src/uni20/async/`.
 - Buffer dependencies use completion events and `cudaStreamWaitEvent`; the pool
   does not attempt dependent-task stream affinity.
 - `cuda::CudaBuffer<T>` retains the latest exclusive-writer completion and reader
-  completions since that writer. The existing async `EpochQueue` or synchronous
-  program order remains the causal model.
-- Submitters use `buffer.read(stream)` and `buffer.write(stream)` scoped guards.
-  Raw device pointers are exposed only through those guards. Compatible readers
-  overlap; a writer waits for all unfinished prior accesses.
+  completions since that writer as a completion ledger. The existing async
+  `EpochQueue` or synchronous program order remains the causal model; CUDA
+  buffer access does not build another DAG or wait for future host publication.
+- Submitters use `buffer.read_synchronized_with(stream)` and
+  `buffer.write_synchronized_with(stream)` to construct scoped
+  `ReadAccess<T>` and `WriteAccess<T>` guards. Raw device pointers are exposed
+  only through those guards. Compatible readers overlap; a writer waits for all
+  unfinished prior device accesses. Live guard tokens reject host-side
+  read/write overlap that would be invalid for an ordinary mutable value. They
+  diagnose incorrect ordering rather than queueing or suspending the caller.
 - The context mutex protects only completion snapshots and publication. It is
   not held while a backend or provider call executes.
 - CUDA runtime failures use `CudaRuntimeError` and Uni20's presentation layer.
@@ -48,5 +53,6 @@ under `src/uni20/async/`.
 
 - [Backend source layer](../)
 - [CUDA backend documentation](../../../../docs/backends/cuda/)
+- [CUDA buffer guide](../../../../docs/backends/cuda/buffers.md)
 - [CUDA kernel dispatch and provider scheduling](../../../../docs/backends/cuda/kernel_dispatch.md)
 - [Execution architecture](../../../../docs/architecture/execution.md)

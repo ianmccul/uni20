@@ -2,7 +2,7 @@
 
 - **Audience:** remote assistants, coding agents, and reviewers
 - **Authority:** non-normative retrieval summary
-- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-19
+- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-20
 - **Canonical sources:** `AGENTS.md`, `docs/about.md`, `docs/architecture/overview.md`,
   `docs/roadmap.md`, canonical subsystem guides, source, and tests
 
@@ -83,13 +83,17 @@
 
 ### CUDA and distributed execution
 
-- CUDA has a tested low-level runtime foundation: device discovery, scoped device
-  selection, stream-pool leases, completion tokens, typed `CudaBuffer<T>`, scoped
-  read/write guards, stream-ordered allocation when available, and structured
-  diagnostics.
-- These primitives are bring-up infrastructure, not a stable public Tensor API.
-- CUDA Tensor storage, Tensor kernels, coroutine integration, scheduler design,
-  provider-resource management, and distributed execution remain open work.
+- CUDA has a tested low-level runtime foundation: device discovery, scoped
+  device selection, stream-pool leases, completion tokens, typed
+  `CudaBuffer<T>`, scoped `ReadAccess<T>`/`WriteAccess<T>`, stream-ordered
+  allocation when available, and structured diagnostics.
+- These primitives are low-level infrastructure, not a stable public Tensor
+  API. Their buffer-access and completion-ledger semantics are current and
+  tested.
+- `CudaTask`, `DebugCudaScheduler`, and `TbbCudaScheduler` are implemented.
+  CUDA Tensor storage, Tensor kernels, storage-driven scheduler admission,
+  non-blocking resource awaiters, provider-resource management, and distributed
+  execution remain open work.
 - Blocking versus non-blocking CUDA submission is current design direction and
   belongs in the Tensor storage policy, not in backend selector state.
 - Preserve explicit causality and lifetime reasoning, but do not present the current
