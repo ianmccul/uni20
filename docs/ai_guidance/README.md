@@ -38,6 +38,8 @@ Label claims as one of:
   optional action guidance
 - `github_repo_action.openapi.yaml`: optional narrow GitHub Action schema for
   `Uni20-dev/uni20`
+- `custom_gpt_action_privacy_policy.md`: privacy policy URL for the optional
+  GitHub Action
 - `glossary.md`: compact terminology index
 
 ## Custom GPT use

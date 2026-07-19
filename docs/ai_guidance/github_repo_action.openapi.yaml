@@ -11,11 +11,12 @@ info:
   license:
     name: MIT
     url: https://github.com/Uni20-dev/uni20/blob/main/LICENSE
+externalDocs:
+  description: Privacy policy for the optional Uni20 Custom GPT GitHub Action.
+  url: https://github.com/Uni20-dev/uni20/blob/main/docs/ai_guidance/custom_gpt_action_privacy_policy.md
 servers:
   - url: https://api.github.com
     description: GitHub REST API
-security:
-  - githubToken: []
 tags:
   - name: repository
     description: Repository metadata and branch information.
@@ -303,6 +304,8 @@ paths:
       description: >
         Create an issue in Uni20-dev/uni20. Use only when the user explicitly
         asks to create an issue or approves the final title and body.
+      security:
+        - githubToken: []
       requestBody:
         required: true
         content:

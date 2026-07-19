@@ -153,14 +153,22 @@ repository.
 Configuration notes:
 
 - Action domain: `api.github.com`
-- Authentication: API key, Bearer token
-- Privacy policy: required if the GPT is shared by link or published publicly
+- Authentication: use no authentication for read-only use. Configure API key,
+  Bearer token only if the issue-creation operation is needed.
+- Privacy policy URL:
+  <https://github.com/Uni20-dev/uni20/blob/main/docs/ai_guidance/custom_gpt_action_privacy_policy.md>
 - Scope: keep the token as narrow as practical for `Uni20-dev/uni20`
 - Schema shape: keep operation parameters inline. The ChatGPT action importer
   may skip operations whose `parameters` list contains reusable parameter
   `$ref`s instead of concrete `name` / `in` fields.
 - Write access: only `createUni20Issue` is included; use it only after the user
   explicitly asks to create an issue or approves the final issue text
+
+If public read operations such as `getUni20Repository` or `listUni20Branches`
+raise a generic `ClientResponseError`, first check the GPT Action authentication
+configuration. GitHub public REST reads succeed without a token, but an invalid
+or empty `Authorization: Bearer ...` header can make otherwise-public requests
+fail.
 
 Do not add PR creation, discussion creation, workflow dispatch, file mutation,
 or broad repository write actions unless there is a concrete need and the GPT
