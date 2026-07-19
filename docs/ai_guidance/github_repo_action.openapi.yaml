@@ -1,0 +1,628 @@
+openapi: 3.1.0
+info:
+  title: Uni20 GitHub Repository Action
+  version: 2.0.0
+  description: >
+    Narrow GitHub API action for the Uni20 repository. Use this action only when
+    direct repository browsing is unavailable, unreliable, or insufficient for a
+    requested GitHub operation. Read operations are scoped to Uni20-dev/uni20.
+    The only write operation is issue creation and should be used only after the
+    user explicitly asks to create an issue or approves the final issue text.
+  license:
+    name: MIT
+    url: https://github.com/Uni20-dev/uni20/blob/main/LICENSE
+servers:
+  - url: https://api.github.com
+    description: GitHub REST API
+security:
+  - githubToken: []
+tags:
+  - name: repository
+    description: Repository metadata and branch information.
+  - name: contents
+    description: File, blob, and tree reads.
+  - name: search
+    description: Repository-scoped GitHub code search.
+  - name: issues
+    description: Issue reads and explicitly approved issue creation.
+  - name: pull_requests
+    description: Pull-request reads.
+paths:
+  /repos/Uni20-dev/uni20:
+    get:
+      operationId: getUni20Repository
+      tags: [repository]
+      summary: Get Uni20 repository metadata
+      description: Return metadata for the Uni20-dev/uni20 repository.
+      responses:
+        "200":
+          description: Repository metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+  /repos/Uni20-dev/uni20/branches:
+    get:
+      operationId: listUni20Branches
+      tags: [repository]
+      summary: List Uni20 branches
+      description: List branches in the Uni20-dev/uni20 repository.
+      parameters:
+        - $ref: "#/components/parameters/perPage"
+        - $ref: "#/components/parameters/page"
+      responses:
+        "200":
+          description: Branches.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Branch"
+  /repos/Uni20-dev/uni20/commits/{ref}:
+    get:
+      operationId: getUni20Commit
+      tags: [repository]
+      summary: Get a Uni20 commit
+      description: Retrieve a commit by SHA, branch, or tag in Uni20-dev/uni20.
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Commit SHA, branch name, or tag name.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Commit details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Commit"
+  /repos/Uni20-dev/uni20/compare/{base}...{head}:
+    get:
+      operationId: compareUni20Commits
+      tags: [repository]
+      summary: Compare two Uni20 refs
+      description: Compare two commits, branches, or tags in Uni20-dev/uni20.
+      parameters:
+        - name: base
+          in: path
+          required: true
+          description: Base ref.
+          schema:
+            type: string
+        - name: head
+          in: path
+          required: true
+          description: Head ref.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Comparison result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comparison"
+  /repos/Uni20-dev/uni20/contents/{path}:
+    get:
+      operationId: getUni20FileContents
+      tags: [contents]
+      summary: Get Uni20 file contents
+      description: >
+        Retrieve a file or directory entry from Uni20-dev/uni20. File content is
+        base64 encoded by GitHub when the response is a file object.
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Repository-relative file or directory path.
+          schema:
+            type: string
+        - name: ref
+          in: query
+          required: false
+          description: Branch, tag, or commit SHA. Defaults to the repository default branch.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File or directory contents.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ContentFile"
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/ContentEntry"
+  /repos/Uni20-dev/uni20/git/blobs/{sha}:
+    get:
+      operationId: getUni20BlobBySha
+      tags: [contents]
+      summary: Get a Uni20 blob by SHA
+      description: Retrieve raw blob content by Git object SHA.
+      parameters:
+        - name: sha
+          in: path
+          required: true
+          description: Blob SHA.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Blob content.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blob"
+  /repos/Uni20-dev/uni20/git/trees/{sha}:
+    get:
+      operationId: getUni20Tree
+      tags: [contents]
+      summary: Get a Uni20 git tree
+      description: List files and directories in a Uni20 git tree.
+      parameters:
+        - name: sha
+          in: path
+          required: true
+          description: Tree SHA or branch name.
+          schema:
+            type: string
+        - name: recursive
+          in: query
+          required: false
+          description: Set to "1" to request a recursive tree.
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: Tree entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tree"
+  /search/code:
+    get:
+      operationId: searchUni20Code
+      tags: [search]
+      summary: Search Uni20 code
+      description: >
+        Search code in Uni20-dev/uni20. Always include "repo:Uni20-dev/uni20" in
+        the GitHub search query.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: GitHub code-search query including "repo:Uni20-dev/uni20".
+          schema:
+            type: string
+            examples:
+              - "AsyncTask repo:Uni20-dev/uni20"
+        - $ref: "#/components/parameters/perPage"
+        - $ref: "#/components/parameters/page"
+      responses:
+        "200":
+          description: Search results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodeSearchResults"
+  /repos/Uni20-dev/uni20/issues:
+    get:
+      operationId: listUni20Issues
+      tags: [issues]
+      summary: List Uni20 issues
+      description: >
+        List issues for Uni20-dev/uni20. GitHub's issues endpoint can include
+        pull requests; entries with a pull_request field are pull requests.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: Issue state.
+          schema:
+            type: string
+            enum: [open, closed, all]
+            default: open
+        - name: labels
+          in: query
+          required: false
+          description: Comma-separated label names.
+          schema:
+            type: string
+        - name: since
+          in: query
+          required: false
+          description: Only show issues updated after this ISO 8601 timestamp.
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/perPage"
+        - $ref: "#/components/parameters/page"
+      responses:
+        "200":
+          description: Issues and pull-request-shaped issue entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Issue"
+    post:
+      operationId: createUni20Issue
+      tags: [issues]
+      summary: Create a Uni20 issue
+      description: >
+        Create an issue in Uni20-dev/uni20. Use only when the user explicitly
+        asks to create an issue or approves the final title and body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewIssue"
+      responses:
+        "201":
+          description: Created issue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+  /repos/Uni20-dev/uni20/pulls:
+    get:
+      operationId: listUni20PullRequests
+      tags: [pull_requests]
+      summary: List Uni20 pull requests
+      description: List pull requests for Uni20-dev/uni20.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: Pull-request state.
+          schema:
+            type: string
+            enum: [open, closed, all]
+            default: open
+        - name: base
+          in: query
+          required: false
+          description: Filter by base branch.
+          schema:
+            type: string
+        - name: head
+          in: query
+          required: false
+          description: Filter by head user and branch, such as "user:branch".
+          schema:
+            type: string
+        - $ref: "#/components/parameters/perPage"
+        - $ref: "#/components/parameters/page"
+      responses:
+        "200":
+          description: Pull requests.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PullRequest"
+components:
+  securitySchemes:
+    githubToken:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+      description: GitHub token configured in the GPT Action authentication settings.
+  parameters:
+    perPage:
+      name: per_page
+      in: query
+      required: false
+      description: Number of results per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 30
+    page:
+      name: page
+      in: query
+      required: false
+      description: Page number for paginated GitHub responses.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+  schemas:
+    Repository:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+        node_id:
+          type: string
+        name:
+          type: string
+        full_name:
+          type: string
+        description:
+          type: [string, "null"]
+        default_branch:
+          type: string
+        html_url:
+          type: string
+          format: uri
+        private:
+          type: boolean
+        fork:
+          type: boolean
+        stargazers_count:
+          type: integer
+        forks_count:
+          type: integer
+        open_issues_count:
+          type: integer
+    Branch:
+      type: object
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        protected:
+          type: boolean
+        commit:
+          type: object
+          additionalProperties: true
+          properties:
+            sha:
+              type: string
+            url:
+              type: string
+              format: uri
+    Commit:
+      type: object
+      additionalProperties: true
+      properties:
+        sha:
+          type: string
+        html_url:
+          type: string
+          format: uri
+        commit:
+          type: object
+          additionalProperties: true
+          properties:
+            message:
+              type: string
+            author:
+              $ref: "#/components/schemas/GitAuthor"
+            committer:
+              $ref: "#/components/schemas/GitAuthor"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommitFile"
+    GitAuthor:
+      type: object
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        date:
+          type: string
+          format: date-time
+    CommitFile:
+      type: object
+      additionalProperties: true
+      properties:
+        filename:
+          type: string
+        status:
+          type: string
+        additions:
+          type: integer
+        deletions:
+          type: integer
+        changes:
+          type: integer
+        patch:
+          type: string
+    Comparison:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          type: string
+        ahead_by:
+          type: integer
+        behind_by:
+          type: integer
+        total_commits:
+          type: integer
+        html_url:
+          type: string
+          format: uri
+        commits:
+          type: array
+          items:
+            $ref: "#/components/schemas/Commit"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommitFile"
+    ContentEntry:
+      type: object
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        sha:
+          type: string
+        type:
+          type: string
+        html_url:
+          type: [string, "null"]
+          format: uri
+    ContentFile:
+      allOf:
+        - $ref: "#/components/schemas/ContentEntry"
+        - type: object
+          additionalProperties: true
+          properties:
+            content:
+              type: string
+              description: Base64-encoded content.
+            encoding:
+              type: string
+    Blob:
+      type: object
+      additionalProperties: true
+      properties:
+        sha:
+          type: string
+        content:
+          type: string
+          description: Base64-encoded content.
+        encoding:
+          type: string
+        size:
+          type: integer
+    Tree:
+      type: object
+      additionalProperties: true
+      properties:
+        sha:
+          type: string
+        truncated:
+          type: boolean
+        tree:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              path:
+                type: string
+              mode:
+                type: string
+              type:
+                type: string
+              sha:
+                type: string
+              size:
+                type: integer
+    CodeSearchResults:
+      type: object
+      additionalProperties: true
+      properties:
+        total_count:
+          type: integer
+        incomplete_results:
+          type: boolean
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              name:
+                type: string
+              path:
+                type: string
+              sha:
+                type: string
+              html_url:
+                type: string
+                format: uri
+              repository:
+                $ref: "#/components/schemas/Repository"
+    Issue:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+        number:
+          type: integer
+        title:
+          type: string
+        body:
+          type: [string, "null"]
+        state:
+          type: string
+        html_url:
+          type: string
+          format: uri
+        user:
+          $ref: "#/components/schemas/User"
+        pull_request:
+          type: object
+          additionalProperties: true
+    NewIssue:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          description: Issue title approved by the user.
+          minLength: 1
+        body:
+          type: string
+          description: Issue body approved by the user.
+        labels:
+          type: array
+          description: Optional existing label names to apply.
+          items:
+            type: string
+    PullRequest:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+        number:
+          type: integer
+        title:
+          type: string
+        body:
+          type: [string, "null"]
+        state:
+          type: string
+        html_url:
+          type: string
+          format: uri
+        user:
+          $ref: "#/components/schemas/User"
+        head:
+          $ref: "#/components/schemas/PullRequestRef"
+        base:
+          $ref: "#/components/schemas/PullRequestRef"
+    PullRequestRef:
+      type: object
+      additionalProperties: true
+      properties:
+        ref:
+          type: string
+        sha:
+          type: string
+        repo:
+          $ref: "#/components/schemas/Repository"
+    User:
+      type: object
+      additionalProperties: true
+      properties:
+        login:
+          type: string
+        html_url:
+          type: string
+          format: uri

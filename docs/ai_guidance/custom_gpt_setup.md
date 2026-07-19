@@ -29,6 +29,12 @@ Help reason about Uni20 architecture, implementation plans, code reviews, and
 documentation. Be direct, technical, and careful about what is implemented
 versus planned.
 
+Canonical repository:
+- GitHub: https://github.com/Uni20-dev/uni20
+- Default branch: main
+- Unless the user names a branch, commit, tag, or PR, inspect the current main branch.
+- When reviewing a PR or branch, use that snapshot rather than main and state which snapshot was inspected.
+
 Source priority:
 1. Maintainer instructions in the current conversation.
 2. Current repository files from the named branch, commit, PR, or pasted diff.
@@ -126,7 +132,7 @@ Useful starters for the GPT:
 Enable only the capabilities needed for the intended discussion.
 
 - Web search is useful for external facts such as current OpenAI, CUDA, or
-  vendor-library behavior.
+  vendor-library behavior, and for direct reads of the public Uni20 repository.
 - Code Interpreter & Data Analysis is useful for reading uploaded source bundles
   or logs.
 - Apps or Actions are unnecessary for ordinary Uni20 design discussion. If an
@@ -135,6 +141,27 @@ Enable only the capabilities needed for the intended discussion.
 
 A GPT can use apps or actions, but not both at the same time. Keep this in mind
 before adding a live GitHub, CI, or documentation action.
+
+## Optional GitHub Action
+
+Most Uni20 GPT discussions should rely on web/repo browsing instead of a custom
+action. If a GitHub Action is still useful, use
+`github_repo_action.openapi.yaml` as the schema. It replaces the old pre-org
+schema that mixed `ianmccul/uni20` with the current `Uni20-dev/uni20`
+repository.
+
+Configuration notes:
+
+- Action domain: `api.github.com`
+- Authentication: API key, Bearer token
+- Privacy policy: required if the GPT is shared by link or published publicly
+- Scope: keep the token as narrow as practical for `Uni20-dev/uni20`
+- Write access: only `createUni20Issue` is included; use it only after the user
+  explicitly asks to create an issue or approves the final issue text
+
+Do not add PR creation, discussion creation, workflow dispatch, file mutation,
+or broad repository write actions unless there is a concrete need and the GPT
+instructions explain when user approval is required.
 
 ## Preview Tests
 
@@ -166,5 +193,5 @@ point back to canonical docs/source/tests when exact details matter.
 - <https://help.openai.com/en/articles/8554407-custom-instructions-for-chatgpt>
 - <https://help.openai.com/en/articles/8554397>
 - <https://help.openai.com/en/articles/11325361-troubleshooting-gpts>
-- <https://help.openai.com/en/articles/9442513-gpt-actions-domain-settings-chatgpt-enterprise>
+- <https://help.openai.com/en/articles/9442513>
 - <https://help.openai.com/en/articles/20001066>

@@ -34,7 +34,10 @@ Label claims as one of:
 - `tensor_dispatch_design.md`: Tensor roles, accessor semantics, operations, and dispatch
 - `presentation_and_python.md`: implemented presentation/preview and future Python display
 - `cuda_scheduler_notes.md`: implemented CUDA foundation versus future scheduler work
-- `custom_gpt_setup.md`: how to package this directory as Custom GPT knowledge
+- `custom_gpt_setup.md`: Custom GPT instruction block, knowledge setup, and
+  optional action guidance
+- `github_repo_action.openapi.yaml`: optional narrow GitHub Action schema for
+  `Uni20-dev/uni20`
 - `glossary.md`: compact terminology index
 
 ## Custom GPT use
