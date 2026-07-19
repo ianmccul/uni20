@@ -156,6 +156,9 @@ Configuration notes:
 - Authentication: API key, Bearer token
 - Privacy policy: required if the GPT is shared by link or published publicly
 - Scope: keep the token as narrow as practical for `Uni20-dev/uni20`
+- Schema shape: keep operation parameters inline. The ChatGPT action importer
+  may skip operations whose `parameters` list contains reusable parameter
+  `$ref`s instead of concrete `name` / `in` fields.
 - Write access: only `createUni20Issue` is included; use it only after the user
   explicitly asks to create an issue or approves the final issue text
 
