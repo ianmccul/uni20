@@ -406,8 +406,9 @@ bool is_internal_description(std::string_view description) noexcept
   auto const parameter_list = description.find('(');
   auto const callable = description.substr(0, parameter_list);
   return contains_text(callable, "uni20::TaskRegistry") || contains_text(callable, "TaskRegistryImpl") ||
-         contains_text(callable, "BasicAsyncTaskPromise") || contains_text(callable, "BasicAsyncTask<") ||
-         contains_text(callable, "AsyncTaskAwaiter") || contains_text(callable, "AsyncTaskFactoryAwaiter") ||
+         contains_text(callable, "TaskPromiseBase") || contains_text(callable, "AsyncTaskPromise") ||
+         contains_text(callable, "CudaTaskPromise") || contains_text(callable, "BasicTask") ||
+         contains_text(callable, "TaskAwaiter") || contains_text(callable, "TaskFactoryAwaiter") ||
          contains_text(callable, "AllAwaiter") || contains_text(callable, "ReadBuffer<") ||
          contains_text(callable, "WriteBuffer<") || contains_text(callable, "ReadMaybeAwaiter") ||
          contains_text(callable, "ReadOrCancelAwaiter") || contains_text(callable, "StorageAwaiter") ||

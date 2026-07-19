@@ -54,11 +54,13 @@ CPU AsyncTask
   -> resume AsyncTask through its own recorded scheduler
 ```
 
-`CudaTask` and `AsyncTask` deliberately share `BasicAsyncTaskPromise`; the
-concrete type controls type-safe initial admission, while the selected scheduler
-is recorded in the common promise. Device placement belongs to the CUDA
-scheduler/context and Tensor storage, not to task-specific promise state. A live
-task does not change concrete task type when it crosses a scheduler boundary.
+`CudaTask` and `AsyncTask` have distinct concrete promise types over the shared
+`TaskPromiseBase` implementation. The concrete type identifies the declared
+task kind and controls type-safe initial admission, while the selected scheduler
+is recorded in the common promise state and remains authoritative for execution.
+Device placement belongs to the CUDA scheduler/context and Tensor storage, not
+to task-specific promise state. A live task does not change concrete task type
+when it crosses a scheduler boundary.
 
 Lightweight and host-intensive CUDA calls use the same device scheduler and
 resource model initially. A host-intensive provider call occupies one device

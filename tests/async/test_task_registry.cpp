@@ -372,7 +372,9 @@ TEST(TaskRegistryDebugTest, GraphSnapshotCarriesOptionalStacktraceProvenance)
   DebugScheduler sched;
   Async<int> value;
 
-  auto const expected_creation_line = __LINE__ + 1;
+#if UNI20_HAS_STACKTRACE
+  auto const expected_creation_line = __LINE__ + 2;
+#endif
   auto task = wait_for_reader(value.read());
   task.debug_name("provenance reader");
   sched.schedule(std::move(task));

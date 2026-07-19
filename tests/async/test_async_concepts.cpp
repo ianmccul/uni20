@@ -2,6 +2,12 @@
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_ops.hpp>
 #include <uni20/async/awaiters.hpp>
+#include <uni20/async/cuda_task.hpp>
+
+#include <concepts>
+#include <coroutine>
+#include <type_traits>
+#include <utility>
 
 using namespace uni20::async;
 
@@ -57,6 +63,14 @@ concept PubliclyReschedulesBasicTask =
 TEST(ConceptTest, SchedulerInterfacesSeparateInitialSubmissionFromInternalRescheduling)
 {
   static_assert(std::derived_from<AsyncTask, AsyncTask::base_type>);
+  static_assert(std::derived_from<CudaTask, CudaTask::base_type>);
+  static_assert(!std::same_as<AsyncTask::promise_type, CudaTask::promise_type>);
+  static_assert(std::derived_from<AsyncTask::promise_type, TaskPromiseBase>);
+  static_assert(std::derived_from<CudaTask::promise_type, TaskPromiseBase>);
+  static_assert(!std::is_polymorphic_v<TaskPromiseBase>);
+  static_assert(std::constructible_from<BasicTask, AsyncTask&&>);
+  static_assert(std::constructible_from<BasicTask, CudaTask&&>);
+  static_assert(!std::constructible_from<TaskHandle, std::coroutine_handle<>, TaskPromiseBase*>);
   static_assert(std::derived_from<IAsyncScheduler, IScheduler>);
   static_assert(PubliclySchedulesAsyncTask<IAsyncScheduler>);
   static_assert(!PubliclySchedulesAsyncTask<IScheduler>);

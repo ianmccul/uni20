@@ -33,7 +33,7 @@ template <typename T> struct ValueAwaiter
     [[nodiscard]] bool await_ready() const noexcept { return true; }
 
     /// \brief No-op suspension hook required by the awaiter protocol.
-    void await_suspend(AsyncTask) const noexcept {}
+    void await_suspend(BasicTask) const noexcept {}
 
     /// \brief Return a borrowed reference when the awaiter is retained.
     [[nodiscard]] T const& await_resume() const& noexcept { return value; }
@@ -50,13 +50,12 @@ namespace detail
 template <typename T> using member_read_awaiter_t = std::remove_cvref_t<decltype(std::declval<T>().read())>;
 
 template <typename T>
-concept AsyncReadProvider = requires(T&& value) {
-  std::forward<T>(value).read();
-} && AsyncTaskAwaitable<member_read_awaiter_t<T>> && requires(member_read_awaiter_t<T>& awaiter) {
-  typename member_read_awaiter_t<T>::value_type;
-  { awaiter.await_ready() } -> std::convertible_to<bool>;
-  awaiter.await_resume();
-};
+concept AsyncReadProvider = requires(T&& value) { std::forward<T>(value).read(); } &&
+                            TaskAwaitable<member_read_awaiter_t<T>> && requires(member_read_awaiter_t<T>& awaiter) {
+                              typename member_read_awaiter_t<T>::value_type;
+                              { awaiter.await_ready() } -> std::convertible_to<bool>;
+                              awaiter.await_resume();
+                            };
 } // namespace detail
 
 /// \brief Wrap an immediate value in an always-ready read awaiter.
@@ -75,13 +74,13 @@ template <typename T>
   return std::forward<T>(value).read();
 }
 
-/// \brief Awaitable that waits for *all* provided awaiters to complete. This meets the AsyncTaskFactoryAwaitable
+/// \brief Awaitable that waits for *all* provided awaiters to complete. This meets the TaskFactoryAwaitable
 /// concept.
-/// \tparam Aw Awaitable types, that must meet the AsyncTaskAwaitable concept
+/// \tparam Aw Awaitable types, that must meet the TaskAwaitable concept
 /// \note the child await_resume() functions must return a non-void.
-/// \todo We currently don't allow nested waiting on AsyncTaskFactoryAwaitable children. This could be supported, if it
+/// \todo We currently don't allow nested waiting on TaskFactoryAwaitable children. This could be supported, if it
 /// was useful.
-template <AsyncTaskAwaitable... Aw>
+template <TaskAwaitable... Aw>
   requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
 struct AllAwaiter //: public AsyncAwaiter
 {
@@ -93,8 +92,8 @@ struct AllAwaiter //: public AsyncAwaiter
     /// \return true if no suspension is required.
     [[nodiscard]] bool await_ready() noexcept { return await_ready_impl(std::make_index_sequence<sizeof...(Aw)>{}); }
 
-    /// \brief Return the number of awaiters, needed by the AsyncTaskFactory model.
-    /// \note It is safe to over-allocate: unused AsyncTasks will be returned in the factory destructor.
+    /// \brief Return the number of awaiters, needed by the TaskFactory model.
+    /// \note It is safe to over-allocate: unused BasicTasks will be returned in the factory destructor.
     [[nodiscard]] int num_awaiters() const noexcept { return pending_; }
 
 #if UNI20_DEBUG_DAG
@@ -109,8 +108,8 @@ struct AllAwaiter //: public AsyncAwaiter
 
     /// \brief Suspend the coroutine on awaiters not yet ready.
     /// \tparam Promise The coroutine’s promise type.
-    /// \param f AsyncTaskFactory that provides one AsyncTask per sub-awaitable
-    void await_suspend(AsyncTaskFactory f) noexcept
+    /// \param f TaskFactory that provides one BasicTask per sub-awaitable
+    void await_suspend(TaskFactory f) noexcept
     {
       await_suspend_impl(std::move(f), std::make_index_sequence<sizeof...(Aw)>{});
     }
@@ -145,7 +144,7 @@ struct AllAwaiter //: public AsyncAwaiter
       return pending_ == 0;
     }
 
-    template <std::size_t... I> void await_suspend_impl(AsyncTaskFactory f, std::index_sequence<I...>) noexcept
+    template <std::size_t... I> void await_suspend_impl(TaskFactory f, std::index_sequence<I...>) noexcept
     {
       ((ready_[I] ? void() : std::get<I>(bufs_).await_suspend(f.take_next())), ...);
     }
@@ -176,7 +175,7 @@ template <typename T> struct MapToRefOrValue<T&>
 /// \brief Build an awaitable that waits for *all* of the provided awaitables.
 /// \param aw Awaitable arguments.
 /// \return An object supporting `co_await`.
-template <AsyncTaskAwaitable... Aw>
+template <TaskAwaitable... Aw>
   requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
 auto all(Aw&&... aw) noexcept
 {
@@ -232,7 +231,7 @@ template <typename Awt> struct TryAwaiter
 
     [[nodiscard]] bool await_ready() const noexcept { return true; }
 
-    void await_suspend(AsyncTask t) noexcept { access().await_suspend(std::move(t)); }
+    void await_suspend(BasicTask t) noexcept { access().await_suspend(std::move(t)); }
 
     [[nodiscard]] auto await_resume() noexcept
     {
@@ -352,7 +351,7 @@ template <typename T, typename Value> class WriteToAwaiter {
 
     [[nodiscard]] bool await_ready() const noexcept { return buffer_.await_ready(); }
 
-    auto await_suspend(AsyncTask&& t) noexcept { return buffer_.await_suspend(std::move(t)); }
+    auto await_suspend(BasicTask&& t) noexcept { return buffer_.await_suspend(std::move(t)); }
 
     void await_resume() { buffer_.emplace_assert(std::move(value_)); }
 

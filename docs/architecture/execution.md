@@ -89,9 +89,11 @@ bridge bypasses it), and step 4 is what eventually retires the bridge.
 Uni20 allows multiple schedulers. The CUDA design uses one logical scheduler
 arena per device. Distinct initial-admission interfaces prevent scheduler-family
 mixups: `IAsyncScheduler` accepts `AsyncTask`, while `ICudaScheduler` accepts
-`CudaTask`. Both concrete types share `BasicAsyncTaskPromise` and become the
-same internal `BasicTask` after admission, so buffer wakeups and nested
-continuations use one rescheduling contract.
+`CudaTask`. The concrete task types have distinct promises over a shared
+`TaskPromiseBase`; both become the same promise-neutral `BasicTask` ownership
+token after admission, so buffer wakeups and nested continuations use one
+rescheduling contract. Promise type records the declared task kind, while the
+task's actual `IScheduler*` route remains authoritative for execution.
 
 An ordinary coroutine enters the CUDA task domain by `co_await`ing a newly
 created `CudaTask` already bound to the appropriate device scheduler. The

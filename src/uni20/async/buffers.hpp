@@ -120,9 +120,9 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.coroutine_handle());
       reader_.suspend(std::move(t));
     }
 
@@ -181,7 +181,7 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     /// \brief Register this buffer as an exception sink with a promise.
     /// \param promise Promise that owns the sink list.
     /// \param explicit_sink Whether this sink came from `propagate_exceptions_to`.
-    void register_exception_sink(BasicAsyncTaskPromise& promise, bool explicit_sink) const
+    void register_exception_sink(TaskPromiseBase& promise, bool explicit_sink) const
     {
       promise.register_exception_sink(exception_sink_, this->epoch_context_shared(), explicit_sink);
     }
@@ -219,7 +219,7 @@ template <typename T> class ReadBuffer { //}: public AsyncAwaiter {
     }
 
     EpochContextReader<T> reader_; ///< RAII object managing epoch state.
-    mutable BasicAsyncTaskPromise::ExceptionSinkNode exception_sink_{};
+    mutable TaskPromiseBase::ExceptionSinkNode exception_sink_{};
 };
 
 /// \brief Adaptor for transferring ReadBuffer ownership into an await expression.
@@ -297,9 +297,9 @@ template <typename T> class OwningReadAwaiter {
 
     /// \brief Suspend until the read epoch becomes available.
     /// \param t Owning task to suspend and enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "OwningReadAwaiter::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "OwningReadAwaiter::await_suspend()", this, t.coroutine_handle());
       this->reader_.suspend(std::move(t));
     }
 
@@ -338,9 +338,9 @@ template <typename T> class ReadMaybeAwaiter {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.coroutine_handle());
       this->reader_.suspend(std::move(t));
     }
 
@@ -390,9 +390,9 @@ template <typename T> class ReadMaybeAwaiter<T const&> {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "ReadBuffer::await_suspend()", this, t.coroutine_handle());
       reader_.suspend(std::move(t));
     }
 
@@ -438,7 +438,7 @@ template <typename T> class ReadOrCancelAwaiter {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept { this->reader_.suspend(std::move(t)); }
+    void await_suspend(BasicTask&& t) noexcept { this->reader_.suspend(std::move(t)); }
 
     /// \brief Resume execution and return an owning read proxy.
     /// \throws task_cancelled when the read source has no value.
@@ -493,7 +493,7 @@ template <typename T> class ReadOrCancelAwaiter<T const&> {
 
     /// \brief Suspend this coroutine and enqueue for resumption.
     /// \param t Coroutine task to enqueue.
-    void await_suspend(AsyncTask&& t) noexcept { reader_.suspend(std::move(t)); }
+    void await_suspend(BasicTask&& t) noexcept { reader_.suspend(std::move(t)); }
 
     /// \brief Resume execution and return a borrowed reference to the stored value.
     /// \throws task_cancelled when the read source has no value.
@@ -579,9 +579,9 @@ template <typename T> class StorageAwaiter {
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "StorageAwaiter::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "StorageAwaiter::await_suspend()", this, t.coroutine_handle());
       writer_->suspend(std::move(t));
     }
 
@@ -625,9 +625,9 @@ template <typename T> class TakeAwaiter {
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "TakeAwaiter::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "TakeAwaiter::await_suspend()", this, t.coroutine_handle());
       writer_->suspend(std::move(t));
     }
 
@@ -671,9 +671,9 @@ template <typename T> class TakeReleaseAwaiter {
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "TakeReleaseAwaiter::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "TakeReleaseAwaiter::await_suspend()", this, t.coroutine_handle());
       writer_->suspend(std::move(t));
     }
 
@@ -772,9 +772,9 @@ template <typename T> class OwningStorageAwaiter {
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "OwningStorageAwaiter::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "OwningStorageAwaiter::await_suspend()", this, t.coroutine_handle());
       writer_.suspend(std::move(t));
     }
 
@@ -818,9 +818,9 @@ template <typename T> class OwningTakeAwaiter {
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "OwningTakeAwaiter::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "OwningTakeAwaiter::await_suspend()", this, t.coroutine_handle());
       writer_.suspend(std::move(t));
     }
 
@@ -912,9 +912,9 @@ template <typename T> class WriteBuffer {
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param t Owning task to suspend and enqueue.
-    void await_suspend(AsyncTask&& t) noexcept
+    void await_suspend(BasicTask&& t) noexcept
     {
-      TRACE_MODULE(ASYNC, "WriteBuffer::await_suspend()", this, t.h_);
+      TRACE_MODULE(ASYNC, "WriteBuffer::await_suspend()", this, t.coroutine_handle());
       writer_.suspend(std::move(t));
     }
 
@@ -1048,7 +1048,7 @@ template <typename T> class WriteBuffer {
     /// \brief Register this buffer as an exception sink with a promise.
     /// \param promise Promise that owns the sink list.
     /// \param explicit_sink Whether this sink came from `propagate_exceptions_to`.
-    void register_exception_sink(BasicAsyncTaskPromise& promise, bool explicit_sink) const
+    void register_exception_sink(TaskPromiseBase& promise, bool explicit_sink) const
     {
       promise.register_exception_sink(exception_sink_, this->epoch_context_shared(), explicit_sink);
     }
@@ -1162,7 +1162,7 @@ template <typename T> class WriteBuffer {
     }
 
     EpochContextWriter<T> writer_;
-    mutable BasicAsyncTaskPromise::ExceptionSinkNode exception_sink_{};
+    mutable TaskPromiseBase::ExceptionSinkNode exception_sink_{};
 #if UNI20_DEBUG_ASYNC_TASKS
     std::shared_ptr<WriteProxyLifetimeState> proxy_state_{std::make_shared<WriteProxyLifetimeState>()};
 #endif
@@ -1177,7 +1177,7 @@ template <typename T> class WriteBuffer {
 /// \tparam T Stored value type.
 /// \param promise Promise collecting dependency metadata.
 /// \param x Read buffer argument.
-template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, ReadBuffer<T> const& x)
+template <typename T> void ProcessCoroutineArgument(TaskPromiseBase* promise, ReadBuffer<T> const& x)
 {
 #if UNI20_DEBUG_DAG
   promise->ReadDependencies.push_back(x.node());
@@ -1189,7 +1189,7 @@ template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promi
 /// \tparam T Stored value type.
 /// \param promise Promise collecting dependency metadata.
 /// \param x Write buffer argument.
-template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, WriteBuffer<T> const& x)
+template <typename T> void ProcessCoroutineArgument(TaskPromiseBase* promise, WriteBuffer<T> const& x)
 {
 #if UNI20_DEBUG_DAG
   promise->WriteDependencies.push_back(x.node());
@@ -1202,7 +1202,7 @@ template <typename T> class Defer;
 /// \brief Concept for buffers that can register explicit exception sinks.
 template <typename B>
 concept exception_sink_buffer =
-    requires(B& buffer, BasicAsyncTaskPromise& promise) { buffer.register_exception_sink(promise, true); };
+    requires(B& buffer, TaskPromiseBase& promise) { buffer.register_exception_sink(promise, true); };
 
 /// \brief Awaiter that registers explicit exception sinks and then resumes immediately.
 /// \tparam Buffers Buffer types that implement `register_exception_sink`.
@@ -1219,14 +1219,14 @@ template <exception_sink_buffer... Buffers> class PropagateExceptionsAwaiter {
     /// \brief Pass through the currently-running task unchanged.
     /// \param task Current owning task.
     /// \return The same task, preserving ownership transfer semantics.
-    AsyncTask await_suspend(AsyncTask&& task) noexcept { return std::move(task); }
+    BasicTask await_suspend(BasicTask&& task) noexcept { return std::move(task); }
 
     /// \brief No-op resume hook.
     void await_resume() noexcept {}
 
     /// \brief Register all configured buffers as explicit exception sinks.
     /// \param promise Promise that owns the sink list.
-    void register_exception_sinks(BasicAsyncTaskPromise& promise) const
+    void register_exception_sinks(TaskPromiseBase& promise) const
     {
       std::apply([&](auto*... buffers) { (buffers->register_exception_sink(promise, true), ...); }, buffers_);
     }
@@ -1686,9 +1686,9 @@ template <typename T> class OwningWriteAwaiter {
 
     /// \brief Suspend until the writer epoch becomes writable.
     /// \param task Owning task to suspend and enqueue.
-    void await_suspend(AsyncTask&& task) noexcept
+    void await_suspend(BasicTask&& task) noexcept
     {
-      TRACE_MODULE(ASYNC, "OwningWriteAwaiter::await_suspend()", this, task.h_);
+      TRACE_MODULE(ASYNC, "OwningWriteAwaiter::await_suspend()", this, task.coroutine_handle());
       writer_.suspend(std::move(task));
     }
 

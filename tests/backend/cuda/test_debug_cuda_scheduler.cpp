@@ -28,6 +28,9 @@ using uni20::async::WriteBuffer;
 template <typename Scheduler, typename Task>
 concept PubliclySchedules = requires(Scheduler& scheduler, Task&& task) { scheduler.schedule(std::move(task)); };
 
+struct CudaTaskTestError
+{};
+
 class DebugCudaSchedulerTest : public ::testing::Test {
   protected:
     void SetUp() override
@@ -50,7 +53,9 @@ class DebugCudaSchedulerTest : public ::testing::Test {
 
 static_assert(std::derived_from<AsyncTask, BasicTask>);
 static_assert(std::derived_from<CudaTask, BasicTask>);
-static_assert(std::same_as<AsyncTask::promise_type, CudaTask::promise_type>);
+static_assert(!std::same_as<AsyncTask::promise_type, CudaTask::promise_type>);
+static_assert(std::derived_from<AsyncTask::promise_type, uni20::async::TaskPromiseBase>);
+static_assert(std::derived_from<CudaTask::promise_type, uni20::async::TaskPromiseBase>);
 static_assert(!std::convertible_to<AsyncTask, CudaTask>);
 static_assert(!std::convertible_to<CudaTask, AsyncTask>);
 static_assert(PubliclySchedules<DebugScheduler, AsyncTask>);
@@ -244,6 +249,128 @@ TEST_F(DebugCudaSchedulerTest, CpuParentReturnsToCpuSchedulerAfterCudaChild)
   int restored_device = -1;
   ASSERT_EQ(cudaGetDevice(&restored_device), cudaSuccess);
   EXPECT_EQ(restored_device, original_device_);
+}
+
+TEST_F(DebugCudaSchedulerTest, CpuParentReceivesCudaChildExceptionOnCpuScheduler)
+{
+  DebugCudaScheduler cuda_scheduler(target_device_);
+  DebugScheduler cpu_scheduler;
+  std::vector<int> events;
+
+  auto child = []() static -> CudaTask {
+    throw CudaTaskTestError{};
+    co_return;
+  }();
+  ASSERT_TRUE(child.set_scheduler(&cuda_scheduler));
+
+  auto parent = [](CudaTask child, std::vector<int>& events) static -> AsyncTask {
+    events.push_back(1);
+    try
+    {
+      co_await child;
+    }
+    catch (CudaTaskTestError const&)
+    {
+      events.push_back(2);
+    }
+  }(std::move(child), events);
+
+  cpu_scheduler.schedule(std::move(parent));
+  cpu_scheduler.run_all();
+  EXPECT_EQ(events, (std::vector<int>{1}));
+
+  cuda_scheduler.run_all();
+  EXPECT_EQ(events, (std::vector<int>{1}));
+
+  cpu_scheduler.run_all();
+  EXPECT_EQ(events, (std::vector<int>{1, 2}));
+}
+
+TEST_F(DebugCudaSchedulerTest, CudaParentAwaitsUnboundAsyncChildOnSameScheduler)
+{
+  DebugCudaScheduler scheduler(target_device_);
+  std::vector<int> events;
+
+  auto child = [](std::vector<int>& events) static -> AsyncTask {
+    int current_device = -1;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&current_device)), static_cast<int>(cudaSuccess));
+    events.push_back(10 + current_device);
+    co_return;
+  }(events);
+
+  auto parent = [](AsyncTask child, std::vector<int>& events) static -> CudaTask {
+    events.push_back(1);
+    co_await child;
+    events.push_back(2);
+  }(std::move(child), events);
+
+  scheduler.schedule(std::move(parent));
+  scheduler.run_all();
+
+  EXPECT_EQ(events, (std::vector<int>{1, 10 + target_device_, 2}));
+}
+
+TEST_F(DebugCudaSchedulerTest, CudaParentAwaitsUnboundCudaChildOnSameScheduler)
+{
+  DebugCudaScheduler scheduler(target_device_);
+  std::vector<int> events;
+
+  auto child = [](std::vector<int>& events) static -> CudaTask {
+    int current_device = -1;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&current_device)), static_cast<int>(cudaSuccess));
+    events.push_back(10 + current_device);
+    co_return;
+  }(events);
+
+  auto parent = [](CudaTask child, std::vector<int>& events) static -> CudaTask {
+    events.push_back(1);
+    co_await child;
+    events.push_back(2);
+  }(std::move(child), events);
+
+  scheduler.schedule(std::move(parent));
+  scheduler.run_all();
+
+  EXPECT_EQ(events, (std::vector<int>{1, 10 + target_device_, 2}));
+}
+
+TEST_F(DebugCudaSchedulerTest, CudaPromisePropagatesUnhandledExceptionToWriter)
+{
+  DebugCudaScheduler scheduler(target_device_);
+  DebugScheduler observation_scheduler;
+  Async<int> output;
+
+  auto task = [](WriteBuffer<int> output) static -> CudaTask {
+    (void)output;
+    throw CudaTaskTestError{};
+    co_return;
+  }(output.write());
+
+  scheduler.schedule(std::move(task));
+  scheduler.run_all();
+
+  EXPECT_THROW((void)output.get_wait(observation_scheduler), CudaTaskTestError);
+}
+
+TEST_F(DebugCudaSchedulerTest, CudaPromisePropagatesCancellationAfterBufferSuspension)
+{
+  DebugCudaScheduler scheduler(target_device_);
+  DebugScheduler observation_scheduler;
+  Async<int> input;
+  Async<int> output;
+  auto input_writer = input.write();
+
+  auto task = [](ReadBuffer<int> input, WriteBuffer<int> output) static -> CudaTask {
+    int const value = co_await input.or_cancel();
+    co_await output = value;
+  }(input.read(), output.write());
+
+  scheduler.schedule(std::move(task));
+  scheduler.run_all();
+  input_writer.release();
+  scheduler.run_all();
+
+  EXPECT_THROW((void)output.get_wait(observation_scheduler), uni20::async::buffer_read_uninitialized);
 }
 
 } // namespace

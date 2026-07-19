@@ -1,5 +1,7 @@
-/// \file async_task_promise.hpp
-/// \brief Defines AsyncTask::promise_type, the fire-and-forget coroutine handle.
+/**
+ * \file async_task_promise.hpp
+ * \brief Defines shared and concrete task coroutine promises.
+ */
 
 #pragma once
 
@@ -19,7 +21,7 @@
 namespace uni20::async
 {
 
-class AsyncTaskFactory;
+class TaskFactory;
 class EpochContext;
 
 /// \brief Inject an unhandled writer-side coroutine exception into an epoch.
@@ -27,63 +29,57 @@ class EpochContext;
 /// \param eptr Exception captured by the coroutine promise.
 void propagate_unhandled_writer_exception(EpochContext* epoch, std::exception_ptr eptr) noexcept;
 
-// class AsyncTask;
-//
-
 /// \brief Concept for the valid return types of await_suspend.
 /// \details
-/// An awaiter may return void, or it can return an AsyncTask, which means that
+/// An awaiter may return void, or it can return a BasicTask, which means that
 /// execution of the current coroutine should be transferred to the new task,
 /// resuming the coroutine only after the new task is complete.
-/// If an AsyncTask is returned, it must have exclusive ownership, otherwise the
+/// If a BasicTask is returned, it must have exclusive ownership, otherwise the
 /// task cannot be scheduled
 template <typename Ret>
-concept AwaitSuspendResult = std::same_as<Ret, void> || std::same_as<Ret, AsyncTask>;
+concept AwaitSuspendResult = std::same_as<Ret, void> || std::same_as<Ret, BasicTask>;
 
-/// \brief Concept for awaitables that accept ownership via an AsyncTask.
+/// \brief Concept for awaitables that accept promise-neutral task ownership.
 ///
 /// This concept is satisfied if the awaitable provides:
-/// - `await_suspend(AsyncTask)`
-/// - The return type of `await_suspend` must be `void` or `bool`
+/// - `await_suspend(BasicTask)`
+/// - The return type of `await_suspend` is `void` or `BasicTask`
 ///
 /// \note This concept disallows await_suspend() from returning a coroutine_handle,
 ///       to ensure that ownership and resumption are managed solely by the scheduler.
 template <typename T>
-concept AsyncTaskAwaitable = requires(T a, AsyncTask t) {
-  { a.await_suspend(std::move(t)) } -> AwaitSuspendResult;
+concept TaskAwaitable = requires(T a, BasicTask task) {
+  { a.await_suspend(std::move(task)) } -> AwaitSuspendResult;
 };
 
-/// \brief Concept for awaitables that support shared ownership via AsyncTaskFactory.
+/// \brief Concept for awaitables that support shared promise-neutral ownership.
 ///
 /// This concept is satisfied if:
 /// - The awaitable provides a `num_awaiters()` method returning an integer count
-/// - It provides `await_suspend(AsyncTaskFactory)`
-/// - The return type of `await_suspend` must be `void` or `bool`
+/// - It provides `await_suspend(TaskFactory)`
+/// - The return type of `await_suspend` is `void` or `BasicTask`
 ///
 /// \note This is used by composite awaiters like `all(...)` that must split
 ///       ownership across multiple sub-awaitables.
 template <typename T>
-concept AsyncTaskFactoryAwaitable = requires(T a, AsyncTaskFactory t) {
-  { a.await_suspend(std::move(t)) } -> AwaitSuspendResult;
+concept TaskFactoryAwaitable = requires(T a, TaskFactory factory) {
+  { a.await_suspend(std::move(factory)) } -> AwaitSuspendResult;
   { a.num_awaiters() } -> std::convertible_to<int>;
 };
 
-/// \brief Forwarding awaiter that takes ownership of a std::coroutine_handle and forwards to an awaiter as an AsyncTask
-template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter;
+/// \brief Forwarding awaiter that transfers one task ownership claim to an awaitable.
+template <TaskAwaitable A> struct TaskAwaiter;
 
-/// \brief Forwarding awaiter that takes shared ownership of a std::coroutine_handle and forwards to an awaiter as an
-/// AsyncTaskFactory
-template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter;
+/// \brief Forwarding awaiter that transfers shared task ownership through a TaskFactory.
+template <TaskFactoryAwaitable A> struct TaskFactoryAwaiter;
 
-/// \brief Promise type for AsyncTask.
-class BasicAsyncTaskPromise {
+/// \brief Shared non-polymorphic implementation for Uni20 task promises.
+class TaskPromiseBase {
   public:
-    using promise_type = BasicAsyncTaskPromise;
-
     /// \brief Intrusive node describing one exception propagation sink.
     struct ExceptionSinkNode
     {
-        BasicAsyncTaskPromise* owner{nullptr};
+        TaskPromiseBase* owner{nullptr};
         ExceptionSinkNode* prev{nullptr};
         ExceptionSinkNode* next{nullptr};
         std::shared_ptr<EpochContext> epoch{};
@@ -97,13 +93,17 @@ class BasicAsyncTaskPromise {
     /// \brief Tracks whether the coroutine has been scheduled or otherwise started.
     std::atomic<bool> started_{false};
 
-    /// \brief AsyncTask coroutines are nestable -- we can co_await one AsyncTask inside another.
-    /// continuation_ tracks the 'parent' coroutine in this case, so that when we finish execution we return to
-    /// executing the parent coroutine.
-    std::coroutine_handle<promise_type> continuation_ = nullptr;
+    /// \brief Uni20 task coroutines are nestable.
+    /// \details continuation_ tracks the parent coroutine so final suspension
+    ///          can return through the parent's scheduler route.
+    TaskHandle continuation_{};
 
-    /// \brief Number of active awaiters (owners) of this coroutine.
-    ///        This is exactly equal to the number of AsyncTask instances that refer to this coroutine.
+    /// \brief Destination for an exception returned by a directly awaited task.
+    /// \details This points into the awaiting BasicTask stored in the suspended
+    ///          parent frame and is cleared before the child frame is destroyed.
+    std::exception_ptr* continuation_exception_ = nullptr;
+
+    /// \brief Number of active ownership claims on this coroutine.
     /// \note When the count reaches zero, the coroutine is considered unowned.
     ///       Ownership must be transferred explicitly using take_ownership().
     std::atomic<int> awaiter_count_ = 0;
@@ -160,23 +160,28 @@ class BasicAsyncTaskPromise {
     /// \brief Construct the promise and process coroutine arguments for debug metadata.
     /// \tparam Args Coroutine argument types.
     /// \param args Coroutine arguments forwarded for `ProcessCoroutineArgument`.
-    template <typename... Args> BasicAsyncTaskPromise(Args&&... args)
+    template <typename... Args> TaskPromiseBase(Args&&... args)
     {
       // For each parameter, detect ReadBuffer / WriteBuffer
       (ProcessCoroutineArgument(this, args), ...);
     }
 
     /// \brief safely destroy this coroutine, returning the continuation_ (which also must now be destroyed)
-    std::coroutine_handle<promise_type> destroy_with_continuation() noexcept
+    TaskHandle destroy_with_continuation() noexcept
     {
       auto c = continuation_;
-      continuation_ = nullptr;
-      auto h = std::coroutine_handle<promise_type>::from_promise(*this);
-      promise_type::destroy_and_track(h);
+      continuation_ = {};
+      continuation_exception_ = nullptr;
+      auto handle = this->self();
+      TaskPromiseBase::destroy_and_track(handle);
       return c;
     }
 
-    ~BasicAsyncTaskPromise() noexcept { DEBUG_CHECK_EQUAL(continuation_, nullptr); }
+    ~TaskPromiseBase() noexcept
+    {
+      DEBUG_CHECK(!continuation_);
+      DEBUG_CHECK(continuation_exception_ == nullptr);
+    }
 
     /// \brief Decrease the number of active awaiters by one.
     /// \return true if this was the last awaiter and the coroutine is now unowned.
@@ -281,13 +286,13 @@ class BasicAsyncTaskPromise {
       return cancel_on_resume_.load(std::memory_order_acquire);
     }
 
-    /// \brief Transform the awaiter to provide transfer of ownership of the AsyncTask
-    template <AsyncTaskAwaitable A> auto await_transform(A& a);
-    template <AsyncTaskAwaitable A> auto await_transform(A&& a);
+    /// \brief Transform an awaiter to transfer one task ownership claim.
+    template <TaskAwaitable A> auto await_transform(A& a);
+    template <TaskAwaitable A> auto await_transform(A&& a);
 
-    /// \brief Transform the awaiter to provide transfer of shared ownership of the AsyncTaskFactory
-    template <AsyncTaskFactoryAwaitable A> auto await_transform(A& a);
-    template <AsyncTaskFactoryAwaitable A> auto await_transform(A&& a);
+    /// \brief Transform the awaiter to provide transfer of shared ownership of the TaskFactory
+    template <TaskFactoryAwaitable A> auto await_transform(A& a);
+    template <TaskFactoryAwaitable A> auto await_transform(A&& a);
 
     /// \brief Pass through a concrete task that uses the shared basic task representation.
     /// \tparam Task Concrete task or basic task reference type.
@@ -304,9 +309,8 @@ class BasicAsyncTaskPromise {
     /// \tparam T Unsupported awaitable type.
     template <typename T> auto await_transform(T&&)
     {
-      static_assert(
-          sizeof(T) == 0,
-          "co_await expression does not match any known AsyncTaskAwaitable or AsyncTaskFactoryAwaitable type.");
+      static_assert(sizeof(T) == 0,
+                    "co_await expression does not match any known TaskAwaitable or TaskFactoryAwaitable type.");
     }
 
     /// \brief Set the preferred NUMA node recorded for this coroutine.
@@ -331,21 +335,31 @@ class BasicAsyncTaskPromise {
     /// \brief Query whether the coroutine has begun executing.
     [[nodiscard]] bool has_started() const noexcept { return started_.load(std::memory_order_acquire); }
 
+    /// \brief Return the scheduler currently recorded for this task.
+    [[nodiscard]] IScheduler* scheduler() const noexcept { return sched_; }
+
+    /// \brief Return this promise's erased coroutine identity.
+    [[nodiscard]] TaskHandle self() noexcept
+    {
+      DEBUG_PRECONDITION(self_);
+      return TaskHandle(self_, this);
+    }
+
     /// \brief Record that a coroutine has transitioned into a runnable/running state.
-    static void note_running(std::coroutine_handle<promise_type> h) noexcept { TaskRegistry::mark_running(h); }
+    static void note_running(TaskHandle handle) noexcept { TaskRegistry::mark_running(handle.coroutine()); }
 
     /// \brief Record that a coroutine has suspended and is waiting for resumption.
-    static void note_suspended(std::coroutine_handle<promise_type> h) noexcept { TaskRegistry::mark_suspended(h); }
+    static void note_suspended(TaskHandle handle) noexcept { TaskRegistry::mark_suspended(handle.coroutine()); }
 
 #if UNI20_DEBUG_DAG
     /// \brief Records a DAG edge for awaitables that expose debug node metadata.
     /// \tparam A Awaitable type being observed.
     /// \param h Coroutine handle that is awaiting.
     /// \param awaitable Awaitable being awaited.
-    template <typename A> static void note_await_dependency(std::coroutine_handle<promise_type> h, A const& awaitable)
+    template <typename A> static void note_await_dependency(TaskHandle handle, A const& awaitable)
     {
-      auto record = [h](NodeInfo const* node, TaskRegistry::EpochTaskRole role) {
-        TaskRegistry::record_await_dependency(h, node, role);
+      auto record = [coroutine = handle.coroutine()](NodeInfo const* node, TaskRegistry::EpochTaskRole role) {
+        TaskRegistry::record_await_dependency(coroutine, node, role);
       };
       if constexpr (requires { awaitable.debug_each_dependency(record); })
       {
@@ -356,107 +370,98 @@ class BasicAsyncTaskPromise {
                            awaitable.debug_task_role();
                          })
       {
-        TaskRegistry::record_await_dependency(h, awaitable.node(), awaitable.debug_task_role());
+        TaskRegistry::record_await_dependency(handle.coroutine(), awaitable.node(), awaitable.debug_task_role());
       }
     }
 #endif
 
     /// \brief Record that a coroutine has been intentionally leaked.
-    static void note_leaked(std::coroutine_handle<promise_type> h) noexcept { TaskRegistry::leak_task(h); }
+    static void note_leaked(TaskHandle handle) noexcept { TaskRegistry::leak_task(handle.coroutine()); }
 
     /// \brief Resume a coroutine handle while recording the running transition.
-    static void resume_and_track(std::coroutine_handle<promise_type> h)
+    static void resume_and_track(TaskHandle handle)
     {
-      note_running(h);
-      h.resume();
+      note_running(handle);
+      handle.coroutine().resume();
     }
 
     /// \brief Destroy a coroutine handle while recording destruction in the registry.
-    static void destroy_and_track(std::coroutine_handle<promise_type> h) noexcept
+    static void destroy_and_track(TaskHandle handle) noexcept
     {
-      TaskRegistry::destroy_task(h);
-      h.destroy();
+      TaskRegistry::destroy_task(handle.coroutine());
+      handle.coroutine().destroy();
     }
 
-    /// \brief Resolve an await_suspend AsyncTask return value into a scheduler/runtime transfer handle.
-    /// \param h Current coroutine handle.
-    /// \param t Returned task object from awaitable.await_suspend(...).
+    /// \brief Resolve an await_suspend task return value into a coroutine transfer handle.
+    /// \param current Current coroutine identity.
+    /// \param task Returned ownership token from awaitable.await_suspend(...).
     /// \return Handle selected for immediate transfer by coroutine semantics.
-    static std::coroutine_handle<> resolve_await_suspend_result(std::coroutine_handle<promise_type> h, AsyncTask&& t)
+    static std::coroutine_handle<> resolve_await_suspend_result(TaskHandle current, BasicTask&& task)
     {
-      // null handle means suspend the current coroutine until externally resumed
-      if (!t.h_)
+      if (!task)
       {
-        note_suspended(h);
+        note_suspended(current);
         return std::noop_coroutine();
       }
 
-      // Transfer ownership into a raw coroutine_handle
-      auto h_new = t.h_.promise().release_ownership();
-      CHECK(h_new, "coroutine handle was not exclusively owned!");
+      auto nested = task.release_ownership();
+      CHECK(nested, "coroutine handle was not exclusively owned!");
 
-      // If the same AsyncTask is given back to us, resume this coroutine immediately.
-      if (h_new == h)
+      if (nested == current)
       {
-        note_running(h);
-        return h;
+        note_running(current);
+        return current.coroutine();
       }
 
-      // Otherwise run a nested coroutine and continue back here once that coroutine completes.
-      h_new.promise().continuation_ = h;
-      note_suspended(h);
-      note_running(h_new);
-      return h_new;
+      nested.promise().continuation_ = current;
+      note_suspended(current);
+      note_running(nested);
+      return nested.coroutine();
     }
 
-    /// \brief Execute await_suspend for AsyncTaskAwaitable and apply TaskRegistry tracking.
-    template <AsyncTaskAwaitable A> static auto suspend_task_awaitable(std::coroutine_handle<promise_type> h, A& a);
+    /// \brief Execute await_suspend for TaskAwaitable and apply TaskRegistry tracking.
+    template <TaskAwaitable A> static auto suspend_task_awaitable(TaskHandle current, A& awaitable);
 
-    /// \brief Execute await_suspend for AsyncTaskFactoryAwaitable and apply TaskRegistry tracking.
-    template <AsyncTaskFactoryAwaitable A>
-    static auto suspend_factory_awaitable(std::coroutine_handle<promise_type> h, A& a);
+    /// \brief Execute await_suspend for TaskFactoryAwaitable and apply TaskRegistry tracking.
+    template <TaskFactoryAwaitable A> static auto suspend_factory_awaitable(TaskHandle current, A& awaitable);
 
     /// \brief Acquire exclusive ownership of the coroutine.
     ///       This increments the awaiter count and asserts that the coroutine was previously unowned.
     /// \pre The coroutine must be unowned (awaiter_count_ == 0).
-    /// \return A newly constructed AsyncTask that takes ownership of the coroutine.
-    AsyncTask take_ownership() noexcept
+    /// \return A newly constructed BasicTask that takes ownership of the coroutine.
+    BasicTask take_ownership() noexcept
     {
       [[maybe_unused]] int prior_count = this->add_awaiter();
       DEBUG_CHECK_EQUAL(prior_count, 0, "expected handle to be previously unowned!");
-      return AsyncTask(std::coroutine_handle<promise_type>::from_promise(*this), AsyncTask::construction_key{});
+      return BasicTask(this->self(), BasicTask::construction_key{});
     }
 
     /// \brief Acquire shared ownership of the coroutine for use with multi-await constructs.
-    /// \param count The number of distinct AsyncTask instances to be created.
+    /// \param count The number of distinct BasicTask ownership claims to create.
     /// \pre The coroutine must be unowned (awaiter_count_ == 0).
-    /// \return A factory that will dispense up to \p count owning AsyncTask handles.
-    AsyncTaskFactory take_shared_ownership(int count);
+    /// \return A factory that will dispense up to \p count owning BasicTask values.
+    TaskFactory take_shared_ownership(int count);
 
     /// \brief Release ownership of the coroutine and return it, if it was exclusively owned
     /// \return the coroutine handle, if we had exclusive ownership; otherwise returns null
-    /// \post the task has been released and *this is a null AsyncTask
-    std::coroutine_handle<promise_type> release_ownership()
-    {
-      return this->release_awaiter() ? std::coroutine_handle<promise_type>::from_promise(*this) : nullptr;
-    }
+    /// \post The promise no longer owns the released claim.
+    TaskHandle release_ownership() { return this->release_awaiter() ? this->self() : TaskHandle{}; }
 
     /// \brief Default-construct the promise.
-    constexpr BasicAsyncTaskPromise() noexcept = default;
+    constexpr TaskPromiseBase() noexcept = default;
 
-    /// \brief Constructs the coroutine's return object for the caller.
-    ///
-    /// \note This is invoked exactly once, before initial_suspend().
-    /// \return A proxy that transfers the coroutine handle to the declared concrete task type.
-    BasicTaskReturnObject get_return_object() noexcept
+    /// \brief Cache erased self-identity and register the initial ownership claim.
+    template <TaskPromise Promise>
+    [[nodiscard]] TaskHandle initialize_task(std::coroutine_handle<Promise> handle) noexcept
     {
-      auto h = std::coroutine_handle<promise_type>::from_promise(*this);
+      DEBUG_PRECONDITION(!self_);
+      self_ = handle;
       this->add_awaiter();
-      TaskRegistry::register_task(h);
+      TaskRegistry::register_task(self_);
 #if UNI20_DEBUG_DAG
-      TaskRegistry::record_task_dependencies(h, ReadDependencies, WriteDependencies);
+      TaskRegistry::record_task_dependencies(self_, ReadDependencies, WriteDependencies);
 #endif
-      return BasicTaskReturnObject(h);
+      return TaskHandle::from(handle);
     }
 
     /// \brief Suspend immediately on coroutine entry.
@@ -464,14 +469,13 @@ class BasicAsyncTaskPromise {
     {
       struct InitialAwaiter
       {
+          TaskPromiseBase* promise;
+
           [[nodiscard]] constexpr bool await_ready() noexcept { return false; }
-          void await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
-          {
-            promise_type::note_suspended(h);
-          }
+          void await_suspend(std::coroutine_handle<>) noexcept { TaskPromiseBase::note_suspended(promise->self()); }
           constexpr void await_resume() noexcept {}
       };
-      return InitialAwaiter{};
+      return InitialAwaiter{this};
     }
 
     /// \note At final_suspend the coroutine frame is owned exclusively by the coroutine.
@@ -482,17 +486,22 @@ class BasicAsyncTaskPromise {
     {
       struct FinalAwaiter
       {
+          TaskPromiseBase* promise;
+
           [[nodiscard]] constexpr bool await_ready() noexcept { return false; }
 
-          std::coroutine_handle<> await_suspend(std::coroutine_handle<AsyncTask::promise_type> h) noexcept
+          std::coroutine_handle<> await_suspend(std::coroutine_handle<>) noexcept
           {
-            auto continuation = std::exchange(h.promise().continuation_, nullptr);
-            auto* completed_scheduler = h.promise().sched_;
-            bool cancelled = h.promise().is_cancel_on_resume();
-            auto eptr = h.promise().get_exception();
-            TRACE_MODULE(ASYNC, "Final suspend of coroutine", h, continuation, cancelled);
+            auto completed = promise->self();
+            auto continuation = std::exchange(promise->continuation_, {});
+            auto* continuation_exception = std::exchange(promise->continuation_exception_, nullptr);
+            auto* completed_scheduler = promise->sched_;
+            bool cancelled = promise->is_cancel_on_resume();
+            auto eptr = promise->get_exception();
+            TRACE_MODULE(ASYNC, "Final suspend of coroutine", completed.coroutine(), continuation.coroutine(),
+                         cancelled);
 
-            promise_type::destroy_and_track(h);
+            TaskPromiseBase::destroy_and_track(completed);
 
             TRACE_MODULE(ASYNC, "Destroy is done");
 
@@ -504,18 +513,24 @@ class BasicAsyncTaskPromise {
 
             if (continuation)
             {
-              if (eptr) continuation.promise().set_exception(eptr);
+              if (eptr)
+              {
+                if (continuation_exception)
+                  *continuation_exception = eptr;
+                else
+                  continuation.promise().set_exception(eptr);
+              }
 
               auto* continuation_scheduler = continuation.promise().sched_;
               if (continuation_scheduler && continuation_scheduler != completed_scheduler)
               {
                 auto continuation_task = continuation.promise().take_ownership();
-                AsyncTask::reschedule(std::move(continuation_task));
+                BasicTask::reschedule(std::move(continuation_task));
                 return std::noop_coroutine();
               }
 
-              promise_type::note_running(continuation);
-              return continuation;
+              TaskPromiseBase::note_running(continuation);
+              return continuation.coroutine();
             }
             else
               return std::noop_coroutine();
@@ -523,7 +538,7 @@ class BasicAsyncTaskPromise {
 
           void await_resume() noexcept {}
       };
-      return FinalAwaiter{};
+      return FinalAwaiter{this};
     }
 
     /// \brief Called when the coroutine returns normally.
@@ -544,8 +559,7 @@ class BasicAsyncTaskPromise {
       {
         bool const originating_failure = !exception_.load(std::memory_order_acquire);
         auto eptr = std::current_exception();
-        TaskRegistry::record_unhandled_exception(std::coroutine_handle<promise_type>::from_promise(*this), eptr,
-                                                 originating_failure);
+        TaskRegistry::record_unhandled_exception(this->self().coroutine(), eptr, originating_failure);
         this->set_exception(eptr);
         for (auto* node = exception_sinks_head_; node; node = node->next)
           propagate_unhandled_writer_exception(node->epoch.get(), eptr);
@@ -554,10 +568,33 @@ class BasicAsyncTaskPromise {
 
     // /// \brief Called when the task is ready to run again.
     // /// \param h The coroutine handle to schedule.
-    // void notify_ready(std::coroutine_handle<promise_type> h) { sched_->schedule(h); }
+    // void notify_ready(TaskHandle handle) { sched_->schedule(handle); }
+
+  private:
+    std::coroutine_handle<> self_{};
 };
 
-/// \brief Factory for producing multiple AsyncTask instances that share ownership of the same coroutine.
+/// \brief Promise type for ordinary AsyncTask coroutines.
+class AsyncTaskPromise final : public TaskPromiseBase {
+  public:
+    using TaskPromiseBase::TaskPromiseBase;
+
+    [[nodiscard]] AsyncTask get_return_object() noexcept
+    {
+      auto handle = std::coroutine_handle<AsyncTaskPromise>::from_promise(*this);
+      return AsyncTask(this->initialize_task(handle));
+    }
+};
+
+/// \brief Promise type for CUDA-constrained CudaTask coroutines.
+class CudaTaskPromise final : public TaskPromiseBase {
+  public:
+    using TaskPromiseBase::TaskPromiseBase;
+
+    [[nodiscard]] CudaTask get_return_object() noexcept;
+};
+
+/// \brief Factory for producing multiple BasicTask ownership claims for one coroutine.
 ///
 /// This is used when multiple awaiters (e.g., in an all(A, B, C) construct) need to take independent ownership
 /// of the same coroutine. The factory pre-allocates all references atomically and ensures that they are
@@ -565,27 +602,27 @@ class BasicAsyncTaskPromise {
 ///
 /// \note This class must only be created while the coroutine is unowned. Attempting to add awaiters after
 ///       the coroutine is active leads to race conditions and is undefined behavior.
-class AsyncTaskFactory {
+class TaskFactory {
   public:
-    /// \brief Dispense the next AsyncTask from the pool of shared ownership handles.
+    /// \brief Dispense the next BasicTask from the pool of shared ownership handles.
     /// \pre `count_ > 0` — there must be remaining tasks to dispense.
     /// \post One fewer task will be available from this factory.
-    /// \return An AsyncTask that shares ownership of the coroutine.
-    AsyncTask take_next()
+    /// \return A BasicTask that shares ownership of the coroutine.
+    BasicTask take_next()
     {
       DEBUG_PRECONDITION(count_ > 0);
       --count_;
-      return AsyncTask(handle_, AsyncTask::construction_key{});
+      return BasicTask(handle_, BasicTask::construction_key{});
     }
 
-    AsyncTaskFactory(AsyncTaskFactory&& other) noexcept
+    TaskFactory(TaskFactory&& other) noexcept
         : handle_(std::exchange(other.handle_, {})), count_(std::exchange(other.count_, 0))
     {}
 
     /// \brief Move assignment.
     /// \param other Source factory.
     /// \return Reference to `*this`.
-    AsyncTaskFactory& operator=(AsyncTaskFactory&& other) noexcept
+    TaskFactory& operator=(TaskFactory&& other) noexcept
     {
       if (this != &other)
       {
@@ -596,36 +633,34 @@ class AsyncTaskFactory {
       return *this;
     }
 
-    AsyncTaskFactory(AsyncTaskFactory const&) = delete;
-    AsyncTaskFactory& operator=(AsyncTaskFactory const&) = delete;
+    TaskFactory(TaskFactory const&) = delete;
+    TaskFactory& operator=(TaskFactory const&) = delete;
 
     /// \brief Destructor returns any unused ownership claims and may destroy the coroutine.
     ///
-    /// If any AsyncTask instances were not handed out via `take_next()`, they are released here.
+    /// If any BasicTask values were not handed out via `take_next()`, they are released here.
     /// If the coroutine is unowned after release, it will be destroyed.
-    ~AsyncTaskFactory() noexcept
+    ~TaskFactory() noexcept
     {
-      DEBUG_TRACE_MODULE(ASYNC, this, handle_, count_);
+      DEBUG_TRACE_MODULE(ASYNC, this, handle_.coroutine(), count_);
       this->release_outstanding();
     }
 
   private:
-    friend AsyncTask::promise_type;
-
-    using HandleType = std::coroutine_handle<AsyncTask::promise_type>;
+    friend class TaskPromiseBase;
 
     /// \brief Construct a factory with N shared references to the coroutine.
     /// \pre The coroutine must be unowned (`awaiter_count_ == 0`) at the time of construction.
     /// \param h The coroutine handle.
-    /// \param count The number of AsyncTask instances to dispense.
-    AsyncTaskFactory(HandleType h, int count) : handle_(h), count_(count)
+    /// \param count The number of BasicTask values to dispense.
+    TaskFactory(TaskHandle handle, int count) : handle_(handle), count_(count)
     {
       [[maybe_unused]] int prior_count = handle_.promise().add_awaiter(count);
       DEBUG_CHECK_EQUAL(prior_count, 0, "expected handle to be previously unowned!");
       // if we requested zero references, then we can destroy the handle immediately
       if (count_ == 0)
       {
-        AsyncTask::promise_type::destroy_and_track(handle_);
+        TaskPromiseBase::destroy_and_track(handle_);
         handle_ = {};
       }
     }
@@ -636,92 +671,87 @@ class AsyncTaskFactory {
       // Return the outstanding references. If this reaches zero, destroy the coroutine.
       if (count_ > 0 && handle_.promise().release_awaiter(count_))
       {
-        AsyncTask::promise_type::destroy_and_track(handle_);
+        TaskPromiseBase::destroy_and_track(handle_);
       }
       count_ = 0;
       handle_ = {};
     }
 
-    HandleType handle_;
+    TaskHandle handle_;
     size_t count_;
 };
 
-inline AsyncTaskFactory BasicAsyncTaskPromise::take_shared_ownership(int count)
-{
-  return AsyncTaskFactory(std::coroutine_handle<promise_type>::from_promise(*this), count);
-}
+inline TaskFactory TaskPromiseBase::take_shared_ownership(int count) { return TaskFactory(this->self(), count); }
 
-template <AsyncTaskAwaitable A>
-auto BasicAsyncTaskPromise::suspend_task_awaitable(std::coroutine_handle<promise_type> h, A& a)
+template <TaskAwaitable A> auto TaskPromiseBase::suspend_task_awaitable(TaskHandle current, A& awaitable)
 {
 #if UNI20_DEBUG_DAG
-  promise_type::note_await_dependency(h, a);
+  TaskPromiseBase::note_await_dependency(current, awaitable);
 #endif
-  using await_return_type = decltype(a.await_suspend(std::declval<AsyncTask>()));
+  using await_return_type = decltype(awaitable.await_suspend(std::declval<BasicTask>()));
   if constexpr (std::is_void_v<await_return_type>)
   {
-    auto t = h.promise().take_ownership();
-    a.await_suspend(std::move(t));
-    promise_type::note_suspended(h);
+    auto task = current.promise().take_ownership();
+    awaitable.await_suspend(std::move(task));
+    TaskPromiseBase::note_suspended(current);
     return;
   }
-  else if constexpr (std::is_same_v<await_return_type, AsyncTask>)
+  else if constexpr (std::is_same_v<await_return_type, BasicTask>)
   {
-    auto t_owning = h.promise().take_ownership();
-    auto t = a.await_suspend(std::move(t_owning));
-    return promise_type::resolve_await_suspend_result(h, std::move(t));
+    auto owning_task = current.promise().take_ownership();
+    auto task = awaitable.await_suspend(std::move(owning_task));
+    return TaskPromiseBase::resolve_await_suspend_result(current, std::move(task));
   }
   else
   {
     static_assert(std::is_same_v<await_return_type, void>,
-                  "Unsupported await_suspend() return type: must be void or AsyncTask");
+                  "Unsupported await_suspend() return type: must be void or BasicTask");
   }
 }
 
-template <AsyncTaskFactoryAwaitable A>
-auto BasicAsyncTaskPromise::suspend_factory_awaitable(std::coroutine_handle<promise_type> h, A& a)
+template <TaskFactoryAwaitable A> auto TaskPromiseBase::suspend_factory_awaitable(TaskHandle current, A& awaitable)
 {
 #if UNI20_DEBUG_DAG
-  promise_type::note_await_dependency(h, a);
+  TaskPromiseBase::note_await_dependency(current, awaitable);
 #endif
-  using await_return_type = decltype(a.await_suspend(std::declval<AsyncTaskFactory>()));
+  using await_return_type = decltype(awaitable.await_suspend(std::declval<TaskFactory>()));
   if constexpr (std::is_void_v<await_return_type>)
   {
-    auto factory = h.promise().take_shared_ownership(a.num_awaiters());
-    a.await_suspend(std::move(factory));
-    promise_type::note_suspended(h);
+    auto factory = current.promise().take_shared_ownership(awaitable.num_awaiters());
+    awaitable.await_suspend(std::move(factory));
+    TaskPromiseBase::note_suspended(current);
     return;
   }
-  else if constexpr (std::is_same_v<await_return_type, AsyncTask>)
+  else if constexpr (std::is_same_v<await_return_type, BasicTask>)
   {
-    auto factory = h.promise().take_shared_ownership(a.num_awaiters());
-    auto t = a.await_suspend(std::move(factory));
-    return promise_type::resolve_await_suspend_result(h, std::move(t));
+    auto factory = current.promise().take_shared_ownership(awaitable.num_awaiters());
+    auto task = awaitable.await_suspend(std::move(factory));
+    return TaskPromiseBase::resolve_await_suspend_result(current, std::move(task));
   }
   else
   {
     static_assert(std::is_same_v<await_return_type, void>,
-                  "Unsupported await_suspend() return type: must be void or AsyncTask");
+                  "Unsupported await_suspend() return type: must be void or BasicTask");
   }
 }
 
-/// \brief AsyncTaskAwaiter is a wrapper that manages the transfer of ownership from an AsyncTask into
-/// a coroutine_handle and back again.
-template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
+/// \brief Forward an awaitable using promise-neutral task ownership.
+template <TaskAwaitable A> struct TaskAwaiter //: public AsyncAwaiter
 {
     A awaitable;
-    AsyncTask::promise_type& promise;
+    TaskPromiseBase& promise;
 
     /// \brief Checks whether the wrapped awaitable is ready.
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() { return awaitable.await_ready(); }
 
-    /// \brief Suspend using AsyncTask ownership-transfer semantics.
-    /// \param h Current coroutine handle.
+    /// \brief Suspend using promise-neutral ownership-transfer semantics.
+    /// \tparam Promise Concrete enclosing promise type.
+    /// \param handle Current coroutine handle.
     /// \return Transfer handle selected by suspend logic.
-    auto await_suspend(std::coroutine_handle<AsyncTask::promise_type> h)
+    template <TaskPromise Promise> auto await_suspend(std::coroutine_handle<Promise> handle)
     {
-      return AsyncTask::promise_type::suspend_task_awaitable(h, awaitable);
+      return TaskPromiseBase::suspend_task_awaitable(TaskHandle::from(handle), awaitable);
     }
 
     /// \brief Resume wrapped awaitable and register explicit exception sinks if provided.
@@ -729,8 +759,7 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
     [[nodiscard]] decltype(auto) await_resume()
     {
 #if UNI20_DEBUG_DAG
-      AsyncTask::promise_type::note_await_dependency(
-          std::coroutine_handle<AsyncTask::promise_type>::from_promise(promise), awaitable);
+      TaskPromiseBase::note_await_dependency(promise.self(), awaitable);
 #endif
       if constexpr (requires { awaitable.register_exception_sinks(promise); })
       {
@@ -769,27 +798,28 @@ template <AsyncTaskAwaitable A> struct AsyncTaskAwaiter //: public AsyncAwaiter
 /// \tparam T Argument type.
 /// \param promise Promise receiving metadata.
 /// \param value Argument ignored by default.
-template <typename T> void ProcessCoroutineArgument(BasicAsyncTaskPromise* promise, T const& value)
+template <typename T> void ProcessCoroutineArgument(TaskPromiseBase* promise, T const& value)
 {
   static_cast<void>(promise);
   static_cast<void>(value);
 }
 
-template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public AsyncAwaiter
+template <TaskFactoryAwaitable A> struct TaskFactoryAwaiter //: public AsyncAwaiter
 {
     A awaitable;
-    AsyncTask::promise_type& promise;
+    TaskPromiseBase& promise;
 
     /// \brief Checks whether the wrapped awaitable is ready.
     /// \return `true` when no suspension is needed.
     [[nodiscard]] bool await_ready() { return awaitable.await_ready(); }
 
     /// \brief Suspend using shared-ownership await-suspend semantics.
-    /// \param h Current coroutine handle.
+    /// \tparam Promise Concrete enclosing promise type.
+    /// \param handle Current coroutine handle.
     /// \return Transfer handle selected by suspend logic.
-    auto await_suspend(std::coroutine_handle<AsyncTask::promise_type> h)
+    template <TaskPromise Promise> auto await_suspend(std::coroutine_handle<Promise> handle)
     {
-      return AsyncTask::promise_type::suspend_factory_awaitable(h, awaitable);
+      return TaskPromiseBase::suspend_factory_awaitable(TaskHandle::from(handle), awaitable);
     }
 
     /// \brief Resume wrapped awaitable and return its await result.
@@ -797,8 +827,7 @@ template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public
     [[nodiscard]] decltype(auto) await_resume()
     {
 #if UNI20_DEBUG_DAG
-      AsyncTask::promise_type::note_await_dependency(
-          std::coroutine_handle<AsyncTask::promise_type>::from_promise(promise), awaitable);
+      TaskPromiseBase::note_await_dependency(promise.self(), awaitable);
 #endif
       return awaitable.await_resume();
     }
@@ -807,4 +836,19 @@ template <AsyncTaskFactoryAwaitable A> struct AsyncTaskFactoryAwaiter //: public
     //
     // void set_exception(std::exception_ptr e) override final { awaitable.set_exception(e); }
 };
+
+template <TaskPromise Promise> TaskHandle TaskHandle::from(std::coroutine_handle<Promise> handle) noexcept
+{
+  if (!handle) return {};
+  return TaskHandle(std::coroutine_handle<>::from_address(handle.address()), std::addressof(handle.promise()));
+}
+
+inline TaskPromiseBase& TaskHandle::promise() const noexcept
+{
+  DEBUG_PRECONDITION(promise_ != nullptr);
+  return *promise_;
+}
+
 } // namespace uni20::async
+
+#include "async_task_impl.hpp"

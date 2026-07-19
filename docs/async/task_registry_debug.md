@@ -167,11 +167,11 @@ terminal/plain-text report from the same records; it does not require parsing DO
 which is useful when another subsystem needs both structured diagnostics and a DOT
 artifact from the same point in time.
 
-An exception escaping an `AsyncTask` coroutine reaches
-`BasicAsyncTaskPromise::unhandled_exception()` while that task is still present in
-the registry. The promise marks the task failed and records the exception summary
-before propagating the exception to writer sinks. Automatic diagnostics are
-debug-registry-only and opt-in:
+An exception escaping an `AsyncTask` or `CudaTask` coroutine reaches the shared
+`TaskPromiseBase::unhandled_exception()` implementation while that task is still
+present in the registry. The promise marks the task failed and records the
+exception summary before propagating the exception to writer sinks. Automatic
+diagnostics are debug-registry-only and opt-in:
 
 ```cpp
 auto previous = uni20::TaskRegistry::coroutine_exception_diagnostics_options();

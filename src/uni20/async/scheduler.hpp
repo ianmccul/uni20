@@ -5,12 +5,14 @@
 
 #pragma once
 
-#include "async_task.hpp"
 #include <functional>
 #include <thread>
 
 namespace uni20::async
 {
+
+class AsyncTask;
+class BasicTask;
 
 /// \brief Internal route for resuming an already-bound coroutine task.
 class IScheduler {
@@ -19,7 +21,7 @@ class IScheduler {
     virtual ~IScheduler() = default;
 
   private:
-    template <IsAsyncTaskPromise Promise> friend class BasicAsyncTask;
+    friend class BasicTask;
 
     /// \brief Schedule an already-bound coroutine to be resumed later.
     /// \param task Basic task state whose scheduler route is already fixed.

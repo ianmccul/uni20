@@ -55,7 +55,7 @@ struct TbbSchedulerWaitOptions
 /// thread participating in the arena.
 ///
 /// \note Each coroutine is pinned to the scheduler it was created on
-///       via BasicAsyncTaskPromise::sched_. Resumption always returns
+///       via TaskPromiseBase::sched_. Resumption always returns
 ///       to the same scheduler.
 /// \note This scheduler provides a configurable no-progress watchdog, but it
 ///       does not prove that the dependency graph contains a cycle. Use
@@ -129,11 +129,11 @@ class TbbScheduler final : public IAsyncScheduler {
     /// \brief Unpause the scheduler, and execute any tasks that have been queued.
     void resume() override
     {
-      std::vector<AsyncTask::handle_type> drained;
+      std::vector<TaskHandle> drained;
       {
         std::scoped_lock lock(pause_mutex_);
         paused_.store(false, std::memory_order_release);
-        AsyncTask::handle_type h;
+        TaskHandle h;
         while (queue_.try_pop(h))
         {
           drained.push_back(h);
@@ -142,7 +142,7 @@ class TbbScheduler final : public IAsyncScheduler {
 
       for (auto h : drained)
       {
-        TRACE_MODULE(ASYNC, "scheduling coroutine", h);
+        TRACE_MODULE(ASYNC, "scheduling coroutine", h.coroutine());
         this->dispatch_handle(h);
       }
     }
@@ -460,7 +460,7 @@ class TbbScheduler final : public IAsyncScheduler {
 
     void enqueue_task(BasicTask&& t)
     {
-      TRACE_MODULE(ASYNC, "TBB scheduler enqueuing task", t.h_);
+      TRACE_MODULE(ASYNC, "TBB scheduler enqueuing task", t.coroutine_handle());
       if (auto h = t.release_handle())
       {
         bool paused = paused_.load(std::memory_order_acquire);
@@ -484,14 +484,14 @@ class TbbScheduler final : public IAsyncScheduler {
       }
     }
 
-    void dispatch_handle(AsyncTask::handle_type h)
+    void dispatch_handle(TaskHandle handle)
     {
       this->submit_runnable_quantum();
       detail::enqueue_tbb_task(arena_, tg_,
-                               [this, h]() {
+                               [this, handle]() {
                                  ExecutionScope execution(*this);
-                                 TRACE_MODULE(ASYNC, "resuming coroutine", h);
-                                 h.promise().resume_and_track(h);
+                                 TRACE_MODULE(ASYNC, "resuming coroutine", handle.coroutine());
+                                 TaskPromiseBase::resume_and_track(handle);
                                  detail::service_tbb_task_registry_debug_requests();
                                },
                                {.scheduler = "TbbScheduler"});
@@ -502,7 +502,7 @@ class TbbScheduler final : public IAsyncScheduler {
     TbbSchedulerWaitOptions wait_options_;
     std::atomic<bool> paused_;
     std::mutex pause_mutex_;
-    oneapi::tbb::concurrent_queue<AsyncTask::handle_type> queue_;
+    oneapi::tbb::concurrent_queue<TaskHandle> queue_;
     std::atomic<std::size_t> runnable_quanta_{0};
     std::atomic<std::uint64_t> work_generation_{0};
     std::mutex suspended_waits_mutex_;

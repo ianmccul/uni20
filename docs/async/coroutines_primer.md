@@ -26,8 +26,9 @@ Key consequences:
 - When you `co_await` an awaitable in this system, Uni20 passes ownership of the current task to that awaitable.
   The awaitable either reschedules the task later, or transfers control to a nested task.
 
-This is why Uni20 uses an `AsyncTask`-taking `await_suspend(...)` style rather than directly returning raw
-`std::coroutine_handle<>` from awaiters.
+This is why Uni20 awaiters take the promise-neutral internal `BasicTask`
+ownership token rather than directly retaining raw `std::coroutine_handle<>`
+values.
 
 ## Nested Coroutine Tasks
 
@@ -35,15 +36,16 @@ An `AsyncTask` may directly `co_await` another `AsyncTask`. An unbound inner
 coroutine inherits the outer coroutine's scheduler. An inner coroutine already
 bound to the same scheduler runs through symmetric transfer; one bound to a
 different scheduler is submitted there and returns the suspended outer
-continuation to its original scheduler when it finishes. This same-promise
+continuation to its original scheduler when it finishes. This shared-runtime
 routing is implemented behavior, not a future CUDA facility.
 
-`AsyncTask` and `CudaTask` are distinct initial-admission types, but deliberately
-share `BasicAsyncTaskPromise` and the internal `BasicTask` representation. A CPU
-scheduler therefore cannot initially admit a `CudaTask`, while all suspended
-tasks use the same ownership, buffer awaiter, rescheduling, and continuation
-machinery. The scheduler recorded in the shared promise routes each later
-activation.
+`AsyncTask` and `CudaTask` are distinct initial-admission types with distinct
+promise types. Their promises derive from the common `TaskPromiseBase`, and all
+suspended tasks use the same promise-neutral `TaskHandle` identity and
+`BasicTask` ownership machinery. A CPU scheduler therefore cannot initially
+admit a `CudaTask`, while buffer awaiters, rescheduling, and continuations remain
+shared. Promise type identifies the task kind declared by the coroutine; the
+scheduler recorded in the common promise routes each later activation.
 
 An `AsyncTask` can await a `CudaTask` already bound to a CUDA scheduler. The CUDA
 child runs there and the parent returns to its own scheduler after the child

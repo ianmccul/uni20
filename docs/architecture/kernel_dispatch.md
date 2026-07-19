@@ -706,7 +706,8 @@ outer runtime decline; otherwise it is `maybe`.
   and CUDA *backends* never choose a scheduler. Global `schedule()` and nested
   task routing may select different schedulers for different concrete task
   types. `AsyncTask` and `CudaTask` have distinct initial-admission interfaces
-  but share one promise and internal `BasicTask` representation. An async
+  and distinct promises over one common promise implementation; suspended work
+  shares the promise-neutral `BasicTask` representation. An async
   wrapper creates or awaits a `CudaTask` already bound to the selected device
   scheduler; explicit live-task scheduler migration remains a separate
   capability.

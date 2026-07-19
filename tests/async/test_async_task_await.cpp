@@ -9,6 +9,14 @@
 using namespace uni20;
 using namespace uni20::async;
 
+namespace
+{
+
+struct NestedTaskError
+{};
+
+} // namespace
+
 /// \brief A coroutine that forwards one value from a read buffer to a write buffer.
 AsyncTask assign_task(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf, int& count)
 {
@@ -134,4 +142,31 @@ TEST(AsyncTaskAwaitTest, NestedTaskOnSameExplicitSchedulerUsesSymmetricTransfer)
 
   EXPECT_TRUE(scheduler.done());
   EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child", "parent after"}));
+}
+
+TEST(AsyncTaskAwaitTest, NestedTaskExceptionIsRethrownAtAwaitResume)
+{
+  DebugScheduler scheduler;
+  bool caught = false;
+
+  auto child = []() static -> AsyncTask {
+    throw NestedTaskError{};
+    co_return;
+  }();
+
+  auto parent = [](AsyncTask child, bool& caught) static -> AsyncTask {
+    try
+    {
+      co_await child;
+    }
+    catch (NestedTaskError const&)
+    {
+      caught = true;
+    }
+  }(std::move(child), caught);
+
+  scheduler.schedule(std::move(parent));
+  scheduler.run_all();
+
+  EXPECT_TRUE(caught);
 }

@@ -176,14 +176,14 @@ class TbbCudaScheduler final : public ICudaScheduler {
 
     void enqueue_task(BasicTask&& task)
     {
-      TRACE_MODULE(ASYNC, "TBB CUDA scheduler enqueuing task", task.h_);
+      TRACE_MODULE(ASYNC, "TBB CUDA scheduler enqueuing task", task.coroutine_handle());
       if (auto handle = task.release_handle())
       {
         detail::enqueue_tbb_task(arena_, tasks_,
                                  [this, handle] {
                                    detail::verify_tbb_cuda_device(device_.ordinal());
-                                   TRACE_MODULE(ASYNC, "TBB CUDA scheduler resuming coroutine", handle);
-                                   handle.promise().resume_and_track(handle);
+                                   TRACE_MODULE(ASYNC, "TBB CUDA scheduler resuming coroutine", handle.coroutine());
+                                   TaskPromiseBase::resume_and_track(handle);
                                    detail::service_tbb_cuda_task_registry_debug_requests();
                                  },
                                  {.scheduler = "TbbCudaScheduler", .device = device_.ordinal()});

@@ -179,7 +179,7 @@ class EpochContext {
 
     struct TaskState
     {
-        AsyncTask task;
+        BasicTask task;
     };
 
     struct DebugSnapshot
@@ -410,11 +410,11 @@ class EpochContext {
     /// \brief Bind a coroutine to act as the writer.
     /// \param task The coroutine task to register.
     /// \pre Must follow writer_acquire()
-    void writer_bind(AsyncTask&& task) noexcept
+    void writer_bind(BasicTask&& task) noexcept
     {
       std::unique_lock lock(mtx_);
-      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_bind", this, counter_, task.h_, phase_, num_writers_,
-                         writer_active_);
+      DEBUG_TRACE_MODULE(ASYNC, "EpochContext::writer_bind", this, counter_, task.coroutine_handle(), phase_,
+                         num_writers_, writer_active_);
       DEBUG_CHECK(phase_ <= Phase::Writing);
       DEBUG_CHECK(phase_ != Phase::Started); // if this Epoch was started, it should have transitioned to Writing by now
 
@@ -554,7 +554,7 @@ class EpochContext {
       reader_ready_waiters_.push_back(std::move(notify));
     }
 
-    void reader_bind(AsyncTask&& h)
+    void reader_bind(BasicTask&& h)
     {
       std::unique_lock lock(mtx_);
       DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind", this, counter_, phase_);
@@ -566,11 +566,11 @@ class EpochContext {
         std::exception_ptr my_eptr = eptr_;
         lock.unlock();
         if (my_eptr) h.exception_on_resume(my_eptr);
-        AsyncTask::reschedule(std::move(h));
+        BasicTask::reschedule(std::move(h));
       }
       else
       {
-        DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind is adding the reader task", h.h_);
+        DEBUG_TRACE_MODULE(ASYNC, "EpochContext::reader_bind is adding the reader task", h.coroutine_handle());
         reader_tasks_.emplace_back(std::move(h));
       }
     }
@@ -673,7 +673,7 @@ class EpochContext {
       if (eptr_) task.task.exception_on_resume(eptr_);
       writer_active_ = true;
       lock.unlock();
-      AsyncTask::reschedule(std::move(task.task));
+      BasicTask::reschedule(std::move(task.task));
     }
 
     void execute_readers_locked(std::unique_lock<std::mutex> lock)
@@ -699,7 +699,7 @@ class EpochContext {
       for (auto&& task : my_reader_tasks)
       {
         if (my_eptr) task.task.exception_on_resume(my_eptr);
-        AsyncTask::reschedule(std::move(task.task));
+        BasicTask::reschedule(std::move(task.task));
       }
     }
 
@@ -748,8 +748,8 @@ class EpochContext {
     // bool inherit_error_state{true};       // written only before phase_ = Reading
     // bool cancelled_{false};               // written only before phase_ = Reading
     // std::exception_ptr eptr_{nullptr};    // written only before phase_ = Reading
-    // AsyncTask writer_tasks_;               // written only before phase_ = Writing
-    // std::vector<AsyncTask> reader_tasks_; // protected by mutex
+    // BasicTask writer_tasks_;               // written only before phase_ = Writing
+    // std::vector<BasicTask> reader_tasks_; // protected by mutex
     // std::mutex reader_tasks_mtx_;         // protects reader_tasks_
     //
     // starting next_epoch_ is gated on phase_ transitioning to Finished.
@@ -901,9 +901,9 @@ template <typename T> class EpochContextReader {
 
     /// \brief Suspend a coroutine task as a reader of this epoch.
     /// \param t The coroutine task to register.
-    void suspend(AsyncTask&& t)
+    void suspend(BasicTask&& t)
     {
-      TRACE_MODULE(ASYNC, "EpochContextReader::suspend", this, t.h_, epoch_.get(), epoch_->counter_);
+      TRACE_MODULE(ASYNC, "EpochContextReader::suspend", this, t.coroutine_handle(), epoch_.get(), epoch_->counter_);
       epoch_->reader_bind(std::move(t));
     }
 
@@ -1077,7 +1077,7 @@ template <typename T> class EpochContextWriter {
 
     /// \brief Suspend the writer task and submit to the epoch context
     /// \param t The coroutine to bind and schedule.
-    void suspend(AsyncTask&& t)
+    void suspend(BasicTask&& t)
     {
       DEBUG_CHECK(!acquired_);
       epoch_->writer_bind(std::move(t));

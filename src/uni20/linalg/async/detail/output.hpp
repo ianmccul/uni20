@@ -34,7 +34,7 @@ template <class Alias> class AsyncAliasWriteDescriptorAwaiter {
 
     [[nodiscard]] bool await_ready() const noexcept { return output_->await_ready(); }
 
-    void await_suspend(async::AsyncTask task) noexcept { output_->await_suspend(std::move(task)); }
+    void await_suspend(async::BasicTask task) noexcept { output_->await_suspend(std::move(task)); }
 
     [[nodiscard]] Alias const& await_resume() { return output_->await_resume().get(); }
 

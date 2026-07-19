@@ -27,7 +27,7 @@ template <class Alpha>
 using matrix_product_alpha_awaiter_t = std::remove_cvref_t<decltype(async::read(std::declval<Alpha>()))>;
 
 template <class Alpha, class Scalar>
-concept MatrixProductAlpha = async::AsyncTaskAwaitable<matrix_product_alpha_awaiter_t<Alpha>> &&
+concept MatrixProductAlpha = async::TaskAwaitable<matrix_product_alpha_awaiter_t<Alpha>> &&
                              requires(matrix_product_alpha_awaiter_t<Alpha>& awaiter) {
                                { awaiter.await_resume() } -> std::convertible_to<Scalar>;
                              };

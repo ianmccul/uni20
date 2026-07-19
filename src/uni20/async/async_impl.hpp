@@ -71,36 +71,33 @@ T Async<T>::move_from_wait()
 /// \tparam A Awaitable type.
 /// \param a Awaitable object.
 /// \return Task-aware awaiter bound to this promise.
-template <AsyncTaskAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A& a)
-{
-  return AsyncTaskAwaiter<A&>(a, *this);
-}
+template <TaskAwaitable A> inline auto TaskPromiseBase::await_transform(A& a) { return TaskAwaiter<A&>(a, *this); }
 
 /// \brief Transforms rvalue awaitables into task-aware awaiters.
 /// \tparam A Awaitable type.
 /// \param a Awaitable object.
 /// \return Task-aware awaiter bound to this promise.
-template <AsyncTaskAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A&& a)
+template <TaskAwaitable A> inline auto TaskPromiseBase::await_transform(A&& a)
 {
-  return AsyncTaskAwaiter<std::remove_reference_t<A>>(std::move(a), *this);
+  return TaskAwaiter<std::remove_reference_t<A>>(std::move(a), *this);
 }
 
 /// \brief Transforms lvalue awaitable factories into task-aware awaiters.
 /// \tparam A Awaitable-factory type.
 /// \param a Awaitable factory object.
 /// \return Task-aware awaiter bound to this promise.
-template <AsyncTaskFactoryAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A& a)
+template <TaskFactoryAwaitable A> inline auto TaskPromiseBase::await_transform(A& a)
 {
-  return AsyncTaskFactoryAwaiter<A&>(a, *this);
+  return TaskFactoryAwaiter<A&>(a, *this);
 }
 
 /// \brief Transforms rvalue awaitable factories into task-aware awaiters.
 /// \tparam A Awaitable-factory type.
 /// \param a Awaitable factory object.
 /// \return Task-aware awaiter bound to this promise.
-template <AsyncTaskFactoryAwaitable A> inline auto BasicAsyncTaskPromise::await_transform(A&& a)
+template <TaskFactoryAwaitable A> inline auto TaskPromiseBase::await_transform(A&& a)
 {
-  return AsyncTaskFactoryAwaiter<std::remove_reference_t<A>>(std::move(a), *this);
+  return TaskFactoryAwaiter<std::remove_reference_t<A>>(std::move(a), *this);
 }
 
 } // namespace uni20::async

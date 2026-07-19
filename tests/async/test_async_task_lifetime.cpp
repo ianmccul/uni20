@@ -18,7 +18,7 @@ TEST(AsyncTaskLifetimeDeathTest, DeathOnUncancelledDestruction)
 {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
   EXPECT_DEATH([]() { auto task = make_suspended_task(); }(),
-               "unexpected destruction of an active AsyncTask without cancellation");
+               "unexpected destruction of an active task without cancellation");
 }
 
 TEST(AsyncTaskLifetimeTest, SetCancelOnResumeSetsPromiseFlag)

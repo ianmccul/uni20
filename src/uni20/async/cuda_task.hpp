@@ -1,5 +1,7 @@
-/// \file cuda_task.hpp
-/// \brief Defines the CUDA task admission type and scheduler interface.
+/**
+ * \file cuda_task.hpp
+ * \brief Defines the CUDA task admission type and scheduler interface.
+ */
 
 #pragma once
 
@@ -8,12 +10,11 @@
 namespace uni20::async
 {
 
-/// \brief CUDA-oriented initial-admission type sharing the canonical task promise.
+/// \brief CUDA-constrained public task type used for typed initial admission.
 class CudaTask final : public BasicTask {
   public:
     using base_type = BasicTask;
-    using promise_type = BasicAsyncTaskPromise;
-    using handle_type = base_type::handle_type;
+    using promise_type = CudaTaskPromise;
 
     CudaTask() = default;
     CudaTask(CudaTask const&) = delete;
@@ -26,22 +27,20 @@ class CudaTask final : public BasicTask {
     /// \return Reference to this task for call chaining.
     CudaTask& debug_name(std::string const& label)
     {
-      this->base_type::debug_name(label);
+      this->BasicTask::debug_name(label);
       return *this;
     }
 
   private:
-    struct construction_key
-    {};
+    explicit CudaTask(TaskHandle handle) noexcept : BasicTask(handle, construction_key{}) {}
 
-    CudaTask(handle_type handle, construction_key) noexcept : base_type(handle) {}
-
-    friend class BasicTaskReturnObject;
+    friend class CudaTaskPromise;
 };
 
-inline BasicTaskReturnObject::operator CudaTask() && noexcept
+inline CudaTask CudaTaskPromise::get_return_object() noexcept
 {
-  return CudaTask(this->release(), CudaTask::construction_key{});
+  auto handle = std::coroutine_handle<CudaTaskPromise>::from_promise(*this);
+  return CudaTask(this->initialize_task(handle));
 }
 
 /// \brief Scheduler interface for initial `CudaTask` admission.

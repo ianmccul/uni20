@@ -1,10 +1,14 @@
-/// \file async_task.hpp
-/// \brief Defines BasicAsyncTask, the fire-and-forget coroutine handle.
+/**
+ * \file async_task.hpp
+ * \brief Promise-neutral coroutine task ownership and the public AsyncTask type.
+ */
 
 #pragma once
 
 #include "task_registry.hpp"
+
 #include <atomic>
+#include <concepts>
 #include <coroutine>
 #include <exception>
 #include <optional>
@@ -16,322 +20,173 @@ namespace uni20::async
 {
 
 class IScheduler;
+class TaskPromiseBase;
+class AsyncTaskPromise;
+class CudaTaskPromise;
+class TaskFactory;
 class AsyncTask;
 class CudaTask;
-class AsyncTaskFactory;
-class BasicTaskReturnObject;
 
-/// \brief Forward declaration for the base async-task promise type.
-class BasicAsyncTaskPromise;
-
-#if 0 // an experiment
-class AsyncAwaiter {
-  public:
-    virtual void set_cancel() = 0;
-    virtual void set_exception(std::exception_ptr e) = 0;
-};
-#endif
-
-class BasicAsyncTaskPromise;
-
-/// \brief Promise concept accepted by `BasicAsyncTask`.
-/// \details Requires inheritance from `BasicAsyncTaskPromise`.
+/// \brief Promise concept accepted by Uni20 task machinery.
 template <typename T>
-concept IsAsyncTaskPromise = std::derived_from<T, BasicAsyncTaskPromise>;
+concept TaskPromise = std::derived_from<T, TaskPromiseBase>;
 
-/// \brief A fire-and-forget coroutine handle.
-template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAwaiter {
+/// \brief Non-owning erased identity for one Uni20 coroutine frame.
+/// \details The coroutine and promise pointers are always constructed together
+///          from the original typed coroutine handle. A TaskHandle does not add
+///          or release an ownership claim and never destroys a frame
+///          automatically.
+class TaskHandle {
   public:
-    using promise_type = Promise;
-    using handle_type = std::coroutine_handle<promise_type>;
+    constexpr TaskHandle() noexcept = default;
 
-    /// \brief Release the coroutine if this object owns the final reference.
-    ~BasicAsyncTask() noexcept;
+    template <TaskPromise Promise> [[nodiscard]] static TaskHandle from(std::coroutine_handle<Promise> handle) noexcept;
 
-    /// \brief Reports whether a coroutine handle can be destroyed safely.
-    /// \param h Candidate coroutine handle.
-    /// \return `true` when destruction is safe.
-  private:
-    [[nodiscard]] bool can_destroy_coroutine(handle_type h) const noexcept;
+    [[nodiscard]] explicit constexpr operator bool() const noexcept { return static_cast<bool>(coroutine_); }
 
-    void release() noexcept;
-    void destroy_owned_coroutine() noexcept;
+    [[nodiscard]] constexpr std::coroutine_handle<> coroutine() const noexcept { return coroutine_; }
 
-  public:
-    // bool done() const noexcept { return !h_ || h_.done(); }
+    [[nodiscard]] TaskPromiseBase& promise() const noexcept;
 
-    /// \brief Check if this task refers to a coroutine.
-    /// \return true if the handle is non-null.
-    explicit operator bool() const noexcept { return static_cast<bool>(h_); }
+    [[nodiscard]] bool done() const noexcept { return !coroutine_ || coroutine_.done(); }
 
-    /// \brief Get the raw coroutine handle for debug/introspection.
-    /// \return Generic coroutine handle, or null handle when this task is empty.
-    [[nodiscard]] std::coroutine_handle<> coroutine_handle() const noexcept
+    friend constexpr bool operator==(TaskHandle lhs, TaskHandle rhs) noexcept
     {
-      if (!h_) return {};
-      return std::coroutine_handle<>::from_address(h_.address());
+      return lhs.coroutine_ == rhs.coroutine_;
     }
 
-    /// \brief Assign an optional debug label for task-registry graph output.
-    /// \param label Human-readable label used only by debug diagnostics.
-    /// \return Reference to this task for call chaining.
-    BasicAsyncTask& debug_name(std::string const& label)
+  private:
+    TaskHandle(std::coroutine_handle<> coroutine, TaskPromiseBase* promise) noexcept
+        : coroutine_(coroutine), promise_(promise)
+    {
+      DEBUG_CHECK_EQUAL(static_cast<bool>(coroutine_), promise_ != nullptr);
+    }
+
+    std::coroutine_handle<> coroutine_{};
+    TaskPromiseBase* promise_ = nullptr;
+
+    friend class TaskPromiseBase;
+};
+
+/// \brief Move-only promise-neutral ownership claim for a Uni20 coroutine.
+/// \details BasicTask is the internal task currency used by awaiters,
+///          continuations, and schedulers after typed initial admission.
+class BasicTask {
+  public:
+    /// \brief Construct an empty task.
+    BasicTask() noexcept = default;
+
+    BasicTask(BasicTask const&) = delete;
+    BasicTask& operator=(BasicTask const&) = delete;
+
+    /// \brief Move-construct one ownership claim.
+    BasicTask(BasicTask&& other) noexcept
+        : handle_(std::exchange(other.handle_, {})), await_exception_(std::exchange(other.await_exception_, {}))
+    {}
+
+    /// \brief Move-assign one ownership claim.
+    BasicTask& operator=(BasicTask&& other) noexcept;
+
+    /// \brief Release the ownership claim and destroy the frame when appropriate.
+    ~BasicTask() noexcept;
+
+    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(handle_); }
+
+    /// \brief Return the erased task identity.
+    [[nodiscard]] TaskHandle handle() const noexcept { return handle_; }
+
+    /// \brief Return the generic coroutine handle for diagnostics.
+    [[nodiscard]] std::coroutine_handle<> coroutine_handle() const noexcept { return handle_.coroutine(); }
+
+    /// \brief Assign an optional debug label.
+    BasicTask& debug_name(std::string const& label)
     {
       TaskRegistry::name_task(this->coroutine_handle(), label);
       return *this;
     }
 
-    /// \brief Resume the coroutine.
-    /// \pre We are the sole owner of the coroutine.
-    /// \note This releases ownership to the scheduler.
+    /// \brief Resume the coroutine and transfer this ownership claim.
     void resume();
 
-    /// \brief Abandon/leak the coroutine. This is useful only for emergencies, eg to unwind the stack without
-    /// causing further errors.
-    /// \pre We are the sole owner of the coroutine.
-    /// \note This releases ownership to the scheduler.
+    /// \brief Intentionally leak the coroutine during emergency unwinding.
     void abandon_leak();
 
-    /// \brief Transfer ownership of the coroutine and get the handle.
-    /// \pre We are the sole owner of the coroutine.
-    /// \note The returned handle may be null if the coroutine has been cancelled.
-    /// \return Coroutine handle previously managed by this task.
-    handle_type release_handle();
+    /// \brief Release this ownership claim to a scheduler activation.
+    [[nodiscard]] TaskHandle release_handle();
 
-    /// \brief Indicate that the coroutine should be cancelled upon resume.
+    /// \brief Request cancellation before the next resume.
     void set_cancel_on_resume() noexcept;
 
-    /// \brief Indicate that the coroutine should pass an exception upon resume.
-    /// \param e Exception pointer to deliver when resumed.
-    void exception_on_resume(std::exception_ptr e) noexcept;
+    /// \brief Store an exception for delivery on the next resume.
+    void exception_on_resume(std::exception_ptr error) noexcept;
 
-    /// \brief Destroy the coroutine.
-    /// \pre We are the sole owner of the coroutine.
-    /// \note This releases ownership.
+    /// \brief Destroy an exclusively owned coroutine.
     void destroy() noexcept;
 
-    /// \brief Attempt to set the coroutine scheduler to use when rescheduling the task.
-    /// \param sched Scheduler pointer to install on the promise.
-    /// \return true if the handle is non-null (in which case the scheduler has been set).
-    bool set_scheduler(IScheduler* sched);
+    /// \brief Install the scheduler used for later resumption.
+    [[nodiscard]] bool set_scheduler(IScheduler* scheduler);
 
-    /// \brief Retrieve the preferred NUMA node associated with the coroutine, if any.
-    /// \return Optional containing the preferred NUMA node.
     [[nodiscard]] std::optional<int> preferred_numa_node() const noexcept;
-
-    /// \brief Update the preferred NUMA node associated with the coroutine.
-    /// \param node Preferred node index, or empty to clear the preference.
     void set_preferred_numa_node(std::optional<int> node) noexcept;
 
-    /// \brief Resubmit a suspended BasicAsyncTask to its scheduler, if this is the sole remaining owner.
-    ///
-    /// This transfers ownership to the scheduler only if the task has exclusive ownership of the coroutine.
-    /// If other awaiters remain, the task is discarded and not rescheduled.
-    ///
-    /// \pre The scheduler in the promise must have been set.
-    /// \param task The task to be conditionally rescheduled.
-    static void reschedule(BasicAsyncTask task);
+    /// \brief Reschedule a task when it becomes the sole ownership claimant.
+    static void reschedule(BasicTask task);
 
-    /// \brief Retain the task only if it is the sole remaining owner.
-    ///
-    /// This operation checks the awaiter count. If this is the last owner,
-    /// then return the task unchanged. Otherwise, releases the task and leaves
-    /// it equivalent to a moved-from state.
-    ///
-    /// \return The original task if it had exclusive ownership; otherwise a null task.
-    static BasicAsyncTask make_sole_owner(BasicAsyncTask&& task);
+    /// \brief Retain a task only when it is the sole ownership claimant.
+    [[nodiscard]] static BasicTask make_sole_owner(BasicTask&& task);
 
-    /// \brief Construct an empty task handle.
-    BasicAsyncTask() = default;
+    [[nodiscard]] bool await_ready() const noexcept { return !handle_ || handle_.done(); }
 
-    BasicAsyncTask(const BasicAsyncTask&) = delete;            ///< non-copyable
-    BasicAsyncTask& operator=(const BasicAsyncTask&) = delete; ///< non-copyable
+    /// \brief Await a nested task from any Uni20 task promise type.
+    template <TaskPromise ParentPromise>
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<ParentPromise> parent);
 
-    /// \brief Move-construct.
-    /// \param other Task being moved from.
-    BasicAsyncTask(BasicAsyncTask&& other) noexcept : h_{other.h_} { other.h_ = nullptr; }
+    void await_resume();
 
-    /// \brief Move-assign.
-    /// \param other Task being moved from.
-    /// \return Reference to *this after transfer.
-    BasicAsyncTask& operator=(BasicAsyncTask&& other) noexcept;
+  protected:
+    struct construction_key
+    {};
 
-    //
-    // Awaiter interface
-    // If we co_await on an BasicAsyncTask, then it has the semantics of transferring execution
-    // to that task, and then resuming the current coroutine afterwards.
-    // if coroutine Outer contains co_await Inner, then we end up with
-    // Inner.await_suspend(Outer)
-    //
-
-    /// \brief Check whether the coroutine has already completed.
-    /// \return true if no suspension is required.
-    [[nodiscard]] bool await_ready() const noexcept { return !h_ || h_.done(); }
-
-    /// \brief Transfer execution to the managed coroutine or route it through its selected scheduler.
-    /// \param Outer Handle to the awaiting coroutine.
-    /// \return Immediate transfer handle, or a no-op handle when the child was queued.
-    std::coroutine_handle<> await_suspend(handle_type Outer);
-
-    /// \brief Resume the awaiting coroutine after completion.
-    void await_resume() const;
-
-    // void set_cancel() override final { cancel_.store(true, std::memory_order_release); }
-    //
-    // void set_exception(std::exception_ptr e) override final
-    // {
-    //   exception_ = e;
-    //   cancel_.store(true, std::memory_order_release);
-    // }
-
-    // /// \brief Flag the coroutine so that the next resume will deliver a cancellation.
-    // void cancel_if_unwritten()
-    // {
-    //   TRACE_MODULE(ASYNC, "BasicAsyncTask::cancel_if_unwritten", this, h_);
-    //   cancel_.store(true, std::memory_order_release);
-    // }
-    //
-    // /// \brief Indicate that the coroutine produced a value successfully.
-    // void written()
-    // {
-    //   TRACE_MODULE(ASYNC, "BasicAsyncTask::written", this, h_);
-    //   cancel_.store(false, std::memory_order_release);
-    // }
-
-    // void set_current_awaiter(AsyncAwaiter* awaiter)
-    // {
-    //   DEBUG_CHECK(!current_awaiter_);
-    //   current_awaiter_ = awaiter;
-    // }
-    // void clear_current_awaiter() noexcept
-    // {
-    //   DEBUG_CHECK(current_awaiter_);
-    //   current_awaiter_ = nullptr;
-    // }
-
-    // FIXME:
-    // private:
-    handle_type h_; ///< Underlying coroutine handle.
-
-    // When a buffer detects an error condition, we need to know which awaiter to send it to
-    //  AsyncAwaiter* current_awaiter_ = nullptr;
-
-    /// \brief indicates that the coroutine has an error condition waiting on resume.
-    /// If eptr_ is non-null, then an exception has been thrown; otherwise the buffer has been cancelled
-    /// \note this is only used by the AsyncTask awaiter interface
-    // std::exception_ptr exception_ = nullptr;
-    // std::atomic<bool> cancel_ = false;
-
-    // inline static IScheduler* sched_ = nullptr;
-
-    /// \brief Construct from a coroutine handle.
-    /// \param h The coroutine handle.
-    explicit BasicAsyncTask(std::coroutine_handle<promise_type> h) noexcept : h_(h) {}
-
-    // explicit BasicAsyncTask(std::coroutine_handle<promise_type> h, AsyncAwaiter* awaiter) noexcept
-    //     : h_(h) //, current_awaiter_(awaiter)
-    // {}
-
-    friend promise_type;
-    friend class BasicAsyncTaskFactory;
-    friend class BasicTaskReturnObject;
-    friend struct AsyncTaskTestAccess;
-};
-
-/// \brief Shared internal task representation used after initial scheduler admission.
-using BasicTask = BasicAsyncTask<BasicAsyncTaskPromise>;
-
-/// \brief Promise-produced proxy that constructs one concrete initial-admission task type.
-class BasicTaskReturnObject {
-  public:
-    BasicTaskReturnObject(BasicTaskReturnObject const&) = delete;
-    BasicTaskReturnObject& operator=(BasicTaskReturnObject const&) = delete;
-
-    BasicTaskReturnObject(BasicTaskReturnObject&& other) noexcept : handle_(std::exchange(other.handle_, {})) {}
-
-    BasicTaskReturnObject& operator=(BasicTaskReturnObject&& other) noexcept
-    {
-      if (this != &other)
-      {
-        this->reset();
-        handle_ = std::exchange(other.handle_, {});
-      }
-      return *this;
-    }
-
-    /// \brief Release an unconverted return object and its coroutine ownership.
-    ~BasicTaskReturnObject() noexcept { this->reset(); }
-
-    /// \brief Construct the canonical host task return type.
-    operator AsyncTask() && noexcept;
-
-    /// \brief Construct the CUDA task return type.
-    operator CudaTask() && noexcept;
+    explicit BasicTask(TaskHandle handle, construction_key) noexcept : handle_(handle) {}
 
   private:
-    explicit BasicTaskReturnObject(BasicTask::handle_type handle) noexcept : handle_(handle) {}
+    [[nodiscard]] bool can_destroy_coroutine(TaskHandle handle) const noexcept;
+    [[nodiscard]] TaskHandle release_ownership();
+    void release() noexcept;
+    void destroy_owned_coroutine() noexcept;
 
-    [[nodiscard]] BasicTask::handle_type release() noexcept
-    {
-      CHECK(handle_);
-      return std::exchange(handle_, {});
-    }
+    TaskHandle handle_{};
+    std::exception_ptr await_exception_{};
 
-    void reset() noexcept
-    {
-      if (handle_)
-      {
-        BasicTask task(handle_);
-        handle_ = {};
-      }
-    }
-
-    BasicTask::handle_type handle_{};
-
-    friend class BasicAsyncTaskPromise;
+    friend class TaskPromiseBase;
+    friend class TaskFactory;
+    friend struct AsyncTaskTestAccess;
 };
 
 /// \brief Canonical host-oriented coroutine task type.
 class AsyncTask final : public BasicTask {
   public:
     using base_type = BasicTask;
-    using promise_type = BasicAsyncTaskPromise;
-    using handle_type = base_type::handle_type;
+    using promise_type = AsyncTaskPromise;
 
-    /// \brief Construct an empty task.
     AsyncTask() = default;
-
     AsyncTask(AsyncTask const&) = delete;
     AsyncTask& operator=(AsyncTask const&) = delete;
     AsyncTask(AsyncTask&&) noexcept = default;
     AsyncTask& operator=(AsyncTask&&) noexcept = default;
 
-    /// \brief Assign an optional debug label while preserving the concrete task type.
-    /// \param label Human-readable label used only by debug diagnostics.
-    /// \return Reference to this task for call chaining.
     AsyncTask& debug_name(std::string const& label)
     {
-      this->base_type::debug_name(label);
+      this->BasicTask::debug_name(label);
       return *this;
     }
 
   private:
-    struct construction_key
-    {};
+    explicit AsyncTask(TaskHandle handle) noexcept : BasicTask(handle, construction_key{}) {}
 
-    /// \brief Construct a task from its coroutine handle.
-    AsyncTask(handle_type handle, construction_key) noexcept : base_type(handle) {}
-
-    friend promise_type;
-    friend class AsyncTaskFactory;
-    friend class BasicTaskReturnObject;
+    friend class AsyncTaskPromise;
 };
-
-inline BasicTaskReturnObject::operator AsyncTask() && noexcept
-{
-  return AsyncTask(this->release(), AsyncTask::construction_key{});
-}
 
 } // namespace uni20::async
 
-#include "async_task_impl.hpp"
+#include "async_task_promise.hpp"

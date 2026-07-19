@@ -45,7 +45,7 @@ class DebugScheduler final : public IAsyncScheduler {
     /// \param task An AsyncTask bound to *this* scheduler.
     void schedule(AsyncTask&& task) override
     {
-      TRACE_MODULE(ASYNC, "Scheduling a task", &task, task.h_);
+      TRACE_MODULE(ASYNC, "Scheduling a task", &task, task.coroutine_handle());
       TaskRegistry::record_task_scheduled(task.coroutine_handle());
       if (task.set_scheduler(this))
       {
@@ -111,7 +111,7 @@ class DebugScheduler final : public IAsyncScheduler {
     // Internal resubmission
     void reschedule(BasicTask&& task) override
     {
-      TRACE_MODULE(ASYNC, "Rescheduling a task", &task, task.h_);
+      TRACE_MODULE(ASYNC, "Rescheduling a task", &task, task.coroutine_handle());
       // Assume sched_ is already set
       Handles_.push_back(std::move(task));
     }
@@ -248,7 +248,7 @@ inline void DebugScheduler::run()
   std::reverse(H.begin(), H.end());
   for (auto&& h : H)
   {
-    TRACE_MODULE(ASYNC, "resuming coroutine...", &h, h.h_);
+    TRACE_MODULE(ASYNC, "resuming coroutine...", &h, h.coroutine_handle());
     h.resume();
     CHECK(!h);
     TRACE_MODULE(ASYNC, "here", &h, Handles_.size());

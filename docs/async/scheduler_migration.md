@@ -1,9 +1,9 @@
 # Scheduler Routing and Task Domains
 
-**Status:** concrete host and CUDA initial-admission types, shared suspended-task
+**Status:** concrete host and CUDA promise types, promise-neutral suspended-task
 routing, cross-scheduler nested continuations, and deterministic plus oneTBB
-device-bound CUDA schedulers are implemented. Explicit live-task migration
-remains future work.
+device-bound CUDA schedulers are implemented. CUDA-specific nesting legality
+and explicit live-task migration remain future work.
 
 This note separates three related mechanisms: initial scheduler admission,
 rescheduling after suspension, and nested continuation routing. CUDA backend and
@@ -18,15 +18,18 @@ Related documents:
 - [oneTBB Execution Primer](tbb_execution_primer.md) distinguishes an arena,
   its slots, and the physical threads that participate.
 
-## Concrete Admission, Shared Execution
+## Concrete Promises, Shared Execution
 
-Uni20 deliberately uses two concrete task types over one coroutine promise and
-one internal task representation:
+Uni20 uses distinct public task and promise types over one shared promise
+implementation and one internal ownership representation:
 
 ```text
-AsyncTask ----\
-               +--> BasicTask = BasicAsyncTask<BasicAsyncTaskPromise>
-CudaTask -----/
+AsyncTask --> AsyncTaskPromise --\
+                                  +--> TaskPromiseBase
+CudaTask  --> CudaTaskPromise  --/
+
+TaskHandle  = non-owning erased coroutine identity + TaskPromiseBase pointer
+BasicTask   = move-only ownership claim for either concrete task kind
 ```
 
 The concrete type exists only at initial scheduler admission:
@@ -35,8 +38,9 @@ The concrete type exists only at initial scheduler admission:
 - `ICudaScheduler::schedule(CudaTask&&)` admits CUDA tasks;
 - neither scheduler interface can accidentally admit the other concrete type.
 
-After admission, a task is stored and routed as `BasicTask`. Both concrete task
-types consequently use the same tested implementation for:
+Each concrete promise constructs its declared public task directly. After
+admission, schedulers and awaiters store and route the task as `BasicTask`.
+Both concrete task types consequently use the same tested implementation for:
 
 - coroutine ownership and cancellation;
 - buffer and epoch awaiters;
@@ -44,15 +48,19 @@ types consequently use the same tested implementation for:
 - scheduler recording and rescheduling;
 - nested-task continuations and cross-scheduler return.
 
-`BasicAsyncTaskPromise::get_return_object()` cannot know the coroutine
-function's declared return type. It therefore returns an internal move-only
-`BasicTaskReturnObject`. That proxy has private conversions to `AsyncTask` and
-`CudaTask`; private construction keys prevent unrelated code from converting
-or relabelling task types. An unconverted proxy releases its coroutine ownership
-normally.
+`TaskHandle` always obtains its paired coroutine and promise pointers from the
+original typed coroutine handle. It is non-owning and is valid only while some
+runtime ownership path keeps the coroutine frame alive. Code must not recreate
+a `std::coroutine_handle<TaskPromiseBase>` from a frame address: promise
+inheritance does not make that conversion valid. `BasicTask` carries the actual
+ownership claim wherever generic runtime code does not need the declared task
+kind.
 
-This arrangement keeps initial admission type-safe without introducing a
-second promise hierarchy or a type-erased activation object.
+This arrangement keeps initial admission and declared task identity type-safe
+without duplicating the coroutine runtime or adding virtual promise dispatch.
+It also allows awaiters to inspect the enclosing concrete promise type in later
+CUDA policy work. That type information does not override the runtime scheduler
+binding.
 
 ## Internal Rescheduling
 
@@ -65,7 +73,7 @@ The shared promise records an `IScheduler*`:
 
 1. Initial admission records the selected scheduler.
 2. A buffer or epoch awaiter owns the suspended `BasicTask`.
-3. When the task becomes viable, `BasicAsyncTask::reschedule()` submits it
+3. When the task becomes viable, `BasicTask::reschedule()` submits it
    through the recorded `IScheduler`.
 4. The scheduler resumes the same coroutine on its own execution domain.
 
@@ -99,7 +107,8 @@ When the child finishes:
 | same as the child execution route | transfer directly to the continuation |
 | different | resubmit the continuation through its recorded scheduler |
 
-The common promise makes this work for both `AsyncTask` and `CudaTask`. In
+The common promise base and promise-neutral continuation handle make this work
+for all four parent/child combinations of `AsyncTask` and `CudaTask`. In
 particular, an `AsyncTask` parent may await a `CudaTask` child already bound to a
 device scheduler. The child runs in the CUDA domain and the parent later resumes
 on its original host scheduler.
@@ -122,8 +131,10 @@ onto the CUDA scheduler after completion.
 
 Tests cover direct CUDA admission, rescheduling after a buffer suspension, one
 scheduler per visible device with out-of-order multi-device resumption, and an
-`AsyncTask` parent returning to its CPU scheduler after a CUDA child. The
-multi-device case skips when fewer than two devices are visible.
+`AsyncTask` parent returning to its CPU scheduler after a CUDA child. They also
+cover CUDA parents awaiting unbound ordinary and CUDA children on the same
+device scheduler. The multi-device case skips when fewer than two devices are
+visible.
 
 `TbbCudaScheduler` is the parallel implementation. Each instance owns one
 oneTBB arena and one `task_scheduler_observer` for its validated CUDA device.
