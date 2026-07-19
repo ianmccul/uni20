@@ -36,8 +36,10 @@ Label claims as one of:
 - `cuda_scheduler_notes.md`: implemented CUDA foundation versus future scheduler work
 - `custom_gpt_setup.md`: Custom GPT instruction block, knowledge setup, and
   optional action guidance
-- `github_repo_action.openapi.yaml`: optional narrow GitHub Action schema for
-  `Uni20-dev/uni20`
+- `github_repo_action.openapi.yaml`: optional narrow read-only GitHub Action
+  schema for `Uni20-dev/uni20`
+- `github_issue_action.openapi.yaml`: optional authenticated issue-creation
+  Action schema for `Uni20-dev/uni20`
 - `custom_gpt_action_privacy_policy.md`: privacy policy URL for the optional
   GitHub Action
 - `glossary.md`: compact terminology index

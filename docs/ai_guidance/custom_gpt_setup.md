@@ -146,29 +146,40 @@ before adding a live GitHub, CI, or documentation action.
 
 Most Uni20 GPT discussions should rely on web/repo browsing instead of a custom
 action. If a GitHub Action is still useful, use
-`github_repo_action.openapi.yaml` as the schema. It replaces the old pre-org
-schema that mixed `ianmccul/uni20` with the current `Uni20-dev/uni20`
-repository.
+`github_repo_action.openapi.yaml` as the default read-only schema. It replaces
+the old pre-org schema that mixed `ianmccul/uni20` with the current
+`Uni20-dev/uni20` repository.
 
-Configuration notes:
+Default read-only configuration:
 
 - Action domain: `api.github.com`
-- Authentication: use no authentication for read-only use. Configure API key,
-  Bearer token only if the issue-creation operation is needed.
+- Authentication: `None` / no authentication
 - Privacy policy URL:
   <https://github.com/Uni20-dev/uni20/blob/main/docs/ai_guidance/custom_gpt_action_privacy_policy.md>
-- Scope: keep the token as narrow as practical for `Uni20-dev/uni20`
 - Schema shape: keep operation parameters inline. The ChatGPT action importer
   may skip operations whose `parameters` list contains reusable parameter
   `$ref`s instead of concrete `name` / `in` fields.
-- Write access: only `createUni20Issue` is included; use it only after the user
-  explicitly asks to create an issue or approves the final issue text
 
 If public read operations such as `getUni20Repository` or `listUni20Branches`
 raise a generic `ClientResponseError`, first check the GPT Action authentication
 configuration. GitHub public REST reads succeed without a token, but an invalid
 or empty `Authorization: Bearer ...` header can make otherwise-public requests
 fail.
+
+Issue creation is deliberately split into `github_issue_action.openapi.yaml`.
+Add that authenticated schema only when the GPT needs to create issues:
+
+- Action domain: `api.github.com`
+- Authentication: API key / Bearer token
+- Token scope: keep the token as narrow as practical for `Uni20-dev/uni20`,
+  normally repository metadata read plus issues read/write
+- Write access: only `createUni20Issue` is included; use it only after the user
+  explicitly asks to create an issue or approves the final issue text
+
+If a GPT configuration cannot keep the read-only and issue-creation schemas as
+separate actions with separate authentication settings, prefer the read-only
+schema and create issues outside the GPT. Do not configure the read-only schema
+with a bearer token solely because an issue-creation path may be useful later.
 
 Do not add PR creation, discussion creation, workflow dispatch, file mutation,
 or broad repository write actions unless there is a concrete need and the GPT

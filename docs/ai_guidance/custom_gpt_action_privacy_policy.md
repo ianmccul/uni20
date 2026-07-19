@@ -4,10 +4,10 @@
 - **Action domain:** `api.github.com`
 - **Repository:** <https://github.com/Uni20-dev/uni20>
 
-This policy covers the optional Custom GPT GitHub Action described in
-`github_repo_action.openapi.yaml`. It is intended for Uni20 maintainers and
-collaborators who configure a ChatGPT Custom GPT to read or create limited
-content in the Uni20 GitHub repository.
+This policy covers the optional Custom GPT GitHub Actions described in
+`github_repo_action.openapi.yaml` and `github_issue_action.openapi.yaml`. It is
+intended for Uni20 maintainers and collaborators who configure a ChatGPT Custom
+GPT to read or create limited content in the Uni20 GitHub repository.
 
 ## What the action does
 
