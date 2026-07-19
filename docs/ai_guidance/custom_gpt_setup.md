@@ -166,8 +166,8 @@ configuration. GitHub public REST reads succeed without a token, but an invalid
 or empty `Authorization: Bearer ...` header can make otherwise-public requests
 fail.
 
-Issue creation is deliberately split into `github_issue_action.openapi.yaml`.
-Add that authenticated schema only when the GPT needs to create issues:
+To enable issue creation, use the same schema but change the Action
+authentication setting:
 
 - Action domain: `api.github.com`
 - Authentication: API key / Bearer token
@@ -176,10 +176,13 @@ Add that authenticated schema only when the GPT needs to create issues:
 - Write access: only `createUni20Issue` is included; use it only after the user
   explicitly asks to create an issue or approves the final issue text
 
-If a GPT configuration cannot keep the read-only and issue-creation schemas as
-separate actions with separate authentication settings, prefer the read-only
-schema and create issues outside the GPT. Do not configure the read-only schema
-with a bearer token solely because an issue-creation path may be useful later.
+Do not configure the read-only schema with a bearer token solely because an
+issue-creation path may be useful later.
+
+The GPT Action builder treats `api.github.com` as a single Action domain, so do
+not try to install a second Uni20 GitHub schema for issue creation. Keep the
+single schema and switch only the Action authentication setting when write
+access is deliberately needed.
 
 Do not add PR creation, discussion creation, workflow dispatch, file mutation,
 or broad repository write actions unless there is a concrete need and the GPT

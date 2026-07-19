@@ -1,12 +1,14 @@
 openapi: 3.1.0
 info:
   title: Uni20 GitHub Repository Action
-  version: 2.1.0
+  version: 2.2.0
   description: >
-    Narrow read-only GitHub API action for the Uni20 repository. Use this action
-    only when direct repository browsing is unavailable, unreliable, or
-    insufficient for a requested GitHub operation. All operations are scoped to
-    public reads from Uni20-dev/uni20.
+    Narrow GitHub API action for the Uni20 repository. Use this action only when
+    direct repository browsing is unavailable, unreliable, or insufficient for a
+    requested GitHub operation. Read operations are scoped to public reads from
+    Uni20-dev/uni20. The only write operation is issue creation and should be
+    used only after the user explicitly asks to create an issue or approves the
+    final issue text.
   license:
     name: MIT
     url: https://github.com/Uni20-dev/uni20/blob/main/LICENSE
@@ -24,7 +26,7 @@ tags:
   - name: search
     description: Repository-scoped GitHub code search.
   - name: issues
-    description: Issue reads.
+    description: Issue reads and explicitly approved issue creation.
   - name: pull_requests
     description: Pull-request reads.
 paths:
@@ -296,6 +298,28 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Issue"
+    post:
+      operationId: createUni20Issue
+      tags: [issues]
+      summary: Create a Uni20 issue
+      description: >
+        Create an issue in Uni20-dev/uni20. Use only when the user explicitly
+        asks to create an issue or approves the final title and body.
+      security:
+        - githubToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewIssue"
+      responses:
+        "201":
+          description: Created issue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
   /repos/Uni20-dev/uni20/pulls:
     get:
       operationId: listUni20PullRequests
@@ -350,6 +374,12 @@ paths:
                 items:
                   $ref: "#/components/schemas/PullRequest"
 components:
+  securitySchemes:
+    githubToken:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+      description: GitHub token configured in the GPT Action authentication settings.
   schemas:
     Repository:
       type: object
@@ -580,6 +610,24 @@ components:
         pull_request:
           type: object
           additionalProperties: true
+    NewIssue:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          description: Issue title approved by the user.
+          minLength: 1
+        body:
+          type: string
+          description: Issue body approved by the user.
+        labels:
+          type: array
+          description: Optional existing label names to apply.
+          items:
+            type: string
     PullRequest:
       type: object
       additionalProperties: true
