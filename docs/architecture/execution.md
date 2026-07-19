@@ -22,8 +22,8 @@ Related notes:
 - `docs/backends/cuda/runtime.md` — stream ownership; idle-stream `co_await` pool.
 - `docs/backends/cuda/kernel_dispatch.md` — lightweight CUDA submission versus
   host-intensive provider scheduling.
-- `docs/async/scheduler_migration.md` — generic scheduler routing, nested-task
-  continuation semantics, and optional promise specialization.
+- `docs/async/scheduler_migration.md` — typed initial scheduler admission,
+  shared rescheduling, and nested-task continuation semantics.
 - `docs/backends/cuda/cusolver.md` — solver-provider resource model.
 - `docs/backends/cuda/epoch_design_draft.md` — GPU per-buffer hazard model.
 - `docs/tensor_network/rabc_contraction_scheduling.md` — the R/A/B/C apply and its cost model.
@@ -87,15 +87,18 @@ bridge bypasses it), and step 4 is what eventually retires the bridge.
 ## Scheduling: lightweight submission and provider execution
 
 Uni20 allows multiple schedulers. The CUDA design uses one logical scheduler
-arena per device. Global `schedule()` can route distinct task types differently:
-an `AsyncTask` uses its ordinary scheduler, while a `CudaTask` can select a
-device scheduler using state in `CudaTaskPromise`.
+arena per device. Distinct initial-admission interfaces prevent scheduler-family
+mixups: `IAsyncScheduler` accepts `AsyncTask`, while `ICudaScheduler` accepts
+`CudaTask`. Both concrete types share `BasicAsyncTaskPromise` and become the
+same internal `BasicTask` after admission, so buffer wakeups and nested
+continuations use one rescheduling contract.
 
 An ordinary coroutine enters the CUDA task domain by `co_await`ing a newly
-created `CudaTask`. The parent remains an `AsyncTask` and resumes through its
-own scheduler when the CUDA child completes. A live task may separately migrate
-between schedulers accepted by its existing promise type, but scheduler
-migration cannot change an `AsyncTask` frame into a `CudaTask` frame.
+created `CudaTask` already bound to the appropriate device scheduler. The
+parent remains an `AsyncTask` and resumes through its own scheduler when the
+CUDA child completes. The concrete task type controls only initial admission;
+the selected scheduler is runtime state in the shared promise. Explicit
+live-task migration remains a separate future capability.
 
 A oneTBB arena limits simultaneous participation but does not own fixed worker
 threads. A device-arena observer establishes and restores the CUDA device as

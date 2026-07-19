@@ -109,7 +109,7 @@ class DebugScheduler final : public IAsyncScheduler {
 
   private:
     // Internal resubmission
-    void reschedule(AsyncTask::base_type&& task) override
+    void reschedule(BasicTask&& task) override
     {
       TRACE_MODULE(ASYNC, "Rescheduling a task", &task, task.h_);
       // Assume sched_ is already set
@@ -118,7 +118,7 @@ class DebugScheduler final : public IAsyncScheduler {
 
     bool Blocked_ = false;
 
-    std::vector<AsyncTask::base_type> Handles_;
+    std::vector<BasicTask> Handles_;
 };
 
 namespace detail
@@ -243,7 +243,7 @@ inline void DebugScheduler::run()
   }
   TRACE_MODULE(ASYNC, "Got some coroutines to resume", Handles_.size());
 
-  std::vector<AsyncTask::base_type> H;
+  std::vector<BasicTask> H;
   std::swap(H, Handles_);
   std::reverse(H.begin(), H.end());
   for (auto&& h : H)

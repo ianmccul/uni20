@@ -171,7 +171,7 @@ class TbbScheduler final : public IAsyncScheduler {
 
   private:
     /// \brief Reschedule a previously suspended coroutine.
-    void reschedule(AsyncTask::base_type&& t) override { this->enqueue_task(std::move(t)); }
+    void reschedule(BasicTask&& t) override { this->enqueue_task(std::move(t)); }
 
     class SuspendedWait {
       public:
@@ -457,7 +457,7 @@ class TbbScheduler final : public IAsyncScheduler {
       }
     }
 
-    void enqueue_task(AsyncTask::base_type&& t)
+    void enqueue_task(BasicTask&& t)
     {
       TRACE_MODULE(ASYNC, "TBB scheduler enqueuing task", t.h_);
       if (auto h = t.release_handle())

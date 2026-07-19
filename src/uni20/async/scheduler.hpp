@@ -21,9 +21,9 @@ class IScheduler {
   private:
     template <IsAsyncTaskPromise Promise> friend class BasicAsyncTask;
 
-    /// \brief Schedule an already-bound host coroutine to be resumed later.
+    /// \brief Schedule an already-bound coroutine to be resumed later.
     /// \param task Basic task state whose scheduler route is already fixed.
-    virtual void reschedule(AsyncTask::base_type&& task) = 0;
+    virtual void reschedule(BasicTask&& task) = 0;
 };
 
 /// \brief Scheduler interface for initial `AsyncTask` submission and host-side progress.
@@ -94,7 +94,6 @@ class IAsyncScheduler : public IScheduler {
     /// suspend/resume mechanism can override this overload and register the
     /// supplied wakeup callback.
     virtual void wait_for(WaitRequest const& request) { this->wait_for(request.is_ready); }
-
 };
 
 } // namespace uni20::async

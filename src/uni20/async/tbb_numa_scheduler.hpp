@@ -110,7 +110,7 @@ class TbbNumaScheduler final : public IAsyncScheduler {
 
   private:
     /// \brief Reschedule a coroutine, honoring any recorded NUMA preference.
-    void reschedule(AsyncTask::base_type&& task) override
+    void reschedule(BasicTask&& task) override
     {
       if (auto preferred = task.preferred_numa_node())
       {
@@ -158,7 +158,7 @@ class TbbNumaScheduler final : public IAsyncScheduler {
       arena.scheduler->schedule(std::move(task));
     }
 
-    void reschedule_on_node(AsyncTask::base_type&& task, int numa_node)
+    void reschedule_on_node(BasicTask&& task, int numa_node)
     {
       if (arenas_.empty()) return;
       auto index = this->index_for_node(numa_node);

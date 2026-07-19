@@ -53,11 +53,11 @@ CPU AsyncTask
   -> resume AsyncTask through its own recorded scheduler
 ```
 
-This is the required shape if `CudaTaskPromise` carries state needed by CUDA
-execution. If the eventual CUDA path needs no specialized promise state, an
-ordinary `AsyncTask` running on a compatible device scheduler remains a possible
-implementation. The design must not assume that a live `AsyncTask` can change
-its promise type and become a `CudaTask`.
+`CudaTask` and `AsyncTask` deliberately share `BasicAsyncTaskPromise`; the
+concrete type controls type-safe initial admission, while the selected scheduler
+is recorded in the common promise. Device placement belongs to the CUDA
+scheduler/context and Tensor storage, not to task-specific promise state. A live
+task does not change concrete task type when it crosses a scheduler boundary.
 
 Lightweight and host-intensive CUDA calls use the same device scheduler and
 resource model initially. A host-intensive provider call occupies one device
@@ -172,10 +172,11 @@ when they may be called outside the device scheduler.
 
 ## Task Types, Nesting, And Scheduler Migration
 
-The scheduler pointer in a Uni20 coroutine promise determines where a viable
-task is submitted. Global `schedule()` may overload on concrete task type:
-`AsyncTask` can use the configured CPU scheduler, while `CudaTask` can use
-device context stored in `CudaTaskPromise` to select one per-device scheduler.
+The scheduler pointer in the shared Uni20 coroutine promise determines where a
+viable task is submitted. Initial admission remains type-specific:
+`IAsyncScheduler` accepts `AsyncTask`, while `ICudaScheduler` accepts `CudaTask`.
+A CUDA scheduling front-end selects the per-device scheduler from explicit
+device or Tensor-storage placement.
 
 An ordinary CPU coroutine enters that CUDA task domain by awaiting a newly
 created task:
@@ -189,12 +190,11 @@ scheduler route. The nested `CudaTask` is scheduled on its device context. When
 it completes, the outer continuation is submitted through the scheduler
 recorded in the outer promise.
 
-A coroutine frame's promise type is fixed at creation. Scheduler migration is a
-separate, same-task-type capability. For example, a `CudaTask` could migrate
-between device schedulers if `CudaTaskPromise` updates its device context and
-scheduler consistently. An ordinary `AsyncTask` can migrate to a CUDA scheduler
-only if that scheduler accepts `AsyncTask` and no CUDA-specific promise state is
-required.
+Both task types use the same promise, but their concrete return types remain
+fixed at creation. Scheduler migration is a separate future capability. A
+`CudaTask` could migrate between compatible device schedulers by updating the
+common scheduler route consistently; that does not move its Tensor operands or
+change their device.
 
 Required migration invariants are:
 
@@ -450,29 +450,30 @@ diagnostic data rather than preformatting one terminal-only string.
 
 ## Initial Implementation Order
 
-1. Extend `cuda::DeviceContext` to own a device-local `TbbScheduler` and attach an
-   arena observer that establishes/restores the CUDA device.
-2. Complete heterogeneous `BasicAsyncTask<Promise>` scheduling and nested
-   continuation routing so global `schedule(CudaTask)` and
-   `AsyncTask::co_await(CudaTask)` select the CUDA device scheduler.
-3. Specify same-task-type scheduler migration separately, including activation
+1. Use the implemented shared-promise `CudaTask`, `ICudaScheduler`, and
+   cross-scheduler nested continuation routing as the scheduler contract.
+2. Extend `cuda::DeviceContext` to own a device-local oneTBB CUDA scheduler and
+   attach an arena observer that establishes/restores the CUDA device.
+3. Add typed CUDA admission that selects the correct scheduler from explicit
+   device or Tensor-storage placement.
+4. Specify live-task scheduler migration separately, including activation
    accounting, cancellation, exceptions, waits, and quiescence.
-4. Add cancellation-safe composite acquisition for idle streams and one
+5. Add cancellation-safe composite acquisition for idle streams and one
    provider handle/workspace pool.
-5. Add scheduler-neutral completion notification that resubmits through the
+6. Add scheduler-neutral completion notification that resubmits through the
    scheduler currently recorded by the suspended task.
-6. Implement one lightweight copy or kernel path.
-7. Implement one host-intensive cuSOLVER operation on the same device scheduler
+7. Implement one lightweight copy or kernel path.
+8. Implement one host-intensive cuSOLVER operation on the same device scheduler
    and profile whether a separate provider lane is justified.
-8. Validate multi-device isolation and explicit migration between two device
+9. Validate multi-device isolation and explicit migration between two device
    contexts.
 
 ## Open Questions
 
-- Which state, if any, belongs permanently in `CudaTaskPromise` rather than in
-  coroutine-local resource leases?
-- Should `CudaTask` select its `cuda::DeviceContext` through promise construction,
-  an explicit factory, or another typed scheduling customization?
+- Should typed CUDA admission select its `cuda::DeviceContext` through an
+  explicit factory, Tensor storage, or another scheduling customization?
+- Does any future task domain need a specialized promise, rather than state in
+  its scheduler/context and coroutine-local resource leases?
 - Which same-type scheduler migrations are useful after heterogeneous nested
   task routing is available?
 - Confirm that a oneTBB task group owns only a scheduled activation and that no

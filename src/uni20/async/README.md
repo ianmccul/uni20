@@ -12,9 +12,13 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 - `async_errors.hpp`: async cancellation and deadlock exception types.
 - `async_task.hpp`, `async_task_impl.hpp`, `async_task_promise.hpp`,
   `awaiters.hpp`: implemented coroutine task wrappers and await support.
-- `cuda_task.hpp`: embryonic alternate-promise sketch intended to support a
-  distinct CUDA task type and scheduler route; the heterogeneous scheduler and
-  awaiter plumbing is not implemented yet.
+- `cuda_task.hpp`: CUDA-specific initial-admission task type and scheduler
+  interface. `CudaTask` shares the canonical promise and internal task
+  representation with `AsyncTask`, so suspended tasks use the same tested
+  continuation and rescheduling machinery.
+- `debug_cuda_scheduler.hpp`: deterministic calling-thread CUDA scheduler bound
+  to one validated device. It establishes and restores the current CUDA device
+  around each run.
 - `scheduler.hpp`, `debug_scheduler.hpp`, `tbb_scheduler.hpp`,
   `tbb_numa_scheduler.hpp`: scheduler interfaces and implementations.
 - `epoch_context.hpp`, `epoch_queue.hpp`: epoch ordering and causal execution
@@ -45,5 +49,5 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 - [Async documentation index](../../../docs/async/)
 - [Async storage and identity](../../../docs/async/storage.md)
 - [Exceptions and cancellation](../../../docs/async/exceptions_and_cancellation.md)
-- [Scheduler routing and promise specialization](../../../docs/async/scheduler_migration.md)
+- [Scheduler routing and task domains](../../../docs/async/scheduler_migration.md)
 - [Task registry diagnostics](../../../docs/async/task_registry_debug.md)

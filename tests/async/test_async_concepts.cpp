@@ -45,14 +45,12 @@ struct OperatorCoAwaitWrite
 };
 
 template <typename Scheduler>
-concept PubliclySchedulesAsyncTask = requires(Scheduler& scheduler, AsyncTask&& task) {
-  scheduler.schedule(std::move(task));
-};
+concept PubliclySchedulesAsyncTask =
+    requires(Scheduler& scheduler, AsyncTask&& task) { scheduler.schedule(std::move(task)); };
 
 template <typename Scheduler>
-concept PubliclyReschedulesBasicTask = requires(Scheduler& scheduler, AsyncTask::base_type&& task) {
-  scheduler.reschedule(std::move(task));
-};
+concept PubliclyReschedulesBasicTask =
+    requires(Scheduler& scheduler, BasicTask&& task) { scheduler.reschedule(std::move(task)); };
 
 } // namespace
 

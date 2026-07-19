@@ -288,33 +288,15 @@ class BasicAsyncTaskPromise {
     template <AsyncTaskFactoryAwaitable A> auto await_transform(A& a);
     template <AsyncTaskFactoryAwaitable A> auto await_transform(A&& a);
 
-    /// \brief Pass through an lvalue canonical task for nested awaiting.
-    /// \param task Task being awaited.
-    /// \return Unmodified task reference.
-    AsyncTask& await_transform(AsyncTask& task) noexcept { return task; }
-
-    /// \brief Pass through an rvalue canonical task for nested awaiting.
+    /// \brief Pass through a concrete task that uses the shared basic task representation.
+    /// \tparam Task Concrete task or basic task reference type.
     /// \param task Task being awaited.
     /// \return Forwarded task reference.
-    AsyncTask&& await_transform(AsyncTask&& task) noexcept { return std::move(task); }
-
-    /// \brief Pass-through await_transform overload for lvalue AsyncTask objects.
-    /// \tparam Promise Promise type carried by the task.
-    /// \param t Task being awaited.
-    /// \return Unmodified lvalue reference.
-    template <IsAsyncTaskPromise Promise> BasicAsyncTask<Promise>& await_transform(BasicAsyncTask<Promise>& t) noexcept
+    template <typename Task>
+      requires std::derived_from<std::remove_cvref_t<Task>, BasicTask>
+    Task&& await_transform(Task&& task) noexcept
     {
-      return t;
-    }
-
-    /// \brief Pass-through await_transform overload for rvalue AsyncTask objects.
-    /// \tparam Promise Promise type carried by the task.
-    /// \param t Task being awaited.
-    /// \return Forwarded rvalue reference.
-    template <IsAsyncTaskPromise Promise>
-    BasicAsyncTask<Promise>&& await_transform(BasicAsyncTask<Promise>&& t) noexcept
-    {
-      return std::move(t);
+      return std::forward<Task>(task);
     }
 
     /// \brief Fallback await_transform overload that rejects unsupported awaitables.
@@ -441,7 +423,7 @@ class BasicAsyncTaskPromise {
     {
       [[maybe_unused]] int prior_count = this->add_awaiter();
       DEBUG_CHECK_EQUAL(prior_count, 0, "expected handle to be previously unowned!");
-      return AsyncTask(std::coroutine_handle<promise_type>::from_promise(*this));
+      return AsyncTask(std::coroutine_handle<promise_type>::from_promise(*this), AsyncTask::construction_key{});
     }
 
     /// \brief Acquire shared ownership of the coroutine for use with multi-await constructs.
@@ -464,9 +446,8 @@ class BasicAsyncTaskPromise {
     /// \brief Constructs the coroutine's return object for the caller.
     ///
     /// \note This is invoked exactly once, before initial_suspend().
-    /// \return An `AsyncTask` owning the coroutine handle corresponding to this promise,
-    ///         transferring lifetime responsibility to the caller.
-    AsyncTask get_return_object() noexcept
+    /// \return A proxy that transfers the coroutine handle to the declared concrete task type.
+    BasicTaskReturnObject get_return_object() noexcept
     {
       auto h = std::coroutine_handle<promise_type>::from_promise(*this);
       this->add_awaiter();
@@ -474,7 +455,7 @@ class BasicAsyncTaskPromise {
 #if UNI20_DEBUG_DAG
       TaskRegistry::record_task_dependencies(h, ReadDependencies, WriteDependencies);
 #endif
-      return AsyncTask(h);
+      return BasicTaskReturnObject(h);
     }
 
     /// \brief Suspend immediately on coroutine entry.
@@ -593,7 +574,7 @@ class AsyncTaskFactory {
     {
       DEBUG_PRECONDITION(count_ > 0);
       --count_;
-      return AsyncTask(handle_);
+      return AsyncTask(handle_, AsyncTask::construction_key{});
     }
 
     AsyncTaskFactory(AsyncTaskFactory&& other) noexcept

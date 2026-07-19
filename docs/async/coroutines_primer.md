@@ -38,20 +38,20 @@ different scheduler is submitted there and returns the suspended outer
 continuation to its original scheduler when it finishes. This same-promise
 routing is implemented behavior, not a future CUDA facility.
 
-Uni20 also has template scaffolding for task-specific promise types. Distinct
-types may legitimately select different initial schedulers: for example,
-global `schedule()` can route `AsyncTask` to a CPU scheduler and `CudaTask` to a
-CUDA device scheduler selected from its promise state. That path is not yet a
-complete heterogeneous task system because current schedulers and most awaiters
-still own canonical `AsyncTask` values.
+`AsyncTask` and `CudaTask` are distinct initial-admission types, but deliberately
+share `BasicAsyncTaskPromise` and the internal `BasicTask` representation. A CPU
+scheduler therefore cannot initially admit a `CudaTask`, while all suspended
+tasks use the same ownership, buffer awaiter, rescheduling, and continuation
+machinery. The scheduler recorded in the shared promise routes each later
+activation.
 
-A live coroutine cannot change its promise type. If CUDA requires state stored
-in `CudaTaskPromise`, an `AsyncTask` enters CUDA execution by creating and
-awaiting a `CudaTask`, not by migrating and becoming one. Scheduler migration is
-a separate capability within one task type's promise contract.
+An `AsyncTask` can await a `CudaTask` already bound to a CUDA scheduler. The CUDA
+child runs there and the parent returns to its own scheduler after the child
+finishes. A live coroutine does not change concrete task type; explicit
+live-task scheduler migration is a separate future capability.
 
-Explicit live-task migration and optional promise specialization are explored in
-[Scheduler Routing, Nested Task Domains, and Promise Specialization](scheduler_migration.md).
+See [Scheduler Routing and Task Domains](scheduler_migration.md) for the task
+admission and continuation contracts.
 
 ## What co_await on a Buffer Does
 

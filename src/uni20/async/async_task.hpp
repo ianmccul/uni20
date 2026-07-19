@@ -10,13 +10,16 @@
 #include <optional>
 #include <string>
 #include <uni20/common/trace.hpp>
+#include <utility>
 
 namespace uni20::async
 {
 
 class IScheduler;
 class AsyncTask;
+class CudaTask;
 class AsyncTaskFactory;
+class BasicTaskReturnObject;
 
 /// \brief Forward declaration for the base async-task promise type.
 class BasicAsyncTaskPromise;
@@ -231,13 +234,67 @@ template <IsAsyncTaskPromise Promise> class BasicAsyncTask { //}: public AsyncAw
 
     friend promise_type;
     friend class BasicAsyncTaskFactory;
+    friend class BasicTaskReturnObject;
     friend struct AsyncTaskTestAccess;
 };
 
-/// \brief Canonical host-oriented coroutine task type.
-class AsyncTask final : public BasicAsyncTask<BasicAsyncTaskPromise> {
+/// \brief Shared internal task representation used after initial scheduler admission.
+using BasicTask = BasicAsyncTask<BasicAsyncTaskPromise>;
+
+/// \brief Promise-produced proxy that constructs one concrete initial-admission task type.
+class BasicTaskReturnObject {
   public:
-    using base_type = BasicAsyncTask<BasicAsyncTaskPromise>;
+    BasicTaskReturnObject(BasicTaskReturnObject const&) = delete;
+    BasicTaskReturnObject& operator=(BasicTaskReturnObject const&) = delete;
+
+    BasicTaskReturnObject(BasicTaskReturnObject&& other) noexcept : handle_(std::exchange(other.handle_, {})) {}
+
+    BasicTaskReturnObject& operator=(BasicTaskReturnObject&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->reset();
+        handle_ = std::exchange(other.handle_, {});
+      }
+      return *this;
+    }
+
+    /// \brief Release an unconverted return object and its coroutine ownership.
+    ~BasicTaskReturnObject() noexcept { this->reset(); }
+
+    /// \brief Construct the canonical host task return type.
+    operator AsyncTask() && noexcept;
+
+    /// \brief Construct the CUDA task return type.
+    operator CudaTask() && noexcept;
+
+  private:
+    explicit BasicTaskReturnObject(BasicTask::handle_type handle) noexcept : handle_(handle) {}
+
+    [[nodiscard]] BasicTask::handle_type release() noexcept
+    {
+      CHECK(handle_);
+      return std::exchange(handle_, {});
+    }
+
+    void reset() noexcept
+    {
+      if (handle_)
+      {
+        BasicTask task(handle_);
+        handle_ = {};
+      }
+    }
+
+    BasicTask::handle_type handle_{};
+
+    friend class BasicAsyncTaskPromise;
+};
+
+/// \brief Canonical host-oriented coroutine task type.
+class AsyncTask final : public BasicTask {
+  public:
+    using base_type = BasicTask;
     using promise_type = BasicAsyncTaskPromise;
     using handle_type = base_type::handle_type;
 
@@ -259,12 +316,21 @@ class AsyncTask final : public BasicAsyncTask<BasicAsyncTaskPromise> {
     }
 
   private:
+    struct construction_key
+    {};
+
     /// \brief Construct a task from its coroutine handle.
-    explicit AsyncTask(handle_type h) noexcept : base_type(h) {}
+    AsyncTask(handle_type handle, construction_key) noexcept : base_type(handle) {}
 
     friend promise_type;
     friend class AsyncTaskFactory;
+    friend class BasicTaskReturnObject;
 };
+
+inline BasicTaskReturnObject::operator AsyncTask() && noexcept
+{
+  return AsyncTask(this->release(), AsyncTask::construction_key{});
+}
 
 } // namespace uni20::async
 

@@ -53,7 +53,7 @@ The docs are split into two groups:
 | [`exceptions_and_cancellation.md`](exceptions_and_cancellation.md) | Exception hierarchy, sink routing, cancellation details | Runtime contributors |
 | [`schedulers.md`](schedulers.md) | `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler` behavior | Performance and integration work |
 | [`tbb_execution_primer.md`](tbb_execution_primer.md) | oneTBB threads, arenas, concurrency, constraints, task groups, and resumable waits | TBB scheduler contributors |
-| [`scheduler_migration.md`](scheduler_migration.md) | Type-directed initial scheduling, nested task domains, same-type migration, and promise specialization | Async and CUDA runtime designers |
+| [`scheduler_migration.md`](scheduler_migration.md) | Typed initial admission, shared rescheduling, nested task domains, and future live-task migration | Async and CUDA runtime designers |
 | [`reverse_mode_ad.md`](reverse_mode_ad.md) | Dataflow reverse-mode concepts and `Var<T>` behavior | AD contributors |
 | [`task_registry_debug.md`](task_registry_debug.md) | Debug dumps, stacktraces, runtime controls | Debugging and test triage |
 | [`dag_debug_examples.md`](dag_debug_examples.md) | Graphviz DAG examples, including deadlock snapshots | Runtime debugging |
@@ -87,8 +87,9 @@ program and identifies deliberate failure paths. Frequently used examples are:
   current operation contracts and support matrix
 - [Async Storage](storage.md): storage, async value kinds, timeline rebinding,
   and write-through assignment
-- [Scheduler Routing and Migration](scheduler_migration.md): planned
-  cross-scheduler and heterogeneous-promise capability
+- [Scheduler Routing and Task Domains](scheduler_migration.md): concrete host
+  and CUDA admission types, shared rescheduling, nested continuation routing,
+  and future live-task migration
 - [Roadmap](../roadmap.md): broader architecture and roadmap context
 
 ## Ground Truth and Drift Policy

@@ -705,9 +705,11 @@ outer runtime decline; otherwise it is `maybe`.
   In both cases the epoch queues, not the scheduler, order the work. The CPU
   and CUDA *backends* never choose a scheduler. Global `schedule()` and nested
   task routing may select different schedulers for different concrete task
-  types. If CUDA needs state in `CudaTaskPromise`, an async wrapper creates or
-  awaits a `CudaTask`; a live `AsyncTask` cannot migrate and change promise
-  type. Same-task-type scheduler migration remains a separate capability.
+  types. `AsyncTask` and `CudaTask` have distinct initial-admission interfaces
+  but share one promise and internal `BasicTask` representation. An async
+  wrapper creates or awaits a `CudaTask` already bound to the selected device
+  scheduler; explicit live-task scheduler migration remains a separate
+  capability.
   See *Scheduler and Async integration* below and
   `../async/scheduler_migration.md`.
 - Distributed and RPC execution are front-of-list backends that recurse, so they
@@ -877,7 +879,7 @@ schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {         // -> CPU s
   gemm_kernel(C_, A_, B_);                                          // layer-1 kernel
 }(c.block(r).write(), a.block(ai).read(), b.block(bi).read()));
 
-// Device block kernel: CudaTaskPromise carries/selects the device context.
+// Device block kernel: initial admission binds the task to the device scheduler.
 schedule([](auto c_, auto a_, auto b_, cuda::DeviceContext* context) static -> CudaTask {
   auto C_ = co_await c_;  auto A_ = co_await a_;  auto B_ = co_await b_;
   auto resources = co_await context->acquire_gemm_resources(C_, A_, B_);
@@ -885,11 +887,12 @@ schedule([](auto c_, auto a_, auto b_, cuda::DeviceContext* context) static -> C
 }(c.block(r).write(), a.block(ai).read(), b.block(bi).read(), &context));
 ```
 
-The CUDA snippet is conceptual because heterogeneous scheduler/awaiter support
-for `CudaTask` is not implemented. An `AsyncTask` can also `co_await` such a
-CUDA child and resume on its own scheduler. If CUDA ultimately needs no
-task-specific promise state, ordinary `AsyncTask` on a compatible device
-scheduler remains another valid lowering; it is not a requirement.
+The nested routing shown by the CUDA snippet is implemented: `CudaTask` has a
+CUDA-specific initial-admission interface, and an `AsyncTask` can `co_await` a
+CUDA child and resume on its own scheduler. Resource acquisition and the CUDA
+Tensor/backend lowering in the body remain conceptual. `CudaTask` intentionally
+uses the shared promise; the device belongs to the selected scheduler and
+device context rather than to task-specific promise state.
 
 The accumulation `r += sum a*b` over multiple contributing `(a, b)` needs no
 explicit reduction lock: every contribution writes block `r`, so block `r`'s
@@ -932,12 +935,13 @@ than fixed workers; an arena observer establishes the device on every
 participant. Streams, provider handles, and workspaces are device-local leased
 resources rather than worker-owned state.
 
-Global scheduling or heterogeneous nested `co_await` routes a `CudaTask` to the
-device scheduler selected by its promise. The CUDA task may suspend while
-waiting for a composite resource request. Once admitted, the entire relevant
-backend walk runs without suspension, records and publishes its completion
-event, and releases resources according to their provider-specific completion
-contract. A separate provider lane is a later profiling-driven option.
+Typed initial admission or nested `co_await` routes a `CudaTask` already bound
+to the selected device scheduler. The shared promise records that route. The
+CUDA task may suspend while waiting for a composite resource request. Once
+admitted, the entire relevant backend walk runs without suspension, records and
+publishes its completion event, and releases resources according to their
+provider-specific completion contract. A separate provider lane is a later
+profiling-driven option.
 
 Blocking and fully synchronized CUDA execution remain useful API/debug adapters
 over the same leaf kernels; they are not separate numerical backends. See
