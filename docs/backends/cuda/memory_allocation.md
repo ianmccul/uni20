@@ -2,14 +2,17 @@
 
 **Status:** active design note for future CUDA storage and scheduling.
 
-The current bring-up `cuda::Buffer` uses `cudaMalloc`/`cudaFree` and waits for
-its retained writer and reader completions before destruction. That
-implementation establishes ownership and synchronization semantics; it is not
-the intended hot-path allocator described below.
+The current bring-up `cuda::CudaBuffer` uses `cudaMallocAsync`/`cudaFreeAsync`
+when stream-ordered memory pools are available, and falls back to
+`cudaMalloc`/`cudaFree` otherwise. It waits for retained writer and reader
+completions before destruction. That implementation establishes ownership and
+synchronization semantics, but the broader allocator policy described below
+still needs pool configuration, retention control, and tensor-storage
+integration.
 
 This is a draft design note. It records the intended direction for GPU memory
-allocation in uni20 and why. It is design direction, not a description of current
-implemented behavior.
+allocation in uni20 and why. It is design direction beyond the current
+`CudaBuffer` bring-up behavior.
 
 Related notes:
 

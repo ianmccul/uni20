@@ -32,7 +32,7 @@ CUDA coroutine scheduler.
   with `stream.wait_on(completion)`.
 - Buffer dependencies use completion events and `cudaStreamWaitEvent`; the pool
   does not attempt dependent-task stream affinity.
-- `cuda::Buffer<T>` retains the latest exclusive-writer completion and reader
+- `cuda::CudaBuffer<T>` retains the latest exclusive-writer completion and reader
   completions since that writer. The existing async `EpochQueue` or synchronous
   program order remains the causal model.
 - Submitters use `buffer.read(stream)` and `buffer.write(stream)` scoped guards.

@@ -75,8 +75,8 @@ class CudaBufferTest : public ::testing::Test {
 
 } // namespace
 
-static_assert(!std::is_copy_constructible_v<uni20::cuda::Buffer<>>);
-static_assert(std::is_move_constructible_v<uni20::cuda::Buffer<>>);
+static_assert(!std::is_copy_constructible_v<uni20::cuda::CudaBuffer<>>);
+static_assert(std::is_move_constructible_v<uni20::cuda::CudaBuffer<>>);
 static_assert(!std::is_copy_constructible_v<uni20::cuda::ReadBuffer<std::byte>>);
 static_assert(std::is_move_constructible_v<uni20::cuda::ReadBuffer<std::byte>>);
 static_assert(!std::is_copy_constructible_v<uni20::cuda::WriteBuffer<std::byte>>);
@@ -85,7 +85,7 @@ static_assert(std::is_move_constructible_v<uni20::cuda::WriteBuffer<std::byte>>)
 TEST_F(CudaBufferTest, OwnsAndMovesDeviceAllocation)
 {
   uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-  uni20::cuda::Buffer<> source(context, 4096);
+  uni20::cuda::CudaBuffer<> source(context, 4096);
   std::byte* address = nullptr;
   {
     auto stream = context.streams().acquire();
@@ -99,7 +99,7 @@ TEST_F(CudaBufferTest, OwnsAndMovesDeviceAllocation)
   EXPECT_EQ(source.size_bytes(), 4096U);
   EXPECT_EQ(source.device(), context.device());
 
-  uni20::cuda::Buffer<> destination(std::move(source));
+  uni20::cuda::CudaBuffer<> destination(std::move(source));
   {
     auto stream = context.streams().acquire();
     auto access = destination.write(stream);
@@ -113,7 +113,7 @@ TEST_F(CudaBufferTest, OwnsAndMovesDeviceAllocation)
 TEST_F(CudaBufferTest, RepeatedWriteWaitsForPreviousWriter)
 {
   uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 2});
-  uni20::cuda::Buffer<> buffer(context, 4096);
+  uni20::cuda::CudaBuffer<> buffer(context, 4096);
 
   BufferGate gate;
   {
@@ -149,8 +149,8 @@ TEST_F(CudaBufferTest, RepeatedWriteWaitsForPreviousWriter)
 TEST_F(CudaBufferTest, IndependentBuffersDoNotAcquireAFalseDependency)
 {
   uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 2});
-  uni20::cuda::Buffer<> blocked_buffer(context, 4096);
-  uni20::cuda::Buffer<> independent_buffer(context, 4096);
+  uni20::cuda::CudaBuffer<> blocked_buffer(context, 4096);
+  uni20::cuda::CudaBuffer<> independent_buffer(context, 4096);
 
   BufferGate gate;
   {
@@ -181,9 +181,9 @@ TEST_F(CudaBufferTest, IndependentBuffersDoNotAcquireAFalseDependency)
 TEST_F(CudaBufferTest, ConcurrentReadersOverlapAndWriterWaitsForOutstandingReaders)
 {
   uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 3});
-  uni20::cuda::Buffer<> source(context, 4096);
-  uni20::cuda::Buffer<> first_output(context, 4096);
-  uni20::cuda::Buffer<> second_output(context, 4096);
+  uni20::cuda::CudaBuffer<> source(context, 4096);
+  uni20::cuda::CudaBuffer<> first_output(context, 4096);
+  uni20::cuda::CudaBuffer<> second_output(context, 4096);
 
   BufferGate gate;
   {
@@ -236,7 +236,7 @@ TEST_F(CudaBufferTest, ConcurrentReadersOverlapAndWriterWaitsForOutstandingReade
 TEST_F(CudaBufferTest, ScopedAccessSynchronizesDuringStackUnwinding)
 {
   uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-  uni20::cuda::Buffer<> buffer(context, 4096);
+  uni20::cuda::CudaBuffer<> buffer(context, 4096);
 
   EXPECT_THROW(
       {

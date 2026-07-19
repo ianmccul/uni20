@@ -1,7 +1,7 @@
 # CUDA Buffer Completion Lowering
 
 **Status:** typed CUDA buffers and scoped read/write guards are implemented by
-`uni20::cuda::Buffer<T>`, `uni20::cuda::ReadBuffer<T>`, and
+`uni20::cuda::CudaBuffer<T>`, `uni20::cuda::ReadBuffer<T>`, and
 `uni20::cuda::WriteBuffer<T>`. The filename is retained for existing links; this
 document supersedes the earlier `GpuEpochQueue` proposal.
 
@@ -47,7 +47,7 @@ queue, task wakeup mechanism, or value ownership.
   backend or provider call executes. The context must outlive its buffers and
   streams.
 
-`cuda::Buffer<T>`
+`cuda::CudaBuffer<T>`
 
 : A move-only owner of one typed `cudaMalloc` allocation. Its raw device pointer
   is exposed only through scoped access guards. Its private state consists of
@@ -140,10 +140,12 @@ correctness follows from the causal contract: a conflicting successor cannot
 enter acquisition until its predecessors have published, while compatible
 readers do not need to observe one another.
 
-The blocking `StreamPool::acquire()` path is the bring-up path for
-synchronous-looking CUDA backends. A future coroutine awaiter will suspend while
-stream resources are unavailable, then use the same access construction, launch,
-and guard-destruction publication rules.
+The blocking `StreamPool::acquire()` path is the bring-up path for the blocking
+CUDA submission channel. The non-blocking channel will suspend through a Uni20
+scheduler while stream resources are unavailable, then use the same access
+construction, launch, and guard-destruction publication rules. Async CUDA
+lowering must use the non-blocking channel; using blocking acquisition inside
+an async operation is a scheduler-policy error, not an optimization choice.
 
 ## Failure And Cleanup
 
@@ -158,14 +160,15 @@ Scoped stream and buffer access are RAII resources.
   callback at the current stream tail; the slot becomes idle only when that
   callback runs.
 - Destroying a buffer waits for its writer and retained reader completions
-  before `cudaFree`.
+  before `cudaFreeAsync` for stream-ordered allocations, or `cudaFree` for the
+  synchronous fallback.
 - CUDA cleanup failures remain fail-fast because destructors cannot safely use
   the recoverable error policy.
 
-The first `Buffer` uses `cudaMalloc`/`cudaFree` to establish semantics. Hot-path
-storage should later use the stream-ordered allocator described in
-[Memory Allocation](memory_allocation.md), while preserving the same completion
-and lifetime contract.
+`CudaBuffer` uses the stream-ordered allocator when device capabilities allow
+it, but higher-level tensor storage still needs the allocator policy described
+in [Memory Allocation](memory_allocation.md), while preserving the same
+completion and lifetime contract.
 
 ## Non-Goals
 

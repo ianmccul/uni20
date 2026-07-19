@@ -135,10 +135,28 @@ auto stream = co_await device.acquire_stream();
 ```
 
 The exact awaiter and cancellation interface remains part of the future
-`CudaTask`/scheduler design. The current pool exposes both nonblocking
-`try_acquire()` and blocking `acquire()`. The blocking path is suitable for
-bring-up and synchronous-looking CUDA backends; a coroutine must eventually
-suspend rather than call it while waiting for capacity.
+`CudaTask`/scheduler design. The current pool exposes immediate `try_acquire()`
+and blocking `acquire()` helpers. The CUDA execution model should expose two
+explicit submission channels above that foundation:
+
+- **blocking:** resource acquisition may wait on the calling thread. This is
+  suitable for non-async C++ calls, bring-up code, and tests.
+- **non-blocking:** resource acquisition suspends through a Uni20 scheduler
+  instead of blocking the calling thread. This requires a scheduler, but the
+  scheduler may be `DebugScheduler`, a one-slot `TbbScheduler`, or a larger
+  device scheduler.
+
+The eventual CUDA Tensor storage policy should encode this channel, for example
+as distinct blocking and non-blocking CUDA storage domains over a common
+allocation primitive. The choice is orthogonal to whether the user-visible
+object is an `Async<T>`, although `Async<Tensor<..., blocking_channel>>` is
+almost always a policy mistake. Async CUDA lowering should accept only the
+non-blocking CUDA storage policy for resources that may wait for capacity.
+
+The storage policy can expose distinct mdspan handle/accessor types so CUDA
+kernel dispatch can reject the wrong channel at type level. Per-call leases
+such as streams, provider handles, and workspaces remain operation-local; they
+are not part of the backend selector.
 
 A small configurable pool is expected. A reasonable initial heuristic is around
 twice the maximum useful device concurrency, but measured workload behavior
@@ -167,9 +185,12 @@ stream-affinity state only if profiling demonstrates a real need.
 
 `uni20::cuda::DeviceContext` currently owns a validated device, its idle stream
 pool, and a mutex for short buffer-state snapshots and publication.
-`uni20::cuda::Buffer<T>` is a move-only owner of one typed `cudaMalloc`
-allocation associated with that context. The context must outlive its buffers
-and every active stream handle acquired from its stream pool.
+`uni20::cuda::CudaBuffer<T>` is a move-only owner of one typed CUDA allocation
+associated with that context. It uses `cudaMallocAsync` when the device supports
+stream-ordered memory pools and records that allocation as the buffer's current
+writer completion; otherwise it falls back to `cudaMalloc`. The context must
+outlive its buffers and every active stream handle acquired from its stream
+pool.
 
 A buffer retains the latest exclusive-writer completion and the submitted
 reader completions since that writer. It does not reproduce an `EpochQueue`:
@@ -198,10 +219,10 @@ readers do not wait for one another; a following writer waits for every
 unfinished reader. The full causal and completion contract is in
 [CUDA Buffer Completion Lowering](epoch_design_draft.md).
 
-The current allocation path deliberately uses `cudaMalloc`/`cudaFree` while
-the lifetime semantics are established. It is not the intended hot-path
-allocator; future Tensor storage should use configured stream-ordered pools as
-described in [Memory Allocation](memory_allocation.md).
+The current allocation path uses CUDA's default stream-ordered pool when
+available, but it does not yet configure release thresholds, prime pools, or
+route tensor storage through an allocator policy. That broader direction is in
+[Memory Allocation](memory_allocation.md).
 
 ## Error Reporting
 
@@ -231,7 +252,7 @@ it must not wait forever for a pool-return callback.
 The next CUDA runtime checkpoints should add:
 
 1. Typed CUDA Tensor storage and a device mdspan/accessor contract built over
-   `cuda::Buffer` without making device memory host-indexable.
+   `cuda::CudaBuffer` without making device memory host-indexable.
 2. A device-local scheduler plus eventual provider-handle and workspace pools
    in `DeviceContext`.
 3. Arena-entry device establishment and restoration through a

@@ -66,6 +66,51 @@ capacity bound provider concurrency. A separate provider lane or scheduler is
 an optional later optimization if profiling shows that provider calls impede
 lightweight submission or other host work.
 
+## Blocking And Non-Blocking Channels
+
+CUDA operations should be described in terms of submission channels:
+
+- **blocking:** resource acquisition may wait on the calling thread. This is
+  appropriate for non-async C++ APIs, tests, command-line examples, and bring-up
+  code.
+- **non-blocking:** resource acquisition suspends through a Uni20 scheduler
+  while waiting for streams, provider handles, workspace, or other scarce
+  resources. This requires a scheduler, but it does not require a multi-threaded
+  scheduler: `DebugScheduler` and a one-slot `TbbScheduler` are valid
+  non-blocking execution environments.
+
+This channel choice is a Tensor storage-policy parameter. It is orthogonal to
+Tensor ownership and to whether a value is wrapped in `Async<T>`. A concrete
+`Tensor<..., CudaStorage<blocking_channel>>` and
+`Tensor<..., CudaStorage<nonblocking_channel>>` are distinct storage domains
+even if they share the same underlying allocation primitive. That distinction
+can naturally flow into the mdspan handle/accessor type seen by dispatchable
+kernels.
+
+A non-async C++ API may still choose the non-blocking channel internally if it
+enters a scheduler and waits at a defined boundary. Conversely,
+`Async<Tensor<..., CudaStorage<blocking_channel>>>` is possible as C++, but it
+is a dubious policy combination: lowering it through blocking resource
+acquisition would occupy the scheduler participant instead of suspending the
+coroutine. Async CUDA front-ends should therefore accept only the non-blocking
+CUDA storage policy for resources that may wait for capacity, unless a future
+operation explicitly documents why blocking is intentional.
+
+Implementation should make the invalid combination hard to spell. The channel
+should not be carried by an ad-hoc backend selector. Blocking front-ends accept
+the blocking storage policy; async lowering accepts the non-blocking storage
+policy. Mixing the two is not an important use case, and disallowing it keeps
+accidental scheduler blocking out of async code.
+
+The per-call stream, handle, and workspace leases are still operation-local.
+They should be acquired by the front-end lowering for the storage policy and
+passed to CUDA backends as an internal lowered operand or execution context.
+They should not be stored in the backend selector. The selector remains the
+ordinary backend list associated with the storage/default execution policy, for
+example `cuda_reference`, `cublas`, `cusolver`, and future provider backends.
+Both channels should converge on the same non-suspending leaf backend once the
+complete resource set has been acquired.
+
 ## Per-Device Execution Context
 
 The implemented `cuda::DeviceContext` currently owns the validated device,
@@ -216,16 +261,18 @@ handle is documented to permit sequential use from different host threads.
 The lease may move with the suspended coroutine between physical workers in the
 same device arena.
 
-Acquisition should normally be composite:
+Acquisition should normally be composite. The acquired resource bundle is not a
+backend selector. It is an internal lowered operand used by CUDA backend
+attempts:
 
 ```cpp
-auto resources = co_await context.acquire(cusolver_request{
+auto resources = co_await storage_domain.acquire(cusolver_request{
     .stream = true,
     .handle = true,
     .workspace_bytes = workspace_bytes,
 });
 
-dispatch_kernel(make_cuda_selector(context, resources), svd_op{}, request);
+dispatch_kernel(storage_domain.backends(), svd_op{}, resources, request);
 ```
 
 Once the complete resource set has been acquired, the backend walk and provider
@@ -334,11 +381,12 @@ The generic backend walk does not become a coroutine and does not know about
 scheduler migration or resource-wait queues.
 
 The async Tensor wrapper performs execution routing and resource acquisition,
-then calls `dispatch_kernel(...)` with a selector or backend view containing
-the leased device resources. If an ordered backend list contains a CUDA
-provider candidate and fallback candidates, the whole relevant backend walk
-runs after resource admission so runtime decline can continue without moving
-operands across another suspension boundary.
+then calls `dispatch_kernel(...)` with the storage policy's ordinary backend
+list plus an internal resource-lease operand. The backend selector should not
+be rewritten into a per-call resource object. If an ordered backend list
+contains a CUDA provider candidate and fallback candidates, the whole relevant
+backend walk runs after resource admission so runtime decline can continue
+without moving operands across another suspension boundary.
 
 A queued request may be cancelled cleanly before resource admission. Once the
 backend has changed provider state or enqueued work, cancellation cannot turn
@@ -364,11 +412,13 @@ occurs between begin and end. Graph support should be added only for workloads
 with enough stable repetition to amortize capture and instantiation; typical
 DMRG contractions and short Krylov matvec sequences may not meet that threshold.
 
-## Blocking And Debug Adapters
+## Blocking Adapters And Debug Policy
 
 A non-async C++ API may block without requiring a second numerical
-implementation. It can enter the selected device scheduler, invoke the same
-leaf backend, and wait at the requested submission or completion boundary.
+implementation. It can use the blocking channel directly, or enter the selected
+device scheduler and use the non-blocking channel internally before waiting at
+the requested submission or completion boundary. In both cases, it should
+invoke the same non-suspending leaf backend as async CUDA lowering.
 
 A fully synchronized debug policy waits after every submitted operation. This
 is the error-localizing correctness baseline described by the CUDA epoch notes.
