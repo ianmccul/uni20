@@ -22,6 +22,8 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 - `tbb_cuda_scheduler.hpp`: oneTBB CUDA scheduler with one arena per scheduler
   and an arena observer that establishes and restores the bound device for every
   participating worker or application thread.
+- `tbb_task_submission.hpp`: internal task-group registration and non-blocking
+  arena-admission helper shared by host and CUDA TBB schedulers.
 - `scheduler.hpp`, `debug_scheduler.hpp`, `tbb_scheduler.hpp`,
   `tbb_numa_scheduler.hpp`: scheduler interfaces and implementations.
 - `epoch_context.hpp`, `epoch_queue.hpp`: epoch ordering and causal execution

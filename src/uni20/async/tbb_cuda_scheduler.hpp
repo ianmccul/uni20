@@ -7,6 +7,7 @@
 
 #include "cuda_task.hpp"
 #include "task_registry.hpp"
+#include "tbb_task_submission.hpp"
 
 #include <cuda_runtime_api.h>
 #include <oneapi/tbb/task_arena.h>
@@ -178,14 +179,14 @@ class TbbCudaScheduler final : public ICudaScheduler {
       TRACE_MODULE(ASYNC, "TBB CUDA scheduler enqueuing task", task.h_);
       if (auto handle = task.release_handle())
       {
-        arena_.execute([this, handle] {
-          tasks_.run([this, handle] {
-            detail::verify_tbb_cuda_device(device_.ordinal());
-            TRACE_MODULE(ASYNC, "TBB CUDA scheduler resuming coroutine", handle);
-            handle.promise().resume_and_track(handle);
-            detail::service_tbb_cuda_task_registry_debug_requests();
-          });
-        });
+        detail::enqueue_tbb_task(arena_, tasks_,
+                                 [this, handle] {
+                                   detail::verify_tbb_cuda_device(device_.ordinal());
+                                   TRACE_MODULE(ASYNC, "TBB CUDA scheduler resuming coroutine", handle);
+                                   handle.promise().resume_and_track(handle);
+                                   detail::service_tbb_cuda_task_registry_debug_requests();
+                                 },
+                                 {.scheduler = "TbbCudaScheduler", .device = device_.ordinal()});
       }
     }
 

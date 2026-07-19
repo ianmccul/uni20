@@ -24,6 +24,11 @@ Most async code uses the global scheduler helpers from `debug_scheduler.hpp`:
 If you do not override it, the global scheduler defaults to an internal `DebugScheduler`.
 
 `ScopedScheduler` is the standard way to override scheduler context in tests.
+It changes the selected scheduler but does not own it or extend its lifetime.
+Any scheduler supplied to it must remain alive until all tasks routed through
+that scheduler have completed or can no longer resume. See
+[Lifetime and Quiescence](scheduler_migration.md#lifetime-and-quiescence) for
+the full contract, including stack-local test schedulers.
 
 ## Choosing a Scheduler
 
@@ -55,6 +60,12 @@ Use `DebugScheduler` as the first tool for dependency bugs.
 Execution model:
 
 - tasks are dispatched into oneTBB `task_arena` + `task_group`
+- initial admission and rescheduling register activations with
+  `task_group::defer()` and publish them through non-blocking
+  `task_arena::enqueue()`
+- submitting threads do not enter the arena or wait for arena capacity
+- allocation or oneTBB admission failure is a fatal scheduler-infrastructure
+  error reported with scheduler and, where applicable, CUDA device context
 - ready coroutines resume on threads participating in the arena, including
   oneTBB workers and application threads that enter through `task_arena::execute()`
 - `run_all()` resumes if paused, then waits for task-group completion of the
@@ -65,6 +76,11 @@ suspends the coroutine on an epoch or external event, the TBB task finishes and
 the awaiter owns the suspended coroutine until it becomes ready. `run_all()` is
 therefore scheduler-activation quiescence, not proof that every coroutine ever
 routed through the scheduler has completed.
+
+An admission that happens-before `run_all()` is included because its deferred
+task is already registered with the group. If admission and `run_all()` are
+unordered and concurrent, either may linearize first; `run_all()` is not a
+global barrier against submissions that have not yet been accepted.
 
 Pause/resume:
 
@@ -125,6 +141,8 @@ Both schedulers are bound to one validated `cuda::Device`:
   `task_scheduler_observer`. Every worker or application thread entering that
   arena saves its previous CUDA device, selects the scheduler device, and
   restores the previous selection on exit.
+- initial CUDA admission and rescheduling enqueue task-group activations without
+  making completion-service or publishing threads enter the device arena
 - Nested participation in different CUDA arenas restores the outer arena's
   device correctly.
 - `run_all()` waits for currently submitted activations. It does not complete a

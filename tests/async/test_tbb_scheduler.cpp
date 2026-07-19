@@ -17,7 +17,9 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <latch>
 #include <oneapi/tbb/global_control.h>
+#include <semaphore>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -148,16 +150,68 @@ TEST(TbbScheduler, OneParticipantTopLevelGetWaitExecutesDependency)
   ScopedScheduler guard(&sched);
 
   Async<int> result;
-  std::thread::id execution_thread;
-  auto const application_thread = std::this_thread::get_id();
-  sched.schedule([](WriteBuffer<int> output, std::thread::id* observed_thread) static -> AsyncTask {
-    *observed_thread = std::this_thread::get_id();
+  sched.schedule([](WriteBuffer<int> output) static -> AsyncTask {
     co_await output = 42;
     co_return;
-  }(result.write(), &execution_thread));
+  }(result.write()));
 
   EXPECT_EQ(result.get_wait(), 42);
-  EXPECT_EQ(execution_thread, application_thread);
+}
+
+TEST(TbbScheduler, SaturatedArenaAcceptsAdmissionAndResumptionWithoutParticipation)
+{
+  using namespace std::chrono_literals;
+
+  TbbScheduler scheduler{1};
+  Async<int> input;
+  Async<int> output;
+  std::latch waiting_for_input{1};
+  std::latch blocker_started{1};
+  std::latch release_blocker{1};
+  std::atomic<int> completed{0};
+
+  scheduler.schedule([](ReadBuffer<int> input, WriteBuffer<int> output, std::latch* waiting) static -> AsyncTask {
+    waiting->count_down();
+    int const value = co_await input;
+    co_await output = value;
+  }(input.read(), output.write(), &waiting_for_input));
+  waiting_for_input.wait();
+
+  scheduler.schedule([](std::latch* started, std::latch* release) static -> AsyncTask {
+    started->count_down();
+    release->wait();
+    co_return;
+  }(&blocker_started, &release_blocker));
+  blocker_started.wait();
+
+  std::binary_semaphore submission_returned{0};
+  std::jthread submitter([&] {
+    scheduler.schedule([](std::atomic<int>* count) static -> AsyncTask {
+      count->fetch_add(1, std::memory_order_relaxed);
+      co_return;
+    }(&completed));
+
+    DebugScheduler publisher_scheduler;
+    publisher_scheduler.schedule(
+        [](WriteBuffer<int> input) static -> AsyncTask { co_await input = 17; }(input.write()));
+    publisher_scheduler.run_all();
+    submission_returned.release();
+  });
+
+  if (!submission_returned.try_acquire_for(2s))
+  {
+    release_blocker.count_down();
+    submitter.join();
+    FAIL() << "TbbScheduler admission or resumption waited for saturated-arena participation";
+  }
+
+  release_blocker.count_down();
+  scheduler.run_all();
+  submitter.join();
+  EXPECT_EQ(completed.load(std::memory_order_relaxed), 1);
+
+  DebugScheduler result_scheduler;
+  EXPECT_EQ(output.get_wait(result_scheduler), 17);
 }
 
 TEST(TbbScheduler, OneParticipantNestedGetWaitSupportsRepeatedSuspension)

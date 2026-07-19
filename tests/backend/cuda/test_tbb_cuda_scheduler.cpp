@@ -6,8 +6,16 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <concepts>
+#include <condition_variable>
+#include <cstddef>
+#include <latch>
 #include <memory>
+#include <mutex>
+#include <semaphore>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -27,6 +35,39 @@ concept PubliclySchedules = requires(Scheduler& scheduler, Task&& task) { schedu
 
 static_assert(PubliclySchedules<TbbCudaScheduler, CudaTask>);
 static_assert(!PubliclySchedules<TbbCudaScheduler, AsyncTask>);
+
+class ConcurrentActivationGate {
+  public:
+    [[nodiscard]] bool arrive_and_wait(std::chrono::milliseconds timeout)
+    {
+      std::unique_lock lock(mutex_);
+      ++arrivals_;
+      ready_.notify_all();
+
+      // The timeout only turns missing concurrency into a test failure instead
+      // of leaving one arena participant blocked indefinitely.
+      if (!ready_.wait_for(lock, timeout, [this] { return arrivals_ == 2 || timed_out_; }))
+      {
+        timed_out_ = true;
+        ready_.notify_all();
+      }
+      return !timed_out_;
+    }
+
+  private:
+    std::mutex mutex_;
+    std::condition_variable ready_;
+    int arrivals_ = 0;
+    bool timed_out_ = false;
+};
+
+struct ActivationObservation
+{
+    std::thread::id thread{};
+    cudaError_t status = cudaErrorUnknown;
+    int device = -1;
+    bool overlapped = false;
+};
 
 class TbbCudaSchedulerTest : public ::testing::Test {
   protected:
@@ -71,6 +112,135 @@ TEST_F(TbbCudaSchedulerTest, RunsOnBoundDeviceAndRestoresCallingThread)
 
   EXPECT_EQ(status, cudaSuccess);
   EXPECT_EQ(observed_device, target_device_);
+  this->expect_calling_device_restored();
+}
+
+TEST_F(TbbCudaSchedulerTest, ConcurrentArenaActivationsSelectBoundDeviceBeforeAndAfterResumption)
+{
+  using namespace std::chrono_literals;
+
+  TbbCudaScheduler scheduler(target_device_, 2);
+  std::array<Async<int>, 2> inputs;
+  std::array<ActivationObservation, 2> initial;
+  std::array<ActivationObservation, 2> resumed;
+  ConcurrentActivationGate initial_gate;
+  ConcurrentActivationGate resumed_gate;
+  std::thread::id const calling_thread = std::this_thread::get_id();
+
+  auto task = [](std::size_t index, ReadBuffer<int> input, std::array<ActivationObservation, 2>* initial,
+                 std::array<ActivationObservation, 2>* resumed, ConcurrentActivationGate* initial_gate,
+                 ConcurrentActivationGate* resumed_gate) static -> CudaTask {
+    (*initial)[index].thread = std::this_thread::get_id();
+    (*initial)[index].status = cudaGetDevice(&(*initial)[index].device);
+    (*initial)[index].overlapped = initial_gate->arrive_and_wait(2s);
+
+    static_cast<void>(co_await input);
+
+    (*resumed)[index].thread = std::this_thread::get_id();
+    (*resumed)[index].status = cudaGetDevice(&(*resumed)[index].device);
+    (*resumed)[index].overlapped = resumed_gate->arrive_and_wait(2s);
+  };
+
+  scheduler.schedule(task(0, inputs[0].read(), &initial, &resumed, &initial_gate, &resumed_gate));
+  scheduler.schedule(task(1, inputs[1].read(), &initial, &resumed, &initial_gate, &resumed_gate));
+  scheduler.run_all();
+
+  EXPECT_TRUE(initial[0].overlapped);
+  EXPECT_TRUE(initial[1].overlapped);
+  EXPECT_NE(initial[0].thread, initial[1].thread);
+  EXPECT_TRUE(initial[0].thread != calling_thread || initial[1].thread != calling_thread)
+      << "expected at least one initial activation on a oneTBB worker";
+  for (auto const& observation : initial)
+  {
+    EXPECT_EQ(observation.status, cudaSuccess);
+    EXPECT_EQ(observation.device, target_device_);
+  }
+  this->expect_calling_device_restored();
+
+  DebugScheduler publisher;
+  publisher.schedule([](WriteBuffer<int> output) static -> AsyncTask { co_await output = 1; }(inputs[0].write()));
+  publisher.schedule([](WriteBuffer<int> output) static -> AsyncTask { co_await output = 2; }(inputs[1].write()));
+  publisher.run_all();
+  scheduler.run_all();
+
+  EXPECT_TRUE(resumed[0].overlapped);
+  EXPECT_TRUE(resumed[1].overlapped);
+  EXPECT_NE(resumed[0].thread, resumed[1].thread);
+  EXPECT_TRUE(resumed[0].thread != calling_thread || resumed[1].thread != calling_thread)
+      << "expected at least one resumed activation on a oneTBB worker";
+  for (auto const& observation : resumed)
+  {
+    EXPECT_EQ(observation.status, cudaSuccess);
+    EXPECT_EQ(observation.device, target_device_);
+  }
+  this->expect_calling_device_restored();
+}
+
+TEST_F(TbbCudaSchedulerTest, SaturatedArenaAcceptsResumptionWithoutPublisherParticipation)
+{
+  using namespace std::chrono_literals;
+
+  TbbCudaScheduler scheduler(target_device_, 1);
+  Async<int> input;
+  Async<std::array<int, 2>> output;
+  std::latch waiting_for_input{1};
+  std::latch blocker_started{1};
+  std::latch release_blocker{1};
+
+  scheduler.schedule(
+      [](ReadBuffer<int> input, WriteBuffer<std::array<int, 2>> output, std::latch* waiting) static -> CudaTask {
+        waiting->count_down();
+        int const value = co_await input;
+        int device = -1;
+        CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
+        co_await output = std::array{value, device};
+      }(input.read(), output.write(), &waiting_for_input));
+  waiting_for_input.wait();
+
+  scheduler.schedule([](std::latch* started, std::latch* release) static -> CudaTask {
+    started->count_down();
+    release->wait();
+    co_return;
+  }(&blocker_started, &release_blocker));
+  blocker_started.wait();
+
+  std::binary_semaphore publication_returned{0};
+  std::atomic<int> publisher_device_before{-1};
+  std::atomic<int> publisher_device_after{-1};
+  std::jthread publisher([&] {
+    CHECK_EQUAL(static_cast<int>(cudaSetDevice(original_device_)), static_cast<int>(cudaSuccess));
+    int device = -1;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
+    publisher_device_before.store(device, std::memory_order_relaxed);
+
+    DebugScheduler publisher_scheduler;
+    publisher_scheduler.schedule(
+        [](WriteBuffer<int> input) static -> AsyncTask { co_await input = 42; }(input.write()));
+    publisher_scheduler.run_all();
+
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
+    publisher_device_after.store(device, std::memory_order_relaxed);
+    publication_returned.release();
+  });
+
+  if (!publication_returned.try_acquire_for(2s))
+  {
+    release_blocker.count_down();
+    publisher.join();
+    FAIL() << "TbbCudaScheduler rescheduling waited for saturated-arena admission";
+  }
+
+  EXPECT_EQ(publisher_device_before.load(std::memory_order_relaxed), original_device_);
+  EXPECT_EQ(publisher_device_after.load(std::memory_order_relaxed), original_device_);
+
+  // This wait is sequenced after rescheduling returned, so the deferred
+  // activation must already belong to the scheduler's task group.
+  release_blocker.count_down();
+  scheduler.run_all();
+  publisher.join();
+
+  DebugScheduler result_scheduler;
+  EXPECT_EQ(output.get_wait(result_scheduler), (std::array{42, target_device_}));
   this->expect_calling_device_restored();
 }
 

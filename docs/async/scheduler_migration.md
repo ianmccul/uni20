@@ -69,6 +69,14 @@ The shared promise records an `IScheduler*`:
    through the recorded `IScheduler`.
 4. The scheduler resumes the same coroutine on its own execution domain.
 
+The TBB scheduler implementations accept initial and resumed activations with
+`task_group::defer()` followed by non-blocking `task_arena::enqueue()`. A
+publishing or completion-service thread therefore does not enter the target
+arena. Because defer registers the activation first, a `run_all()` sequenced
+after admission returns cannot miss it. Failure to allocate or publish this
+internal activation is fatal and reports scheduler/device context rather than
+returning an unowned coroutine handle.
+
 The scheduler route is runtime continuation state, not a numerical backend tag.
 Tensor storage and backend dispatch still determine where the operands reside
 and which kernel is legal.
@@ -131,9 +139,11 @@ the same activation-quiescence meaning as `TbbScheduler`: externally suspended
 tasks may become runnable and submit a later activation.
 
 Tests cover direct TBB admission, one scheduler per visible device,
-out-of-order resumption after two suspension points, calling-thread restoration,
-and nested entry into a different device arena. Multi-device cases skip when
-fewer than two devices are visible.
+out-of-order resumption after two suspension points, non-blocking resumption
+into a saturated arena, concurrent arena-participant device selection before
+and after suspension, calling-thread restoration, and nested entry into a
+different device arena. Multi-device cases skip when fewer than two devices are
+visible.
 
 ## Device Selection
 
@@ -179,14 +189,24 @@ explicit and returns naturally to CPU control flow.
 
 ## Lifetime and Quiescence
 
-A promise may record a scheduler only while that scheduler remains alive.
-Schedulers and device contexts must therefore outlive every task, resource
-waiter, and completion callback that can route work to them.
+A task remembers which scheduler should run its next activation, but it does
+not own that scheduler or keep it alive. The scheduler must remain alive until
+every task routed through it has completed, or has been cancelled so that it
+can never become runnable again. The same rule applies to resource waiters and
+completion callbacks that may publish a later activation.
+
+Application schedulers should normally be long-lived runtime services, often
+lasting until process shutdown. A test may use a stack-local scheduler, but it
+must finish or cancel every routed task before leaving the scheduler's scope
+and ensure that no external callback can submit a later resumption.
 
 `run_all()` is scheduler-local activation quiescence. It does not imply that an
 externally suspended task has completed, nor does it drain every scheduler in a
-multi-device process. Device-context shutdown will need an explicit contract
-that diagnoses outstanding routed tasks and resource waiters.
+multi-device process. In particular, waiting for the current oneTBB task group
+does not make it safe to destroy a scheduler while a coroutine remains
+suspended on an epoch, resource, or external event. Device-context shutdown
+will need an explicit contract that diagnoses outstanding routed tasks and
+resource waiters.
 
 ## Remaining Tests and Work
 

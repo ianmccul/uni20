@@ -90,7 +90,8 @@ class BasicAsyncTaskPromise {
         bool explicit_sink{false};
     };
 
-    /// \brief Scheduler to notify when the coroutine is ready to resume.
+    /// \brief Non-owning scheduler route used when the coroutine is ready to resume.
+    /// \note The scheduler must outlive this coroutine and every possible later resumption.
     IScheduler* sched_ = nullptr;
 
     /// \brief Tracks whether the coroutine has been scheduled or otherwise started.

@@ -150,10 +150,14 @@ arena. It has different progress and exception rules from `task_group::run()`.
 In particular, oneTBB may create one worker to service enqueued work even when
 `global_control::max_allowed_parallelism` is `1`.
 
-Uni20's `TbbScheduler` does not currently dispatch coroutine handles with
-`task_arena::enqueue()`. Its private function named `enqueue_task()` eventually
-enters the arena and calls `task_group::run()`. Do not infer oneTBB `enqueue()`
-semantics from the Uni20 helper's name.
+Uni20's host and CUDA TBB schedulers use `task_group::defer()` followed by
+`task_arena::enqueue(task_handle)`. Deferring first registers the activation
+with the task group's wait set; enqueueing then publishes it without requiring
+the caller to enter the arena. This is the oneTBB 2021.x spelling of the newer
+`task_arena::enqueue(function, task_group)` convenience overload.
+Failure while allocating the deferred task or publishing it into the arena is a
+fatal Uni20 scheduler-infrastructure error. The boundary reports structured
+scheduler and, for CUDA, device context before terminating.
 
 ## Arena Concurrency
 
@@ -192,7 +196,7 @@ Useful configurations are:
 | Construction | Interpretation |
 |---|---|
 | `task_arena(automatic, 1)` | Automatic total concurrency with one slot available to application threads |
-| `task_arena(1, 1)` | One arena participant; ordinary task-group work can run entirely on an application thread |
+| `task_arena(1, 1)` | One simultaneous arena participant; enqueued work may use oneTBB's eventual-execution worker |
 | `task_arena(4, 1)` | At most four participants; at most three ordinary workers, with one slot reserved for application entry |
 | `task_arena(4, 0)` | At most four participants and no slot reserved specifically for application entry |
 | `task_arena(4, 4)` | No ordinary worker slots; generally unsuitable for asynchronously submitted work |
@@ -222,9 +226,11 @@ This control is different from an arena limit:
 - reserved application-thread slots partition arena capacity between workers
   and application-thread entry
 
-For a strict Uni20 single-thread test, use both a global parallelism limit of
-one and a `TbbScheduler` arena concurrency of one. Avoid `task_arena::enqueue()`
-in the code path under test.
+For a strict Uni20 single-activation test, use both a global parallelism limit
+of one and a `TbbScheduler` arena concurrency of one. This limits simultaneous
+execution but does not guarantee OS-thread identity: Uni20 scheduler admission
+uses `task_arena::enqueue()`, for which oneTBB may still run one worker. Use
+`DebugScheduler` when deterministic calling-thread execution is required.
 
 ## Arena Constraints
 
@@ -290,8 +296,9 @@ A `task_group` tracks dynamically added tasks. Its main operations are:
 The group is an ownership, completion, and cancellation boundary for submitted
 TBB tasks. It is not a scheduling domain. In Uni20, each submitted TBB task is
 one coroutine **activation**: it resumes a coroutine and ends when that
-coroutine next suspends or completes. `task_group::run()` is called from inside
-`arena_.execute(...)`, which associates that activation with the arena.
+coroutine next suspends or completes. `task_group::defer()` registers the
+activation before `task_arena::enqueue()` associates and publishes it to the
+scheduler arena.
 
 If the coroutine suspends on an epoch or external event, the activation is
 complete even though the logical coroutine remains alive. Its awaiter owns the
@@ -305,6 +312,12 @@ available TBB tasks, including tasks unrelated to that group. It is therefore a
 good implementation for `TbbScheduler::run_all()`, whose current contract is
 quiescence of activations submitted to that scheduler. It does not prove that
 externally suspended coroutines have completed.
+
+The defer-before-enqueue sequence gives accepted admission a clear ordering
+boundary. A `run_all()` call sequenced after admission returns must include that
+activation. An unordered concurrent `run_all()` may linearize before a new
+admission starts and return without it; scheduler quiescence is not a global
+submission fence.
 
 It is not a suitable implementation for a targeted `Async<T>::get_wait()`:
 
@@ -362,8 +375,9 @@ simultaneous suspension points for the same already-suspended stack.
 
 ## The Single-Thread Case
 
-The single-thread case is not a fallback that bypasses TBB. It is cooperative
-scheduling on one application thread.
+The single-participant case is not a fallback that bypasses TBB. It limits the
+arena to one simultaneously executing activation, but the participant may be
+an application thread or oneTBB's eventual-execution worker.
 
 Consider:
 
@@ -373,27 +387,26 @@ oneapi::tbb::global_control serial{
 TbbScheduler scheduler{1};
 ```
 
-For Uni20's `task_group::run()` dispatch path, the timeline is:
+For Uni20's non-blocking admission path, the timeline is:
 
-1. The application thread enters the arena briefly and schedules task A with
-   `task_group::run()`.
-2. The application thread leaves the arena. A remains pending because there is
-   no ordinary worker slot.
-3. The application thread calls `get_wait()` and enters the arena with
-   `execute()`.
-4. The wait suspends its synchronous TBB execution stack.
-5. The same application thread executes task A.
-6. A makes the requested epoch readable and resumes the saved suspension point.
-7. The application thread continues `get_wait()` and leaves `execute()`.
+1. The application thread registers task A with `task_group::defer()` and
+   publishes it with `task_arena::enqueue()` without entering the arena.
+2. A may execute on oneTBB's eventual-execution worker. If the requested epoch
+   is not already ready, the application thread calls `get_wait()` and enters
+   the arena with `execute()`.
+3. The wait suspends its synchronous TBB execution stack.
+4. A executes on whichever thread next participates in the arena, makes the
+   requested epoch readable, and resumes the saved suspension point.
+5. The application thread continues `get_wait()` and leaves `execute()`.
 
 This also works when the wait is nested inside a task:
 
-1. The application thread enters `run_all()` and executes task A while in
+1. A participating thread executes task A while `run_all()` is waiting in
    `group.wait()`.
 2. A calls synchronous Krylov code.
 3. Krylov schedules task B and calls `get_wait()` for a scalar reduction.
 4. A's current synchronous stack is suspended.
-5. The same application thread executes B.
+5. The sole available arena participant executes B.
 6. B publishes the result and resumes A.
 7. Krylov and A continue normally.
 
@@ -413,6 +426,8 @@ remains trapped in A and B cannot run.
 It is not equivalent to `DebugScheduler`:
 
 - `DebugScheduler` uses Uni20's explicit deterministic queue and batch behavior
+- `DebugScheduler` executes on its calling thread, while enqueued TBB work may
+  use oneTBB's eventual-execution worker
 - oneTBB task selection order remains unspecified even with one slot
 - a TBB wait may execute unrelated eligible tasks from the arena
 - `DebugScheduler` provides direct no-runnable-task deadlock diagnostics
@@ -584,8 +599,9 @@ on spare workers.
 7. Do not rely on thread identity or thread-local state across a suspension.
 8. Test scheduler changes with one total participant as well as several
    workers.
-9. Keep `task_arena::enqueue()` use explicit because its progress and exception
-   behavior differs from the task-group path.
+9. Register activations with `task_group::defer()` before non-blocking
+   `task_arena::enqueue()` publication so `run_all()` accounting cannot miss an
+   accepted submission.
 10. Remember that `EpochQueue` defines dependency legality; TBB only executes
     work that those dependencies make ready.
 
@@ -606,10 +622,12 @@ The TBB scheduler test suite should include:
 - external or newly submitted work arriving before the watchdog deadline
 - runnable work transitioning through zero without triggering a stale timeout
 - independent waits timing out or completing concurrently
+- initial admission and rescheduling from outside a saturated arena
+- `run_all()` ordered after accepted admission waiting for that activation
 
-The single-thread tests should record operating-system thread identifiers and
-confirm that the application thread can schedule, suspend, execute the
-dependency, and resume without an ordinary worker.
+Single-participant tests should confirm progress without relying on OS-thread
+identity. Saturated-arena tests should use latches or barriers to establish
+ordering and use timeouts only as deadlock escape paths.
 
 ## Official References
 

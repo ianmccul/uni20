@@ -5,6 +5,7 @@
 #include "async_errors.hpp"
 #include "scheduler.hpp"
 #include "task_registry.hpp"
+#include "tbb_task_submission.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -486,22 +487,14 @@ class TbbScheduler final : public IAsyncScheduler {
     void dispatch_handle(AsyncTask::handle_type h)
     {
       this->submit_runnable_quantum();
-      try
-      {
-        arena_.execute([this, h]() {
-          tg_.run([this, h]() {
-            ExecutionScope execution(*this);
-            TRACE_MODULE(ASYNC, "resuming coroutine", h);
-            h.promise().resume_and_track(h);
-            detail::service_tbb_task_registry_debug_requests();
-          });
-        });
-      }
-      catch (...)
-      {
-        this->finish_runnable_quantum();
-        throw;
-      }
+      detail::enqueue_tbb_task(arena_, tg_,
+                               [this, h]() {
+                                 ExecutionScope execution(*this);
+                                 TRACE_MODULE(ASYNC, "resuming coroutine", h);
+                                 h.promise().resume_and_track(h);
+                                 detail::service_tbb_task_registry_debug_requests();
+                               },
+                               {.scheduler = "TbbScheduler"});
     }
 
     oneapi::tbb::task_arena arena_;
