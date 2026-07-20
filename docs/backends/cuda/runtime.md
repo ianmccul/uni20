@@ -1,11 +1,12 @@
 # CUDA Runtime Foundation
 
-**Status:** the low-level ownership, completion-token, idle-stream-pool, device
-buffer, and scoped stream-access primitives are implemented in
-`src/uni20/backend/cuda/`. The async layer provides deterministic and oneTBB
-unified host/multi-device schedulers, including per-activation device selection
-and restoration. CUDA Tensor storage, CUDA kernels, and coroutine resource
-awaiters are not yet implemented.
+**Status:** the low-level ownership, completion-token, idle-stream-pool,
+provider-resource-pool, device-buffer, scoped stream-access, and CUDA-task
+resource-awaiting primitives are implemented in `src/uni20/backend/cuda/`.
+The async layer provides deterministic and oneTBB unified host/multi-device
+schedulers, including per-activation device selection and restoration. The
+first provider consumer is the cuBLAS handle/stream execution pool and GEMM
+leaf. CUDA Tensor storage and CUDA Tensor lowering are not yet implemented.
 
 This document defines the resource-management contract beneath future CUDA
 Tensor kernels and async lowering.
@@ -107,9 +108,12 @@ Destroying the final `Stream` handle performs the following transition:
 3. When the host function runs, mark the slot `idle`.
 
 The host function performs no CUDA calls. It only updates pool bookkeeping.
-Future coroutine integration will also arrange for the oldest stream waiter to
-be rescheduled through the scheduler recorded by its coroutine promise; it must
-not resume arbitrary coroutine work directly on CUDA's callback thread.
+An exhausted non-blocking acquisition queues an intrusive FIFO waiter. The pool
+callback publishes the newly available stream and reschedules the owning task
+through the scheduler recorded by its coroutine promise; it does not resume
+coroutine work directly on CUDA's callback thread. Registration uses an
+explicit handshake so readiness racing with `await_suspend()` cannot resume the
+coroutine before suspension ownership has been published.
 
 There is no explicit stream `submit()` step. Recording operation completions is
 done by `Stream::record_completion()` or by scoped buffer access guards; stream
@@ -120,7 +124,6 @@ pool admission is controlled only by the lifetime of `Stream` handles.
 The stream pool is a natural throttle:
 
 - it bounds simultaneously executing or queued CUDA operations;
-- it bounds lane-local handles and workspaces;
 - it limits live intermediate storage and allocator pressure;
 - exhausted acquisition can suspend a coroutine instead of allowing unbounded
   device submission.
@@ -128,7 +131,7 @@ The stream pool is a natural throttle:
 The intended awaitable API is conceptually:
 
 ```text
-auto stream = co_await device.acquire_stream();
+auto stream = co_await cuda::acquire_stream(context.streams());
 {
   auto output_access = output.write_synchronized_with(stream);
   auto input_access = input.read_synchronized_with(stream);
@@ -136,17 +139,16 @@ auto stream = co_await device.acquire_stream();
 }
 ```
 
-The exact awaiter and cancellation interface remains part of the future
-`CudaTask`/scheduler design. The current pool exposes immediate `try_acquire()`
-and blocking `acquire()` helpers. The CUDA execution model should expose two
-explicit submission channels above that foundation:
+The pool exposes immediate `try_acquire()`, blocking `acquire()`, and the
+CUDA-task-only `cuda::acquire_stream(pool)` awaiter. The CUDA execution model
+therefore has two explicit submission channels above the same pool:
 
 - **blocking:** resource acquisition may wait on the calling thread. This is
   suitable for non-async C++ calls, bring-up code, and tests.
 - **non-blocking:** resource acquisition suspends through a Uni20 scheduler
   instead of blocking the calling thread. This requires a scheduler, but the
-  scheduler may be `DebugScheduler`, a one-slot `TbbScheduler`, or a larger
-  device scheduler.
+  scheduler may be `DebugCudaScheduler`, a one-slot `TbbCudaScheduler`, or a
+  larger unified device scheduler.
 
 The eventual CUDA Tensor storage policy should encode this channel, for example
 as distinct blocking and non-blocking CUDA storage domains over a common
@@ -163,6 +165,32 @@ are not part of the backend selector.
 A small configurable pool is expected. A reasonable initial heuristic is around
 twice the maximum useful device concurrency, but measured workload behavior
 should determine defaults.
+
+## Provider Resources And Ordered Acquisition
+
+`cuda::ResourcePool<Resource>` owns a fixed set of preconstructed provider
+resources. `ResourceLease<Resource>` is move-only and returns its slot to the
+oldest queued waiter on release. The pool provides immediate, blocking, and
+CUDA-task awaitable acquisition through `cuda::acquire_resource(pool)`.
+
+Provider handles are not permanently paired with streams. The implemented
+`cublas::ExecutionPool` acquires one scarce handle first, then waits for an
+actually-idle stream, and returns both in one `cublas::ExecutionLease`. This
+ordering avoids stranding streams behind idle handles and bounds the number of
+provider operations waiting for stream capacity. Provider acquisition must
+finish before buffer access guards are created.
+
+There is no resource cycle under the implemented contract:
+
+- provider operations always acquire handle before stream;
+- stream-only operations never wait for a provider handle;
+- no buffer guard is retained while waiting for either resource.
+
+The cuBLAS handle is conservatively returned from a host callback at the
+operation stream tail. The stream remains governed independently by its
+reference-counted pool lease. Another operation may therefore reuse the handle
+with a different idle stream while an unrelated reference still retains the old
+stream slot.
 
 ## Event-Based Dependencies
 
@@ -274,14 +302,13 @@ The next CUDA runtime checkpoints should add:
 
 1. Typed CUDA Tensor storage and a device mdspan/accessor contract built over
    `cuda::CudaBuffer` without making device memory host-indexable.
-2. Integrate the implemented unified `TbbCudaScheduler` with eventual
-   provider-handle and workspace pools in the CUDA runtime.
+2. Move the implemented stream and provider pools behind the future canonical
+   process-wide per-device resource service.
 3. Typed initial `CudaTask` admission that selects the scheduler matching Tensor
    storage placement. Shared-promise nested-await and continuation routing are
    already implemented and covered by both CUDA schedulers' tests.
 4. Live-task scheduler migration as a separate capability where useful.
-5. Cancellation-safe coroutine acquisition using the implemented transaction
-   and completion-publication rules.
-6. A scheduler-neutral completion notification bridge that resubmits through
-   the scheduler currently recorded by the suspended task.
+5. Define explicit cancellation and shutdown behavior for tasks queued on
+   resource pools.
+6. Extend handle slots with provider-specific reusable workspace caches.
 7. Deferred CUDA execution-error propagation into async output epochs.

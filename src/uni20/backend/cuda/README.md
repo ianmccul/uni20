@@ -15,9 +15,9 @@ implemented under `src/uni20/async/`.
   read/write access guards.
 - `runtime.hpp`: device guards, reference-counted stream-pool leases, immutable
   completion tokens, and the device-local idle-stream pool.
-- `task_awaiters.hpp`: CUDA-task suspension operations, currently explicit
-  device selection, and the extension point for future stream and provider
-  resource acquisition awaiters. Concrete awaiters derive from the
+- `resource_pool.hpp`: fixed-capacity provider-resource pools and move-only leases.
+- `task_awaiters.hpp`: CUDA-task device selection plus non-blocking stream and
+  generic provider-resource acquisition. Concrete awaiters derive from the
   runtime-neutral `async::CudaTaskAwaiterTag`; generic async headers do not name
   individual CUDA awaiter types.
 - `CMakeLists.txt`: CUDA backend target setup.
@@ -33,6 +33,10 @@ implemented under `src/uni20/async/`.
 - A stream-pool slot is available only after all work previously queued to that
   stream has completed. Destroying the final `cuda::Stream` handle enqueues a
   lightweight host function that marks the slot idle.
+- Provider resources use FIFO `ResourcePool<T>` admission for queued async
+  waiters. Provider-specific awaiters may impose a documented resource order,
+  such as cuBLAS handle before stream, and pass the completed execution lease to
+  a non-suspending backend leaf.
 - `Stream::record_completion()` creates and records the private event on the
   producer stream's device. Consumers install same- or cross-device dependencies
   with `stream.wait_on(completion)`.

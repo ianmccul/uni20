@@ -307,6 +307,7 @@ class StreamPool::Impl {
         std::lock_guard lock(mutex_);
         stopping_ = true;
         available_.notify_all();
+        CHECK(waiter_head_ == nullptr, "destroying CUDA stream pool with queued waiters");
         CHECK(std::ranges::none_of(slots_, [](Slot const& slot) { return slot.state == SlotState::leased; }),
               "destroying CUDA stream pool with active leases");
       }
@@ -349,6 +350,33 @@ class StreamPool::Impl {
       return static_cast<std::size_t>(std::distance(slots_.begin(), found));
     }
 
+    [[nodiscard]] std::optional<std::size_t> acquire_or_enqueue(detail::StreamWaiter& waiter) noexcept
+    {
+      std::lock_guard lock(mutex_);
+      CHECK(!stopping_);
+      CHECK(!waiter.queued_);
+
+      auto const found = std::ranges::find_if(slots_, [](Slot const& slot) { return slot.state == SlotState::idle; });
+      if (found != slots_.end())
+      {
+        found->state = SlotState::leased;
+        return static_cast<std::size_t>(std::distance(slots_.begin(), found));
+      }
+
+      waiter.queued_ = true;
+      waiter.next_ = nullptr;
+      if (waiter_tail_ == nullptr)
+      {
+        waiter_head_ = &waiter;
+      }
+      else
+      {
+        waiter_tail_->next_ = &waiter;
+      }
+      waiter_tail_ = &waiter;
+      return std::nullopt;
+    }
+
     [[nodiscard]] StreamResource& stream(std::size_t slot)
     {
       CHECK(slot < slots_.size(), slot, slots_.size());
@@ -384,14 +412,7 @@ class StreamPool::Impl {
       }
     }
 
-    void release_leased_without_work(std::size_t slot) noexcept
-    {
-      std::lock_guard lock(mutex_);
-      CHECK(slot < slots_.size(), slot, slots_.size());
-      CHECK(slots_[slot].state == SlotState::leased, slot);
-      slots_[slot].state = SlotState::idle;
-      available_.notify_one();
-    }
+    void release_leased_without_work(std::size_t slot) noexcept { this->make_available(slot, SlotState::leased); }
 
     [[nodiscard]] std::size_t count(SlotState state) const noexcept
     {
@@ -435,19 +456,48 @@ class StreamPool::Impl {
       payload->pool->return_stream(payload->slot);
     }
 
-    void return_stream(std::size_t slot) noexcept
+    void return_stream(std::size_t slot) noexcept { this->make_available(slot, SlotState::pending); }
+
+    void make_available(std::size_t slot, SlotState expected_state) noexcept
     {
-      std::lock_guard lock(mutex_);
-      CHECK(slot < slots_.size(), slot, slots_.size());
-      CHECK(slots_[slot].state == SlotState::pending, slot);
-      slots_[slot].state = SlotState::idle;
-      available_.notify_one();
+      detail::StreamWaiter* waiter = nullptr;
+      {
+        std::lock_guard lock(mutex_);
+        CHECK(slot < slots_.size(), slot, slots_.size());
+        CHECK(slots_[slot].state == expected_state, slot, static_cast<int>(slots_[slot].state),
+              static_cast<int>(expected_state));
+
+        if (waiter_head_ == nullptr)
+        {
+          slots_[slot].state = SlotState::idle;
+          available_.notify_one();
+          return;
+        }
+
+        waiter = waiter_head_;
+        waiter_head_ = waiter->next_;
+        if (waiter_head_ == nullptr) waiter_tail_ = nullptr;
+        waiter->next_ = nullptr;
+        waiter->queued_ = false;
+        slots_[slot].state = SlotState::leased;
+      }
+
+      try
+      {
+        waiter->notify(Stream(std::make_shared<Stream::State>(*this, slot)));
+      }
+      catch (...)
+      {
+        PANIC("failed to deliver an available CUDA stream to a queued task", device_, slot);
+      }
     }
 
     int device_;
     mutable std::mutex mutex_;
     std::condition_variable available_;
     std::vector<Slot> slots_;
+    detail::StreamWaiter* waiter_head_ = nullptr;
+    detail::StreamWaiter* waiter_tail_ = nullptr;
     bool stopping_ = false;
 };
 
@@ -484,6 +534,22 @@ Stream StreamPool::acquire()
   {
     impl_->release_leased_without_work(slot);
     throw;
+  }
+}
+
+std::optional<Stream> StreamPool::acquire_or_enqueue(detail::StreamWaiter& waiter) noexcept
+{
+  auto const slot = impl_->acquire_or_enqueue(waiter);
+  if (!slot) return std::nullopt;
+
+  try
+  {
+    return Stream(std::make_shared<Stream::State>(*impl_, *slot));
+  }
+  catch (...)
+  {
+    impl_->release_leased_without_work(*slot);
+    PANIC("failed to construct a CUDA stream lease for a queued task", impl_->device(), *slot);
   }
 }
 

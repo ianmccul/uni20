@@ -51,10 +51,12 @@ CUDA device context
   -> workspace and completion resources
 ```
 
-A solver request begins only when its complete resource set is available. The
-coroutine may suspend while waiting for that composite acquisition. Once
-admitted, setting the handle stream, invoking cuSOLVER, and recording submission
-completion form one non-suspending operation.
+A solver request acquires resources in provider order: reserve an exclusive
+cuSOLVER handle first, then await an actually-idle stream and any operation
+workspace. Once admitted, setting the handle stream, invoking cuSOLVER, and
+recording submission completion form one non-suspending operation. Keeping
+handles independent from streams lets a scarce handle rotate onto whichever
+pool stream becomes idle next.
 
 Do not create and destroy cuSOLVER handles per operation. Handle creation is
 runtime state setup, not useful numerical work. Handles are device-local leased
@@ -81,7 +83,7 @@ and asynchronous. For example, block-sparse SVD can submit independent symmetry
 sectors, publish GPU completion tokens, and let dependent work resume later.
 
 Raw cuSOLVER handles remain internal to RAII leases and backend adapters. An
-internal coroutine may await composite resource admission, but the actual
+internal coroutine may await ordered resource admission, but the actual
 backend walk and cuSOLVER call are ordinary non-coroutine code. No further
 `co_await` occurs while the provider call is in progress.
 

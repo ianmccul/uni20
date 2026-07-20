@@ -5,8 +5,9 @@ structured errors, device guards, reference-counted stream-pool leases,
 immutable completion tokens, an actually-idle stream pool, and typed move-only
 device buffers with scoped `ReadAccess<T>`/`WriteAccess<T>` objects.
 Deterministic and oneTBB unified host/multi-device task schedulers are
-implemented. Uni20 does not yet have CUDA Tensor storage, Tensor kernels, CUDA
-resource awaiters, or storage-driven scheduler selection.
+implemented, as are non-blocking resource awaiters, generic provider-resource
+leases, and the first cuBLAS handle/stream pool and GEMM leaf. Uni20 does not yet
+have CUDA Tensor storage, Tensor kernels, or storage-driven scheduler selection.
 
 ## Start Here
 
@@ -40,6 +41,7 @@ resource awaiters, or storage-driven scheduler selection.
 ## Source Navigation
 
 - [CUDA runtime foundation](../../../src/uni20/backend/cuda/)
+- [cuBLAS provider infrastructure](../../../src/uni20/backend/cublas/)
 - [CUDA task schedulers](../../../src/uni20/async/)
 - [cuSOLVER provider scaffolding](../../../src/uni20/backend/cusolver/)
 - [cuSOLVER operation-tag backend](../../../src/uni20/linalg/backends/cusolver/)

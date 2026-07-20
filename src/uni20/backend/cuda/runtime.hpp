@@ -6,17 +6,25 @@
  * \brief CUDA device, stream, completion, and idle-stream-pool primitives.
  */
 
+#include <uni20/common/trace.hpp>
+
 #include <cuda_runtime_api.h>
 
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <utility>
 
 namespace uni20::cuda
 {
 
 class Completion;
 class StreamPool;
+
+namespace detail
+{
+class StreamWaiter;
+}
 
 /// \brief Temporarily select one CUDA device and restore the previous device on destruction.
 class ScopedDevice {
@@ -106,6 +114,30 @@ class Completion {
     friend class Stream::State;
 };
 
+namespace detail
+{
+
+/// \brief Intrusive callback node used by non-blocking stream acquisition.
+class StreamWaiter {
+  public:
+    using notify_type = void (*)(StreamWaiter&, Stream) noexcept;
+
+    explicit StreamWaiter(notify_type notify) noexcept : notify_(notify) { CHECK(notify_ != nullptr); }
+    StreamWaiter(StreamWaiter const&) = delete;
+    StreamWaiter& operator=(StreamWaiter const&) = delete;
+
+  private:
+    void notify(Stream stream) noexcept { notify_(*this, std::move(stream)); }
+
+    notify_type notify_;
+    StreamWaiter* next_ = nullptr;
+    bool queued_ = false;
+
+    friend class ::uni20::cuda::StreamPool;
+};
+
+} // namespace detail
+
 /// \brief Device-local pool whose streams become available only after their queued work completes.
 /// \details The pool must outlive every `Stream` handle acquired from it.
 class StreamPool {
@@ -131,6 +163,9 @@ class StreamPool {
     /// \details Pool-return CUDA callbacks notify blocked callers directly;
     ///          no scheduler participation is required.
     [[nodiscard]] Stream acquire();
+
+    /// \brief Register an internal awaiter unless a stream is immediately available.
+    [[nodiscard]] std::optional<Stream> acquire_or_enqueue(detail::StreamWaiter& waiter) noexcept;
 
     /// \brief Return the device served by this pool.
     [[nodiscard]] int device() const noexcept;

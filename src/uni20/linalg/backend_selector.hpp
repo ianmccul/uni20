@@ -29,6 +29,13 @@ struct BlasBackend
     friend constexpr bool operator==(BlasBackend const&, BlasBackend const&) = default;
 };
 
+/// \brief Backend value for cuBLAS dense linalg kernels.
+struct CublasBackend
+{
+    static constexpr std::string_view name = "cublas";
+    friend constexpr bool operator==(CublasBackend const&, CublasBackend const&) = default;
+};
+
 /// \brief Backend value for the reference host CPU dense linalg oracle.
 struct CpuReferenceBackend
 {

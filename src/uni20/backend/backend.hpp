@@ -16,6 +16,7 @@
  * - \ref backend_blas — BLAS integration and vendor selection utilities.
  * - \ref backend_lapack — LAPACK integration and dense linear algebra adapters.
  * - \ref backend_cuda — CUDA runtime orchestration helpers.
+ * - \ref backend_cublas — cuBLAS handle pools and checked provider calls.
  * - \ref backend_cusolver — cuSOLVER-specific linear algebra adapters.
  */
 
@@ -23,6 +24,12 @@
  * \defgroup backend_cuda CUDA backend integration
  * \ingroup backend
  * \brief CUDA runtime ownership, completion, and provider integration.
+ */
+
+/**
+ * \defgroup backend_cublas cuBLAS backend integration
+ * \ingroup backend
+ * \brief Dynamic cuBLAS handle/stream leasing and provider wrappers.
  */
 
 /**

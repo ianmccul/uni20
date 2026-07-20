@@ -33,3 +33,8 @@ if(UNI20_BACKEND_CUDA)
   add_subdirectory(cuda)
   target_link_libraries(uni20_backend INTERFACE uni20_backend_cuda)
 endif()
+
+if(UNI20_BACKEND_CUBLAS)
+  add_subdirectory(cublas)
+  target_link_libraries(uni20_backend INTERFACE uni20_backend_cublas)
+endif()

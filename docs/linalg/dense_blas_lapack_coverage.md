@@ -15,6 +15,11 @@ Keep this inventory synchronized with provider declarations and with any
 helpers promoted from the quarantined survey into operation-tag linalg
 backends.
 
+CUDA provider coverage is currently narrower: cuBLAS `S/D/C/ZGEMM` has a
+checked provider wrapper and a `CublasBackend` leaf over an acquired
+handle/stream execution lease. CUDA Tensor storage and mdspan lowering are not
+yet implemented, so this is not yet a Tensor-facing GEMM path.
+
 ## Scalar Tags
 
 LAPACK-style scalar tags are used throughout. Complex scalar spellings follow

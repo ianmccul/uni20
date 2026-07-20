@@ -12,6 +12,7 @@ owning tensor semantics, symmetry metadata, or high-level operation policy.
 - [`lapack/`](lapack/): LAPACK-family declarations grouped by problem shape, with
   reference and MPLAPACK-backed variants.
 - [`cuda/`](cuda/): CUDA backend target wiring and placeholders.
+- [`cublas/`](cublas/): cuBLAS handle/stream execution leases and checked GEMM wrappers.
 - [`cusolver/`](cusolver/): cuSOLVER backend target wiring and placeholders.
 
 ## Notes

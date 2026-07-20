@@ -309,7 +309,7 @@ if(UNI20_SANITIZE)
 endif()
 
 # Sub-modules, for detailed tracing/logging
-set(SUBMODULES BLAS LAPACK CUSOLVER ASYNC TESTMODULE)
+set(SUBMODULES BLAS LAPACK CUBLAS CUSOLVER ASYNC TESTMODULE)
 
 # Create an option for each module.
 foreach(module IN LISTS SUBMODULES)
@@ -351,6 +351,7 @@ endfunction()
 # Backends
 option(UNI20_BACKEND_BLAS     "Enable the BLAS backend" ON)
 option(UNI20_BACKEND_CUDA     "Enable the CUDA backend" ${UNI20_BACKEND_CUDA_DEFAULT})
+option(UNI20_BACKEND_CUBLAS   "Enable the cuBLAS backend" ${UNI20_BACKEND_CUDA_DEFAULT})
 option(UNI20_BACKEND_CUSOLVER "Enable the cuSOLVER backend" OFF)
 option(UNI20_BACKEND_MKL      "Enable the compatibility MKL backend extension API selector" OFF)
 option(UNI20_BACKEND_MKL_SEQUENTIAL "Enable the sequential MKL backend extension API" OFF)
@@ -361,6 +362,7 @@ set(UNI20_BLAS_VENDOR "All" CACHE STRING "BLAS vendor hint passed to FindBLAS as
 if(UNI20_DOCS_WEB)
   set(UNI20_BACKEND_BLAS OFF CACHE BOOL "Enable the BLAS backend" FORCE)
   set(UNI20_BACKEND_CUDA OFF CACHE BOOL "Enable the CUDA backend" FORCE)
+  set(UNI20_BACKEND_CUBLAS OFF CACHE BOOL "Enable the cuBLAS backend" FORCE)
   set(UNI20_BACKEND_CUSOLVER OFF CACHE BOOL "Enable the cuSOLVER backend" FORCE)
   set(UNI20_BACKEND_MKL OFF CACHE BOOL "Enable the compatibility MKL backend extension API selector" FORCE)
   set(UNI20_BACKEND_MKL_SEQUENTIAL OFF CACHE BOOL "Enable the sequential MKL backend extension API" FORCE)
@@ -394,6 +396,14 @@ if(UNI20_BACKEND_OPENBLAS)
     message(FATAL_ERROR "UNI20_BACKEND_OPENBLAS requires UNI20_BACKEND_BLAS to be enabled.")
   endif()
   set(UNI20_BACKEND_BLAS ON CACHE BOOL "Enable the BLAS backend (required by OpenBLAS extensions)" FORCE)
+endif()
+
+# Dependency: cuBLAS requires CUDA
+if(UNI20_BACKEND_CUBLAS)
+  if(DEFINED UNI20_BACKEND_CUDA AND NOT UNI20_BACKEND_CUDA)
+    message(FATAL_ERROR "UNI20_BACKEND_CUBLAS requires UNI20_BACKEND_CUDA to be enabled.")
+  endif()
+  set(UNI20_BACKEND_CUDA ON CACHE BOOL "Enable the CUDA backend (required by cuBLAS)" FORCE)
 endif()
 
 # Dependency: cuSOLVER requires CUDA

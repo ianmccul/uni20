@@ -7,3 +7,7 @@ endif()
 if(TARGET uni20_backend_cuda)
   add_subdirectory(cuda)
 endif()
+
+if(TARGET uni20_backend_cublas)
+  add_subdirectory(cublas)
+endif()

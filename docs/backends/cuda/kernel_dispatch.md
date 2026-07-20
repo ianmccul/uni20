@@ -2,8 +2,10 @@
 
 **Status:** active design note. The low-level CUDA runtime foundation and
 unified host/multi-device debug and oneTBB schedulers are implemented, but CUDA
-Tensor storage, CUDA kernel backends, resource awaiters, device-context
-integration, and live coroutine scheduler migration are not yet implemented.
+Tensor storage, process-wide device-context integration, general CUDA Tensor
+kernel lowering, and live coroutine scheduler migration are not yet
+implemented. Generic stream/provider-resource awaiters and the first cuBLAS
+GEMM backend leaf are implemented.
 
 This note defines how Uni20 kernel dispatch should interact with CUDA
 execution. It distinguishes the logical CUDA execution context from the
@@ -61,7 +63,8 @@ is recorded in the common promise state and remains authoritative for execution.
 The selected device ordinal is stored only in `CudaTaskPromise`: initial
 admission binds it from Tensor placement and an unbound nested CUDA task may
 inherit it from a CUDA parent. A live task does not change concrete task type or
-device after execution starts.
+promise type. Device affinity may change only while the task is suspended at an
+explicit device-selection boundary.
 
 Lightweight and host-intensive CUDA calls use the same device scheduler and
 resource model initially. A host-intensive provider call occupies one device
@@ -80,7 +83,7 @@ CUDA operations should be described in terms of submission channels:
 - **non-blocking:** resource acquisition suspends through a Uni20 scheduler
   while waiting for streams, provider handles, workspace, or other scarce
   resources. This requires a scheduler, but it does not require a multi-threaded
-  scheduler: `DebugScheduler` and a one-slot `TbbScheduler` are valid
+  scheduler: `DebugCudaScheduler` and a one-slot `TbbCudaScheduler` are valid
   non-blocking execution environments.
 
 This channel choice is a Tensor storage-policy parameter. It is orthogonal to
@@ -118,8 +121,9 @@ complete resource set has been acquired.
 ## Per-Device Execution Context
 
 The implemented `cuda::DeviceContext` currently owns the validated device,
-short-lived buffer-state mutex, and idle stream pool. It should grow to own all
-execution resources associated with one device:
+short-lived buffer-state mutex, and idle stream pool. The future process runtime
+should own one canonical resource service per device, containing structures
+such as:
 
 ```cpp
 namespace uni20::cuda
@@ -127,10 +131,9 @@ namespace uni20::cuda
 struct DeviceContext
 {
   Device device;
-  TbbScheduler scheduler;
   StreamPool streams;
-  HandlePool<CusolverHandle> cusolver_handles;
-  HandlePool<CublasHandle> cublas_handles;
+  cublas::ExecutionPool cublas;
+  ResourcePool<CusolverHandleSlot> cusolver_handles;
   // Memory resources, workspaces, diagnostics, and provider-specific pools.
 };
 } // namespace uni20::cuda
@@ -218,12 +221,12 @@ Required migration invariants are:
 - callbacks never resume the coroutine directly on CUDA-owned threads; they
   submit it through the scheduler currently recorded by the task.
 
-The exact awaiter and scheduler API remain an open implementation design. In
-particular, scheduler migration must be reconciled with activation accounting,
-wait/quiescence semantics, diagnostics, and nested coroutine continuation
-routing before implementation. Heterogeneous nesting is required independently:
-a `CudaTask` with an explicit device route must not inherit and execute on an
-incompatible parent scheduler merely because it was entered through `co_await`.
+The exact scheduler-migration API remains an open implementation design. It must
+be reconciled with activation accounting, wait/quiescence semantics,
+diagnostics, and nested coroutine continuation routing before implementation.
+Heterogeneous nesting is required independently: a `CudaTask` with an explicit
+device route must not inherit and execute on an incompatible parent scheduler
+merely because it was entered through `co_await`.
 
 ## Two CUDA Host-Call Classes
 
@@ -268,18 +271,15 @@ handle is documented to permit sequential use from different host threads.
 The lease may move with the suspended coroutine between physical workers in the
 same device arena.
 
-Acquisition should normally be composite. The acquired resource bundle is not a
-backend selector. It is an internal lowered operand used by CUDA backend
-attempts:
+Acquisition should return the complete resource bundle required by leaf
+dispatch. The acquired bundle is not a backend selector. It is an internal
+lowered operand used by CUDA backend attempts:
 
 ```cpp
-auto resources = co_await storage_domain.acquire(cusolver_request{
-    .stream = true,
-    .handle = true,
-    .workspace_bytes = workspace_bytes,
-});
+auto resources = co_await cublas::acquire_execution(cublas_pool);
 
-dispatch_kernel(storage_domain.backends(), svd_op{}, resources, request);
+dispatch_kernel(storage_domain.backends(), gemm_op{}, resources,
+                output, alpha, lhs, rhs, beta);
 ```
 
 Once the complete resource set has been acquired, the backend walk and provider
@@ -291,29 +291,20 @@ A provider with a verified host-thread-affine handle contract requires a
 provider-specific execution adapter. Do not impose permanent thread affinity on
 all CUDA resources because one future provider might require it.
 
-## Composite Resource Admission
+## Ordered Provider Admission
 
-A caller must not acquire one scarce resource and then suspend indefinitely
-waiting for another. Holding a stream while waiting for a provider handle or
-workspace, for example, creates avoidable starvation and deadlock risks.
+The first implementation does not atomically reserve every provider resource.
+Instead, it uses one documented order: acquire the scarcer provider handle,
+then wait for an actually-idle stream. A provider-specific awaiter presents the
+completed pair as one move-only execution lease to leaf dispatch.
 
-The device context should queue one composite request and make it runnable when
-all required resources are available:
-
-```text
-queued device request
-        |
-        +-- actually-idle stream available
-        +-- compatible provider handle available
-        +-- required workspace available
-        |
-        v
-non-suspending backend walk and provider call
-```
-
-Stream-pool capacity remains device admission control. Handle-pool and
-workspace limits add provider-specific admission control without tying those
-resources to scheduler workers.
+This avoids permanently pairing handles and streams, which would strand stream
+capacity whenever a handle is idle. It also avoids the dangerous reverse order
+of holding a stream while waiting for a provider handle. Stream-only operations
+do not acquire handles, and provider operations do not retain buffer guards
+while waiting, so the ordering has no resource cycle. Handle-local workspace
+caches may grow inside the handle slot without adding another acquisition
+edge.
 
 ## Non-Suspending Leaf Dispatch
 
@@ -351,10 +342,11 @@ A CUDA operation has at least two relevant boundaries:
 2. **Completed:** the recorded device work and any requested transfer have
    finished.
 
-The scheduler participant and provider handle may become available at the
-submitted boundary. The stream, operands, outputs, workspaces, and any
-provider-specific state referenced by device work remain retained until the
-provider contract permits release, normally no earlier than completion.
+The scheduler participant becomes available at the submitted boundary. The
+initial cuBLAS implementation conservatively retains its handle until a host
+callback reaches the submitted stream tail. The stream, operands, outputs,
+workspaces, and any provider-specific state referenced by device work remain
+retained until their individual contracts permit release.
 
 An `Async<GpuTensor>` result can become logically ready at the submitted
 boundary: its metadata, storage, and producer completion token are fixed.
@@ -378,9 +370,9 @@ remains pending. It is appropriate only when the provider permits handle reuse
 and all operation-specific workspace/state has independent lifetime.
 
 The second policy is conservative for providers or routines whose state may
-remain associated with queued device work. Initial implementations should use
-the conservative policy until provider documentation, focused tests, and
-profiling justify earlier reuse.
+remain associated with queued device work. The implemented cuBLAS execution
+lease uses this policy. Earlier handle reuse requires provider documentation,
+focused tests, and profiling.
 
 ## Relationship To Generic Kernel Dispatch
 
@@ -395,10 +387,12 @@ contains a CUDA provider candidate and fallback candidates, the whole relevant
 backend walk runs after resource admission so runtime decline can continue
 without moving operands across another suspension boundary.
 
-A queued request may be cancelled cleanly before resource admission. Once the
-backend has changed provider state or enqueued work, cancellation cannot turn
-the attempt into a backend decline or reclaim retained resources early. The
-submitted work must reach a completion/error boundary.
+Clean cancellation before resource admission is required but is not yet
+implemented for the intrusive resource wait queues. Until that support lands,
+a queued task and its pool must remain alive until admission resumes the task.
+Once the backend has changed provider state or enqueued work, cancellation
+cannot turn the attempt into a backend decline or reclaim retained resources
+early. The submitted work must reach a completion/error boundary.
 
 ## CUDA Graph Capture
 
@@ -465,11 +459,11 @@ diagnostic data rather than preformatting one terminal-only string.
    device or Tensor-storage placement.
 4. Specify live-task scheduler migration separately, including activation
    accounting, cancellation, exceptions, waits, and quiescence.
-5. Add cancellation-safe composite acquisition for idle streams and one
-   provider handle/workspace pool.
-6. Add scheduler-neutral completion notification that resubmits through the
-   scheduler currently recorded by the suspended task.
-7. Implement one lightweight copy or kernel path.
+5. Integrate the implemented ordered cuBLAS handle/stream acquisition with CUDA
+   Tensor storage and buffer lowering.
+6. Define cancellation and runtime-shutdown behavior for queued resource
+   waiters.
+7. Implement one lightweight CUDA Tensor copy or elementwise kernel path.
 8. Implement one host-intensive cuSOLVER operation on the same device scheduler
    and profile whether a separate provider lane is justified.
 9. Validate multi-device isolation and explicit migration between two device
