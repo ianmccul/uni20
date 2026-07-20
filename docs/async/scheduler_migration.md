@@ -1,9 +1,11 @@
 # Scheduler Routing and Task Domains
 
 **Status:** concrete host and CUDA promise types, promise-neutral suspended-task
-routing, same-domain scheduler inheritance, cross-domain explicit routing, and
-unified host/multi-device execution in both deterministic and oneTBB schedulers
-are implemented. Storage-driven initial CUDA admission remains future work.
+routing, same-domain scheduler inheritance, cross-domain explicit routing,
+optional CUDA device affinity, explicit device selection, and unified
+host/multi-device execution in both deterministic and oneTBB schedulers are
+implemented. Process-wide runtime initialization and storage-driven initial
+admission remain future work.
 
 This note separates three related mechanisms: initial scheduler admission,
 rescheduling after suspension, and nested continuation routing. CUDA backend and
@@ -36,7 +38,9 @@ BasicTask   = move-only ownership claim for either concrete task kind
 The concrete type controls initial scheduler admission:
 
 - `IAsyncScheduler::schedule(AsyncTask&&)` admits ordinary host tasks;
-- `ICudaScheduler::schedule(CudaTask&&, int)` admits CUDA tasks and binds an
+- `ICudaScheduler::schedule(CudaTask&&)` admits a CUDA task without affinity and
+  routes it through the scheduler's default device;
+- `ICudaScheduler::schedule(CudaTask&&, int)` admits a CUDA task and binds an
   explicit device;
 - one scheduler object may implement both interfaces without erasing the task
   domain.
@@ -141,17 +145,19 @@ onto the CUDA scheduler after completion.
 `DebugCudaScheduler` is the deterministic first unified implementation. It
 derives from `DebugScheduler`, implements CUDA admission, and uses one runnable
 queue for ordinary and CUDA tasks. Ordinary activations run in the host domain.
-Each CUDA activation reads its bound device from `CudaTaskPromise`, establishes
-that device with `cuda::ScopedDevice`, and restores the calling thread before
-the next activation. One scheduler can therefore drive host work and CUDA work
-for every visible device, including from `get_wait()`.
+Each CUDA activation resolves an effective device from the affinity stored in
+`CudaTaskPromise` or the scheduler's default device. It establishes that device
+with `cuda::ScopedDevice` and restores the calling thread before the next
+activation. One scheduler can therefore drive host work and CUDA work for every
+visible device, including from `get_wait()`.
 
-Tests cover direct CUDA admission, resumption after buffer suspension,
-multi-device tasks in one queue, explicit host/CUDA nesting in both directions,
-one `get_wait()` driving a complete host/CUDA/host continuation chain,
-same-device direct transfer, cross-device resubmission, exception propagation,
-cancellation, and calling-thread device restoration. A separate non-CUDA death
-test proves that an unbound cross-domain child cannot inherit a scheduler.
+Tests cover explicit and unbound CUDA admission, explicit device changes after
+execution starts, resumption after buffer suspension, multi-device tasks in one
+queue, explicit host/CUDA nesting in both directions, one `get_wait()` driving a
+complete host/CUDA/host continuation chain, same-device direct transfer,
+cross-device resubmission, exception propagation, cancellation, and
+calling-thread device restoration. A separate non-CUDA death test proves that
+an unbound cross-domain child cannot inherit a scheduler.
 
 `TbbCudaScheduler` is the parallel implementation. It extends `TbbScheduler`
 with one worker-only oneTBB arena per enrolled CUDA device. The host arena and
@@ -172,23 +178,33 @@ currently admitted host and CUDA activations. They retain the same
 activation-quiescence meaning as `TbbScheduler`: a coroutine suspended on an
 external event may become runnable and submit a later activation.
 
-Tests cover host and CUDA admission through one scheduler, synchronous waits
-that drive CUDA work, non-blocking resumption into a saturated device arena,
-concurrent worker device selection before and after suspension, one scheduler
-routing tasks across every visible device, cross-device continuation return,
-cross-domain exception and cancellation propagation, and calling-thread device
+Tests cover host, explicitly bound CUDA, and unbound CUDA admission through one
+scheduler; explicit migration between device arenas; synchronous waits that
+drive CUDA work; non-blocking resumption into a saturated device arena;
+concurrent worker device selection before and after suspension; one scheduler
+routing tasks across every visible device; cross-device continuation return;
+cross-domain exception and cancellation propagation; and calling-thread device
 restoration. Multi-device cases skip when fewer than two devices are visible.
 
 ## Device Selection
 
-`CudaTaskPromise` contains an optional CUDA device ordinal. The device is
-unbound when the coroutine frame is created and is fixed before first resume:
+`CudaTaskPromise` contains an optional CUDA device ordinal. An empty value means
+that the task has not established device affinity; it does not make the task
+invalid. Device-neutral code may execute in this state, and the scheduler uses
+its default CUDA device as the activation context without writing that default
+into the promise.
 
-- typed initial admission binds the device selected by the CUDA scheduler;
-- an unbound CUDA child nested under a bound CUDA parent inherits the parent's
-  device;
-- repeating the same pre-start binding is harmless;
-- rebinding to another device, or binding after execution starts, is invalid.
+Device-sensitive code selects affinity in either of two ways:
+
+- explicit initial admission binds a device before first resume;
+- `co_await cuda::set_device(device)` records or changes affinity, suspends the
+  current task, and resubmits it through the unified scheduler so its next
+  activation occurs in the selected device context.
+
+An unbound CUDA child nested under a CUDA parent inherits the parent's affinity
+when the parent has one. If both are unbound, both use the scheduler default and
+remain unbound. Direct transfer compares effective activation devices, not just
+the two optional promise values.
 
 The device ordinal is CUDA-specific promise state. Generic task machinery sees
 only the immutable domain tag stored in `TaskHandle`; after checking that tag,
@@ -200,10 +216,15 @@ A higher-level CUDA scheduling function may later select the correct execution
 route from an explicit device or Tensor storage. That policy should remain
 above the shared coroutine machinery.
 
-## Live-Task Migration
+## Device And Scheduler Migration
 
-Explicit migration of an already-running task is not implemented. If it is
-needed, it should be a distinct suspension operation such as:
+Device migration within one unified CUDA scheduler is implemented by
+`cuda::set_device`. It is legal only at that explicit suspension point. A task
+must not hold a stream, provider handle, workspace, or other device-local lease
+across the operation.
+
+Migration of an already-running task to a different scheduler is not
+implemented. If needed, it should be a distinct suspension operation such as:
 
 ```cpp
 co_await schedule_on(target_scheduler);
@@ -223,9 +244,9 @@ Before adding this capability, define and test:
   should be no);
 - diagnostics for creation scheduler versus current scheduler.
 
-No current CUDA lowering requires live migration. A CPU parent can enter a CUDA
-domain by awaiting a separately admitted `CudaTask`, which keeps the transition
-explicit and returns naturally to CPU control flow.
+A CPU parent can enter a CUDA domain by awaiting a separately admitted
+`CudaTask`, which keeps the transition explicit and returns naturally to CPU
+control flow.
 
 ## Lifetime and Quiescence
 

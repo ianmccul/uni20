@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -114,6 +115,9 @@ struct TbbCudaSchedulerOptions
     int host_max_concurrency = oneapi::tbb::task_arena::automatic;
     /// Maximum worker participation in each CUDA device arena.
     int cuda_max_concurrency_per_device = oneapi::tbb::task_arena::automatic;
+    /// Device used to route CUDA tasks that have not established affinity.
+    /// The first enrolled device is used when this is empty.
+    std::optional<int> default_cuda_device{};
     /// Blocking-wait watchdog policy shared by every task domain.
     TbbSchedulerWaitOptions wait_options{};
 };
@@ -121,7 +125,8 @@ struct TbbCudaSchedulerOptions
 /// \brief Unified oneTBB scheduler with one host arena and one arena per CUDA device.
 /// \details Ordinary and CUDA tasks share scheduler ownership, task-group
 ///          accounting, pause state, waits, and rescheduling. CUDA activations
-///          are routed by the immutable device stored in `CudaTaskPromise`.
+///          are routed by the promise's optional affinity or the scheduler's
+///          default CUDA device.
 class TbbCudaScheduler final : public TbbScheduler, public ICudaScheduler {
   public:
     /// \brief Construct a scheduler enrolling every visible CUDA device.
@@ -142,6 +147,15 @@ class TbbCudaScheduler final : public TbbScheduler, public ICudaScheduler {
         CHECK(!this->find_device_arena(device.ordinal()), "CUDA device enrolled more than once", device.ordinal());
         device_arenas_.push_back(std::make_unique<DeviceArena>(device, options.cuda_max_concurrency_per_device));
       }
+
+      if (options.default_cuda_device)
+      {
+        default_device_ = this->device_arena(*options.default_cuda_device).device.ordinal();
+      }
+      else if (!device_arenas_.empty())
+      {
+        default_device_ = device_arenas_.front()->device.ordinal();
+      }
     }
 
     TbbCudaScheduler(TbbCudaScheduler const&) = delete;
@@ -150,6 +164,15 @@ class TbbCudaScheduler final : public TbbScheduler, public ICudaScheduler {
     ~TbbCudaScheduler() noexcept override { this->wait_for_submitted_tasks(); }
 
     using TbbScheduler::schedule;
+
+    /// \brief Submit a CUDA task without establishing device affinity.
+    /// \param task CUDA task to admit through the default device arena.
+    void schedule(CudaTask&& task) override
+    {
+      CHECK(default_device_, "cannot schedule an unbound CUDA task without an enrolled default device");
+      TaskRegistry::record_task_scheduled(task.coroutine_handle());
+      if (task.set_scheduler(this)) this->enqueue_task(std::move(task));
+    }
 
     /// \brief Bind and submit a CUDA task to an enrolled device arena.
     /// \param task CUDA task to admit.
@@ -191,8 +214,8 @@ class TbbCudaScheduler final : public TbbScheduler, public ICudaScheduler {
     bool can_direct_transfer(TaskHandle from, TaskHandle to) const noexcept override
     {
       if (from.domain() != TaskDomain::cuda) return true;
-      auto const from_device = cuda_promise(from).device();
-      auto const to_device = cuda_promise(to).device();
+      auto const from_device = this->activation_device(from);
+      auto const to_device = this->activation_device(to);
       return from_device && from_device == to_device && this->has_device(*from_device);
     }
 
@@ -204,8 +227,8 @@ class TbbCudaScheduler final : public TbbScheduler, public ICudaScheduler {
         return;
       }
 
-      auto const device = cuda_promise(handle).device();
-      CHECK(device, "CUDA task has no bound device at activation");
+      auto const device = this->activation_device(handle);
+      CHECK(device, "CUDA task has no affinity and the scheduler has no default CUDA device");
       auto& selected = this->device_arena(*device);
       this->dispatch_handle_in_arena(selected.arena, handle, {.scheduler = "TbbCudaScheduler", .device = *device},
                                      [device = *device] { detail::verify_tbb_cuda_device(device); });
@@ -226,7 +249,14 @@ class TbbCudaScheduler final : public TbbScheduler, public ICudaScheduler {
       return *result;
     }
 
+    [[nodiscard]] std::optional<int> activation_device(TaskHandle task) const noexcept
+    {
+      if (auto const affinity = cuda_promise(task).device()) return affinity;
+      return default_device_;
+    }
+
     std::vector<std::unique_ptr<DeviceArena>> device_arenas_;
+    std::optional<int> default_device_{};
 };
 
 } // namespace uni20::async

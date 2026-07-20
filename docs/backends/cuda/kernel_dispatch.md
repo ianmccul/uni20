@@ -179,9 +179,10 @@ when they may be called outside the device scheduler.
 The scheduler pointer in the shared Uni20 coroutine promise determines where a
 viable task is submitted. Initial admission remains type-specific:
 `IAsyncScheduler` accepts `AsyncTask`, while `ICudaScheduler` accepts a
-`CudaTask` together with its device. One scheduler object may implement both
-interfaces, as `DebugCudaScheduler` does. A CUDA scheduling front-end will
-select the device from explicit or Tensor-storage placement.
+`CudaTask` either with explicit affinity or through its default CUDA device.
+One scheduler object may implement both interfaces. A CUDA task may later use
+`co_await cuda::set_device(device)` to establish or change affinity at an
+explicit suspension point.
 
 An ordinary CPU coroutine enters that CUDA task domain by awaiting a newly
 created task:
@@ -192,15 +193,15 @@ co_await cuda_operation(device, operands...); // returns CudaTask
 
 The outer `AsyncTask` remains a distinct coroutine with its original promise and
 scheduler route. The nested `CudaTask` must already have an explicit scheduler
-and device route; cross-domain nesting never inherits the parent's route. When
-it completes, the outer continuation is submitted through the scheduler
-recorded in the outer promise.
+route; cross-domain nesting never inherits the parent's route. Its device
+affinity may remain empty until device-sensitive work selects a device. When it
+completes, the outer continuation is submitted through the scheduler recorded
+in the outer promise.
 
 Both task promises share `TaskPromiseBase`, but their concrete promise and
-return types remain fixed at creation. Scheduler migration is a separate future
-capability. A `CudaTask` could migrate between compatible schedulers only while
-preserving its bound device; that does not move its Tensor operands or change
-their device.
+return types remain fixed at creation. Device migration within one unified
+scheduler is implemented; scheduler migration remains a separate future
+capability. Neither operation moves Tensor operands or changes their placement.
 
 Required migration invariants are:
 

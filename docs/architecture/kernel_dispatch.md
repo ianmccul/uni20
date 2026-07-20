@@ -880,20 +880,21 @@ schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {         // -> CPU s
   gemm_kernel(C_, A_, B_);                                          // layer-1 kernel
 }(c.block(r).write(), a.block(ai).read(), b.block(bi).read()));
 
-// Device block kernel: initial admission binds the task to the device scheduler.
+// Device block kernel: select a device before device-sensitive work.
 schedule([](auto c_, auto a_, auto b_, cuda::DeviceContext* context) static -> CudaTask {
   auto C_ = co_await c_;  auto A_ = co_await a_;  auto B_ = co_await b_;
+  co_await cuda::set_device(context->device());
   auto resources = co_await context->acquire_gemm_resources(C_, A_, B_);
   cublas_gemm(resources, C_, A_, B_);                                // no suspension in leaf call
 }(c.block(r).write(), a.block(ai).read(), b.block(bi).read(), &context));
 ```
 
 The nested routing shown by the CUDA snippet is implemented: `CudaTask` has a
-CUDA-specific initial-admission interface, and an `AsyncTask` can `co_await` a
-CUDA child and resume on its own scheduler. Resource acquisition and the CUDA
-Tensor/backend lowering in the body remain conceptual. `CudaTask` intentionally
-uses the shared promise; the device belongs to the selected scheduler and
-device context rather than to task-specific promise state.
+CUDA-specific initial-admission interface and promise, and an `AsyncTask` can
+`co_await` a CUDA child and resume on its own scheduler. Optional affinity lives
+in `CudaTaskPromise`; the scheduler supplies a default activation device while
+it is empty. Resource acquisition and the CUDA Tensor/backend lowering in the
+body remain conceptual.
 
 The accumulation `r += sum a*b` over multiple contributing `(a, b)` needs no
 explicit reduction lock: every contribution writes block `r`, so block `r`'s

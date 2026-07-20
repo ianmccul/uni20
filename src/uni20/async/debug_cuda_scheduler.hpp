@@ -21,8 +21,27 @@ namespace uni20::async
 ///          device when it suspends or completes.
 class DebugCudaScheduler final : public DebugScheduler, public ICudaScheduler {
   public:
-    using DebugScheduler::DebugScheduler;
+    /// \brief Construct with device zero as the default CUDA activation device.
+    explicit DebugCudaScheduler(DebugSchedulerOptions options = {})
+        : DebugScheduler(options), default_device_(cuda::Device::get(0).ordinal())
+    {}
+
+    /// \brief Construct with an explicit default CUDA activation device.
+    /// \param default_device Device used while a CUDA task has no affinity.
+    /// \param options Deterministic runnable ordering configuration.
+    explicit DebugCudaScheduler(cuda::Device default_device, DebugSchedulerOptions options = {})
+        : DebugScheduler(options), default_device_(default_device.ordinal())
+    {}
+
     using DebugScheduler::schedule;
+
+    /// \brief Enqueue a CUDA task without establishing device affinity.
+    /// \param task CUDA task to admit through the default device context.
+    void schedule(CudaTask&& task) override
+    {
+      TaskRegistry::record_task_scheduled(task.coroutine_handle());
+      if (task.set_scheduler(this)) this->enqueue_task(std::move(task));
+    }
 
     /// \brief Bind and enqueue a CUDA task for initial execution on a device.
     /// \param task CUDA task to admit.
@@ -39,9 +58,7 @@ class DebugCudaScheduler final : public DebugScheduler, public ICudaScheduler {
     bool can_direct_transfer(TaskHandle from, TaskHandle to) const noexcept override
     {
       if (from.domain() != TaskDomain::cuda) return true;
-      auto const from_device = cuda_promise(from).device();
-      auto const to_device = cuda_promise(to).device();
-      return from_device && from_device == to_device;
+      return this->activation_device(from) == this->activation_device(to);
     }
 
     void resume_task(BasicTask& task) override
@@ -52,11 +69,20 @@ class DebugCudaScheduler final : public DebugScheduler, public ICudaScheduler {
         return;
       }
 
-      auto const device = cuda_promise(task.handle()).device();
-      CHECK(device, "CUDA task has no bound device at activation");
-      cuda::ScopedDevice device_scope(*device);
+      int const device = this->activation_device(task.handle());
+      cuda::ScopedDevice device_scope(device);
+#if UNI20_ASYNC_DEBUG
+      DEBUG_CHECK_EQUAL(cuda::Device::current().ordinal(), device);
+#endif
       DebugScheduler::resume_task(task);
     }
+
+    [[nodiscard]] int activation_device(TaskHandle task) const noexcept
+    {
+      return cuda_promise(task).device().value_or(default_device_);
+    }
+
+    int default_device_;
 };
 
 } // namespace uni20::async

@@ -168,15 +168,15 @@ This keeps the split clear:
 - async epoch model: task ordering, object lifetime, and high-level dependency
   causality;
 - unified scheduler: execution of `CudaTask` activations in the arena for their
-  bound device, whether reached through initial admission or heterogeneous
-  nested `co_await`, with bounded host participation;
+  effective device, selected from explicit affinity or the scheduler default,
+  with bounded host participation;
 - GPU storage/runtime: buffer access completions, stream/event synchronization,
   resource leasing, and device work submission;
 - cuSOLVER backend: a non-suspending solver call that consumes leased resources
   and publishes submission/completion tokens.
 
-The `CudaTask` is first routed to its device scheduler, then suspends until its
-composite stream/handle/workspace request is available. The entire relevant
+The `CudaTask` establishes affinity before device-sensitive work, then suspends
+until its composite stream/handle/workspace request is available. The relevant
 backend walk executes without suspension. Once the solver API returns and the
 completion event is recorded, the scheduler participant is free; operation
 resources remain retained until their provider-specific release boundary.

@@ -23,6 +23,7 @@ namespace uni20::async
 
 class TaskFactory;
 class EpochContext;
+class CudaDeviceAwaiter;
 
 /// \brief Inject an unhandled writer-side coroutine exception into an epoch.
 /// \param epoch Target epoch context associated with a writer buffer.
@@ -614,11 +615,20 @@ class CudaTaskPromise final : public TaskPromiseBase {
     static constexpr TaskDomain task_domain = TaskDomain::cuda;
 
     using TaskPromiseBase::TaskPromiseBase;
+    using TaskPromiseBase::await_transform;
 
     [[nodiscard]] CudaTask get_return_object() noexcept;
 
-    /// \brief Return the CUDA device bound to this task, if initial admission has selected one.
+    /// \brief Return the task's established CUDA device affinity, if any.
+    /// \details An empty result is valid while the task performs device-neutral
+    ///          work. CUDA schedulers route such activations through their
+    ///          configured default device without changing the promise.
     [[nodiscard]] std::optional<int> device() const noexcept { return device_; }
+
+    /// \brief Pass through the CUDA device-selection awaiter.
+    /// \param awaiter Awaiter that updates this promise's device affinity.
+    /// \return The forwarded awaiter.
+    CudaDeviceAwaiter await_transform(CudaDeviceAwaiter awaiter) noexcept;
 
     /// \brief Bind the CUDA device before the coroutine starts.
     /// \param device Non-negative CUDA runtime device ordinal.
@@ -636,7 +646,19 @@ class CudaTaskPromise final : public TaskPromiseBase {
     }
 
   private:
+    /// \brief Select the device used for subsequent CUDA task activations.
+    /// \details The caller must exclusively own the suspended coroutine. Unlike
+    ///          initial binding, this operation may change affinity after the
+    ///          task has started.
+    void select_device(int device)
+    {
+      CHECK(device >= 0, "CUDA device ordinal must be non-negative", device);
+      device_ = device;
+    }
+
     std::optional<int> device_{};
+
+    friend class CudaDeviceAwaiter;
 };
 
 /// \brief Narrow an erased task promise after verifying that it is CUDA-specific.
@@ -647,6 +669,36 @@ inline CudaTaskPromise& cuda_promise(TaskHandle handle) noexcept
   CHECK(handle);
   CHECK(handle.domain() == TaskDomain::cuda);
   return static_cast<CudaTaskPromise&>(handle.promise());
+}
+
+/// \brief Awaiter that establishes or changes a CUDA task's device affinity.
+/// \details Device selection is a coroutine scheduling operation: the current
+///          task suspends and is resubmitted through its recorded scheduler,
+///          which routes the next activation to the selected device context.
+class CudaDeviceAwaiter {
+  public:
+    explicit constexpr CudaDeviceAwaiter(int device) noexcept : device_(device) {}
+
+    [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+
+    void await_suspend(std::coroutine_handle<CudaTaskPromise> handle) const
+    {
+      auto current = TaskHandle::from(handle);
+      auto& promise = handle.promise();
+      promise.select_device(device_);
+      TaskPromiseBase::note_suspended(current);
+      BasicTask::reschedule(promise.take_ownership());
+    }
+
+    constexpr void await_resume() const noexcept {}
+
+  private:
+    int device_;
+};
+
+inline CudaDeviceAwaiter CudaTaskPromise::await_transform(CudaDeviceAwaiter awaiter) noexcept
+{
+  return awaiter;
 }
 
 inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle child)
@@ -665,13 +717,9 @@ inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle 
   if (child.domain() != TaskDomain::cuda) return;
 
   auto& child_promise = cuda_promise(child);
-  if (child_promise.device()) return;
+  if (child_promise.device() || parent.domain() != TaskDomain::cuda) return;
 
-  CHECK(parent.domain() == TaskDomain::cuda,
-        "an unbound CUDA child cannot infer a device from a host-domain parent");
-  auto const parent_device = cuda_promise(parent).device();
-  CHECK(parent_device, "CUDA parent task has no bound device");
-  child_promise.bind_device(*parent_device);
+  if (auto const parent_device = cuda_promise(parent).device()) child_promise.bind_device(*parent_device);
 }
 
 inline bool TaskPromiseBase::can_transfer_directly(TaskHandle from, TaskHandle to) noexcept

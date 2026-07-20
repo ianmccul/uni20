@@ -85,7 +85,7 @@ static_assert(!std::convertible_to<CudaTask, AsyncTask>);
 static_assert(PubliclySchedules<DebugScheduler, AsyncTask>);
 static_assert(!PubliclySchedules<DebugScheduler, CudaTask>);
 static_assert(PubliclySchedules<DebugCudaScheduler, AsyncTask>);
-static_assert(!PubliclySchedules<DebugCudaScheduler, CudaTask>);
+static_assert(PubliclySchedules<DebugCudaScheduler, CudaTask>);
 static_assert(PubliclySchedulesOnDevice<DebugCudaScheduler, CudaTask>);
 static_assert(std::is_constructible_v<DebugCudaScheduler, DebugSchedulerOptions>);
 
@@ -114,6 +114,70 @@ TEST_F(DebugCudaSchedulerTest, RunsCudaTaskOnBoundDeviceAndRestoresCallingThread
   int restored_device = -1;
   ASSERT_EQ(cudaGetDevice(&restored_device), cudaSuccess);
   EXPECT_EQ(restored_device, original_device_);
+}
+
+TEST_F(DebugCudaSchedulerTest, RunsUnboundCudaTaskOnDefaultDeviceWithoutBindingPromise)
+{
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(target_device_));
+  int observed_device = -1;
+
+  auto task = [](int& observed) static -> CudaTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed)), static_cast<int>(cudaSuccess));
+    co_return;
+  }(observed_device);
+
+  auto const handle = task.handle();
+  scheduler.schedule(std::move(task));
+  EXPECT_FALSE(cuda_promise(handle).device());
+  scheduler.run_all();
+
+  EXPECT_EQ(observed_device, target_device_);
+  EXPECT_TRUE(scheduler.done());
+
+  int restored_device = -1;
+  ASSERT_EQ(cudaGetDevice(&restored_device), cudaSuccess);
+  EXPECT_EQ(restored_device, original_device_);
+}
+
+TEST_F(DebugCudaSchedulerTest, SetDeviceEstablishesAffinityAtSuspension)
+{
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(original_device_));
+  Async<std::array<int, 3>> output;
+
+  auto task = [](int selected_device, WriteBuffer<std::array<int, 3>> output) static -> CudaTask {
+    std::array<int, 3> observed{-1, -1, -1};
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[0])), static_cast<int>(cudaSuccess));
+    co_await uni20::cuda::set_device(selected_device);
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[1])), static_cast<int>(cudaSuccess));
+    co_await ObserveCudaPromiseDevice{observed[2]};
+    co_await output = observed;
+  }(target_device_, output.write());
+
+  scheduler.schedule(std::move(task));
+  EXPECT_EQ(output.get_wait(scheduler), (std::array{original_device_, target_device_, target_device_}));
+  EXPECT_TRUE(scheduler.done());
+}
+
+TEST_F(DebugCudaSchedulerTest, SetDeviceCanMigrateAStartedTaskMoreThanOnce)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "requires at least two CUDA devices";
+
+  int const other_device = (original_device_ + 1) % device_count_;
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(original_device_));
+  Async<std::array<int, 3>> output;
+
+  auto task = [](int other_device, int original_device, WriteBuffer<std::array<int, 3>> output) static -> CudaTask {
+    std::array<int, 3> observed{-1, -1, -1};
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[0])), static_cast<int>(cudaSuccess));
+    co_await uni20::cuda::set_device(other_device);
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[1])), static_cast<int>(cudaSuccess));
+    co_await uni20::cuda::set_device(original_device);
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[2])), static_cast<int>(cudaSuccess));
+    co_await output = observed;
+  }(other_device, original_device_, output.write());
+
+  scheduler.schedule(std::move(task));
+  EXPECT_EQ(output.get_wait(scheduler), (std::array{original_device_, other_device, original_device_}));
 }
 
 TEST_F(DebugCudaSchedulerTest, SuspendedTaskReschedulesOntoItsCudaDevice)
@@ -393,6 +457,32 @@ TEST_F(DebugCudaSchedulerTest, CudaParentDirectlyTransfersToSameDeviceCudaChild)
   EXPECT_EQ(events, (std::vector<int>{1, 10 + target_device_, 2}));
   EXPECT_EQ(child_promise_device, target_device_);
   EXPECT_TRUE(scheduler.done());
+}
+
+TEST_F(DebugCudaSchedulerTest, UnboundCudaParentAndChildUseDefaultDeviceWithoutAcquiringAffinity)
+{
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(target_device_));
+  std::vector<int> events;
+  int child_promise_device = -2;
+
+  auto child = [](std::vector<int>& events, int& promise_device) static -> CudaTask {
+    co_await ObserveCudaPromiseDevice{promise_device};
+    int current_device = -1;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&current_device)), static_cast<int>(cudaSuccess));
+    events.push_back(10 + current_device);
+  }(events, child_promise_device);
+
+  auto parent = [](CudaTask child, std::vector<int>& events) static -> CudaTask {
+    events.push_back(1);
+    co_await child;
+    events.push_back(2);
+  }(std::move(child), events);
+
+  scheduler.schedule(std::move(parent));
+  scheduler.run_all();
+
+  EXPECT_EQ(events, (std::vector<int>{1, 10 + target_device_, 2}));
+  EXPECT_EQ(child_promise_device, -1);
 }
 
 TEST_F(DebugCudaSchedulerTest, CrossDeviceCudaChildReturnsThroughSharedScheduler)

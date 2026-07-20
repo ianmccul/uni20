@@ -147,9 +147,10 @@ Diagnostics:
 routing with the host schedulers.
 
 - `DebugCudaScheduler` also admits `AsyncTask`. It uses one deterministic queue
-  for both domains and selects the device stored in each CUDA promise around
-  that activation. One instance can execute tasks for multiple devices and
-  restores the calling thread between activations.
+  for both domains and selects either the CUDA promise's affinity or the
+  scheduler's default device around each CUDA activation. One instance can
+  execute tasks for multiple devices and restores the calling thread between
+  activations.
 - `TbbCudaScheduler` extends `TbbScheduler` with one worker-only arena per
   enrolled CUDA device. The host and device arenas share task-group, pause,
   wait, watchdog, and rescheduling state.
@@ -158,6 +159,10 @@ routing with the host schedulers.
   the previous selection on exit.
 - initial CUDA admission and rescheduling enqueue task-group activations without
   making completion-service or publishing threads enter the device arena
+- CUDA tasks may begin without device affinity and execute device-neutral work
+  through the scheduler's default device arena
+- `co_await cuda::set_device(device)` establishes or changes affinity and
+  resubmits the task through the selected device arena
 - same-device nested tasks can transfer directly; cross-domain and cross-device
   continuations re-enter through the shared scheduler's routing hook
 - `run_all()` and `get_wait()` cover currently submitted host and CUDA
@@ -168,10 +173,14 @@ Tasks running in a CUDA scheduler arena must not call `cudaSetDevice` directly.
 Cross-device work re-enters the scheduler through the target device arena; this
 keeps the observer authoritative for the whole arena activation.
 
+Debug builds verify the thread's current CUDA device before each oneTBB CUDA
+activation. Leaf kernel wrappers do not inspect coroutine promises; they check
+their CUDA API results and may validate stream and buffer device compatibility.
+
 An unbound nested task inherits its parent scheduler only within the same task
 domain. Crossing between host and CUDA requires explicit prior admission or
-route binding. CUDA task admission is not global yet; a higher-level runtime or
-Tensor storage policy will select the device for initial admission.
+route binding. CUDA task admission is not global yet; a later process-wide
+runtime will provide the ordinary default scheduler and device contexts.
 
 ## Practical Guidance
 

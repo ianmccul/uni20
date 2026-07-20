@@ -37,7 +37,7 @@ concept PubliclySchedulesOnDevice =
     requires(Scheduler& scheduler, Task&& task) { scheduler.schedule(std::move(task), 0); };
 
 static_assert(PubliclySchedules<TbbCudaScheduler, AsyncTask>);
-static_assert(!PubliclySchedules<TbbCudaScheduler, CudaTask>);
+static_assert(PubliclySchedules<TbbCudaScheduler, CudaTask>);
 static_assert(PubliclySchedulesOnDevice<TbbCudaScheduler, CudaTask>);
 
 struct CudaTaskTestError
@@ -119,6 +119,52 @@ TEST_F(TbbCudaSchedulerTest, RunsOnBoundDeviceAndRestoresCallingThread)
 
   EXPECT_EQ(status, cudaSuccess);
   EXPECT_EQ(observed_device, target_device_);
+  this->expect_calling_device_restored();
+}
+
+TEST_F(TbbCudaSchedulerTest, RunsUnboundCudaTaskOnConfiguredDefaultDevice)
+{
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2,
+                              .cuda_max_concurrency_per_device = 2,
+                              .default_cuda_device = target_device_});
+  int observed_device = -1;
+
+  auto task = [](int& observed) static -> CudaTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed)), static_cast<int>(cudaSuccess));
+    co_return;
+  }(observed_device);
+
+  auto const handle = task.handle();
+  scheduler.schedule(std::move(task));
+  EXPECT_FALSE(uni20::async::cuda_promise(handle).device());
+  scheduler.run_all();
+
+  EXPECT_EQ(observed_device, target_device_);
+  this->expect_calling_device_restored();
+}
+
+TEST_F(TbbCudaSchedulerTest, SetDeviceMigratesBetweenCudaArenas)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "requires at least two CUDA devices";
+
+  int const other_device = (original_device_ + 1) % device_count_;
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2,
+                              .cuda_max_concurrency_per_device = 2,
+                              .default_cuda_device = original_device_});
+  Async<std::array<int, 3>> output;
+
+  auto task = [](int other_device, int original_device, WriteBuffer<std::array<int, 3>> output) static -> CudaTask {
+    std::array<int, 3> observed{-1, -1, -1};
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[0])), static_cast<int>(cudaSuccess));
+    co_await uni20::cuda::set_device(other_device);
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[1])), static_cast<int>(cudaSuccess));
+    co_await uni20::cuda::set_device(original_device);
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[2])), static_cast<int>(cudaSuccess));
+    co_await output = observed;
+  }(other_device, original_device_, output.write());
+
+  scheduler.schedule(std::move(task));
+  EXPECT_EQ(output.get_wait(scheduler), (std::array{original_device_, other_device, original_device_}));
   this->expect_calling_device_restored();
 }
 
