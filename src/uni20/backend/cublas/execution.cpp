@@ -1,6 +1,7 @@
 #include <uni20/backend/cublas/execution.hpp>
 
 #include <uni20/backend/cublas/cublas_error.hpp>
+#include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/backend/cuda/cuda_error.hpp>
 #include <uni20/common/trace.hpp>
 
@@ -206,6 +207,11 @@ ExecutionLease ExecutionPool::acquire()
 ExecutionLease ExecutionPool::make_lease(cuda::ResourceLease<HandleSlot> handle, cuda::Stream stream)
 {
   return ExecutionLease(std::move(handle), std::move(stream));
+}
+
+ExecutionPool& execution_pool(cuda::DeviceContext& context)
+{
+  return context.provider_resource<ExecutionPool>(context.streams(), context.streams().size());
 }
 
 } // namespace uni20::cublas

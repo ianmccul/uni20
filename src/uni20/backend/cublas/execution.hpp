@@ -14,6 +14,11 @@
 #include <cstddef>
 #include <optional>
 
+namespace uni20::cuda
+{
+class DeviceContext;
+}
+
 namespace uni20::cublas
 {
 
@@ -122,5 +127,10 @@ class ExecutionPool {
 
     friend class ExecutionAcquireAwaiter;
 };
+
+/// \brief Return the lazily constructed cuBLAS execution pool for a CUDA context.
+/// \details The context owns the pool and retains it until after every Tensor
+///          and operation using that context has finished.
+[[nodiscard]] ExecutionPool& execution_pool(cuda::DeviceContext& context);
 
 } // namespace uni20::cublas

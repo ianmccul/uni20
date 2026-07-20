@@ -20,5 +20,9 @@ stream, and receives one move-only `ExecutionLease`. The handle is conservativel
 returned at the submitted stream tail. The stream independently returns to its
 pool when its final reference is released and the stream becomes idle.
 
-CUDA tasks use `co_await cublas::acquire_execution(pool)`. Blocking bring-up code
-may call `pool.acquire()`. Provider wrappers do not acquire resources internally.
+`cublas::execution_pool(context)` lazily constructs one pool owned by the CUDA
+device context. Direct Tensor dispatch uses its blocking `acquire()` path.
+CUDA tasks can use `co_await cublas::acquire_execution(pool)` so exhausted
+resource admission suspends rather than occupying a scheduler participant.
+The checked provider wrappers consume an already acquired lease and never
+perform resource admission themselves.

@@ -65,7 +65,7 @@ ordering have been handled by higher layers.
 | `BasicTensor<Element, Extents, ...>` | Extents-first alias for a `Tensor` specialization with mixed or static extents. |
 | `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor` | Named runtime-extents owner aliases for an explicit physical layout policy. |
 | `DenseMatrix<Element, Layout>` | Rank-two host `Tensor`; column-major by default. |
-| `CudaAsyncTensor<Element, Rank, Layout>` | Context-bound owning CUDA Tensor for non-blocking resource acquisition; its mdspan handle is opaque to host element access. |
+| `CudaAsyncTensor<Element, Rank, Layout>` | Context-bound owning CUDA Tensor intended for non-blocking resource acquisition; its mdspan handle is opaque to host element access. Direct GEMM currently uses blocking pool admission. |
 | `CudaAsyncMatrix<Element, Layout>` | Rank-two `CudaAsyncTensor`; column-major by default. |
 | `ScalarTensor<Element, StoragePolicy, ...>` | Rank-zero owning Tensor that retains storage, backend, lifetime, and Async semantics. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
@@ -376,6 +376,13 @@ The fixed-output `gemm` and `gemv` forms are low-level tensor front ends. New
 ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is
 explicit.
+
+For `CudaAsyncTensor`, fixed-output `gemm` dispatches to cuBLAS from opaque CUDA
+mdspans and supports column- or row-major output. Its synchronous C++ boundary
+may block while acquiring a handle or idle stream, but the submitted device
+operation is not synchronized. The generic Async product wrappers have not yet
+been specialized to await CUDA resource admission and must not be treated as
+the final non-blocking CUDA lowering.
 
 ## Async Tensor Contract
 

@@ -2,7 +2,8 @@
 
 This directory contains the CUDA runtime foundation and is the CUDA
 backend-library wiring point. CUDA Tensor storage descriptors are implemented;
-Tensor CUDA kernels and their top-down lowering are not yet complete.
+Tensor CUDA kernel coverage is not yet complete, but GEMM now lowers end to end
+from the ordinary Tensor API through `CublasBackend`.
 Deterministic and oneTBB unified host/multi-device coroutine schedulers are
 implemented under `src/uni20/async/`.
 
@@ -13,7 +14,8 @@ implemented under `src/uni20/async/`.
 - `device.hpp`: validated device identities and process-wide immutable hardware
   capability caching.
 - `buffer.hpp`: typed move-only device allocations, device contexts, and scoped
-  read/write access guards.
+  read/write access guards. Device contexts also retain lazily constructed
+  provider-resource pools until context destruction.
 - `runtime.hpp`: device guards, reference-counted stream-pool leases, immutable
   completion tokens, and the device-local idle-stream pool.
 - `resource_pool.hpp`: fixed-capacity provider-resource pools and move-only leases.

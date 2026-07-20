@@ -15,6 +15,10 @@
 #include <uni20/linalg/backends/blas/gemm.hpp>
 #endif
 
+#if UNI20_BACKEND_CUBLAS
+#include <uni20/linalg/backends/cublas/gemm.hpp>
+#endif
+
 #include <utility>
 
 namespace uni20::linalg

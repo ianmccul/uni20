@@ -14,8 +14,11 @@
 #include <algorithm>
 #include <cstddef>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <type_traits>
+#include <typeindex>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -57,10 +60,45 @@ class DeviceContext {
     [[nodiscard]] StreamPool& streams() noexcept { return streams_; }
     [[nodiscard]] StreamPool const& streams() const noexcept { return streams_; }
 
+    /// \brief Return the context-owned instance of one provider resource type.
+    /// \details The resource is constructed on first use and then retained until
+    ///          this context is destroyed. A context owns at most one instance
+    ///          of each concrete resource type. Provider resources are destroyed
+    ///          before the stream pool that they may reference.
+    template <class Resource, class... Args> [[nodiscard]] Resource& provider_resource(Args&&... args)
+    {
+      std::lock_guard lock(provider_resources_mutex_);
+      auto const key = std::type_index(typeid(Resource));
+      auto found = provider_resources_.find(key);
+      if (found != provider_resources_.end())
+      {
+        return static_cast<ProviderResourceModel<Resource>&>(*found->second).value;
+      }
+
+      auto resource = std::make_unique<ProviderResourceModel<Resource>>(std::forward<Args>(args)...);
+      Resource& result = resource->value;
+      provider_resources_.emplace(key, std::move(resource));
+      return result;
+    }
+
   private:
+    struct ProviderResourceBase
+    {
+        virtual ~ProviderResourceBase() = default;
+    };
+
+    template <class Resource> struct ProviderResourceModel final : ProviderResourceBase
+    {
+        template <class... Args> explicit ProviderResourceModel(Args&&... args) : value(std::forward<Args>(args)...) {}
+
+        Resource value;
+    };
+
     Device device_;
     StreamPool streams_;
     mutable std::mutex state_mutex_;
+    std::mutex provider_resources_mutex_;
+    std::unordered_map<std::type_index, std::unique_ptr<ProviderResourceBase>> provider_resources_;
 
     template <typename> friend class CudaBuffer;
 };

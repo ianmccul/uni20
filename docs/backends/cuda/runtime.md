@@ -7,7 +7,9 @@ The async layer provides deterministic and oneTBB unified host/multi-device
 schedulers, including per-activation device selection and restoration. The
 first provider consumer is the cuBLAS handle/stream execution pool and GEMM
 leaf. `CudaAsyncStorage` now connects `Tensor` ownership to `CudaBuffer`; CUDA
-Tensor operation lowering is not yet implemented.
+Tensor GEMM now lowers through opaque mdspans to `CublasBackend`. General CUDA
+Tensor operations and non-blocking async GEMM resource admission are not yet
+implemented.
 
 This document defines the resource-management contract beneath future CUDA
 Tensor kernels and async lowering.
@@ -152,9 +154,12 @@ therefore has two explicit submission channels above the same pool:
   scheduler may be `DebugCudaScheduler`, a one-slot `TbbCudaScheduler`, or a
   larger unified device scheduler.
 
-The implemented `CudaAsyncStorage` policy encodes the non-blocking channel and
-uses `CudaBuffer<T>` as its allocation primitive. The choice remains orthogonal
-to whether the user-visible object is an `Async<T>`. A future blocking CUDA
+The implemented `CudaAsyncStorage` policy identifies CUDA storage intended for
+the non-blocking channel and uses `CudaBuffer<T>` as its allocation primitive.
+The first ordinary Tensor GEMM path deliberately uses blocking pool admission
+at its synchronous C++ boundary, while leaving device execution asynchronous.
+Async Tensor lowering must instead await exhausted resource pools before
+entering the same non-suspending provider leaf. A future blocking-only CUDA
 storage policy should remain a distinct storage domain; wrapping such a Tensor
 in `Async<T>` would almost always be a policy mistake.
 
@@ -182,6 +187,13 @@ actually-idle stream, and returns both in one `cublas::ExecutionLease`. This
 ordering avoids stranding streams behind idle handles and bounds the number of
 provider operations waiting for stream capacity. Provider acquisition must
 finish before buffer access guards are created.
+
+`cuda::DeviceContext::provider_resource<Resource>(...)` lazily constructs one
+instance of each concrete provider-resource type and destroys those resources
+before its stream pool. `cublas::execution_pool(context)` uses that registry so
+repeated GEMM calls reuse the same handles. This is the current explicit-context
+implementation; the planned process-wide CUDA runtime can become the canonical
+owner without changing the Tensor or backend call shape.
 
 There is no resource cycle under the implemented contract:
 

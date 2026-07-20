@@ -90,7 +90,9 @@ kernels operate on resolved mdspans.
   mdspan uses an opaque `CudaBufferView<T>` handle. Indexed access computes
   buffer offsets but neither reads nor writes device memory on the host. CUDA
   lowering must acquire a stream and synchronized buffer access before exposing
-  a raw device pointer to a leaf backend.
+  a raw device pointer to a leaf backend. Matrix `gemm` performs this lowering
+  through `CublasBackend`; the direct API uses blocking resource admission and
+  leaves device execution asynchronous.
 - Tensor objects deliberately do not model Uni20's mdspan concepts. Leaf
   kernels receive the mdspans returned by those accessors.
 - Generated tensors own compact generator state rather than an element buffer.

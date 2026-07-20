@@ -24,8 +24,10 @@ read/write order.
 
 ## Creating A Buffer
 
-A `DeviceContext` owns the device's stream pool and the shared state used by its
-buffers. The context must outlive every buffer and stream acquired from it.
+A `DeviceContext` owns the device's stream pool, the shared state used by its
+buffers, and lazily constructed provider-resource pools such as the cuBLAS
+execution pool. The context must outlive every buffer, stream, and provider
+lease acquired from it.
 
 ```cpp
 #include <uni20/backend/cuda/buffer.hpp>
@@ -65,6 +67,18 @@ Tensor can satisfy mutable Tensor output concepts. Its opaque reference remains
 non-assignable on the host. A CUDA operation must lower the view through
 `read_synchronized_with(stream)` or `write_synchronized_with(stream)` before a
 leaf backend receives a raw pointer.
+
+For GEMM this lowering is reached through the ordinary Tensor API:
+
+```cpp
+uni20::linalg::gemm(output, 1.0F, lhs, rhs, 0.0F);
+```
+
+The Tensor front end resolves the three mdspans and selects `CublasBackend`.
+The backend validates layouts and devices before acquiring a handle and stream,
+then opens one write access and two read accesses and calls cuBLAS. The direct
+API may block while waiting for a resource-pool slot; it does not synchronize
+the submitted GEMM with the host.
 
 ## Submitting Work
 

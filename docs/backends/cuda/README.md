@@ -6,8 +6,9 @@ immutable completion tokens, an actually-idle stream pool, and typed move-only
 device buffers with scoped `ReadAccess<T>`/`WriteAccess<T>` objects.
 Deterministic and oneTBB unified host/multi-device task schedulers are
 implemented, as are non-blocking resource awaiters, generic provider-resource
-leases, and the first cuBLAS handle/stream pool and GEMM leaf. Uni20 does not yet
-have CUDA Tensor storage, Tensor kernels, or storage-driven scheduler selection.
+leases, CUDA Tensor storage, and Tensor-facing cuBLAS GEMM lowering. General
+CUDA Tensor kernel coverage, non-blocking async GEMM lowering, and
+storage-driven scheduler selection remain incomplete.
 
 ## Start Here
 

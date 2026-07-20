@@ -1,10 +1,13 @@
 # src/uni20/linalg/backends/cublas
 
-This directory adapts provider-ready dense linalg operands to cuBLAS operation
-tags. Resource acquisition remains outside the backend walk: callers first
-obtain a `cublas::ExecutionLease`, lower CUDA Tensor storage to scoped buffer
-access and BLAS matrix descriptors, then dispatch to `CublasBackend`.
+This directory adapts opaque CUDA mdspan operands to cuBLAS operation tags.
+`CublasBackend` validates and stages the mdspans before acquiring resources,
+then obtains the context-owned cuBLAS execution pool, leases a handle and idle
+stream, opens synchronized CUDA buffer access, and calls the provider-ready
+leaf.
 
-The current first leaf is GEMM. CUDA Tensor/mdspan lowering is intentionally a
-separate layer because CUDA storage and accessor semantics are not implemented
-yet.
+The current first operation is GEMM. Ordinary Tensor code reaches it through
+`linalg::gemm(output, alpha, lhs, rhs, beta)`; the Tensor front end resolves
+mdspans and dispatches the storage-selected `CublasBackend`. The direct path
+uses blocking resource admission. Future async CUDA lowering will await the
+same execution resources before entering the non-suspending provider leaf.

@@ -7,15 +7,20 @@
 #include <uni20/common/presentation.hpp>
 #include <uni20/core/types.hpp>
 #include <uni20/linalg/backends/cublas/gemm.hpp>
+#include <uni20/linalg/ops/gemm.hpp>
+#include <uni20/tensor/conjugate.hpp>
+#include <uni20/tensor/tensor.hpp>
 
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cstddef>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -89,8 +94,7 @@ template <class Scalar> void check_column_major_gemm(int device)
         .data = lhs_read.data(), .rows = 2, .cols = 3, .leading_dimension = 2};
     uni20::linalg::blas::BlasReadableMatrix<Scalar> rhs_matrix{
         .data = rhs_read.data(), .rows = 3, .cols = 2, .leading_dimension = 3};
-    uni20::linalg::dispatch_kernel(uni20::linalg::CublasBackend{}, uni20::linalg::gemm_op{}, execution, output_matrix,
-                                   Scalar{1}, lhs_matrix, rhs_matrix, Scalar{});
+    uni20::linalg::cublas::gemm(execution, output_matrix, lhs_matrix, rhs_matrix, Scalar{1}, Scalar{});
   }
   {
     auto output_read = output.read_synchronized_with(execution.stream());
@@ -107,6 +111,33 @@ template <class Scalar> void check_column_major_gemm(int device)
 
   execution.release();
   context.streams().synchronize();
+}
+
+template <class Tensor> void upload_tensor(Tensor& tensor, std::span<uni20::tensor_element_t<Tensor> const> values)
+{
+  ASSERT_EQ(values.size(), tensor.size());
+  auto stream = tensor.storage().context().streams().acquire();
+  {
+    auto write = tensor.storage().write_synchronized_with(stream);
+    ASSERT_EQ(cudaMemcpyAsync(write.data(), values.data(), write.size_bytes(), cudaMemcpyHostToDevice,
+                              stream.native_handle()),
+              cudaSuccess);
+  }
+  stream.synchronize();
+}
+
+template <class Tensor> auto download_tensor(Tensor const& tensor) -> std::vector<uni20::tensor_element_t<Tensor>>
+{
+  std::vector<uni20::tensor_element_t<Tensor>> values(tensor.size());
+  auto stream = tensor.storage().context().streams().acquire();
+  {
+    auto read = tensor.storage().read_synchronized_with(stream);
+    EXPECT_EQ(
+        cudaMemcpyAsync(values.data(), read.data(), read.size_bytes(), cudaMemcpyDeviceToHost, stream.native_handle()),
+        cudaSuccess);
+  }
+  stream.synchronize();
+  return values;
 }
 
 template <class Scalar> void check_complex_conjugate_transpose_gemm(int device)
@@ -220,6 +251,67 @@ TEST_F(CublasExecutionTest, ComputesComplexConjugateTransposeGemm)
 {
   check_complex_conjugate_transpose_gemm<uni20::cfloat>(device_);
   check_complex_conjugate_transpose_gemm<uni20::cdouble>(device_);
+}
+
+TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaMdspans)
+{
+  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs(context, 2, 3);
+  matrix_type rhs(context, 3, 2);
+  matrix_type output(context, 2, 2);
+
+  std::array<double, 6> const lhs_values{1, 4, 2, 5, 3, 6};
+  std::array<double, 6> const rhs_values{7, 9, 11, 8, 10, 12};
+  upload_tensor(lhs, std::span<double const>{lhs_values});
+  upload_tensor(rhs, std::span<double const>{rhs_values});
+
+  uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
+
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{58, 139, 64, 154}));
+
+  uni20::linalg::gemm(output, 1.0, lhs, rhs, 1.0);
+
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{116, 278, 128, 308}));
+}
+
+TEST_F(CublasExecutionTest, TensorGemmNormalizesRowMajorCudaOutput)
+{
+  using matrix_type = uni20::CudaAsyncMatrix<double, uni20::RowMajor>;
+  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs(context, 2, 3);
+  matrix_type rhs(context, 3, 2);
+  matrix_type output(context, 2, 2);
+
+  std::array<double, 6> const lhs_values{1, 2, 3, 4, 5, 6};
+  std::array<double, 6> const rhs_values{7, 8, 9, 10, 11, 12};
+  upload_tensor(lhs, std::span<double const>{lhs_values});
+  upload_tensor(rhs, std::span<double const>{rhs_values});
+
+  uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
+
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{58, 64, 139, 154}));
+}
+
+TEST_F(CublasExecutionTest, TensorGemmLowersConjugatingCudaAccessor)
+{
+  using scalar_type = uni20::cdouble;
+  using row_matrix_type = uni20::CudaAsyncMatrix<scalar_type, uni20::RowMajor>;
+  using column_matrix_type = uni20::CudaAsyncMatrix<scalar_type>;
+  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  row_matrix_type lhs(context, 1, 2);
+  column_matrix_type rhs(context, 2, 1);
+  column_matrix_type output(context, 1, 1);
+
+  std::array<scalar_type, 2> const lhs_values{scalar_type{1, 2}, scalar_type{3, -1}};
+  std::array<scalar_type, 2> const rhs_values{scalar_type{2, -1}, scalar_type{-1, 4}};
+  upload_tensor(lhs, std::span<scalar_type const>{lhs_values});
+  upload_tensor(rhs, std::span<scalar_type const>{rhs_values});
+
+  auto conjugated_lhs = uni20::conj(lhs);
+  uni20::linalg::gemm(output, scalar_type{1}, conjugated_lhs, rhs, scalar_type{});
+
+  EXPECT_EQ(download_tensor(output), (std::vector<scalar_type>{scalar_type{-7, 6}}));
 }
 
 } // namespace

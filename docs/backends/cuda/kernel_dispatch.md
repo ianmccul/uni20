@@ -3,9 +3,10 @@
 **Status:** active design note. The low-level CUDA runtime foundation,
 `CudaAsyncStorage`, and unified host/multi-device debug and oneTBB schedulers are
 implemented. Process-wide device-context integration, general CUDA Tensor
-kernel lowering, and live coroutine scheduler migration are not yet
-implemented. Generic stream/provider-resource awaiters and the first cuBLAS
-GEMM backend leaf are implemented.
+kernel coverage, and live coroutine scheduler migration are not yet
+implemented. Generic stream/provider-resource awaiters and Tensor-facing
+cuBLAS GEMM lowering are implemented; non-blocking async GEMM lowering remains
+future work.
 
 This note defines how Uni20 kernel dispatch should interact with CUDA
 execution. It distinguishes the logical CUDA execution context from the
@@ -108,21 +109,20 @@ the blocking storage policy; async lowering accepts the non-blocking storage
 policy. Mixing the two is not an important use case, and disallowing it keeps
 accidental scheduler blocking out of async code.
 
-The per-call stream, handle, and workspace leases are still operation-local.
-They should be acquired by the front-end lowering for the storage policy and
-passed to CUDA backends as an internal lowered operand or execution context.
-They should not be stored in the backend selector. The selector remains the
-ordinary backend list associated with the storage/default execution policy, for
-example `cuda_reference`, `cublas`, `cusolver`, and future provider backends.
-Both channels should converge on the same non-suspending leaf backend once the
-complete resource set has been acquired.
+The per-call stream, handle, and workspace leases are still operation-local and
+must not be stored in the backend selector. Direct Tensor GEMM acquires its
+lease inside `CublasBackend` after runtime decline checks. Async CUDA lowering
+will await the same resources before calling the provider-ready leaf, because
+an ordinary `try_kernel` cannot suspend. Both channels therefore converge on
+the same checked, non-suspending cuBLAS wrapper even though resource admission
+occurs at different layers.
 
 ## Per-Device Execution Context
 
 The implemented `cuda::DeviceContext` currently owns the validated device,
-short-lived buffer-state mutex, and idle stream pool. The future process runtime
-should own one canonical resource service per device, containing structures
-such as:
+short-lived buffer-state mutex, idle stream pool, and a lazy type-indexed
+provider-resource registry. The future process runtime should own one canonical
+resource service per device, containing structures such as:
 
 ```cpp
 namespace uni20::cuda
@@ -271,14 +271,12 @@ The lease may move with the suspended coroutine between physical workers in the
 same device arena.
 
 Acquisition should return the complete resource bundle required by leaf
-dispatch. The acquired bundle is not a backend selector. It is an internal
-lowered operand used by CUDA backend attempts:
+dispatch. The acquired bundle is not a backend selector. In non-blocking async
+lowering it is an internal operand passed directly to the provider-ready leaf:
 
 ```cpp
-auto resources = co_await cublas::acquire_execution(cublas_pool);
-
-dispatch_kernel(storage_domain.backends(), gemm_op{}, resources,
-                output, alpha, lhs, rhs, beta);
+auto execution = co_await cublas::acquire_execution(cublas_pool);
+invoke_cublas_gemm(execution, output, alpha, lhs, rhs, beta);
 ```
 
 Once the complete resource set has been acquired, the backend walk and provider
@@ -307,9 +305,10 @@ edge.
 
 ## Non-Suspending Leaf Dispatch
 
-`try_kernel(...)` remains an ordinary function. It executes with a CUDA stream
-and scoped buffer guards supplied through the backend context. A CUDA backend
-attempt may:
+`try_kernel(...)` remains an ordinary function. Direct GEMM acquires a CUDA
+stream and scoped buffer guards inside the accepted backend attempt. Async
+lowering performs awaitable resource admission before entering an equivalent
+non-suspending leaf. A CUDA backend attempt may:
 
 1. validate all remaining runtime preconditions;
 2. acquire scoped read/write buffer guards that install device-event

@@ -46,7 +46,11 @@ template <class ElementType> class CudaBufferView {
     [[nodiscard]] explicit constexpr operator bool() const noexcept { return buffer_ != nullptr; }
 
     /// \brief Return the CUDA buffer whose completion ledger governs access.
-    [[nodiscard]] constexpr auto buffer() const noexcept -> buffer_reference { return *buffer_; }
+    [[nodiscard]] auto buffer() const -> buffer_reference
+    {
+      CHECK(buffer_ != nullptr, "cannot resolve an empty CUDA buffer view");
+      return *buffer_;
+    }
 
     /// \brief Return this view's element offset from the allocation start.
     [[nodiscard]] constexpr std::size_t element_offset() const noexcept { return offset_; }
