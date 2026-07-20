@@ -22,9 +22,16 @@ backend stages BLAS-compatible layouts, acquires a handle/stream execution lease
 from the device resource set, opens synchronized buffer access, and enqueues the
 provider call. Column- and row-major outputs are supported. Fully non-blocking
 `Async<CudaAsyncTensor>` resource admission remains future work. The optimized
-cuBLAS path cleanly declines zero-inner-dimension GEMM before staging operands;
-complete CUDA handling of `C = beta*C` awaits the CUDA reference backend and
-reusable device fill/scale kernels.
+cuBLAS path accepts zero-inner-dimension GEMM with null zero-sized input
+buffers and applies `C = beta*C` directly.
+
+The Tensor-level GEMM conformance suite applies one shared semantic matrix to
+every statically eligible host backend and to cuBLAS. It covers all four
+ordinary scalar families, canonical and mixed row/column layouts, padded
+leading dimensions, and lazy conjugation. CUDA-specific cases additionally
+cover nonzero buffer offsets, transpose and conjugate-transpose subviews,
+clean unsupported-layout decline before resource admission, cross-device
+rejection, and exact or partial output/input alias rejection.
 
 ## Scalar Tags
 

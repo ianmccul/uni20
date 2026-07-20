@@ -183,6 +183,20 @@ TEST(BlasMatrixOperandTest, StagesRowMajorMdspanAsTransposedProviderMatrix)
   EXPECT_FALSE(uni20::linalg::blas::try_lapack_writable_matrix(span).has_value());
 }
 
+TEST(BlasMatrixOperandTest, NormalizesUnobservedZeroRowProviderStride)
+{
+  using extents_type = stdex::dextents<uni20::index_type, 2>;
+  stdex::mdspan<double, extents_type, stdex::layout_right> matrix(nullptr, 2, 0);
+
+  auto stage = uni20::linalg::blas::try_mdspan_matrix_stage(matrix);
+
+  ASSERT_TRUE(stage.has_value());
+  EXPECT_EQ(stage->extent0, 2);
+  EXPECT_EQ(stage->extent1, 0);
+  EXPECT_EQ(stage->unit_stride_axis, 1);
+  EXPECT_EQ(stage->nonunit_stride, 1);
+}
+
 TEST(BlasMatrixOperandTest, NormalizesUnobservedSingletonProviderColumnStride)
 {
   {

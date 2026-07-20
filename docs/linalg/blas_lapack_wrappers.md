@@ -605,11 +605,9 @@ through `CHECK`/`CHECK_EQUAL`, not report ordinary kernel non-acceptance.
 
 GEMM shape validation precedes provider staging. An empty output succeeds
 without inspecting operand layouts. A zero inner extent is mathematically the
-update `C = beta*C`; optimized BLAS and cuBLAS backends may decline that runtime
-instance before side effects, allowing the complete reference backend for the
-same storage domain to perform the update. `CpuReferenceBackend` provides this
-fallback for host storage. CUDA storage will use the same policy once a
-`CudaReferenceBackend` and reusable CUDA fill/scale kernels are available.
+update `C = beta*C`. The host BLAS backend declines that runtime instance before
+side effects and `CpuReferenceBackend` performs the update. cuBLAS accepts null
+zero-sized input buffers and applies the update directly.
 
 Operation-tag dispatch wraps the direct GEMM leaf like this:
 

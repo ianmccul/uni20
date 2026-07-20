@@ -154,7 +154,6 @@ KernelAttempt try_staged_gemm(blas::BlasWritableMatrix<Scalar, OutputHandle> out
 
   blas_int const inner = require_gemm_shape(output, lhs, rhs);
   if (output.rows == 0 || output.cols == 0) return KernelAttempt::success;
-  if (inner == 0) return KernelAttempt::unsupported_instance;
 
   auto& output_buffer = output.data.buffer();
   auto const& lhs_buffer = lhs.data.buffer();
@@ -202,7 +201,6 @@ KernelAttempt try_gemm(uni20::cublas::ExecutionLease& execution, blas::BlasWrita
   blas_int const lhs_cols = detail::require_gemm_shape(output, lhs, rhs);
 
   if (output.rows == 0 || output.cols == 0) return KernelAttempt::success;
-  if (lhs_cols == 0) return KernelAttempt::unsupported_instance;
 
   uni20::cublas::gemm(execution, blas::blas_trans_char<Scalar>(lhs.transform),
                       blas::blas_trans_char<Scalar>(rhs.transform), detail::cublas_int(output.rows),
@@ -228,7 +226,6 @@ KernelAttempt try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, Rhs
   CHECK_EQUAL(output.extent(1), rhs.extent(1));
 
   if (output.extent(0) == 0 || output.extent(1) == 0) return KernelAttempt::success;
-  if (lhs.extent(1) == 0) return KernelAttempt::unsupported_instance;
 
   auto output_stage = blas::try_mdspan_matrix_stage(output);
   auto lhs_stage = blas::try_mdspan_matrix_stage(lhs);

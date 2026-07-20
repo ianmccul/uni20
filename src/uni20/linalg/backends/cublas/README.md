@@ -12,12 +12,19 @@ mdspans and dispatches the storage-selected `CublasBackend`. The direct path
 uses blocking resource admission. Future async CUDA lowering will await the
 same execution resources before entering the non-suspending provider leaf.
 
-An empty GEMM output succeeds before operand staging. A zero inner extent is a
-clean `unsupported_instance` decline before staging, resource acquisition, or
-buffer-access publication. Complete CUDA-domain handling will come from a
-future `CudaReferenceBackend` after `CublasBackend` in the storage-selected
-backend list; reusable CUDA fill and scale kernels will implement the degenerate
-`C = beta*C` operation.
+An empty GEMM output succeeds before operand staging. cuBLAS accepts a zero
+inner extent with null zero-sized input buffers and applies the degenerate
+`C = beta*C` operation, so canonical CUDA matrices retain provider execution for
+that case. A future `CudaReferenceBackend` after `CublasBackend` in the
+storage-selected backend list will provide complete CUDA-domain handling for
+layouts and accessors that cuBLAS cannot represent.
+
+The Tensor conformance tests share their scalar and canonical-layout cases with
+the host GEMM backends. cuBLAS-specific tests cover opaque buffer offsets,
+transpose and conjugate-transpose subviews, padded leading dimensions, clean
+layout decline before resource acquisition, and hard device/alias contract
+violations. Unknown accessor semantics are rejected at type probing rather than
+bypassed through the opaque handle.
 
 ## Related Documentation
 

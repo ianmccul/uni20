@@ -44,9 +44,10 @@ inline std::optional<blas_int> normalized_nonunit_stride(blas_int nonunit_stride
     return nonunit_stride;
   }
 
-  // If there is only one provider column, the stride between columns is
-  // unspecified by the logical view. Choose the BLAS-compatible representative.
-  if (provider_cols <= 1)
+  // If there are no provider rows or at most one provider column, the stride
+  // between columns does not address two logical elements. Choose the
+  // BLAS-compatible representative.
+  if (provider_rows == 0 || provider_cols <= 1)
   {
     return minimum;
   }

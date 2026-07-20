@@ -4,6 +4,8 @@
 #include <uni20/mdspan/mdspan.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#include "gemm_conformance.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -39,6 +41,37 @@ using value_transform_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_l
 
 template <class Scalar> using left_mdspan = stdex::mdspan<Scalar, extents_2d, stdex::layout_left>;
 template <class Scalar> using vector_mdspan = stdex::mdspan<Scalar, extents_1d, stdex::layout_left>;
+
+struct HostGemmPlatform
+{
+    static constexpr std::size_t expected_backend_candidates = 2;
+
+    template <class Scalar, class Layout> [[nodiscard]] auto make_matrix(uni20::index_type rows, uni20::index_type cols)
+    {
+      return uni20::DenseMatrix<Scalar, Layout>(rows, cols);
+    }
+
+    template <class Scalar>
+    [[nodiscard]] auto make_strided_matrix(uni20::index_type rows, uni20::index_type cols,
+                                           std::array<uni20::index_type, 2> strides)
+    {
+      using matrix_type = uni20::StridedTensor<Scalar, 2>;
+      return matrix_type(typename matrix_type::extents_type{rows, cols}, strides);
+    }
+
+    template <class Tensor>
+    void write_physical(Tensor& tensor, std::vector<uni20::tensor_element_t<Tensor>> const& values)
+    {
+      ASSERT_EQ(values.size(), tensor.storage().size());
+      tensor.storage() = values;
+    }
+
+    template <class Tensor>
+    [[nodiscard]] auto read_physical(Tensor const& tensor) -> std::vector<uni20::tensor_element_t<Tensor>>
+    {
+      return tensor.storage();
+    }
+};
 
 template <class Scalar> class NonStridedMatrixView {
   public:
@@ -325,6 +358,24 @@ TEST(LinalgGemmDispatchTest, TypeCandidatesExposeEveryCompatibleGemmBackend)
   };
   std::apply([&](auto const&... backend) { (test_backend(backend), ...); }, candidates.entries);
   EXPECT_EQ(tested_backends, 2);
+}
+
+TEST(GemmBackendConformanceTest, ScalarsAndCanonicalLayouts)
+{
+  HostGemmPlatform platform;
+  uni20::test::gemm_conformance::check_all_scalar_and_layout_cases(platform);
+}
+
+TEST(GemmBackendConformanceTest, PaddedLeadingDimensions)
+{
+  HostGemmPlatform platform;
+  uni20::test::gemm_conformance::check_all_padded_layout_cases(platform);
+}
+
+TEST(GemmBackendConformanceTest, ConjugatingInputs)
+{
+  HostGemmPlatform platform;
+  uni20::test::gemm_conformance::check_all_conjugating_input_cases(platform);
 }
 
 TEST(LinalgGemmDispatchTest, TryAndCheckedDispatchDistinguishRuntimeDecline)

@@ -11,6 +11,8 @@
 #include <uni20/tensor/conjugate.hpp>
 #include <uni20/tensor/tensor.hpp>
 
+#include "../../linalg/gemm_conformance.hpp"
+
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
@@ -24,6 +26,87 @@
 
 namespace
 {
+
+template <class Tensor> class CudaMatrixView {
+  public:
+    using tensor_type = Tensor;
+    using element_type = typename tensor_type::element_type;
+    using storage_policy = typename tensor_type::storage_policy;
+    using index_type = uni20::index_type;
+    using extents_type = stdex::dextents<index_type, 2>;
+    using mapping_type = stdex::layout_stride::mapping<extents_type>;
+    using accessor_type = typename tensor_type::accessor_type;
+    using const_accessor_type = typename tensor_type::const_accessor_type;
+    using mdspan_type = stdex::mdspan<element_type, extents_type, stdex::layout_stride, accessor_type>;
+    using const_mdspan_type =
+        stdex::mdspan<element_type const, extents_type, stdex::layout_stride, const_accessor_type>;
+
+    CudaMatrixView(tensor_type& tensor, std::size_t offset, index_type rows, index_type cols,
+                   std::array<index_type, 2> strides)
+        : tensor_(&tensor), offset_(offset), mapping_(extents_type{rows, cols}, strides)
+    {
+      auto const span_size = static_cast<std::size_t>(mapping_.required_span_size());
+      CHECK(offset_ <= tensor.storage().size() && span_size <= tensor.storage().size() - offset_);
+    }
+
+    [[nodiscard]] static constexpr auto backend_selector() noexcept { return storage_policy::backend_selector(); }
+
+    [[nodiscard]] auto mdspan() noexcept -> mdspan_type
+    {
+      return mdspan_type(tensor_->mutable_handle().offset_by(offset_), mapping_, tensor_->accessor());
+    }
+
+    [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type
+    {
+      auto const& tensor = std::as_const(*tensor_);
+      return const_mdspan_type(tensor.handle().offset_by(offset_), mapping_, tensor.accessor());
+    }
+
+    [[nodiscard]] auto extents() const noexcept -> extents_type const& { return mapping_.extents(); }
+    [[nodiscard]] auto extent(std::size_t axis) const noexcept { return mapping_.extents().extent(axis); }
+    [[nodiscard]] auto mapping() const noexcept -> mapping_type const& { return mapping_; }
+    [[nodiscard]] std::size_t size() const noexcept { return mapping_.required_span_size(); }
+
+  private:
+    tensor_type* tensor_;
+    std::size_t offset_;
+    mapping_type mapping_;
+};
+
+template <class ElementType> struct UnrecognizedCudaAccessor
+{
+    using element_type = ElementType;
+    using reference = uni20::cuda::CudaBufferView<element_type>;
+    using data_handle_type = reference;
+    using offset_policy = UnrecognizedCudaAccessor;
+
+    [[nodiscard]] constexpr reference access(data_handle_type handle, std::size_t offset) const noexcept
+    {
+      return handle.offset_by(offset);
+    }
+
+    [[nodiscard]] constexpr data_handle_type offset(data_handle_type handle, std::size_t offset) const noexcept
+    {
+      return handle.offset_by(offset);
+    }
+};
+
+using cuda_test_extents = stdex::dextents<uni20::index_type, 2>;
+using writable_cuda_span =
+    stdex::mdspan<double, cuda_test_extents, stdex::layout_left, uni20::cuda::AsyncAccessor<double>>;
+using readable_cuda_span =
+    stdex::mdspan<double const, cuda_test_extents, stdex::layout_left, uni20::cuda::AsyncAccessor<double const>>;
+using unrecognized_cuda_span =
+    stdex::mdspan<double const, cuda_test_extents, stdex::layout_left, UnrecognizedCudaAccessor<double const>>;
+
+template <class Input>
+concept cublas_gemm_accepts_input_accessor =
+    requires(writable_cuda_span& output, Input& input, readable_cuda_span& rhs) {
+      uni20::linalg::cublas::try_gemm(output, 1.0, input, rhs, 0.0);
+    };
+
+static_assert(cublas_gemm_accepts_input_accessor<readable_cuda_span>);
+static_assert(!cublas_gemm_accepts_input_accessor<unrecognized_cuda_span>);
 
 class CublasExecutionTest : public ::testing::Test {
   protected:
@@ -42,6 +125,73 @@ class CublasExecutionTest : public ::testing::Test {
     int device_ = -1;
 };
 
+class CudaGemmPlatform {
+  public:
+    static constexpr std::size_t expected_backend_candidates = 1;
+
+    explicit CudaGemmPlatform(int device) : resources_({.device = uni20::cuda::Device::get(device), .stream_count = 2})
+    {}
+
+    template <class Scalar, class Layout> [[nodiscard]] auto make_matrix(uni20::index_type rows, uni20::index_type cols)
+    {
+      return uni20::CudaAsyncMatrix<Scalar, Layout>(resources_, rows, cols);
+    }
+
+    template <class Scalar>
+    [[nodiscard]] auto make_strided_matrix(uni20::index_type rows, uni20::index_type cols,
+                                           std::array<uni20::index_type, 2> strides)
+    {
+      using matrix_type = uni20::Tensor<Scalar, 2, uni20::CudaAsyncStorage, stdex::layout_stride>;
+      using extents_type = typename matrix_type::extents_type;
+      typename matrix_type::mapping_type mapping(extents_type{rows, cols}, strides);
+      typename matrix_type::storage_type storage(resources_, mapping.required_span_size());
+      return matrix_type::adopt_storage(std::move(mapping), std::move(storage));
+    }
+
+    template <class Tensor>
+    void write_physical(Tensor& tensor, std::vector<uni20::tensor_element_t<Tensor>> const& values)
+    {
+      auto span = tensor.mdspan();
+      auto view = span.data_handle();
+      auto& buffer = view.buffer();
+      ASSERT_EQ(values.size(), static_cast<std::size_t>(span.mapping().required_span_size()));
+      ASSERT_LE(view.element_offset(), buffer.size());
+      ASSERT_LE(values.size(), buffer.size() - view.element_offset());
+      auto stream = resources_.streams().acquire();
+      {
+        auto write = buffer.write_synchronized_with(stream);
+        ASSERT_EQ(cudaMemcpyAsync(write.data() + view.element_offset(), values.data(),
+                                  values.size() * sizeof(values[0]), cudaMemcpyHostToDevice, stream.native_handle()),
+                  cudaSuccess);
+      }
+      stream.synchronize();
+    }
+
+    template <class Tensor>
+    [[nodiscard]] auto read_physical(Tensor const& tensor) -> std::vector<uni20::tensor_element_t<Tensor>>
+    {
+      auto span = tensor.mdspan();
+      auto view = span.data_handle();
+      auto const& buffer = view.buffer();
+      std::vector<uni20::tensor_element_t<Tensor>> values(span.mapping().required_span_size());
+      CHECK(view.element_offset() <= buffer.size() && values.size() <= buffer.size() - view.element_offset());
+      auto stream = resources_.streams().acquire();
+      {
+        auto read = buffer.read_synchronized_with(stream);
+        EXPECT_EQ(cudaMemcpyAsync(values.data(), read.data() + view.element_offset(), values.size() * sizeof(values[0]),
+                                  cudaMemcpyDeviceToHost, stream.native_handle()),
+                  cudaSuccess);
+      }
+      stream.synchronize();
+      return values;
+    }
+
+    [[nodiscard]] auto resources() noexcept -> uni20::cuda::DeviceResources& { return resources_; }
+
+  private:
+    uni20::cuda::DeviceResources resources_;
+};
+
 static_assert(!std::is_copy_constructible_v<uni20::cublas::ExecutionLease>);
 static_assert(std::is_move_constructible_v<uni20::cublas::ExecutionLease>);
 static_assert(uni20::async::CudaTaskAwaitable<
@@ -57,6 +207,28 @@ TEST(CublasErrorTest, RendersThroughPresentationLayer)
   EXPECT_NE(rendered.find("[FAIL] cuBLAS 'cublasDgemm' failed"), std::string::npos) << rendered;
   EXPECT_NE(rendered.find("CUBLAS_STATUS_INVALID_VALUE"), std::string::npos) << rendered;
   EXPECT_NE(rendered.find("Device"), std::string::npos) << rendered;
+}
+
+TEST(CublasErrorTest, CheckedProviderFailureRaisesStructuredException)
+{
+  bool const previous_errors_abort = trace::get_formatting_options().errors_abort();
+  trace::get_formatting_options().set_errors_abort(false);
+  try
+  {
+    uni20::cublas::check(CUBLAS_STATUS_INVALID_VALUE, "cublasDgemm", 1);
+    ADD_FAILURE() << "failed cuBLAS status should raise CublasError";
+  }
+  catch (uni20::cublas::CublasError const& error)
+  {
+    EXPECT_EQ(error.status(), CUBLAS_STATUS_INVALID_VALUE);
+    EXPECT_EQ(error.operation(), "cublasDgemm");
+    EXPECT_EQ(error.device(), 1);
+  }
+  catch (...)
+  {
+    ADD_FAILURE() << "failed cuBLAS status raised the wrong exception type";
+  }
+  trace::get_formatting_options().set_errors_abort(previous_errors_abort);
 }
 
 template <class Scalar> void check_column_major_gemm(int device)
@@ -253,6 +425,37 @@ TEST_F(CublasExecutionTest, ComputesComplexConjugateTransposeGemm)
   check_complex_conjugate_transpose_gemm<uni20::cdouble>(device_);
 }
 
+TEST_F(CublasExecutionTest, ZeroInnerExtentScalesOutputWithNullInputs)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
+  uni20::cublas::ExecutionPool executions(resources.streams(), 1);
+  uni20::cuda::CudaBuffer<double> output(resources, 4);
+  std::array<double, 4> const initial{1.0, 2.0, 3.0, 4.0};
+  std::array<double, 4> result{};
+
+  auto execution = executions.acquire();
+  {
+    auto write = output.write_synchronized_with(execution.stream());
+    ASSERT_EQ(cudaMemcpyAsync(write.data(), initial.data(), write.size_bytes(), cudaMemcpyHostToDevice,
+                              execution.stream().native_handle()),
+              cudaSuccess);
+  }
+  {
+    auto write = output.write_synchronized_with(execution.stream());
+    uni20::cublas::gemm(execution, 'N', 'N', 2, 2, 0, 1.0, static_cast<double const*>(nullptr), 2,
+                        static_cast<double const*>(nullptr), 1, 3.0, write.data(), 2);
+  }
+  {
+    auto read = output.read_synchronized_with(execution.stream());
+    ASSERT_EQ(cudaMemcpyAsync(result.data(), read.data(), read.size_bytes(), cudaMemcpyDeviceToHost,
+                              execution.stream().native_handle()),
+              cudaSuccess);
+  }
+  execution.stream().synchronize();
+
+  EXPECT_EQ(result, (std::array<double, 4>{3.0, 6.0, 9.0, 12.0}));
+}
+
 TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaMdspans)
 {
   using matrix_type = uni20::CudaAsyncMatrix<double>;
@@ -273,6 +476,149 @@ TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaMdspans)
   uni20::linalg::gemm(output, 1.0, lhs, rhs, 1.0);
 
   EXPECT_EQ(download_tensor(output), (std::vector<double>{116, 278, 128, 308}));
+}
+
+TEST_F(CublasExecutionTest, TensorGemmConformanceScalarsAndCanonicalLayouts)
+{
+  CudaGemmPlatform platform(device_);
+  uni20::test::gemm_conformance::check_all_scalar_and_layout_cases(platform);
+}
+
+TEST_F(CublasExecutionTest, TensorGemmConformancePaddedLeadingDimensions)
+{
+  CudaGemmPlatform platform(device_);
+  uni20::test::gemm_conformance::check_all_padded_layout_cases(platform);
+}
+
+TEST_F(CublasExecutionTest, TensorGemmConformanceConjugatingInputs)
+{
+  CudaGemmPlatform platform(device_);
+  uni20::test::gemm_conformance::check_all_conjugating_input_cases(platform);
+}
+
+TEST_F(CublasExecutionTest, TensorGemmSupportsOffsetTransposeView)
+{
+  CudaGemmPlatform platform(device_);
+  auto lhs_storage = platform.make_matrix<double, uni20::ColumnMajor>(4, 4);
+  auto rhs_storage = platform.make_matrix<double, uni20::ColumnMajor>(4, 4);
+  auto output_storage = platform.make_matrix<double, uni20::ColumnMajor>(4, 4);
+  CudaMatrixView lhs(lhs_storage, 2, 2, 3, {3, 1});
+  CudaMatrixView rhs(rhs_storage, 4, 3, 2, {1, 4});
+  CudaMatrixView output(output_storage, 3, 2, 2, {1, 3});
+
+  std::vector<double> const lhs_values{1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+  std::vector<double> const rhs_values{7.0, 8.0, 9.0, 10.0, 11.0, 12.0};
+  std::vector<double> const output_values{1.0, 2.0, 3.0, 4.0};
+  double const alpha = 2.0;
+  double const beta = 3.0;
+  auto const expected = uni20::test::gemm_conformance::reference_gemm<double>(output_values, lhs_values, rhs_values, 2,
+                                                                              3, 2, alpha, beta);
+
+  uni20::test::gemm_conformance::write_logical(platform, lhs, lhs_values);
+  uni20::test::gemm_conformance::write_logical(platform, rhs, rhs_values);
+  uni20::test::gemm_conformance::expect_each_candidate(platform, output, alpha, lhs, rhs, beta, output_values,
+                                                       expected);
+}
+
+TEST_F(CublasExecutionTest, TensorGemmSupportsOffsetConjugateTransposeView)
+{
+  using scalar_type = uni20::complex<double>;
+  CudaGemmPlatform platform(device_);
+  auto lhs_storage = platform.make_matrix<scalar_type, uni20::ColumnMajor>(4, 4);
+  auto rhs_storage = platform.make_matrix<scalar_type, uni20::ColumnMajor>(4, 4);
+  auto output_storage = platform.make_matrix<scalar_type, uni20::ColumnMajor>(4, 4);
+  CudaMatrixView lhs(lhs_storage, 2, 2, 3, {3, 1});
+  CudaMatrixView rhs(rhs_storage, 4, 3, 2, {1, 4});
+  CudaMatrixView output(output_storage, 3, 2, 2, {1, 3});
+
+  std::vector<scalar_type> const lhs_values{{1.0, 2.0}, {2.0, -1.0}, {3.0, 1.0}, {4.0, -2.0}, {5.0, 3.0}, {6.0, -1.0}};
+  std::vector<scalar_type> const rhs_values{{1.0, -1.0}, {2.0, 1.0}, {3.0, 2.0}, {4.0, -1.0}, {5.0, 1.0}, {6.0, 2.0}};
+  std::vector<scalar_type> const output_values{{1.0, 1.0}, {2.0, -1.0}, {3.0, 2.0}, {4.0, -2.0}};
+  std::vector<scalar_type> conjugated_lhs_values;
+  conjugated_lhs_values.reserve(lhs_values.size());
+  for (auto const value : lhs_values)
+  {
+    conjugated_lhs_values.push_back(uni20::conj(value));
+  }
+  scalar_type const alpha{2.0, -1.0};
+  scalar_type const beta{-1.0, 0.5};
+  auto const expected = uni20::test::gemm_conformance::reference_gemm<scalar_type>(output_values, conjugated_lhs_values,
+                                                                                   rhs_values, 2, 3, 2, alpha, beta);
+
+  uni20::test::gemm_conformance::write_logical(platform, lhs, lhs_values);
+  uni20::test::gemm_conformance::write_logical(platform, rhs, rhs_values);
+  auto conjugated_lhs = uni20::conj(lhs);
+  uni20::test::gemm_conformance::expect_each_candidate(platform, output, alpha, conjugated_lhs, rhs, beta,
+                                                       output_values, expected);
+}
+
+TEST_F(CublasExecutionTest, UnsupportedLayoutDeclinesBeforeAcquiringExecutionResources)
+{
+  CudaGemmPlatform platform(device_);
+  auto lhs_storage = platform.make_matrix<double, uni20::ColumnMajor>(4, 4);
+  auto rhs = platform.make_matrix<double, uni20::ColumnMajor>(2, 2);
+  auto output = platform.make_matrix<double, uni20::ColumnMajor>(2, 2);
+  CudaMatrixView lhs(lhs_storage, 0, 2, 2, {2, 5});
+  std::vector<double> const initial_output{1.0, 2.0, 3.0, 4.0};
+  uni20::test::gemm_conformance::write_logical(platform, output, initial_output);
+
+  auto& executions = uni20::cublas::execution_pool(platform.resources());
+  platform.resources().streams().synchronize();
+  auto const idle_handles = executions.idle_handle_count();
+  auto const idle_streams = platform.resources().streams().idle_stream_count();
+  auto const leased_streams = platform.resources().streams().leased_stream_count();
+
+  EXPECT_EQ(uni20::linalg::cublas::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 0.0),
+            uni20::linalg::KernelAttempt::unsupported_layout);
+  EXPECT_EQ(executions.idle_handle_count(), idle_handles);
+  EXPECT_EQ(platform.resources().streams().idle_stream_count(), idle_streams);
+  EXPECT_EQ(platform.resources().streams().leased_stream_count(), leased_streams);
+  EXPECT_EQ(uni20::test::gemm_conformance::read_logical(platform, output), initial_output);
+}
+
+TEST_F(CublasExecutionTest, TensorGemmRejectsExactOutputInputAlias)
+{
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_DEATH(
+      {
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::CudaAsyncMatrix<double> output(resources, 2, 2);
+        uni20::CudaAsyncMatrix<double> rhs(resources, 2, 2);
+        uni20::linalg::gemm(output, 1.0, output, rhs, 0.0);
+      },
+      "must not share a CUDA buffer");
+}
+
+TEST_F(CublasExecutionTest, TensorGemmRejectsPartialOutputInputAlias)
+{
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_DEATH(
+      {
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::CudaAsyncMatrix<double> shared_storage(resources, 4, 4);
+        uni20::CudaAsyncMatrix<double> rhs(resources, 2, 2);
+        CudaMatrixView output(shared_storage, 0, 2, 2, {1, 3});
+        CudaMatrixView lhs(shared_storage, 1, 2, 2, {1, 3});
+        uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
+      },
+      "must not share a CUDA buffer");
+}
+
+TEST_F(CublasExecutionTest, TensorGemmRejectsCrossDeviceOperands)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "test requires at least two CUDA devices";
+
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_DEATH(
+      {
+        uni20::cuda::DeviceResources device0({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::DeviceResources device1({.device = uni20::cuda::Device::get(1), .stream_count = 1});
+        uni20::CudaAsyncMatrix<double> output(device0, 2, 2);
+        uni20::CudaAsyncMatrix<double> lhs(device0, 2, 2);
+        uni20::CudaAsyncMatrix<double> rhs(device1, 2, 2);
+        uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
+      },
+      "operands must use one CUDA device");
 }
 
 TEST_F(CublasExecutionTest, TensorGemmNormalizesRowMajorCudaOutput)
@@ -326,7 +672,7 @@ TEST_F(CublasExecutionTest, TensorGemmEmptyOutputSucceedsBeforeOperandStaging)
             uni20::linalg::KernelAttempt::success);
 }
 
-TEST_F(CublasExecutionTest, TensorGemmDeclinesZeroInnerExtentBeforeOperandStaging)
+TEST_F(CublasExecutionTest, TensorGemmScalesOutputForZeroInnerExtent)
 {
   using matrix_type = uni20::CudaAsyncMatrix<double, uni20::RowMajor>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
@@ -336,9 +682,8 @@ TEST_F(CublasExecutionTest, TensorGemmDeclinesZeroInnerExtentBeforeOperandStagin
   std::array<double, 4> const output_values{1.0, 2.0, 3.0, 4.0};
   upload_tensor(output, std::span<double const>{output_values});
 
-  EXPECT_EQ(uni20::linalg::cublas::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 3.0),
-            uni20::linalg::KernelAttempt::unsupported_instance);
-  EXPECT_EQ(download_tensor(output), (std::vector<double>{1.0, 2.0, 3.0, 4.0}));
+  uni20::linalg::gemm(output, 1.0, lhs, rhs, 3.0);
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{3.0, 6.0, 9.0, 12.0}));
 }
 
 } // namespace
