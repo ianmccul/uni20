@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "async_task.hpp"
+
 #include <functional>
 #include <thread>
 
@@ -12,8 +14,6 @@ namespace uni20::async
 {
 
 class AsyncTask;
-class BasicTask;
-class TaskHandle;
 class TaskPromiseBase;
 
 /// \brief Internal route for resuming an already-bound coroutine task.
@@ -25,6 +25,11 @@ class IScheduler {
   private:
     friend class BasicTask;
     friend class TaskPromiseBase;
+
+    /// \brief Report whether this scheduler can resume a task route.
+    /// \details This validates declared task domain and any established CUDA
+    ///          device affinity. It does not admit or take ownership of a task.
+    virtual bool accepts_route(TaskRoute route) const noexcept = 0;
 
     /// \brief Decide whether execution may transfer directly between two tasks.
     /// \details The caller has already verified that both tasks use this scheduler

@@ -134,6 +134,11 @@ class DebugScheduler : public IAsyncScheduler {
     [[nodiscard]] DebugSchedulerOptions const& options() const noexcept { return options_; }
 
   private:
+    bool accepts_route(TaskRoute route) const noexcept override
+    {
+      return route.domain == TaskDomain::host && !route.cuda_device;
+    }
+
     bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return true; }
 
     // Internal resubmission

@@ -142,6 +142,7 @@ inline void BasicTask::destroy() noexcept
 inline bool BasicTask::set_scheduler(IScheduler* scheduler)
 {
   if (!handle_) return false;
+  TaskPromiseBase::validate_scheduler_route(scheduler, task_route(handle_));
   handle_.promise().sched_ = scheduler;
   return true;
 }

@@ -15,9 +15,11 @@ quiescence does not include externally suspended frames.
 
 Current tasks normally retain the scheduler installed when they are first
 scheduled. A nested `AsyncTask` with a different scheduler is submitted there,
-then returns its continuation to the continuation's recorded scheduler.
-Explicit live-task migration is a planned generic capability, not current
-behavior. See [Scheduler Routing and Task Domains](scheduler_migration.md).
+then returns its continuation to the continuation's recorded scheduler. A
+suspended, externally owned task may replace its route with any scheduler that
+accepts its domain and CUDA device requirements. A user-facing migration
+awaiter remains future work. See
+[Scheduler Routing and Task Domains](scheduler_migration.md).
 
 ## Global Scheduler Model
 

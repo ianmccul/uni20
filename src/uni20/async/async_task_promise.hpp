@@ -108,10 +108,6 @@ class TaskPromiseBase {
         bool explicit_sink{false};
     };
 
-    /// \brief Non-owning scheduler route used when the coroutine is ready to resume.
-    /// \note The scheduler must outlive this coroutine and every possible later resumption.
-    IScheduler* sched_ = nullptr;
-
     /// \brief Tracks whether the coroutine has been scheduled or otherwise started.
     std::atomic<bool> started_{false};
 
@@ -612,8 +608,22 @@ class TaskPromiseBase {
     // /// \param h The coroutine handle to schedule.
     // void notify_ready(TaskHandle handle) { sched_->schedule(handle); }
 
+  protected:
+    /// \brief Validate a prospective task route without changing promise state.
+    static void validate_scheduler_route(IScheduler* scheduler, TaskRoute route)
+    {
+      CHECK(scheduler, "task scheduler route cannot be null");
+      CHECK(scheduler->accepts_route(route), "scheduler does not accept task route", static_cast<int>(route.domain),
+            route.cuda_device.value_or(-1));
+    }
+
   private:
+    /// \brief Non-owning scheduler route used when the coroutine is ready to resume.
+    /// \note The scheduler must outlive this coroutine and every possible later resumption.
+    IScheduler* sched_ = nullptr;
     TaskHandle self_{};
+
+    friend class BasicTask;
 };
 
 /// \brief Promise type for ordinary AsyncTask coroutines.
@@ -635,8 +645,8 @@ class CudaTaskPromise final : public TaskPromiseBase {
   public:
     static constexpr TaskDomain task_domain = TaskDomain::cuda;
 
-    using TaskPromiseBase::TaskPromiseBase;
     using TaskPromiseBase::await_transform;
+    using TaskPromiseBase::TaskPromiseBase;
 
     [[nodiscard]] CudaTask get_return_object() noexcept;
 
@@ -667,6 +677,10 @@ class CudaTaskPromise final : public TaskPromiseBase {
         CHECK_EQUAL(*device_, device, "cannot rebind a CUDA task to another device");
         return;
       }
+      if (auto* scheduler = this->scheduler())
+      {
+        this->validate_scheduler_route(scheduler, TaskRoute{.domain = TaskDomain::cuda, .cuda_device = device});
+      }
       device_ = device;
     }
 
@@ -677,6 +691,7 @@ class CudaTaskPromise final : public TaskPromiseBase {
     void select_device(int device)
     {
       CHECK(device >= 0, "CUDA device ordinal must be non-negative", device);
+      this->validate_scheduler_route(this->scheduler(), TaskRoute{.domain = TaskDomain::cuda, .cuda_device = device});
       device_ = device;
     }
 
@@ -694,6 +709,15 @@ inline CudaTaskPromise& cuda_promise(TaskHandle handle) noexcept
   return static_cast<CudaTaskPromise&>(handle.promise());
 }
 
+/// \brief Return the current scheduling requirements recorded by a task.
+inline TaskRoute task_route(TaskHandle handle) noexcept
+{
+  CHECK(handle);
+  TaskRoute route{.domain = handle.domain()};
+  if (handle.domain() == TaskDomain::cuda) route.cuda_device = cuda_promise(handle).device();
+  return route;
+}
+
 inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle child)
 {
   CHECK(parent);
@@ -702,17 +726,24 @@ inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle 
 
   if (!child.promise().scheduler())
   {
-    CHECK(parent.domain() == child.domain(),
-          "an unbound nested task cannot inherit a scheduler across task domains");
-    child.promise().sched_ = parent.promise().scheduler();
+    CHECK(parent.domain() == child.domain(), "an unbound nested task cannot inherit a scheduler across task domains");
   }
 
-  if (child.domain() != TaskDomain::cuda) return;
+  if (child.domain() == TaskDomain::cuda)
+  {
+    auto& child_promise = cuda_promise(child);
+    if (!child_promise.device() && parent.domain() == TaskDomain::cuda)
+    {
+      if (auto const parent_device = cuda_promise(parent).device()) child_promise.bind_device(*parent_device);
+    }
+  }
 
-  auto& child_promise = cuda_promise(child);
-  if (child_promise.device() || parent.domain() != TaskDomain::cuda) return;
-
-  if (auto const parent_device = cuda_promise(parent).device()) child_promise.bind_device(*parent_device);
+  if (!child.promise().scheduler())
+  {
+    auto* scheduler = parent.promise().scheduler();
+    TaskPromiseBase::validate_scheduler_route(scheduler, task_route(child));
+    child.promise().sched_ = scheduler;
+  }
 }
 
 inline bool TaskPromiseBase::can_transfer_directly(TaskHandle from, TaskHandle to) noexcept

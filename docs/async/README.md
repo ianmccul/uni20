@@ -53,7 +53,7 @@ The docs are split into two groups:
 | [`exceptions_and_cancellation.md`](exceptions_and_cancellation.md) | Exception hierarchy, sink routing, cancellation details | Runtime contributors |
 | [`schedulers.md`](schedulers.md) | `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler` behavior | Performance and integration work |
 | [`tbb_execution_primer.md`](tbb_execution_primer.md) | oneTBB threads, arenas, concurrency, constraints, task groups, and resumable waits | TBB scheduler contributors |
-| [`scheduler_migration.md`](scheduler_migration.md) | Typed initial admission, shared rescheduling, nested task domains, and future live-task migration | Async and CUDA runtime designers |
+| [`scheduler_migration.md`](scheduler_migration.md) | Typed admission, shared rescheduling, task domains, and scheduler-route migration | Async and CUDA runtime designers |
 | [`reverse_mode_ad.md`](reverse_mode_ad.md) | Dataflow reverse-mode concepts and `Var<T>` behavior | AD contributors |
 | [`task_registry_debug.md`](task_registry_debug.md) | Debug dumps, stacktraces, runtime controls | Debugging and test triage |
 | [`dag_debug_examples.md`](dag_debug_examples.md) | Graphviz DAG examples, including deadlock snapshots | Runtime debugging |

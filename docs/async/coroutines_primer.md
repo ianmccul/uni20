@@ -71,7 +71,9 @@ scheduler recorded in the common promise routes each later activation.
 An `AsyncTask` can await a `CudaTask` already bound to a CUDA scheduler. The CUDA
 child runs there and the parent returns to its own scheduler after the child
 finishes. A live coroutine does not change concrete task type; explicit
-live-task scheduler migration is a separate future capability.
+scheduler migration changes only the non-owning route of an exclusively owned,
+suspended task. The internal mechanism is implemented; a user-facing migration
+awaiter remains future work.
 
 See [Scheduler Routing and Task Domains](scheduler_migration.md) for the task
 admission and continuation contracts.

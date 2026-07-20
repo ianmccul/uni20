@@ -37,6 +37,11 @@ class RejectingDirectTransferScheduler final : public IAsyncScheduler {
     [[nodiscard]] bool done() const noexcept { return tasks_.empty(); }
 
   private:
+    bool accepts_route(TaskRoute route) const noexcept override
+    {
+      return route.domain == TaskDomain::host && !route.cuda_device;
+    }
+
     bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return false; }
     void reschedule(BasicTask&& task) override { tasks_.push_back(std::move(task)); }
 
@@ -54,6 +59,17 @@ struct TransferToTask
       static_cast<void>(current.release_handle());
       return BasicTask(std::move(task));
     }
+
+    constexpr void await_resume() const noexcept {}
+};
+
+struct HoldTask
+{
+    BasicTask* held;
+
+    [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+
+    void await_suspend(BasicTask task) const noexcept { *held = std::move(task); }
 
     constexpr void await_resume() const noexcept {}
 };
@@ -121,6 +137,27 @@ TEST(AsyncTaskRouteDeathTest, CrossDomainChildCannotInheritScheduler)
         scheduler.run_all();
       },
       "cannot inherit a scheduler across task domains");
+}
+
+TEST(AsyncTaskRouteDeathTest, CudaTaskCannotBindToHostScheduler)
+{
+  EXPECT_DEATH(
+      {
+        DebugScheduler scheduler;
+        auto task = []() static -> CudaTask { co_return; }();
+        static_cast<void>(task.set_scheduler(&scheduler));
+      },
+      "scheduler does not accept task route");
+}
+
+TEST(AsyncTaskRouteDeathTest, SchedulerRouteCannotBeNull)
+{
+  EXPECT_DEATH(
+      {
+        auto task = []() static -> AsyncTask { co_return; }();
+        static_cast<void>(task.set_scheduler(nullptr));
+      },
+      "task scheduler route cannot be null");
 }
 
 /// \brief A coroutine that forwards one value from a read buffer to a write buffer.
@@ -224,6 +261,34 @@ TEST(AsyncTaskAwaitTest, NestedTaskPreservesExplicitSchedulerAndReturnsToParentS
 
   parent_scheduler.run_all();
   EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child", "parent after"}));
+}
+
+TEST(AsyncTaskAwaitTest, SuspendedOwnedTaskCanMigrateBetweenCompatibleSchedulers)
+{
+  DebugScheduler first_scheduler;
+  DebugScheduler second_scheduler;
+  BasicTask held;
+  std::vector<int> events;
+
+  auto task = [](HoldTask hold, std::vector<int>& events) static -> AsyncTask {
+    events.push_back(1);
+    co_await hold;
+    events.push_back(2);
+  }(HoldTask{&held}, events);
+
+  first_scheduler.schedule(std::move(task));
+  first_scheduler.run_all();
+
+  ASSERT_TRUE(held);
+  EXPECT_EQ(events, (std::vector<int>{1}));
+  EXPECT_TRUE(first_scheduler.done());
+
+  ASSERT_TRUE(held.set_scheduler(&second_scheduler));
+  BasicTask::reschedule(std::move(held));
+  second_scheduler.run_all();
+
+  EXPECT_EQ(events, (std::vector<int>{1, 2}));
+  EXPECT_TRUE(second_scheduler.done());
 }
 
 TEST(AsyncTaskAwaitTest, NestedTaskOnSameExplicitSchedulerUsesSymmetricTransfer)

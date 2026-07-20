@@ -54,9 +54,9 @@ struct TbbSchedulerWaitOptions
 /// TBB task_arena. Resumption occurs on a worker thread or an application
 /// thread participating in the arena.
 ///
-/// \note Each coroutine is pinned to the scheduler it was created on
-///       via TaskPromiseBase::sched_. Resumption always returns
-///       to the same scheduler.
+/// \note Each coroutine records a non-owning scheduler route. A suspended task
+///       may replace that route while externally owned; subsequent activations
+///       are submitted only to the replacement scheduler.
 /// \note This scheduler provides a configurable no-progress watchdog, but it
 ///       does not prove that the dependency graph contains a cycle. Use
 ///       DebugScheduler and TaskRegistry diagnostics for deterministic DAG
@@ -171,6 +171,11 @@ class TbbScheduler : public IAsyncScheduler {
     }
 
   private:
+    bool accepts_route(TaskRoute route) const noexcept override
+    {
+      return route.domain == TaskDomain::host && !route.cuda_device;
+    }
+
     bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return true; }
 
     /// \brief Reschedule a previously suspended coroutine.

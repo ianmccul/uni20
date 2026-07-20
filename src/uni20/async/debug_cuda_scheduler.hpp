@@ -23,14 +23,14 @@ class DebugCudaScheduler final : public DebugScheduler, public ICudaScheduler {
   public:
     /// \brief Construct with device zero as the default CUDA activation device.
     explicit DebugCudaScheduler(DebugSchedulerOptions options = {})
-        : DebugScheduler(options), default_device_(cuda::Device::get(0).ordinal())
+        : DebugScheduler(options), default_device_(cuda::Device::get(0).ordinal()), device_count_(cuda::Device::count())
     {}
 
     /// \brief Construct with an explicit default CUDA activation device.
     /// \param default_device Device used while a CUDA task has no affinity.
     /// \param options Deterministic runnable ordering configuration.
     explicit DebugCudaScheduler(cuda::Device default_device, DebugSchedulerOptions options = {})
-        : DebugScheduler(options), default_device_(default_device.ordinal())
+        : DebugScheduler(options), default_device_(default_device.ordinal()), device_count_(cuda::Device::count())
     {}
 
     using DebugScheduler::schedule;
@@ -55,6 +55,14 @@ class DebugCudaScheduler final : public DebugScheduler, public ICudaScheduler {
     }
 
   private:
+    bool accepts_route(TaskRoute route) const noexcept override
+    {
+      if (route.domain == TaskDomain::host) return !route.cuda_device;
+      if (route.domain != TaskDomain::cuda) return false;
+      int const device = route.cuda_device.value_or(default_device_);
+      return device >= 0 && device < device_count_;
+    }
+
     bool can_direct_transfer(TaskHandle from, TaskHandle to) const noexcept override
     {
       if (from.domain() != TaskDomain::cuda) return true;
@@ -83,6 +91,7 @@ class DebugCudaScheduler final : public DebugScheduler, public ICudaScheduler {
     }
 
     int default_device_;
+    int device_count_;
 };
 
 } // namespace uni20::async

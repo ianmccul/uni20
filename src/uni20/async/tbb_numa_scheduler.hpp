@@ -109,6 +109,11 @@ class TbbNumaScheduler final : public IAsyncScheduler {
     }
 
   private:
+    bool accepts_route(TaskRoute route) const noexcept override
+    {
+      return route.domain == TaskDomain::host && !route.cuda_device;
+    }
+
     // TbbNumaScheduler itself is a router; direct execution belongs to one of
     // its child arena schedulers.
     bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return false; }

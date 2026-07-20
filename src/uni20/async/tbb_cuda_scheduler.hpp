@@ -189,6 +189,14 @@ class TbbCudaScheduler final : public TbbScheduler, public ICudaScheduler {
     [[nodiscard]] bool has_device(int device) const noexcept { return this->find_device_arena(device) != nullptr; }
 
   private:
+    bool accepts_route(TaskRoute route) const noexcept override
+    {
+      if (route.domain == TaskDomain::host) return !route.cuda_device;
+      if (route.domain != TaskDomain::cuda) return false;
+      auto const device = route.cuda_device ? route.cuda_device : default_device_;
+      return device && this->has_device(*device);
+    }
+
     class DeviceArena {
       public:
         DeviceArena(cuda::Device selected_device, int max_concurrency)

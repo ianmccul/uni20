@@ -169,6 +169,24 @@ TEST_F(TbbCudaSchedulerTest, SetDeviceMigratesBetweenCudaArenas)
   this->expect_calling_device_restored();
 }
 
+TEST_F(TbbCudaSchedulerTest, RejectsTaskBoundToUnenrolledDevice)
+{
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  if (device_count_ < 2) GTEST_SKIP() << "requires at least two CUDA devices";
+
+  int const other_device = (target_device_ + 1) % device_count_;
+  TbbCudaScheduler scheduler(
+      std::vector{uni20::cuda::Device::get(target_device_)},
+      {.host_max_concurrency = 1, .cuda_max_concurrency_per_device = 1, .default_cuda_device = target_device_});
+  EXPECT_DEATH(
+      {
+        auto task = []() static -> CudaTask { co_return; }();
+        uni20::async::cuda_promise(task.handle()).bind_device(other_device);
+        static_cast<void>(task.set_scheduler(&scheduler));
+      },
+      "scheduler does not accept task route");
+}
+
 TEST_F(TbbCudaSchedulerTest, GetWaitDrivesCudaTaskFromUnifiedScheduler)
 {
   TbbCudaScheduler scheduler({.host_max_concurrency = 1, .cuda_max_concurrency_per_device = 1});

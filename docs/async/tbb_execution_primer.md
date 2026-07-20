@@ -303,9 +303,9 @@ scheduler arena.
 If the coroutine suspends on an epoch or external event, the activation is
 complete even though the logical coroutine remains alive. Its awaiter owns the
 suspended coroutine handle and submits a later activation when readiness
-changes. Consequently, a future scheduler migration changes the target of the
-next activation; it does not necessarily transfer persistent task-group
-membership.
+changes. Consequently, scheduler migration changes the target of the
+next activation; it does not transfer persistent task-group membership because
+no such membership exists while the coroutine is externally suspended.
 
 `task_group::wait()` is scheduler-aware: the waiting thread may execute
 available TBB tasks, including tasks unrelated to that group. It is therefore a

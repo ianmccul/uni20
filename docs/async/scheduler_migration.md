@@ -105,6 +105,13 @@ The scheduler route is runtime continuation state, not a numerical backend tag.
 Tensor storage and backend dispatch still determine where the operands reside
 and which kernel is legal.
 
+A suspended task owned by a `BasicTask` may replace its scheduler route. The old
+scheduler has no queued activation or coroutine membership to remove: only the
+task owner knows about the suspended frame. Route replacement first validates
+the task domain and any CUDA device affinity against the target scheduler, then
+stores the new non-owning route. The next resubmission belongs entirely to the
+new scheduler.
+
 ## Nested Entry and Return
 
 When a coroutine awaits another Uni20 task, an unbound child inherits the
@@ -201,7 +208,8 @@ Device-sensitive code selects affinity in either of two ways:
   coroutine is suspended. If the scheduler-established current CUDA device
   already matches, the coroutine continues immediately. Otherwise it is
   resubmitted through the unified scheduler so its next activation occurs in
-  the selected device context.
+  the selected device context. The candidate device is validated against the
+  current scheduler before promise affinity changes.
 
 An unbound CUDA child nested under a CUDA parent inherits the parent's affinity
 when the parent has one. If both are unbound, both use the scheduler default and
@@ -240,17 +248,18 @@ blocking and complicate continuation ownership. Same-effective-device nested
 CUDA tasks already use direct coroutine transfer without entering another
 arena.
 
-Migration of an already-running task to a different scheduler is not
-implemented. If needed, it should be a distinct suspension operation such as:
+The promise-neutral route machinery permits scheduler migration whenever a
+suspended task is exclusively owned outside a scheduler. A user-facing
+migration awaiter is not yet implemented; when added, it should be an explicit
+suspension operation such as:
 
 ```cpp
 co_await schedule_on(target_scheduler);
 ```
 
-The awaiter would transfer the suspended `BasicTask` to another compatible
-scheduler by changing the route in the shared promise and submitting exactly
-one activation. It must not change the coroutine's concrete return type, move
-Tensor storage, or silently change operand placement.
+The awaiter would validate the target scheduler, replace the route in the shared
+promise, and submit exactly one activation. It must not change the coroutine's
+concrete return type, move Tensor storage, or silently change operand placement.
 
 Before adding this capability, define and test:
 
@@ -300,7 +309,8 @@ checkpoints should add:
 - global or context-level typed CUDA admission through the unified schedulers;
 - scheduler destruction diagnostics with outstanding suspended tasks;
 - task-registry diagnostics that identify the current scheduler/device domain;
-- live-task migration tests only if a concrete use case justifies that API.
+- a user-facing scheduler-migration awaiter when a concrete use case justifies
+  that API.
 
 ## Open Choices
 

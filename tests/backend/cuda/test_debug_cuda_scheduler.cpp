@@ -177,6 +177,21 @@ TEST_F(DebugCudaSchedulerTest, SetDeviceAlreadyMatchingEstablishedAffinityDoesNo
   EXPECT_TRUE(scheduler.done());
 }
 
+TEST_F(DebugCudaSchedulerTest, SetDeviceRejectsInvalidDeviceRoute)
+{
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  int const invalid_device = device_count_;
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(target_device_));
+  auto task = []() static -> CudaTask { co_return; }();
+  ASSERT_TRUE(task.set_scheduler(&scheduler));
+
+  EXPECT_DEATH(uni20::async::cuda_promise(task.handle()).select_device(invalid_device),
+               "scheduler does not accept task route");
+
+  EXPECT_FALSE(uni20::async::cuda_promise(task.handle()).device());
+  task.set_cancel_on_resume();
+}
+
 TEST_F(DebugCudaSchedulerTest, FirstSelectionMatchingDefaultActivationDoesNotReschedule)
 {
   DebugCudaScheduler scheduler(uni20::cuda::Device::get(target_device_));

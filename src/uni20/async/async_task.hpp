@@ -35,6 +35,16 @@ enum class TaskDomain
   cuda,
 };
 
+/// \brief Execution requirements used to validate a scheduler route.
+/// \details CUDA tasks may remain device-unbound until an operation selects an
+///          explicit device or the scheduler supplies its default activation
+///          device.
+struct TaskRoute
+{
+    TaskDomain domain = TaskDomain::none;
+    std::optional<int> cuda_device{};
+};
+
 /// \brief Promise concept accepted by Uni20 task machinery.
 template <typename T>
 concept TaskPromise = std::derived_from<T, TaskPromiseBase> && requires {
