@@ -5,6 +5,14 @@ Schedulers answer one question: when a ready coroutine should run.
 They do not define dependency legality; epochs do that. If a coroutine is not causally ready,
 it will still suspend regardless of scheduler choice.
 
+A scheduler owns queued runnable activations, not every coroutine whose promise
+records that scheduler. Before admission, the public `AsyncTask` or `CudaTask`
+owns the frame. After a running coroutine suspends, its awaiter owns the
+`BasicTask` until readiness publishes another activation. The recorded scheduler
+pointer is only a non-owning resumption route. Consequently, a scheduler does
+not know about a task merely because that task names it, and scheduler
+quiescence does not include externally suspended frames.
+
 Current tasks normally retain the scheduler installed when they are first
 scheduled. A nested `AsyncTask` with a different scheduler is submitted there,
 then returns its continuation to the continuation's recorded scheduler.

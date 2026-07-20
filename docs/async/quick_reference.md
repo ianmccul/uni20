@@ -19,9 +19,23 @@ For explanations, see:
 | `Async<T>` | Async value + epoch queue | `read()`, `write()`, `wait()`, `get_wait()`, `move_from_wait()` |
 | `ReadBuffer<T>` | Read gate for one epoch | `co_await reader`, `transfer()`, `maybe()`, `or_cancel()`, `wait()`, `release()` |
 | `WriteBuffer<T>` | Exclusive mutable gate for one epoch | `co_await writer`, `transfer()`, `storage()`, `take()`, `take_release()`, `release()` |
-| `AsyncTask` | Move-only coroutine handle owner | schedule via `schedule(...)` |
+| `AsyncTask` | Owns an initially suspended coroutine before admission | schedule via `schedule(...)` |
 | `IScheduler` | Internal route for resuming an already-bound task | no public submission API |
 | `IAsyncScheduler` | Host `AsyncTask` scheduler interface | `schedule`, `pause`, `resume`, wait hooks |
+
+Task ownership cycle:
+
+```text
+public AsyncTask/CudaTask
+  -> runnable scheduler activation
+  -> running coroutine
+  -> suspended awaiter-owned BasicTask
+  -> runnable scheduler activation
+  -> ...
+```
+
+The promise's scheduler pointer and `TaskRegistry` records are non-owning. A
+suspended awaiter-owned task is not queued in, or owned by, the scheduler.
 
 Buffer model:
 

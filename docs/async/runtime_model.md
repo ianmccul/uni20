@@ -10,7 +10,7 @@ not from manual locking in kernel code.
 | Term | Meaning in Uni20 |
 |---|---|
 | coroutine | a resumable function that can suspend at `co_await` |
-| task | one coroutine instance managed by a scheduler (`AsyncTask`) |
+| task | one coroutine instance represented initially by an `AsyncTask` or `CudaTask` |
 | scheduler | decides when *ready* tasks run (`DebugScheduler`, `TbbScheduler`, ...) |
 | storage | where the `T` object lives (`shared_storage<T>`) |
 | epoch | one "version step" of an `Async<T>` timeline: writer phase then reader phase |
@@ -38,13 +38,47 @@ or concurrently with TBB schedulers.
 | `Async<T>` | `shared_storage<T>`, `EpochQueue` handle | user-facing async value |
 | `ReadBuffer<T>` | `EpochContextReader<T>` | read gate for one epoch |
 | `WriteBuffer<T>` | `EpochContextWriter<T>` | exclusive mutable gate for one epoch |
-| `AsyncTask` | coroutine handle ownership token | scheduler-managed coroutine lifetime |
+| `AsyncTask` | coroutine handle ownership token | owns an initially suspended coroutine before admission or nesting |
 | `EpochContext` | phase state + waiter sets | enforces writer/read transitions |
 
 Key ownership fact:
 
 - buffers keep their storage and selected epoch context alive even if the originating `Async<T>` object is moved or destroyed
 - async aliases retain their parent storage and use the parent's exact queue
+
+## Coroutine Frame Ownership
+
+A coroutine frame always has one live ownership path. The scheduler recorded in
+the promise is a non-owning route for the next activation; recording that route
+does not register the task with the scheduler or transfer ownership to it.
+
+| Coroutine state | Live owner | Scheduler relationship |
+|---|---|---|
+| initially suspended | public `AsyncTask` or `CudaTask` | no scheduler ownership; its route may still be selected or replaced |
+| queued and runnable | scheduler activation | scheduler owns the pending activation until it starts |
+| running | the executing coroutine | no external owning task token; the activation may retain a non-owning handle value until `resume()` returns |
+| suspended on an awaitable | buffer, epoch, or resource waiter holding a `BasicTask` | scheduler retains no activation; the promise only remembers where to resubmit |
+| suspended awaiting a nested task | child continuation chain | the child preserves the parent until direct transfer or resubmission |
+| completed or cancelled | none after frame destruction | diagnostics may retain metadata, never ownership |
+
+Ownership transfers at coroutine protocol boundaries. Scheduling consumes the
+public task. Resuming consumes the scheduler activation. Suspending transfers a
+`BasicTask` to the selected awaiter, and readiness transfers it back to the
+recorded scheduler. Awaiting a nested task transfers the parent into the child's
+continuation chain. Final suspension destroys the frame and either transfers or
+resubmits that continuation.
+
+Consequences:
+
+- Holding an `AsyncTask` means the scheduler does not know about that task, even
+  if the promise already names a scheduler.
+- A task waiting on an epoch is owned by that epoch's awaiter, not by the
+  scheduler. Scheduler quiescence therefore does not imply coroutine completion.
+- `TaskRegistry` and DAG records observe coroutine identities and transitions;
+  they do not own frames or make suspended tasks scheduler-visible.
+- Scheduler and diagnostic code may transiently retain non-owning handle values.
+  Such values must not be used after the owning path resumes or destroys the
+  frame.
 
 ## Buffers Are Capabilities
 

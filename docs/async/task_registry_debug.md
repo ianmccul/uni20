@@ -52,6 +52,11 @@ Unset or unknown values currently default to `basic`.
 
 ## What Is Tracked
 
+The registry is observational. It stores task identities, transitions, stack
+information, and dependency associations, but it never owns a coroutine frame
+or keeps one alive. A registry entry for a suspended task does not mean that the
+scheduler owns or has queued that task.
+
 ### Tasks
 
 Each task record includes:

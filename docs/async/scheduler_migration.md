@@ -76,10 +76,18 @@ initial-admission operations.
 The shared promise records an `IScheduler*`:
 
 1. Initial admission records the selected scheduler.
-2. A buffer or epoch awaiter owns the suspended `BasicTask`.
-3. When the task becomes viable, `BasicTask::reschedule()` submits it
+2. The scheduler owns only the queued activation and relinquishes ownership when
+   that activation resumes the coroutine.
+3. A buffer, epoch, resource, or nested-task awaiter owns the suspended
+   `BasicTask`; the scheduler has no queued activation for it.
+4. When the task becomes viable, `BasicTask::reschedule()` submits it
    through the recorded `IScheduler`.
-4. The scheduler resumes the same coroutine on its own execution domain.
+5. The scheduler resumes the same coroutine on its own execution domain.
+
+`IScheduler*` is a non-owning route, not scheduler membership. A public task may
+carry a route while remaining wholly owned by its `AsyncTask` or `CudaTask`.
+Debug registry entries likewise retain observational metadata rather than a
+coroutine ownership claim.
 
 The TBB scheduler implementations accept initial and resumed activations with
 `task_group::defer()` followed by non-blocking `task_arena::enqueue()`. A
@@ -226,6 +234,12 @@ not own that scheduler or keep it alive. The scheduler must remain alive until
 every task routed through it has completed, or has been cancelled so that it
 can never become runnable again. The same rule applies to resource waiters and
 completion callbacks that may publish a later activation.
+
+The reverse is also important: the scheduler does not own a coroutine merely
+because its promise remembers that scheduler. An initially suspended public task
+is owned by its task object, and an externally suspended task is owned by its
+awaiter. The scheduler sees either only a queued activation or no live
+activation at all.
 
 Application schedulers should normally be long-lived runtime services, often
 lasting until process shutdown. A test may use a stack-local scheduler, but it

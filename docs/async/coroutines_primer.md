@@ -22,13 +22,21 @@ In Uni20, an `AsyncTask` is the move-only owner of a coroutine handle.
 
 Key consequences:
 
-- Scheduling transfers ownership of the handle to the scheduler.
+- Before admission, the `AsyncTask` owns the initially suspended coroutine and
+  the scheduler has no ownership or registration for it. A scheduler pointer in
+  the promise is only the route for a later activation.
+- Scheduling consumes the `AsyncTask` and transfers ownership to one runnable
+  scheduler activation.
+- While the coroutine body is running, there is no external owning task token.
 - When you `co_await` an awaitable in this system, Uni20 passes ownership of the current task to that awaitable.
   The awaitable either reschedules the task later, or transfers control to a nested task.
+- A coroutine suspended on a buffer, resource, or external event is owned by
+  that awaiter. It is not retained by the scheduler while it waits.
 
 This is why Uni20 awaiters take the promise-neutral internal `BasicTask`
 ownership token rather than directly retaining raw `std::coroutine_handle<>`
-values.
+values. The debug task registry records state and dependency metadata but does
+not participate in frame ownership.
 
 ## Nested Coroutine Tasks
 
