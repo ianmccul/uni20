@@ -65,6 +65,8 @@ ordering have been handled by higher layers.
 | `BasicTensor<Element, Extents, ...>` | Extents-first alias for a `Tensor` specialization with mixed or static extents. |
 | `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor` | Named runtime-extents owner aliases for an explicit physical layout policy. |
 | `DenseMatrix<Element, Layout>` | Rank-two host `Tensor`; column-major by default. |
+| `CudaAsyncTensor<Element, Rank, Layout>` | Context-bound owning CUDA Tensor for non-blocking resource acquisition; its mdspan handle is opaque to host element access. |
+| `CudaAsyncMatrix<Element, Layout>` | Rank-two `CudaAsyncTensor`; column-major by default. |
 | `ScalarTensor<Element, StoragePolicy, ...>` | Rank-zero owning Tensor that retains storage, backend, lifetime, and Async semantics. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
 | `TensorView` | Readable tensor-level object exposing extents, `mdspan()`, and a backend selector. It is a concept, not a base class. |

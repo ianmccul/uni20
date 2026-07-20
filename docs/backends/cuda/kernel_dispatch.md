@@ -1,8 +1,8 @@
 # CUDA Kernel Dispatch and Device Scheduling
 
-**Status:** active design note. The low-level CUDA runtime foundation and
-unified host/multi-device debug and oneTBB schedulers are implemented, but CUDA
-Tensor storage, process-wide device-context integration, general CUDA Tensor
+**Status:** active design note. The low-level CUDA runtime foundation,
+`CudaAsyncStorage`, and unified host/multi-device debug and oneTBB schedulers are
+implemented. Process-wide device-context integration, general CUDA Tensor
 kernel lowering, and live coroutine scheduler migration are not yet
 implemented. Generic stream/provider-resource awaiters and the first cuBLAS
 GEMM backend leaf are implemented.
@@ -87,12 +87,11 @@ CUDA operations should be described in terms of submission channels:
   non-blocking execution environments.
 
 This channel choice is a Tensor storage-policy parameter. It is orthogonal to
-Tensor ownership and to whether a value is wrapped in `Async<T>`. A concrete
-`Tensor<..., CudaStorage<blocking_channel>>` and
-`Tensor<..., CudaStorage<nonblocking_channel>>` are distinct storage domains
-even if they share the same underlying allocation primitive. That distinction
-can naturally flow into the mdspan handle/accessor type seen by dispatchable
-kernels.
+Tensor ownership and to whether a value is wrapped in `Async<T>`. The first
+implemented policy is `CudaAsyncStorage`, exposed conveniently through
+`CudaAsyncTensor`. A future blocking policy remains a distinct storage domain
+even though both can share `CudaBuffer` and `CudaBufferView`. The accessor type
+seen by dispatchable kernels identifies the channel.
 
 A non-async C++ API may still choose the non-blocking channel internally if it
 enters a scheduler and waits at a defined boundary. Conversely,

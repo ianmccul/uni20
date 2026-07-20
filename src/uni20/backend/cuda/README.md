@@ -1,7 +1,8 @@
 # src/uni20/backend/cuda
 
 This directory contains the CUDA runtime foundation and is the CUDA
-backend-library wiring point. It does not yet provide Tensor CUDA kernels.
+backend-library wiring point. CUDA Tensor storage descriptors are implemented;
+Tensor CUDA kernels and their top-down lowering are not yet complete.
 Deterministic and oneTBB unified host/multi-device coroutine schedulers are
 implemented under `src/uni20/async/`.
 
@@ -21,6 +22,9 @@ implemented under `src/uni20/async/`.
   runtime-neutral `async::CudaTaskAwaiterTag`; generic async headers do not name
   individual CUDA awaiter types.
 - `CMakeLists.txt`: CUDA backend target setup.
+
+The Tensor-facing `CudaAsyncStorage` policy and opaque `CudaBufferView` mdspan
+handle live in [`storage/cuda_async_storage.hpp`](../../storage/cuda_async_storage.hpp).
 
 ## Notes
 

@@ -33,6 +33,11 @@ using materialized_layout_t =
                                           typename InputMdspan::layout_type, stdex::layout_left>,
                        RequestedLayout>;
 
+template <class Storage>
+concept DefaultTensorStorage =
+    (std::default_initializable<Storage> && requires(Storage& storage) { storage.resize(std::size_t{}); }) ||
+    std::constructible_from<Storage, std::size_t> || std::constructible_from<Storage, size_type>;
+
 } // namespace detail
 
 /// \brief Factory that provides default accessors for tensor storage containers.
@@ -47,6 +52,24 @@ struct DefaultAccessorFactory
     }
 };
 
+namespace detail
+{
+
+template <class StoragePolicy, class = void> struct TensorAccessorFactory
+{
+    using type = DefaultAccessorFactory;
+};
+
+template <class StoragePolicy>
+struct TensorAccessorFactory<StoragePolicy, std::void_t<typename StoragePolicy::accessor_factory_type>>
+{
+    using type = typename StoragePolicy::accessor_factory_type;
+};
+
+template <class StoragePolicy> using tensor_accessor_factory_t = typename TensorAccessorFactory<StoragePolicy>::type;
+
+} // namespace detail
+
 /// \brief General-purpose owning tensor that exposes mdspan-based access.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the tensor.
@@ -56,7 +79,8 @@ struct DefaultAccessorFactory
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.
 /// \tparam Extents Extents type describing the tensor shape; fully dynamic by default.
 template <typename ElementType, std::size_t Rank, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = stdex::layout_left, typename AccessorFactory = DefaultAccessorFactory,
+          typename LayoutPolicy = stdex::layout_left,
+          typename AccessorFactory = detail::tensor_accessor_factory_t<StoragePolicy>,
           typename Extents = stdex::dextents<index_type, Rank>>
 class Tensor {
   public:
@@ -99,7 +123,7 @@ class Tensor {
 
     /// \brief Default-construct a rank-zero tensor with its one logical element.
     Tensor()
-      requires(Rank == 0)
+      requires(Rank == 0 && detail::DefaultTensorStorage<storage_type>)
         : Tensor(extents_type{})
     {}
 
@@ -136,7 +160,7 @@ class Tensor {
     /// \param input Source tensor view whose values are materialized.
     template <TensorView InputTensor>
       requires(tensor_mdspan_t<InputTensor>::rank() == extents_type::rank() &&
-               std::default_initializable<accessor_factory_type>)
+               std::default_initializable<accessor_factory_type> && detail::DefaultTensorStorage<storage_type>)
     explicit Tensor(InputTensor const& input) : Tensor(detail::convert_tensor_extents<extents_type>(input.extents()))
     {
       copy(*this, input);
@@ -146,7 +170,24 @@ class Tensor {
     /// \param exts Extents that describe the tensor shape.
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
     explicit Tensor(extents_type const& exts, accessor_factory_type accessor_factory = accessor_factory_type{})
+      requires detail::DefaultTensorStorage<storage_type>
         : Tensor(internal_tag{}, make_payload(make_default_mapping(exts), std::move(accessor_factory)))
+    {}
+
+    /// \brief Construct a tensor in an explicit storage context.
+    /// \details Context-bound storage policies use this form to retain device
+    ///          placement without hiding allocation or transfer decisions.
+    /// \tparam Policy Context-bound storage policy; defaults to this Tensor's policy.
+    /// \param context Context used by the storage policy to allocate the buffer.
+    /// \param exts Extents that describe the tensor shape.
+    /// \param accessor_factory Factory used to create the accessor for the storage handle.
+    template <class Policy = storage_policy>
+      requires requires(typename Policy::context_type& context, std::size_t count) {
+        { Policy::template make_storage<element_type>(context, count) } -> std::same_as<storage_type>;
+      }
+    explicit Tensor(typename Policy::context_type& context, extents_type const& exts,
+                    accessor_factory_type accessor_factory = accessor_factory_type{})
+        : Tensor(internal_tag{}, make_payload(context, make_default_mapping(exts), std::move(accessor_factory)))
     {}
 
     /// \brief Construct a fully dynamic tensor from one extent per axis.
@@ -157,9 +198,24 @@ class Tensor {
     /// \param dynamic_extents Tensor extents in axis order.
     template <std::integral... DynamicExtents>
       requires(extents_type::rank() > 0 && extents_type::rank_dynamic() == extents_type::rank() &&
-               sizeof...(DynamicExtents) == extents_type::rank())
+               sizeof...(DynamicExtents) == extents_type::rank() && detail::DefaultTensorStorage<storage_type>)
     explicit Tensor(DynamicExtents... dynamic_extents)
         : Tensor(extents_type{static_cast<index_type>(dynamic_extents)...})
+    {}
+
+    /// \brief Construct a fully dynamic tensor in an explicit storage context.
+    /// \tparam Policy Context-bound storage policy; defaults to this Tensor's policy.
+    /// \tparam DynamicExtents Integral extent arguments, one per tensor axis.
+    /// \param context Context used by the storage policy to allocate the buffer.
+    /// \param dynamic_extents Tensor extents in axis order.
+    template <class Policy = storage_policy, std::integral... DynamicExtents>
+      requires(extents_type::rank() > 0 && extents_type::rank_dynamic() == extents_type::rank() &&
+               sizeof...(DynamicExtents) == extents_type::rank() &&
+               requires(typename Policy::context_type& context, std::size_t count) {
+                 { Policy::template make_storage<element_type>(context, count) } -> std::same_as<storage_type>;
+               })
+    explicit Tensor(typename Policy::context_type& context, DynamicExtents... dynamic_extents)
+        : Tensor(context, extents_type{static_cast<index_type>(dynamic_extents)...})
     {}
 
     /// \brief Construct a tensor using a custom mapping builder.
@@ -169,7 +225,8 @@ class Tensor {
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
     template <typename MappingBuilder>
       requires(layout::mapping_builder_for<MappingBuilder, layout_policy, extents_type> &&
-               (!std::same_as<std::remove_cvref_t<MappingBuilder>, accessor_factory_type>))
+               (!std::same_as<std::remove_cvref_t<MappingBuilder>, accessor_factory_type>) &&
+               detail::DefaultTensorStorage<storage_type>)
     explicit Tensor(extents_type const& exts, MappingBuilder&& mapping_builder,
                     accessor_factory_type accessor_factory = accessor_factory_type{})
         : Tensor(internal_tag{},
@@ -182,8 +239,9 @@ class Tensor {
     /// \param accessor_factory Factory used to create the accessor for the storage handle.
     explicit Tensor(extents_type const& exts, std::array<index_type, extents_type::rank()> const& strides,
                     accessor_factory_type accessor_factory = accessor_factory_type{})
-      requires std::constructible_from<mapping_type, extents_type const&,
-                                       std::array<index_type, extents_type::rank()> const&>
+      requires(std::constructible_from<mapping_type, extents_type const&,
+                                       std::array<index_type, extents_type::rank()> const&> &&
+               detail::DefaultTensorStorage<storage_type>)
         : Tensor(internal_tag{}, make_payload(mapping_type{exts, strides}, std::move(accessor_factory)))
     {}
 
@@ -198,7 +256,8 @@ class Tensor {
       requires(std::copy_constructible<accessor_factory_type> && std::is_nothrow_swappable_v<mapping_type> &&
                std::is_nothrow_swappable_v<storage_type> && std::is_nothrow_swappable_v<accessor_factory_type>)
     {
-      Tensor replacement(exts, accessor_factory_);
+      auto mapping = make_default_mapping(exts);
+      Tensor replacement(internal_tag{}, make_payload_like(data_, std::move(mapping), accessor_factory_));
       this->swap_state(replacement);
     }
 
@@ -406,6 +465,34 @@ class Tensor {
       return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
     }
 
+    template <class Policy = storage_policy>
+    static ctor_payload make_payload(typename Policy::context_type& context, mapping_type mapping,
+                                     accessor_factory_type accessor_factory)
+      requires requires(typename Policy::context_type& storage_context, std::size_t count) {
+        { Policy::template make_storage<element_type>(storage_context, count) } -> std::same_as<storage_type>;
+      }
+    {
+      auto const count = static_cast<std::size_t>(mapping.required_span_size());
+      auto storage = Policy::template make_storage<element_type>(context, count);
+      return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
+    }
+
+    static ctor_payload make_payload_like(storage_type const& source, mapping_type mapping,
+                                          accessor_factory_type accessor_factory)
+    {
+      auto const count = static_cast<std::size_t>(mapping.required_span_size());
+      if constexpr (requires { storage_policy::template make_storage_like<element_type>(source, count); })
+      {
+        auto storage = storage_policy::template make_storage_like<element_type>(source, count);
+        return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
+      }
+      else
+      {
+        auto storage = create_storage(static_cast<size_type>(count));
+        return ctor_payload{std::move(mapping), std::move(storage), std::move(accessor_factory)};
+      }
+    }
+
     static storage_type make_storage(mapping_type const& mapping)
     {
       auto const span_size = static_cast<size_type>(mapping.required_span_size());
@@ -470,7 +557,7 @@ class Tensor {
     }
 
     [[no_unique_address]] mapping_type mapping_{};
-    storage_type data_{};
+    storage_type data_;
     [[no_unique_address]] accessor_factory_type accessor_factory_{};
 };
 
@@ -495,7 +582,8 @@ Tensor(InputTensor const&)
 /// \tparam LayoutPolicy Layout policy that determines index ordering and stride computation.
 /// \tparam AccessorFactory Factory that produces accessors for the storage handle.
 template <typename ElementType, typename Extents, typename StoragePolicy = VectorStorage,
-          typename LayoutPolicy = stdex::layout_left, typename AccessorFactory = DefaultAccessorFactory>
+          typename LayoutPolicy = stdex::layout_left,
+          typename AccessorFactory = detail::tensor_accessor_factory_t<StoragePolicy>>
 using BasicTensor = Tensor<ElementType, Extents::rank(), StoragePolicy, LayoutPolicy, AccessorFactory, Extents>;
 
 } // namespace uni20

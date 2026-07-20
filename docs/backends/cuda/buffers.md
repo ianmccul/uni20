@@ -3,8 +3,8 @@
 **Status:** current guide for the implemented low-level CUDA buffer API.
 
 This guide introduces `uni20::cuda::CudaBuffer<T>` for developers writing CUDA
-kernel and provider backends. CUDA Tensor storage is not implemented yet, so
-application code should not normally construct these buffers directly.
+kernel and provider backends. Application Tensor code normally reaches these
+buffers through `CudaAsyncTensor` rather than constructing them directly.
 
 ## The Mental Model
 
@@ -42,6 +42,29 @@ CudaBuffer<float> values(context, 1024);
 
 The allocation uses CUDA's stream-ordered memory pool when the device supports
 it, with `cudaMalloc` as the fallback. `CudaBuffer<T>` is move-only.
+
+## Tensor Storage
+
+`CudaAsyncTensor<T, Rank>` is the owning Tensor form for the non-blocking CUDA
+submission channel:
+
+```cpp
+#include <uni20/tensor/tensor.hpp>
+
+uni20::CudaAsyncTensor<float, 2> matrix(context, 32, 48);
+```
+
+The Tensor owns a `CudaBuffer<float>` and preserves ordinary extents and layout
+metadata. Its mdspan data handle is a non-owning
+`cuda::CudaBufferView<float>` containing buffer identity and an element offset.
+Mdspan indexing computes another view offset; it does not dereference device
+memory, perform a transfer, acquire a stream, or wait.
+
+The non-const CUDA accessor opts into backend-mediated writes so the owning
+Tensor can satisfy mutable Tensor output concepts. Its opaque reference remains
+non-assignable on the host. A CUDA operation must lower the view through
+`read_synchronized_with(stream)` or `write_synchronized_with(stream)` before a
+leaf backend receives a raw pointer.
 
 ## Submitting Work
 
@@ -167,19 +190,18 @@ CUDA buffer access itself has no awaiter. Once a stream is available, acquiring
 access performs only bounded host work: contract checks, completion snapshots,
 and CUDA event-wait submission.
 
-Future non-blocking CUDA operations will await resources that may be
-temporarily unavailable, such as streams, provider handles, or workspaces. They
-will then use the same `read_synchronized_with()` and
+Non-blocking CUDA operations await resources that may be temporarily
+unavailable, such as streams or provider handles. Tensor-level lowering will
+then use the same `read_synchronized_with()` and
 `write_synchronized_with()` API.
 
 ## Current Boundary
 
-The implemented API provides low-level allocation, stream, completion, and
-access semantics. It does not yet provide:
+The implemented API provides low-level allocation, stream, completion, access,
+and CUDA Tensor storage-descriptor semantics. It does not yet provide:
 
-- CUDA Tensor storage or device mdspan accessors;
 - CUDA Tensor kernels;
-- non-blocking stream/provider-resource awaiters;
+- top-down CUDA Tensor-to-provider lowering;
 - automatic storage-driven CUDA scheduler selection.
 
 For the exact completion-ledger and failure contract, see [CUDA Buffer

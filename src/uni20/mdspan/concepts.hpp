@@ -129,6 +129,15 @@ template <class ElementType> struct is_default_accessor<stdex::default_accessor<
 template <class Accessor>
 inline constexpr bool is_default_accessor_v = is_default_accessor<std::remove_cvref_t<Accessor>>::value;
 
+/// \brief Opt-in for accessors whose storage is writable only after backend lowering.
+/// \details Ordinary accessors prove mutability through indexed assignment.
+///          Specialize this variable for an accessor that represents writable
+///          storage but intentionally exposes no host-side assignment operator,
+///          such as an opaque CUDA device-memory descriptor.
+/// \tparam Accessor Candidate accessor policy.
+/// \ingroup mdspan_ext
+template <class Accessor> inline constexpr bool enable_backend_writable_accessor = false;
+
 // /// \brief const_accessor on const_default_accessor yields itself.
 // template <typename T> constexpr default_accessor<T const> const_accessor(default_accessor<T const> const&)
 // {
@@ -259,13 +268,18 @@ constexpr decltype(auto) const_access(Span const& span, Index... indices)
 }
 
 /// \concept MutableSpanLike
-/// \brief SpanLike types whose reference type supports assignment.
+/// \brief SpanLike types whose storage supports indexed or backend-mediated writes.
+/// \details Ordinary accessors satisfy this concept through indexed assignment.
+///          Opaque device accessors may opt in through
+///          `enable_backend_writable_accessor` while keeping host-side element
+///          access unavailable.
 /// \tparam S The type being evaluated for mutable access.
 /// \ingroup mdspan_ext
 template <class S>
 concept MutableSpanLike =
     SpanLike<S> && (!std::is_const_v<typename detail::span_type_t<S>::element_type>) &&
-    detail::span_has_ranked_assignment<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
+    (detail::span_has_ranked_assignment<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{}) ||
+     enable_backend_writable_accessor<typename detail::span_type_t<S>::accessor_type>);
 
 /// \brief A “strided mdspan‐like” type that models SpanLike and reports layout_stride.
 /// \tparam MDS The mdspan-like type under test.

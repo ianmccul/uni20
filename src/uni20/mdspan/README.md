@@ -31,7 +31,9 @@ small helpers used by dense kernels and layout-aware algorithms.
 - `SpanLike` is the complete readable mdspan protocol used by leaf kernels: its
   descriptor aliases must agree, it exposes rank and extent observers, and its
   rank-dimensional `operator[]` returns the declared `reference` type.
-  `MutableSpanLike` additionally proves assignment through that indexed result.
+  `MutableSpanLike` additionally proves assignment through that indexed result,
+  or recognizes an explicit backend-writable accessor whose opaque storage can
+  be written only after backend lowering.
 - `StridedMdspan` refines `SpanLike` by requiring both mdspan and mapping stride
   observers. Code constrained by these concepts should not assume additional
   structural operations without adding the corresponding refinement.
@@ -39,9 +41,11 @@ small helpers used by dense kernels and layout-aware algorithms.
   Backends that bypass `access(...)` must check for `stdex::default_accessor`
   or an explicitly lowerable accessor such as Uni20's `conjugated_accessor`.
 - Read-only accessor policies declare const `element_type`, including calculated
-  accessors that return values. `MutableSpanLike` checks both that constness and
-  actual indexed assignment; a const pointer-shaped handle alone is not the
-  mutability contract.
+  accessors that return values. Ordinary `MutableSpanLike` accessors also prove
+  indexed assignment. Opaque device accessors may specialize
+  `enable_backend_writable_accessor` instead; this marks backend-mediated output
+  capability and does not make host indexing valid. A pointer-shaped handle
+  alone is never the mutability contract.
 - `uni20::const_access(span, indices...)` performs read-only scalar access
   directly through a span's mapping and const-adapted accessor. Use it when a
   descriptor owner needs const element semantics without constructing a second

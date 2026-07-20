@@ -10,7 +10,8 @@ kernels operate on resolved mdspans.
   extents-first `BasicTensor` alias.
 - `tensor.hpp`: named
   `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor`, and `ScalarTensor`
-  aliases, and the host `DenseMatrix` alias.
+  aliases, the host `DenseMatrix` alias, and CUDA-enabled `CudaAsyncTensor` and
+  `CudaAsyncMatrix` aliases.
 - `conjugate.hpp`: read-only tensor view backed by the lazy conjugating mdspan
   accessor.
 - `generated.hpp`: compact generated tensors and the `full`, `zeros`, `ones`,
@@ -84,6 +85,12 @@ kernels operate on resolved mdspans.
   synchronous extents metadata and `mdspan()`.
   Element and accessor semantics determine whether the returned span is mutable;
   owning tensors overload `mdspan()` on constness.
+- `CudaAsyncTensor<T, Rank>` requires an explicit `cuda::DeviceContext` at
+  construction. Its storage is a move-only `CudaBuffer<T>`, and its resolved
+  mdspan uses an opaque `CudaBufferView<T>` handle. Indexed access computes
+  buffer offsets but neither reads nor writes device memory on the host. CUDA
+  lowering must acquire a stream and synchronized buffer access before exposing
+  a raw device pointer to a leaf backend.
 - Tensor objects deliberately do not model Uni20's mdspan concepts. Leaf
   kernels receive the mdspans returned by those accessors.
 - Generated tensors own compact generator state rather than an element buffer.

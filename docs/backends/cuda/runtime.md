@@ -6,7 +6,8 @@ resource-awaiting primitives are implemented in `src/uni20/backend/cuda/`.
 The async layer provides deterministic and oneTBB unified host/multi-device
 schedulers, including per-activation device selection and restoration. The
 first provider consumer is the cuBLAS handle/stream execution pool and GEMM
-leaf. CUDA Tensor storage and CUDA Tensor lowering are not yet implemented.
+leaf. `CudaAsyncStorage` now connects `Tensor` ownership to `CudaBuffer`; CUDA
+Tensor operation lowering is not yet implemented.
 
 This document defines the resource-management contract beneath future CUDA
 Tensor kernels and async lowering.
@@ -30,8 +31,9 @@ capabilities and remain backend-specific runtime checks.
 
 Device discovery does not create streams, schedulers, provider handles, memory
 pools, or allocations, and does not change the calling thread's selected device.
-The next Tensor-storage checkpoint will place a `Device` in a typed CUDA storage
-domain so allocation and resolved views retain explicit placement.
+`CudaAsyncTensor` construction takes an explicit `DeviceContext`, and its
+`CudaBufferView` mdspan handles retain the buffer whose context records the
+allocation device.
 
 CUDA runtime calls that operate on device-local resources must select the
 resource's device. `uni20::cuda::ScopedDevice` temporarily selects a device and
@@ -150,15 +152,16 @@ therefore has two explicit submission channels above the same pool:
   scheduler may be `DebugCudaScheduler`, a one-slot `TbbCudaScheduler`, or a
   larger unified device scheduler.
 
-The eventual CUDA Tensor storage policy should encode this channel, for example
-as distinct blocking and non-blocking CUDA storage domains over a common
-allocation primitive. The choice is orthogonal to whether the user-visible
-object is an `Async<T>`, although `Async<Tensor<..., blocking_channel>>` is
-almost always a policy mistake. Async CUDA lowering should accept only the
-non-blocking CUDA storage policy for resources that may wait for capacity.
+The implemented `CudaAsyncStorage` policy encodes the non-blocking channel and
+uses `CudaBuffer<T>` as its allocation primitive. The choice remains orthogonal
+to whether the user-visible object is an `Async<T>`. A future blocking CUDA
+storage policy should remain a distinct storage domain; wrapping such a Tensor
+in `Async<T>` would almost always be a policy mistake.
 
-The storage policy can expose distinct mdspan handle/accessor types so CUDA
-kernel dispatch can reject the wrong channel at type level. Per-call leases
+The storage policy exposes a distinct mdspan accessor type so CUDA kernel
+dispatch can recognize the non-blocking channel at type level. The shared
+`CudaBufferView<T>` handle carries buffer identity and element offset without a
+raw pointer. Per-call leases
 such as streams, provider handles, and workspaces remain operation-local; they
 are not part of the backend selector.
 

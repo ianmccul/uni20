@@ -220,7 +220,10 @@ DMRG calculations.
   `element_type`, even when `access(...)` returns a calculated value rather than
   a reference. Do not encode read-only behavior only in the handle type or
   `reference` alias. `MutableSpanLike` uses const `element_type` together with
-  indexed assignment validity to reject mutation.
+  indexed assignment validity to reject ordinary mutation. An opaque
+  device-memory accessor may instead opt in through
+  `enable_backend_writable_accessor` when writes are valid only after explicit
+  backend lowering; that opt-in must not add host-side indexed assignment.
 * A tensor view's const interface must resolve an mdspan with const
   `element_type`. Mutable access belongs on the non-const `mdspan()` overload;
   shallow-const descriptors must not make `TensorView const&` writable.

@@ -10,11 +10,16 @@ backend tags without owning tensor mathematics.
   mapping and a CPU default backend tag.
 - `generated_storage.hpp`: compact backend-neutral policy for read-only values
   calculated by an accessor instead of stored element-by-element.
+- `cuda_async_storage.hpp`: context-bound non-blocking CUDA storage policy with
+  opaque `CudaBufferView` mdspan handles.
 
 ## Notes
 
 - New storage policies should make handle creation, layout defaults, and default
   backend selection explicit.
+- Context-bound policies provide `context_type`, `make_storage(context, size)`,
+  and `make_storage_like(storage, size)`. Tensor construction then requires the
+  context explicitly and shape replacement preserves the original context.
 - `GeneratedStorage` marks compact read-only tensors whose accessors calculate
   values instead of addressing an element allocation. It is backend-neutral
   when combined with concrete storage operands.
