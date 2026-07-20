@@ -3,7 +3,7 @@
 /**
  * \file gemm.hpp
  * \ingroup linalg
- * \brief Provider-ready matrix GEMM over a leased cuBLAS execution context.
+ * \brief Checked cuBLAS GEMM wrappers and opaque CUDA-mdspan-to-provider lowering.
  */
 
 #include <uni20/backend/cublas/gemm.hpp>
@@ -212,9 +212,13 @@ KernelAttempt try_gemm(uni20::cublas::ExecutionLease& execution, blas::BlasWrita
 }
 
 /// \brief Try no-copy GEMM from opaque CUDA mdspan operands.
-/// \details Runtime acceptance is decided before acquiring provider resources.
-///          Accepted calls lease a cuBLAS handle and stream from the output
-///          context, synchronize scoped buffer access, and enqueue GEMM.
+/// \details Recognized accessors and handles are validated for shape, layout,
+///          transform, device, aliasing, and allocation bounds. A clean runtime
+///          decline occurs before provider-resource admission. Accepted calls
+///          lease a cuBLAS handle and stream from the output context, open
+///          synchronized scoped buffer access, derive raw device pointers, and
+///          enqueue GEMM. Failures after admission are terminal rather than
+///          eligible for backend fallback.
 template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
   requires detail::writable_cuda_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
            detail::readable_cuda_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&

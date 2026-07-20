@@ -3,7 +3,7 @@
 /**
  * \file cuda_async_storage.hpp
  * \ingroup tensor
- * \brief Non-blocking CUDA Tensor storage and opaque mdspan descriptors.
+ * \brief CUDA Tensor storage for asynchronous submission and opaque mdspan descriptors.
  */
 
 #include <uni20/backend/cuda/buffer.hpp>
@@ -74,7 +74,7 @@ template <class ElementType> class CudaBufferView {
     template <class> friend class CudaBufferView;
 };
 
-/// \brief Mdspan accessor for non-blocking CUDA Tensor storage.
+/// \brief Mdspan accessor for CUDA Tensor storage intended for asynchronous submission.
 /// \details Indexed access produces another opaque buffer view. It never
 ///          dereferences device memory or performs an implicit transfer.
 template <class ElementType> struct AsyncAccessor
@@ -113,12 +113,16 @@ struct AsyncAccessorFactory
 namespace uni20
 {
 
-/// \brief Tensor storage policy for non-blocking CUDA execution.
+/// \brief Tensor storage policy for the asynchronous CUDA submission channel.
 /// \details Ordinary allocation uses the installed CUDA runtime's default
 ///          device. An explicit `cuda::DeviceResources` selects another enrolled
 ///          device or an isolated resource set used by tests. The policy selects
-///          CUDA backends and exposes opaque async CUDA handles; stream and
-///          provider-resource acquisition remains operation-local.
+///          CUDA backends and exposes opaque CUDA handles. Stream and
+///          provider-resource admission remains operation-local. Current direct
+///          Tensor operations may block the calling host thread during resource
+///          admission, while submitted device execution remains asynchronous.
+///          Future coroutine lowering will await unavailable resources instead
+///          of blocking a scheduler participant.
 struct CudaAsyncStorage
 {
     using context_type = cuda::DeviceResources;

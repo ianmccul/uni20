@@ -50,8 +50,8 @@ device or an isolated resource set used by tests.
 
 ## Tensor Storage
 
-`CudaAsyncTensor<T, Rank>` is the owning Tensor form for the non-blocking CUDA
-submission channel:
+`CudaAsyncTensor<T, Rank>` is the owning Tensor form intended for the
+non-blocking CUDA submission channel:
 
 ```cpp
 #include <uni20/tensor/tensor.hpp>
@@ -214,12 +214,15 @@ then use the same `read_synchronized_with()` and
 
 ## Current Boundary
 
-The implemented API provides low-level allocation, stream, completion, access,
-and CUDA Tensor storage-descriptor semantics. It does not yet provide:
+The implemented boundary includes low-level allocation, stream, completion,
+and access semantics; CUDA Tensor storage descriptors; and Tensor-to-cuBLAS
+GEMM lowering. GEMM is currently provider-backed rather than a native Uni20
+CUDA kernel, and it uses blocking host-side resource admission before
+asynchronous device submission.
 
-- CUDA Tensor kernels;
-- top-down CUDA Tensor-to-provider lowering;
-- automatic storage-driven CUDA scheduler selection.
+General CUDA Tensor operation coverage, native Uni20 CUDA kernels,
+non-blocking async GEMM resource admission, and automatic storage-driven CUDA
+scheduler selection are not yet implemented.
 
 For the exact completion-ledger and failure contract, see [CUDA Buffer
 Completion Lowering](epoch_design_draft.md). For stream ownership and error
