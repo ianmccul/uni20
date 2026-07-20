@@ -3,6 +3,7 @@
 #include <uni20/async/debug_cuda_scheduler.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/backend/cuda/device.hpp>
+#include <uni20/backend/cuda/task_awaiters.hpp>
 
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
@@ -88,6 +89,7 @@ static_assert(PubliclySchedules<DebugCudaScheduler, AsyncTask>);
 static_assert(PubliclySchedules<DebugCudaScheduler, CudaTask>);
 static_assert(PubliclySchedulesOnDevice<DebugCudaScheduler, CudaTask>);
 static_assert(std::is_constructible_v<DebugCudaScheduler, DebugSchedulerOptions>);
+static_assert(uni20::async::CudaTaskAwaitable<decltype(uni20::cuda::set_device(0))>);
 
 TEST_F(DebugCudaSchedulerTest, RunsCudaTaskOnBoundDeviceAndRestoresCallingThread)
 {
@@ -155,6 +157,75 @@ TEST_F(DebugCudaSchedulerTest, SetDeviceEstablishesAffinityAtSuspension)
 
   scheduler.schedule(std::move(task));
   EXPECT_EQ(output.get_wait(scheduler), (std::array{original_device_, target_device_, target_device_}));
+  EXPECT_TRUE(scheduler.done());
+}
+
+TEST_F(DebugCudaSchedulerTest, SetDeviceAlreadyMatchingEstablishedAffinityDoesNotReschedule)
+{
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(target_device_));
+  bool completed = false;
+
+  auto task = [](int device, bool& completed) static -> CudaTask {
+    co_await uni20::cuda::set_device(device);
+    completed = true;
+  }(target_device_, completed);
+
+  scheduler.schedule(std::move(task), target_device_);
+  scheduler.run();
+
+  EXPECT_TRUE(completed);
+  EXPECT_TRUE(scheduler.done());
+}
+
+TEST_F(DebugCudaSchedulerTest, FirstSelectionMatchingDefaultActivationDoesNotReschedule)
+{
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(target_device_));
+  std::array<int, 2> observed{-1, -1};
+  bool completed = false;
+
+  auto task = [](int device, std::array<int, 2>& observed, bool& completed) static -> CudaTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[0])), static_cast<int>(cudaSuccess));
+    co_await uni20::cuda::set_device(device);
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[1])), static_cast<int>(cudaSuccess));
+    completed = true;
+  }(target_device_, observed, completed);
+
+  scheduler.schedule(std::move(task));
+  scheduler.run();
+
+  EXPECT_EQ(observed, (std::array{target_device_, target_device_}));
+  EXPECT_TRUE(completed);
+  EXPECT_TRUE(scheduler.done());
+}
+
+TEST_F(DebugCudaSchedulerTest, SetDeviceDifferentFromCurrentActivationReschedules)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "requires at least two CUDA devices";
+
+  int const other_device = (original_device_ + 1) % device_count_;
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(original_device_));
+  std::array<int, 2> observed{-1, -1};
+  bool completed = false;
+
+  auto task = [](int device, std::array<int, 2>& observed, bool& completed) static -> CudaTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[0])), static_cast<int>(cudaSuccess));
+    co_await uni20::cuda::set_device(device);
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed[1])), static_cast<int>(cudaSuccess));
+    completed = true;
+  }(other_device, observed, completed);
+
+  scheduler.schedule(std::move(task));
+  scheduler.run();
+
+  EXPECT_EQ(observed[0], original_device_);
+  EXPECT_EQ(observed[1], -1);
+  EXPECT_FALSE(completed);
+  EXPECT_FALSE(scheduler.done());
+
+  scheduler.run();
+
+  EXPECT_EQ(observed[1], other_device);
+  EXPECT_TRUE(completed);
   EXPECT_TRUE(scheduler.done());
 }
 

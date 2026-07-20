@@ -1,5 +1,6 @@
 #include <uni20/async/async.hpp>
 #include <uni20/async/tbb_cuda_scheduler.hpp>
+#include <uni20/backend/cuda/task_awaiters.hpp>
 
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>

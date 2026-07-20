@@ -12,11 +12,12 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 - `async_errors.hpp`: async cancellation and deadlock exception types.
 - `async_task.hpp`, `async_task_impl.hpp`, `async_task_promise.hpp`,
   `awaiters.hpp`: implemented coroutine task wrappers and await support.
-- `cuda_task.hpp`: CUDA-specific initial-admission task type and scheduler
-  interface, plus the `cuda::set_device` scheduling awaiter.
-  `CudaTaskPromise` stores optional device affinity while sharing the common
-  promise state and internal task representation with `AsyncTask`, so suspended
-  tasks use the same tested continuation and rescheduling machinery.
+- `cuda_task.hpp`: runtime-neutral CUDA task-domain type and typed scheduler
+  admission interface. `CudaTaskPromise` stores optional device affinity while
+  sharing the common promise state and internal task representation with
+  `AsyncTask`, so this header remains usable when CUDA is not configured.
+  CUDA runtime awaiters live under `backend/cuda/` and opt into the concrete
+  CUDA-promise pass-through with `CudaTaskAwaiterTag`.
 - `debug_cuda_scheduler.hpp`: deterministic scheduler with one shared queue for
   ordinary tasks and CUDA tasks on any validated device. It establishes and
   restores the CUDA device around each CUDA activation.

@@ -197,9 +197,11 @@ into the promise.
 Device-sensitive code selects affinity in either of two ways:
 
 - explicit initial admission binds a device before first resume;
-- `co_await cuda::set_device(device)` records or changes affinity, suspends the
-  current task, and resubmits it through the unified scheduler so its next
-  activation occurs in the selected device context.
+- `co_await cuda::set_device(device)` records or changes affinity while the
+  coroutine is suspended. If the scheduler-established current CUDA device
+  already matches, the coroutine continues immediately. Otherwise it is
+  resubmitted through the unified scheduler so its next activation occurs in
+  the selected device context.
 
 An unbound CUDA child nested under a CUDA parent inherits the parent's affinity
 when the parent has one. If both are unbound, both use the scheduler default and
@@ -222,6 +224,21 @@ Device migration within one unified CUDA scheduler is implemented by
 `cuda::set_device`. It is legal only at that explicit suspension point. A task
 must not hold a stream, provider handle, workspace, or other device-local lease
 across the operation.
+
+The awaiter uses `cudaGetDevice()` to inspect the execution context already
+established by `DebugCudaScheduler` or the oneTBB device-arena observer. This is
+not an independent placement decision: a scheduler that resumes a CUDA task
+without first establishing the correct CUDA device violates the scheduler
+contract. No second scheduler-specific TLS registry is required.
+
+Cross-device selection is always enqueued through the unified scheduler. It
+does not call `task_arena::execute()` to enter another device arena
+synchronously. That oneTBB operation may wait when immediate arena admission is
+unavailable and may let the calling thread participate in the target arena;
+either behavior would make an ordinary CUDA scheduling point unexpectedly
+blocking and complicate continuation ownership. Same-effective-device nested
+CUDA tasks already use direct coroutine transfer without entering another
+arena.
 
 Migration of an already-running task to a different scheduler is not
 implemented. If needed, it should be a distinct suspension operation such as:

@@ -63,31 +63,3 @@ class ICudaScheduler : public virtual IScheduler {
 };
 
 } // namespace uni20::async
-
-namespace uni20::cuda
-{
-
-/// \brief Select the CUDA device for subsequent activations of the current task.
-/// \details This operation is valid only in a `CudaTask` coroutine. It always
-///          suspends and resubmits the task through its recorded scheduler.
-/// \param device CUDA runtime device ordinal.
-/// \return Device-selection awaiter.
-[[nodiscard]] inline async::CudaDeviceAwaiter set_device(int device) noexcept
-{
-  return async::CudaDeviceAwaiter(device);
-}
-
-/// \brief Select a CUDA device represented by a device-like value.
-/// \tparam DeviceLike Type exposing an integer `ordinal()` member.
-/// \param device Device identity whose ordinal will be selected.
-/// \return Device-selection awaiter.
-template <typename DeviceLike>
-  requires requires(DeviceLike const& device) {
-    { device.ordinal() } -> std::convertible_to<int>;
-  }
-[[nodiscard]] inline async::CudaDeviceAwaiter set_device(DeviceLike const& device) noexcept
-{
-  return set_device(static_cast<int>(device.ordinal()));
-}
-
-} // namespace uni20::cuda

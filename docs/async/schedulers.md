@@ -161,7 +161,8 @@ routing with the host schedulers.
   making completion-service or publishing threads enter the device arena
 - CUDA tasks may begin without device affinity and execute device-neutral work
   through the scheduler's default device arena
-- `co_await cuda::set_device(device)` establishes or changes affinity and
+- `co_await cuda::set_device(device)` establishes or changes affinity; it
+  continues immediately when that device is already current and otherwise
   resubmits the task through the selected device arena
 - same-device nested tasks can transfer directly; cross-domain and cross-device
   continuations re-enter through the shared scheduler's routing hook

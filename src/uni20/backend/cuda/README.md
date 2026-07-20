@@ -15,6 +15,11 @@ implemented under `src/uni20/async/`.
   read/write access guards.
 - `runtime.hpp`: device guards, reference-counted stream-pool leases, immutable
   completion tokens, and the device-local idle-stream pool.
+- `task_awaiters.hpp`: CUDA-task suspension operations, currently explicit
+  device selection, and the extension point for future stream and provider
+  resource acquisition awaiters. Concrete awaiters derive from the
+  runtime-neutral `async::CudaTaskAwaiterTag`; generic async headers do not name
+  individual CUDA awaiter types.
 - `CMakeLists.txt`: CUDA backend target setup.
 
 ## Notes

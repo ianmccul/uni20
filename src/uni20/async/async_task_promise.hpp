@@ -23,7 +23,14 @@ namespace uni20::async
 
 class TaskFactory;
 class EpochContext;
-class CudaDeviceAwaiter;
+
+/// \brief Marker base for awaiters that require a `CudaTaskPromise` handle.
+struct CudaTaskAwaiterTag
+{};
+
+/// \brief Identifies an explicitly opted-in CUDA task awaiter.
+template <typename T>
+concept CudaTaskAwaitable = std::derived_from<std::remove_cvref_t<T>, CudaTaskAwaiterTag>;
 
 /// \brief Inject an unhandled writer-side coroutine exception into an epoch.
 /// \param epoch Target epoch context associated with a writer buffer.
@@ -625,10 +632,14 @@ class CudaTaskPromise final : public TaskPromiseBase {
     ///          configured default device without changing the promise.
     [[nodiscard]] std::optional<int> device() const noexcept { return device_; }
 
-    /// \brief Pass through the CUDA device-selection awaiter.
-    /// \param awaiter Awaiter that updates this promise's device affinity.
+    /// \brief Pass through an explicitly opted-in CUDA task awaiter.
+    /// \tparam Awaiter CUDA backend awaiter type.
+    /// \param awaiter Awaiter that requires the concrete CUDA promise handle.
     /// \return The forwarded awaiter.
-    CudaDeviceAwaiter await_transform(CudaDeviceAwaiter awaiter) noexcept;
+    template <CudaTaskAwaitable Awaiter> Awaiter&& await_transform(Awaiter&& awaiter) noexcept
+    {
+      return std::forward<Awaiter>(awaiter);
+    }
 
     /// \brief Bind the CUDA device before the coroutine starts.
     /// \param device Non-negative CUDA runtime device ordinal.
@@ -645,7 +656,6 @@ class CudaTaskPromise final : public TaskPromiseBase {
       device_ = device;
     }
 
-  private:
     /// \brief Select the device used for subsequent CUDA task activations.
     /// \details The caller must exclusively own the suspended coroutine. Unlike
     ///          initial binding, this operation may change affinity after the
@@ -656,9 +666,8 @@ class CudaTaskPromise final : public TaskPromiseBase {
       device_ = device;
     }
 
+  private:
     std::optional<int> device_{};
-
-    friend class CudaDeviceAwaiter;
 };
 
 /// \brief Narrow an erased task promise after verifying that it is CUDA-specific.
@@ -669,36 +678,6 @@ inline CudaTaskPromise& cuda_promise(TaskHandle handle) noexcept
   CHECK(handle);
   CHECK(handle.domain() == TaskDomain::cuda);
   return static_cast<CudaTaskPromise&>(handle.promise());
-}
-
-/// \brief Awaiter that establishes or changes a CUDA task's device affinity.
-/// \details Device selection is a coroutine scheduling operation: the current
-///          task suspends and is resubmitted through its recorded scheduler,
-///          which routes the next activation to the selected device context.
-class CudaDeviceAwaiter {
-  public:
-    explicit constexpr CudaDeviceAwaiter(int device) noexcept : device_(device) {}
-
-    [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
-
-    void await_suspend(std::coroutine_handle<CudaTaskPromise> handle) const
-    {
-      auto current = TaskHandle::from(handle);
-      auto& promise = handle.promise();
-      promise.select_device(device_);
-      TaskPromiseBase::note_suspended(current);
-      BasicTask::reschedule(promise.take_ownership());
-    }
-
-    constexpr void await_resume() const noexcept {}
-
-  private:
-    int device_;
-};
-
-inline CudaDeviceAwaiter CudaTaskPromise::await_transform(CudaDeviceAwaiter awaiter) noexcept
-{
-  return awaiter;
 }
 
 inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle child)
