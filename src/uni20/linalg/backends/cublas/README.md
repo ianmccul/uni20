@@ -12,6 +12,13 @@ mdspans and dispatches the storage-selected `CublasBackend`. The direct path
 uses blocking resource admission. Future async CUDA lowering will await the
 same execution resources before entering the non-suspending provider leaf.
 
+An empty GEMM output succeeds before operand staging. A zero inner extent is a
+clean `unsupported_instance` decline before staging, resource acquisition, or
+buffer-access publication. Complete CUDA-domain handling will come from a
+future `CudaReferenceBackend` after `CublasBackend` in the storage-selected
+backend list; reusable CUDA fill and scale kernels will implement the degenerate
+`C = beta*C` operation.
+
 ## Related Documentation
 
 - [Linalg backend source map](../)

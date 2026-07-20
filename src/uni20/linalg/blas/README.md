@@ -48,6 +48,10 @@ tensor-level linalg front ends.
   empty. This preserves `y = alpha*A*x + beta*y` semantics without depending on
   provider-specific quick-return behavior, and `beta == 0` does not read the
   previous output values.
+- Direct provider GEMM returns success without staging operands when the output
+  is empty, and cleanly declines a zero inner extent before staging. The host
+  backend list falls through from `BlasBackend` to `CpuReferenceBackend`, which
+  implements the complete `C = alpha*A*B + beta*C` semantics for that case.
 - Direct rank-one lowering accepts positive mdspan strides and canonicalizes an
   unobserved empty or singleton stride to increment `1`. A negative stride on a
   multi-element view declines: the Fortran BLAS negative-increment convention

@@ -66,6 +66,9 @@ before they lower to backend wrappers and kernels.
   and use the generic CPU reference executor when no earlier backend accepts.
 - Dense linalg operations use operation values, `kernel_accepts_types`, and
   `try_kernel`; the former backend-tag selector hierarchy has been removed.
+- `kernel_type_candidates(...)` filters a selector to its ordered `yes` and
+  `maybe` type candidates while preserving backend values, allowing shared
+  conformance tests to exercise every compatible backend independently.
 - Scalar-generic code should use Uni20 scalar traits and numeric limits from
   `core/`.
 

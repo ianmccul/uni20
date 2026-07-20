@@ -94,6 +94,51 @@ template <class BackendSelector>
 using normalized_backend_selector_t =
     std::remove_cvref_t<decltype(normalize_backend_selector(std::declval<BackendSelector>()))>;
 
+template <class Backend, class BackendList> struct PrependBackend;
+
+template <class Backend, class... Backends> struct PrependBackend<Backend, backend_list<Backends...>>
+{
+    using type = backend_list<Backend, Backends...>;
+};
+
+template <class BackendList, class Op, class... Args> struct KernelTypeCandidates;
+
+template <class Op, class... Args> struct KernelTypeCandidates<backend_list<>, Op, Args...>
+{
+    using type = backend_list<>;
+};
+
+template <class Backend, class... Backends, class Op, class... Args>
+struct KernelTypeCandidates<backend_list<Backend, Backends...>, Op, Args...>
+{
+  private:
+    using tail = typename KernelTypeCandidates<backend_list<Backends...>, Op, Args...>::type;
+
+  public:
+    using type = std::conditional_t<backend_type_acceptance<Backend, Op, Args...>() == KernelTypeAcceptance::no, tail,
+                                    typename PrependBackend<Backend, tail>::type>;
+};
+
+template <class Op, class... Args, class Backend> constexpr auto candidate_backend_tuple(Backend&& backend)
+{
+  using backend_type = std::remove_cvref_t<Backend>;
+  if constexpr (backend_type_acceptance<backend_type, Op, Args...>() == KernelTypeAcceptance::no)
+  {
+    return std::tuple<>{};
+  }
+  else
+  {
+    return std::tuple<backend_type>{std::forward<Backend>(backend)};
+  }
+}
+
+template <class Tuple, std::size_t... Index>
+constexpr auto backend_list_from_tuple(Tuple&& tuple, std::index_sequence<Index...>)
+{
+  using tuple_type = std::remove_cvref_t<Tuple>;
+  return backend_list<std::tuple_element_t<Index, tuple_type>...>{std::get<Index>(std::forward<Tuple>(tuple))...};
+}
+
 template <class Op, class... Args, class... Backends>
 consteval KernelTypeAcceptance probe_backend_list_types(std::type_identity<backend_list<Backends...>>)
 {
@@ -112,6 +157,35 @@ consteval KernelTypeAcceptance probe_backend_list_types(std::type_identity<backe
   return KernelTypeAcceptance::no;
 }
 } // namespace detail
+
+/// \brief Ordered backend-list type whose entries accept the operation argument types.
+/// \details Backends with `yes` or `maybe` type acceptance are retained. A
+///          missing `kernel_accepts_types` customization is a hard `no` and is
+///          omitted. Runtime values and backend state are not inspected.
+template <class BackendSelector, class Op, class... Args>
+using kernel_type_candidates_t =
+    typename detail::KernelTypeCandidates<detail::normalized_backend_selector_t<BackendSelector>,
+                                          std::remove_cvref_t<Op>, Args...>::type;
+
+/// \brief Filter a backend selector to candidates accepting the call's argument types.
+/// \details The result type is determined entirely at compile time. Retained
+///          backend values preserve their original order and state so callers
+///          such as conformance tests can exercise each candidate independently.
+template <class BackendSelector, class Op, class... Args>
+constexpr auto kernel_type_candidates(BackendSelector&& selector, Op const&, Args&&...)
+{
+  using op_type = std::remove_cvref_t<Op>;
+  auto backends = normalize_backend_selector(std::forward<BackendSelector>(selector));
+  auto candidates = std::apply(
+      []<class... Backends>(Backends&&... backend) {
+        return std::tuple_cat(detail::candidate_backend_tuple<op_type, Args...>(std::forward<Backends>(backend))...);
+      },
+      std::move(backends.entries));
+  auto result = detail::backend_list_from_tuple(std::move(candidates),
+                                                std::make_index_sequence<std::tuple_size_v<decltype(candidates)>>{});
+  static_assert(std::same_as<decltype(result), kernel_type_candidates_t<BackendSelector, Op, Args...>>);
+  return result;
+}
 
 /// \brief Probe whether a backend selector can dispatch an operation for the argument types.
 /// \details Returns `yes` if any backend accepts all runtime instances, `maybe`

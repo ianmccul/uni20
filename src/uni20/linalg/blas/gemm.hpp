@@ -94,6 +94,13 @@ template <uni20::BlasScalar Scalar, class OutputMdspan, class LhsMdspan, class R
            detail::readable_blas_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
 KernelAttempt try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
 {
+  CHECK_EQUAL(lhs.extent(1), rhs.extent(0));
+  CHECK_EQUAL(output.extent(0), lhs.extent(0));
+  CHECK_EQUAL(output.extent(1), rhs.extent(1));
+
+  if (output.extent(0) == 0 || output.extent(1) == 0) return KernelAttempt::success;
+  if (lhs.extent(1) == 0) return KernelAttempt::unsupported_instance;
+
   auto output_stage = try_mdspan_matrix_stage(output);
   auto lhs_stage = try_mdspan_matrix_stage(lhs);
   auto rhs_stage = try_mdspan_matrix_stage(rhs);

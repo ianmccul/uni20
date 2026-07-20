@@ -152,6 +152,31 @@ TEST(BlasGemmTest, TryDeclinesUnsupportedStridePattern)
   EXPECT_DOUBLE_EQ((c[1, 1]), 7.0);
 }
 
+TEST(BlasGemmTest, EmptyOutputSucceedsBeforeOperandStaging)
+{
+  std::vector<double> empty_storage;
+  std::vector<double> rhs_storage(6);
+
+  stdex::mdspan<double, extents_2d, stdex::layout_right> a(empty_storage.data(), 0, 3);
+  stdex::mdspan<double, extents_2d, stdex::layout_right> b(rhs_storage.data(), 3, 2);
+  stdex::mdspan<double, extents_2d, stdex::layout_right> c(empty_storage.data(), 0, 2);
+
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 0.0), KernelAttempt::success);
+}
+
+TEST(BlasGemmTest, TryDeclinesZeroInnerExtentBeforeOperandStaging)
+{
+  std::vector<double> empty_storage;
+  std::vector<double> c_storage{1.0, 2.0, 3.0, 4.0};
+
+  stdex::mdspan<double, extents_2d, stdex::layout_right> a(empty_storage.data(), 2, 0);
+  stdex::mdspan<double, extents_2d, stdex::layout_right> b(empty_storage.data(), 0, 2);
+  stdex::mdspan<double, extents_2d, stdex::layout_right> c(c_storage.data(), 2, 2);
+
+  EXPECT_EQ(uni20::linalg::blas::try_gemm(c, 1.0, a, b, 3.0), KernelAttempt::unsupported_instance);
+  EXPECT_EQ(c_storage, (std::vector<double>{1.0, 2.0, 3.0, 4.0}));
+}
+
 TEST(BlasGemmTest, AcceptsRealConjIdentityView)
 {
   std::vector<double> a_storage(1, 3.0);

@@ -281,6 +281,11 @@ TEST(LinalgGemmDispatchTest, MissingOrNonViableTypeGateIsHardNo)
   std::vector<double> storage(1);
   vector_mdspan<double> vector(storage.data(), 1);
 
+  auto candidates =
+      uni20::linalg::kernel_type_candidates(backend_list{TryKernelOnlyBackend{}, BlasBackend{}, CpuReferenceBackend{}},
+                                            gemm_op{}, vector, 1.0, vector, vector, 0.0);
+  static_assert(std::same_as<decltype(candidates), backend_list<>>);
+
   EXPECT_EQ(uni20::linalg::probe_dispatch_kernel(backend_list{TryKernelOnlyBackend{}}, gemm_op{}, vector, 1.0, vector,
                                                  vector, 0.0),
             KernelTypeAcceptance::no);
@@ -290,6 +295,36 @@ TEST(LinalgGemmDispatchTest, MissingOrNonViableTypeGateIsHardNo)
   EXPECT_EQ(
       uni20::linalg::probe_dispatch_kernel(backend_list{BlasBackend{}}, gemm_op{}, vector, 1.0, vector, vector, 0.0),
       KernelTypeAcceptance::no);
+}
+
+TEST(LinalgGemmDispatchTest, TypeCandidatesExposeEveryCompatibleGemmBackend)
+{
+  std::vector<double> a_storage(4);
+  std::vector<double> b_storage(4);
+  std::vector<double> c_storage(4);
+  left_mdspan<double> a(a_storage.data(), 2, 2);
+  left_mdspan<double> b(b_storage.data(), 2, 2);
+  left_mdspan<double> c(c_storage.data(), 2, 2);
+  fill_matrix(a, {1.0, 2.0, 3.0, 4.0});
+  fill_matrix(b, {5.0, 6.0, 7.0, 8.0});
+
+  auto selector =
+      backend_list{TryKernelOnlyBackend{}, uni20::linalg::LapackBackend{}, BlasBackend{}, CpuReferenceBackend{}};
+  auto candidates = uni20::linalg::kernel_type_candidates(selector, gemm_op{}, c, 1.0, a, b, 0.0);
+  static_assert(std::same_as<decltype(candidates), backend_list<BlasBackend, CpuReferenceBackend>>);
+
+  int tested_backends = 0;
+  auto test_backend = [&](auto const& backend) {
+    fill_matrix(c, {0.0, 0.0, 0.0, 0.0});
+    EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(backend, gemm_op{}, c, 1.0, a, b, 0.0));
+    EXPECT_DOUBLE_EQ((c[0, 0]), 19.0);
+    EXPECT_DOUBLE_EQ((c[0, 1]), 22.0);
+    EXPECT_DOUBLE_EQ((c[1, 0]), 43.0);
+    EXPECT_DOUBLE_EQ((c[1, 1]), 50.0);
+    ++tested_backends;
+  };
+  std::apply([&](auto const&... backend) { (test_backend(backend), ...); }, candidates.entries);
+  EXPECT_EQ(tested_backends, 2);
 }
 
 TEST(LinalgGemmDispatchTest, TryAndCheckedDispatchDistinguishRuntimeDecline)
@@ -520,6 +555,42 @@ TEST(LinalgGemmDispatchTest, CpuReferenceDoesNotReadOutputWhenBetaIsZero)
 
   EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c, 1.0, a, b, 0.0));
   EXPECT_DOUBLE_EQ((c[0, 0]), 12.0);
+}
+
+TEST(LinalgGemmDispatchTest, CpuReferenceAppliesBetaForZeroInnerExtent)
+{
+  std::vector<double> empty_storage;
+  std::vector<double> c_storage(4);
+
+  left_mdspan<double> a(empty_storage.data(), 2, 0);
+  left_mdspan<double> b(empty_storage.data(), 0, 2);
+  left_mdspan<double> c(c_storage.data(), 2, 2);
+
+  fill_matrix(c, {1.0, 2.0, 3.0, 4.0});
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c,
+                                                 std::numeric_limits<double>::infinity(), a, b, 3.0));
+  EXPECT_EQ(c_storage, (std::vector<double>{3.0, 9.0, 6.0, 12.0}));
+
+  fill_matrix(c, {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(),
+                  std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()});
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(CpuReferenceBackend{}, gemm_op{}, c,
+                                                 std::numeric_limits<double>::infinity(), a, b, 0.0));
+  EXPECT_EQ(c_storage, (std::vector<double>{0.0, 0.0, 0.0, 0.0}));
+}
+
+TEST(LinalgGemmDispatchTest, BlasDeclineFallsThroughForZeroInnerExtent)
+{
+  std::vector<double> empty_storage;
+  std::vector<double> c_storage(4);
+
+  left_mdspan<double> a(empty_storage.data(), 2, 0);
+  left_mdspan<double> b(empty_storage.data(), 0, 2);
+  left_mdspan<double> c(c_storage.data(), 2, 2);
+  fill_matrix(c, {1.0, 2.0, 3.0, 4.0});
+
+  auto selector = backend_list{BlasBackend{}, CpuReferenceBackend{}};
+  EXPECT_TRUE(uni20::linalg::try_dispatch_kernel(selector, gemm_op{}, c, 1.0, a, b, 2.0));
+  EXPECT_EQ(c_storage, (std::vector<double>{2.0, 6.0, 4.0, 8.0}));
 }
 
 TEST(LinalgGemmDispatchTest, CpuReferenceAcceptsNonStridedAddressableViews)

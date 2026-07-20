@@ -314,4 +314,31 @@ TEST_F(CublasExecutionTest, TensorGemmLowersConjugatingCudaAccessor)
   EXPECT_EQ(download_tensor(output), (std::vector<scalar_type>{scalar_type{-7, 6}}));
 }
 
+TEST_F(CublasExecutionTest, TensorGemmEmptyOutputSucceedsBeforeOperandStaging)
+{
+  using matrix_type = uni20::CudaAsyncMatrix<double, uni20::RowMajor>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
+  matrix_type lhs(resources, 0, 3);
+  matrix_type rhs(resources, 3, 2);
+  matrix_type output(resources, 0, 2);
+
+  EXPECT_EQ(uni20::linalg::cublas::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 0.0),
+            uni20::linalg::KernelAttempt::success);
+}
+
+TEST_F(CublasExecutionTest, TensorGemmDeclinesZeroInnerExtentBeforeOperandStaging)
+{
+  using matrix_type = uni20::CudaAsyncMatrix<double, uni20::RowMajor>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
+  matrix_type lhs(resources, 2, 0);
+  matrix_type rhs(resources, 0, 2);
+  matrix_type output(resources, 2, 2);
+  std::array<double, 4> const output_values{1.0, 2.0, 3.0, 4.0};
+  upload_tensor(output, std::span<double const>{output_values});
+
+  EXPECT_EQ(uni20::linalg::cublas::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 3.0),
+            uni20::linalg::KernelAttempt::unsupported_instance);
+  EXPECT_EQ(download_tensor(output), (std::vector<double>{1.0, 2.0, 3.0, 4.0}));
+}
+
 } // namespace

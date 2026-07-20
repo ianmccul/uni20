@@ -65,7 +65,7 @@ KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& out
   index_type const cols = static_cast<index_type>(output.extent(1));
   index_type const inner = static_cast<index_type>(lhs.extent(1));
 
-  if (alpha == Scalar{})
+  if (alpha == Scalar{} || inner == 0)
   {
     if (beta == Scalar{1}) return KernelAttempt::success;
 

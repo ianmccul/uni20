@@ -21,7 +21,10 @@ checked provider wrapper and a Tensor-facing `CublasBackend`. Ordinary
 backend stages BLAS-compatible layouts, acquires a handle/stream execution lease
 from the device resource set, opens synchronized buffer access, and enqueues the
 provider call. Column- and row-major outputs are supported. Fully non-blocking
-`Async<CudaAsyncTensor>` resource admission remains future work.
+`Async<CudaAsyncTensor>` resource admission remains future work. The optimized
+cuBLAS path cleanly declines zero-inner-dimension GEMM before staging operands;
+complete CUDA handling of `C = beta*C` awaits the CUDA reference backend and
+reusable device fill/scale kernels.
 
 ## Scalar Tags
 

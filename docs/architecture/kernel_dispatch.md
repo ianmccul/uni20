@@ -93,6 +93,20 @@ candidate is `yes`, otherwise `maybe` if any candidate is `maybe`, otherwise
 `no`. A backend whose `kernel_accepts_types(...)` customization is not callable
 contributes `no`.
 
+Conformance tests and other compile-time introspection can retain the complete
+ordered candidate set instead:
+
+```cpp
+auto candidates = kernel_type_candidates(backends, op, args...);
+```
+
+The returned `backend_list` contains every backend whose type acceptance is
+`yes` or `maybe`, preserving selector order and backend object state. It does
+not inspect runtime values, layouts, dimensions, or provider availability, so a
+retained `maybe` backend can still decline when tested. The corresponding
+`kernel_type_candidates_t<BackendSelector, Op, Args...>` alias exposes the
+filtered list type without constructing operands.
+
 Runtime dispatch has separate trial and checked front ends:
 
 - `try_dispatch_kernel(backends, op, args...)` walks the eligible backends and
