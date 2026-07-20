@@ -1,4 +1,8 @@
 #include <cstddef>
+#include <string>
+#include <tuple>
+#include <type_traits>
+#include <utility>
 #include <gtest/gtest.h>
 #include <uni20/async/async.hpp>
 #include <uni20/async/async_task.hpp>
@@ -13,6 +17,52 @@ namespace
 
 struct OrCancelTestError
 {};
+
+struct StringValueAwaiter
+{
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
+    void await_suspend(BasicTask) const noexcept {}
+    [[nodiscard]] std::string await_resume() const { return "owned result"; }
+};
+
+struct ExternalReferenceAwaiter
+{
+    int* value;
+
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
+    void await_suspend(BasicTask) const noexcept {}
+    [[nodiscard]] int const& await_resume() const noexcept { return *value; }
+};
+
+struct RvalueReferenceAwaiter
+{
+    int value;
+
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
+    void await_suspend(BasicTask) const noexcept {}
+    [[nodiscard]] int&& await_resume() noexcept { return std::move(value); }
+};
+
+struct RefQualifiedResultAwaiter
+{
+    int value;
+    bool* resumed_as_rvalue;
+
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
+    void await_suspend(BasicTask) const noexcept {}
+
+    [[nodiscard]] int const& await_resume() const& noexcept
+    {
+      *resumed_as_rvalue = false;
+      return value;
+    }
+
+    [[nodiscard]] int await_resume() && noexcept
+    {
+      *resumed_as_rvalue = true;
+      return value;
+    }
+};
 
 } // namespace
 
@@ -113,6 +163,51 @@ TEST(AsyncAwaitersTest, AllAwaiterTwoBuffers)
   sched.run_all();
   EXPECT_EQ(sum, 30);
   EXPECT_EQ(count, 1);
+}
+
+TEST(AsyncAwaitersTest, AllAwaiterOwnsValuesAndPreservesLvalueReferences)
+{
+  int external = 7;
+  bool resumed_as_rvalue = false;
+  ExternalReferenceAwaiter reference_awaiter{&external};
+  RvalueReferenceAwaiter rvalue_reference_awaiter{11};
+
+  auto results = all(StringValueAwaiter{}, reference_awaiter, rvalue_reference_awaiter,
+                     RefQualifiedResultAwaiter{13, &resumed_as_rvalue})
+                     .await_resume();
+
+  using result_type = decltype(results);
+  static_assert(std::same_as<std::tuple_element_t<0, result_type>, std::string>);
+  static_assert(std::same_as<std::tuple_element_t<1, result_type>, int const&>);
+  static_assert(std::same_as<std::tuple_element_t<2, result_type>, int>);
+  static_assert(std::same_as<std::tuple_element_t<3, result_type>, int>);
+
+  EXPECT_EQ(std::get<0>(results), "owned result");
+  EXPECT_EQ(std::get<1>(results), 7);
+  EXPECT_EQ(std::get<2>(results), 11);
+  EXPECT_EQ(std::get<3>(results), 13);
+  EXPECT_TRUE(resumed_as_rvalue);
+
+  external = 17;
+  EXPECT_EQ(std::get<1>(results), 17);
+}
+
+TEST(AsyncAwaitersTest, CoroutineAllConsumesOwnedAwaiters)
+{
+  DebugScheduler scheduler;
+  bool resumed_as_rvalue = false;
+  std::string result;
+
+  auto task = [](bool& resumed_as_rvalue, std::string& result) static -> AsyncTask {
+    auto [text, value] = co_await all(StringValueAwaiter{}, RefQualifiedResultAwaiter{23, &resumed_as_rvalue});
+    result = text + ": " + std::to_string(value);
+  }(resumed_as_rvalue, result);
+
+  scheduler.schedule(std::move(task));
+  scheduler.run_all();
+
+  EXPECT_TRUE(resumed_as_rvalue);
+  EXPECT_EQ(result, "owned result: 23");
 }
 
 TEST(AsyncAwaitersTest, AllAwaiterBlockedThenUnblocked)

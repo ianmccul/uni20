@@ -940,7 +940,14 @@ template <TaskFactoryAwaitable A> struct TaskFactoryAwaiter //: public AsyncAwai
 #if UNI20_DEBUG_DAG
       TaskPromiseBase::note_await_dependency(promise.self(), awaitable);
 #endif
-      return awaitable.await_resume();
+      if constexpr (std::is_lvalue_reference_v<A>)
+      {
+        return awaitable.await_resume();
+      }
+      else
+      {
+        return std::move(awaitable).await_resume();
+      }
     }
 
     // void set_cancel() override final { awaitable.set_cancel(); }

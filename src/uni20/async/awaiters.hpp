@@ -56,6 +56,13 @@ concept AsyncReadProvider = requires(T&& value) { std::forward<T>(value).read();
                               { awaiter.await_ready() } -> std::convertible_to<bool>;
                               awaiter.await_resume();
                             };
+
+template <typename Result>
+using all_result_element_t =
+    std::conditional_t<std::is_lvalue_reference_v<Result>, Result, std::remove_cvref_t<Result>>;
+
+template <typename Awaiter>
+using all_result_t = all_result_element_t<decltype(std::declval<Awaiter>().await_resume())>;
 } // namespace detail
 
 /// \brief Wrap an immediate value in an always-ready read awaiter.
@@ -115,12 +122,13 @@ struct AllAwaiter //: public AsyncAwaiter
     }
 
     /// \brief Resume all awaiters and collect their results.
-    /// \return Tuple of each await_resume() value. Make sure we preserve the exact type
-    /// returned by the client awaiters, so references are preserved.
+    /// \details Referenced child awaiters resume as lvalues, while child awaiters
+    ///          owned by this join resume as rvalues. The result tuple preserves
+    ///          lvalue references and owns value or rvalue-reference results.
+    /// \return Tuple containing each child result with a safe lifetime.
     [[nodiscard]] auto await_resume()
     {
-      return std::apply([](auto&&... w) -> decltype(auto) { return std::forward_as_tuple(w.await_resume()...); },
-                        bufs_);
+      return await_resume_impl(std::make_index_sequence<sizeof...(Aw)>{});
     }
 
   private:
@@ -147,6 +155,18 @@ struct AllAwaiter //: public AsyncAwaiter
     template <std::size_t... I> void await_suspend_impl(TaskFactory f, std::index_sequence<I...>) noexcept
     {
       ((ready_[I] ? void() : std::get<I>(bufs_).await_suspend(f.take_next())), ...);
+    }
+
+    template <std::size_t I> decltype(auto) await_resume_child()
+    {
+      using awaiter_type = std::tuple_element_t<I, std::tuple<Aw...>>;
+      return std::forward<awaiter_type>(std::get<I>(bufs_)).await_resume();
+    }
+
+    template <std::size_t... I> auto await_resume_impl(std::index_sequence<I...>)
+    {
+      using result_type = std::tuple<detail::all_result_t<Aw>...>;
+      return result_type{this->template await_resume_child<I>()...};
     }
 };
 
