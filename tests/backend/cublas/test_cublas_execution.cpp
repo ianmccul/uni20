@@ -61,11 +61,11 @@ TEST(CublasErrorTest, RendersThroughPresentationLayer)
 
 template <class Scalar> void check_column_major_gemm(int device)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(device), .stream_count = 2});
-  uni20::cublas::ExecutionPool executions(context.streams(), 1);
-  uni20::cuda::CudaBuffer<Scalar> lhs(context, 6);
-  uni20::cuda::CudaBuffer<Scalar> rhs(context, 6);
-  uni20::cuda::CudaBuffer<Scalar> output(context, 4);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device), .stream_count = 2});
+  uni20::cublas::ExecutionPool executions(resources.streams(), 1);
+  uni20::cuda::CudaBuffer<Scalar> lhs(resources, 6);
+  uni20::cuda::CudaBuffer<Scalar> rhs(resources, 6);
+  uni20::cuda::CudaBuffer<Scalar> output(resources, 4);
 
   // Column-major matrices: lhs is 2x3, rhs is 3x2.
   std::array<Scalar, 6> const host_lhs{Scalar{1}, Scalar{4}, Scalar{2}, Scalar{5}, Scalar{3}, Scalar{6}};
@@ -110,13 +110,13 @@ template <class Scalar> void check_column_major_gemm(int device)
   EXPECT_EQ(host_output[3], Scalar{154});
 
   execution.release();
-  context.streams().synchronize();
+  resources.streams().synchronize();
 }
 
 template <class Tensor> void upload_tensor(Tensor& tensor, std::span<uni20::tensor_element_t<Tensor> const> values)
 {
   ASSERT_EQ(values.size(), tensor.size());
-  auto stream = tensor.storage().context().streams().acquire();
+  auto stream = tensor.storage().resources().streams().acquire();
   {
     auto write = tensor.storage().write_synchronized_with(stream);
     ASSERT_EQ(cudaMemcpyAsync(write.data(), values.data(), write.size_bytes(), cudaMemcpyHostToDevice,
@@ -129,7 +129,7 @@ template <class Tensor> void upload_tensor(Tensor& tensor, std::span<uni20::tens
 template <class Tensor> auto download_tensor(Tensor const& tensor) -> std::vector<uni20::tensor_element_t<Tensor>>
 {
   std::vector<uni20::tensor_element_t<Tensor>> values(tensor.size());
-  auto stream = tensor.storage().context().streams().acquire();
+  auto stream = tensor.storage().resources().streams().acquire();
   {
     auto read = tensor.storage().read_synchronized_with(stream);
     EXPECT_EQ(
@@ -143,11 +143,11 @@ template <class Tensor> auto download_tensor(Tensor const& tensor) -> std::vecto
 template <class Scalar> void check_complex_conjugate_transpose_gemm(int device)
 {
   using real_type = typename Scalar::value_type;
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(device), .stream_count = 1});
-  uni20::cublas::ExecutionPool executions(context.streams(), 1);
-  uni20::cuda::CudaBuffer<Scalar> lhs(context, 2);
-  uni20::cuda::CudaBuffer<Scalar> rhs(context, 2);
-  uni20::cuda::CudaBuffer<Scalar> output(context, 1);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device), .stream_count = 1});
+  uni20::cublas::ExecutionPool executions(resources.streams(), 1);
+  uni20::cuda::CudaBuffer<Scalar> lhs(resources, 2);
+  uni20::cuda::CudaBuffer<Scalar> rhs(resources, 2);
+  uni20::cuda::CudaBuffer<Scalar> output(resources, 1);
 
   std::array<Scalar, 2> const host_lhs{Scalar{real_type{1}, real_type{2}}, Scalar{real_type{3}, real_type{-1}}};
   std::array<Scalar, 2> const host_rhs{Scalar{real_type{2}, real_type{-1}}, Scalar{real_type{-1}, real_type{4}}};
@@ -183,7 +183,7 @@ template <class Scalar> void check_complex_conjugate_transpose_gemm(int device)
   EXPECT_EQ(host_output, Scalar(real_type{-7}, real_type{6}));
 
   execution.release();
-  context.streams().synchronize();
+  resources.streams().synchronize();
 }
 
 TEST_F(CublasExecutionTest, ReusesHandleWithAnotherIdleStream)
@@ -256,10 +256,10 @@ TEST_F(CublasExecutionTest, ComputesComplexConjugateTransposeGemm)
 TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaMdspans)
 {
   using matrix_type = uni20::CudaAsyncMatrix<double>;
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
-  matrix_type lhs(context, 2, 3);
-  matrix_type rhs(context, 3, 2);
-  matrix_type output(context, 2, 2);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs(resources, 2, 3);
+  matrix_type rhs(resources, 3, 2);
+  matrix_type output(resources, 2, 2);
 
   std::array<double, 6> const lhs_values{1, 4, 2, 5, 3, 6};
   std::array<double, 6> const rhs_values{7, 9, 11, 8, 10, 12};
@@ -278,10 +278,10 @@ TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaMdspans)
 TEST_F(CublasExecutionTest, TensorGemmNormalizesRowMajorCudaOutput)
 {
   using matrix_type = uni20::CudaAsyncMatrix<double, uni20::RowMajor>;
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
-  matrix_type lhs(context, 2, 3);
-  matrix_type rhs(context, 3, 2);
-  matrix_type output(context, 2, 2);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs(resources, 2, 3);
+  matrix_type rhs(resources, 3, 2);
+  matrix_type output(resources, 2, 2);
 
   std::array<double, 6> const lhs_values{1, 2, 3, 4, 5, 6};
   std::array<double, 6> const rhs_values{7, 8, 9, 10, 11, 12};
@@ -298,10 +298,10 @@ TEST_F(CublasExecutionTest, TensorGemmLowersConjugatingCudaAccessor)
   using scalar_type = uni20::cdouble;
   using row_matrix_type = uni20::CudaAsyncMatrix<scalar_type, uni20::RowMajor>;
   using column_matrix_type = uni20::CudaAsyncMatrix<scalar_type>;
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
-  row_matrix_type lhs(context, 1, 2);
-  column_matrix_type rhs(context, 2, 1);
-  column_matrix_type output(context, 1, 1);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  row_matrix_type lhs(resources, 1, 2);
+  column_matrix_type rhs(resources, 2, 1);
+  column_matrix_type output(resources, 1, 1);
 
   std::array<scalar_type, 2> const lhs_values{scalar_type{1, 2}, scalar_type{3, -1}};
   std::array<scalar_type, 2> const rhs_values{scalar_type{2, -1}, scalar_type{-1, 4}};

@@ -1,3 +1,4 @@
+#include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/backend/cuda/cuda_error.hpp>
 #include <uni20/backend/cuda/cuda_error_presentation.hpp>
 #include <uni20/backend/cuda/device.hpp>
@@ -89,6 +90,8 @@ static_assert(std::is_move_constructible_v<uni20::cuda::Stream>);
 static_assert(std::is_copy_constructible_v<uni20::cuda::Completion>);
 static_assert(std::is_trivially_copyable_v<uni20::cuda::Device>);
 static_assert(sizeof(uni20::cuda::Device) == sizeof(int));
+static_assert(!std::is_copy_constructible_v<uni20::cuda::Runtime>);
+static_assert(!std::is_move_constructible_v<uni20::cuda::Runtime>);
 
 TEST(CudaRuntimeErrorTest, PreservesStructuredRuntimeStatus)
 {
@@ -140,6 +143,71 @@ TEST_F(CudaDeviceTest, ScopedDeviceRestoresPreviousDevice)
   int restored_device = -1;
   uni20::cuda::check(cudaGetDevice(&restored_device), "cudaGetDevice restored test", 0);
   EXPECT_EQ(restored_device, 0);
+}
+
+TEST_F(CudaDeviceTest, ScopedRuntimeInstallsCanonicalDeviceResources)
+{
+  ASSERT_FALSE(uni20::cuda::is_initialized());
+  {
+    auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .default_device = 0, .streams_per_device = 3});
+
+    ASSERT_TRUE(uni20::cuda::is_initialized());
+    EXPECT_EQ(&uni20::cuda::runtime(), &runtime);
+    EXPECT_TRUE(runtime.has_device(0));
+    EXPECT_FALSE(runtime.has_device(device_count_));
+    EXPECT_EQ(runtime.default_device(), 0);
+
+    auto& resources = runtime.device_resources(0);
+    EXPECT_EQ(&uni20::cuda::device_resources(0), &resources);
+    EXPECT_EQ(&uni20::cuda::device_resources(), &resources);
+    EXPECT_EQ(resources.device().ordinal(), 0);
+    EXPECT_EQ(resources.streams().size(), 3);
+    EXPECT_EQ(resources.live_buffer_count(), 0);
+
+    {
+      uni20::cuda::CudaBuffer<double> buffer(4);
+      EXPECT_EQ(&buffer.resources(), &resources);
+      EXPECT_EQ(resources.live_buffer_count(), 1);
+    }
+    EXPECT_EQ(resources.live_buffer_count(), 0);
+  }
+  EXPECT_FALSE(uni20::cuda::is_initialized());
+}
+
+TEST_F(CudaDeviceTest, ScopedRuntimeMayBeInstalledAgainAfterShutdown)
+{
+  {
+    auto first = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 1});
+    EXPECT_EQ(&uni20::cuda::runtime(), &first);
+  }
+  {
+    auto second = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+    EXPECT_EQ(&uni20::cuda::runtime(), &second);
+    EXPECT_EQ(uni20::cuda::device_resources().streams().size(), 2);
+  }
+}
+
+TEST_F(CudaDeviceTest, RejectsASecondConcurrentRuntimeInstallation)
+{
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_DEATH(
+      {
+        auto first = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 1});
+        auto second = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 1});
+      },
+      "CUDA runtime is already installed");
+}
+
+TEST_F(CudaDeviceTest, RejectsShutdownWhileExternalBuffersRemainAlive)
+{
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_DEATH(
+      {
+        auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 1});
+        auto* leaked_buffer = new uni20::cuda::CudaBuffer<double>(4);
+        (void)leaked_buffer;
+      },
+      "buffers still borrow");
 }
 
 TEST_F(CudaDeviceTest, DiscoversAndCachesCapabilities)
@@ -225,8 +293,8 @@ TEST_F(CudaDeviceTest, SubmittedStreamReturnsOnlyAfterActualCompletion)
   ASSERT_TRUE(stream.has_value());
 
   Gate gate;
-  uni20::cuda::check(cudaLaunchHostFunc(stream->native_handle(), wait_for_gate, &gate),
-                     "cudaLaunchHostFunc test gate", 0);
+  uni20::cuda::check(cudaLaunchHostFunc(stream->native_handle(), wait_for_gate, &gate), "cudaLaunchHostFunc test gate",
+                     0);
   auto completion = stream->record_completion();
   stream.reset();
 

@@ -14,11 +14,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <limits>
-#include <memory>
 #include <mutex>
 #include <type_traits>
-#include <typeindex>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -28,80 +25,6 @@ namespace uni20::cuda
 template <typename T = std::byte> class CudaBuffer;
 template <typename T> class ReadAccess;
 template <typename T> class WriteAccess;
-
-/// \brief Device-local resources shared by CUDA buffers and streams.
-/// \details The context must outlive every buffer created from it and every
-///          stream handle acquired from its stream pool.
-class DeviceContext {
-  public:
-    /// \brief Configuration for one device-local CUDA context.
-    struct Config
-    {
-        Device device;
-        std::size_t stream_count;
-        unsigned int stream_flags = cudaStreamNonBlocking;
-    };
-
-    /// \brief Create the stream resources for one CUDA device.
-    explicit DeviceContext(Config config)
-        : device_(config.device), streams_({.device = config.device.ordinal(),
-                                            .stream_count = config.stream_count,
-                                            .stream_flags = config.stream_flags})
-    {}
-    DeviceContext(DeviceContext const&) = delete;
-    DeviceContext& operator=(DeviceContext const&) = delete;
-    DeviceContext(DeviceContext&&) = delete;
-    DeviceContext& operator=(DeviceContext&&) = delete;
-
-    /// \brief Return the device served by this context.
-    [[nodiscard]] Device device() const noexcept { return device_; }
-
-    /// \brief Return the context's actually-idle stream pool.
-    [[nodiscard]] StreamPool& streams() noexcept { return streams_; }
-    [[nodiscard]] StreamPool const& streams() const noexcept { return streams_; }
-
-    /// \brief Return the context-owned instance of one provider resource type.
-    /// \details The resource is constructed on first use and then retained until
-    ///          this context is destroyed. A context owns at most one instance
-    ///          of each concrete resource type. Provider resources are destroyed
-    ///          before the stream pool that they may reference.
-    template <class Resource, class... Args> [[nodiscard]] Resource& provider_resource(Args&&... args)
-    {
-      std::lock_guard lock(provider_resources_mutex_);
-      auto const key = std::type_index(typeid(Resource));
-      auto found = provider_resources_.find(key);
-      if (found != provider_resources_.end())
-      {
-        return static_cast<ProviderResourceModel<Resource>&>(*found->second).value;
-      }
-
-      auto resource = std::make_unique<ProviderResourceModel<Resource>>(std::forward<Args>(args)...);
-      Resource& result = resource->value;
-      provider_resources_.emplace(key, std::move(resource));
-      return result;
-    }
-
-  private:
-    struct ProviderResourceBase
-    {
-        virtual ~ProviderResourceBase() = default;
-    };
-
-    template <class Resource> struct ProviderResourceModel final : ProviderResourceBase
-    {
-        template <class... Args> explicit ProviderResourceModel(Args&&... args) : value(std::forward<Args>(args)...) {}
-
-        Resource value;
-    };
-
-    Device device_;
-    StreamPool streams_;
-    mutable std::mutex state_mutex_;
-    std::mutex provider_resources_mutex_;
-    std::unordered_map<std::type_index, std::unique_ptr<ProviderResourceBase>> provider_resources_;
-
-    template <typename> friend class CudaBuffer;
-};
 
 namespace detail
 {
@@ -175,23 +98,25 @@ template <typename T> class CudaBuffer {
     using read_access_type = ReadAccess<T>;
     using write_access_type = WriteAccess<T>;
 
-    /// \brief Allocate `size` elements on the context's CUDA device.
-    CudaBuffer(DeviceContext& context, std::size_t size) : context_(&context), size_(size)
+    /// \brief Allocate `size` elements on the installed runtime's default CUDA device.
+    explicit CudaBuffer(std::size_t size) : CudaBuffer(device_resources(), size) {}
+
+    /// \brief Allocate `size` elements from one CUDA device's resources.
+    CudaBuffer(DeviceResources& resources, std::size_t size) : resources_(&resources), size_(size)
     {
       std::size_t const bytes = checked_size_bytes(size_);
-      if (size_ == 0)
+      if (size_ != 0)
       {
-        return;
+        if (resources.device().capabilities().memory_pools_supported)
+        {
+          this->allocate_stream_ordered(bytes);
+        }
+        else
+        {
+          this->allocate_blocking(bytes);
+        }
       }
-
-      if (context.device().capabilities().memory_pools_supported)
-      {
-        this->allocate_stream_ordered(bytes);
-      }
-      else
-      {
-        this->allocate_blocking(bytes);
-      }
+      resources_->register_buffer();
     }
 
     CudaBuffer(CudaBuffer const&) = delete;
@@ -220,15 +145,15 @@ template <typename T> class CudaBuffer {
     /// \brief Return whether this is a zero-sized or moved-from allocation.
     [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
 
-    /// \brief Return the context that owns completion state for this buffer.
-    [[nodiscard]] DeviceContext& context() const
+    /// \brief Return the device resources borrowed by this buffer.
+    [[nodiscard]] DeviceResources& resources() const
     {
-      CHECK(context_ != nullptr);
-      return *context_;
+      CHECK(resources_ != nullptr);
+      return *resources_;
     }
 
     /// \brief Return the allocation's CUDA device.
-    [[nodiscard]] Device device() const { return this->context().device(); }
+    [[nodiscard]] Device device() const { return this->resources().device(); }
 
     /// \brief Wait for every submitted operation currently involving this buffer.
     void synchronize() const
@@ -236,7 +161,7 @@ template <typename T> class CudaBuffer {
       Completion writer_completion;
       std::vector<Completion> reader_completions;
       {
-        std::lock_guard lock(this->context().state_mutex_);
+        std::lock_guard lock(state_mutex_);
         CHECK(live_read_accesses_ == 0 && !live_write_access_,
               "cannot synchronize a CUDA buffer while access guards are live", data_, live_read_accesses_,
               live_write_access_);
@@ -275,23 +200,24 @@ template <typename T> class CudaBuffer {
     void allocate_blocking(std::size_t bytes)
     {
       void* raw_data = nullptr;
-      ScopedDevice guard(context_->device().ordinal());
-      check(cudaMalloc(&raw_data, bytes), "cudaMalloc", context_->device().ordinal());
+      ScopedDevice guard(resources_->device().ordinal());
+      check(cudaMalloc(&raw_data, bytes), "cudaMalloc", resources_->device().ordinal());
       data_ = static_cast<T*>(raw_data);
     }
 
     void allocate_stream_ordered(std::size_t bytes)
     {
-      auto stream = context_->streams().acquire();
+      auto stream = resources_->streams().acquire();
       void* raw_data = nullptr;
-      ScopedDevice guard(context_->device().ordinal());
-      check(cudaMallocAsync(&raw_data, bytes, stream.native_handle()), "cudaMallocAsync", context_->device().ordinal());
+      ScopedDevice guard(resources_->device().ordinal());
+      check(cudaMallocAsync(&raw_data, bytes, stream.native_handle()), "cudaMallocAsync",
+            resources_->device().ordinal());
       data_ = static_cast<T*>(raw_data);
 
       try
       {
         Completion completion = stream.record_completion();
-        std::lock_guard lock(context_->state_mutex_);
+        std::lock_guard lock(state_mutex_);
         writer_completion_ = std::move(completion);
       }
       catch (...)
@@ -299,7 +225,7 @@ template <typename T> class CudaBuffer {
         detail::synchronize_after_failed_publication(stream, "publish CUDA async allocation completion");
         detail::check_cuda_cleanup(cudaFreeAsync(data_, stream.native_handle()),
                                    "cudaFreeAsync after cudaMallocAsync publication failure",
-                                   context_->device().ordinal());
+                                   resources_->device().ordinal());
         detail::synchronize_after_failed_publication(stream, "free CUDA async allocation after publication failure");
         data_ = nullptr;
         size_ = 0;
@@ -312,7 +238,7 @@ template <typename T> class CudaBuffer {
       CHECK(stream, "cannot synchronize CUDA buffer access with an empty stream", data_);
       Completion writer_completion;
       {
-        std::lock_guard lock(this->context().state_mutex_);
+        std::lock_guard lock(state_mutex_);
         CHECK(!live_write_access_, "cannot acquire CUDA read access while a write access is live", data_);
         writer_completion = writer_completion_;
         ++live_read_accesses_;
@@ -327,7 +253,7 @@ template <typename T> class CudaBuffer {
       }
       catch (...)
       {
-        std::lock_guard lock(this->context().state_mutex_);
+        std::lock_guard lock(state_mutex_);
         CHECK(live_read_accesses_ > 0);
         --live_read_accesses_;
         throw;
@@ -340,7 +266,7 @@ template <typename T> class CudaBuffer {
       Completion writer_completion;
       std::vector<Completion> reader_completions;
       {
-        std::lock_guard lock(this->context().state_mutex_);
+        std::lock_guard lock(state_mutex_);
         CHECK(!live_write_access_ && live_read_accesses_ == 0,
               "cannot acquire CUDA write access while another access is live", data_, live_read_accesses_,
               live_write_access_);
@@ -363,7 +289,7 @@ template <typename T> class CudaBuffer {
       }
       catch (...)
       {
-        std::lock_guard lock(this->context().state_mutex_);
+        std::lock_guard lock(state_mutex_);
         CHECK(live_write_access_);
         live_write_access_ = false;
         throw;
@@ -375,7 +301,7 @@ template <typename T> class CudaBuffer {
       try
       {
         Completion completion = stream.record_completion();
-        std::lock_guard lock(this->context().state_mutex_);
+        std::lock_guard lock(state_mutex_);
         CHECK(live_read_accesses_ > 0);
         if (reader_completions_.size() == reader_completions_.capacity())
         {
@@ -391,7 +317,7 @@ template <typename T> class CudaBuffer {
         detail::synchronize_after_failed_publication(stream, "publish CUDA buffer reader completion");
       }
 
-      std::lock_guard lock(this->context().state_mutex_);
+      std::lock_guard lock(state_mutex_);
       CHECK(live_read_accesses_ > 0);
       --live_read_accesses_;
     }
@@ -401,7 +327,7 @@ template <typename T> class CudaBuffer {
       try
       {
         Completion completion = stream.record_completion();
-        std::lock_guard lock(this->context().state_mutex_);
+        std::lock_guard lock(state_mutex_);
         CHECK(live_write_access_);
         writer_completion_ = std::move(completion);
         reader_completions_.clear();
@@ -413,14 +339,14 @@ template <typename T> class CudaBuffer {
         detail::synchronize_after_failed_publication(stream, "publish CUDA buffer writer completion");
       }
 
-      std::lock_guard lock(this->context().state_mutex_);
+      std::lock_guard lock(state_mutex_);
       CHECK(live_write_access_);
       live_write_access_ = false;
     }
 
     void reset() noexcept
     {
-      if (context_ == nullptr)
+      if (resources_ == nullptr)
       {
         return;
       }
@@ -428,7 +354,7 @@ template <typename T> class CudaBuffer {
       Completion writer_completion;
       std::vector<Completion> reader_completions;
       {
-        std::lock_guard lock(context_->state_mutex_);
+        std::lock_guard lock(state_mutex_);
         CHECK(live_read_accesses_ == 0 && !live_write_access_,
               "cannot destroy or reset a CUDA buffer while access guards are live", data_, live_read_accesses_,
               live_write_access_);
@@ -448,7 +374,7 @@ template <typename T> class CudaBuffer {
       }
       catch (...)
       {
-        PANIC("CUDA buffer completion synchronization failed during cleanup", context_->device().ordinal());
+        PANIC("CUDA buffer completion synchronization failed during cleanup", resources_->device().ordinal());
       }
 
       if (data_ != nullptr)
@@ -456,39 +382,40 @@ template <typename T> class CudaBuffer {
         this->free_allocation();
       }
 
-      context_ = nullptr;
+      auto* resources = std::exchange(resources_, nullptr);
       data_ = nullptr;
       size_ = 0;
+      resources->unregister_buffer();
     }
 
     void move_from(CudaBuffer& other) noexcept
     {
-      if (other.context_ == nullptr)
+      if (other.resources_ == nullptr)
       {
         return;
       }
 
-      std::lock_guard lock(other.context_->state_mutex_);
+      std::lock_guard lock(other.state_mutex_);
       CHECK(other.live_read_accesses_ == 0 && !other.live_write_access_,
             "cannot move a CUDA buffer while access guards are live", other.data_, other.live_read_accesses_,
             other.live_write_access_);
-      context_ = other.context_;
+      resources_ = other.resources_;
       data_ = other.data_;
       size_ = other.size_;
       writer_completion_ = std::move(other.writer_completion_);
       reader_completions_ = std::move(other.reader_completions_);
       live_read_accesses_ = 0;
       live_write_access_ = false;
-      other.context_ = nullptr;
+      other.resources_ = nullptr;
       other.data_ = nullptr;
       other.size_ = 0;
     }
 
     void free_allocation() noexcept
     {
-      int const device = context_->device().ordinal();
+      int const device = resources_->device().ordinal();
       detail::BufferCleanupDeviceGuard guard(device);
-      if (!context_->device().capabilities().memory_pools_supported)
+      if (!resources_->device().capabilities().memory_pools_supported)
       {
         detail::check_cuda_cleanup(cudaFree(data_), "cudaFree", device);
         return;
@@ -496,7 +423,7 @@ template <typename T> class CudaBuffer {
 
       try
       {
-        auto stream = context_->streams().acquire();
+        auto stream = resources_->streams().acquire();
         detail::check_cuda_cleanup(cudaFreeAsync(data_, stream.native_handle()), "cudaFreeAsync", device);
         stream.synchronize();
       }
@@ -506,9 +433,10 @@ template <typename T> class CudaBuffer {
       }
     }
 
-    DeviceContext* context_ = nullptr;
+    DeviceResources* resources_ = nullptr;
     T* data_ = nullptr;
     std::size_t size_ = 0;
+    mutable std::mutex state_mutex_;
     mutable Completion writer_completion_;
     mutable std::vector<Completion> reader_completions_;
     mutable std::size_t live_read_accesses_ = 0;

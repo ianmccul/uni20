@@ -3,23 +3,31 @@
 /**
  * \file runtime.hpp
  * \ingroup backend_cuda
- * \brief CUDA device, stream, completion, and idle-stream-pool primitives.
+ * \brief CUDA device, stream, resource, and scoped runtime primitives.
  */
 
+#include <uni20/backend/cuda/device.hpp>
 #include <uni20/common/trace.hpp>
 
 #include <cuda_runtime_api.h>
 
+#include <atomic>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <typeindex>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace uni20::cuda
 {
 
 class Completion;
+class DeviceResources;
 class StreamPool;
+template <typename T> class CudaBuffer;
 
 namespace detail
 {
@@ -191,5 +199,156 @@ class StreamPool {
 
     friend class Stream::State;
 };
+
+/// \brief Mutable stream and provider resources associated with one CUDA device.
+/// \details Ordinary application code obtains the canonical instance from the
+///          installed CUDA runtime. Direct construction remains useful for
+///          focused tests and low-level bring-up. The resources object must
+///          outlive every buffer, stream lease, and provider lease created from
+///          it.
+class DeviceResources {
+  public:
+    /// \brief Configuration for one device's mutable CUDA resources.
+    struct Config
+    {
+        Device device;
+        std::size_t stream_count;
+        unsigned int stream_flags = cudaStreamNonBlocking;
+    };
+
+    /// \brief Create isolated resources for one CUDA device.
+    explicit DeviceResources(Config config);
+    DeviceResources(DeviceResources const&) = delete;
+    DeviceResources& operator=(DeviceResources const&) = delete;
+    DeviceResources(DeviceResources&&) = delete;
+    DeviceResources& operator=(DeviceResources&&) = delete;
+    ~DeviceResources() noexcept;
+
+    /// \brief Return the device served by this resource set.
+    [[nodiscard]] Device device() const noexcept { return device_; }
+
+    /// \brief Return the device's actually-idle stream pool.
+    [[nodiscard]] StreamPool& streams() noexcept { return streams_; }
+    [[nodiscard]] StreamPool const& streams() const noexcept { return streams_; }
+
+    /// \brief Return the resource-owned instance of one provider resource type.
+    /// \details The resource is constructed on first use and retained until
+    ///          shutdown. A device owns at most one instance of each concrete
+    ///          resource type. Provider resources are destroyed before the
+    ///          stream pool that they may reference.
+    template <class Resource, class... Args> [[nodiscard]] Resource& provider_resource(Args&&... args)
+    {
+      std::lock_guard lock(provider_resources_mutex_);
+      auto const key = std::type_index(typeid(Resource));
+      auto found = provider_resources_.find(key);
+      if (found != provider_resources_.end())
+      {
+        return static_cast<ProviderResourceModel<Resource>&>(*found->second).value;
+      }
+
+      auto resource = std::make_unique<ProviderResourceModel<Resource>>(std::forward<Args>(args)...);
+      Resource& result = resource->value;
+      provider_resources_.emplace(key, std::move(resource));
+      return result;
+    }
+
+    /// \brief Return the number of live CUDA buffers borrowing these resources.
+    [[nodiscard]] std::size_t live_buffer_count() const noexcept
+    {
+      return live_buffer_count_.load(std::memory_order_acquire);
+    }
+
+  private:
+    struct ProviderResourceBase
+    {
+        virtual ~ProviderResourceBase() = default;
+    };
+
+    template <class Resource> struct ProviderResourceModel final : ProviderResourceBase
+    {
+        template <class... Args> explicit ProviderResourceModel(Args&&... args) : value(std::forward<Args>(args)...) {}
+
+        Resource value;
+    };
+
+    void register_buffer() noexcept { live_buffer_count_.fetch_add(1, std::memory_order_relaxed); }
+    void unregister_buffer() noexcept;
+    void destroy_provider_resources() noexcept;
+
+    Device device_;
+    StreamPool streams_;
+    std::mutex provider_resources_mutex_;
+    std::unordered_map<std::type_index, std::unique_ptr<ProviderResourceBase>> provider_resources_;
+    std::atomic<std::size_t> live_buffer_count_ = 0;
+
+    template <typename> friend class CudaBuffer;
+};
+
+/// \brief Configuration for one scoped process-wide CUDA runtime installation.
+struct RuntimeConfig
+{
+    /// CUDA device ordinals to enroll; an empty list enrolls every visible device.
+    std::vector<int> device_ordinals{};
+    /// Device used by lookup without an explicit ordinal; defaults to the first enrolled device.
+    std::optional<int> default_device{};
+    /// Number of actually-idle streams owned by each enrolled device.
+    std::size_t streams_per_device = 8;
+    /// CUDA stream creation flags used by every enrolled device.
+    unsigned int stream_flags = cudaStreamNonBlocking;
+};
+
+/// \brief Scoped owner of the process-wide CUDA resource installation.
+/// \details Construction installs globally discoverable per-device resources.
+///          Destruction first uninstalls lookup, then drains and destroys those
+///          resources. The owner must outlive every CUDA Tensor, buffer, task,
+///          stream, and provider-resource lease.
+class Runtime {
+  public:
+    Runtime(Runtime const&) = delete;
+    Runtime& operator=(Runtime const&) = delete;
+    Runtime(Runtime&&) = delete;
+    Runtime& operator=(Runtime&&) = delete;
+    ~Runtime() noexcept;
+
+    /// \brief Return whether this runtime enrolled a CUDA device ordinal.
+    [[nodiscard]] bool has_device(int device) const noexcept;
+
+    /// \brief Return the canonical resources for an enrolled device.
+    [[nodiscard]] DeviceResources& device_resources(int device) const;
+
+    /// \brief Return the canonical resources for the configured default device.
+    [[nodiscard]] DeviceResources& default_device_resources() const;
+
+    /// \brief Return the configured default CUDA device ordinal, if any.
+    [[nodiscard]] std::optional<int> default_device() const noexcept { return default_device_; }
+
+  private:
+    struct construction_key
+    {};
+
+    explicit Runtime(RuntimeConfig config, construction_key);
+
+    std::vector<std::unique_ptr<DeviceResources>> device_resources_;
+    std::optional<int> default_device_;
+
+    friend Runtime initialize(RuntimeConfig);
+};
+
+/// \brief Install and return a scoped process-wide CUDA runtime owner.
+/// \details Only one installation may be active. Retain the returned object at
+///          the application startup boundary for as long as CUDA objects exist.
+[[nodiscard]] Runtime initialize(RuntimeConfig config = {});
+
+/// \brief Return whether a process-wide CUDA runtime is currently installed.
+[[nodiscard]] bool is_initialized() noexcept;
+
+/// \brief Return the installed runtime or fail when CUDA was not initialized.
+[[nodiscard]] Runtime& runtime();
+
+/// \brief Return canonical resources for an enrolled CUDA device.
+[[nodiscard]] DeviceResources& device_resources(int device);
+
+/// \brief Return canonical resources for the installed runtime's default device.
+[[nodiscard]] DeviceResources& device_resources();
 
 } // namespace uni20::cuda

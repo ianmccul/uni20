@@ -114,12 +114,14 @@ namespace uni20
 {
 
 /// \brief Tensor storage policy for non-blocking CUDA execution.
-/// \details Allocation requires an explicit `cuda::DeviceContext`. The policy
-///          selects CUDA backends and exposes opaque async CUDA handles; stream
-///          and provider-resource acquisition remains operation-local.
+/// \details Ordinary allocation uses the installed CUDA runtime's default
+///          device. An explicit `cuda::DeviceResources` selects another enrolled
+///          device or an isolated resource set used by tests. The policy selects
+///          CUDA backends and exposes opaque async CUDA handles; stream and
+///          provider-resource acquisition remains operation-local.
 struct CudaAsyncStorage
 {
-    using context_type = cuda::DeviceContext;
+    using context_type = cuda::DeviceResources;
     using accessor_factory_type = cuda::AsyncAccessorFactory;
     using backend_selector_type = linalg::backend_list<linalg::CublasBackend>;
 
@@ -135,7 +137,7 @@ struct CudaAsyncStorage
     [[nodiscard]] static auto make_storage_like(storage_t<ElementType> const& storage,
                                                 std::size_t size) -> storage_t<ElementType>
     {
-      return storage_t<ElementType>{storage.context(), size};
+      return storage_t<ElementType>{storage.resources(), size};
     }
 
     template <class ElementType>

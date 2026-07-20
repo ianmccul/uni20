@@ -209,9 +209,9 @@ ExecutionLease ExecutionPool::make_lease(cuda::ResourceLease<HandleSlot> handle,
   return ExecutionLease(std::move(handle), std::move(stream));
 }
 
-ExecutionPool& execution_pool(cuda::DeviceContext& context)
+ExecutionPool& execution_pool(cuda::DeviceResources& resources)
 {
-  return context.provider_resource<ExecutionPool>(context.streams(), context.streams().size());
+  return resources.provider_resource<ExecutionPool>(resources.streams(), resources.streams().size());
 }
 
 } // namespace uni20::cublas

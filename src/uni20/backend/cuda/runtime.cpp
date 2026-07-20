@@ -4,6 +4,7 @@
 #include <uni20/common/trace.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <iterator>
@@ -19,6 +20,8 @@ namespace uni20::cuda
 
 namespace
 {
+
+std::atomic<Runtime*> active_runtime = nullptr;
 
 [[noreturn]] void cleanup_failure(cudaError_t status, char const* operation, int device)
 {
@@ -595,5 +598,139 @@ void Stream::State::wait_on(Completion const& completion) const
   check(cudaStreamWaitEvent(selected.native_handle(), completion.state_->native_handle()), "cudaStreamWaitEvent",
         selected.device());
 }
+
+DeviceResources::DeviceResources(Config config)
+    : device_(config.device),
+      streams_(
+          {.device = config.device.ordinal(), .stream_count = config.stream_count, .stream_flags = config.stream_flags})
+{}
+
+DeviceResources::~DeviceResources() noexcept
+{
+  try
+  {
+    streams_.synchronize();
+  }
+  catch (...)
+  {
+    PANIC("failed to synchronize CUDA device resources during shutdown", device_.ordinal());
+  }
+
+  this->destroy_provider_resources();
+
+  try
+  {
+    streams_.synchronize();
+  }
+  catch (...)
+  {
+    PANIC("failed to synchronize CUDA provider-resource cleanup", device_.ordinal());
+  }
+
+  CHECK_EQUAL(this->live_buffer_count(), 0, "destroying CUDA device resources while buffers still borrow them",
+              device_.ordinal());
+}
+
+void DeviceResources::unregister_buffer() noexcept
+{
+  auto const previous = live_buffer_count_.fetch_sub(1, std::memory_order_acq_rel);
+  CHECK(previous > 0, "CUDA device-resource buffer count underflow", device_.ordinal());
+}
+
+void DeviceResources::destroy_provider_resources() noexcept
+{
+  decltype(provider_resources_) resources;
+  {
+    std::lock_guard lock(provider_resources_mutex_);
+    resources.swap(provider_resources_);
+  }
+  resources.clear();
+}
+
+Runtime::Runtime(RuntimeConfig config, construction_key)
+{
+  CHECK(active_runtime.load(std::memory_order_acquire) == nullptr, "a process-wide CUDA runtime is already installed");
+  CHECK(config.streams_per_device > 0, config.streams_per_device);
+
+  std::vector<Device> devices;
+  if (config.device_ordinals.empty())
+  {
+    devices = Device::enumerate();
+  }
+  else
+  {
+    devices.reserve(config.device_ordinals.size());
+    for (int const ordinal : config.device_ordinals)
+    {
+      CHECK(std::ranges::none_of(devices, [ordinal](Device device) { return device.ordinal() == ordinal; }),
+            "CUDA runtime device enrolled more than once", ordinal);
+      devices.push_back(Device::get(ordinal));
+    }
+  }
+
+  device_resources_.reserve(devices.size());
+  for (Device device : devices)
+  {
+    device_resources_.push_back(std::make_unique<DeviceResources>(DeviceResources::Config{
+        .device = device, .stream_count = config.streams_per_device, .stream_flags = config.stream_flags}));
+  }
+
+  if (config.default_device)
+  {
+    CHECK(this->has_device(*config.default_device), "default CUDA device is not enrolled", *config.default_device);
+    default_device_ = *config.default_device;
+  }
+  else if (!devices.empty())
+  {
+    default_device_ = devices.front().ordinal();
+  }
+
+  Runtime* expected = nullptr;
+  CHECK(active_runtime.compare_exchange_strong(expected, this, std::memory_order_release, std::memory_order_relaxed),
+        "a process-wide CUDA runtime is already installed");
+}
+
+Runtime::~Runtime() noexcept
+{
+  Runtime* expected = this;
+  CHECK(active_runtime.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel, std::memory_order_relaxed),
+        "destroying a CUDA runtime that is not the active installation");
+  device_resources_.clear();
+}
+
+bool Runtime::has_device(int device) const noexcept
+{
+  return std::ranges::any_of(device_resources_,
+                             [device](auto const& resources) { return resources->device().ordinal() == device; });
+}
+
+DeviceResources& Runtime::device_resources(int device) const
+{
+  auto const found = std::ranges::find_if(
+      device_resources_, [device](auto const& resources) { return resources->device().ordinal() == device; });
+  CHECK(found != device_resources_.end(), "CUDA device is not enrolled in the active runtime", device);
+  return **found;
+}
+
+DeviceResources& Runtime::default_device_resources() const
+{
+  CHECK(default_device_, "the active CUDA runtime has no enrolled default device");
+  return this->device_resources(*default_device_);
+}
+
+Runtime initialize(RuntimeConfig config) { return Runtime(std::move(config), Runtime::construction_key{}); }
+
+bool is_initialized() noexcept { return active_runtime.load(std::memory_order_acquire) != nullptr; }
+
+Runtime& runtime()
+{
+  Runtime* installed = active_runtime.load(std::memory_order_acquire);
+  CHECK(installed != nullptr, "CUDA runtime is not initialized; retain cuda::initialize() in the startup scope");
+  return *installed;
+}
+
+DeviceResources& device_resources(int device) { return runtime().device_resources(device); }
+
+DeviceResources& device_resources() { return runtime().default_device_resources(); }
 
 } // namespace uni20::cuda

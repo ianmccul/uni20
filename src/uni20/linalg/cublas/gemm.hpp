@@ -169,7 +169,7 @@ KernelAttempt try_staged_gemm(blas::BlasWritableMatrix<Scalar, OutputHandle> out
   require_view_covers_matrix(lhs.data, lhs);
   require_view_covers_matrix(rhs.data, rhs);
 
-  auto execution = uni20::cublas::execution_pool(output_buffer.context()).acquire();
+  auto execution = uni20::cublas::execution_pool(output_buffer.resources()).acquire();
   auto output_access = output_buffer.write_synchronized_with(execution.stream());
   auto lhs_access = lhs_buffer.read_synchronized_with(execution.stream());
   auto rhs_access = rhs_buffer.read_synchronized_with(execution.stream());

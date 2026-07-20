@@ -88,24 +88,24 @@ static_assert(std::is_move_assignable_v<uni20::cuda::WriteAccess<std::byte>>);
 
 TEST_F(CudaBufferTest, OwnsAndMovesDeviceAllocation)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-  uni20::cuda::CudaBuffer<> source(context, 4096);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  uni20::cuda::CudaBuffer<> source(resources, 4096);
   std::byte* address = nullptr;
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto access = source.write_synchronized_with(stream);
     address = access.data();
   }
-  context.streams().synchronize();
+  resources.streams().synchronize();
 
   ASSERT_NE(address, nullptr);
   EXPECT_EQ(source.size(), 4096U);
   EXPECT_EQ(source.size_bytes(), 4096U);
-  EXPECT_EQ(source.device(), context.device());
+  EXPECT_EQ(source.device(), resources.device());
 
   uni20::cuda::CudaBuffer<> destination(std::move(source));
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto access = destination.write_synchronized_with(stream);
     EXPECT_EQ(access.data(), address);
   }
@@ -116,12 +116,12 @@ TEST_F(CudaBufferTest, OwnsAndMovesDeviceAllocation)
 
 TEST_F(CudaBufferTest, RepeatedWriteWaitsForPreviousWriter)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 2});
-  uni20::cuda::CudaBuffer<> buffer(context, 4096);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 2});
+  uni20::cuda::CudaBuffer<> buffer(resources, 4096);
 
   BufferGate gate;
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto producer = buffer.write_synchronized_with(stream);
     uni20::cuda::check(cudaLaunchHostFunc(stream.native_handle(), wait_for_buffer_gate, &gate),
                        "cudaLaunchHostFunc buffer producer gate", 0);
@@ -129,7 +129,7 @@ TEST_F(CudaBufferTest, RepeatedWriteWaitsForPreviousWriter)
 
   std::atomic<bool> consumer_completed = false;
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto consumer = buffer.write_synchronized_with(stream);
     uni20::cuda::check(cudaMemsetAsync(consumer.data(), 0, consumer.size_bytes(), stream.native_handle()),
                        "cudaMemsetAsync dependent buffer", 0);
@@ -146,19 +146,19 @@ TEST_F(CudaBufferTest, RepeatedWriteWaitsForPreviousWriter)
   EXPECT_FALSE(consumer_completed.load(std::memory_order_acquire));
 
   gate.open.store(true, std::memory_order_release);
-  context.streams().synchronize();
+  resources.streams().synchronize();
   EXPECT_TRUE(consumer_completed.load(std::memory_order_acquire));
 }
 
 TEST_F(CudaBufferTest, IndependentBuffersDoNotAcquireAFalseDependency)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 2});
-  uni20::cuda::CudaBuffer<> blocked_buffer(context, 4096);
-  uni20::cuda::CudaBuffer<> independent_buffer(context, 4096);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 2});
+  uni20::cuda::CudaBuffer<> blocked_buffer(resources, 4096);
+  uni20::cuda::CudaBuffer<> independent_buffer(resources, 4096);
 
   BufferGate gate;
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto blocked = blocked_buffer.write_synchronized_with(stream);
     uni20::cuda::check(cudaLaunchHostFunc(stream.native_handle(), wait_for_buffer_gate, &gate),
                        "cudaLaunchHostFunc independent-buffer gate", 0);
@@ -166,7 +166,7 @@ TEST_F(CudaBufferTest, IndependentBuffersDoNotAcquireAFalseDependency)
 
   uni20::cuda::Completion independent_completion;
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto independent = independent_buffer.write_synchronized_with(stream);
     uni20::cuda::check(cudaMemsetAsync(independent.data(), 0, independent.size_bytes(), stream.native_handle()),
                        "cudaMemsetAsync independent buffer", 0);
@@ -179,19 +179,19 @@ TEST_F(CudaBufferTest, IndependentBuffersDoNotAcquireAFalseDependency)
 
   ASSERT_TRUE(blocked_entered);
   EXPECT_TRUE(independent_ready);
-  context.streams().synchronize();
+  resources.streams().synchronize();
 }
 
 TEST_F(CudaBufferTest, ConcurrentReadersOverlapAndWriterWaitsForOutstandingReaders)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 3});
-  uni20::cuda::CudaBuffer<> source(context, 4096);
-  uni20::cuda::CudaBuffer<> first_output(context, 4096);
-  uni20::cuda::CudaBuffer<> second_output(context, 4096);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 3});
+  uni20::cuda::CudaBuffer<> source(resources, 4096);
+  uni20::cuda::CudaBuffer<> first_output(resources, 4096);
+  uni20::cuda::CudaBuffer<> second_output(resources, 4096);
 
   BufferGate gate;
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto source_read = source.read_synchronized_with(stream);
     auto output_write = first_output.write_synchronized_with(stream);
     uni20::cuda::check(cudaMemcpyAsync(output_write.data(), source_read.data(), source_read.size_bytes(),
@@ -203,7 +203,7 @@ TEST_F(CudaBufferTest, ConcurrentReadersOverlapAndWriterWaitsForOutstandingReade
 
   uni20::cuda::Completion second_completion;
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto source_read = source.read_synchronized_with(stream);
     auto output_write = second_output.write_synchronized_with(stream);
     uni20::cuda::check(cudaMemcpyAsync(output_write.data(), source_read.data(), source_read.size_bytes(),
@@ -217,7 +217,7 @@ TEST_F(CudaBufferTest, ConcurrentReadersOverlapAndWriterWaitsForOutstandingReade
 
   uni20::cuda::Completion writer_completion;
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto writer = source.write_synchronized_with(stream);
     uni20::cuda::check(cudaMemsetAsync(writer.data(), 0, writer.size_bytes(), stream.native_handle()),
                        "cudaMemsetAsync after concurrent readers", 0);
@@ -239,12 +239,12 @@ TEST_F(CudaBufferTest, ConcurrentReadersOverlapAndWriterWaitsForOutstandingReade
 
 TEST_F(CudaBufferTest, ScopedAccessSynchronizesDuringStackUnwinding)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-  uni20::cuda::CudaBuffer<> buffer(context, 4096);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  uni20::cuda::CudaBuffer<> buffer(resources, 4096);
 
   EXPECT_THROW(
       {
-        auto stream = context.streams().acquire();
+        auto stream = resources.streams().acquire();
         auto access = buffer.write_synchronized_with(stream);
         uni20::cuda::check(cudaMemsetAsync(access.data(), 0, access.size_bytes(), stream.native_handle()),
                            "cudaMemsetAsync exception cleanup", 0);
@@ -252,21 +252,21 @@ TEST_F(CudaBufferTest, ScopedAccessSynchronizesDuringStackUnwinding)
       },
       std::runtime_error);
 
-  context.streams().synchronize();
-  EXPECT_EQ(context.streams().idle_stream_count(), 1U);
+  resources.streams().synchronize();
+  EXPECT_EQ(resources.streams().idle_stream_count(), 1U);
   {
-    auto stream = context.streams().acquire();
+    auto stream = resources.streams().acquire();
     auto access = buffer.write_synchronized_with(stream);
   }
-  context.streams().synchronize();
+  resources.streams().synchronize();
 }
 
 TEST_F(CudaBufferTest, MultipleReadAccessesRemainValidUntilExplicitRelease)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 2});
-  uni20::cuda::CudaBuffer<> buffer(context, 4096);
-  auto first_stream = context.streams().acquire();
-  auto second_stream = context.streams().acquire();
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 2});
+  uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+  auto first_stream = resources.streams().acquire();
+  auto second_stream = resources.streams().acquire();
 
   auto first = buffer.read_synchronized_with(first_stream);
   auto second = buffer.read_synchronized_with(second_stream);
@@ -278,15 +278,15 @@ TEST_F(CudaBufferTest, MultipleReadAccessesRemainValidUntilExplicitRelease)
   auto writer = buffer.write_synchronized_with(first_stream);
   writer.release();
   writer.release();
-  context.streams().synchronize();
+  resources.streams().synchronize();
 }
 
 TEST_F(CudaBufferTest, MovingAccessTransfersExactlyOneLiveToken)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 2});
-  uni20::cuda::CudaBuffer<> buffer(context, 4096);
-  auto first_stream = context.streams().acquire();
-  auto second_stream = context.streams().acquire();
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 2});
+  uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+  auto first_stream = resources.streams().acquire();
+  auto second_stream = resources.streams().acquire();
 
   auto first = buffer.read_synchronized_with(first_stream);
   auto second = buffer.read_synchronized_with(second_stream);
@@ -299,16 +299,16 @@ TEST_F(CudaBufferTest, MovingAccessTransfersExactlyOneLiveToken)
 
   auto writer = buffer.write_synchronized_with(first_stream);
   writer.release();
-  context.streams().synchronize();
+  resources.streams().synchronize();
 }
 
 TEST_F(CudaBufferTest, ReadAccessWhileWriterIsLiveFails)
 {
   EXPECT_DEATH(
       {
-        uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        uni20::cuda::CudaBuffer<> buffer(context, 4096);
-        auto stream = context.streams().acquire();
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+        auto stream = resources.streams().acquire();
         auto writer = buffer.write_synchronized_with(stream);
         (void)buffer.read_synchronized_with(stream);
       },
@@ -319,8 +319,8 @@ TEST_F(CudaBufferTest, AccessSynchronizedWithEmptyStreamFails)
 {
   EXPECT_DEATH(
       {
-        uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        uni20::cuda::CudaBuffer<> buffer(context, 4096);
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::CudaBuffer<> buffer(resources, 4096);
         (void)buffer.read_synchronized_with(uni20::cuda::Stream{});
       },
       "cannot synchronize CUDA buffer access with an empty stream");
@@ -330,9 +330,9 @@ TEST_F(CudaBufferTest, WriteAccessWhileReaderIsLiveFails)
 {
   EXPECT_DEATH(
       {
-        uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        uni20::cuda::CudaBuffer<> buffer(context, 4096);
-        auto stream = context.streams().acquire();
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+        auto stream = resources.streams().acquire();
         auto reader = buffer.read_synchronized_with(stream);
         (void)buffer.write_synchronized_with(stream);
       },
@@ -343,9 +343,9 @@ TEST_F(CudaBufferTest, WriteAccessWhileWriterIsLiveFails)
 {
   EXPECT_DEATH(
       {
-        uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        uni20::cuda::CudaBuffer<> buffer(context, 4096);
-        auto stream = context.streams().acquire();
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+        auto stream = resources.streams().acquire();
         auto writer = buffer.write_synchronized_with(stream);
         (void)buffer.write_synchronized_with(stream);
       },
@@ -356,9 +356,9 @@ TEST_F(CudaBufferTest, MovingBufferWhileAccessIsLiveFails)
 {
   EXPECT_DEATH(
       {
-        uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        uni20::cuda::CudaBuffer<> buffer(context, 4096);
-        auto stream = context.streams().acquire();
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+        auto stream = resources.streams().acquire();
         auto reader = buffer.read_synchronized_with(stream);
         uni20::cuda::CudaBuffer<> moved(std::move(buffer));
       },
@@ -369,9 +369,9 @@ TEST_F(CudaBufferTest, DestroyingBufferWhileAccessIsLiveFails)
 {
   EXPECT_DEATH(
       {
-        uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        auto buffer = std::make_unique<uni20::cuda::CudaBuffer<>>(context, 4096);
-        auto stream = context.streams().acquire();
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        auto buffer = std::make_unique<uni20::cuda::CudaBuffer<>>(resources, 4096);
+        auto stream = resources.streams().acquire();
         auto reader = buffer->read_synchronized_with(stream);
         buffer.reset();
       },
@@ -382,9 +382,9 @@ TEST_F(CudaBufferTest, SynchronizingBufferWhileAccessIsLiveFails)
 {
   EXPECT_DEATH(
       {
-        uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        uni20::cuda::CudaBuffer<> buffer(context, 4096);
-        auto stream = context.streams().acquire();
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+        auto stream = resources.streams().acquire();
         auto reader = buffer.read_synchronized_with(stream);
         buffer.synchronize();
       },
@@ -400,8 +400,8 @@ TEST_F(CudaBufferTest, ForeignDeviceStreamCarriesBufferCompletionsInBothDirectio
     GTEST_SKIP() << "test requires at least two CUDA devices";
   }
 
-  uni20::cuda::DeviceContext source_context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-  uni20::cuda::DeviceContext foreign_context({.device = uni20::cuda::Device::get(1), .stream_count = 1});
+  uni20::cuda::DeviceResources source_context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  uni20::cuda::DeviceResources foreign_context({.device = uni20::cuda::Device::get(1), .stream_count = 1});
   uni20::cuda::CudaBuffer<> buffer(source_context, 4096);
   auto source_stream = source_context.streams().acquire();
   auto foreign_stream = foreign_context.streams().acquire();

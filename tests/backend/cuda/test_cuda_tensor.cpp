@@ -46,16 +46,16 @@ class CudaTensorTest : public ::testing::Test {
     }
 };
 
-TEST_F(CudaTensorTest, ContextConstructionOwnsDeviceBufferAndOpaqueMdspan)
+TEST_F(CudaTensorTest, ExplicitResourcesConstructionOwnsDeviceBufferAndOpaqueMdspan)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-  tensor_type tensor(context, 2, 3);
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  tensor_type tensor(resources, 2, 3);
 
   EXPECT_EQ(tensor.rows(), 2);
   EXPECT_EQ(tensor.cols(), 3);
   EXPECT_EQ(tensor.size(), 6);
   EXPECT_EQ(tensor.storage().size(), 6U);
-  EXPECT_EQ(tensor.storage().device(), context.device());
+  EXPECT_EQ(tensor.storage().device(), resources.device());
 
   auto span = tensor.mdspan();
   EXPECT_EQ(&span.data_handle().buffer(), &tensor.storage());
@@ -69,18 +69,28 @@ TEST_F(CudaTensorTest, ContextConstructionOwnsDeviceBufferAndOpaqueMdspan)
   EXPECT_EQ(tensor.backend_selector(), uni20::CudaAsyncStorage::backend_selector());
 }
 
-TEST_F(CudaTensorTest, ShapeResetKeepsTheOriginalDeviceContext)
+TEST_F(CudaTensorTest, ShapeResetKeepsTheOriginalDeviceResources)
 {
-  uni20::cuda::DeviceContext context({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-  tensor_type tensor(context, 2, 3);
-  auto* const original_context = &tensor.storage().context();
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  tensor_type tensor(resources, 2, 3);
+  auto* const original_resources = &tensor.storage().resources();
 
   tensor.reset_shape(tensor_type::extents_type{4, 5});
 
-  EXPECT_EQ(&tensor.storage().context(), original_context);
+  EXPECT_EQ(&tensor.storage().resources(), original_resources);
   EXPECT_EQ(tensor.rows(), 4);
   EXPECT_EQ(tensor.cols(), 5);
   EXPECT_EQ(tensor.storage().size(), 20U);
+}
+
+TEST_F(CudaTensorTest, DefaultConstructionUsesInstalledRuntimeResources)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  uni20::CudaAsyncTensor<double, 2> tensor(3, 4);
+
+  EXPECT_EQ(tensor.rows(), 3);
+  EXPECT_EQ(tensor.cols(), 4);
+  EXPECT_EQ(&tensor.storage().resources(), &runtime.default_device_resources());
 }
 
 } // namespace

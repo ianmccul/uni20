@@ -88,9 +88,9 @@ struct SmokeResult
     std::string summary;
 };
 
-[[nodiscard]] SmokeResult smoke_test(uni20::cuda::Device device)
+[[nodiscard]] SmokeResult smoke_test(uni20::cuda::DeviceResources& resources)
 {
-  uni20::cuda::StreamPool pool({.device = device.ordinal(), .stream_count = 1});
+  auto& pool = resources.streams();
   uni20::cuda::Completion completion;
   {
     auto stream = pool.try_acquire();
@@ -122,9 +122,10 @@ void append_package_table(presentation::report_builder& report)
       .row("backend target", "linked", "uni20_backend_cuda")
       .row("runtime errors", "available", "structured diagnostics through the presentation layer")
       .row("device registry", "available", "validated identities and cached immutable capabilities")
-      .row("runtime resources", "available", "scoped stream handles, completion tokens, and idle-stream pools")
-      .row("Tensor CUDA storage", "planned", "not implemented in this checkpoint")
-      .row("CUDA task scheduler", "planned", "not implemented in this checkpoint");
+      .row("runtime resources", "available", "scoped global lifetime and canonical per-device resources")
+      .row("Tensor CUDA storage", "available", "opaque device mdspans and cuBLAS GEMM lowering")
+      .row("CUDA task scheduler", "available", "unified debug and oneTBB host/multi-device schedulers")
+      .row("async CUDA GEMM", "planned", "non-blocking resource admission is not yet wired to Tensor GEMM");
 }
 
 void append_device_table(presentation::report_builder& report, uni20::cuda::Device device, SmokeResult const& smoke)
@@ -226,14 +227,16 @@ int run_cuda_example()
 
   auto const current_device = uni20::cuda::Device::current();
   auto const devices = uni20::cuda::Device::enumerate();
+  auto cuda_lifetime = uni20::cuda::initialize({.streams_per_device = 1});
   report.field("current device", current_device.ordinal());
+  report.field("runtime default device", *cuda_lifetime.default_device());
 
   std::vector<SmokeResult> smoke_results;
   smoke_results.reserve(devices.size());
   bool all_passed = true;
   for (auto const device : devices)
   {
-    smoke_results.push_back(smoke_test(device));
+    smoke_results.push_back(smoke_test(uni20::cuda::device_resources(device.ordinal())));
     all_passed = all_passed && smoke_results.back().passed;
   }
 

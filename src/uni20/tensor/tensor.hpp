@@ -57,9 +57,11 @@ using DenseMatrix = Tensor<ElementType, 2, VectorStorage, LayoutPolicy>;
 
 #if UNI20_BACKEND_CUDA
 /// \brief Owning runtime-extents Tensor in non-blocking CUDA storage.
-/// \details Construction requires an explicit `cuda::DeviceContext`. Resolved
-///          mdspans expose opaque `cuda::CudaBufferView` handles and never
-///          perform host/device transfer or resource acquisition.
+/// \details Ordinary construction uses the installed CUDA runtime's default
+///          device. Passing an explicit `cuda::DeviceResources` selects a
+///          particular resource set. Resolved mdspans expose opaque
+///          `cuda::CudaBufferView` handles and never perform host/device transfer
+///          or resource acquisition.
 template <typename ElementType, std::size_t Rank, typename LayoutPolicy = ColumnMajor>
 using CudaAsyncTensor = Tensor<ElementType, Rank, CudaAsyncStorage, LayoutPolicy>;
 
