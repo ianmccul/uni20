@@ -16,9 +16,9 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
   interface. `CudaTaskPromise` stores the task's bound device while sharing the
   common promise state and internal task representation with `AsyncTask`, so
   suspended tasks use the same tested continuation and rescheduling machinery.
-- `debug_cuda_scheduler.hpp`: deterministic calling-thread CUDA scheduler bound
-  to one validated device. It establishes and restores the current CUDA device
-  around each run.
+- `debug_cuda_scheduler.hpp`: deterministic scheduler with one shared queue for
+  ordinary tasks and CUDA tasks on any validated device. It establishes and
+  restores the CUDA device around each CUDA activation.
 - `tbb_cuda_scheduler.hpp`: oneTBB CUDA scheduler with one arena per scheduler
   and an arena observer that establishes and restores the bound device for every
   participating worker or application thread.

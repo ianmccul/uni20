@@ -37,7 +37,7 @@ the full contract, including stack-local test schedulers.
 | `DebugScheduler` | deterministic, simple deadlock diagnostics | single-threaded | semantics tests, debugging |
 | `TbbScheduler` | parallel throughput | non-deterministic task interleaving | parallel CPU workloads |
 | `TbbNumaScheduler` | NUMA-aware dispatch over per-node TBB arenas | extra dispatch complexity | NUMA-sensitive workloads |
-| `DebugCudaScheduler` | deterministic device-bound execution | calling-thread only | CUDA semantics tests and bring-up |
+| `DebugCudaScheduler` | deterministic unified host/multi-device execution | calling-thread only | CUDA semantics tests and bring-up |
 | `TbbCudaScheduler` | parallel device-bound submission arena | non-deterministic task interleaving | asynchronous CUDA submission and provider calls |
 
 ## DebugScheduler
@@ -129,14 +129,14 @@ Diagnostics:
 
 ## CUDA Schedulers
 
-`DebugCudaScheduler` and `TbbCudaScheduler` implement the typed
-`ICudaScheduler` admission interface for `CudaTask`. They share ordinary
-`BasicTask` rescheduling and continuation routing with the host schedulers.
+`DebugCudaScheduler` and `TbbCudaScheduler` implement typed CUDA admission for
+`CudaTask`. They share ordinary `BasicTask` rescheduling and continuation
+routing with the host schedulers.
 
-Both schedulers are bound to one validated `cuda::Device`:
-
-- `DebugCudaScheduler` selects that device around `run()` and `run_all()` and
-  restores the calling thread before returning.
+- `DebugCudaScheduler` also admits `AsyncTask`. It uses one deterministic queue
+  for both domains and selects the device stored in each CUDA promise around
+  that activation. One instance can execute tasks for multiple devices and
+  restores the calling thread between activations.
 - `TbbCudaScheduler` owns one oneTBB arena and installs a
   `task_scheduler_observer`. Every worker or application thread entering that
   arena saves its previous CUDA device, selects the scheduler device, and
@@ -153,8 +153,10 @@ Tasks running in a CUDA scheduler arena must not call `cudaSetDevice` directly.
 Cross-device work enters the scheduler bound to the target device; this keeps
 the observer's save/restore stack authoritative for the whole arena activation.
 
-CUDA task admission is not global yet. A higher-level device context or Tensor
-storage policy will select the scheduler matching operand placement.
+An unbound nested task inherits its parent scheduler only within the same task
+domain. Crossing between host and CUDA requires explicit prior admission or
+route binding. CUDA task admission is not global yet; a higher-level runtime or
+Tensor storage policy will select the device for initial admission.
 
 ## Practical Guidance
 

@@ -152,8 +152,17 @@ class TbbCudaScheduler final : public ICudaScheduler {
 
     /// \brief Bind and submit a CUDA task for initial execution.
     /// \param task CUDA task to admit.
-    void schedule(CudaTask&& task) override
+    void schedule(CudaTask&& task)
     {
+      this->schedule(std::move(task), device_.ordinal());
+    }
+
+    /// \brief Submit a CUDA task after checking this scheduler's device.
+    /// \param task CUDA task to admit.
+    /// \param device Required CUDA runtime device ordinal.
+    void schedule(CudaTask&& task, int device) override
+    {
+      CHECK_EQUAL(device, device_.ordinal(), "CUDA task submitted to a scheduler for another device");
       cuda_promise(task.handle()).bind_device(device_.ordinal());
       TaskRegistry::record_task_scheduled(task.coroutine_handle());
       if (task.set_scheduler(this)) this->enqueue_task(std::move(task));

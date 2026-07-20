@@ -44,13 +44,16 @@ inline CudaTask CudaTaskPromise::get_return_object() noexcept
 }
 
 /// \brief Scheduler interface for initial `CudaTask` admission.
-class ICudaScheduler : public IScheduler {
+/// \details Virtual inheritance permits one scheduler object to implement both
+///          ordinary and CUDA admission with one unambiguous internal route.
+class ICudaScheduler : public virtual IScheduler {
   public:
     ~ICudaScheduler() override = default;
 
-    /// \brief Bind and submit a CUDA task for initial execution.
+    /// \brief Bind and submit a CUDA task for initial execution on a device.
     /// \param task CUDA task to admit.
-    virtual void schedule(CudaTask&& task) = 0;
+    /// \param device CUDA runtime device ordinal.
+    virtual void schedule(CudaTask&& task, int device) = 0;
 };
 
 } // namespace uni20::async

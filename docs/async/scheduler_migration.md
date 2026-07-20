@@ -1,9 +1,9 @@
 # Scheduler Routing and Task Domains
 
 **Status:** concrete host and CUDA promise types, promise-neutral suspended-task
-routing, cross-scheduler nested continuations, and deterministic plus oneTBB
-device-bound CUDA schedulers are implemented. CUDA-specific nesting legality
-and explicit live-task migration remain future work.
+routing, same-domain scheduler inheritance, cross-domain explicit routing, and
+deterministic unified host/CUDA execution are implemented. The oneTBB CUDA
+scheduler remains device-bound pending the unified TBB scheduler checkpoint.
 
 This note separates three related mechanisms: initial scheduler admission,
 rescheduling after suspension, and nested continuation routing. CUDA backend and
@@ -36,8 +36,10 @@ BasicTask   = move-only ownership claim for either concrete task kind
 The concrete type controls initial scheduler admission:
 
 - `IAsyncScheduler::schedule(AsyncTask&&)` admits ordinary host tasks;
-- `ICudaScheduler::schedule(CudaTask&&)` admits CUDA tasks;
-- neither scheduler interface can accidentally admit the other concrete type.
+- `ICudaScheduler::schedule(CudaTask&&, int)` admits CUDA tasks and binds an
+  explicit device;
+- one scheduler object may implement both interfaces without erasing the task
+  domain.
 
 Each concrete promise constructs its declared public task directly. After
 admission, schedulers and awaiters store and route the task as `BasicTask`.
@@ -93,9 +95,11 @@ and which kernel is legal.
 
 ## Nested Entry and Return
 
-When a coroutine awaits another Uni20 task, the child first receives any
-missing scheduler or CUDA-device binding permitted by the parent. Entry then
-follows this rule:
+When a coroutine awaits another Uni20 task, an unbound child inherits the
+parent scheduler only when both tasks have the same domain. A same-domain CUDA
+child may also inherit its parent's device. Cross-domain nesting requires the
+child to have been explicitly admitted or bound to a scheduler before it is
+awaited. Entry then follows this rule:
 
 | Prepared child route | Action |
 |---|---|
@@ -126,23 +130,19 @@ onto the CUDA scheduler after completion.
 
 ## Current CUDA Schedulers
 
-`DebugCudaScheduler` is the deterministic first implementation of
-`ICudaScheduler`. It:
+`DebugCudaScheduler` is the deterministic first unified implementation. It
+derives from `DebugScheduler`, implements CUDA admission, and uses one runnable
+queue for ordinary and CUDA tasks. Ordinary activations run in the host domain.
+Each CUDA activation reads its bound device from `CudaTaskPromise`, establishes
+that device with `cuda::ScopedDevice`, and restores the calling thread before
+the next activation. One scheduler can therefore drive host work and CUDA work
+for every visible device, including from `get_wait()`.
 
-- is constructed for one validated `cuda::Device`;
-- runs queued tasks on the calling thread;
-- uses `cuda::ScopedDevice` to establish its device for `run()` and `run_all()`;
-- restores the calling thread's previous CUDA device before returning;
-- preserves the ordinary debug-scheduler meaning of `run_all()`: run until no
-  task remains runnable in that scheduler, not until externally suspended work
-  becomes viable.
-
-Tests cover direct CUDA admission, rescheduling after a buffer suspension, one
-scheduler per visible device with out-of-order multi-device resumption, and an
-`AsyncTask` parent returning to its CPU scheduler after a CUDA child. They also
-cover CUDA parents awaiting unbound ordinary and CUDA children on the same
-device scheduler. The multi-device case skips when fewer than two devices are
-visible.
+Tests cover direct CUDA admission, resumption after buffer suspension,
+multi-device tasks in one queue, explicit host/CUDA nesting in both directions,
+same-device direct transfer, cross-device resubmission, exception propagation,
+cancellation, and calling-thread device restoration. A separate non-CUDA death
+test proves that an unbound cross-domain child cannot inherit a scheduler.
 
 `TbbCudaScheduler` is the parallel implementation. Each instance owns one
 oneTBB arena and one `task_scheduler_observer` for its validated CUDA device.
@@ -152,8 +152,9 @@ participation in another device arena uses a thread-local selection stack, so
 returning from device 1 to an outer device-0 arena restores device 0 before the
 outer coroutine continues.
 
-The TBB scheduler implements the same `ICudaScheduler` admission and
-`IScheduler` rescheduling contracts as the debug scheduler. Its `run_all()` has
+The TBB CUDA scheduler implements CUDA admission and `IScheduler`
+rescheduling, but remains a separate device-bound scheduler in this checkpoint.
+Its `run_all()` has
 the same activation-quiescence meaning as `TbbScheduler`: externally suspended
 tasks may become runnable and submit a later activation.
 
@@ -235,10 +236,11 @@ resource waiters.
 
 ## Remaining Tests and Work
 
-The implemented debug and TBB tests establish the fundamental cross-domain
-route. The next checkpoints should add:
+The unified debug tests establish the target task-domain route. The next
+checkpoints should add:
 
-- global or context-level typed CUDA admission that selects a device scheduler;
+- one TBB scheduler with host execution plus one CUDA arena per enrolled device;
+- global or context-level typed CUDA admission through that unified scheduler;
 - exception and cancellation propagation across a host/CUDA scheduler boundary;
 - scheduler destruction diagnostics with outstanding suspended tasks;
 - task-registry diagnostics that identify the current scheduler/device domain;
@@ -248,8 +250,4 @@ route. The next checkpoints should add:
 
 - How a CUDA device context exposes typed initial task admission.
 - Whether scheduler identity should be recorded separately for diagnostics.
-- What operation drains or shuts down a multi-scheduler device context.
-- Whether any future task domain genuinely requires a specialized promise;
-  adding one would require a new common internal routing design and should be
-  justified by persistent task state that cannot live in the scheduler or
-  coroutine locals.
+- What operation drains or shuts down the unified host/device runtime.

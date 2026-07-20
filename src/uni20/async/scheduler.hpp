@@ -37,7 +37,7 @@ class IScheduler {
 };
 
 /// \brief Scheduler interface for initial `AsyncTask` submission and host-side progress.
-class IAsyncScheduler : public IScheduler {
+class IAsyncScheduler : public virtual IScheduler {
   public:
     /// \brief Virtual destructor.
     ~IAsyncScheduler() override = default;

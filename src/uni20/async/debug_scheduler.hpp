@@ -36,7 +36,7 @@ inline void dump_deadlock_graphviz_snapshot()
 } // namespace detail
 
 /// \brief Simple FIFO scheduler
-class DebugScheduler final : public IAsyncScheduler {
+class DebugScheduler : public IAsyncScheduler {
   public:
     /// \brief Default-construct an empty scheduler.
     DebugScheduler() = default;
@@ -49,7 +49,7 @@ class DebugScheduler final : public IAsyncScheduler {
       TaskRegistry::record_task_scheduled(task.coroutine_handle());
       if (task.set_scheduler(this))
       {
-        Handles_.push_back(std::move(task));
+        this->enqueue_task(std::move(task));
       }
     }
 
@@ -115,12 +115,19 @@ class DebugScheduler final : public IAsyncScheduler {
     {
       TRACE_MODULE(ASYNC, "Rescheduling a task", &task, task.coroutine_handle());
       // Assume sched_ is already set
-      Handles_.push_back(std::move(task));
+      this->enqueue_task(std::move(task));
     }
 
     bool Blocked_ = false;
 
     std::vector<BasicTask> Handles_;
+
+  protected:
+    /// \brief Add one already-bound task to the runnable queue.
+    void enqueue_task(BasicTask&& task) { Handles_.push_back(std::move(task)); }
+
+    /// \brief Resume one queued task in the execution context selected by this scheduler.
+    virtual void resume_task(BasicTask& task) { task.resume(); }
 };
 
 namespace detail
@@ -251,7 +258,7 @@ inline void DebugScheduler::run()
   for (auto&& h : H)
   {
     TRACE_MODULE(ASYNC, "resuming coroutine...", &h, h.coroutine_handle());
-    h.resume();
+    this->resume_task(h);
     CHECK(!h);
     TRACE_MODULE(ASYNC, "here", &h, Handles_.size());
   }

@@ -86,20 +86,20 @@ bridge bypasses it), and step 4 is what eventually retires the bridge.
 
 ## Scheduling: lightweight submission and provider execution
 
-Uni20 allows multiple schedulers. The CUDA design uses one logical scheduler
-arena per device. Distinct initial-admission interfaces prevent scheduler-family
-mixups: `IAsyncScheduler` accepts `AsyncTask`, while `ICudaScheduler` accepts
-`CudaTask`. The concrete task types have distinct promises over a shared
-`TaskPromiseBase`; both become the same promise-neutral `BasicTask` ownership
-token after admission, so buffer wakeups and nested continuations use one
-rescheduling contract. Promise type records the declared task kind, while the
-task's actual `IScheduler*` route remains authoritative for execution.
+Uni20 allows multiple schedulers. Distinct initial-admission interfaces retain
+task-domain information: `IAsyncScheduler` accepts `AsyncTask`, while
+`ICudaScheduler` accepts `CudaTask` with an explicit device. A scheduler may
+implement both interfaces. The concrete task types have distinct promises over
+a shared `TaskPromiseBase`; both become the same promise-neutral `BasicTask`
+ownership token after admission, so buffer wakeups and nested continuations use
+one rescheduling contract. Promise type records the declared task kind, while
+the task's actual `IScheduler*` route remains authoritative for execution.
 
 An ordinary coroutine enters the CUDA task domain by `co_await`ing a newly
-created `CudaTask` already bound to the appropriate device scheduler. The
-parent remains an `AsyncTask` and resumes through its own scheduler when the
-CUDA child completes. The concrete task type controls only initial admission;
-the selected scheduler is runtime state in the shared promise. Explicit
+created `CudaTask` already bound to an appropriate scheduler and device. The
+parent remains an `AsyncTask` and resumes through its own route when the CUDA
+child completes. Scheduler inheritance is same-domain only; crossing domains
+is explicit even when one unified scheduler executes both tasks. Explicit
 live-task migration remains a separate future capability.
 
 A oneTBB arena limits simultaneous participation but does not own fixed worker

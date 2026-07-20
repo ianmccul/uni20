@@ -655,7 +655,12 @@ inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle 
   CHECK(child);
   CHECK(parent.promise().scheduler(), "nested task parent has no scheduler route");
 
-  if (!child.promise().scheduler()) child.promise().sched_ = parent.promise().scheduler();
+  if (!child.promise().scheduler())
+  {
+    CHECK(parent.domain() == child.domain(),
+          "an unbound nested task cannot inherit a scheduler across task domains");
+    child.promise().sched_ = parent.promise().scheduler();
+  }
 
   if (child.domain() != TaskDomain::cuda) return;
 

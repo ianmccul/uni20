@@ -110,7 +110,7 @@ TEST(AsyncTaskRouteDeathTest, CudaDeviceCannotBeBoundAfterTaskStarts)
   task.set_cancel_on_resume();
 }
 
-TEST(AsyncTaskRouteDeathTest, HostParentCannotInferUnboundCudaChildDevice)
+TEST(AsyncTaskRouteDeathTest, CrossDomainChildCannotInheritScheduler)
 {
   EXPECT_DEATH(
       {
@@ -120,7 +120,7 @@ TEST(AsyncTaskRouteDeathTest, HostParentCannotInferUnboundCudaChildDevice)
         scheduler.schedule(std::move(parent));
         scheduler.run_all();
       },
-      "unbound CUDA child cannot infer a device");
+      "cannot inherit a scheduler across task domains");
 }
 
 /// \brief A coroutine that forwards one value from a read buffer to a write buffer.

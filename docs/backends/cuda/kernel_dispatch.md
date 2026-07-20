@@ -178,9 +178,10 @@ when they may be called outside the device scheduler.
 
 The scheduler pointer in the shared Uni20 coroutine promise determines where a
 viable task is submitted. Initial admission remains type-specific:
-`IAsyncScheduler` accepts `AsyncTask`, while `ICudaScheduler` accepts `CudaTask`.
-A CUDA scheduling front-end selects the per-device scheduler from explicit
-device or Tensor-storage placement.
+`IAsyncScheduler` accepts `AsyncTask`, while `ICudaScheduler` accepts a
+`CudaTask` together with its device. One scheduler object may implement both
+interfaces, as `DebugCudaScheduler` does. A CUDA scheduling front-end will
+select the device from explicit or Tensor-storage placement.
 
 An ordinary CPU coroutine enters that CUDA task domain by awaiting a newly
 created task:
@@ -190,7 +191,8 @@ co_await cuda_operation(device, operands...); // returns CudaTask
 ```
 
 The outer `AsyncTask` remains a distinct coroutine with its original promise and
-scheduler route. The nested `CudaTask` is scheduled on its device context. When
+scheduler route. The nested `CudaTask` must already have an explicit scheduler
+and device route; cross-domain nesting never inherits the parent's route. When
 it completes, the outer continuation is submitted through the scheduler
 recorded in the outer promise.
 
