@@ -31,6 +31,21 @@ concept PubliclySchedules = requires(Scheduler& scheduler, Task&& task) { schedu
 struct CudaTaskTestError
 {};
 
+struct ObserveCudaPromiseDevice
+{
+    int& device;
+
+    [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+
+    BasicTask await_suspend(BasicTask task) const noexcept
+    {
+      device = uni20::async::cuda_promise(task.handle()).device().value_or(-1);
+      return task;
+    }
+
+    constexpr void await_resume() const noexcept {}
+};
+
 class DebugCudaSchedulerTest : public ::testing::Test {
   protected:
     void SetUp() override
@@ -74,7 +89,11 @@ TEST_F(DebugCudaSchedulerTest, RunsCudaTaskOnBoundDeviceAndRestoresCallingThread
     co_return;
   }(observed_device, status);
 
+  auto const handle = task.handle();
+  EXPECT_EQ(handle.domain(), uni20::async::TaskDomain::cuda);
+  EXPECT_FALSE(uni20::async::cuda_promise(handle).device());
   scheduler.schedule(std::move(task));
+  EXPECT_EQ(uni20::async::cuda_promise(handle).device(), target_device_);
   scheduler.run();
 
   EXPECT_EQ(status, cudaSuccess);
@@ -314,13 +333,15 @@ TEST_F(DebugCudaSchedulerTest, CudaParentAwaitsUnboundCudaChildOnSameScheduler)
 {
   DebugCudaScheduler scheduler(target_device_);
   std::vector<int> events;
+  int child_promise_device = -1;
 
-  auto child = [](std::vector<int>& events) static -> CudaTask {
+  auto child = [](std::vector<int>& events, int& promise_device) static -> CudaTask {
+    co_await ObserveCudaPromiseDevice{promise_device};
     int current_device = -1;
     CHECK_EQUAL(static_cast<int>(cudaGetDevice(&current_device)), static_cast<int>(cudaSuccess));
     events.push_back(10 + current_device);
     co_return;
-  }(events);
+  }(events, child_promise_device);
 
   auto parent = [](CudaTask child, std::vector<int>& events) static -> CudaTask {
     events.push_back(1);
@@ -332,6 +353,7 @@ TEST_F(DebugCudaSchedulerTest, CudaParentAwaitsUnboundCudaChildOnSameScheduler)
   scheduler.run_all();
 
   EXPECT_EQ(events, (std::vector<int>{1, 10 + target_device_, 2}));
+  EXPECT_EQ(child_promise_device, target_device_);
 }
 
 TEST_F(DebugCudaSchedulerTest, CudaPromisePropagatesUnhandledExceptionToWriter)

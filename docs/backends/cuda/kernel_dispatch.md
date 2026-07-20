@@ -58,9 +58,10 @@ CPU AsyncTask
 `TaskPromiseBase` implementation. The concrete type identifies the declared
 task kind and controls type-safe initial admission, while the selected scheduler
 is recorded in the common promise state and remains authoritative for execution.
-Device placement belongs to the CUDA scheduler/context and Tensor storage, not
-to task-specific promise state. A live task does not change concrete task type
-when it crosses a scheduler boundary.
+The selected device ordinal is stored only in `CudaTaskPromise`: initial
+admission binds it from Tensor placement and an unbound nested CUDA task may
+inherit it from a CUDA parent. A live task does not change concrete task type or
+device after execution starts.
 
 Lightweight and host-intensive CUDA calls use the same device scheduler and
 resource model initially. A host-intensive provider call occupies one device
@@ -193,11 +194,11 @@ scheduler route. The nested `CudaTask` is scheduled on its device context. When
 it completes, the outer continuation is submitted through the scheduler
 recorded in the outer promise.
 
-Both task types use the same promise, but their concrete return types remain
-fixed at creation. Scheduler migration is a separate future capability. A
-`CudaTask` could migrate between compatible device schedulers by updating the
-common scheduler route consistently; that does not move its Tensor operands or
-change their device.
+Both task promises share `TaskPromiseBase`, but their concrete promise and
+return types remain fixed at creation. Scheduler migration is a separate future
+capability. A `CudaTask` could migrate between compatible schedulers only while
+preserving its bound device; that does not move its Tensor operands or change
+their device.
 
 Required migration invariants are:
 

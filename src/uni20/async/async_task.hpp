@@ -27,15 +27,25 @@ class TaskFactory;
 class AsyncTask;
 class CudaTask;
 
+/// \brief Execution domain declared by a concrete Uni20 task promise.
+enum class TaskDomain
+{
+  none,
+  host,
+  cuda,
+};
+
 /// \brief Promise concept accepted by Uni20 task machinery.
 template <typename T>
-concept TaskPromise = std::derived_from<T, TaskPromiseBase>;
+concept TaskPromise = std::derived_from<T, TaskPromiseBase> && requires {
+  { T::task_domain } -> std::convertible_to<TaskDomain>;
+};
 
 /// \brief Non-owning erased identity for one Uni20 coroutine frame.
-/// \details The coroutine and promise pointers are always constructed together
-///          from the original typed coroutine handle. A TaskHandle does not add
-///          or release an ownership claim and never destroys a frame
-///          automatically.
+/// \details The coroutine pointer, promise pointer, and concrete-promise domain
+///          are always captured together from the original typed coroutine
+///          handle. A TaskHandle does not add or release an ownership claim and
+///          never destroys a frame automatically.
 class TaskHandle {
   public:
     constexpr TaskHandle() noexcept = default;
@@ -48,6 +58,13 @@ class TaskHandle {
 
     [[nodiscard]] TaskPromiseBase& promise() const noexcept;
 
+    /// \brief Return the execution domain declared by the concrete promise.
+    [[nodiscard]] TaskDomain domain() const noexcept
+    {
+      DEBUG_PRECONDITION(domain_ != TaskDomain::none);
+      return domain_;
+    }
+
     [[nodiscard]] bool done() const noexcept { return !coroutine_ || coroutine_.done(); }
 
     friend constexpr bool operator==(TaskHandle lhs, TaskHandle rhs) noexcept
@@ -56,14 +73,16 @@ class TaskHandle {
     }
 
   private:
-    TaskHandle(std::coroutine_handle<> coroutine, TaskPromiseBase* promise) noexcept
-        : coroutine_(coroutine), promise_(promise)
+    TaskHandle(std::coroutine_handle<> coroutine, TaskPromiseBase* promise, TaskDomain domain) noexcept
+        : coroutine_(coroutine), promise_(promise), domain_(domain)
     {
       DEBUG_CHECK_EQUAL(static_cast<bool>(coroutine_), promise_ != nullptr);
+      DEBUG_CHECK_EQUAL(static_cast<bool>(coroutine_), domain_ != TaskDomain::none);
     }
 
     std::coroutine_handle<> coroutine_{};
     TaskPromiseBase* promise_ = nullptr;
+    TaskDomain domain_ = TaskDomain::none;
 
     friend class TaskPromiseBase;
 };

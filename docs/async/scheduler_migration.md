@@ -29,6 +29,7 @@ AsyncTask --> AsyncTaskPromise --\
 CudaTask  --> CudaTaskPromise  --/
 
 TaskHandle  = non-owning erased coroutine identity + TaskPromiseBase pointer
+              + immutable concrete-promise domain tag
 BasicTask   = move-only ownership claim for either concrete task kind
 ```
 
@@ -48,13 +49,13 @@ Both concrete task types consequently use the same tested implementation for:
 - scheduler recording and rescheduling;
 - nested-task continuations and cross-scheduler return.
 
-`TaskHandle` always obtains its paired coroutine and promise pointers from the
-original typed coroutine handle. It is non-owning and is valid only while some
-runtime ownership path keeps the coroutine frame alive. Code must not recreate
-a `std::coroutine_handle<TaskPromiseBase>` from a frame address: promise
-inheritance does not make that conversion valid. `BasicTask` carries the actual
-ownership claim wherever generic runtime code does not need the declared task
-kind.
+`TaskHandle` always obtains its paired coroutine pointer, promise pointer, and
+domain tag from the original typed coroutine handle. It is non-owning and is
+valid only while some runtime ownership path keeps the coroutine frame alive.
+Code must not recreate a `std::coroutine_handle<TaskPromiseBase>` from a frame
+address: promise inheritance does not make that conversion valid. `BasicTask`
+carries the actual ownership claim wherever generic runtime code does not need
+the declared task kind.
 
 This arrangement keeps initial admission and declared task identity type-safe
 without duplicating the coroutine runtime or adding virtual promise dispatch.
@@ -158,18 +159,24 @@ visible.
 
 ## Device Selection
 
-`CudaTask` does not contain a device ordinal or device context. Device selection
-belongs to the chosen CUDA scheduler and the Tensor storage/device domain.
-Callers that construct CUDA work must bind the task to the scheduler matching
-its operands before the task can execute.
+`CudaTaskPromise` contains an optional CUDA device ordinal. The device is
+unbound when the coroutine frame is created and is fixed before first resume:
 
-This avoids duplicating placement state in the promise and prevents transient
-resources from becoming task-global state. Streams, provider handles,
-workspaces, and buffer leases remain operation-local RAII values.
+- typed initial admission binds the device selected by the CUDA scheduler;
+- an unbound CUDA child nested under a bound CUDA parent inherits the parent's
+  device;
+- repeating the same pre-start binding is harmless;
+- rebinding to another device, or binding after execution starts, is invalid.
 
-A higher-level CUDA scheduling function may later select the correct
-`ICudaScheduler` from an explicit device or Tensor storage. That policy should
-remain above the shared coroutine machinery.
+The device ordinal is CUDA-specific promise state. Generic task machinery sees
+only the immutable domain tag stored in `TaskHandle`; after checking that tag,
+CUDA-aware code may narrow the common promise pointer to `CudaTaskPromise`.
+Streams, provider handles, workspaces, and buffer leases remain operation-local
+RAII values rather than task-global state.
+
+A higher-level CUDA scheduling function may later select the correct execution
+route from an explicit device or Tensor storage. That policy should remain
+above the shared coroutine machinery.
 
 ## Live-Task Migration
 

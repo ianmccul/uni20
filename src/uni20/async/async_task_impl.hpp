@@ -168,6 +168,13 @@ std::coroutine_handle<> BasicTask::await_suspend(std::coroutine_handle<ParentPro
   if (!handle_.promise().scheduler()) handle_.promise().sched_ = parent_scheduler;
   auto* child_scheduler = handle_.promise().scheduler();
 
+  if (parent.domain() == TaskDomain::cuda && handle_.domain() == TaskDomain::cuda)
+  {
+    auto const parent_device = cuda_promise(parent).device();
+    auto& child_promise = cuda_promise(handle_);
+    if (!child_promise.device() && parent_device) child_promise.bind_device(*parent_device);
+  }
+
   TaskPromiseBase::note_suspended(parent);
   handle_.promise().continuation_ = parent;
   handle_.promise().continuation_exception_ = &await_exception_;

@@ -342,7 +342,7 @@ class TaskPromiseBase {
     [[nodiscard]] TaskHandle self() noexcept
     {
       DEBUG_PRECONDITION(self_);
-      return TaskHandle(self_, this);
+      return self_;
     }
 
     /// \brief Record that a coroutine has transitioned into a runnable/running state.
@@ -455,13 +455,13 @@ class TaskPromiseBase {
     [[nodiscard]] TaskHandle initialize_task(std::coroutine_handle<Promise> handle) noexcept
     {
       DEBUG_PRECONDITION(!self_);
-      self_ = handle;
+      self_ = TaskHandle::from(handle);
       this->add_awaiter();
-      TaskRegistry::register_task(self_);
+      TaskRegistry::register_task(self_.coroutine());
 #if UNI20_DEBUG_DAG
-      TaskRegistry::record_task_dependencies(self_, ReadDependencies, WriteDependencies);
+      TaskRegistry::record_task_dependencies(self_.coroutine(), ReadDependencies, WriteDependencies);
 #endif
-      return TaskHandle::from(handle);
+      return self_;
     }
 
     /// \brief Suspend immediately on coroutine entry.
@@ -571,12 +571,14 @@ class TaskPromiseBase {
     // void notify_ready(TaskHandle handle) { sched_->schedule(handle); }
 
   private:
-    std::coroutine_handle<> self_{};
+    TaskHandle self_{};
 };
 
 /// \brief Promise type for ordinary AsyncTask coroutines.
 class AsyncTaskPromise final : public TaskPromiseBase {
   public:
+    static constexpr TaskDomain task_domain = TaskDomain::host;
+
     using TaskPromiseBase::TaskPromiseBase;
 
     [[nodiscard]] AsyncTask get_return_object() noexcept
@@ -589,10 +591,43 @@ class AsyncTaskPromise final : public TaskPromiseBase {
 /// \brief Promise type for CUDA-constrained CudaTask coroutines.
 class CudaTaskPromise final : public TaskPromiseBase {
   public:
+    static constexpr TaskDomain task_domain = TaskDomain::cuda;
+
     using TaskPromiseBase::TaskPromiseBase;
 
     [[nodiscard]] CudaTask get_return_object() noexcept;
+
+    /// \brief Return the CUDA device bound to this task, if initial admission has selected one.
+    [[nodiscard]] std::optional<int> device() const noexcept { return device_; }
+
+    /// \brief Bind the CUDA device before the coroutine starts.
+    /// \param device Non-negative CUDA runtime device ordinal.
+    /// \pre The task has not started and is either unbound or already bound to the same device.
+    void bind_device(int device)
+    {
+      CHECK(device >= 0, "CUDA device ordinal must be non-negative", device);
+      CHECK(!this->has_started(), "cannot bind a CUDA task device after the task has started");
+      if (device_)
+      {
+        CHECK_EQUAL(*device_, device, "cannot rebind a CUDA task to another device");
+        return;
+      }
+      device_ = device;
+    }
+
+  private:
+    std::optional<int> device_{};
 };
+
+/// \brief Narrow an erased task promise after verifying that it is CUDA-specific.
+/// \param handle Erased task identity produced from its original typed coroutine handle.
+/// \return The concrete CUDA promise.
+inline CudaTaskPromise& cuda_promise(TaskHandle handle) noexcept
+{
+  CHECK(handle);
+  CHECK(handle.domain() == TaskDomain::cuda);
+  return static_cast<CudaTaskPromise&>(handle.promise());
+}
 
 /// \brief Factory for producing multiple BasicTask ownership claims for one coroutine.
 ///
@@ -840,7 +875,8 @@ template <TaskFactoryAwaitable A> struct TaskFactoryAwaiter //: public AsyncAwai
 template <TaskPromise Promise> TaskHandle TaskHandle::from(std::coroutine_handle<Promise> handle) noexcept
 {
   if (!handle) return {};
-  return TaskHandle(std::coroutine_handle<>::from_address(handle.address()), std::addressof(handle.promise()));
+  return TaskHandle(std::coroutine_handle<>::from_address(handle.address()), std::addressof(handle.promise()),
+                    Promise::task_domain);
 }
 
 inline TaskPromiseBase& TaskHandle::promise() const noexcept

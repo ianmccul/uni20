@@ -48,6 +48,7 @@ class DebugCudaScheduler final : public ICudaScheduler {
     /// \param task CUDA task to admit.
     void schedule(CudaTask&& task) override
     {
+      cuda_promise(task.handle()).bind_device(device_.ordinal());
       TaskRegistry::record_task_scheduled(task.coroutine_handle());
       if (task.set_scheduler(this)) tasks_.push_back(std::move(task));
     }

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <uni20/async/async.hpp>
 #include <uni20/async/awaiters.hpp>
+#include <uni20/async/cuda_task.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 
 #include <string>
@@ -16,6 +17,56 @@ struct NestedTaskError
 {};
 
 } // namespace
+
+TEST(AsyncTaskAwaitTest, ErasedTaskHandlesRetainConcretePromiseDomains)
+{
+  auto host_task = []() static -> AsyncTask { co_return; }();
+  auto cuda_task = []() static -> CudaTask { co_return; }();
+
+  EXPECT_EQ(host_task.handle().domain(), TaskDomain::host);
+  EXPECT_EQ(cuda_task.handle().domain(), TaskDomain::cuda);
+  EXPECT_FALSE(cuda_promise(cuda_task.handle()).device());
+
+  host_task.set_cancel_on_resume();
+  cuda_task.set_cancel_on_resume();
+}
+
+TEST(AsyncTaskAwaitTest, CudaDeviceBindingIsStoredOnlyInCudaPromise)
+{
+  auto task = []() static -> CudaTask { co_return; }();
+  auto& promise = cuda_promise(task.handle());
+
+  promise.bind_device(3);
+  EXPECT_EQ(promise.device(), 3);
+
+  // Repeating the same pre-start binding is harmless.
+  promise.bind_device(3);
+  EXPECT_EQ(promise.device(), 3);
+
+  task.set_cancel_on_resume();
+}
+
+TEST(AsyncTaskRouteDeathTest, CudaDeviceCannotBeRebound)
+{
+  auto task = []() static -> CudaTask { co_return; }();
+  auto& promise = cuda_promise(task.handle());
+  promise.bind_device(3);
+
+  EXPECT_DEATH(promise.bind_device(4), "cannot rebind a CUDA task");
+
+  task.set_cancel_on_resume();
+}
+
+TEST(AsyncTaskRouteDeathTest, CudaDeviceCannotBeBoundAfterTaskStarts)
+{
+  auto task = []() static -> CudaTask { co_return; }();
+  auto& promise = cuda_promise(task.handle());
+  promise.mark_started();
+
+  EXPECT_DEATH(promise.bind_device(3), "after the task has started");
+
+  task.set_cancel_on_resume();
+}
 
 /// \brief A coroutine that forwards one value from a read buffer to a write buffer.
 AsyncTask assign_task(ReadBuffer<int> readBuf, WriteBuffer<int> writeBuf, int& count)
