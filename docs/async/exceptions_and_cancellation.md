@@ -54,6 +54,10 @@ Failures discovered after the task becomes ready should be reported by
 The `TaskAwaitable`, `TaskFactoryChildAwaitable`, and `TaskFactoryAwaitable`
 concepts enforce the non-throwing registration rule.
 
+`try_await(...)` changes only unavailable readiness into an empty `optional`.
+It does not suppress failures: exceptions from the readiness probe or the
+child's `await_resume()` propagate through the awaiting coroutine normally.
+
 ## Unhandled Exception Flow in Coroutines
 
 When a coroutine throws and does not catch:

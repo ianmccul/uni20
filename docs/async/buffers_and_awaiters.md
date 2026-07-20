@@ -297,6 +297,14 @@ This is how unhandled exceptions are forwarded to downstream epochs.
 | `try_await(x)` | non-blocking readiness probe |
 | `write_to(writer.transfer(), value)` | concise deferred write helper |
 
+`try_await(...)` never suspends. It probes the child awaiter's readiness once:
+an unavailable child produces an empty `optional`, while an available child
+has its `await_resume()` result wrapped in a populated `optional`. Exceptions
+from either readiness probing or result extraction propagate normally. A child
+passed by reference resumes as an lvalue; a child moved into `try_await(...)`
+resumes as an rvalue, and the returned `optional` owns value or rvalue-reference
+results.
+
 `all(...)` is a join over registration-style awaiters. Each non-ready child
 must consume one parent ownership claim through `await_suspend(BasicTask)` and
 return `void` without throwing; its `await_resume()` must produce a value or

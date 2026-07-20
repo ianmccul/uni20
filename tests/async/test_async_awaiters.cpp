@@ -18,6 +18,26 @@ namespace
 struct OrCancelTestError
 {};
 
+struct TryAwaitResultError
+{};
+
+struct ThrowingReadyAwaiter
+{
+    [[nodiscard]] bool await_ready() const noexcept { return true; }
+    void await_suspend(BasicTask) const noexcept {}
+    [[noreturn]] int await_resume() const { throw TryAwaitResultError{}; }
+};
+
+struct TryAwaitReadinessError
+{};
+
+struct ThrowingReadinessAwaiter
+{
+    [[noreturn]] bool await_ready() const { throw TryAwaitReadinessError{}; }
+    void await_suspend(BasicTask) const noexcept {}
+    [[nodiscard]] int await_resume() const noexcept { return 0; }
+};
+
 struct StringValueAwaiter
 {
     [[nodiscard]] bool await_ready() const noexcept { return true; }
@@ -142,6 +162,74 @@ TEST(AsyncAwaitersTest, TryAwaitFailsThenSucceeds)
   sched.schedule(std::move(writer));
   sched.run_all();
   EXPECT_EQ(count, 2);
+}
+
+TEST(AsyncAwaitersTest, TryAwaitPropagatesReadyResultException)
+{
+  DebugScheduler scheduler;
+  bool caught = false;
+
+  auto task = [](bool& caught) static -> AsyncTask {
+    ThrowingReadyAwaiter awaiter;
+    try
+    {
+      static_cast<void>(co_await try_await(awaiter));
+    }
+    catch (TryAwaitResultError const&)
+    {
+      caught = true;
+    }
+  }(caught);
+
+  scheduler.schedule(std::move(task));
+  scheduler.run_all();
+
+  EXPECT_TRUE(caught);
+}
+
+TEST(AsyncAwaitersTest, TryAwaitPropagatesReadinessException)
+{
+  DebugScheduler scheduler;
+  bool caught = false;
+
+  auto task = [](bool& caught) static -> AsyncTask {
+    ThrowingReadinessAwaiter awaiter;
+    try
+    {
+      static_cast<void>(co_await try_await(awaiter));
+    }
+    catch (TryAwaitReadinessError const&)
+    {
+      caught = true;
+    }
+  }(caught);
+
+  scheduler.schedule(std::move(task));
+  scheduler.run_all();
+
+  EXPECT_TRUE(caught);
+}
+
+TEST(AsyncAwaitersTest, TryAwaitOwnsResultsFromOwnedAwaiters)
+{
+  DebugScheduler scheduler;
+  int result = 0;
+
+  auto task = [](int& result) static -> AsyncTask {
+    auto value = co_await try_await(ValueAwaiter<int>{42});
+    auto rvalue_reference = co_await try_await(RvalueReferenceAwaiter{43});
+    static_assert(std::same_as<decltype(value), std::optional<int>>);
+    static_assert(std::same_as<decltype(rvalue_reference), std::optional<int>>);
+    EXPECT_TRUE(value);
+    EXPECT_TRUE(rvalue_reference);
+    if (!value || !rvalue_reference) co_return;
+    result = *value + *rvalue_reference;
+  }(result);
+
+  scheduler.schedule(std::move(task));
+  scheduler.run_all();
+
+  EXPECT_EQ(result, 85);
 }
 
 TEST(AsyncAwaitersTest, AllAwaiterTwoBuffers)

@@ -253,12 +253,14 @@ template <typename Awt> struct TryAwaiter
 
     void await_suspend(BasicTask t) noexcept { access().await_suspend(std::move(t)); }
 
-    [[nodiscard]] auto await_resume() noexcept
+    [[nodiscard]] auto await_resume()
     {
       auto& inner = access();
-      using R = decltype(inner.await_resume());
+      using ResumeAwaiter = std::conditional_t<std::is_lvalue_reference_v<Awt>, Awaiter&, Awaiter&&>;
+      using R = decltype(std::declval<ResumeAwaiter>().await_resume());
       using StoreT =
-          std::conditional_t<std::is_lvalue_reference_v<R>, std::reference_wrapper<std::remove_reference_t<R>>, R>;
+          std::conditional_t<std::is_lvalue_reference_v<R>, std::reference_wrapper<std::remove_reference_t<R>>,
+                             std::remove_cvref_t<R>>;
 
       if (!inner.await_ready())
       {
@@ -267,11 +269,11 @@ template <typename Awt> struct TryAwaiter
 
       if constexpr (std::is_lvalue_reference_v<R>)
       {
-        return std::optional<StoreT>{std::ref(inner.await_resume())};
+        return std::optional<StoreT>{std::ref(resume_inner(inner))};
       }
       else
       {
-        return std::optional<StoreT>{inner.await_resume()};
+        return std::optional<StoreT>{resume_inner(inner)};
       }
     }
 
@@ -311,12 +313,25 @@ template <typename Awt> struct TryAwaiter
         return awaiter_;
       }
     }
+
+    [[nodiscard]] static decltype(auto) resume_inner(Awaiter& inner)
+    {
+      if constexpr (std::is_lvalue_reference_v<Awt>)
+      {
+        return inner.await_resume();
+      }
+      else
+      {
+        return std::move(inner).await_resume();
+      }
+    }
 };
 
 /// \brief Build a non-blocking awaiter that returns `optional<T>` instead of suspending.
 ///
 /// If you pass an lvalue awaiter, it’s stored by reference.
 /// If you pass a prvalue awaiter (e.g. a proxy type you’ve designed), it’s stored by value.
+/// Exceptions from the readiness probe or result extraction propagate normally.
 ///
 /// Example:
 /// ```cpp
