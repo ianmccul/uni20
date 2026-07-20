@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <type_traits>
+#include <utility>
 
 using namespace uni20;
 
@@ -40,6 +41,30 @@ struct AccessorWithoutOffset
       return *(ptr + static_cast<std::ptrdiff_t>(delta));
     }
 };
+
+struct StatefulAccessor
+{
+    using element_type = int;
+    using data_handle_type = int*;
+    using reference = int&;
+    using offset_policy = StatefulAccessor;
+    using offset_type = std::ptrdiff_t;
+
+    std::ptrdiff_t bias = 0;
+
+    constexpr data_handle_type offset(data_handle_type ptr, offset_type delta) const noexcept { return ptr + delta; }
+
+    constexpr reference access(data_handle_type ptr, offset_type delta) const noexcept { return *(ptr + delta + bias); }
+};
+
+struct ThrowingIndex
+{
+    operator std::size_t() const noexcept(false);
+};
+
+template <class Span, class... Index>
+concept HasConstAccess =
+    requires(Span const& span, Index... indices) { uni20::const_access(span, std::move(indices)...); };
 
 } // namespace
 
@@ -79,6 +104,23 @@ using ConstStridedSpan = stdex::mdspan<int const, DynamicExtent, stdex::layout_s
 using StridedMatrixSpan = stdex::mdspan<int, DynamicMatrixExtents, stdex::layout_stride>;
 using ConstStridedMatrixSpan = stdex::mdspan<int const, DynamicMatrixExtents, stdex::layout_stride>;
 using CustomAccessorSpan = stdex::mdspan<int, DynamicMatrixExtents, stdex::layout_stride, MutableAccessor>;
+using StatefulSpan = stdex::mdspan<int, DynamicExtent, stdex::layout_right, StatefulAccessor>;
+
+static_assert(HasConstAccess<StaticSpan, int, int>);
+static_assert(!HasConstAccess<StaticSpan, int>);
+static_assert(!HasConstAccess<StaticSpan, int, int, int>);
+static_assert(!HasConstAccess<StaticSpan, ThrowingIndex, int>);
+
+TEST(MdspanConcepts, ConstAccessPreservesStatefulAccessor)
+{
+  int values[] = {10, 20, 30, 40};
+  StatefulSpan::mapping_type mapping{DynamicExtent{3}};
+  StatefulSpan span{values, mapping, StatefulAccessor{.bias = 1}};
+
+  auto&& ref = const_access(span, 1);
+  static_assert(std::is_same_v<decltype(ref), int const&>);
+  EXPECT_EQ(30, ref);
+}
 
 struct SpanDescriptorWithoutSubscript
 {

@@ -238,10 +238,10 @@ template <SpanLike Mdspan, class StoragePolicy, class BackendSelector> class Res
 
     /// \brief Evaluate one reshaped element through the read-only accessor.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank())
+      requires detail::MdspanIndexPack<mdspan_type, Index...>
     constexpr decltype(auto) operator[](Index... indices) const
     {
-      return this->mdspan()[indices...];
+      return const_access(span_, std::move(indices)...);
     }
 
   private:

@@ -15,6 +15,7 @@
 #include <concepts>
 #include <type_traits>
 #include <uni20/mdspan/mdspan.hpp>
+#include <utility>
 
 namespace uni20
 {
@@ -227,6 +228,35 @@ concept SpanDescriptor =
 template <class S>
 concept SpanLike = detail::SpanDescriptor<S> && AccessorPolicy<typename detail::span_type_t<S>::accessor_type> &&
                    detail::span_has_ranked_subscript<S>(std::make_index_sequence<detail::span_type_t<S>::rank()>{});
+
+namespace detail
+{
+
+template <class Span, class... Index>
+concept MdspanIndexPack = SpanLike<Span> && (sizeof...(Index) == span_type_t<Span>::rank()) &&
+                          (std::is_convertible_v<Index, typename span_type_t<Span>::index_type> && ...) &&
+                          (std::is_nothrow_constructible_v<typename span_type_t<Span>::index_type, Index> && ...);
+
+} // namespace detail
+
+/// \brief Access one mdspan element through a read-only adaptation of its stored accessor.
+/// \details This preserves the mapping and accessor state without constructing
+///          a second mdspan descriptor. Index eligibility and conversion match
+///          the multidimensional mdspan subscript operation.
+/// \tparam Span The mdspan-like descriptor type.
+/// \tparam Index One index type per mdspan rank.
+/// \param span Descriptor whose mapping, handle, and accessor are used.
+/// \param indices Coordinates for every mdspan axis.
+/// \return The reference or calculated value produced by the read-only accessor.
+/// \ingroup mdspan_ext
+template <SpanLike Span, class... Index>
+  requires detail::MdspanIndexPack<Span, Index...>
+constexpr decltype(auto) const_access(Span const& span, Index... indices)
+{
+  using index_type = typename detail::span_type_t<Span>::index_type;
+  auto accessor = const_accessor(span.accessor());
+  return accessor.access(span.data_handle(), span.mapping()(static_cast<index_type>(std::move(indices))...));
+}
 
 /// \concept MutableSpanLike
 /// \brief SpanLike types whose reference type supports assignment.

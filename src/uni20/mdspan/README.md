@@ -42,6 +42,10 @@ small helpers used by dense kernels and layout-aware algorithms.
   accessors that return values. `MutableSpanLike` checks both that constness and
   actual indexed assignment; a const pointer-shaped handle alone is not the
   mutability contract.
+- `uni20::const_access(span, indices...)` performs read-only scalar access
+  directly through a span's mapping and const-adapted accessor. Use it when a
+  descriptor owner needs const element semantics without constructing a second
+  mdspan for each access.
 - A tensor descriptor's const `mdspan()` overload resolves a const-element view.
   Mutable tensor access is exposed only by the non-const overload.
 - `uni20::conj(span)` is the user-facing lazy conjugation helper. Its accessor

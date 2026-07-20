@@ -27,6 +27,13 @@ static_assert(!uni20::OwningTensor<mutable_reshape>);
 static_assert(std::same_as<typename mutable_reshape::layout_type, uni20::RowMajor>);
 
 template <class Tensor>
+concept HasMutableMatrixElement = requires(Tensor& tensor) { tensor[0, 0] = 1.0; };
+
+static_assert(HasMutableMatrixElement<mutable_reshape>);
+static_assert(!HasMutableMatrixElement<mutable_reshape const>);
+static_assert(std::same_as<decltype(std::declval<mutable_reshape const&>()[0, 0]), double const&>);
+
+template <class Tensor>
 concept CanReshapeViewRvalue = requires(Tensor tensor) { uni20::reshape_view(std::move(tensor), 6); };
 
 static_assert(!CanReshapeViewRvalue<mutable_matrix>);
