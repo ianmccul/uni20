@@ -297,6 +297,14 @@ This is how unhandled exceptions are forwarded to downstream epochs.
 | `try_await(x)` | non-blocking readiness probe |
 | `write_to(writer.transfer(), value)` | concise deferred write helper |
 
+`all(...)` is a join over registration-style awaiters. Each non-ready child
+must consume one parent ownership claim through `await_suspend(BasicTask)` and
+return `void`; its `await_resume()` must produce a value or reference for the
+result tuple. Concrete `AsyncTask`/`CudaTask` objects, transfer-returning
+awaiters, and nested `all(...)` groups are not operands. Waiting for multiple
+child tasks would require a separate task-completion join rather than the
+shared-parent ownership used here.
+
 ## Common Kernel Pattern
 
 For different input and output timelines:

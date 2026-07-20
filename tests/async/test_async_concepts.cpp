@@ -50,6 +50,28 @@ struct OperatorCoAwaitWrite
     Awaiter operator co_await() const noexcept { return {}; }
 };
 
+struct TransferValueAwaiter
+{
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+    BasicTask await_suspend(BasicTask task) const noexcept { return task; }
+
+    [[nodiscard]] int await_resume() const noexcept { return 0; }
+};
+
+struct ReturningTaskFactoryAwaiter
+{
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
+    [[nodiscard]] int num_awaiters() const noexcept { return 1; }
+
+    BasicTask await_suspend(TaskFactory factory) const { return factory.take_next(); }
+
+    [[nodiscard]] int await_resume() const noexcept { return 0; }
+};
+
+template <class... Awaiter>
+concept CanAwaitAll = requires(Awaiter&&... awaiter) { all(std::forward<Awaiter>(awaiter)...); };
+
 template <typename Scheduler>
 concept PubliclySchedulesAsyncTask =
     requires(Scheduler& scheduler, AsyncTask&& task) { scheduler.schedule(std::move(task)); };
@@ -105,4 +127,25 @@ TEST(ConceptTest, OperatorCoAwaitOnlyAwaitableSatisfiesConcepts)
 {
   static_assert(read_buffer_awaitable_of<OperatorCoAwaitRead, int>);
   static_assert(write_buffer_awaitable_of<OperatorCoAwaitWrite, int>);
+}
+
+TEST(ConceptTest, AllAcceptsOnlyRegistrationStyleAwaiters)
+{
+  using Immediate = ValueAwaiter<int>;
+  using Group = decltype(all(std::declval<Immediate>(), std::declval<Immediate>()));
+
+  static_assert(TaskAwaitable<TransferValueAwaiter>);
+  static_assert(!TaskFactoryChildAwaitable<TransferValueAwaiter>);
+  static_assert(!CanAwaitAll<TransferValueAwaiter, Immediate>);
+
+  static_assert(!TaskFactoryChildAwaitable<AsyncTask>);
+  static_assert(!TaskFactoryChildAwaitable<CudaTask>);
+  static_assert(!CanAwaitAll<AsyncTask&, Immediate>);
+  static_assert(!CanAwaitAll<CudaTask&, Immediate>);
+
+  static_assert(TaskFactoryAwaitable<Group>);
+  static_assert(!TaskFactoryChildAwaitable<Group>);
+  static_assert(!CanAwaitAll<Group&, Immediate>);
+
+  static_assert(!TaskFactoryAwaitable<ReturningTaskFactoryAwaiter>);
 }

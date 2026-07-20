@@ -76,11 +76,11 @@ template <typename T>
 
 /// \brief Awaitable that waits for *all* provided awaiters to complete. This meets the TaskFactoryAwaitable
 /// concept.
-/// \tparam Aw Awaitable types, that must meet the TaskAwaitable concept
+/// \tparam Aw Registration-style awaiters that return `void` from `await_suspend(BasicTask)`.
 /// \note the child await_resume() functions must return a non-void.
 /// \todo We currently don't allow nested waiting on TaskFactoryAwaitable children. This could be supported, if it
 /// was useful.
-template <TaskAwaitable... Aw>
+template <TaskFactoryChildAwaitable... Aw>
   requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
 struct AllAwaiter //: public AsyncAwaiter
 {
@@ -175,7 +175,7 @@ template <typename T> struct MapToRefOrValue<T&>
 /// \brief Build an awaitable that waits for *all* of the provided awaitables.
 /// \param aw Awaitable arguments.
 /// \return An object supporting `co_await`.
-template <TaskAwaitable... Aw>
+template <TaskFactoryChildAwaitable... Aw>
   requires((!std::is_void_v<decltype(std::declval<Aw>().await_resume())> && ...))
 auto all(Aw&&... aw) noexcept
 {

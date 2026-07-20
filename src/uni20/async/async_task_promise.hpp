@@ -60,18 +60,27 @@ concept TaskAwaitable = requires(T a, BasicTask task) {
   { a.await_suspend(std::move(task)) } -> AwaitSuspendResult;
 };
 
+/// \brief Awaitable that can hold one ownership claim in a multi-input join.
+/// \details A join child must retain or release the supplied parent task. It
+///          cannot request nested task transfer because the parent has other
+///          outstanding ownership claims in the same join.
+template <typename T>
+concept TaskFactoryChildAwaitable = requires(T a, BasicTask task) {
+  { a.await_suspend(std::move(task)) } -> std::same_as<void>;
+};
+
 /// \brief Concept for awaitables that support shared promise-neutral ownership.
 ///
 /// This concept is satisfied if:
 /// - The awaitable provides a `num_awaiters()` method returning an integer count
 /// - It provides `await_suspend(TaskFactory)`
-/// - The return type of `await_suspend` is `void` or `BasicTask`
+/// - The return type of `await_suspend` is `void`
 ///
 /// \note This is used by composite awaiters like `all(...)` that must split
 ///       ownership across multiple sub-awaitables.
 template <typename T>
 concept TaskFactoryAwaitable = requires(T a, TaskFactory factory) {
-  { a.await_suspend(std::move(factory)) } -> AwaitSuspendResult;
+  { a.await_suspend(std::move(factory)) } -> std::same_as<void>;
   { a.num_awaiters() } -> std::convertible_to<int>;
 };
 
@@ -451,7 +460,7 @@ class TaskPromiseBase {
     template <TaskAwaitable A> static auto suspend_task_awaitable(TaskHandle current, A& awaitable);
 
     /// \brief Execute await_suspend for TaskFactoryAwaitable and apply TaskRegistry tracking.
-    template <TaskFactoryAwaitable A> static auto suspend_factory_awaitable(TaskHandle current, A& awaitable);
+    template <TaskFactoryAwaitable A> static void suspend_factory_awaitable(TaskHandle current, A& awaitable);
 
     /// \brief Acquire exclusive ownership of the coroutine.
     ///       This increments the awaiter count and asserts that the coroutine was previously unowned.
@@ -828,30 +837,14 @@ template <TaskAwaitable A> auto TaskPromiseBase::suspend_task_awaitable(TaskHand
   }
 }
 
-template <TaskFactoryAwaitable A> auto TaskPromiseBase::suspend_factory_awaitable(TaskHandle current, A& awaitable)
+template <TaskFactoryAwaitable A> void TaskPromiseBase::suspend_factory_awaitable(TaskHandle current, A& awaitable)
 {
 #if UNI20_DEBUG_DAG
   TaskPromiseBase::note_await_dependency(current, awaitable);
 #endif
-  using await_return_type = decltype(awaitable.await_suspend(std::declval<TaskFactory>()));
-  if constexpr (std::is_void_v<await_return_type>)
-  {
-    auto factory = current.promise().take_shared_ownership(awaitable.num_awaiters());
-    awaitable.await_suspend(std::move(factory));
-    TaskPromiseBase::note_suspended(current);
-    return;
-  }
-  else if constexpr (std::is_same_v<await_return_type, BasicTask>)
-  {
-    auto factory = current.promise().take_shared_ownership(awaitable.num_awaiters());
-    auto task = awaitable.await_suspend(std::move(factory));
-    return TaskPromiseBase::resolve_await_suspend_result(current, std::move(task));
-  }
-  else
-  {
-    static_assert(std::is_same_v<await_return_type, void>,
-                  "Unsupported await_suspend() return type: must be void or BasicTask");
-  }
+  auto factory = current.promise().take_shared_ownership(awaitable.num_awaiters());
+  awaitable.await_suspend(std::move(factory));
+  TaskPromiseBase::note_suspended(current);
 }
 
 /// \brief Forward an awaitable using promise-neutral task ownership.
@@ -935,10 +928,9 @@ template <TaskFactoryAwaitable A> struct TaskFactoryAwaiter //: public AsyncAwai
     /// \brief Suspend using shared-ownership await-suspend semantics.
     /// \tparam Promise Concrete enclosing promise type.
     /// \param handle Current coroutine handle.
-    /// \return Transfer handle selected by suspend logic.
-    template <TaskPromise Promise> auto await_suspend(std::coroutine_handle<Promise> handle)
+    template <TaskPromise Promise> void await_suspend(std::coroutine_handle<Promise> handle)
     {
-      return TaskPromiseBase::suspend_factory_awaitable(TaskHandle::from(handle), awaitable);
+      TaskPromiseBase::suspend_factory_awaitable(TaskHandle::from(handle), awaitable);
     }
 
     /// \brief Resume wrapped awaitable and return its await result.
