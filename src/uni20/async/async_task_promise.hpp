@@ -50,37 +50,42 @@ concept AwaitSuspendResult = std::same_as<Ret, void> || std::same_as<Ret, BasicT
 /// \brief Concept for awaitables that accept promise-neutral task ownership.
 ///
 /// This concept is satisfied if the awaitable provides:
-/// - `await_suspend(BasicTask)`
+/// - non-throwing `await_suspend(BasicTask)`
 /// - The return type of `await_suspend` is `void` or `BasicTask`
 ///
 /// \note This concept disallows await_suspend() from returning a coroutine_handle,
 ///       to ensure that ownership and resumption are managed solely by the scheduler.
+/// \note Suspension must not throw after accepting coroutine ownership because
+///       ownership transfer cannot be rolled back in general.
 template <typename T>
 concept TaskAwaitable = requires(T a, BasicTask task) {
-  { a.await_suspend(std::move(task)) } -> AwaitSuspendResult;
+  { a.await_suspend(std::move(task)) } noexcept -> AwaitSuspendResult;
 };
 
 /// \brief Awaitable that can hold one ownership claim in a multi-input join.
 /// \details A join child must retain or release the supplied parent task. It
 ///          cannot request nested task transfer because the parent has other
-///          outstanding ownership claims in the same join.
+///          outstanding ownership claims in the same join. Registration must
+///          not throw after accepting its ownership claim.
 template <typename T>
 concept TaskFactoryChildAwaitable = requires(T a, BasicTask task) {
-  { a.await_suspend(std::move(task)) } -> std::same_as<void>;
+  { a.await_suspend(std::move(task)) } noexcept -> std::same_as<void>;
 };
 
 /// \brief Concept for awaitables that support shared promise-neutral ownership.
 ///
 /// This concept is satisfied if:
 /// - The awaitable provides a `num_awaiters()` method returning an integer count
-/// - It provides `await_suspend(TaskFactory)`
+/// - It provides non-throwing `await_suspend(TaskFactory)`
 /// - The return type of `await_suspend` is `void`
 ///
 /// \note This is used by composite awaiters like `all(...)` that must split
 ///       ownership across multiple sub-awaitables.
+/// \note `num_awaiters()` runs before ownership transfer and need not be
+///       `noexcept`; `await_suspend(TaskFactory)` runs afterward and must be.
 template <typename T>
 concept TaskFactoryAwaitable = requires(T a, TaskFactory factory) {
-  { a.await_suspend(std::move(factory)) } -> std::same_as<void>;
+  { a.await_suspend(std::move(factory)) } noexcept -> std::same_as<void>;
   { a.num_awaiters() } -> std::convertible_to<int>;
 };
 

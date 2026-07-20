@@ -49,7 +49,7 @@ struct TransferToTask
 
     [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
 
-    BasicTask await_suspend(BasicTask current)
+    BasicTask await_suspend(BasicTask current) noexcept
     {
       static_cast<void>(current.release_handle());
       return BasicTask(std::move(task));

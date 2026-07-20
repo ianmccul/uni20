@@ -38,6 +38,19 @@ ownership token rather than directly retaining raw `std::coroutine_handle<>`
 values. The debug task registry records state and dependency metadata but does
 not participate in frame ownership.
 
+### Suspension registration cannot throw
+
+An awaiter that accepts `BasicTask` or `TaskFactory` in `await_suspend(...)`
+must declare that operation `noexcept`. The argument transfers ownership of the
+already-suspended coroutine into the awaiter. If registration threw after
+moving that ownership, the runtime could not generally recover every ownership
+claim or undo externally visible waiter registration.
+
+This restriction applies only after ownership transfer begins. A composite
+awaiter may still perform fallible preparation before acquiring a
+`TaskFactory`. Failures discovered when an operation later resumes belong in
+`await_resume()`, where normal coroutine exception propagation remains valid.
+
 ## Nested Coroutine Tasks
 
 An `AsyncTask` may directly `co_await` another `AsyncTask`. An unbound inner

@@ -40,6 +40,20 @@ Defined in `src/uni20/async/async_errors.hpp`.
 - requesting `get()`, `operator->`, or conversion to `T&` from that proxy: `buffer_write_uninitialized`
 - preferred fix: `co_await writer = value` (or proxy `emplace(...)`)
 
+## Suspension Registration
+
+Uni20 awaiters that receive `BasicTask` or `TaskFactory` in
+`await_suspend(...)` must make that function `noexcept`. At that point the
+coroutine is suspended and its ownership is being transferred to the awaiter.
+If registration threw after moving one or more ownership claims, unwinding
+could not reliably undo waiter registration or recover every claim.
+
+Perform fallible preparation before acquiring task ownership when possible.
+Failures discovered after the task becomes ready should be reported by
+`await_resume()`, where they follow normal coroutine exception propagation.
+The `TaskAwaitable`, `TaskFactoryChildAwaitable`, and `TaskFactoryAwaitable`
+concepts enforce the non-throwing registration rule.
+
 ## Unhandled Exception Flow in Coroutines
 
 When a coroutine throws and does not catch:

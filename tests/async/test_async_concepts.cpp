@@ -59,12 +59,58 @@ struct TransferValueAwaiter
     [[nodiscard]] int await_resume() const noexcept { return 0; }
 };
 
+struct PotentiallyThrowingTransferAwaiter
+{
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+    BasicTask await_suspend(BasicTask task) const { return task; }
+
+    [[nodiscard]] int await_resume() const noexcept { return 0; }
+};
+
+struct PotentiallyThrowingRegistrationAwaiter
+{
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+    void await_suspend(BasicTask task) const { task.set_cancel_on_resume(); }
+
+    [[nodiscard]] int await_resume() const noexcept { return 0; }
+};
+
+struct NoexceptTaskFactoryAwaiter
+{
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
+    [[nodiscard]] int num_awaiters() const { return 1; }
+
+    void await_suspend(TaskFactory factory) const noexcept
+    {
+      auto task = factory.take_next();
+      task.set_cancel_on_resume();
+    }
+
+    [[nodiscard]] int await_resume() const noexcept { return 0; }
+};
+
+struct PotentiallyThrowingTaskFactoryAwaiter
+{
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
+    [[nodiscard]] int num_awaiters() const { return 1; }
+
+    void await_suspend(TaskFactory factory) const
+    {
+      auto task = factory.take_next();
+      task.set_cancel_on_resume();
+    }
+
+    [[nodiscard]] int await_resume() const noexcept { return 0; }
+};
+
 struct ReturningTaskFactoryAwaiter
 {
     [[nodiscard]] bool await_ready() const noexcept { return false; }
     [[nodiscard]] int num_awaiters() const noexcept { return 1; }
 
-    BasicTask await_suspend(TaskFactory factory) const { return factory.take_next(); }
+    BasicTask await_suspend(TaskFactory factory) const noexcept { return factory.take_next(); }
 
     [[nodiscard]] int await_resume() const noexcept { return 0; }
 };
@@ -148,4 +194,19 @@ TEST(ConceptTest, AllAcceptsOnlyRegistrationStyleAwaiters)
   static_assert(!CanAwaitAll<Group&, Immediate>);
 
   static_assert(!TaskFactoryAwaitable<ReturningTaskFactoryAwaiter>);
+}
+
+TEST(ConceptTest, OwnershipTransferringSuspendMustBeNoexcept)
+{
+  using Immediate = ValueAwaiter<int>;
+
+  static_assert(TaskAwaitable<TransferValueAwaiter>);
+  static_assert(!TaskAwaitable<PotentiallyThrowingTransferAwaiter>);
+
+  static_assert(TaskFactoryChildAwaitable<Immediate>);
+  static_assert(!TaskFactoryChildAwaitable<PotentiallyThrowingRegistrationAwaiter>);
+  static_assert(!CanAwaitAll<PotentiallyThrowingRegistrationAwaiter, Immediate>);
+
+  static_assert(TaskFactoryAwaitable<NoexceptTaskFactoryAwaiter>);
+  static_assert(!TaskFactoryAwaitable<PotentiallyThrowingTaskFactoryAwaiter>);
 }
