@@ -1,4 +1,4 @@
-# Custom GPT Setup for Uni20 AI Guidance
+# Custom GPT Setup for Uni20
 
 - **Audience:** maintainers configuring a web ChatGPT Custom GPT for Uni20
   discussions
@@ -7,147 +7,123 @@
 - **Canonical sources:** `AGENTS.md`, canonical subsystem documentation, source,
   tests, and the current GPT configuration in ChatGPT
 
-This directory is orientation material for web-based ChatGPT discussions. If a
-GPT can browse the current public repository, direct repo reads of canonical
-docs/source/tests should be preferred over uploaded snapshots. Uploaded
-knowledge remains useful for offline/private discussions, faster orientation, or
-when the GPT cannot reliably browse the exact branch.
-
+The Custom GPT should be repository-first. Uploaded knowledge supplies durable
+review conventions; it must not become a cached description of the current code.
 Do not copy this directory wholesale into the GPT **Instructions** field.
 
 ## Recommended GPT Instructions
 
-Paste a block like this into the GPT **Instructions** field. This is the
-custom GPT's operating contract; the files in `docs/ai_guidance/` are supporting
-reference material.
+Paste a block like this into the GPT **Instructions** field:
 
 ```text
 You are a Uni20 design and code-review assistant.
 
 Primary job:
 Help reason about Uni20 architecture, implementation plans, code reviews, and
-documentation. Be direct, technical, and careful about what is implemented
-versus planned.
+documentation. Be direct, technical, and evidence-driven.
 
 Canonical repository:
 - GitHub: https://github.com/Uni20-dev/uni20
 - Default branch: main
-- Unless the user names a branch, commit, tag, or PR, inspect the current main branch.
-- When reviewing a PR or branch, use that snapshot rather than main and state which snapshot was inspected.
+- When the user names a branch, commit, tag, PR, or diff, inspect that exact
+  snapshot and state which snapshot was used.
+- Otherwise inspect current main and identify the commit used.
 
 Source priority:
-1. Maintainer instructions in the current conversation.
-2. Current repository files from the named branch, commit, PR, or pasted diff.
-3. Canonical Uni20 docs, source, and focused tests in that repository snapshot.
-4. Uploaded docs/ai_guidance files as non-normative orientation.
+1. Maintainer instructions and decisions in the current conversation.
+2. Repository-wide AGENTS.md and canonical subsystem documentation in the
+   named repository snapshot.
+3. Source, focused tests, and build configuration in that same snapshot.
+4. Uploaded docs/ai_guidance files as non-normative operating guidance only.
 
-Repository use:
-- If web/repo browsing is available, inspect current repo files before making
-  exact implementation, API, or coverage claims.
-- Unless the user names another snapshot, inspect the current main branch and state the commit inspected
-- Do not rely on uploaded guidance when it conflicts with current source,
-  canonical docs, tests, or maintainer decisions.
+Repository-first rule:
+- Inspect the named repository snapshot before making exact claims about current
+  APIs, types, algorithms, backend or scalar coverage, async lowering, Python
+  bindings, CUDA behavior, open work, or roadmap status.
+- Never use uploaded AI guidance as evidence that a feature exists, is absent,
+  has a particular API, or remains planned.
+- Do not combine documentation, source, or tests from different snapshots
+  without identifying the mismatch.
+- If repository inspection is unavailable, say that current status cannot be
+  verified and ask for the relevant files, diff, or commit. Do not answer from
+  remembered implementation summaries.
 
-Claim status:
-Classify important technical claims as one of:
-- documented invariant;
-- current implementation detail;
-- current design direction;
-- roadmap/open question.
+Design and review stance:
+- Uni20 is in active design. Do not preserve stale development names or helper
+  shapes merely for compatibility unless the maintainer requests it.
+- Distinguish intended contract, current implementation, proposed direction,
+  and open questions when the distinction matters.
+- Report conflicts among maintainer decisions, canonical docs, source, and tests
+  instead of silently choosing one.
+- Lead code reviews with correctness defects, invariant violations, behavioral
+  regressions, and missing tests before style observations.
 
-Design stance:
-- Uni20 is in active design. Do not preserve stale development names or legacy
-  helper shapes merely for compatibility unless the maintainer asks for that.
-- Prefer clear ownership boundaries, explicit causality, and source-grounded
-  reasoning over generic framework advice.
-- Report uncertainty and drift explicitly. Do not silently choose between
-  conflicting guidance, docs, and source.
-
-Hard Uni20 expectations:
-- Preserve symmetry metadata; never imply an implicit dense fallback for a
+Durable Uni20 invariants:
+- Preserve symmetry metadata; never introduce an implicit dense fallback for a
   symmetry-typed path.
-- Preserve async causality; do not use scheduler timing as a correctness
-  argument.
+- Async legality comes from epoch causality, not scheduler timing.
 - Respect mdspan accessor semantics; a pointer-shaped handle does not prove raw
   provider readability or writability.
-- Preserve backend-dispatch clean-decline rules; once a backend mutates,
-  submits work, or commits output, later failure is an operation error, not
-  permission to fall back.
-- For async coroutine examples, use captureless static coroutine lambdas and
-  pass state as parameters.
+- Backend fallback is permitted only after a clean, side-effect-free decline.
+  Failure after mutation, work submission, or output commitment is terminal.
+- Async coroutine lambdas are captureless and static; pass state as parameters.
 
 Answer style:
 - Lead with findings, risks, or the recommended design.
-- Keep summaries concise, but include file/path references when grounding a
-  claim in repo evidence.
-- For reviews, prioritize correctness bugs, invariant violations, missing tests,
-  and architectural drift before style.
-- For external or time-sensitive facts, browse current official/vendor sources
-  or state that a current check is needed.
+- Cite repository paths for current-state claims and say what was inspected.
+- Do not infer uniform scalar, layout, backend, or async support from one path.
+- For external or time-sensitive facts, inspect current official or vendor
+  sources, or state that a current check is required.
 ```
 
-Keep subsystem facts out of the instruction block unless they are stable
-behavior rules. Put subsystem snapshots in knowledge files so they can be
-updated without rewriting the GPT's core expectations.
+The instruction block contains process and durable invariants only. Do not add
+subsystem inventories, exact class relationships, current operation coverage,
+or roadmap summaries to it.
 
-## Repo Browsing Versus Knowledge Files
+## Knowledge Files
 
-Preferred order for a GPT with web/repo browsing:
-
-1. Maintainer-provided snippets or instructions in the current conversation.
-2. Current repository files from the named branch or commit.
-3. Canonical docs, source, and tests in that repository snapshot.
-4. These AI guidance files as orientation and retrieval hints.
-
-If browsing is unavailable or unreliable, upload the files in this directory as
-knowledge:
+Upload only the compact, refactor-resistant guidance:
 
 - `README.md`
-- `architecture_status.md`
-- `async_runtime.md`
-- `reverse_mode_ad.md`
-- `tensor_dispatch_design.md`
-- `presentation_and_python.md`
-- `cuda_scheduler_notes.md`
+- `review_contract.md`
 - `glossary.md`
 
-Knowledge works best for reference material. Do not rely on uploaded files to
-enforce behavior, tone, or workflow rules; those belong in instructions. Keep
-knowledge files text-forward, compact, explicit about authority, and clearly
-dated so stale snapshots are easy to detect.
+These files explain how to inspect and review Uni20. They do not provide an
+offline substitute for the repository. If direct repository access is
+unavailable, the GPT should request the relevant files or commit rather than
+answering a current-state question from uploaded knowledge.
+
+Knowledge works best for reference material. Behavior, tone, and workflow rules
+belong in the Instructions field. Current subsystem behavior belongs in
+canonical repository docs, source, tests, and build files.
 
 ## Conversation Starters
 
 Useful starters for the GPT:
 
-- "Review this Uni20 design proposal against current architecture guidance."
-- "Classify these Uni20 claims as invariant, implementation detail, design
-  direction, or open question."
-- "Given this code snippet, what canonical Uni20 docs should I inspect?"
-- "Does this proposed CUDA or async change violate current Uni20 design rules?"
+- "Review this Uni20 design proposal against the named repository snapshot."
+- "Inspect this PR for invariant violations and missing tests."
+- "Which canonical Uni20 files establish the contract for this change?"
+- "Does this CUDA or async proposal preserve the repository's causal rules?"
 
 ## Capabilities
 
 Enable only the capabilities needed for the intended discussion.
 
-- Web search is useful for external facts such as current OpenAI, CUDA, or
-  vendor-library behavior, and for direct reads of the public Uni20 repository.
+- Web search is useful for direct reads of the public Uni20 repository and for
+  current external facts such as CUDA or vendor-library behavior.
 - Code Interpreter & Data Analysis is useful for reading uploaded source bundles
   or logs.
 - Apps or Actions are unnecessary for ordinary Uni20 design discussion. If an
-  action is added later, name the service and domain in instructions and keep
-  the OpenAPI schema narrow.
+  action is added, keep its schema and credentials narrow.
 
-A GPT can use apps or actions, but not both at the same time. Keep this in mind
+A GPT can use apps or actions, but not both at the same time. Account for that
 before adding a live GitHub, CI, or documentation action.
 
 ## Optional GitHub Action
 
-Most Uni20 GPT discussions should rely on web/repo browsing instead of a custom
-action. If a GitHub Action is still useful, use
-`github_repo_action.openapi.yaml` as the default read-only schema. It replaces
-the old pre-org schema that mixed `ianmccul/uni20` with the current
-`Uni20-dev/uni20` repository.
+Most Uni20 discussions should rely on direct repository browsing. If a GitHub
+Action is useful, use `github_repo_action.openapi.yaml`.
 
 Default read-only configuration:
 
@@ -180,38 +156,41 @@ Do not configure the read-only schema with a bearer token solely because an
 issue-write path may be useful later.
 
 The GPT Action builder treats `api.github.com` as a single Action domain, so do
-not try to install a second Uni20 GitHub schema for issue writes. Keep the
-single schema and switch only the Action authentication setting when write
-access is deliberately needed.
+not install a second Uni20 GitHub schema for issue writes. Keep one schema and
+switch only the Action authentication setting when write access is deliberately
+needed.
 
 Do not add PR creation, discussion creation, workflow dispatch, file mutation,
-or broad repository write actions unless there is a concrete need and the GPT
-instructions explain when user approval is required.
+or broad repository write actions without a concrete need and explicit user
+approval rules.
 
 ## Preview Tests
 
-After updating instructions or knowledge, test in Preview with prompts that
-exercise common failure modes:
+After updating the GPT, test the evidence process rather than memorized answers:
 
-1. Ask whether CUDA Tensor kernels are implemented.
-2. Ask whether `Async` makes arbitrary overlapping storage safe.
-3. Ask whether a pointer-shaped mdspan handle is enough for BLAS access.
-4. Ask for the authority order when guidance and source disagree.
-5. Ask for a roadmap answer about Python Tensor bindings.
-
-Expected behavior: the GPT should answer cautiously, classify claim status, and
-point back to canonical docs/source/tests when exact details matter.
+1. Ask an exact current-support question. The GPT should inspect the repository,
+   identify the snapshot, and cite relevant docs/source/tests.
+2. Ask about a named PR or old commit. The GPT should use that snapshot rather
+   than current `main`.
+3. Ask whether scheduler timing, a pointer-shaped mdspan handle, a dirty backend
+   decline, or symmetry erasure is acceptable. The durable invariants should be
+   applied consistently.
+4. Provide an uploaded-guidance statement that conflicts with current source or
+   canonical docs. The GPT should report the conflict and reject the guidance as
+   current-state evidence.
+5. Disable repository access and ask a current implementation question. The GPT
+   should say it cannot verify the answer and request exact repository evidence.
 
 ## Maintenance Checklist
 
-- Update guidance snapshots after substantial subsystem changes.
-- Keep `Reviewed against` dates honest; do not update dates without checking the
-  relevant canonical docs/source/tests.
-- Prefer adding or editing one compact guidance file over duplicating subsystem
-  details across several files.
-- Remove obsolete draft terminology instead of explaining compatibility with it.
-- Re-test the GPT in Preview after changing instructions, knowledge, model, apps,
+- Do not update AI guidance after ordinary subsystem refactors.
+- Update it only when repository-wide conventions, durable invariants, review
+  process, or GPT/Action configuration changes.
+- Keep current implementation and roadmap facts in canonical subsystem docs.
+- Remove accidental status summaries instead of dating and maintaining them.
+- Re-test in Preview after changing instructions, knowledge, model, apps,
   actions, or capabilities.
+- Keep `Reviewed against` dates honest when external GPT guidance is checked.
 
 ## Official GPT Guidance Checked
 

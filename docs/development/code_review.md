@@ -35,7 +35,8 @@ when the change is specifically correcting that behavior.
 7. Are error, cancellation, and partial-result paths valid?
 8. Does the change introduce hidden allocation, materialization,
    synchronization, host/device transfer, or dense fallback?
-9. Are documentation and AI retrieval summaries still accurate?
+9. Are canonical docs still accurate, and did the change affect any durable
+   repository-wide guidance?
 10. What checks were unavailable, and what residual risk remains?
 
 ## Numerical and Linear Algebra Checklist

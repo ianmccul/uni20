@@ -324,5 +324,6 @@ below are addressed:
   projection explicit.
 - Prefer incremental vertical slices with independent numerical evidence over
   broad interface scaffolding.
-- Update current guides, examples, and retrieval summaries in the same change
-  when behavior moves.
+- Update current guides and examples in the same change when behavior moves.
+  Update AI guidance only when a durable repository-wide convention or
+  invariant changes.

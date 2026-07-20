@@ -49,7 +49,7 @@ rather than silently choosing one source.
 | Diagnostics | [Diagnostics docs](diagnostics/) | Presentation, display, trace diagnostics, logging plans, and Graphviz |
 | Python | [Python docs](python/) | Current smoke bindings, binding constraints, and future dtype/presentation policy |
 | Development | [Developer docs](development/) | Testing, review, Doxygen, build information, and agent-assisted workflow |
-| AI guidance | [AI guidance](ai_guidance/) | Non-normative retrieval summaries for automated assistants |
+| AI guidance | [AI guidance](ai_guidance/) | Repository-review conventions and Custom GPT configuration |
 | Design papers | [Long-form papers](latex/) | Historical LaTeX sources and rendered background material |
 
 ## Current Vertical Slices

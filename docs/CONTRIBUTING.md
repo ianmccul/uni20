@@ -48,8 +48,10 @@ shows the current implementation, which may be the subject of a bug report.
 When these disagree, report the conflict and resolve it explicitly. Do not infer
 that current code or an existing test is automatically authoritative.
 
-Files under `docs/ai_guidance/` are non-normative retrieval summaries. They help
-agents find relevant concepts and known pitfalls but do not establish behavior.
+Files under `docs/ai_guidance/` are non-normative operating guidance. They
+describe how repository-aware assistants should gather evidence and apply
+durable project invariants, but they do not summarize current subsystem status
+or establish behavior.
 
 ## Evidence and Review
 

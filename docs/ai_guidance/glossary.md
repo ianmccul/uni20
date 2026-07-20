@@ -1,179 +1,61 @@
-# Uni20 AI Retrieval Glossary
+# Uni20 Review Vocabulary
 
-- **Audience:** remote assistants, coding agents, and reviewers
-- **Authority:** non-normative terminology index
-- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-19
-- **Canonical sources:** linked subsystem documentation, source, and tests
+- **Audience:** repository-aware assistants and reviewers
+- **Authority:** non-normative vocabulary
+- **Canonical sources:** `AGENTS.md` and the named repository snapshot
 
-This glossary is intentionally compact. Detailed invariants belong in the
-subsystem guidance rather than being duplicated here.
+This glossary defines only durable review language. It does not describe the
+current class hierarchy, API surface, backend inventory, or roadmap.
 
-## Async
+## Evidence Terms
 
-### `Async<T>`
-User-facing async value containing shared storage and an epoch timeline.
-`Async<T>()` is unconstructed; `Async<T>(args...)` is constructed.
+### Named snapshot
 
-### `shared_storage<T>`
-Reference-counted storage whose control-block validity and contained-object
-construction state are separate.
+The branch, commit, tag, PR, or diff whose behavior is under discussion. Current
+`main` is the default only when the user does not name another snapshot.
 
-### `EpochQueue`
-One causal timeline with conceptual order
-`writer_n -> readers_n -> writer_{n+1}`. Scheduler timing does not define legality.
+### Canonical subsystem documentation
 
-### `ReadBuffer<T>`
-Shared read capability for one epoch. Plain await is borrowed; `transfer()` is owning.
+Repository documentation that defines intended subsystem behavior. It must be
+read from the named snapshot; an uploaded copy may be stale.
 
-### `WriteBuffer<T>`
-Exclusive mutable capability for one write epoch. It can inspect/mutate an existing
-value or construct/replace/move an independent value.
+### Current implementation detail
 
-### await path
-Adaptor such as `maybe()`, `or_cancel()`, `storage()`, `take()`, or `transfer()`.
-It changes await behavior without creating another capability or epoch.
+Behavior established by source, tests, and build configuration in the named
+snapshot. Its presence in an AI guidance file is not evidence that it still
+exists.
 
-### async alias
-`Async<View>` descriptor that retains a parent owner and shares the parent's exact queue.
+### Design direction
 
-### `is_async_alias<T>`
-Trait classifying structural async aliases versus independent async values.
+A maintainer decision or canonical design statement not yet fully represented
+by implementation. Do not infer it merely from an unfinished helper or draft.
 
-### async rebind
-Independent-value assignment that moves a handle to fresh storage and a fresh queue.
-Aliases cannot rebind.
+## Correctness Terms
 
-### write-through assignment
-Alias assignment through ADL `assign_through`; descriptor, owner, and queue remain unchanged.
+### Epoch causality
 
-### cancellation
-Terminal absence surfaced explicitly by `or_cancel()` as `task_cancelled`.
-It is not unconstructed storage and not an exception.
+The dependency order that makes an async operation legal. Scheduler timing or a
+particular task order is not a correctness argument.
 
-## AD
+### Semantic view
 
-### `Var<T>`
-User-facing reverse-mode variable owning a forward `Async<T>` value and reverse
-`ReverseValue<T>` channel.
+A view whose layout or accessor changes the values observed through it. A
+pointer-shaped data handle alone does not permit bypassing those semantics.
 
-### `ReverseValue<T>`
-Async gradient accumulation channel with reverse ordering/finalization state.
+### Clean decline
 
-### `backprop()`
-Exposes/finalizes a gradient's async channel. It does not replay a tape.
+A backend's side-effect-free refusal to handle an operation. Once it mutates
+state, submits work, or commits output, failure is an operation error and must
+not trigger fallback.
 
-### gradient finalization
-Signal that no more contributions will be attached. Retained named intermediates
-may require explicit `grad.finalize()` in the current API.
+### Symmetry metadata
 
-### gradient materialization
-A gradient becomes concrete after seeding and reverse propagation; it is not eager.
+Quantum-number, block-space, local-space, and leg-orientation information that
+is part of the mathematical object. It must not be silently erased or replaced
+by an implicit dense path.
 
-### Wirtinger `dL/dz*`
-Complex-gradient convention used by Uni20 for real scalar losses.
+### Explicit cost
 
-## Tensor
-
-### `Tensor`
-Concrete owning dense Tensor with compile-time rank and runtime extents by default.
-
-### `BasicTensor`
-Extents-first alias for a `Tensor` specialization with mixed/static extents.
-
-### `TensorView`
-Readable tensor-level concept exposing extents, `mdspan()`, and backend selection.
-It is not a base class.
-
-### `MutableTensorView`
-Tensor-view refinement whose resolved mdspan permits writes.
-
-### resolved mdspan
-Short-lived leaf-kernel operand containing handle, mapping, extents, and accessor semantics.
-
-### `GeneratedTensor`
-Compact layout-neutral readable Tensor whose accessor generates values.
-
-### semantic view
-A view such as lazy conjugation whose accessor changes observed values; generally read-only.
-
-### overwrite output
-Destination whose old values do not participate. A resizable owner may change shape/storage.
-
-### update output
-One read/write operand whose old values participate. Async code enrolls one writer.
-
-### aliasing
-Overlapping storage. `Async` queue order does not automatically prove overlap safety
-across distinct objects.
-
-## Dispatch
-
-### operation value
-Dispatch key that may be an empty tag or carry immutable options/callable state.
-
-### backend selector
-Ordered backend candidate value used by Tensor-level dispatch. Storage determines
-the default domain; do not duplicate operand placement as unrelated selector state.
-
-### type probe
-Compile-time capability classification for exact argument types.
-
-### clean decline
-Runtime refusal before mutation, submission, commitment, or externally visible side effect.
-
-### terminal backend failure
-Failure after work starts or a provider reports an operation error. It must not trigger fallback.
-
-### dynamic dispatch boundary
-Runtime-erased entry point for Python/plugin-like callers that must remain callable
-when static operation support is absent.
-
-## Presentation and CUDA
-
-### semantic glyph
-Renderer-independent status/layout token mapped by terminal/plain/ASCII adapters.
-
-### mdspan preview
-Bounded, deterministic display that marks elision; distinct from exhaustive formatting.
-
-### CUDA completion
-Immutable event token representing submitted device-work completion in the
-current low-level CUDA runtime foundation.
-
-### CUDA stream lease
-Reference-counted lease of an actually-idle stream-pool slot. The final stream
-pool returns a slot only after prior submitted work on that stream has completed.
-
-### `cuda::CudaBuffer<T>`
-Move-only typed CUDA allocation with a retained writer/reader completion ledger
-and live host-access validation.
-
-### CUDA buffer access
-`cuda::ReadAccess<T>` or `cuda::WriteAccess<T>` obtained through
-`read_synchronized_with(stream)` or `write_synchronized_with(stream)`. The
-access object installs already-published predecessor event waits and publishes
-a stream-tail completion when released or destroyed. It does not queue a
-conflicting host access or wait for future publication.
-
-### CUDA blocking channel
-CUDA storage-policy mode whose resource acquisition may wait on the calling
-thread. Suitable for non-async bring-up and direct C++ calls.
-
-### CUDA non-blocking channel
-CUDA storage-policy mode whose resource acquisition suspends through a Uni20
-scheduler. Async CUDA front ends should use this channel for resources that may
-wait for capacity.
-
-### CUDA resource lease
-Operation-local stream, provider-handle, workspace, or related resource bundle.
-It is not a backend selector and should not replace the storage policy's backend
-list.
-
-## Safety terms
-
-### coroutine safety rule
-Uni20 async coroutine lambdas must be captureless and `static`; pass state as parameters.
-
-### symmetry metadata
-Quantum-number, local/block-space, and leg-orientation information that is part of
-the mathematical object and must not be silently erased.
+Allocation, materialization, synchronization, host/device transfer, and dense
+projection that is visible in the API or documented operation contract rather
+than hidden in lowering.

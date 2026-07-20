@@ -1,56 +1,53 @@
 # AI Guidance for Uni20
 
 - **Audience:** remote assistants, coding agents, reviewers, and maintainers
-- **Authority:** non-normative index and retrieval guidance
-- **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-18
-- **Custom GPT guidance checked:** OpenAI Help Center, 2026-07-19
-- **Canonical sources:** `AGENTS.md`, canonical subsystem documentation, source, and tests
+- **Authority:** non-normative operating guidance
+- **Canonical sources:** maintainer decisions, `AGENTS.md`, canonical subsystem
+  documentation, source, tests, and build configuration in the named repository
+  snapshot
 
-These files optimize for retrieval. They are not substitutes for canonical docs.
+This directory configures repository-aware assistants without duplicating the
+repository's implementation or design documentation. It intentionally contains
+no subsystem status snapshots, API inventories, backend coverage tables, or
+roadmap summaries.
 
-## Authority order
+## Core Rule
 
-1. Maintainer-approved decisions and canonical subsystem documentation
-2. Current source implementation
-3. Focused tests
-4. AI guidance summaries
+Use these files to learn **how to review Uni20**, not **what Uni20 currently
+implements**.
 
-When these disagree, report the drift. Do not silently choose the guidance file.
+Any claim about current APIs, type relationships, algorithms, backend support,
+scalar coverage, async lowering, Python bindings, CUDA behavior, open work, or
+roadmap status must come from direct inspection of the branch, commit, tag, PR,
+or diff named by the user. If no snapshot is named, inspect current `main` and
+identify the commit used.
 
-## Required answer distinctions
+If the repository snapshot cannot be inspected, say that the current state
+cannot be verified. Ask for the relevant files, diff, or commit rather than
+substituting remembered or uploaded implementation summaries.
 
-Label claims as one of:
+## File Map
 
-- documented invariant;
-- current implementation detail;
-- current design direction;
-- roadmap/open question.
+- [`review_contract.md`](review_contract.md): durable repository conventions,
+  safety invariants, and the required evidence process
+- [`glossary.md`](glossary.md): small vocabulary for stable review concepts
+- [`custom_gpt_setup.md`](custom_gpt_setup.md): Custom GPT instruction block,
+  Preview checks, and optional GitHub Action setup
+- [`github_repo_action.openapi.yaml`](github_repo_action.openapi.yaml): narrow
+  GitHub repository Action schema
+- [`custom_gpt_action_privacy_policy.md`](custom_gpt_action_privacy_policy.md):
+  privacy policy for the optional Action
 
-## File map
+## Maintenance Rule
 
-- `architecture_status.md`: current implemented vertical slices and roadmap boundaries
-- `async_runtime.md`: `Async`, epoch ordering, buffers, aliases, assignment, and wrappers
-- `reverse_mode_ad.md`: dataflow AD, finalization, cancellation, and complex gradients
-- `tensor_dispatch_design.md`: Tensor roles, accessor semantics, operations, and dispatch
-- `presentation_and_python.md`: implemented presentation/preview and future Python display
-- `cuda_scheduler_notes.md`: implemented CUDA foundation versus future scheduler work
-- `custom_gpt_setup.md`: Custom GPT instruction block, knowledge setup, and
-  optional action guidance
-- `github_repo_action.openapi.yaml`: optional narrow GitHub Action schema for
-  `Uni20-dev/uni20`
-- `custom_gpt_action_privacy_policy.md`: privacy policy URL for the optional
-  GitHub Action
-- `glossary.md`: compact terminology index
+Ordinary implementation refactors should not require changes here. Update this
+directory only when one of these changes:
 
-## Custom GPT use
+- repository-wide contributor conventions;
+- a durable correctness or safety invariant;
+- the evidence and review process;
+- Custom GPT or GitHub Action configuration.
 
-Use this directory as orientation material, not as the GPT's main instruction
-block. If the GPT can browse the current repository, prefer direct repo reads of
-canonical docs/source/tests over uploaded snapshots. The short instruction block
-and setup checklist are in `custom_gpt_setup.md`.
-
-## Maintenance rule
-
-Implementation-heavy edits should update the `Reviewed against` date and verify
-the relevant canonical docs/source/tests. Keep the glossary compact; do not turn
-it into a second semantic specification.
+Put subsystem behavior and design decisions in canonical subsystem docs, not in
+AI-only summaries. Do not reintroduce dated implementation snapshots or a second
+semantic specification here.

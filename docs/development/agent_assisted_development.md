@@ -20,7 +20,7 @@ Different repository artifacts have different roles:
 | Source code | Implements current behavior; it may contain the defect under investigation |
 | `AGENTS.md` | Defines repository-wide contributor and safety rules |
 | `.codex/skills/` | Provides reusable tool-specific workflows |
-| `docs/ai_guidance/` | Provides non-normative retrieval summaries and negative knowledge |
+| `docs/ai_guidance/` | Provides non-normative repository-review conventions and durable invariants |
 
 There is no automatic conflict rule between code, tests, and canonical
 documentation. A conflict is evidence that the contract or implementation needs
