@@ -85,8 +85,10 @@ kernels operate on resolved mdspans.
   synchronous extents metadata and `mdspan()`.
   Element and accessor semantics determine whether the returned span is mutable;
   owning tensors overload `mdspan()` on constness.
-- `CudaAsyncTensor<T, Rank>` requires an explicit `cuda::DeviceContext` at
-  construction. Its storage is a move-only `CudaBuffer<T>`, and its resolved
+- `CudaAsyncTensor<T, Rank>` uses the installed CUDA runtime's default device
+  when constructed from extents alone. Passing an explicit
+  `cuda::DeviceResources` selects another enrolled device or an isolated test
+  resource set. Its storage is a move-only `CudaBuffer<T>`, and its resolved
   mdspan uses an opaque `CudaBufferView<T>` handle. Indexed access computes
   buffer offsets but neither reads nor writes device memory on the host. CUDA
   lowering must acquire a stream and synchronized buffer access before exposing

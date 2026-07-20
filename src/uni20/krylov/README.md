@@ -27,6 +27,8 @@ norms and inner products.
   target or the supported projected-problem path.
 - `dense_host_vector.hpp`: simple host-vector adapter for tests, examples, and
   prototype callers.
+- `detail_math.hpp`: ADL-enabled scalar math helpers used by precision-generic
+  Krylov code.
 
 ## Design Notes
 

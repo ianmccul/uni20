@@ -881,12 +881,12 @@ schedule([](auto c_, auto a_, auto b_) static -> AsyncTask {         // -> CPU s
 }(c.block(r).write(), a.block(ai).read(), b.block(bi).read()));
 
 // Device block kernel: select a device before device-sensitive work.
-schedule([](auto c_, auto a_, auto b_, cuda::DeviceContext* context) static -> CudaTask {
+schedule([](auto c_, auto a_, auto b_, cuda::DeviceResources* resources) static -> CudaTask {
   auto C_ = co_await c_;  auto A_ = co_await a_;  auto B_ = co_await b_;
-  co_await cuda::set_device(context->device());
-  auto resources = co_await context->acquire_gemm_resources(C_, A_, B_);
-  cublas_gemm(resources, C_, A_, B_);                                // no suspension in leaf call
-}(c.block(r).write(), a.block(ai).read(), b.block(bi).read(), &context));
+  co_await cuda::set_device(resources->device());
+  auto execution = co_await cublas::acquire_execution(cublas::execution_pool(*resources));
+  cublas_gemm(execution, C_, A_, B_);                                // no suspension in leaf call
+}(c.block(r).write(), a.block(ai).read(), b.block(bi).read(), &device_resources));
 ```
 
 The nested routing shown by the CUDA snippet is implemented: `CudaTask` has a

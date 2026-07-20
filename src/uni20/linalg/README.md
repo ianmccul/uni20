@@ -24,6 +24,8 @@ before they lower to backend wrappers and kernels.
   reductions, matrix products, eigensystems, and exact or truncating SVD.
 - [`async/`](async/): all-async Tensor wrappers over the synchronous operation layer.
 - [`blas/`](blas/): mdspan-to-BLAS-compatible descriptor and direct wrapper helpers.
+- [`cublas/`](cublas/): provider-ready cuBLAS operations over staged CUDA
+  mdspans and synchronized buffer access.
 - [`ops/`](ops/): Tensor-facing dense operation wrappers.
 - [`backends/`](backends/): operation-tag backend implementations.
 - [`backends/blas/`](backends/blas/): operation-tag BLAS backend adapters.

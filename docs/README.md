@@ -9,7 +9,7 @@ material.
 - [About Uni20](about.md): implemented capabilities, runnable vertical slices,
   and current boundaries.
 - [Getting Started](getting_started.md): prerequisites, configuration, build,
-  tests, benchmarks, and Python smoke bindings.
+  CUDA runtime initialization, tests, benchmarks, and Python smoke bindings.
 - [Architecture Overview](architecture/overview.md): implemented layers and
   planned extensions.
 - [Roadmap](roadmap.md): completed foundations, current priorities, and later
@@ -64,7 +64,8 @@ rather than silently choosing one source.
   [Precision Validation](krylov/precision_validation.md)
 - [Presentation Formatting](diagnostics/presentation.md) and
   [Task Registry Diagnostics](async/task_registry_debug.md)
-- [CUDA Buffers](backends/cuda/buffers.md) and the
+- [CUDA Runtime Foundation](backends/cuda/runtime.md),
+  [CUDA Buffers](backends/cuda/buffers.md), and the
   [CUDA hello-world example](../examples/cuda/)
 
 ## Generated API Documentation

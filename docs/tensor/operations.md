@@ -65,7 +65,7 @@ ordering have been handled by higher layers.
 | `BasicTensor<Element, Extents, ...>` | Extents-first alias for a `Tensor` specialization with mixed or static extents. |
 | `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor` | Named runtime-extents owner aliases for an explicit physical layout policy. |
 | `DenseMatrix<Element, Layout>` | Rank-two host `Tensor`; column-major by default. |
-| `CudaAsyncTensor<Element, Rank, Layout>` | Context-bound owning CUDA Tensor intended for non-blocking resource acquisition; its mdspan handle is opaque to host element access. Direct GEMM currently uses blocking pool admission. |
+| `CudaAsyncTensor<Element, Rank, Layout>` | Owning CUDA Tensor that uses the installed runtime's default device unless explicit device resources are supplied; its mdspan handle is opaque to host element access. Direct GEMM currently uses blocking pool admission. |
 | `CudaAsyncMatrix<Element, Layout>` | Rank-two `CudaAsyncTensor`; column-major by default. |
 | `ScalarTensor<Element, StoragePolicy, ...>` | Rank-zero owning Tensor that retains storage, backend, lifetime, and Async semantics. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |

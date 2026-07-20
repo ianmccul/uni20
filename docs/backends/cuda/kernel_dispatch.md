@@ -2,15 +2,16 @@
 
 **Status:** active design note. The low-level CUDA runtime foundation,
 `CudaAsyncStorage`, and unified host/multi-device debug and oneTBB schedulers are
-implemented. Process-wide device-context integration, general CUDA Tensor
-kernel coverage, and live coroutine scheduler migration are not yet
-implemented. Generic stream/provider-resource awaiters and Tensor-facing
+implemented. Scoped process-wide resource initialization and canonical
+per-device resources are implemented; scheduler enrollment into that runtime,
+general CUDA Tensor kernel coverage, and live coroutine scheduler migration are
+not yet implemented. Generic stream/provider-resource awaiters and Tensor-facing
 cuBLAS GEMM lowering are implemented; non-blocking async GEMM lowering remains
 future work.
 
 This note defines how Uni20 kernel dispatch should interact with CUDA
-execution. It distinguishes the logical CUDA execution context from the
-physical oneTBB workers that happen to execute its tasks, and it distinguishes
+execution. It distinguishes a logical CUDA device activation from the physical
+oneTBB workers that happen to execute its tasks, and it distinguishes
 lightweight CUDA submission from provider APIs that occupy a CPU thread for a
 material interval.
 
@@ -36,13 +37,13 @@ Related notes:
 
 ## Summary
 
-Uni20 should have one logical CUDA execution context per device. Entering that
-context establishes the device on whichever oneTBB worker or application
-thread is currently participating in its arena. Streams, provider handles,
-workspaces, and memory resources belong to the device context and are leased
-explicitly; they do not belong permanently to physical workers. Completion
-events are created and recorded on their producer streams rather than leased
-from a pool.
+Uni20 has one logical CUDA activation domain per device. Entering that domain
+establishes the device on whichever oneTBB worker or application thread is
+currently participating in its arena. Streams, provider handles, workspaces,
+and memory resources belong to the canonical per-device `DeviceResources` and
+are leased explicitly; they do not belong permanently to physical workers.
+Completion events are created and recorded on their producer streams rather
+than leased from a pool.
 
 CUDA leaf-kernel dispatch remains an ordinary, non-suspending C++ call:
 
@@ -117,17 +118,18 @@ an ordinary `try_kernel` cannot suspend. Both channels therefore converge on
 the same checked, non-suspending cuBLAS wrapper even though resource admission
 occurs at different layers.
 
-## Per-Device Execution Context
+## Per-Device Resources
 
-The implemented `cuda::DeviceContext` currently owns the validated device,
-short-lived buffer-state mutex, idle stream pool, and a lazy type-indexed
-provider-resource registry. The future process runtime should own one canonical
-resource service per device, containing structures such as:
+The scoped process-wide `cuda::Runtime` owns one canonical
+`cuda::DeviceResources` for every enrolled device. Each resource set owns the
+validated device, idle stream pool, and a lazy type-indexed provider-resource
+registry. Each buffer separately owns the mutex protecting its completion
+ledger. The resource service can contain structures such as:
 
 ```cpp
 namespace uni20::cuda
 {
-struct DeviceContext
+struct DeviceResources
 {
   Device device;
   StreamPool streams;
@@ -209,7 +211,7 @@ Required migration invariants are:
 
 - migration occurs only at an explicit suspension point;
 - migration never changes the coroutine's promise or task type;
-- the target scheduler and `cuda::DeviceContext` outlive the migrated task;
+- the target scheduler and `cuda::DeviceResources` outlive the migrated task;
 - ownership of the suspended task passes exactly once from the old scheduler
   route to the new one;
 - cancellation and exceptions remain attached to the same coroutine and async
@@ -357,7 +359,7 @@ another host-visible result becomes ready only at the completed boundary.
 ## Provider-Resource Reuse
 
 The lifetime of a handle lease is not necessarily the lifetime of the
-operation's device work. The device context must support provider-specific
+operation's device work. The per-device resources must support provider-specific
 policies:
 
 - release the handle after the host API returns; or
@@ -447,42 +449,38 @@ Diagnostics should include:
 Rendering uses Uni20's presentation layer. Runtime layers retain structured
 diagnostic data rather than preformatting one terminal-only string.
 
-## Initial Implementation Order
+## Next Implementation Order
 
-1. Use the implemented shared-promise `CudaTask`, `ICudaScheduler`, and
-   cross-scheduler nested continuation routing as the scheduler contract.
-2. Integrate the implemented unified `TbbCudaScheduler` and its per-device
-   arena observers with runtime/device-context ownership.
-3. Add typed CUDA admission that selects the correct scheduler from explicit
+1. Enroll the selected unified CUDA scheduler with the scoped process runtime
+   without making scheduler state part of `DeviceResources`.
+2. Add typed CUDA admission that selects the correct scheduler from explicit
    device or Tensor-storage placement.
+3. Add non-blocking async Tensor GEMM lowering that awaits the implemented
+   cuBLAS execution resources before entering the provider-ready leaf.
 4. Specify live-task scheduler migration separately, including activation
    accounting, cancellation, exceptions, waits, and quiescence.
-5. Integrate the implemented ordered cuBLAS handle/stream acquisition with CUDA
-   Tensor storage and buffer lowering.
-6. Define cancellation and runtime-shutdown behavior for queued resource
+5. Define cancellation and runtime-shutdown behavior for queued resource
    waiters.
-7. Implement one lightweight CUDA Tensor copy or elementwise kernel path.
-8. Implement one host-intensive cuSOLVER operation on the same device scheduler
+6. Implement one lightweight CUDA Tensor copy or elementwise kernel path.
+7. Implement one host-intensive cuSOLVER operation on the same device scheduler
    and profile whether a separate provider lane is justified.
-9. Validate multi-device isolation and explicit migration between two device
-   contexts.
+8. Validate multi-device isolation and explicit migration between two device
+   resource sets.
 
 ## Open Questions
 
-- Should typed CUDA admission select its `cuda::DeviceContext` through an
-  explicit factory, Tensor storage, or another scheduling customization?
-- Does any future task domain need a specialized promise, rather than state in
-  its scheduler/context and coroutine-local resource leases?
+- How should typed CUDA admission combine Tensor storage placement with an
+  explicitly selected scheduler override?
 - Which same-type scheduler migrations are useful after heterogeneous nested
   task routing is available?
 - Confirm that a oneTBB task group owns only a scheduled activation and that no
   persistent task-group membership needs to migrate with a suspended coroutine.
 - Should `run_all()` retain its current activation-quiescence meaning, and what
-  separate operation drains or shuts down a multi-scheduler device context?
+  separate operation drains or shuts down a multi-device scheduler?
 - How should device scheduler destruction prove that no migrated tasks or
-  resource waiters still reference its context?
+  resource waiters still reference it?
 - Which provider/routine families permit handle release at host-call return?
 - Should CPU-intensive providers eventually receive a separate bounded lane
-  within the device context?
+  within the device scheduler?
 - Which completion mechanism detects terminal CUDA context failure when a
   `cudaLaunchHostFunc` callback cannot run?

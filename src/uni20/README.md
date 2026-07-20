@@ -19,7 +19,8 @@ logic. Keep these files brief; detailed design notes belong in `/docs`.
   accessors, lazy transform views, stride helpers, and backend-neutral iteration
   plans.
 - [`backend/`](backend/): backend-library wrappers and manifests. Current subdirectories
-  include BLAS/LAPACK support, CUDA placeholders, and cuSOLVER wiring.
+  include BLAS/LAPACK support, the CUDA runtime foundation, cuBLAS GEMM, and
+  cuSOLVER scaffolding.
 - [`kernel/`](kernel/): low-level tensor kernel entry points over resolved views. Kernel
   code should remain below tensor/symmetry semantics.
 - [`linalg/`](linalg/): dense linear-algebra front ends and operation descriptors built on

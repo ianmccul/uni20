@@ -66,21 +66,22 @@ queue, task wakeup mechanism, or value ownership.
 
 ## Current Objects
 
-`cuda::DeviceContext`
+`cuda::DeviceResources`
 
-: Owns one validated `Device`, an actually-idle `StreamPool`, and a mutex for
-  short buffer-state snapshots and publication. The mutex is not held while a
-  backend or provider call executes. The context must outlive its buffers and
-  streams.
+: Owns one validated `Device`, an actually-idle `StreamPool`, and lazily
+  constructed provider resources. The installed CUDA runtime normally owns one
+  canonical instance per enrolled device. The resource set must outlive its
+  buffers and streams.
 
 `cuda::CudaBuffer<T>`
 
-: A move-only owner of one typed `cudaMalloc` allocation. Its raw device pointer
+: A move-only owner of one typed CUDA allocation. Its raw device pointer
   is exposed only through scoped access guards. Its completion ledger consists
   of the latest exclusive-writer completion and reader completions submitted
   since that writer. Live guard counts validate ordinary read/write access
   rules; they do not order callers or make them wait. The buffer does not own an
-  `EpochQueue` or task wakeup state.
+  `EpochQueue` or task wakeup state. A per-buffer mutex protects short ledger
+  snapshots and publication; independent buffers do not share it.
 
 `cuda::ReadAccess<T>`
 
@@ -161,7 +162,7 @@ generation counter.
 A typical operation is queued as:
 
 ```cpp
-auto stream = context.streams().acquire();
+auto stream = resources.streams().acquire();
 auto out = output.write_synchronized_with(stream);
 auto a = lhs.read_synchronized_with(stream);
 auto b = rhs.read_synchronized_with(stream);
@@ -181,17 +182,17 @@ Each access guard performs these construction steps:
 1. Validate the supplied stream handle. The stream may belong to another device
    when the intended CUDA operation can legally use the allocation; obtaining
    synchronized access does not itself grant foreign-device pointer access.
-2. Under the context state mutex, validate and acquire its live read or write
+2. Under the buffer state mutex, validate and acquire its live read or write
    token, then copy the predecessor completions required by the access.
 3. Release the state mutex.
 4. Enqueue waits for the copied predecessor completions.
 5. Expose only the pointer permitted by the guard type.
 
 Explicit release or guard destruction records one completion at the stream tail
-and briefly locks the context state to publish that completion and return the
+and briefly locks the buffer state to publish that completion and return the
 live access token. Publication and token return are one state transition: a
 causally later conflicting acquisition sees either the live predecessor guard
-or its recorded completion. Neither the state mutex nor any buffer lock is held
+or its recorded completion. The state mutex is not held
 while the caller launches CUDA work. Independent operations and compatible
 readers can therefore queue and execute concurrently.
 

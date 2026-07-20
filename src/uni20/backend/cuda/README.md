@@ -13,11 +13,13 @@ implemented under `src/uni20/async/`.
 - `cuda_error_presentation.hpp`: presentation-layer rendering for CUDA failures.
 - `device.hpp`: validated device identities and process-wide immutable hardware
   capability caching.
-- `buffer.hpp`: typed move-only device allocations, device contexts, and scoped
-  read/write access guards. Device contexts also retain lazily constructed
-  provider-resource pools until context destruction.
-- `runtime.hpp`: device guards, reference-counted stream-pool leases, immutable
-  completion tokens, and the device-local idle-stream pool.
+- `buffer.hpp`: typed move-only device allocations and scoped read/write access
+  guards. Each buffer owns its completion ledger and briefly locks only that
+  ledger when publishing access completions.
+- `runtime.hpp`: scoped process-wide CUDA initialization, canonical per-device
+  resources, device guards, reference-counted stream-pool leases, immutable
+  completion tokens, and device-local idle-stream pools. Device resources also
+  retain lazily constructed provider-resource pools until shutdown.
 - `resource_pool.hpp`: fixed-capacity provider-resource pools and move-only leases.
 - `task_awaiters.hpp`: CUDA-task device selection plus non-blocking stream and
   generic provider-resource acquisition. Concrete awaiters derive from the
@@ -34,6 +36,12 @@ handle live in [`storage/cuda_async_storage.hpp`](../../storage/cuda_async_stora
 - `cuda::Device` is a cheap ordinal value. Device discovery validates the
   ordinal and initializes one immutable capability snapshot per visible device;
   it does not create schedulers, streams, provider handles, or allocation pools.
+- `cuda::initialize(...)` installs one process-wide runtime lifetime. It owns
+  one canonical `DeviceResources` per enrolled device and must outlive all CUDA
+  Tensors, buffers, streams, provider leases, and tasks. Ordinary code obtains
+  resources through `cuda::device_resources(device)` rather than passing the
+  runtime through operations. Direct resource construction is reserved for
+  isolated tests and low-level bring-up.
 - Runtime capability checks should remain operation-specific; do not assume one
   CUDA build option makes every CUDA library feature available.
 - A stream-pool slot is available only after all work previously queued to that
@@ -59,8 +67,9 @@ handle live in [`storage/cuda_async_storage.hpp`](../../storage/cuda_async_stora
   unfinished prior device accesses. Live guard tokens reject host-side
   read/write overlap that would be invalid for an ordinary mutable value. They
   diagnose incorrect ordering rather than queueing or suspending the caller.
-- The context mutex protects only completion snapshots and publication. It is
-  not held while a backend or provider call executes.
+- A buffer's state mutex protects only its own completion snapshots and
+  publication. It is not held while a backend or provider call executes, and
+  independent buffers do not contend on it.
 - CUDA runtime failures use `CudaRuntimeError` and Uni20's presentation layer.
   Cleanup failures and invalid stream-pool state remain fail-fast logic errors.
 

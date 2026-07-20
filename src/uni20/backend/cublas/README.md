@@ -20,9 +20,16 @@ stream, and receives one move-only `ExecutionLease`. The handle is conservativel
 returned at the submitted stream tail. The stream independently returns to its
 pool when its final reference is released and the stream becomes idle.
 
-`cublas::execution_pool(context)` lazily constructs one pool owned by the CUDA
-device context. Direct Tensor dispatch uses its blocking `acquire()` path.
+`cublas::execution_pool(resources)` lazily constructs one pool owned by the CUDA
+device resources. Direct Tensor dispatch uses its blocking `acquire()` path.
 CUDA tasks can use `co_await cublas::acquire_execution(pool)` so exhausted
 resource admission suspends rather than occupying a scheduler participant.
 The checked provider wrappers consume an already acquired lease and never
 perform resource admission themselves.
+
+## Related Documentation
+
+- [Backend source layer](../)
+- [CUDA runtime foundation](../../../../docs/backends/cuda/runtime.md)
+- [CUDA kernel dispatch and provider scheduling](../../../../docs/backends/cuda/kernel_dispatch.md)
+- [Dense BLAS/LAPACK wrapper coverage](../../../../docs/linalg/dense_blas_lapack_coverage.md)

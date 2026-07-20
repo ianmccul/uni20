@@ -270,9 +270,9 @@ enter the same slot later, and one worker may participate in different arenas
 over time. Observer callbacks establish a logical execution context on every
 participant.
 
-The planned CUDA runtime uses this mechanism for one scheduler arena per device:
+`TbbCudaScheduler` uses this mechanism for one scheduler arena per device:
 
-- initialize the CUDA device context before enabling observation;
+- validate the CUDA device before enabling observation;
 - select the arena's CUDA device on entry;
 - restore the previous CUDA device on exit;
 - never throw from observer callbacks;

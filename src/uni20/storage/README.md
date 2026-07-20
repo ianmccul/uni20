@@ -10,16 +10,18 @@ backend tags without owning tensor mathematics.
   mapping and a CPU default backend tag.
 - `generated_storage.hpp`: compact backend-neutral policy for read-only values
   calculated by an accessor instead of stored element-by-element.
-- `cuda_async_storage.hpp`: context-bound non-blocking CUDA storage policy with
-  opaque `CudaBufferView` mdspan handles.
+- `cuda_async_storage.hpp`: non-blocking CUDA storage policy with opaque
+  `CudaBufferView` mdspan handles and a storage-selected cuBLAS backend.
 
 ## Notes
 
 - New storage policies should make handle creation, layout defaults, and default
   backend selection explicit.
-- Context-bound policies provide `context_type`, `make_storage(context, size)`,
-  and `make_storage_like(storage, size)`. Tensor construction then requires the
-  context explicitly and shape replacement preserves the original context.
+- Context-capable policies provide `context_type`, `make_storage(context,
+  size)`, and `make_storage_like(storage, size)`. `CudaAsyncStorage` ordinarily
+  resolves the installed runtime's default `DeviceResources`; an explicit
+  resource set selects another enrolled device or an isolated test setup.
+  Shape replacement preserves the original resources.
 - `GeneratedStorage` marks compact read-only tensors whose accessors calculate
   values instead of addressing an element allocation. It is backend-neutral
   when combined with concrete storage operands.
@@ -30,5 +32,6 @@ backend tags without owning tensor mathematics.
 
 - [Source tree map](../)
 - [Storage kind and location](../../../docs/architecture/storage_kind_and_location.md)
+- [CUDA runtime foundation](../../../docs/backends/cuda/runtime.md)
 - [Tensor creation and reshape](../../../docs/tensor/creation_and_reshape.md)
 - [Async storage and identity](../../../docs/async/storage.md)

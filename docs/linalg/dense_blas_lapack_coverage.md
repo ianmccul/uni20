@@ -18,9 +18,9 @@ backends.
 CUDA provider coverage is currently narrower: cuBLAS `S/D/C/ZGEMM` has a
 checked provider wrapper and a Tensor-facing `CublasBackend`. Ordinary
 `linalg::gemm` resolves `CudaAsyncTensor` operands to opaque CUDA mdspans; the
-backend stages BLAS-compatible layouts, acquires a context-owned handle/stream
-execution lease, opens synchronized buffer access, and enqueues the provider
-call. Column- and row-major outputs are supported. Fully non-blocking
+backend stages BLAS-compatible layouts, acquires a handle/stream execution lease
+from the device resource set, opens synchronized buffer access, and enqueues the
+provider call. Column- and row-major outputs are supported. Fully non-blocking
 `Async<CudaAsyncTensor>` resource admission remains future work.
 
 ## Scalar Tags

@@ -3,9 +3,9 @@
 - `cuda_hello_world_example.cpp` reports whether CUDA was enabled in the
   current Uni20 build. CUDA-enabled builds show the compile-time, runtime, and
   driver versions, enumerate visible devices, display their cached hardware
-  capabilities, and exercise the stream/completion/idle-stream-pool
-  foundation. CPU-only builds show the CMake option and runtime requirements
-  needed to enable the CUDA path.
+  capabilities, install the scoped process-wide CUDA runtime, and exercise each
+  canonical per-device stream/completion pool. CPU-only builds show the CMake
+  option and runtime requirements needed to enable the CUDA path.
 
 Build and run the example with:
 

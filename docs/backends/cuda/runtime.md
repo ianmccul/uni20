@@ -11,8 +11,43 @@ Tensor GEMM now lowers through opaque mdspans to `CublasBackend`. General CUDA
 Tensor operations and non-blocking async GEMM resource admission are not yet
 implemented.
 
-This document defines the resource-management contract beneath future CUDA
-Tensor kernels and async lowering.
+This document defines the resource-management contract beneath CUDA Tensor
+kernels and async lowering.
+
+## Process-Wide Initialization
+
+An application installs the CUDA resource service explicitly at its startup
+boundary:
+
+```cpp
+auto cuda_lifetime = uni20::cuda::initialize({
+    .device_ordinals = {},       // Enroll every visible CUDA device.
+    .default_device = std::nullopt,
+    .streams_per_device = 8,
+});
+```
+
+`cuda::Runtime` is a non-copyable, non-movable lifetime guard. The object is
+retained by `main()`, but its services are process-global: ordinary code uses
+`cuda::device_resources(device)` or the no-argument default-device lookup. It
+does not pass the runtime through Tensor operations.
+
+Only one runtime installation may be active. Destroying the guard first removes
+the global lookup, then drains provider work and streams, destroys provider
+resources, and destroys the per-device resource sets. Every CUDA Tensor,
+buffer, stream, provider lease, and CUDA task must already be gone. Shutdown
+with externally owned buffers still alive is a contract violation and aborts
+with a diagnostic.
+
+An empty device list enrolls every visible CUDA device. An explicit list limits
+the installation to those devices. The configured default must be enrolled; if
+it is omitted, the first enrolled device is the default. Initialization with no
+visible devices is valid, but default-device resource lookup then fails.
+
+Direct `DeviceResources` construction remains available for isolated unit tests
+and low-level bring-up. Application and backend code should normally use the
+canonical installed instance so stream and provider capacity are shared per
+hardware device.
 
 ## Device Selection
 
@@ -33,20 +68,22 @@ capabilities and remain backend-specific runtime checks.
 
 Device discovery does not create streams, schedulers, provider handles, memory
 pools, or allocations, and does not change the calling thread's selected device.
-`CudaAsyncTensor` construction takes an explicit `DeviceContext`, and its
-`CudaBufferView` mdspan handles retain the buffer whose context records the
-allocation device.
+The scoped runtime creates one canonical `DeviceResources` instance for each
+enrolled device. `CudaAsyncTensor` construction from extents uses the default
+instance; passing an explicit resource set selects another enrolled device or
+an isolated test instance. Its `CudaBufferView` mdspan handles retain the buffer
+whose resources record the allocation device.
 
 CUDA runtime calls that operate on device-local resources must select the
 resource's device. `uni20::cuda::ScopedDevice` temporarily selects a device and
 restores the calling thread's previous device when it leaves scope.
 
-The planned runtime has one logical execution context and one scheduler arena
-per CUDA device. A oneTBB arena does not own a fixed set of workers, so the
-device arena will use a `task_scheduler_observer` to select the device whenever
-a worker or application thread enters and restore its previous device on exit.
-This gives every task executing in that arena the same logical device without
-requiring physical thread affinity.
+The unified oneTBB scheduler has one logical device arena per CUDA device. A
+oneTBB arena does not own a fixed set of workers, so a
+`task_scheduler_observer` selects the device whenever a worker or application
+thread enters and restores its previous device on exit. This gives every task
+executing in that arena the same logical device without requiring physical
+thread affinity.
 
 Public resource wrappers must still retain their owning device and must not rely
 on ambient device state. They can be constructed, destroyed, or used by code
@@ -135,7 +172,7 @@ The stream pool is a natural throttle:
 The intended awaitable API is conceptually:
 
 ```text
-auto stream = co_await cuda::acquire_stream(context.streams());
+auto stream = co_await cuda::acquire_stream(resources.streams());
 {
   auto output_access = output.write_synchronized_with(stream);
   auto input_access = input.read_synchronized_with(stream);
@@ -188,12 +225,11 @@ ordering avoids stranding streams behind idle handles and bounds the number of
 provider operations waiting for stream capacity. Provider acquisition must
 finish before buffer access guards are created.
 
-`cuda::DeviceContext::provider_resource<Resource>(...)` lazily constructs one
+`cuda::DeviceResources::provider_resource<Resource>(...)` lazily constructs one
 instance of each concrete provider-resource type and destroys those resources
-before its stream pool. `cublas::execution_pool(context)` uses that registry so
-repeated GEMM calls reuse the same handles. This is the current explicit-context
-implementation; the planned process-wide CUDA runtime can become the canonical
-owner without changing the Tensor or backend call shape.
+before its stream pool. `cublas::execution_pool(resources)` uses that registry so
+repeated GEMM calls reuse the same handles. The installed runtime owns the
+canonical resource registry for each enrolled device.
 
 There is no resource cycle under the implemented contract:
 
@@ -232,12 +268,12 @@ For an introductory explanation and complete first-use examples, start with
 [CUDA Buffers](buffers.md). This section records how buffers fit into the wider
 runtime.
 
-`uni20::cuda::DeviceContext` currently owns a validated device, its idle stream
-pool, and a mutex for short buffer-state snapshots and publication.
+`uni20::cuda::DeviceResources` owns a validated device, its idle stream pool,
+and lazily constructed provider resources.
 `uni20::cuda::CudaBuffer<T>` is a move-only owner of one typed CUDA allocation
-associated with that context. It uses `cudaMallocAsync` when the device supports
+associated with that resource set. It uses `cudaMallocAsync` when the device supports
 stream-ordered memory pools and records that allocation as the buffer's current
-writer completion; otherwise it falls back to `cudaMalloc`. The context must
+writer completion; otherwise it falls back to `cudaMalloc`. The resource set must
 outlive its buffers and every active stream handle acquired from its stream
 pool.
 
@@ -257,7 +293,7 @@ without waiting for the GPU to catch up.
 Scoped access is used as follows:
 
 ```cpp
-auto stream = context.streams().acquire();
+auto stream = resources.streams().acquire();
 {
   auto out = output.write_synchronized_with(stream);
   auto a = lhs.read_synchronized_with(stream);
@@ -272,7 +308,8 @@ completion and returns a `ReadAccess<T>` exposing `T const*`.
 `write_synchronized_with(stream)` waits the stream on the latest writer and
 every unfinished reader, then returns a `WriteAccess<T>` exposing `T*`. Guard
 destruction records a completion event at the current stream tail and briefly
-locks the context state to publish it. Concurrent readers do not wait for one
+locks the buffer's completion state to publish it. Independent buffers never
+share this lock. Concurrent readers do not wait for one
 another; a following writer waits for every unfinished reader. The full causal
 and completion contract is in
 [CUDA Buffer Completion Lowering](epoch_design_draft.md).
@@ -315,15 +352,13 @@ it must not wait forever for a pool-return callback.
 
 The next CUDA runtime checkpoints should add:
 
-1. Typed CUDA Tensor storage and a device mdspan/accessor contract built over
-   `cuda::CudaBuffer` without making device memory host-indexable.
-2. Move the implemented stream and provider pools behind the future canonical
-   process-wide per-device resource service.
-3. Typed initial `CudaTask` admission that selects the scheduler matching Tensor
+1. Typed initial `CudaTask` admission that selects the scheduler matching Tensor
    storage placement. Shared-promise nested-await and continuation routing are
    already implemented and covered by both CUDA schedulers' tests.
-4. Live-task scheduler migration as a separate capability where useful.
-5. Define explicit cancellation and shutdown behavior for tasks queued on
+2. Live-task scheduler migration as a separate capability where useful.
+3. Define explicit cancellation and shutdown behavior for tasks queued on
    resource pools.
-6. Extend handle slots with provider-specific reusable workspace caches.
-7. Deferred CUDA execution-error propagation into async output epochs.
+4. Extend handle slots with provider-specific reusable workspace caches.
+5. Deferred CUDA execution-error propagation into async output epochs.
+6. Process-wide device constants such as zero and one for host/device pointer
+   modes without per-call allocation.

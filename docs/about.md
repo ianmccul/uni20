@@ -28,14 +28,14 @@ guides define the exact contracts.
 | Dense backend dispatch | Implemented operation-value dispatch with compile-time type probing, structured runtime decline reasons, ordered fallback, callable-carrying elementwise operations, and optional dispatch diagnostics. CPU reference, BLAS, and initial LAPACK paths are active. |
 | Dense linear algebra | Implemented tensor/mdspan front ends include accessor-aware elementwise transforms and copy, GEMM, GEMV, matrix initialization, matrix exponential, exact and truncating SVD, self-adjoint and nonsymmetric eigensystems, Schur operations, and tridiagonal eigensystems. Backend coverage is operation-specific. |
 | Async runtime | Implemented `Async<T>`, epoch-ordered read/write buffers, exception and cancellation propagation, host `DebugScheduler`/`TbbScheduler`/`TbbNumaScheduler`, unified host/multi-device `DebugCudaScheduler` and `TbbCudaScheduler`, scheduler-aware waits, task-registry diagnostics, stacktraces where available, and Graphviz DAG snapshots. |
-| Async tensor operations | Implemented lifetime-safe conjugating and reshape aliases, variadic elementwise overwrite/update operations, matrix products with immediate or async scalar parameters, preserving or storage-consuming self-adjoint `eigh`, and preserving or storage-consuming exact and truncating SVD operations with independent async outputs. |
+| Async tensor operations | Implemented lifetime-safe conjugating and reshape aliases, variadic elementwise overwrite/update operations, full and axis-selective sums, matrix products with immediate or async scalar parameters, preserving or storage-consuming self-adjoint `eigh`, and preserving or storage-consuming exact and truncating SVD operations with independent async outputs. |
 | Krylov algorithms | Implemented matrix-free symmetric/Hermitian Lanczos, nonsymmetric Arnoldi, generalized problems, Krylov exponential action, and an independent Taylor exponential-action reference. Projected dense work lowers through Uni20 linalg dispatch. |
 | Scalar support | `float32`, `float64`, real and complex paths are first-class. Configured MPLAPACK builds add binary128 probes and selected dense/Krylov paths. |
 | Presentation and diagnostics | Implemented semantic reports, terminal/plain/ASCII rendering, width-aware tables, mdspan previews, structured kernel errors, source locations, and optional stacktrace formatting. |
 | Reverse-mode AD | Async value-level `Var<T>` and `ReverseValue<T>` foundations are implemented and tested. Tensor linalg differentiation is not yet wired through the operation layer. |
 | Symmetry and block sparsity | Quantum-number, U(1), block-space, local-space, and selection-rule foundations exist. A complete symmetry-aware `BlockTensor` and its lowering pipeline remain design work. |
 | Python | Nanobind smoke bindings and build metadata are implemented. Tensor operations, async values, packaging, and notebook display are future work. |
-| CUDA and distributed execution | CUDA runtime ownership primitives and unified debug/oneTBB host/multi-device task schedulers are implemented. CUDA Tensor storage, resource awaiters, kernels, device-context admission, and distributed tensor execution remain future work. |
+| CUDA and distributed execution | Scoped process-wide CUDA runtime ownership, canonical per-device resources, typed buffers, stream and provider-resource awaiters, unified debug/oneTBB host/multi-device task schedulers, `CudaAsyncTensor` storage, and Tensor-facing cuBLAS GEMM are implemented. General CUDA Tensor kernel coverage, non-blocking async GEMM lowering, cuSOLVER operations, and distributed tensor execution remain future work. |
 
 ## The Working Vertical Slice
 
@@ -111,6 +111,9 @@ testable integration slices:
 - `async_diagnostics_guide_example` and
   `async_coroutine_failure_example`: task provenance, exception propagation,
   terminal reports, stacktrace capability, and optional Graphviz output.
+- `cuda_hello_world_example`: CUDA build/runtime discovery, visible-device
+  capabilities, scoped process-wide initialization, and per-device resource
+  smoke checks.
 
 ## Design Boundaries
 

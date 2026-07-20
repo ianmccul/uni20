@@ -170,7 +170,7 @@ routing with the host schedulers.
   continuations re-enter through the shared scheduler's routing hook
 - `run_all()` and `get_wait()` cover currently submitted host and CUDA
   activations through the shared task group. They do not complete a coroutine
-  suspended on an external buffer, CUDA completion, or future resource awaiter.
+  suspended on an external buffer, CUDA completion, or resource awaiter.
 
 Tasks running in a CUDA scheduler arena must not call `cudaSetDevice` directly.
 Cross-device work re-enters the scheduler through the target device arena; this
@@ -182,8 +182,9 @@ their CUDA API results and may validate stream and buffer device compatibility.
 
 An unbound nested task inherits its parent scheduler only within the same task
 domain. Crossing between host and CUDA requires explicit prior admission or
-route binding. CUDA task admission is not global yet; a later process-wide
-runtime will provide the ordinary default scheduler and device contexts.
+route binding. CUDA task admission is not global yet. The process-wide CUDA
+runtime now provides canonical per-device resources, but installing or choosing
+an ordinary default scheduler remains a separate future policy.
 
 ## Practical Guidance
 

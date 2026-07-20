@@ -104,8 +104,9 @@ live-task migration remains a separate future capability.
 
 A oneTBB arena limits simultaneous participation but does not own fixed worker
 threads. A device-arena observer establishes and restores the CUDA device as
-workers or application threads enter and leave. Device resources therefore
-belong to `cuda::DeviceContext` pools, not permanently to workers.
+workers or application threads enter and leave. The scoped process-wide
+`cuda::Runtime` owns one canonical `cuda::DeviceResources` for each enrolled
+device; schedulers and workers borrow those resources rather than owning them.
 
 CUDA host calls then fall into two execution classes:
 

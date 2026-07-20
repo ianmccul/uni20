@@ -24,26 +24,29 @@ read/write order.
 
 ## Creating A Buffer
 
-A `DeviceContext` owns the device's stream pool, the shared state used by its
-buffers, and lazily constructed provider-resource pools such as the cuBLAS
-execution pool. The context must outlive every buffer, stream, and provider
-lease acquired from it.
+A scoped CUDA runtime owns one canonical `DeviceResources` for each enrolled
+device. Each resource set owns that device's stream pool and lazily constructed
+provider-resource pools such as the cuBLAS execution pool. The runtime must
+outlive every buffer, stream, and provider lease acquired from it.
 
 ```cpp
 #include <uni20/backend/cuda/buffer.hpp>
 
 using namespace uni20::cuda;
 
-DeviceContext context({
-    .device = Device::get(0),
-    .stream_count = 4,
+auto cuda_lifetime = initialize({
+    .device_ordinals = {0},
+    .default_device = 0,
+    .streams_per_device = 4,
 });
 
-CudaBuffer<float> values(context, 1024);
+CudaBuffer<float> values(1024);
 ```
 
 The allocation uses CUDA's stream-ordered memory pool when the device supports
-it, with `cudaMalloc` as the fallback. `CudaBuffer<T>` is move-only.
+it, with `cudaMalloc` as the fallback. `CudaBuffer<T>` is move-only. Direct
+construction from an explicit `DeviceResources&` selects another enrolled
+device or an isolated resource set used by tests.
 
 ## Tensor Storage
 
@@ -53,7 +56,7 @@ submission channel:
 ```cpp
 #include <uni20/tensor/tensor.hpp>
 
-uni20::CudaAsyncTensor<float, 2> matrix(context, 32, 48);
+uni20::CudaAsyncTensor<float, 2> matrix(32, 48);
 ```
 
 The Tensor owns a `CudaBuffer<float>` and preserves ordinary extents and layout
@@ -85,7 +88,7 @@ the submitted GEMM with the host.
 Raw device pointers are available only through scoped access objects:
 
 ```cpp
-auto stream = context.streams().acquire();
+auto stream = device_resources().streams().acquire();
 
 {
   auto output = values.write_synchronized_with(stream);
@@ -117,7 +120,7 @@ the access.
 A typical kernel submission acquires every operand on one chosen stream:
 
 ```cpp
-auto stream = context.streams().acquire();
+auto stream = device_resources().streams().acquire();
 auto out = output.write_synchronized_with(stream);
 auto a = lhs.read_synchronized_with(stream);
 auto b = rhs.read_synchronized_with(stream);

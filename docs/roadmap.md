@@ -94,6 +94,27 @@ See [Kernel Dispatch](architecture/kernel_dispatch.md),
 See the [Async Documentation Index](async/) and
 [Async Tensor Kernel Authoring](async/kernel_authoring.md).
 
+### CUDA runtime and first Tensor provider path
+
+- `cuda::initialize(...)` installs a scoped process-wide runtime with one
+  canonical `DeviceResources` instance for every enrolled device.
+- Device discovery, scoped device selection, actually-idle stream pools,
+  completion tokens, typed buffers, and per-buffer completion ledgers are
+  implemented and tested on multi-device systems.
+- CUDA tasks can await streams and generic provider resources without blocking
+  a scheduler participant. cuBLAS adds pooled handle-plus-stream execution
+  leases over those primitives.
+- `CudaAsyncTensor` owns opaque device storage and selects `CublasBackend`.
+  Fixed-output Tensor GEMM lowers through staged CUDA mdspans, synchronized
+  buffer access, and checked `S/D/C/ZGEMM` provider calls.
+- The direct Tensor path blocks only for resource admission and leaves submitted
+  device execution asynchronous. Fully non-blocking `Async<CudaAsyncTensor>`
+  GEMM lowering remains to be implemented.
+
+See [CUDA Runtime Foundation](backends/cuda/runtime.md),
+[CUDA Buffers](backends/cuda/buffers.md), and
+[CUDA Kernel Dispatch](backends/cuda/kernel_dispatch.md).
+
 ### Krylov and numerical validation
 
 - Native matrix-free Lanczos and Arnoldi solvers cover symmetric/Hermitian,
@@ -235,24 +256,30 @@ part of core Tensor, storage, dispatch, or async contracts. This does not mean
 that incomplete CUDA code takes priority over every host operation. It means
 that host vertical slices must leave the correct extension points.
 
-### Device-aware foundations
+### Extend device-aware foundations
 
-- Separate compile-time storage memory kind from runtime location such as CUDA
-  device ordinal or MPI rank.
-- Define completion/dependency tokens so the async scheduler owns ordering while
-  CUDA events and MPI requests provide backend completion evidence.
-- Acquire all buffers for one operation transactionally where device submission
-  requires a coherent multi-operand state.
-- Keep backend selector state immutable unless a concrete device, stream,
-  communicator, or precision use case demonstrates a need for stateful values.
+- Preserve the implemented split between compile-time storage memory kind and
+  runtime location such as CUDA device ordinal or MPI rank.
+- Keep CUDA events and buffer completion ledgers as backend completion evidence;
+  `EpochQueue` remains the causal ordering model for `Async<T>`.
+- Add explicit host/device and cross-device transfer operations without hiding
+  synchronization or movement inside ordinary backend fallback.
+- Add storage-driven initial scheduler admission after its ownership and
+  process-wide scheduler-lifetime contract is defined.
+- Keep backend selector state immutable unless a concrete stream,
+  communicator, precision, or algorithm use case demonstrates a need for
+  stateful values.
 
 ### Incremental CUDA and cuSOLVER
 
 - Bring up one operation at a time through the same capability and runtime
   attempt mechanism used by host kernels.
-- Implement a synchronous blocking device path first as the correctness
-  baseline, then attach event-based completion without changing mathematical
-  semantics.
+- Use the current blocking-admission `CudaAsyncTensor` GEMM path as the
+  correctness baseline. Add non-blocking Async resource admission while
+  converging on the same non-suspending provider leaf.
+- Extend provider coverage through cuBLAS, cuSOLVER, and reference CUDA kernels
+  only after each Tensor operation's output, aliasing, and failure contracts are
+  explicit.
 - Do not allow ordinary backend fallback to copy device operands to host.
   Emergency transfer-based implementations must be explicit composite
   operations whose cost and synchronization are visible.

@@ -65,10 +65,10 @@ It is available only when the tensor's ordinary accessor can be invoked in the
 current compilation and execution context.
 
 For `VectorStorage`, `scalar[]` returns a host-accessible element reference in
-the same way as indexing any other host tensor. A future CUDA storage tensor is
-not expected to provide a host-callable element subscript merely because its
-rank is zero. Host extraction from such a tensor requires an explicit
-host-result or transfer operation.
+the same way as indexing any other host tensor. `CudaAsyncTensor` deliberately
+does not provide a host-callable element subscript merely because its rank is
+zero. Host extraction from such a tensor requires an explicit host-result or
+transfer operation.
 
 There is no separate `item()` operation in the initial design. The ordinary
 rank-zero subscript already expresses element access without implying hidden

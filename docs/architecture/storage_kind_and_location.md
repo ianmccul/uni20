@@ -1,11 +1,11 @@
 # Storage Memory Kind vs Location
 
-**Status:** active design note for storage/accessor semantics and future runtime
-placement.
+**Status:** current dense CUDA storage/location semantics plus active design for
+future distributed and block-sparse placement.
 
-This is a draft design note. It records design direction for how Uni20 tensor
-storage should model *where data lives*. It is not a description of current
-implemented behavior.
+This note records both the implemented dense CUDA model and the design direction
+for how future Uni20 tensor storage should model *where data lives*. Sections on
+distributed and block-sparse placement remain design work.
 
 Related notes:
 
@@ -44,23 +44,24 @@ So: kind is a type, location is a value.
 
 ## Current state
 
-- **Kind axis exists.** `Tensor` is parameterized by a `StoragePolicy`
-  (`VectorStorage` by default; see `src/uni20/tensor/`). A `GpuStorage` policy is
-  the intended mechanism for device-resident tensors, and `backend_dispatch.md`
-  already lists "memory-space or storage policy" as a compile-time capability and
-  "memory is resident on the required device" as a runtime check.
-- **CUDA device identity exists, but Tensor placement is not yet implemented.**
-  `cuda::Device` validates a runtime ordinal and provides a process-wide cached
-  immutable hardware-capability snapshot. The next dense-storage checkpoint
-  will carry that value in a typed CUDA storage domain and copy its ordinal into
-  an accessor-defined data handle. The default backend selector remains normally
-  stateless.
+- **The kind axis is implemented.** `Tensor` is parameterized by a
+  `StoragePolicy` (`VectorStorage` by default; see `src/uni20/tensor/`).
+  `CudaAsyncStorage` is the current device-resident policy. Other memory kinds
+  should use the same type-level mechanism rather than becoming runtime tags.
+- **CUDA Tensor placement is implemented for owning dense tensors.**
+  `CudaAsyncStorage` owns a typed `CudaBuffer`, while its opaque mdspan handle
+  carries buffer identity and an element offset. The buffer resolves its device
+  through the `DeviceResources` it borrows. A scoped process-wide CUDA runtime
+  owns one canonical resource set for each enrolled device; ordinary Tensor
+  construction uses the configured default. The default backend selector
+  remains stateless.
 - **The prototype validates the runtime-location model.** The vendored
   TensorContraction engine models location entirely at runtime:
-  `DeviceMatrixView::deviceId_` (an `int`), `cuda::DeviceContext`, and a
-  `MatrixHeader` POD that is "safe to send via MPI as raw bytes," with per-block
-  placement layouts chosen at runtime. This is the "data lives on a device" model in
-  practice, with multi-GPU + MPI placement as runtime decisions.
+  `DeviceMatrixView::deviceId_` (an `int`), device-local execution resources,
+  and a `MatrixHeader` POD that is "safe to send via MPI as raw bytes," with
+  per-block placement layouts chosen at runtime. This is the "data lives on a
+  device" model in practice, with multi-GPU + MPI placement as runtime
+  decisions.
 
 ## Interaction with symmetry / block-sparse tensors
 
@@ -120,7 +121,8 @@ workspace policy, algorithm option, or multiprecision setting.
 - How is location represented? Candidates: an `(MPI rank, device_ordinal)` pair, or
   an opaque `Device` handle that the scheduler resolves. The representation must be
   cheap to attach to every block.
-- What is the exact device data-handle and accessor type used by `GpuStorage`?
+- How should a future block-storage policy reuse `CudaBufferView` and
+  `CudaAsyncStorage` without forcing one allocation per logical block?
 - How does per-block location coexist with whole-tensor APIs that today assume a
   single storage (slicing, views, assignment semantics)?
 - How does location participate in (de)serialization for checkpointing and for the

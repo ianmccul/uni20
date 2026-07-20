@@ -105,6 +105,56 @@ The generic BLAS wrappers remain available through `uni20::blas`. When enabled, 
 For Uni20's async runtime, prefer `UNI20_BACKEND_MKL_SEQUENTIAL=ON` unless you explicitly want MKL to run its own internal worker threads.
 `UNI20_BACKEND_MKL=ON` remains as a compatibility option and selects the sequential MKL backend unless a specific MKL variant is enabled.
 
+### CUDA Configuration And Runtime Initialization
+
+Configure a CUDA build with the CUDA language and backend enabled:
+
+```bash
+cmake -S . -B build-cuda -DUNI20_ENABLE_CUDA=ON
+cmake --build build-cuda --target cuda_hello_world_example
+./build-cuda/examples/cuda_hello_world_example
+```
+
+The hello-world example reports the CUDA toolkit, driver, visible devices, and
+Uni20 backend capabilities. It also installs the runtime described below and
+exercises each enrolled device's stream/completion resources.
+
+A CUDA application explicitly installs one process-wide resource service near
+the start of `main()`:
+
+```cpp
+#include <uni20/backend/cuda/runtime.hpp>
+#include <uni20/tensor/tensor.hpp>
+
+int main()
+{
+  auto cuda_lifetime = uni20::cuda::initialize({
+      .streams_per_device = 8,
+  });
+
+  uni20::CudaAsyncTensor<uni20::float32, 2> matrix(32, 48);
+  // CUDA tensors and tasks must be destroyed before cuda_lifetime.
+}
+```
+
+Retain the returned `cuda::Runtime` guard for as long as any CUDA Tensor,
+buffer, stream, provider lease, or CUDA task exists. The runtime is not passed
+through Tensor operations: ordinary extent-only `CudaAsyncTensor` construction
+uses its configured default device, while `cuda::device_resources(device)`
+selects another enrolled device for explicit construction.
+
+By default, `cuda::initialize()` enrolls every visible device, chooses the
+first enrolled device as the default, and creates eight actually-idle streams
+per device. `RuntimeConfig::device_ordinals`, `default_device`,
+`streams_per_device`, and `stream_flags` customize that installation. Only one
+runtime may be active in a process. Direct `cuda::DeviceResources`
+construction is reserved for focused tests and low-level bring-up.
+
+The CUDA API and Tensor aliases are available only in CUDA-enabled builds. See
+the [CUDA Runtime Foundation](backends/cuda/runtime.md) for lifetime and
+resource contracts and [CUDA Buffers](backends/cuda/buffers.md) for the
+stream-synchronized access model used by backend authors.
+
 ### Build Information
 
 Uni20 generates build metadata for both C++ and Python. In C++:

@@ -4,8 +4,8 @@
 routing, same-domain scheduler inheritance, cross-domain explicit routing,
 optional CUDA device affinity, explicit device selection, and unified
 host/multi-device execution in both deterministic and oneTBB schedulers are
-implemented. Process-wide runtime initialization and storage-driven initial
-admission remain future work.
+implemented. Scoped process-wide CUDA resource initialization is also
+implemented; storage-driven initial scheduler admission remains future work.
 
 This note separates three related mechanisms: initial scheduler admission,
 rescheduling after suspension, and nested continuation routing. CUDA backend and
@@ -263,7 +263,7 @@ concrete return type, move Tensor storage, or silently change operand placement.
 
 Before adding this capability, define and test:
 
-- scheduler and device-context lifetime;
+- scheduler and device-resource lifetime;
 - cancellation and exception behavior during transfer;
 - task-group activation and quiescence accounting;
 - whether device-local resource leases may cross migration (the default answer
@@ -297,16 +297,16 @@ and ensure that no external callback can submit a later resumption.
 externally suspended task has completed, nor does it drain every scheduler in a
 multi-device process. In particular, waiting for the current oneTBB task group
 does not make it safe to destroy a scheduler while a coroutine remains
-suspended on an epoch, resource, or external event. Device-context shutdown
-will need an explicit contract that diagnoses outstanding routed tasks and
-resource waiters.
+suspended on an epoch, resource, or external event. Process-wide CUDA shutdown
+diagnoses live buffers, but scheduler shutdown still needs an explicit contract
+that diagnoses outstanding routed tasks and resource waiters.
 
 ## Remaining Tests and Work
 
 The unified debug and TBB tests establish the task-domain route. The next
 checkpoints should add:
 
-- global or context-level typed CUDA admission through the unified schedulers;
+- process-level typed CUDA admission through the unified schedulers;
 - scheduler destruction diagnostics with outstanding suspended tasks;
 - task-registry diagnostics that identify the current scheduler/device domain;
 - a user-facing scheduler-migration awaiter when a concrete use case justifies
@@ -314,6 +314,8 @@ checkpoints should add:
 
 ## Open Choices
 
-- How a CUDA device context exposes typed initial task admission.
+- How a process-level scheduler service exposes typed initial CUDA task
+  admission.
 - Whether scheduler identity should be recorded separately for diagnostics.
-- What operation drains or shuts down the unified host/device runtime.
+- How scheduler shutdown composes with the existing scoped CUDA resource
+  runtime.

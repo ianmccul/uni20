@@ -11,7 +11,8 @@ owning tensor semantics, symmetry metadata, or high-level operation policy.
   adapters, reference BLAS prototypes, and MPLAPACK binary128 hooks.
 - [`lapack/`](lapack/): LAPACK-family declarations grouped by problem shape, with
   reference and MPLAPACK-backed variants.
-- [`cuda/`](cuda/): CUDA backend target wiring and placeholders.
+- [`cuda/`](cuda/): device discovery, scoped process-wide runtime resources,
+  stream/completion management, typed buffers, and CUDA-task resource awaiters.
 - [`cublas/`](cublas/): cuBLAS handle/stream execution leases and checked GEMM wrappers.
 - [`cusolver/`](cusolver/): cuSOLVER backend target wiring and placeholders.
 
