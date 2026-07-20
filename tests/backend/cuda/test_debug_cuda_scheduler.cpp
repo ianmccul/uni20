@@ -23,6 +23,7 @@ using uni20::async::cuda_promise;
 using uni20::async::CudaTask;
 using uni20::async::DebugCudaScheduler;
 using uni20::async::DebugScheduler;
+using uni20::async::DebugSchedulerOptions;
 using uni20::async::ICudaScheduler;
 using uni20::async::IScheduler;
 using uni20::async::ReadBuffer;
@@ -86,6 +87,7 @@ static_assert(!PubliclySchedules<DebugScheduler, CudaTask>);
 static_assert(PubliclySchedules<DebugCudaScheduler, AsyncTask>);
 static_assert(!PubliclySchedules<DebugCudaScheduler, CudaTask>);
 static_assert(PubliclySchedulesOnDevice<DebugCudaScheduler, CudaTask>);
+static_assert(std::is_constructible_v<DebugCudaScheduler, DebugSchedulerOptions>);
 
 TEST_F(DebugCudaSchedulerTest, RunsCudaTaskOnBoundDeviceAndRestoresCallingThread)
 {

@@ -7,6 +7,8 @@
 #include "scheduler.hpp"
 #include "task_registry.hpp"
 #include <algorithm>
+#include <cstdint>
+#include <random>
 #include <uni20/common/display.hpp>
 #include <utility>
 #include <vector>
@@ -35,11 +37,32 @@ inline void dump_deadlock_graphviz_snapshot()
 }
 } // namespace detail
 
-/// \brief Simple FIFO scheduler
+/// \brief Runnable-batch ordering policy for `DebugScheduler`.
+enum class DebugSchedulerOrder
+{
+  /// Execute each runnable batch in submission order.
+  fifo,
+  /// Execute each runnable batch in reverse submission order.
+  reverse,
+  /// Execute each runnable batch in seeded pseudo-random order.
+  random,
+};
+
+/// \brief Configuration for deterministic debug scheduling.
+struct DebugSchedulerOptions
+{
+    /// Runnable-batch ordering policy.
+    DebugSchedulerOrder order = DebugSchedulerOrder::reverse;
+    /// Initial state for the reproducible random policy.
+    std::uint64_t random_seed = 0;
+};
+
+/// \brief Single-threaded scheduler with configurable runnable-batch ordering.
 class DebugScheduler : public IAsyncScheduler {
   public:
     /// \brief Default-construct an empty scheduler.
-    DebugScheduler() = default;
+    explicit DebugScheduler(DebugSchedulerOptions options = {}) : options_(options), random_engine_(options.random_seed)
+    {}
 
     /// \brief Enqueue a task for later run.
     /// \param task An AsyncTask bound to *this* scheduler.
@@ -72,7 +95,7 @@ class DebugScheduler : public IAsyncScheduler {
     /// \return `true` when the scheduler is not paused and has queued tasks.
     [[nodiscard]] bool can_run() const noexcept { return !Blocked_ && !Handles_.empty(); }
 
-    /// \brief Run one batch of scheduled coroutines (in LIFO order).
+    /// \brief Run one batch of scheduled coroutines in the configured order.
     void run();
 
     /// \brief Run until no runnable tasks remain.
@@ -107,6 +130,9 @@ class DebugScheduler : public IAsyncScheduler {
     /// \return `true` if the scheduler has no queued tasks.
     [[nodiscard]] bool done() const noexcept { return Handles_.empty(); }
 
+    /// \brief Return the scheduler's immutable ordering configuration.
+    [[nodiscard]] DebugSchedulerOptions const& options() const noexcept { return options_; }
+
   private:
     bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return true; }
 
@@ -121,6 +147,29 @@ class DebugScheduler : public IAsyncScheduler {
     bool Blocked_ = false;
 
     std::vector<BasicTask> Handles_;
+    DebugSchedulerOptions options_;
+    std::mt19937_64 random_engine_;
+
+    void order_batch(std::vector<BasicTask>& batch)
+    {
+      switch (options_.order)
+      {
+        case DebugSchedulerOrder::fifo:
+          return;
+        case DebugSchedulerOrder::reverse:
+          std::reverse(batch.begin(), batch.end());
+          return;
+        case DebugSchedulerOrder::random:
+          // Keep the permutation stable across standard-library implementations.
+          for (std::size_t remaining = batch.size(); remaining > 1; --remaining)
+          {
+            auto const selected = static_cast<std::size_t>(random_engine_() % remaining);
+            std::swap(batch[remaining - 1], batch[selected]);
+          }
+          return;
+      }
+      PANIC("invalid DebugScheduler ordering policy", static_cast<int>(options_.order));
+    }
 
   protected:
     /// \brief Add one already-bound task to the runnable queue.
@@ -254,7 +303,7 @@ inline void DebugScheduler::run()
 
   std::vector<BasicTask> H;
   std::swap(H, Handles_);
-  std::reverse(H.begin(), H.end());
+  this->order_batch(H);
   for (auto&& h : H)
   {
     TRACE_MODULE(ASYNC, "resuming coroutine...", &h, h.coroutine_handle());

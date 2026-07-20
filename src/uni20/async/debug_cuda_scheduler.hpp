@@ -14,12 +14,14 @@
 namespace uni20::async
 {
 
-/// \brief FIFO debug scheduler that admits ordinary and CUDA tasks.
-/// \details All tasks share one deterministic runnable queue. Each CUDA
-///          activation selects the device stored in its promise and restores
-///          the calling thread's previous device when it suspends or completes.
+/// \brief Configurable debug scheduler that admits ordinary and CUDA tasks.
+/// \details All tasks share one runnable queue and the ordering policy inherited
+///          from `DebugScheduler`. Each CUDA activation selects the device
+///          stored in its promise and restores the calling thread's previous
+///          device when it suspends or completes.
 class DebugCudaScheduler final : public DebugScheduler, public ICudaScheduler {
   public:
+    using DebugScheduler::DebugScheduler;
     using DebugScheduler::schedule;
 
     /// \brief Bind and enqueue a CUDA task for initial execution on a device.

@@ -45,7 +45,12 @@ the full contract, including stack-local test schedulers.
 Execution model:
 
 - scheduled tasks are stored internally
-- `run()` executes one batch in deterministic reverse-submission order
+- `run()` snapshots and executes one runnable batch
+- `DebugSchedulerOptions::order` selects `fifo`, `reverse`, or `random` batch
+  order; the default is `reverse`, preserving the scheduler's historical
+  behavior
+- random order is reproducible from `DebugSchedulerOptions::random_seed`,
+  which defaults to zero
 - `run_all()` drains until queue empty
 
 Wait/deadlock behavior:
