@@ -109,6 +109,10 @@ class TbbNumaScheduler final : public IAsyncScheduler {
     }
 
   private:
+    // TbbNumaScheduler itself is a router; direct execution belongs to one of
+    // its child arena schedulers.
+    bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return false; }
+
     /// \brief Reschedule a coroutine, honoring any recorded NUMA preference.
     void reschedule(BasicTask&& task) override
     {

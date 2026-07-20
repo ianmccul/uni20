@@ -392,6 +392,16 @@ class TaskPromiseBase {
       handle.coroutine().destroy();
     }
 
+    /// \brief Complete an unbound child's route before nested execution.
+    /// \param parent Currently executing parent task.
+    /// \param child Child selected for execution.
+    static void prepare_nested_route(TaskHandle parent, TaskHandle child);
+
+    /// \brief Report whether symmetric transfer is valid for two prepared task routes.
+    /// \param from Currently executing task.
+    /// \param to Task that would execute next on the current thread.
+    [[nodiscard]] static bool can_transfer_directly(TaskHandle from, TaskHandle to) noexcept;
+
     /// \brief Resolve an await_suspend task return value into a coroutine transfer handle.
     /// \param current Current coroutine identity.
     /// \param task Returned ownership token from awaitable.await_suspend(...).
@@ -413,8 +423,18 @@ class TaskPromiseBase {
         return current.coroutine();
       }
 
+      prepare_nested_route(current, nested);
       nested.promise().continuation_ = current;
       note_suspended(current);
+
+      if (!can_transfer_directly(current, nested))
+      {
+        auto nested_task = nested.promise().take_ownership();
+        BasicTask::reschedule(std::move(nested_task));
+        return std::noop_coroutine();
+      }
+
+      nested.promise().mark_started();
       note_running(nested);
       return nested.coroutine();
     }
@@ -495,9 +515,10 @@ class TaskPromiseBase {
             auto completed = promise->self();
             auto continuation = std::exchange(promise->continuation_, {});
             auto* continuation_exception = std::exchange(promise->continuation_exception_, nullptr);
-            auto* completed_scheduler = promise->sched_;
             bool cancelled = promise->is_cancel_on_resume();
             auto eptr = promise->get_exception();
+            bool const direct_transfer =
+                continuation && TaskPromiseBase::can_transfer_directly(completed, continuation);
             TRACE_MODULE(ASYNC, "Final suspend of coroutine", completed.coroutine(), continuation.coroutine(),
                          cancelled);
 
@@ -521,8 +542,7 @@ class TaskPromiseBase {
                   continuation.promise().set_exception(eptr);
               }
 
-              auto* continuation_scheduler = continuation.promise().sched_;
-              if (continuation_scheduler && continuation_scheduler != completed_scheduler)
+              if (!direct_transfer)
               {
                 auto continuation_task = continuation.promise().take_ownership();
                 BasicTask::reschedule(std::move(continuation_task));
@@ -627,6 +647,38 @@ inline CudaTaskPromise& cuda_promise(TaskHandle handle) noexcept
   CHECK(handle);
   CHECK(handle.domain() == TaskDomain::cuda);
   return static_cast<CudaTaskPromise&>(handle.promise());
+}
+
+inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle child)
+{
+  CHECK(parent);
+  CHECK(child);
+  CHECK(parent.promise().scheduler(), "nested task parent has no scheduler route");
+
+  if (!child.promise().scheduler()) child.promise().sched_ = parent.promise().scheduler();
+
+  if (child.domain() != TaskDomain::cuda) return;
+
+  auto& child_promise = cuda_promise(child);
+  if (child_promise.device()) return;
+
+  CHECK(parent.domain() == TaskDomain::cuda,
+        "an unbound CUDA child cannot infer a device from a host-domain parent");
+  auto const parent_device = cuda_promise(parent).device();
+  CHECK(parent_device, "CUDA parent task has no bound device");
+  child_promise.bind_device(*parent_device);
+}
+
+inline bool TaskPromiseBase::can_transfer_directly(TaskHandle from, TaskHandle to) noexcept
+{
+  CHECK(from);
+  CHECK(to);
+  auto* scheduler = from.promise().scheduler();
+  CHECK(scheduler, "running task has no scheduler route");
+
+  if (scheduler != to.promise().scheduler()) return false;
+  if (from.domain() != to.domain()) return false;
+  return scheduler->can_direct_transfer(from, to);
 }
 
 /// \brief Factory for producing multiple BasicTask ownership claims for one coroutine.

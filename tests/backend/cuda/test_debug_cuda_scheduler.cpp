@@ -24,6 +24,7 @@ using uni20::async::DebugCudaScheduler;
 using uni20::async::DebugScheduler;
 using uni20::async::ReadBuffer;
 using uni20::async::WriteBuffer;
+using uni20::async::cuda_promise;
 
 template <typename Scheduler, typename Task>
 concept PubliclySchedules = requires(Scheduler& scheduler, Task&& task) { scheduler.schedule(std::move(task)); };
@@ -247,6 +248,7 @@ TEST_F(DebugCudaSchedulerTest, CpuParentReturnsToCpuSchedulerAfterCudaChild)
     events.push_back(10 + current_device);
     co_return;
   }(events);
+  cuda_promise(child.handle()).bind_device(target_device_);
   ASSERT_TRUE(child.set_scheduler(&cuda_scheduler));
 
   auto parent = [](CudaTask child, std::vector<int>& events) static -> AsyncTask {
@@ -280,6 +282,7 @@ TEST_F(DebugCudaSchedulerTest, CpuParentReceivesCudaChildExceptionOnCpuScheduler
     throw CudaTaskTestError{};
     co_return;
   }();
+  cuda_promise(child.handle()).bind_device(target_device_);
   ASSERT_TRUE(child.set_scheduler(&cuda_scheduler));
 
   auto parent = [](CudaTask child, std::vector<int>& events) static -> AsyncTask {
@@ -305,7 +308,7 @@ TEST_F(DebugCudaSchedulerTest, CpuParentReceivesCudaChildExceptionOnCpuScheduler
   EXPECT_EQ(events, (std::vector<int>{1, 2}));
 }
 
-TEST_F(DebugCudaSchedulerTest, CudaParentAwaitsUnboundAsyncChildOnSameScheduler)
+TEST_F(DebugCudaSchedulerTest, CudaParentReschedulesAsyncChildAndReturnAcrossDomain)
 {
   DebugCudaScheduler scheduler(target_device_);
   std::vector<int> events;
@@ -324,12 +327,19 @@ TEST_F(DebugCudaSchedulerTest, CudaParentAwaitsUnboundAsyncChildOnSameScheduler)
   }(std::move(child), events);
 
   scheduler.schedule(std::move(parent));
-  scheduler.run_all();
+  scheduler.run();
+  EXPECT_EQ(events, (std::vector<int>{1}));
+
+  scheduler.run();
+  EXPECT_EQ(events, (std::vector<int>{1, 10 + target_device_}));
+
+  scheduler.run();
 
   EXPECT_EQ(events, (std::vector<int>{1, 10 + target_device_, 2}));
+  EXPECT_TRUE(scheduler.done());
 }
 
-TEST_F(DebugCudaSchedulerTest, CudaParentAwaitsUnboundCudaChildOnSameScheduler)
+TEST_F(DebugCudaSchedulerTest, CudaParentDirectlyTransfersToSameDeviceCudaChild)
 {
   DebugCudaScheduler scheduler(target_device_);
   std::vector<int> events;
@@ -350,10 +360,50 @@ TEST_F(DebugCudaSchedulerTest, CudaParentAwaitsUnboundCudaChildOnSameScheduler)
   }(std::move(child), events);
 
   scheduler.schedule(std::move(parent));
-  scheduler.run_all();
+  scheduler.run();
 
   EXPECT_EQ(events, (std::vector<int>{1, 10 + target_device_, 2}));
   EXPECT_EQ(child_promise_device, target_device_);
+  EXPECT_TRUE(scheduler.done());
+}
+
+TEST_F(DebugCudaSchedulerTest, CrossDeviceCudaChildReturnsThroughParentDeviceScheduler)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "requires at least two CUDA devices";
+
+  int const parent_device = original_device_;
+  int const child_device = (parent_device + 1) % device_count_;
+  DebugCudaScheduler parent_scheduler(parent_device);
+  DebugCudaScheduler child_scheduler(child_device);
+  std::vector<int> observed_devices;
+
+  auto child = [](std::vector<int>& observed) static -> CudaTask {
+    int device = -1;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
+    observed.push_back(device);
+    co_return;
+  }(observed_devices);
+  cuda_promise(child.handle()).bind_device(child_device);
+  ASSERT_TRUE(child.set_scheduler(&child_scheduler));
+
+  auto parent = [](CudaTask child, std::vector<int>& observed) static -> CudaTask {
+    int device = -1;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
+    observed.push_back(device);
+    co_await child;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
+    observed.push_back(device);
+  }(std::move(child), observed_devices);
+
+  parent_scheduler.schedule(std::move(parent));
+  parent_scheduler.run();
+  EXPECT_EQ(observed_devices, (std::vector<int>{parent_device}));
+
+  child_scheduler.run();
+  EXPECT_EQ(observed_devices, (std::vector<int>{parent_device, child_device}));
+
+  parent_scheduler.run();
+  EXPECT_EQ(observed_devices, (std::vector<int>{parent_device, child_device, parent_device}));
 }
 
 TEST_F(DebugCudaSchedulerTest, CudaPromisePropagatesUnhandledExceptionToWriter)

@@ -171,6 +171,8 @@ class TbbScheduler final : public IAsyncScheduler {
     }
 
   private:
+    bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return true; }
+
     /// \brief Reschedule a previously suspended coroutine.
     void reschedule(BasicTask&& t) override { this->enqueue_task(std::move(t)); }
 

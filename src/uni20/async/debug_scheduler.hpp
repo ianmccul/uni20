@@ -108,6 +108,8 @@ class DebugScheduler final : public IAsyncScheduler {
     [[nodiscard]] bool done() const noexcept { return Handles_.empty(); }
 
   private:
+    bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return true; }
+
     // Internal resubmission
     void reschedule(BasicTask&& task) override
     {

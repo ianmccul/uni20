@@ -75,7 +75,22 @@ class DebugCudaScheduler final : public ICudaScheduler {
     [[nodiscard]] cuda::Device device() const noexcept { return device_; }
 
   private:
-    void reschedule(BasicTask&& task) override { tasks_.push_back(std::move(task)); }
+    bool can_direct_transfer(TaskHandle from, TaskHandle to) const noexcept override
+    {
+      auto const from_device = cuda_promise(from).device();
+      auto const to_device = cuda_promise(to).device();
+      return from_device && from_device == to_device && *from_device == device_.ordinal();
+    }
+
+    void reschedule(BasicTask&& task) override
+    {
+      if (task.handle().domain() == TaskDomain::cuda)
+      {
+        auto const task_device = cuda_promise(task.handle()).device();
+        CHECK(task_device && *task_device == device_.ordinal(), "CUDA task routed to the wrong device scheduler");
+      }
+      tasks_.push_back(std::move(task));
+    }
 
     void run_current_device()
     {

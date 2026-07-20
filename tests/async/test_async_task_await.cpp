@@ -16,6 +16,48 @@ namespace
 struct NestedTaskError
 {};
 
+class RejectingDirectTransferScheduler final : public IAsyncScheduler {
+  public:
+    void schedule(AsyncTask&& task) override
+    {
+      if (task.set_scheduler(this)) tasks_.push_back(std::move(task));
+    }
+
+    void pause() override {}
+    void resume() override {}
+
+    void run()
+    {
+      std::vector<BasicTask> tasks;
+      tasks.swap(tasks_);
+      for (auto& task : tasks)
+        task.resume();
+    }
+
+    [[nodiscard]] bool done() const noexcept { return tasks_.empty(); }
+
+  private:
+    bool can_direct_transfer(TaskHandle, TaskHandle) const noexcept override { return false; }
+    void reschedule(BasicTask&& task) override { tasks_.push_back(std::move(task)); }
+
+    std::vector<BasicTask> tasks_;
+};
+
+struct TransferToTask
+{
+    AsyncTask task;
+
+    [[nodiscard]] constexpr bool await_ready() const noexcept { return false; }
+
+    BasicTask await_suspend(BasicTask current)
+    {
+      static_cast<void>(current.release_handle());
+      return BasicTask(std::move(task));
+    }
+
+    constexpr void await_resume() const noexcept {}
+};
+
 } // namespace
 
 TEST(AsyncTaskAwaitTest, ErasedTaskHandlesRetainConcretePromiseDomains)
@@ -66,6 +108,19 @@ TEST(AsyncTaskRouteDeathTest, CudaDeviceCannotBeBoundAfterTaskStarts)
   EXPECT_DEATH(promise.bind_device(3), "after the task has started");
 
   task.set_cancel_on_resume();
+}
+
+TEST(AsyncTaskRouteDeathTest, HostParentCannotInferUnboundCudaChildDevice)
+{
+  EXPECT_DEATH(
+      {
+        DebugScheduler scheduler;
+        auto child = []() static -> CudaTask { co_return; }();
+        auto parent = [](CudaTask child) static -> AsyncTask { co_await child; }(std::move(child));
+        scheduler.schedule(std::move(parent));
+        scheduler.run_all();
+      },
+      "unbound CUDA child cannot infer a device");
 }
 
 /// \brief A coroutine that forwards one value from a read buffer to a write buffer.
@@ -193,6 +248,62 @@ TEST(AsyncTaskAwaitTest, NestedTaskOnSameExplicitSchedulerUsesSymmetricTransfer)
 
   EXPECT_TRUE(scheduler.done());
   EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child", "parent after"}));
+}
+
+TEST(AsyncTaskAwaitTest, SchedulerCanRejectSameDomainDirectTransfer)
+{
+  RejectingDirectTransferScheduler scheduler;
+  std::vector<std::string> events;
+
+  auto child = [](std::vector<std::string>& events) static -> AsyncTask {
+    events.emplace_back("child");
+    co_return;
+  }(events);
+
+  auto parent = [](AsyncTask child, std::vector<std::string>& events) static -> AsyncTask {
+    events.emplace_back("parent before");
+    co_await child;
+    events.emplace_back("parent after");
+  }(std::move(child), events);
+
+  scheduler.schedule(std::move(parent));
+  scheduler.run();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before"}));
+
+  scheduler.run();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child"}));
+
+  scheduler.run();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child", "parent after"}));
+  EXPECT_TRUE(scheduler.done());
+}
+
+TEST(AsyncTaskAwaitTest, ReturnedBasicTaskUsesSchedulerTransferPolicy)
+{
+  RejectingDirectTransferScheduler scheduler;
+  std::vector<std::string> events;
+
+  auto child = [](std::vector<std::string>& events) static -> AsyncTask {
+    events.emplace_back("child");
+    co_return;
+  }(events);
+
+  auto parent = [](AsyncTask child, std::vector<std::string>& events) static -> AsyncTask {
+    events.emplace_back("parent before");
+    co_await TransferToTask{std::move(child)};
+    events.emplace_back("parent after");
+  }(std::move(child), events);
+
+  scheduler.schedule(std::move(parent));
+  scheduler.run();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before"}));
+
+  scheduler.run();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child"}));
+
+  scheduler.run();
+  EXPECT_EQ(events, (std::vector<std::string>{"parent before", "child", "parent after"}));
+  EXPECT_TRUE(scheduler.done());
 }
 
 TEST(AsyncTaskAwaitTest, NestedTaskExceptionIsRethrownAtAwaitResume)

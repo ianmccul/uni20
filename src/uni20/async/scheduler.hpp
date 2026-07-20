@@ -13,6 +13,8 @@ namespace uni20::async
 
 class AsyncTask;
 class BasicTask;
+class TaskHandle;
+class TaskPromiseBase;
 
 /// \brief Internal route for resuming an already-bound coroutine task.
 class IScheduler {
@@ -22,6 +24,12 @@ class IScheduler {
 
   private:
     friend class BasicTask;
+    friend class TaskPromiseBase;
+
+    /// \brief Decide whether execution may transfer directly between two tasks.
+    /// \details The caller has already verified that both tasks use this scheduler
+    ///          and declare the same task domain.
+    virtual bool can_direct_transfer(TaskHandle from, TaskHandle to) const noexcept = 0;
 
     /// \brief Schedule an already-bound coroutine to be resumed later.
     /// \param task Basic task state whose scheduler route is already fixed.

@@ -33,7 +33,7 @@ TaskHandle  = non-owning erased coroutine identity + TaskPromiseBase pointer
 BasicTask   = move-only ownership claim for either concrete task kind
 ```
 
-The concrete type exists only at initial scheduler admission:
+The concrete type controls initial scheduler admission:
 
 - `IAsyncScheduler::schedule(AsyncTask&&)` admits ordinary host tasks;
 - `ICudaScheduler::schedule(CudaTask&&)` admits CUDA tasks;
@@ -59,9 +59,10 @@ the declared task kind.
 
 This arrangement keeps initial admission and declared task identity type-safe
 without duplicating the coroutine runtime or adding virtual promise dispatch.
-It also allows awaiters to inspect the enclosing concrete promise type in later
-CUDA policy work. That type information does not override the runtime scheduler
-binding.
+The erased handle retains the concrete promise's domain so continuation routing
+can reject a direct cross-domain transfer. CUDA-aware code may narrow a
+CUDA-tagged promise to inspect its device. Neither property overrides the
+runtime scheduler binding.
 
 ## Internal Rescheduling
 
@@ -92,21 +93,27 @@ and which kernel is legal.
 
 ## Nested Entry and Return
 
-When a coroutine awaits another Uni20 task, the child retains its concrete type
-only long enough to establish the initial route. Entry follows this rule:
+When a coroutine awaits another Uni20 task, the child first receives any
+missing scheduler or CUDA-device binding permitted by the parent. Entry then
+follows this rule:
 
-| Child route | Action |
+| Prepared child route | Action |
 |---|---|
-| unset | inherit the parent route and transfer directly |
-| same as parent | transfer directly |
-| different from parent | enqueue the child on its recorded scheduler and suspend the parent |
+| different scheduler | enqueue on the child scheduler |
+| different task domain | enqueue through the recorded scheduler |
+| same scheduler and domain, scheduler rejects direct transfer | enqueue through the recorded scheduler |
+| same scheduler and domain, scheduler accepts direct transfer | transfer directly |
 
 When the child finishes:
 
 | Parent continuation route | Action |
 |---|---|
-| same as the child execution route | transfer directly to the continuation |
-| different | resubmit the continuation through its recorded scheduler |
+| scheduler, domain, or scheduler-specific route differs | resubmit the continuation |
+| scheduler accepts the same-domain route | transfer directly to the continuation |
+
+Scheduler-pointer equality is therefore necessary but not sufficient for
+symmetric transfer. The same predicate governs nested task entry, a task
+returned by a forwarding awaiter, and final continuation return.
 
 The common promise base and promise-neutral continuation handle make this work
 for all four parent/child combinations of `AsyncTask` and `CudaTask`. In
