@@ -2,8 +2,8 @@
 
 **Status:** concrete host and CUDA promise types, promise-neutral suspended-task
 routing, same-domain scheduler inheritance, cross-domain explicit routing, and
-deterministic unified host/CUDA execution are implemented. The oneTBB CUDA
-scheduler remains device-bound pending the unified TBB scheduler checkpoint.
+unified host/multi-device execution in both deterministic and oneTBB schedulers
+are implemented. Storage-driven initial CUDA admission remains future work.
 
 This note separates three related mechanisms: initial scheduler admission,
 rescheduling after suspension, and nested continuation routing. CUDA backend and
@@ -140,30 +140,36 @@ for every visible device, including from `get_wait()`.
 
 Tests cover direct CUDA admission, resumption after buffer suspension,
 multi-device tasks in one queue, explicit host/CUDA nesting in both directions,
+one `get_wait()` driving a complete host/CUDA/host continuation chain,
 same-device direct transfer, cross-device resubmission, exception propagation,
 cancellation, and calling-thread device restoration. A separate non-CUDA death
 test proves that an unbound cross-domain child cannot inherit a scheduler.
 
-`TbbCudaScheduler` is the parallel implementation. Each instance owns one
-oneTBB arena and one `task_scheduler_observer` for its validated CUDA device.
-The observer saves and selects the device whenever a worker or application
-thread enters the arena, then restores the previous device on exit. Nested
-participation in another device arena uses a thread-local selection stack, so
-returning from device 1 to an outer device-0 arena restores device 0 before the
-outer coroutine continues.
+`TbbCudaScheduler` is the parallel implementation. It extends `TbbScheduler`
+with one worker-only oneTBB arena per enrolled CUDA device. The host arena and
+all device arenas share one scheduler route, task group, pause state, wait
+state, and watchdog accounting. The default constructor enrolls every visible
+device; tests may provide an explicit device set.
 
-The TBB CUDA scheduler implements CUDA admission and `IScheduler`
-rescheduling, but remains a separate device-bound scheduler in this checkpoint.
-Its `run_all()` has
-the same activation-quiescence meaning as `TbbScheduler`: externally suspended
-tasks may become runnable and submit a later activation.
+Each device arena has a `task_scheduler_observer`. The observer saves and
+selects that arena's device whenever a worker participates, then restores the
+previous device on exit. The application thread waits and helps through the
+host arena; it does not enter a CUDA arena merely to admit or wait for CUDA
+work. Same-device nested tasks may transfer directly while already inside the
+correct arena. Cross-domain or cross-device continuations are enqueued through
+the shared scheduler and routed to their required arena.
 
-Tests cover direct TBB admission, one scheduler per visible device,
-out-of-order resumption after two suspension points, non-blocking resumption
-into a saturated arena, concurrent arena-participant device selection before
-and after suspension, calling-thread restoration, and nested entry into a
-different device arena. Multi-device cases skip when fewer than two devices are
-visible.
+`run_all()` and `get_wait()` use the shared task group, so one call observes all
+currently admitted host and CUDA activations. They retain the same
+activation-quiescence meaning as `TbbScheduler`: a coroutine suspended on an
+external event may become runnable and submit a later activation.
+
+Tests cover host and CUDA admission through one scheduler, synchronous waits
+that drive CUDA work, non-blocking resumption into a saturated device arena,
+concurrent worker device selection before and after suspension, one scheduler
+routing tasks across every visible device, cross-device continuation return,
+cross-domain exception and cancellation propagation, and calling-thread device
+restoration. Multi-device cases skip when fewer than two devices are visible.
 
 ## Device Selection
 
@@ -236,12 +242,10 @@ resource waiters.
 
 ## Remaining Tests and Work
 
-The unified debug tests establish the target task-domain route. The next
+The unified debug and TBB tests establish the task-domain route. The next
 checkpoints should add:
 
-- one TBB scheduler with host execution plus one CUDA arena per enrolled device;
-- global or context-level typed CUDA admission through that unified scheduler;
-- exception and cancellation propagation across a host/CUDA scheduler boundary;
+- global or context-level typed CUDA admission through the unified schedulers;
 - scheduler destruction diagnostics with outstanding suspended tasks;
 - task-registry diagnostics that identify the current scheduler/device domain;
 - live-task migration tests only if a concrete use case justifies that API.

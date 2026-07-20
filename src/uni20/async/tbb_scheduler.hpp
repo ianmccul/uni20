@@ -64,7 +64,7 @@ struct TbbSchedulerWaitOptions
 ///
 class TbbNumaScheduler;
 
-class TbbScheduler final : public IAsyncScheduler {
+class TbbScheduler : public IAsyncScheduler {
     class SuspendedWait;
     class ReadySignal;
     class ExecutionScope;
@@ -95,7 +95,7 @@ class TbbScheduler final : public IAsyncScheduler {
     ~TbbScheduler() noexcept override
     {
       // ensure all tasks finish before destruction
-      arena_.execute([&] { tg_.wait(); });
+      this->wait_for_submitted_tasks();
     }
 
     /// \brief Schedule a coroutine for initial execution.
@@ -115,7 +115,7 @@ class TbbScheduler final : public IAsyncScheduler {
     {
       this->resume();
       detail::service_tbb_task_registry_debug_requests();
-      arena_.execute([&] { tg_.wait(); });
+      this->wait_for_submitted_tasks();
       detail::service_tbb_task_registry_debug_requests();
     }
 
@@ -460,6 +460,14 @@ class TbbScheduler final : public IAsyncScheduler {
       }
     }
 
+  protected:
+    /// \brief Wait for every activation registered with the shared task group.
+    void wait_for_submitted_tasks()
+    {
+      arena_.execute([&] { tg_.wait(); });
+    }
+
+    /// \brief Enqueue one task through the scheduler's domain-routing hook.
     void enqueue_task(BasicTask&& t)
     {
       TRACE_MODULE(ASYNC, "TBB scheduler enqueuing task", t.coroutine_handle());
@@ -486,19 +494,36 @@ class TbbScheduler final : public IAsyncScheduler {
       }
     }
 
-    void dispatch_handle(TaskHandle handle)
+    /// \brief Route one runnable task activation to its execution arena.
+    virtual void dispatch_handle(TaskHandle handle)
     {
-      this->submit_runnable_quantum();
-      detail::enqueue_tbb_task(arena_, tg_,
-                               [this, handle]() {
-                                 ExecutionScope execution(*this);
-                                 TRACE_MODULE(ASYNC, "resuming coroutine", handle.coroutine());
-                                 TaskPromiseBase::resume_and_track(handle);
-                                 detail::service_tbb_task_registry_debug_requests();
-                               },
-                               {.scheduler = "TbbScheduler"});
+      this->dispatch_handle_in_arena(arena_, handle, {.scheduler = "TbbScheduler"}, [] {});
     }
 
+    /// \brief Submit one activation to an arena while sharing scheduler accounting.
+    /// \tparam Prepare callable that establishes or verifies the arena execution context.
+    /// \param arena Arena that will execute the activation.
+    /// \param handle Promise-neutral task identity.
+    /// \param context Diagnostic context for admission failure.
+    /// \param prepare Callable invoked immediately before coroutine resumption.
+    template <typename Prepare>
+    void dispatch_handle_in_arena(oneapi::tbb::task_arena& arena, TaskHandle handle,
+                                  detail::TbbTaskAdmissionContext context, Prepare&& prepare)
+    {
+      this->submit_runnable_quantum();
+      detail::enqueue_tbb_task(
+          arena, tg_,
+          [this, handle, prepare = std::forward<Prepare>(prepare)] {
+            ExecutionScope execution(*this);
+            prepare();
+            TRACE_MODULE(ASYNC, "resuming coroutine", handle.coroutine());
+            TaskPromiseBase::resume_and_track(handle);
+            detail::service_tbb_task_registry_debug_requests();
+          },
+          context);
+    }
+
+  private:
     oneapi::tbb::task_arena arena_;
     oneapi::tbb::task_group tg_;
     TbbSchedulerWaitOptions wait_options_;

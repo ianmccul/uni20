@@ -167,9 +167,9 @@ This keeps the split clear:
 
 - async epoch model: task ordering, object lifetime, and high-level dependency
   causality;
-- per-device scheduler: execution of `CudaTask` activations routed from global
-  scheduling or heterogeneous nested `co_await`, with bounded host
-  participation;
+- unified scheduler: execution of `CudaTask` activations in the arena for their
+  bound device, whether reached through initial admission or heterogeneous
+  nested `co_await`, with bounded host participation;
 - GPU storage/runtime: buffer access completions, stream/event synchronization,
   resource leasing, and device work submission;
 - cuSOLVER backend: a non-suspending solver call that consumes leased resources

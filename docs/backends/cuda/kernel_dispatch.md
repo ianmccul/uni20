@@ -1,9 +1,9 @@
 # CUDA Kernel Dispatch and Device Scheduling
 
 **Status:** active design note. The low-level CUDA runtime foundation and
-device-bound debug/oneTBB schedulers are implemented, but CUDA Tensor storage,
-CUDA kernel backends, resource awaiters, device-context integration, and live
-coroutine scheduler migration are not yet implemented.
+unified host/multi-device debug and oneTBB schedulers are implemented, but CUDA
+Tensor storage, CUDA kernel backends, resource awaiters, device-context
+integration, and live coroutine scheduler migration are not yet implemented.
 
 This note defines how Uni20 kernel dispatch should interact with CUDA
 execution. It distinguishes the logical CUDA execution context from the
@@ -458,8 +458,8 @@ diagnostic data rather than preformatting one terminal-only string.
 
 1. Use the implemented shared-promise `CudaTask`, `ICudaScheduler`, and
    cross-scheduler nested continuation routing as the scheduler contract.
-2. Integrate the implemented `TbbCudaScheduler` and its device-establishing
-   arena observer into `cuda::DeviceContext`.
+2. Integrate the implemented unified `TbbCudaScheduler` and its per-device
+   arena observers with runtime/device-context ownership.
 3. Add typed CUDA admission that selects the correct scheduler from explicit
    device or Tensor-storage placement.
 4. Specify live-task scheduler migration separately, including activation

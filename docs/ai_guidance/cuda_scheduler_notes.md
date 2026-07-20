@@ -3,8 +3,8 @@
 - **Audience:** design assistants, coding agents, and reviewers
 - **Authority:** non-normative retrieval summary
 - **Reviewed against:** `Uni20-dev/uni20` `main`, 2026-07-20
-- **Status:** active design work; low-level runtime primitives and device-bound
-  debug/oneTBB schedulers exist, but Tensor storage, storage-driven scheduler
+- **Status:** active design work; low-level runtime primitives and unified
+  host/multi-device debug/oneTBB schedulers exist, but Tensor storage, scheduler
   admission, resource awaiters, and provider kernels are not implemented
 - **Canonical sources:** current maintainer decisions, `docs/backends/cuda/`,
   inspected CUDA source, and focused tests
@@ -34,9 +34,10 @@ Uni20 has a tested low-level CUDA runtime foundation:
 - `cudaMallocAsync`/`cudaFreeAsync` use when stream-ordered memory pools are
   supported, with `cudaMalloc`/`cudaFree` fallback;
 - typed `CudaTask` admission through deterministic `DebugCudaScheduler` and
-  parallel `TbbCudaScheduler` implementations bound to a validated device;
-- oneTBB arena-entry device selection and restoration, including nested entry
-  into another device arena;
+  parallel `TbbCudaScheduler` implementations that also admit ordinary host
+  tasks and route CUDA tasks by their bound device;
+- oneTBB execution through one host arena and one worker-only arena per enrolled
+  device, with arena-entry device selection and restoration;
 - structured CUDA diagnostics through Uni20's presentation layer.
 
 These primitives and scheduler mechanisms are low-level infrastructure rather
@@ -120,8 +121,8 @@ already satisfies them completely.
 Treat these as active design questions unless current maintainer decisions say otherwise:
 
 - whether stream reuse should use callbacks, polling, an event service, or another mechanism;
-- how `TbbCudaScheduler` instances are owned by device contexts and selected
-  from Tensor storage placement;
+- how the process-level unified schedulers are owned and selected from Tensor
+  storage placement;
 - how stream, provider handle, workspace, and allocator resources are acquired together;
 - whether future CUDA tasks need promise state beyond the implemented typed
   `CudaTask` wrapper and shared basic promise;

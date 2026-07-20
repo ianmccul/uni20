@@ -19,6 +19,7 @@ namespace
 using uni20::async::Async;
 using uni20::async::AsyncTask;
 using uni20::async::BasicTask;
+using uni20::async::cuda_promise;
 using uni20::async::CudaTask;
 using uni20::async::DebugCudaScheduler;
 using uni20::async::DebugScheduler;
@@ -26,7 +27,6 @@ using uni20::async::ICudaScheduler;
 using uni20::async::IScheduler;
 using uni20::async::ReadBuffer;
 using uni20::async::WriteBuffer;
-using uni20::async::cuda_promise;
 
 template <typename Scheduler, typename Task>
 concept PubliclySchedules = requires(Scheduler& scheduler, Task&& task) { scheduler.schedule(std::move(task)); };
@@ -232,8 +232,7 @@ TEST_F(DebugCudaSchedulerTest, OneSchedulerRestoresDevicesAcrossMultiDeviceResum
 
   for (int device = 0; device < device_count_; ++device)
   {
-    EXPECT_EQ(outputs[device]->get_wait(scheduler),
-              (Observations{100 + device, 200 + device, device, device, device}));
+    EXPECT_EQ(outputs[device]->get_wait(scheduler), (Observations{100 + device, 200 + device, device, device, device}));
   }
 }
 
@@ -271,6 +270,33 @@ TEST_F(DebugCudaSchedulerTest, CpuParentReturnsToCpuSchedulerAfterCudaChild)
   int restored_device = -1;
   ASSERT_EQ(cudaGetDevice(&restored_device), cudaSuccess);
   EXPECT_EQ(restored_device, original_device_);
+}
+
+TEST_F(DebugCudaSchedulerTest, GetWaitDrivesHostCudaHostContinuationChain)
+{
+  DebugCudaScheduler scheduler;
+  Async<std::array<int, 3>> output;
+  std::array<int, 3> observed_devices{-1, -1, -1};
+
+  auto child = [](int* observed_device) static -> CudaTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(observed_device)), static_cast<int>(cudaSuccess));
+    co_return;
+  }(&observed_devices[1]);
+  cuda_promise(child.handle()).bind_device(target_device_);
+  ASSERT_TRUE(child.set_scheduler(&scheduler));
+
+  auto parent = [](CudaTask child, std::array<int, 3>* observed_devices,
+                   WriteBuffer<std::array<int, 3>> output) static -> AsyncTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&(*observed_devices)[0])), static_cast<int>(cudaSuccess));
+    co_await child;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&(*observed_devices)[2])), static_cast<int>(cudaSuccess));
+    co_await output = *observed_devices;
+  }(std::move(child), &observed_devices, output.write());
+
+  scheduler.schedule(std::move(parent));
+
+  EXPECT_EQ(output.get_wait(scheduler), (std::array{original_device_, target_device_, original_device_}));
+  EXPECT_TRUE(scheduler.done());
 }
 
 TEST_F(DebugCudaSchedulerTest, CpuParentReceivesCudaChildExceptionOnCpuScheduler)

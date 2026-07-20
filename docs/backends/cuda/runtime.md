@@ -3,9 +3,9 @@
 **Status:** the low-level ownership, completion-token, idle-stream-pool, device
 buffer, and scoped stream-access primitives are implemented in
 `src/uni20/backend/cuda/`. The async layer provides deterministic and oneTBB
-device-bound CUDA schedulers, including arena-entry device restoration. CUDA
-Tensor storage, CUDA kernels, and coroutine resource awaiters are not yet
-implemented.
+unified host/multi-device schedulers, including per-activation device selection
+and restoration. CUDA Tensor storage, CUDA kernels, and coroutine resource
+awaiters are not yet implemented.
 
 This document defines the resource-management contract beneath future CUDA
 Tensor kernels and async lowering.
@@ -274,8 +274,8 @@ The next CUDA runtime checkpoints should add:
 
 1. Typed CUDA Tensor storage and a device mdspan/accessor contract built over
    `cuda::CudaBuffer` without making device memory host-indexable.
-2. Integrate the implemented `TbbCudaScheduler` with eventual provider-handle
-   and workspace pools in `DeviceContext`.
+2. Integrate the implemented unified `TbbCudaScheduler` with eventual
+   provider-handle and workspace pools in the CUDA runtime.
 3. Typed initial `CudaTask` admission that selects the scheduler matching Tensor
    storage placement. Shared-promise nested-await and continuation routing are
    already implemented and covered by both CUDA schedulers' tests.

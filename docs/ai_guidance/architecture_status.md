@@ -31,8 +31,9 @@
 
 - `Async`, `EpochQueue`, `ReadBuffer`, and `WriteBuffer` are implemented core types.
 - `DebugScheduler`, `TbbScheduler`, `TbbNumaScheduler`, `DebugCudaScheduler`,
-  and `TbbCudaScheduler` are implemented. The CUDA schedulers are bound to an
-  explicit device; Tensor-storage-driven scheduler selection is not yet wired.
+  and `TbbCudaScheduler` are implemented. The CUDA-capable schedulers admit host
+  work and route CUDA tasks to an explicit bound device; Tensor-storage-driven
+  initial admission is not yet wired.
 - Exception/cancellation propagation, scheduler-aware waits, task diagnostics,
   and DAG snapshots exist.
 - Async correctness comes from epoch ordering, not scheduler timing.

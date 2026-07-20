@@ -2,8 +2,8 @@
 
 This directory contains the CUDA runtime foundation and is the CUDA
 backend-library wiring point. It does not yet provide Tensor CUDA kernels.
-Deterministic and oneTBB device-bound CUDA coroutine schedulers are implemented
-under `src/uni20/async/`.
+Deterministic and oneTBB unified host/multi-device coroutine schedulers are
+implemented under `src/uni20/async/`.
 
 ## Contents
 

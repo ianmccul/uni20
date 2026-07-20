@@ -1,5 +1,4 @@
 #include <uni20/async/async.hpp>
-#include <uni20/async/debug_scheduler.hpp>
 #include <uni20/async/tbb_cuda_scheduler.hpp>
 
 #include <cuda_runtime_api.h>
@@ -25,16 +24,24 @@ namespace
 using uni20::async::Async;
 using uni20::async::AsyncTask;
 using uni20::async::CudaTask;
-using uni20::async::DebugScheduler;
 using uni20::async::ReadBuffer;
 using uni20::async::TbbCudaScheduler;
+using uni20::async::TbbCudaSchedulerOptions;
 using uni20::async::WriteBuffer;
 
 template <typename Scheduler, typename Task>
 concept PubliclySchedules = requires(Scheduler& scheduler, Task&& task) { scheduler.schedule(std::move(task)); };
 
-static_assert(PubliclySchedules<TbbCudaScheduler, CudaTask>);
-static_assert(!PubliclySchedules<TbbCudaScheduler, AsyncTask>);
+template <typename Scheduler, typename Task>
+concept PubliclySchedulesOnDevice =
+    requires(Scheduler& scheduler, Task&& task) { scheduler.schedule(std::move(task), 0); };
+
+static_assert(PubliclySchedules<TbbCudaScheduler, AsyncTask>);
+static_assert(!PubliclySchedules<TbbCudaScheduler, CudaTask>);
+static_assert(PubliclySchedulesOnDevice<TbbCudaScheduler, CudaTask>);
+
+struct CudaTaskTestError
+{};
 
 class ConcurrentActivationGate {
   public:
@@ -98,7 +105,7 @@ class TbbCudaSchedulerTest : public ::testing::Test {
 
 TEST_F(TbbCudaSchedulerTest, RunsOnBoundDeviceAndRestoresCallingThread)
 {
-  TbbCudaScheduler scheduler(target_device_, 2);
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2});
   int observed_device = -1;
   cudaError_t status = cudaErrorUnknown;
 
@@ -107,7 +114,7 @@ TEST_F(TbbCudaSchedulerTest, RunsOnBoundDeviceAndRestoresCallingThread)
     co_return;
   }(observed_device, status);
 
-  scheduler.schedule(std::move(task));
+  scheduler.schedule(std::move(task), target_device_);
   scheduler.run_all();
 
   EXPECT_EQ(status, cudaSuccess);
@@ -115,11 +122,101 @@ TEST_F(TbbCudaSchedulerTest, RunsOnBoundDeviceAndRestoresCallingThread)
   this->expect_calling_device_restored();
 }
 
+TEST_F(TbbCudaSchedulerTest, GetWaitDrivesCudaTaskFromUnifiedScheduler)
+{
+  TbbCudaScheduler scheduler({.host_max_concurrency = 1, .cuda_max_concurrency_per_device = 1});
+  Async<int> output;
+
+  auto task = [](WriteBuffer<int> output) static -> CudaTask {
+    int device = -1;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
+    co_await output = device;
+  }(output.write());
+
+  scheduler.schedule(std::move(task), target_device_);
+  EXPECT_EQ(output.get_wait(scheduler), target_device_);
+  this->expect_calling_device_restored();
+}
+
+TEST_F(TbbCudaSchedulerTest, HostParentAwaitsExplicitlyBoundCudaChild)
+{
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2});
+  Async<int> output;
+  int observed_device = -1;
+
+  auto child = [](int& observed) static -> CudaTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&observed)), static_cast<int>(cudaSuccess));
+    co_return;
+  }(observed_device);
+  uni20::async::cuda_promise(child.handle()).bind_device(target_device_);
+  ASSERT_TRUE(child.set_scheduler(&scheduler));
+
+  auto parent = [](CudaTask child, WriteBuffer<int> output, int const* observed) static -> AsyncTask {
+    co_await child;
+    co_await output = *observed;
+  }(std::move(child), output.write(), &observed_device);
+
+  scheduler.schedule(std::move(parent));
+  EXPECT_EQ(output.get_wait(scheduler), target_device_);
+  this->expect_calling_device_restored();
+}
+
+TEST_F(TbbCudaSchedulerTest, HostParentReceivesCudaChildException)
+{
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2});
+  Async<int> output;
+
+  auto child = []() static -> CudaTask {
+    throw CudaTaskTestError{};
+    co_return;
+  }();
+  uni20::async::cuda_promise(child.handle()).bind_device(target_device_);
+  ASSERT_TRUE(child.set_scheduler(&scheduler));
+
+  auto parent = [](CudaTask child, WriteBuffer<int> output) static -> AsyncTask {
+    bool caught = false;
+    try
+    {
+      co_await child;
+    }
+    catch (CudaTaskTestError const&)
+    {
+      caught = true;
+    }
+    co_await output = caught ? 1 : 0;
+  }(std::move(child), output.write());
+
+  scheduler.schedule(std::move(parent));
+  EXPECT_EQ(output.get_wait(scheduler), 1);
+  this->expect_calling_device_restored();
+}
+
+TEST_F(TbbCudaSchedulerTest, CudaCancellationPropagatesAfterBufferSuspension)
+{
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2});
+  Async<int> input;
+  Async<int> output;
+  auto input_writer = input.write();
+
+  auto task = [](ReadBuffer<int> input, WriteBuffer<int> output) static -> CudaTask {
+    int const value = co_await input.or_cancel();
+    co_await output = value;
+  }(input.read(), output.write());
+
+  scheduler.schedule(std::move(task), target_device_);
+  scheduler.run_all();
+  input_writer.release();
+  scheduler.run_all();
+
+  EXPECT_THROW((void)output.get_wait(scheduler), uni20::async::buffer_read_uninitialized);
+  this->expect_calling_device_restored();
+}
+
 TEST_F(TbbCudaSchedulerTest, ConcurrentArenaActivationsSelectBoundDeviceBeforeAndAfterResumption)
 {
   using namespace std::chrono_literals;
 
-  TbbCudaScheduler scheduler(target_device_, 2);
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2});
   std::array<Async<int>, 2> inputs;
   std::array<ActivationObservation, 2> initial;
   std::array<ActivationObservation, 2> resumed;
@@ -141,8 +238,8 @@ TEST_F(TbbCudaSchedulerTest, ConcurrentArenaActivationsSelectBoundDeviceBeforeAn
     (*resumed)[index].overlapped = resumed_gate->arrive_and_wait(2s);
   };
 
-  scheduler.schedule(task(0, inputs[0].read(), &initial, &resumed, &initial_gate, &resumed_gate));
-  scheduler.schedule(task(1, inputs[1].read(), &initial, &resumed, &initial_gate, &resumed_gate));
+  scheduler.schedule(task(0, inputs[0].read(), &initial, &resumed, &initial_gate, &resumed_gate), target_device_);
+  scheduler.schedule(task(1, inputs[1].read(), &initial, &resumed, &initial_gate, &resumed_gate), target_device_);
   scheduler.run_all();
 
   EXPECT_TRUE(initial[0].overlapped);
@@ -157,10 +254,8 @@ TEST_F(TbbCudaSchedulerTest, ConcurrentArenaActivationsSelectBoundDeviceBeforeAn
   }
   this->expect_calling_device_restored();
 
-  DebugScheduler publisher;
-  publisher.schedule([](WriteBuffer<int> output) static -> AsyncTask { co_await output = 1; }(inputs[0].write()));
-  publisher.schedule([](WriteBuffer<int> output) static -> AsyncTask { co_await output = 2; }(inputs[1].write()));
-  publisher.run_all();
+  scheduler.schedule([](WriteBuffer<int> output) static -> AsyncTask { co_await output = 1; }(inputs[0].write()));
+  scheduler.schedule([](WriteBuffer<int> output) static -> AsyncTask { co_await output = 2; }(inputs[1].write()));
   scheduler.run_all();
 
   EXPECT_TRUE(resumed[0].overlapped);
@@ -180,7 +275,7 @@ TEST_F(TbbCudaSchedulerTest, SaturatedArenaAcceptsResumptionWithoutPublisherPart
 {
   using namespace std::chrono_literals;
 
-  TbbCudaScheduler scheduler(target_device_, 1);
+  TbbCudaScheduler scheduler({.host_max_concurrency = 1, .cuda_max_concurrency_per_device = 1});
   Async<int> input;
   Async<std::array<int, 2>> output;
   std::latch waiting_for_input{1};
@@ -194,14 +289,17 @@ TEST_F(TbbCudaSchedulerTest, SaturatedArenaAcceptsResumptionWithoutPublisherPart
         int device = -1;
         CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
         co_await output = std::array{value, device};
-      }(input.read(), output.write(), &waiting_for_input));
+      }(input.read(), output.write(), &waiting_for_input),
+      target_device_);
   waiting_for_input.wait();
 
-  scheduler.schedule([](std::latch* started, std::latch* release) static -> CudaTask {
-    started->count_down();
-    release->wait();
-    co_return;
-  }(&blocker_started, &release_blocker));
+  scheduler.schedule(
+      [](std::latch* started, std::latch* release) static -> CudaTask {
+        started->count_down();
+        release->wait();
+        co_return;
+      }(&blocker_started, &release_blocker),
+      target_device_);
   blocker_started.wait();
 
   std::binary_semaphore publication_returned{0};
@@ -213,10 +311,7 @@ TEST_F(TbbCudaSchedulerTest, SaturatedArenaAcceptsResumptionWithoutPublisherPart
     CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
     publisher_device_before.store(device, std::memory_order_relaxed);
 
-    DebugScheduler publisher_scheduler;
-    publisher_scheduler.schedule(
-        [](WriteBuffer<int> input) static -> AsyncTask { co_await input = 42; }(input.write()));
-    publisher_scheduler.run_all();
+    scheduler.schedule([](WriteBuffer<int> input) static -> AsyncTask { co_await input = 42; }(input.write()));
 
     CHECK_EQUAL(static_cast<int>(cudaGetDevice(&device)), static_cast<int>(cudaSuccess));
     publisher_device_after.store(device, std::memory_order_relaxed);
@@ -239,28 +334,25 @@ TEST_F(TbbCudaSchedulerTest, SaturatedArenaAcceptsResumptionWithoutPublisherPart
   scheduler.run_all();
   publisher.join();
 
-  DebugScheduler result_scheduler;
-  EXPECT_EQ(output.get_wait(result_scheduler), (std::array{42, target_device_}));
+  EXPECT_EQ(output.get_wait(scheduler), (std::array{42, target_device_}));
   this->expect_calling_device_restored();
 }
 
-TEST_F(TbbCudaSchedulerTest, MultipleDeviceArenasRestoreDevicesAcrossOutOfOrderResumption)
+TEST_F(TbbCudaSchedulerTest, OneSchedulerRoutesResumptionsAcrossMultipleDeviceArenas)
 {
   if (device_count_ < 2) GTEST_SKIP() << "requires at least two CUDA devices";
 
   using Observations = std::array<int, 5>;
-  std::vector<std::unique_ptr<TbbCudaScheduler>> cuda_schedulers;
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2});
   std::vector<std::unique_ptr<Async<int>>> first_inputs;
   std::vector<std::unique_ptr<Async<int>>> second_inputs;
   std::vector<std::unique_ptr<Async<Observations>>> outputs;
-  cuda_schedulers.reserve(device_count_);
   first_inputs.reserve(device_count_);
   second_inputs.reserve(device_count_);
   outputs.reserve(device_count_);
 
   for (int device = 0; device < device_count_; ++device)
   {
-    cuda_schedulers.push_back(std::make_unique<TbbCudaScheduler>(device, 2));
     first_inputs.push_back(std::make_unique<Async<int>>());
     second_inputs.push_back(std::make_unique<Async<int>>());
     outputs.push_back(std::make_unique<Async<Observations>>());
@@ -281,79 +373,60 @@ TEST_F(TbbCudaSchedulerTest, MultipleDeviceArenasRestoreDevicesAcrossOutOfOrderR
       co_await output = Observations{first_value, second_value, device_before_suspend, device_after_first_resume,
                                      device_after_second_resume};
     }(first_inputs.back()->read(), second_inputs.back()->read(), outputs.back()->write());
-    cuda_schedulers.back()->schedule(std::move(task));
+    scheduler.schedule(std::move(task), device);
     this->expect_calling_device_restored();
   }
 
-  // Wait for every first activation in reverse device order.
-  for (int device = device_count_ - 1; device >= 0; --device)
-  {
-    cuda_schedulers[device]->run_all();
-    this->expect_calling_device_restored();
-  }
+  scheduler.run_all();
+  this->expect_calling_device_restored();
 
-  DebugScheduler cpu_scheduler;
   auto publish = [](WriteBuffer<int> output, int value) static -> AsyncTask { co_await output = value; };
   for (int device = device_count_ - 1; device >= 0; --device)
   {
-    cpu_scheduler.schedule(publish(first_inputs[device]->write(), 100 + device));
+    scheduler.schedule(publish(first_inputs[device]->write(), 100 + device));
   }
-  cpu_scheduler.run_all();
-
-  // Wait for the first resumptions in rotated order. Each task suspends again.
-  for (int offset = 0; offset < device_count_; ++offset)
-  {
-    int const device = (offset + 1) % device_count_;
-    cuda_schedulers[device]->run_all();
-    this->expect_calling_device_restored();
-  }
+  scheduler.run_all();
+  this->expect_calling_device_restored();
 
   for (int device = 0; device < device_count_; ++device)
   {
-    cpu_scheduler.schedule(publish(second_inputs[device]->write(), 200 + device));
+    scheduler.schedule(publish(second_inputs[device]->write(), 200 + device));
   }
-  cpu_scheduler.run_all();
-
-  // Wait for final resumptions in reverse order.
-  for (int device = device_count_ - 1; device >= 0; --device)
-  {
-    cuda_schedulers[device]->run_all();
-    this->expect_calling_device_restored();
-  }
+  scheduler.run_all();
+  this->expect_calling_device_restored();
 
   for (int device = 0; device < device_count_; ++device)
   {
-    EXPECT_EQ(outputs[device]->get_wait(cpu_scheduler),
-              (Observations{100 + device, 200 + device, device, device, device}));
+    EXPECT_EQ(outputs[device]->get_wait(scheduler), (Observations{100 + device, 200 + device, device, device, device}));
   }
 }
 
-TEST_F(TbbCudaSchedulerTest, NestedDeviceArenaRestoresOuterArenaDevice)
+TEST_F(TbbCudaSchedulerTest, CrossDeviceChildReturnsThroughSharedScheduler)
 {
   if (device_count_ < 2) GTEST_SKIP() << "requires at least two CUDA devices";
 
-  int const outer_device = original_device_;
-  int const inner_device = (outer_device + 1) % device_count_;
-  TbbCudaScheduler outer_scheduler(outer_device, 2);
-  TbbCudaScheduler inner_scheduler(inner_device, 2);
-  Async<std::array<int, 2>> output;
+  int const parent_device = original_device_;
+  int const child_device = (parent_device + 1) % device_count_;
+  TbbCudaScheduler scheduler({.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2});
+  std::array<int, 3> observed{-1, -1, -1};
 
-  auto task = [](TbbCudaScheduler* inner, WriteBuffer<std::array<int, 2>> output) static -> CudaTask {
-    int device_before_nested_arena = -1;
-    int device_after_nested_arena = -1;
-    cudaError_t status = cudaGetDevice(&device_before_nested_arena);
-    CHECK_EQUAL(static_cast<int>(status), static_cast<int>(cudaSuccess));
-    inner->run_all();
-    status = cudaGetDevice(&device_after_nested_arena);
-    CHECK_EQUAL(static_cast<int>(status), static_cast<int>(cudaSuccess));
-    co_await output = std::array{device_before_nested_arena, device_after_nested_arena};
-  }(&inner_scheduler, output.write());
+  auto child = [](int* observed) static -> CudaTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(observed)), static_cast<int>(cudaSuccess));
+    co_return;
+  }(&observed[1]);
+  uni20::async::cuda_promise(child.handle()).bind_device(child_device);
+  ASSERT_TRUE(child.set_scheduler(&scheduler));
 
-  outer_scheduler.schedule(std::move(task));
-  outer_scheduler.run_all();
+  auto parent = [](CudaTask child, std::array<int, 3>* observed) static -> CudaTask {
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&(*observed)[0])), static_cast<int>(cudaSuccess));
+    co_await child;
+    CHECK_EQUAL(static_cast<int>(cudaGetDevice(&(*observed)[2])), static_cast<int>(cudaSuccess));
+  }(std::move(child), &observed);
 
-  DebugScheduler cpu_scheduler;
-  EXPECT_EQ(output.get_wait(cpu_scheduler), (std::array{outer_device, outer_device}));
+  scheduler.schedule(std::move(parent), parent_device);
+  scheduler.run_all();
+
+  EXPECT_EQ(observed, (std::array{parent_device, child_device, parent_device}));
   this->expect_calling_device_restored();
 }
 

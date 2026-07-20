@@ -107,7 +107,7 @@ Use one uniform event-based dependency model:
   is the one residual that never disappears: the host genuinely needs
   completed data.
 - **Host-intensive provider calls** run as non-suspending jobs after a
-  `CudaTask` is routed to its per-device scheduler and completes composite
+  `CudaTask` is routed to its device arena and completes composite
   resource admission. One scheduler participant is occupied until the host API
   returns; device completion remains represented by the usual event token. A
   separate provider lane is optional and must be justified by profiling.

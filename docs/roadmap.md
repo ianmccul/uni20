@@ -78,9 +78,9 @@ See [Kernel Dispatch](architecture/kernel_dispatch.md),
   define causal dataflow and storage lifetime.
 - `DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler` execute the host task
   model. `DebugCudaScheduler` deterministically executes host and multi-device
-  CUDA tasks from one queue. `TbbCudaScheduler` still provides device-bound
-  CUDA admission; its arena observer establishes and restores device state for
-  every participant.
+  CUDA tasks from one queue. `TbbCudaScheduler` combines one host arena with one
+  worker-only arena per enrolled CUDA device; device-arena observers establish
+  and restore device state for every activation.
 - TBB waits can make scheduler progress from application or worker threads, and
   `run_all()` waits for scheduler quiescence.
 - Exceptions and cancellation propagate to output epochs; multi-output tasks

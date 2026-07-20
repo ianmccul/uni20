@@ -118,8 +118,9 @@ than a private dense backend.
 
 - `DebugScheduler`, `TbbScheduler`, and `TbbNumaScheduler` are implemented for
   host work. `DebugCudaScheduler` unifies deterministic host and multi-device
-  CUDA execution; `TbbCudaScheduler` remains device-bound pending unified TBB
-  routing. Tensor-storage-driven scheduler selection remains future work.
+  CUDA execution; `TbbCudaScheduler` provides parallel unified host and
+  multi-device routing through a host arena and per-device CUDA arenas.
+  Tensor-storage-driven scheduler selection remains future work.
 - Async matrix products, Async self-adjoint `eigh`, owner-retaining conjugation,
   and owner-retaining reshape aliases are implemented.
 - CPU reference, BLAS, and initial LAPACK dispatch paths are active.

@@ -201,9 +201,10 @@ findings recorded in project memory; constants reusable as planner inputs):
 - Build order: buffer-with-subviews + token → tensor+layout → CPU dispatch →
   GPU/MPI; the CPU async-DAG apply is the first real apply and the route to
   retiring the bridge.
-- Lightweight CUDA submission and bounded hybrid-provider execution over one
-  per-device scheduler, heterogeneous nested-task routing, and optional
-  same-task-type migration; awaitable device-local resources with
+- Lightweight CUDA submission and bounded hybrid-provider execution through a
+  unified scheduler with one execution arena per device, heterogeneous
+  nested-task routing, and optional same-task-type migration; awaitable
+  device-local resources with
   deterministic-capable acquisition.
 - Deferred buffer-access sync is the default substrate (GPU token = buffer epoch
   token); explicit `co_await` for host-consuming edges; one completion event

@@ -38,14 +38,14 @@ the full contract, including stack-local test schedulers.
 | `TbbScheduler` | parallel throughput | non-deterministic task interleaving | parallel CPU workloads |
 | `TbbNumaScheduler` | NUMA-aware dispatch over per-node TBB arenas | extra dispatch complexity | NUMA-sensitive workloads |
 | `DebugCudaScheduler` | deterministic unified host/multi-device execution | calling-thread only | CUDA semantics tests and bring-up |
-| `TbbCudaScheduler` | parallel device-bound submission arena | non-deterministic task interleaving | asynchronous CUDA submission and provider calls |
+| `TbbCudaScheduler` | parallel unified host/multi-device execution | non-deterministic task interleaving | CPU work plus asynchronous CUDA submission and provider calls |
 
 ## DebugScheduler
 
 Execution model:
 
 - scheduled tasks are stored internally
-- `run()` executes one batch in deterministic order
+- `run()` executes one batch in deterministic reverse-submission order
 - `run_all()` drains until queue empty
 
 Wait/deadlock behavior:
@@ -137,21 +137,23 @@ routing with the host schedulers.
   for both domains and selects the device stored in each CUDA promise around
   that activation. One instance can execute tasks for multiple devices and
   restores the calling thread between activations.
-- `TbbCudaScheduler` owns one oneTBB arena and installs a
-  `task_scheduler_observer`. Every worker or application thread entering that
-  arena saves its previous CUDA device, selects the scheduler device, and
-  restores the previous selection on exit.
+- `TbbCudaScheduler` extends `TbbScheduler` with one worker-only arena per
+  enrolled CUDA device. The host and device arenas share task-group, pause,
+  wait, watchdog, and rescheduling state.
+- Each CUDA arena installs a `task_scheduler_observer`. Every participating
+  worker saves its previous CUDA device, selects the arena device, and restores
+  the previous selection on exit.
 - initial CUDA admission and rescheduling enqueue task-group activations without
   making completion-service or publishing threads enter the device arena
-- Nested participation in different CUDA arenas restores the outer arena's
-  device correctly.
-- `run_all()` waits for currently submitted activations. It does not complete a
-  coroutine suspended on an external buffer, CUDA completion, or future
-  resource awaiter.
+- same-device nested tasks can transfer directly; cross-domain and cross-device
+  continuations re-enter through the shared scheduler's routing hook
+- `run_all()` and `get_wait()` cover currently submitted host and CUDA
+  activations through the shared task group. They do not complete a coroutine
+  suspended on an external buffer, CUDA completion, or future resource awaiter.
 
 Tasks running in a CUDA scheduler arena must not call `cudaSetDevice` directly.
-Cross-device work enters the scheduler bound to the target device; this keeps
-the observer's save/restore stack authoritative for the whole arena activation.
+Cross-device work re-enters the scheduler through the target device arena; this
+keeps the observer authoritative for the whole arena activation.
 
 An unbound nested task inherits its parent scheduler only within the same task
 domain. Crossing between host and CUDA requires explicit prior admission or

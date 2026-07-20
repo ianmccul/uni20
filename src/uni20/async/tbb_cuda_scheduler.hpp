@@ -1,12 +1,13 @@
 /**
  * \file tbb_cuda_scheduler.hpp
- * \brief oneTBB coroutine scheduler bound to one CUDA device.
+ * \brief Unified oneTBB scheduler for host and multi-device CUDA tasks.
  */
 
 #pragma once
 
 #include "cuda_task.hpp"
 #include "task_registry.hpp"
+#include "tbb_scheduler.hpp"
 #include "tbb_task_submission.hpp"
 
 #include <cuda_runtime_api.h>
@@ -18,6 +19,9 @@
 #include <uni20/backend/cuda/runtime.hpp>
 #include <uni20/config.hpp>
 
+#include <algorithm>
+#include <memory>
+#include <utility>
 #include <vector>
 
 namespace uni20::async
@@ -90,13 +94,6 @@ class CudaArenaObserver final : public oneapi::tbb::task_scheduler_observer {
     int device_;
 };
 
-inline void service_tbb_cuda_task_registry_debug_requests()
-{
-#if UNI20_DEBUG_ASYNC_TASKS
-  TaskRegistry::service_debug_requests();
-#endif
-}
-
 inline void verify_tbb_cuda_device(int expected_device)
 {
 #if UNI20_ASYNC_DEBUG
@@ -110,115 +107,126 @@ inline void verify_tbb_cuda_device(int expected_device)
 
 } // namespace detail
 
-/// \brief oneTBB coroutine scheduler whose arena is bound to one CUDA device.
-/// \details Every worker or application thread participating in the arena has
-///          the scheduler device selected by `CudaArenaObserver`. The previous
-///          thread-local CUDA device is restored when participation ends. Tasks
-///          must not change the current CUDA device directly; cross-device work
-///          must enter the scheduler bound to that device.
-class TbbCudaScheduler final : public ICudaScheduler {
-  public:
-    /// \brief Construct a CUDA scheduler with a given arena concurrency.
-    /// \param device Device selected while executing scheduler tasks.
-    /// \param max_concurrency Maximum arena participation, including application threads.
-    explicit TbbCudaScheduler(cuda::Device device, int max_concurrency = oneapi::tbb::task_arena::automatic)
-        : device_(device), arena_(max_concurrency, /*reserved_for_application_threads=*/1),
-          observer_(arena_, device_.ordinal())
-    {
-      arena_.initialize();
-      {
-        cuda::ScopedDevice device_scope(device_.ordinal());
-        cuda::check(cudaSetDevice(device_.ordinal()), "cudaSetDevice for TBB CUDA scheduler initialization",
-                    device_.ordinal());
-      }
-      observer_.start();
-    }
+/// \brief Arena configuration for the unified host/CUDA TBB scheduler.
+struct TbbCudaSchedulerOptions
+{
+    /// Maximum participation in the host arena.
+    int host_max_concurrency = oneapi::tbb::task_arena::automatic;
+    /// Maximum worker participation in each CUDA device arena.
+    int cuda_max_concurrency_per_device = oneapi::tbb::task_arena::automatic;
+    /// Blocking-wait watchdog policy shared by every task domain.
+    TbbSchedulerWaitOptions wait_options{};
+};
 
-    /// \brief Validate a CUDA device ordinal and construct its scheduler.
-    /// \param device CUDA runtime device ordinal.
-    /// \param max_concurrency Maximum arena participation, including application threads.
-    explicit TbbCudaScheduler(int device, int max_concurrency = oneapi::tbb::task_arena::automatic)
-        : TbbCudaScheduler(cuda::Device::get(device), max_concurrency)
+/// \brief Unified oneTBB scheduler with one host arena and one arena per CUDA device.
+/// \details Ordinary and CUDA tasks share scheduler ownership, task-group
+///          accounting, pause state, waits, and rescheduling. CUDA activations
+///          are routed by the immutable device stored in `CudaTaskPromise`.
+class TbbCudaScheduler final : public TbbScheduler, public ICudaScheduler {
+  public:
+    /// \brief Construct a scheduler enrolling every visible CUDA device.
+    /// \param options Host and per-device arena configuration.
+    explicit TbbCudaScheduler(TbbCudaSchedulerOptions options = {})
+        : TbbCudaScheduler(cuda::Device::enumerate(), std::move(options))
     {}
+
+    /// \brief Construct a scheduler for an explicit set of CUDA devices.
+    /// \param devices Validated devices to enroll.
+    /// \param options Host and per-device arena configuration.
+    explicit TbbCudaScheduler(std::vector<cuda::Device> devices, TbbCudaSchedulerOptions options = {})
+        : TbbScheduler(options.host_max_concurrency, std::move(options.wait_options))
+    {
+      device_arenas_.reserve(devices.size());
+      for (auto device : devices)
+      {
+        CHECK(!this->find_device_arena(device.ordinal()), "CUDA device enrolled more than once", device.ordinal());
+        device_arenas_.push_back(std::make_unique<DeviceArena>(device, options.cuda_max_concurrency_per_device));
+      }
+    }
 
     TbbCudaScheduler(TbbCudaScheduler const&) = delete;
     TbbCudaScheduler& operator=(TbbCudaScheduler const&) = delete;
 
-    ~TbbCudaScheduler() noexcept override
-    {
-      arena_.execute([this] { tasks_.wait(); });
-      observer_.stop();
-    }
+    ~TbbCudaScheduler() noexcept override { this->wait_for_submitted_tasks(); }
 
-    /// \brief Bind and submit a CUDA task for initial execution.
-    /// \param task CUDA task to admit.
-    void schedule(CudaTask&& task)
-    {
-      this->schedule(std::move(task), device_.ordinal());
-    }
+    using TbbScheduler::schedule;
 
-    /// \brief Submit a CUDA task after checking this scheduler's device.
+    /// \brief Bind and submit a CUDA task to an enrolled device arena.
     /// \param task CUDA task to admit.
-    /// \param device Required CUDA runtime device ordinal.
+    /// \param device CUDA runtime device ordinal selected for the task.
     void schedule(CudaTask&& task, int device) override
     {
-      CHECK_EQUAL(device, device_.ordinal(), "CUDA task submitted to a scheduler for another device");
-      cuda_promise(task.handle()).bind_device(device_.ordinal());
+      auto& device_arena = this->device_arena(device);
+      cuda_promise(task.handle()).bind_device(device_arena.device.ordinal());
       TaskRegistry::record_task_scheduled(task.coroutine_handle());
       if (task.set_scheduler(this)) this->enqueue_task(std::move(task));
     }
 
-    /// \brief Wait for all currently runnable activations in this scheduler.
-    /// \note Tasks suspended on external dependencies remain alive and may be
-    ///       rescheduled later.
-    void run_all()
-    {
-      detail::service_tbb_cuda_task_registry_debug_requests();
-      arena_.execute([this] { tasks_.wait(); });
-      detail::service_tbb_cuda_task_registry_debug_requests();
-    }
-
-    /// \brief Return the CUDA device bound to this scheduler.
-    [[nodiscard]] cuda::Device device() const noexcept { return device_; }
+    /// \brief Report whether a CUDA device has an execution arena in this scheduler.
+    [[nodiscard]] bool has_device(int device) const noexcept { return this->find_device_arena(device) != nullptr; }
 
   private:
+    class DeviceArena {
+      public:
+        DeviceArena(cuda::Device selected_device, int max_concurrency)
+            : device(selected_device), arena(max_concurrency, /*reserved_for_application_threads=*/0),
+              observer(arena, device.ordinal())
+        {
+          arena.initialize();
+          {
+            cuda::ScopedDevice device_scope(device.ordinal());
+            cuda::check(cudaSetDevice(device.ordinal()), "cudaSetDevice for TBB CUDA scheduler initialization",
+                        device.ordinal());
+          }
+          observer.start();
+        }
+
+        ~DeviceArena() { observer.stop(); }
+
+        cuda::Device device;
+        oneapi::tbb::task_arena arena;
+        detail::CudaArenaObserver observer;
+    };
+
     bool can_direct_transfer(TaskHandle from, TaskHandle to) const noexcept override
     {
+      if (from.domain() != TaskDomain::cuda) return true;
       auto const from_device = cuda_promise(from).device();
       auto const to_device = cuda_promise(to).device();
-      return from_device && from_device == to_device && *from_device == device_.ordinal();
+      return from_device && from_device == to_device && this->has_device(*from_device);
     }
 
-    void reschedule(BasicTask&& task) override
+    void dispatch_handle(TaskHandle handle) override
     {
-      if (task.handle().domain() == TaskDomain::cuda)
+      if (handle.domain() != TaskDomain::cuda)
       {
-        auto const task_device = cuda_promise(task.handle()).device();
-        CHECK(task_device && *task_device == device_.ordinal(), "CUDA task routed to the wrong device scheduler");
+        TbbScheduler::dispatch_handle(handle);
+        return;
       }
-      this->enqueue_task(std::move(task));
+
+      auto const device = cuda_promise(handle).device();
+      CHECK(device, "CUDA task has no bound device at activation");
+      auto& selected = this->device_arena(*device);
+      this->dispatch_handle_in_arena(selected.arena, handle, {.scheduler = "TbbCudaScheduler", .device = *device},
+                                     [device = *device] { detail::verify_tbb_cuda_device(device); });
     }
 
-    void enqueue_task(BasicTask&& task)
+    [[nodiscard]] DeviceArena* find_device_arena(int device) const noexcept
     {
-      TRACE_MODULE(ASYNC, "TBB CUDA scheduler enqueuing task", task.coroutine_handle());
-      if (auto handle = task.release_handle())
-      {
-        detail::enqueue_tbb_task(arena_, tasks_,
-                                 [this, handle] {
-                                   detail::verify_tbb_cuda_device(device_.ordinal());
-                                   TRACE_MODULE(ASYNC, "TBB CUDA scheduler resuming coroutine", handle.coroutine());
-                                   TaskPromiseBase::resume_and_track(handle);
-                                   detail::service_tbb_cuda_task_registry_debug_requests();
-                                 },
-                                 {.scheduler = "TbbCudaScheduler", .device = device_.ordinal()});
-      }
+      auto const found = std::find_if(device_arenas_.begin(), device_arenas_.end(), [device](auto const& candidate) {
+        return candidate->device.ordinal() == device;
+      });
+      return found == device_arenas_.end() ? nullptr : found->get();
     }
 
-    cuda::Device device_;
-    oneapi::tbb::task_arena arena_;
-    detail::CudaArenaObserver observer_;
-    oneapi::tbb::task_group tasks_;
+    DeviceArena& device_arena(int device)
+    {
+      auto* result = this->find_device_arena(device);
+      CHECK(result, "CUDA task submitted to a device not enrolled in this scheduler", device);
+      return *result;
+    }
+
+    std::vector<std::unique_ptr<DeviceArena>> device_arenas_;
 };
 
 } // namespace uni20::async

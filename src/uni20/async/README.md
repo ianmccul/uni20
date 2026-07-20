@@ -19,9 +19,9 @@ should use these abstractions instead of raw threads or ad hoc synchronization.
 - `debug_cuda_scheduler.hpp`: deterministic scheduler with one shared queue for
   ordinary tasks and CUDA tasks on any validated device. It establishes and
   restores the CUDA device around each CUDA activation.
-- `tbb_cuda_scheduler.hpp`: oneTBB CUDA scheduler with one arena per scheduler
-  and an arena observer that establishes and restores the bound device for every
-  participating worker or application thread.
+- `tbb_cuda_scheduler.hpp`: unified oneTBB scheduler with one host arena and one
+  worker-only arena per enrolled CUDA device. Device-arena observers establish
+  and restore the required device around every CUDA activation.
 - `tbb_task_submission.hpp`: internal task-group registration and non-blocking
   arena-admission helper shared by host and CUDA TBB schedulers.
 - `scheduler.hpp`, `debug_scheduler.hpp`, `tbb_scheduler.hpp`,

@@ -4,9 +4,9 @@ Uni20 has a tested low-level CUDA runtime foundation on the current main branch:
 structured errors, device guards, reference-counted stream-pool leases,
 immutable completion tokens, an actually-idle stream pool, and typed move-only
 device buffers with scoped `ReadAccess<T>`/`WriteAccess<T>` objects.
-Deterministic and oneTBB device-bound CUDA task schedulers are implemented.
-Uni20 does not yet have CUDA Tensor storage, Tensor kernels, CUDA resource
-awaiters, or storage-driven device-context scheduler selection.
+Deterministic and oneTBB unified host/multi-device task schedulers are
+implemented. Uni20 does not yet have CUDA Tensor storage, Tensor kernels, CUDA
+resource awaiters, or storage-driven scheduler selection.
 
 ## Start Here
 
