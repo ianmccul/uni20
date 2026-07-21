@@ -1,20 +1,20 @@
 openapi: 3.1.0
 info:
   title: Uni20 GitHub Repository Action
-  version: 2.3.0
-  description: >
-    Narrow GitHub API action for the Uni20 repository. Use this action only when
-    direct repository browsing is unavailable, unreliable, or insufficient for a
-    requested GitHub operation. Read operations are scoped to public reads from
-    Uni20-dev/uni20. The only write operations are issue creation and issue
-    comments, and they should be used only after the user explicitly asks for
-    the write or approves the final text.
+  version: 2.4.0
+  description: >-
+    Narrow GitHub API action for the Uni20 repository. Use this action only when direct repository browsing
+    is unavailable, unreliable, or insufficient for a requested GitHub operation. Read operations are
+    scoped to public reads from Uni20-dev/uni20. Write operations are limited to creating or updating
+    issues and creating, updating, or deleting issue comments, and must be used only after the user explicitly
+    requests the write or approves the final content.
   license:
     name: MIT
     url: https://github.com/Uni20-dev/uni20/blob/main/LICENSE
 externalDocs:
   description: Privacy policy for the optional Uni20 Custom GPT GitHub Action.
-  url: https://github.com/Uni20-dev/uni20/blob/main/docs/ai_guidance/custom_gpt_action_privacy_policy.md
+  url: 
+    https://github.com/Uni20-dev/uni20/blob/main/docs/ai_guidance/custom_gpt_action_privacy_policy.md
 servers:
   - url: https://api.github.com
     description: GitHub REST API
@@ -321,6 +321,54 @@ paths:
               schema:
                 $ref: "#/components/schemas/Issue"
   /repos/Uni20-dev/uni20/issues/{issue_number}/comments:
+    get:
+      operationId: listUni20IssueComments
+      tags:
+        - issues
+      summary: List comments on a Uni20 issue
+      description: List comments on an issue or pull request in Uni20-dev/uni20. The returned 
+        comment IDs are required for update and delete operations.
+      parameters:
+        - name: issue_number
+          in: path
+          required: true
+          description: Issue or pull request number.
+          schema:
+            type: integer
+            minimum: 1
+        - name: since
+          in: query
+          required: false
+          description: Only show comments updated after this ISO 8601 timestamp.
+          schema:
+            type: string
+            format: date-time
+        - name: per_page
+          in: query
+          required: false
+          description: Number of results per page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+        - name: page
+          in: query
+          required: false
+          description: Page number for paginated GitHub responses.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        '200':
+          description: Issue comments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IssueComment'
     post:
       operationId: createUni20IssueComment
       tags: [issues]
@@ -352,6 +400,130 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IssueComment"
+  /repos/Uni20-dev/uni20/issues/{issue_number}:
+    get:
+      operationId: getUni20Issue
+      tags:
+        - issues
+      summary: Get a Uni20 issue
+      description: Get one issue or pull-request-shaped issue entry from Uni20-dev/uni20.
+      parameters:
+        - name: issue_number
+          in: path
+          required: true
+          description: Issue or pull request number.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Issue details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+    patch:
+      operationId: updateUni20Issue
+      tags:
+        - issues
+      summary: Update a Uni20 issue
+      description: Update the title or body of an issue in Uni20-dev/uni20. Use only when the user 
+        explicitly requests the edit or approves the final replacement title and body.
+      security:
+        - githubToken: []
+      parameters:
+        - name: issue_number
+          in: path
+          required: true
+          description: Issue or pull request number.
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueUpdate'
+      responses:
+        '200':
+          description: Updated issue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Issue'
+  /repos/Uni20-dev/uni20/issues/comments/{comment_id}:
+    get:
+      operationId: getUni20IssueComment
+      tags:
+        - issues
+      summary: Get a Uni20 issue comment
+      description: Get one issue or pull request comment by its GitHub comment ID.
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          description: Unique GitHub issue-comment identifier.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Issue comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueComment'
+    patch:
+      operationId: updateUni20IssueComment
+      tags:
+        - issues
+      summary: Update a Uni20 issue comment
+      description: Replace an issue or pull request comment body. Use only when the user explicitly 
+        requests the edit or approves the final replacement body.
+      security:
+        - githubToken: []
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          description: Unique GitHub issue-comment identifier.
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCommentUpdate'
+      responses:
+        '200':
+          description: Updated issue comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueComment'
+    delete:
+      operationId: deleteUni20IssueComment
+      tags:
+        - issues
+      summary: Delete a Uni20 issue comment
+      description: Delete an issue or pull request comment. Use only when the user explicitly 
+        requests deletion of the specific comment after its identity and content have been verified.
+      security:
+        - githubToken: []
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          description: Unique GitHub issue-comment identifier.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '204':
+          description: Comment deleted.
   /repos/Uni20-dev/uni20/pulls:
     get:
       operationId: listUni20PullRequests
@@ -660,6 +832,20 @@ components:
           description: Optional existing label names to apply.
           items:
             type: string
+    IssueUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          description: Replacement issue title approved by the user.
+          minLength: 1
+        body:
+          type:
+            - string
+            - 'null'
+          description: Replacement issue body approved by the user. Null clears the body.
     NewIssueComment:
       type: object
       additionalProperties: false
@@ -669,6 +855,16 @@ components:
         body:
           type: string
           description: Comment body approved by the user.
+          minLength: 1
+    IssueCommentUpdate:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          description: Replacement comment body approved by the user.
           minLength: 1
     IssueComment:
       type: object
@@ -683,6 +879,15 @@ components:
           format: uri
         user:
           $ref: "#/components/schemas/User"
+        issue_url:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     PullRequest:
       type: object
       additionalProperties: true
