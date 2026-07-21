@@ -20,7 +20,8 @@ Related notes:
 - `docs/architecture/ordering_and_backend_lowering.md` — Async owns ordering; CUDA/MPI as lowerings; two-clocks lifetime.
 - `docs/symmetry/block_coalescing.md` — single-axis GEMM grouping (the LocalSpace coalescing axis).
 - `docs/architecture/execution.md` — mechanism vs policy; the planner owns placement.
-- `docs/architecture/backend_dispatch.md` — `maybe_can_*` / `try_*` / generic kernel dispatch.
+- `docs/architecture/backend_dispatch.md` — rationale for type eligibility,
+  runtime attempts, and clean decline.
 - `docs/symmetry/qnum.md` — `Symmetry`, `QNum`, `QNumList`, `BlockSpace` (the symmetry foundation this builds on).
 - `docs/architecture/kernel_dispatch.md` — the `backend_list` walk and the async/scheduler seam this tensor feeds.
 - `docs/backends/mpi/persistent_dispatch.md` — persistent immutable objects; the replication model behind `ReplicatedBlockTensor`.
@@ -56,7 +57,8 @@ the storage of the block-sparse container.)
 
 - **`TensorStorage`** — the storage policy of a dense block (and of the ordinary
   dense `Tensor`): which memory the data lives in, `Cpu` / `Cuda`. A
-  **compile-time** memory kind; it selects legal kernels (`maybe_can_*`). MPI is
+  **compile-time** memory kind; it selects legal kernels through
+  `kernel_accepts_types`. MPI is
   *not* a `TensorStorage`: a dense tensor striped across MPI ranks is conceivable
   but off-roadmap — dense blocks are sized to be resident on a single node.
 - **`BlockTensorStorage`** — the storage policy of the container (the `Storage`
@@ -249,7 +251,8 @@ runtime. Distribution belongs here, and only here:
   DeviceBuffer`); admits heterogeneous residence (the "tail on CPU" case). Kernel
   dispatch switches on each buffer's kind at block / coalesced-group granularity — a
   finite, closed switch whose arms call fully-typed kernels (`contract_blocks<T,
-  CpuBackend>` / `<T, CudaBackend>`), preserving `maybe_can_*` / `try_*` per arm.
+  CpuBackend>` / `<T, CudaBackend>`), preserving
+  `kernel_accepts_types` / `try_kernel` per arm.
 - **`Mpi<X>`** — blocks distributed over MPI ranks; `X` is the **node-local**
   policy (`Host`, `Cuda`, `HostOrDevice`). The record adds the owning MPI rank — plus
   the device ordinal when `X` involves a device — and the blocks' leaf
@@ -480,10 +483,8 @@ without touching it.
   case.
 - **Hazard granularity** — buffer-granularity (conservative, simple) vs sub-range
   overlap tracking (precise, more parallel) for mixed coalesced/uncoalesced access to
-  one buffer (`block_sparse_tensor.md`). This is the same question as
-  `../architecture/kernel_dispatch.md` open question 7 (`AsyncArray` queue representation), seen from
-  the hazard side: per-element epoch queues alone cannot order a coalesced wide view
-  against the individual block views it overlaps.
+  one buffer (`block_sparse_tensor.md`). Per-element epoch queues alone cannot order a
+  coalesced wide view against the individual block views it overlaps.
 - **`ReplicatedBlockTensor` commit semantics** — "move in a *finished* tensor" needs a
   definition of finished under the async runtime: all pending epochs on every block
   drained *and* all completion events (the per-buffer tokens — CUDA events recorded

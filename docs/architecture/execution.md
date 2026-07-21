@@ -15,8 +15,12 @@ Related notes:
 - `docs/symmetry/block_sparse_tensor.md` — the tensor + layout (the linchpin data model).
 - `docs/symmetry/block_tensor.md` — the symmetry-typed `BlockTensor` refinement of the data model.
 - `docs/symmetry/block_coalescing.md` — single-axis GEMM grouping.
-- `docs/architecture/backend_dispatch.md` — the `maybe_can_*` / `try_*` / generic dispatch pattern.
-- `docs/architecture/kernel_dispatch.md` — the ordered backend-list generalization and scheduler integration.
+- `docs/architecture/backend_dispatch.md` — rationale for type eligibility,
+  runtime attempts, and clean decline.
+- `docs/architecture/kernel_dispatch.md` — the current `kernel_accepts_types` /
+  `try_kernel` contract, ordered backend walk, and scheduler integration.
+- `docs/architecture/distributed_kernel_dispatch.md` — exploratory constraints
+  for distributed planning above local dispatch.
 - `docs/architecture/ordering_and_backend_lowering.md` — ordering ownership; two-clocks lifetime.
 - `docs/architecture/storage_kind_and_location.md` — memory kind vs location.
 - `docs/backends/cuda/runtime.md` — stream ownership; idle-stream `co_await` pool.
@@ -67,10 +71,10 @@ planner's oracle, and the planner is the only place policy is allowed to live.
    type first (device / MPI-rank map + coalescing-aware memory plan), then the
    block-sparse container on top. This is the only piece with no existing
    foundation, and dispatch/scheduling/MPI/planner all consume its layout.
-3. **Kernel dispatch.** The `backend_dispatch.md` pattern already defines the
-   shape (`maybe_can_*` compile-time capability, `try_*` runtime attempt, generic
-   fallback as the correctness oracle), generalized to an ordered backend list in
-   `kernel_dispatch.md`. What this stack adds: dispatch reads the
+3. **Kernel dispatch.** `kernel_dispatch.md` defines the implemented shape:
+   `kernel_accepts_types` performs compile-time type eligibility,
+   `try_kernel` performs the runtime attempt, and an ordered backend list may end
+   in a total reference implementation. What this stack adds: dispatch reads the
    layout for device selection, emits ops into the appropriate scheduler with a
    completion token, picks a synchronization mode (below), and treats
    batched/coalesced kernels as backend capabilities.

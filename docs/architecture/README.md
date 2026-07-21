@@ -22,10 +22,18 @@ heterogeneous-execution layers fit together.
 - [Storage Kind and Location](storage_kind_and_location.md) separates
   compile-time memory semantics from runtime placement.
 
+## Exploratory Design
+
+- [Distributed Kernel Dispatch](distributed_kernel_dispatch.md) records
+  non-normative constraints for future distributed planning, commitment,
+  collective consistency, and composition with local dispatch.
+
 When the two dispatch documents overlap, `kernel_dispatch.md` defines the
 implemented dispatcher and `backend_dispatch.md` supplies rationale and future
 backend guidance. The execution and lowering documents are active design notes,
-not claims that CUDA or MPI execution is complete.
+not claims that CUDA or MPI execution is complete. The distributed-dispatch note
+is explicitly speculative; the concrete persistent MPI proposal lives under
+[`docs/backends/mpi/`](../backends/mpi/).
 
 ## Source Navigation
 

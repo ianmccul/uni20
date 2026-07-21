@@ -300,7 +300,9 @@ that host vertical slices must leave the correct extension points.
 
 See [Storage Kind and Location](architecture/storage_kind_and_location.md),
 [Ordering Ownership](architecture/ordering_and_backend_lowering.md), and
-[CUDA Buffer Completion Lowering](backends/cuda/epoch_design_draft.md).
+[CUDA Buffer Completion Lowering](backends/cuda/epoch_design_draft.md). Future
+distributed planning and commitment constraints are recorded in
+[Distributed Kernel Dispatch](architecture/distributed_kernel_dispatch.md).
 
 ## Later Integration Work
 

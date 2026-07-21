@@ -6,6 +6,11 @@ Design note / planning document.
 
 This document records a proposed direction for Uni20 MPI support, persistent immutable object storage, and kernel dispatch. It is not an implementation specification yet. Some names are provisional.
 
+The general distributed planning, commitment, and local-composition constraints
+are recorded in
+[`distributed_kernel_dispatch.md`](../../architecture/distributed_kernel_dispatch.md).
+This document develops the root-controller / worker-runtime form of that design.
+
 The main design premise is:
 
 > Uni20 should make ordinary user code MPI-capable through library/runtime dispatch, not by requiring users to write explicit SPMD rank guards around every operation.
@@ -16,7 +21,7 @@ The proposed default MPI mode is therefore a root-controller / worker-runtime mo
 
 - Let rank 0 execute normal user control flow.
 - Let worker ranks run a Uni20 runtime service loop.
-- Let Uni20 operations on MPI-backed tensors become distributed backend operations.
+- Let Uni20 operations on MPI-backed tensors become planned distributed operations.
 - Avoid requiring users to manually write `if (rank == 0)` guards and collective broadcasts for ordinary serial-looking code.
 - Support persistent immutable objects by global ID.
 - Allow persistent objects to be freely copied, cached, loaded from disk, fetched over MPI, or served by storage ranks.
@@ -170,16 +175,23 @@ Expected internal flow:
 
 ```text
 contract(A, B, C)
-  -> kernel dispatcher sees MpiStorage<Cpu>
-  -> dispatches to mpi_backend::contract(A, B, C)
+  -> distributed Tensor operation recognizes MpiStorage<Cpu>
+  -> root validates ownership and chooses/builds the distributed plan
   -> root builds ContractDescriptorV1
   -> root broadcasts/submits command envelope
   -> workers receive descriptor
   -> workers ensure worker handler is registered
   -> workers execute mpi_contract_worker
-  -> workers materialize inputs, compute local blocks, persist outputs
+  -> workers materialize inputs and locally dispatch resolved work items
+  -> workers persist outputs
   -> root installs output manifest into C
 ```
+
+The root controller is the distributed-plan authority. Workers do not
+independently walk distributed algorithm candidates. Once the command is
+submitted, a worker or local-provider failure fails that distributed operation;
+it cannot request a different distributed fallback. Ordinary local kernel
+dispatch remains available inside a worker for a resolved local work item.
 
 ## Persistent immutable object model
 
@@ -488,13 +500,17 @@ has(object_id)
 
 Storage ranks serve immutable objects. They are not algorithm masters.
 
-## Kernel dispatch mechanism
+## Distributed planning and local kernel dispatch
 
-The initial idea of selecting kernels purely by C++ overloads or simple storage tags is too inflexible.
+Selecting a distributed algorithm purely through local C++ overloads or simple
+storage tags is too inflexible. The root controller must retain enough global
+metadata to validate ownership, choose a plan, and build a command descriptor.
 
-Uni20 needs an explicit kernel dispatch mechanism.
+The ordinary kernel dispatcher remains the leaf mechanism for resolved local
+work. It does not choose communication, redistribution, or global output
+placement.
 
-A kernel needs metadata:
+A distributed operation needs metadata:
 - debug name,
 - wire/RPC name,
 - descriptor schema,
@@ -505,7 +521,7 @@ A kernel needs metadata:
 - DAG visualization hooks,
 - Python binding entry point.
 
-Storage type is an input to dispatch, not the whole dispatch system.
+Storage type is an input to distributed planning, not the whole planning system.
 
 Example dispatch tree:
 
@@ -513,17 +529,25 @@ Example dispatch tree:
 contract(A, B, C)
   -> collect argument metadata
   -> resolve storage/execution contexts
-  -> choose backend operation
-  -> build descriptor / DAG node
-  -> execute locally or submit distributed command
+  -> choose a local or distributed operation plan
+  -> build descriptor / DAG node when distributed
+  -> submit the distributed command
+  -> workers invoke local kernel dispatch for resolved work items
 ```
 
 For `MpiStorage<Cpu>`:
 
 ```text
 contract(A, B, C)
-  -> mpi_backend::contract(A, B, C)
+  -> root selects and submits ContractDescriptorV1
+  -> workers execute mpi_contract_worker
+  -> local work items use the ordinary CPU backend selector
 ```
+
+This controller-side selection is distinct from an independent distributed
+backend walk on every rank. Expert SPMD implementations need a collectively
+consistent selection protocol as described in
+[`distributed_kernel_dispatch.md`](../../architecture/distributed_kernel_dispatch.md).
 
 ## MPI command granularity
 
@@ -747,7 +771,7 @@ It gives:
 
 ```text
 automatic lazy registration for each kernel specialization actually submitted
-to the MPI backend at runtime
+to the distributed runtime
 ```
 
 That is the useful subset.
@@ -917,7 +941,7 @@ Diagnostics should include:
 6. No persistent ID may escape before the object is committed and servable.
 7. `Async<T>` is a causal epoch channel; persistence attaches to a value at an epoch, not to the channel.
 8. Default MPI mode runs user code on root and worker loops elsewhere.
-9. Distributed tensor operations are submitted by the MPI backend as command descriptors.
+9. Distributed tensor operations are planned by the controller and submitted as command descriptors.
 10. RPC commands identify coarse operation families, not every local template instantiation.
 11. Registration symbols are code locators only; command IDs and descriptor schemas define the operation ABI.
 12. Worker handlers must own their descriptors and avoid unsafe captured coroutine state.
@@ -995,8 +1019,9 @@ The proposed model is:
 ```text
 root user program
 + worker runtime loops
-+ storage-type dispatch to MPI backend
++ controller-side distributed planning
 + descriptor-driven distributed operations
++ ordinary local kernel dispatch inside worker commands
 + Linux/ELF lazy registrar discovery via dladdr/dlsym
 + persistent immutable object IDs
 + explicit async co_load materialization

@@ -11,4 +11,7 @@ execution lease with the blocking pool interface. The backend's optional
 Provider-ready matrix calls remain in [`linalg/cublas/`](../../../cublas/), and
 raw cuBLAS API wrappers remain in [`backend/cublas/`](../../../../backend/cublas/).
 
+See [CUDA kernel dispatch and provider scheduling](../../../../../../docs/backends/cuda/kernel_dispatch.md)
+for the direct and coroutine execution paths.
+
 Return to the [cuBLAS backend adapter](../).

@@ -38,6 +38,7 @@ bypassed through the opaque handle.
 ## Related Documentation
 
 - [Linalg backend source map](../)
+- [Private CUDA operand lowering](detail/)
 - [Provider-ready cuBLAS operations](../../cublas/)
 - [CUDA kernel dispatch and provider scheduling](../../../../../docs/backends/cuda/kernel_dispatch.md)
 - [Dense BLAS/LAPACK wrapper coverage](../../../../../docs/linalg/dense_blas_lapack_coverage.md)

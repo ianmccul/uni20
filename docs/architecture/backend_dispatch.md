@@ -1,387 +1,294 @@
-# Backend Dispatch Design
+# Backend dispatch rationale
 
-**Status:** supporting design and rationale. The implemented generic dispatcher
-contract is canonicalized in [Kernel Dispatch](kernel_dispatch.md).
+This document records the rationale behind Uni20's kernel-dispatch design. It is
+non-normative. The current contract is defined by
+[`kernel_dispatch.md`](kernel_dispatch.md) and the corresponding source under
+`src/uni20/linalg/`.
 
-This note records the preferred direction for future Uni20 backend work. It is
-planning guidance, not a statement that every current backend already follows
-this pattern. The three-stage pattern described here is generalized to an
-ordered, overridable backend list — with operation tags, detected customization
-points, and nesting for distributed execution — in `kernel_dispatch.md`; this
-note remains the reference for the per-backend compile-time capability /
-runtime-attempt / fallback contract.
+## Why a generic kernel dispatcher exists
 
-The static capability CPO name used here is `kernel_accepts_types(...)`. It is
-inspired by the Kokkos/stdBLAS `maybe_can_*` pattern, but names the Uni20 role
-more directly: the backend accepts these C++ argument types. Runtime view
-instances are still checked by `try_kernel(...)`.
+Dense linear-algebra operations have several possible implementations:
 
-## Core Rule
+- generic indexed reference kernels;
+- host BLAS and LAPACK providers;
+- device providers such as cuBLAS;
+- specialized implementations for particular layouts, accessors, or scalar types.
 
-Keep vendor capability out of the public algorithm contract.
+The Tensor front end should not contain a separate hand-written backend walk for every
+operation. Conversely, provider wrappers should not decide Tensor-level shape policy,
+storage transfers, or async epoch dependencies.
 
-Public operations should describe Uni20 semantics: copy, scale, multiply,
-contract, solve, factorize, exponentiate, transform, or reduce. Backend-specific
-facts such as BLAS scalar support, CUDA residency, cuSOLVER workspace rules,
-integer width, vendor handles, streams, and ABI details should stay in backend
-adapters.
+The dispatcher provides the narrow boundary between those layers:
 
-## Dispatch Shape
+```text
+Tensor operation policy
+    -> ordered kernel dispatch
+    -> provider or reference leaf
+```
 
-Use a three-stage dispatch path for optimized backends. Conceptually:
+## Why operation tags are values
+
+Earlier designs can be tempted toward one dispatcher type or one virtual interface per
+operation. Operation tags avoid that proliferation.
+
+A backend implements overloads for a lightweight tag:
 
 ```cpp
-template <typename... Args>
-auto algorithm(Args&&... args)
-{
-  if constexpr (maybe_can_backend_algorithm_v<std::remove_cvref_t<Args>...>)
-  {
-    if (try_backend_algorithm(std::forward<Args>(args)...))
-    {
-      return;
-    }
-  }
+kernel_accepts_types(backend, gemm_op{}, args...)
+try_kernel(backend, gemm_op{}, args...)
+```
 
-  generic_algorithm(std::forward<Args>(args)...);
+This has several advantages:
+
+- one generic walk serves every kernel family;
+- a backend can implement any subset of operations;
+- unsupported operations disappear through overload resolution;
+- operation-specific state may be carried by the tag when needed;
+- diagnostics have a stable operation identity.
+
+The operation tag is not the user-facing operation. Tensor-level wrappers still own
+shape changes, output preparation, and semantic validation.
+
+## Why selectors contain ordered backend values
+
+Backend order is policy. A selector such as
+
+```cpp
+backend_list{
+    LapackBackend{},
+    BlasBackend{},
+    CpuReferenceBackend{},
+};
+```
+
+means "try these implementations in this order."
+
+Selectors contain values rather than only backend types because backend configuration
+and shared state may be meaningful. Normalization preserves those values and their
+order.
+
+Selectors are resolved from Tensor storage policies where possible. This prevents
+backend selection from becoming a runtime examination of Tensor values and keeps
+storage-domain compatibility explicit.
+
+## Why eligibility is split into type and value stages
+
+A single runtime `try_kernel` interface could theoretically reject everything. That
+would force the compiler to instantiate implementations for argument types they cannot
+possibly support and would make ordinary C++ errors late and noisy.
+
+Uni20 therefore separates:
+
+1. **Type eligibility**, through `kernel_accepts_types`.
+2. **Runtime acceptance**, through `try_kernel`.
+
+The type stage removes impossible candidates before their implementations are
+instantiated. The runtime stage handles properties such as shape, strides, aliasing,
+device identity, and provider availability.
+
+This split also supports useful compile-time tools:
+
+- aggregate probing;
+- candidate-list filtering;
+- conformance tests for backend coverage.
+
+## Why the result is `no`, `maybe`, or `yes`
+
+A Boolean type result cannot distinguish a backend that might decline from one that is
+total for the admitted types.
+
+The three states encode that distinction:
+
+- `no`: never a candidate for these types;
+- `maybe`: runtime values determine support;
+- `yes`: every valid value in the admitted type domain is supported.
+
+`yes` is useful for reference backends and other complete implementations. It provides a
+checked endpoint for an ordered walk: if a `yes` backend declines, the implementation
+has violated its declared contract.
+
+The dispatcher does not reinterpret "last backend" as `yes`. Totality is a property of
+the implementation, not its position in a selector.
+
+## Why `kernel_accepts_types` may probe a constrained implementation
+
+Backend type support is sometimes naturally defined by a lower-level constrained
+attempt function. In that case, testing whether the function is callable avoids
+duplicating a long type computation:
+
+```cpp
+requires {
+    {
+        detail::try_gemm(output, alpha, lhs, rhs, beta)
+    } -> std::same_as<KernelAttempt>;
 }
 ```
 
-The same structure also applies to functions that return a value. In that case,
-`try_backend_algorithm` should return an object such as `std::optional<Result>`,
-or should write into an output argument and return `bool`.
+This is sound when the probed declaration contains the real static constraints. It is
+not sound to probe an unconstrained function template and expect the expressions in its
+body to participate in callability.
 
-In the full kernel-dispatch design, this is expressed once for every operation
-through an operation tag and customization points:
+The design goal is one source of truth, not one mandatory spelling:
 
-```cpp
-#include <uni20/linalg/operation_tags.hpp>
+- probe a constrained implementation when it already defines the static domain;
+- use a named concept or direct requirements when that is clearer;
+- do not maintain equivalent independent predicates without a reason.
 
-template <class... Backends, class Op, class... Args>
-constexpr KernelTypeAcceptance
-probe_dispatch_kernel(backend_list<Backends...> const&, Op const&, Args&&...);
-// aggregates the backends' kernel_accepts_types(...) results
+## Why runtime declines are values, not exceptions
 
-template <class... Backends, class Op, class... Args>
-bool try_dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
-// constrained out for type-level no; otherwise returns false when every
-// runtime candidate declines before side effects or argument consumption
+A runtime decline is an expected part of backend selection. Examples include an
+unsupported stride pattern or a temporarily unavailable optional provider.
 
-template <class... Backends, class Op, class... Args>
-void dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
-// constrained out for type-level no; raises KernelDispatchError on exhaustion
+`KernelAttempt` gives these outcomes a small allocation-free vocabulary. Exceptions and
+ordinary error channels are reserved for terminal failures.
 
-template <class... Backends, class Op, class... Args>
-void dynamic_dispatch_kernel(backend_list<Backends...> const&, Op, Args&&...);
-// always callable; converts type rejection and exhaustion to KernelDispatchError
+This distinction matters because fallback is only correct after an operation has not
+started. A returned decline therefore carries a strict guarantee: arguments are
+unchanged and no externally visible work was committed.
 
-template <class Backend, class Op, class... Args>
-KernelAttempt try_kernel(Backend, Op, Args&&...); // implemented only for supported operations
+## Why clean decline is a hard invariant
+
+A fallback walk presents the same logical operation to later candidates. That is only
+valid if every earlier decline leaves the operation untouched.
+
+The forbidden sequence is:
+
+```text
+backend A mutates or submits work
+backend A reports decline
+backend B receives the partially executed operation
 ```
 
-A backend is eligible only when `kernel_accepts_types(...)` is callable for the
-exact argument types and does not return `no`. A non-callable gate is a hard
-`no`, regardless of whether a broad `try_kernel(...)` happens to be callable.
-For accepted types, `try_kernel(...)` may remain broadly callable and assume
-dispatch has already applied the type gate. A backend may provide
-`consteval auto kernel_accepts_types(Backend const&, Op const&, Args&...)` for
-extra type-level eligibility, returning `kernel_types_no`,
-`kernel_types_maybe`, or `kernel_types_yes`. Their distinct result types let
-dispatch inspect the decision through `decltype` without constructing operand
-objects. This keeps the backend walk generic and avoids a separate
-`dispatch_gemm`, `dispatch_scale`, `dispatch_svd`, etc. implementation for
-every kernel.
+Once mutation, submission, output commitment, or equivalent externally visible work
+occurs, backend A owns the operation. Any later failure is terminal.
 
-A non-success `KernelAttempt` from `try_kernel(...)` has a strong decline
-guarantee: the backend has not consumed or moved from any argument, mutated
-semantic operand state, submitted work, committed scratch or output, or
-produced another externally visible side effect. Dispatch invokes every
-candidate with the same stable lvalue arguments. It does not copy operands or
-mdspan descriptors to enforce this contract. After a backend begins the
-operation, failure is an operation error rather than a request to try the next
-backend. A `kernel_types_yes` backend is total for its accepted type domain and
-returning anything other than `KernelAttempt::success` is a backend defect.
+This rule applies equally to host providers, device providers, and future communication
+layers.
 
-`KernelAttempt` contains only success and clean-decline categories, such as
-`unsupported_layout`, `unsupported_transform`, `unavailable`, and
-`insufficient_resources`. Terminal failures are reported through the
-operation's ordinary exception, error, or result mechanism and never cause
-dispatch fallback.
+## Why dispatch uses stable lvalues
 
-The implemented dispatcher also has an opt-in structured diagnostic sink. It
-reports the ordered type acceptances, runtime declines, and selected backend
-after a walk. The sink is disabled by default; the hot path performs one relaxed
-atomic flag check and constructs no diagnostic data while disabled. See
-[`kernel_dispatch.md`](kernel_dispatch.md#runtime-dispatch-diagnostics) for the
-API and sink contract.
+The dispatcher probes and invokes backend customizations with stable lvalue arguments.
 
-`KernelTypeAcceptance` is a tri-state:
+This avoids repeatedly forwarding or moving an operand during an ordered walk. It also
+lets later candidates see the same descriptors after an earlier clean decline.
 
-```cpp
-enum class KernelTypeAcceptance {
-  no,     // invalid for these types; do not form the try_kernel expression
-  maybe, // types are plausible, but runtime values decide
-  yes    // this backend should always accept these types; try_kernel may assert
-};
-```
+The type probe deliberately mirrors this invocation shape. It removes a reference and
+then forms an lvalue reference while preserving cv-qualification.
 
-Callers may select either an ordered backend-list value or a single backend
-value. The single backend form is normalized to a one-element list, so
-forced-backend tests and benchmarks do not need to spell a one-entry list.
-Spelling such as `BackendChain<LapackBackend, CpuBackend>` is equivalent in
-spirit to an ordered backend-list selector: try LAPACK first, then the CPU
-fallback. It should not introduce a separate state parameter or a second
-dispatch protocol.
+## Why Tensor policy is outside the dispatcher
 
-The list has a static type order, but it is not only a type list. Default
-selectors should normally contain stateless backend tags. Explicit overrides
-may carry operation context that is not intrinsic to an operand:
+Kernel dispatch is deliberately fixed-output and descriptor-oriented. A Tensor
+operation may need to:
 
-```cpp
-struct BlasBackend {};
-struct CublasBackend {
-  cudaStream_t stream;
-  math_mode_t math_mode;
-};
-```
+- construct or resize an output;
+- choose resources for that output;
+- establish aliasing rules at the Tensor abstraction;
+- enroll async reads and writes;
+- preserve symmetry or block structure.
 
-Memory kind and runtime placement belong to the operand's accessor-defined data
-handle, not its default selector. CUDA streams, MPI communicators, workspace
-policy, algorithm options, or multiprecision settings may justify stateful
-explicit selectors. That later design should still keep the CPO call shape
-backend-first.
+Those are operation semantics, not backend selection.
 
-If several backend-list entries share operation context, the selector can store
-that state once and hand an appropriate backend view/value to the CPO. This is a
-selector implementation detail, not part of the leaf-kernel CPO signature.
+The Tensor wrapper resolves those decisions first and then passes mdspans or other
+kernel descriptors into the dispatcher. This keeps the same backend implementation
+usable from synchronous and coroutine-aware front ends.
 
-For a backend chain, the conservative type acceptance rule is:
+## Why mdspan accessors are part of eligibility
 
-- if every candidate is `no`, the chain is `no`;
-- if the first candidate that can run is `yes`, the chain may report `yes`;
-- otherwise the chain should report `maybe`, because runtime checks are needed
-  somewhere inside the chain.
+An mdspan's accessor defines the values observed through the view. Its data handle alone
+does not prove that a provider can read or write the underlying storage.
 
-If a future selector needs type-level state composition, it may still use a
-helper like:
+A backend may accept:
 
-```cpp
-template <class BackendList>
-struct backend_selector_state;
-```
+- the default accessor;
+- a custom accessor it explicitly lowers;
+- a semantic accessor represented by a provider transform.
 
-but that should not force every backend CPO to receive a separate `State&`
-parameter.
+Otherwise it must decline or leave the types ineligible. A generic indexed backend may
+remain eligible when its expressions respect the accessor.
 
-## Compile-Time Capability
+This prevents a fast provider path from silently changing the mathematical operation.
 
-`kernel_accepts_types(...)` checks only type-level facts. It should not inspect
-runtime values. The generic dispatcher may call it with private type-probe
-lvalues that have no real runtime object behind them.
+## Why storage transfer is not fallback
 
-The tri-state matters:
+Backend fallback chooses among implementations that can legally operate on the same
+resolved arguments. It does not change where the arguments live.
 
-- `no`: this backend is not even a candidate for these C++ types. The dispatcher
-  must skip it without requiring `try_kernel(...)` to be well-formed.
-- `maybe`: this backend can compile for these types, but runtime facts such as
-  strides, aliasing, device placement, library availability, or matrix shape
-  still decide whether this instance can run.
-- `yes`: this backend is structurally guaranteed for these types. The dispatcher
-  treats any `try_kernel(...)` result other than `KernelAttempt::success` as a
-  backend bug.
+A host backend cannot serve as an implicit fallback for opaque device storage. A
+device-to-host transfer is an explicit operation with allocation, synchronization, and
+cost semantics. It must be represented by the operation or an explicit adapter, not
+hidden inside a decline path.
 
-Examples:
+The same reasoning forbids an implicit dense projection for symmetry-typed values.
 
-- scalar category or exact scalar type
-- rank and static extent requirements
-- layout policy
-- accessor policy and mutability
-- memory-space or storage policy
-- whether a backend call is well-formed for these C++ types
+## Why coroutine support is an optional backend customization
 
-Prefer traits or `constexpr` functions whose template arguments match the
-operation being lowered. In the operation-tag model, those facts can live either
-in a constrained `try_kernel` overload or in an optional
-`kernel_accepts_types(...)` customization:
+Many kernels can run directly when a coroutine reaches them. Requiring every backend to
+wrap ordinary work in a coroutine would add boilerplate without improving semantics.
 
-```cpp
-template <typename Scalar, typename Mdspan>
-inline constexpr bool maybe_can_blas_scale_v =
-    blas_scalar<std::remove_cv_t<typename Mdspan::value_type>> &&
-    std::convertible_to<Scalar, typename Mdspan::value_type> &&
-    blas_layout<typename Mdspan::layout_type> &&
-    blas_accessor<typename Mdspan::accessor_type>;
-```
+Some backends do need suspension, especially for bounded execution-resource admission.
+For those cases, `try_kernel_task` returns either:
 
-The purpose of this layer is to keep invalid backend code out of overload
-resolution and out of compiled control flow.
+- a clean decline;
+- completed success;
+- a deferred task.
 
-Backend `kernel_accepts_types(...)` overloads must genuinely establish type
-eligibility. Do not rely on invalid statements inside the `try_kernel` body to
-reject unsupported types. The runtime overload may remain broad because the
-dispatcher forms it only after the type gate accepts.
+The ordinary `try_kernel` remains required for the accepted static domain. This keeps
+the core backend contract available to synchronous dispatch and gives coroutine-aware
+dispatch a blocking fallback.
 
-## Runtime Attempt
+## Why task commitment stops fallback
 
-`try_kernel(...)` / `try_*` checks runtime facts and performs the backend call if
-all checks pass.
+A successful `KernelTaskAttempt` with a deferred task means the backend has accepted the
+operation. Awaiting that task may acquire resources, submit work, and mutate output.
 
-Examples:
+Failures from the task are therefore terminal. They are not converted back into
+`KernelAttempt`, because doing so would permit fallback after commitment.
 
-- extents fit the backend index type
-- strides and increments can be represented by the backend API
-- layout can be represented as an order or transpose flag
-- operands do not alias in an unsupported way
-- memory is resident on the required device
-- the backend value or selector context is compatible with the operands, for
-  example CUDA device, stream/scheduler target, or workspace allocator
-- the resolved vendor library version supports the active device architecture
-  and requested operation
-- handles, streams, workspaces, and scratch buffers are available
-- backend-specific status codes indicate success
+## Why dynamic dispatch is a separate boundary
 
-Operation operand roles are fixed before backend dispatch. An overwrite output
-does not alias an input. An update output appears once as a read/write operand;
-its old value is part of the operation contract, not a duplicated input
-descriptor. Runtime backend checks may decline unsupported overlap or traversal
-patterns, but must not change these roles.
+Ordinary templated C++ callers benefit from a compile-time error when no backend accepts
+their argument types.
 
-An operation value may carry immutable execution semantics as well as a
-diagnostic name. Generic elementwise dispatch uses `transform_op<F>` and
-`transform_inplace_op<F>`, which store a callable by value and invoke it as a
-const object. Backends can recognize named callable types for optimized
-implementations while a generic callable continues to reach the reference
-backend. Per-element mutable callable state is intentionally outside this
-contract because backend scheduling and parallel traversal must not change its
-meaning.
+Runtime-erased interfaces cannot always preserve that constraint. Python bindings and
+similar boundaries must remain callable and report the missing type support at runtime.
 
-If the runtime checks pass, `try_kernel(...)` performs the backend call and
-returns `KernelAttempt::success`. If a preflight check rejects the instance, it
-returns a specific clean-decline reason without changing arguments or external
-state. Failures after accepting responsibility throw or use an
-operation-specific result; they do not return a decline reason.
+`dynamic_dispatch_kernel` exists for that case. Keeping it separate prevents the
+runtime-erased requirement from weakening ordinary C++ diagnostics.
 
-Backend state has two broad categories:
+## Alternatives rejected
 
-- **Operand state** describes storage semantics and placement: memory domain,
-  CUDA device, and allocator/resource. It belongs to the tensor storage and its
-  accessor-defined data handle.
-- **Operation context** affects execution rather than operand identity: a stream,
-  communicator, workspace ownership, precision setting, or forced algorithm.
-  It may be carried by an explicit selector override.
-- **Advisory state** guides optimization only: preferred algorithm, tile shape,
-  math mode, fusion hint, workspace budget, or "try this path first".
+### One virtual backend interface
 
-Operand compatibility and operation context should be checked before side
-effects and before scratch allocation where practical. Advisory state may vary
-across backend-list entries and may be ignored by backends that do not
-understand it.
+A virtual interface would require a closed operation and argument type model or a large
+type-erasure layer. Uni20's scalar, mdspan, accessor, and operation types are better
+served by constrained overload resolution.
 
-## Fallback Semantics
+### One dispatcher per operation
 
-Every optimized path needs a semantic fallback in the same storage and
-execution domain. The fallback is the reference behavior for correctness and
-documentation. It may be a CPU reference loop for host storage, a device
-reference implementation for CUDA storage, an existing Uni20 kernel, or another
-already-supported backend in that domain.
+Per-operation walks duplicate ordering, fallback, diagnostics, and async behavior. They
+also drift as new backend rules are added.
 
-The fallback should not be treated as an error path. It is the expected path for
-valid inputs that a specific backend cannot represent.
+### Runtime backend enumeration only
 
-An ordinary backend-list decline never transfers data to another storage
-domain. Cross-domain execution is an explicit composite kernel or higher-level
-operation. An operation-specific emergency CUDA-to-host route may be useful,
-but it must expose and own its copies and synchronization rather than appearing
-as a general host fallback in a CUDA selector.
+An enum loses backend-specific state and still requires a secondary mechanism for
+operation overloads and static type support.
 
-Vendor-library availability is also a runtime capability, not only a build
-configuration fact.  For CUDA libraries this includes the resolved shared
-library version, CUDA ABI, active device architecture, and operation-specific
-support.  See `../backends/cuda/libraries.md` for the versioned CUDA library model.
+### Exceptions for ordinary decline
 
-## Testing Against Fallbacks
+Expected layout or instance rejection would become expensive and would blur the
+critical boundary between clean fallback and terminal failure.
 
-A backend path that is always available for a type family can hide bugs in the
-generic implementation. For example, if `try_backend_algorithm` always succeeds
-for `double` contiguous matrices, normal tests for those inputs will never
-execute `generic_algorithm`.
+### Implicit transfer or materialization during fallback
 
-Unit tests must be able to exercise the generic implementation directly,
-including for inputs where an optimized backend is expected to run. Do not test
-the generic path only on backend-ineligible inputs. Otherwise, the generic
-implementation may remain unexecuted for common scalar, layout, and stride
-combinations until a future build, platform, dependency version, or runtime
-condition disables the backend path.
+This hides allocation, synchronization, and semantic conversion. Such work must be
+explicit in the operation contract.
 
-Use the generic path as the correctness oracle for backend-specific tests, and
-test backend results against the generic calculation for representative shapes,
-strides, scalar types, and aliasing cases.
+## Maintenance rule
 
-When practical, include tests that force or select the fallback path even for
-inputs that an optimized backend would normally handle. This keeps the fallback
-maintained as real code rather than as an untested emergency path.
+The dispatch mechanism is considered settled. Changes to customization-point shapes,
+acceptance semantics, fallback, selector resolution, coroutine commitment, or
+diagnostics must update [`kernel_dispatch.md`](kernel_dispatch.md), focused tests, and
+the relevant source documentation in the same change.
 
-## Backend Adapters
-
-Foreign APIs should be wrapped behind Uni20 adapter functions before algorithm
-code calls them.
-
-Examples of adapter responsibilities:
-
-- vendor headers and feature macros
-- C, Fortran, C++, or CUDA ABI details
-- symbol naming and name mangling
-- index-width conversion and range checks
-- handle, stream, queue, and workspace management
-- status-code conversion to Uni20 errors
-- vendor-specific layout, transpose, and leading-dimension conventions
-
-For BLAS-like libraries, prefer a C API when one is available. If only a Fortran
-ABI is available, put the Fortran wrapper behind a Uni20 C-like adapter so
-algorithm lowering code does not depend on symbol mangling or Fortran integer
-details.
-
-The low-level LAPACK facade currently follows a two-layer convention:
-
-- `uni20::lapack::unchecked` contains type-safe, provider-backed overloads that
-  return the raw LAPACK `INFO` value. These wrappers are marked `[[nodiscard]]`
-  and are the right layer for algorithms that want to handle singularity,
-  non-convergence, workspace queries, condition warnings, or fallback policy
-  themselves.
-- `uni20::lapack` contains thin checked wrappers that call the corresponding
-  unchecked overload and throw with diagnostic context for ordinary fatal
-  statuses such as invalid arguments, singular factors, or convergence failure.
-  This layer should not contain algorithmic fallback policy. Higher-level
-  helpers such as `svd`, `solve`, or tensor truncation routines can call
-  `unchecked` directly when they need trial algorithms or richer recovery.
-
-The provider is a physical implementation detail, not part of the public call
-surface. Standard LAPACK overloads and MPLAPACK binary128 overloads should
-present the same `uni20::lapack::unchecked::<routine>` spelling when they
-provide the same operation. Future global kernel dispatch can then detect
-compile-time callability and runtime suitability without hard-coding provider
-names into algorithm code.
-
-## Applicability
-
-This pattern is not BLAS-specific. Use it for future optimized paths involving:
-
-- BLAS, LAPACK, cuBLAS, cuSOLVER, and similar dense linear algebra libraries
-- FFT, sparse, eigensolver, and tensor-network-specific kernels
-- TBB or other CPU parallel kernels
-- CUDA, HIP, SYCL, or other device backends
-- expression lowering and fusion
-
-## Development Guidance
-
-- Keep the public overload generic unless the operation semantics themselves
-  require a constraint.
-- Put backend eligibility in constrained `try_kernel` overloads or optional
-  `kernel_accepts_types(...)` checks, not in public-facing overloads.
-- Put runtime validation and the actual backend call in `try_kernel(...)`.
-- Keep vendor ABI details in adapters.
-- Add tests that cover backend success, forced generic execution for
-  backend-eligible inputs, and fallback behavior when practical.
-- Compare backend results with the generic implementation for representative
-  inputs.
-- Document when a backend path is an optimization only and not a semantic
-  requirement.
+Historical rationale may be refined here, but this file must not become a second
+normative specification or a status inventory.

@@ -12,7 +12,8 @@ Related notes:
 - `docs/architecture/ordering_and_backend_lowering.md` — who owns ordering; events/MPI as lowerings.
 - `docs/backends/cuda/epoch_design_draft.md` — GPU per-buffer hazard model and the explicit
   host/device transfer model.
-- `docs/architecture/backend_dispatch.md` — compile-time capability / runtime `try_*` dispatch.
+- `docs/architecture/kernel_dispatch.md` — compile-time type eligibility through
+  `kernel_accepts_types` and runtime acceptance through `try_kernel`.
 - `docs/symmetry/qnum.md` — symmetry/QNum and block-key invariants.
 - `docs/symmetry/block_tensor.md` — the container-level refinement: the
   `TensorStorage` / `BlockTensorStorage` two-policy split and policy-typed
@@ -24,9 +25,9 @@ Related notes:
 collapsed into one:
 
 - **Memory kind** — host / device / unified. A **compile-time** property of the
-  storage type. It selects which kernels are legal and drives the `maybe_can_*`
-  capability traits in `backend_dispatch.md`. It is also what keeps symmetry/QNum
-  type guarantees intact.
+  storage type. It selects which kernels are legal through
+  `kernel_accepts_types`. It is also what keeps symmetry/QNum type guarantees
+  intact.
 - **Location** — which device ordinal or process owns a storage object. A
   **runtime** value attached to storage. For dense device spans, the accessor's
   data handle should carry the device identity. Distributed block placement is

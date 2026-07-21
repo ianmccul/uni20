@@ -29,6 +29,7 @@ graph TD
         Async[Async epochs, buffers, and schedulers]
         AD[Var and ReverseValue]
         TensorAD[Tensor linalg reverse-mode AD]
+        Distributed[Distributed planning and MPI/NCCL runtime]
         Presentation[Presentation and structured diagnostics]
     end
 
@@ -38,7 +39,6 @@ graph TD
         Blas[BLAS kernels]
         Lapack[LAPACK kernels]
         Cuda[CUDA and cuSOLVER execution]
-        MPI[Distributed MPI and NCCL execution]
     end
 
     Cpp --> Tensor
@@ -50,6 +50,7 @@ graph TD
     Tensor --> Views
     Views --> TensorOps
     TensorOps --> Dispatch
+    TensorOps -.-> Distributed
     Krylov --> TensorOps
     Krylov --> Dispatch
 
@@ -66,17 +67,18 @@ graph TD
     Mdspan --> Blas
     Mdspan --> Lapack
     Mdspan -.-> Cuda
-    Mdspan -.-> MPI
+    Distributed -.-> Dispatch
 
     Symmetry -.-> BlockTensor
     BlockTensor -.-> TensorOps
     BlockTensor -.-> AsyncOps
+    BlockTensor -.-> Distributed
 
     style PyTensor stroke-dasharray: 5 5
     style TensorAD stroke-dasharray: 5 5
     style BlockTensor stroke-dasharray: 5 5
     style Cuda stroke-dasharray: 5 5
-    style MPI stroke-dasharray: 5 5
+    style Distributed stroke-dasharray: 5 5
 ```
 
 ## Implemented Path
@@ -112,7 +114,8 @@ than a private dense backend.
 - Symmetry-aware lowering must decide legal blocks and preserve quantum-number
   metadata before emitting dense block operations.
 - Ordinary backend decline never transfers operands between host, device, or
-  MPI domains.
+  MPI domains. Distributed planning and communication occur above local kernel
+  dispatch.
 
 ## Current Maturity
 
@@ -131,5 +134,7 @@ than a private dense backend.
 - CUDA/cuSOLVER, distributed execution, and the symmetry-aware `BlockTensor`
   remain incomplete.
 
-See [About Uni20](../about.md) for the capability overview and
-[Roadmap](../roadmap.md) for the implementation priorities.
+See [About Uni20](../about.md) for the capability overview,
+[Roadmap](../roadmap.md) for the implementation priorities, and
+[Distributed Kernel Dispatch](distributed_kernel_dispatch.md) for exploratory
+distributed-planning constraints.

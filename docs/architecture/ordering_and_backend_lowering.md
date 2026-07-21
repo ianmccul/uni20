@@ -15,8 +15,12 @@ Related notes:
 - `docs/backends/cuda/runtime.md` — CUDA stream ownership and pools.
 - `docs/backends/cuda/kernel_dispatch.md` — host execution routes for
   lightweight and hybrid provider calls.
-- `docs/architecture/backend_dispatch.md` — compile-time capability / runtime `try_*` dispatch.
-- `docs/architecture/kernel_dispatch.md` — the `backend_list` walk and scheduler integration.
+- `docs/architecture/backend_dispatch.md` — rationale for type eligibility,
+  runtime attempts, and clean decline.
+- `docs/architecture/kernel_dispatch.md` — the `kernel_accepts_types` /
+  `try_kernel` contract, `backend_list` walk, and scheduler integration.
+- `docs/architecture/distributed_kernel_dispatch.md` — exploratory distributed
+  planning and commitment constraints.
 
 ## Summary
 
