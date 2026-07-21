@@ -545,7 +545,7 @@ KernelAttempt try_kernel(CublasBackend, gemm_op, C& c,
                          scalar_t<C> alpha, A const& a, B const& b,
                          scalar_t<C> beta)
 {
-  return uni20::linalg::cublas::try_gemm(c, alpha, a, b, beta);
+  return detail::cublas_backend::try_gemm(c, alpha, a, b, beta);
 }
 ```
 

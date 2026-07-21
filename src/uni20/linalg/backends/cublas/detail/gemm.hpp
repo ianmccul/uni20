@@ -8,6 +8,7 @@
 
 #include <uni20/linalg/blas/mdspan_matrix.hpp>
 #include <uni20/linalg/cublas/gemm.hpp>
+#include <uni20/linalg/kernel_attempt.hpp>
 #include <uni20/storage/cuda_storage.hpp>
 
 #include <concepts>
@@ -238,8 +239,7 @@ void execute_gemm(uni20::cublas::ExecutionLease& execution, GemmPlan<Scalar> con
       with_data(plan.output, offset_pointer(output_access.data(), plan.output.data.element_offset()));
   auto const raw_lhs = with_data(plan.lhs, offset_pointer(lhs_access.data(), plan.lhs.data.element_offset()));
   auto const raw_rhs = with_data(plan.rhs, offset_pointer(rhs_access.data(), plan.rhs.data.element_offset()));
-  CHECK(
-      kernel_attempt_succeeded(uni20::linalg::cublas::try_gemm(execution, raw_output, raw_lhs, raw_rhs, alpha, beta)));
+  uni20::linalg::cublas::gemm(execution, raw_output, alpha, raw_lhs, raw_rhs, beta);
 }
 
 template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>

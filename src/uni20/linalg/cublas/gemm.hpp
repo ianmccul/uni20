@@ -9,7 +9,6 @@
 #include <uni20/backend/cublas/gemm.hpp>
 #include <uni20/common/trace.hpp>
 #include <uni20/linalg/blas/blas_matrix.hpp>
-#include <uni20/linalg/kernel_attempt.hpp>
 
 #include <concepts>
 #include <limits>
@@ -50,19 +49,20 @@ blas_int require_gemm_shape(blas::BlasWritableMatrix<Scalar, OutputHandle> outpu
 
 } // namespace detail
 
-/// \brief Try provider-ready column-major GEMM through cuBLAS.
-/// \return `success` or `unsupported_transform`; invalid dimensions are logic errors.
+/// \brief Run provider-ready column-major GEMM through cuBLAS.
+/// \details Backend acceptance must be completed before acquiring \p execution.
+///          Unsupported transforms and invalid dimensions are logic errors here.
 template <uni20::cublas::CublasScalar Scalar, class OutputHandle, class LhsHandle, class RhsHandle>
   requires std::convertible_to<OutputHandle, Scalar*> && std::convertible_to<LhsHandle, Scalar const*> &&
            std::convertible_to<RhsHandle, Scalar const*>
-KernelAttempt try_gemm(uni20::cublas::ExecutionLease& execution, blas::BlasWritableMatrix<Scalar, OutputHandle> output,
-                       blas::BlasReadableMatrix<Scalar, LhsHandle> lhs, blas::BlasReadableMatrix<Scalar, RhsHandle> rhs,
-                       Scalar alpha, Scalar beta)
+void gemm(uni20::cublas::ExecutionLease& execution, blas::BlasWritableMatrix<Scalar, OutputHandle> output,
+          Scalar alpha, blas::BlasReadableMatrix<Scalar, LhsHandle> lhs,
+          blas::BlasReadableMatrix<Scalar, RhsHandle> rhs, Scalar beta)
 {
-  if (!detail::provider_transforms_are_supported(lhs, rhs)) return KernelAttempt::unsupported_transform;
+  CHECK(detail::provider_transforms_are_supported(lhs, rhs));
 
   blas_int const lhs_cols = detail::require_gemm_shape(output, lhs, rhs);
-  if (output.rows == 0 || output.cols == 0) return KernelAttempt::success;
+  if (output.rows == 0 || output.cols == 0) return;
 
   uni20::cublas::gemm(execution, blas::blas_trans_char<Scalar>(lhs.transform),
                       blas::blas_trans_char<Scalar>(rhs.transform), detail::cublas_int(output.rows),
@@ -70,18 +70,6 @@ KernelAttempt try_gemm(uni20::cublas::ExecutionLease& execution, blas::BlasWrita
                       static_cast<Scalar const*>(lhs.data), detail::cublas_int(lhs.leading_dimension),
                       static_cast<Scalar const*>(rhs.data), detail::cublas_int(rhs.leading_dimension), beta,
                       static_cast<Scalar*>(output.data), detail::cublas_int(output.leading_dimension));
-  return KernelAttempt::success;
-}
-
-/// \brief Run provider-ready column-major GEMM through cuBLAS.
-template <uni20::cublas::CublasScalar Scalar, class OutputHandle, class LhsHandle, class RhsHandle>
-  requires std::convertible_to<OutputHandle, Scalar*> && std::convertible_to<LhsHandle, Scalar const*> &&
-           std::convertible_to<RhsHandle, Scalar const*>
-void gemm(uni20::cublas::ExecutionLease& execution, blas::BlasWritableMatrix<Scalar, OutputHandle> output,
-          blas::BlasReadableMatrix<Scalar, LhsHandle> lhs, blas::BlasReadableMatrix<Scalar, RhsHandle> rhs,
-          Scalar alpha, Scalar beta)
-{
-  CHECK(kernel_attempt_succeeded(try_gemm(execution, output, lhs, rhs, alpha, beta)));
 }
 
 } // namespace uni20::linalg::cublas

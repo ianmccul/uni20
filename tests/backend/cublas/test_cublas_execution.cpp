@@ -283,7 +283,7 @@ template <class Scalar> void check_column_major_gemm(int device)
         .data = lhs_read.data(), .rows = 2, .cols = 3, .leading_dimension = 2};
     uni20::linalg::blas::BlasReadableMatrix<Scalar> rhs_matrix{
         .data = rhs_read.data(), .rows = 3, .cols = 2, .leading_dimension = 3};
-    uni20::linalg::cublas::gemm(execution, output_matrix, lhs_matrix, rhs_matrix, Scalar{1}, Scalar{});
+    uni20::linalg::cublas::gemm(execution, output_matrix, Scalar{1}, lhs_matrix, rhs_matrix, Scalar{});
   }
   {
     auto output_read = output.read_synchronized_with(execution.stream());
