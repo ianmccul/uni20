@@ -187,8 +187,9 @@ The first implemented flow uses strict all-async Tensor operands:
 5. Move the selector, buffers, scalar awaiters, and ordinary configuration into
    a scheduled coroutine.
 6. Await the stored Tensor values and async scalars inside the coroutine.
-7. Call the existing synchronous Tensor operation with the selector. It
-   performs shape preparation, mdspan resolution, and the runtime backend walk.
+7. Perform operation-specific output preparation, resolve mdspans, and enter
+   `co_dispatch_kernel` with the same operation tag and backend list used by
+   synchronous dispatch.
 
 ```cpp
 void assign_product(Async<Matrix>& output,

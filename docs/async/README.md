@@ -70,7 +70,8 @@ program and identifies deliberate failure paths. Frequently used examples are:
 - `examples/async/async_buffer_await_paths_example.cpp`: borrowed and owning value, storage, and consuming await paths
 - `examples/async/async_example.cpp`: basic read/write and `try_await(...)`
 - `examples/async/async_ops_example.cpp`: expression DAG composition and `all(...)`
-- `examples/async/async_tensor_matrix_product_example.cpp`: all-async Tensor matrix-product overwrite and update
+- `examples/async/async_tensor_matrix_product_example.cpp`: all-async Tensor
+  fixed-output GEMM, matrix-product overwrite, and update
 - `examples/async/async_tbb_matrix_product_batch_example.cpp`: configurable parallel batch of async Tensor matrix
   products using `TbbScheduler`, with `fp32`, `fp64`, and configured `fp128` precision plus presentation-layer
   reporting

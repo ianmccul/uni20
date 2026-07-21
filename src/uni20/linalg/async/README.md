@@ -5,7 +5,8 @@ linear-algebra operations over `Async<Tensor>` values.
 
 ## Contents
 
-- `matrix_product.hpp`: all-async `assign_product` and `add_product` wrappers.
+- `matrix_product.hpp`: all-async fixed-output `gemm`, resizing
+  `assign_product`, and fixed-output `add_product` wrappers.
 - `dispatch.hpp`: coroutine-aware kernel dispatch; ordinary backends run their
   blocking `try_kernel` directly, while individual backend/operation pairs may
   provide a deferred task through `try_kernel_task`.

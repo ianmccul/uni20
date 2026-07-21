@@ -10,7 +10,7 @@
 
 namespace uni20::linalg
 {
-namespace
+namespace test_async_dispatch
 {
 
 struct AsyncDispatchTestOp
@@ -165,5 +165,5 @@ TEST(AsyncDispatchTest, DeferredTaskFailureIsTerminal)
   EXPECT_THROW((void)output.get_wait(scheduler), std::runtime_error);
 }
 
-} // namespace
+} // namespace test_async_dispatch
 } // namespace uni20::linalg

@@ -87,7 +87,8 @@ See [Kernel Dispatch](architecture/kernel_dispatch.md),
   can publish independent results or the same failure.
 - Task-registry snapshots, presentation reports, optional stacktraces, signal
   triggers, watchdog controls, and Graphviz output support diagnosis.
-- Async matrix-product overwrite/update, preserving/consuming self-adjoint
+- Async fixed-output GEMM and matrix-product overwrite/update,
+  preserving/consuming self-adjoint
   `eigh`, exact and truncating SVD wrappers, plus full and axis-selective sums,
   schedule the existing synchronous Tensor operations.
 
@@ -105,7 +106,7 @@ See the [Async Documentation Index](async/) and
   a scheduler participant. cuBLAS adds pooled handle-plus-stream execution
   leases over those primitives.
 - `CudaTensor` owns opaque device storage and selects `CublasBackend`.
-  Async matrix-product overwrite/update awaits a device-bound `CudaTask`, which
+  Async GEMM and matrix-product overwrite/update await a device-bound `CudaTask`, which
   acquires a handle-plus-stream lease and lowers through staged CUDA mdspans,
   synchronized buffer access, and checked `S/D/C/ZGEMM` provider calls.
 - Ordinary `CublasBackend` uses blocking resource admission. Async lowering

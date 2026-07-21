@@ -25,6 +25,9 @@ kernels operate on resolved mdspans.
 - `transform.hpp`: backend-dispatched variadic elementwise overwrite and update
   operations for mdspan and Tensor operands. Their all-async Tensor overloads
   live in [`linalg/async/`](../linalg/async/).
+- Fixed-output GEMM and matrix-product overwrite/update operations live in
+  [`linalg/`](../linalg/); their all-async Tensor overloads live in
+  [`linalg/async/`](../linalg/async/).
 - `reductions.hpp`: storage-preserving full and partial sums, host-result sums,
   inner products, and stable Euclidean norms. All-async sum overloads live in
   [`linalg/async/`](../linalg/async/).

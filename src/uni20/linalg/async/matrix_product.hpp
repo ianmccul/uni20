@@ -29,14 +29,14 @@ namespace uni20::linalg
 {
 namespace detail
 {
-template <class Alpha>
-using matrix_product_alpha_awaiter_t = std::remove_cvref_t<decltype(async::read(std::declval<Alpha>()))>;
+template <class Scalar>
+using matrix_product_scalar_awaiter_t = std::remove_cvref_t<decltype(async::read(std::declval<Scalar>()))>;
 
-template <class Alpha, class Scalar>
-concept MatrixProductAlpha = async::TaskAwaitable<matrix_product_alpha_awaiter_t<Alpha>> &&
-                             requires(matrix_product_alpha_awaiter_t<Alpha>& awaiter) {
-                               { awaiter.await_resume() } -> std::convertible_to<Scalar>;
-                             };
+template <class Value, class Scalar>
+concept MatrixProductScalar = async::TaskAwaitable<matrix_product_scalar_awaiter_t<Value>> &&
+                              requires(matrix_product_scalar_awaiter_t<Value>& awaiter) {
+                                { awaiter.await_resume() } -> std::convertible_to<Scalar>;
+                              };
 
 template <class OutputTensor, class LhsTensor, class RhsTensor>
 void validate_async_matrix_product_aliasing(async::Async<OutputTensor> const& output,
@@ -114,17 +114,18 @@ async::AsyncTask async_assign_product_task(BackendSelector const selector, async
 }
 
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
-          uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter>
-async::AsyncTask async_add_product_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
-                                        async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs,
-                                        AlphaAwaiter alpha)
+          uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter, class BetaAwaiter>
+async::AsyncTask async_gemm_task(BackendSelector const selector, async::WriteBuffer<OutputTensor> output,
+                                 async::ReadBuffer<LhsTensor> lhs, async::ReadBuffer<RhsTensor> rhs, AlphaAwaiter alpha,
+                                 BetaAwaiter beta)
 {
   auto output_storage = output.storage();
-  auto awaited = co_await async::all(output_storage, lhs, rhs, alpha);
+  auto awaited = co_await async::all(output_storage, lhs, rhs, alpha, beta);
   auto& storage = std::get<0>(awaited);
   auto const& lhs_value = std::get<1>(awaited);
   auto const& rhs_value = std::get<2>(awaited);
   auto const& alpha_value = std::get<3>(awaited);
+  auto const& beta_value = std::get<4>(awaited);
 
   if (!storage.constructed()) throw async::buffer_write_uninitialized{};
   auto const shape = matrix_product_shape(lhs_value, rhs_value);
@@ -134,7 +135,7 @@ async::AsyncTask async_add_product_task(BackendSelector const selector, async::W
   auto lhs_mdspan = lhs_value.mdspan();
   auto rhs_mdspan = rhs_value.mdspan();
   scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
-  scalar_type const beta_scalar{1};
+  scalar_type const beta_scalar = static_cast<scalar_type>(beta_value);
   co_await co_dispatch_kernel(selector, gemm_op{}, output_mdspan, alpha_scalar, lhs_mdspan, rhs_mdspan, beta_scalar);
   co_return;
 }
@@ -152,17 +153,49 @@ void schedule_async_assign_product(BackendSelector selector, async::Async<Output
 }
 
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
-          uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter>
-void schedule_async_add_product(BackendSelector selector, async::Async<OutputTensor>& output,
-                                async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs,
-                                AlphaAwaiter alpha)
+          uni20::RankedTensorView<2> RhsTensor, class AlphaAwaiter, class BetaAwaiter>
+void schedule_async_gemm(BackendSelector selector, async::Async<OutputTensor>& output,
+                         async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs, AlphaAwaiter alpha,
+                         BetaAwaiter beta)
 {
   validate_async_matrix_product_aliasing(output, lhs, rhs);
-  auto task = async_add_product_task(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha));
-  task.debug_name("add_product");
+  auto task =
+      async_gemm_task(std::move(selector), output.write(), lhs.read(), rhs.read(), std::move(alpha), std::move(beta));
+  task.debug_name("gemm");
   async::schedule(std::move(task));
 }
 } // namespace detail
+
+/// \brief Schedule fixed-output GEMM with an explicit backend selector.
+/// \details Computes `output = alpha * lhs * rhs + beta * output`. Every
+///          Tensor operand is asynchronous. `alpha` and `beta` may be immediate
+///          values or async readers yielding compatible scalars.
+/// \pre The output is constructed with the matrix-product shape and does not
+///      share an epoch queue with either input.
+template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
+          uni20::RankedTensorView<2> RhsTensor, class Alpha, class Beta>
+  requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
+           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>> &&
+           detail::MatrixProductScalar<Beta, uni20::tensor_element_t<OutputTensor>>
+void gemm(BackendSelector selector, async::Async<OutputTensor>& output, Alpha&& alpha,
+          async::Async<LhsTensor> const& lhs, async::Async<RhsTensor> const& rhs, Beta&& beta)
+{
+  detail::schedule_async_gemm(std::move(selector), output, lhs, rhs, async::read(std::forward<Alpha>(alpha)),
+                              async::read(std::forward<Beta>(beta)));
+}
+
+/// \brief Schedule fixed-output GEMM using the static Tensor selector.
+template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
+          uni20::RankedTensorView<2> RhsTensor, class Alpha, class Beta>
+  requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
+           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>> &&
+           detail::MatrixProductScalar<Beta, uni20::tensor_element_t<OutputTensor>>
+void gemm(async::Async<OutputTensor>& output, Alpha&& alpha, async::Async<LhsTensor> const& lhs,
+          async::Async<RhsTensor> const& rhs, Beta&& beta)
+{
+  auto selector = select_backend_for<OutputTensor, LhsTensor, RhsTensor>(gemm_op{});
+  gemm(std::move(selector), output, std::forward<Alpha>(alpha), lhs, rhs, std::forward<Beta>(beta));
+}
 
 /// \brief Schedule `output = alpha * lhs * rhs` with an explicit backend selector.
 /// \details Every Tensor operand is asynchronous. `alpha` may be an immediate
@@ -174,7 +207,7 @@ void schedule_async_add_product(BackendSelector selector, async::Async<OutputTen
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductAlpha<Alpha, uni20::tensor_element_t<OutputTensor>>
+           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void assign_product(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                     async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
@@ -189,7 +222,7 @@ void assign_product(BackendSelector selector, async::Async<OutputTensor>& output
 template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductAlpha<Alpha, uni20::tensor_element_t<OutputTensor>>
+           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void assign_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                     async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
@@ -206,11 +239,11 @@ void assign_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> 
 template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductAlpha<Alpha, uni20::tensor_element_t<OutputTensor>>
+           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void add_product(BackendSelector selector, async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                  async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
-  detail::schedule_async_add_product(std::move(selector), output, lhs, rhs, async::read(std::forward<Alpha>(alpha)));
+  gemm(std::move(selector), output, std::forward<Alpha>(alpha), lhs, rhs, uni20::tensor_element_t<OutputTensor>{1});
 }
 
 /// \brief Schedule `output += alpha * lhs * rhs` using the static Tensor selector.
@@ -221,12 +254,11 @@ void add_product(BackendSelector selector, async::Async<OutputTensor>& output, a
 template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
           uni20::RankedTensorView<2> RhsTensor, class Alpha = uni20::tensor_element_t<OutputTensor>>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor> &&
-           detail::MatrixProductAlpha<Alpha, uni20::tensor_element_t<OutputTensor>>
+           detail::MatrixProductScalar<Alpha, uni20::tensor_element_t<OutputTensor>>
 void add_product(async::Async<OutputTensor>& output, async::Async<LhsTensor> const& lhs,
                  async::Async<RhsTensor> const& rhs, Alpha&& alpha = uni20::tensor_element_t<OutputTensor>{1})
 {
-  auto selector = select_backend_for<OutputTensor, LhsTensor, RhsTensor>(gemm_op{});
-  detail::schedule_async_add_product(std::move(selector), output, lhs, rhs, async::read(std::forward<Alpha>(alpha)));
+  gemm(output, std::forward<Alpha>(alpha), lhs, rhs, uni20::tensor_element_t<OutputTensor>{1});
 }
 
 } // namespace uni20::linalg

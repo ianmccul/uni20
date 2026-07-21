@@ -2,7 +2,8 @@
 
 This guide defines the first supported pattern for lifting synchronous Tensor
 operations onto Uni20's async runtime. The implemented references are
-`uni20::linalg::assign_product`, `uni20::linalg::add_product`, and the
+`uni20::linalg::gemm`, `uni20::linalg::assign_product`,
+`uni20::linalg::add_product`, and the
 multi-output `uni20::linalg::eigh` and `uni20::linalg::svd` overloads, plus
 full and axis-selective `uni20::sum`, from `<uni20/linalg/async.hpp>`.
 See [Tensor Operations](../tensor/operations.md) for the canonical
@@ -10,8 +11,8 @@ operation semantics and current synchronous/Async support matrix.
 
 ## Layer Boundary
 
-An async Tensor operation is a scheduling wrapper around an existing
-synchronous Tensor operation:
+An async Tensor operation is a scheduling wrapper around the same operation-tag
+kernel dispatch used by synchronous Tensor operations:
 
 ```text
 Async<Tensor> handles
@@ -20,14 +21,14 @@ Async<Tensor> handles
   -> ReadBuffer / WriteBuffer enrollment
   -> scheduled coroutine
   -> await stored Tensor values and async scalars
-  -> synchronous Tensor operation with the resolved selector
-  -> mdspan dispatch and backend kernel
+  -> operation-specific output preparation and mdspan resolution
+  -> co_dispatch_kernel and backend kernel
 ```
 
 Backends and leaf kernels remain unaware of `Async<T>`, epoch queues, and
-schedulers. The async wrapper resolves the storage policy's static selector.
-The synchronous operation still owns shape validation, mdspan resolution, and
-the runtime backend walk.
+schedulers. The async wrapper resolves the storage policy's static selector,
+owns any output preparation, resolves stable mdspans, and then enters
+`co_dispatch_kernel`.
 
 Do not add async overloads directly to a backend or make `Async<Tensor>` model
 `TensorView`.
@@ -37,6 +38,12 @@ Do not add async overloads directly to a backend or make `Async<Tensor>` model
 The first checkpoint uses a strict all-async interface:
 
 ```cpp
+void gemm(Async<OutputTensor>& output,
+          Alpha&& alpha,
+          Async<LhsTensor> const& lhs,
+          Async<RhsTensor> const& rhs,
+          Beta&& beta);
+
 void assign_product(Async<OutputTensor>& output,
                     Async<LhsTensor> const& lhs,
                     Async<RhsTensor> const& rhs,
@@ -83,7 +90,8 @@ The coroutine then:
 1. Awaits the Tensor buffers and any async scalar buffers together.
 2. Resolves references to the stored Tensor values.
 3. Prepares an unconstructed overwrite output when supported.
-4. Calls the existing synchronous Tensor operation with the resolved selector.
+4. Resolves stable mdspans and calls `co_dispatch_kernel` with the operation tag
+   and resolved selector.
 
 Use a named free coroutine, or a captureless C++23 `static` lambda. Never pass
 references to the `Async<T>` handles into the coroutine. The moved buffers
@@ -138,6 +146,13 @@ for `Async<Tensor>`.
 
 ## Output Semantics
 
+`gemm` is a fixed-output operation:
+
+- The output must already be constructed with the matrix-product shape.
+- `alpha` and `beta` may independently be immediate or async scalar operands.
+- The output's existing values participate according to `beta`; `gemm` never
+  constructs or resizes the output.
+
 `assign_product` is an overwrite operation:
 
 - If the async output already contains a Tensor, the synchronous operation may
@@ -148,6 +163,7 @@ for `Async<Tensor>`.
 
 `add_product` is an update operation:
 
+- It forwards to async `gemm` with `beta = 1`.
 - The output must already be constructed.
 - Its existing values participate in the result.
 - Its shape must already match; it is never resized.

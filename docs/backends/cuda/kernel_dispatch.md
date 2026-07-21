@@ -111,7 +111,8 @@ uses an optional task-producing customization for that backend and operation.
 The per-call stream, handle, and workspace leases are operation-local and must
 not be stored in the backend selector. Ordinary `CublasBackend` GEMM prepares
 the operands, blocks for an execution lease, and submits the prepared call.
-Async matrix-product lowering instead calls generic `co_dispatch_kernel`.
+Async fixed-output GEMM and matrix-product lowering instead call generic
+`co_dispatch_kernel`.
 `CublasBackend::try_kernel_task` prepares the same operands and returns a CUDA
 task that suspends for the execution lease before invoking the prepared cuBLAS
 leaf. Backends without this optional hook use their ordinary blocking

@@ -353,10 +353,10 @@ mdspans or spans.
 
 | Operation | Synchronous contract | Output/storage behavior | Async support |
 |---|---|---|---|
-| `gemm` | Fixed-output `C = alpha * A * B + beta * C`. | Caller supplies compatible output; no resize. | No direct wrapper. Use `assign_product` or `add_product` for the common overwrite/update forms. |
+| `gemm` | Fixed-output `C = alpha * A * B + beta * C`. | Caller supplies compatible output; no resize. | Implemented for all-Async tensor operands; `alpha` and `beta` may be immediate or Async. |
 | `gemv` | Fixed-output `y = alpha * A * x + beta * y`. | Caller supplies compatible output; no resize. | Not implemented. |
 | `assign_product` | Overwrite matrix product. | Output may resize; old values are ignored. | Implemented for all-Async tensor operands; `alpha` may be immediate or Async. |
-| `add_product` | Accumulate `output += alpha * lhs * rhs`. | Output must exist and have the required shape. | Implemented for all-Async tensor operands; `alpha` may be immediate or Async. |
+| `add_product` | Accumulate `output += alpha * lhs * rhs`. | Output must exist and have the required shape. | Implemented as the `beta = 1` forwarding form of async `gemm`; `alpha` may be immediate or Async. |
 | `set_matrix` | Set diagonal/off-diagonal values in a selected matrix region. | In-place mutation. | Not implemented. |
 | `matrix_exponential` | Compute into a fixed rank-two output. | Caller supplies compatible output. | Not implemented. |
 | `self_adjoint_eigh` | Destructive LAPACK-style workspace operation. | Matrix workspace is overwritten; eigenvalue output may resize. | No direct wrapper. |
@@ -378,13 +378,16 @@ ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is
 explicit.
 
-For `CudaTensor`, `assign_product` and `add_product` retain their Tensor
-epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's
+For `CudaTensor`, `gemm`, `assign_product`, and `add_product` retain their
+Tensor epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's
 `try_kernel_task` returns a nested `CudaTask` bound to the operand device. It
 inherits the compatible unified scheduler, awaits an idle cuBLAS handle and
 stream, and publishes CUDA buffer completion records before returning. Column-
-and row-major outputs are supported. A direct Tensor `gemm` uses the same
-operand preparation and provider leaf but may block during resource admission.
+and row-major outputs are supported. A direct non-Async Tensor `gemm` uses the
+same operand preparation and provider leaf but may block during resource
+admission. Async `gemm` and `add_product` require an existing compatible output;
+`assign_product` prepares an unconstructed or resizable output before entering
+the same kernel-dispatch path.
 
 ## Async Tensor Contract
 

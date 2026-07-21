@@ -488,7 +488,7 @@ TEST_F(CublasExecutionTest, AsyncOutputRemainsPendingUntilCublasSubmissionComple
   uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(device_));
   uni20::async::ScopedScheduler scoped(&scheduler);
 
-  uni20::linalg::assign_product(output, lhs, rhs);
+  uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
   auto output_reader = output.read();
   scheduler.run_all();
   EXPECT_FALSE(output_reader.await_ready());

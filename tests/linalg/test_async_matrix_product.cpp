@@ -34,8 +34,16 @@ concept CanAddProductWithAlpha = requires(Output& output, Lhs const& lhs, Rhs co
   uni20::linalg::add_product(output, lhs, rhs, alpha);
 };
 
+template <class Output, class Lhs, class Rhs, class Alpha, class Beta>
+concept CanGemm = requires(Output& output, Lhs const& lhs, Rhs const& rhs, Alpha const& alpha, Beta const& beta) {
+  uni20::linalg::gemm(output, alpha, lhs, rhs, beta);
+};
+
 static_assert(CanAssignProduct<async_matrix_type, async_matrix_type, async_matrix_type>);
 static_assert(CanAddProduct<async_matrix_type, async_matrix_type, async_matrix_type>);
+static_assert(CanGemm<async_matrix_type, async_matrix_type, async_matrix_type, double, double>);
+static_assert(CanGemm<async_matrix_type, async_matrix_type, async_matrix_type, uni20::async::Async<double>,
+                      uni20::async::Async<double>>);
 static_assert(
     CanAssignProductWithAlpha<async_matrix_type, async_matrix_type, async_matrix_type, uni20::async::Async<double>>);
 static_assert(
@@ -46,6 +54,9 @@ static_assert(!CanAssignProduct<async_matrix_type, async_matrix_type, matrix_typ
 static_assert(!CanAddProduct<matrix_type, async_matrix_type, async_matrix_type>);
 static_assert(!CanAddProduct<async_matrix_type, matrix_type, async_matrix_type>);
 static_assert(!CanAddProduct<async_matrix_type, async_matrix_type, matrix_type>);
+static_assert(!CanGemm<matrix_type, async_matrix_type, async_matrix_type, double, double>);
+static_assert(!CanGemm<async_matrix_type, matrix_type, async_matrix_type, double, double>);
+static_assert(!CanGemm<async_matrix_type, async_matrix_type, matrix_type, double, double>);
 
 template <class Matrix>
 Matrix make_matrix(uni20::index_type rows, uni20::index_type cols,
@@ -158,6 +169,27 @@ TEST(AsyncMatrixProductTest, AddProductReadsAndUpdatesExistingOutput)
   EXPECT_DOUBLE_EQ((result[1, 1]), 65.0);
 }
 
+TEST(AsyncMatrixProductTest, GemmAwaitsBothScalarsAndUpdatesFixedOutput)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_matrix_type lhs = make_matrix<matrix_type>(2, 2, {1, 2, 3, 4});
+  async_matrix_type rhs = make_matrix<matrix_type>(2, 2, {5, 6, 7, 8});
+  async_matrix_type output = make_matrix<matrix_type>(2, 2, {10, 20, 30, 40});
+  uni20::async::Async<double> alpha;
+  uni20::async::Async<double> beta;
+
+  uni20::async::schedule(produce_value(alpha.write(), 0.5));
+  uni20::async::schedule(produce_value(beta.write(), 2.0));
+  uni20::linalg::gemm(uni20::linalg::CpuReferenceBackend{}, output, alpha, lhs, rhs, beta);
+
+  auto const& result = output.get_wait(scheduler);
+  EXPECT_DOUBLE_EQ((result[0, 0]), 29.5);
+  EXPECT_DOUBLE_EQ((result[0, 1]), 51.0);
+  EXPECT_DOUBLE_EQ((result[1, 0]), 81.5);
+  EXPECT_DOUBLE_EQ((result[1, 1]), 105.0);
+}
+
 TEST(AsyncMatrixProductTest, AddProductAwaitsAsyncAlphaAndRetainsItsEpoch)
 {
   uni20::async::DebugScheduler scheduler;
@@ -240,6 +272,20 @@ TEST(AsyncMatrixProductTest, AddProductRequiresConstructedOutput)
   async_matrix_type output;
 
   uni20::linalg::add_product(output, lhs, rhs);
+  scheduler.run_all();
+
+  EXPECT_THROW((void)output.get_wait(scheduler), uni20::async::buffer_write_uninitialized);
+}
+
+TEST(AsyncMatrixProductTest, GemmRequiresConstructedOutput)
+{
+  uni20::async::DebugScheduler scheduler;
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  async_matrix_type lhs = make_matrix<matrix_type>(1, 1, {2});
+  async_matrix_type rhs = make_matrix<matrix_type>(1, 1, {3});
+  async_matrix_type output;
+
+  uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
   scheduler.run_all();
 
   EXPECT_THROW((void)output.get_wait(scheduler), uni20::async::buffer_write_uninitialized);

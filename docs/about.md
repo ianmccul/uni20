@@ -56,8 +56,8 @@ backend system:
 Async<Tensor> operands
   -> epoch enrollment and scheduled coroutine
   -> await tensor values and async scalar parameters
-  -> the same synchronous Tensor operation
-  -> the same mdspan/backend dispatch walk
+  -> resolve mdspans and operation-specific output preparation
+  -> the same operation-tag backend dispatch walk
 ```
 
 For example, the implemented async matrix-product API can schedule an overwrite

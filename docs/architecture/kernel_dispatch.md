@@ -5,10 +5,10 @@ forward design.** Uni20 has an operation-tag dispatch walk, structured failure
 reporting, opt-in runtime dispatch diagnostics, Tensor-to-mdspan forwarding,
 output-shape preparation, accessor-respecting copy/materialization, direct
 BLAS/reference CPU backends, and LAPACK adapters used by the native Krylov
-projected problems. The first all-async Tensor matrix-product wrappers schedule
-these same synchronous Tensor operations after awaiting their values. The CUDA,
-distributed, prepared-operand, and broader BLAS/LAPACK portions remain design
-work. This note
+projected problems. The first all-async Tensor matrix-product wrappers await
+their values and enter the same operation-tag backend walk through
+`co_dispatch_kernel`. The CUDA, distributed, prepared-operand, and broader
+BLAS/LAPACK portions remain design work. This note
 captures both the implemented contract and that direction. It generalizes the
 three-stage pattern in
 [`backend_dispatch.md`](backend_dispatch.md) into a single configurable
@@ -562,7 +562,8 @@ Three invariants this surfaces:
   separate "CPU async backend": `Async<T>` already is it.
 - **CUDA admission follows the operation entry point.** Ordinary
   `CublasBackend` preparation is followed by blocking resource admission.
-  Async matrix-product lowering uses `co_dispatch_kernel`, whose optional
+  Async fixed-output GEMM and matrix-product lowering use
+  `co_dispatch_kernel`, whose optional
   cuBLAS `try_kernel_task` customization prepares before admission and returns
   a task that awaits resources before invoking the prepared provider leaf.
   Note the division of labour: *ordering* is already guaranteed by the async
@@ -728,9 +729,10 @@ the async runtime:
    compute and return. A CUDA kernel takes a stream or handle but does not know
    about the async runtime.
 2. **Async Tensor wrappers** — enroll operand buffers and schedule a coroutine
-   that awaits stored Tensor values before calling the synchronous Tensor
-   operation. The first implementation is the all-async matrix-product wrapper
-   in `src/uni20/linalg/async/`. Its static selector is resolved from the Tensor
+   that awaits stored Tensor values before entering coroutine-aware kernel
+   dispatch. The first implementation provides fixed-output `gemm`, resizing
+   `assign_product`, and the `beta = 1` `add_product` forwarding form in
+   `src/uni20/linalg/async/`. Its static selector is resolved from the Tensor
    and storage types before scheduling; mdspan resolution and the runtime
    backend walk occur after the await. Synchronization lives here, in the
    epoch-queue awaits; the kernel never sees it.
