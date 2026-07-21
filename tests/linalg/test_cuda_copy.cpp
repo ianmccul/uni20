@@ -8,8 +8,11 @@
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <concepts>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 namespace
@@ -18,6 +21,39 @@ namespace
 using host_matrix_type = uni20::Tensor<double, 2>;
 using cuda_matrix_type = uni20::CudaTensor<double, 2>;
 using row_major_host_matrix_type = uni20::RowMajorTensor<double, 2>;
+
+using namespace std::chrono_literals;
+
+struct CopyGate
+{
+    std::atomic<bool> open = false;
+    std::atomic<bool> entered = false;
+};
+
+void CUDART_CB wait_for_copy_gate(void* raw_gate)
+{
+  auto& gate = *static_cast<CopyGate*>(raw_gate);
+  gate.entered.store(true, std::memory_order_release);
+  while (!gate.open.load(std::memory_order_acquire))
+  {
+    std::this_thread::yield();
+  }
+}
+
+void CUDART_CB set_copy_flag(void* raw_flag)
+{
+  static_cast<std::atomic<bool>*>(raw_flag)->store(true, std::memory_order_release);
+}
+
+bool wait_until(std::atomic<bool> const& flag)
+{
+  auto const deadline = std::chrono::steady_clock::now() + 5s;
+  while (!flag.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
+  {
+    std::this_thread::yield();
+  }
+  return flag.load(std::memory_order_acquire);
+}
 
 class ErrorModeGuard {
   public:
@@ -109,6 +145,43 @@ TEST_F(CudaCopyTest, SameDeviceCopyUsesCudaReferenceFallback)
   expect_matrix(uni20::to_host(destination));
 }
 
+TEST_F(CudaCopyTest, SameDeviceCopyOrdersPendingSourceAndDestinationReuse)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 3});
+  auto source = uni20::to_device(make_matrix(), 0);
+  cuda_matrix_type destination(runtime.device_resources(0), 2, 3);
+  CopyGate gate;
+
+  {
+    auto stream = runtime.device_resources(0).streams().acquire();
+    auto source_predecessor = source.storage().write_synchronized_with(stream);
+    uni20::cuda::ScopedDevice device(0);
+    uni20::cuda::check(cudaLaunchHostFunc(stream.native_handle(), wait_for_copy_gate, &gate),
+                       "cudaLaunchHostFunc same-device source predecessor", 0);
+  }
+
+  uni20::copy(destination, source);
+
+  std::atomic<bool> destination_reader_completed = false;
+  {
+    auto stream = runtime.device_resources(0).streams().acquire();
+    auto destination_reader = destination.storage().read_synchronized_with(stream);
+    uni20::cuda::ScopedDevice device(0);
+    uni20::cuda::check(cudaLaunchHostFunc(stream.native_handle(), set_copy_flag, &destination_reader_completed),
+                       "cudaLaunchHostFunc same-device destination reader", 0);
+  }
+
+  bool const predecessor_entered = wait_until(gate.entered);
+  if (!predecessor_entered) gate.open.store(true, std::memory_order_release);
+  ASSERT_TRUE(predecessor_entered);
+  EXPECT_FALSE(destination_reader_completed.load(std::memory_order_acquire));
+
+  gate.open.store(true, std::memory_order_release);
+  runtime.device_resources(0).streams().synchronize();
+  EXPECT_TRUE(destination_reader_completed.load(std::memory_order_acquire));
+  expect_matrix(uni20::to_host(destination));
+}
+
 TEST_F(CudaCopyTest, RowMajorRoundTripPreservesLogicalOrder)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
@@ -157,6 +230,56 @@ TEST_F(CudaCopyTest, PeerCopyPreservesValues)
   expect_matrix(uni20::to_host(destination));
 }
 
+TEST_F(CudaCopyTest, PeerCopyPreservesSourceAndDestinationLedgers)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "peer-copy test requires two CUDA devices";
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0, 1}, .streams_per_device = 3});
+  auto source = uni20::to_device(make_matrix(), 0);
+  cuda_matrix_type destination(runtime.device_resources(1), 2, 3);
+  CopyGate gate;
+
+  {
+    auto stream = runtime.device_resources(1).streams().acquire();
+    auto destination_predecessor = destination.storage().write_synchronized_with(stream);
+    uni20::cuda::ScopedDevice device(1);
+    uni20::cuda::check(cudaLaunchHostFunc(stream.native_handle(), wait_for_copy_gate, &gate),
+                       "cudaLaunchHostFunc peer destination predecessor", 1);
+  }
+
+  uni20::copy(destination, source);
+
+  std::atomic<bool> source_writer_completed = false;
+  {
+    auto stream = runtime.device_resources(0).streams().acquire();
+    auto source_writer = source.storage().write_synchronized_with(stream);
+    uni20::cuda::ScopedDevice device(0);
+    uni20::cuda::check(cudaLaunchHostFunc(stream.native_handle(), set_copy_flag, &source_writer_completed),
+                       "cudaLaunchHostFunc peer source writer", 0);
+  }
+
+  std::atomic<bool> destination_reader_completed = false;
+  {
+    auto stream = runtime.device_resources(1).streams().acquire();
+    auto destination_reader = destination.storage().read_synchronized_with(stream);
+    uni20::cuda::ScopedDevice device(1);
+    uni20::cuda::check(cudaLaunchHostFunc(stream.native_handle(), set_copy_flag, &destination_reader_completed),
+                       "cudaLaunchHostFunc peer destination reader", 1);
+  }
+
+  bool const predecessor_entered = wait_until(gate.entered);
+  if (!predecessor_entered) gate.open.store(true, std::memory_order_release);
+  ASSERT_TRUE(predecessor_entered);
+  EXPECT_FALSE(source_writer_completed.load(std::memory_order_acquire));
+  EXPECT_FALSE(destination_reader_completed.load(std::memory_order_acquire));
+
+  gate.open.store(true, std::memory_order_release);
+  runtime.device_resources(0).streams().synchronize();
+  runtime.device_resources(1).streams().synchronize();
+  EXPECT_TRUE(source_writer_completed.load(std::memory_order_acquire));
+  EXPECT_TRUE(destination_reader_completed.load(std::memory_order_acquire));
+  expect_matrix(uni20::to_host(destination));
+}
+
 TEST_F(CudaCopyTest, AsyncCopyConstructsOutputAndCarriesDeviceCompletion)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
@@ -168,6 +291,22 @@ TEST_F(CudaCopyTest, AsyncCopyConstructsOutputAndCarriesDeviceCompletion)
   uni20::copy(output, input);
 
   auto const& device_result = output.get_wait(scheduler);
+  expect_matrix(uni20::to_host(device_result));
+}
+
+TEST_F(CudaCopyTest, AsyncPeerCopyRunsOnDestinationDevice)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "async peer-copy test requires two CUDA devices";
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0, 1}, .streams_per_device = 2});
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(0));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  uni20::async::Async<cuda_matrix_type> input = uni20::to_device(make_matrix(), 0);
+  uni20::async::Async<cuda_matrix_type> output = cuda_matrix_type(runtime.device_resources(1), 2, 3);
+
+  uni20::copy(output, input);
+
+  auto const& device_result = output.get_wait(scheduler);
+  EXPECT_EQ(device_result.storage().device().ordinal(), 1);
   expect_matrix(uni20::to_host(device_result));
 }
 
