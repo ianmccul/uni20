@@ -6,10 +6,10 @@ resource-awaiting primitives are implemented in `src/uni20/backend/cuda/`.
 The async layer provides deterministic and oneTBB unified host/multi-device
 schedulers, including per-activation device selection and restoration. The
 first provider consumer is the cuBLAS handle/stream execution pool and GEMM
-leaf. `CudaAsyncStorage` connects `Tensor` ownership to `CudaBuffer`, and async
+leaf. `CudaStorage` connects `Tensor` ownership to `CudaBuffer`, and async
 Tensor matrix products now lower through `CudaTask`, non-blocking resource
 admission, opaque mdspans, and `CublasBackend`. General CUDA Tensor operations
-and direct non-async CUDA Tensor front ends are not yet implemented.
+remain incomplete; direct and `Async<CudaTensor>` GEMM paths are implemented.
 
 This document defines the resource-management contract beneath CUDA Tensor
 kernels and async lowering.
@@ -69,7 +69,7 @@ capabilities and remain backend-specific runtime checks.
 Device discovery does not create streams, schedulers, provider handles, memory
 pools, or allocations, and does not change the calling thread's selected device.
 The scoped runtime creates one canonical `DeviceResources` instance for each
-enrolled device. `CudaAsyncTensor` construction from extents uses the default
+enrolled device. `CudaTensor` construction from extents uses the default
 instance; passing an explicit resource set selects another enrolled device or
 an isolated test instance. Its `CudaBufferView` mdspan handles retain the buffer
 whose resources record the allocation device.
@@ -191,7 +191,7 @@ therefore has two explicit submission channels above the same pool:
   scheduler may be `DebugCudaScheduler`, a one-slot `TbbCudaScheduler`, or a
   larger unified device scheduler.
 
-The implemented `CudaAsyncStorage` policy uses `CudaBuffer<T>` as its allocation
+The implemented `CudaStorage` policy uses `CudaBuffer<T>` as its allocation
 primitive and supports non-blocking operation lowering. Async Tensor
 matrix-product lowering awaits exhausted resource pools in a `CudaTask`, then
 enters the non-suspending provider leaf with the acquired execution lease.

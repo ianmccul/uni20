@@ -94,16 +94,16 @@ template <class ElementType> struct UnrecognizedCudaAccessor
 
 using cuda_test_extents = stdex::dextents<uni20::index_type, 2>;
 using writable_cuda_span =
-    stdex::mdspan<double, cuda_test_extents, stdex::layout_left, uni20::cuda::AsyncAccessor<double>>;
+    stdex::mdspan<double, cuda_test_extents, stdex::layout_left, uni20::cuda::CudaAccessor<double>>;
 using readable_cuda_span =
-    stdex::mdspan<double const, cuda_test_extents, stdex::layout_left, uni20::cuda::AsyncAccessor<double const>>;
+    stdex::mdspan<double const, cuda_test_extents, stdex::layout_left, uni20::cuda::CudaAccessor<double const>>;
 using unrecognized_cuda_span =
     stdex::mdspan<double const, cuda_test_extents, stdex::layout_left, UnrecognizedCudaAccessor<double const>>;
 
 template <class Input>
 concept cublas_gemm_accepts_input_accessor =
     requires(writable_cuda_span& output, Input& input, readable_cuda_span& rhs) {
-      uni20::linalg::cublas::try_gemm(output, 1.0, input, rhs, 0.0);
+      uni20::linalg::detail::cublas_backend::try_gemm(output, 1.0, input, rhs, 0.0);
     };
 
 static_assert(cublas_gemm_accepts_input_accessor<readable_cuda_span>);
@@ -135,14 +135,14 @@ class CudaGemmPlatform {
 
     template <class Scalar, class Layout> [[nodiscard]] auto make_matrix(uni20::index_type rows, uni20::index_type cols)
     {
-      return uni20::CudaAsyncMatrix<Scalar, Layout>(resources_, rows, cols);
+      return uni20::CudaMatrix<Scalar, Layout>(resources_, rows, cols);
     }
 
     template <class Scalar>
     [[nodiscard]] auto make_strided_matrix(uni20::index_type rows, uni20::index_type cols,
                                            std::array<uni20::index_type, 2> strides)
     {
-      using matrix_type = uni20::Tensor<Scalar, 2, uni20::CudaAsyncStorage, stdex::layout_stride>;
+      using matrix_type = uni20::Tensor<Scalar, 2, uni20::CudaStorage, stdex::layout_stride>;
       using extents_type = typename matrix_type::extents_type;
       typename matrix_type::mapping_type mapping(extents_type{rows, cols}, strides);
       typename matrix_type::storage_type storage(resources_, mapping.required_span_size());
@@ -434,7 +434,7 @@ TEST_F(CublasExecutionTest, AsyncAcquisitionReservesHandleBeforeWaitingForStream
 
 TEST_F(CublasExecutionTest, AsyncTensorAssignAndAddProductUseCudaTaskLowering)
 {
-  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using matrix_type = uni20::CudaMatrix<double>;
   using async_matrix_type = uni20::async::Async<matrix_type>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
   matrix_type lhs_value(resources, 2, 3);
@@ -463,7 +463,7 @@ TEST_F(CublasExecutionTest, AsyncTensorAssignAndAddProductUseCudaTaskLowering)
 
 TEST_F(CublasExecutionTest, AsyncOutputRemainsPendingUntilCublasSubmissionCompletes)
 {
-  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using matrix_type = uni20::CudaMatrix<double>;
   using async_matrix_type = uni20::async::Async<matrix_type>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
   matrix_type lhs_value(resources, 1, 1);
@@ -503,7 +503,7 @@ TEST_F(CublasExecutionTest, AsyncOutputRemainsPendingUntilCublasSubmissionComple
 
 TEST_F(CublasExecutionTest, AsyncEmptyOutputDoesNotWaitForCublasExecutionResources)
 {
-  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using matrix_type = uni20::CudaMatrix<double>;
   using async_matrix_type = uni20::async::Async<matrix_type>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
   matrix_type lhs_value(resources, 0, 3);
@@ -540,7 +540,7 @@ TEST_F(CublasExecutionTest, AsyncTensorProductMigratesToOperandDevice)
 {
   if (device_count_ < 2) GTEST_SKIP() << "test requires at least two CUDA devices";
 
-  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using matrix_type = uni20::CudaMatrix<double>;
   using async_matrix_type = uni20::async::Async<matrix_type>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(1), .stream_count = 1});
   matrix_type lhs_value(resources, 1, 1);
@@ -608,7 +608,7 @@ TEST_F(CublasExecutionTest, ZeroInnerExtentScalesOutputWithNullInputs)
 
 TEST_F(CublasExecutionTest, TensorGemmDispatchesFromColumnMajorCudaMdspans)
 {
-  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using matrix_type = uni20::CudaMatrix<double>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
   matrix_type lhs(resources, 2, 3);
   matrix_type rhs(resources, 3, 2);
@@ -718,7 +718,7 @@ TEST_F(CublasExecutionTest, UnsupportedLayoutDeclinesBeforeAcquiringExecutionRes
   auto const idle_streams = platform.resources().streams().idle_stream_count();
   auto const leased_streams = platform.resources().streams().leased_stream_count();
 
-  EXPECT_EQ(uni20::linalg::cublas::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 0.0),
+  EXPECT_EQ(uni20::linalg::detail::cublas_backend::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 0.0),
             uni20::linalg::KernelAttempt::unsupported_layout);
   EXPECT_EQ(executions.idle_handle_count(), idle_handles);
   EXPECT_EQ(platform.resources().streams().idle_stream_count(), idle_streams);
@@ -732,8 +732,8 @@ TEST_F(CublasExecutionTest, TensorGemmRejectsExactOutputInputAlias)
   EXPECT_DEATH(
       {
         uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        uni20::CudaAsyncMatrix<double> output(resources, 2, 2);
-        uni20::CudaAsyncMatrix<double> rhs(resources, 2, 2);
+        uni20::CudaMatrix<double> output(resources, 2, 2);
+        uni20::CudaMatrix<double> rhs(resources, 2, 2);
         uni20::linalg::gemm(output, 1.0, output, rhs, 0.0);
       },
       "must not share a CUDA buffer");
@@ -745,8 +745,8 @@ TEST_F(CublasExecutionTest, TensorGemmRejectsPartialOutputInputAlias)
   EXPECT_DEATH(
       {
         uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
-        uni20::CudaAsyncMatrix<double> shared_storage(resources, 4, 4);
-        uni20::CudaAsyncMatrix<double> rhs(resources, 2, 2);
+        uni20::CudaMatrix<double> shared_storage(resources, 4, 4);
+        uni20::CudaMatrix<double> rhs(resources, 2, 2);
         CudaMatrixView output(shared_storage, 0, 2, 2, {1, 3});
         CudaMatrixView lhs(shared_storage, 1, 2, 2, {1, 3});
         uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
@@ -763,9 +763,9 @@ TEST_F(CublasExecutionTest, TensorGemmRejectsCrossDeviceOperands)
       {
         uni20::cuda::DeviceResources device0({.device = uni20::cuda::Device::get(0), .stream_count = 1});
         uni20::cuda::DeviceResources device1({.device = uni20::cuda::Device::get(1), .stream_count = 1});
-        uni20::CudaAsyncMatrix<double> output(device0, 2, 2);
-        uni20::CudaAsyncMatrix<double> lhs(device0, 2, 2);
-        uni20::CudaAsyncMatrix<double> rhs(device1, 2, 2);
+        uni20::CudaMatrix<double> output(device0, 2, 2);
+        uni20::CudaMatrix<double> lhs(device0, 2, 2);
+        uni20::CudaMatrix<double> rhs(device1, 2, 2);
         uni20::linalg::gemm(output, 1.0, lhs, rhs, 0.0);
       },
       "operands must use one CUDA device");
@@ -773,7 +773,7 @@ TEST_F(CublasExecutionTest, TensorGemmRejectsCrossDeviceOperands)
 
 TEST_F(CublasExecutionTest, TensorGemmNormalizesRowMajorCudaOutput)
 {
-  using matrix_type = uni20::CudaAsyncMatrix<double, uni20::RowMajor>;
+  using matrix_type = uni20::CudaMatrix<double, uni20::RowMajor>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
   matrix_type lhs(resources, 2, 3);
   matrix_type rhs(resources, 3, 2);
@@ -792,8 +792,8 @@ TEST_F(CublasExecutionTest, TensorGemmNormalizesRowMajorCudaOutput)
 TEST_F(CublasExecutionTest, TensorGemmLowersConjugatingCudaAccessor)
 {
   using scalar_type = uni20::cdouble;
-  using row_matrix_type = uni20::CudaAsyncMatrix<scalar_type, uni20::RowMajor>;
-  using column_matrix_type = uni20::CudaAsyncMatrix<scalar_type>;
+  using row_matrix_type = uni20::CudaMatrix<scalar_type, uni20::RowMajor>;
+  using column_matrix_type = uni20::CudaMatrix<scalar_type>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
   row_matrix_type lhs(resources, 1, 2);
   column_matrix_type rhs(resources, 2, 1);
@@ -812,19 +812,19 @@ TEST_F(CublasExecutionTest, TensorGemmLowersConjugatingCudaAccessor)
 
 TEST_F(CublasExecutionTest, TensorGemmEmptyOutputSucceedsBeforeOperandStaging)
 {
-  using matrix_type = uni20::CudaAsyncMatrix<double, uni20::RowMajor>;
+  using matrix_type = uni20::CudaMatrix<double, uni20::RowMajor>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
   matrix_type lhs(resources, 0, 3);
   matrix_type rhs(resources, 3, 2);
   matrix_type output(resources, 0, 2);
 
-  EXPECT_EQ(uni20::linalg::cublas::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 0.0),
+  EXPECT_EQ(uni20::linalg::detail::cublas_backend::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 0.0),
             uni20::linalg::KernelAttempt::success);
 }
 
 TEST_F(CublasExecutionTest, TensorGemmScalesOutputForZeroInnerExtent)
 {
-  using matrix_type = uni20::CudaAsyncMatrix<double, uni20::RowMajor>;
+  using matrix_type = uni20::CudaMatrix<double, uni20::RowMajor>;
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
   matrix_type lhs(resources, 2, 0);
   matrix_type rhs(resources, 0, 2);

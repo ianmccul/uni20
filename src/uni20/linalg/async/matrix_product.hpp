@@ -10,12 +10,13 @@
 #include <uni20/async/awaiters.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/common/trace.hpp>
-#include <uni20/linalg/async/co_gemm.hpp>
+#include <uni20/linalg/async/dispatch.hpp>
 #include <uni20/linalg/ops/matrix_product.hpp>
 #include <uni20/tensor/output.hpp>
 
 #if UNI20_BACKEND_CUBLAS
-#include <uni20/storage/cuda_async_storage.hpp>
+#include <uni20/linalg/backends/cublas/gemm_task.hpp>
+#include <uni20/storage/cuda_storage.hpp>
 #endif
 
 #include <concepts>
@@ -48,9 +49,9 @@ void validate_async_matrix_product_aliasing(async::Async<OutputTensor> const& ou
 
 #if UNI20_BACKEND_CUBLAS
 template <class OutputTensor, class LhsTensor>
-concept CudaAsyncMatrixProductOutput =
-    std::same_as<uni20::detail::tensor_storage_policy_t<OutputTensor>, uni20::CudaAsyncStorage> &&
-    std::same_as<uni20::detail::tensor_storage_policy_t<LhsTensor>, uni20::CudaAsyncStorage>;
+concept CudaMatrixProductOutput =
+    std::same_as<uni20::detail::tensor_storage_policy_t<OutputTensor>, uni20::CudaStorage> &&
+    std::same_as<uni20::detail::tensor_storage_policy_t<LhsTensor>, uni20::CudaStorage>;
 
 template <uni20::TensorView Tensor>
 [[nodiscard]] uni20::cuda::DeviceResources& cuda_tensor_resources(Tensor const& tensor)
@@ -70,7 +71,7 @@ template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorVie
   using extents_type = uni20::tensor_extents_t<OutputTensor>;
   auto const extents = uni20::detail::convert_tensor_extents<extents_type>(shape);
 #if UNI20_BACKEND_CUBLAS
-  if constexpr (CudaAsyncMatrixProductOutput<OutputTensor, LhsTensor> &&
+  if constexpr (CudaMatrixProductOutput<OutputTensor, LhsTensor> &&
                 std::constructible_from<OutputTensor, uni20::cuda::DeviceResources&, extents_type const&>)
   {
     return storage.emplace(cuda_tensor_resources(lhs), extents);
@@ -103,8 +104,12 @@ async::AsyncTask async_assign_product_task(BackendSelector const selector, async
   auto& output_value = prepare_async_assign_product_output<OutputTensor>(storage, shape, lhs_value);
   uni20::ensure_shape(output_value, shape);
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
-  co_await co_gemm(selector, output_value.mdspan(), static_cast<scalar_type>(alpha_value), lhs_value.mdspan(),
-                   rhs_value.mdspan(), scalar_type{});
+  auto output_mdspan = output_value.mdspan();
+  auto lhs_mdspan = lhs_value.mdspan();
+  auto rhs_mdspan = rhs_value.mdspan();
+  scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
+  scalar_type const beta_scalar{};
+  co_await co_dispatch_kernel(selector, gemm_op{}, output_mdspan, alpha_scalar, lhs_mdspan, rhs_mdspan, beta_scalar);
   co_return;
 }
 
@@ -125,8 +130,12 @@ async::AsyncTask async_add_product_task(BackendSelector const selector, async::W
   auto const shape = matrix_product_shape(lhs_value, rhs_value);
   uni20::require_shape(*storage, shape);
   using scalar_type = uni20::tensor_element_t<OutputTensor>;
-  co_await co_gemm(selector, storage->mdspan(), static_cast<scalar_type>(alpha_value), lhs_value.mdspan(),
-                   rhs_value.mdspan(), scalar_type{1});
+  auto output_mdspan = storage->mdspan();
+  auto lhs_mdspan = lhs_value.mdspan();
+  auto rhs_mdspan = rhs_value.mdspan();
+  scalar_type const alpha_scalar = static_cast<scalar_type>(alpha_value);
+  scalar_type const beta_scalar{1};
+  co_await co_dispatch_kernel(selector, gemm_op{}, output_mdspan, alpha_scalar, lhs_mdspan, rhs_mdspan, beta_scalar);
   co_return;
 }
 

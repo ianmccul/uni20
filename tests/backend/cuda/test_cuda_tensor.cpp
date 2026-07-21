@@ -1,4 +1,4 @@
-#include <uni20/storage/cuda_async_storage.hpp>
+#include <uni20/storage/cuda_storage.hpp>
 #include <uni20/tensor/tensor.hpp>
 
 #include <gtest/gtest.h>
@@ -10,8 +10,8 @@
 namespace
 {
 
-using tensor_type = uni20::CudaAsyncTensor<double, 2>;
-using direct_tensor_type = uni20::Tensor<double, 2, uni20::CudaAsyncStorage>;
+using tensor_type = uni20::CudaTensor<double, 2>;
+using direct_tensor_type = uni20::Tensor<double, 2, uni20::CudaStorage>;
 using mutable_span_type = typename tensor_type::mdspan_type;
 using const_span_type = typename tensor_type::const_mdspan_type;
 
@@ -66,7 +66,7 @@ TEST_F(CudaTensorTest, ExplicitResourcesConstructionOwnsDeviceBufferAndOpaqueMds
   auto const_span = const_tensor.mdspan();
   EXPECT_EQ(&const_span.data_handle().buffer(), &tensor.storage());
   EXPECT_EQ((const_span[1, 2].element_offset()), 5U);
-  EXPECT_EQ(tensor.backend_selector(), uni20::CudaAsyncStorage::backend_selector());
+  EXPECT_EQ(tensor.backend_selector(), uni20::CudaStorage::backend_selector());
 }
 
 TEST_F(CudaTensorTest, ShapeResetKeepsTheOriginalDeviceResources)
@@ -86,7 +86,7 @@ TEST_F(CudaTensorTest, ShapeResetKeepsTheOriginalDeviceResources)
 TEST_F(CudaTensorTest, DefaultConstructionUsesInstalledRuntimeResources)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
-  uni20::CudaAsyncTensor<double, 2> tensor(3, 4);
+  uni20::CudaTensor<double, 2> tensor(3, 4);
 
   EXPECT_EQ(tensor.rows(), 3);
   EXPECT_EQ(tensor.cols(), 4);

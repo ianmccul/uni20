@@ -65,7 +65,7 @@ It is available only when the tensor's ordinary accessor can be invoked in the
 current compilation and execution context.
 
 For `VectorStorage`, `scalar[]` returns a host-accessible element reference in
-the same way as indexing any other host tensor. `CudaAsyncTensor` deliberately
+the same way as indexing any other host tensor. `CudaTensor` deliberately
 does not provide a host-callable element subscript merely because its rank is
 zero. Host extraction from such a tensor requires an explicit host-result or
 transfer operation.

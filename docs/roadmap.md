@@ -104,13 +104,14 @@ See the [Async Documentation Index](async/) and
 - CUDA tasks can await streams and generic provider resources without blocking
   a scheduler participant. cuBLAS adds pooled handle-plus-stream execution
   leases over those primitives.
-- `CudaAsyncTensor` owns opaque device storage and selects `CublasBackend`.
+- `CudaTensor` owns opaque device storage and selects `CublasBackend`.
   Async matrix-product overwrite/update awaits a device-bound `CudaTask`, which
   acquires a handle-plus-stream lease and lowers through staged CUDA mdspans,
   synchronized buffer access, and checked `S/D/C/ZGEMM` provider calls.
 - Ordinary `CublasBackend` uses blocking resource admission. Async lowering
-  uses `co_gemm` and suspends while the same execution resources are
-  unavailable; both paths share operand preparation and provider execution.
+  uses generic `co_dispatch_kernel`; its optional cuBLAS `try_kernel_task`
+  implementation suspends while the same execution resources are unavailable.
+  Both paths share operand preparation and provider execution.
 
 See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 [CUDA Buffers](backends/cuda/buffers.md), and
@@ -192,8 +193,10 @@ not add a second meaning to the current fixed-rank mdspan-based `Tensor`.
   behavior as more linalg operations become async.
 - Preserve the distinction between independent async values and aliases bound
   to an owner's lifetime and epoch queue.
-- Keep operation-specific coroutines explicit until enough implementations show
-  a genuinely common abstraction for allocation, mutation, and consumption.
+- Add coroutine kernel implementations incrementally through
+  `try_kernel_task`. Backends without one continue through ordinary
+  `try_kernel` inside `co_dispatch_kernel`; allocation, mutation, and
+  consumption remain operation-specific Tensor concerns.
 - Improve deadlock and task-provenance diagnostics without adding meaningful
   cost when instrumentation is disabled.
 - Integrate future CUDA/MPI external waits with watchdog state so a legitimate
@@ -275,8 +278,8 @@ that host vertical slices must leave the correct extension points.
 
 - Bring up one operation at a time through the same capability and runtime
   attempt mechanism used by host kernels.
-- Use the current non-blocking `Async<CudaAsyncTensor>` matrix-product path as
-  the correctness baseline. Keep resource admission in the CUDA coroutine and
+- Use the current `Async<CudaTensor>` matrix-product path as the non-blocking
+  correctness baseline. Keep resource admission in the CUDA coroutine and
   provider submission in the non-suspending backend leaf.
 - Extend provider coverage through cuBLAS, cuSOLVER, and reference CUDA kernels
   only after each Tensor operation's output, aliasing, and failure contracts are

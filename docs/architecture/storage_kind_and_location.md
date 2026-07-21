@@ -46,10 +46,10 @@ So: kind is a type, location is a value.
 
 - **The kind axis is implemented.** `Tensor` is parameterized by a
   `StoragePolicy` (`VectorStorage` by default; see `src/uni20/tensor/`).
-  `CudaAsyncStorage` is the current device-resident policy. Other memory kinds
+  `CudaStorage` is the current device-resident policy. Other memory kinds
   should use the same type-level mechanism rather than becoming runtime tags.
 - **CUDA Tensor placement is implemented for owning dense tensors.**
-  `CudaAsyncStorage` owns a typed `CudaBuffer`, while its opaque mdspan handle
+  `CudaStorage` owns a typed `CudaBuffer`, while its opaque mdspan handle
   carries buffer identity and an element offset. The buffer resolves its device
   through the `DeviceResources` it borrows. A scoped process-wide CUDA runtime
   owns one canonical resource set for each enrolled device; ordinary Tensor
@@ -122,7 +122,7 @@ workspace policy, algorithm option, or multiprecision setting.
   an opaque `Device` handle that the scheduler resolves. The representation must be
   cheap to attach to every block.
 - How should a future block-storage policy reuse `CudaBufferView` and
-  `CudaAsyncStorage` without forcing one allocation per logical block?
+  `CudaStorage` without forcing one allocation per logical block?
 - How does per-block location coexist with whole-tensor APIs that today assume a
   single storage (slicing, views, assignment semantics)?
 - How does location participate in (de)serialization for checkpointing and for the

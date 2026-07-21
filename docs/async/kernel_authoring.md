@@ -306,7 +306,9 @@ updates, or produces a differently typed result.
 - Tests cover pending-input lifetime, numerical behavior, aliases, output
   construction/update, and failure propagation.
 
-Keep operation-specific wrappers explicit until several implemented operations
-show a stable common shape. A generic async-dispatch abstraction is premature
-while output construction, mutation, and multi-output exception routing still
-differ materially between algorithms.
+Keep operation-specific Tensor wrappers explicit because output construction,
+mutation, and multi-output exception routing differ materially between
+algorithms. Once the wrapper has awaited its values and resolved stable mdspan
+operands, use generic `co_dispatch_kernel`. Blocking backends require no
+coroutine wrapper; individual backend/operation pairs add `try_kernel_task`
+only when resource admission or execution must suspend.

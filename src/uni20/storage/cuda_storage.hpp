@@ -1,9 +1,9 @@
 #pragma once
 
 /**
- * \file cuda_async_storage.hpp
+ * \file cuda_storage.hpp
  * \ingroup tensor
- * \brief CUDA Tensor storage for asynchronous submission and opaque mdspan descriptors.
+ * \brief CUDA Tensor storage with opaque device-memory mdspan descriptors.
  */
 
 #include <uni20/backend/cuda/buffer.hpp>
@@ -74,15 +74,15 @@ template <class ElementType> class CudaBufferView {
     template <class> friend class CudaBufferView;
 };
 
-/// \brief Mdspan accessor for CUDA Tensor storage intended for asynchronous submission.
+/// \brief Mdspan accessor for opaque CUDA Tensor storage.
 /// \details Indexed access produces another opaque buffer view. It never
 ///          dereferences device memory or performs an implicit transfer.
-template <class ElementType> struct AsyncAccessor
+template <class ElementType> struct CudaAccessor
 {
     using element_type = ElementType;
     using reference = CudaBufferView<element_type>;
     using data_handle_type = reference;
-    using offset_policy = AsyncAccessor;
+    using offset_policy = CudaAccessor;
     using offset_type = std::size_t;
 
     [[nodiscard]] constexpr reference access(data_handle_type handle, offset_type offset) const noexcept
@@ -96,10 +96,10 @@ template <class ElementType> struct AsyncAccessor
     }
 };
 
-/// \brief Factory that resolves CUDA async accessors for Tensor descriptors.
-struct AsyncAccessorFactory
+/// \brief Factory that resolves CUDA accessors for Tensor descriptors.
+struct CudaAccessorFactory
 {
-    template <class ElementType> using accessor_t = AsyncAccessor<ElementType>;
+    template <class ElementType> using accessor_t = CudaAccessor<ElementType>;
 
     template <class ElementType, class Storage>
     [[nodiscard]] constexpr auto make_accessor(Storage const&) const noexcept -> accessor_t<ElementType>
@@ -113,19 +113,19 @@ struct AsyncAccessorFactory
 namespace uni20
 {
 
-/// \brief Tensor storage policy for the asynchronous CUDA submission channel.
+/// \brief Tensor storage policy for device-resident CUDA values.
 /// \details Ordinary allocation uses the installed CUDA runtime's default
 ///          device. An explicit `cuda::DeviceResources` selects another enrolled
 ///          device or an isolated resource set used by tests. The policy selects
 ///          CUDA backends and exposes opaque CUDA handles. Stream and
-///          provider-resource admission remains operation-local. Ordinary
-///          Tensor backends may block during admission; Async Tensor front ends
-///          await unavailable resources in operation-specific `CudaTask`
-///          coroutines and then invoke the same prepared provider leaf.
-struct CudaAsyncStorage
+///          provider-resource admission remains operation-local. Direct Tensor
+///          operations may block during admission. `Async<Tensor>` operations
+///          use coroutine-aware dispatch when a backend provides it, while
+///          retaining the same storage and mdspan representation.
+struct CudaStorage
 {
     using context_type = cuda::DeviceResources;
-    using accessor_factory_type = cuda::AsyncAccessorFactory;
+    using accessor_factory_type = cuda::CudaAccessorFactory;
     using backend_selector_type = linalg::backend_list<linalg::CublasBackend>;
 
     template <class ElementType> using storage_t = cuda::CudaBuffer<ElementType>;
@@ -156,7 +156,7 @@ struct CudaAsyncStorage
       return cuda::CudaBufferView<ElementType const>{storage};
     }
 
-    /// \brief Return the ordered CUDA backend list for async device storage.
+    /// \brief Return the ordered backend list for CUDA device storage.
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
       return backend_selector_type{linalg::CublasBackend{}};
@@ -164,7 +164,6 @@ struct CudaAsyncStorage
 };
 
 template <class ElementType>
-inline constexpr bool enable_backend_writable_accessor<cuda::AsyncAccessor<ElementType>> =
-    !std::is_const_v<ElementType>;
+inline constexpr bool enable_backend_writable_accessor<cuda::CudaAccessor<ElementType>> = !std::is_const_v<ElementType>;
 
 } // namespace uni20

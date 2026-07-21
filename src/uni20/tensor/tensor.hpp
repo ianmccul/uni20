@@ -13,7 +13,7 @@
 #include "reshape.hpp"
 
 #if UNI20_BACKEND_CUDA
-#include <uni20/storage/cuda_async_storage.hpp>
+#include <uni20/storage/cuda_storage.hpp>
 #endif
 
 #include <cstddef>
@@ -56,18 +56,18 @@ template <typename ElementType, typename LayoutPolicy = ColumnMajor>
 using DenseMatrix = Tensor<ElementType, 2, VectorStorage, LayoutPolicy>;
 
 #if UNI20_BACKEND_CUDA
-/// \brief Owning runtime-extents Tensor in non-blocking CUDA storage.
+/// \brief Owning runtime-extents Tensor in CUDA device storage.
 /// \details Ordinary construction uses the installed CUDA runtime's default
 ///          device. Passing an explicit `cuda::DeviceResources` selects a
 ///          particular resource set. Resolved mdspans expose opaque
 ///          `cuda::CudaBufferView` handles and never perform host/device transfer
 ///          or resource acquisition.
 template <typename ElementType, std::size_t Rank, typename LayoutPolicy = ColumnMajor>
-using CudaAsyncTensor = Tensor<ElementType, Rank, CudaAsyncStorage, LayoutPolicy>;
+using CudaTensor = Tensor<ElementType, Rank, CudaStorage, LayoutPolicy>;
 
-/// \brief Owning column-major matrix in non-blocking CUDA storage.
+/// \brief Owning column-major matrix in CUDA device storage.
 template <typename ElementType, typename LayoutPolicy = ColumnMajor>
-using CudaAsyncMatrix = CudaAsyncTensor<ElementType, 2, LayoutPolicy>;
+using CudaMatrix = CudaTensor<ElementType, 2, LayoutPolicy>;
 #endif
 
 } // namespace uni20

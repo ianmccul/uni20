@@ -10,7 +10,7 @@ backend tags without owning tensor mathematics.
   mapping and a CPU default backend tag.
 - `generated_storage.hpp`: compact backend-neutral policy for read-only values
   calculated by an accessor instead of stored element-by-element.
-- `cuda_async_storage.hpp`: non-blocking CUDA storage policy with opaque
+- `cuda_storage.hpp`: CUDA device-storage policy with opaque
   `CudaBufferView` mdspan handles and a storage-selected cuBLAS backend.
 
 ## Notes
@@ -18,7 +18,7 @@ backend tags without owning tensor mathematics.
 - New storage policies should make handle creation, layout defaults, and default
   backend selection explicit.
 - Context-capable policies provide `context_type`, `make_storage(context,
-  size)`, and `make_storage_like(storage, size)`. `CudaAsyncStorage` ordinarily
+  size)`, and `make_storage_like(storage, size)`. `CudaStorage` ordinarily
   resolves the installed runtime's default `DeviceResources`; an explicit
   resource set selects another enrolled device or an isolated test setup.
   Shape replacement preserves the original resources.
@@ -27,6 +27,10 @@ backend tags without owning tensor mathematics.
   when combined with concrete storage operands.
 - Do not hide host/device transfers or synchronization inside storage policy
   hooks; higher layers need those effects to remain visible.
+- Blocking versus coroutine resource admission is an operation-dispatch choice,
+  not a storage-policy distinction. Direct `CudaTensor` operations may block
+  while acquiring provider resources; `Async<CudaTensor>` operations use an
+  available coroutine backend hook through `co_dispatch_kernel`.
 
 ## Related Documentation
 

@@ -132,22 +132,23 @@ int main()
       .streams_per_device = 8,
   });
 
-  uni20::CudaAsyncTensor<uni20::float32, 2> matrix(32, 48);
+  uni20::CudaTensor<uni20::float32, 2> matrix(32, 48);
   // CUDA tensors and tasks must be destroyed before cuda_lifetime.
 }
 ```
 
 Retain the returned `cuda::Runtime` guard for as long as any CUDA Tensor,
 buffer, stream, provider lease, or CUDA task exists. The runtime is not passed
-through Tensor operations: ordinary extent-only `CudaAsyncTensor` construction
+through Tensor operations: ordinary extent-only `CudaTensor` construction
 uses its configured default device, while `cuda::device_resources(device)`
 selects another enrolled device for explicit construction.
 
-`CudaAsyncTensor` uses the non-blocking CUDA channel. Matrix products are
-submitted through all-Async `linalg::assign_product` or `linalg::add_product`;
-their `CudaTask` awaits cuBLAS resources without blocking a scheduler
-participant. Plain direct Tensor GEMM is not the interface for this storage
-policy.
+`CudaTensor` describes device storage; it does not choose blocking versus
+coroutine execution. A direct Tensor matrix product may block while acquiring
+an idle cuBLAS handle and stream, then returns after publishing the queued CUDA
+work to the buffers' completion ledgers. Wrapping the same type in
+`Async<CudaTensor>` selects coroutine-aware dispatch: its `CudaTask` awaits
+those resources without blocking a scheduler participant.
 
 By default, `cuda::initialize()` enrolls every visible device, chooses the
 first enrolled device as the default, and creates eight actually-idle streams

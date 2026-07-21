@@ -65,8 +65,8 @@ ordering have been handled by higher layers.
 | `BasicTensor<Element, Extents, ...>` | Extents-first alias for a `Tensor` specialization with mixed or static extents. |
 | `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor` | Named runtime-extents owner aliases for an explicit physical layout policy. |
 | `DenseMatrix<Element, Layout>` | Rank-two host `Tensor`; column-major by default. |
-| `CudaAsyncTensor<Element, Rank, Layout>` | Owning CUDA Tensor for the non-blocking CUDA channel. It uses the installed runtime's default device unless explicit device resources are supplied, and its mdspan handle is opaque to host element access. Async matrix products lower through `CudaTask` and cuBLAS. |
-| `CudaAsyncMatrix<Element, Layout>` | Rank-two `CudaAsyncTensor`; column-major by default. |
+| `CudaTensor<Element, Rank, Layout>` | Owning CUDA device Tensor. It uses the installed runtime's default device unless explicit device resources are supplied, and its mdspan handle is opaque to host element access. Direct operations may block during resource admission; async matrix products lower through `CudaTask` and cuBLAS. |
+| `CudaMatrix<Element, Layout>` | Rank-two `CudaTensor`; column-major by default. |
 | `ScalarTensor<Element, StoragePolicy, ...>` | Rank-zero owning Tensor that retains storage, backend, lifetime, and Async semantics. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
 | `TensorView` | Readable tensor-level object exposing extents, `mdspan()`, and a backend selector. It is a concept, not a base class. |
@@ -282,9 +282,10 @@ understands the generated accessor.
 
 In the tables below, "Not implemented" means there is no public overload that
 accepts `Async<Tensor>` operands. A developer can still await values in an
-operation-specific coroutine and call the synchronous API, but that coroutine
-must implement the ownership, buffer, aliasing, and failure contracts described
-later in this guide.
+operation-specific Tensor coroutine and call `co_dispatch_kernel`; a backend
+without a coroutine implementation runs its ordinary `try_kernel` inline. The
+wrapper must still implement the ownership, buffer, aliasing, and failure
+contracts described later in this guide.
 
 | Operation | Synchronous semantics | Allocation or alias behavior | Dedicated Async support |
 |---|---|---|---|
@@ -377,13 +378,13 @@ ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is
 explicit.
 
-For `CudaAsyncTensor`, `assign_product` and `add_product` retain their Tensor
-epoch buffers while awaiting `co_gemm`. The nested `CudaTask` is bound to the
-operand device, inherits the compatible unified scheduler, awaits an idle
-cuBLAS handle and stream, and publishes CUDA buffer completion records before
-returning. Column- and row-major outputs are supported. A direct Tensor `gemm`
-uses the same operand preparation and provider leaf but may block during
-resource admission.
+For `CudaTensor`, `assign_product` and `add_product` retain their Tensor
+epoch buffers while awaiting `co_dispatch_kernel`. The cuBLAS backend's
+`try_kernel_task` returns a nested `CudaTask` bound to the operand device. It
+inherits the compatible unified scheduler, awaits an idle cuBLAS handle and
+stream, and publishes CUDA buffer completion records before returning. Column-
+and row-major outputs are supported. A direct Tensor `gemm` uses the same
+operand preparation and provider leaf but may block during resource admission.
 
 ## Async Tensor Contract
 

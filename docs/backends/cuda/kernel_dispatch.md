@@ -1,7 +1,7 @@
 # CUDA Kernel Dispatch and Device Scheduling
 
 **Status:** active design note. The low-level CUDA runtime foundation,
-`CudaAsyncStorage`, and unified host/multi-device debug and oneTBB schedulers are
+`CudaStorage`, and unified host/multi-device debug and oneTBB schedulers are
 implemented. Scoped process-wide resource initialization and canonical
 per-device resources are implemented; scheduler enrollment into that runtime,
 general CUDA Tensor kernel coverage, and live coroutine scheduler migration are
@@ -17,7 +17,8 @@ material interval.
 Related notes:
 
 - [Kernel Dispatch](../../architecture/kernel_dispatch.md) defines the generic
-  `kernel_accepts_types` / `try_kernel` / backend-list contract.
+  `kernel_accepts_types` / `try_kernel` / optional `try_kernel_task` /
+  backend-list contract.
 - [Execution Architecture](../../architecture/execution.md) describes scheduler
   and storage-policy layering.
 - [Ordering and Backend Lowering](../../architecture/ordering_and_backend_lowering.md)
@@ -48,10 +49,12 @@ CUDA leaf-kernel dispatch remains an ordinary, non-suspending C++ call:
 
 ```text
 CPU AsyncTask
-  -> co_await a newly created CudaTask for device D
+  -> co_dispatch_kernel performs the ordered backend walk
+     -> CublasBackend prepares operands and returns a CudaTask for device D
+  -> co_await that CudaTask
      -> task-aware scheduling routes CudaTask to device-D scheduler
      -> co_await required device-D resources
-     -> invoke the backend walk without suspension
+     -> invoke the prepared non-suspending provider leaf
      -> enqueue device work
      -> record and publish completion
   -> resume AsyncTask through its own recorded scheduler
@@ -87,32 +90,32 @@ CUDA operations should be described in terms of submission channels:
   scheduler: `DebugCudaScheduler` and a one-slot `TbbCudaScheduler` are valid
   non-blocking execution environments.
 
-The first implemented storage policy is `CudaAsyncStorage`, exposed
-conveniently through `CudaAsyncTensor`. It supplies opaque CUDA storage that can
+The first implemented storage policy is `CudaStorage`, exposed
+conveniently through `CudaTensor`. It supplies opaque CUDA storage that can
 participate in the non-blocking channel, but the operation entry point still
 selects resource-admission behavior. An ordinary direct Tensor operation may
 block while acquiring resources; an `Async<Tensor>` lowering must suspend
 instead. Both paths share `CudaBuffer`, operand preparation, and provider
 execution.
 
-A non-async C++ API may still choose the non-blocking channel internally if it
-enters a scheduler and waits at a defined boundary. An async CUDA operation,
-however, must not call the ordinary blocking backend while holding an async
-epoch buffer. It uses its `co_*` submission path so resource scarcity suspends
-the coroutine rather than occupying a scheduler participant.
+A direct C++ API uses ordinary `dispatch_kernel` and may block during resource
+admission. An async CUDA operation uses `co_dispatch_kernel` while holding its
+epoch buffers, so a backend-provided task can suspend on resource scarcity
+rather than occupying a scheduler participant.
 
 The channel should not be carried by an ad-hoc backend selector. The same
 storage-selected numerical backend remains applicable to both entry points;
-the ordinary backend adapter uses blocking admission, while the async operation
-uses an operation-specific coroutine submission function.
+the ordinary backend adapter uses blocking admission, while coroutine dispatch
+uses an optional task-producing customization for that backend and operation.
 
 The per-call stream, handle, and workspace leases are operation-local and must
 not be stored in the backend selector. Ordinary `CublasBackend` GEMM prepares
 the operands, blocks for an execution lease, and submits the prepared call.
-Async matrix-product lowering instead awaits `co_gemm`: its CUDA task prepares
-the same operands, suspends for the execution lease, and invokes the prepared
-cuBLAS leaf directly. It does not redispatch an operation whose backend has
-already been selected.
+Async matrix-product lowering instead calls generic `co_dispatch_kernel`.
+`CublasBackend::try_kernel_task` prepares the same operands and returns a CUDA
+task that suspends for the execution lease before invoking the prepared cuBLAS
+leaf. Backends without this optional hook use their ordinary blocking
+`try_kernel` implementation directly inside the dispatch coroutine.
 
 ## Per-Device Resources
 
@@ -194,7 +197,7 @@ co_await cuda_operation(device, operands...); // returns CudaTask
 The outer `AsyncTask` remains a distinct coroutine with its original promise and
 scheduler route. A scheduler-unbound nested `CudaTask` inherits that route only
 when the unified scheduler accepts its CUDA domain and established device
-affinity. `co_gemm` binds the operand device before nesting, so admission goes
+affinity. The cuBLAS GEMM task binds the operand device before nesting, so admission goes
 directly to the correct device activation. When it completes, the outer
 continuation is submitted through the scheduler recorded in the outer promise.
 
@@ -373,15 +376,18 @@ focused tests, and profiling.
 
 ## Relationship To Generic Kernel Dispatch
 
-The generic backend walk does not become a coroutine and does not know about
-scheduler migration or resource-wait queues.
+Ordinary `dispatch_kernel` remains non-coroutine code and invokes only
+`try_kernel`. `co_dispatch_kernel` performs the same ordered type and runtime
+backend walk from within a coroutine. For each backend/operation pair it awaits
+`try_kernel_task` when that optional customization exists; otherwise it invokes
+ordinary `try_kernel` inline.
 
-The async Tensor wrapper performs the ordinary type-level backend selection,
-then awaits an operation-specific submission function such as `co_gemm`.
-`co_gemm` completes runtime operand preparation before resource admission; a
-decline is therefore still clean. After admission it invokes the selected
-provider leaf directly. General async walking of a multi-backend CUDA list is
-future work and must preserve this prepare-before-admission rule.
+The cuBLAS GEMM customization completes runtime operand preparation before
+creating its deferred task, so a decline remains clean. Once the task is
+awaited, resource admission and provider failures are terminal rather than
+eligible for fallback. This permits coroutine implementations to be added one
+backend and operation at a time without trivial `co_*` wrappers for blocking
+kernels.
 
 Clean cancellation before resource admission is required but is not yet
 implemented for the intrusive resource wait queues. Until that support lands,

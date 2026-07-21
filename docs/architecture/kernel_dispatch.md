@@ -562,11 +562,12 @@ Three invariants this surfaces:
   separate "CPU async backend": `Async<T>` already is it.
 - **CUDA admission follows the operation entry point.** Ordinary
   `CublasBackend` preparation is followed by blocking resource admission.
-  Async matrix-product lowering awaits `co_gemm`, which prepares before
-  admission and invokes the prepared provider leaf directly after acquiring
-  resources. Note the division of labour: *ordering* is already guaranteed by
-  the async layer; events provide device *synchronization* and buffer lifetime
-  across streams.
+  Async matrix-product lowering uses `co_dispatch_kernel`, whose optional
+  cuBLAS `try_kernel_task` customization prepares before admission and returns
+  a task that awaits resources before invoking the prepared provider leaf.
+  Note the division of labour: *ordering* is already guaranteed by the async
+  layer; events provide device *synchronization* and buffer lifetime across
+  streams.
 
 ### MPI falls out as nesting
 
@@ -687,16 +688,16 @@ outer runtime decline; otherwise it is `maybe`.
   runtime attempts. The list's type gives static ordering; the list entries carry any
   runtime backend state they need. No inheritance, no public runtime tags, and
   no per-kernel dispatcher boilerplate.
-- The **dispatch-to-async seam is a separate layer above the backends, not the
-  backends themselves.** The implemented whole-value `Async<Tensor>` wrappers
-  resolve the static storage selector, then schedule a coroutine which
-  `co_await`s the operand buffers and calls the ordinary synchronous Tensor
-  operation with that selector, or awaits an operation-specific `co_*`
-  submission task when resource admission may suspend. Shape and mdspan
-  descriptors remain part of the awaited Tensor value, so runtime preparation
-  occurs inside the coroutine.
+- The **dispatch-to-async seam is a generic coroutine walk over the same backend
+  list.** The implemented whole-value `Async<Tensor>` wrappers resolve the
+  static storage selector, then schedule a coroutine which `co_await`s the
+  operand buffers and calls `co_dispatch_kernel`. A backend/operation pair may
+  provide `try_kernel_task` when resource admission can suspend; otherwise the
+  coroutine invokes its ordinary `try_kernel` implementation directly. Shape
+  and mdspan descriptors remain part of the awaited Tensor value, so runtime
+  preparation occurs inside the coroutine.
   In both cases the epoch queues, not the scheduler, order the work. The CPU
-  and CUDA *backends* never choose a scheduler. Global `schedule()` and nested
+  and ordinary backend leaves never choose a scheduler. Global `schedule()` and nested
   task routing may select different schedulers for different concrete task
   types. `AsyncTask` and `CudaTask` have distinct initial-admission interfaces
   and distinct promises over one common promise implementation; suspended work
@@ -887,9 +888,10 @@ The nested routing shown by the CUDA snippet is implemented: `CudaTask` has a
 CUDA-specific initial-admission interface and promise, and an `AsyncTask` can
 `co_await` a CUDA child and resume on its own scheduler. Optional affinity lives
 in `CudaTaskPromise`; the scheduler supplies a default activation device while
-it is empty. The same routing now supports async Tensor GEMM: `co_gemm` binds
-operand affinity, awaits cuBLAS execution resources, and invokes the prepared
-provider leaf before returning to its host parent.
+it is empty. The same routing now supports async Tensor GEMM: the task returned
+by `CublasBackend::try_kernel_task` binds operand affinity, awaits cuBLAS
+execution resources, and invokes the prepared provider leaf before returning
+to its host parent.
 
 The accumulation `r += sum a*b` over multiple contributing `(a, b)` needs no
 explicit reduction lock: every contribution writes block `r`, so block `r`'s

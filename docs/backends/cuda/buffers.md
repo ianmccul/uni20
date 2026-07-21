@@ -4,7 +4,7 @@
 
 This guide introduces `uni20::cuda::CudaBuffer<T>` for developers writing CUDA
 kernel and provider backends. Application Tensor code normally reaches these
-buffers through `CudaAsyncTensor` rather than constructing them directly.
+buffers through `CudaTensor` rather than constructing them directly.
 
 ## The Mental Model
 
@@ -50,13 +50,12 @@ device or an isolated resource set used by tests.
 
 ## Tensor Storage
 
-`CudaAsyncTensor<T, Rank>` is the owning Tensor form intended for the
-non-blocking CUDA submission channel:
+`CudaTensor<T, Rank>` is the owning Tensor form for CUDA device storage:
 
 ```cpp
 #include <uni20/tensor/tensor.hpp>
 
-uni20::CudaAsyncTensor<float, 2> matrix(32, 48);
+uni20::CudaTensor<float, 2> matrix(32, 48);
 ```
 
 The Tensor owns a `CudaBuffer<float>` and preserves ordinary extents and layout
@@ -215,14 +214,14 @@ then use the same `read_synchronized_with()` and
 ## Current Boundary
 
 The implemented boundary includes low-level allocation, stream, completion,
-and access semantics; CUDA Tensor storage descriptors; and non-blocking async
-Tensor-to-cuBLAS matrix-product lowering. GEMM is currently provider-backed
-rather than a native Uni20 CUDA kernel. The CUDA task awaits resource admission
-before entering the non-suspending backend.
+and access semantics; CUDA Tensor storage descriptors; and both direct and
+coroutine-aware Tensor-to-cuBLAS matrix-product lowering. GEMM is currently
+provider-backed rather than a native Uni20 CUDA kernel. Direct dispatch may
+block during resource admission; coroutine dispatch awaits the same resources
+before entering the non-suspending backend leaf.
 
-General CUDA Tensor operation coverage, native Uni20 CUDA kernels, direct
-non-async CUDA Tensor operations, and automatic storage-driven CUDA scheduler
-selection are not yet implemented.
+General CUDA Tensor operation coverage, native Uni20 CUDA kernels, and automatic
+storage-driven CUDA scheduler selection are not yet implemented.
 
 For the exact completion-ledger and failure contract, see [CUDA Buffer
 Completion Lowering](epoch_design_draft.md). For stream ownership and error

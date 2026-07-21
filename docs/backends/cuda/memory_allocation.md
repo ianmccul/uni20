@@ -7,7 +7,7 @@ The current bring-up `cuda::CudaBuffer` uses `cudaMallocAsync`/`cudaFreeAsync`
 when stream-ordered memory pools are available, and falls back to
 `cudaMalloc`/`cudaFree` otherwise. It waits for retained writer and reader
 completions before destruction. That implementation establishes ownership and
-synchronization semantics and is integrated with `CudaAsyncStorage`. The
+synchronization semantics and is integrated with `CudaStorage`. The
 broader allocator policy described below still needs pool configuration,
 retention control, and block-storage integration.
 

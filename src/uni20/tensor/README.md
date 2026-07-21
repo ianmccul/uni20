@@ -10,8 +10,8 @@ kernels operate on resolved mdspans.
   extents-first `BasicTensor` alias.
 - `tensor.hpp`: named
   `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor`, and `ScalarTensor`
-  aliases, the host `DenseMatrix` alias, and CUDA-enabled `CudaAsyncTensor` and
-  `CudaAsyncMatrix` aliases.
+  aliases, the host `DenseMatrix` alias, and CUDA-enabled `CudaTensor` and
+  `CudaMatrix` aliases.
 - `conjugate.hpp`: read-only tensor view backed by the lazy conjugating mdspan
   accessor.
 - `generated.hpp`: compact generated tensors and the `full`, `zeros`, `ones`,
@@ -85,7 +85,7 @@ kernels operate on resolved mdspans.
   synchronous extents metadata and `mdspan()`.
   Element and accessor semantics determine whether the returned span is mutable;
   owning tensors overload `mdspan()` on constness.
-- `CudaAsyncTensor<T, Rank>` uses the installed CUDA runtime's default device
+- `CudaTensor<T, Rank>` uses the installed CUDA runtime's default device
   when constructed from extents alone. Passing an explicit
   `cuda::DeviceResources` selects another enrolled device or an isolated test
   resource set. Its storage is a move-only `CudaBuffer<T>`, and its resolved
@@ -93,10 +93,9 @@ kernels operate on resolved mdspans.
   buffer offsets but neither reads nor writes device memory on the host. CUDA
   lowering must acquire a stream and synchronized buffer access before exposing
   a raw device pointer to a leaf backend. Direct matrix `gemm` performs this
-  lowering through blocking `CublasBackend` resource admission. Async
-  `assign_product` and `add_product` instead retain their epoch buffers while a
-  nested `CudaTask` awaits resources and invokes the same prepared provider
-  leaf.
+  lowering through blocking `CublasBackend` resource admission. The same
+  storage inside `Async<CudaTensor>` instead retains its epoch buffers while
+  `co_dispatch_kernel` awaits the backend's deferred `CudaTask` implementation.
 - Tensor objects deliberately do not model Uni20's mdspan concepts. Leaf
   kernels receive the mdspans returned by those accessors.
 - Generated tensors own compact generator state rather than an element buffer.

@@ -6,7 +6,7 @@
  * \brief cuBLAS backend adapter for provider-ready GEMM dispatch.
  */
 
-#include <uni20/linalg/cublas/gemm.hpp>
+#include <uni20/linalg/backends/cublas/detail/gemm.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 
@@ -22,7 +22,7 @@ consteval auto kernel_accepts_types(CublasBackend const&, gemm_op const&, Output
                                     RhsMdspan&, Scalar const&)
 {
   if constexpr (requires(OutputMdspan& output, LhsMdspan& lhs, RhsMdspan& rhs, Scalar scalar) {
-                  { uni20::linalg::cublas::try_gemm(output, scalar, lhs, rhs, scalar) } -> std::same_as<KernelAttempt>;
+                  { detail::cublas_backend::try_gemm(output, scalar, lhs, rhs, scalar) } -> std::same_as<KernelAttempt>;
                 })
   {
     return kernel_types_maybe;
@@ -38,8 +38,8 @@ template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
 KernelAttempt try_kernel(CublasBackend, gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
                          RhsMdspan&& rhs, Scalar beta)
 {
-  return uni20::linalg::cublas::try_gemm(std::forward<OutputMdspan>(output), alpha, std::forward<LhsMdspan>(lhs),
-                                         std::forward<RhsMdspan>(rhs), beta);
+  return detail::cublas_backend::try_gemm(std::forward<OutputMdspan>(output), alpha, std::forward<LhsMdspan>(lhs),
+                                          std::forward<RhsMdspan>(rhs), beta);
 }
 
 } // namespace uni20::linalg
