@@ -24,9 +24,9 @@ lease.
 An empty GEMM output succeeds before operand staging. cuBLAS accepts a zero
 inner extent with null zero-sized input buffers and applies the degenerate
 `C = beta*C` operation, so canonical CUDA matrices retain provider execution for
-that case. A future `CudaReferenceBackend` after `CublasBackend` in the
-storage-selected backend list will provide complete CUDA-domain handling for
-layouts and accessors that cuBLAS cannot represent.
+that case. `CudaReferenceBackend` follows `CublasBackend` in the storage-selected
+backend list. It currently handles contiguous Tensor transfer; additional
+fallback kernels remain operation-specific.
 
 The Tensor conformance tests share their scalar and canonical-layout cases with
 the host GEMM backends. cuBLAS-specific tests cover opaque buffer offsets,

@@ -67,6 +67,11 @@ handle live in [`storage/cuda_storage.hpp`](../../storage/cuda_storage.hpp).
   unfinished prior device accesses. Live guard tokens reject host-side
   read/write overlap that would be invalid for an ordinary mutable value. They
   diagnose incorrect ordering rather than queueing or suspending the caller.
+- Pageable host transfers use `buffer.blocking_read_access()` and
+  `buffer.blocking_write_access()`. These guards host-wait for the current
+  completion ledger, expose the device pointer only for a synchronous CUDA
+  runtime call, and publish no event when released. They are not the path for
+  non-blocking `Async<CudaTensor>` operations.
 - A buffer's state mutex protects only its own completion snapshots and
   publication. It is not held while a backend or provider call executes, and
   independent buffers do not contend on it.

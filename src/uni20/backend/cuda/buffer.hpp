@@ -25,6 +25,8 @@ namespace uni20::cuda
 template <typename T = std::byte> class CudaBuffer;
 template <typename T> class ReadAccess;
 template <typename T> class WriteAccess;
+template <typename T> class BlockingReadAccess;
+template <typename T> class BlockingWriteAccess;
 
 namespace detail
 {
@@ -97,6 +99,8 @@ template <typename T> class CudaBuffer {
     using element_type = T;
     using read_access_type = ReadAccess<T>;
     using write_access_type = WriteAccess<T>;
+    using blocking_read_access_type = BlockingReadAccess<T>;
+    using blocking_write_access_type = BlockingWriteAccess<T>;
 
     /// \brief Allocate `size` elements on the installed runtime's default CUDA device.
     explicit CudaBuffer(std::size_t size) : CudaBuffer(device_resources(), size) {}
@@ -186,6 +190,12 @@ template <typename T> class CudaBuffer {
 
     /// \brief Acquire scoped read/write access synchronized with `stream`.
     [[nodiscard]] WriteAccess<T> write_synchronized_with(Stream const& stream) { return WriteAccess<T>(*this, stream); }
+
+    /// \brief Acquire read-only access after host-waiting for prior CUDA work.
+    [[nodiscard]] BlockingReadAccess<T> blocking_read_access() const { return BlockingReadAccess<T>(*this); }
+
+    /// \brief Acquire read/write access after host-waiting for prior CUDA work.
+    [[nodiscard]] BlockingWriteAccess<T> blocking_write_access() { return BlockingWriteAccess<T>(*this); }
 
   private:
     [[nodiscard]] static std::size_t checked_size_bytes(std::size_t size)
@@ -294,6 +304,80 @@ template <typename T> class CudaBuffer {
         live_write_access_ = false;
         throw;
       }
+    }
+
+    void acquire_blocking_read_access() const
+    {
+      Completion writer_completion;
+      {
+        std::lock_guard lock(state_mutex_);
+        CHECK(!live_write_access_, "cannot acquire blocking CUDA read access while a write access is live", data_);
+        writer_completion = writer_completion_;
+        ++live_read_accesses_;
+      }
+
+      try
+      {
+        if (writer_completion)
+        {
+          writer_completion.synchronize();
+        }
+      }
+      catch (...)
+      {
+        this->release_blocking_read_access();
+        throw;
+      }
+    }
+
+    void acquire_blocking_write_access() const
+    {
+      Completion writer_completion;
+      std::vector<Completion> reader_completions;
+      {
+        std::lock_guard lock(state_mutex_);
+        CHECK(!live_write_access_ && live_read_accesses_ == 0,
+              "cannot acquire blocking CUDA write access while another access is live", data_, live_read_accesses_,
+              live_write_access_);
+        writer_completion = writer_completion_;
+        reader_completions = reader_completions_;
+        live_write_access_ = true;
+      }
+
+      try
+      {
+        if (writer_completion)
+        {
+          writer_completion.synchronize();
+        }
+        for (Completion const& reader_completion : reader_completions)
+        {
+          reader_completion.synchronize();
+        }
+      }
+      catch (...)
+      {
+        std::lock_guard lock(state_mutex_);
+        CHECK(live_write_access_);
+        live_write_access_ = false;
+        throw;
+      }
+    }
+
+    void release_blocking_read_access() const noexcept
+    {
+      std::lock_guard lock(state_mutex_);
+      CHECK(live_read_accesses_ > 0);
+      --live_read_accesses_;
+    }
+
+    void release_blocking_write_access() const noexcept
+    {
+      std::lock_guard lock(state_mutex_);
+      CHECK(live_write_access_);
+      writer_completion_ = {};
+      reader_completions_.clear();
+      live_write_access_ = false;
     }
 
     void release_read_access(Stream const& stream) const noexcept
@@ -444,6 +528,8 @@ template <typename T> class CudaBuffer {
 
     template <typename> friend class ReadAccess;
     template <typename> friend class WriteAccess;
+    template <typename> friend class BlockingReadAccess;
+    template <typename> friend class BlockingWriteAccess;
 };
 
 /// \brief Scoped read-only access to a CUDA buffer on one stream.
@@ -560,6 +646,102 @@ template <typename T> class WriteAccess {
 
     CudaBuffer<T>* storage_ = nullptr;
     Stream stream_;
+
+    friend class CudaBuffer<T>;
+};
+
+/// \brief Scoped read-only CUDA pointer access after a host-side synchronization.
+/// \details Construction waits for the buffer's prior writer completion. No
+///          CUDA completion is published on release because the caller must
+///          finish every operation using the pointer before releasing it.
+template <typename T> class BlockingReadAccess {
+  public:
+    using element_type = T;
+
+    BlockingReadAccess(BlockingReadAccess const&) = delete;
+    BlockingReadAccess& operator=(BlockingReadAccess const&) = delete;
+    BlockingReadAccess(BlockingReadAccess&& other) noexcept : storage_(std::exchange(other.storage_, nullptr)) {}
+    BlockingReadAccess& operator=(BlockingReadAccess&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->release();
+        storage_ = std::exchange(other.storage_, nullptr);
+      }
+      return *this;
+    }
+    ~BlockingReadAccess() { this->release(); }
+
+    /// \brief Return the typed device pointer for a blocking runtime operation.
+    [[nodiscard]] T const* data() const noexcept { return storage_ == nullptr ? nullptr : storage_->data(); }
+
+    /// \brief Return the number of typed elements in the allocation.
+    [[nodiscard]] std::size_t size() const noexcept { return storage_ == nullptr ? 0 : storage_->size(); }
+
+    /// \brief End the scoped host-synchronized read access.
+    void release() noexcept
+    {
+      if (storage_ == nullptr) return;
+      storage_->release_blocking_read_access();
+      storage_ = nullptr;
+    }
+
+  private:
+    explicit BlockingReadAccess(CudaBuffer<T> const& storage)
+    {
+      storage.acquire_blocking_read_access();
+      storage_ = &storage;
+    }
+
+    CudaBuffer<T> const* storage_ = nullptr;
+
+    friend class CudaBuffer<T>;
+};
+
+/// \brief Scoped read/write CUDA pointer access after a host-side synchronization.
+/// \details Construction waits for all prior reader and writer completions.
+///          Release publishes no CUDA event because the guarded operation must
+///          have completed synchronously on the host.
+template <typename T> class BlockingWriteAccess {
+  public:
+    using element_type = T;
+
+    BlockingWriteAccess(BlockingWriteAccess const&) = delete;
+    BlockingWriteAccess& operator=(BlockingWriteAccess const&) = delete;
+    BlockingWriteAccess(BlockingWriteAccess&& other) noexcept : storage_(std::exchange(other.storage_, nullptr)) {}
+    BlockingWriteAccess& operator=(BlockingWriteAccess&& other) noexcept
+    {
+      if (this != &other)
+      {
+        this->release();
+        storage_ = std::exchange(other.storage_, nullptr);
+      }
+      return *this;
+    }
+    ~BlockingWriteAccess() { this->release(); }
+
+    /// \brief Return the typed device pointer for a blocking runtime operation.
+    [[nodiscard]] T* data() const noexcept { return storage_ == nullptr ? nullptr : storage_->data(); }
+
+    /// \brief Return the number of typed elements in the allocation.
+    [[nodiscard]] std::size_t size() const noexcept { return storage_ == nullptr ? 0 : storage_->size(); }
+
+    /// \brief End the scoped host-synchronized write access.
+    void release() noexcept
+    {
+      if (storage_ == nullptr) return;
+      storage_->release_blocking_write_access();
+      storage_ = nullptr;
+    }
+
+  private:
+    explicit BlockingWriteAccess(CudaBuffer<T>& storage)
+    {
+      storage.acquire_blocking_write_access();
+      storage_ = &storage;
+    }
+
+    CudaBuffer<T>* storage_ = nullptr;
 
     friend class CudaBuffer<T>;
 };

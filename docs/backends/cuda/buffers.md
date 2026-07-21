@@ -178,6 +178,20 @@ Use `buffer.synchronize()` only when the host genuinely needs all currently
 published work involving that buffer to finish. No access object may be live
 when it is called.
 
+## Blocking Host Access
+
+Pageable host transfers use `blocking_read_access()` and
+`blocking_write_access()` rather than acquiring a stream. Construction claims
+the same reader or writer token described above and waits on the host for the
+relevant completion ledger. The guarded CUDA runtime operation must finish
+before the access object is released. Release returns the live token but records
+no event because there is no outstanding device work to publish.
+
+These guards are intended for synchronous calls such as pageable-host
+`cudaMemcpy`. They must not be used to launch asynchronous work. Pinned host
+storage and a completion awaiter will provide a separate genuinely non-blocking
+host-transfer path later.
+
 ## Streams On Another Device
 
 An access object may be synchronized with a stream from another device when the
@@ -214,7 +228,8 @@ then use the same `read_synchronized_with()` and
 ## Current Boundary
 
 The implemented boundary includes low-level allocation, stream, completion,
-and access semantics; CUDA Tensor storage descriptors; and both direct and
+and access semantics; CUDA Tensor storage descriptors; contiguous host/device,
+device/host, device/device, and peer transfer; and both direct and
 coroutine-aware Tensor-to-cuBLAS matrix-product lowering. GEMM is currently
 provider-backed rather than a native Uni20 CUDA kernel. Direct dispatch may
 block during resource admission; coroutine dispatch awaits the same resources

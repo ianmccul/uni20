@@ -9,6 +9,7 @@ the [raw external-library wrappers](../../backend/).
 - [`cpu/`](cpu/): CPU dense matrix helpers and CPU matrix exponential implementation.
 - [`blas/`](blas/): operation-tag backend adapters that delegate to mdspan BLAS helpers.
 - [`cublas/`](cublas/): provider-ready CUDA operation adapters using acquired cuBLAS execution leases.
+- [`cuda/`](cuda/): generic CUDA runtime kernels and transfers used after provider backends decline.
 - [`lapack/`](lapack/): LAPACK-backed matrix operation entry points.
 - [`cusolver/`](cusolver/): cuSOLVER-backed matrix operation entry points.
 

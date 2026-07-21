@@ -36,6 +36,13 @@ struct CublasBackend
     friend constexpr bool operator==(CublasBackend const&, CublasBackend const&) = default;
 };
 
+/// \brief Backend value for generic CUDA runtime kernels and transfers.
+struct CudaReferenceBackend
+{
+    static constexpr std::string_view name = "cuda_reference";
+    friend constexpr bool operator==(CudaReferenceBackend const&, CudaReferenceBackend const&) = default;
+};
+
 /// \brief Backend value for the reference host CPU dense linalg oracle.
 struct CpuReferenceBackend
 {

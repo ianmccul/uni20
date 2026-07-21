@@ -49,3 +49,10 @@ if(UNI20_ENABLE_MPLAPACK)
   target_compile_definitions(uni20_linalg_mplapack_binary128_tests PRIVATE UNIT_TEST)
   gtest_discover_tests(uni20_linalg_mplapack_binary128_tests)
 endif()
+
+if(TARGET uni20_backend_cuda)
+  add_test_module(linalg_cuda
+    SOURCES test_cuda_copy.cpp
+    LIBS uni20_linalg uni20_async uni20_backend_cuda
+  )
+endif()

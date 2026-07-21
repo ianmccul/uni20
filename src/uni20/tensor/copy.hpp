@@ -53,6 +53,59 @@ template <class RequestedLayout = void, TensorView InputTensor> [[nodiscard]] au
   return result_type(input);
 }
 
+#if UNI20_BACKEND_CUDA
+/// \brief Materialize a CUDA tensor as an owning pageable host tensor.
+/// \details The transfer waits for prior device work and returns only after
+///          the host allocation is readable. The canonical source layout is
+///          preserved.
+template <TensorView InputTensor>
+  requires(std::same_as<detail::tensor_storage_policy_t<InputTensor>, CudaStorage> &&
+           detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>)
+[[nodiscard]] auto to_host(InputTensor const& input)
+{
+  using input_mdspan = tensor_mdspan_t<InputTensor>;
+  using layout_type = typename input_mdspan::layout_type;
+  using result_type = Tensor<tensor_element_t<InputTensor>, input_mdspan::rank(), VectorStorage, layout_type>;
+
+  result_type result(detail::convert_tensor_extents<typename result_type::extents_type>(input.extents()));
+  copy(result, input);
+  return result;
+}
+
+/// \brief Materialize a tensor in an explicit CUDA device resource domain.
+/// \details Pageable host inputs use blocking `cudaMemcpy`. CUDA inputs enqueue
+///          a device or peer copy whose completion is retained by the result's
+///          CUDA buffer ledger.
+template <TensorView InputTensor>
+  requires detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>
+[[nodiscard]] auto to_device(InputTensor const& input, cuda::DeviceResources& resources)
+{
+  using input_mdspan = tensor_mdspan_t<InputTensor>;
+  using layout_type = typename input_mdspan::layout_type;
+  using result_type = Tensor<tensor_element_t<InputTensor>, input_mdspan::rank(), CudaStorage, layout_type>;
+
+  result_type result(resources, detail::convert_tensor_extents<typename result_type::extents_type>(input.extents()));
+  copy(result, input);
+  return result;
+}
+
+/// \brief Materialize a tensor on an enrolled CUDA device ordinal.
+template <TensorView InputTensor>
+  requires detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>
+[[nodiscard]] auto to_device(InputTensor const& input, int device)
+{
+  return to_device(input, cuda::device_resources(device));
+}
+
+/// \brief Materialize a tensor on an enrolled CUDA device.
+template <TensorView InputTensor>
+  requires detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>
+[[nodiscard]] auto to_device(InputTensor const& input, cuda::Device device)
+{
+  return to_device(input, device.ordinal());
+}
+#endif
+
 /// \brief Materialize an owning reshape of a non-owning or generated tensor view.
 /// \details Canonically laid-out strided sources are reshaped before copying,
 ///          preserving their logical contiguous sequence. Layout-neutral and

@@ -39,6 +39,10 @@ The following foundations are implemented and tested.
   output construction, and fixed-shape mutable alias outputs.
 - Async conjugating and reshape aliases retain the source owner and share its
   exact epoch queue.
+- Canonical contiguous Tensors transfer between pageable host storage and CUDA
+  storage through explicit blocking `to_host`/`to_device` boundaries. Device
+  and peer copies retain CUDA completion in the buffer ledger, with a dedicated
+  non-blocking Async CUDA-to-CUDA overload.
 
 See [Tensor Operations](tensor/operations.md),
 [Generated Tensors and Reshape](tensor/creation_and_reshape.md), and

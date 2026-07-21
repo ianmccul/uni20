@@ -126,7 +126,11 @@ struct CudaStorage
 {
     using context_type = cuda::DeviceResources;
     using accessor_factory_type = cuda::CudaAccessorFactory;
-    using backend_selector_type = linalg::backend_list<linalg::CublasBackend>;
+#if UNI20_BACKEND_CUBLAS
+    using backend_selector_type = linalg::backend_list<linalg::CublasBackend, linalg::CudaReferenceBackend>;
+#else
+    using backend_selector_type = linalg::backend_list<linalg::CudaReferenceBackend>;
+#endif
 
     template <class ElementType> using storage_t = cuda::CudaBuffer<ElementType>;
 
@@ -159,7 +163,11 @@ struct CudaStorage
     /// \brief Return the ordered backend list for CUDA device storage.
     [[nodiscard]] static constexpr auto backend_selector() noexcept -> backend_selector_type
     {
-      return backend_selector_type{linalg::CublasBackend{}};
+#if UNI20_BACKEND_CUBLAS
+      return backend_selector_type{linalg::CublasBackend{}, linalg::CudaReferenceBackend{}};
+#else
+      return backend_selector_type{linalg::CudaReferenceBackend{}};
+#endif
     }
 };
 

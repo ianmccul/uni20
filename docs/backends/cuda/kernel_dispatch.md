@@ -462,7 +462,8 @@ diagnostic data rather than preformatting one terminal-only string.
    accounting, cancellation, exceptions, waits, and quiescence.
 4. Define cancellation and runtime-shutdown behavior for queued resource
    waiters.
-5. Implement one lightweight CUDA Tensor copy or elementwise kernel path.
+5. Extend `CudaReferenceBackend` beyond its initial contiguous Tensor copy path
+   with fill and accessor-respecting elementwise kernels.
 6. Implement one host-intensive cuSOLVER operation on the same device scheduler
    and profile whether a separate provider lane is justified.
 7. Validate multi-device isolation and explicit migration between two device

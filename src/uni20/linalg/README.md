@@ -54,9 +54,12 @@ before they lower to backend wrappers and kernels.
   and dispatch until the input is readable, and return either a
   storage-preserving async Tensor or a nonblocking `Async<Element>` host result.
 - `copy_op` is the semantic element-copy operation used by Tensor `copy` and
-  `make_tensor`. Its CPU backend respects accessors. Future BLAS matrix-copy
-  extensions may accept representable rank-two layouts and conjugating views;
-  strict BLAS/LAPACK compute wrappers still do not materialize implicitly.
+  `make_tensor`. Its CPU backend respects accessors. `CudaReferenceBackend`
+  handles canonical contiguous host/device and device/device transfers, while
+  accessor transforms still require materialization or a future CUDA
+  elementwise kernel. Future BLAS matrix-copy extensions may accept
+  representable rank-two layouts and conjugating views; strict BLAS/LAPACK
+  compute wrappers still do not materialize implicitly.
 - `transform_op<F>` and `transform_inplace_op<F>` carry a const-invoked
   callable through dispatch. The CPU reference backend supports arbitrary rank
   and input arity; optimized callable/layout combinations belong in earlier

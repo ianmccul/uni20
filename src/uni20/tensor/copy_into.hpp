@@ -13,6 +13,12 @@
 #include <uni20/mdspan/concepts.hpp>
 #include <uni20/tensor/output.hpp>
 
+#if UNI20_BACKEND_CUDA
+#include <uni20/linalg/backends/cuda/copy.hpp>
+#include <uni20/storage/cuda_storage.hpp>
+#include <uni20/storage/vectorstorage.hpp>
+#endif
+
 #include <cstddef>
 #include <type_traits>
 #include <utility>
@@ -28,6 +34,14 @@ concept CopySpans = MutableSpanLike<Output> && SpanLike<Input> &&
 template <class Output, class Input>
 concept CopyTensors = MutableTensorView<Output> && TensorView<Input> &&
                       (tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Input>::rank());
+
+#if UNI20_BACKEND_CUDA
+template <class Output, class Input>
+inline constexpr bool is_pageable_cuda_transfer = (std::same_as<tensor_storage_policy_t<Output>, CudaStorage> &&
+                                                   std::same_as<tensor_storage_policy_t<Input>, VectorStorage>) ||
+                                                  (std::same_as<tensor_storage_policy_t<Output>, VectorStorage> &&
+                                                   std::same_as<tensor_storage_policy_t<Input>, CudaStorage>);
+#endif
 
 template <SpanLike Output, SpanLike Input>
 [[nodiscard]] constexpr bool copy_extents_match(Output const& output, Input const& input) noexcept
@@ -83,10 +97,19 @@ template <class OutputTensor, class InputTensor>
 void copy(OutputTensor&& output, InputTensor const& input)
 {
   ensure_shape(output, input.extents());
-  auto selector = linalg::select_backend(linalg::copy_op{}, output, input);
   auto output_span = output.mdspan();
   auto input_span = input.mdspan();
-  copy(selector, output_span, input_span);
+#if UNI20_BACKEND_CUDA
+  if constexpr (detail::is_pageable_cuda_transfer<OutputTensor, InputTensor>)
+  {
+    copy(linalg::CudaReferenceBackend{}, output_span, input_span);
+  }
+  else
+#endif
+  {
+    auto selector = linalg::select_backend(linalg::copy_op{}, output, input);
+    copy(selector, output_span, input_span);
+  }
 }
 
 /// \brief Assign tensor values through a mutable tensor alias descriptor.

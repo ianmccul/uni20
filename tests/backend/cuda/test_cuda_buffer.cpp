@@ -85,6 +85,10 @@ static_assert(std::is_move_assignable_v<uni20::cuda::ReadAccess<std::byte>>);
 static_assert(!std::is_copy_constructible_v<uni20::cuda::WriteAccess<std::byte>>);
 static_assert(std::is_move_constructible_v<uni20::cuda::WriteAccess<std::byte>>);
 static_assert(std::is_move_assignable_v<uni20::cuda::WriteAccess<std::byte>>);
+static_assert(!std::is_copy_constructible_v<uni20::cuda::BlockingReadAccess<std::byte>>);
+static_assert(std::is_move_constructible_v<uni20::cuda::BlockingReadAccess<std::byte>>);
+static_assert(!std::is_copy_constructible_v<uni20::cuda::BlockingWriteAccess<std::byte>>);
+static_assert(std::is_move_constructible_v<uni20::cuda::BlockingWriteAccess<std::byte>>);
 
 TEST_F(CudaBufferTest, OwnsAndMovesDeviceAllocation)
 {
@@ -259,6 +263,55 @@ TEST_F(CudaBufferTest, ScopedAccessSynchronizesDuringStackUnwinding)
     auto access = buffer.write_synchronized_with(stream);
   }
   resources.streams().synchronize();
+}
+
+TEST_F(CudaBufferTest, BlockingAccessSupportsSynchronousHostTransfers)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  uni20::cuda::CudaBuffer<int> buffer(resources, 1);
+  int const expected = 42;
+  {
+    auto write = buffer.blocking_write_access();
+    uni20::cuda::ScopedDevice device(0);
+    uni20::cuda::check(cudaMemcpy(write.data(), &expected, sizeof(expected), cudaMemcpyHostToDevice),
+                       "cudaMemcpy blocking buffer write", 0);
+  }
+
+  int result = 0;
+  {
+    auto read = buffer.blocking_read_access();
+    uni20::cuda::ScopedDevice device(0);
+    uni20::cuda::check(cudaMemcpy(&result, read.data(), sizeof(result), cudaMemcpyDeviceToHost),
+                       "cudaMemcpy blocking buffer read", 0);
+  }
+
+  EXPECT_EQ(result, expected);
+}
+
+TEST_F(CudaBufferTest, StreamAccessWhileBlockingWriterIsLiveFails)
+{
+  EXPECT_DEATH(
+      {
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+        auto writer = buffer.blocking_write_access();
+        auto stream = resources.streams().acquire();
+        (void)buffer.read_synchronized_with(stream);
+      },
+      "cannot acquire CUDA read access while a write access is live");
+}
+
+TEST_F(CudaBufferTest, BlockingWriteWhileStreamReaderIsLiveFails)
+{
+  EXPECT_DEATH(
+      {
+        uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+        uni20::cuda::CudaBuffer<> buffer(resources, 4096);
+        auto stream = resources.streams().acquire();
+        auto reader = buffer.read_synchronized_with(stream);
+        (void)buffer.blocking_write_access();
+      },
+      "cannot acquire blocking CUDA write access while another access is live");
 }
 
 TEST_F(CudaBufferTest, MultipleReadAccessesRemainValidUntilExplicitRelease)

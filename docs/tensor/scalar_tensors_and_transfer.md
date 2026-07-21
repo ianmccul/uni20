@@ -239,8 +239,9 @@ execution:
 uni20::copy_to(destination, source);
 ```
 
-These names are provisional until Uni20 has concrete CUDA storage and device
-context types. Their semantic requirements are already clear:
+`to_host` and `to_device` are implemented for canonical contiguous Tensor
+layouts. Fixed-output `copy(destination, source)` uses the same transfer backend.
+Their semantic requirements are:
 
 - transfer does not change tensor rank;
 - transfer does not extract a C++ scalar;
@@ -248,6 +249,15 @@ context types. Their semantic requirements are already clear:
 - an owning result has the destination's storage policy;
 - cross-device movement may select direct peer transfer or a staged path;
 - ordinary tensor indexing never performs transfer implicitly.
+
+`VectorStorage` is pageable host memory. Transfers between it and `CudaStorage`
+therefore use blocking `cudaMemcpy`: device-to-host returns only when the host
+result is readable, and host-to-device returns only when CUDA no longer depends
+on the source host storage. CUDA-to-CUDA copies use stream-ordered submission
+and retain completion in the destination buffer ledger. The Async overload is
+currently limited to CUDA-to-CUDA copies; a future pinned-host storage policy
+will provide genuinely non-blocking host transfer rather than blocking a
+scheduler participant behind a misleading Async API.
 
 `to_host(scalar_tensor)[]` is therefore a valid explicit two-step expression,
 but a caller that only needs the value should prefer `sum_host`, `norm_host`,
@@ -312,5 +322,4 @@ The current host implementation provides:
 The current `sum` domain is real and complex scalar tensors. Integer sum policy
 is deferred until overflow and promotion semantics are specified.
 
-CUDA storage, device identity, cross-device transfer, and device-resident
-provider reductions remain outside the current implementation.
+Device-resident provider reductions remain outside the current implementation.
