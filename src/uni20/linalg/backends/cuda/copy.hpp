@@ -235,6 +235,19 @@ template <class Scalar> void execute_blocking_copy(CopyPlan<Scalar> const& plan)
     uni20::cuda::ScopedDevice guard(device);
     uni20::cuda::check(cudaMemcpy(output.data() + plan.output_offset, plan.input_host, bytes, cudaMemcpyHostToDevice),
                        "cudaMemcpy host-to-device", device);
+    // Pageable H2D cudaMemcpy finishes consuming the host source after staging,
+    // but its default-stream DMA may remain outstanding. Publish that stream
+    // tail so later non-blocking streams observe the destination dependency.
+    try
+    {
+      output.release_with_completion(uni20::cuda::Completion::record(device, nullptr));
+    }
+    catch (...)
+    {
+      uni20::cuda::detail::synchronize_after_failed_publication(nullptr, device,
+                                                                "publish pageable host-to-device completion");
+      throw;
+    }
     return;
   }
 

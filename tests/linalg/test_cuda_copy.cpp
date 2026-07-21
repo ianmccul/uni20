@@ -83,6 +83,21 @@ TEST_F(CudaCopyTest, PageableHostRoundTripUsesExplicitTransferFunctions)
   expect_matrix(result);
 }
 
+TEST_F(CudaCopyTest, FixedOutputPageableTransfersResizeAndRoundTrip)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  auto source = make_matrix();
+  cuda_matrix_type device(runtime.device_resources(0), 1, 1);
+  host_matrix_type result(1, 1);
+
+  uni20::copy(device, source);
+  uni20::copy(result, device);
+
+  EXPECT_EQ(device.rows(), source.rows());
+  EXPECT_EQ(device.cols(), source.cols());
+  expect_matrix(result);
+}
+
 TEST_F(CudaCopyTest, SameDeviceCopyUsesCudaReferenceFallback)
 {
   auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});

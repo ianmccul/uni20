@@ -252,12 +252,16 @@ Their semantic requirements are:
 
 `VectorStorage` is pageable host memory. Transfers between it and `CudaStorage`
 therefore use blocking `cudaMemcpy`: device-to-host returns only when the host
-result is readable, and host-to-device returns only when CUDA no longer depends
-on the source host storage. CUDA-to-CUDA copies use stream-ordered submission
-and retain completion in the destination buffer ledger. The Async overload is
-currently limited to CUDA-to-CUDA copies; a future pinned-host storage policy
-will provide genuinely non-blocking host transfer rather than blocking a
-scheduler participant behind a misleading Async API.
+result is readable, while host-to-device returns once CUDA has staged the host
+source and records the remaining default-stream DMA in the destination buffer's
+completion ledger. CUDA issues these synchronous copies through the default
+stream and may synchronize work beyond the individual buffer ledger; they are
+not valid as a transparent stream-capture path.
+CUDA-to-CUDA copies use stream-ordered submission and retain completion in the
+destination buffer ledger. The Async overload is currently limited to
+CUDA-to-CUDA copies; a future pinned-host storage policy will provide genuinely
+non-blocking host transfer rather than blocking a scheduler participant behind
+a misleading Async API.
 
 `to_host(scalar_tensor)[]` is therefore a valid explicit two-step expression,
 but a caller that only needs the value should prefer `sum_host`, `norm_host`,

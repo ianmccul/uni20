@@ -85,6 +85,17 @@ inline void synchronize_after_failed_publication(Stream const& stream, char cons
   }
 }
 
+inline void synchronize_after_failed_publication(cudaStream_t stream, int device, char const* operation) noexcept
+{
+  BufferCleanupDeviceGuard guard(device);
+  cudaError_t const status = cudaStreamSynchronize(stream);
+  if (status != cudaSuccess)
+  {
+    PANIC("CUDA buffer completion publication failed and stream synchronization also failed", operation, device,
+          cudaGetErrorName(status), cudaGetErrorString(status));
+  }
+}
+
 } // namespace detail
 
 /// \brief Move-only typed CUDA device allocation and completion state.
@@ -371,11 +382,11 @@ template <typename T> class CudaBuffer {
       --live_read_accesses_;
     }
 
-    void release_blocking_write_access() const noexcept
+    void release_blocking_write_access(Completion completion = {}) const noexcept
     {
       std::lock_guard lock(state_mutex_);
       CHECK(live_write_access_);
-      writer_completion_ = {};
+      writer_completion_ = std::move(completion);
       reader_completions_.clear();
       live_write_access_ = false;
     }
@@ -731,6 +742,17 @@ template <typename T> class BlockingWriteAccess {
     {
       if (storage_ == nullptr) return;
       storage_->release_blocking_write_access();
+      storage_ = nullptr;
+    }
+
+    /// \brief Publish externally submitted device completion and end the scoped access.
+    /// \details Use this when a blocking host operation has finished consuming
+    ///          its host operands but leaves ordered device work outstanding.
+    void release_with_completion(Completion completion) noexcept
+    {
+      if (storage_ == nullptr) return;
+      CHECK(completion);
+      storage_->release_blocking_write_access(std::move(completion));
       storage_ = nullptr;
     }
 

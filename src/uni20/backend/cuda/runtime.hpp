@@ -99,6 +99,11 @@ class Completion {
   public:
     Completion() = default;
 
+    /// \brief Record a completion at the current tail of a native CUDA stream.
+    /// \param device Device ordinal that owns `stream`.
+    /// \param stream Native CUDA stream, including the default stream.
+    [[nodiscard]] static Completion record(int device, cudaStream_t stream);
+
     /// \brief Return whether this token refers to a submitted operation.
     [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(state_); }
 

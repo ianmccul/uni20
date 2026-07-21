@@ -70,7 +70,12 @@ handle live in [`storage/cuda_storage.hpp`](../../storage/cuda_storage.hpp).
 - Pageable host transfers use `buffer.blocking_read_access()` and
   `buffer.blocking_write_access()`. These guards host-wait for the current
   completion ledger, expose the device pointer only for a synchronous CUDA
-  runtime call, and publish no event when released. They are not the path for
+  runtime call, and ordinarily publish no event when released. Synchronous
+  `cudaMemcpy` uses CUDA's default-stream path and may synchronize beyond one
+  buffer's ledger, so this is a broad blocking boundary and not a stream-capture
+  path. Pageable host-to-device transfer records the remaining default-stream
+  DMA through `BlockingWriteAccess::release_with_completion()` because host
+  staging may finish before the device copy. These guards are not the path for
   non-blocking `Async<CudaTensor>` operations.
 - A buffer's state mutex protects only its own completion snapshots and
   publication. It is not held while a backend or provider call executes, and

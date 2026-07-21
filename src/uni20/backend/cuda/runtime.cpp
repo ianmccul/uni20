@@ -251,6 +251,13 @@ void Stream::wait_on(Completion const& completion) const
 
 Completion::Completion(std::shared_ptr<State> state) : state_(std::move(state)) {}
 
+Completion Completion::record(int device, cudaStream_t stream)
+{
+  auto state = std::make_shared<State>(device);
+  state->record(device, stream);
+  return Completion(std::move(state));
+}
+
 int Completion::device() const noexcept { return state_ == nullptr ? -1 : state_->device(); }
 
 bool Completion::ready() const
@@ -585,9 +592,7 @@ void Stream::State::synchronize() const { pool_->stream(slot_).synchronize(); }
 Completion Stream::State::record_completion() const
 {
   StreamResource const& selected = pool_->stream(slot_);
-  auto state = std::make_shared<Completion::State>(selected.device());
-  state->record(selected.device(), selected.native_handle());
-  return Completion(std::move(state));
+  return Completion::record(selected.device(), selected.native_handle());
 }
 
 void Stream::State::wait_on(Completion const& completion) const

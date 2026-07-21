@@ -188,9 +188,18 @@ before the access object is released. Release returns the live token but records
 no event because there is no outstanding device work to publish.
 
 These guards are intended for synchronous calls such as pageable-host
-`cudaMemcpy`. They must not be used to launch asynchronous work. Pinned host
-storage and a completion awaiter will provide a separate genuinely non-blocking
-host-transfer path later.
+`cudaMemcpy`. CUDA issues synchronous copies through the default stream and may
+block or synchronize for reasons beyond the dependencies recorded in one
+buffer's ledger. Callers must therefore treat pageable host transfer as a broad
+blocking boundary rather than rely on ledger-local concurrency. It is not a
+CUDA stream-capture path. Pageable host-to-device `cudaMemcpy` may return after
+host staging but before its device DMA completes. That path records the default
+stream tail and passes the completion to
+`BlockingWriteAccess::release_with_completion()`, preserving the outstanding
+destination dependency without synchronizing the device. Other blocking guard
+uses must finish their device access before release. Pinned host storage and a
+completion awaiter will provide a separate genuinely non-blocking host-transfer
+path later.
 
 ## Streams On Another Device
 
