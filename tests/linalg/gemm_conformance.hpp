@@ -116,15 +116,31 @@ void expect_each_candidate(Platform& platform, OutputTensor& output, Scalar alph
   auto output_span = output.mdspan();
   auto lhs_span = lhs.mdspan();
   auto rhs_span = rhs.mdspan();
-  auto candidates = uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemm_op{}, output_span, alpha,
-                                                          lhs_span, rhs_span, beta);
+  auto candidates = [&] {
+    if constexpr (requires { platform.kernel_type_candidates(selector, output_span, alpha, lhs_span, rhs_span, beta); })
+    {
+      return platform.kernel_type_candidates(selector, output_span, alpha, lhs_span, rhs_span, beta);
+    }
+    else
+    {
+      return uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemm_op{}, output_span, alpha, lhs_span,
+                                                   rhs_span, beta);
+    }
+  }();
   constexpr auto candidate_count = std::tuple_size_v<decltype(candidates.entries)>;
   static_assert(candidate_count == Platform::expected_backend_candidates);
 
   std::size_t tested = 0;
   auto test_backend = [&](auto const& backend) {
     write_logical(platform, output, initial_output);
-    uni20::linalg::gemm(backend, output, alpha, lhs, rhs, beta);
+    if constexpr (requires { platform.gemm(backend, output, alpha, lhs, rhs, beta); })
+    {
+      platform.gemm(backend, output, alpha, lhs, rhs, beta);
+    }
+    else
+    {
+      uni20::linalg::gemm(backend, output, alpha, lhs, rhs, beta);
+    }
     EXPECT_EQ(read_logical(platform, output), expected) << "backend: " << backend.name;
     ++tested;
   };

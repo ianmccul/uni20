@@ -411,6 +411,8 @@ class TaskPromiseBase {
     }
 
     /// \brief Complete an unbound child's route before nested execution.
+    /// \details Scheduler inheritance is allowed across task domains only when
+    ///          the parent scheduler accepts the child's complete route.
     /// \param parent Currently executing parent task.
     /// \param child Child selected for execution.
     static void prepare_nested_route(TaskHandle parent, TaskHandle child);
@@ -726,7 +728,9 @@ inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle 
 
   if (!child.promise().scheduler())
   {
-    CHECK(parent.domain() == child.domain(), "an unbound nested task cannot inherit a scheduler across task domains");
+    auto* scheduler = parent.promise().scheduler();
+    TaskPromiseBase::validate_scheduler_route(scheduler, task_route(child));
+    child.promise().sched_ = scheduler;
   }
 
   if (child.domain() == TaskDomain::cuda)
@@ -736,13 +740,6 @@ inline void TaskPromiseBase::prepare_nested_route(TaskHandle parent, TaskHandle 
     {
       if (auto const parent_device = cuda_promise(parent).device()) child_promise.bind_device(*parent_device);
     }
-  }
-
-  if (!child.promise().scheduler())
-  {
-    auto* scheduler = parent.promise().scheduler();
-    TaskPromiseBase::validate_scheduler_route(scheduler, task_route(child));
-    child.promise().sched_ = scheduler;
   }
 }
 

@@ -1,11 +1,12 @@
 # Scheduler Routing and Task Domains
 
 **Status:** concrete host and CUDA promise types, promise-neutral suspended-task
-routing, same-domain scheduler inheritance, cross-domain explicit routing,
+routing, capability-checked scheduler inheritance, explicit scheduler routing,
 optional CUDA device affinity, explicit device selection, and unified
 host/multi-device execution in both deterministic and oneTBB schedulers are
-implemented. Scoped process-wide CUDA resource initialization is also
-implemented; storage-driven initial scheduler admission remains future work.
+implemented. Scoped process-wide CUDA resource initialization and global
+device-bound `schedule(CudaTask&&, int)` admission are also implemented;
+automatic storage-driven initial admission remains future work.
 
 This note separates three related mechanisms: initial scheduler admission,
 rescheduling after suspension, and nested continuation routing. CUDA backend and
@@ -140,9 +141,11 @@ returned by a forwarding awaiter, and final continuation return.
 
 The common promise base and promise-neutral continuation handle make this work
 for all four parent/child combinations of `AsyncTask` and `CudaTask`. In
-particular, an `AsyncTask` parent may await a `CudaTask` child already bound to a
-device scheduler. The child runs in the CUDA domain and the parent later resumes
-on its original host scheduler.
+particular, an `AsyncTask` parent may await a scheduler-unbound `CudaTask`. The
+child inherits the parent's scheduler only when that scheduler accepts the
+child's CUDA route and any established device affinity. The child runs in the
+CUDA domain and the parent later resumes in the host domain through the same
+unified scheduler. A host-only scheduler rejects the child route.
 
 The parent does not become a `CudaTask`, and the child does not carry the parent
 onto the CUDA scheduler after completion.
@@ -164,7 +167,8 @@ queue, explicit host/CUDA nesting in both directions, one `get_wait()` driving a
 complete host/CUDA/host continuation chain, same-device direct transfer,
 cross-device resubmission, exception propagation, cancellation, and
 calling-thread device restoration. A separate non-CUDA death test proves that
-an unbound cross-domain child cannot inherit a scheduler.
+cross-domain inheritance fails when the parent scheduler does not accept the
+child route.
 
 `TbbCudaScheduler` is the parallel implementation. It extends `TbbScheduler`
 with one worker-only oneTBB arena per enrolled CUDA device. The host arena and
@@ -222,9 +226,13 @@ CUDA-aware code may narrow the common promise pointer to `CudaTaskPromise`.
 Streams, provider handles, workspaces, and buffer leases remain operation-local
 RAII values rather than task-global state.
 
-A higher-level CUDA scheduling function may later select the correct execution
-route from an explicit device or Tensor storage. That policy should remain
-above the shared coroutine machinery.
+The global `schedule(CudaTask&&, int)` overload selects explicit initial device
+affinity and avoids a first-activation migration when the device is already
+known. Tensor operations whose device is only available after awaiting their
+operand epochs may schedule an unbound task and select the authoritative
+storage device inside the coroutine. Automatic pre-admission inference should
+remain above the shared coroutine machinery and must not inspect a pending
+Tensor value unsafely.
 
 ## Device And Scheduler Migration
 

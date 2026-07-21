@@ -7,9 +7,10 @@ immutable completion tokens, actually-idle stream pools, and typed move-only
 device buffers with scoped `ReadAccess<T>`/`WriteAccess<T>` objects.
 Deterministic and oneTBB unified host/multi-device task schedulers are
 implemented, as are non-blocking resource awaiters, generic provider-resource
-leases, CUDA Tensor storage, and Tensor-facing cuBLAS GEMM lowering. General
-CUDA Tensor kernel coverage, non-blocking async GEMM lowering, and
-storage-driven scheduler selection remain incomplete.
+leases, CUDA Tensor storage, and non-blocking async Tensor-to-cuBLAS
+matrix-product lowering. General CUDA Tensor kernel coverage, direct non-async
+CUDA Tensor operations, and storage-driven scheduler selection remain
+incomplete.
 
 ## Start Here
 

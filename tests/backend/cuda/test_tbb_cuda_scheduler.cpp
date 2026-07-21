@@ -125,9 +125,8 @@ TEST_F(TbbCudaSchedulerTest, RunsOnBoundDeviceAndRestoresCallingThread)
 
 TEST_F(TbbCudaSchedulerTest, RunsUnboundCudaTaskOnConfiguredDefaultDevice)
 {
-  TbbCudaScheduler scheduler({.host_max_concurrency = 2,
-                              .cuda_max_concurrency_per_device = 2,
-                              .default_cuda_device = target_device_});
+  TbbCudaScheduler scheduler(
+      {.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2, .default_cuda_device = target_device_});
   int observed_device = -1;
 
   auto task = [](int& observed) static -> CudaTask {
@@ -149,9 +148,8 @@ TEST_F(TbbCudaSchedulerTest, SetDeviceMigratesBetweenCudaArenas)
   if (device_count_ < 2) GTEST_SKIP() << "requires at least two CUDA devices";
 
   int const other_device = (original_device_ + 1) % device_count_;
-  TbbCudaScheduler scheduler({.host_max_concurrency = 2,
-                              .cuda_max_concurrency_per_device = 2,
-                              .default_cuda_device = original_device_});
+  TbbCudaScheduler scheduler(
+      {.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2, .default_cuda_device = original_device_});
   Async<std::array<int, 3>> output;
 
   auto task = [](int other_device, int original_device, WriteBuffer<std::array<int, 3>> output) static -> CudaTask {
@@ -203,7 +201,7 @@ TEST_F(TbbCudaSchedulerTest, GetWaitDrivesCudaTaskFromUnifiedScheduler)
   this->expect_calling_device_restored();
 }
 
-TEST_F(TbbCudaSchedulerTest, HostParentAwaitsExplicitlyBoundCudaChild)
+TEST_F(TbbCudaSchedulerTest, HostParentInheritsUnifiedSchedulerForCudaChild)
 {
   TbbCudaScheduler scheduler({.host_max_concurrency = 2, .cuda_max_concurrency_per_device = 2});
   Async<int> output;
@@ -214,7 +212,6 @@ TEST_F(TbbCudaSchedulerTest, HostParentAwaitsExplicitlyBoundCudaChild)
     co_return;
   }(observed_device);
   uni20::async::cuda_promise(child.handle()).bind_device(target_device_);
-  ASSERT_TRUE(child.set_scheduler(&scheduler));
 
   auto parent = [](CudaTask child, WriteBuffer<int> output, int const* observed) static -> AsyncTask {
     co_await child;

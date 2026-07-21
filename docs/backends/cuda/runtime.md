@@ -6,10 +6,10 @@ resource-awaiting primitives are implemented in `src/uni20/backend/cuda/`.
 The async layer provides deterministic and oneTBB unified host/multi-device
 schedulers, including per-activation device selection and restoration. The
 first provider consumer is the cuBLAS handle/stream execution pool and GEMM
-leaf. `CudaAsyncStorage` now connects `Tensor` ownership to `CudaBuffer`; CUDA
-Tensor GEMM now lowers through opaque mdspans to `CublasBackend`. General CUDA
-Tensor operations and non-blocking async GEMM resource admission are not yet
-implemented.
+leaf. `CudaAsyncStorage` connects `Tensor` ownership to `CudaBuffer`, and async
+Tensor matrix products now lower through `CudaTask`, non-blocking resource
+admission, opaque mdspans, and `CublasBackend`. General CUDA Tensor operations
+and direct non-async CUDA Tensor front ends are not yet implemented.
 
 This document defines the resource-management contract beneath CUDA Tensor
 kernels and async lowering.
@@ -191,19 +191,19 @@ therefore has two explicit submission channels above the same pool:
   scheduler may be `DebugCudaScheduler`, a one-slot `TbbCudaScheduler`, or a
   larger unified device scheduler.
 
-The implemented `CudaAsyncStorage` policy identifies CUDA storage intended for
-the non-blocking channel and uses `CudaBuffer<T>` as its allocation primitive.
-The first ordinary Tensor GEMM path deliberately uses blocking pool admission
-at its synchronous C++ boundary, while leaving device execution asynchronous.
-Async Tensor lowering must instead await exhausted resource pools before
-entering the same non-suspending provider leaf. A future blocking-only CUDA
-storage policy should remain a distinct storage domain; wrapping such a Tensor
-in `Async<T>` would almost always be a policy mistake.
+The implemented `CudaAsyncStorage` policy uses `CudaBuffer<T>` as its allocation
+primitive and supports non-blocking operation lowering. Async Tensor
+matrix-product lowering awaits exhausted resource pools in a `CudaTask`, then
+enters the non-suspending provider leaf with the acquired execution lease.
+Ordinary `CublasBackend` uses the same storage and prepared leaf but calls the
+blocking pool interface. The operation entry point, rather than a second
+storage representation, selects blocking or suspending resource admission.
 
-The storage policy exposes a distinct mdspan accessor type so CUDA kernel
-dispatch can recognize the non-blocking channel at type level. The shared
-`CudaBufferView<T>` handle carries buffer identity and element offset without a
-raw pointer. Per-call leases
+The storage policy exposes a distinct mdspan accessor type so kernel dispatch
+can recognize opaque CUDA storage and reject host dereference. Blocking versus
+suspending resource admission is selected by the operation path, not by this
+accessor. The shared `CudaBufferView<T>` handle carries buffer identity and
+element offset without a raw pointer. Per-call leases
 such as streams, provider handles, and workspaces remain operation-local; they
 are not part of the backend selector.
 

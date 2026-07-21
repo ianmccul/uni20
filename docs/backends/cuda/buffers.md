@@ -71,17 +71,17 @@ non-assignable on the host. A CUDA operation must lower the view through
 `read_synchronized_with(stream)` or `write_synchronized_with(stream)` before a
 leaf backend receives a raw pointer.
 
-For GEMM this lowering is reached through the ordinary Tensor API:
+For GEMM this lowering is reached through the Async Tensor API:
 
 ```cpp
-uni20::linalg::gemm(output, 1.0F, lhs, rhs, 0.0F);
+uni20::linalg::assign_product(output, lhs, rhs, 1.0F);
 ```
 
-The Tensor front end resolves the three mdspans and selects `CublasBackend`.
-The backend validates layouts and devices before acquiring a handle and stream,
-then opens one write access and two read accesses and calls cuBLAS. The direct
-API may block while waiting for a resource-pool slot; it does not synchronize
-the submitted GEMM with the host.
+The Async front end schedules a `CudaTask`, resolves the Tensor device after
+its epochs are ready, and awaits a cuBLAS handle-plus-stream lease. The backend
+then validates layouts and devices, opens one write access and two read
+accesses, and calls cuBLAS. Resource exhaustion suspends the CUDA task rather
+than blocking a scheduler participant.
 
 ## Submitting Work
 
@@ -215,14 +215,14 @@ then use the same `read_synchronized_with()` and
 ## Current Boundary
 
 The implemented boundary includes low-level allocation, stream, completion,
-and access semantics; CUDA Tensor storage descriptors; and Tensor-to-cuBLAS
-GEMM lowering. GEMM is currently provider-backed rather than a native Uni20
-CUDA kernel, and it uses blocking host-side resource admission before
-asynchronous device submission.
+and access semantics; CUDA Tensor storage descriptors; and non-blocking async
+Tensor-to-cuBLAS matrix-product lowering. GEMM is currently provider-backed
+rather than a native Uni20 CUDA kernel. The CUDA task awaits resource admission
+before entering the non-suspending backend.
 
-General CUDA Tensor operation coverage, native Uni20 CUDA kernels,
-non-blocking async GEMM resource admission, and automatic storage-driven CUDA
-scheduler selection are not yet implemented.
+General CUDA Tensor operation coverage, native Uni20 CUDA kernels, direct
+non-async CUDA Tensor operations, and automatic storage-driven CUDA scheduler
+selection are not yet implemented.
 
 For the exact completion-ledger and failure contract, see [CUDA Buffer
 Completion Lowering](epoch_design_draft.md). For stream ownership and error

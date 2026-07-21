@@ -528,46 +528,24 @@ KernelAttempt try_kernel(BlasBackend, gemm_op, C& c, scalar_t<C> alpha,
   return uni20::linalg::blas::try_gemm(c, alpha, a, b, beta);
 }
 
-struct CublasBackend {
-  int device;
-  cudaStream_t stream;
-  math_mode_t math_mode;
-};
-
 template <class Alpha, class A, class B, class Beta, class C>
 consteval auto
-kernel_accepts_types(CublasBackend const&, gemm_op const&, C&, Alpha const&,
-                     A const&, B const&, Beta const&)
+kernel_accepts_types(CublasBackend const&, gemm_op const&,
+                     C&, Alpha const&, A const&, B const&, Beta const&)
 {
-  if constexpr (is_device_v<operand_t<C>> &&
-                is_device_v<operand_t<A>> &&
-                is_device_v<operand_t<B>> &&
-                same_scalar_v<operand_t<C>, operand_t<A>, operand_t<B>> &&
-                is_blas_scalar_v<scalar_t<operand_t<C>>>) {
-    return kernel_types_maybe;                               // device placement is runtime
+  if constexpr (/* rank-2 opaque CUDA mdspans with cuBLAS scalar types */) {
+    return kernel_types_maybe;                 // layout/device are runtime facts
   } else {
     return kernel_types_no;
   }
 }
 
-// Unlike the CPU backends, this *does* go through a scheduler: the CudaScheduler
-// builds sequencing into its streams/events, so the submit is correctly ordered.
-// (A blocking variant on the default stream is also possible, but the scheduler
-// path is typical.)
 template <class C, class A, class B>
-KernelAttempt try_kernel(CublasBackend backend, gemm_op, C& c,
-                          scalar_t<C> alpha, A const& a, B const& b,
-                          scalar_t<C> beta)
+KernelAttempt try_kernel(CublasBackend, gemm_op, C& c,
+                         scalar_t<C> alpha, A const& a, B const& b,
+                         scalar_t<C> beta)
 {
-  int dev = backend.device;
-  cublas::set_math_mode(backend.math_mode);
-  if (c.device() != dev) return KernelAttempt::unsupported_instance;
-  for (int other : {a.device(), b.device()})                // operands on another GPU?
-    if (other != dev && !cuda::peer_access(dev, other))
-      return KernelAttempt::unsupported_instance;           // let a staging backend handle it
-  gpu_scheduler(dev).submit(cublas_gemm_task<C,A,B>, c.write(),    // CudaScheduler: stream/event
-                            alpha, a.read(), b.read(), beta);      //   sync is built in; per-GPU
-  return KernelAttempt::success;                                   //   thread holds the cuBLAS handle
+  return uni20::linalg::cublas::try_gemm(c, alpha, a, b, beta);
 }
 ```
 
@@ -582,14 +560,13 @@ Three invariants this surfaces:
   queues provide the sequencing — submitting a bare CPU task to a scheduler with no
   buffer await would carry no ordering and never be correct. There is no point in a
   separate "CPU async backend": `Async<T>` already is it.
-- **CUDA is the exception.** `CublasBackend` does go through a scheduler, because
-  the `CudaScheduler` builds sequencing into its streams and events (see
-  `ordering_and_backend_lowering.md`). Its per-GPU threads hold the thread-local
-  cuBLAS/cuSOLVER context. A blocking variant on the default stream is possible,
-  but the scheduler path is typical. Note the division of labour: *ordering* is
-  already guaranteed by dispatch order from the async layer; events exist for
-  *synchronization* (completion detection, buffer lifetime) and for cross-stream
-  concurrency. A zero-event, default-stream debug mode is therefore correct.
+- **CUDA admission follows the operation entry point.** Ordinary
+  `CublasBackend` preparation is followed by blocking resource admission.
+  Async matrix-product lowering awaits `co_gemm`, which prepares before
+  admission and invokes the prepared provider leaf directly after acquiring
+  resources. Note the division of labour: *ordering* is already guaranteed by
+  the async layer; events provide device *synchronization* and buffer lifetime
+  across streams.
 
 ### MPI falls out as nesting
 
@@ -714,17 +691,20 @@ outer runtime decline; otherwise it is `maybe`.
   backends themselves.** The implemented whole-value `Async<Tensor>` wrappers
   resolve the static storage selector, then schedule a coroutine which
   `co_await`s the operand buffers and calls the ordinary synchronous Tensor
-  operation with that selector. Shape and mdspan descriptors remain part of the
-  awaited Tensor value, so the runtime backend walk occurs inside the coroutine.
+  operation with that selector, or awaits an operation-specific `co_*`
+  submission task when resource admission may suspend. Shape and mdspan
+  descriptors remain part of the awaited Tensor value, so runtime preparation
+  occurs inside the coroutine.
   In both cases the epoch queues, not the scheduler, order the work. The CPU
   and CUDA *backends* never choose a scheduler. Global `schedule()` and nested
   task routing may select different schedulers for different concrete task
   types. `AsyncTask` and `CudaTask` have distinct initial-admission interfaces
   and distinct promises over one common promise implementation; suspended work
   shares the promise-neutral `BasicTask` representation. An async
-  wrapper creates or awaits a `CudaTask` already bound to the selected device
-  scheduler; explicit live-task scheduler migration remains a separate
-  capability.
+  wrapper may create a device-bound `CudaTask` with no scheduler route. Nested
+  await inherits the parent's unified scheduler only after that scheduler
+  accepts the CUDA route; explicit live-task scheduler migration remains a
+  separate capability.
   See *Scheduler and Async integration* below and
   `../async/scheduler_migration.md`.
 - Distributed and RPC execution are front-of-list backends that recurse, so they
@@ -907,8 +887,9 @@ The nested routing shown by the CUDA snippet is implemented: `CudaTask` has a
 CUDA-specific initial-admission interface and promise, and an `AsyncTask` can
 `co_await` a CUDA child and resume on its own scheduler. Optional affinity lives
 in `CudaTaskPromise`; the scheduler supplies a default activation device while
-it is empty. Resource acquisition and the CUDA Tensor/backend lowering in the
-body remain conceptual.
+it is empty. The same routing now supports async Tensor GEMM: `co_gemm` binds
+operand affinity, awaits cuBLAS execution resources, and invokes the prepared
+provider leaf before returning to its host parent.
 
 The accumulation `r += sum a*b` over multiple contributing `(a, b)` needs no
 explicit reduction lock: every contribution writes block `r`, so block `r`'s
@@ -951,13 +932,13 @@ than fixed workers; an arena observer establishes the device on every
 participant. Streams, provider handles, and workspaces are device-local leased
 resources rather than worker-owned state.
 
-Typed initial admission or nested `co_await` routes a `CudaTask` already bound
-to the selected device scheduler. The shared promise records that route. The
-CUDA task may suspend while waiting for a composite resource request. Once
-admitted, the entire relevant backend walk runs without suspension, records and
-publishes its completion event, and releases resources according to their
-provider-specific completion contract. A separate provider lane is a later
-profiling-driven option.
+Typed initial admission or nested `co_await` routes a `CudaTask` to a scheduler
+that accepts its CUDA domain and device. A scheduler-unbound child may inherit a
+compatible unified scheduler from its parent. The CUDA task may suspend while
+waiting for a composite resource request. Once admitted, its prepared provider
+leaf runs without suspension, records and publishes completion state, and
+releases resources according to their provider-specific contract. A separate
+provider lane is a later profiling-driven option.
 
 Blocking and fully synchronized CUDA execution remain useful API/debug adapters
 over the same leaf kernels; they are not separate numerical backends. See

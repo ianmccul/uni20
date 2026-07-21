@@ -126,7 +126,7 @@ TEST(AsyncTaskRouteDeathTest, CudaDeviceCannotBeBoundAfterTaskStarts)
   task.set_cancel_on_resume();
 }
 
-TEST(AsyncTaskRouteDeathTest, CrossDomainChildCannotInheritScheduler)
+TEST(AsyncTaskRouteDeathTest, CrossDomainChildRequiresCompatibleScheduler)
 {
   EXPECT_DEATH(
       {
@@ -136,7 +136,7 @@ TEST(AsyncTaskRouteDeathTest, CrossDomainChildCannotInheritScheduler)
         scheduler.schedule(std::move(parent));
         scheduler.run_all();
       },
-      "cannot inherit a scheduler across task domains");
+      "scheduler does not accept task route");
 }
 
 TEST(AsyncTaskRouteDeathTest, CudaTaskCannotBindToHostScheduler)

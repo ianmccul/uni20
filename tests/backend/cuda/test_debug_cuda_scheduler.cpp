@@ -118,6 +118,25 @@ TEST_F(DebugCudaSchedulerTest, RunsCudaTaskOnBoundDeviceAndRestoresCallingThread
   EXPECT_EQ(restored_device, original_device_);
 }
 
+TEST_F(DebugCudaSchedulerTest, GlobalScheduleBindsInitialCudaDevice)
+{
+  DebugCudaScheduler scheduler(uni20::cuda::Device::get(original_device_));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+  int observed_device = -1;
+  cudaError_t status = cudaErrorUnknown;
+
+  auto task = [](int& observed, cudaError_t& result) static -> CudaTask {
+    result = cudaGetDevice(&observed);
+    co_return;
+  }(observed_device, status);
+
+  uni20::async::schedule(std::move(task), target_device_);
+  scheduler.run_all();
+
+  EXPECT_EQ(status, cudaSuccess);
+  EXPECT_EQ(observed_device, target_device_);
+}
+
 TEST_F(DebugCudaSchedulerTest, RunsUnboundCudaTaskOnDefaultDeviceWithoutBindingPromise)
 {
   DebugCudaScheduler scheduler(uni20::cuda::Device::get(target_device_));
@@ -388,7 +407,7 @@ TEST_F(DebugCudaSchedulerTest, OneSchedulerRestoresDevicesAcrossMultiDeviceResum
   }
 }
 
-TEST_F(DebugCudaSchedulerTest, CpuParentReturnsToCpuSchedulerAfterCudaChild)
+TEST_F(DebugCudaSchedulerTest, CpuParentInheritsUnifiedSchedulerForCudaChild)
 {
   DebugCudaScheduler scheduler;
   std::vector<int> events;
@@ -401,7 +420,6 @@ TEST_F(DebugCudaSchedulerTest, CpuParentReturnsToCpuSchedulerAfterCudaChild)
     co_return;
   }(events);
   cuda_promise(child.handle()).bind_device(target_device_);
-  ASSERT_TRUE(child.set_scheduler(&scheduler));
 
   auto parent = [](CudaTask child, std::vector<int>& events) static -> AsyncTask {
     events.push_back(1);

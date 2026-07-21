@@ -65,7 +65,7 @@ ordering have been handled by higher layers.
 | `BasicTensor<Element, Extents, ...>` | Extents-first alias for a `Tensor` specialization with mixed or static extents. |
 | `ColumnMajorTensor`, `RowMajorTensor`, `StridedTensor` | Named runtime-extents owner aliases for an explicit physical layout policy. |
 | `DenseMatrix<Element, Layout>` | Rank-two host `Tensor`; column-major by default. |
-| `CudaAsyncTensor<Element, Rank, Layout>` | Owning CUDA Tensor that uses the installed runtime's default device unless explicit device resources are supplied; its mdspan handle is opaque to host element access. Direct GEMM currently uses blocking pool admission. |
+| `CudaAsyncTensor<Element, Rank, Layout>` | Owning CUDA Tensor for the non-blocking CUDA channel. It uses the installed runtime's default device unless explicit device resources are supplied, and its mdspan handle is opaque to host element access. Async matrix products lower through `CudaTask` and cuBLAS. |
 | `CudaAsyncMatrix<Element, Layout>` | Rank-two `CudaAsyncTensor`; column-major by default. |
 | `ScalarTensor<Element, StoragePolicy, ...>` | Rank-zero owning Tensor that retains storage, backend, lifetime, and Async semantics. |
 | `GeneratedTensor` | Compact, layout-neutral read-only tensor whose accessor computes values without dense element storage. |
@@ -377,12 +377,13 @@ ordinary application code should prefer operation-specific overwrite, update,
 or value-returning APIs where those exist because their output policy is
 explicit.
 
-For `CudaAsyncTensor`, fixed-output `gemm` dispatches to cuBLAS from opaque CUDA
-mdspans and supports column- or row-major output. Its synchronous C++ boundary
-may block while acquiring a handle or idle stream, but the submitted device
-operation is not synchronized. The generic Async product wrappers have not yet
-been specialized to await CUDA resource admission and must not be treated as
-the final non-blocking CUDA lowering.
+For `CudaAsyncTensor`, `assign_product` and `add_product` retain their Tensor
+epoch buffers while awaiting `co_gemm`. The nested `CudaTask` is bound to the
+operand device, inherits the compatible unified scheduler, awaits an idle
+cuBLAS handle and stream, and publishes CUDA buffer completion records before
+returning. Column- and row-major outputs are supported. A direct Tensor `gemm`
+uses the same operand preparation and provider leaf but may block during
+resource admission.
 
 ## Async Tensor Contract
 

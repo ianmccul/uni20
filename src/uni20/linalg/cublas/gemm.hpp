@@ -18,9 +18,35 @@
 #include <limits>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 namespace uni20::linalg::cublas
 {
+
+/// \brief Provider-ready CUDA GEMM operands produced without acquiring execution resources.
+template <uni20::cublas::CublasScalar Scalar> struct GemmPlan
+{
+    blas::BlasWritableMatrix<Scalar, uni20::cuda::CudaBufferView<Scalar>> output{};
+    blas::BlasReadableMatrix<Scalar, uni20::cuda::CudaBufferView<Scalar const>> lhs{};
+    blas::BlasReadableMatrix<Scalar, uni20::cuda::CudaBufferView<Scalar const>> rhs{};
+    blas_int inner = 0;
+    int device = -1;
+    bool has_work = false;
+
+    /// \brief Return the device resources that own the output allocation.
+    [[nodiscard]] uni20::cuda::DeviceResources& resources() const
+    {
+      CHECK(has_work);
+      return output.data.buffer().resources();
+    }
+};
+
+/// \brief Result of side-effect-free CUDA GEMM operand preparation.
+template <uni20::cublas::CublasScalar Scalar> struct GemmPreparation
+{
+    KernelAttempt attempt = KernelAttempt::unsupported_instance;
+    GemmPlan<Scalar> plan{};
+};
 
 namespace detail
 {
@@ -145,15 +171,32 @@ auto with_data(blas::BlasReadableMatrix<Scalar, Handle> matrix, Scalar const* da
           .transform = matrix.transform};
 }
 
-template <uni20::cublas::CublasScalar Scalar, class OutputHandle, class LhsHandle, class RhsHandle>
-KernelAttempt try_staged_gemm(blas::BlasWritableMatrix<Scalar, OutputHandle> output,
-                              blas::BlasReadableMatrix<Scalar, LhsHandle> lhs,
-                              blas::BlasReadableMatrix<Scalar, RhsHandle> rhs, Scalar alpha, Scalar beta)
+template <uni20::cublas::CublasScalar Scalar, class Handle>
+auto readonly_matrix(blas::BlasReadableMatrix<Scalar, Handle> matrix)
+    -> blas::BlasReadableMatrix<Scalar, uni20::cuda::CudaBufferView<Scalar const>>
 {
-  if (!provider_transforms_are_supported(lhs, rhs)) return KernelAttempt::unsupported_transform;
+  return {.data = uni20::cuda::CudaBufferView<Scalar const>{matrix.data},
+          .rows = matrix.rows,
+          .cols = matrix.cols,
+          .leading_dimension = matrix.leading_dimension,
+          .transform = matrix.transform};
+}
+
+template <uni20::cublas::CublasScalar Scalar, class LhsHandle, class RhsHandle>
+GemmPreparation<Scalar>
+prepare_staged_gemm(blas::BlasWritableMatrix<Scalar, uni20::cuda::CudaBufferView<Scalar>> output,
+                    blas::BlasReadableMatrix<Scalar, LhsHandle> lhs, blas::BlasReadableMatrix<Scalar, RhsHandle> rhs)
+{
+  if (!provider_transforms_are_supported(lhs, rhs))
+  {
+    return {.attempt = KernelAttempt::unsupported_transform};
+  }
 
   blas_int const inner = require_gemm_shape(output, lhs, rhs);
-  if (output.rows == 0 || output.cols == 0) return KernelAttempt::success;
+  if (output.rows == 0 || output.cols == 0)
+  {
+    return {.attempt = KernelAttempt::success};
+  }
 
   auto& output_buffer = output.data.buffer();
   auto const& lhs_buffer = lhs.data.buffer();
@@ -169,20 +212,13 @@ KernelAttempt try_staged_gemm(blas::BlasWritableMatrix<Scalar, OutputHandle> out
   require_view_covers_matrix(lhs.data, lhs);
   require_view_covers_matrix(rhs.data, rhs);
 
-  auto execution = uni20::cublas::execution_pool(output_buffer.resources()).acquire();
-  auto output_access = output_buffer.write_synchronized_with(execution.stream());
-  auto lhs_access = lhs_buffer.read_synchronized_with(execution.stream());
-  auto rhs_access = rhs_buffer.read_synchronized_with(execution.stream());
-
-  auto const raw_output = with_data(output, offset_pointer(output_access.data(), output.data.element_offset()));
-  auto const raw_lhs = with_data(lhs, offset_pointer(lhs_access.data(), lhs.data.element_offset()));
-  auto const raw_rhs = with_data(rhs, offset_pointer(rhs_access.data(), rhs.data.element_offset()));
-  uni20::cublas::gemm(execution, blas::blas_trans_char<Scalar>(raw_lhs.transform),
-                      blas::blas_trans_char<Scalar>(raw_rhs.transform), cublas_int(raw_output.rows),
-                      cublas_int(raw_output.cols), cublas_int(inner), alpha, raw_lhs.data,
-                      cublas_int(raw_lhs.leading_dimension), raw_rhs.data, cublas_int(raw_rhs.leading_dimension), beta,
-                      raw_output.data, cublas_int(raw_output.leading_dimension));
-  return KernelAttempt::success;
+  return {.attempt = KernelAttempt::success,
+          .plan = {.output = output,
+                   .lhs = readonly_matrix(lhs),
+                   .rhs = readonly_matrix(rhs),
+                   .inner = inner,
+                   .device = device,
+                   .has_work = true}};
 }
 
 } // namespace detail
@@ -211,44 +247,101 @@ KernelAttempt try_gemm(uni20::cublas::ExecutionLease& execution, blas::BlasWrita
   return KernelAttempt::success;
 }
 
-/// \brief Try no-copy GEMM from opaque CUDA mdspan operands.
+/// \brief Prepare no-copy GEMM from opaque CUDA mdspan operands without acquiring resources.
 /// \details Recognized accessors and handles are validated for shape, layout,
-///          transform, device, aliasing, and allocation bounds. A clean runtime
-///          decline occurs before provider-resource admission. Accepted calls
-///          lease a cuBLAS handle and stream from the output context, open
-///          synchronized scoped buffer access, derive raw device pointers, and
-///          enqueue GEMM. Failures after admission are terminal rather than
-///          eligible for backend fallback.
+///          transform, device, aliasing, and allocation bounds. Preparation has
+///          no externally visible side effects, so a non-success attempt is a
+///          clean backend decline. A successful plan retains opaque buffer views
+///          but does not acquire synchronized access or provider resources.
 template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
   requires detail::writable_cuda_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
            detail::readable_cuda_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
            detail::readable_cuda_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
-KernelAttempt try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
+GemmPreparation<Scalar> prepare_gemm(OutputMdspan&& output, LhsMdspan&& lhs, RhsMdspan&& rhs)
 {
   CHECK_EQUAL(lhs.extent(1), rhs.extent(0));
   CHECK_EQUAL(output.extent(0), lhs.extent(0));
   CHECK_EQUAL(output.extent(1), rhs.extent(1));
 
-  if (output.extent(0) == 0 || output.extent(1) == 0) return KernelAttempt::success;
+  if (output.extent(0) == 0 || output.extent(1) == 0)
+  {
+    return {.attempt = KernelAttempt::success, .plan = {.device = output.data_handle().buffer().device().ordinal()}};
+  }
 
   auto output_stage = blas::try_mdspan_matrix_stage(output);
   auto lhs_stage = blas::try_mdspan_matrix_stage(lhs);
   auto rhs_stage = blas::try_mdspan_matrix_stage(rhs);
-  if (!output_stage || !lhs_stage || !rhs_stage) return KernelAttempt::unsupported_layout;
+  if (!output_stage || !lhs_stage || !rhs_stage)
+  {
+    return {.attempt = KernelAttempt::unsupported_layout};
+  }
   CHECK(!output_stage->needs_conjugation);
 
   auto const output_matrix = blas::blas_writable_matrix(*output_stage);
   if (output_stage->unit_stride_axis == 0)
   {
-    return detail::try_staged_gemm(output_matrix, blas::blas_readable_matrix(*lhs_stage),
-                                   blas::blas_readable_matrix(*rhs_stage), alpha, beta);
+    return detail::prepare_staged_gemm(output_matrix, blas::blas_readable_matrix(*lhs_stage),
+                                       blas::blas_readable_matrix(*rhs_stage));
   }
 
   auto lhs_matrix = blas::blas_readable_matrix(*rhs_stage);
   auto rhs_matrix = blas::blas_readable_matrix(*lhs_stage);
   lhs_matrix.transform = blas::compose(blas::MatrixTransform::transpose, lhs_matrix.transform);
   rhs_matrix.transform = blas::compose(blas::MatrixTransform::transpose, rhs_matrix.transform);
-  return detail::try_staged_gemm(output_matrix, lhs_matrix, rhs_matrix, alpha, beta);
+  return detail::prepare_staged_gemm(output_matrix, lhs_matrix, rhs_matrix);
+}
+
+/// \brief Enqueue one prepared CUDA GEMM and publish its buffer completion state.
+/// \details The execution lease must belong to the plan device. Scoped buffer
+///          access installs incoming dependencies and records stream-tail
+///          completions before this function returns.
+template <uni20::cublas::CublasScalar Scalar>
+void execute_gemm(uni20::cublas::ExecutionLease& execution, GemmPlan<Scalar> const& plan, Scalar alpha, Scalar beta)
+{
+  CHECK(plan.has_work);
+  CHECK_EQUAL(execution.handle().device(), plan.device, "cuBLAS execution lease must match the operand device");
+
+  auto& output_buffer = plan.output.data.buffer();
+  auto const& lhs_buffer = plan.lhs.data.buffer();
+  auto const& rhs_buffer = plan.rhs.data.buffer();
+  auto output_access = output_buffer.write_synchronized_with(execution.stream());
+  auto lhs_access = lhs_buffer.read_synchronized_with(execution.stream());
+  auto rhs_access = rhs_buffer.read_synchronized_with(execution.stream());
+
+  auto const raw_output =
+      detail::with_data(plan.output, detail::offset_pointer(output_access.data(), plan.output.data.element_offset()));
+  auto const raw_lhs =
+      detail::with_data(plan.lhs, detail::offset_pointer(lhs_access.data(), plan.lhs.data.element_offset()));
+  auto const raw_rhs =
+      detail::with_data(plan.rhs, detail::offset_pointer(rhs_access.data(), plan.rhs.data.element_offset()));
+  uni20::cublas::gemm(execution, blas::blas_trans_char<Scalar>(raw_lhs.transform),
+                      blas::blas_trans_char<Scalar>(raw_rhs.transform), detail::cublas_int(raw_output.rows),
+                      detail::cublas_int(raw_output.cols), detail::cublas_int(plan.inner), alpha, raw_lhs.data,
+                      detail::cublas_int(raw_lhs.leading_dimension), raw_rhs.data,
+                      detail::cublas_int(raw_rhs.leading_dimension), beta, raw_output.data,
+                      detail::cublas_int(raw_output.leading_dimension));
+}
+
+/// \brief Try no-copy GEMM through the blocking cuBLAS resource-admission path.
+/// \details Runtime acceptance is decided before resource acquisition. The call
+///          blocks only while acquiring a handle and idle stream; submitted
+///          device execution remains asynchronous.
+template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, class LhsMdspan, class RhsMdspan>
+  requires detail::writable_cuda_mdspan_for<std::remove_cvref_t<OutputMdspan>, Scalar> &&
+           detail::readable_cuda_mdspan_for<std::remove_cvref_t<LhsMdspan>, Scalar> &&
+           detail::readable_cuda_mdspan_for<std::remove_cvref_t<RhsMdspan>, Scalar>
+KernelAttempt try_gemm(OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs, RhsMdspan&& rhs, Scalar beta)
+{
+  auto preparation = prepare_gemm<Scalar>(std::forward<OutputMdspan>(output), std::forward<LhsMdspan>(lhs),
+                                          std::forward<RhsMdspan>(rhs));
+  if (!kernel_attempt_succeeded(preparation.attempt) || !preparation.plan.has_work)
+  {
+    return preparation.attempt;
+  }
+
+  auto execution = uni20::cublas::execution_pool(preparation.plan.resources()).acquire();
+  execute_gemm(execution, preparation.plan, alpha, beta);
+  return KernelAttempt::success;
 }
 
 /// \brief Run provider-ready column-major GEMM through cuBLAS.

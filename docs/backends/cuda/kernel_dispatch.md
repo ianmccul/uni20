@@ -5,9 +5,8 @@
 implemented. Scoped process-wide resource initialization and canonical
 per-device resources are implemented; scheduler enrollment into that runtime,
 general CUDA Tensor kernel coverage, and live coroutine scheduler migration are
-not yet implemented. Generic stream/provider-resource awaiters and Tensor-facing
-cuBLAS GEMM lowering are implemented; non-blocking async GEMM lowering remains
-future work.
+not yet implemented. Generic stream/provider-resource awaiters and non-blocking
+async Tensor-to-cuBLAS matrix-product lowering are implemented.
 
 This note defines how Uni20 kernel dispatch should interact with CUDA
 execution. It distinguishes a logical CUDA device activation from the physical
@@ -88,35 +87,32 @@ CUDA operations should be described in terms of submission channels:
   scheduler: `DebugCudaScheduler` and a one-slot `TbbCudaScheduler` are valid
   non-blocking execution environments.
 
-This channel choice is a Tensor storage-policy parameter. It is orthogonal to
-Tensor ownership and to whether a value is wrapped in `Async<T>`. The first
-implemented policy is `CudaAsyncStorage`, exposed conveniently through
-`CudaAsyncTensor`. A future blocking policy remains a distinct storage domain
-even though both can share `CudaBuffer` and `CudaBufferView`. The accessor type
-seen by dispatchable kernels identifies the channel.
+The first implemented storage policy is `CudaAsyncStorage`, exposed
+conveniently through `CudaAsyncTensor`. It supplies opaque CUDA storage that can
+participate in the non-blocking channel, but the operation entry point still
+selects resource-admission behavior. An ordinary direct Tensor operation may
+block while acquiring resources; an `Async<Tensor>` lowering must suspend
+instead. Both paths share `CudaBuffer`, operand preparation, and provider
+execution.
 
 A non-async C++ API may still choose the non-blocking channel internally if it
-enters a scheduler and waits at a defined boundary. Conversely,
-`Async<Tensor<..., CudaStorage<blocking_channel>>>` is possible as C++, but it
-is a dubious policy combination: lowering it through blocking resource
-acquisition would occupy the scheduler participant instead of suspending the
-coroutine. Async CUDA front-ends should therefore accept only the non-blocking
-CUDA storage policy for resources that may wait for capacity, unless a future
-operation explicitly documents why blocking is intentional.
+enters a scheduler and waits at a defined boundary. An async CUDA operation,
+however, must not call the ordinary blocking backend while holding an async
+epoch buffer. It uses its `co_*` submission path so resource scarcity suspends
+the coroutine rather than occupying a scheduler participant.
 
-Implementation should make the invalid combination hard to spell. The channel
-should not be carried by an ad-hoc backend selector. Blocking front-ends accept
-the blocking storage policy; async lowering accepts the non-blocking storage
-policy. Mixing the two is not an important use case, and disallowing it keeps
-accidental scheduler blocking out of async code.
+The channel should not be carried by an ad-hoc backend selector. The same
+storage-selected numerical backend remains applicable to both entry points;
+the ordinary backend adapter uses blocking admission, while the async operation
+uses an operation-specific coroutine submission function.
 
-The per-call stream, handle, and workspace leases are still operation-local and
-must not be stored in the backend selector. Direct Tensor GEMM acquires its
-lease inside `CublasBackend` after runtime decline checks. Async CUDA lowering
-will await the same resources before calling the provider-ready leaf, because
-an ordinary `try_kernel` cannot suspend. Both channels therefore converge on
-the same checked, non-suspending cuBLAS wrapper even though resource admission
-occurs at different layers.
+The per-call stream, handle, and workspace leases are operation-local and must
+not be stored in the backend selector. Ordinary `CublasBackend` GEMM prepares
+the operands, blocks for an execution lease, and submits the prepared call.
+Async matrix-product lowering instead awaits `co_gemm`: its CUDA task prepares
+the same operands, suspends for the execution lease, and invokes the prepared
+cuBLAS leaf directly. It does not redispatch an operation whose backend has
+already been selected.
 
 ## Per-Device Resources
 
@@ -196,11 +192,11 @@ co_await cuda_operation(device, operands...); // returns CudaTask
 ```
 
 The outer `AsyncTask` remains a distinct coroutine with its original promise and
-scheduler route. The nested `CudaTask` must already have an explicit scheduler
-route; cross-domain nesting never inherits the parent's route. Its device
-affinity may remain empty until device-sensitive work selects a device. When it
-completes, the outer continuation is submitted through the scheduler recorded
-in the outer promise.
+scheduler route. A scheduler-unbound nested `CudaTask` inherits that route only
+when the unified scheduler accepts its CUDA domain and established device
+affinity. `co_gemm` binds the operand device before nesting, so admission goes
+directly to the correct device activation. When it completes, the outer
+continuation is submitted through the scheduler recorded in the outer promise.
 
 Both task promises share `TaskPromiseBase`, but their concrete promise and
 return types remain fixed at creation. Device migration within one unified
@@ -308,9 +304,10 @@ edge.
 ## Non-Suspending Leaf Dispatch
 
 `try_kernel(...)` remains an ordinary function. Direct GEMM acquires a CUDA
-stream and scoped buffer guards inside the accepted backend attempt. Async
-lowering performs awaitable resource admission before entering an equivalent
-non-suspending leaf. A CUDA backend attempt may:
+execution lease and scoped buffer guards inside the accepted backend attempt.
+Async lowering performs side-effect-free preparation followed by awaitable
+resource admission before entering the same non-suspending prepared leaf. A
+CUDA backend attempt may:
 
 1. validate all remaining runtime preconditions;
 2. acquire scoped read/write buffer guards that install device-event
@@ -379,13 +376,12 @@ focused tests, and profiling.
 The generic backend walk does not become a coroutine and does not know about
 scheduler migration or resource-wait queues.
 
-The async Tensor wrapper performs execution routing and resource acquisition,
-then calls `dispatch_kernel(...)` with the storage policy's ordinary backend
-list plus an internal resource-lease operand. The backend selector should not
-be rewritten into a per-call resource object. If an ordered backend list
-contains a CUDA provider candidate and fallback candidates, the whole relevant
-backend walk runs after resource admission so runtime decline can continue
-without moving operands across another suspension boundary.
+The async Tensor wrapper performs the ordinary type-level backend selection,
+then awaits an operation-specific submission function such as `co_gemm`.
+`co_gemm` completes runtime operand preparation before resource admission; a
+decline is therefore still clean. After admission it invokes the selected
+provider leaf directly. General async walking of a multi-backend CUDA list is
+future work and must preserve this prepare-before-admission rule.
 
 Clean cancellation before resource admission is required but is not yet
 implemented for the intrusive resource wait queues. Until that support lands,
@@ -453,18 +449,16 @@ diagnostic data rather than preformatting one terminal-only string.
 
 1. Enroll the selected unified CUDA scheduler with the scoped process runtime
    without making scheduler state part of `DeviceResources`.
-2. Add typed CUDA admission that selects the correct scheduler from explicit
-   device or Tensor-storage placement.
-3. Add non-blocking async Tensor GEMM lowering that awaits the implemented
-   cuBLAS execution resources before entering the provider-ready leaf.
-4. Specify live-task scheduler migration separately, including activation
+2. Add automatic initial CUDA admission from Tensor-storage placement when the
+   device is available without inspecting a pending async value.
+3. Specify live-task scheduler migration separately, including activation
    accounting, cancellation, exceptions, waits, and quiescence.
-5. Define cancellation and runtime-shutdown behavior for queued resource
+4. Define cancellation and runtime-shutdown behavior for queued resource
    waiters.
-6. Implement one lightweight CUDA Tensor copy or elementwise kernel path.
-7. Implement one host-intensive cuSOLVER operation on the same device scheduler
+5. Implement one lightweight CUDA Tensor copy or elementwise kernel path.
+6. Implement one host-intensive cuSOLVER operation on the same device scheduler
    and profile whether a separate provider lane is justified.
-8. Validate multi-device isolation and explicit migration between two device
+7. Validate multi-device isolation and explicit migration between two device
    resource sets.
 
 ## Open Questions

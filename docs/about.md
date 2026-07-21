@@ -35,7 +35,7 @@ guides define the exact contracts.
 | Reverse-mode AD | Async value-level `Var<T>` and `ReverseValue<T>` foundations are implemented and tested. Tensor linalg differentiation is not yet wired through the operation layer. |
 | Symmetry and block sparsity | Quantum-number, U(1), block-space, local-space, and selection-rule foundations exist. A complete symmetry-aware `BlockTensor` and its lowering pipeline remain design work. |
 | Python | Nanobind smoke bindings and build metadata are implemented. Tensor operations, async values, packaging, and notebook display are future work. |
-| CUDA and distributed execution | Scoped process-wide CUDA runtime ownership, canonical per-device resources, typed buffers, stream and provider-resource awaiters, unified debug/oneTBB host/multi-device task schedulers, `CudaAsyncTensor` storage, and Tensor-facing cuBLAS GEMM are implemented. General CUDA Tensor kernel coverage, non-blocking async GEMM lowering, cuSOLVER operations, and distributed tensor execution remain future work. |
+| CUDA and distributed execution | Scoped process-wide CUDA runtime ownership, canonical per-device resources, typed buffers, stream and provider-resource awaiters, unified debug/oneTBB host/multi-device task schedulers, `CudaAsyncTensor` storage, and non-blocking async cuBLAS matrix-product lowering are implemented. General CUDA Tensor kernel coverage, direct non-async CUDA Tensor operations, cuSOLVER operations, and distributed tensor execution remain future work. |
 
 ## The Working Vertical Slice
 

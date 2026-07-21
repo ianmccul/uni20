@@ -6,6 +6,8 @@ linear-algebra operations over `Async<Tensor>` values.
 ## Contents
 
 - `matrix_product.hpp`: all-async `assign_product` and `add_product` wrappers.
+- `co_gemm.hpp`: fixed-output GEMM submission task; host selectors dispatch
+  immediately, while cuBLAS awaits device execution resources.
 - `reductions.hpp`: full and axis-selective async sums with storage-preserving
   or host-scalar results.
 - `self_adjoint_eigh.hpp`: preserving and consuming `eigh` wrappers with
@@ -21,7 +23,10 @@ linear-algebra operations over `Async<Tensor>` values.
 
 ## Rules
 
-- Backends and leaf kernels remain synchronous and async-unaware.
+- Backends and leaf kernels remain non-suspending and scheduler-unaware. CUDA
+  wrappers use operation-specific `co_*` tasks to await resources, then invoke
+  a prepared provider leaf directly. The outer Tensor coroutine retains its
+  epoch buffers until that host-side submission is complete.
 - Every Tensor operand in one wrapper call is an `Async<T>`.
 - Wrappers pass buffer handles and all other task state into coroutines by
   value; coroutine lambdas must be captureless and `static`.

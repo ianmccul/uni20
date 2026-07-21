@@ -105,11 +105,12 @@ See the [Async Documentation Index](async/) and
   a scheduler participant. cuBLAS adds pooled handle-plus-stream execution
   leases over those primitives.
 - `CudaAsyncTensor` owns opaque device storage and selects `CublasBackend`.
-  Fixed-output Tensor GEMM lowers through staged CUDA mdspans, synchronized
-  buffer access, and checked `S/D/C/ZGEMM` provider calls.
-- The direct Tensor path blocks only for resource admission and leaves submitted
-  device execution asynchronous. Fully non-blocking `Async<CudaAsyncTensor>`
-  GEMM lowering remains to be implemented.
+  Async matrix-product overwrite/update awaits a device-bound `CudaTask`, which
+  acquires a handle-plus-stream lease and lowers through staged CUDA mdspans,
+  synchronized buffer access, and checked `S/D/C/ZGEMM` provider calls.
+- Ordinary `CublasBackend` uses blocking resource admission. Async lowering
+  uses `co_gemm` and suspends while the same execution resources are
+  unavailable; both paths share operand preparation and provider execution.
 
 See [CUDA Runtime Foundation](backends/cuda/runtime.md),
 [CUDA Buffers](backends/cuda/buffers.md), and
@@ -274,9 +275,9 @@ that host vertical slices must leave the correct extension points.
 
 - Bring up one operation at a time through the same capability and runtime
   attempt mechanism used by host kernels.
-- Use the current blocking-admission `CudaAsyncTensor` GEMM path as the
-  correctness baseline. Add non-blocking Async resource admission while
-  converging on the same non-suspending provider leaf.
+- Use the current non-blocking `Async<CudaAsyncTensor>` matrix-product path as
+  the correctness baseline. Keep resource admission in the CUDA coroutine and
+  provider submission in the non-suspending backend leaf.
 - Extend provider coverage through cuBLAS, cuSOLVER, and reference CUDA kernels
   only after each Tensor operation's output, aliasing, and failure contracts are
   explicit.

@@ -118,11 +118,10 @@ namespace uni20
 ///          device. An explicit `cuda::DeviceResources` selects another enrolled
 ///          device or an isolated resource set used by tests. The policy selects
 ///          CUDA backends and exposes opaque CUDA handles. Stream and
-///          provider-resource admission remains operation-local. Current direct
-///          Tensor operations may block the calling host thread during resource
-///          admission, while submitted device execution remains asynchronous.
-///          Future coroutine lowering will await unavailable resources instead
-///          of blocking a scheduler participant.
+///          provider-resource admission remains operation-local. Ordinary
+///          Tensor backends may block during admission; Async Tensor front ends
+///          await unavailable resources in operation-specific `CudaTask`
+///          coroutines and then invoke the same prepared provider leaf.
 struct CudaAsyncStorage
 {
     using context_type = cuda::DeviceResources;

@@ -6,9 +6,10 @@ mdspan policy has been lowered but before the operation-tag backend adapter.
 ## Contents
 
 - `gemm.hpp`: checked GEMM over BLAS-compatible matrix descriptors or opaque
-  CUDA mdspans. The CUDA-mdspan path validates placement and layout, leases a
-  cuBLAS handle and idle stream, opens synchronized buffer access, and calls
-  the non-suspending provider wrapper.
+  CUDA mdspans. The CUDA-mdspan path separates side-effect-free operand
+  preparation from execution. Blocking and coroutine front ends acquire their
+  execution leases differently, then share synchronized buffer access and the
+  non-suspending provider wrapper.
 
 ## Notes
 
@@ -16,9 +17,9 @@ mdspan policy has been lowered but before the operation-tag backend adapter.
   [`backend/cublas/`](../../backend/cublas/).
 - Keep operation-tag acceptance and dispatch adaptation in
   [`linalg/backends/cublas/`](../backends/cublas/).
-- Runtime layout rejection must occur before resource acquisition. Once a
-  provider call is submitted, failure is terminal rather than a clean backend
-  decline.
+- Runtime layout rejection must occur before synchronized buffer access and
+  provider submission. Once a provider call is submitted, failure is terminal
+  rather than a clean backend decline.
 
 ## Related Documentation
 

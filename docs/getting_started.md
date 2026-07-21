@@ -143,6 +143,12 @@ through Tensor operations: ordinary extent-only `CudaAsyncTensor` construction
 uses its configured default device, while `cuda::device_resources(device)`
 selects another enrolled device for explicit construction.
 
+`CudaAsyncTensor` uses the non-blocking CUDA channel. Matrix products are
+submitted through all-Async `linalg::assign_product` or `linalg::add_product`;
+their `CudaTask` awaits cuBLAS resources without blocking a scheduler
+participant. Plain direct Tensor GEMM is not the interface for this storage
+policy.
+
 By default, `cuda::initialize()` enrolls every visible device, chooses the
 first enrolled device as the default, and creates eight actually-idle streams
 per device. `RuntimeConfig::device_ordinals`, `default_device`,

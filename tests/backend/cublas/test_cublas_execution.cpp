@@ -6,6 +6,7 @@
 #include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/common/presentation.hpp>
 #include <uni20/core/types.hpp>
+#include <uni20/linalg/async/matrix_product.hpp>
 #include <uni20/linalg/backends/cublas/gemm.hpp>
 #include <uni20/linalg/ops/gemm.hpp>
 #include <uni20/tensor/conjugate.hpp>
@@ -154,6 +155,7 @@ class CudaGemmPlatform {
       auto span = tensor.mdspan();
       auto view = span.data_handle();
       auto& buffer = view.buffer();
+      uni20::cuda::ScopedDevice device_scope(buffer.device().ordinal());
       ASSERT_EQ(values.size(), static_cast<std::size_t>(span.mapping().required_span_size()));
       ASSERT_LE(view.element_offset(), buffer.size());
       ASSERT_LE(values.size(), buffer.size() - view.element_offset());
@@ -173,6 +175,7 @@ class CudaGemmPlatform {
       auto span = tensor.mdspan();
       auto view = span.data_handle();
       auto const& buffer = view.buffer();
+      uni20::cuda::ScopedDevice device_scope(buffer.device().ordinal());
       std::vector<uni20::tensor_element_t<Tensor>> values(span.mapping().required_span_size());
       CHECK(view.element_offset() <= buffer.size() && values.size() <= buffer.size() - view.element_offset());
       auto stream = resources_.streams().acquire();
@@ -187,6 +190,20 @@ class CudaGemmPlatform {
     }
 
     [[nodiscard]] auto resources() noexcept -> uni20::cuda::DeviceResources& { return resources_; }
+
+    template <class Selector, class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
+    [[nodiscard]] auto kernel_type_candidates(Selector const& selector, OutputMdspan& output, Scalar alpha,
+                                              LhsMdspan& lhs, RhsMdspan& rhs, Scalar beta)
+    {
+      return uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemm_op{}, output, alpha, lhs, rhs, beta);
+    }
+
+    template <class Backend, class OutputTensor, class Scalar, class LhsTensor, class RhsTensor>
+    void gemm(Backend const& backend, OutputTensor& output, Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs,
+              Scalar beta)
+    {
+      uni20::linalg::gemm(backend, output, alpha, lhs, rhs, beta);
+    }
 
   private:
     uni20::cuda::DeviceResources resources_;
@@ -288,6 +305,7 @@ template <class Scalar> void check_column_major_gemm(int device)
 template <class Tensor> void upload_tensor(Tensor& tensor, std::span<uni20::tensor_element_t<Tensor> const> values)
 {
   ASSERT_EQ(values.size(), tensor.size());
+  uni20::cuda::ScopedDevice device_scope(tensor.storage().device().ordinal());
   auto stream = tensor.storage().resources().streams().acquire();
   {
     auto write = tensor.storage().write_synchronized_with(stream);
@@ -301,6 +319,7 @@ template <class Tensor> void upload_tensor(Tensor& tensor, std::span<uni20::tens
 template <class Tensor> auto download_tensor(Tensor const& tensor) -> std::vector<uni20::tensor_element_t<Tensor>>
 {
   std::vector<uni20::tensor_element_t<Tensor>> values(tensor.size());
+  uni20::cuda::ScopedDevice device_scope(tensor.storage().device().ordinal());
   auto stream = tensor.storage().resources().streams().acquire();
   {
     auto read = tensor.storage().read_synchronized_with(stream);
@@ -411,6 +430,137 @@ TEST_F(CublasExecutionTest, AsyncAcquisitionReservesHandleBeforeWaitingForStream
   streams.synchronize();
   EXPECT_EQ(executions.idle_handle_count(), 1);
   EXPECT_EQ(streams.idle_stream_count(), 1);
+}
+
+TEST_F(CublasExecutionTest, AsyncTensorAssignAndAddProductUseCudaTaskLowering)
+{
+  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using async_matrix_type = uni20::async::Async<matrix_type>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs_value(resources, 2, 3);
+  matrix_type rhs_value(resources, 3, 2);
+  matrix_type output_value(resources, 2, 2);
+  std::array<double, 6> const lhs_values{1, 4, 2, 5, 3, 6};
+  std::array<double, 6> const rhs_values{7, 9, 11, 8, 10, 12};
+  std::array<double, 4> const initial_output{1, 2, 3, 4};
+  upload_tensor(lhs_value, std::span<double const>{lhs_values});
+  upload_tensor(rhs_value, std::span<double const>{rhs_values});
+  upload_tensor(output_value, std::span<double const>{initial_output});
+
+  async_matrix_type lhs(std::move(lhs_value));
+  async_matrix_type rhs(std::move(rhs_value));
+  async_matrix_type assigned;
+  async_matrix_type updated(std::move(output_value));
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(device_));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+
+  uni20::linalg::assign_product(assigned, lhs, rhs);
+  EXPECT_EQ(download_tensor(assigned.get_wait(scheduler)), (std::vector<double>{58, 139, 64, 154}));
+
+  uni20::linalg::add_product(updated, lhs, rhs, 2.0);
+  EXPECT_EQ(download_tensor(updated.get_wait(scheduler)), (std::vector<double>{117, 280, 131, 312}));
+}
+
+TEST_F(CublasExecutionTest, AsyncOutputRemainsPendingUntilCublasSubmissionCompletes)
+{
+  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using async_matrix_type = uni20::async::Async<matrix_type>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 2});
+  matrix_type lhs_value(resources, 1, 1);
+  matrix_type rhs_value(resources, 1, 1);
+  matrix_type output_value(resources, 1, 1);
+  std::array<double, 1> const lhs_values{6};
+  std::array<double, 1> const rhs_values{7};
+  upload_tensor(lhs_value, std::span<double const>{lhs_values});
+  upload_tensor(rhs_value, std::span<double const>{rhs_values});
+
+  auto& executions = uni20::cublas::execution_pool(resources);
+  std::vector<uni20::cublas::ExecutionLease> occupied;
+  occupied.reserve(executions.handle_count());
+  for (std::size_t i = 0; i < executions.handle_count(); ++i)
+  {
+    occupied.push_back(executions.acquire());
+  }
+
+  async_matrix_type lhs(std::move(lhs_value));
+  async_matrix_type rhs(std::move(rhs_value));
+  async_matrix_type output(std::move(output_value));
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(device_));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+
+  uni20::linalg::assign_product(output, lhs, rhs);
+  auto output_reader = output.read();
+  scheduler.run_all();
+  EXPECT_FALSE(output_reader.await_ready());
+
+  occupied.clear();
+  resources.streams().synchronize();
+  scheduler.run_all();
+
+  EXPECT_TRUE(output_reader.await_ready());
+  EXPECT_EQ(download_tensor(output_reader.get_wait(scheduler)), (std::vector<double>{42}));
+}
+
+TEST_F(CublasExecutionTest, AsyncEmptyOutputDoesNotWaitForCublasExecutionResources)
+{
+  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using async_matrix_type = uni20::async::Async<matrix_type>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(device_), .stream_count = 1});
+  matrix_type lhs_value(resources, 0, 3);
+  matrix_type rhs_value(resources, 3, 2);
+
+  auto& executions = uni20::cublas::execution_pool(resources);
+  std::vector<uni20::cublas::ExecutionLease> occupied;
+  occupied.reserve(executions.handle_count());
+  for (std::size_t i = 0; i < executions.handle_count(); ++i)
+  {
+    occupied.push_back(executions.acquire());
+  }
+
+  async_matrix_type lhs(std::move(lhs_value));
+  async_matrix_type rhs(std::move(rhs_value));
+  async_matrix_type output;
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(device_));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+
+  uni20::linalg::assign_product(output, lhs, rhs);
+  auto output_reader = output.read();
+  scheduler.run_all();
+  ASSERT_TRUE(output_reader.await_ready());
+
+  occupied.clear();
+  resources.streams().synchronize();
+  auto const& result = output_reader.get_wait(scheduler);
+  EXPECT_EQ(result.rows(), 0);
+  EXPECT_EQ(result.cols(), 2);
+  EXPECT_EQ(executions.idle_handle_count(), executions.handle_count());
+}
+
+TEST_F(CublasExecutionTest, AsyncTensorProductMigratesToOperandDevice)
+{
+  if (device_count_ < 2) GTEST_SKIP() << "test requires at least two CUDA devices";
+
+  using matrix_type = uni20::CudaAsyncMatrix<double>;
+  using async_matrix_type = uni20::async::Async<matrix_type>;
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(1), .stream_count = 1});
+  matrix_type lhs_value(resources, 1, 1);
+  matrix_type rhs_value(resources, 1, 1);
+  std::array<double, 1> const lhs_values{6};
+  std::array<double, 1> const rhs_values{7};
+  upload_tensor(lhs_value, std::span<double const>{lhs_values});
+  upload_tensor(rhs_value, std::span<double const>{rhs_values});
+
+  async_matrix_type lhs(std::move(lhs_value));
+  async_matrix_type rhs(std::move(rhs_value));
+  async_matrix_type output;
+  uni20::async::DebugCudaScheduler scheduler(uni20::cuda::Device::get(0));
+  uni20::async::ScopedScheduler scoped(&scheduler);
+
+  uni20::linalg::assign_product(output, lhs, rhs);
+
+  auto const& result = output.get_wait(scheduler);
+  EXPECT_EQ(result.storage().device().ordinal(), 1);
+  EXPECT_EQ(download_tensor(result), (std::vector<double>{42}));
 }
 
 TEST_F(CublasExecutionTest, ComputesColumnMajorRealGemm)

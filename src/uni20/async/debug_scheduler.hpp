@@ -4,6 +4,7 @@
 #pragma once
 
 #include "async.hpp"
+#include "cuda_task.hpp"
 #include "scheduler.hpp"
 #include "task_registry.hpp"
 #include <algorithm>
@@ -224,6 +225,28 @@ class ScopedScheduler {
 /// \brief Schedule a task on the currently configured global scheduler.
 /// \param task Task to schedule.
 inline void schedule(AsyncTask&& task) { get_global_scheduler()->schedule(std::move(task)); }
+
+/// \brief Schedule a CUDA task on the currently configured global scheduler.
+/// \details The installed scheduler must implement CUDA task admission.
+/// \param task CUDA task to schedule without establishing device affinity.
+inline void schedule(CudaTask&& task)
+{
+  auto* scheduler = dynamic_cast<ICudaScheduler*>(get_global_scheduler());
+  CHECK(scheduler != nullptr, "the global scheduler does not accept CUDA tasks");
+  scheduler->schedule(std::move(task));
+}
+
+/// \brief Schedule a CUDA task with initial device affinity.
+/// \details Initial admission to the correct device avoids a later scheduler
+///          migration when the task first selects that device.
+/// \param task CUDA task to schedule.
+/// \param device CUDA runtime device ordinal.
+inline void schedule(CudaTask&& task, int device)
+{
+  auto* scheduler = dynamic_cast<ICudaScheduler*>(get_global_scheduler());
+  CHECK(scheduler != nullptr, "the global scheduler does not accept CUDA tasks");
+  scheduler->schedule(std::move(task), device);
+}
 
 /// \brief Wait for a reader context using the global scheduler.
 /// \tparam T Stored value type.

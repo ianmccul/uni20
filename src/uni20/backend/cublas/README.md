@@ -21,11 +21,12 @@ returned at the submitted stream tail. The stream independently returns to its
 pool when its final reference is released and the stream becomes idle.
 
 `cublas::execution_pool(resources)` lazily constructs one pool owned by the CUDA
-device resources. Direct Tensor dispatch uses its blocking `acquire()` path.
-CUDA tasks can use `co_await cublas::acquire_execution(pool)` so exhausted
-resource admission suspends rather than occupying a scheduler participant.
-The checked provider wrappers consume an already acquired lease and never
-perform resource admission themselves.
+device resources. Async Tensor matrix products use
+`co_await cublas::acquire_execution(pool)` so exhausted resource admission
+suspends rather than occupying a scheduler participant. Ordinary
+`CublasBackend` calls the blocking `acquire()` path. Checked provider wrappers
+consume an already acquired lease and never perform resource admission
+themselves.
 
 ## Related Documentation
 

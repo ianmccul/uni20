@@ -10,8 +10,13 @@
 #include <uni20/async/awaiters.hpp>
 #include <uni20/async/debug_scheduler.hpp>
 #include <uni20/common/trace.hpp>
+#include <uni20/linalg/async/co_gemm.hpp>
 #include <uni20/linalg/ops/matrix_product.hpp>
 #include <uni20/tensor/output.hpp>
+
+#if UNI20_BACKEND_CUBLAS
+#include <uni20/storage/cuda_async_storage.hpp>
+#endif
 
 #include <concepts>
 #include <memory>
@@ -41,16 +46,38 @@ void validate_async_matrix_product_aliasing(async::Async<OutputTensor> const& ou
            "async matrix product output must not share an epoch queue with an input");
 }
 
-template <uni20::MutableRankedTensorView<2> OutputTensor>
+#if UNI20_BACKEND_CUBLAS
+template <class OutputTensor, class LhsTensor>
+concept CudaAsyncMatrixProductOutput =
+    std::same_as<uni20::detail::tensor_storage_policy_t<OutputTensor>, uni20::CudaAsyncStorage> &&
+    std::same_as<uni20::detail::tensor_storage_policy_t<LhsTensor>, uni20::CudaAsyncStorage>;
+
+template <uni20::TensorView Tensor>
+[[nodiscard]] uni20::cuda::DeviceResources& cuda_tensor_resources(Tensor const& tensor)
+{
+  return tensor.mdspan().data_handle().buffer().resources();
+}
+
+#endif
+
+template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor>
 [[nodiscard]] OutputTensor& prepare_async_assign_product_output(async::shared_storage<OutputTensor>& storage,
-                                                                matrix_product_extents const& shape)
+                                                                matrix_product_extents const& shape,
+                                                                LhsTensor const& lhs)
 {
   if (storage.constructed()) return *storage;
 
   using extents_type = uni20::tensor_extents_t<OutputTensor>;
+  auto const extents = uni20::detail::convert_tensor_extents<extents_type>(shape);
+#if UNI20_BACKEND_CUBLAS
+  if constexpr (CudaAsyncMatrixProductOutput<OutputTensor, LhsTensor> &&
+                std::constructible_from<OutputTensor, uni20::cuda::DeviceResources&, extents_type const&>)
+  {
+    return storage.emplace(cuda_tensor_resources(lhs), extents);
+  }
+#endif
   if constexpr (std::constructible_from<OutputTensor, extents_type const&>)
   {
-    auto const extents = uni20::detail::convert_tensor_extents<extents_type>(shape);
     return storage.emplace(extents);
   }
   else
@@ -73,8 +100,11 @@ async::AsyncTask async_assign_product_task(BackendSelector const selector, async
   auto const& alpha_value = std::get<3>(awaited);
 
   auto const shape = matrix_product_shape(lhs_value, rhs_value);
-  auto& output_value = prepare_async_assign_product_output<OutputTensor>(storage, shape);
-  uni20::linalg::assign_product(selector, output_value, lhs_value, rhs_value, alpha_value);
+  auto& output_value = prepare_async_assign_product_output<OutputTensor>(storage, shape, lhs_value);
+  uni20::ensure_shape(output_value, shape);
+  using scalar_type = uni20::tensor_element_t<OutputTensor>;
+  co_await co_gemm(selector, output_value.mdspan(), static_cast<scalar_type>(alpha_value), lhs_value.mdspan(),
+                   rhs_value.mdspan(), scalar_type{});
   co_return;
 }
 
@@ -92,7 +122,11 @@ async::AsyncTask async_add_product_task(BackendSelector const selector, async::W
   auto const& alpha_value = std::get<3>(awaited);
 
   if (!storage.constructed()) throw async::buffer_write_uninitialized{};
-  uni20::linalg::add_product(selector, *storage, lhs_value, rhs_value, alpha_value);
+  auto const shape = matrix_product_shape(lhs_value, rhs_value);
+  uni20::require_shape(*storage, shape);
+  using scalar_type = uni20::tensor_element_t<OutputTensor>;
+  co_await co_gemm(selector, storage->mdspan(), static_cast<scalar_type>(alpha_value), lhs_value.mdspan(),
+                   rhs_value.mdspan(), scalar_type{1});
   co_return;
 }
 

@@ -1,16 +1,14 @@
 # src/uni20/linalg/backends/cublas
 
 This directory adapts opaque CUDA mdspan operands to cuBLAS operation tags.
-`CublasBackend` validates and stages the mdspans before acquiring resources,
-then obtains the cuBLAS execution pool owned by `DeviceResources`, leases a
-handle and idle stream, opens synchronized CUDA buffer access, and calls the
-provider-ready leaf.
+`CublasBackend` validates and stages the mdspans, blocks for an execution lease,
+opens synchronized CUDA buffer access, and calls the provider-ready leaf. This
+is the ordinary direct Tensor path.
 
-The current first operation is GEMM. Ordinary Tensor code reaches it through
-`linalg::gemm(output, alpha, lhs, rhs, beta)`; the Tensor front end resolves
-mdspans and dispatches the storage-selected `CublasBackend`. The direct path
-uses blocking resource admission. Future async CUDA lowering will await the
-same execution resources before entering the non-suspending provider leaf.
+The current first operation is GEMM. Async `assign_product` and `add_product`
+await `co_gemm`, which binds a CUDA child to the operand device, awaits the
+execution lease, and invokes the same prepared provider leaf without
+redispatching through `CublasBackend`.
 
 An empty GEMM output succeeds before operand staging. cuBLAS accepts a zero
 inner extent with null zero-sized input buffers and applies the degenerate
