@@ -265,6 +265,10 @@ part of core Tensor, storage, dispatch, or async contracts. This does not mean
 that incomplete CUDA code takes priority over every host operation. It means
 that host vertical slices must leave the correct extension points.
 
+The [Deployment Environment](architecture/deployment_environment.md) records
+the scheduled multi-node, x86-64/AArch64, and multi-generation GPU systems that
+motivate these constraints.
+
 ### Extend device-aware foundations
 
 - Preserve the implemented split between compile-time storage memory kind and

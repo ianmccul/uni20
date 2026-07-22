@@ -123,6 +123,9 @@ a complete tensor-network application suite. In particular:
 - APIs may be renamed or reshaped when a clearer design emerges.
 - Current tensor rank is compile-time because the implementation is mdspan-based;
   dynamic-rank tensors require a distinct descriptor design.
+- Core execution interfaces target scheduled, multi-process HPC systems with
+  x86-64 or AArch64 hosts and potentially many GPUs per node; workstation
+  topology and device numbering are not architectural limits.
 - Async wrappers are added operation by operation because output construction,
   mutation, consumption, and multi-output failure routing have different
   contracts.
@@ -139,6 +142,8 @@ a complete tensor-network application suite. In particular:
 - [Getting Started](getting_started.md): configure, build, and test Uni20.
 - [Architecture Overview](architecture/overview.md): implemented layers and
   planned extensions.
+- [Deployment Environment](architecture/deployment_environment.md): target HPC
+  system shape and the resulting portability constraints.
 - [Tensor Operations](tensor/operations.md): canonical ownership, output,
   layout, and async support matrix.
 - [Kernel Dispatch](architecture/kernel_dispatch.md): backend capability and decline model.

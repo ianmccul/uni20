@@ -21,6 +21,9 @@ incomplete.
   and stream-synchronized access API for kernel and provider authors.
 - [Runtime Model](runtime.md) explains device selection, stream ownership,
   completion tokens, and structured errors.
+- [Deployment Environment](../../architecture/deployment_environment.md)
+  explains the multi-GPU, MPI, accelerator-generation, and host-architecture
+  constraints behind the CUDA runtime design.
 - [CUDA hello-world example](../../../examples/cuda/) reports the configured
   runtime and exercises the stream/completion foundation.
 

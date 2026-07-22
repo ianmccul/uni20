@@ -17,6 +17,8 @@ heterogeneous-execution layers fit together.
   and clean-decline contract generalized by kernel dispatch.
 - [Execution Architecture](execution.md) records the forward CPU, CUDA, and MPI
   mechanism/policy split.
+- [Deployment Environment](deployment_environment.md) records the HPC system
+  shape and portability constraints that guide those execution interfaces.
 - [Ordering and Backend Lowering](ordering_and_backend_lowering.md) assigns
   ordering, completion, and lifetime responsibilities across layers.
 - [Storage Kind and Location](storage_kind_and_location.md) separates
