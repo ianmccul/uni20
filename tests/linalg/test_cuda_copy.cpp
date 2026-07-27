@@ -21,6 +21,8 @@ namespace
 using host_matrix_type = uni20::Tensor<double, 2>;
 using cuda_matrix_type = uni20::CudaTensor<double, 2>;
 using row_major_host_matrix_type = uni20::RowMajorTensor<double, 2>;
+using complex_type = uni20::complex<double>;
+using complex_host_matrix_type = uni20::Tensor<complex_type, 2>;
 
 using namespace std::chrono_literals;
 
@@ -132,6 +134,42 @@ TEST_F(CudaCopyTest, FixedOutputPageableTransfersResizeAndRoundTrip)
   EXPECT_EQ(device.rows(), source.rows());
   EXPECT_EQ(device.cols(), source.cols());
   expect_matrix(result);
+}
+
+TEST_F(CudaCopyTest, DeviceToHostCopyObservesConjugatingAccessor)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  complex_host_matrix_type source(2, 2);
+  source[0, 0] = complex_type{1.0, 2.0};
+  source[1, 0] = complex_type{-3.0, 4.0};
+  source[0, 1] = complex_type{5.0, -6.0};
+  source[1, 1] = complex_type{-7.0, -8.0};
+
+  auto device = uni20::to_device(source, 0);
+  auto result = uni20::to_host(uni20::conj(device));
+
+  EXPECT_EQ((result[0, 0]), (complex_type{1.0, -2.0}));
+  EXPECT_EQ((result[1, 0]), (complex_type{-3.0, -4.0}));
+  EXPECT_EQ((result[0, 1]), (complex_type{5.0, 6.0}));
+  EXPECT_EQ((result[1, 1]), (complex_type{-7.0, 8.0}));
+}
+
+TEST_F(CudaCopyTest, HostToDeviceCopyObservesConjugatingAccessor)
+{
+  auto runtime = uni20::cuda::initialize({.device_ordinals = {0}, .streams_per_device = 2});
+  complex_host_matrix_type source(2, 2);
+  source[0, 0] = complex_type{1.0, 2.0};
+  source[1, 0] = complex_type{-3.0, 4.0};
+  source[0, 1] = complex_type{5.0, -6.0};
+  source[1, 1] = complex_type{-7.0, -8.0};
+
+  auto device = uni20::to_device(uni20::conj(source), 0);
+  auto result = uni20::to_host(device);
+
+  EXPECT_EQ((result[0, 0]), (complex_type{1.0, -2.0}));
+  EXPECT_EQ((result[1, 0]), (complex_type{-3.0, -4.0}));
+  EXPECT_EQ((result[0, 1]), (complex_type{5.0, 6.0}));
+  EXPECT_EQ((result[1, 1]), (complex_type{-7.0, 8.0}));
 }
 
 TEST_F(CudaCopyTest, SameDeviceCopyUsesCudaReferenceFallback)

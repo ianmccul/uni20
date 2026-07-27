@@ -30,7 +30,8 @@ template <class Scalar> async::CudaTask cuda_reference_copy_task(cuda_reference:
 /// \brief Return a deferred non-blocking CUDA-to-CUDA copy submission.
 template <class OutputMdspan, class InputMdspan>
   requires(detail::cuda_reference::SupportedCopyMdspans<OutputMdspan, InputMdspan> &&
-           detail::cuda_reference::is_cuda_mdspan<OutputMdspan> && detail::cuda_reference::is_cuda_mdspan<InputMdspan>)
+           detail::cuda_reference::is_raw_cuda_mdspan<OutputMdspan> &&
+           detail::cuda_reference::is_raw_cuda_mdspan<InputMdspan>)
 auto try_kernel_task(CudaReferenceBackend, copy_op const&, OutputMdspan& output,
                      InputMdspan& input) -> KernelTaskAttempt<async::CudaTask>
 {

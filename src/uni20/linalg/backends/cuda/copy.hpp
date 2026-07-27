@@ -8,9 +8,11 @@
 
 #include <uni20/backend/cuda/buffer.hpp>
 #include <uni20/backend/cuda/cuda_error.hpp>
+#include <uni20/core/math.hpp>
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/mdspan/conjugate_accessor.hpp>
 #include <uni20/storage/cuda_storage.hpp>
 
 #include <cuda_runtime_api.h>
@@ -21,6 +23,7 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace uni20::linalg
 {
@@ -38,6 +41,30 @@ template <class Accessor> struct IsCudaAccessor : std::false_type
 {};
 
 template <class ElementType> struct IsCudaAccessor<uni20::cuda::CudaAccessor<ElementType>> : std::true_type
+{};
+
+template <class Accessor> struct IsRawCudaAccessor : std::false_type
+{};
+
+template <class ElementType> struct IsRawCudaAccessor<uni20::cuda::CudaAccessor<ElementType>> : std::true_type
+{};
+
+template <class ElementType> struct IsRawCudaAccessor<uni20::cuda::CudaPointerAccessor<ElementType>> : std::true_type
+{};
+
+template <class Accessor> struct IsConjugatedCudaAccessor : std::false_type
+{};
+
+template <class Accessor>
+struct IsConjugatedCudaAccessor<uni20::conjugated_accessor<Accessor>> : IsRawCudaAccessor<Accessor>
+{};
+
+template <class Accessor> struct IsConjugatedHostAccessor : std::false_type
+{};
+
+template <class Accessor>
+struct IsConjugatedHostAccessor<uni20::conjugated_accessor<Accessor>>
+    : std::bool_constant<uni20::is_default_accessor_v<Accessor>>
 {};
 
 template <class Descriptor> struct IsCudaBufferView : std::false_type
@@ -60,7 +87,25 @@ inline constexpr bool is_cuda_mdspan =
     HasCudaBufferDescriptor<Mdspan>::value;
 
 template <class Mdspan>
-inline constexpr bool is_host_mdspan = uni20::DefaultAccessorMdspan<std::remove_cvref_t<Mdspan>>;
+inline constexpr bool is_raw_cuda_mdspan =
+    is_cuda_mdspan<Mdspan> && IsRawCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
+
+template <class Mdspan>
+inline constexpr bool is_conjugated_cuda_mdspan =
+    is_cuda_mdspan<Mdspan> && IsConjugatedCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
+
+template <class Mdspan>
+inline constexpr bool is_supported_cuda_mdspan = is_raw_cuda_mdspan<Mdspan> || is_conjugated_cuda_mdspan<Mdspan>;
+
+template <class Mdspan>
+inline constexpr bool is_raw_host_mdspan = uni20::DefaultAccessorMdspan<std::remove_cvref_t<Mdspan>>;
+
+template <class Mdspan>
+inline constexpr bool is_conjugated_host_mdspan =
+    uni20::SpanLike<Mdspan> && IsConjugatedHostAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
+
+template <class Mdspan>
+inline constexpr bool is_supported_host_mdspan = is_raw_host_mdspan<Mdspan> || is_conjugated_host_mdspan<Mdspan>;
 
 template <class OutputMdspan, class InputMdspan>
 concept SupportedCopyMdspans =
@@ -70,8 +115,9 @@ concept SupportedCopyMdspans =
     (std::remove_cvref_t<OutputMdspan>::rank() == std::remove_cvref_t<InputMdspan>::rank()) &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<OutputMdspan>::element_type>,
                  std::remove_cv_t<typename std::remove_cvref_t<InputMdspan>::element_type>> &&
-    ((is_cuda_mdspan<OutputMdspan> && (is_cuda_mdspan<InputMdspan> || is_host_mdspan<InputMdspan>)) ||
-     (is_host_mdspan<OutputMdspan> && is_cuda_mdspan<InputMdspan>));
+    ((is_raw_cuda_mdspan<OutputMdspan> &&
+      (is_supported_cuda_mdspan<InputMdspan> || is_supported_host_mdspan<InputMdspan>)) ||
+     (is_raw_host_mdspan<OutputMdspan> && is_supported_cuda_mdspan<InputMdspan>));
 
 template <class Scalar> struct CopyPlan
 {
@@ -84,6 +130,8 @@ template <class Scalar> struct CopyPlan
     std::size_t output_offset = 0;
     std::size_t input_offset = 0;
     std::size_t element_count = 0;
+    std::vector<Scalar> input_staging;
+    bool conjugate_host_output = false;
     bool has_work = false;
 };
 
@@ -206,6 +254,24 @@ template <class OutputMdspan, class InputMdspan>
     plan.direction = CopyDirection::device_to_host;
   }
 
+  if constexpr (is_conjugated_cuda_mdspan<InputMdspan>)
+  {
+    if (plan.direction == CopyDirection::device_to_device)
+    {
+      plan.attempt = KernelAttempt::unsupported_transform;
+      return plan;
+    }
+    plan.conjugate_host_output = true;
+  }
+  else if constexpr (is_conjugated_host_mdspan<InputMdspan>)
+  {
+    CHECK(plan.direction == CopyDirection::host_to_device);
+    plan.input_staging.resize(plan.element_count);
+    for (std::size_t index = 0; index < plan.element_count; ++index)
+      plan.input_staging[index] = uni20::conj(plan.input_host[index]);
+    plan.input_host = plan.input_staging.data();
+  }
+
   plan.attempt = KernelAttempt::success;
   plan.has_work = plan.element_count != 0;
   return plan;
@@ -276,16 +342,23 @@ template <class Scalar> void execute_blocking_copy(CopyPlan<Scalar> const& plan)
     return;
   }
 
-  auto input = plan.input_buffer->blocking_read_access();
-  int const device = plan.input_buffer->device().ordinal();
-  uni20::cuda::ScopedDevice guard(device);
-  uni20::cuda::check(cudaMemcpy(plan.output_host, input.data() + plan.input_offset, bytes, cudaMemcpyDeviceToHost),
-                     "cudaMemcpy device-to-host", device);
+  {
+    auto input = plan.input_buffer->blocking_read_access();
+    int const device = plan.input_buffer->device().ordinal();
+    uni20::cuda::ScopedDevice guard(device);
+    uni20::cuda::check(cudaMemcpy(plan.output_host, input.data() + plan.input_offset, bytes, cudaMemcpyDeviceToHost),
+                       "cudaMemcpy device-to-host", device);
+  }
+  if (plan.conjugate_host_output)
+  {
+    for (std::size_t index = 0; index < plan.element_count; ++index)
+      plan.output_host[index] = uni20::conj(plan.output_host[index]);
+  }
 }
 
 } // namespace detail::cuda_reference
 
-/// \brief Report compile-time eligibility for raw CUDA Tensor transfer.
+/// \brief Report compile-time eligibility for CUDA Tensor transfer.
 template <class OutputMdspan, class InputMdspan>
 consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&, OutputMdspan&, InputMdspan&)
 {
@@ -295,7 +368,7 @@ consteval auto kernel_accepts_types(CudaReferenceBackend const&, copy_op const&,
     return kernel_types_no;
 }
 
-/// \brief Copy compatible contiguous host or CUDA mdspans through the CUDA runtime.
+/// \brief Copy compatible contiguous host or CUDA mdspans while preserving supported accessor semantics.
 template <class OutputMdspan, class InputMdspan>
 KernelAttempt try_kernel(CudaReferenceBackend, copy_op const&, OutputMdspan&& output, InputMdspan&& input)
 {

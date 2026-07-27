@@ -6,11 +6,13 @@ in `CudaStorage`'s ordered selector and handles operations that do not require a
 provider library.
 
 The initial `copy_op` implementation accepts only unique, exhaustive strided
-mdspans with matching physical order and default host or CUDA accessors. It
-uses blocking `cudaMemcpy` for pageable host transfers and stream-ordered
-device or peer copies for CUDA-to-CUDA transfers. Accessor transforms and
-layout conversion require a later CUDA elementwise kernel rather than a raw
-byte transfer.
+mdspans with matching physical order. It uses blocking `cudaMemcpy` for
+pageable host transfers and stream-ordered device or peer copies for
+CUDA-to-CUDA transfers. Raw copies require default host or CUDA pointer
+accessors. Conjugating inputs are explicitly lowered while staging pageable
+host transfers; conjugating CUDA-to-CUDA copies and other accessor transforms
+are declined unless materialized first or implemented by a later CUDA
+elementwise kernel.
 
 ## Related Documentation
 
