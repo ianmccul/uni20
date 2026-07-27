@@ -153,9 +153,7 @@ static_assert(std::is_trivially_destructible_v<read_lease_type>);
 static_assert(std::is_trivially_destructible_v<write_lease_type>);
 static_assert(
     std::same_as<decltype(std::declval<read_lease_type const&>().storage()), tensor_type::storage_type const&>);
-static_assert(std::same_as<decltype(std::declval<write_lease_type&>().storage()), tensor_type::storage_type&>);
-static_assert(
-    std::same_as<decltype(std::declval<write_lease_type const&>().storage()), tensor_type::storage_type const&>);
+static_assert(!HasStorageObserver<write_lease_type>);
 static_assert(std::same_as<decltype(std::declval<read_access_type&>().await_resume()), read_lease_type>);
 static_assert(std::same_as<decltype(std::declval<write_access_type&>().await_resume()), write_lease_type>);
 static_assert(TensorView<StorageFreeTensorView>);
@@ -532,7 +530,6 @@ TEST(TensorTest, ImmediateTensorAccessUsesNoOpTensorViewLeases)
     auto lease = acquisition.await_resume();
     static_assert(MutableTensorView<decltype(lease)>);
     static_assert(TensorView<decltype(std::as_const(lease))>);
-    EXPECT_EQ(&lease.storage(), &tensor.storage());
     EXPECT_EQ(lease.backend_selector(), tensor.backend_selector());
     lease.mdspan()[1, 2] = 42;
   }

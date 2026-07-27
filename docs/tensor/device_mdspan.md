@@ -197,8 +197,7 @@ Like `DeviceSpanLike`, these accept both immediate mdspans and independent
 descriptor-backed models.
 
 `MutableDeviceSpanLike<Span>` additionally requires non-const element semantics
-and either an assignable accessor reference or an explicit backend-writable
-accessor opt-in.
+and an assignable accessor reference.
 
 ### Tensor-Level Concepts
 
@@ -227,9 +226,10 @@ uni20::WriteTensorLease<T>
 
 Both are move-only `TensorView` models with `.backend_selector()`, `.mdspan()`,
 and `release()`. A write lease is a `MutableTensorView`, while its const
-interface returns a const-element mdspan. A concrete lease may additionally
-expose `.storage()` when its access state has a useful storage object, but
-storage inspection is not part of either lease concept.
+interface returns a const-element mdspan. A read lease may additionally expose
+read-only storage inspection. Write leases deliberately expose no storage
+observer: element mutation goes through `.mdspan()`, while structural mutation
+of the owner remains unavailable during the lease.
 
 Uni20 provides the generic `read_tensor_lease` and `write_tensor_lease` class
 templates, but an acquisition backend may return any type satisfying the
@@ -261,8 +261,9 @@ a device without imposing those operations on every descriptor type.
 For an immediately accessible tensor view, blocking acquisition is a borrowed
 no-op lifetime guard. It depends only on the source `TensorView`, not on a
 public storage observer. The concrete immediate leases store only a pointer to
-the source view and forward `.mdspan()`, extents, backend selection, and any
-available storage observer. They do not copy the mdspan or backend selector:
+the source view and forward `.mdspan()`, extents, and backend selection. Read
+leases may also forward a read-only storage observer. They do not copy the
+mdspan or backend selector:
 
 ```cpp
 uni20::Tensor<float, 2> tensor(4, 8);
@@ -279,7 +280,11 @@ for the same immediate case.
 
 The borrowed overloads accept lvalues only because their leases retain a
 reference to the source tensor or view. Descriptor-backed acquisition instead
-retains whatever backend-specific state makes the resolved handle usable.
+retains whatever backend-specific state makes the resolved handle usable. CUDA
+also accepts an owning tensor rvalue for read acquisition: it captures the
+device-span metadata, moves the `CudaBuffer` into a distinct owning access
+state, and resolves the mdspan against that owned buffer. Non-owning deferred
+views remain lvalue-only.
 
 ### Blocking Backend Lowering
 
@@ -346,6 +351,16 @@ auto lease = uni20::blocking_read_access(std::as_const(tensor));
 copy_to_host_synchronously(lease.mdspan().data_handle());
 ```
 
+An owning rvalue transfers its CUDA buffer into the read lease:
+
+```cpp
+auto lease = uni20::blocking_read_access(std::move(tensor));
+```
+
+The owning CUDA access state does not retain a guard pointer into the original
+tensor. It owns the moved buffer directly, so the lease may move without
+invalidating its data handle.
+
 All device operations using a blocking lease must complete before the lease is
 destroyed. Stream-ordered work should use the stream overloads so lease release
 can publish the completion event.
@@ -400,8 +415,8 @@ automatically change its type, state, or constness.
   Uni20's concrete materializations.
 - Ordinary `SpanLike` values satisfy `DeviceSpanLike`.
 - A read or write lease models `TensorView`, retains backend selection and the
-  state controlling handle validity through RAII; storage inspection is
-  optional.
+  state controlling handle validity through RAII. Read-only storage inspection
+  is optional for read leases; write leases expose no storage observer.
 - Construction and metadata observation perform no handle acquisition.
 
 ## Source and Tests

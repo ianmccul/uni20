@@ -55,30 +55,30 @@ template <class DeviceSpan, class Pointer>
   return mdspan_type{pointer, span.mapping(), span.accessor()};
 }
 
-template <class Tensor, class AccessState>
-[[nodiscard]] auto make_cuda_read_tensor_lease(Tensor const& tensor, AccessState state)
+template <class Tensor>
+concept MovableOwningCudaDeferredTensor =
+    (!std::is_lvalue_reference_v<Tensor>) && CudaDeferredTensorView<std::remove_cvref_t<Tensor>> &&
+    OwningTensor<std::remove_cvref_t<Tensor>> && requires(Tensor&& tensor) {
+      { std::move(tensor).release_storage() } -> std::same_as<typename std::remove_cvref_t<Tensor>::storage_type>;
+    };
+
+template <class StoragePolicy, class DeviceSpan, class AccessState, class BackendSelector>
+[[nodiscard]] auto make_cuda_read_tensor_lease(DeviceSpan device_span, std::size_t element_offset, AccessState state,
+                                               BackendSelector selector)
 {
-  auto device_span = tensor.device_mdspan();
-  validate_cuda_descriptor_range(device_span);
-  auto const pointer =
-      offset_cuda_pointer(state.data(), static_cast<std::size_t>(device_span.data_descriptor().element_offset()));
+  auto const pointer = offset_cuda_pointer(state.data(), element_offset);
   auto mdspan = resolve_cuda_mdspan(device_span, pointer);
 
-  using tensor_type = std::remove_reference_t<Tensor>;
   using mdspan_type = decltype(mdspan);
-  using selector_type = std::remove_cvref_t<decltype(tensor.backend_selector())>;
-  using storage_policy = tensor_storage_policy_t<tensor_type>;
-  return read_tensor_lease<mdspan_type, AccessState, selector_type, storage_policy>{std::move(state), std::move(mdspan),
-                                                                                    tensor.backend_selector()};
+  using selector_type = std::remove_cvref_t<BackendSelector>;
+  return read_tensor_lease<mdspan_type, AccessState, selector_type, StoragePolicy>{std::move(state), std::move(mdspan),
+                                                                                   std::move(selector)};
 }
 
-template <class Tensor, class AccessState>
-[[nodiscard]] auto make_cuda_write_tensor_lease(Tensor& tensor, AccessState state)
+template <class StoragePolicy, class DeviceSpan, class ConstDeviceSpan, class AccessState, class BackendSelector>
+[[nodiscard]] auto make_cuda_write_tensor_lease(DeviceSpan device_span, ConstDeviceSpan const_device_span,
+                                                AccessState state, BackendSelector selector)
 {
-  auto device_span = tensor.device_mdspan();
-  auto const_device_span = std::as_const(tensor).device_mdspan();
-  validate_cuda_descriptor_range(device_span);
-  validate_cuda_descriptor_range(const_device_span);
   CHECK(device_span.data_descriptor().element_offset() == const_device_span.data_descriptor().element_offset());
 
   auto const offset = static_cast<std::size_t>(device_span.data_descriptor().element_offset());
@@ -86,22 +86,39 @@ template <class Tensor, class AccessState>
   auto mdspan = resolve_cuda_mdspan(device_span, pointer);
   auto const_mdspan = resolve_cuda_mdspan(const_device_span, pointer);
 
-  using tensor_type = std::remove_reference_t<Tensor>;
   using mdspan_type = decltype(mdspan);
   using const_mdspan_type = decltype(const_mdspan);
-  using selector_type = std::remove_cvref_t<decltype(tensor.backend_selector())>;
-  using storage_policy = tensor_storage_policy_t<tensor_type>;
-  return write_tensor_lease<mdspan_type, const_mdspan_type, AccessState, selector_type, storage_policy>{
-      std::move(state), std::move(mdspan), std::move(const_mdspan), tensor.backend_selector()};
+  using selector_type = std::remove_cvref_t<BackendSelector>;
+  return write_tensor_lease<mdspan_type, const_mdspan_type, AccessState, selector_type, StoragePolicy>{
+      std::move(state), std::move(mdspan), std::move(const_mdspan), std::move(selector)};
 }
 
 } // namespace detail
 
 /// \brief Host-wait for prior CUDA work and acquire a read-only TensorView lease.
-template <detail::CudaDeferredTensorView Tensor> [[nodiscard]] auto blocking_read_access(Tensor const& tensor)
+template <detail::CudaDeferredTensorView Tensor> [[nodiscard]] auto blocking_read_access(Tensor& tensor)
 {
-  auto descriptor = tensor.device_mdspan().data_descriptor();
-  return detail::make_cuda_read_tensor_lease(tensor, descriptor.buffer().blocking_read_access());
+  auto device_span = std::as_const(tensor).device_mdspan();
+  detail::validate_cuda_descriptor_range(device_span);
+  auto const element_offset = static_cast<std::size_t>(device_span.data_descriptor().element_offset());
+  auto state = device_span.data_descriptor().buffer().blocking_read_access();
+  return detail::make_cuda_read_tensor_lease<detail::tensor_storage_policy_t<Tensor>>(
+      std::move(device_span), element_offset, std::move(state), tensor.backend_selector());
+}
+
+/// \brief Move an owning CUDA tensor into a blocking read lease.
+template <class Tensor>
+  requires detail::MovableOwningCudaDeferredTensor<Tensor>
+[[nodiscard]] auto blocking_read_access(Tensor&& tensor)
+{
+  auto device_span = std::as_const(tensor).device_mdspan();
+  detail::validate_cuda_descriptor_range(device_span);
+  auto const element_offset = static_cast<std::size_t>(device_span.data_descriptor().element_offset());
+  auto selector = tensor.backend_selector();
+  auto storage = std::move(tensor).release_storage();
+  auto state = std::move(storage).into_blocking_read_access();
+  return detail::make_cuda_read_tensor_lease<detail::tensor_storage_policy_t<Tensor>>(
+      std::move(device_span), element_offset, std::move(state), std::move(selector));
 }
 
 /// \brief Host-wait for prior CUDA work and acquire a mutable TensorView lease.
@@ -109,8 +126,13 @@ template <class Tensor>
   requires(detail::CudaDeferredTensorView<Tensor> && MutableDeviceTensorView<Tensor>)
 [[nodiscard]] auto blocking_write_access(Tensor& tensor)
 {
-  auto descriptor = tensor.device_mdspan().data_descriptor();
-  return detail::make_cuda_write_tensor_lease(tensor, descriptor.buffer().blocking_write_access());
+  auto device_span = tensor.device_mdspan();
+  auto const_device_span = std::as_const(tensor).device_mdspan();
+  detail::validate_cuda_descriptor_range(device_span);
+  detail::validate_cuda_descriptor_range(const_device_span);
+  auto state = device_span.data_descriptor().buffer().blocking_write_access();
+  return detail::make_cuda_write_tensor_lease<detail::tensor_storage_policy_t<Tensor>>(
+      std::move(device_span), std::move(const_device_span), std::move(state), tensor.backend_selector());
 }
 
 /// \brief Acquire stream-ordered read access as an immediately-ready awaitable.
@@ -118,11 +140,29 @@ template <class Tensor>
 ///          available, `CudaBuffer` installs predecessor waits synchronously
 ///          and the returned awaitable is ready without suspending.
 template <detail::CudaDeferredTensorView Tensor>
-[[nodiscard]] auto read_access(Tensor const& tensor, cuda::Stream const& stream)
+[[nodiscard]] auto read_access(Tensor& tensor, cuda::Stream const& stream)
 {
-  auto descriptor = tensor.device_mdspan().data_descriptor();
-  return ready_tensor_access{
-      detail::make_cuda_read_tensor_lease(tensor, descriptor.buffer().read_synchronized_with(stream))};
+  auto device_span = std::as_const(tensor).device_mdspan();
+  detail::validate_cuda_descriptor_range(device_span);
+  auto const element_offset = static_cast<std::size_t>(device_span.data_descriptor().element_offset());
+  auto state = device_span.data_descriptor().buffer().read_synchronized_with(stream);
+  return ready_tensor_access{detail::make_cuda_read_tensor_lease<detail::tensor_storage_policy_t<Tensor>>(
+      std::move(device_span), element_offset, std::move(state), tensor.backend_selector())};
+}
+
+/// \brief Move an owning CUDA tensor into a stream-ordered read lease.
+template <class Tensor>
+  requires detail::MovableOwningCudaDeferredTensor<Tensor>
+[[nodiscard]] auto read_access(Tensor&& tensor, cuda::Stream const& stream)
+{
+  auto device_span = std::as_const(tensor).device_mdspan();
+  detail::validate_cuda_descriptor_range(device_span);
+  auto const element_offset = static_cast<std::size_t>(device_span.data_descriptor().element_offset());
+  auto selector = tensor.backend_selector();
+  auto storage = std::move(tensor).release_storage();
+  auto state = std::move(storage).into_read_synchronized_with(stream);
+  return ready_tensor_access{detail::make_cuda_read_tensor_lease<detail::tensor_storage_policy_t<Tensor>>(
+      std::move(device_span), element_offset, std::move(state), std::move(selector))};
 }
 
 /// \brief Acquire stream-ordered write access as an immediately-ready awaitable.
@@ -130,9 +170,13 @@ template <class Tensor>
   requires(detail::CudaDeferredTensorView<Tensor> && MutableDeviceTensorView<Tensor>)
 [[nodiscard]] auto write_access(Tensor& tensor, cuda::Stream const& stream)
 {
-  auto descriptor = tensor.device_mdspan().data_descriptor();
-  return ready_tensor_access{
-      detail::make_cuda_write_tensor_lease(tensor, descriptor.buffer().write_synchronized_with(stream))};
+  auto device_span = tensor.device_mdspan();
+  auto const_device_span = std::as_const(tensor).device_mdspan();
+  detail::validate_cuda_descriptor_range(device_span);
+  detail::validate_cuda_descriptor_range(const_device_span);
+  auto state = device_span.data_descriptor().buffer().write_synchronized_with(stream);
+  return ready_tensor_access{detail::make_cuda_write_tensor_lease<detail::tensor_storage_policy_t<Tensor>>(
+      std::move(device_span), std::move(const_device_span), std::move(state), tensor.backend_selector())};
 }
 
 } // namespace uni20

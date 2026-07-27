@@ -99,11 +99,14 @@ template <class ElementType> struct UnrecognizedCudaAccessor
 
 using cuda_test_extents = stdex::dextents<uni20::index_type, 2>;
 using writable_cuda_span =
-    stdex::mdspan<double, cuda_test_extents, stdex::layout_left, uni20::cuda::CudaAccessor<double>>;
+    uni20::device_mdspan<double, cuda_test_extents, stdex::layout_left, uni20::cuda::CudaPointerAccessor<double>,
+                         uni20::cuda::CudaBufferView<double>>;
 using readable_cuda_span =
-    stdex::mdspan<double const, cuda_test_extents, stdex::layout_left, uni20::cuda::CudaAccessor<double const>>;
+    uni20::device_mdspan<double const, cuda_test_extents, stdex::layout_left,
+                         uni20::cuda::CudaPointerAccessor<double const>, uni20::cuda::CudaBufferView<double const>>;
 using unrecognized_cuda_span =
-    stdex::mdspan<double const, cuda_test_extents, stdex::layout_left, UnrecognizedCudaAccessor<double const>>;
+    uni20::device_mdspan<double const, cuda_test_extents, stdex::layout_left, UnrecognizedCudaAccessor<double const>,
+                         uni20::cuda::CudaBufferView<double const>>;
 
 template <class Input>
 concept cublas_gemm_accepts_input_accessor =

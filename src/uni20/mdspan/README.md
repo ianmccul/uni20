@@ -33,9 +33,7 @@ small helpers used by dense kernels and layout-aware algorithms.
 - `SpanLike` is the complete readable mdspan protocol used by leaf kernels: its
   descriptor aliases must agree, it exposes rank and extent observers, and its
   rank-dimensional `operator[]` returns the declared `reference` type.
-  `MutableSpanLike` additionally proves assignment through that indexed result,
-  or recognizes an explicit backend-writable accessor whose opaque storage can
-  be written only after backend lowering.
+  `MutableSpanLike` additionally proves assignment through that indexed result.
 - `DeviceSpanLike` is the broader structural protocol for mdspan metadata whose
   data handle is either immediately present or available through a data
   descriptor. `device_mdspan` is the standard unresolved materialization, but
@@ -43,8 +41,8 @@ small helpers used by dense kernels and layout-aware algorithms.
   mapping and accessor while intentionally exposing neither `data_handle()` nor
   element indexing.
 - `MutableDeviceSpanLike` refines eventual write capability through an
-  assignable accessor reference or explicit backend-writable accessor opt-in.
-  It does not add indexing to an unresolved descriptor.
+  assignable accessor reference. It does not add indexing to an unresolved
+  descriptor.
 - `StridedMdspan` refines `SpanLike` by requiring both mdspan and mapping stride
   observers. Code constrained by these concepts should not assume additional
   structural operations without adding the corresponding refinement.
@@ -53,10 +51,8 @@ small helpers used by dense kernels and layout-aware algorithms.
   or an explicitly lowerable accessor such as Uni20's `conjugated_accessor`.
 - Read-only accessor policies declare const `element_type`, including calculated
   accessors that return values. Ordinary `MutableSpanLike` accessors also prove
-  indexed assignment. Opaque device accessors may specialize
-  `enable_backend_writable_accessor` instead; this marks backend-mediated output
-  capability and does not make host indexing valid. A pointer-shaped handle
-  alone is never the mutability contract.
+  indexed assignment. An opaque accessor without assignable element semantics
+  is not mutable merely because its handle is pointer-shaped.
 - `uni20::const_access(span, indices...)` performs read-only scalar access
   directly through a span's mapping and const-adapted accessor. Use it when a
   descriptor owner needs const element semantics without constructing a second

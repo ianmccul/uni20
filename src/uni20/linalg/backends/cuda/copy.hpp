@@ -40,13 +40,10 @@ enum class CopyDirection
 template <class Accessor> struct IsCudaAccessor : std::false_type
 {};
 
-template <class ElementType> struct IsCudaAccessor<uni20::cuda::CudaAccessor<ElementType>> : std::true_type
+template <class ElementType> struct IsCudaAccessor<uni20::cuda::CudaPointerAccessor<ElementType>> : std::true_type
 {};
 
 template <class Accessor> struct IsRawCudaAccessor : std::false_type
-{};
-
-template <class ElementType> struct IsRawCudaAccessor<uni20::cuda::CudaAccessor<ElementType>> : std::true_type
 {};
 
 template <class ElementType> struct IsRawCudaAccessor<uni20::cuda::CudaPointerAccessor<ElementType>> : std::true_type

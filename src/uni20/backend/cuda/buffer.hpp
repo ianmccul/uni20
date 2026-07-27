@@ -27,6 +27,7 @@ template <typename T> class ReadAccess;
 template <typename T> class WriteAccess;
 template <typename T> class BlockingReadAccess;
 template <typename T> class BlockingWriteAccess;
+template <typename T> class OwningReadAccess;
 
 namespace detail
 {
@@ -207,6 +208,12 @@ template <typename T> class CudaBuffer {
 
     /// \brief Acquire read/write access after host-waiting for prior CUDA work.
     [[nodiscard]] BlockingWriteAccess<T> blocking_write_access() { return BlockingWriteAccess<T>(*this); }
+
+    /// \brief Move this buffer into an owning host-synchronized read access.
+    [[nodiscard]] OwningReadAccess<T> into_blocking_read_access() &&;
+
+    /// \brief Move this buffer into an owning stream-ordered read access.
+    [[nodiscard]] OwningReadAccess<T> into_read_synchronized_with(Stream const& stream) &&;
 
   private:
     [[nodiscard]] static std::size_t checked_size_bytes(std::size_t size)
@@ -439,7 +446,64 @@ template <typename T> class CudaBuffer {
       live_write_access_ = false;
     }
 
-    void reset() noexcept
+    void prepare_owning_read_access(Stream const& stream) const
+    {
+      CHECK(stream, "cannot synchronize owning CUDA buffer access with an empty stream", data_);
+      Completion writer_completion;
+      {
+        std::lock_guard lock(state_mutex_);
+        CHECK(live_read_accesses_ == 0 && !live_write_access_,
+              "cannot take owning CUDA buffer access while another access is live", data_, live_read_accesses_,
+              live_write_access_);
+        writer_completion = writer_completion_;
+      }
+      if (writer_completion)
+      {
+        stream.wait_on(writer_completion);
+      }
+    }
+
+    void prepare_owning_blocking_read_access() const
+    {
+      Completion writer_completion;
+      {
+        std::lock_guard lock(state_mutex_);
+        CHECK(live_read_accesses_ == 0 && !live_write_access_,
+              "cannot take owning CUDA buffer access while another access is live", data_, live_read_accesses_,
+              live_write_access_);
+        writer_completion = writer_completion_;
+      }
+      if (writer_completion)
+      {
+        writer_completion.synchronize();
+      }
+    }
+
+    void publish_owning_read_completion(Stream const& stream) const noexcept
+    {
+      try
+      {
+        Completion completion = stream.record_completion();
+        std::lock_guard lock(state_mutex_);
+        if (reader_completions_.size() == reader_completions_.capacity())
+        {
+          std::erase_if(reader_completions_,
+                        [](Completion const& reader_completion) { return reader_completion.ready(); });
+        }
+        reader_completions_.push_back(std::move(completion));
+        return;
+      }
+      catch (...)
+      {
+        detail::synchronize_after_failed_publication(stream, "publish owning CUDA buffer reader completion");
+      }
+    }
+
+    void reset() noexcept { this->reset_impl(force_blocking_deallocation_); }
+
+    void reset_owned() noexcept { this->reset_impl(true); }
+
+    void reset_impl(bool force_blocking_deallocation) noexcept
     {
       if (resources_ == nullptr)
       {
@@ -474,12 +538,16 @@ template <typename T> class CudaBuffer {
 
       if (data_ != nullptr)
       {
-        this->free_allocation();
+        if (force_blocking_deallocation)
+          this->free_allocation_blocking();
+        else
+          this->free_allocation();
       }
 
       auto* resources = std::exchange(resources_, nullptr);
       data_ = nullptr;
       size_ = 0;
+      force_blocking_deallocation_ = false;
       resources->unregister_buffer();
     }
 
@@ -501,6 +569,7 @@ template <typename T> class CudaBuffer {
       reader_completions_ = std::move(other.reader_completions_);
       live_read_accesses_ = 0;
       live_write_access_ = false;
+      force_blocking_deallocation_ = std::exchange(other.force_blocking_deallocation_, false);
       other.resources_ = nullptr;
       other.data_ = nullptr;
       other.size_ = 0;
@@ -528,6 +597,20 @@ template <typename T> class CudaBuffer {
       }
     }
 
+    void free_allocation_blocking() noexcept
+    {
+      int const device = resources_->device().ordinal();
+      detail::BufferCleanupDeviceGuard guard(device);
+      if (!resources_->device().capabilities().memory_pools_supported)
+      {
+        detail::check_cuda_cleanup(cudaFree(data_), "cudaFree owning CUDA buffer", device);
+        return;
+      }
+
+      detail::check_cuda_cleanup(cudaFreeAsync(data_, nullptr), "cudaFreeAsync owning CUDA buffer", device);
+      detail::check_cuda_cleanup(cudaStreamSynchronize(nullptr), "synchronize owning CUDA buffer free", device);
+    }
+
     DeviceResources* resources_ = nullptr;
     T* data_ = nullptr;
     std::size_t size_ = 0;
@@ -536,11 +619,13 @@ template <typename T> class CudaBuffer {
     mutable std::vector<Completion> reader_completions_;
     mutable std::size_t live_read_accesses_ = 0;
     mutable bool live_write_access_ = false;
+    bool force_blocking_deallocation_ = false;
 
     template <typename> friend class ReadAccess;
     template <typename> friend class WriteAccess;
     template <typename> friend class BlockingReadAccess;
     template <typename> friend class BlockingWriteAccess;
+    template <typename> friend class OwningReadAccess;
 };
 
 /// \brief Scoped read-only access to a CUDA buffer on one stream.
@@ -809,5 +894,76 @@ template <typename T> class BlockingWriteAccess {
 
     friend class CudaBuffer<T>;
 };
+
+/// \brief Read access that owns a moved CUDA buffer.
+/// \details The owned buffer is moved before access begins, so the access state
+///          needs no back-pointer and remains valid when this object moves.
+///          Blocking access waits for the prior writer during construction.
+///          Stream-ordered access installs the prior-writer wait and publishes
+///          its reader completion on release.
+template <typename T> class OwningReadAccess {
+  public:
+    using element_type = T;
+
+    OwningReadAccess(OwningReadAccess const&) = delete;
+    OwningReadAccess& operator=(OwningReadAccess const&) = delete;
+
+    OwningReadAccess(OwningReadAccess&& other) noexcept
+        : storage_(std::move(other.storage_)), stream_(std::move(other.stream_)),
+          stream_ordered_(std::exchange(other.stream_ordered_, false)), active_(std::exchange(other.active_, false))
+    {}
+
+    OwningReadAccess& operator=(OwningReadAccess&&) = delete;
+
+    ~OwningReadAccess() { this->release(); }
+
+    /// \brief Return the typed device pointer owned by this access state.
+    [[nodiscard]] T const* data() const noexcept { return active_ ? storage_.data() : nullptr; }
+
+    /// \brief End access and destroy the owned allocation.
+    void release() noexcept
+    {
+      if (!active_) return;
+      if (stream_ordered_)
+      {
+        storage_.publish_owning_read_completion(stream_);
+      }
+      stream_ = {};
+      stream_ordered_ = false;
+      active_ = false;
+      storage_.reset_owned();
+    }
+
+  private:
+    explicit OwningReadAccess(CudaBuffer<T>&& storage) : storage_(std::move(storage)), active_(true)
+    {
+      storage_.force_blocking_deallocation_ = true;
+      storage_.prepare_owning_blocking_read_access();
+    }
+
+    OwningReadAccess(CudaBuffer<T>&& storage, Stream const& stream)
+        : storage_(std::move(storage)), stream_(stream), stream_ordered_(true), active_(true)
+    {
+      storage_.force_blocking_deallocation_ = true;
+      storage_.prepare_owning_read_access(stream_);
+    }
+
+    CudaBuffer<T> storage_;
+    Stream stream_;
+    bool stream_ordered_ = false;
+    bool active_ = false;
+
+    friend class CudaBuffer<T>;
+};
+
+template <typename T> OwningReadAccess<T> CudaBuffer<T>::into_blocking_read_access() &&
+{
+  return OwningReadAccess<T>{std::move(*this)};
+}
+
+template <typename T> OwningReadAccess<T> CudaBuffer<T>::into_read_synchronized_with(Stream const& stream) &&
+{
+  return OwningReadAccess<T>{std::move(*this), stream};
+}
 
 } // namespace uni20::cuda

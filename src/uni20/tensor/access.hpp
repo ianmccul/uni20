@@ -122,20 +122,6 @@ template <MutableTensorView Tensor> class borrowed_write_tensor_lease {
     /// \brief Return the source tensor's backend selector.
     [[nodiscard]] decltype(auto) backend_selector() const { return this->source().backend_selector(); }
 
-    /// \brief Return mutable storage when the source tensor exposes it.
-    [[nodiscard]] decltype(auto) storage()
-      requires requires(tensor_type& tensor) { tensor.storage(); }
-    {
-      return this->source().storage();
-    }
-
-    /// \brief Return read-only storage when the source tensor exposes it.
-    [[nodiscard]] decltype(auto) storage() const
-      requires requires(tensor_type const& tensor) { tensor.storage(); }
-    {
-      return std::as_const(this->source()).storage();
-    }
-
     /// \brief Return the source tensor extents.
     [[nodiscard]] decltype(auto) extents() const { return this->source().extents(); }
 
@@ -348,20 +334,6 @@ class write_tensor_lease {
 
     /// \brief Return the backend selector retained from the source tensor view.
     [[nodiscard]] backend_selector_type const& backend_selector() const noexcept { return selector_; }
-
-    /// \brief Return mutable storage retained by the access state.
-    [[nodiscard]] decltype(auto) storage()
-      requires requires(access_state_type& state) { state.storage(); }
-    {
-      return state_.storage();
-    }
-
-    /// \brief Return read-only storage retained by the access state.
-    [[nodiscard]] decltype(auto) storage() const
-      requires requires(access_state_type const& state) { state.storage(); }
-    {
-      return state_.storage();
-    }
 
     /// \brief Return the resolved tensor extents.
     [[nodiscard]] extents_type const& extents() const { return this->mdspan().extents(); }

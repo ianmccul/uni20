@@ -90,6 +90,9 @@ static_assert(!std::is_copy_constructible_v<uni20::cuda::BlockingReadAccess<std:
 static_assert(std::is_move_constructible_v<uni20::cuda::BlockingReadAccess<std::byte>>);
 static_assert(!std::is_copy_constructible_v<uni20::cuda::BlockingWriteAccess<std::byte>>);
 static_assert(std::is_move_constructible_v<uni20::cuda::BlockingWriteAccess<std::byte>>);
+static_assert(!std::is_copy_constructible_v<uni20::cuda::OwningReadAccess<std::byte>>);
+static_assert(std::is_move_constructible_v<uni20::cuda::OwningReadAccess<std::byte>>);
+static_assert(!std::is_move_assignable_v<uni20::cuda::OwningReadAccess<std::byte>>);
 
 TEST_F(CudaBufferTest, OwnsAndMovesDeviceAllocation)
 {
@@ -287,6 +290,38 @@ TEST_F(CudaBufferTest, BlockingAccessSupportsSynchronousHostTransfers)
   }
 
   EXPECT_EQ(result, expected);
+}
+
+TEST_F(CudaBufferTest, OwningBlockingReadAccessMovesWithItsAllocation)
+{
+  uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
+  uni20::cuda::CudaBuffer<int> buffer(resources, 1);
+  int const expected = 42;
+  {
+    auto write = buffer.blocking_write_access();
+    uni20::cuda::ScopedDevice device(0);
+    uni20::cuda::check(cudaMemcpy(write.data(), &expected, sizeof(expected), cudaMemcpyHostToDevice),
+                       "cudaMemcpy owning buffer read setup", 0);
+  }
+
+  EXPECT_EQ(resources.live_buffer_count(), 1U);
+  int result = 0;
+  {
+    auto access = std::move(buffer).into_blocking_read_access();
+    auto moved_access = std::move(access);
+
+    EXPECT_TRUE(buffer.empty());
+    EXPECT_EQ(access.data(), nullptr);
+    uni20::cuda::ScopedDevice device(0);
+    uni20::cuda::check(cudaMemcpy(&result, moved_access.data(), sizeof(result), cudaMemcpyDeviceToHost),
+                       "cudaMemcpy owning buffer read", 0);
+    moved_access.release();
+    EXPECT_EQ(moved_access.data(), nullptr);
+    EXPECT_EQ(resources.live_buffer_count(), 0U);
+  }
+
+  EXPECT_EQ(result, expected);
+  EXPECT_EQ(resources.live_buffer_count(), 0U);
 }
 
 TEST_F(CudaBufferTest, BlockingWritePublishesDefaultStreamCompletion)

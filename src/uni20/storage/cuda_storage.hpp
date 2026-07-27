@@ -74,28 +74,6 @@ template <class ElementType> class CudaBufferView {
     template <class> friend class CudaBufferView;
 };
 
-/// \brief Mdspan accessor for opaque CUDA Tensor storage.
-/// \details Indexed access produces another opaque buffer view. It never
-///          dereferences device memory or performs an implicit transfer.
-template <class ElementType> struct CudaAccessor
-{
-    using element_type = ElementType;
-    using reference = CudaBufferView<element_type>;
-    using data_handle_type = reference;
-    using offset_policy = CudaAccessor;
-    using offset_type = std::size_t;
-
-    [[nodiscard]] constexpr reference access(data_handle_type handle, offset_type offset) const noexcept
-    {
-      return handle.offset_by(offset);
-    }
-
-    [[nodiscard]] constexpr data_handle_type offset(data_handle_type handle, offset_type offset) const noexcept
-    {
-      return handle.offset_by(offset);
-    }
-};
-
 /// \brief Accessor for a CUDA mdspan whose device pointer has been leased.
 /// \details Indexed access applies the mapped offset and returns an element
 ///          reference. The accessor must be evaluated only in an execution
@@ -203,8 +181,5 @@ struct CudaStorage
 #endif
     }
 };
-
-template <class ElementType>
-inline constexpr bool enable_backend_writable_accessor<cuda::CudaAccessor<ElementType>> = !std::is_const_v<ElementType>;
 
 } // namespace uni20

@@ -47,11 +47,6 @@ template <class Accessor, class Scalar> struct IsCudaAccessorFor : std::false_ty
 {};
 
 template <class ElementType, class Scalar>
-struct IsCudaAccessorFor<uni20::cuda::CudaAccessor<ElementType>, Scalar>
-    : std::bool_constant<std::same_as<std::remove_cv_t<ElementType>, Scalar>>
-{};
-
-template <class ElementType, class Scalar>
 struct IsCudaAccessorFor<uni20::cuda::CudaPointerAccessor<ElementType>, Scalar>
     : std::bool_constant<std::same_as<std::remove_cv_t<ElementType>, Scalar>>
 {};
@@ -85,8 +80,7 @@ template <class Mdspan, class Scalar>
 concept writable_cuda_mdspan_for =
     uni20::MutableDeviceSpanLike<Mdspan> && uni20::RankedStridedDeviceSpanLike<Mdspan, 2> &&
     std::same_as<typename std::remove_cvref_t<Mdspan>::element_type, Scalar> &&
-    (std::same_as<typename std::remove_cvref_t<Mdspan>::accessor_type, uni20::cuda::CudaAccessor<Scalar>> ||
-     std::same_as<typename std::remove_cvref_t<Mdspan>::accessor_type, uni20::cuda::CudaPointerAccessor<Scalar>>) &&
+    std::same_as<typename std::remove_cvref_t<Mdspan>::accessor_type, uni20::cuda::CudaPointerAccessor<Scalar>> &&
     is_cuda_buffer_view_for<blas::detail::span_data_t<Mdspan>, Scalar>;
 
 template <class Scalar, class Handle> std::size_t required_elements(blas::BlasWritableMatrix<Scalar, Handle> matrix)

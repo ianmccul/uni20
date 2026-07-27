@@ -111,12 +111,14 @@ kernels operate on resolved mdspans.
   resource set. Its storage is a move-only `CudaBuffer<T>`.
   `device_mdspan()` exposes a `CudaBufferView` descriptor, the tensor mapping,
   and the actual pointer accessor without exposing a pointer. Tensor-level
-  acquisition resolves this to a storage-bearing lease with a `T*` or
-  `T const*` mdspan. Stream-ordered access installs predecessor waits and
-  publishes completion when the lease ends. `CudaTensor` deliberately does not
-  expose `mdspan()` and therefore models `DeviceTensorView`, not `TensorView`.
-  CUDA GEMM dispatch receives the tensor-level objects; the cuBLAS backend
-  lowers their `device_mdspan()` metadata and acquires the referenced buffers.
+  acquisition resolves this to a lease with a `T*` or `T const*` mdspan.
+  An owning rvalue read moves its buffer into an owning access state; non-owning
+  deferred views remain lvalue-only. Stream-ordered access installs predecessor
+  waits and publishes completion when the lease ends. `CudaTensor` deliberately
+  does not expose `mdspan()` and therefore models `DeviceTensorView`, not
+  `TensorView`. CUDA GEMM dispatch receives the tensor-level objects; the cuBLAS
+  backend lowers their `device_mdspan()` metadata and acquires the referenced
+  buffers.
 - Tensor objects deliberately do not model Uni20's mdspan concepts.
   Dispatch-facing tensor kernels receive `DeviceTensorView` operands. Blocking
   backends may acquire TensorView leases before entering an existing mdspan
