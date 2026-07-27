@@ -27,8 +27,9 @@ implemented under `src/uni20/async/`.
   individual CUDA awaiter types.
 - `CMakeLists.txt`: CUDA backend target setup.
 
-The Tensor-facing `CudaStorage` policy and opaque `CudaBufferView` mdspan
-handle live in [`storage/cuda_storage.hpp`](../../storage/cuda_storage.hpp).
+The Tensor-facing `CudaStorage` policy, deferred `CudaBufferView` descriptor,
+and eventual pointer accessor live in
+[`storage/cuda_storage.hpp`](../../storage/cuda_storage.hpp).
 
 ## Notes
 

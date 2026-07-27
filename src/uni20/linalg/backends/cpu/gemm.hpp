@@ -11,6 +11,7 @@
 #include <uni20/linalg/dispatch.hpp>
 #include <uni20/linalg/operation_tags.hpp>
 #include <uni20/mdspan/concepts.hpp>
+#include <uni20/tensor/concepts.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -50,7 +51,8 @@ consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, 
 }
 
 /// \brief Reference accessor-respecting GEMM fallback.
-template <class OutputMdspan, class Scalar, class LhsMdspan, class RhsMdspan>
+template <uni20::MutableRankedSpanLike<2> OutputMdspan, uni20::Scalar Scalar, uni20::RankedSpanLike<2> LhsMdspan,
+          uni20::RankedSpanLike<2> RhsMdspan>
 KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& output, Scalar alpha, LhsMdspan&& lhs,
                          RhsMdspan&& rhs, Scalar beta)
 {
@@ -104,6 +106,37 @@ KernelAttempt try_kernel(CpuReferenceBackend, gemm_op const&, OutputMdspan&& out
   }
 
   return KernelAttempt::success;
+}
+
+/// \brief Report eligibility after lowering DeviceTensorView operands to immediate mdspans.
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+consteval auto kernel_accepts_types(CpuReferenceBackend const&, gemm_op const&, OutputTensor&, Scalar const&,
+                                    LhsTensor&, RhsTensor&, Scalar const&)
+{
+  using output_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<OutputTensor&>()))>;
+  using lhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<LhsTensor const&>()))>;
+  using rhs_span = std::remove_cvref_t<decltype(uni20::detail::tensor_device_mdspan(std::declval<RhsTensor const&>()))>;
+  constexpr auto acceptance = detail::backend_type_acceptance<CpuReferenceBackend, gemm_op, output_span&, Scalar const&,
+                                                              lhs_span&, rhs_span&, Scalar const&>();
+  if constexpr (acceptance == KernelTypeAcceptance::yes)
+    return kernel_types_yes;
+  else if constexpr (acceptance == KernelTypeAcceptance::maybe)
+    return kernel_types_maybe;
+  else
+    return kernel_types_no;
+}
+
+/// \brief Lower DeviceTensorView operands and run reference GEMM.
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::Scalar Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
+KernelAttempt try_kernel(CpuReferenceBackend backend, gemm_op const& op, OutputTensor& output, Scalar alpha,
+                         LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
+{
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  return try_kernel(backend, op, output_span, alpha, lhs_span, rhs_span, beta);
 }
 
 } // namespace uni20::linalg

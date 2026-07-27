@@ -18,13 +18,13 @@ backends.
 CUDA provider coverage is currently narrower: cuBLAS `S/D/C/ZGEMM` has a
 checked provider wrapper and a Tensor-facing `CublasBackend`. Ordinary
 async `gemm`, `assign_product`, and `add_product` resolve `CudaTensor` operands
-to opaque CUDA mdspans. Their `CudaTask` awaits a handle/stream execution lease
-from the device resource set before invoking the prepared provider leaf.
-Ordinary direct Tensor GEMM stages the same BLAS-compatible layouts and blocks
-for resource admission. Both paths open synchronized buffer access and enqueue
-the provider call. Column- and row-major outputs are supported. The optimized
-cuBLAS path accepts zero-inner-dimension GEMM with null zero-sized input buffers
-and applies `C = beta*C` directly.
+through their deferred `device_mdspan()` descriptors. Their `CudaTask` awaits a
+provider-handle/stream execution lease from the device resource set before
+invoking the prepared provider leaf. Ordinary direct Tensor GEMM stages the
+same BLAS-compatible layouts and blocks for resource admission. Both paths open
+synchronized buffer access and enqueue the provider call. Column- and row-major
+outputs are supported. The optimized cuBLAS path accepts zero-inner-dimension
+GEMM with null zero-sized input buffers and applies `C = beta*C` directly.
 
 The Tensor-level GEMM conformance suite applies one shared semantic matrix to
 every statically eligible host backend and to cuBLAS. It covers all four

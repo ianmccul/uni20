@@ -32,15 +32,15 @@ template <class OutputTensor, class InputTensor>
   return false;
 }
 
-template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
-          uni20::RankedTensorView<2> RhsTensor>
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDeviceTensorView<2> LhsTensor,
+          uni20::RankedDeviceTensorView<2> RhsTensor>
 void validate_matrix_product_aliasing(OutputTensor& output, LhsTensor const& lhs, RhsTensor const& rhs)
 {
   ERROR_IF(is_obvious_tensor_alias(output, lhs) || is_obvious_tensor_alias(output, rhs),
            "matrix product output must not alias an input tensor");
 }
 
-template <uni20::RankedTensorView<2> LhsTensor, uni20::RankedTensorView<2> RhsTensor>
+template <uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
 [[nodiscard]] matrix_product_extents matrix_product_shape(LhsTensor const& lhs, RhsTensor const& rhs)
 {
   ERROR_IF(lhs.extent(1) != rhs.extent(0), "matrix product inner extents do not agree", lhs.extent(1), rhs.extent(0));
@@ -60,8 +60,8 @@ concept CompatibleMatrixProductTensors =
 ///          the result.
 /// \pre Output storage does not overlap either input, beyond the cheap
 ///      same-object aliases rejected by this front end.
-template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
-          uni20::RankedTensorView<2> RhsTensor>
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor>
 void add_product(BackendSelector&& selector, OutputTensor&& output, LhsTensor const& lhs, RhsTensor const& rhs,
                  uni20::tensor_element_t<OutputTensor> alpha = uni20::tensor_element_t<OutputTensor>{1})
@@ -74,8 +74,8 @@ void add_product(BackendSelector&& selector, OutputTensor&& output, LhsTensor co
 }
 
 /// \brief Accumulate a matrix product using the operands' default backend selector.
-template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
-          uni20::RankedTensorView<2> RhsTensor>
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDeviceTensorView<2> LhsTensor,
+          uni20::RankedDeviceTensorView<2> RhsTensor>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor>
 void add_product(OutputTensor&& output, LhsTensor const& lhs, RhsTensor const& rhs,
                  uni20::tensor_element_t<OutputTensor> alpha = uni20::tensor_element_t<OutputTensor>{1})
@@ -93,8 +93,8 @@ void add_product(OutputTensor&& output, LhsTensor const& lhs, RhsTensor const& r
 ///          must already have the required shape.
 /// \pre Output storage does not overlap either input, beyond the cheap
 ///      same-object aliases rejected by this front end.
-template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
-          uni20::RankedTensorView<2> RhsTensor>
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor>
 void assign_product(BackendSelector&& selector, OutputTensor&& output, LhsTensor const& lhs, RhsTensor const& rhs,
                     uni20::tensor_element_t<OutputTensor> alpha = uni20::tensor_element_t<OutputTensor>{1})
@@ -107,8 +107,8 @@ void assign_product(BackendSelector&& selector, OutputTensor&& output, LhsTensor
 }
 
 /// \brief Overwrite a Tensor with a matrix product using its default backend selector.
-template <uni20::MutableRankedTensorView<2> OutputTensor, uni20::RankedTensorView<2> LhsTensor,
-          uni20::RankedTensorView<2> RhsTensor>
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, uni20::RankedDeviceTensorView<2> LhsTensor,
+          uni20::RankedDeviceTensorView<2> RhsTensor>
   requires detail::CompatibleMatrixProductTensors<OutputTensor, LhsTensor, RhsTensor>
 void assign_product(OutputTensor&& output, LhsTensor const& lhs, RhsTensor const& rhs,
                     uni20::tensor_element_t<OutputTensor> alpha = uni20::tensor_element_t<OutputTensor>{1})

@@ -91,10 +91,10 @@ CUDA operations should be described in terms of submission channels:
   non-blocking execution environments.
 
 The first implemented storage policy is `CudaStorage`, exposed
-conveniently through `CudaTensor`. It supplies opaque CUDA storage that can
-participate in the non-blocking channel, but the operation entry point still
-selects resource-admission behavior. An ordinary direct Tensor operation may
-block while acquiring resources; an `Async<Tensor>` lowering must suspend
+conveniently through `CudaTensor`. It supplies deferred CUDA descriptors that
+can participate in the non-blocking channel, but the operation entry point
+still selects resource-admission behavior. An ordinary direct Tensor operation
+may block while acquiring resources; an `Async<Tensor>` lowering must suspend
 instead. Both paths share `CudaBuffer`, operand preparation, and provider
 execution.
 

@@ -166,8 +166,10 @@ KernelAttempt try_kernel(Backend backend, gemm_op const&, OutputMdspan&& output,
 {
   (void)backend;
   backend_was_called = true;
-  return try_kernel(CpuReferenceBackend{}, gemm_op{}, std::forward<OutputMdspan>(output), alpha,
-                    std::forward<LhsMdspan>(lhs), std::forward<RhsMdspan>(rhs), beta);
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  return try_kernel(CpuReferenceBackend{}, gemm_op{}, output_span, alpha, lhs_span, rhs_span, beta);
 }
 } // namespace selector_customization_test
 

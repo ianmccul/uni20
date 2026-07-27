@@ -36,11 +36,14 @@ template <class Tensor> class CudaMatrixView {
     using index_type = uni20::index_type;
     using extents_type = stdex::dextents<index_type, 2>;
     using mapping_type = stdex::layout_stride::mapping<extents_type>;
-    using accessor_type = typename tensor_type::accessor_type;
-    using const_accessor_type = typename tensor_type::const_accessor_type;
-    using mdspan_type = stdex::mdspan<element_type, extents_type, stdex::layout_stride, accessor_type>;
-    using const_mdspan_type =
-        stdex::mdspan<element_type const, extents_type, stdex::layout_stride, const_accessor_type>;
+    using accessor_type = typename tensor_type::device_accessor_type;
+    using const_accessor_type = typename tensor_type::const_device_accessor_type;
+    using descriptor_type = uni20::cuda::CudaBufferView<element_type>;
+    using const_descriptor_type = uni20::cuda::CudaBufferView<element_type const>;
+    using device_mdspan_type =
+        uni20::device_mdspan<element_type, extents_type, stdex::layout_stride, accessor_type, descriptor_type>;
+    using const_device_mdspan_type = uni20::device_mdspan<element_type const, extents_type, stdex::layout_stride,
+                                                          const_accessor_type, const_descriptor_type>;
 
     CudaMatrixView(tensor_type& tensor, std::size_t offset, index_type rows, index_type cols,
                    std::array<index_type, 2> strides)
@@ -52,15 +55,17 @@ template <class Tensor> class CudaMatrixView {
 
     [[nodiscard]] static constexpr auto backend_selector() noexcept { return storage_policy::backend_selector(); }
 
-    [[nodiscard]] auto mdspan() noexcept -> mdspan_type
+    [[nodiscard]] auto device_mdspan() noexcept -> device_mdspan_type
     {
-      return mdspan_type(tensor_->mutable_handle().offset_by(offset_), mapping_, tensor_->accessor());
+      auto span = tensor_->device_mdspan();
+      return device_mdspan_type(span.data_descriptor().offset_by(offset_), mapping_, span.accessor());
     }
 
-    [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type
+    [[nodiscard]] auto device_mdspan() const noexcept -> const_device_mdspan_type
     {
       auto const& tensor = std::as_const(*tensor_);
-      return const_mdspan_type(tensor.handle().offset_by(offset_), mapping_, tensor.accessor());
+      auto span = tensor.device_mdspan();
+      return const_device_mdspan_type(span.data_descriptor().offset_by(offset_), mapping_, span.accessor());
     }
 
     [[nodiscard]] auto extents() const noexcept -> extents_type const& { return mapping_.extents(); }
@@ -152,8 +157,8 @@ class CudaGemmPlatform {
     template <class Tensor>
     void write_physical(Tensor& tensor, std::vector<uni20::tensor_element_t<Tensor>> const& values)
     {
-      auto span = tensor.mdspan();
-      auto view = span.data_handle();
+      auto span = tensor.device_mdspan();
+      auto view = span.data_descriptor();
       auto& buffer = view.buffer();
       uni20::cuda::ScopedDevice device_scope(buffer.device().ordinal());
       ASSERT_EQ(values.size(), static_cast<std::size_t>(span.mapping().required_span_size()));
@@ -172,8 +177,8 @@ class CudaGemmPlatform {
     template <class Tensor>
     [[nodiscard]] auto read_physical(Tensor const& tensor) -> std::vector<uni20::tensor_element_t<Tensor>>
     {
-      auto span = tensor.mdspan();
-      auto view = span.data_handle();
+      auto span = tensor.device_mdspan();
+      auto view = span.data_descriptor();
       auto const& buffer = view.buffer();
       uni20::cuda::ScopedDevice device_scope(buffer.device().ordinal());
       std::vector<uni20::tensor_element_t<Tensor>> values(span.mapping().required_span_size());
@@ -718,7 +723,8 @@ TEST_F(CublasExecutionTest, UnsupportedLayoutDeclinesBeforeAcquiringExecutionRes
   auto const idle_streams = platform.resources().streams().idle_stream_count();
   auto const leased_streams = platform.resources().streams().leased_stream_count();
 
-  EXPECT_EQ(uni20::linalg::detail::cublas_backend::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 0.0),
+  EXPECT_EQ(uni20::linalg::detail::cublas_backend::try_gemm(output.device_mdspan(), 1.0, lhs.device_mdspan(),
+                                                            rhs.device_mdspan(), 0.0),
             uni20::linalg::KernelAttempt::unsupported_layout);
   EXPECT_EQ(executions.idle_handle_count(), idle_handles);
   EXPECT_EQ(platform.resources().streams().idle_stream_count(), idle_streams);
@@ -818,7 +824,8 @@ TEST_F(CublasExecutionTest, TensorGemmEmptyOutputSucceedsBeforeOperandStaging)
   matrix_type rhs(resources, 3, 2);
   matrix_type output(resources, 0, 2);
 
-  EXPECT_EQ(uni20::linalg::detail::cublas_backend::try_gemm(output.mdspan(), 1.0, lhs.mdspan(), rhs.mdspan(), 0.0),
+  EXPECT_EQ(uni20::linalg::detail::cublas_backend::try_gemm(output.device_mdspan(), 1.0, lhs.device_mdspan(),
+                                                            rhs.device_mdspan(), 0.0),
             uni20::linalg::KernelAttempt::success);
 }
 

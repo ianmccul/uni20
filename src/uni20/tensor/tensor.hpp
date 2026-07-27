@@ -61,9 +61,10 @@ using DenseMatrix = Tensor<ElementType, 2, VectorStorage, LayoutPolicy>;
 /// \brief Owning runtime-extents Tensor in CUDA device storage.
 /// \details Ordinary construction uses the installed CUDA runtime's default
 ///          device. Passing an explicit `cuda::DeviceResources` selects a
-///          particular resource set. Resolved mdspans expose opaque
-///          `cuda::CudaBufferView` handles and never perform host/device transfer
-///          or resource acquisition.
+///          particular resource set. `device_mdspan()` exposes a
+///          `cuda::CudaBufferView` descriptor, mapping, and eventual pointer
+///          accessor. It does not resolve a usable data handle or perform
+///          host/device transfer.
 template <typename ElementType, std::size_t Rank, typename LayoutPolicy = ColumnMajor>
 using CudaTensor = Tensor<ElementType, Rank, CudaStorage, LayoutPolicy>;
 

@@ -1,9 +1,9 @@
 # src/uni20/linalg/backends/cublas
 
-This directory adapts opaque CUDA mdspan operands to cuBLAS operation tags.
-`CublasBackend` validates and stages the mdspans, blocks for an execution lease,
-opens synchronized CUDA buffer access, and calls the provider-ready leaf. This
-is the ordinary direct Tensor path.
+This directory adapts deferred CUDA `DeviceTensorView` operands to cuBLAS
+operation tags. `CublasBackend` lowers and validates their device-mdspan
+metadata, blocks for an execution lease, opens synchronized CUDA buffer access,
+and calls the provider-ready leaf. This is the ordinary direct Tensor path.
 
 The current first operation is GEMM. Direct Tensor dispatch uses the blocking
 `try_kernel` entry point. Coroutine dispatch detects the backend's
@@ -29,11 +29,11 @@ backend list. It currently handles contiguous Tensor transfer; additional
 fallback kernels remain operation-specific.
 
 The Tensor conformance tests share their scalar and canonical-layout cases with
-the host GEMM backends. cuBLAS-specific tests cover opaque buffer offsets,
+the host GEMM backends. cuBLAS-specific tests cover deferred buffer offsets,
 transpose and conjugate-transpose subviews, padded leading dimensions, clean
 layout decline before resource acquisition, and hard device/alias contract
 violations. Unknown accessor semantics are rejected at type probing rather than
-bypassed through the opaque handle.
+bypassed through the descriptor.
 
 ## Related Documentation
 

@@ -44,9 +44,10 @@ template <class RequestedLayout = void, class BackendSelector, SpanLike InputMds
 ///          `conj(input)`. A canonical resolved layout is preserved unless
 ///          `RequestedLayout` is supplied. Generated and other noncanonical
 ///          inputs use the default column-major `Tensor` layout.
-template <class RequestedLayout = void, TensorView InputTensor> [[nodiscard]] auto make_tensor(InputTensor const& input)
+template <class RequestedLayout = void, DeviceTensorView InputTensor>
+[[nodiscard]] auto make_tensor(InputTensor const& input)
 {
-  using input_mdspan = tensor_mdspan_t<InputTensor>;
+  using input_mdspan = device_tensor_mdspan_t<InputTensor>;
   using layout_type = detail::materialized_layout_t<RequestedLayout, input_mdspan>;
   using result_type = Tensor<tensor_element_t<InputTensor>, input_mdspan::rank(), VectorStorage, layout_type>;
 
@@ -58,12 +59,12 @@ template <class RequestedLayout = void, TensorView InputTensor> [[nodiscard]] au
 /// \details The transfer waits for prior device work and returns only after
 ///          the host allocation is readable. The canonical source layout is
 ///          preserved.
-template <TensorView InputTensor>
+template <DeviceTensorView InputTensor>
   requires(std::same_as<detail::tensor_storage_policy_t<InputTensor>, CudaStorage> &&
-           detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>)
+           detail::CanonicalReshapeLayout<typename device_tensor_mdspan_t<InputTensor>::layout_type>)
 [[nodiscard]] auto to_host(InputTensor const& input)
 {
-  using input_mdspan = tensor_mdspan_t<InputTensor>;
+  using input_mdspan = device_tensor_mdspan_t<InputTensor>;
   using layout_type = typename input_mdspan::layout_type;
   using result_type = Tensor<tensor_element_t<InputTensor>, input_mdspan::rank(), VectorStorage, layout_type>;
 
@@ -76,11 +77,11 @@ template <TensorView InputTensor>
 /// \details Pageable host inputs use blocking `cudaMemcpy`. CUDA inputs enqueue
 ///          a device or peer copy whose completion is retained by the result's
 ///          CUDA buffer ledger.
-template <TensorView InputTensor>
-  requires detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>
+template <DeviceTensorView InputTensor>
+  requires detail::CanonicalReshapeLayout<typename device_tensor_mdspan_t<InputTensor>::layout_type>
 [[nodiscard]] auto to_device(InputTensor const& input, cuda::DeviceResources& resources)
 {
-  using input_mdspan = tensor_mdspan_t<InputTensor>;
+  using input_mdspan = device_tensor_mdspan_t<InputTensor>;
   using layout_type = typename input_mdspan::layout_type;
   using result_type = Tensor<tensor_element_t<InputTensor>, input_mdspan::rank(), CudaStorage, layout_type>;
 
@@ -90,16 +91,16 @@ template <TensorView InputTensor>
 }
 
 /// \brief Materialize a tensor on an enrolled CUDA device ordinal.
-template <TensorView InputTensor>
-  requires detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>
+template <DeviceTensorView InputTensor>
+  requires detail::CanonicalReshapeLayout<typename device_tensor_mdspan_t<InputTensor>::layout_type>
 [[nodiscard]] auto to_device(InputTensor const& input, int device)
 {
   return to_device(input, cuda::device_resources(device));
 }
 
 /// \brief Materialize a tensor on an enrolled CUDA device.
-template <TensorView InputTensor>
-  requires detail::CanonicalReshapeLayout<typename tensor_mdspan_t<InputTensor>::layout_type>
+template <DeviceTensorView InputTensor>
+  requires detail::CanonicalReshapeLayout<typename device_tensor_mdspan_t<InputTensor>::layout_type>
 [[nodiscard]] auto to_device(InputTensor const& input, cuda::Device device)
 {
   return to_device(input, device.ordinal());

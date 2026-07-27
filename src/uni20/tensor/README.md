@@ -89,9 +89,11 @@ kernels operate on resolved mdspans.
   Materialization is an operation and must remain eligible for backend
   dispatch, including future BLAS matrix-copy extensions.
 - A tensor-level object exposes a storage-derived backend selector plus
-  synchronous extents metadata and `mdspan()`.
-  Element and accessor semantics determine whether the returned span is mutable;
-  owning tensors overload `mdspan()` on constness.
+  synchronous extents metadata. An immediately accessible `TensorView` also
+  exposes `mdspan()`. A deferred `DeviceTensorView` instead exposes
+  `device_mdspan()` until an acquisition operation resolves its data handle.
+  Element and accessor semantics determine whether either representation is
+  writable; owning tensors overload the available observer on constness.
 - `DeviceTensorView` extends this vocabulary to tensors whose usable data handle
   requires acquisition. `blocking_read_access` and `blocking_write_access`
   return storage-bearing RAII TensorViews; `read_access` and `write_access`
@@ -105,11 +107,14 @@ kernels operate on resolved mdspans.
   and the actual pointer accessor without exposing a pointer. Tensor-level
   acquisition resolves this to a storage-bearing lease with a `T*` or
   `T const*` mdspan. Stream-ordered access installs predecessor waits and
-  publishes completion when the lease ends. The existing opaque-handle
-  `mdspan()` and backend-local lowering remain while CUDA operations migrate to
-  `DeviceTensorView`.
-- Tensor objects deliberately do not model Uni20's mdspan concepts. Leaf
-  kernels receive the mdspans returned by those accessors.
+  publishes completion when the lease ends. `CudaTensor` deliberately does not
+  expose `mdspan()` and therefore models `DeviceTensorView`, not `TensorView`.
+  CUDA GEMM dispatch receives the tensor-level objects; the cuBLAS backend
+  lowers their `device_mdspan()` metadata and acquires the referenced buffers.
+- Tensor objects deliberately do not model Uni20's mdspan concepts.
+  Dispatch-facing tensor kernels receive `DeviceTensorView` operands. Each
+  backend adapter lowers those operands to immediate or deferred mdspan
+  metadata before entering its provider-specific implementation.
 - Generated tensors own compact generator state rather than an element buffer.
   They model readable `TensorView` but not `StridedTensorView`; their synthetic
   `GeneratedLayout` is not a physical storage order. `GeneratedStorage` is

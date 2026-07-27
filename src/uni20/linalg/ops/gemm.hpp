@@ -23,20 +23,18 @@
 
 namespace uni20::linalg
 {
-
 /// \brief Run fixed-storage tensor GEMM through an explicit backend selector.
-template <class BackendSelector, uni20::MutableRankedTensorView<2> OutputTensor, class Scalar,
-          uni20::RankedTensorView<2> LhsTensor, uni20::RankedTensorView<2> RhsTensor>
+template <class BackendSelector, uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
 void gemm(BackendSelector&& selector, OutputTensor&& output, Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs,
           Scalar beta)
 {
-  dispatch_kernel(std::forward<BackendSelector>(selector), gemm_op{}, output.mdspan(), alpha, lhs.mdspan(),
-                  rhs.mdspan(), beta);
+  dispatch_kernel(std::forward<BackendSelector>(selector), gemm_op{}, output, alpha, lhs, rhs, beta);
 }
 
 /// \brief Run fixed-storage tensor GEMM using the operands' default backend selector.
-template <uni20::MutableRankedTensorView<2> OutputTensor, class Scalar, uni20::RankedTensorView<2> LhsTensor,
-          uni20::RankedTensorView<2> RhsTensor>
+template <uni20::MutableRankedDeviceTensorView<2> OutputTensor, class Scalar,
+          uni20::RankedDeviceTensorView<2> LhsTensor, uni20::RankedDeviceTensorView<2> RhsTensor>
 void gemm(OutputTensor&& output, Scalar alpha, LhsTensor const& lhs, RhsTensor const& rhs, Scalar beta)
 {
   auto selector = select_backend(gemm_op{}, output, lhs, rhs);

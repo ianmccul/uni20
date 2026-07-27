@@ -3,7 +3,7 @@
 /**
  * \file cuda_storage.hpp
  * \ingroup tensor
- * \brief CUDA Tensor storage with opaque device-memory mdspan descriptors.
+ * \brief CUDA Tensor storage with deferred device-memory data descriptors.
  */
 
 #include <uni20/backend/cuda/buffer.hpp>
@@ -124,7 +124,7 @@ template <class ElementType> struct CudaPointerAccessor
 /// \brief Factory that resolves CUDA accessors for Tensor descriptors.
 struct CudaAccessorFactory
 {
-    template <class ElementType> using accessor_t = CudaAccessor<ElementType>;
+    template <class ElementType> using accessor_t = CudaPointerAccessor<ElementType>;
     template <class ElementType> using device_accessor_t = CudaPointerAccessor<ElementType>;
 
     template <class ElementType, class Storage>
@@ -149,11 +149,12 @@ namespace uni20
 /// \details Ordinary allocation uses the installed CUDA runtime's default
 ///          device. An explicit `cuda::DeviceResources` selects another enrolled
 ///          device or an isolated resource set used by tests. The policy selects
-///          CUDA backends and exposes opaque CUDA handles. Stream and
-///          provider-resource admission remains operation-local. Direct Tensor
-///          operations may block during admission. `Async<Tensor>` operations
-///          use coroutine-aware dispatch when a backend provides it, while
-///          retaining the same storage and mdspan representation.
+///          CUDA backends and exposes deferred `CudaBufferView` descriptors with
+///          eventual pointer accessors. Stream and provider-resource admission
+///          remains operation-local. Direct Tensor operations may block during
+///          admission. `Async<Tensor>` operations use coroutine-aware dispatch
+///          when a backend provides it, while retaining the same storage and
+///          device-mdspan representation.
 struct CudaStorage
 {
     using context_type = cuda::DeviceResources;
@@ -177,19 +178,6 @@ struct CudaStorage
                                                 std::size_t size) -> storage_t<ElementType>
     {
       return storage_t<ElementType>{storage.resources(), size};
-    }
-
-    template <class ElementType>
-    [[nodiscard]] static auto make_handle(storage_t<ElementType>& storage) noexcept -> cuda::CudaBufferView<ElementType>
-    {
-      return cuda::CudaBufferView<ElementType>{storage};
-    }
-
-    template <class ElementType>
-    [[nodiscard]] static auto
-    make_handle(storage_t<ElementType> const& storage) noexcept -> cuda::CudaBufferView<ElementType const>
-    {
-      return cuda::CudaBufferView<ElementType const>{storage};
     }
 
     template <class ElementType>

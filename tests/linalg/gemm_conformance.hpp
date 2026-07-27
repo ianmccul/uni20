@@ -113,18 +113,14 @@ void expect_each_candidate(Platform& platform, OutputTensor& output, Scalar alph
                            std::vector<Scalar> const& expected)
 {
   auto selector = uni20::linalg::select_backend(uni20::linalg::gemm_op{}, output, lhs, rhs);
-  auto output_span = output.mdspan();
-  auto lhs_span = lhs.mdspan();
-  auto rhs_span = rhs.mdspan();
   auto candidates = [&] {
-    if constexpr (requires { platform.kernel_type_candidates(selector, output_span, alpha, lhs_span, rhs_span, beta); })
+    if constexpr (requires { platform.kernel_type_candidates(selector, output, alpha, lhs, rhs, beta); })
     {
-      return platform.kernel_type_candidates(selector, output_span, alpha, lhs_span, rhs_span, beta);
+      return platform.kernel_type_candidates(selector, output, alpha, lhs, rhs, beta);
     }
     else
     {
-      return uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemm_op{}, output_span, alpha, lhs_span,
-                                                   rhs_span, beta);
+      return uni20::linalg::kernel_type_candidates(selector, uni20::linalg::gemm_op{}, output, alpha, lhs, rhs, beta);
     }
   }();
   constexpr auto candidate_count = std::tuple_size_v<decltype(candidates.entries)>;

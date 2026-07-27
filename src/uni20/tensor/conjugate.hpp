@@ -19,7 +19,7 @@
 namespace uni20
 {
 /// \brief Non-owning read-only view of a tensor-level object.
-template <TensorView Tensor> class ConstTensorView {
+template <DeviceTensorView Tensor> class ConstTensorView {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
     using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
@@ -44,8 +44,16 @@ template <TensorView Tensor> class ConstTensorView {
     /// \brief Resolve the underlying tensor's read-only mdspan.
     [[nodiscard]] constexpr decltype(auto) mdspan() const
         noexcept(noexcept(std::declval<tensor_type const&>().mdspan()))
+      requires TensorView<tensor_type>
     {
       return this->base().mdspan();
+    }
+
+    /// \brief Return the underlying tensor's read-only immediate or deferred metadata.
+    [[nodiscard]] constexpr decltype(auto) device_mdspan() const
+        noexcept(noexcept(detail::tensor_device_mdspan(std::declval<tensor_type const&>())))
+    {
+      return detail::tensor_device_mdspan(this->base());
     }
 
     /// \brief Return the underlying tensor extents.
@@ -69,11 +77,11 @@ template <TensorView Tensor> class ConstTensorView {
     tensor_type const* tensor_;
 };
 
-/// \brief Non-owning tensor view whose resolved mdspan presents conjugated values.
+/// \brief Non-owning tensor view whose immediate or deferred metadata presents conjugated values.
 /// \details The view preserves tensor metadata and backend selection while
 ///          delegating value transformation to `conjugated_accessor`. It is
 ///          read-only and may not outlive the referenced tensor.
-template <TensorView Tensor> class ConjugatedTensorView {
+template <DeviceTensorView Tensor> class ConjugatedTensorView {
   public:
     using tensor_type = std::remove_cvref_t<Tensor>;
     using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
@@ -98,8 +106,16 @@ template <TensorView Tensor> class ConjugatedTensorView {
     /// \brief Resolve the conjugating mdspan view.
     [[nodiscard]] constexpr auto mdspan() const
         noexcept(noexcept(uni20::conj(std::declval<tensor_type const&>().mdspan())))
+      requires TensorView<tensor_type>
     {
       return uni20::conj(this->base().mdspan());
+    }
+
+    /// \brief Return conjugated immediate or deferred multidimensional metadata.
+    [[nodiscard]] constexpr auto device_mdspan() const
+        noexcept(noexcept(uni20::conj(detail::tensor_device_mdspan(std::declval<tensor_type const&>()))))
+    {
+      return uni20::conj(detail::tensor_device_mdspan(this->base()));
     }
 
     /// \brief Return the underlying tensor extents.
@@ -124,7 +140,7 @@ template <TensorView Tensor> class ConjugatedTensorView {
 };
 
 /// \brief Return a lazy read-only conjugating view of a complex tensor lvalue.
-template <TensorView Tensor>
+template <DeviceTensorView Tensor>
   requires(std::is_lvalue_reference_v<Tensor &&> && Complex<tensor_element_t<Tensor>>)
 [[nodiscard]] constexpr auto conj(Tensor&& tensor)
 {
@@ -132,25 +148,25 @@ template <TensorView Tensor>
 }
 
 /// \brief Cancel a tensor conjugation view and return the read-only base tensor.
-template <TensorView Tensor> [[nodiscard]] constexpr auto conj(ConjugatedTensorView<Tensor>& view) noexcept
+template <DeviceTensorView Tensor> [[nodiscard]] constexpr auto conj(ConjugatedTensorView<Tensor>& view) noexcept
 {
   return ConstTensorView<typename ConjugatedTensorView<Tensor>::tensor_type>{view.base()};
 }
 
 /// \brief Cancel a const tensor conjugation view and return the read-only base tensor.
-template <TensorView Tensor> [[nodiscard]] constexpr auto conj(ConjugatedTensorView<Tensor> const& view) noexcept
+template <DeviceTensorView Tensor> [[nodiscard]] constexpr auto conj(ConjugatedTensorView<Tensor> const& view) noexcept
 {
   return ConstTensorView<typename ConjugatedTensorView<Tensor>::tensor_type>{view.base()};
 }
 
 /// \brief Cancel a temporary tensor conjugation view and return its durable base tensor.
-template <TensorView Tensor> [[nodiscard]] constexpr auto conj(ConjugatedTensorView<Tensor>&& view) noexcept
+template <DeviceTensorView Tensor> [[nodiscard]] constexpr auto conj(ConjugatedTensorView<Tensor>&& view) noexcept
 {
   return ConstTensorView<typename ConjugatedTensorView<Tensor>::tensor_type>{view.base()};
 }
 
 /// \brief Reapply conjugation to a read-only complex tensor view.
-template <TensorView Tensor>
+template <DeviceTensorView Tensor>
   requires Complex<tensor_element_t<Tensor>>
 [[nodiscard]] constexpr auto conj(ConstTensorView<Tensor>& view) noexcept
 {
@@ -158,7 +174,7 @@ template <TensorView Tensor>
 }
 
 /// \brief Reapply conjugation to a const read-only complex tensor view.
-template <TensorView Tensor>
+template <DeviceTensorView Tensor>
   requires Complex<tensor_element_t<Tensor>>
 [[nodiscard]] constexpr auto conj(ConstTensorView<Tensor> const& view) noexcept
 {
@@ -166,7 +182,7 @@ template <TensorView Tensor>
 }
 
 /// \brief Reapply conjugation to a temporary read-only complex tensor view.
-template <TensorView Tensor>
+template <DeviceTensorView Tensor>
   requires Complex<tensor_element_t<Tensor>>
 [[nodiscard]] constexpr auto conj(ConstTensorView<Tensor>&& view) noexcept
 {
@@ -174,7 +190,7 @@ template <TensorView Tensor>
 }
 
 /// \brief Return a read-only identity view of a non-complex tensor lvalue.
-template <TensorView Tensor>
+template <DeviceTensorView Tensor>
   requires(std::is_lvalue_reference_v<Tensor &&> && !Complex<tensor_element_t<Tensor>>)
 [[nodiscard]] constexpr auto conj(Tensor&& tensor) noexcept -> std::remove_reference_t<Tensor> const&
 {

@@ -28,10 +28,16 @@ using read_access_type =
 using write_access_type =
     decltype(uni20::write_access(std::declval<tensor_type&>(), std::declval<uni20::cuda::Stream const&>()));
 
+template <class Tensor>
+concept HasMutableMdspan = requires(Tensor& tensor) { tensor.mdspan(); };
+
+template <class Tensor>
+concept HasConstMdspan = requires(Tensor const& tensor) { tensor.mdspan(); };
+
 static_assert(std::same_as<typename tensor_type::storage_type, uni20::cuda::CudaBuffer<double>>);
 static_assert(std::same_as<tensor_type, direct_tensor_type>);
-static_assert(std::same_as<typename mutable_span_type::data_handle_type, uni20::cuda::CudaBufferView<double>>);
-static_assert(std::same_as<typename const_span_type::data_handle_type, uni20::cuda::CudaBufferView<double const>>);
+static_assert(std::same_as<typename mutable_span_type::data_handle_type, double*>);
+static_assert(std::same_as<typename const_span_type::data_handle_type, double const*>);
 static_assert(std::same_as<typename mutable_device_span_type::data_handle_type, double*>);
 static_assert(std::same_as<typename const_device_span_type::data_handle_type, double const*>);
 static_assert(uni20::DeviceSpanLike<mutable_device_span_type>);
@@ -39,12 +45,14 @@ static_assert(uni20::MutableDeviceSpanLike<mutable_device_span_type>);
 static_assert(uni20::DeviceSpanLike<const_device_span_type>);
 static_assert(!uni20::SpanLike<mutable_device_span_type>);
 static_assert(!uni20::SpanLike<const_device_span_type>);
-static_assert(uni20::TensorView<tensor_type>);
-static_assert(uni20::MutableTensorView<tensor_type>);
+static_assert(!uni20::TensorView<tensor_type>);
+static_assert(!uni20::MutableTensorView<tensor_type>);
+static_assert(!HasMutableMdspan<tensor_type>);
+static_assert(!HasConstMdspan<tensor_type>);
 static_assert(uni20::DeviceTensorView<tensor_type>);
 static_assert(uni20::MutableDeviceTensorView<tensor_type>);
-static_assert(uni20::RankedStridedTensorView<tensor_type, 2>);
-static_assert(uni20::MutableRankedStridedTensorView<tensor_type, 2>);
+static_assert(uni20::RankedStridedDeviceTensorView<tensor_type, 2>);
+static_assert(uni20::MutableRankedStridedDeviceTensorView<tensor_type, 2>);
 static_assert(uni20::OwningTensor<tensor_type>);
 static_assert(uni20::ReadTensorLease<read_lease_type>);
 static_assert(uni20::WriteTensorLease<write_lease_type>);
@@ -64,6 +72,18 @@ static_assert(std::move_constructible<tensor_type>);
 static_assert(!std::convertible_to<typename mutable_span_type::reference, double>);
 static_assert(!std::assignable_from<typename mutable_span_type::reference&, double>);
 
+using complex_tensor_type = uni20::CudaTensor<uni20::complex<double>, 2>;
+using conjugated_tensor_type = decltype(uni20::conj(std::declval<complex_tensor_type&>()));
+using conjugated_device_span_type = decltype(std::declval<conjugated_tensor_type const&>().device_mdspan());
+
+static_assert(uni20::DeviceTensorView<conjugated_tensor_type>);
+static_assert(!uni20::TensorView<conjugated_tensor_type>);
+static_assert(!HasConstMdspan<conjugated_tensor_type>);
+static_assert(uni20::mdspan_needs_conjugation_v<conjugated_device_span_type>);
+static_assert(
+    std::same_as<typename conjugated_device_span_type::data_descriptor_type,
+                 typename decltype(std::declval<complex_tensor_type const&>().device_mdspan())::data_descriptor_type>);
+
 class CudaTensorTest : public ::testing::Test {
   protected:
     void SetUp() override
@@ -81,7 +101,7 @@ class CudaTensorTest : public ::testing::Test {
     }
 };
 
-TEST_F(CudaTensorTest, ExplicitResourcesConstructionOwnsDeviceBufferAndOpaqueMdspan)
+TEST_F(CudaTensorTest, ExplicitResourcesConstructionOwnsDeviceBufferAndDescriptor)
 {
   uni20::cuda::DeviceResources resources({.device = uni20::cuda::Device::get(0), .stream_count = 1});
   tensor_type tensor(resources, 2, 3);
@@ -92,15 +112,15 @@ TEST_F(CudaTensorTest, ExplicitResourcesConstructionOwnsDeviceBufferAndOpaqueMds
   EXPECT_EQ(tensor.storage().size(), 6U);
   EXPECT_EQ(tensor.storage().device(), resources.device());
 
-  auto span = tensor.mdspan();
-  EXPECT_EQ(&span.data_handle().buffer(), &tensor.storage());
-  EXPECT_EQ(span.data_handle().element_offset(), 0U);
-  EXPECT_EQ((span[1, 2].element_offset()), 5U);
+  auto span = tensor.device_mdspan();
+  EXPECT_EQ(&span.data_descriptor().buffer(), &tensor.storage());
+  EXPECT_EQ(span.data_descriptor().element_offset(), 0U);
+  EXPECT_EQ(span.mapping()(1, 2), 5U);
 
   tensor_type const& const_tensor = tensor;
-  auto const_span = const_tensor.mdspan();
-  EXPECT_EQ(&const_span.data_handle().buffer(), &tensor.storage());
-  EXPECT_EQ((const_span[1, 2].element_offset()), 5U);
+  auto const_span = const_tensor.device_mdspan();
+  EXPECT_EQ(&const_span.data_descriptor().buffer(), &tensor.storage());
+  EXPECT_EQ(const_span.mapping()(1, 2), 5U);
   EXPECT_EQ(tensor.backend_selector(), uni20::CudaStorage::backend_selector());
 }
 

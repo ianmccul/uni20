@@ -297,8 +297,12 @@ All device operations using a blocking lease must complete before the lease is
 destroyed. Stream-ordered work should use the stream overloads so lease release
 can publish the completion event.
 
-This is the first acquisition vertical slice. Existing CUDA tensor operations
-have not all been migrated to consume `DeviceTensorView` leases yet.
+CUDA copy and GEMM accept deferred metadata without making `CudaTensor` an
+immediate `TensorView`. GEMM passes `DeviceTensorView` operands through
+`dispatch_kernel`; the selected backend lowers `device_mdspan()` and acquires
+the referenced buffers according to its execution model. The synchronous
+cuBLAS path blocks for stream and provider resources, while the async path
+awaits them.
 
 ## Data Descriptor Boundary
 

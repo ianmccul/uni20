@@ -62,12 +62,6 @@ template <class Tensor> class borrowed_tensor_access_state {
     Tensor* tensor_ = nullptr;
 };
 
-template <class Tensor>
-concept ImmediatelyAccessibleTensorView =
-    DeviceTensorView<Tensor> && SpanLike<normalized_const_device_mdspan_t<Tensor>> &&
-    SpanLike<normalized_mutable_device_mdspan_t<Tensor>> &&
-    requires(std::remove_reference_t<Tensor> const& tensor) { tensor.storage(); };
-
 } // namespace detail
 
 /// \brief Move-only RAII lease exposing a read-only immediate TensorView.
@@ -333,44 +327,45 @@ template <class Lease> class ready_tensor_access {
 };
 
 /// \brief Acquire an immediate tensor view for read-only use.
-template <detail::ImmediatelyAccessibleTensorView Tensor> [[nodiscard]] auto blocking_read_access(Tensor const& tensor)
+template <TensorView Tensor>
+  requires requires(std::remove_reference_t<Tensor> const& tensor) { tensor.storage(); }
+[[nodiscard]] auto blocking_read_access(Tensor const& tensor)
 {
   using tensor_type = std::remove_reference_t<Tensor>;
   using state_type = detail::borrowed_tensor_access_state<tensor_type const>;
-  using mdspan_type = std::remove_cvref_t<decltype(detail::tensor_device_mdspan(tensor))>;
+  using mdspan_type = std::remove_cvref_t<decltype(tensor.mdspan())>;
   using selector_type = std::remove_cvref_t<decltype(tensor.backend_selector())>;
   using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
-  return read_tensor_lease<mdspan_type, state_type, selector_type, storage_policy>{
-      state_type{tensor}, detail::tensor_device_mdspan(tensor), tensor.backend_selector()};
+  return read_tensor_lease<mdspan_type, state_type, selector_type, storage_policy>{state_type{tensor}, tensor.mdspan(),
+                                                                                   tensor.backend_selector()};
 }
 
 /// \brief Acquire an immediate mutable tensor view.
 template <class Tensor>
-  requires(detail::ImmediatelyAccessibleTensorView<Tensor> && MutableDeviceTensorView<Tensor> &&
-           requires(std::remove_reference_t<Tensor>& tensor) { tensor.storage(); })
+  requires(MutableTensorView<Tensor> && requires(std::remove_reference_t<Tensor>& tensor) { tensor.storage(); })
 [[nodiscard]] auto blocking_write_access(Tensor& tensor)
 {
   using tensor_type = std::remove_reference_t<Tensor>;
   using state_type = detail::borrowed_tensor_access_state<tensor_type>;
-  using mdspan_type = std::remove_cvref_t<decltype(detail::tensor_device_mdspan(tensor))>;
-  using const_mdspan_type = std::remove_cvref_t<decltype(detail::tensor_device_mdspan(std::as_const(tensor)))>;
+  using mdspan_type = std::remove_cvref_t<decltype(tensor.mdspan())>;
+  using const_mdspan_type = std::remove_cvref_t<decltype(std::as_const(tensor).mdspan())>;
   using selector_type = std::remove_cvref_t<decltype(tensor.backend_selector())>;
   using storage_policy = detail::tensor_storage_policy_t<tensor_type>;
   return write_tensor_lease<mdspan_type, const_mdspan_type, state_type, selector_type, storage_policy>{
-      state_type{tensor}, detail::tensor_device_mdspan(tensor), detail::tensor_device_mdspan(std::as_const(tensor)),
-      tensor.backend_selector()};
+      state_type{tensor}, tensor.mdspan(), std::as_const(tensor).mdspan(), tensor.backend_selector()};
 }
 
 /// \brief Return an immediately-ready read acquisition for an immediate TensorView.
-template <detail::ImmediatelyAccessibleTensorView Tensor> [[nodiscard]] auto read_access(Tensor const& tensor)
+template <TensorView Tensor>
+  requires requires(std::remove_reference_t<Tensor> const& tensor) { tensor.storage(); }
+[[nodiscard]] auto read_access(Tensor const& tensor)
 {
   return ready_tensor_access{blocking_read_access(tensor)};
 }
 
 /// \brief Return an immediately-ready write acquisition for an immediate mutable TensorView.
 template <class Tensor>
-  requires(detail::ImmediatelyAccessibleTensorView<Tensor> && MutableDeviceTensorView<Tensor> &&
-           requires(std::remove_reference_t<Tensor>& tensor) { tensor.storage(); })
+  requires(MutableTensorView<Tensor> && requires(std::remove_reference_t<Tensor>& tensor) { tensor.storage(); })
 [[nodiscard]] auto write_access(Tensor& tensor)
 {
   return ready_tensor_access{blocking_write_access(tensor)};

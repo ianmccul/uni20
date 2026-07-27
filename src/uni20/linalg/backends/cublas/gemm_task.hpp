@@ -34,11 +34,12 @@ async::CudaTask cublas_gemm_task(cublas_backend::GemmPlan<Scalar> plan, Scalar a
 ///          A decline is side-effect free. Once the returned task is awaited,
 ///          resource or provider failures are terminal and cannot fall through
 ///          to another backend.
-template <uni20::cublas::CublasScalar Scalar, uni20::MutableRankedStridedMdspan<2> OutputMdspan,
-          uni20::RankedStridedMdspan<2> LhsMdspan, uni20::RankedStridedMdspan<2> RhsMdspan>
-  requires requires(OutputMdspan& output, LhsMdspan& lhs, RhsMdspan& rhs) {
-    detail::cublas_backend::prepare_gemm<Scalar>(output, lhs, rhs);
-  }
+template <uni20::cublas::CublasScalar Scalar, class OutputMdspan, uni20::RankedStridedDeviceSpanLike<2> LhsMdspan,
+          uni20::RankedStridedDeviceSpanLike<2> RhsMdspan>
+  requires uni20::MutableDeviceSpanLike<OutputMdspan> && uni20::RankedStridedDeviceSpanLike<OutputMdspan, 2> &&
+               requires(OutputMdspan& output, LhsMdspan& lhs, RhsMdspan& rhs) {
+                 detail::cublas_backend::prepare_gemm<Scalar>(output, lhs, rhs);
+               }
 auto try_kernel_task(CublasBackend, gemm_op const&, OutputMdspan& output, Scalar const& alpha, LhsMdspan& lhs,
                      RhsMdspan& rhs, Scalar const& beta) -> KernelTaskAttempt<async::CudaTask>
 {
@@ -52,6 +53,19 @@ auto try_kernel_task(CublasBackend, gemm_op const&, OutputMdspan& output, Scalar
   auto task = detail::cublas_gemm_task(std::move(preparation.plan), alpha, beta);
   async::cuda_promise(task.handle()).bind_device(device);
   return KernelTaskAttempt<async::CudaTask>{std::move(task)};
+}
+
+/// \brief Lower DeviceTensorView operands before preparing asynchronous cuBLAS work.
+template <uni20::cublas::CublasScalar Scalar, class OutputTensor, class LhsTensor, class RhsTensor>
+  requires uni20::MutableRankedDeviceTensorView<OutputTensor, 2> && uni20::RankedDeviceTensorView<LhsTensor, 2> &&
+               uni20::RankedDeviceTensorView<RhsTensor, 2>
+auto try_kernel_task(CublasBackend backend, gemm_op const& op, OutputTensor& output, Scalar const& alpha,
+                     LhsTensor& lhs, RhsTensor& rhs, Scalar const& beta) -> KernelTaskAttempt<async::CudaTask>
+{
+  auto output_span = uni20::detail::tensor_device_mdspan(output);
+  auto lhs_span = uni20::detail::tensor_device_mdspan(lhs);
+  auto rhs_span = uni20::detail::tensor_device_mdspan(rhs);
+  return try_kernel_task(backend, op, output_span, alpha, lhs_span, rhs_span, beta);
 }
 
 } // namespace uni20::linalg

@@ -86,7 +86,7 @@ using tensor_device_accessor_t = typename TensorDeviceAccessor<AccessorFactory, 
 
 } // namespace detail
 
-/// \brief General-purpose owning tensor that exposes mdspan-based access.
+/// \brief General-purpose owning tensor with immediate or deferred mdspan metadata.
 /// \ingroup tensor
 /// \tparam ElementType Value type stored by the tensor.
 /// \tparam Rank Static rank of the tensor.
@@ -123,6 +123,13 @@ class Tensor {
     using const_mdspan_type = stdex::mdspan<element_type const, extents_type, layout_policy, const_accessor_type>;
 
     using storage_type = typename storage_policy::template storage_t<element_type>;
+
+    /// \brief Whether this tensor's storage provides a data handle without acquisition.
+    static constexpr bool has_immediate_data_handle =
+        requires(storage_type& storage, storage_type const& const_storage) {
+          storage_policy::make_handle(storage);
+          storage_policy::make_handle(const_storage);
+        };
 
     /// \brief Rebind this owning tensor configuration to another layout policy.
     template <typename NewLayoutPolicy>
@@ -176,8 +183,8 @@ class Tensor {
     ///          through the ordinary backend-dispatch path.
     /// \tparam InputTensor Readable tensor-level source with matching static rank.
     /// \param input Source tensor view whose values are materialized.
-    template <TensorView InputTensor>
-      requires(tensor_mdspan_t<InputTensor>::rank() == extents_type::rank() &&
+    template <DeviceTensorView InputTensor>
+      requires(device_tensor_mdspan_t<InputTensor>::rank() == extents_type::rank() &&
                std::default_initializable<accessor_factory_type> && detail::DefaultTensorStorage<storage_type>)
     explicit Tensor(InputTensor const& input) : Tensor(detail::convert_tensor_extents<extents_type>(input.extents()))
     {
@@ -349,6 +356,7 @@ class Tensor {
     /// \brief Resolve a writable mdspan over the owned storage.
     /// \return Mutable mdspan preserving the tensor mapping and accessor semantics.
     [[nodiscard]] auto mdspan() noexcept -> mdspan_type
+      requires has_immediate_data_handle
     {
       return mdspan_type(this->mutable_handle(), mapping_, this->accessor());
     }
@@ -356,6 +364,7 @@ class Tensor {
     /// \brief Resolve a read-only mdspan over the owned storage.
     /// \return Const mdspan preserving the tensor mapping and accessor semantics.
     [[nodiscard]] auto mdspan() const noexcept -> const_mdspan_type
+      requires has_immediate_data_handle
     {
       return const_mdspan_type(this->handle(), mapping_, this->accessor());
     }
@@ -397,11 +406,19 @@ class Tensor {
 
     /// \brief Return the tensor's const storage handle.
     /// \return Handle addressing the beginning of the owned storage.
-    [[nodiscard]] auto handle() const noexcept -> handle_type { return storage_policy::make_handle(data_); }
+    [[nodiscard]] auto handle() const noexcept -> handle_type
+      requires has_immediate_data_handle
+    {
+      return storage_policy::make_handle(data_);
+    }
 
     /// \brief Return the tensor's mutable storage handle.
     /// \return Mutable handle addressing the beginning of the owned storage.
-    [[nodiscard]] auto mutable_handle() noexcept -> mutable_handle_type { return storage_policy::make_handle(data_); }
+    [[nodiscard]] auto mutable_handle() noexcept -> mutable_handle_type
+      requires has_immediate_data_handle
+    {
+      return storage_policy::make_handle(data_);
+    }
 
     /// \brief Return the tensor mapping.
     /// \return Mapping containing extents and strides.
@@ -478,7 +495,7 @@ class Tensor {
 
     /// \brief Access a mutable tensor element.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank())
+      requires(sizeof...(Index) == extents_type::rank() && has_immediate_data_handle)
     decltype(auto) operator[](Index... indices) noexcept
     {
       return this->mdspan()[indices...];
@@ -486,7 +503,7 @@ class Tensor {
 
     /// \brief Access a const tensor element.
     template <class... Index>
-      requires(sizeof...(Index) == extents_type::rank())
+      requires(sizeof...(Index) == extents_type::rank() && has_immediate_data_handle)
     decltype(auto) operator[](Index... indices) const noexcept
     {
       return this->mdspan()[indices...];
@@ -496,6 +513,7 @@ class Tensor {
     /// \param indices Coordinates for every tensor axis.
     /// \return Mutable element reference.
     decltype(auto) operator[](std::array<index_type, extents_type::rank()> const& indices) noexcept
+      requires has_immediate_data_handle
     {
       auto span = this->mdspan();
       return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
@@ -507,6 +525,7 @@ class Tensor {
     /// \param indices Coordinates for every tensor axis.
     /// \return Const element reference.
     decltype(auto) operator[](std::array<index_type, extents_type::rank()> const& indices) const noexcept
+      requires has_immediate_data_handle
     {
       auto span = this->mdspan();
       return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
@@ -640,10 +659,10 @@ inline constexpr bool
 /// \brief Deduce a runtime-extents host tensor that materializes a tensor view.
 /// \details Canonical source layout is preserved. Sources without canonical
 ///          physical layout deduce the default column-major layout.
-template <TensorView InputTensor>
+template <DeviceTensorView InputTensor>
 Tensor(InputTensor const&)
-    -> Tensor<tensor_element_t<InputTensor>, tensor_mdspan_t<InputTensor>::rank(), VectorStorage,
-              detail::materialized_layout_t<void, tensor_mdspan_t<InputTensor>>, DefaultAccessorFactory>;
+    -> Tensor<tensor_element_t<InputTensor>, device_tensor_mdspan_t<InputTensor>::rank(), VectorStorage,
+              detail::materialized_layout_t<void, device_tensor_mdspan_t<InputTensor>>, DefaultAccessorFactory>;
 
 /// \brief Configurable owning tensor with an explicit mdspan extents type.
 /// \ingroup tensor

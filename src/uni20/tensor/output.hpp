@@ -68,13 +68,13 @@ template <class TargetExtents, TensorExtentsLike SourceExtents>
 ///          discards old values and leaves the object with the requested shape.
 template <class T>
 concept ResizableTensorOutput =
-    MutableTensorView<T> &&
+    MutableDeviceTensorView<T> &&
     requires(std::remove_reference_t<T>& output, tensor_extents_t<T> const& extents) { output.reset_shape(extents); };
 
 /// \brief Validate that a tensor already has the required shape.
 /// \details This operation never resizes, including for owning tensors. It is
 ///          the shape contract for update operations that read the old output.
-template <TensorView Output, detail::TensorExtentsLike RequiredExtents>
+template <DeviceTensorView Output, detail::TensorExtentsLike RequiredExtents>
 void require_shape(Output const& output, RequiredExtents const& required)
 {
   static_assert(tensor_extents_t<Output>::rank() == std::remove_cvref_t<RequiredExtents>::rank(),
@@ -87,7 +87,7 @@ void require_shape(Output const& output, RequiredExtents const& required)
 /// \details Resizable outputs retain their current storage and values when the
 ///          shape already matches, and call `reset_shape` otherwise. Fixed
 ///          outputs validate through `require_shape` and never rebind storage.
-template <MutableTensorView Output, detail::TensorExtentsLike RequiredExtents>
+template <MutableDeviceTensorView Output, detail::TensorExtentsLike RequiredExtents>
 void ensure_shape(Output&& output, RequiredExtents const& required)
 {
   static_assert(tensor_extents_t<Output>::rank() == std::remove_cvref_t<RequiredExtents>::rank(),

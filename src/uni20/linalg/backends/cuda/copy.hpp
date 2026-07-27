@@ -40,16 +40,33 @@ template <class Accessor> struct IsCudaAccessor : std::false_type
 template <class ElementType> struct IsCudaAccessor<uni20::cuda::CudaAccessor<ElementType>> : std::true_type
 {};
 
+template <class Descriptor> struct IsCudaBufferView : std::false_type
+{};
+
+template <class ElementType> struct IsCudaBufferView<uni20::cuda::CudaBufferView<ElementType>> : std::true_type
+{};
+
+template <class Mdspan, class = void> struct HasCudaBufferDescriptor : std::false_type
+{};
+
 template <class Mdspan>
-inline constexpr bool is_cuda_mdspan = IsCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value;
+struct HasCudaBufferDescriptor<Mdspan, std::void_t<typename std::remove_cvref_t<Mdspan>::data_descriptor_type>>
+    : IsCudaBufferView<typename std::remove_cvref_t<Mdspan>::data_descriptor_type>
+{};
+
+template <class Mdspan>
+inline constexpr bool is_cuda_mdspan =
+    (uni20::SpanLike<Mdspan> && IsCudaAccessor<typename std::remove_cvref_t<Mdspan>::accessor_type>::value) ||
+    HasCudaBufferDescriptor<Mdspan>::value;
 
 template <class Mdspan>
 inline constexpr bool is_host_mdspan = uni20::DefaultAccessorMdspan<std::remove_cvref_t<Mdspan>>;
 
 template <class OutputMdspan, class InputMdspan>
 concept SupportedCopyMdspans =
-    uni20::MutableStridedMdspan<std::remove_cvref_t<OutputMdspan>> &&
-    uni20::StridedMdspan<std::remove_cvref_t<InputMdspan>> &&
+    uni20::MutableDeviceSpanLike<std::remove_cvref_t<OutputMdspan>> &&
+    uni20::StridedDeviceSpanLike<std::remove_cvref_t<OutputMdspan>> &&
+    uni20::StridedDeviceSpanLike<std::remove_cvref_t<InputMdspan>> &&
     (std::remove_cvref_t<OutputMdspan>::rank() == std::remove_cvref_t<InputMdspan>::rank()) &&
     std::same_as<std::remove_cv_t<typename std::remove_cvref_t<OutputMdspan>::element_type>,
                  std::remove_cv_t<typename std::remove_cvref_t<InputMdspan>::element_type>> &&
@@ -89,6 +106,14 @@ template <class Scalar>
 void validate_cuda_range(uni20::cuda::CudaBuffer<Scalar> const& buffer, std::size_t offset, std::size_t count)
 {
   CHECK(offset <= buffer.size() && count <= buffer.size() - offset, offset, count, buffer.size());
+}
+
+template <class Mdspan> [[nodiscard]] auto cuda_buffer_view(Mdspan& span)
+{
+  if constexpr (requires { span.data_descriptor(); })
+    return span.data_descriptor();
+  else
+    return span.data_handle();
 }
 
 template <class OutputMdspan, class InputMdspan>
@@ -134,7 +159,7 @@ template <class OutputMdspan, class InputMdspan>
 
   if constexpr (is_cuda_mdspan<OutputMdspan>)
   {
-    auto output_handle = output.data_handle();
+    auto output_handle = cuda_buffer_view(output);
     plan.output_buffer = std::addressof(output_handle.buffer());
     plan.output_offset = output_handle.element_offset();
     validate_cuda_range(*plan.output_buffer, plan.output_offset, plan.element_count);
@@ -147,7 +172,7 @@ template <class OutputMdspan, class InputMdspan>
 
   if constexpr (is_cuda_mdspan<InputMdspan>)
   {
-    auto input_handle = input.data_handle();
+    auto input_handle = cuda_buffer_view(input);
     plan.input_buffer = std::addressof(input_handle.buffer());
     plan.input_offset = input_handle.element_offset();
     validate_cuda_range(*plan.input_buffer, plan.input_offset, plan.element_count);

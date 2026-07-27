@@ -33,6 +33,27 @@ template <class Scalar, class Handle> struct MdspanMatrixStage
 
 namespace detail
 {
+template <class Span, class = void> struct SpanData
+{
+    using type = typename std::remove_cvref_t<Span>::data_handle_type;
+
+    [[nodiscard]] static constexpr auto get(Span const& span) -> type { return span.data_handle(); }
+};
+
+template <class Span> struct SpanData<Span, std::void_t<typename std::remove_cvref_t<Span>::data_descriptor_type>>
+{
+    using type = typename std::remove_cvref_t<Span>::data_descriptor_type;
+
+    [[nodiscard]] static constexpr auto get(Span const& span) -> type { return span.data_descriptor(); }
+};
+
+template <class Span> using span_data_t = typename SpanData<Span>::type;
+
+template <class Span> [[nodiscard]] constexpr auto span_data(Span const& span) -> span_data_t<Span>
+{
+  return SpanData<Span>::get(span);
+}
+
 inline blas_int minimum_leading_dimension(blas_int rows) { return rows > 1 ? rows : 1; }
 
 inline std::optional<blas_int> normalized_nonunit_stride(blas_int nonunit_stride, blas_int provider_rows,
@@ -62,14 +83,13 @@ concept lapack_writable_mdspan =
     uni20::DefaultAccessorMdspan<Mdspan>;
 } // namespace detail
 
-/// \brief Build an mdspan matrix staging descriptor when direct BLAS lowering is possible.
-template <uni20::RankedStridedMdspan<2> Mdspan>
+/// \brief Build a matrix staging descriptor when direct provider lowering is possible.
+template <uni20::RankedStridedDeviceSpanLike<2> Mdspan>
 auto try_mdspan_matrix_stage(Mdspan const& span)
-    -> std::optional<
-        MdspanMatrixStage<std::remove_cv_t<typename Mdspan::element_type>, typename Mdspan::data_handle_type>>
+    -> std::optional<MdspanMatrixStage<std::remove_cv_t<typename Mdspan::element_type>, detail::span_data_t<Mdspan>>>
 {
   using scalar_type = std::remove_cv_t<typename Mdspan::element_type>;
-  using handle_type = typename Mdspan::data_handle_type;
+  using handle_type = detail::span_data_t<Mdspan>;
 
   auto const& mapping = span.mapping();
   if (!mapping.is_unique())
@@ -117,7 +137,7 @@ auto try_mdspan_matrix_stage(Mdspan const& span)
     return std::nullopt;
   }
 
-  return MdspanMatrixStage<scalar_type, handle_type>{.data = span.data_handle(),
+  return MdspanMatrixStage<scalar_type, handle_type>{.data = detail::span_data(span),
                                                      .extent0 = extent0,
                                                      .extent1 = extent1,
                                                      .nonunit_stride = *normalized_stride,

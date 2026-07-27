@@ -28,12 +28,12 @@ namespace uni20
 namespace detail
 {
 template <class Output, class Input>
-concept CopySpans = MutableSpanLike<Output> && SpanLike<Input> &&
+concept CopySpans = MutableDeviceSpanLike<Output> && DeviceSpanLike<Input> &&
                     (std::remove_cvref_t<Output>::rank() == std::remove_cvref_t<Input>::rank());
 
 template <class Output, class Input>
-concept CopyTensors = MutableTensorView<Output> && TensorView<Input> &&
-                      (tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Input>::rank());
+concept CopyTensors = MutableDeviceTensorView<Output> && DeviceTensorView<Input> &&
+                      (device_tensor_mdspan_t<Output>::rank() == device_tensor_mdspan_t<Input>::rank());
 
 #if UNI20_BACKEND_CUDA
 template <class Output, class Input>
@@ -43,7 +43,7 @@ inline constexpr bool is_pageable_cuda_transfer = (std::same_as<tensor_storage_p
                                                    std::same_as<tensor_storage_policy_t<Input>, CudaStorage>);
 #endif
 
-template <SpanLike Output, SpanLike Input>
+template <DeviceSpanLike Output, DeviceSpanLike Input>
 [[nodiscard]] constexpr bool copy_extents_match(Output const& output, Input const& input) noexcept
 {
   if constexpr (std::remove_cvref_t<Output>::rank() != std::remove_cvref_t<Input>::rank())
@@ -86,8 +86,8 @@ template <class BackendSelector, class OutputTensor, class InputTensor>
 void copy(BackendSelector&& selector, OutputTensor&& output, InputTensor const& input)
 {
   ensure_shape(output, input.extents());
-  auto output_span = output.mdspan();
-  auto input_span = input.mdspan();
+  auto output_span = detail::tensor_device_mdspan(output);
+  auto input_span = detail::tensor_device_mdspan(input);
   copy(std::forward<BackendSelector>(selector), output_span, input_span);
 }
 
@@ -97,8 +97,8 @@ template <class OutputTensor, class InputTensor>
 void copy(OutputTensor&& output, InputTensor const& input)
 {
   ensure_shape(output, input.extents());
-  auto output_span = output.mdspan();
-  auto input_span = input.mdspan();
+  auto output_span = detail::tensor_device_mdspan(output);
+  auto input_span = detail::tensor_device_mdspan(input);
 #if UNI20_BACKEND_CUDA
   if constexpr (detail::is_pageable_cuda_transfer<OutputTensor, InputTensor>)
   {
@@ -115,8 +115,8 @@ void copy(OutputTensor&& output, InputTensor const& input)
 /// \brief Assign tensor values through a mutable tensor alias descriptor.
 /// \details Async alias assignment discovers this function through ADL. The
 ///          descriptor itself remains unchanged while `copy` writes its values.
-template <MutableTensorView Output, TensorView Input>
-  requires(tensor_mdspan_t<Output>::rank() == tensor_mdspan_t<Input>::rank())
+template <MutableDeviceTensorView Output, DeviceTensorView Input>
+  requires(device_tensor_mdspan_t<Output>::rank() == device_tensor_mdspan_t<Input>::rank())
 void assign_through(Output& output, Input const& input)
 {
   copy(output, input);
